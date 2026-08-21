@@ -830,8 +830,13 @@
       // A fresh snapshot is the host's answer about where nodes are. Local drag
       // offsets exist only to cover the round trip, so they are dropped here —
       // keeping them would mean a position that failed to save stayed on screen
-      // looking saved.
-      state.roadmapDragOffsets = {};
+      // looking saved. The node currently under the pointer is the exception:
+      // it has not been dropped yet, so the host has not been asked about it and
+      // has no answer to prefer. Clearing it made a background refresh yank the
+      // node out from under the cursor mid-drag.
+      state.roadmapDragOffsets = rmDrag && rmDrag.kind === 'node'
+        ? { [rmDrag.nodeId]: { x: rmDrag.x, y: rmDrag.y } }
+        : {};
       const roadmapNodeIds = new Set(((message.payload && message.payload.roadmap && message.payload.roadmap.graph
         ? (message.payload.roadmap.graph.active || []).concat(message.payload.roadmap.graph.completed || [])
         : [])).map(node => node.id));
@@ -1444,7 +1449,11 @@
       return;
     }
     if (action === 'roadmap-view') {
-      state.roadmapView = payload === 'list' || payload === 'completed' ? payload : 'canvas';
+      state.roadmapView = payload === 'list' || payload === 'completed' || payload === 'people'
+        ? payload : 'canvas';
+      // Switching into or out of a lane layout changes where every node is,
+      // so the view arrives fitted rather than wherever the last one was panned.
+      state.roadmapFitAfterRender = state.roadmapView !== 'list';
       // The route filter and a half-drawn link belong to the canvas. Leaving them
       // set while the list is showing means coming back to a view that is
       // mysteriously filtered by something you did several clicks ago.
@@ -3079,8 +3088,27 @@
     });
   }
 
-  root?.addEventListener('pointerup', rmEndDrag);
-  root?.addEventListener('pointercancel', rmEndDrag);
+  /*
+   * A drag ends wherever the button comes up — not only over the canvas.
+   *
+   * These were bound to `root`, so a release anywhere else left `rmDrag` set
+   * for ever: over the editor tab strip, past the edge of the webview, or after
+   * a host snapshot re-rendered the page and removed the very element holding
+   * the pointer capture. From then on the canvas was permanently mid-drag —
+   * every pointer move panned or dragged, and nothing could be clicked. That is
+   * the "control stops working after a while" this fixes, and the reason it took
+   * a while is that it needed one release to land somewhere unusual.
+   *
+   * `window` sees them all. `lostpointercapture` covers the case where the DOM
+   * is swapped out from under a live drag, which the innerHTML re-render does on
+   * every host refresh: capture is released implicitly and no pointerup would
+   * otherwise be attributable. A window blur ends it too — an alt-tab away
+   * mid-drag never delivers the release at all.
+   */
+  window.addEventListener('pointerup', rmEndDrag);
+  window.addEventListener('pointercancel', rmEndDrag);
+  root?.addEventListener('lostpointercapture', rmEndDrag);
+  window.addEventListener('blur', rmEndDrag);
 
   root?.addEventListener('wheel', event => {
     if (!(event.target instanceof HTMLElement) || !event.target.closest('[data-rm-frame="true"]') || !(event.ctrlKey || event.metaKey)) {
@@ -3347,7 +3375,7 @@
        * the call, because fitting itself renders and would otherwise re-enter
        * here and fit forever.
        */
-      if (state.roadmapFitAfterRender && state.activePage === 'roadmap' && state.roadmapView !== 'list') {
+      if (state.roadmapFitAfterRender && !rmDrag && state.activePage === 'roadmap' && state.roadmapView !== 'list') {
         state.roadmapFitAfterRender = false;
         fitRoadmapCanvas();
       }
@@ -10879,7 +10907,12 @@
   /** The nodes the current canvas draws, before the route filter narrows them. */
   function roadmapCanvasNodes() {
     const graph = roadmapGraph();
-    return state.roadmapView === 'completed' ? graph.completed : graph.active;
+    if (state.roadmapView === 'completed') { return graph.completed; }
+    // The by-person view is the same outstanding work in a different
+    // arrangement, laid out host-side into lanes. Falling back to `active` keeps
+    // the canvas drawing on a snapshot from a build that has no lanes yet.
+    if (state.roadmapView === 'people') { return graph.byPerson || graph.active; }
+    return graph.active;
   }
 
   function roadmapPersonName(contactId) {
@@ -10920,9 +10953,17 @@
     const views = [
       ['canvas', 'Dependency canvas', 'The plan as a graph: what has to happen before what. Drag nodes, draw links, and filter to the route to any one item.'],
       ['list', 'Prioritised backlog', 'The ordered list. Position here is what sets Atlas’s default next-work weighting.'],
+      ['people', 'By person', 'The same outstanding work, one band per person, with each band still ordered by what has to happen first. An arrow crossing bands is one person waiting on another.'],
       ['completed', 'Delivered', 'What has shipped, when, and by whom — laid out by month, with the links between pieces of work preserved.'],
     ];
-    const counts = { canvas: graph.active.length, list: roadmap.items.length, completed: graph.completed.length };
+    const counts = {
+      canvas: graph.active.length,
+      list: roadmap.items.length,
+      // Lanes, not items: the number that makes this view worth opening is how
+      // many people the plan is spread across, which the item count hides.
+      people: (graph.lanes || []).length,
+      completed: graph.completed.length,
+    };
     return `
       <div class="rm-view-bar" role="tablist" aria-label="Roadmap views">
         ${views.map(([id, label, hint]) => `
@@ -10983,6 +11024,7 @@
               ${visibleEdges.map(edge => renderRoadmapEdge(edge, nodes, false)).join('')}
               ${visibleSuggestions.map(edge => renderRoadmapEdge(edge, nodes, true)).join('')}
             </svg>
+            ${renderRoadmapLaneBands(graph)}
             ${nodes.length > 0
               ? nodes.map(node => renderRoadmapNode(node, graph)).join('')
               : '<div class="rm-empty"><strong>Nothing to draw yet</strong><p class="section-copy">Add a backlog item, or switch to the prioritised backlog to write the first one.</p></div>'}
@@ -11167,6 +11209,37 @@
     announce('Fitted ' + nodes.length + ' item' + (nodes.length === 1 ? '' : 's') + ' at ' + Math.round(state.roadmapZoom * 100) + '%.');
   }
 
+  /**
+   * The bands behind the by-person view, and their labels.
+   *
+   * Drawn from the lanes the host laid out rather than measured from the nodes
+   * on screen: a band inferred from where nodes happen to sit would collapse to
+   * nothing for a person with no work, and "nobody is doing this" is exactly
+   * what somebody opens this view to find out.
+   *
+   * An unresolved lane is labelled as such rather than folded into Unassigned.
+   * Work assigned to a contact who has since been deleted is not work nobody
+   * picked up, and merging them would quietly rewrite somebody's decision.
+   */
+  function renderRoadmapLaneBands(graph) {
+    if (state.roadmapView !== 'people') { return ''; }
+    const lanes = graph.lanes || [];
+    if (lanes.length === 0) { return ''; }
+    const vertical = graph.orientation === 'vertical';
+    return lanes.map(lane => {
+      const style = vertical
+        ? 'left:' + lane.offset + 'px;top:0;width:' + lane.extent + 'px;bottom:0;'
+        : 'top:' + lane.offset + 'px;left:0;height:' + lane.extent + 'px;right:0;';
+      const detail = lane.count + ' item' + (lane.count === 1 ? '' : 's')
+        + (lane.outstandingDays > 0 ? ' · ' + formatRoadmapDays(lane.outstandingDays) + ' outstanding' : '');
+      return '<div class="rm-lane' + (lane.unresolved ? ' is-unresolved' : '')
+        + (lane.id === '' ? ' is-unassigned' : '')
+        + (vertical ? ' is-vertical' : '') + '" style="' + style + '" aria-hidden="true">'
+        + '<span class="rm-lane-label"><strong>' + escapeHtml(lane.label) + '</strong>'
+        + '<small>' + escapeHtml(detail) + '</small></span></div>';
+    }).join('');
+  }
+
   function renderRoadmapCompletionColumns(graph) {
     if (!Array.isArray(graph.completedColumns) || graph.completedColumns.length === 0) {
       return '';
@@ -11246,6 +11319,20 @@
     const inCycle = graph.cycles.some(cycle => cycle.indexOf(node.id) >= 0);
     const linking = state.roadmapLinkFrom && state.roadmapLinkFrom !== node.id;
     const owner = roadmapPersonName(node.completedBy) || roadmapPersonName(node.addedBy);
+    // Who is *doing* it, which is a different fact from who raised it or who
+    // finished it — and the only one of the three that can be wrong about the
+    // future. Rendered as its own chip so the two are never confused, and shown
+    // as unassigned only on outstanding work: nobody needs assigning to
+    // something already delivered.
+    const assignee = node.assigneeId ? roadmapPersonName(node.assigneeId) : '';
+    const assigneeChip = node.assigneeId
+      ? '<span class="rm-chip rm-chip-assignee' + (assignee ? '' : ' is-unresolved') + '" title="'
+        + escapeAttr(assignee
+          ? 'Assigned to ' + assignee + '. Edit the node to change it.'
+          : 'Assigned to somebody who is no longer in the Director roster. Edit the node to reassign it.')
+        + '">' + escapeHtml(assignee || 'not in roster') + '</span>'
+      : (node.completed ? '' : '<span class="rm-chip rm-chip-unassigned" title="'
+        + escapeAttr('Nobody is assigned to this. Edit the node to assign somebody.') + '">unassigned</span>');
     const classes = [
       'rm-node',
       'rm-focus-' + node.focus,
@@ -11270,6 +11357,7 @@
         <div class="rm-node-schedule" title="${escapeAttr(node.schedule.reason)}">
           ${renderRoadmapScheduleChip(node)}
           ${node.blockedBy.length > 0 ? `<span class="rm-chip rm-chip-blocked" title="${escapeAttr(`Waiting on ${node.blockedBy.length} item${node.blockedBy.length === 1 ? '' : 's'} that ${node.blockedBy.length === 1 ? 'is' : 'are'} not done.`)}">blocked ×${node.blockedBy.length}</span>` : ''}
+          ${assigneeChip}
           ${owner ? `<span class="rm-chip" title="${escapeAttr(node.completedBy ? 'Recorded as completed by this person.' : 'Recorded as added by this person.')}">${escapeHtml(owner)}</span>` : ''}
           ${node.origin ? `<button type="button" class="rm-chip rm-chip-origin" title="${escapeAttr('Raised from ' + REGISTER_ORIGIN_LABEL[node.origin.kind] + ': “' + node.origin.sourceTitle + '”. That register remains the source of truth for whether it is still open.')}" data-action="page" data-payload="${escapeAttr(REGISTER_ORIGIN_PAGE[node.origin.kind])}">from ${escapeHtml(REGISTER_ORIGIN_SHORT[node.origin.kind])}</button>` : ''}
         </div>
@@ -11351,6 +11439,18 @@
             value="${escapeAttr(node.estimate.source === 'declared' ? String(node.estimate.days) : '')}"
             placeholder="${escapeAttr(String(node.estimate.days) + ' (derived)')}"
             title="${escapeAttr(node.estimate.rule)}" /></label>
+        <label class="rm-field"><span>Assigned to</span>
+          <select data-rm-field="assigneeId" data-rm-node-id="${escapeAttr(node.id)}"
+            title="${escapeAttr('Who is expected to pick this up. Drawn from the Project Director roster — add people there first. This is a plan, not a record of who raised or finished the item.')}">
+            <option value=""${node.assigneeId ? '' : ' selected'}>Unassigned</option>
+            ${(graph.people || []).map(person => `<option value="${escapeAttr(person.id)}"${node.assigneeId === person.id ? ' selected' : ''}>${escapeHtml(person.name)}</option>`).join('')}
+            ${node.assigneeId && !(graph.people || []).some(person => person.id === node.assigneeId)
+              ? `<option value="${escapeAttr(node.assigneeId)}" selected>Not in the roster — keep as is</option>`
+              : ''}
+          </select></label>
+        ${(graph.people || []).length === 0
+          ? `<p class="rm-provenance">${escapeHtml('No people are on the Project Director roster yet, so there is nobody to assign. Add them on the Director page.')}</p>`
+          : ''}
         <label class="rm-toggle" title="${escapeAttr('Whether this item’s estimate assumes AI-assisted coding. Off grades the same work at ' + formatRoadmapDays(node.estimate.aiAssisted ? node.estimate.alternativeDays : node.estimate.days) + '.')}">
           <input type="checkbox" data-rm-field="aiAssisted" data-rm-node-id="${escapeAttr(node.id)}" ${node.estimate.aiAssisted ? 'checked' : ''} />
           <span>AI-assisted estimate</span></label>
@@ -11419,6 +11519,13 @@
     }
     if (aiEl) {
       payload.aiAssisted = !!aiEl.checked;
+    }
+    const assigneeEl = field('assigneeId');
+    if (assigneeEl) {
+      // `null` unassigns, a string assigns. The two have to stay distinguishable
+      // for the same reason the deadline does: omitting the field means "leave
+      // it alone", so clearing would otherwise be impossible.
+      payload.assigneeId = assigneeEl.value === '' ? null : assigneeEl.value;
     }
 
     state.roadmapEditingNodeId = '';

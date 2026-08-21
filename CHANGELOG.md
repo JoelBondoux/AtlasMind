@@ -6,6 +6,42 @@ The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/),
 
 ## [Unreleased]
 
+## [0.378.0] - 2026-08-21
+
+### Fixed
+
+- **The roadmap canvas stopped responding after a while, and the cause was a drag that never ended.**
+  `pointerup` and `pointercancel` were bound to the canvas root, so a release anywhere else — over the
+  editor tab strip, past the edge of the webview, or after a host refresh re-rendered the page and
+  removed the very element holding the pointer capture — left the drag state set for ever. From then on
+  every pointer movement panned or dragged and nothing could be clicked. The release is now listened for
+  on the window; `lostpointercapture` covers the DOM being swapped out mid-drag, and a window blur covers
+  an alt-tab away that never delivers a release at all. A background refresh also no longer clears the
+  local offset of the node still under the pointer, which used to yank it out from under the cursor.
+- **"Calculate tree" could not be found, because its label is invisible.** The flat-plan notice added in
+  0.376.0 tells you to press it, and the shared Atlas-action styling clips the label into a
+  screen-reader-only rectangle — so the button renders as a mark and a glyph with no text. Naming a
+  control whose name nobody can see is worse than naming none, so on the roadmap toolbar the label is
+  shown.
+
+### Added
+
+- **A roadmap item can be assigned to somebody.** A picker in the node editor, drawn from the Project
+  Director roster — no free text, because a name no other surface knows about could only ever render as
+  a lane nobody can resolve. The contact id is validated against the roster in the host rather than
+  trusted from the page. It is deliberately a separate fact from "added by" and "completed by": those are
+  history, this is a plan, and it is the only one of the three that can be wrong about the future.
+  An assignment to somebody later removed from the roster is **kept and labelled**, never quietly folded
+  into "unassigned" — deleting a contact is not a statement that their work became nobody's.
+- **A By person view of the roadmap.** The same outstanding work in one band per person, with each band
+  still ordered by what has to happen first, so an arrow crossing bands is one person waiting on another.
+  Lanes are ordered by name rather than by workload, so the picture does not reshuffle every time
+  somebody finishes something; unassigned comes last, and an unresolved assignee sits between the two.
+  Stored positions are **ignored** here and dragging is not offered: a coordinate dragged on the
+  dependency canvas means something in that arrangement and nothing in this one, and honouring it would
+  drop a node into somebody else's lane. Laid out host-side and shipped with the snapshot, so switching
+  to it is offline like every other view change on this page.
+
 ## [0.377.0] - 2026-08-20
 
 ### Added

@@ -145,6 +145,21 @@ export interface RoadmapNodeRecord {
    * multiplier would be wrong for both.
    */
   aiAssisted?: boolean;
+  /**
+   * Who is doing this, by Project Director contact id.
+   *
+   * Deliberately distinct from `addedBy` and `completedBy`, which are *history*
+   * — who raised it, who finished it. This is a *plan*: who is expected to pick
+   * it up, which is the only one of the three that can be wrong about the
+   * future and therefore the only one worth editing.
+   *
+   * Stored as an id rather than a name so a person renamed in the Director
+   * roster stays attached to their work. An id whose contact no longer exists
+   * is kept rather than dropped — deleting somebody from the roster is not a
+   * statement that their work was unassigned — and surfaces as an unresolved
+   * assignment the reader can see and fix.
+   */
+  assigneeId?: string;
   addedAt?: string;
   addedBy?: string;
   completedAt?: string;
@@ -224,6 +239,8 @@ export interface RoadmapGraphNode {
   deadline?: string;
   schedule: RoadmapNodeSchedule;
   estimate: RoadmapEstimate;
+  /** Who is expected to do this, by Director contact id. A plan, not history. */
+  assigneeId?: string;
   addedAt?: string;
   addedBy?: string;
   completedAt?: string;
@@ -907,6 +924,7 @@ export function resolveRoadmapGraph(input: RoadmapGraphInput): RoadmapGraph {
         now,
       }),
       estimate,
+      ...(record?.assigneeId === undefined ? {} : { assigneeId: record.assigneeId }),
       ...(record?.addedAt === undefined ? {} : { addedAt: record.addedAt }),
       ...(record?.addedBy === undefined ? {} : { addedBy: record.addedBy }),
       ...(record?.completedAt === undefined ? {} : { completedAt: record.completedAt }),
@@ -1341,4 +1359,126 @@ function formatMonthLabel(key: string): string {
   const [year, month] = key.split('-');
   const index = Number(month) - 1;
   return index >= 0 && index < 12 ? `${MONTH_NAMES[index]} ${year}` : key;
+}
+
+// ── Lanes: the same plan, split by who is doing it ────────────────────────
+
+/** One person's band on the by-assignee canvas. */
+export interface RoadmapLane {
+  /** Director contact id, or `''` for the unassigned lane. */
+  id: string;
+  label: string;
+  /** How many items sit in this lane. Shown on the label, never inferred. */
+  count: number;
+  /** Outstanding days of work in the lane. Completed items are excluded. */
+  outstandingDays: number;
+  /**
+   * True when the lane exists only because a contact id on a node matches
+   * nobody in the roster. Reported rather than folded into "unassigned":
+   * somebody deleted from the Director roster is not the same as work nobody
+   * ever picked up, and merging them would silently rewrite a decision.
+   */
+  unresolved: boolean;
+  /** Where the lane starts on the cross axis, so the renderer can label it. */
+  offset: number;
+  /** How far the lane extends on the cross axis. */
+  extent: number;
+}
+
+/**
+ * The plan grouped by who is doing it.
+ *
+ * A separate layout rather than an option on the tree pass, for the reason
+ * `layoutRoadmapCompletion` is separate: this is a way of *reading* the plan,
+ * not the plan's own arrangement. That distinction decides the one rule that
+ * would otherwise be wrong — **stored positions are ignored here**. A node
+ * dragged into place on the dependency canvas carries a coordinate that means
+ * something in that arrangement and nothing in this one; honouring it would put
+ * a node in another person's lane, which is the single most misleading thing
+ * this view could do. Dragging is not offered here for the same reason.
+ *
+ * Depth still runs along the reading axis inside each lane, so a lane is that
+ * person's own dependency chain rather than an unordered pile. Lanes run along
+ * the cross axis, which makes "who is blocked on whom" visible as an arrow
+ * crossing between bands — the question this view exists to answer.
+ *
+ * Ordering is declared, not derived from size: named people first, alphabetical
+ * so the same roster always produces the same picture, then unresolved ids,
+ * then unassigned last. Sorting by workload would reshuffle the whole canvas
+ * every time somebody finished something.
+ */
+export function layoutRoadmapByAssignee(
+  nodes: readonly RoadmapGraphNode[],
+  people: ReadonlyArray<{ id: string; name: string }>,
+  orientation: RoadmapLayoutOrientation = 'horizontal',
+): { nodes: RoadmapGraphNode[]; lanes: RoadmapLane[] } {
+  const nameById = new Map(people.map(person => [person.id, person.name]));
+  const laneIdOf = (node: RoadmapGraphNode): string => node.assigneeId ?? '';
+
+  const laneIds = [...new Set(nodes.map(laneIdOf))];
+  const ordered = laneIds.sort((left, right) => {
+    // Unassigned last, always: it is the absence of a decision, not a person.
+    if (left === '') { return 1; }
+    if (right === '') { return -1; }
+    const leftKnown = nameById.has(left);
+    const rightKnown = nameById.has(right);
+    if (leftKnown !== rightKnown) { return leftKnown ? -1 : 1; }
+    const leftLabel = nameById.get(left) ?? left;
+    const rightLabel = nameById.get(right) ?? right;
+    return leftLabel.localeCompare(rightLabel) || left.localeCompare(right);
+  });
+
+  const lanes: RoadmapLane[] = [];
+  const placed: RoadmapGraphNode[] = [];
+  let offset = ROADMAP_CANVAS_MARGIN;
+
+  for (const laneId of ordered) {
+    const members = nodes.filter(node => laneIdOf(node) === laneId);
+    // Depth along the reading axis; ties broken on priority then id, so the
+    // arrangement is stable across renders.
+    const byDepth = new Map<number, RoadmapGraphNode[]>();
+    for (const node of [...members].sort((left, right) =>
+      left.depth - right.depth
+      || right.priorityScore - left.priorityScore
+      || left.id.localeCompare(right.id))) {
+      const bucket = byDepth.get(node.depth) ?? [];
+      bucket.push(node);
+      byDepth.set(node.depth, bucket);
+    }
+
+    // A lane is as deep as its fullest column, so two lanes never overlap.
+    const rows = Math.max(1, ...[...byDepth.values()].map(bucket => bucket.length));
+    const extent = rows * ROADMAP_ROW_HEIGHT;
+
+    for (const [depth, bucket] of byDepth.entries()) {
+      bucket.forEach((node, row) => {
+        const along = ROADMAP_CANVAS_MARGIN + depth * ROADMAP_COLUMN_WIDTH;
+        const across = offset + row * ROADMAP_ROW_HEIGHT;
+        placed.push({
+          ...node,
+          position: orientation === 'vertical'
+            ? { x: across, y: along }
+            : { x: along, y: across },
+          positionSource: 'derived',
+        });
+      });
+    }
+
+    lanes.push({
+      id: laneId,
+      label: laneId === ''
+        ? 'Unassigned'
+        : nameById.get(laneId) ?? 'No longer in the roster',
+      count: members.length,
+      outstandingDays: Math.round(members
+        .filter(node => !node.completed)
+        .reduce((total, node) => total + node.estimate.days, 0) * 2) / 2,
+      unresolved: laneId !== '' && !nameById.has(laneId),
+      offset,
+      extent,
+    });
+    offset += extent + ROADMAP_ROW_HEIGHT / 2;
+  }
+
+  return { nodes: placed, lanes };
 }

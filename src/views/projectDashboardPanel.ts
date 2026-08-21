@@ -358,6 +358,7 @@ import {
 import {
   ROADMAP_EDGE_RULES,
   edgeKey,
+  layoutRoadmapByAssignee,
   layoutRoadmapCompletion,
   normalizeRoadmapNodeText,
   parseRoadmapDeadline,
@@ -368,6 +369,7 @@ import {
   type RoadmapFocus,
   type RoadmapGraphNode,
   type RoadmapNodeOrigin,
+  type RoadmapLane,
   type RoadmapNodeRecord,
 } from '../core/roadmapGraph.js';
 import {
@@ -786,6 +788,8 @@ type ProjectDashboardMessage =
       nodeId: string;
       /** `null` clears a field; `undefined` leaves it alone. The two are different intents. */
       branch?: string | null;
+      /** Director contact id, `null` to unassign. Validated against the roster. */
+      assigneeId?: string | null;
       deadline?: string | null;
       estimateDays?: number | null;
       aiAssisted?: boolean;
@@ -2236,6 +2240,18 @@ interface DashboardRoadmapGraphView {
   active: RoadmapGraphNode[];
   /** Nodes on the completion canvas, laid out chronologically. */
   completed: RoadmapGraphNode[];
+  /**
+   * The same outstanding work, grouped into one band per person.
+   *
+   * Laid out host-side and shipped alongside the plan rather than computed on
+   * demand, so switching to it is offline like every other view change here.
+   * Positions are derived and stored ones are ignored: a coordinate dragged on
+   * the dependency canvas means nothing in this arrangement, and honouring it
+   * would drop a node into somebody else's lane.
+   */
+  byPerson: RoadmapGraphNode[];
+  /** The bands, in declared order, with the label and extent the renderer draws. */
+  lanes: RoadmapLane[];
   /** Month columns for the completion canvas, in order, with an undated column last. */
   completedColumns: Array<{ key: string; label: string }>;
   /** Delivered work still on the plan canvas because something outstanding needs it. */
@@ -10162,6 +10178,7 @@ ${buildCardEvidenceSection(source, derivation)}`;
   private async handleRoadmapNodeUpdate(payload: {
     nodeId: string;
     branch?: string | null;
+    assigneeId?: string | null;
     deadline?: string | null;
     estimateDays?: number | null;
     aiAssisted?: boolean;
@@ -10189,6 +10206,13 @@ ${buildCardEvidenceSection(source, derivation)}`;
         return;
       }
     }
+
+    // The roster as it stands right now. Read once, before the mutation, so an
+    // assignment is checked against the people who actually exist rather than
+    // against whatever the page was showing when it was drawn.
+    const knownContactIds = new Set(
+      (readProjectDirectorConfig(context.workspaceRoot)?.contacts ?? []).map(contact => contact.id),
+    );
 
     let document = ProjectDashboardPanel.upsertRoadmapNode(
       context.document,
@@ -10218,6 +10242,20 @@ ${buildCardEvidenceSection(source, derivation)}`;
 
         if (typeof payload.aiAssisted === 'boolean') {
           record.aiAssisted = payload.aiAssisted;
+        }
+
+        // Checked against the roster rather than passed through. The id reaches
+        // here from a webview, and an assignment naming somebody who does not
+        // exist would be invisible on the by-person view except as a lane
+        // labelled "no longer in the roster" — indistinguishable from a contact
+        // somebody deleted, which is a real state this must not manufacture.
+        if (payload.assigneeId === null) {
+          delete record.assigneeId;
+        } else if (typeof payload.assigneeId === 'string' && payload.assigneeId.trim() !== '') {
+          const candidate = payload.assigneeId.trim();
+          if (knownContactIds.has(candidate)) {
+            record.assigneeId = candidate;
+          }
         }
 
         if (record.addedAt === undefined) {
@@ -18563,6 +18601,8 @@ function emptyRoadmapGraphView(filePath: string): DashboardRoadmapGraphView {
     active: [],
     completed: [],
     completedColumns: [],
+    byPerson: [],
+    lanes: [],
     retainedIds: [],
     edges: [],
     suggested: [],
@@ -18690,10 +18730,15 @@ function buildRoadmapGraphView(
       notes.push(`${reconciled.droppedNodeIds.length} saved node${reconciled.droppedNodeIds.length === 1 ? '' : 's'} no longer match a backlog item and ${reconciled.droppedNodeIds.length === 1 ? 'was' : 'were'} dropped.`);
     }
 
+    const people = (director?.contacts ?? []).map(contact => ({ id: contact.id, name: contact.name }));
+    const byPerson = layoutRoadmapByAssignee(partition.active, people, graph.orientation);
+
     return {
       active: partition.active,
       completed: completion.nodes,
       completedColumns: completion.columns,
+      byPerson: byPerson.nodes,
+      lanes: byPerson.lanes,
       retainedIds: partition.retained.map(node => node.id),
       edges: graph.edges,
       suggested: graph.suggested,
@@ -18705,7 +18750,7 @@ function buildRoadmapGraphView(
       orientation: graph.orientation,
       anchored,
       routes,
-      people: (director?.contacts ?? []).map(contact => ({ id: contact.id, name: contact.name })),
+      people,
       ...(director?.selfContactId === undefined ? {} : { selfContactId: director.selfContactId }),
       filePath,
     };
@@ -25014,6 +25059,24 @@ const DASHBOARD_CSS = `
     border-color: color-mix(in srgb, var(--dash-accent-strong) 55%, var(--dash-border));
   }
 
+  /*
+   * ...and the one that has to be findable by name, which the shared icon-only
+   * rule made impossible: it clips the label to a screen-reader-only rectangle,
+   * so the button rendered as an Atlas mark and a glyph with no text at all.
+   * The canvas tells you to press "Calculate tree" when nothing is linked yet,
+   * and naming a control whose name is invisible is worse than naming none.
+   * Overridden here rather than by dropping the icon-only class, so the pill
+   * keeps the mark, the glyph and the spacing every other Atlas action has.
+   */
+  .rm-derive-action.icon-only .atlas-discuss-label {
+    position: static;
+    width: auto;
+    height: auto;
+    margin: 0;
+    overflow: visible;
+    clip: auto;
+  }
+
   .rm-filter-chip {
     display: inline-flex;
     align-items: center;
@@ -25218,6 +25281,53 @@ const DASHBOARD_CSS = `
 
   .rm-chip-overdue { border-color: var(--dash-critical, #d13438); color: var(--dash-critical, #d13438); }
   .rm-chip-at-risk, .rm-chip-blocked { border-color: var(--dash-warn, #d0a215); color: var(--dash-warn, #d0a215); }
+
+  /* Who is doing it. Accented, because it is the one fact on the card somebody
+     is looking for when they open the by-person view. */
+  .rm-chip-assignee {
+    border-color: color-mix(in srgb, var(--dash-accent-strong) 55%, var(--dash-border));
+    color: color-mix(in srgb, var(--dash-accent-strong) 90%, var(--tint-away) 10%);
+  }
+  /* Nobody assigned, and nobody who exists any more, are different problems and
+     neither is an alarm — an unassigned backlog is the ordinary starting state,
+     so this recedes rather than shouting. */
+  .rm-chip-unassigned { opacity: 0.65; font-style: italic; }
+  .rm-chip-assignee.is-unresolved { border-color: var(--dash-warn, #d0a215); color: var(--dash-warn, #d0a215); }
+
+  /*
+   * A person's band on the by-person canvas.
+   *
+   * Behind the nodes and non-interactive: it is a backdrop that says whose
+   * column this is, not a control. Drawn from the lanes the host laid out rather
+   * than measured from the nodes on screen, so a person with no outstanding work
+   * still gets a visible, empty band — which is the answer somebody opening this
+   * view may well be looking for.
+   */
+  .rm-lane {
+    position: absolute;
+    pointer-events: none;
+    border-radius: 12px;
+    border: 1px dashed color-mix(in srgb, var(--dash-border) 80%, transparent);
+    background: color-mix(in srgb, var(--dash-border) 8%, transparent);
+  }
+  .rm-lane.is-unassigned { border-style: dotted; background: transparent; }
+  .rm-lane.is-unresolved { border-color: color-mix(in srgb, var(--dash-warn) 45%, var(--dash-border)); }
+  .rm-lane-label {
+    position: absolute;
+    top: 6px;
+    left: 10px;
+    display: grid;
+    gap: 1px;
+    padding: 3px 8px;
+    border-radius: 7px;
+    background: color-mix(in srgb, var(--dash-border) 55%, transparent);
+    font-size: 11.5px;
+    line-height: 1.25;
+  }
+  .rm-lane-label small { color: var(--dash-muted); font-size: 10.5px; }
+  /* Running down, the label belongs at the top of the column rather than beside
+     a row that no longer exists. */
+  .rm-lane.is-vertical .rm-lane-label { top: 6px; left: 6px; }
 
   .rm-link-chip {
     display: inline-flex;

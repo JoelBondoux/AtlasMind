@@ -671,7 +671,23 @@ so on any plan wider than the frame the entire result used to happen out of view
 arrange controls read as buttons that did nothing. The same fit runs when the plan gains an item, and
 only on a genuine arrival, so redrawing does not fight the pan of somebody reading a large plan. Where
 nothing is linked yet the canvas states why every item sits at one level: the tree is built from
-accepted links, and a suggestion moves no node by design. **Calculate tree**, carrying the AtlasMind mark, works the
+accepted links, and a suggestion moves no node by design.
+
+A drag ends on a `window` listener rather than on the canvas root. Bound to the root, a release over the
+editor tabs, past the edge of the webview, or after a re-render removed the element holding the pointer
+capture left the drag state set permanently — which read as the canvas refusing input. `lostpointercapture`
+covers the innerHTML swap happening mid-drag and a window blur covers an alt-tab away.
+
+`layoutRoadmapByAssignee` is a **separate layout**, for the reason `layoutRoadmapCompletion` is: the
+by-person view is a way of *reading* the plan rather than the plan's own arrangement. That decides the
+rule which would otherwise be wrong — stored positions are ignored, because a coordinate dragged on the
+dependency canvas means something there and nothing in a lane arrangement, and honouring it would place a
+node in another person's band. Depth still runs along the reading axis inside each lane, so a band is
+that person's own chain and a crossing arrow is one person waiting on another. Lanes are ordered by name
+(unassigned last, an unresolved id between the two) rather than by workload, so finishing something does
+not reshuffle the canvas. `RoadmapNodeRecord.assigneeId` is a Director contact id, kept even when the
+contact is gone — deleting somebody from the roster is not a statement that their work became
+unassigned — and validated against the live roster in the host rather than trusted from the webview. **Calculate tree**, carrying the AtlasMind mark, works the
 whole dependency tree out from the wording of the backlog and offers it behind one confirmation naming
 how many links it would add.
 

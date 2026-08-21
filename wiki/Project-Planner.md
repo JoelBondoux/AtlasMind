@@ -149,6 +149,21 @@ crossing it, which looks like a broken layout and is not one. The canvas says so
 state, and points at Calculate tree. The suggestions toggle only shows and hides the dashed arrows; it
 carries the count so "showing" with nothing drawn is distinguishable from a control that failed.
 
+**Four views, not three.** **Dependency canvas**, **Prioritised backlog**, **By person** and
+**Delivered**. By person shows the same outstanding work in one band per person, with each band still
+ordered by what has to happen first — so an arrow crossing between bands is one person waiting on
+another, which is the question the view exists to answer. Bands are ordered by name rather than by how
+much work is in them, so the picture does not reshuffle whenever somebody finishes something; unassigned
+comes last. Positions you dragged on the dependency canvas are ignored here and dragging is not offered:
+a coordinate means something in the arrangement it was set in and nothing in another one, and honouring
+it would drop a card into somebody else's lane.
+
+**Assign an item from its node editor.** The picker is drawn from your Project Director roster — add
+people there first. It is deliberately a different fact from "added by" and "completed by": those are
+history, and this is a plan. If somebody is later removed from the roster, work assigned to them is kept
+and labelled as such rather than folded into unassigned, because deleting a contact is not a statement
+that their work became nobody's.
+
 **Adding an item re-fits the canvas.** A new item is laid into the tree at the next free row of its
 level and would otherwise sit outside a viewport that never moved — indistinguishable from not having
 been added. Only genuine arrivals do this; redrawing the same plan leaves your pan alone.

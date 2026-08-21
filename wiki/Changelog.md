@@ -19,6 +19,43 @@ Older entries below describe the software as it was at the time and are delibera
 
 ---
 
+## v0.378.0 — The canvas keeps responding, and the plan can say whose it is
+
+**The roadmap canvas stopped accepting input after a while.** The cause was a drag that never ended.
+`pointerup` was bound to the canvas itself, so releasing the button anywhere else — over the editor tabs,
+past the edge of the webview, or after a background refresh re-rendered the page and removed the element
+holding the pointer capture — left the canvas permanently mid-drag. Every movement after that panned or
+dragged, and nothing could be clicked. It took a while to happen because it needed one release to land
+somewhere slightly unusual. The release is now heard on the window, capture loss ends the drag, and so
+does alt-tabbing away.
+
+**"Calculate tree" was impossible to find.** The notice added last release tells you to press it, and the
+shared Atlas-action styling hides that button's label in a screen-reader-only rectangle — so it rendered
+as a mark and a glyph with no words. Naming a control whose name nobody can see is worse than naming
+none. It has its label back.
+
+**A roadmap item can now be assigned to somebody**, from a picker in the node editor drawn from your
+Project Director roster. Not a free-text field: a name no other surface knows about could only ever
+appear as a lane nobody can resolve. This is deliberately separate from "added by" and "completed by" —
+those are history, and this is a plan. It is the only one of the three that can be wrong about the
+future, which is what makes it worth editing.
+
+If somebody is later removed from the roster, work assigned to them is **kept and labelled as such**.
+Deleting a contact is not a statement that their work became nobody's, and quietly folding the two
+together would rewrite a decision you made.
+
+**And a By person view**, alongside the dependency canvas, the backlog and Delivered. The same
+outstanding work in one band per person, each band still ordered by what has to happen first — so an
+arrow crossing between bands is one person waiting on another, which is the question this view exists to
+answer. Bands are ordered by name rather than by how much work is in them, so the picture does not
+reshuffle every time somebody finishes something.
+
+Positions you dragged on the dependency canvas are ignored here, and dragging is not offered. A
+coordinate means something in the arrangement it was set in and nothing in another one; honouring it
+would drop a card into somebody else's lane, which is the most misleading thing this view could do.
+
+---
+
 ## v0.377.0 — One release line, several branches
 
 A project with more than one branch has one release line and several points on its way out. AtlasMind

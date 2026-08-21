@@ -231,6 +231,10 @@ export function sanitizeRoadmapNodeRecord(value: unknown): RoadmapNodeRecord | u
   const addedBy = sanitizeId(record['addedBy']);
   const completedAt = sanitizeTimestamp(record['completedAt']);
   const completedBy = sanitizeId(record['completedBy']);
+  // Kept even when it names nobody in the roster. Deleting a contact is not
+  // a statement that their work became unassigned, and the two must stay
+  // distinguishable on the by-person view.
+  const assigneeId = sanitizeId(record['assigneeId']);
   const position = sanitizePosition(record['position']);
   const origin = sanitizeRoadmapOrigin(record['origin']);
 
@@ -245,6 +249,7 @@ export function sanitizeRoadmapNodeRecord(value: unknown): RoadmapNodeRecord | u
     // decision to grade this node without the discount. Collapsing the two
     // would silently re-apply a discount somebody turned off.
     ...(typeof record['aiAssisted'] === 'boolean' ? { aiAssisted: record['aiAssisted'] } : {}),
+    ...(assigneeId === undefined ? {} : { assigneeId }),
     ...(addedAt === undefined ? {} : { addedAt }),
     ...(addedBy === undefined ? {} : { addedBy }),
     ...(completedAt === undefined ? {} : { completedAt }),

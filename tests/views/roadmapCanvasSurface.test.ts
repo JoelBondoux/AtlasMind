@@ -172,19 +172,148 @@ describe('the editor distinguishes clearing a field from leaving it alone', () =
 describe('canvas state is dropped when it stops referring to anything', () => {
   const stateHandler = WEBVIEW_SCRIPT.slice(
     WEBVIEW_SCRIPT.indexOf("if (message.type === 'state')"),
-    WEBVIEW_SCRIPT.indexOf("if (message.type === 'state')") + 2400,
+    WEBVIEW_SCRIPT.indexOf("if (message.type === 'state')") + 3600,
   );
 
-  it('clears local drag offsets on every snapshot', () => {
-    // They exist only to cover a round trip. Keeping them would leave a position
-    // that failed to save looking saved.
-    expect(stateHandler).toContain('state.roadmapDragOffsets = {};');
+  it('clears local drag offsets on every snapshot, except the node under the pointer', () => {
+    // They exist only to cover a round trip, so keeping them would leave a
+    // position that failed to save looking saved. The node still being dragged
+    // is the exception: it has not been dropped, so the host was never asked
+    // about it and has no answer to prefer — clearing it made a background
+    // refresh yank the node out from under the cursor.
+    expect(stateHandler).toContain('state.roadmapDragOffsets = rmDrag && rmDrag.kind === \'node\'');
+    expect(stateHandler).toContain(': {};');
   });
 
   it('clears a filter, a half-drawn link and an open editor pointing at a gone node', () => {
     expect(stateHandler).toContain('state.roadmapFocusNodeId = ');
     expect(stateHandler).toContain('state.roadmapLinkFrom = ');
     expect(stateHandler).toContain('state.roadmapEditingNodeId = ');
+  });
+});
+
+describe('a drag always ends, wherever the button comes up', () => {
+  // The canvas became permanently unresponsive after a while, and the cause was
+  // a drag that never ended: `pointerup` and `pointercancel` were bound to
+  // `root`, so a release over the editor tab strip, past the edge of the
+  // webview, or after a host re-render removed the element holding the pointer
+  // capture, left `rmDrag` set for ever. Every later pointer move then panned or
+  // dragged, and nothing could be clicked.
+
+  it('listens for the release on the window, not only on the canvas root', () => {
+    expect(WEBVIEW_SCRIPT).toContain("window.addEventListener('pointerup', rmEndDrag);");
+    expect(WEBVIEW_SCRIPT).toContain("window.addEventListener('pointercancel', rmEndDrag);");
+    expect(WEBVIEW_SCRIPT).not.toContain("root?.addEventListener('pointerup', rmEndDrag);");
+  });
+
+  it('ends the drag when the DOM is swapped out from under it', () => {
+    // The innerHTML re-render on every host refresh removes the capturing
+    // element, which releases capture implicitly and leaves no pointerup that
+    // could be attributed to the drag.
+    expect(WEBVIEW_SCRIPT).toContain("root?.addEventListener('lostpointercapture', rmEndDrag);");
+  });
+
+  it('ends the drag when the window loses focus mid-drag', () => {
+    // An alt-tab away never delivers the release at all.
+    expect(WEBVIEW_SCRIPT).toContain("window.addEventListener('blur', rmEndDrag);");
+  });
+
+  it('never re-fits the canvas while a drag is in flight', () => {
+    // Fitting rewrites pan and zoom, which would move the world out from under
+    // the pointer halfway through a drag.
+    expect(WEBVIEW_SCRIPT).toContain('state.roadmapFitAfterRender && !rmDrag');
+  });
+});
+
+describe('who is doing it', () => {
+  it('offers the roster in the node editor, and nothing else', () => {
+    // The list comes from the Director roster shipped on the snapshot. A free
+    // text field would let somebody assign work to a name no other surface
+    // knows about, which the by-person view could only render as a lane nobody
+    // could resolve.
+    expect(WEBVIEW_SCRIPT).toContain('data-rm-field="assigneeId"');
+    expect(WEBVIEW_SCRIPT).toContain('(graph.people || []).map(person =>');
+    expect(WEBVIEW_SCRIPT).toContain('No people are on the Project Director roster yet');
+  });
+
+  it('keeps an assignment to somebody no longer on the roster selectable', () => {
+    // Otherwise opening the editor on that node would silently reassign it to
+    // "Unassigned" the moment somebody pressed Save.
+    expect(WEBVIEW_SCRIPT).toContain('Not in the roster');
+  });
+
+  it('sends null to unassign, and never omits the field to mean it', () => {
+    // Omitting means "leave it alone", so clearing has to be its own value.
+    const save = WEBVIEW_SCRIPT.slice(WEBVIEW_SCRIPT.indexOf('function saveRoadmapNodeEdits'));
+    expect(save.slice(0, 2400)).toContain("payload.assigneeId = assigneeEl.value === '' ? null : assigneeEl.value;");
+  });
+
+  it('validates the contact id against the roster in the host, never trusts the page', () => {
+    expect(HOST_PANEL).toContain('knownContactIds.has(candidate)');
+    expect(HOST_PANEL).toContain('readProjectDirectorConfig(context.workspaceRoot)?.contacts');
+  });
+
+  it('separates who is doing it from who raised or finished it', () => {
+    // Three different facts, and only one of them can be wrong about the future.
+    expect(WEBVIEW_SCRIPT).toContain('rm-chip-assignee');
+    expect(WEBVIEW_SCRIPT).toContain('node.completedBy ? ');
+    expect(WEBVIEW_SCRIPT).toContain('rm-chip-unassigned');
+  });
+
+  it('does not nag about assigning work that is already delivered', () => {
+    expect(WEBVIEW_SCRIPT).toContain("(node.completed ? '' : '<span class=\"rm-chip rm-chip-unassigned\"");
+  });
+});
+
+describe('the by-person view', () => {
+  it('is a fourth view, counted by people rather than by items', () => {
+    // The number that makes this view worth opening is how many people the plan
+    // is spread across, which an item count hides.
+    expect(WEBVIEW_SCRIPT).toContain("['people', 'By person'");
+    expect(WEBVIEW_SCRIPT).toContain('people: (graph.lanes || []).length,');
+  });
+
+  it('draws the lanes the host laid out, not lanes measured from the nodes on screen', () => {
+    // A band inferred from where nodes happen to sit collapses to nothing for a
+    // person with no work — and "nobody is doing this" is exactly what somebody
+    // opens this view to find out.
+    const bands = namedFunction('renderRoadmapLaneBands');
+    expect(bands).toContain('graph.lanes || []');
+    expect(bands).toContain("state.roadmapView !== 'people'");
+    expect(bands).toContain('lane.offset');
+    expect(bands).toContain('lane.extent');
+  });
+
+  it('shows an unresolved lane as its own thing, never folded into unassigned', () => {
+    const bands = namedFunction('renderRoadmapLaneBands');
+    expect(bands).toContain('is-unresolved');
+    expect(bands).toContain('is-unassigned');
+    expect(HOST_PANEL).toContain('.rm-chip-assignee.is-unresolved');
+  });
+
+  it('fits the canvas when the view changes, because every node moves', () => {
+    expect(WEBVIEW_SCRIPT).toContain("state.roadmapFitAfterRender = state.roadmapView !== 'list';");
+  });
+
+  it('is laid out host-side and shipped, so switching to it is offline', () => {
+    expect(HOST_PANEL).toContain('layoutRoadmapByAssignee(partition.active, people, graph.orientation)');
+    expect(HOST_PANEL).toContain('byPerson: byPerson.nodes,');
+    expect(HOST_PANEL).toContain('lanes: byPerson.lanes,');
+  });
+
+  it('falls back to the plain plan on a snapshot with no lanes', () => {
+    expect(WEBVIEW_SCRIPT).toContain('return graph.byPerson || graph.active;');
+  });
+});
+
+describe('the Calculate tree control can be found by the name the canvas gives it', () => {
+  it('shows its label, which the shared icon-only rule clips away', () => {
+    // The flat-plan notice tells you to press "Calculate tree". The shared Atlas
+    // action styling hides the label in a screen-reader-only rectangle, so the
+    // button rendered as a mark and a glyph with no text — naming a control
+    // whose name is invisible is worse than naming none.
+    expect(HOST_PANEL).toContain('.rm-derive-action.icon-only .atlas-discuss-label {');
+    expect(WEBVIEW_SCRIPT).toContain('<span class="atlas-discuss-label">Calculate tree</span>');
   });
 });
 

@@ -4,7 +4,7 @@
 
 <h1 align="center">AtlasMind</h1>
 
-<p align="center"><sub> · <strong>Current source version: 0.377.0</strong> · </sub></p>
+<p align="center"><sub> · <strong>Current source version: 0.378.0</strong> · </sub></p>
 
 
 <p align="center">
@@ -127,7 +127,7 @@ Full detail in the [Security model](wiki/Security.md) and [Tool Execution](wiki/
 
 ---
 
-## What's new in 0.377.0
+## What's new in 0.378.0
 
 The last Marketplace publication, **v0.369.3**, is the baseline — everything below is in it. The full
 history is in [CHANGELOG.md](CHANGELOG.md).
@@ -160,6 +160,12 @@ history is in [CHANGELOG.md](CHANGELOG.md).
   backlog and offers it behind one confirmation that says how many links it would add — which is the
   control that actually builds the tree, because a suggestion is drawn dashed and deliberately moves no
   item until you accept it.
+- **The roadmap can say whose work it is.** Assign an item from its node editor, from your Project
+  Director roster, and switch to the **By person** view: the same outstanding work in one band per
+  person, each band still ordered by what has to happen first, so an arrow crossing bands is one person
+  waiting on another. Assignment is deliberately separate from who raised the item and who finished it —
+  those are history, this is a plan. Work assigned to somebody later removed from the roster is kept and
+  labelled, never quietly reassigned to nobody.
 - **The Roadmap is a dependency canvas, not just a list.** A list can say which item matters more; it
   cannot say which one *cannot start* until another lands. The Roadmap page now opens on a draggable
   graph — nodes carrying the item, its branch name, its deadline, the days left and an estimate; arrows
