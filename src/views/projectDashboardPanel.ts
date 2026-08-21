@@ -3979,11 +3979,19 @@ export class ProjectDashboardPanel {
    */
   private lastSnapshot: DashboardSnapshot | undefined;
   /**
-   * Whether this session has already tried to anchor the roadmap — set before
-   * the attempt, so a failing write (read-only tree, newer-format file) is
-   * tried once and reported once rather than retried on every refresh.
+   * The load-time anchor write, started once in the constructor and held so
+   * everything else can order itself after it.
+   *
+   * Started from the constructor — not from a later sync — because any
+   * fire-and-forget refresh that could still *arm* it left a window where a
+   * background write overlapped whatever a click did next: two writers of the
+   * same backlog file, `fs.writeFile` truncating first, and a reader in that
+   * window seeing an empty backlog (the release-gate flow test caught exactly
+   * that). The first full sync chains after it, `handleMessage` awaits it
+   * before any handler runs, and it never rejects — once settled, both awaits
+   * cost nothing for the rest of the session.
    */
-  private roadmapAnchorsEnsured = false;
+  private roadmapAnchorsEnsure: Promise<void> | undefined;
   /**
    * Issues are fetched on demand, never as part of a dashboard render: `gh` is a
    * network call against a rate-limited API, and a page that refreshed it on
@@ -4513,7 +4521,11 @@ export class ProjectDashboardPanel {
       }),
     );
 
-    void this.syncState();
+    // Anchor the roadmap first, then collect: the first sync would otherwise
+    // read the backlog while the anchors are being written into it, and every
+    // message handler orders itself after this same promise.
+    this.roadmapAnchorsEnsure = this.ensureRoadmapAnchors();
+    void this.roadmapAnchorsEnsure.then(() => this.syncState());
   }
 
   private queueNavigation(target: DashboardPageId | DashboardNavigationTarget): void {
@@ -4559,6 +4571,15 @@ export class ProjectDashboardPanel {
     // proves the channel, and costs one empty message per action.
     void Promise.resolve(this.panel.webview.postMessage({ type: 'hostAck' }))
       .then(undefined, () => undefined);
+
+    // The load-time anchor write settles before any handler touches the
+    // roadmap: the two are writers of the same file, and `fs.writeFile`
+    // truncates before it writes, so a handler racing it can read an empty
+    // backlog. Started in the constructor and never rejects; once settled
+    // this await costs nothing for the rest of the session.
+    if (this.roadmapAnchorsEnsure !== undefined) {
+      await this.roadmapAnchorsEnsure;
+    }
 
     switch (message.type) {
       case 'ready':
@@ -5368,11 +5389,6 @@ export class ProjectDashboardPanel {
         await this.postMessage({ type: 'navigate', payload: this.pendingNavigationTarget });
         this.pendingNavigationTarget = undefined;
       }
-      // After the post, so the first page is never held up by the write — but
-      // awaited, never fire-and-forget: an unawaited anchor write races
-      // whatever touches the backlog file next, and a reader can catch the
-      // file mid-truncation. The session flag makes every later call a no-op.
-      await this.ensureRoadmapAnchors();
     } catch (error) {
       const detail = error instanceof Error ? error.message : String(error);
       await this.postMessage({ type: 'error', payload: `Dashboard refresh failed: ${detail}` });
@@ -10236,20 +10252,25 @@ ${buildCardEvidenceSection(source, derivation)}`;
    * is reported by the canvas banner rather than retried forever.
    */
   private async ensureRoadmapAnchors(): Promise<void> {
-    if (this.roadmapAnchorsEnsured) {
-      return;
-    }
-    const graph = this.lastSnapshot?.roadmap.graph;
-    if (graph === undefined || graph.anchored || graph.active.length + graph.completed.length === 0) {
-      return;
-    }
-    this.roadmapAnchorsEnsured = true;
     try {
-      // Writes the anchors as its ordinary first step; nothing else is saved.
-      const context = await this.openRoadmapGraphForWrite();
-      if (context !== undefined) {
-        await this.syncRoadmapState();
+      const workspaceRoot = vscode.workspace.workspaceFolders?.[0]?.uri.fsPath;
+      if (workspaceRoot === undefined) {
+        return;
       }
+      const ssotPath = normalizeSsotPath(
+        vscode.workspace.getConfiguration('atlasmind').get<string>('ssotPath', 'project_memory'),
+      );
+      // Self-contained on purpose: reading its own roadmap snapshot (fs-only,
+      // cheap) is what lets this start from the constructor, before any full
+      // sync exists to say whether the roadmap needs anchoring.
+      const roadmap = await collectRoadmapSnapshot(workspaceRoot, ssotPath);
+      if (roadmap.items.length === 0 || roadmap.graph.anchored) {
+        return;
+      }
+      // Writes the anchors as its ordinary first step; nothing else is saved.
+      // No sync here — the constructor's first sync runs after this settles
+      // and collects the anchored state.
+      await this.openRoadmapGraphForWrite();
     } catch {
       // The canvas banner already reports the unanchored state; the first
       // change will try again through the write path.

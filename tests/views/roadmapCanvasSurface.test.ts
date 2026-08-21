@@ -556,16 +556,25 @@ describe('one id resolution, and no silent failures', () => {
     }
   });
 
-  it('anchors the roadmap on first load — once, and only when it needs it', () => {
+  it('anchors the roadmap once, from the constructor, and only when it needs it', () => {
     const ensure = HOST_PANEL.slice(HOST_PANEL.indexOf('private async ensureRoadmapAnchors'));
-    // The flag is set before the attempt, so a failing write is tried once
-    // and reported once rather than retried on every refresh.
-    expect(ensure.slice(0, 2200)).toContain('this.roadmapAnchorsEnsured');
-    expect(ensure.slice(0, 2200)).toContain('graph.anchored');
-    // Awaited, never fire-and-forget: an unawaited anchor write races whatever
-    // touches the backlog file next, and a reader catches it mid-truncation.
-    expect(HOST_PANEL).toContain('await this.ensureRoadmapAnchors();');
-    expect(HOST_PANEL).not.toContain('void this.ensureRoadmapAnchors();');
+    expect(ensure.slice(0, 2400)).toContain('roadmap.graph.anchored');
+    // Started exactly once, in the constructor — a later fire-and-forget sync
+    // that could still *arm* it left a window where a background write
+    // overlapped a click: two writers of the backlog file, `fs.writeFile`
+    // truncating first, and a reader in that window seeing an empty backlog.
+    expect(HOST_PANEL).toContain('this.roadmapAnchorsEnsure = this.ensureRoadmapAnchors();');
+    const starts = HOST_PANEL.split('this.ensureRoadmapAnchors()').length - 1;
+    expect(starts, 'the ensure must be started from exactly one place').toBe(1);
+  });
+
+  it('runs the first sync after the anchor write, and every handler after it too', () => {
+    // The first collection would otherwise read the backlog while the anchors
+    // were being written into it.
+    expect(HOST_PANEL).toContain('void this.roadmapAnchorsEnsure.then(() => this.syncState());');
+    const handler = HOST_PANEL.slice(HOST_PANEL.indexOf('private async handleMessage'));
+    const beforeSwitch = handler.slice(0, handler.indexOf('switch (message.type)'));
+    expect(beforeSwitch).toContain('await this.roadmapAnchorsEnsure;');
   });
 });
 

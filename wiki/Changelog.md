@@ -19,6 +19,16 @@ Older entries below describe the software as it was at the time and are delibera
 
 ---
 
+## v0.380.3 — One writer at a time
+
+A follow-up caught by the repository's own pre-commit gate: the load-time anchor write runs from a
+fire-and-forget first sync, so it could overlap whatever a click did next — two writers of the backlog
+file, with `fs.writeFile` truncating before it writes, and a reader in that window saw an *empty*
+backlog. Message handlers now wait for a started anchor write to settle before touching anything, with
+a re-entrancy guard so the write's own refresh cannot deadlock on itself.
+
+---
+
 ## v0.380.2 — The canvas messages arrive
 
 The deepest cause of "the canvas doesn't do anything", found and closed. A dashboard message lives in

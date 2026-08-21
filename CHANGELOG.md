@@ -6,6 +6,17 @@ The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/),
 
 ## [Unreleased]
 
+## [0.380.3] - 2026-08-21
+
+### Fixed
+
+- **The load-time anchor write can no longer race a canvas action.** The dashboard's first sync runs
+  fire-and-forget from the constructor, so the anchor write it triggers could still overlap whatever a
+  click did next — two writers of the backlog file, with `fs.writeFile` truncating before it writes,
+  so a reader in that window saw an empty backlog (the release-gate flow test caught exactly that).
+  The ensure is now held as a promise, every message handler waits for a started one to settle before
+  running, and a re-entrancy guard stops the ensure's own sync from deadlocking on itself.
+
 ## [0.380.2] - 2026-08-21
 
 ### Fixed
