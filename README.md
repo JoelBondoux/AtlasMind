@@ -4,7 +4,7 @@
 
 <h1 align="center">AtlasMind</h1>
 
-<p align="center"><sub> · <strong>Current source version: 0.382.0</strong> · </sub></p>
+<p align="center"><sub> · <strong>Current source version: 0.382.1</strong> · </sub></p>
 
 
 <p align="center">
@@ -126,6 +126,15 @@ Ambitious automation is only worth having if you can trust it. AtlasMind is buil
 Full detail in the [Security model](wiki/Security.md) and [Tool Execution](wiki/Tool-Execution.md).
 
 ---
+
+## What's new in 0.382.1
+
+- **Roadmap and workflow artifacts are synchronized.** The project memory records and roadmap graph
+  metadata are regenerated so existing backlog entries and roadmap links stay consistent with the latest
+  source updates and execution history.
+
+- **Roadmap backlog text remains the SSOT source for this cycle,** with updated priorities and
+  dependencies tracked in canvas-facing metadata.
 
 ## What's new in 0.382.0
 
@@ -1411,3 +1420,4 @@ Contributions are welcome — see [CONTRIBUTING.md](CONTRIBUTING.md). If AtlasMi
 [sponsorship](wiki/Funding-and-Sponsorship.md) helps keep it going.
 
 MIT License — see [LICENSE](LICENSE).
+

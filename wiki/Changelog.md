@@ -19,6 +19,11 @@ Older entries below describe the software as it was at the time and are delibera
 
 ---
 
+## v0.382.1 — Roadmap and workflow synchronization
+
+Roadmap and workflow artifacts are now re-synced from source memory, and the generated roadmap
+canvas metadata now reflects the latest derived backlog items and dependency links.
+
 ## v0.382.0 — Reading a dense plan
 
 Layout can only take a heavily interconnected plan so far; the rest is interaction.

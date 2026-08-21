@@ -6,6 +6,14 @@ The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/),
 
 ## [Unreleased]
 
+## [0.382.1] - 2026-08-21
+
+### Changed
+
+- **Roadmap and workflow memory artifacts are synchronized.** SSOT roadmap records and dependency
+  graph outputs are regenerated for consistency, and the project roadmap canvas receives the latest
+  source-of-truth backlog items and link suggestions.
+
 ## [0.382.0] - 2026-08-21
 
 ### Added
