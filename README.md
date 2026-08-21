@@ -4,7 +4,7 @@
 
 <h1 align="center">AtlasMind</h1>
 
-<p align="center"><sub> · <strong>Current source version: 0.379.0</strong> · </sub></p>
+<p align="center"><sub> · <strong>Current source version: 0.380.0</strong> · </sub></p>
 
 
 <p align="center">
@@ -127,11 +127,25 @@ Full detail in the [Security model](wiki/Security.md) and [Tool Execution](wiki/
 
 ---
 
-## What's new in 0.379.0
+## What's new in 0.380.0
 
 The last Marketplace publication, **v0.369.3**, is the baseline — everything below is in it. The full
 history is in [CHANGELOG.md](CHANGELOG.md).
 
+- **Every roadmap entry carries three Atlas pills, and files its plan.** **Plan** creates a dedicated
+  plan document under `roadmap/plans/` (a deterministic scaffold, created once, never overwritten),
+  links it to the item as its filing record, and hands the drafting to Atlas in chat. **Resolve**
+  hands the work over, following the filed plan when there is one. **Completion check** reports —
+  with evidence — whether the item is actually done, and never ticks it off: marking work complete
+  stays a human act. The pills sit on the canvas cards and the backlog rows alike; a delivered entry
+  keeps only the check.
+- **The roadmap canvas responds like a canvas.** Pan, zoom and fit apply straight to the view instead
+  of rebuilding the whole dashboard per wheel tick; a drag-drop redraws in tens of milliseconds rather
+  than recollecting every page; zoom anchors at the cursor; a plain wheel pans instead of scrolling the
+  canvas away; the whole card drags, not just its title bar. The tree itself got readable: siblings sit
+  beside what they wait for, rows no longer overlap chip-heavy cards, arrows anchor to each card's real
+  height, and the one-column "nothing linked yet" state offers **Calculate tree** in the banner that
+  explains it. A background refresh can no longer eat a drag in flight.
 - **Say how you version, and the dashboard reads it.** A project with several branches has one release
   line, not one number per branch — but AtlasMind only ever knew the manifest's, so every delivery stage
   reported whatever that branch's copy said. A `versioning` block in the workflow file now declares a

@@ -469,6 +469,17 @@ describe('layout orientation', () => {
     expect([...xs].sort((left, right) => left - right)).toEqual(xs);
   });
 
+  it('carries a filed plan path onto the node, so every surface can link the filing', () => {
+    const graph = resolveRoadmapGraph({
+      items: [item({ id: 'a' })],
+      records: [{ id: 'a', normalizedText: 'a', planPath: 'project_memory/roadmap/plans/a.md' }],
+      declaredEdges: [],
+      deriveSuggestions: false,
+      now: NOW,
+    });
+    expect(graph.nodes[0]?.planPath).toBe('project_memory/roadmap/plans/a.md');
+  });
+
   it('keeps a hand-placed position in both orientations', () => {
     // Dragging is a statement about how you read the plan; re-flowing the rest
     // of the board must not overrule it.
@@ -494,6 +505,55 @@ describe('layout orientation', () => {
       expect(node.position.x % ROADMAP_GRID_SIZE).toBe(0);
       expect(node.position.y % ROADMAP_GRID_SIZE).toBe(0);
     }
+  });
+
+  it('seats a dependent beside its prerequisite, not beside its priority rank', () => {
+    // Ordering a layer by priority alone sent an arrow across the whole canvas
+    // whenever a high-priority dependent waited on a low-priority prerequisite.
+    // The barycentre pass keeps each edge short; priority still decides where
+    // prerequisites give no signal, so depth zero keeps its order exactly.
+    const graph = resolveRoadmapGraph({
+      items: [
+        item({ id: 'a', priorityScore: 90 }),
+        item({ id: 'b', priorityScore: 10 }),
+        item({ id: 'c', priorityScore: 90 }),
+        item({ id: 'd', priorityScore: 10 }),
+      ],
+      records: [],
+      declaredEdges: [declaredEdge('b', 'c'), declaredEdge('a', 'd')],
+      deriveSuggestions: false,
+      now: NOW,
+    });
+    const at = (id: string): { x: number; y: number } => {
+      const found = graph.nodes.find(node => node.id === id);
+      expect(found, `node ${id} is missing`).toBeDefined();
+      return (found as { position: { x: number; y: number } }).position;
+    };
+    // Depth zero has no prerequisites to follow, so priority orders it: a first.
+    expect(at('a').y).toBeLessThan(at('b').y);
+    // Depth one follows the prerequisites: d sits in a's row, c in b's — even
+    // though c outranks d on priority.
+    expect(at('d').y).toBe(at('a').y);
+    expect(at('c').y).toBe(at('b').y);
+  });
+
+  it('orders the layers of a barycentred plan deterministically', () => {
+    const inputs = {
+      items: [
+        item({ id: 'a', priorityScore: 90 }),
+        item({ id: 'b', priorityScore: 10 }),
+        item({ id: 'c', priorityScore: 90 }),
+        item({ id: 'd', priorityScore: 10 }),
+      ],
+      records: [],
+      declaredEdges: [declaredEdge('b', 'c'), declaredEdge('a', 'd')],
+      deriveSuggestions: false,
+      now: NOW,
+    } as const;
+    const first = resolveRoadmapGraph({ ...inputs, items: [...inputs.items], records: [] });
+    const second = resolveRoadmapGraph({ ...inputs, items: [...inputs.items], records: [] });
+    expect(first.nodes.map(node => ({ id: node.id, position: node.position })))
+      .toEqual(second.nodes.map(node => ({ id: node.id, position: node.position })));
   });
 });
 

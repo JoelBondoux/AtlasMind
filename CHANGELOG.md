@@ -6,6 +6,68 @@ The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/),
 
 ## [Unreleased]
 
+## [0.380.0] - 2026-08-21
+
+### Added
+
+- **Every roadmap entry carries three Atlas pills, and files its plan.** On the dependency canvas and
+  on the backlog rows alike:
+
+  **Plan** files a dedicated markdown plan document for the item under `roadmap/plans/` — a
+  deterministic scaffold (Objective, Context, Approach, Steps, Verification, Completion criteria),
+  created once and never overwritten, with nothing model-generated in it — records the path on the
+  item's graph record (`planPath`), and opens a chat where Atlas drafts the plan into the file under
+  the ordinary tool-approval regime. Once filed, the entry links to the plan as its filing record;
+  the link sends the item's opaque id, and the host resolves the path from the record, so the page
+  can never name a file.
+
+  **Resolve** hands the work to Atlas in chat — reading and following the filed plan when there is
+  one, and saying so before deviating where reality disagrees with it.
+
+  **Completion check** asks Atlas whether the item is actually done, judged against the plan's
+  completion criteria and the repository's own evidence, and reports complete, incomplete, or not
+  decidable. None of the three can tick the item off: each prompt states that marking work done
+  stays a human act on the Roadmap page. All three fence the item text as reported content, because
+  an imported backlog line is third-party text. A delivered entry keeps only the Completion check.
+
+  New module `src/core/roadmapPlanning.ts` (pure + unit-tested); `RoadmapNodeRecord` gains
+  `planPath`, validated (never cleaned) at the store boundary because the value is resolved against
+  the workspace root and opened in the editor.
+
+## [0.379.1] - 2026-08-21
+
+### Fixed
+
+- **The roadmap canvas responds like a canvas.** Four causes of the "unresponsive, unintuitive,
+  won't make a readable tree" experience, fixed together because each hid the others:
+
+  **Looking around no longer rebuilds the page.** Zoom used to trigger the full dashboard render —
+  every page's markup rebuilt and the innerHTML swapped, once per wheel tick — and every graph write
+  (a drag-drop, a link accepted) recollected the entire dashboard: git subprocesses, SSOT and testing
+  scans, the delivery pipeline. Pan, zoom and fit now apply straight to the canvas transform, and a
+  graph write redraws by rebuilding only the roadmap snapshot and patching it into the last full one,
+  so a drop lands in tens of milliseconds instead of seconds. Mid-drag edge repaints are coalesced to
+  one per frame and limited to the edges touching the dragged node.
+
+  **Zoom is anchored, and the wheel does what a canvas wheel does.** Zoom keeps the point under the
+  cursor (buttons anchor at the frame's centre) instead of scaling about the world origin and throwing
+  the plan off-screen. A plain wheel pans — it used to fall through and scroll the whole dashboard out
+  from under the canvas — and Shift turns a single-axis wheel horizontal. The whole card is now a drag
+  handle, not just its title bar; buttons, chips and fields stay clicks.
+
+  **The tree is readable.** Within a layer, siblings sit beside what they wait for — a barycentre
+  pass — instead of being ordered by priority alone, which sent arrows across the whole canvas. The
+  row pitch gained the headroom a chip-heavy card actually renders at, so siblings no longer
+  physically overlap, and edges anchor to each card's measured height, so an arrow enters a tall card
+  at its middle rather than above it (and, in a vertical tree, no longer launches from inside the
+  card body). Both remain deterministic: two people opening the same roadmap still see one picture.
+
+  **A background refresh can no longer eat a drag.** A snapshot arriving mid-drag used to swap the
+  DOM out from under the pointer capture, ending the gesture; it is now held and applied when the
+  button comes up, with the dropped node kept where it was dropped. And the flat one-column state —
+  where somebody concludes the canvas cannot make a tree — now carries **Calculate tree** in the very
+  banner that explains it.
+
 ## [0.379.0] - 2026-08-21
 
 ### Added

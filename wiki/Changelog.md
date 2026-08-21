@@ -19,6 +19,54 @@ Older entries below describe the software as it was at the time and are delibera
 
 ---
 
+## v0.380.0 — Plan, Resolve, Completion check
+
+Every roadmap entry — canvas card and backlog row alike — now carries three Atlas pills, and the plan
+finally has somewhere durable to live.
+
+**Plan** files a dedicated markdown plan document for the item under `roadmap/plans/`: a frame of
+questions (Approach, Steps, Verification, Completion criteria), created once and never overwritten,
+with nothing model-generated written by the button itself. The path is recorded against the item, and
+from then on the entry links to its filing record wherever you see it. Atlas drafts the plan in a chat
+hand-off, under the ordinary tool-approval regime.
+
+**Resolve** hands the work to Atlas — reading and following the filed plan when there is one, and
+saying so before deviating where reality disagrees with it.
+
+**Completion check** reports, with evidence from the repository itself, whether the item is actually
+done: complete, incomplete, or not decidable. It never ticks the item off — none of the three pills
+can — because marking work done stays a human act on the Roadmap page.
+
+A delivered entry keeps only the Completion check: nothing is left to plan or resolve, but "is it
+really done?" is a question finished work still has to answer.
+
+---
+
+## v0.379.1 — The dependency canvas responds like a canvas
+
+Four causes of one complaint — the canvas felt unresponsive, unintuitive, and refused to make a
+readable tree — fixed together, because each hid the others.
+
+**Looking around no longer rebuilds the page.** Zoom used to re-render the entire dashboard once per
+wheel tick, and every drag-drop recollected every page's data — git subprocesses, scans, the delivery
+pipeline — before the node visibly landed. Pan, zoom and fit now touch only the canvas transform, and a
+graph write redraws by patching just the roadmap into the last snapshot: a drop lands in tens of
+milliseconds instead of seconds.
+
+**The wheel and the mouse do what you expect.** Zoom anchors at the cursor rather than throwing the
+plan off-screen; a plain wheel pans instead of scrolling the canvas out of view; Shift pans
+horizontally; and the whole card is a drag handle — its buttons and chips stay clicks.
+
+**The tree reads as a tree.** Siblings sit beside what they wait for instead of being ordered by
+priority alone, rows no longer overlap chip-heavy cards, and arrows anchor to each card's measured
+height. The one-column "nothing linked yet" state now offers **Calculate tree** in the very banner that
+explains it — that state is exactly where the canvas used to look broken.
+
+**A background refresh can no longer eat a drag.** A snapshot arriving mid-drag is held until the
+button comes up, with the dropped node kept where you dropped it.
+
+---
+
 ## v0.379.0 — Bring the roadmap you already have
 
 AtlasMind's roadmap lives in one markdown file, and that is fine for a project that started here and

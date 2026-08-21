@@ -132,6 +132,27 @@ branch name, its deadline, the days left and an estimate, with arrows for what h
 Press **Route** on any node to hide everything that isn't that item or a prerequisite of it — completed
 prerequisites included, because the route is how you got here — and see the outstanding days along it.
 
+Grab a card anywhere to drag it — its buttons and chips stay clicks. The mouse wheel pans the canvas
+(Shift pans sideways), and Ctrl+wheel — or a trackpad pinch — zooms about the cursor, so the point you
+are looking at stays put. Panning and zooming never redraw the page, and a drop lands immediately; the
+tree seats each item beside what it waits for, so arrows stay short instead of crossing the plan.
+
+**Every entry carries three Atlas pills — on the canvas card and on its backlog row alike.**
+
+- **Plan** files a dedicated plan document for the item under `roadmap/plans/` — created once as an
+  empty frame (Objective, Context, Approach, Steps, Verification, Completion criteria), never
+  overwritten — records its path against the item, and opens a chat where Atlas drafts it into the
+  file. The entry then shows a **plan** link: the item's filing record, one click from wherever you
+  see the item.
+- **Resolve** hands the work itself to Atlas in chat. When a plan has been filed, the hand-off says to
+  read and follow it — and to say so before deviating where reality disagrees.
+- **Completion check** asks Atlas whether the item is *actually* done, judged against the plan's
+  completion criteria and the code, and reports complete, incomplete, or not decidable — with the
+  evidence. It never ticks the item off: marking work done stays yours, informed by the report.
+
+A delivered entry keeps only the Completion check — there is nothing left to plan or resolve, but "is
+it really done?" is a question finished work still has to answer.
+
 Four controls arrange the canvas. **Fit all**, beside the zoom buttons, puts the whole plan on screen.
 **Snap to grid** lines a dragged node up with the auto-aligned ones. **Auto tree** lays the plan out as
 a tree and fits it on screen, with **→** and **↓** beside it choosing which way the tree runs — across
@@ -146,7 +167,8 @@ and offers it in one go, behind a confirmation that says how many links it would
 no item and blocks none — an inference should not reorder your plan on its own. So a plan with nothing
 accepted has every item at the same level and lays out as a single column with the dashed arrows
 crossing it, which looks like a broken layout and is not one. The canvas says so when you are in that
-state, and points at Calculate tree. The suggestions toggle only shows and hides the dashed arrows; it
+state, and the banner that says so carries **Calculate tree** itself, so the way out is in the sentence
+that explains it. The suggestions toggle only shows and hides the dashed arrows; it
 carries the count so "showing" with nothing drawn is distinguishable from a control that failed.
 
 **Import a roadmap you already keep somewhere else.** **Import…** in the toolbar reads markdown files

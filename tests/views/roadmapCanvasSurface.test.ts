@@ -171,17 +171,32 @@ describe('the editor distinguishes clearing a field from leaving it alone', () =
 
 describe('canvas state is dropped when it stops referring to anything', () => {
   const stateHandler = WEBVIEW_SCRIPT.slice(
-    WEBVIEW_SCRIPT.indexOf("if (message.type === 'state')"),
-    WEBVIEW_SCRIPT.indexOf("if (message.type === 'state')") + 3600,
+    WEBVIEW_SCRIPT.indexOf('function applyStateSnapshot'),
+    WEBVIEW_SCRIPT.indexOf('function applyStateSnapshot') + 3600,
   );
 
-  it('clears local drag offsets on every snapshot, except the node under the pointer', () => {
+  it('holds a snapshot that arrives mid-drag instead of swapping the DOM under the pointer', () => {
+    // Applying it would remove the element holding the pointer capture, which
+    // ends the drag — so a background refresh could eat a gesture in flight.
+    // The drag's own end applies the last snapshot held.
+    const listener = WEBVIEW_SCRIPT.slice(
+      WEBVIEW_SCRIPT.indexOf("if (message.type === 'state')"),
+      WEBVIEW_SCRIPT.indexOf("if (message.type === 'state')") + 900,
+    );
+    expect(listener).toContain('pendingStateMessage = message;');
+    expect(WEBVIEW_SCRIPT).toContain("applyStateSnapshot(deferred, movedNode ? finished.nodeId : '');");
+  });
+
+  it('clears local drag offsets on every snapshot, except a node whose drop is still in flight', () => {
     // They exist only to cover a round trip, so keeping them would leave a
-    // position that failed to save looking saved. The node still being dragged
-    // is the exception: it has not been dropped, so the host was never asked
-    // about it and has no answer to prefer — clearing it made a background
-    // refresh yank the node out from under the cursor.
-    expect(stateHandler).toContain('state.roadmapDragOffsets = rmDrag && rmDrag.kind === \'node\'');
+    // position that failed to save looking saved. The one exception is a node
+    // that was just dropped when the snapshot being applied was deferred
+    // during its drag: the snapshot predates the drop, and the host's answer
+    // to the drop is still on its way — clearing that one yanked a
+    // just-dropped node back to where it was.
+    expect(stateHandler).toContain(
+      'state.roadmapDragOffsets = preserveOffsetNodeId && state.roadmapDragOffsets[preserveOffsetNodeId]',
+    );
     expect(stateHandler).toContain(': {};');
   });
 
@@ -515,5 +530,25 @@ describe('the host side', () => {
   it('takes an accepted suggestion’s rule from its own derivation, not from the message', () => {
     const accept = HOST_PANEL.slice(HOST_PANEL.indexOf('private async handleRoadmapLinkChange'));
     expect(accept.slice(0, 4000)).toContain('lastSuggestedRoadmapEdge');
+  });
+});
+
+describe('the three Atlas hand-offs', () => {
+  it('files the plan create-only, so a plan somebody wrote survives a second press', () => {
+    const plan = HOST_PANEL.slice(HOST_PANEL.indexOf('private async handleRoadmapPlan'));
+    expect(plan.slice(0, 2500)).toContain("flag: 'wx'");
+    expect(plan.slice(0, 2500)).toContain('EEXIST');
+  });
+
+  it('resolves the pill payload host-side, against the roadmap, never trusting page text', () => {
+    const resolve = HOST_PANEL.slice(HOST_PANEL.indexOf('private async resolveRoadmapPlanItem'));
+    expect(resolve.slice(0, 2000)).toContain('context.nodeText.has(raw)');
+    expect(resolve.slice(0, 2000)).toContain('nodeIdByItemId');
+  });
+
+  it('opens the filed plan from the record, never from a webview-supplied path', () => {
+    const open = HOST_PANEL.slice(HOST_PANEL.indexOf('private async handleRoadmapOpenPlan'));
+    expect(open.slice(0, 1200)).toContain('record?.planPath');
+    expect(open.slice(0, 1200)).toContain('openWorkspaceRelativeFile(planPath)');
   });
 });

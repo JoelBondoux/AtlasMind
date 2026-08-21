@@ -178,6 +178,15 @@ export interface RoadmapNodeRecord {
    * import points at a file or a link somewhere else.
    */
   imported?: RoadmapImportRecord;
+  /**
+   * Workspace-relative path of this item's plan document — its filing record.
+   *
+   * Written once when the Plan hand-off first creates the scaffold, and stored
+   * rather than re-derived: the filename carries a slug of the text, and
+   * re-deriving after a rename would point at a file that does not exist while
+   * the real plan sits orphaned beside it. Absent means no plan has been filed.
+   */
+  planPath?: string;
   /** Canvas position. Absent means the layout pass places it. */
   position?: { x: number; y: number };
   /**
@@ -257,6 +266,8 @@ export interface RoadmapGraphNode {
   assigneeId?: string;
   /** Where this line was imported from, when it was not typed here. */
   imported?: RoadmapImportRecord;
+  /** The item's filed plan document, when one exists. Workspace-relative. */
+  planPath?: string;
   addedAt?: string;
   addedBy?: string;
   completedAt?: string;
@@ -325,8 +336,14 @@ export const ROADMAP_COLUMN_WIDTH = 320;
  * Snap-to-grid and auto-align have to agree, or turning snapping on and then
  * auto-aligning would leave every node a few pixels off the grid it claims to
  * be on — and the first drag afterwards would jump.
+ *
+ * Sized for the card as it actually renders, not its nominal minimum: a card
+ * carrying a three-line title, a wrapped chip row and a couple of link chips
+ * comfortably passes 200px, so the previous pitch of 200 physically overlapped
+ * chip-heavy siblings — the layout cannot measure the DOM, so the pitch has to
+ * carry the headroom.
  */
-export const ROADMAP_ROW_HEIGHT = 200;
+export const ROADMAP_ROW_HEIGHT = 260;
 export const ROADMAP_CANVAS_MARGIN = 80;
 /** The canvas grid. Shared with the webview's snap-to-grid, which mirrors it. */
 export const ROADMAP_GRID_SIZE = 20;
@@ -942,6 +959,7 @@ export function resolveRoadmapGraph(input: RoadmapGraphInput): RoadmapGraph {
       estimate,
       ...(record?.assigneeId === undefined ? {} : { assigneeId: record.assigneeId }),
       ...(record?.imported === undefined ? {} : { imported: record.imported }),
+      ...(record?.planPath === undefined ? {} : { planPath: record.planPath }),
       ...(record?.addedAt === undefined ? {} : { addedAt: record.addedAt }),
       ...(record?.addedBy === undefined ? {} : { addedBy: record.addedBy }),
       ...(record?.completedAt === undefined ? {} : { completedAt: record.completedAt }),
@@ -1157,9 +1175,47 @@ function applyRoadmapLayout(
       : { x: ROADMAP_CANVAS_MARGIN + depth * ROADMAP_COLUMN_WIDTH, y: ROADMAP_CANVAS_MARGIN + row * ROADMAP_ROW_HEIGHT }
   );
 
+  // Cross-axis position of every node already placed, so a later layer can sit
+  // near what it waits for. Hand-placed nodes count too: being dragged
+  // somewhere is exactly the kind of statement a dependent should follow.
+  const crossOf = (position: { x: number; y: number }): number => (
+    orientation === 'vertical' ? position.x : position.y
+  );
+  const placedCross = new Map<string, number>();
+  for (const node of nodes) {
+    if (node.positionSource === 'declared') {
+      placedCross.set(node.id, crossOf(node.position));
+    }
+  }
+
   for (const [depth, bucket] of [...byDepth.entries()].sort((left, right) => left[0] - right[0])) {
-    const ordered = bucket.sort((left, right) =>
-      right.priorityScore - left.priorityScore || left.id.localeCompare(right.id));
+    // Siblings are ordered by the mean cross-axis position of their
+    // prerequisites — a barycentre pass, which is what keeps an edge short and
+    // stops arrows crossing the whole canvas to reach a dependent that was
+    // sorted by priority alone. Priority still decides among nodes whose
+    // prerequisites give no signal, so depth zero (where nothing has a
+    // prerequisite) keeps its priority order exactly as before. Every fallback
+    // is total, so two people opening the same roadmap still see one picture.
+    const barycenter = (node: RoadmapGraphNode): number | undefined => {
+      const anchors = node.prerequisites
+        .map(id => placedCross.get(id))
+        .filter((value): value is number => value !== undefined);
+      if (anchors.length === 0) {
+        return undefined;
+      }
+      return anchors.reduce((sum, value) => sum + value, 0) / anchors.length;
+    };
+    const ordered = bucket.sort((left, right) => {
+      const a = barycenter(left);
+      const b = barycenter(right);
+      if (a !== undefined && b !== undefined && a !== b) {
+        return a - b;
+      }
+      if ((a === undefined) !== (b === undefined)) {
+        return a === undefined ? 1 : -1;
+      }
+      return right.priorityScore - left.priorityScore || left.id.localeCompare(right.id);
+    });
     let row = 0;
     for (const node of ordered) {
       let position = place(depth, row);
@@ -1171,6 +1227,7 @@ function applyRoadmapLayout(
       }
       node.position = position;
       occupied.add(cellKey(position.x, position.y));
+      placedCross.set(node.id, crossOf(node.position));
       row += 1;
     }
   }

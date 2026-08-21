@@ -60,6 +60,14 @@ import {
 } from '../core/workflowCurriculum.js';
 import { deriveRoadmapIssueDraft } from '../core/roadmapIssueDraft.js';
 import {
+  buildRoadmapCompletionCheckPrompt,
+  buildRoadmapPlanChatPrompt,
+  buildRoadmapPlanScaffold,
+  buildRoadmapResolveChatPrompt,
+  roadmapPlanRelPath,
+  type RoadmapPlanItem,
+} from '../core/roadmapPlanning.js';
+import {
   deriveRegisterIssueDraft,
   deriveRegisterRoadmapText,
   type RegisterFinding,
@@ -818,6 +826,16 @@ type ProjectDashboardMessage =
   | { type: 'roadmapLinkAccept'; payload: { from: string; to: string } }
   | { type: 'roadmapLinkDismiss'; payload: { from: string; to: string } }
   | { type: 'roadmapSuggestToggle'; payload: boolean }
+  /**
+   * The three Atlas hand-offs every roadmap entry carries, and the link to its
+   * filed plan. Each payload is one opaque id — a durable node id, or the
+   * positional item id from a backlog row — resolved host-side against the
+   * roadmap, so the webview supplies neither text, nor a path, nor a prompt.
+   */
+  | { type: 'roadmapPlan'; payload: string }
+  | { type: 'roadmapResolve'; payload: string }
+  | { type: 'roadmapCompletionCheck'; payload: string }
+  | { type: 'roadmapOpenPlan'; payload: string }
   /**
    * Re-flow the canvas, in the named direction.
    *
@@ -3956,6 +3974,12 @@ export class ProjectDashboardPanel {
   private ideationAttachments: TaskImageAttachment[] = [];
   private pendingNavigationTarget: DashboardNavigationTarget | undefined;
   /**
+   * The last full snapshot posted, kept so a roadmap-graph write can redraw by
+   * patching one page into it instead of recollecting the world — see
+   * `syncRoadmapState`.
+   */
+  private lastSnapshot: DashboardSnapshot | undefined;
+  /**
    * Issues are fetched on demand, never as part of a dashboard render: `gh` is a
    * network call against a rate-limited API, and a page that refreshed it on
    * every unrelated re-render would spend the user's quota to show a tab they
@@ -4674,6 +4698,18 @@ export class ProjectDashboardPanel {
       case 'roadmapSuggestToggle':
         await this.handleRoadmapSuggestToggle(message.payload === true);
         break;
+      case 'roadmapPlan':
+        await this.handleRoadmapPlan(message.payload);
+        break;
+      case 'roadmapResolve':
+        await this.handleRoadmapAtlasHandoff(message.payload, 'resolve');
+        break;
+      case 'roadmapCompletionCheck':
+        await this.handleRoadmapAtlasHandoff(message.payload, 'check');
+        break;
+      case 'roadmapOpenPlan':
+        await this.handleRoadmapOpenPlan(message.payload);
+        break;
       case 'roadmapAutoLayout':
         await this.handleRoadmapAutoLayout(message.payload === 'vertical' ? 'vertical' : 'horizontal');
         break;
@@ -5320,6 +5356,7 @@ export class ProjectDashboardPanel {
       // assessment the page is showing, rather than against a fresh one that
       // may already disagree with what the button was drawn from.
       this.lastWorkflowStages = snapshot.guidedWorkflow?.stages ?? [];
+      this.lastSnapshot = snapshot;
       await this.postMessage({ type: 'state', payload: snapshot });
       if (this.pendingNavigationTarget) {
         await this.postMessage({ type: 'navigate', payload: this.pendingNavigationTarget });
@@ -10088,6 +10125,8 @@ ${buildCardEvidenceSection(source, derivation)}`;
     document: RoadmapGraphDocument;
     /** Durable id → the item's current text, for the ids this roadmap actually has. */
     nodeText: Map<string, string>;
+    /** Positional backlog id → durable id, so a list-row action can resolve too. */
+    nodeIdByItemId: Map<string, string>;
   } | undefined> {
     const context = await this.readRoadmapDocument();
     if (context === undefined) {
@@ -10121,6 +10160,7 @@ ${buildCardEvidenceSection(source, derivation)}`;
       ssotPath: context.ssotPath,
       document: reconciled.document,
       nodeText: new Map(anchored.map(item => [item.nodeId, item.text])),
+      nodeIdByItemId: new Map(anchored.map(item => [item.id, item.nodeId])),
     };
   }
 
@@ -10144,7 +10184,49 @@ ${buildCardEvidenceSection(source, derivation)}`;
     document: RoadmapGraphDocument,
   ): Promise<void> {
     await writeRoadmapGraph(workspaceRoot, ssotPath, document);
-    await this.syncState();
+    await this.syncRoadmapState();
+  }
+
+  /**
+   * Redraw after a roadmap write, without recollecting the world.
+   *
+   * `syncState` recollects every page's data — git subprocesses, SSOT and
+   * testing scans, the delivery pipeline, the run history — which put seconds
+   * between dropping a node and seeing it land, and made every canvas gesture
+   * read as ignored. A graph write changes the roadmap and nothing else this
+   * panel collects, so only the roadmap snapshot is rebuilt and patched into
+   * the last full snapshot posted. Cross-page derivations that *read* the
+   * roadmap — the attention band, the score, the work-assignment targets —
+   * stay as the last full collection left them until the next one runs; the
+   * webview and this panel hold the same copy of those either way, so no
+   * surface disagrees with the host about what a click means. Falls back to a
+   * full sync when there is nothing yet to patch, or when the patch fails.
+   */
+  private async syncRoadmapState(): Promise<void> {
+    const workspaceRoot = vscode.workspace.workspaceFolders?.[0]?.uri.fsPath;
+    if (this.lastSnapshot === undefined || workspaceRoot === undefined) {
+      await this.syncState();
+      return;
+    }
+    try {
+      const ssotPath = normalizeSsotPath(
+        vscode.workspace.getConfiguration('atlasmind').get<string>('ssotPath', 'project_memory'),
+      );
+      const activeWorkspace = await loadActiveIdeationWorkspace(workspaceRoot, ssotPath);
+      const [roadmap, board] = await Promise.all([
+        collectRoadmapSnapshot(workspaceRoot, ssotPath),
+        loadIdeationBoard(workspaceRoot, ssotPath, activeWorkspace),
+      ]);
+      const snapshot: DashboardSnapshot = {
+        ...this.lastSnapshot,
+        generatedAt: new Date().toISOString(),
+        roadmap: withIdeationOrigins(roadmap, board),
+      };
+      this.lastSnapshot = snapshot;
+      await this.postMessage({ type: 'state', payload: snapshot });
+    } catch {
+      await this.syncState();
+    }
   }
 
   /**
@@ -10191,6 +10273,133 @@ ${buildCardEvidenceSection(source, derivation)}`;
         record.position = position;
       }),
     );
+  }
+
+  /**
+   * Resolve a pill payload — a durable node id, or a positional backlog id —
+   * to the node it names, with the projection the plan prompt builders need.
+   *
+   * The richer fields (branch, estimate, prerequisites) come from the resolved
+   * graph the page is already showing; the record alone is the fallback, so
+   * the hand-off still works before the first full snapshot has landed.
+   */
+  private async resolveRoadmapPlanItem(payload: string): Promise<{
+    workspaceRoot: string;
+    ssotPath: string;
+    document: RoadmapGraphDocument;
+    nodeId: string;
+    item: RoadmapPlanItem;
+    record: RoadmapNodeRecord | undefined;
+  } | undefined> {
+    const context = await this.openRoadmapGraphForWrite();
+    if (context === undefined) {
+      return undefined;
+    }
+    const raw = typeof payload === 'string' ? payload.trim() : '';
+    const nodeId = context.nodeText.has(raw) ? raw : context.nodeIdByItemId.get(raw);
+    const text = nodeId === undefined ? undefined : context.nodeText.get(nodeId);
+    if (nodeId === undefined || text === undefined) {
+      void vscode.window.showWarningMessage('That roadmap item is no longer in the backlog. Refresh and try again.');
+      return undefined;
+    }
+    const record = context.document.nodes.find(node => node.id === nodeId);
+    const graph = this.lastSnapshot?.roadmap.graph;
+    const nodes = graph === undefined ? [] : [...graph.active, ...graph.completed];
+    const node = nodes.find(candidate => candidate.id === nodeId);
+    const prerequisiteTexts = (node?.prerequisites ?? [])
+      .map(id => nodes.find(candidate => candidate.id === id)?.text)
+      .filter((value): value is string => value !== undefined);
+    const deadline = node?.deadline ?? record?.deadline;
+    const item: RoadmapPlanItem = {
+      nodeId,
+      itemId: node?.itemId ?? nodeId,
+      text,
+      completed: node?.completed ?? false,
+      focus: node?.focus ?? 'feature',
+      ...(node !== undefined && node.branch.length > 0 ? { branch: node.branch } : {}),
+      ...(node === undefined ? {} : { estimateDays: node.estimate.days }),
+      ...(deadline === undefined ? {} : { deadline }),
+      ...(prerequisiteTexts.length > 0 ? { prerequisiteTexts } : {}),
+    };
+    return { workspaceRoot: context.workspaceRoot, ssotPath: context.ssotPath, document: context.document, nodeId, item, record };
+  }
+
+  /**
+   * The Plan pill: file the plan document if the item has none, then hand the
+   * drafting to Atlas in chat.
+   *
+   * The scaffold write is deterministic and **create-only** — an existing file
+   * is never overwritten, so a plan somebody has written survives a second
+   * press — and the record stores the path so every surface can link the
+   * filing. Atlas's own writing into the file happens in the chat, under the
+   * ordinary tool-approval regime; nothing model-generated is written here.
+   */
+  private async handleRoadmapPlan(payload: string): Promise<void> {
+    const resolved = await this.resolveRoadmapPlanItem(payload);
+    if (resolved === undefined) {
+      return;
+    }
+    let planPath = resolved.record?.planPath;
+    if (planPath === undefined) {
+      const relPath = roadmapPlanRelPath(resolved.ssotPath, resolved.nodeId, resolved.item.text);
+      const absolute = path.join(resolved.workspaceRoot, relPath);
+      await fs.mkdir(path.dirname(absolute), { recursive: true });
+      // `wx`: create-only. Losing a race just means the file already exists,
+      // which is exactly the state this write wants to reach.
+      await fs.writeFile(absolute, buildRoadmapPlanScaffold(resolved.item, new Date()), { encoding: 'utf-8', flag: 'wx' })
+        .catch((error: NodeJS.ErrnoException) => {
+          if (error.code !== 'EEXIST') {
+            throw error;
+          }
+        });
+      await this.commitRoadmapGraph(
+        resolved.workspaceRoot,
+        resolved.ssotPath,
+        ProjectDashboardPanel.upsertRoadmapNode(resolved.document, resolved.nodeId, resolved.item.text, record => {
+          record.planPath = relPath;
+        }),
+      );
+      planPath = relPath;
+      void vscode.window.showInformationMessage(`Filed ${relPath} and linked it to the roadmap item.`);
+    }
+    await vscode.commands.executeCommand('atlasmind.openChatPanel', {
+      draftPrompt: buildRoadmapPlanChatPrompt(resolved.item, planPath),
+      sendMode: 'new-session',
+    });
+  }
+
+  /**
+   * The Resolve and Completion-check pills: a chat hand-off, never a write.
+   * Both prompts state their own limit — resolving reports rather than ticks
+   * off, and the check only ever reports — so a model cannot declare its own
+   * work finished from either door.
+   */
+  private async handleRoadmapAtlasHandoff(payload: string, kind: 'resolve' | 'check'): Promise<void> {
+    const resolved = await this.resolveRoadmapPlanItem(payload);
+    if (resolved === undefined) {
+      return;
+    }
+    const planPath = resolved.record?.planPath;
+    await vscode.commands.executeCommand('atlasmind.openChatPanel', {
+      draftPrompt: kind === 'resolve'
+        ? buildRoadmapResolveChatPrompt(resolved.item, planPath)
+        : buildRoadmapCompletionCheckPrompt(resolved.item, planPath),
+      sendMode: 'new-session',
+    });
+  }
+
+  /** Open the item's filed plan. The path comes from the record, never the page. */
+  private async handleRoadmapOpenPlan(payload: string): Promise<void> {
+    const resolved = await this.resolveRoadmapPlanItem(payload);
+    if (resolved === undefined) {
+      return;
+    }
+    const planPath = resolved.record?.planPath;
+    if (planPath === undefined) {
+      void vscode.window.showInformationMessage('No plan has been filed for this item yet — press Plan to create one.');
+      return;
+    }
+    await this.openWorkspaceRelativeFile(planPath);
   }
 
   /**
@@ -25576,6 +25785,17 @@ const DASHBOARD_CSS = `
     background: color-mix(in srgb, var(--dash-critical, #d13438) 10%, transparent);
   }
 
+  /* A banner that carries the way out of the state it describes — the flat
+     one-column plan offers Calculate tree in the same breath. */
+  .rm-banner-actionable {
+    display: flex;
+    align-items: center;
+    gap: 10px;
+    flex-wrap: wrap;
+  }
+
+  .rm-banner-actionable > span { flex: 1 1 260px; }
+
   .rm-timeline-strip {
     display: flex;
     gap: 0;
@@ -25653,7 +25873,20 @@ const DASHBOARD_CSS = `
     border-left: 3px solid color-mix(in srgb, var(--vscode-foreground) 30%, transparent);
     background: var(--vscode-editorWidget-background, var(--vscode-editor-background));
     box-shadow: 0 1px 4px rgba(0, 0, 0, 0.18);
+    /* The whole card drags, not just its header — most of a card's area is
+       body, and a grab that only works on the title bar reads as a canvas
+       that mostly ignores the mouse. Buttons and fields stay clicks; the
+       pointer handler skips them. */
+    cursor: grab;
+    user-select: none;
+    touch-action: none;
   }
+
+  .rm-node:active { cursor: grabbing; }
+
+  /* The in-situ editor is all fields; grabbing and no-select would fight
+     every one of them. It also carries no drag handle. */
+  .rm-node-editing { cursor: default; user-select: text; }
 
   .rm-node.is-focused { outline: 2px solid var(--dash-accent-strong); outline-offset: 1px; }
   .rm-node.is-done { opacity: 0.82; }
@@ -25801,6 +26034,32 @@ const DASHBOARD_CSS = `
 
   .rm-node-actions .action-link { font-size: 10.5px; padding: 1px 5px; }
   .rm-link-target { border-color: var(--dash-warn, #d0a215); }
+
+  /* The three Atlas hand-offs on every roadmap entry, sized to sit among the
+     chips rather than dominating the card. The base class carries the mark and
+     the colours; only the scale changes here. */
+  .atlas-discuss-action.rm-atlas-pill {
+    min-height: 20px;
+    min-width: 0;
+    padding: 1px 8px 1px 4px;
+    font-size: 10.5px;
+    gap: 4px;
+  }
+
+  .atlas-discuss-action.rm-atlas-pill img { width: 13px; height: 13px; }
+
+  .rm-item-atlas .atlas-discuss-action.rm-atlas-pill { min-height: 22px; font-size: 11px; }
+
+  /* The link to the entry's filed plan — a chip that is a control, styled like
+     the origin chip so "this goes somewhere" reads the same on both. */
+  .rm-chip-plan {
+    background: transparent;
+    font: inherit;
+    font-size: 10px;
+    cursor: pointer;
+  }
+
+  .rm-chip-plan:hover { border-color: var(--dash-accent-strong); color: var(--dash-accent-strong); }
 
   .rm-node-editing { z-index: 5; gap: 4px; }
 

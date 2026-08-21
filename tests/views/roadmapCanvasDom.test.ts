@@ -289,8 +289,10 @@ describe('the roadmap canvas draws', () => {
     const harness = mount();
     harness.send(snapshot());
 
-    // Scoped to the nodes: the toolbar carries a legitimate AtlasMind mark.
-    expect(harness.root().querySelector('.rm-node img')).toBeNull();
+    // Scoped to the title: the toolbar and the cards' own Atlas pills carry a
+    // legitimate AtlasMind mark, so "no <img> anywhere" would be the wrong
+    // claim — what must hold is that the *title's* markup never parsed.
+    expect(harness.root().querySelector('.rm-node-title img')).toBeNull();
     expect(harness.root().querySelector('[onerror]')).toBeNull();
     expect(harness.root().querySelector('[data-rm-node="beta"] .rm-node-title')?.textContent)
       .toBe('Ship the <img src=x onerror=alert(1)> export');
@@ -565,5 +567,185 @@ describe('the canvas reports what it could not do', () => {
     const harness = mount();
     harness.send(snapshot({ active: [], edges: [], suggested: [], routes: {} }));
     expect(harness.root().querySelector('.rm-empty')?.textContent).toContain('Nothing to draw yet');
+  });
+});
+
+describe('looking around never rebuilds the page', () => {
+  // Zoom used to call the full render — every page's markup rebuilt and the
+  // dashboard's innerHTML swapped, once per wheel tick — which is what made the
+  // canvas feel broken. A way of looking touches one transform and one label.
+
+  it('zooms in place: the transform changes, the DOM stays, nothing is sent', () => {
+    const harness = mount();
+    harness.send(snapshot());
+    const world = harness.root().querySelector('[data-rm-world="true"]');
+    harness.posted.length = 0;
+
+    harness.click('[data-action="roadmap-zoom-in"]');
+
+    expect(world.style.transform).toContain('scale(1.15)');
+    // Same element instance: the page was not rebuilt for a zoom.
+    expect(harness.root().querySelector('[data-rm-world="true"]')).toBe(world);
+    expect(harness.root().querySelector('[data-action="roadmap-zoom-reset"]')?.textContent).toBe('115%');
+    expect(harness.posted).toEqual([]);
+  });
+
+  it('pans with a plain wheel instead of letting the page scroll the canvas away', () => {
+    // The frame does not scroll, so an unmodified wheel used to fall through
+    // and scroll the whole dashboard — yanking the canvas out of view, which
+    // read as the canvas ignoring the wheel entirely.
+    const harness = mount();
+    harness.send(snapshot());
+    const frame = harness.root().querySelector('[data-rm-frame="true"]');
+    const world = harness.root().querySelector('[data-rm-world="true"]');
+    harness.posted.length = 0;
+
+    frame.dispatchEvent(new harness.window.WheelEvent('wheel', { bubbles: true, cancelable: true, deltaY: 40 }));
+
+    expect(world.style.transform).toContain('translate(0px, -40px)');
+    expect(harness.posted).toEqual([]);
+  });
+
+  it('zooms at the cursor on a modified wheel', () => {
+    const harness = mount();
+    harness.send(snapshot());
+    const frame = harness.root().querySelector('[data-rm-frame="true"]');
+    const world = harness.root().querySelector('[data-rm-world="true"]');
+
+    frame.dispatchEvent(new harness.window.WheelEvent('wheel', {
+      bubbles: true, cancelable: true, deltaY: -40, ctrlKey: true, clientX: 200, clientY: 100,
+    }));
+
+    expect(world.style.transform).toContain('scale(1.1)');
+    // Anchored: the pan moved to keep the point under the cursor fixed, so it
+    // is no longer the origin it started at.
+    expect(world.style.transform).not.toContain('translate(0px, 0px)');
+  });
+});
+
+describe('dragging survives the host', () => {
+  const pointer = (
+    harness: Harness,
+    target: Mounted,
+    type: string,
+    init: Record<string, unknown> = {},
+  ): void => {
+    target.dispatchEvent(new harness.window.MouseEvent(type, { bubbles: true, button: 0, ...init }));
+  };
+
+  it('defers a snapshot that arrives mid-drag, and applies it on release with the drop kept', () => {
+    const harness = mount();
+    harness.send(snapshot());
+    const card = harness.root().querySelector('[data-rm-node="alpha"]');
+    pointer(harness, card.querySelector('.rm-node-head'), 'pointerdown', { clientX: 10, clientY: 10 });
+    pointer(harness, card, 'pointermove', { clientX: 60, clientY: 30 });
+
+    // A refresh landing now must not swap the DOM out from under the pointer
+    // capture — that ended the drag and threw the gesture away.
+    harness.send(snapshot());
+    expect(harness.root().querySelector('[data-rm-node="alpha"]')).toBe(card);
+
+    harness.window.dispatchEvent(new harness.window.MouseEvent('pointerup', { button: 0 }));
+
+    // The drop was sent, the deferred snapshot applied, and the dropped node
+    // kept its new position — the held snapshot predates the drop.
+    expect(harness.posted).toContainEqual({ type: 'roadmapNodeMove', payload: { nodeId: 'alpha', x: 130, y: 100 } });
+    const after = harness.root().querySelector('[data-rm-node="alpha"]');
+    expect(after).not.toBe(card);
+    expect(after.style.left).toBe('130px');
+    expect(after.style.top).toBe('100px');
+  });
+
+  it('drags from the card body, but a press on one of its buttons stays a click', () => {
+    const harness = mount();
+    harness.send(snapshot());
+    const card = harness.root().querySelector('[data-rm-node="alpha"]');
+    expect(card.getAttribute('data-rm-drag')).toBe('alpha');
+
+    // A press on a button must not start a drag: with no drag in flight, the
+    // next snapshot applies immediately and the DOM swaps.
+    pointer(harness, card.querySelector('[data-action="roadmap-link-from"]'), 'pointerdown');
+    harness.send(snapshot());
+    expect(harness.root().querySelector('[data-rm-node="alpha"]')).not.toBe(card);
+
+    // A press on the card body does: the snapshot is deferred.
+    const body = harness.root().querySelector('[data-rm-node="alpha"]');
+    pointer(harness, body.querySelector('.rm-node-meta'), 'pointerdown', { clientX: 5, clientY: 5 });
+    harness.send(snapshot());
+    expect(harness.root().querySelector('[data-rm-node="alpha"]')).toBe(body);
+    harness.window.dispatchEvent(new harness.window.MouseEvent('pointerup', { button: 0 }));
+  });
+});
+
+describe('the three Atlas hand-offs on every entry', () => {
+  it('renders Plan, Resolve and Completion check on an outstanding canvas node, sending only the id', () => {
+    const harness = mount();
+    harness.send(snapshot());
+    const card = harness.root().querySelector('[data-rm-node="alpha"]');
+    expect(card.querySelector('[data-action="roadmap-atlas-plan"]')).not.toBeNull();
+    expect(card.querySelector('[data-action="roadmap-atlas-resolve"]')).not.toBeNull();
+    expect(card.querySelector('[data-action="roadmap-atlas-check"]')).not.toBeNull();
+
+    harness.posted.length = 0;
+    card.querySelector('[data-action="roadmap-atlas-plan"]')
+      .dispatchEvent(new harness.window.MouseEvent('click', { bubbles: true }));
+    // One opaque id — never the text, a path, or a prompt.
+    expect(harness.posted).toEqual([{ type: 'roadmapPlan', payload: 'alpha' }]);
+  });
+
+  it('keeps only the Completion check on a delivered entry', () => {
+    // Nothing is left to plan or resolve, but "is it actually done?" is a
+    // question a delivered item still has to answer.
+    const harness = mount();
+    harness.send(snapshot());
+    harness.click('[data-action="roadmap-view"][data-payload="completed"]');
+    const card = harness.root().querySelector('[data-rm-node="gamma"]');
+    expect(card.querySelector('[data-action="roadmap-atlas-plan"]')).toBeNull();
+    expect(card.querySelector('[data-action="roadmap-atlas-resolve"]')).toBeNull();
+    expect(card.querySelector('[data-action="roadmap-atlas-check"]')).not.toBeNull();
+  });
+
+  it('links an entry to its filed plan by id, never by path', () => {
+    const harness = mount();
+    harness.send(snapshot({
+      active: [node('alpha', { planPath: 'project_memory/roadmap/plans/alpha.md' })],
+      edges: [], suggested: [], routes: {},
+    }));
+    harness.posted.length = 0;
+    harness.click('[data-action="roadmap-open-plan"]');
+    expect(harness.posted).toEqual([{ type: 'roadmapOpenPlan', payload: 'alpha' }]);
+  });
+
+  it('shows no plan link before a plan has been filed', () => {
+    const harness = mount();
+    harness.send(snapshot());
+    expect(harness.root().querySelector('[data-action="roadmap-open-plan"]')).toBeNull();
+  });
+
+  it('carries the pills onto the backlog list rows, falling back to the positional id', () => {
+    const harness = mount();
+    harness.send(snapshot());
+    harness.click('[data-action="roadmap-view"][data-payload="list"]');
+    const row = harness.root().querySelector('[data-roadmap-id="roadmap-1"]');
+    const pill = row.querySelector('[data-action="roadmap-atlas-resolve"]');
+    expect(pill).not.toBeNull();
+
+    harness.posted.length = 0;
+    pill.dispatchEvent(new harness.window.MouseEvent('click', { bubbles: true }));
+    // This row's item does not resolve to a graph node in the fixture, so the
+    // positional id goes up — the host resolves either kind.
+    expect(harness.posted).toEqual([{ type: 'roadmapResolve', payload: 'roadmap-1' }]);
+  });
+});
+
+describe('a flat plan offers its own way out', () => {
+  it('puts Calculate tree in the banner that explains the single column', () => {
+    // This state is exactly where somebody concludes the canvas cannot make a
+    // tree, so the gesture that makes one lives in the sentence explaining it.
+    const harness = mount();
+    harness.send(snapshot({ edges: [], suggested: [{ from: 'alpha', to: 'beta', origin: 'derived', rule: 'shared-subject-phase', evidence: 'both mention “export”' }] }));
+    const banner = harness.root().querySelector('.rm-banner-actionable');
+    expect(banner?.textContent).toContain('Nothing is linked yet');
+    expect(banner?.querySelector('[data-action="roadmap-derive-links"]')).not.toBeNull();
   });
 });

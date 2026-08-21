@@ -137,6 +137,16 @@ describe('sanitizeRoadmapNodeRecord', () => {
     expect(sanitizeRoadmapNodeRecord({ id: 'a', estimateDays: -3 })).not.toHaveProperty('estimateDays');
     expect(sanitizeRoadmapNodeRecord({ id: 'a', estimateDays: 10000 })?.estimateDays).toBe(365);
   });
+
+  it('round-trips a plan path, and refuses one that leaves the workspace', () => {
+    // The path is resolved against the workspace root and opened in the
+    // editor, so a traversal is refused whole rather than repaired.
+    expect(sanitizeRoadmapNodeRecord({ id: 'a', planPath: 'project_memory/roadmap/plans/a-fix.md' })?.planPath)
+      .toBe('project_memory/roadmap/plans/a-fix.md');
+    expect(sanitizeRoadmapNodeRecord({ id: 'a', planPath: '../../outside.md' })).not.toHaveProperty('planPath');
+    expect(sanitizeRoadmapNodeRecord({ id: 'a', planPath: 'C:/x.md' })).not.toHaveProperty('planPath');
+    expect(sanitizeRoadmapNodeRecord({ id: 'a' })).not.toHaveProperty('planPath');
+  });
 });
 
 describe('sanitizeRoadmapEdge', () => {

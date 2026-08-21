@@ -657,12 +657,24 @@ committed plan worth comparing. Delivered work moves to its own chronological ca
 and keeping the links between pieces of work, unless something outstanding still depends on it, in which
 case it stays on the plan as the left-hand end of a route somebody is still walking.
 
+Looking around never rebuilds the page. Pan, zoom and fit apply straight to the canvas transform — the
+full render each zoom step used to trigger rebuilt every page's markup per wheel tick, which is what
+made the canvas feel unresponsive. Zoom is anchored at the cursor (or the frame's centre, from the
+buttons), so the point under it stays under it instead of the plan flying off-screen; a plain wheel
+pans, because the frame does not scroll and letting the wheel fall through scrolled the whole dashboard
+out from under the canvas; Shift turns a single-axis wheel horizontal. The whole card is a drag handle —
+its buttons, chips and fields stay clicks — since most of a card's area is body, and a grab that only
+worked on the title bar read as a canvas that mostly ignored the mouse.
+
 Four toolbar controls arrange the canvas without changing the plan. **Fit all** puts everything on
 screen, measured from the frame the canvas is in and never zooming past 100% to fill space. **Snap to
 grid** applies while you drag rather than on drop, and every layout constant is a multiple of that grid
 so a hand-placed node lines up with an auto-aligned one. **Auto tree** re-flows the tree by *releasing* hand-placed
 positions rather than writing new ones — so the result is the same deterministic layout everybody's copy
-shows, and the next item added lands in its own column; drag a node again to pin it. **→** and **↓**
+shows, and the next item added lands in its own column; drag a node again to pin it. Within a layer,
+siblings sit beside what they wait for — a barycentre pass, so an arrow stays short instead of crossing
+the canvas to reach a dependent that was sorted by priority alone — and edges anchor to each card's
+measured height, so an arrow enters a tall card at its middle rather than above it. **→** and **↓**
 beside it choose the direction, which is stored in the committed plan because which way a graph reads
 best depends on its shape rather than on who is looking; snap-to-grid is remembered per editor, because
 it only changes where your next drag lands. Every arrangement is followed by a fit, computed in the
@@ -670,13 +682,20 @@ webview from the rendered geometry: a re-flow moves every node while pan and zoo
 so on any plan wider than the frame the entire result used to happen out of view — which is why the
 arrange controls read as buttons that did nothing. The same fit runs when the plan gains an item, and
 only on a genuine arrival, so redrawing does not fight the pan of somebody reading a large plan. Where
-nothing is linked yet the canvas states why every item sits at one level: the tree is built from
-accepted links, and a suggestion moves no node by design.
+nothing is linked yet the canvas states why every item sits at one level — the tree is built from
+accepted links, and a suggestion moves no node by design — and the banner that says so carries
+**Calculate tree** itself, because that state is exactly where somebody concludes the canvas cannot make
+a tree.
 
 A drag ends on a `window` listener rather than on the canvas root. Bound to the root, a release over the
 editor tabs, past the edge of the webview, or after a re-render removed the element holding the pointer
 capture left the drag state set permanently — which read as the canvas refusing input. `lostpointercapture`
-covers the innerHTML swap happening mid-drag and a window blur covers an alt-tab away.
+covers a swap that still happens mid-drag and a window blur covers an alt-tab away — but a snapshot
+arriving mid-drag is *held* rather than applied, so a background refresh cannot swap the DOM out from
+under the pointer and eat the gesture; the drag's own end applies the last one held, keeping the dropped
+node where it was dropped. A graph write redraws by rebuilding only the roadmap snapshot and patching it
+into the last full one (`syncRoadmapState`), because recollecting every page — git subprocesses, SSOT and
+testing scans — put seconds between dropping a node and seeing it land.
 
 `layoutRoadmapByAssignee` is a **separate layout**, for the reason `layoutRoadmapCompletion` is: the
 by-person view is a way of *reading* the plan rather than the plan's own arrangement. That decides the
@@ -690,6 +709,16 @@ contact is gone — deleting somebody from the roster is not a statement that th
 unassigned — and validated against the live roster in the host rather than trusted from the webview. **Calculate tree**, carrying the AtlasMind mark, works the
 whole dependency tree out from the wording of the backlog and offers it behind one confirmation naming
 how many links it would add.
+
+Every entry — canvas card and backlog row alike — carries three Atlas hand-offs (`roadmapPlanning.ts`):
+**Plan** files a dedicated markdown plan under `roadmap/plans/` (a deterministic scaffold, created once
+and never overwritten — `wx`), records its path on the item's graph record, and hands the drafting to
+Atlas in chat; **Resolve** hands the work itself over, following the filed plan when there is one; and
+**Completion check** asks for evidence that the item is actually done — a report, never a tick, because
+marking work complete stays a human act on the page. Once filed, the plan is linked from the entry as
+its filing record; the link sends the item's opaque id and the host resolves the path from the record,
+so the page can never name a file. All three prompts fence the item text as reported content, since an
+imported backlog line is third-party text. A delivered entry keeps only the Completion check.
 
 The graph is an overlay. `improvement-plan.md` remains the one file that says what the work is; the
 deadlines, positions and links live in `roadmap-graph.json` beside it, keyed on a durable id the backlog

@@ -39,6 +39,7 @@ import path from 'node:path';
 
 import { interpretVersionedDocument, type VersionedDocumentRead } from './schemaMigration.js';
 import type { RoadmapImportRecord } from './roadmapImport.js';
+import { sanitizeRoadmapPlanPath } from './roadmapPlanning.js';
 import {
   MAX_ROADMAP_GRAPH_NODES,
   ROADMAP_EDGE_RULES,
@@ -239,6 +240,10 @@ export function sanitizeRoadmapNodeRecord(value: unknown): RoadmapNodeRecord | u
   const position = sanitizePosition(record['position']);
   const origin = sanitizeRoadmapOrigin(record['origin']);
   const imported = sanitizeRoadmapImport(record['imported']);
+  // Validated, never cleaned: the value is resolved against the workspace root
+  // and opened in the editor, so a traversal or an absolute path is refused
+  // whole rather than repaired into something plausible.
+  const planPath = sanitizeRoadmapPlanPath(record['planPath']);
 
   return {
     id,
@@ -258,6 +263,7 @@ export function sanitizeRoadmapNodeRecord(value: unknown): RoadmapNodeRecord | u
     ...(completedBy === undefined ? {} : { completedBy }),
     ...(position === undefined ? {} : { position }),
     ...(imported === undefined ? {} : { imported }),
+    ...(planPath === undefined ? {} : { planPath }),
     ...(origin === undefined ? {} : { origin }),
   };
 }
