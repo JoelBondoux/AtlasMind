@@ -2165,3 +2165,59 @@ describe('the run strip’s axis labels', () => {
     expect(ribbon).toContain('stamps.length < 2');
   });
 });
+
+/**
+ * How the project numbers its software across branches.
+ *
+ * The property worth protecting is the one that is easiest to lose to
+ * helpfulness: a project that has declared nothing must be told so, rather than
+ * shown a scheme AtlasMind picked for it. A recommendation rendered as though it
+ * were the policy would be indistinguishable, on screen, from a decision
+ * somebody made.
+ */
+describe('the Release page states how versions are numbered', () => {
+  const source = (): string => renderSource('renderRelease', 'renderPipeline');
+  const rendered = (): string => source()
+    .split('\n')
+    .filter(line => !line.trim().startsWith('//'))
+    .join('\n');
+
+  it('reads the plan and its rule from the host, and computes neither', () => {
+    expect(rendered()).toContain('rel.versioning');
+    expect(rendered()).toContain('versioning.plan');
+    expect(HOST_PANEL).toContain('deriveVersionPlan({');
+    expect(HOST_PANEL).toContain('describeVersionPlan(versionPlan)');
+  });
+
+  it('says "not declared" rather than showing a scheme nobody chose', () => {
+    expect(rendered()).toContain('not declared');
+    expect(rendered()).toContain('has not declared how it versions');
+    // The recommendation is offered by the host only in that case, so a project
+    // with a policy never sees a second one beside it reading as a correction.
+    expect(HOST_PANEL).toContain('input.versioningPolicy !== undefined ? {} : {');
+    expect(HOST_PANEL).toContain('recommended: recommendedVersioningPolicy({');
+  });
+
+  it('names the file a policy is adopted in, because that is the whole decision', () => {
+    expect(rendered()).toContain('workflow.json');
+  });
+
+  it('shows what each declared branch produces, and where it publishes', () => {
+    expect(rendered()).toContain('channel.branch');
+    expect(rendered()).toContain('channel.distTag');
+    expect(rendered()).toContain('channel.prerelease');
+    expect(rendered()).toContain('finished versions');
+  });
+
+  it('carries the notes, so a reading taken without tags says so', () => {
+    expect(rendered()).toContain('vPlan.notes');
+  });
+
+  it('publishes the rule table the plan was graded by', () => {
+    expect(HOST_PANEL).toContain('Object.entries(VERSION_PLAN_RULES)');
+  });
+
+  it('promises that nothing here writes or tags a version', () => {
+    expect(rendered()).toMatch(/never writes|Nothing here writes|is a reading/);
+  });
+});

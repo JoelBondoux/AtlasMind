@@ -19,6 +19,35 @@ Older entries below describe the software as it was at the time and are delibera
 
 ---
 
+## v0.377.0 — One release line, several branches
+
+A project with more than one branch has one release line and several points on its way out. AtlasMind
+only ever knew one number — the manifest's — so every delivery stage in the header reported whatever that
+branch's copy of `package.json` happened to say. That is a fact about merge order, not about what is
+deployed anywhere.
+
+**You can now say how the project versions.** A `versioning` block in
+`project_memory/operations/workflow.json` declares three things, which is how the practice actually
+divides: a **scheme** (SemVer where there is an API contract to promise, CalVer where there is not), a
+**source** for the number (derived from the last tag at release time, or held in the manifest by choice),
+and a map from **branch to release channel** — the part that only exists once there is more than one
+branch, and the part most projects leave implicit.
+
+The Release page shows what the checked-out branch would produce next, and the declared rule that decided
+it. The header names the channel each branch publishes to.
+
+**Nothing is assumed.** A project that has declared no policy is told exactly that, and shown what would
+be suggested for the branches it already has. Adopting it means editing that file, so the decision arrives
+as a diff with a reviewer rather than as a default nobody saw. And nothing on this path writes a version,
+tags anything or publishes: the next version is a reading, printed beside the rule that produced it.
+
+**One fix worth naming.** Comparing versions discarded the pre-release suffix, so `1.5.0-rc.1` and
+`1.5.0` compared equal. The release gate that exists to prevent publishing the same version twice asks
+exactly that question — so it would refuse the one release that had never been published, while a
+candidate read as already out. Version comparison now follows the SemVer specification in full.
+
+---
+
 ## v0.376.0 — Controls that visibly do the thing
 
 Three roadmap-canvas controls that were reported as doing nothing. One of them genuinely did nothing you

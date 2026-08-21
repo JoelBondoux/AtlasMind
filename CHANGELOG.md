@@ -6,6 +6,48 @@ The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/),
 
 ## [Unreleased]
 
+## [0.377.0] - 2026-08-20
+
+### Added
+
+- **A project can declare how it numbers its software across branches, and the dashboard reads it.**
+  AtlasMind could already classify a commit range into a bump level, increment a release line, and say
+  which version sits on which delivery stage. What it had nowhere to put was the decision joining those
+  three — that `develop` produces `1.5.0-beta.3`, that `main` produces `1.5.0`, and that those are the
+  same release line at two points on its way out. A project with four branches therefore had exactly one
+  version, the manifest's, and every stage reported whatever that branch's copy of it happened to say,
+  which is a fact about merge order rather than about what is deployed anywhere.
+
+  A `versioning` block in `project_memory/operations/workflow.json` now declares three things: a scheme
+  (SemVer, or CalVer where there is no API contract to promise), where the number comes from (the last
+  tag, or the manifest), and a map from branch to release channel. The Release page shows what the
+  checked-out branch would produce next and the declared rule that decided it; the header names the
+  channel each branch publishes to.
+
+  Nothing is assumed. A project that has declared no policy is told so, and shown what AtlasMind would
+  suggest for the branches it already has — adopting it means editing that file, which arrives as a diff
+  somebody reviews rather than a default nobody saw. Nothing here writes a version, tags anything, or
+  publishes; the next version is a reading, printed beside the rule that produced it so it can be argued
+  with.
+
+### Fixed
+
+- **A release candidate could read as already published, and the release that followed it as not ahead
+  of the candidate.** `compareSemver` discarded the pre-release suffix, so `1.5.0-rc.1` and `1.5.0`
+  compared *equal*. That is not a rounding error on a field nobody uses: the `version-ahead` release gate
+  asks exactly this question of exactly these values, so the gate that exists to prevent a double publish
+  would refuse the one release that had never been published. It now implements SemVer §11 precedence in
+  full — pre-release ordering, numeric identifiers compared numerically, build metadata ignored — with
+  the specification's own worked example asserted in the suite.
+
+### Changed
+
+- **The three version primitives moved to `src/core/semver.ts`.** `compareSemver`, `bumpVersion` and
+  `classifyBumpLevel` lived in `promotionRunner.ts`, which imports `child_process`, `fs` and `https`
+  because it *runs* promotions — so importing a version comparison pulled a process spawner in behind it.
+  `promotionRunner` re-exports all three, so every existing import still resolves and there is still
+  exactly one implementation of what a version means.
+
 ## [0.376.0] - 2026-08-20
 
 ### Fixed

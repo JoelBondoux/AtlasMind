@@ -4,10 +4,12 @@ import {
   sanitizeWorkflowConfig,
   applyWorkflowConfigEdit,
   renderWorkflowMarkdown,
+  validateWorkflowConfig,
   DEFAULT_BRANCH_TYPES,
   type WorkflowConfig,
 } from '../../src/core/workflowConfig';
 import { WORKFLOW_STAGE_IDS } from '../../src/core/workflowCurriculum';
+import { recommendedVersioningPolicy } from '../../src/core/versioningPolicy';
 
 const seeded = (): WorkflowConfig => seedWorkflowConfig({ profile: 'solo' });
 
@@ -288,5 +290,66 @@ describe('the integration branch is never in the protected set', () => {
     const result = applyWorkflowConfigEdit(config, { releaseBranch: 'production' });
     expect(result.config.branches.protected).toContain('production');
     expect(result.config.branches.protected).not.toContain('develop');
+  });
+});
+
+describe('workflow config — versioning policy', () => {
+  const declared = recommendedVersioningPolicy({ integrationBranch: 'develop', releaseBranch: 'main' });
+
+  it('is not seeded, because a project must not acquire a scheme nobody chose', () => {
+    // `versioningPolicy` rule 3, enforced at the one place it could be broken by
+    // convenience: seeding a sensible default here would mean every project ever
+    // opened is graded against SemVer whether or not anyone agreed to it.
+    expect(seeded().versioning).toBeUndefined();
+  });
+
+  it('survives a round trip through the sanitizer', () => {
+    const config = { ...seeded(), versioning: declared };
+    const round = sanitizeWorkflowConfig(JSON.parse(JSON.stringify(config)));
+    expect(round?.versioning).toEqual(declared);
+  });
+
+  it('leaves the field absent when the file does not carry one', () => {
+    const round = sanitizeWorkflowConfig(JSON.parse(JSON.stringify(seeded())));
+    expect(round).toBeDefined();
+    expect('versioning' in round!).toBe(false);
+  });
+
+  it('drops an unusable policy rather than the whole document', () => {
+    const round = sanitizeWorkflowConfig({ ...JSON.parse(JSON.stringify(seeded())), versioning: { scheme: 'lunar' } });
+    expect(round).toBeDefined();
+    expect(round?.versioning).toBeUndefined();
+    expect(round?.stages.length).toBe(WORKFLOW_STAGE_IDS.length);
+  });
+
+  it('does not sweep a known key into `extra`', () => {
+    // `versioning` must be in the known-key set, or an older build would file it
+    // under `extra` and a newer one would then read two copies of it.
+    const round = sanitizeWorkflowConfig({ ...JSON.parse(JSON.stringify(seeded())), versioning: declared });
+    expect(round?.extra?.['versioning']).toBeUndefined();
+  });
+
+  it('publishes the policy in the markdown mirror', () => {
+    const markdown = renderWorkflowMarkdown({ ...seeded(), versioning: declared });
+    expect(markdown).toContain('**Versioning:**');
+    expect(markdown).toContain('| Channel | Branch | Produces | Publishes to |');
+    expect(markdown).toContain('Release candidate');
+    expect(markdown).toContain('pre-releases');
+  });
+
+  it('says so in the mirror when no policy is declared', () => {
+    // Rendering nothing would make an undeclared policy indistinguishable from
+    // an empty one, and only one of those is a decision worth reading.
+    expect(renderWorkflowMarkdown(seeded())).toContain('not declared');
+  });
+
+  it('reports a channel naming a branch this repository does not have', () => {
+    const problems = validateWorkflowConfig({ ...seeded(), versioning: declared }, { knownBranches: ['main'] });
+    expect(problems.some(problem => problem.detail.includes('develop'))).toBe(true);
+  });
+
+  it('says nothing about versioning when no policy is declared', () => {
+    const problems = validateWorkflowConfig(seeded(), { knownBranches: ['main'] });
+    expect(problems.some(problem => problem.detail.toLowerCase().includes('channel'))).toBe(false);
   });
 });

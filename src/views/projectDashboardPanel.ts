@@ -99,6 +99,14 @@ import { readResearchSettings, researchAttentionInput } from '../core/researchSe
 import { detectResearchSources } from '../core/researchSources.js';
 import { buildVersionStrip, type VersionStrip } from '../core/versionStrip.js';
 import {
+  deriveVersionPlan,
+  describeVersionPlan,
+  recommendedVersioningPolicy,
+  VERSION_PLAN_RULES,
+  type VersioningPolicy,
+  type VersionPlan,
+} from '../core/versioningPolicy.js';
+import {
   deriveBranchMetrics,
   deriveCiMetrics,
   deriveDoraMetrics,
@@ -2004,9 +2012,32 @@ interface DashboardReleaseSnapshot {
   dora: DoraMetrics;
   /** The rule the change-failure number applied, shown wherever it is shown. */
   changeFailureRule: string;
+  /**
+   * How this project numbers its software, and what the checked-out branch
+   * would produce next. Always present: an undeclared policy is a reading
+   * worth showing, not an empty card.
+   */
+  versioning: DashboardVersioningSnapshot;
   loadedAt?: string;
   /** Why the release list could not be read, when it could not. */
   loadFailure?: string;
+}
+
+/**
+ * The versioning policy as the Release page shows it.
+ *
+ * `recommended` is populated only when nothing is declared, and it is a
+ * suggestion the page presents rather than a policy anything acts on:
+ * `versioningPolicy` rule 3 puts adopting it in the hands of whoever edits
+ * the workflow file. `rules` travels with the plan so the card publishes the
+ * table that graded it rather than a copy that drifts.
+ */
+interface DashboardVersioningSnapshot {
+  plan: VersionPlan;
+  summary: string;
+  policy?: VersioningPolicy;
+  recommended?: VersioningPolicy;
+  rules: Array<{ id: string; text: string }>;
 }
 
 /**
@@ -13008,6 +13039,9 @@ function buildGuidedWorkflowSnapshot(input: {
         // one whose assignee has gone.
         problems: validateWorkflowConfig(input.workflowConfig, {
           ...(input.knownAgentIds === undefined ? {} : { knownAgentIds: input.knownAgentIds }),
+          // So a versioning channel naming a branch nobody created is reported
+          // here rather than discovered at tag time.
+          knownBranches: input.gitSnapshot.branches.map(branch => branch.name),
         }),
         blockers: Object.fromEntries(
           input.workflowConfig.stages.map(stage => [stage.id, stageBlockers(stage)]),
@@ -13105,6 +13139,13 @@ function buildReleaseSnapshot(input: {
   testingCoverage?: TestingPolicyCoverage;
   loadedAt?: string;
   loadFailure?: string;
+  /** The project's declared versioning policy. Absent means undeclared. */
+  versioningPolicy?: VersioningPolicy;
+  /** The checked-out branch, which decides which channel the plan is for. */
+  currentBranch: string;
+  /** Used only to shape the recommendation offered when nothing is declared. */
+  integrationBranch: string;
+  releaseBranch: string;
   now: number;
 }): DashboardReleaseSnapshot {
   // The most recent published release, by publish date rather than by list
@@ -13141,11 +13182,38 @@ function buildReleaseSnapshot(input: {
     }),
   });
 
+  // Built on the last *published* release wherever one is readable, which is
+  // what the release gate already reasons about, so the two cannot disagree
+  // about which line is being prepared.
+  const versionPlan = deriveVersionPlan({
+    ...(input.versioningPolicy === undefined ? {} : { policy: input.versioningPolicy }),
+    currentBranch: input.currentBranch,
+    manifestVersion: input.packageVersion,
+    ...(input.tags === undefined ? {} : { existingTags: input.tags }),
+    commitSubjects: input.commitSubjects,
+    ...(lastReleased === undefined ? {} : { lastStableVersion: lastReleased }),
+    now: input.now,
+  });
+
   return {
     releases: [...(input.releases ?? [])],
     tags: [...(input.tags ?? [])],
     plan,
     planSummary: describeReleasePlan(plan),
+    versioning: {
+      plan: versionPlan,
+      summary: describeVersionPlan(versionPlan),
+      ...(input.versioningPolicy === undefined ? {} : { policy: input.versioningPolicy }),
+      // Offered only where nothing is declared. A recommendation shown beside
+      // a policy somebody chose reads as a correction to it.
+      ...(input.versioningPolicy !== undefined ? {} : {
+        recommended: recommendedVersioningPolicy({
+          integrationBranch: input.integrationBranch,
+          releaseBranch: input.releaseBranch,
+        }),
+      }),
+      rules: Object.entries(VERSION_PLAN_RULES).map(([id, text]) => ({ id, text })),
+    },
     gateView: buildReleaseGateView(plan.gates),
     dora: deriveDoraMetrics({
       releases: input.releases ?? [],
@@ -13764,6 +13832,11 @@ async function collectDashboardSnapshot(
       workingVersion: packageSnapshot.version,
       workingTreeDirty: gitSnapshot.dirty,
       currentBranch: gitSnapshot.currentBranch,
+      // Channels come from the declared policy or not at all: a pill reading
+      // `beta` on a project that never chose a channel model would be the
+      // header asserting a release process nobody adopted.
+      ...(workflowConfigManager?.getConfig()?.versioning === undefined
+        ? {} : { policy: workflowConfigManager!.getConfig()!.versioning! }),
       ...(versionSnapshot.production === undefined ? {} : {
         production: {
           branch: versionSnapshot.production.branch,
@@ -13897,6 +13970,13 @@ async function collectDashboardSnapshot(
       // Already derived for the Testing page on this same pass, so the release
       // gate and the page it would send you to cannot disagree about a number.
       ...(testingSnapshot.policyCoverage === undefined ? {} : { testingCoverage: testingSnapshot.policyCoverage }),
+      // Read from the committed workflow file, which is where a team declares
+      // it. Absent means undeclared, and nothing downstream substitutes one.
+      ...(workflowConfigManager?.getConfig()?.versioning === undefined
+        ? {} : { versioningPolicy: workflowConfigManager!.getConfig()!.versioning! }),
+      currentBranch: gitSnapshot.currentBranch,
+      integrationBranch: workflowConfigManager?.getConfig()?.branches.integration ?? 'develop',
+      releaseBranch: workflowConfigManager?.getConfig()?.branches.release ?? 'main',
       now: Date.now(),
     }),
     githubLinks: buildGithubLinksSnapshot(gitSnapshot.remoteUrl ?? issues.repoSlug),
@@ -20717,6 +20797,18 @@ const DASHBOARD_CSS = `
 
   .dashboard-version-pill-muted {
     color: var(--dash-muted);
+  }
+
+  /* The release channel a branch produces, shown only where the project
+     declared one. Set in the accent rather than filled, so it reads as a
+     label on the version beside it and not as a status of its own. */
+  .dashboard-version-pill-channel {
+    padding: 1px 7px;
+    border-radius: 999px;
+    border: 1px solid color-mix(in srgb, var(--dash-accent-strong) 45%, var(--dash-border));
+    color: var(--dash-muted);
+    font-size: 11px;
+    letter-spacing: 0.02em;
   }
 
   /* The stage you are standing in. An outline rather than a fill: the strip is

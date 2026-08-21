@@ -3678,11 +3678,17 @@
     const value = pill.version
       ? `<span>v${escapeHtml(pill.version)}</span>`
       : '<span class="dashboard-version-pill-muted">no version</span>';
+    // Present only where a declared policy names a channel for this branch.
+    // A project that never chose a channel model shows none, rather than a
+    // guessed `beta` that would assert a release process nobody adopted.
+    const channel = pill.channel
+      ? `<span class="dashboard-version-pill-channel" title="${escapeAttr('Publishes to ' + pill.channel.distTag)}">${escapeHtml(pill.channel.label)}</span>`
+      : '';
     return `
       <span class="${classes.join(' ')}"${pill.note ? ` title="${escapeAttr(pill.note)}"` : ''}>
         <strong>${escapeHtml(pill.label)}</strong>
         <span class="dashboard-version-pill-muted">${escapeHtml(pill.ref)}</span>
-        ${value}${pill.isDirty ? '<span class="dashboard-version-pill-dirty" aria-label="uncommitted changes">•</span>' : ''}
+        ${value}${channel}${pill.isDirty ? '<span class="dashboard-version-pill-dirty" aria-label="uncommitted changes">•</span>' : ''}
       </span>
     `;
   }
@@ -7224,6 +7230,65 @@
           : ''}
       </article>`;
 
+    // How this project numbers its software across branches. Distinct from
+    // the Version card beside it: that one reports *this* release, this one
+    // reports the rule that produced it and what every other branch makes.
+    const versioning = rel.versioning || {};
+    const vPlan = versioning.plan || { notes: [], rule: {} };
+    const declaredPolicy = versioning.policy;
+    const shownPolicy = declaredPolicy || versioning.recommended;
+
+    const channelRows = ((shownPolicy && shownPolicy.channels) || []).map(channel => `
+      <div class="recent-item">
+        <div class="row-head">
+          <strong>${escapeHtml(channel.label)}</strong>
+          <span class="tag">${escapeHtml(channel.branch)}</span>
+        </div>
+        <div class="list-meta">${channel.prerelease
+          ? escapeHtml('Produces -' + channel.prerelease + '.N pre-releases')
+          : 'Produces finished versions'} · publishes to <code>${escapeHtml(channel.distTag)}</code></div>
+      </div>`).join('');
+
+    const versioningHelp = renderWorkflowHelp('release.versioning', {
+      label: 'how versioning works across branches',
+      why: 'A project with several branches has one release line, not one number per branch. The professional norm is three decisions: a scheme (SemVer where there is an API contract to promise, CalVer where there is not), a source for the number (derived from the last tag at release time, or held in the manifest), and a map from branch to release channel. The third is the one that only exists once there is more than one branch, and the one most projects leave implicit.',
+      how: [
+        { text: 'A version is minted once and only gains identity as it moves forward. 1.5.0-beta.3, then 1.5.0-rc.1, then 1.5.0 are the same release line at three points on its way out — the artifact does not change, only what it is called and who can install it.' },
+        { text: 'The branch chooses the channel, never the number. That is why the channel map is keyed on the same branches the Delivery page already models: the header, that page and this card cannot end up with three opinions about what develop produces.' },
+        { text: 'A feature branch produces no version at all. That is the normal case, not a gap.' },
+        { text: 'Nothing here writes a version, tags anything, or publishes. The next version is a reading, and the rule that produced it is printed beside it so it can be argued with.' },
+      ],
+      commonMistakes: [
+        'Bumping the number again when promoting a release candidate, so the version that ships is not the one that was tested.',
+        'Letting a pre-release and its finished version compare as equal, which makes a candidate look already published.',
+        'Assuming a scheme nobody declared, and then grading the project against it.',
+      ],
+    });
+
+    const versioningCard = `
+      <article class="panel-card">
+        <div class="row-head">
+          <p class="card-kicker">Versioning${versioningHelp.button}</p>
+          <span class="tag ${declaredPolicy ? '' : 'tag-warn'}">${declaredPolicy ? escapeHtml(declaredPolicy.scheme) : 'not declared'}</span>
+        </div>
+        ${versioningHelp.panel}
+        ${declaredPolicy
+          ? `<div class="mini-grid">
+              ${renderMetricPill('Scheme', declaredPolicy.scheme)}
+              ${renderMetricPill('Numbered from', declaredPolicy.source === 'tag' ? 'the last tag' : 'the manifest')}
+              ${renderMetricPill('This branch makes', vPlan.nextVersion || 'no version', { tone: vPlan.nextVersion ? '' : 'warn' })}
+            </div>
+            <p class="stat-detail">${escapeHtml(versioning.summary || '')}</p>`
+          : `<div class="dashboard-empty"><div>
+              <strong>This project has not declared how it versions</strong>
+              <p class="section-copy">AtlasMind is not assuming a scheme. Below is what it would suggest for the branches this repository already has — adopting it means adding a <code>versioning</code> block to <code>project_memory/operations/workflow.json</code>, which arrives as a diff somebody reviews rather than a default nobody saw.</p>
+            </div></div>`}
+        ${channelRows ? `<div class="stack-list">${channelRows}</div>` : ''}
+        ${(vPlan.notes || []).length
+          ? `<p class="stat-detail wf-unknown">${escapeHtml(vPlan.notes.join(' '))}</p>`
+          : ''}
+      </article>`;
+
     const notesCard = `
       <article class="panel-card">
         <p class="card-kicker">Release notes</p>
@@ -7318,7 +7383,10 @@
         ${versionCard}
       </div>
       <div class="panel-grid">
+        ${versioningCard}
         ${notesCard}
+      </div>
+      <div class="panel-grid">
         ${doraCard}
       </div>
       ${frequencyChart}

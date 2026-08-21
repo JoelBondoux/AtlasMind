@@ -40,6 +40,11 @@ import { readFileSync } from 'node:fs';
 import { mkdir, writeFile } from 'node:fs/promises';
 import path from 'node:path';
 
+import {
+  sanitizeVersioningPolicy,
+  validateVersioningPolicy,
+  type VersioningPolicy,
+} from './versioningPolicy.js';
 import { interpretVersionedDocument, type VersionedDocumentRead } from './schemaMigration.js';
 import { WORKFLOW_STAGE_IDS, type WorkflowStageId } from './workflowCurriculum.js';
 import { normalizeAutomationLevel, type AutomationLevel } from './workflowAutomation.js';
@@ -148,6 +153,21 @@ export interface WorkflowConfig {
    * Per-stage exceptions go in `stages[].testingOverrides`.
    */
   testing: { inherit: true };
+  /**
+   * How the project numbers its software across branches.
+   *
+   * Optional, and **absent means undeclared** rather than "use the default"
+   * - `versioningPolicy` rule 3. A project that never chose a scheme must not
+   * be graded against one, so nothing here is seeded: the surfaces offer
+   * `recommendedVersioningPolicy`, and adopting it stays a decision somebody
+   * makes, arriving as a diff on this file.
+   *
+   * It lives here rather than in settings for the reason the label taxonomy
+   * does: a versioning scheme is a statement about how a *team* works, and a
+   * per-user setting would let two people on one repository disagree about
+   * what `develop` produces, with nothing to arbitrate.
+   */
+  versioning?: VersioningPolicy;
   stages: WorkflowStageConfig[];
   updatedAt?: string;
   /**
@@ -419,8 +439,8 @@ function sanitizeLabelTaxonomy(value: unknown): WorkflowLabelTaxonomy {
 }
 
 const KNOWN_TOP_LEVEL_KEYS = new Set([
-  'version', 'profile', 'status', 'branches', 'naming', 'labels', 'testing', 'stages',
-  'updatedAt', 'extra',
+  'version', 'profile', 'status', 'branches', 'naming', 'labels', 'testing', 'versioning',
+  'stages', 'updatedAt', 'extra',
 ]);
 
 /**
@@ -455,6 +475,11 @@ export function sanitizeWorkflowConfig(input: unknown): WorkflowConfig | undefin
   const maxLengthRaw = Number(namingRaw['maxLength']);
 
   const labels = sanitizeLabelTaxonomy(raw['labels']);
+
+  // Absent stays absent. Seeding a default here is the one thing the design
+  // forbids outright: a project would acquire a versioning policy nobody
+  // chose, and every surface downstream would grade it against one.
+  const versioning = sanitizeVersioningPolicy(raw['versioning']);
 
   const stages = sanitizeStages(raw['stages']);
 
@@ -494,6 +519,7 @@ export function sanitizeWorkflowConfig(input: unknown): WorkflowConfig | undefin
     // `testing-config.json` and are deliberately not duplicated, so a reader
     // finding no testing rules in this file knows that is the design.
     testing: { inherit: true },
+    ...(versioning === undefined ? {} : { versioning }),
     stages,
     ...(typeof raw['updatedAt'] === 'string' ? { updatedAt: raw['updatedAt'] } : {}),
     ...(Object.keys(extra).length > 0 ? { extra } : {}),
@@ -835,7 +861,7 @@ export interface WorkflowConfigProblem {
  */
 export function validateWorkflowConfig(
   config: WorkflowConfig,
-  context: { knownAgentIds?: readonly string[] } = {},
+  context: { knownAgentIds?: readonly string[]; knownBranches?: readonly string[] } = {},
 ): WorkflowConfigProblem[] {
   const problems: WorkflowConfigProblem[] = [];
   const known = context.knownAgentIds;
@@ -852,6 +878,16 @@ export function validateWorkflowConfig(
         stageId: stage.id,
         detail: 'Enabled, but its command is empty — so it is blocked. That is the intended behaviour of an empty command, not a fault.',
       });
+    }
+  }
+
+  if (config.versioning) {
+    // Reported here rather than dropped in the sanitizer, so a channel naming
+    // a branch nobody created stays visible as exactly that. A silently
+    // removed channel reads as one nobody declared.
+    const versioning = validateVersioningPolicy(config.versioning, context.knownBranches ?? []);
+    for (const detail of [...versioning.errors, ...versioning.warnings]) {
+      problems.push({ detail });
     }
   }
 
@@ -874,6 +910,49 @@ const LEVEL_NOTE: Record<AutomationLevel, string> = {
   auto: 'writes unattended',
 };
 
+/**
+ * The versioning policy, published so the mirror states the rules that would
+ * grade a version rather than a copy of them that drifts.
+ *
+ * An undeclared policy says so in as many words. It is the one field here
+ * whose absence is a decision worth reading, and rendering nothing would make
+ * it indistinguishable from a policy that happens to be empty.
+ */
+function versioningLines(policy: VersioningPolicy | undefined): string[] {
+  if (!policy) {
+    return ['- **Versioning:** not declared, so AtlasMind derives no version per branch.'];
+  }
+  const code = String.fromCharCode(96);
+  const quoted = (value: string): string => code + value + code;
+  const lines = [
+    '- **Versioning:** '
+      + quoted(policy.scheme)
+      + ', numbered from the '
+      + (policy.source === 'tag' ? 'last tag' : 'manifest') + '.',
+    '- **Bump level:** '
+      + (policy.commitConvention === 'conventional'
+        ? 'read from conventional commits.'
+        : 'chosen by a person.'),
+  ];
+  if (policy.channels.length === 0) {
+    lines.push('- **Channels:** none declared, so no branch produces a version.');
+    return lines;
+  }
+  lines.push('', '| Channel | Branch | Produces | Publishes to |', '|---|---|---|---|');
+  for (const channel of policy.channels) {
+    lines.push([
+      '',
+      channel.label,
+      quoted(channel.branch),
+      channel.prerelease === undefined
+        ? 'finished versions'
+        : quoted('-' + channel.prerelease + '.N') + ' pre-releases',
+      quoted(channel.distTag),
+      '',
+    ].join(' | ').trim());
+  }
+  return lines;
+}
 /** One line per non-empty label category, so empty ones do not add noise. */
 function labelLines(taxonomy: WorkflowLabelTaxonomy): string[] {
   const categories: Array<[string, string[]]> = [
@@ -911,6 +990,7 @@ export function renderWorkflowMarkdown(config: WorkflowConfig): string {
     `- **Branch names:** \`${config.naming.convention}\`, max ${config.naming.maxLength} characters`,
     `- **Types:** ${config.naming.types.join(', ')}`,
     ...labelLines(config.labels),
+    ...versioningLines(config.versioning),
     '',
     'Testing requirements are **not** duplicated here — they come from',
     '`project_memory/index/testing-config.json`. A second copy would drift, and',

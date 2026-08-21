@@ -26,6 +26,12 @@ import * as path from 'node:path';
 import * as https from 'node:https';
 import * as http from 'node:http';
 import { sanitizeCiLog } from './ciFailureAnalysis.js';
+import { bumpVersion, compareSemver, type BumpLevel } from './semver.js';
+
+// Re-exported so every existing import keeps working. The implementations
+// moved to a pure module; see the header there for why.
+export { bumpVersion, classifyBumpLevel, compareSemver } from './semver.js';
+export type { BumpLevel } from './semver.js';
 import type {
   DeliveryConfig,
   PromotionPlan,
@@ -39,7 +45,6 @@ import type {
 } from '../types.js';
 
 /** SemVer level a set of commits warrants. */
-export type BumpLevel = 'patch' | 'minor' | 'major';
 
 const execAsync = promisify(exec);
 /** Argument-array exec (no shell) for AtlasMind-issued git commands — injection-proof. */
@@ -675,69 +680,11 @@ function httpStatus(url: string): Promise<number> {
   });
 }
 
-/**
- * Compare two semver-ish versions. Returns >0 when `a` is newer than `b`,
- * <0 when older, 0 when equal. Pre-release suffixes are ignored.
- */
-export function compareSemver(a: string, b: string): number {
-  const parse = (value: string): number[] =>
-    value.replace(/^v/, '').split('-')[0].split('.').map(part => Number.parseInt(part, 10) || 0);
-  const pa = parse(a);
-  const pb = parse(b);
-  for (let i = 0; i < Math.max(pa.length, pb.length); i++) {
-    const diff = (pa[i] ?? 0) - (pb[i] ?? 0);
-    if (diff !== 0) {
-      return diff;
-    }
-  }
-  return 0;
-}
-
 function slugify(value: string): string {
   return value.toLowerCase().replace(/[^a-z0-9]+/g, '-').replace(/^-+|-+$/g, '') || 'check';
 }
 
 // ── Remediation (Resolve & run) ──────────────────────────────────
-
-/**
- * Assess the SemVer bump level warranted by a set of commit messages, using the
- * conventional-commits convention: a breaking change (`type!:` subject or a
- * `BREAKING CHANGE` footer) ⇒ major; any `feat:` ⇒ minor; otherwise patch. This
- * matches both general SemVer practice and repos whose stated rules follow it.
- */
-export function classifyBumpLevel(commitMessages: readonly string[]): BumpLevel {
-  let level: BumpLevel = 'patch';
-  for (const raw of commitMessages) {
-    const message = (raw ?? '').trim();
-    if (!message) {
-      continue;
-    }
-    const subject = message.split('\n', 1)[0];
-    if (/^[a-z]+(\([^)]*\))?!:/i.test(subject) || /breaking[ -]change/i.test(message)) {
-      return 'major';
-    }
-    if (/^feat(\([^)]*\))?:/i.test(subject)) {
-      level = 'minor';
-    }
-  }
-  return level;
-}
-
-/** Increment a semver-ish version by the given level (pre-release suffixes dropped). */
-export function bumpVersion(base: string, level: BumpLevel): string {
-  const parts = (base ?? '').replace(/^v/, '').split('-')[0].split('.');
-  let major = Number.parseInt(parts[0], 10) || 0;
-  let minor = Number.parseInt(parts[1], 10) || 0;
-  let patch = Number.parseInt(parts[2], 10) || 0;
-  if (level === 'major') {
-    major += 1; minor = 0; patch = 0;
-  } else if (level === 'minor') {
-    minor += 1; patch = 0;
-  } else {
-    patch += 1;
-  }
-  return `${major}.${minor}.${patch}`;
-}
 
 /**
  * Replace only the top-level `"version"` string in a package.json document,
