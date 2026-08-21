@@ -410,6 +410,18 @@
     roadmapLinkFrom: '',
     /** The node open for in-situ editing on the canvas. */
     roadmapEditingNodeId: '',
+    /**
+     * The node whose connections are lit up, after a click on its body.
+     * A way of looking — nothing is sent, and Escape or a click elsewhere
+     * puts the canvas back.
+     */
+    roadmapHighlightNodeId: '',
+    /**
+     * The search filter over the canvas. Matching items stay, along with
+     * everything connected to them; the rest are hidden. Offline, like the
+     * route filter — a way of looking must not be something that can fail.
+     */
+    roadmapSearch: '',
     /** Live drag offsets, so a node follows the pointer before the host has saved. */
     roadmapDragOffsets: {},
     /**
@@ -1167,8 +1179,34 @@
   root?.addEventListener('click', event => {
     const target = event.target instanceof HTMLElement ? event.target.closest('[data-action]') : null;
     if (!(target instanceof HTMLElement)) {
+      /*
+       * A click that hit no control still means something on the canvas: a
+       * card's body lights up that node's connections, and empty canvas puts
+       * everything back. Neither sends a message — highlighting is a way of
+       * looking. A click fired by the tail of a drag is ignored, or every
+       * drop would toggle the very highlight the drag was arranging.
+       */
+      if (rmSuppressNextCanvasClick) {
+        rmSuppressNextCanvasClick = false;
+        return;
+      }
+      const card = event.target instanceof HTMLElement ? event.target.closest('[data-rm-node]') : null;
+      if (card instanceof HTMLElement
+        && !card.classList.contains('rm-node-editing')
+        && !(event.target instanceof HTMLElement && event.target.closest('button, a, input, textarea, select, label'))) {
+        const id = card.getAttribute('data-rm-node') || '';
+        state.roadmapHighlightNodeId = state.roadmapHighlightNodeId === id ? '' : id;
+        rmApplyHighlight();
+        return;
+      }
+      if (state.roadmapHighlightNodeId
+        && event.target instanceof HTMLElement && event.target.closest('[data-rm-frame="true"]')) {
+        state.roadmapHighlightNodeId = '';
+        rmApplyHighlight();
+      }
       return;
     }
+    rmSuppressNextCanvasClick = false;
 
     const action = target.dataset.action;
     const payload = target.dataset.payload || '';
@@ -1498,6 +1536,12 @@
     }
     if (action === 'roadmap-focus-node') {
       state.roadmapFocusNodeId = state.roadmapFocusNodeId === payload ? '' : payload;
+      render();
+      return;
+    }
+    if (action === 'roadmap-search-clear') {
+      state.roadmapSearch = '';
+      state.roadmapFitAfterRender = true;
       render();
       return;
     }
@@ -2756,6 +2800,13 @@
       state.debtSearch = target.value;
       render();
     }
+    if (target instanceof HTMLInputElement && target.id === 'roadmap-search-input') {
+      state.roadmapSearch = target.value;
+      // Re-fit on every narrowing, so the result is always in view — a filter
+      // whose matches land off-screen reads as a filter that found nothing.
+      state.roadmapFitAfterRender = true;
+      render();
+    }
     if (target instanceof HTMLInputElement && target.id === 'privacy-rule-value') {
       state.privacyDraftRule.value = target.value;
       return;
@@ -3030,6 +3081,11 @@
   let rmDrag = null;
   /** A full snapshot that arrived mid-drag, applied when the drag ends. */
   let pendingStateMessage = null;
+  /**
+   * Set when a drag that actually moved releases — the browser still fires a
+   * click for it, and that click must not toggle the highlight.
+   */
+  let rmSuppressNextCanvasClick = false;
   /** Whether a drag repaint is already queued for the next animation frame. */
   let rmPaintScheduled = false;
   /**
@@ -3088,11 +3144,92 @@
   }
 
   /**
+   * Spread edge endpoints along each node's faces.
+   *
+   * With every edge anchored at a face's midpoint, five arrows into one node
+   * arrive as one indistinguishable knot — the single biggest cost on a dense
+   * plan. Each node's incoming and outgoing edges are ordered by where their
+   * counterpart sits on the cross axis and given evenly spaced fractions of
+   * the face, so a fan spreads instead of stacking. Deterministic: ties break
+   * on the edge key.
+   */
+  function rmBuildEdgePorts(edges, nodes) {
+    const orientationVertical = roadmapGraph().orientation === 'vertical';
+    const centreOf = id => {
+      const node = nodes.find(entry => entry.id === id);
+      if (!node) { return 0; }
+      const position = roadmapNodePosition(node);
+      return orientationVertical ? position.x : position.y;
+    };
+    const key = edge => edge.from + '->' + edge.to;
+    const outgoing = new Map();
+    const incoming = new Map();
+    edges.forEach(edge => {
+      (outgoing.get(edge.from) || outgoing.set(edge.from, []).get(edge.from)).push(edge);
+      (incoming.get(edge.to) || incoming.set(edge.to, []).get(edge.to)).push(edge);
+    });
+    const ports = new Map();
+    const spread = (groups, counterpartOf, field) => {
+      groups.forEach(list => {
+        list.sort((a, b) => centreOf(counterpartOf(a)) - centreOf(counterpartOf(b)) || key(a).localeCompare(key(b)));
+        list.forEach((edge, i) => {
+          const entry = ports.get(key(edge)) || {};
+          entry[field] = (i + 1) / (list.length + 1);
+          ports.set(key(edge), entry);
+        });
+      });
+    };
+    spread(outgoing, edge => edge.to, 'exit');
+    spread(incoming, edge => edge.from, 'enter');
+    return ports;
+  }
+
+  /**
+   * Paint the selected node's neighbourhood, without a render.
+   *
+   * Classes only: the focused card, its direct prerequisites and dependents,
+   * and every incident edge light up; everything else dims. Reapplied after
+   * every render and edge redraw, because innerHTML swaps forget classes.
+   */
+  function rmApplyHighlight() {
+    if (!root) {
+      return;
+    }
+    const world = rmWorldEl();
+    if (!(world instanceof HTMLElement)) {
+      return;
+    }
+    const id = state.roadmapHighlightNodeId;
+    const node = id ? roadmapCanvasNodes().find(entry => entry.id === id) : null;
+    if (!node) {
+      world.classList.remove('rm-has-highlight');
+      world.querySelectorAll('.rm-hl-focus, .rm-hl-near, .rm-hl-edge').forEach(el => {
+        el.classList.remove('rm-hl-focus', 'rm-hl-near', 'rm-hl-edge');
+      });
+      return;
+    }
+    const near = new Set((node.prerequisites || []).concat(node.dependents || []));
+    world.classList.add('rm-has-highlight');
+    world.querySelectorAll('[data-rm-node]').forEach(el => {
+      const nodeId = el.getAttribute('data-rm-node') || '';
+      el.classList.toggle('rm-hl-focus', nodeId === id);
+      el.classList.toggle('rm-hl-near', near.has(nodeId));
+    });
+    world.querySelectorAll('.rm-edge').forEach(el => {
+      const from = el.getAttribute('data-rm-from') || '';
+      const to = el.getAttribute('data-rm-to') || '';
+      el.classList.toggle('rm-hl-edge', from === id || to === id);
+    });
+  }
+
+  /**
    * Redraw edges from the current graph and the given node set.
    *
    * `onlyTouchingId` limits the pass to edges attached to one node — the
    * mid-drag case, where redrawing every edge on every pointer move is O(edges
-   * × nodes) and stutters on exactly the large plans a canvas is for.
+   * × nodes) and stutters on exactly the large plans a canvas is for. Ports
+   * are always computed from the *full* drawn set, so a partial repaint never
+   * shifts where an untouched edge meets its node.
    */
   function rmRedrawEdges(nodesOverride, onlyTouchingId) {
     if (!root) {
@@ -3105,13 +3242,18 @@
     const graph = roadmapGraph();
     const nodes = nodesOverride || roadmapCanvasNodes();
     const filter = roadmapRouteFilter();
+    const search = roadmapSearchFilter();
+    const drawable = node => (!search || search.visible.has(node.id));
+    const shown = nodes.filter(drawable);
+    const allVisible = graph.edges.filter(edge =>
+      (!filter || filter.edges.has(edge.from + '->' + edge.to))
+      && shown.some(n => n.id === edge.from) && shown.some(n => n.id === edge.to));
+    const allSuggestions = state.roadmapView === 'completed' || filter ? [] : graph.suggested.filter(edge =>
+      shown.some(n => n.id === edge.from) && shown.some(n => n.id === edge.to));
+    const ports = rmBuildEdgePorts(allVisible.concat(allSuggestions), nodes);
     const touches = edge => !onlyTouchingId || edge.from === onlyTouchingId || edge.to === onlyTouchingId;
-    const visible = graph.edges.filter(edge =>
-      touches(edge)
-      && (!filter || filter.edges.has(edge.from + '->' + edge.to))
-      && nodes.some(n => n.id === edge.from) && nodes.some(n => n.id === edge.to));
-    const suggestions = state.roadmapView === 'completed' || filter ? [] : graph.suggested.filter(edge =>
-      touches(edge) && nodes.some(n => n.id === edge.from) && nodes.some(n => n.id === edge.to));
+    const visible = allVisible.filter(touches);
+    const suggestions = allSuggestions.filter(touches);
     if (onlyTouchingId) {
       const esc = cssEscape(onlyTouchingId);
       svg.querySelectorAll('.rm-edge[data-rm-from="' + esc + '"], .rm-edge[data-rm-to="' + esc + '"]')
@@ -3120,8 +3262,9 @@
       svg.querySelectorAll('.rm-edge').forEach(el => el.remove());
     }
     svg.insertAdjacentHTML('beforeend',
-      visible.map(edge => renderRoadmapEdge(edge, nodes, false)).join('')
-      + suggestions.map(edge => renderRoadmapEdge(edge, nodes, true)).join(''));
+      visible.map(edge => renderRoadmapEdge(edge, nodes, false, ports)).join('')
+      + suggestions.map(edge => renderRoadmapEdge(edge, nodes, true, ports)).join(''));
+    rmApplyHighlight();
   }
 
   /** Redraw only the dragged node and its own edges — a full render mid-drag stutters. */
@@ -3229,6 +3372,9 @@
     }
     const finished = rmDrag;
     rmDrag = null;
+    if (finished.moved) {
+      rmSuppressNextCanvasClick = true;
+    }
     const movedNode = finished.kind === 'node' && finished.moved;
     if (movedNode) {
       // Held locally as well as sent, so the node stays where it was dropped
@@ -3306,6 +3452,14 @@
 
   document.addEventListener('keydown', event => {
     if (event.key !== 'Escape') {
+      return;
+    }
+    // The highlight is the lightest state, so Escape sheds it first and on its
+    // own — pressing Escape to un-dim the canvas must not also tear down a
+    // route filter somebody set deliberately.
+    if (state.roadmapHighlightNodeId) {
+      state.roadmapHighlightNodeId = '';
+      rmApplyHighlight();
       return;
     }
     if (state.roadmapLinkFrom || state.roadmapEditingNodeId || state.roadmapFocusNodeId) {
@@ -3423,6 +3577,7 @@
     if (active && (active.id === 'test-search-input' || active.id === 'issue-search-input'
       || active.id === 'branch-search-input'
       || active.id === 'debt-search-input'
+      || active.id === 'roadmap-search-input'
       || (active instanceof HTMLTextAreaElement && active.hasAttribute('data-roadmap-draft')))) {
       activeId = active.id || (active.hasAttribute('data-roadmap-draft') ? 'roadmap-draft' : null);
       isTextarea = active instanceof HTMLTextAreaElement;
@@ -3503,7 +3658,8 @@
         let el = null;
         if (activeId === 'test-search-input' || activeId === 'issue-search-input'
           || activeId === 'branch-search-input'
-          || activeId === 'debt-search-input') {
+          || activeId === 'debt-search-input'
+          || activeId === 'roadmap-search-input') {
           el = document.getElementById(activeId);
         } else if (activeId === 'roadmap-draft') {
           el = document.querySelector('textarea[data-roadmap-draft]');
@@ -3553,8 +3709,10 @@
       applyValueAnimations();
       bindPipelineGraph();
       // Edges were rendered before the nodes had any geometry; re-anchor them
-      // to the heights the cards actually laid out at.
+      // to the heights the cards actually laid out at, and put the highlight
+      // classes back — an innerHTML swap forgets them.
       rmSyncMeasuredEdges();
+      rmApplyHighlight();
       /*
        * Fit the canvas once, now that the nodes it measures actually exist in
        * the DOM. `fitRoadmapCanvas` reads laid-out geometry, so it cannot run
@@ -11143,6 +11301,41 @@
     return offset ? offset : node.position;
   }
 
+  /**
+   * The search filter: matching items, plus everything connected to them.
+   *
+   * The connected closure is the point — a match shown without its
+   * prerequisites and dependents answers "where is it?" but not the question
+   * this canvas exists for, "what does it wait on, and what waits on it?".
+   * Null when inactive, like the route filter, so callers keep one obvious
+   * "show everything" branch. Entirely offline.
+   */
+  function roadmapSearchFilter() {
+    const query = String(state.roadmapSearch || '').trim().toLowerCase();
+    if (query.length === 0 || state.roadmapView === 'completed') {
+      return null;
+    }
+    const all = roadmapCanvasNodes();
+    const matches = all.filter(node => String(node.text).toLowerCase().indexOf(query) >= 0);
+    const byId = new Map(all.map(node => [node.id, node]));
+    const visible = new Set();
+    const stack = matches.map(node => node.id);
+    while (stack.length > 0) {
+      const id = stack.pop();
+      if (visible.has(id) || !byId.has(id)) {
+        continue;
+      }
+      visible.add(id);
+      const node = byId.get(id);
+      (node.prerequisites || []).concat(node.dependents || []).forEach(neighbour => {
+        if (!visible.has(neighbour)) {
+          stack.push(neighbour);
+        }
+      });
+    }
+    return { visible, matches: matches.length, total: all.length, query };
+  }
+
   function renderRoadmapViewBar(roadmap) {
     const graph = roadmapGraph();
     const views = [
@@ -11174,8 +11367,10 @@
   function renderRoadmapCanvas() {
     const graph = roadmapGraph();
     const filter = roadmapRouteFilter();
+    const search = roadmapSearchFilter();
     const allNodes = roadmapCanvasNodes();
-    const nodes = filter ? allNodes.filter(node => filter.nodes.has(node.id)) : allNodes;
+    const routed = filter ? allNodes.filter(node => filter.nodes.has(node.id)) : allNodes;
+    const nodes = search ? routed.filter(node => search.visible.has(node.id)) : routed;
     const focusNode = filter ? allNodes.find(node => node.id === state.roadmapFocusNodeId) : null;
 
     // The world is sized to the content it holds, so panning has somewhere to go
@@ -11197,6 +11392,7 @@
     const visibleSuggestions = state.roadmapView === 'completed' || filter
       ? []
       : graph.suggested.filter(edge => nodes.some(n => n.id === edge.from) && nodes.some(n => n.id === edge.to));
+    const edgePorts = rmBuildEdgePorts(visibleEdges.concat(visibleSuggestions), nodes);
 
     return `
       <article class="panel-card rm-canvas-card">
@@ -11216,13 +11412,15 @@
                   <path d="M0,0 L9,4.5 L0,9 z" class="rm-arrow-head rm-arrow-head-suggested" />
                 </marker>
               </defs>
-              ${visibleEdges.map(edge => renderRoadmapEdge(edge, nodes, false)).join('')}
-              ${visibleSuggestions.map(edge => renderRoadmapEdge(edge, nodes, true)).join('')}
+              ${visibleEdges.map(edge => renderRoadmapEdge(edge, nodes, false, edgePorts)).join('')}
+              ${visibleSuggestions.map(edge => renderRoadmapEdge(edge, nodes, true, edgePorts)).join('')}
             </svg>
             ${renderRoadmapLaneBands(graph)}
             ${nodes.length > 0
               ? nodes.map(node => renderRoadmapNode(node, graph)).join('')
-              : '<div class="rm-empty"><strong>Nothing to draw yet</strong><p class="section-copy">Add a backlog item, or switch to the prioritised backlog to write the first one.</p></div>'}
+              : search
+                ? `<div class="rm-empty"><strong>${escapeHtml(`No item matches “${search.query}”`)}</strong><p class="section-copy">Nothing on the plan contains that text. Clear the search to see the whole plan again.</p></div>`
+                : '<div class="rm-empty"><strong>Nothing to draw yet</strong><p class="section-copy">Add a backlog item, or switch to the prioritised backlog to write the first one.</p></div>'}
           </div>
         </div>
         ${renderRoadmapCanvasFooter(graph, visibleSuggestions)}
@@ -11284,6 +11482,13 @@
             <span class="list-meta">${escapeHtml(`${shownCount} of ${totalCount} items · ${filter.route.routeDays}d of work left · ${filter.route.completedCount} already delivered`)}</span>
           ` : ''}
           ${linking ? `<span class="rm-filter-chip rm-linking" title="${escapeAttr('Click “Needs this” on the item that has to wait, or press Escape to cancel.')}">Linking from “${escapeHtml(String(linking.text).slice(0, 32))}…”<button type="button" class="rm-chip-clear" data-action="roadmap-link-cancel" aria-label="Cancel linking">×</button></span>` : ''}
+          ${state.roadmapView === 'completed' ? '' : `
+            <span class="rm-search">
+              <input id="roadmap-search-input" type="search" placeholder="Search the plan…"
+                value="${escapeAttr(state.roadmapSearch || '')}" aria-label="Search roadmap items"
+                title="${escapeAttr('Show only items whose text matches, plus everything connected to them — what they wait on and what waits on them. A way of looking; nothing is changed.')}" />
+              ${roadmapSearchFilter() ? `<span class="list-meta">${escapeHtml(`${shownCount} of ${totalCount}`)}</span><button type="button" class="rm-chip-clear" data-action="roadmap-search-clear" aria-label="Clear the search">×</button>` : ''}
+            </span>`}
           ${state.roadmapView === 'completed' ? '' : `
             <button type="button" class="action-link${graph.suggestLinks ? ' is-on' : ''}" data-action="roadmap-suggest-toggle"
               aria-pressed="${graph.suggestLinks ? 'true' : 'false'}"
@@ -11525,7 +11730,7 @@
    * because the control points lean outward by a fixed amount rather than by a
    * fraction of a distance that can be zero.
    */
-  function renderRoadmapEdge(edge, nodes, suggested) {
+  function renderRoadmapEdge(edge, nodes, suggested, ports) {
     const from = nodes.find(node => node.id === edge.from);
     const to = nodes.find(node => node.id === edge.to);
     if (!from || !to) {
@@ -11540,14 +11745,19 @@
     // tree, launched them from inside the card body.
     const ha = rmNodeHeights[from.id] || RM_NODE_HEIGHT;
     const hb = rmNodeHeights[to.id] || RM_NODE_HEIGHT;
+    // Where on the face this edge meets its node. A fan of edges gets evenly
+    // spread fractions from `rmBuildEdgePorts`; a lone edge keeps the middle.
+    const port = ports ? ports.get(edge.from + '->' + edge.to) : undefined;
+    const exit = port && typeof port.exit === 'number' ? port.exit : 0.5;
+    const enter = port && typeof port.enter === 'number' ? port.enter : 0.5;
     // The curve leaves the trailing face of the prerequisite and enters the
     // leading face of the dependent, which is a different side in each
     // orientation — so direction stays readable without relying on the
     // arrowhead alone.
-    const x1 = vertical ? a.x + RM_NODE_WIDTH / 2 : a.x + RM_NODE_WIDTH;
-    const y1 = vertical ? a.y + ha : a.y + ha / 2;
-    const x2 = vertical ? b.x + RM_NODE_WIDTH / 2 : b.x;
-    const y2 = vertical ? b.y : b.y + hb / 2;
+    const x1 = Math.round(vertical ? a.x + RM_NODE_WIDTH * exit : a.x + RM_NODE_WIDTH);
+    const y1 = Math.round(vertical ? a.y + ha : a.y + ha * exit);
+    const x2 = Math.round(vertical ? b.x + RM_NODE_WIDTH * enter : b.x);
+    const y2 = Math.round(vertical ? b.y : b.y + hb * enter);
     // A fixed minimum lean, so a link between two nodes dragged into the same
     // column still reads as a curve rather than collapsing to a straight line.
     const lean = vertical

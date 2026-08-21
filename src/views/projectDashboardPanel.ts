@@ -26037,6 +26037,11 @@ const DASHBOARD_CSS = `
     fill: none;
     stroke: color-mix(in srgb, var(--dash-accent-strong) 70%, var(--vscode-foreground) 30%);
     stroke-width: 1.75;
+    /* Quieter by default: on a dense plan the edges are context, not the
+       content, and full-strength strokes everywhere is what read as a mess.
+       Selection brings the ones that matter to full strength. */
+    opacity: 0.55;
+    transition: opacity 120ms ease, stroke-width 120ms ease;
   }
 
   /* A suggestion is dashed *and* thinner *and* dimmer: it is not part of the
@@ -26045,7 +26050,30 @@ const DASHBOARD_CSS = `
     stroke: color-mix(in srgb, var(--vscode-foreground) 40%, transparent);
     stroke-width: 1.25;
     stroke-dasharray: 5 5;
+    opacity: 0.5;
   }
+
+  /* Click a card's body and its neighbourhood lights up: the card, its direct
+     prerequisites and dependents, and every incident edge — everything else
+     recedes. A way of looking; Escape or a click elsewhere puts it back. */
+  .rm-has-highlight .rm-node:not(.rm-hl-focus):not(.rm-hl-near) { opacity: 0.22; }
+  .rm-has-highlight .rm-edge:not(.rm-hl-edge) { opacity: 0.06; }
+  .rm-edge.rm-hl-edge { opacity: 1; stroke-width: 2.5; }
+  .rm-node.rm-hl-focus { outline: 2px solid var(--dash-accent-strong); outline-offset: 2px; }
+  .rm-node.rm-hl-near { border-color: color-mix(in srgb, var(--dash-accent-strong) 60%, var(--dash-border)); }
+
+  .rm-search { display: inline-flex; align-items: center; gap: 6px; }
+  .rm-search input {
+    font: inherit;
+    font-size: 11.5px;
+    color: var(--vscode-input-foreground);
+    background: var(--vscode-input-background);
+    border: 1px solid var(--dash-border);
+    border-radius: 999px;
+    padding: 2px 10px;
+    width: 150px;
+  }
+  .rm-search input:focus-visible { outline: 1px solid var(--vscode-focusBorder); }
 
   .rm-arrow-head { fill: color-mix(in srgb, var(--dash-accent-strong) 70%, var(--vscode-foreground) 30%); }
   .rm-arrow-head-suggested { fill: color-mix(in srgb, var(--vscode-foreground) 40%, transparent); }

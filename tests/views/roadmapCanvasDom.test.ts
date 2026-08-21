@@ -750,6 +750,101 @@ describe('the three Atlas hand-offs on every entry', () => {
   });
 });
 
+describe('reading a dense plan', () => {
+  it('lights a node’s neighbourhood on a body click, and puts it back on a second', () => {
+    const harness = mount();
+    harness.send(snapshot());
+    harness.posted.length = 0;
+    const card = harness.root().querySelector('[data-rm-node="alpha"]');
+    card.querySelector('.rm-node-title')
+      .dispatchEvent(new harness.window.MouseEvent('click', { bubbles: true }));
+
+    const world = harness.root().querySelector('[data-rm-world="true"]');
+    expect(world.className).toContain('rm-has-highlight');
+    expect(harness.root().querySelector('[data-rm-node="alpha"]')?.className).toContain('rm-hl-focus');
+    // beta waits on alpha, so it is a neighbour; the edge between them lights.
+    expect(harness.root().querySelector('[data-rm-node="beta"]')?.className).toContain('rm-hl-near');
+    expect(harness.root().querySelector('.rm-edge[data-rm-from="alpha"]')?.getAttribute('class')).toContain('rm-hl-edge');
+    // Nothing was sent: highlighting is a way of looking.
+    expect(harness.posted).toEqual([]);
+
+    card.querySelector('.rm-node-title')
+      .dispatchEvent(new harness.window.MouseEvent('click', { bubbles: true }));
+    expect(world.className).not.toContain('rm-has-highlight');
+  });
+
+  it('survives a re-render, and Escape sheds it first', () => {
+    const harness = mount();
+    harness.send(snapshot());
+    harness.root().querySelector('[data-rm-node="alpha"] .rm-node-title')
+      .dispatchEvent(new harness.window.MouseEvent('click', { bubbles: true }));
+    harness.send(snapshot());
+    expect(harness.root().querySelector('[data-rm-world="true"]')?.className).toContain('rm-has-highlight');
+
+    harness.window.document.dispatchEvent(new harness.window.KeyboardEvent('keydown', { key: 'Escape', bubbles: true }));
+    expect(harness.root().querySelector('[data-rm-world="true"]')?.className).not.toContain('rm-has-highlight');
+  });
+
+  it('filters the canvas to matching items plus everything connected to them', () => {
+    const harness = mount();
+    harness.send(snapshot({
+      active: [
+        node('alpha', { position: { x: 80, y: 80 }, dependents: ['beta'] }),
+        node('beta', { position: { x: 400, y: 80 }, depth: 1, prerequisites: ['alpha'] }),
+        node('loner', { text: 'Completely unrelated item', position: { x: 80, y: 400 } }),
+      ],
+      edges: [{ from: 'alpha', to: 'beta', origin: 'declared' }],
+      suggested: [],
+    }));
+    harness.posted.length = 0;
+    const input = harness.root().querySelector('#roadmap-search-input');
+    expect(input).not.toBeNull();
+    input.value = 'Item alpha';
+    input.dispatchEvent(new harness.window.Event('input', { bubbles: true }));
+
+    // The match and its dependent stay — the question is "what does it wait
+    // on, and what waits on it" — the unrelated card is hidden.
+    expect(harness.root().querySelector('[data-rm-node="alpha"]')).not.toBeNull();
+    expect(harness.root().querySelector('[data-rm-node="beta"]')).not.toBeNull();
+    expect(harness.root().querySelector('[data-rm-node="loner"]')).toBeNull();
+    expect(harness.posted).toEqual([]);
+
+    harness.click('[data-action="roadmap-search-clear"]');
+    expect(harness.root().querySelector('[data-rm-node="loner"]')).not.toBeNull();
+  });
+
+  it('says when nothing matches, rather than showing a blank canvas', () => {
+    const harness = mount();
+    harness.send(snapshot());
+    const input = harness.root().querySelector('#roadmap-search-input');
+    input.value = 'zzz-no-such-item';
+    input.dispatchEvent(new harness.window.Event('input', { bubbles: true }));
+    expect(harness.root().querySelector('.rm-empty')?.textContent).toContain('No item matches');
+  });
+
+  it('spreads a fan of edges across the node face instead of stacking them', () => {
+    const harness = mount();
+    harness.send(snapshot({
+      active: [
+        node('alpha', { position: { x: 80, y: 80 }, dependents: ['beta', 'third'] }),
+        node('beta', { position: { x: 400, y: 80 }, depth: 1, prerequisites: ['alpha'] }),
+        node('third', { position: { x: 400, y: 400 }, depth: 1, prerequisites: ['alpha'] }),
+      ],
+      edges: [
+        { from: 'alpha', to: 'beta', origin: 'declared' },
+        { from: 'alpha', to: 'third', origin: 'declared' },
+      ],
+      suggested: [],
+    }));
+    const starts = [...harness.root().querySelectorAll('.rm-edge[data-rm-from="alpha"]')]
+      .map((el: { getAttribute(name: string): string | null }) => /M (\d+) (\d+)/.exec(el.getAttribute('d') ?? ''))
+      .map(match => `${match?.[1]},${match?.[2]}`);
+    expect(starts).toHaveLength(2);
+    // Two distinct exit points on alpha's face — not one knot.
+    expect(new Set(starts).size).toBe(2);
+  });
+});
+
 describe('a flat plan offers its own way out', () => {
   it('puts Calculate tree in the banner that explains the single column', () => {
     // This state is exactly where somebody concludes the canvas cannot make a

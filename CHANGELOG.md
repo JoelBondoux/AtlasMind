@@ -6,6 +6,36 @@ The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/),
 
 ## [Unreleased]
 
+## [0.382.0] - 2026-08-21
+
+### Added
+
+- **The dependency canvas is readable when it is dense.** Four changes aimed at the interconnected
+  middle of a real plan:
+
+  **Click a card's body and its neighbourhood lights up** — the card, its direct prerequisites and
+  dependents, and every incident edge come to full strength while everything else recedes. Entirely a
+  way of looking: nothing is sent, Escape or a click elsewhere puts the canvas back, and the
+  highlight survives re-renders.
+
+  **Search the plan.** A toolbar search shows only matching items *plus everything connected to
+  them* — what they wait on and what waits on them — with a shown-of-total count, an explicit "no
+  item matches" state, and a re-fit on every keystroke so the result is always in view. Offline,
+  like the route filter.
+
+  **A fan of edges spreads across the node face** instead of arriving as one knot: each node's
+  incoming and outgoing edges get evenly spaced connection points, ordered by where their
+  counterpart sits, deterministically. Edges are also quieter by default — context, not content —
+  which is what selection then reverses.
+
+  **More air between layers** (`ROADMAP_ROW_HEIGHT` 260 → 360): cards carrying the Atlas pills pass
+  300px, and edges need room between rows to be read at all.
+
+  An open-source layout engine was evaluated for this (dagre, the Sugiyama implementation Mermaid
+  uses): measured on the real 51-node backlog it produced *more* crossings than the in-house
+  pipeline (25 vs 23 per-component, 31 whole-graph) and ~20% longer edges, so no dependency was
+  added.
+
 ## [0.381.0] - 2026-08-21
 
 ### Changed

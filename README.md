@@ -4,7 +4,7 @@
 
 <h1 align="center">AtlasMind</h1>
 
-<p align="center"><sub> · <strong>Current source version: 0.381.0</strong> · </sub></p>
+<p align="center"><sub> · <strong>Current source version: 0.382.0</strong> · </sub></p>
 
 
 <p align="center">
@@ -127,11 +127,15 @@ Full detail in the [Security model](wiki/Security.md) and [Tool Execution](wiki/
 
 ---
 
-## What's new in 0.381.0
+## What's new in 0.382.0
 
 The last Marketplace publication, **v0.369.3**, is the baseline — everything below is in it. The full
 history is in [CHANGELOG.md](CHANGELOG.md).
 
+- **The dependency canvas is readable when it is dense.** Click a card's body and its neighbourhood
+  lights up while everything else recedes; a toolbar search shows only matching items plus everything
+  connected to them; fans of edges spread across each node's face instead of arriving as one knot;
+  edges are quieter by default and layers get more air.
 - **The dependency canvas lays out as a readable tree.** A compact, deterministic Sugiyama pipeline
   replaces the naive pass: prerequisites sit just before what they unlock instead of piling into one
   giant first row, unrelated sub-plans lay out as separate blocks whose edges never cross each other,

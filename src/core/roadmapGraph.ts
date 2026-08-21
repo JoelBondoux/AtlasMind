@@ -342,12 +342,13 @@ export const ROADMAP_COLUMN_WIDTH = 320;
  * be on — and the first drag afterwards would jump.
  *
  * Sized for the card as it actually renders, not its nominal minimum: a card
- * carrying a three-line title, a wrapped chip row and a couple of link chips
- * comfortably passes 200px, so the previous pitch of 200 physically overlapped
- * chip-heavy siblings — the layout cannot measure the DOM, so the pitch has to
- * carry the headroom.
+ * carrying a three-line title, wrapped chip rows, the Atlas pills and a couple
+ * of link chips comfortably passes 300px, so earlier pitches (200, then 260)
+ * physically overlapped chip-heavy siblings — the layout cannot measure the
+ * DOM, so the pitch has to carry the headroom. The extra air is also what
+ * gives edges between layers room to be read at all.
  */
-export const ROADMAP_ROW_HEIGHT = 260;
+export const ROADMAP_ROW_HEIGHT = 360;
 export const ROADMAP_CANVAS_MARGIN = 80;
 /** The canvas grid. Shared with the webview's snap-to-grid, which mirrors it. */
 export const ROADMAP_GRID_SIZE = 20;

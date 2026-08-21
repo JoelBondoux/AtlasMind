@@ -137,6 +137,12 @@ Grab a card anywhere to drag it — its buttons and chips stay clicks. The mouse
 are looking at stays put. Panning and zooming never redraw the page, and a drop lands immediately; the
 tree seats each item beside what it waits for, so arrows stay short instead of crossing the plan.
 
+**Click a card's body** and its neighbourhood lights up — the card, its direct prerequisites and
+dependents, and every arrow touching it — while everything else recedes. Escape or a click on empty
+canvas puts it back. **Search the plan** from the toolbar: only items whose text matches stay, plus
+everything connected to them — what they wait on, and what waits on them — with the rest hidden and
+the view re-fitted as you type. Both are ways of looking: nothing is sent, and nothing changes.
+
 **Every entry carries three Atlas pills — on the canvas card and on its backlog row alike.**
 
 - **Plan** files a dedicated plan document for the item under `roadmap/plans/` — created once as an

@@ -666,6 +666,16 @@ out from under the canvas; Shift turns a single-axis wheel horizontal. The whole
 its buttons, chips and fields stay clicks — since most of a card's area is body, and a grab that only
 worked on the title bar read as a canvas that mostly ignored the mouse.
 
+Density is handled by interaction, not just layout. Clicking a card's body highlights its
+neighbourhood — the card, its direct prerequisites and dependents, and every incident edge — while
+everything else recedes; classes only, reapplied after each render, with nothing sent. The toolbar
+search keeps matching items plus their whole connected closure and hides the rest, re-fitting on each
+keystroke; like the route filter it is computed in the webview from the shipped snapshot, because a way
+of looking must not be something that can fail. Fans of edges get deterministic, evenly spaced
+connection points across each node's face (`rmBuildEdgePorts`, computed from the full drawn set so a
+partial mid-drag repaint never shifts an untouched edge), and edges render quieter by default —
+selection is what brings the ones that matter to full strength.
+
 Four toolbar controls arrange the canvas without changing the plan. **Fit all** puts everything on
 screen, measured from the frame the canvas is in and never zooming past 100% to fill space. **Snap to
 grid** applies while you drag rather than on drop, and every layout constant is a multiple of that grid

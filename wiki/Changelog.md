@@ -19,6 +19,29 @@ Older entries below describe the software as it was at the time and are delibera
 
 ---
 
+## v0.382.0 — Reading a dense plan
+
+Layout can only take a heavily interconnected plan so far; the rest is interaction.
+
+**Click a card's body and its neighbourhood lights up** — the card, its direct prerequisites and
+dependents, and every incident edge at full strength, everything else receded. Nothing is sent;
+Escape or a click elsewhere puts the canvas back.
+
+**Search the plan.** The toolbar search shows only items whose text matches *plus everything
+connected to them* — what they wait on, and what waits on them — with a shown-of-total count and a
+re-fit on every keystroke so the result is always in view.
+
+**Fans of edges spread.** Each node's incoming and outgoing arrows get evenly spaced connection
+points across its face instead of stacking into one knot, and edges sit quieter by default — they are
+context until you select, and then the ones that matter come to full strength. Layers also gained
+air, because cards carrying the Atlas pills are taller than the old pitch allowed for.
+
+And the open-source question got a measured answer: dagre — the layout engine Mermaid uses — was
+evaluated on the real 51-node backlog and produced *more* crossings and ~20% longer edges than
+AtlasMind's own pipeline, so no dependency was added.
+
+---
+
 ## v0.381.0 — A tree worth reading
 
 The first real backlog run through Calculate tree produced a mess, and the mess was the layout
