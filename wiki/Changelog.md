@@ -19,6 +19,24 @@ Older entries below describe the software as it was at the time and are delibera
 
 ---
 
+## v0.380.1 — Save saves, and the canvas wires itself
+
+Two fixes behind one symptom — pressing Save on a canvas node appearing to do nothing.
+
+**One id, both sides.** The canvas view and the save path resolved an item's id differently when its
+backlog line had no hidden anchor yet: the view adopted the item's surviving record, the save path
+minted a fresh id around it, and every save, move, or link against the id on screen missed —
+*silently*. Both sides now resolve through one shared function, a diverged anchor is rewritten to
+agree, and an action that still cannot find its item warns and refreshes the canvas instead of doing
+nothing. The editor also closes the moment you press Save.
+
+**Anchored on first load.** The hidden per-line ids used to be written only when your first change
+needed them — which is exactly when they were still provisional. The dashboard now writes them once
+when it loads, so every item is durable before you touch anything. The banner only remains if the
+write could not land (a read-only tree, or a file written by a newer AtlasMind).
+
+---
+
 ## v0.380.0 — Plan, Resolve, Completion check
 
 Every roadmap entry — canvas card and backlog row alike — now carries three Atlas pills, and the plan

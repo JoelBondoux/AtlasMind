@@ -533,6 +533,42 @@ describe('the host side', () => {
   });
 });
 
+describe('one id resolution, and no silent failures', () => {
+  it('resolves ids identically on the view and the write — both call the shared function', () => {
+    const view = HOST_PANEL.slice(HOST_PANEL.indexOf('function buildRoadmapGraphView'));
+    expect(view.slice(0, 2600)).toContain('resolveRoadmapItemIds(');
+    const write = HOST_PANEL.slice(HOST_PANEL.indexOf('private async openRoadmapGraphForWrite'));
+    expect(write.slice(0, 2600)).toContain('resolveRoadmapItemIds(');
+    // Neither side may fall back to bare minting: skipping the adoption repair
+    // is how the same item came to carry one id on screen and another on disk,
+    // and every save against the on-screen one missed silently.
+    expect(HOST_PANEL).not.toContain('assignRoadmapNodeIds(');
+  });
+
+  it('reports an action against a node it cannot resolve, and resyncs', () => {
+    // These handlers used to return silently, which is how "Save doesn't
+    // appear to do anything" was experienced — with the true state one
+    // refresh away the whole time.
+    expect(HOST_PANEL).toContain('private async reportStaleRoadmapAction');
+    for (const name of ['handleRoadmapNodeMove', 'handleRoadmapNodeUpdate', 'handleRoadmapLinkChange']) {
+      const handler = HOST_PANEL.slice(HOST_PANEL.indexOf(`private async ${name}`));
+      expect(handler.slice(0, 1600), `${name} fails silently`).toContain('reportStaleRoadmapAction');
+    }
+  });
+
+  it('anchors the roadmap on first load — once, and only when it needs it', () => {
+    const ensure = HOST_PANEL.slice(HOST_PANEL.indexOf('private async ensureRoadmapAnchors'));
+    // The flag is set before the attempt, so a failing write is tried once
+    // and reported once rather than retried on every refresh.
+    expect(ensure.slice(0, 2200)).toContain('this.roadmapAnchorsEnsured');
+    expect(ensure.slice(0, 2200)).toContain('graph.anchored');
+    // Awaited, never fire-and-forget: an unawaited anchor write races whatever
+    // touches the backlog file next, and a reader catches it mid-truncation.
+    expect(HOST_PANEL).toContain('await this.ensureRoadmapAnchors();');
+    expect(HOST_PANEL).not.toContain('void this.ensureRoadmapAnchors();');
+  });
+});
+
 describe('the three Atlas hand-offs', () => {
   it('files the plan create-only, so a plan somebody wrote survives a second press', () => {
     const plan = HOST_PANEL.slice(HOST_PANEL.indexOf('private async handleRoadmapPlan'));

@@ -722,9 +722,14 @@ imported backlog line is third-party text. A delivered entry keeps only the Comp
 
 The graph is an overlay. `improvement-plan.md` remains the one file that says what the work is; the
 deadlines, positions and links live in `roadmap-graph.json` beside it, keyed on a durable id the backlog
-line carries as an invisible comment, so a rename or a reorder no longer orphans an item's history. A
-record whose anchor is hand-deleted is repaired by text match; a record whose item left the backlog is
-dropped, along with the links touching it.
+line carries as an invisible comment, so a rename or a reorder no longer orphans an item's history. The
+ids are written once, when the dashboard first loads — writing them on the first change left every id
+provisional exactly when the first save needed it durable. A record whose anchor is hand-deleted is
+repaired by text match; a record whose item left the backlog is dropped, along with the links touching
+it. The view and the write resolve ids through one shared function (`resolveRoadmapItemIds`), because
+the two once disagreed for unanchored items with surviving records — the same item was `slug` on screen
+and `slug-2` on disk, and every save against it missed silently; an action that still cannot resolve
+its node now warns and resyncs rather than doing nothing.
 
 Human ownership also follows one contract across the dashboard. Branches, active roadmap items, open
 issues and pull requests, unresolved gaps, risks and debt, and documents needing attention all render

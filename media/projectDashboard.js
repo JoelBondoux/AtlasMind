@@ -11201,7 +11201,7 @@
     return `
       <article class="panel-card rm-canvas-card">
         ${renderRoadmapCanvasToolbar(graph, filter, focusNode, allNodes.length, nodes.length)}
-        ${graph.anchored ? '' : `<div class="rm-banner" role="status">${escapeHtml('This roadmap has not been wired to the canvas yet. It is laid out from the backlog order — the first change you make writes a hidden id into each backlog line so positions, dates and links can be kept.')}</div>`}
+        ${graph.anchored ? '' : `<div class="rm-banner" role="status">${escapeHtml('This roadmap is not wired to the canvas yet. AtlasMind writes a hidden id into each backlog line when the dashboard loads, so positions, dates and links can be kept — that write has not landed, so if this banner stays, check that the backlog file is writable.')}</div>`}
         ${graph.cycles.length > 0 ? `<div class="rm-banner rm-banner-bad" role="alert">${escapeHtml(`${graph.cycles.length} circular dependenc${graph.cycles.length === 1 ? 'y' : 'ies'} in this plan — the items highlighted in red each wait for the other, so the plan cannot run in this order. Remove one of the links between them.`)}</div>` : ''}
         ${renderRoadmapFlatNotice(graph, visibleEdges, visibleSuggestions)}
         <div class="rm-frame" data-rm-frame="true" data-scroll-key="roadmap-canvas">
@@ -11815,6 +11815,11 @@
 
     state.roadmapEditingNodeId = '';
     vscode.postMessage({ type: 'roadmapNodeUpdate', payload: payload });
+    // Close the editor now rather than when the host answers: a Save that
+    // leaves the form sitting there until a round trip completes reads as a
+    // button that did nothing. The values on the card refresh when the
+    // snapshot lands; if the save could not be applied the host says so.
+    render();
   }
 
 

@@ -4,7 +4,7 @@
 
 <h1 align="center">AtlasMind</h1>
 
-<p align="center"><sub> · <strong>Current source version: 0.380.0</strong> · </sub></p>
+<p align="center"><sub> · <strong>Current source version: 0.380.1</strong> · </sub></p>
 
 
 <p align="center">
@@ -127,11 +127,17 @@ Full detail in the [Security model](wiki/Security.md) and [Tool Execution](wiki/
 
 ---
 
-## What's new in 0.380.0
+## What's new in 0.380.1
 
 The last Marketplace publication, **v0.369.3**, is the baseline — everything below is in it. The full
 history is in [CHANGELOG.md](CHANGELOG.md).
 
+- **Saving a roadmap node works, and the roadmap wires itself up on first load.** The canvas and the
+  save path could resolve an item to two different ids when its line had no hidden anchor yet, and
+  every save against it missed silently. Both now resolve through one shared function; a save that
+  still cannot land says so and refreshes the canvas; and the hidden per-line ids are written once
+  when the dashboard loads instead of on your first change, so every item is durable before you touch
+  anything.
 - **Every roadmap entry carries three Atlas pills, and files its plan.** **Plan** creates a dedicated
   plan document under `roadmap/plans/` (a deterministic scaffold, created once, never overwritten),
   links it to the item as its filing record, and hands the drafting to Atlas in chat. **Resolve**

@@ -590,11 +590,39 @@ export function reconcileRoadmapGraph(
 }
 
 /**
+ * One id per item, resolved the only way anywhere resolves it.
+ *
+ * Reconcile first (so an item without an anchor adopts a record whose text
+ * still matches), then mint for whatever is left, then let every adoption win
+ * over the mint. The order is the bug this function exists to prevent: the
+ * canvas view did all three steps while the write path minted without
+ * adopting, so an unanchored item with a surviving record was `slug` on
+ * screen and `slug-2` on disk — every save against it missed silently, and
+ * the wrong anchor then kept the two apart for ever. View and write now call
+ * this one function, so they cannot disagree about what an item is called.
+ */
+export function resolveRoadmapItemIds(
+  document: RoadmapGraphDocument,
+  items: readonly RoadmapReconcileItem[],
+): { reconciled: RoadmapReconcileResult; ids: string[] } {
+  const reconciled = reconcileRoadmapGraph(document, items);
+  const ids = assignRoadmapNodeIds(items, new Set(reconciled.document.nodes.map(node => node.id)));
+  items.forEach((item, index) => {
+    const claimed = reconciled.resolved.get(index);
+    if (claimed !== undefined) {
+      ids[index] = claimed;
+    }
+  });
+  return { reconciled, ids };
+}
+
+/**
  * Give every item an id, minting where one is missing.
  *
- * Called when the canvas saves — the point at which the roadmap stops being a
- * plain list and starts being a graph. Deterministic, so re-running it produces
- * no diff.
+ * Deterministic, so re-running it produces no diff. Callers should not use
+ * this directly for resolution — `resolveRoadmapItemIds` layers the adoption
+ * repair on top, and skipping that layer is how the view and the write once
+ * came to call the same item by two names.
  */
 export function assignRoadmapNodeIds(
   items: readonly RoadmapReconcileItem[],

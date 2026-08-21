@@ -220,7 +220,9 @@ starts from nothing.
 
 The deadlines, positions and links live in `roadmap-graph.json` beside the plan, keyed on a durable id
 each backlog line carries as an invisible HTML comment — so renaming or reordering an item no longer
-loses its history. Only items you've actually put on the canvas get one.
+loses its history. The ids are written automatically the first time the dashboard loads, so every item
+is ready to save against before you touch anything; graph records themselves are only created for items
+that actually gain data.
 
 ### Limits and rules
 

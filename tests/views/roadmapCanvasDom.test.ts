@@ -551,7 +551,19 @@ describe('the canvas reports what it could not do', () => {
   it('warns when the roadmap has no durable ids yet', () => {
     const harness = mount();
     harness.send(snapshot({ anchored: false }));
-    expect(harness.html()).toContain('has not been wired to the canvas yet');
+    expect(harness.html()).toContain('is not wired to the canvas yet');
+  });
+
+  it('closes the node editor the moment Save is pressed, not when the host answers', () => {
+    // A Save that leaves the form sitting there until a round trip completes
+    // reads as a button that did nothing.
+    const harness = mount();
+    harness.send(snapshot());
+    harness.click('[data-action="roadmap-node-edit"][data-payload="alpha"]');
+    expect(harness.root().querySelector('.rm-node-editing')).not.toBeNull();
+
+    harness.click('[data-action="roadmap-node-save"]');
+    expect(harness.root().querySelector('.rm-node-editing')).toBeNull();
   });
 
   it('raises a circular plan as an alert, and still draws it', () => {

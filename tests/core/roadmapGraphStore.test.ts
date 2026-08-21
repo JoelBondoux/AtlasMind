@@ -14,6 +14,7 @@ import {
   reconcileRoadmapGraph,
   renderRoadmapGraphMarkdown,
   renderRoadmapNodeAnchor,
+  resolveRoadmapItemIds,
   sanitizeRoadmapEdge,
   sanitizeRoadmapGraphDocument,
   sanitizeRoadmapNodeRecord,
@@ -98,6 +99,50 @@ describe('assignRoadmapNodeIds', () => {
       { text: 'Ship it', completed: false },
     ], new Set(['ship-it']));
     expect(ids).toEqual(['ship-it', 'ship-it-2']);
+  });
+});
+
+describe('resolveRoadmapItemIds', () => {
+  const record = (id: string, text: string) => ({ id, normalizedText: text.toLowerCase() });
+
+  it('lets an unanchored item adopt its surviving record instead of minting beside it', () => {
+    // The Save-does-nothing bug in one fixture: the canvas view adopted the
+    // record and showed `fix-the-canvas`, while the write path minted around
+    // it and anchored `fix-the-canvas-2` — so every action against the id on
+    // screen missed silently. One shared resolution, adoption included, is
+    // the fix.
+    const document = doc({ nodes: [record('fix-the-canvas', 'fix the canvas')] });
+    const items = [{ text: 'Fix the canvas', completed: false }];
+
+    const { ids } = resolveRoadmapItemIds(document, items);
+    expect(ids).toEqual(['fix-the-canvas']);
+
+    // Documenting the failure mode this replaces: minting alone avoids the
+    // record's id, which is exactly the divergence.
+    expect(assignRoadmapNodeIds(items, new Set(['fix-the-canvas']))).toEqual(['fix-the-canvas-2']);
+  });
+
+  it('lets an anchor beat a text match, exactly as reconciliation does', () => {
+    const document = doc({ nodes: [record('kept', 'ship it')] });
+    const { ids } = resolveRoadmapItemIds(document, [
+      { nodeId: 'kept', text: 'Renamed since', completed: false },
+      { text: 'Ship it', completed: false },
+    ]);
+    expect(ids[0]).toBe('kept');
+    // The second line's text matches the record, but the anchored item already
+    // claimed it — a duplicated line must not steal an anchored item's history.
+    expect(ids[1]).not.toBe('kept');
+  });
+
+  it('is deterministic, so the view and the write cannot disagree', () => {
+    const document = doc({ nodes: [record('a', 'alpha'), record('b', 'beta')] });
+    const items = [
+      { text: 'Alpha', completed: false },
+      { nodeId: 'b', text: 'Beta', completed: false },
+      { text: 'Gamma', completed: false },
+    ];
+    expect(resolveRoadmapItemIds(document, items).ids)
+      .toEqual(resolveRoadmapItemIds(document, items).ids);
   });
 });
 

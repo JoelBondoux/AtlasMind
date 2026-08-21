@@ -398,11 +398,10 @@ import {
   type RoadmapNodeRecord,
 } from '../core/roadmapGraph.js';
 import {
-  assignRoadmapNodeIds,
   extractRoadmapNodeAnchor,
   readRoadmapGraphFile,
-  reconcileRoadmapGraph,
   renderRoadmapNodeAnchor,
+  resolveRoadmapItemIds,
   seedRoadmapGraphDocument,
   writeRoadmapGraph,
   type RoadmapGraphDocument,
@@ -3980,6 +3979,12 @@ export class ProjectDashboardPanel {
    */
   private lastSnapshot: DashboardSnapshot | undefined;
   /**
+   * Whether this session has already tried to anchor the roadmap — set before
+   * the attempt, so a failing write (read-only tree, newer-format file) is
+   * tried once and reported once rather than retried on every refresh.
+   */
+  private roadmapAnchorsEnsured = false;
+  /**
    * Issues are fetched on demand, never as part of a dashboard render: `gh` is a
    * network call against a rate-limited API, and a page that refreshed it on
    * every unrelated re-render would spend the user's quota to show a tab they
@@ -5362,6 +5367,11 @@ export class ProjectDashboardPanel {
         await this.postMessage({ type: 'navigate', payload: this.pendingNavigationTarget });
         this.pendingNavigationTarget = undefined;
       }
+      // After the post, so the first page is never held up by the write — but
+      // awaited, never fire-and-forget: an unawaited anchor write races
+      // whatever touches the backlog file next, and a reader can catch the
+      // file mid-truncation. The session flag makes every later call a no-op.
+      await this.ensureRoadmapAnchors();
     } catch (error) {
       const detail = error instanceof Error ? error.message : String(error);
       await this.postMessage({ type: 'error', payload: `Dashboard refresh failed: ${detail}` });
@@ -10141,20 +10151,24 @@ ${buildCardEvidenceSection(source, derivation)}`;
     }
     const document = read.config ?? seedRoadmapGraphDocument();
 
-    const ids = assignRoadmapNodeIds(
+    // The one resolution both surfaces share. The view runs exactly this call,
+    // so the id an action carries is the id this write resolves — minting
+    // without the adoption repair here is how a save used to miss silently.
+    const { reconciled, ids } = resolveRoadmapItemIds(
+      document,
       context.items.map(item => ({
         ...(item.nodeId === undefined ? {} : { nodeId: item.nodeId }),
         text: item.text,
         completed: item.completed,
       })),
-      new Set(document.nodes.map(node => node.id)),
     );
     const anchored = context.items.map((item, index) => ({ ...item, nodeId: ids[index] as string }));
     if (context.items.some((item, index) => item.nodeId !== ids[index])) {
+      // Also the repair path: an anchor that diverged from its record — the
+      // exact residue the old mismatch left behind — is rewritten to agree.
       await this.writeRoadmapAnchors(context, anchored);
     }
 
-    const reconciled = reconcileRoadmapGraph(document, anchored);
     return {
       workspaceRoot: context.workspaceRoot,
       ssotPath: context.ssotPath,
@@ -10175,6 +10189,42 @@ ${buildCardEvidenceSection(source, derivation)}`;
       serializeDashboardRoadmapDocument(context.existing, [...items], context.gates),
       'utf-8',
     );
+  }
+
+  /**
+   * Anchor the roadmap on first load, instead of on first change.
+   *
+   * The anchors are invisible comments carrying each line's durable id, and
+   * they used to be written only when the first canvas action needed them —
+   * which meant every id on screen was provisional until then, and an id that
+   * resolved differently at write time made the first save silently miss.
+   * Writing them when the dashboard first loads makes every id durable before
+   * anything can act on one, at the cost of one diff in a file whose whole
+   * purpose is to be written to.
+   *
+   * Once per session, deliberately — this is a load-time act, not a render
+   * side effect, and a write that fails (read-only tree, newer-format file)
+   * is reported by the canvas banner rather than retried forever.
+   */
+  private async ensureRoadmapAnchors(): Promise<void> {
+    if (this.roadmapAnchorsEnsured) {
+      return;
+    }
+    const graph = this.lastSnapshot?.roadmap.graph;
+    if (graph === undefined || graph.anchored || graph.active.length + graph.completed.length === 0) {
+      return;
+    }
+    this.roadmapAnchorsEnsured = true;
+    try {
+      // Writes the anchors as its ordinary first step; nothing else is saved.
+      const context = await this.openRoadmapGraphForWrite();
+      if (context !== undefined) {
+        await this.syncRoadmapState();
+      }
+    } catch {
+      // The canvas banner already reports the unanchored state; the first
+      // change will try again through the write path.
+    }
   }
 
   /** Persist the graph and redraw. One place, so no handler can forget the refresh. */
@@ -10257,6 +10307,10 @@ ${buildCardEvidenceSection(source, derivation)}`;
     const context = await this.openRoadmapGraphForWrite();
     const text = context?.nodeText.get(payload.nodeId);
     if (context === undefined || text === undefined) {
+      // Never silently: the webview is holding the node at its dropped spot on
+      // a local offset, and a drop that was not saved has to visibly snap back
+      // rather than sit there looking saved.
+      await this.reportStaleRoadmapAction();
       return;
     }
     if (!Number.isFinite(payload.x) || !Number.isFinite(payload.y)) {
@@ -10273,6 +10327,24 @@ ${buildCardEvidenceSection(source, derivation)}`;
         record.position = position;
       }),
     );
+  }
+
+  /**
+   * A canvas action named a node this write could not resolve.
+   *
+   * Rare now that the view and the write share one id resolution, but when it
+   * happens — the backlog edited outside the editor mid-session, a stale
+   * panel — the action must fail *loudly and self-correct*: these handlers
+   * used to return silently, which is how "Save doesn't appear to do
+   * anything" was experienced, with the true state one refresh away the
+   * whole time.
+   */
+  private async reportStaleRoadmapAction(): Promise<void> {
+    void vscode.window.showWarningMessage(
+      'That roadmap item could not be matched to the backlog as it now stands — the backlog may have '
+      + 'changed since the canvas was drawn. Nothing was saved; the canvas has been refreshed, so try again.',
+    );
+    await this.syncRoadmapState();
   }
 
   /**
@@ -10422,6 +10494,7 @@ ${buildCardEvidenceSection(source, derivation)}`;
     const context = await this.openRoadmapGraphForWrite();
     const currentText = context?.nodeText.get(payload.nodeId);
     if (context === undefined || currentText === undefined) {
+      await this.reportStaleRoadmapAction();
       return;
     }
 
@@ -10509,6 +10582,10 @@ ${buildCardEvidenceSection(source, derivation)}`;
     if (nextText !== undefined && nextText !== currentText) {
       const renamed = await this.renameRoadmapItem(payload.nodeId, nextText);
       if (!renamed) {
+        void vscode.window.showWarningMessage(
+          'The new name could not be written back to the backlog, so nothing was saved.',
+        );
+        await this.syncRoadmapState();
         return;
       }
       document = { ...document, nodes: document.nodes.map(node => (
@@ -10559,6 +10636,7 @@ ${buildCardEvidenceSection(source, derivation)}`;
     }
     const { from, to } = payload;
     if (from === to || !context.nodeText.has(from) || !context.nodeText.has(to)) {
+      await this.reportStaleRoadmapAction();
       return;
     }
     const key = edgeKey({ from, to });
@@ -19255,7 +19333,11 @@ function buildRoadmapGraphView(
     // that is the order a person actually chose. `items` arrives sorted by
     // priority, so the original index is recovered from the id.
     const backlogOrder = new Map(items.map(item => [item.id, Number(item.id.replace(/^roadmap-/, '')) || 0]));
-    const reconciled = reconcileRoadmapGraph(
+    // A view id for every item, resolved by the same shared call the write
+    // path uses (`resolveRoadmapItemIds`), so the id a card carries is the id
+    // a save resolves. Items whose ids are not on disk yet still draw — the
+    // panel anchors them on first load, and `anchored` reports until then.
+    const { reconciled, ids: resolvedIds } = resolveRoadmapItemIds(
       stored,
       items.map(item => ({
         ...(item.nodeId === undefined ? {} : { nodeId: item.nodeId }),
@@ -19263,24 +19345,6 @@ function buildRoadmapGraphView(
         completed: item.completed,
       })),
     );
-
-    // A view id for every item, minted in memory. Items whose ids are not on
-    // disk yet still draw — they just cannot be saved against until the anchors
-    // are written, which `anchored` says.
-    const resolvedIds = assignRoadmapNodeIds(
-      items.map(item => ({
-        ...(item.nodeId === undefined ? {} : { nodeId: item.nodeId }),
-        text: item.text,
-        completed: item.completed,
-      })),
-      new Set(reconciled.document.nodes.map(node => node.id)),
-    );
-    items.forEach((item, index) => {
-      const claimed = reconciled.resolved.get(index);
-      if (claimed !== undefined) {
-        resolvedIds[index] = claimed;
-      }
-    });
     const anchored = items.every((item, index) => item.nodeId === resolvedIds[index]);
 
     const takenBranches: string[] = [];
@@ -19323,7 +19387,7 @@ function buildRoadmapGraphView(
     const director = readProjectDirectorConfig(workspaceRoot);
     const notes = [...graph.notes];
     if (!anchored) {
-      notes.push('This roadmap has not been wired to the canvas yet. Positions, deadlines and links are shown, but saving one writes a hidden id into each backlog line first.');
+      notes.push('This roadmap is not wired to the canvas yet. AtlasMind writes a hidden id into each backlog line when the dashboard loads; until that write lands, positions, deadlines and links are shown but not yet durable.');
     }
     if (reconciled.droppedNodeIds.length > 0) {
       notes.push(`${reconciled.droppedNodeIds.length} saved node${reconciled.droppedNodeIds.length === 1 ? '' : 's'} no longer match a backlog item and ${reconciled.droppedNodeIds.length === 1 ? 'was' : 'were'} dropped.`);

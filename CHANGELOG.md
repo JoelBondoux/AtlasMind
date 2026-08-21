@@ -6,6 +6,29 @@ The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/),
 
 ## [Unreleased]
 
+## [0.380.1] - 2026-08-21
+
+### Fixed
+
+- **Saving a roadmap node works, and failing to save is visible.** The canvas view and the write path
+  resolved item ids differently: the view adopted a surviving record for a line with no anchor (a
+  restored file, a hand edit), while the write path minted a fresh id *around* that record — so the
+  same item was `slug` on screen and `slug-2` on disk, and every save, move, or link against the
+  on-screen id returned **silently**. Both sides now resolve through one shared function
+  (`resolveRoadmapItemIds`, adoption included), an anchor that diverged from its record is rewritten
+  to agree, and an action that still cannot resolve its node warns and refreshes the canvas instead of
+  doing nothing. The node editor also closes the moment Save is pressed rather than waiting out the
+  round trip, and a rename that cannot be written back says so.
+
+### Changed
+
+- **The roadmap is anchored on first load, not on first change.** The hidden per-line ids used to be
+  written only when the first canvas action needed them, which left every id on screen provisional at
+  exactly the moment the first save needed it durable. The dashboard now writes them once per session
+  when it loads (`ensureRoadmapAnchors`); the canvas banner still reports the unanchored state when
+  the write cannot land (read-only tree, newer-format file). Graph records are still only created for
+  items that actually gain data.
+
 ## [0.380.0] - 2026-08-21
 
 ### Added
