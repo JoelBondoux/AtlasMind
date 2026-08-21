@@ -129,6 +129,23 @@ import {
   type WorkflowHealth,
 } from '../core/workflowMetrics.js';
 import {
+  MAX_IMPORT_FILES,
+  MAX_IMPORT_ITEMS,
+  ROADMAP_IMPORT_SOURCES,
+  importRecordFor,
+  parseGithubIssueRoadmapItems,
+  parseGithubProjectRoadmapItems,
+  parseMarkdownRoadmapItems,
+  parseSpreadsheetRoadmapItems,
+  planRoadmapImport,
+  readSpreadsheetHeaders,
+  suggestSpreadsheetMapping,
+  type ExistingRoadmapLine,
+  type RoadmapImportPlan,
+  type RoadmapImportRead,
+  type RoadmapImportSourceKind,
+} from '../core/roadmapImport.js';
+import {
   buildReleasePlan,
   describeReleasePlan,
   type ReleaseGate,
@@ -810,6 +827,12 @@ type ProjectDashboardMessage =
    * layouts would eventually disagree about the same plan.
    */
   | { type: 'roadmapAutoLayout'; payload: 'horizontal' | 'vertical' }
+  /**
+   * Start a roadmap import. Carries no payload by design: every detail is
+   * gathered by the host through the editor's own pickers, so this message
+   * can ask for the flow and can never name a file, a project or a column.
+   */
+  | { type: 'importRoadmap' }
   /**
    * Ask AtlasMind to work the tree out and offer it.
    *
@@ -4653,6 +4676,9 @@ export class ProjectDashboardPanel {
         break;
       case 'roadmapAutoLayout':
         await this.handleRoadmapAutoLayout(message.payload === 'vertical' ? 'vertical' : 'horizontal');
+        break;
+      case 'importRoadmap':
+        await this.handleImportRoadmap();
         break;
       case 'roadmapDeriveLinks':
         await this.handleRoadmapDeriveLinks();
@@ -10453,6 +10479,370 @@ ${buildCardEvidenceSection(source, derivation)}`;
    * Each accepted link keeps the rule that proposed it, so the committed mirror
    * can say "accepted suggestion" rather than claiming a person drew it.
    */
+  /**
+   * Read somebody else's roadmap into this one.
+   *
+   * The webview asks for an import and says nothing else. Every detail — which
+   * source, which glob, which column holds the title — is gathered here through
+   * the editor's own pickers, so a crafted message can start the flow and can
+   * never name a file to read, a project to query, or a column to trust. That is
+   * the same rule the queue button and the roadmap mutations already follow.
+   *
+   * Nothing is written until the plan has been shown. `planRoadmapImport` owns
+   * every decision about what would change; this function's only judgement is
+   * how to ask for a path and how to report a refusal.
+   */
+  private async handleImportRoadmap(): Promise<void> {
+    const context = await this.readRoadmapDocument();
+    if (context === undefined) {
+      void vscode.window.showWarningMessage('Open a workspace before importing a roadmap.');
+      return;
+    }
+
+    const chosen = await vscode.window.showQuickPick(
+      ROADMAP_IMPORT_SOURCES.map(source => ({
+        label: source.label,
+        detail: source.detail,
+        description: source.needs,
+        // Not `kind`: VS Code's own QuickPickItem uses that name for separators.
+        sourceKind: source.kind,
+      })),
+      { title: 'Import a roadmap', placeHolder: 'Where does this project record its plan?', ignoreFocusOut: true },
+    );
+    if (chosen === undefined) {
+      return;
+    }
+
+    const read = await this.readRoadmapImportSource(chosen.sourceKind, context.workspaceRoot);
+    if (read === undefined) {
+      return;
+    }
+    if (read.items.length === 0) {
+      await vscode.window.showInformationMessage(
+        `Nothing to import from ${read.sourceLabel}.`,
+        { modal: true, detail: read.notes.join('\n') || 'No items were found there.' },
+      );
+      return;
+    }
+
+    // The graph document supplies each line's import record, which is what makes
+    // a second run an update rather than a duplicate.
+    const graphRead = readRoadmapGraphFile(context.workspaceRoot, context.ssotPath);
+    if (graphRead.preserveExisting) {
+      void vscode.window.showWarningMessage(
+        graphRead.notice ?? 'The roadmap graph file was written by a newer AtlasMind. Nothing was changed.',
+      );
+      return;
+    }
+    const recordById = new Map((graphRead.config?.nodes ?? []).map(node => [node.id, node]));
+    const existingLines: ExistingRoadmapLine[] = context.items.map(item => {
+      const imported = item.nodeId === undefined ? undefined : recordById.get(item.nodeId)?.imported;
+      return {
+        ...(item.nodeId === undefined ? {} : { nodeId: item.nodeId }),
+        text: item.text,
+        completed: item.completed,
+        ...(imported === undefined ? {} : { imported }),
+      };
+    });
+
+    const plan = planRoadmapImport(read, existingLines);
+    if (plan.counts.add === 0 && plan.counts.update === 0) {
+      await vscode.window.showInformationMessage(
+        plan.summary,
+        { modal: true, detail: describeRoadmapImportDetail(plan) },
+      );
+      return;
+    }
+
+    const changing = plan.counts.add + plan.counts.update;
+    const confirmation = await vscode.window.showWarningMessage(
+      `Import ${changing} roadmap item${changing === 1 ? '' : 's'}?`,
+      { modal: true, detail: describeRoadmapImportDetail(plan) },
+      'Import them',
+    );
+    if (confirmation !== 'Import them') {
+      return;
+    }
+
+    await this.applyRoadmapImport(context, read, plan);
+  }
+
+  /**
+   * Gather what one source needs, then read it.
+   *
+   * Every prompt is the editor's own, and a path the user picks is read as
+   * picked — the importer never takes a location from the page.
+   */
+  private async readRoadmapImportSource(
+    kind: RoadmapImportSourceKind,
+    workspaceRoot: string,
+  ): Promise<RoadmapImportRead | undefined> {
+    if (kind === 'github-issues') {
+      const issues = this.issuesState.issues;
+      if (issues.length === 0) {
+        void vscode.window.showWarningMessage(
+          'No issues have been read yet. Open the Issues tab and refresh first — AtlasMind imports the list it already has rather than fetching a second copy.',
+        );
+        return undefined;
+      }
+      return parseGithubIssueRoadmapItems(
+        issues.map(issue => ({
+          number: issue.number,
+          title: issue.title,
+          state: issue.state,
+          url: issue.url,
+          labels: issue.labels,
+        })),
+        this.issuesState.repoSlug ? `GitHub issues on ${this.issuesState.repoSlug}` : 'GitHub issues',
+      );
+    }
+
+    if (kind === 'markdown') {
+      const glob = await vscode.window.showInputBox({
+        title: 'Import a roadmap — markdown',
+        prompt: 'Which files hold the plan? A glob relative to the workspace.',
+        value: 'docs/**/*roadmap*.md',
+        ignoreFocusOut: true,
+      });
+      if (glob === undefined || glob.trim() === '') {
+        return undefined;
+      }
+      const matches = await vscode.workspace.findFiles(
+        new vscode.RelativePattern(workspaceRoot, glob.trim()),
+        '**/node_modules/**',
+        MAX_IMPORT_FILES + 1,
+      );
+      const files: Array<{ path: string; content: string }> = [];
+      for (const uri of matches) {
+        const relative = path.relative(workspaceRoot, uri.fsPath).split(path.sep).join('/');
+        const content = await fs.readFile(uri.fsPath, 'utf-8').catch(() => undefined);
+        if (content !== undefined) {
+          files.push({ path: relative, content });
+        }
+      }
+      if (files.length === 0) {
+        void vscode.window.showWarningMessage(`Nothing matched ${glob.trim()}.`);
+        return undefined;
+      }
+      const read = parseMarkdownRoadmapItems(files);
+      return { ...read, sourceLabel: glob.trim() };
+    }
+
+    if (kind === 'spreadsheet') {
+      const picked = await vscode.window.showOpenDialog({
+        title: 'Import a roadmap — spreadsheet export',
+        canSelectMany: false,
+        filters: { 'Delimited text': ['csv', 'tsv', 'txt'] },
+        defaultUri: vscode.Uri.file(workspaceRoot),
+      });
+      const file = picked?.[0];
+      if (file === undefined) {
+        return undefined;
+      }
+      const text = await fs.readFile(file.fsPath, 'utf-8').catch(() => undefined);
+      if (text === undefined) {
+        void vscode.window.showWarningMessage('That file could not be read.');
+        return undefined;
+      }
+      const headers = readSpreadsheetHeaders(text);
+      if (headers.length === 0) {
+        void vscode.window.showWarningMessage('That file has no header row, so there are no columns to map.');
+        return undefined;
+      }
+      const suggestion = suggestSpreadsheetMapping(headers);
+      // Asked, never assumed. Importing the wrong column fills a roadmap with
+      // dates or owner names, so the guess is only a preselection hint.
+      const titleColumn = await vscode.window.showQuickPick(headers, {
+        title: 'Which column holds the item?',
+        placeHolder: suggestion.title ? `Suggested: ${suggestion.title}` : 'No column looked like a title',
+        ignoreFocusOut: true,
+      });
+      if (titleColumn === undefined) {
+        return undefined;
+      }
+      const noStatus = '(none — everything is outstanding)';
+      const statusColumn = await vscode.window.showQuickPick(
+        [noStatus, ...headers.filter(header => header !== titleColumn)],
+        {
+          title: 'Which column says whether it is done?',
+          placeHolder: suggestion.status ? `Suggested: ${suggestion.status}` : 'Optional',
+          ignoreFocusOut: true,
+        },
+      );
+      if (statusColumn === undefined) {
+        return undefined;
+      }
+      const label = path.relative(workspaceRoot, file.fsPath).split(path.sep).join('/') || path.basename(file.fsPath);
+      return parseSpreadsheetRoadmapItems(
+        text,
+        {
+          title: titleColumn,
+          ...(statusColumn === noStatus ? {} : { status: statusColumn }),
+        },
+        label,
+      );
+    }
+
+    return this.readGithubProjectRoadmap(workspaceRoot);
+  }
+
+  /** The one import source needing a network call of its own. */
+  private async readGithubProjectRoadmap(workspaceRoot: string): Promise<RoadmapImportRead | undefined> {
+    const owner = await vscode.window.showInputBox({
+      title: 'Import a roadmap — GitHub Project',
+      prompt: 'Which owner holds the project? A user or organisation login.',
+      value: this.issuesState.repoSlug?.split('/')[0] ?? '',
+      ignoreFocusOut: true,
+    });
+    if (owner === undefined) {
+      return undefined;
+    }
+    if (!/^[A-Za-z0-9](?:[A-Za-z0-9-]{0,38})$/.test(owner.trim())) {
+      void vscode.window.showWarningMessage('That is not a valid GitHub owner name, so nothing was requested.');
+      return undefined;
+    }
+    const numberInput = await vscode.window.showInputBox({
+      title: 'Import a roadmap — GitHub Project',
+      prompt: 'Which project number? It is the number in the project URL.',
+      ignoreFocusOut: true,
+    });
+    if (numberInput === undefined) {
+      return undefined;
+    }
+    const projectNumber = Number(numberInput.trim());
+    if (!Number.isSafeInteger(projectNumber) || projectNumber <= 0) {
+      void vscode.window.showWarningMessage('A project number is a positive whole number, so nothing was requested.');
+      return undefined;
+    }
+
+    let raw: string;
+    try {
+      raw = await vscode.window.withProgress(
+        { location: vscode.ProgressLocation.Notification, title: 'AtlasMind: reading the project board', cancellable: false },
+        async () => runGh(workspaceRoot, [
+          'project', 'item-list', String(projectNumber),
+          '--owner', owner.trim(),
+          '--format', 'json',
+          '--limit', String(MAX_IMPORT_ITEMS),
+        ]),
+      );
+    } catch (error) {
+      const detail = error instanceof Error ? error.message : String(error);
+      void vscode.window.showWarningMessage(`AtlasMind could not read that project board: ${detail.slice(0, 300)}`);
+      return undefined;
+    }
+
+    let parsed: unknown;
+    try {
+      parsed = JSON.parse(raw);
+    } catch {
+      void vscode.window.showWarningMessage('The project listing was not readable JSON, so nothing was imported.');
+      return undefined;
+    }
+
+    // Which columns mean finished is a convention, not a guarantee, so it is
+    // asked. Importing live work as delivered is the expensive mistake here.
+    const statuses = collectProjectStatuses(parsed);
+    const done = statuses.length === 0
+      ? []
+      : (await vscode.window.showQuickPick(statuses, {
+        title: 'Which columns mean the work is finished?',
+        placeHolder: 'Pick none if every item should import as outstanding',
+        canPickMany: true,
+        ignoreFocusOut: true,
+      })) ?? [];
+
+    return parseGithubProjectRoadmapItems(parsed, `${owner.trim()}/projects/${projectNumber}`, done);
+  }
+
+  /**
+   * Write a confirmed import.
+   *
+   * Two writes, in an order that matters: the backlog first, because that is the
+   * file saying what the work is and the graph overlay is meaningless without the
+   * line it points at. The overlay is then re-opened — which mints durable ids
+   * for the new lines — and the import records are attached by matching on
+   * normalized text, the same repair path the store already uses when an anchor
+   * has been lost.
+   *
+   * A `conflict` or a `missing` entry produces no write of any kind. They are
+   * reported and left alone, which is the whole reason they are separate
+   * outcomes rather than a single "skipped".
+   */
+  private async applyRoadmapImport(
+    context: {
+      filePath: string;
+      ssotPath: string;
+      workspaceRoot: string;
+      existing: string;
+      gates: RoadmapGate[];
+      items: Array<{ id: string; text: string; completed: boolean; gates: string[]; nodeId?: string }>;
+    },
+    read: RoadmapImportRead,
+    plan: RoadmapImportPlan,
+  ): Promise<void> {
+    const updates = new Map<string, string>();
+    for (const entry of plan.entries) {
+      if (entry.outcome === 'update' && entry.existing !== undefined && entry.nextText !== undefined) {
+        updates.set(normalizeRoadmapText(entry.existing.text), entry.nextText);
+      }
+    }
+
+    const kept = context.items.map(item => {
+      const next = updates.get(normalizeRoadmapText(item.text));
+      return {
+        text: next ?? item.text,
+        completed: item.completed,
+        gates: item.gates,
+        ...(item.nodeId === undefined ? {} : { nodeId: item.nodeId }),
+      };
+    });
+    const added = plan.entries
+      .filter(entry => entry.outcome === 'add' && entry.item !== undefined)
+      .map(entry => ({ text: entry.item!.title, completed: entry.item!.completed, gates: [] as string[] }));
+
+    await fs.mkdir(path.dirname(context.filePath), { recursive: true });
+    await fs.writeFile(
+      context.filePath,
+      serializeDashboardRoadmapDocument(context.existing, [...kept, ...added], normalizeGates(context.gates)),
+      'utf-8',
+    );
+
+    // Re-open so the new lines are anchored, then record where each came from.
+    const graphContext = await this.openRoadmapGraphForWrite();
+    if (graphContext !== undefined) {
+      const idByText = new Map<string, string>();
+      for (const [nodeId, text] of graphContext.nodeText.entries()) {
+        const key = normalizeRoadmapText(text);
+        if (!idByText.has(key)) {
+          idByText.set(key, nodeId);
+        }
+      }
+      let document = graphContext.document;
+      const stamped = new Date().toISOString();
+      for (const entry of plan.entries) {
+        const item = entry.item;
+        if ((entry.outcome !== 'add' && entry.outcome !== 'update') || item === undefined) {
+          continue;
+        }
+        const nodeId = idByText.get(normalizeRoadmapText(item.title));
+        if (nodeId === undefined) {
+          continue;
+        }
+        document = ProjectDashboardPanel.upsertRoadmapNode(document, nodeId, item.title, record => {
+          record.imported = importRecordFor(read, item, stamped);
+        });
+      }
+      await this.commitRoadmapGraph(graphContext.workspaceRoot, graphContext.ssotPath, document);
+    }
+
+    const ssotRoot = vscode.Uri.file(path.join(context.workspaceRoot, context.ssotPath));
+    await this.atlas.memoryManager.loadFromDisk(ssotRoot);
+    this.atlas.memoryRefresh.fire();
+    await this.syncState();
+    void vscode.window.showInformationMessage(plan.summary);
+  }
+
   private async handleRoadmapDeriveLinks(): Promise<void> {
     const context = await this.openRoadmapGraphForWrite();
     if (context === undefined) {
@@ -12125,7 +12515,7 @@ export function isProjectDashboardMessage(message: unknown): message is ProjectD
   if (candidate['type'] === 'saveBranchPreferences') {
     return normalizeBranchDashboardPreferences(candidate['payload']) !== undefined;
   }
-  if (candidate['type'] === 'ready' || candidate['type'] === 'refresh' || candidate['type'] === 'fetchBranches' || candidate['type'] === 'runGapAnalysis' || candidate['type'] === 'markDeliveryReviewed' || candidate['type'] === 'reimportDelivery' || candidate['type'] === 'seedDirectorFromRepo' || candidate['type'] === 'seedDocumentsFromRepo' || candidate['type'] === 'createRoadmapGate' || candidate['type'] === 'discussDashboardError') {
+  if (candidate['type'] === 'ready' || candidate['type'] === 'refresh' || candidate['type'] === 'fetchBranches' || candidate['type'] === 'runGapAnalysis' || candidate['type'] === 'markDeliveryReviewed' || candidate['type'] === 'reimportDelivery' || candidate['type'] === 'seedDirectorFromRepo' || candidate['type'] === 'seedDocumentsFromRepo' || candidate['type'] === 'createRoadmapGate' || candidate['type'] === 'importRoadmap' || candidate['type'] === 'discussDashboardError') {
     return true;
   }
 
@@ -19040,6 +19430,71 @@ function buildMvpPlanPrompt(outstanding: DashboardMvpStep[], hasTaggedItems: boo
  * item again. Not an id: ids here are positional and renumber on insert.
  * Returns `undefined` when there is nothing to write to.
  */
+/**
+ * The detail block for an import confirmation.
+ *
+ * Every outcome is named, including the ones that change nothing. A dialog
+ * reading "42 to add" is true and useless: the two facts somebody needs before
+ * agreeing are what it would leave alone and what it could not read, and both
+ * are exactly what a count of additions omits.
+ */
+function describeRoadmapImportDetail(plan: RoadmapImportPlan): string {
+  const sample = (outcome: RoadmapImportPlan['entries'][number]['outcome'], limit: number): string[] => {
+    const matching = plan.entries.filter(entry => entry.outcome === outcome);
+    const lines = matching.slice(0, limit).map(entry => {
+      if (outcome === 'conflict') {
+        return `  • source: "${entry.item?.title ?? ''}"\n    yours:  "${entry.existing?.text ?? ''}"`;
+      }
+      return `  • ${entry.item?.title ?? entry.existing?.text ?? ''}`;
+    });
+    return matching.length > limit
+      ? [...lines, `  • …and ${matching.length - limit} more`]
+      : lines;
+  };
+
+  return [
+    plan.summary,
+    ...(plan.counts.add > 0 ? ['', `Added (${plan.counts.add}):`, ...sample('add', 8)] : []),
+    ...(plan.counts.update > 0 ? ['', `Retitled from the source (${plan.counts.update}):`, ...sample('update', 6)] : []),
+    ...(plan.counts.conflict > 0
+      ? [
+        '',
+        `Changed on both sides — left alone (${plan.counts.conflict}):`,
+        ...sample('conflict', 4),
+      ]
+      : []),
+    ...(plan.counts.missing > 0
+      ? ['', `No longer in the source — left on the roadmap (${plan.counts.missing}):`, ...sample('missing', 4)]
+      : []),
+    ...(plan.notes.length > 0 ? ['', 'Notes:', ...plan.notes.map(note => `  • ${note}`)] : []),
+    '',
+    'Nothing on this roadmap is deleted by an import.',
+  ].join('\n');
+}
+
+/**
+ * The status column names a project board actually uses.
+ *
+ * Read from the data rather than assumed, because "Done" is one convention
+ * among several and offering a list somebody recognises is the difference
+ * between a question they can answer and one they have to guess at.
+ */
+function collectProjectStatuses(raw: unknown): string[] {
+  const container = raw as { items?: unknown } | null | undefined;
+  const list = Array.isArray(container?.items) ? container.items : Array.isArray(raw) ? raw : [];
+  const statuses = new Set<string>();
+  for (const entry of list) {
+    if (typeof entry !== 'object' || entry === null) {
+      continue;
+    }
+    const status = (entry as Record<string, unknown>)['status'];
+    if (typeof status === 'string' && status.trim() !== '' && status.length < 80) {
+      statuses.add(status.trim());
+    }
+  }
+  return [...statuses].sort((left, right) => left.localeCompare(right));
+}
+
 export async function addRoadmapItemFromExternalSurface(
   atlas: AtlasMindContext,
   text: string,

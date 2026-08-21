@@ -45,6 +45,8 @@
  * Roadmap page.
  */
 
+import type { RoadmapImportRecord } from './roadmapImport.js';
+
 /** Mirrors `DashboardRoadmapItem['focus']`. Duplicated deliberately: this module is pure. */
 export type RoadmapFocus = 'security' | 'architecture' | 'delivery' | 'feature' | 'documentation';
 
@@ -164,6 +166,18 @@ export interface RoadmapNodeRecord {
   addedBy?: string;
   completedAt?: string;
   completedBy?: string;
+  /**
+   * Where this line was imported from, when it was not typed here.
+   *
+   * Deliberately its own field rather than folded into `origin`. That one
+   * answers "which of our registers raised this", and its `sourceId` is
+   * documented as content-derived so it survives a re-scan; an import key is
+   * assigned by a system outside this repository and a URL points out of it
+   * entirely. One field meaning both would make that comment false, and the two
+   * offer different actions — a register origin routes to a dashboard page, an
+   * import points at a file or a link somewhere else.
+   */
+  imported?: RoadmapImportRecord;
   /** Canvas position. Absent means the layout pass places it. */
   position?: { x: number; y: number };
   /**
@@ -241,6 +255,8 @@ export interface RoadmapGraphNode {
   estimate: RoadmapEstimate;
   /** Who is expected to do this, by Director contact id. A plan, not history. */
   assigneeId?: string;
+  /** Where this line was imported from, when it was not typed here. */
+  imported?: RoadmapImportRecord;
   addedAt?: string;
   addedBy?: string;
   completedAt?: string;
@@ -925,6 +941,7 @@ export function resolveRoadmapGraph(input: RoadmapGraphInput): RoadmapGraph {
       }),
       estimate,
       ...(record?.assigneeId === undefined ? {} : { assigneeId: record.assigneeId }),
+      ...(record?.imported === undefined ? {} : { imported: record.imported }),
       ...(record?.addedAt === undefined ? {} : { addedAt: record.addedAt }),
       ...(record?.addedBy === undefined ? {} : { addedBy: record.addedBy }),
       ...(record?.completedAt === undefined ? {} : { completedAt: record.completedAt }),

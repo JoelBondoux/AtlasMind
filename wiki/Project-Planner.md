@@ -149,6 +149,18 @@ crossing it, which looks like a broken layout and is not one. The canvas says so
 state, and points at Calculate tree. The suggestions toggle only shows and hides the dashed arrows; it
 carries the count so "showing" with nothing drawn is distinguishable from a control that failed.
 
+**Import a roadmap you already keep somewhere else.** **Import…** in the toolbar reads markdown files
+across a glob, GitHub issues, a GitHub Projects board, or a CSV/TSV export. You are asked which source,
+then for whatever it needs — a glob, a project number, or which spreadsheet column holds the item — and
+then shown exactly what would change before anything is written.
+
+Run it as often as you like. Each imported line records where it came from, so a second run updates what
+moved rather than duplicating everything, and a *first* import adopts items you already typed by hand
+instead of adding them twice. Nothing is ever deleted: an item the source has lost is reported and left
+where it is, because "dropped", "renamed" and "your glob stopped matching that file" look identical from
+here. And your own edits are safe — if you have retitled an item and the source has also changed it,
+you get a conflict showing both texts and nothing is written.
+
 **Four views, not three.** **Dependency canvas**, **Prioritised backlog**, **By person** and
 **Delivered**. By person shows the same outstanding work in one band per person, with each band still
 ordered by what has to happen first — so an arrow crossing between bands is one person waiting on

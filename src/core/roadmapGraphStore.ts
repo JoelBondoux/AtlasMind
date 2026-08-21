@@ -38,6 +38,7 @@ import { mkdir, writeFile } from 'node:fs/promises';
 import path from 'node:path';
 
 import { interpretVersionedDocument, type VersionedDocumentRead } from './schemaMigration.js';
+import type { RoadmapImportRecord } from './roadmapImport.js';
 import {
   MAX_ROADMAP_GRAPH_NODES,
   ROADMAP_EDGE_RULES,
@@ -237,6 +238,7 @@ export function sanitizeRoadmapNodeRecord(value: unknown): RoadmapNodeRecord | u
   const assigneeId = sanitizeId(record['assigneeId']);
   const position = sanitizePosition(record['position']);
   const origin = sanitizeRoadmapOrigin(record['origin']);
+  const imported = sanitizeRoadmapImport(record['imported']);
 
   return {
     id,
@@ -255,7 +257,47 @@ export function sanitizeRoadmapNodeRecord(value: unknown): RoadmapNodeRecord | u
     ...(completedAt === undefined ? {} : { completedAt }),
     ...(completedBy === undefined ? {} : { completedBy }),
     ...(position === undefined ? {} : { position }),
+    ...(imported === undefined ? {} : { imported }),
     ...(origin === undefined ? {} : { origin }),
+  };
+}
+
+/**
+ * Where a line was imported from.
+ *
+ * Refused whole rather than partially repaired, exactly as `sanitizeRoadmapOrigin`
+ * is: a record missing its key or its source is one no re-import can reconcile
+ * against, so keeping half of it would produce a line that looks tracked and
+ * silently duplicates on the next run. `importedTitleNormalized` is allowed to
+ * be empty — that reads as "we do not know what the source said", which the
+ * planner treats as a possible update rather than a conflict, and inventing a
+ * value would manufacture a conflict nobody has.
+ */
+function sanitizeRoadmapImport(value: unknown): RoadmapImportRecord | undefined {
+  if (typeof value !== 'object' || value === null) {
+    return undefined;
+  }
+  const record = value as Record<string, unknown>;
+  const kind = record['kind'];
+  if (kind !== 'markdown' && kind !== 'github-issues' && kind !== 'github-project' && kind !== 'spreadsheet') {
+    return undefined;
+  }
+  const sourceId = clampString(record['sourceId'], 300);
+  const sourceLabel = clampString(record['sourceLabel'], 200);
+  if (sourceId === undefined || sourceLabel === undefined) {
+    return undefined;
+  }
+  const importedAt = sanitizeTimestamp(record['importedAt']);
+  const url = typeof record['url'] === 'string' && /^https:\/\//i.test(record['url'].trim())
+    ? record['url'].trim().slice(0, 500)
+    : undefined;
+  return {
+    kind,
+    sourceId,
+    sourceLabel,
+    importedTitleNormalized: clampString(record['importedTitleNormalized'], 400) ?? '',
+    ...(importedAt === undefined ? {} : { importedAt }),
+    ...(url === undefined ? {} : { url }),
   };
 }
 

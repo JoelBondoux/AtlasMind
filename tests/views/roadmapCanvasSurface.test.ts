@@ -306,6 +306,62 @@ describe('the by-person view', () => {
   });
 });
 
+describe('importing somebody else‘s roadmap', () => {
+  it('asks for the flow with no payload, so the page can never name a file to read', () => {
+    // The source, the glob, the file and the column mapping are all gathered by
+    // the host through the editor's own pickers.
+    expect(WEBVIEW_SCRIPT).toContain('data-action="roadmap-import"');
+    expect(WEBVIEW_SCRIPT).toContain("vscode.postMessage({ type: 'importRoadmap' });");
+    expect(WEBVIEW_SCRIPT).not.toMatch(/type: 'importRoadmap', payload/);
+    expect(HOST_PANEL).toContain("| { type: 'importRoadmap' }");
+  });
+
+  it('shows what would change before writing anything', () => {
+    expect(HOST_PANEL).toContain('describeRoadmapImportDetail(plan)');
+    expect(HOST_PANEL).toContain("'Import them',");
+    // And returns early when there is nothing to write, rather than asking to
+    // confirm a no-op.
+    expect(HOST_PANEL).toContain('if (plan.counts.add === 0 && plan.counts.update === 0)');
+  });
+
+  it('names what it would leave alone, not just what it would add', () => {
+    // "42 to add" is true and useless: what it would leave alone and what it
+    // could not read are exactly what a count of additions omits.
+    expect(HOST_PANEL).toContain('Changed on both sides — left alone');
+    expect(HOST_PANEL).toContain('No longer in the source — left on the roadmap');
+    expect(HOST_PANEL).toContain('Nothing on this roadmap is deleted by an import.');
+  });
+
+  it('writes the backlog before the overlay, and only for add and update', () => {
+    // The overlay is meaningless without the line it points at, and a conflict
+    // or a missing entry produces no write of any kind.
+    const apply = HOST_PANEL.slice(HOST_PANEL.indexOf('private async applyRoadmapImport'));
+    expect(apply.slice(0, 3000)).toContain('serializeDashboardRoadmapDocument');
+    expect(apply.slice(0, 3000)).toContain("entry.outcome !== 'add' && entry.outcome !== 'update'");
+    expect(apply.slice(0, 3000)).toContain('importRecordFor(read, item, stamped)');
+  });
+
+  it('reuses the issue list already read rather than fetching a second copy', () => {
+    expect(HOST_PANEL).toContain('No issues have been read yet');
+    expect(HOST_PANEL).toContain('parseGithubIssueRoadmapItems(');
+  });
+
+  it('asks which project columns mean finished rather than assuming "Done"', () => {
+    expect(HOST_PANEL).toContain('Which columns mean the work is finished?');
+    expect(HOST_PANEL).toContain('collectProjectStatuses(parsed)');
+  });
+
+  it('asks which spreadsheet column holds the item rather than taking the first', () => {
+    expect(HOST_PANEL).toContain('Which column holds the item?');
+    expect(HOST_PANEL).toContain('suggestSpreadsheetMapping(headers)');
+  });
+
+  it('validates a GitHub owner and project number before spending a call', () => {
+    expect(HOST_PANEL).toContain('That is not a valid GitHub owner name');
+    expect(HOST_PANEL).toContain('A project number is a positive whole number');
+  });
+});
+
 describe('the Calculate tree control can be found by the name the canvas gives it', () => {
   it('shows its label, which the shared icon-only rule clips away', () => {
     // The flat-plan notice tells you to press "Calculate tree". The shared Atlas

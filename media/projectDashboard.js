@@ -1565,6 +1565,13 @@
       });
       return;
     }
+    // No payload: the host gathers the source, the glob and the column mapping
+    // through the editor's own pickers, so this can ask for an import and can
+    // never name a file to read.
+    if (action === 'roadmap-import') {
+      vscode.postMessage({ type: 'importRoadmap' });
+      return;
+    }
     if (action === 'roadmap-derive-links') {
       // Accepting links changes every node's depth, which is the largest layout
       // change this page can make. Fit afterwards for the same reason arranging
@@ -11124,6 +11131,8 @@
             title="${escapeAttr('Zoom and pan so the whole plan is on screen at once.')}">Fit all</button>
           ${state.roadmapView === 'completed' ? '' : `
             ${renderRoadmapDeriveAction()}
+            <button type="button" class="action-link" data-action="roadmap-import"
+              title="${escapeAttr('Read a roadmap this project already keeps somewhere else — markdown files, GitHub issues, a Project board, or a spreadsheet export. You see exactly what would change before anything is written, and nothing here is ever deleted.')}">Import…</button>
             <button type="button" class="action-link" data-action="roadmap-add" data-payload="new">Add item</button>`}
         </div>
       </div>

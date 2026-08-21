@@ -6,6 +6,45 @@ The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/),
 
 ## [Unreleased]
 
+## [0.379.0] - 2026-08-21
+
+### Added
+
+- **A roadmap can be imported from wherever the project already keeps it.** Teams do not record a plan
+  the way AtlasMind does, and asking them to retype it was asking them not to use the canvas. **Import…**
+  on the Roadmap page reads four sources: markdown files across a glob, GitHub issues, a GitHub Projects
+  (v2) board, and a CSV or TSV export.
+
+  Six rules shape it, and every one is about not damaging a plan that already works.
+
+  **Import, never mirror.** `improvement-plan.md` stays the one file that says what the work *is* —
+  every link, deadline, estimate, assignee and position is keyed to durable ids in it, so a second source
+  of truth would leave the graph overlay pointing at rows nobody owns.
+
+  **Re-runnable, matched on a recorded key rather than on text.** Each imported line stores where it came
+  from, so a second run updates what moved and adds what is new instead of producing a second copy of
+  everything. Text matching is the *fallback*, used only for lines with no import record — which is what
+  lets a first import adopt a backlog you already typed by hand instead of duplicating every line of it,
+  and what stops a later import stealing lines belonging to a different source.
+
+  **Nothing is ever deleted.** An item the source no longer has is reported and left exactly where it is.
+  It may have been dropped, or renamed, or the glob may have stopped matching a file — three different
+  things that look identical from here.
+
+  **A local edit is never overwritten.** The source title is recorded at import time, so "you edited
+  this" and "the source changed" stay distinguishable. When both have moved, the item is a conflict
+  carrying both texts and the import changes nothing about it.
+
+  **Nothing is written until you have seen what would change.** The confirmation names what would be
+  added, what would be retitled, what would be left alone and what could not be read — a dialog saying
+  only "42 to add" omits exactly the two things worth knowing before agreeing.
+
+  **The page never names a source.** It asks for the flow and nothing else; the glob, the file, the
+  project number and the column mapping are all gathered by the editor's own pickers. Which spreadsheet
+  column holds the item is asked rather than guessed, because importing the wrong one fills a roadmap
+  with dates or owner names; which project columns mean *finished* is asked too, because "Done" is a
+  convention and marking live work as delivered is the expensive mistake.
+
 ## [0.378.0] - 2026-08-21
 
 ### Fixed

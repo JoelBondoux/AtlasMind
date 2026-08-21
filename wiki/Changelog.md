@@ -19,6 +19,46 @@ Older entries below describe the software as it was at the time and are delibera
 
 ---
 
+## v0.379.0 — Bring the roadmap you already have
+
+AtlasMind's roadmap lives in one markdown file, and that is fine for a project that started here and
+useless for every project that did not. Your plan already exists — as a handful of markdown files under
+`docs/`, as GitHub issues, on a Projects board, or in a spreadsheet somebody exported. Asking you to
+retype it was asking you not to use the canvas.
+
+**Import…** on the Roadmap page reads all four. What it does is bounded by six rules, and every one of
+them is about not damaging a plan that already works.
+
+**It imports rather than mirrors.** `improvement-plan.md` stays the one file that says what the work is,
+because every link, deadline, estimate, assignee and position on the canvas is keyed to it. A second
+source of truth would leave all of that pointing at rows nobody owns.
+
+**You can run it again.** Each imported line records where it came from, so a second run updates what
+moved and adds what is new rather than giving you a second copy of everything. Text matching is only a
+fallback for lines that have no record yet — which is exactly what lets a first import *adopt* a backlog
+you typed by hand instead of duplicating it, and what stops a later import stealing lines that belong to
+a different source.
+
+**Nothing is ever deleted.** An item the source no longer has is reported and left where it is. It might
+have been dropped, or renamed, or your glob might have stopped matching a file — three very different
+things that look identical from here.
+
+**Your edits are never overwritten.** The source title is recorded at import time, so "you changed this"
+and "the source changed" stay separable. When both have moved, you get a conflict showing both texts and
+the import touches nothing.
+
+**You see the whole plan first.** The confirmation names what would be added, what would be retitled,
+what would be left alone, and what could not be read. A dialog that said only "42 to add" would be true
+and would leave out the two things actually worth knowing.
+
+**The page never picks a source.** It asks for the flow; the glob, the file, the project number and the
+column mapping all come from the editor's own pickers. Which spreadsheet column holds the item is asked
+rather than guessed — importing the wrong one fills a roadmap with dates or owner names — and which
+project columns mean *finished* is asked too, because "Done" is a convention, and marking live work as
+delivered is the expensive mistake.
+
+---
+
 ## v0.378.0 — The canvas keeps responding, and the plan can say whose it is
 
 **The roadmap canvas stopped accepting input after a while.** The cause was a drag that never ended.
