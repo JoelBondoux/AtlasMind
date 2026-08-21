@@ -11250,7 +11250,7 @@
     const count = visibleSuggestions.length;
     if (count === 0) {
       return graph.suggestLinks === false && (graph.suggested || []).length > 0
-        ? `<div class="rm-banner" role="status">${escapeHtml('Nothing is linked yet, so every item sits at the same level. Suggestions are switched off — turn them on to see what AtlasMind would propose.')}</div>`
+        ? `<div class="rm-banner" role="status">${escapeHtml('Nothing is linked yet, so there is no order to draw — the items are parked in a compact block. Suggestions are switched off — turn them on to see what AtlasMind would propose.')}</div>`
         : '';
     }
     // The one gesture that gets a first-time plan from pile to tree is right
@@ -11258,7 +11258,7 @@
     // where somebody concludes the canvas "doesn't want to make a tree", so
     // the way out has to be in the sentence that explains it.
     return `<div class="rm-banner rm-banner-actionable" role="status"><span>${escapeHtml(
-      `Nothing is linked yet, so every item sits at the same level and the tree has only one step. The ${count} dashed `
+      `Nothing is linked yet, so there is no order to draw and the items are parked in a compact block. The ${count} dashed `
       + `arrow${count === 1 ? '' : 's'} ${count === 1 ? 'is a suggestion' : 'are suggestions'} — they never move an item, `
       + 'because an inference should not reorder your plan on its own. Accept them (individually, or all at once with '
       + 'Calculate tree) and the tree takes shape.')}</span>${renderRoadmapDeriveAction()}</div>`;
@@ -11293,7 +11293,7 @@
           ${state.roadmapView === 'completed' ? '' : `
             <span class="rm-control-group" role="group" aria-label="Arrange the plan as a tree">
               <button type="button" class="action-link rm-auto-tree" data-action="roadmap-auto-align" data-payload=""
-                title="${escapeAttr('Lay the plan out as a tree and fit it on screen. Each step along the reading axis is one step further from work that can start now. Releases every node you have positioned by hand — drag one again to pin it. Only links you have accepted shape the tree; suggestions never move a node.')}">
+                title="${escapeAttr('Lay the plan out as a tree and fit it on screen. Each prerequisite sits just before the first thing it unlocks, connected work is grouped into its own block, and items with no links park in a compact block of their own. Releases every node you have positioned by hand — drag one again to pin it. Only links you have accepted shape the tree; suggestions never move a node.')}">
                 <span aria-hidden="true">⌗</span> Auto tree
               </button>
               <button type="button" class="action-link rm-orientation${graph.orientation !== 'vertical' ? ' is-on' : ''}"

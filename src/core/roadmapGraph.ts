@@ -276,7 +276,11 @@ export interface RoadmapGraphNode {
   origin?: RoadmapNodeOrigin;
   position: { x: number; y: number };
   positionSource: 'declared' | 'derived';
-  /** Longest-path depth from a node with no prerequisites. Drives the columns. */
+  /**
+   * Layer along the reading axis. Longest-path depth, with sources tightened
+   * down to one step before their earliest dependent — so a prerequisite sits
+   * beside what it unlocks rather than in a giant first row.
+   */
   depth: number;
   /** Direct prerequisites, including completed ones — the plan says how you got here. */
   prerequisites: string[];
@@ -1136,8 +1140,18 @@ function computeRouteDays(
  *
  * A stored position always wins — dragging a node is a statement about how you
  * read the plan, and a layout pass that overrode it would undo the user's work
- * on every refresh. Everything else is placed deterministically by depth and
- * priority, so two people opening the same roadmap see the same picture.
+ * on every refresh. Everything else goes through a small, fully deterministic
+ * layered pipeline (a compact Sugiyama), because the naive version of each
+ * step is exactly what made a real backlog unreadable: longest-path layering
+ * put every parentless item in one first row wider than the plan, priority
+ * ordering interleaved unrelated sub-plans so edges swept the whole canvas,
+ * and dense packing from the margin left children nowhere near their parents.
+ *
+ * The steps, in order: tighten sources down beside their earliest dependent;
+ * split the graph into connected components and lay each out as its own block;
+ * sweep crossings out with alternating barycentre passes; pull coordinates
+ * toward each node's neighbours; and park unlinked items in their own compact
+ * grid. Each step is commented where it happens.
  */
 function applyRoadmapLayout(
   nodes: RoadmapGraphNode[],
@@ -1156,80 +1170,224 @@ function applyRoadmapLayout(
     }
   }
 
-  const byDepth = new Map<number, RoadmapGraphNode[]>();
+  const byId = new Map(nodes.map(node => [node.id, node]));
+
+  // ── 1. Tighten the layers ──────────────────────────────────────────────────
+  //
+  // Longest-path alone puts every parentless item at depth zero — one first
+  // row wider than the whole plan, each item half a canvas from what it
+  // unlocks. A source node is pulled down to one step before its *earliest*
+  // dependent, so a chain reads locally. Only sources move: everything with a
+  // prerequisite is already as deep as its longest chain makes it. Dependents
+  // are never sources, so the pass is order-independent.
+  for (const node of nodes) {
+    if (node.prerequisites.length === 0 && node.dependents.length > 0) {
+      const earliest = Math.min(...node.dependents.map(id => byId.get(id)?.depth ?? node.depth + 1));
+      node.depth = Math.max(node.depth, earliest - 1);
+    }
+  }
+
+  // Depth always runs along the *reading* axis and siblings along the cross
+  // axis, so the two orientations stay one placement rule with its axes
+  // swapped rather than two layouts that could drift apart.
+  const crossPitch = orientation === 'vertical' ? ROADMAP_COLUMN_WIDTH : ROADMAP_ROW_HEIGHT;
+  const readingPitch = orientation === 'vertical' ? ROADMAP_ROW_HEIGHT : ROADMAP_COLUMN_WIDTH;
+  const toPosition = (reading: number, cross: number): { x: number; y: number } => (
+    orientation === 'vertical' ? { x: cross, y: reading } : { x: reading, y: cross }
+  );
+  const crossOf = (position: { x: number; y: number }): number => (
+    orientation === 'vertical' ? position.x : position.y
+  );
+  const quantise = (value: number): number =>
+    ROADMAP_CANVAS_MARGIN + Math.round((value - ROADMAP_CANVAS_MARGIN) / crossPitch) * crossPitch;
+  const mean = (values: number[]): number =>
+    values.reduce((sum, value) => sum + value, 0) / values.length;
+
+  // ── 2. Connected components ────────────────────────────────────────────────
+  //
+  // Each component is laid out as its own block along the cross axis rather
+  // than interleaved with the others: an edge should never have to cross an
+  // unrelated plan's cards to reach its own. Components keep backlog order —
+  // the block whose first member ranks highest is read first.
+  const componentOf = new Map<string, number>();
+  let componentCount = 0;
+  for (const node of nodes) {
+    if (componentOf.has(node.id)) {
+      continue;
+    }
+    const stack = [node.id];
+    componentOf.set(node.id, componentCount);
+    while (stack.length > 0) {
+      const current = byId.get(stack.pop() as string);
+      for (const neighbour of [...(current?.prerequisites ?? []), ...(current?.dependents ?? [])]) {
+        if (byId.has(neighbour) && !componentOf.has(neighbour)) {
+          componentOf.set(neighbour, componentCount);
+          stack.push(neighbour);
+        }
+      }
+    }
+    componentCount += 1;
+  }
+
+  const isolated: RoadmapGraphNode[] = [];
+  const componentMembers = new Map<number, RoadmapGraphNode[]>();
   for (const node of nodes) {
     if (node.positionSource === 'declared') {
       continue;
     }
-    const bucket = byDepth.get(node.depth) ?? [];
-    bucket.push(node);
-    byDepth.set(node.depth, bucket);
-  }
-
-  // Depth always runs along the *reading* axis and siblings along the other, so
-  // the two orientations are one placement rule with its axes swapped rather
-  // than two layouts that could drift apart.
-  const place = (depth: number, row: number): { x: number; y: number } => (
-    orientation === 'vertical'
-      ? { x: ROADMAP_CANVAS_MARGIN + row * ROADMAP_COLUMN_WIDTH, y: ROADMAP_CANVAS_MARGIN + depth * ROADMAP_ROW_HEIGHT }
-      : { x: ROADMAP_CANVAS_MARGIN + depth * ROADMAP_COLUMN_WIDTH, y: ROADMAP_CANVAS_MARGIN + row * ROADMAP_ROW_HEIGHT }
-  );
-
-  // Cross-axis position of every node already placed, so a later layer can sit
-  // near what it waits for. Hand-placed nodes count too: being dragged
-  // somewhere is exactly the kind of statement a dependent should follow.
-  const crossOf = (position: { x: number; y: number }): number => (
-    orientation === 'vertical' ? position.x : position.y
-  );
-  const placedCross = new Map<string, number>();
-  for (const node of nodes) {
-    if (node.positionSource === 'declared') {
-      placedCross.set(node.id, crossOf(node.position));
+    if (node.prerequisites.length === 0 && node.dependents.length === 0) {
+      isolated.push(node);
+      continue;
     }
+    const component = componentOf.get(node.id) as number;
+    const bucket = componentMembers.get(component) ?? [];
+    bucket.push(node);
+    componentMembers.set(component, bucket);
   }
 
-  for (const [depth, bucket] of [...byDepth.entries()].sort((left, right) => left[0] - right[0])) {
-    // Siblings are ordered by the mean cross-axis position of their
-    // prerequisites — a barycentre pass, which is what keeps an edge short and
-    // stops arrows crossing the whole canvas to reach a dependent that was
-    // sorted by priority alone. Priority still decides among nodes whose
-    // prerequisites give no signal, so depth zero (where nothing has a
-    // prerequisite) keeps its priority order exactly as before. Every fallback
-    // is total, so two people opening the same roadmap still see one picture.
-    const barycenter = (node: RoadmapGraphNode): number | undefined => {
-      const anchors = node.prerequisites
-        .map(id => placedCross.get(id))
-        .filter((value): value is number => value !== undefined);
-      if (anchors.length === 0) {
-        return undefined;
-      }
-      return anchors.reduce((sum, value) => sum + value, 0) / anchors.length;
-    };
-    const ordered = bucket.sort((left, right) => {
-      const a = barycenter(left);
-      const b = barycenter(right);
-      if (a !== undefined && b !== undefined && a !== b) {
-        return a - b;
-      }
-      if ((a === undefined) !== (b === undefined)) {
-        return a === undefined ? 1 : -1;
-      }
-      return right.priorityScore - left.priorityScore || left.id.localeCompare(right.id);
-    });
-    let row = 0;
-    for (const node of ordered) {
-      let position = place(depth, row);
-      // Skip over any cell a dragged node already claims, so an auto-placed node
-      // is never dropped on top of one somebody positioned by hand.
+  // A hand-placed neighbour counts as an anchor: being dragged somewhere is
+  // exactly the kind of statement a dependent should follow.
+  const anchorOf = (id: string, coords: Map<string, number>): number | undefined => {
+    const placed = coords.get(id);
+    if (placed !== undefined) {
+      return placed;
+    }
+    const neighbour = byId.get(id);
+    return neighbour !== undefined && neighbour.positionSource === 'declared'
+      ? crossOf(neighbour.position)
+      : undefined;
+  };
+
+  // One ordered walk along a layer: pull each node toward its anchors, then
+  // restore left-to-right order, minimum spacing, the component's own band,
+  // and any cell a hand-placed node claims.
+  const settleLayer = (
+    layer: RoadmapGraphNode[],
+    base: number,
+    coords: Map<string, number>,
+    desiredOf: (node: RoadmapGraphNode) => number | undefined,
+  ): void => {
+    let previous = Number.NEGATIVE_INFINITY;
+    for (const node of layer) {
+      const desired = desiredOf(node);
+      const floor = previous === Number.NEGATIVE_INFINITY ? base : previous + crossPitch;
+      let cross = Math.max(desired === undefined ? floor : quantise(desired), floor);
+      const reading = ROADMAP_CANVAS_MARGIN + node.depth * readingPitch;
+      let position = toPosition(reading, cross);
       while (occupied.has(cellKey(position.x, position.y))) {
-        row += 1;
-        position = place(depth, row);
+        cross += crossPitch;
+        position = toPosition(reading, cross);
       }
+      coords.set(node.id, cross);
+      previous = cross;
+    }
+  };
+
+  let cursor = ROADMAP_CANVAS_MARGIN;
+
+  for (const [, members] of [...componentMembers.entries()].sort((left, right) => left[0] - right[0])) {
+    // ── 3. Order the layers: barycentre sweeps ─────────────────────────────
+    //
+    // Down over prerequisites, up over dependents, alternating — a single
+    // downward pass leaves the crossings the upward relationships know how to
+    // untangle. Stable throughout: a node whose links give no signal keeps its
+    // place, so priority survives where the plan is silent, and the result is
+    // deterministic — two people opening the same roadmap see one picture.
+    const depths = [...new Set(members.map(node => node.depth))].sort((a, b) => a - b);
+    const layers = depths.map(depth => members
+      .filter(node => node.depth === depth)
+      .sort((left, right) => right.priorityScore - left.priorityScore || left.id.localeCompare(right.id)));
+
+    const index = new Map<string, number>();
+    const reindex = (): void => {
+      for (const layer of layers) {
+        layer.forEach((node, i) => index.set(node.id, i));
+      }
+    };
+    const orderBy = (
+      layer: RoadmapGraphNode[],
+      neighboursOf: (node: RoadmapGraphNode) => string[],
+    ): RoadmapGraphNode[] => {
+      const keyed = layer.map((node, i) => {
+        const values = neighboursOf(node)
+          .map(id => index.get(id))
+          .filter((value): value is number => value !== undefined);
+        return { node, i, key: values.length > 0 ? mean(values) : i };
+      });
+      keyed.sort((left, right) => left.key - right.key || left.i - right.i);
+      return keyed.map(entry => entry.node);
+    };
+    reindex();
+    for (let sweep = 0; sweep < 3; sweep += 1) {
+      for (let li = 1; li < layers.length; li += 1) {
+        layers[li] = orderBy(layers[li] as RoadmapGraphNode[], node => node.prerequisites);
+        reindex();
+      }
+      for (let li = layers.length - 2; li >= 0; li -= 1) {
+        layers[li] = orderBy(layers[li] as RoadmapGraphNode[], node => node.dependents);
+        reindex();
+      }
+    }
+
+    // ── 4. Coordinates: children under parents, parents over children ──────
+    //
+    // A downward pass pulls each node toward the mean of its prerequisites,
+    // an upward pass then centres each node over what it unlocks — quantised
+    // to the grid, with order, spacing and the component band preserved —
+    // instead of packing every layer densely from the margin.
+    const coords = new Map<string, number>();
+    for (const layer of layers) {
+      settleLayer(layer, cursor, coords, node => {
+        const anchors = node.prerequisites
+          .map(id => anchorOf(id, coords))
+          .filter((value): value is number => value !== undefined);
+        return anchors.length > 0 ? mean(anchors) : undefined;
+      });
+    }
+    for (let li = layers.length - 2; li >= 0; li -= 1) {
+      settleLayer(layers[li] as RoadmapGraphNode[], cursor, coords, node => {
+        const anchors = node.dependents
+          .map(id => anchorOf(id, coords))
+          .filter((value): value is number => value !== undefined);
+        return anchors.length > 0 ? mean(anchors) : coords.get(node.id);
+      });
+    }
+
+    let extent = cursor;
+    for (const member of members) {
+      const cross = coords.get(member.id) as number;
+      member.position = toPosition(ROADMAP_CANVAS_MARGIN + member.depth * readingPitch, cross);
+      occupied.add(cellKey(member.position.x, member.position.y));
+      extent = Math.max(extent, cross);
+    }
+    // One empty slot between components, so blocks read as blocks.
+    cursor = extent + 2 * crossPitch;
+  }
+
+  // ── 5. Unlinked items park in their own compact block ─────────────────────
+  //
+  // They say nothing about order, so they get a near-square grid after the
+  // components rather than one row wider than the whole plan — and they carry
+  // no arrows, so the grid cannot be misread as dependency.
+  if (isolated.length > 0) {
+    const ordered = [...isolated].sort((left, right) =>
+      right.priorityScore - left.priorityScore || left.id.localeCompare(right.id));
+    const perRow = Math.max(1, Math.ceil(Math.sqrt(ordered.length)));
+    const lastInRow = new Map<number, number>();
+    ordered.forEach((node, i) => {
+      const row = Math.floor(i / perRow);
+      const reading = ROADMAP_CANVAS_MARGIN + row * readingPitch;
+      const slot = cursor + (i % perRow) * crossPitch;
+      let cross = Math.max(slot, (lastInRow.get(row) ?? Number.NEGATIVE_INFINITY) + crossPitch);
+      let position = toPosition(reading, cross);
+      while (occupied.has(cellKey(position.x, position.y))) {
+        cross += crossPitch;
+        position = toPosition(reading, cross);
+      }
+      lastInRow.set(row, cross);
       node.position = position;
       occupied.add(cellKey(position.x, position.y));
-      placedCross.set(node.id, crossOf(node.position));
-      row += 1;
-    }
+    });
   }
 }
 

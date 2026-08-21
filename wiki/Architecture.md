@@ -671,10 +671,14 @@ screen, measured from the frame the canvas is in and never zooming past 100% to 
 grid** applies while you drag rather than on drop, and every layout constant is a multiple of that grid
 so a hand-placed node lines up with an auto-aligned one. **Auto tree** re-flows the tree by *releasing* hand-placed
 positions rather than writing new ones — so the result is the same deterministic layout everybody's copy
-shows, and the next item added lands in its own column; drag a node again to pin it. Within a layer,
-siblings sit beside what they wait for — a barycentre pass, so an arrow stays short instead of crossing
-the canvas to reach a dependent that was sorted by priority alone — and edges anchor to each card's
-measured height, so an arrow enters a tall card at its middle rather than above it. **→** and **↓**
+shows, and the next item added lands in its own column; drag a node again to pin it. The layout itself
+is a compact Sugiyama pipeline: a prerequisite sits one step before the earliest thing it unlocks
+(longest-path alone put every parentless item in one first row wider than the plan), unrelated sub-plans
+lay out as separate blocks that never interleave, alternating barycentre sweeps take the crossings out,
+coordinates settle children under parents so a chain reads as one straight line, and items with no links
+park in a near-square block of their own — they carry no arrows, so the block cannot be misread as
+dependency. Edges anchor to each card's measured height, so an arrow enters a tall card at its middle
+rather than above it. **→** and **↓**
 beside it choose the direction, which is stored in the committed plan because which way a graph reads
 best depends on its shape rather than on who is looking; snap-to-grid is remembered per editor, because
 it only changes where your next drag lands. Every arrangement is followed by a fit, computed in the

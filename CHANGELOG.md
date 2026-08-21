@@ -6,6 +6,31 @@ The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/),
 
 ## [Unreleased]
 
+## [0.381.0] - 2026-08-21
+
+### Changed
+
+- **The dependency canvas lays out as a readable tree.** The old pass produced exactly what a first
+  real backlog showed: every parentless item in one first row wider than the whole plan, dependents
+  half a canvas from their prerequisites, unrelated sub-plans interleaved so edges swept across
+  everything, and unlinked items occupying prime space. Auto tree / Calculate tree now run a compact,
+  fully deterministic Sugiyama pipeline:
+
+  - **A prerequisite sits just before the first thing it unlocks** — sources are tightened down from
+    depth zero to one step before their earliest dependent, so chains read locally.
+  - **Unrelated sub-plans are separate blocks** — connected components lay out side by side, in
+    backlog order, and never interleave, so an edge never crosses another plan's cards.
+  - **Crossings are swept out** with alternating barycentre passes (down over prerequisites, up over
+    dependents), stable so priority survives wherever the links are silent.
+  - **Children settle under their parents** — coordinates pull toward the mean of each node's
+    neighbours, quantised to the grid with order and spacing preserved, so a chain draws as one
+    straight line; a hand-placed node acts as an anchor its dependents follow.
+  - **Unlinked items park in a near-square block after the plan** — they say nothing about order and
+    carry no arrows, so the block cannot be misread as dependency, and the giant first row is gone.
+
+  Same roadmap, same picture, on every machine — determinism is pinned by test, as are the tightening,
+  the block separation, the straight chain, and the parked block.
+
 ## [0.380.3] - 2026-08-21
 
 ### Fixed

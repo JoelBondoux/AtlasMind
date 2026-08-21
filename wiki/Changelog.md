@@ -19,6 +19,24 @@ Older entries below describe the software as it was at the time and are delibera
 
 ---
 
+## v0.381.0 — A tree worth reading
+
+The first real backlog run through Calculate tree produced a mess, and the mess was the layout
+algorithm, not the links: every parentless item in one first row wider than the whole plan, dependents
+half a canvas from their prerequisites, unrelated sub-plans interleaved so edges swept across
+everything, and unlinked items taking up prime space.
+
+Auto tree and Calculate tree now run a compact, fully deterministic Sugiyama pipeline. A prerequisite
+sits just before the first thing it unlocks. Unrelated sub-plans lay out as separate blocks, in backlog
+order, whose arrows never cross each other. Crossings inside a block are swept out with alternating
+barycentre passes. Children settle under their parents — a chain draws as one straight line — and a
+node you have dragged acts as an anchor its dependents follow. Items with no links park in a
+near-square block after the plan; they carry no arrows, so the block cannot be misread as dependency.
+
+Same roadmap, same picture, on every machine — and each of those properties is pinned by a test.
+
+---
+
 ## v0.380.3 — One writer at a time
 
 A follow-up caught by the repository's own pre-commit gate: the load-time anchor write runs from a

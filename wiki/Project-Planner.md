@@ -155,18 +155,21 @@ it really done?" is a question finished work still has to answer.
 
 Four controls arrange the canvas. **Fit all**, beside the zoom buttons, puts the whole plan on screen.
 **Snap to grid** lines a dragged node up with the auto-aligned ones. **Auto tree** lays the plan out as
-a tree and fits it on screen, with **→** and **↓** beside it choosing which way the tree runs — across
-(each column one step further from work that can start now) or down (better on a wide, shallow plan).
-Arranging always re-fits: a re-flow moves every node while your pan and zoom stay put, so without the
-fit the whole result happens off-screen and the button reads as though it did nothing. It releases every
-node you've positioned by hand, so drag one again afterwards to pin it. And **Calculate tree**, the
+a tree and fits it on screen, with **→** and **↓** beside it choosing which way the tree runs. The
+layout reads locally by design: each prerequisite sits just before the first thing it unlocks, unrelated
+sub-plans are laid out as separate blocks so their arrows never cross each other, children settle under
+their parents (a chain draws as one straight line), and items with no links park in a compact block of
+their own rather than stretching the first row across the whole canvas. Arranging always re-fits: a
+re-flow moves every node while your pan and zoom stay put, so without the fit the whole result happens
+off-screen and the button reads as though it did nothing. It releases every node you've positioned by
+hand, so drag one again afterwards to pin it. And **Calculate tree**, the
 button carrying the AtlasMind mark, works the whole dependency tree out from the wording of your backlog
 and offers it in one go, behind a confirmation that says how many links it would add.
 
 **The tree is built from links you have accepted.** A suggestion is drawn dashed and deliberately moves
 no item and blocks none — an inference should not reorder your plan on its own. So a plan with nothing
-accepted has every item at the same level and lays out as a single column with the dashed arrows
-crossing it, which looks like a broken layout and is not one. The canvas says so when you are in that
+accepted has no order to draw, and its items are parked in a compact block with the dashed arrows
+overlaid — which can look like a missing layout and is not one. The canvas says so when you are in that
 state, and the banner that says so carries **Calculate tree** itself, so the way out is in the sentence
 that explains it. The suggestions toggle only shows and hides the dashed arrows; it
 carries the count so "showing" with nothing drawn is distinguishable from a control that failed.

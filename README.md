@@ -4,7 +4,7 @@
 
 <h1 align="center">AtlasMind</h1>
 
-<p align="center"><sub> · <strong>Current source version: 0.380.3</strong> · </sub></p>
+<p align="center"><sub> · <strong>Current source version: 0.381.0</strong> · </sub></p>
 
 
 <p align="center">
@@ -127,11 +127,16 @@ Full detail in the [Security model](wiki/Security.md) and [Tool Execution](wiki/
 
 ---
 
-## What's new in 0.380.3
+## What's new in 0.381.0
 
 The last Marketplace publication, **v0.369.3**, is the baseline — everything below is in it. The full
 history is in [CHANGELOG.md](CHANGELOG.md).
 
+- **The dependency canvas lays out as a readable tree.** A compact, deterministic Sugiyama pipeline
+  replaces the naive pass: prerequisites sit just before what they unlock instead of piling into one
+  giant first row, unrelated sub-plans lay out as separate blocks whose edges never cross each other,
+  crossings are swept out, children settle under their parents so chains draw as straight lines, and
+  unlinked items park in a compact block of their own.
 - **Every canvas action now actually reaches the host.** Fifteen roadmap messages — drags, saves,
   links, Calculate tree, the Atlas pills, the register hand-offs — were being silently dropped by the
   dashboard's message gate, which knew nothing about them. All are now admitted with proper shape

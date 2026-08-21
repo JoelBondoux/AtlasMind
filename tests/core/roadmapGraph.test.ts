@@ -537,6 +537,82 @@ describe('layout orientation', () => {
     expect(at('c').y).toBe(at('b').y);
   });
 
+  it('tightens a source down to one step before the earliest thing it unlocks', () => {
+    // Longest-path alone put every parentless item at depth zero — one first
+    // row wider than the whole plan, each item half a canvas from its
+    // dependents. A source now sits beside what it unlocks.
+    const graph = resolveRoadmapGraph({
+      items: [item({ id: 'x' }), item({ id: 'y' }), item({ id: 'z' }), item({ id: 'late-root' })],
+      records: [],
+      declaredEdges: [declaredEdge('x', 'y'), declaredEdge('y', 'z'), declaredEdge('late-root', 'z')],
+      deriveSuggestions: false,
+      now: NOW,
+    });
+    const depthOf = (id: string): number | undefined => graph.nodes.find(node => node.id === id)?.depth;
+    expect(depthOf('x')).toBe(0);
+    expect(depthOf('z')).toBe(2);
+    // Not depth 0: its only dependent is at depth 2, so it sits at 1.
+    expect(depthOf('late-root')).toBe(1);
+  });
+
+  it('lays unrelated sub-plans out as separate blocks that never interleave', () => {
+    // Interleaving components is what made every edge sweep the whole canvas
+    // to reach its own plan's cards.
+    const graph = resolveRoadmapGraph({
+      items: [item({ id: 'a1' }), item({ id: 'b1', priorityScore: 95 }), item({ id: 'a2' }), item({ id: 'b2' })],
+      records: [],
+      declaredEdges: [declaredEdge('a1', 'a2'), declaredEdge('b1', 'b2')],
+      deriveSuggestions: false,
+      now: NOW,
+    });
+    const cross = (id: string): number => graph.nodes.find(node => node.id === id)?.position.y ?? -1;
+    const componentA = [cross('a1'), cross('a2')];
+    const componentB = [cross('b1'), cross('b2')];
+    // Whole bands, not just pairs: every member of one block sits strictly to
+    // one side of every member of the other.
+    expect(Math.max(...componentA)).toBeLessThan(Math.min(...componentB));
+  });
+
+  it('parks unlinked items in a compact block after the plan, never inside it', () => {
+    const graph = resolveRoadmapGraph({
+      items: [
+        item({ id: 'chain-a' }), item({ id: 'chain-b' }),
+        item({ id: 'loose-1', priorityScore: 99 }), item({ id: 'loose-2' }),
+        item({ id: 'loose-3' }), item({ id: 'loose-4' }),
+      ],
+      records: [],
+      declaredEdges: [declaredEdge('chain-a', 'chain-b')],
+      deriveSuggestions: false,
+      now: NOW,
+    });
+    const nodeOf = (id: string): { position: { x: number; y: number } } => {
+      const found = graph.nodes.find(node => node.id === id);
+      expect(found, `node ${id} is missing`).toBeDefined();
+      return found as { position: { x: number; y: number } };
+    };
+    const chainMax = Math.max(nodeOf('chain-a').position.y, nodeOf('chain-b').position.y);
+    const loose = ['loose-1', 'loose-2', 'loose-3', 'loose-4'].map(nodeOf);
+    for (const node of loose) {
+      expect(node.position.y).toBeGreaterThan(chainMax);
+    }
+    // Near-square, not one endless row: four items fold onto two reading rows.
+    expect(new Set(loose.map(node => node.position.x)).size).toBe(2);
+  });
+
+  it('aligns a chain into one straight line', () => {
+    const graph = resolveRoadmapGraph({
+      items: [item({ id: 'c1' }), item({ id: 'c2' }), item({ id: 'c3' })],
+      records: [],
+      declaredEdges: [declaredEdge('c1', 'c2'), declaredEdge('c2', 'c3')],
+      deriveSuggestions: false,
+      now: NOW,
+    });
+    const ys = new Set(graph.nodes.map(node => node.position.y));
+    // One cross coordinate for the whole chain — the edge is a straight line,
+    // not a staircase.
+    expect(ys.size).toBe(1);
+  });
+
   it('orders the layers of a barycentred plan deterministically', () => {
     const inputs = {
       items: [
