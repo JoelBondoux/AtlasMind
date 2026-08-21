@@ -4,7 +4,7 @@
 
 <h1 align="center">AtlasMind</h1>
 
-<p align="center"><sub> · <strong>Current source version: 0.380.1</strong> · </sub></p>
+<p align="center"><sub> · <strong>Current source version: 0.380.2</strong> · </sub></p>
 
 
 <p align="center">
@@ -127,11 +127,16 @@ Full detail in the [Security model](wiki/Security.md) and [Tool Execution](wiki/
 
 ---
 
-## What's new in 0.380.1
+## What's new in 0.380.2
 
 The last Marketplace publication, **v0.369.3**, is the baseline — everything below is in it. The full
 history is in [CHANGELOG.md](CHANGELOG.md).
 
+- **Every canvas action now actually reaches the host.** Fifteen roadmap messages — drags, saves,
+  links, Calculate tree, the Atlas pills, the register hand-offs — were being silently dropped by the
+  dashboard's message gate, which knew nothing about them. All are now admitted with proper shape
+  checks, a dropped message reports itself instead of vanishing, and a parity test pins the message
+  union, the handler switch and the gate to one list so this class of dead button cannot ship again.
 - **Saving a roadmap node works, and the roadmap wires itself up on first load.** The canvas and the
   save path could resolve an item to two different ids when its line had no hidden anchor yet, and
   every save against it missed silently. Both now resolve through one shared function; a save that

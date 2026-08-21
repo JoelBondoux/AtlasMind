@@ -3587,6 +3587,74 @@ describe('panel refresh flows', () => {
     removeTempDir(tempRoot);
   });
 
+  it('carries a canvas mutation and an Atlas pill through the message gate to the disk', async () => {
+    // The layer no other test crossed: webview tests asserted the post, and
+    // handler tests called past `isProjectDashboardMessage` — so fifteen
+    // canvas messages shipped handled-but-unvalidated, and every drag, save,
+    // link and pill died silently at the gate. This flow enters through
+    // `handleMessage`, exactly as the webview's messages do.
+    const tempRoot = mkdtempSync(path.join(os.tmpdir(), 'atlasmind-canvas-flow-'));
+    const roadmapDir = path.join(tempRoot, 'project_memory', 'roadmap');
+    mkdirSync(roadmapDir, { recursive: true });
+    const roadmapFile = path.join(roadmapDir, 'improvement-plan.md');
+    writeFileSync(roadmapFile, [
+      '## Prioritized Backlog',
+      '<!-- atlasmind:roadmap-items:start -->',
+      '- [ ] Ship onboarding flow <!-- rm:ship-onboarding-flow -->',
+      '<!-- atlasmind:roadmap-items:end -->',
+    ].join('\n'));
+    mocks.state.workspaceFolders = [{ name: 'Temp', uri: { fsPath: tempRoot, path: tempRoot } }];
+
+    ProjectDashboardPanel.createOrShow(
+      { extensionUri: { fsPath: '/ext', path: '/ext' } } as never,
+      {
+        agentsRefresh: { event: vi.fn(() => ({ dispose: () => undefined })) },
+        skillsRefresh: { event: vi.fn(() => ({ dispose: () => undefined })) },
+        modelsRefresh: { event: vi.fn(() => ({ dispose: () => undefined })) },
+        projectRunsRefresh: { event: vi.fn(() => ({ dispose: () => undefined })) },
+        memoryRefresh: { event: vi.fn(() => ({ dispose: () => undefined })), fire: vi.fn() },
+        toolApprovalManager: { isAutopilot: vi.fn().mockReturnValue(false), onAutopilotChange: vi.fn(() => () => undefined) },
+        modelRouter: { listProviders: vi.fn().mockReturnValue([]), isProviderHealthy: vi.fn().mockReturnValue(true) },
+        agentRegistry: { listAgents: vi.fn().mockReturnValue([]), isEnabled: vi.fn().mockReturnValue(true) },
+        skillsRegistry: { listSkills: vi.fn().mockReturnValue([]), isEnabled: vi.fn().mockReturnValue(true) },
+        sessionConversation: {
+          listSessions: vi.fn().mockReturnValue([]),
+          getActiveSessionId: vi.fn().mockReturnValue('chat-1'),
+          onDidChange: vi.fn(() => ({ dispose: () => undefined })),
+        },
+        projectRunHistory: { listRunsAsync: vi.fn().mockResolvedValue([]) },
+        costTracker: {
+          getSummary: vi.fn().mockReturnValue({ totalCostUsd: 0, totalRequests: 0, totalInputTokens: 0, totalOutputTokens: 0 }),
+          getRecords: vi.fn().mockReturnValue([]),
+        },
+        memoryManager: {
+          listEntries: vi.fn().mockReturnValue([]),
+          getScanResults: vi.fn().mockReturnValue(new Map()),
+          loadFromDisk: vi.fn().mockResolvedValue(undefined),
+        },
+      } as never,
+    );
+
+    const panel = ProjectDashboardPanel.currentPanel as unknown as { handleMessage(message: unknown): Promise<void> };
+
+    // A drag-drop lands in the graph overlay.
+    await panel.handleMessage({ type: 'roadmapNodeMove', payload: { nodeId: 'ship-onboarding-flow', x: 240, y: 160 } });
+    const graphFile = path.join(roadmapDir, 'roadmap-graph.json');
+    const graph = JSON.parse(readFileSync(graphFile, 'utf-8')) as { nodes: Array<{ id: string; position?: { x: number; y: number } }> };
+    expect(graph.nodes.find(node => node.id === 'ship-onboarding-flow')?.position).toEqual({ x: 240, y: 160 });
+
+    // The Plan pill files the plan document, records it, and opens the chat.
+    mocks.executeCommand.mockClear();
+    await panel.handleMessage({ type: 'roadmapPlan', payload: 'ship-onboarding-flow' });
+    const withPlan = JSON.parse(readFileSync(graphFile, 'utf-8')) as { nodes: Array<{ id: string; planPath?: string }> };
+    const planPath = withPlan.nodes.find(node => node.id === 'ship-onboarding-flow')?.planPath;
+    expect(planPath).toBeDefined();
+    expect(readFileSync(path.join(tempRoot, planPath as string), 'utf-8')).toContain('# Plan: Ship onboarding flow');
+    expect(mocks.executeCommand).toHaveBeenCalledWith('atlasmind.openChatPanel', expect.objectContaining({ sendMode: 'new-session' }));
+
+    removeTempDir(tempRoot);
+  });
+
   it('runs the allowlisted Cost Dashboard command but ignores non-allowlisted commands', async () => {
     ProjectDashboardPanel.createOrShow(
       {

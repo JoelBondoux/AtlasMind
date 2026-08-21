@@ -6,6 +6,23 @@ The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/),
 
 ## [Unreleased]
 
+## [0.380.2] - 2026-08-21
+
+### Fixed
+
+- **Every canvas mutation now actually reaches the host.** A dashboard message exists in three
+  hand-maintained places — the type union, the `handleMessage` switch, and the
+  `isProjectDashboardMessage` runtime gate — and nothing bound them together. Fifteen roadmap
+  messages shipped in the first two but not the gate, so every drag-drop, node save, link
+  create/accept/dismiss, suggestions toggle, Auto tree, **Calculate tree**, both register hand-offs,
+  and all four Atlas pills were **silently dropped at the validation branch**: no error, no log, no
+  reply — a page of wired-looking buttons that did nothing. All fifteen now carry proper shape checks
+  (opaque ids, finite coordinates, closed vocabularies), a rejected message is reported once per type
+  per session instead of vanishing, and a new parity test pins the union, the switch and the gate to
+  one list so a message can never again be handled without being admitted. A panel-flow test now also
+  drives a drag and a Plan pill through `handleMessage` itself — the layer every earlier test
+  happened to call past.
+
 ## [0.380.1] - 2026-08-21
 
 ### Fixed

@@ -19,6 +19,23 @@ Older entries below describe the software as it was at the time and are delibera
 
 ---
 
+## v0.380.2 — The canvas messages arrive
+
+The deepest cause of "the canvas doesn't do anything", found and closed. A dashboard message lives in
+three hand-maintained places — the type union, the handler switch, and the runtime validation gate —
+and nothing bound them together. Fifteen roadmap messages existed in the first two and not the gate,
+so every drag-drop, node save, link operation, suggestions toggle, Auto tree, **Calculate tree**,
+register hand-off and Atlas pill was silently discarded before its handler ever ran: no error, no
+log, no reply. The webview looked perfectly wired because it was — the messages just died at the door.
+
+All fifteen are now admitted with proper shape checks. A message the gate refuses now reports itself
+(once per type per session) instead of vanishing, and a new parity test pins the union, the switch and
+the gate to one list — a message can no longer be handled without being admitted. A panel-flow test
+also drives a drag and a Plan pill through the real message entry point, the one layer every earlier
+test happened to step past.
+
+---
+
 ## v0.380.1 — Save saves, and the canvas wires itself
 
 Two fixes behind one symptom — pressing Save on a canvas node appearing to do nothing.

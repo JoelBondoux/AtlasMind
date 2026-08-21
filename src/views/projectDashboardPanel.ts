@@ -4541,6 +4541,7 @@ export class ProjectDashboardPanel {
 
   private async handleMessage(message: unknown): Promise<void> {
     if (!isProjectDashboardMessage(message)) {
+      this.reportRejectedMessage(message);
       return;
     }
 
@@ -10191,6 +10192,34 @@ ${buildCardEvidenceSection(source, derivation)}`;
     );
   }
 
+  /** Message types this session has already reported as rejected. */
+  private readonly rejectedMessageTypes = new Set<string>();
+
+  /**
+   * A message the gate refused is a fact worth surfacing, once per type.
+   *
+   * Fifteen canvas messages shipped handled-but-unvalidated, and every one of
+   * them died on the validation branch with no error, no log and no reply —
+   * which read as a page of dead buttons, with nothing anywhere saying why.
+   * The same rule the command allowlist already follows: a blocked action
+   * names itself and says it is our bug, because it is. Once per type per
+   * session, so a malformed flood cannot spam the notifications.
+   */
+  private reportRejectedMessage(message: unknown): void {
+    const kind = typeof (message as { type?: unknown } | null)?.type === 'string'
+      ? (message as { type: string }).type.slice(0, 60)
+      : 'unknown';
+    if (this.rejectedMessageTypes.has(kind)) {
+      return;
+    }
+    this.rejectedMessageTypes.add(kind);
+    console.error(`[AtlasMind] Project Dashboard dropped a "${kind}" message that failed validation.`);
+    void vscode.window.showWarningMessage(
+      `AtlasMind dropped a dashboard "${kind}" action because it failed message validation. `
+      + 'This is a bug in AtlasMind, not something you did.',
+    );
+  }
+
   /**
    * Anchor the roadmap on first load, instead of on first change.
    *
@@ -12793,6 +12822,11 @@ ${buildCardEvidenceSection(source, derivation)}`;
   }
 }
 
+/** An opaque id the host resolves against its own state — never free text. */
+function isOpaqueDashboardId(value: unknown): boolean {
+  return typeof value === 'string' && value.trim().length > 0 && value.length <= 600;
+}
+
 export function isProjectDashboardMessage(message: unknown): message is ProjectDashboardMessage {
   if (typeof message !== 'object' || message === null) {
     return false;
@@ -13154,6 +13188,75 @@ export function isProjectDashboardMessage(message: unknown): message is ProjectD
     return typeof payload === 'object' && payload !== null
       && sanitizeIssueNumber(payload['number']) > 0
       && typeof payload['body'] === 'string' && payload['body'].trim().length > 0;
+  }
+
+  // ── The dependency canvas and its Atlas hand-offs ──────────────────────────
+  //
+  // Every one of these names a node by an opaque id (or a from/to pair of
+  // them) and nothing else; the host re-reads the roadmap and resolves each id
+  // against it, so a shape check is deliberately all there is here. Fifteen of
+  // these shipped handled-but-unvalidated: the switch knew them, this gate
+  // dropped them, and every canvas mutation died on that mismatch with no
+  // error and no reply — a page of buttons that looked wired and did nothing.
+  // `dashboardMessageParity.test.ts` now pins the union, the switch and this
+  // gate to one list, so a message cannot be handled without being admitted.
+  if (candidate['type'] === 'roadmapPlan'
+    || candidate['type'] === 'roadmapResolve'
+    || candidate['type'] === 'roadmapCompletionCheck'
+    || candidate['type'] === 'roadmapOpenPlan'
+    || candidate['type'] === 'raiseRegisterWork'
+    || candidate['type'] === 'draftRegisterIssue') {
+    return isOpaqueDashboardId(candidate['payload']);
+  }
+
+  if (candidate['type'] === 'roadmapNodeMove') {
+    const payload = candidate['payload'] as Record<string, unknown> | undefined;
+    return typeof payload === 'object' && payload !== null
+      && isOpaqueDashboardId(payload['nodeId'])
+      && typeof payload['x'] === 'number' && Number.isFinite(payload['x'])
+      && typeof payload['y'] === 'number' && Number.isFinite(payload['y']);
+  }
+
+  if (candidate['type'] === 'roadmapNodeUpdate') {
+    const payload = candidate['payload'] as Record<string, unknown> | undefined;
+    if (typeof payload !== 'object' || payload === null || !isOpaqueDashboardId(payload['nodeId'])) {
+      return false;
+    }
+    // Optional fields: `null` clears, absence leaves alone — both legal; any
+    // other shape is a malformed message, not a request with an unusual
+    // argument. The values themselves are validated again in the handler.
+    const stringOrNull = (value: unknown): boolean =>
+      value === undefined || value === null || typeof value === 'string';
+    return stringOrNull(payload['branch'])
+      && stringOrNull(payload['assigneeId'])
+      && stringOrNull(payload['deadline'])
+      && (payload['estimateDays'] === undefined || payload['estimateDays'] === null || typeof payload['estimateDays'] === 'number')
+      && (payload['aiAssisted'] === undefined || typeof payload['aiAssisted'] === 'boolean')
+      && (payload['text'] === undefined || typeof payload['text'] === 'string');
+  }
+
+  if (candidate['type'] === 'roadmapLinkCreate'
+    || candidate['type'] === 'roadmapLinkDelete'
+    || candidate['type'] === 'roadmapLinkAccept'
+    || candidate['type'] === 'roadmapLinkDismiss') {
+    const payload = candidate['payload'] as Record<string, unknown> | undefined;
+    return typeof payload === 'object' && payload !== null
+      && isOpaqueDashboardId(payload['from'])
+      && isOpaqueDashboardId(payload['to']);
+  }
+
+  if (candidate['type'] === 'roadmapSuggestToggle') {
+    return typeof candidate['payload'] === 'boolean';
+  }
+
+  if (candidate['type'] === 'roadmapAutoLayout') {
+    return candidate['payload'] === 'horizontal' || candidate['payload'] === 'vertical';
+  }
+
+  if (candidate['type'] === 'roadmapDeriveLinks') {
+    // No payload: the derivation reads the roadmap the host holds, and the
+    // webview cannot influence what it infers.
+    return candidate['payload'] === undefined;
   }
 
   if (candidate['type'] === 'deleteRoadmapGate') {
