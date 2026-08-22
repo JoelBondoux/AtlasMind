@@ -6,6 +6,13 @@ The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/),
 
 ## [Unreleased]
 
+## [0.382.7] - 2026-08-22
+
+### Changed
+
+- The README published baseline now records the successful `v0.382.6` Marketplace release while the
+  source version advances independently for subsequent work.
+
 ## [0.382.6] - 2026-08-22
 
 ### Security

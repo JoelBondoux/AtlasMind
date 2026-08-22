@@ -19,6 +19,11 @@ Older entries below describe the software as it was at the time and are delibera
 
 ---
 
+## v0.382.7 — Published baseline recorded
+
+The README now identifies `v0.382.6` as the latest successful Marketplace publication. The source
+version advances separately so future changes remain distinguishable from that immutable release.
+
 ## v0.382.6 — Dashboard data stays data
 
 User-authored Director assignments and follow-ups are now hydrated through DOM `textContent` rather than

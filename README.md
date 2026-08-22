@@ -4,7 +4,7 @@
 
 <h1 align="center">AtlasMind</h1>
 
-<p align="center"><sub> · <strong>Current source version: 0.382.6</strong> · </sub></p>
+<p align="center"><sub> · <strong>Current source version: 0.382.7</strong> · </sub></p>
 
 
 <p align="center">
@@ -127,6 +127,14 @@ Full detail in the [Security model](wiki/Security.md) and [Tool Execution](wiki/
 
 ---
 
+## What's new in 0.382.7
+
+The last Marketplace publication, **v0.382.6**, is the baseline — everything below is in it. The full
+history is in [CHANGELOG.md](CHANGELOG.md).
+
+- **Release documentation now matches the published extension.** The source version advances separately
+  so the next change remains distinguishable from the immutable Marketplace build.
+
 ## What's new in 0.382.6
 
 - **The Project Dashboard now keeps user-authored Director text out of HTML parsing.** Assignment and
@@ -186,9 +194,6 @@ Full detail in the [Security model](wiki/Security.md) and [Tool Execution](wiki/
   dependencies tracked in canvas-facing metadata.
 
 ## What's new in 0.382.0
-
-The last Marketplace publication, **v0.369.3**, is the baseline — everything below is in it. The full
-history is in [CHANGELOG.md](CHANGELOG.md).
 
 - **The dependency canvas is readable when it is dense.** Click a card's body and its neighbourhood
   lights up while everything else recedes; a toolbar search shows only matching items plus everything
