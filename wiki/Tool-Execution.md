@@ -372,6 +372,10 @@ deceptive attacks on a person. No setting reaches it.
 
 ## A few other boundaries
 
+**Dashboard form markup grants no ambient write authority.** Delivery-stage edits are reduced to a fixed
+field allowlist before they leave the webview, while user-authored Director text is hydrated through
+`textContent` so it cannot become executable markup.
+
 **Destructive memory administration is outside the tool pipeline entirely.** Purging project memory needs
 a modal confirmation *and* a typed `PURGE MEMORY` phrase.
 

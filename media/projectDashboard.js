@@ -3644,6 +3644,7 @@
         ${renderSsot(snapshot)}
         ${renderPromotionModal()}
       `;
+      hydrateDirectorUserText();
 
       // --- Re-focus a control that asked to keep focus across its own render ---
       if (refocusSelector) {
@@ -13326,16 +13327,42 @@
   }
 
   function setNestedField(obj, fieldPath, value) {
-    if (fieldPath === 'promotionPolicy.requiredChecks') {
-      value = String(value).split(/\r?\n/).map(s => s.trim()).filter(Boolean);
+    // `data-field` lives in host-authored markup, but the DOM is still an
+    // untrusted boundary. Keep the writable surface explicit: a forged
+    // `constructor.prototype.*` path must never become an object walk.
+    switch (fieldPath) {
+      case 'name': obj.name = value; return;
+      case 'kind': obj.kind = value; return;
+      case 'rank': obj.rank = value; return;
+      case 'branchRef': obj.branchRef = value; return;
+      case 'description': obj.description = value; return;
+      case 'config.sourceLabel': obj.config.sourceLabel = value; return;
+      case 'config.sourcePath': obj.config.sourcePath = value; return;
+      case 'hosting.provider': obj.hosting.provider = value; return;
+      case 'hosting.url': obj.hosting.url = value; return;
+      case 'hosting.healthCheckUrl': obj.hosting.healthCheckUrl = value; return;
+      case 'data.kind': obj.data.kind = value; return;
+      case 'data.label': obj.data.label = value; return;
+      case 'data.migrationsPath': obj.data.migrationsPath = value; return;
+      case 'data.migrateCommand': obj.data.migrateCommand = value; return;
+      case 'backupPolicy.required': obj.backupPolicy.required = value; return;
+      case 'backupPolicy.command': obj.backupPolicy.command = value; return;
+      case 'backupPolicy.verifyCommand': obj.backupPolicy.verifyCommand = value; return;
+      case 'backupPolicy.runbookRef': obj.backupPolicy.runbookRef = value; return;
+      case 'backupPolicy.retention': obj.backupPolicy.retention = value; return;
+      case 'promotionPolicy.requiresApproval': obj.promotionPolicy.requiresApproval = value; return;
+      case 'promotionPolicy.requireVersionBump': obj.promotionPolicy.requireVersionBump = value; return;
+      case 'promotionPolicy.requireChangelog': obj.promotionPolicy.requireChangelog = value; return;
+      case 'promotionPolicy.requireDistinctApprover': obj.promotionPolicy.requireDistinctApprover = value; return;
+      case 'promotionPolicy.requiredChecks':
+        obj.promotionPolicy.requiredChecks = String(value).split(/\r?\n/).map(s => s.trim()).filter(Boolean);
+        return;
+      case 'promotionPolicy.dispatchWorkflow': obj.promotionPolicy.dispatchWorkflow = value; return;
+      case 'rollbackPolicy.command': obj.rollbackPolicy.command = value; return;
+      case 'rollbackPolicy.runbookRef': obj.rollbackPolicy.runbookRef = value; return;
+      case 'isProtected': obj.isProtected = value; return;
+      default: return;
     }
-    const parts = fieldPath.split('.');
-    let cur = obj;
-    for (let i = 0; i < parts.length - 1; i++) {
-      if (typeof cur[parts[i]] !== 'object' || cur[parts[i]] === null) { cur[parts[i]] = {}; }
-      cur = cur[parts[i]];
-    }
-    cur[parts[parts.length - 1]] = value;
   }
 
   // ── Delivery: promotion execution modal (Phase 3) ───────────────
@@ -14293,24 +14320,29 @@
       </article>`;
   }
 
+  function directorStandaloneAssignments(cfg) {
+    const targets = ((state.snapshot && state.snapshot.workAssignments) || { targets: [] }).targets || [];
+    const activeTargetKeys = new Set(targets.map(target => target.kind + '\u0000' + target.stableId));
+    return cfg.assignments.filter(a =>
+      (!a.linkedWork && (a.source !== 'run' || !a.linkedRunId))
+      || (a.linkedWork && !activeTargetKeys.has(a.linkedWork.kind + '\u0000' + a.linkedWork.id)));
+  }
+
   function renderDirectorAssignments(cfg, snap) {
     const contactOptions = cfg.contacts.map(c => ({ value: c.id, label: c.name }));
     const statuses = ['todo', 'in-progress', 'blocked', 'done', 'cancelled'];
     const targets = ((state.snapshot && state.snapshot.workAssignments) || { targets: [] }).targets || [];
-    const activeTargetKeys = new Set(targets.map(target => target.kind + '\u0000' + target.stableId));
-    const standalone = cfg.assignments.filter(a =>
-      (!a.linkedWork && (a.source !== 'run' || !a.linkedRunId))
-      || (a.linkedWork && !activeTargetKeys.has(a.linkedWork.kind + '\u0000' + a.linkedWork.id)));
-    const rows = standalone.map(a => {
-      const assigneeText = `Assignee: ${escapeHtml(a.assigneeContactId ? directorNameOf(cfg, a.assigneeContactId) : '—')}`;
+    const standalone = directorStandaloneAssignments(cfg);
+    const rows = standalone.map((a, index) => {
+      const assigneeText = `<span data-director-assignment-assignee="${index}"></span>`;
       const linkedControl = a.linkedWork
         ? renderDirectorOwnerControl(a.linkedWork.kind, a.linkedWork.id) || assigneeText
         : assigneeText;
       return `
         <div class="history-row" data-dashboard-focus-kind="assignment" data-dashboard-focus-id="${escapeAttr(a.id)}">
-          <div><strong>${escapeHtml(a.title)}</strong> <span class="tag">${escapeHtml(a.priority)}</span>${a.linkedWork ? ` <span class="tag">${escapeHtml(a.linkedWork.kind)}</span>` : ''}</div>
+          <div><strong data-director-assignment-title="${index}"></strong> <span class="tag">${escapeHtml(a.priority)}</span>${a.linkedWork ? ` <span class="tag">${escapeHtml(a.linkedWork.kind)}</span>` : ''}</div>
           <div class="list-meta">
-            ${linkedControl}${a.due ? ' · Due ' + escapeHtml(a.due) : ''}
+            ${linkedControl}${a.due ? `<span data-director-assignment-due="${index}"></span>` : ''}
             <button type="button" class="action-link" data-action="director-assignment-cycle" data-payload="${escapeAttr(a.id)}">${escapeHtml(a.status)} ↻</button>
             <button type="button" class="action-link danger" data-action="director-assignment-remove" data-payload="${escapeAttr(a.id)}">Remove</button>
           </div>
@@ -14372,13 +14404,14 @@
     const contactOptions = cfg.contacts.map(c => ({ value: c.id, label: c.name }));
     const urgency = snap.followUpUrgency || {};
     const active = cfg.followUps.filter(f => f.status !== 'done' && f.status !== 'cancelled');
+    const indexed = active.map((followUp, index) => ({ followUp, index }));
     const groupOf = (key, heading, tone) => {
-      const items = active.filter(f => urgency[f.id] === key);
+      const items = indexed.filter(entry => urgency[entry.followUp.id] === key);
       if (items.length === 0) { return ''; }
-      const rows = items.map(f => `
+      const rows = items.map(({ followUp: f, index }) => `
         <div class="signal-card ${tone} static" style="text-align:left" data-dashboard-focus-kind="follow-up" data-dashboard-focus-id="${escapeAttr(f.id)}">
-          <div class="checkline">${escapeHtml(f.title)}</div>
-          <div class="signal-detail">Due ${escapeHtml(f.dueDate)}${f.withContactId ? ' · with ' + escapeHtml(directorNameOf(cfg, f.withContactId)) : ''}${f.status === 'snoozed' ? ' · snoozed' : ''}</div>
+          <div class="checkline" data-director-followup-title="${index}"></div>
+          <div class="signal-detail" data-director-followup-detail="${index}"></div>
           <div class="tag-row">
             <button type="button" class="action-link" data-action="director-followup-complete" data-payload="${escapeAttr(f.id)}">Done</button>
             <button type="button" class="action-link" data-action="director-followup-snooze" data-payload="${escapeAttr(f.id)}">Snooze 7d</button>
@@ -14408,6 +14441,46 @@
         ${groups || '<div class="dashboard-empty">No open follow-ups. Add one to stay on top of check-ins and deadlines.</div>'}
         ${editor}
       </article>`;
+  }
+
+  /**
+   * User-authored Director text never crosses the dashboard's HTML parser.
+   * The surrounding controls are static markup; values are applied only after
+   * the render swap through `textContent`, which is both the browser-enforced
+   * XSS boundary and easier to audit than a custom sanitizer convention.
+   */
+  function hydrateDirectorUserText() {
+    const cfg = getDirectorConfig();
+    if (!cfg || !root) { return; }
+
+    const assignments = directorStandaloneAssignments(cfg);
+    root.querySelectorAll('[data-director-assignment-title]').forEach(element => {
+      const assignment = assignments[Number(element.getAttribute('data-director-assignment-title'))];
+      if (assignment) { element.textContent = String(assignment.title || ''); }
+    });
+    root.querySelectorAll('[data-director-assignment-assignee]').forEach(element => {
+      const assignment = assignments[Number(element.getAttribute('data-director-assignment-assignee'))];
+      if (assignment) {
+        element.textContent = `Assignee: ${assignment.assigneeContactId ? directorNameOf(cfg, assignment.assigneeContactId) : '—'}`;
+      }
+    });
+    root.querySelectorAll('[data-director-assignment-due]').forEach(element => {
+      const assignment = assignments[Number(element.getAttribute('data-director-assignment-due'))];
+      if (assignment && assignment.due) { element.textContent = ` · Due ${assignment.due}`; }
+    });
+
+    const followUps = cfg.followUps.filter(followUp => followUp.status !== 'done' && followUp.status !== 'cancelled');
+    root.querySelectorAll('[data-director-followup-title]').forEach(element => {
+      const followUp = followUps[Number(element.getAttribute('data-director-followup-title'))];
+      if (followUp) { element.textContent = String(followUp.title || ''); }
+    });
+    root.querySelectorAll('[data-director-followup-detail]').forEach(element => {
+      const followUp = followUps[Number(element.getAttribute('data-director-followup-detail'))];
+      if (!followUp) { return; }
+      const contact = followUp.withContactId ? ` · with ${directorNameOf(cfg, followUp.withContactId)}` : '';
+      const snoozed = followUp.status === 'snoozed' ? ' · snoozed' : '';
+      element.textContent = `Due ${followUp.dueDate || ''}${contact}${snoozed}`;
+    });
   }
 
   // The stakeholder influence/interest grid — the standard project-management

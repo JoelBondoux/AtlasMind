@@ -19,6 +19,13 @@ Older entries below describe the software as it was at the time and are delibera
 
 ---
 
+## v0.382.6 — Dashboard data stays data
+
+User-authored Director assignments and follow-ups are now hydrated through DOM `textContent` rather than
+being passed through the dashboard's HTML parser. Delivery stage edits use an explicit field-to-property
+switch instead of recursively following a dotted DOM attribute, closing the XSS and prototype-pollution
+findings raised during release review.
+
 ## v0.382.5 — Worktree safety across runner path styles
 
 Git-reported drive-letter and UNC worktree paths now remain absolute when release automation runs on

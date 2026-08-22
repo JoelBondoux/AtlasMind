@@ -4,7 +4,7 @@
 
 <h1 align="center">AtlasMind</h1>
 
-<p align="center"><sub> · <strong>Current source version: 0.382.5</strong> · </sub></p>
+<p align="center"><sub> · <strong>Current source version: 0.382.6</strong> · </sub></p>
 
 
 <p align="center">
@@ -126,6 +126,15 @@ Ambitious automation is only worth having if you can trust it. AtlasMind is buil
 Full detail in the [Security model](wiki/Security.md) and [Tool Execution](wiki/Tool-Execution.md).
 
 ---
+
+## What's new in 0.382.6
+
+- **The Project Dashboard now keeps user-authored Director text out of HTML parsing.** Assignment and
+  follow-up values are applied as text after the static controls render, removing the XSS data flow
+  reported during release review.
+
+- **Delivery stage editing writes only declared fields.** A fixed allowlist replaces recursive dotted
+  property assignment, so altered webview markup cannot traverse JavaScript prototype keys.
 
 ## What's new in 0.382.5
 

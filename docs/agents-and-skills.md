@@ -857,3 +857,9 @@ importantly — when the turn was given **no** tools at all. Zero is a decision 
 Change Story mode clears the skill set so a committed-ref answer cannot be contaminated by the
 checked-out workspace, and a search there would let the model reacquire exactly what that mode withholds,
 against a different revision.
+
+### Project Dashboard DOM boundary
+
+Project Dashboard data remains untrusted after it reaches the webview. User-authored Director values are
+hydrated with `textContent`, and delivery-stage form fields map to explicit properties; neither HTML
+template interpolation nor recursive property paths are accepted at that boundary.

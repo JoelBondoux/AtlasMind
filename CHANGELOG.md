@@ -6,6 +6,17 @@ The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/),
 
 ## [Unreleased]
 
+## [0.382.6] - 2026-08-22
+
+### Security
+
+- **User-authored Director text no longer crosses the dashboard HTML parser.** Assignment and follow-up
+  values are hydrated after the static render through `textContent`, closing the client-side XSS data
+  flow reported by GitHub Advanced Security without relying on a custom sanitizer convention.
+- **Delivery stage editing has an explicit writable-field allowlist.** The recursive dotted-path setter
+  is replaced by fixed property assignments, so a forged webview `data-field` value cannot walk through
+  `constructor`, `prototype`, or `__proto__` and mutate an object prototype.
+
 ## [0.382.5] - 2026-08-22
 
 ### Fixed
