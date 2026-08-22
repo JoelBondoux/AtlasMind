@@ -649,6 +649,14 @@ source rather than as a summary of it.
 
 ---
 
+## Project Dashboard DOM boundary
+
+Project Dashboard values are untrusted even when they came from AtlasMind's own persisted records.
+User-authored Director text reaches the DOM only through `textContent`, and delivery-stage editing accepts
+only an explicit set of property writes. Altered DOM attributes cannot request recursive object paths.
+
+---
+
 ## Threat model, briefly
 
 | Threat | What stops it |

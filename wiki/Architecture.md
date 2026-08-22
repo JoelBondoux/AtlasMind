@@ -890,6 +890,12 @@ never accepted.
 Shared types live in one place, and provider adapters implement one shared contract. Type definitions are
 never duplicated across files.
 
+## Project Dashboard DOM boundary
+
+The Project Dashboard renders static controls first, then hydrates user-authored Director text with
+`textContent`. Its delivery editor uses a fixed field-to-property switch. These are security boundaries,
+not presentation conventions: the webview never treats a dynamic dotted path as an object write.
+
 ---
 
 ## Related

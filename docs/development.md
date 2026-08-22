@@ -868,3 +868,10 @@ bounded seed. The canvas is still the sole board writer; it creates an unconnect
 so the bridge cannot discard fields the dashboard does not own or invent what the evidence supports.
 `tests/views/dashboardNav.test.ts` pins the tab/panel rendering contract and
 `tests/views/webviewMessages.test.ts` pins both message validators.
+
+## Project Dashboard DOM security boundary
+
+The Project Dashboard treats its rendered DOM as an untrusted boundary: user-authored Director values
+are applied after static markup through `textContent`, and delivery-stage editor fields are assigned by
+an explicit allowlist rather than a recursive dotted-property setter. Keep both constraints when adding
+dashboard fields; webview CSP does not make unsafe HTML or prototype writes safe.
