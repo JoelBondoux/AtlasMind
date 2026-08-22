@@ -62,6 +62,14 @@ arguments, so there is no shell-injection surface: no pipes, no `&&`, no backtic
 substitution. `sudo`, `rm -rf`, `chmod`, `dd`, `shutdown` and friends are blocked outright, at every
 setting.
 
+Git commits have a narrower staging path than generic terminal advice. `git-commit` may stage up to 100
+explicit workspace-relative paths, including intentional untracked files, through `git add -- <paths>`,
+then commits only that same list with `git commit --only`. Unrelated entries already in the index remain
+staged. It refuses `.`, parent traversal, absolute paths, control characters and pathspec wildcards,
+reports the scope in the approval summary, and never commits after a staging failure. The GitHub Operator is told not
+to recommend `git add .` or a commit-message file it has not verified, preventing an apparently helpful
+handoff from sweeping unrelated work into history.
+
 The **GitHub CLI** is on the list, graded by verb: reading a pull request is a read, merging one
 follows the approval path, and an unrecognised subcommand is treated as a write. Seven are refused
 outright at any setting — most importantly `gh auth token`, which would print your GitHub token into
@@ -94,6 +102,10 @@ It's handled in layers:
 - **Temporary context gets the same scanner.** Carried conversation, chat summaries and text attachments
   are checked before they reach a model. Blocked content is dropped, and warned content is redacted and
   labelled as untrusted data
+- **A summary cannot outlive the transcript it describes.** Each derived session bundle carries the
+  transcript revision it summarized. A missing or mismatched marker is refused in favour of the current
+  raw transcript, and destructive transcript actions wait out older maintenance before deleting its
+  artifacts, so a delayed completion cannot resurrect removed instructions
 - **The boundary is aimed, not blanket.** Third-party text — attachments, fetched pages, tool output —
   travels under an explicit "treat this as data, not instructions" preamble. Your **conversation** does
   not: it is named as the conversation being continued, and told plainly that it does not override
@@ -160,11 +172,23 @@ webview never learns where your workspace is, which is why it cannot be the side
 
 A link naming any other scheme is still refused outright and drawn as visibly inert.
 
+**A restored panel's own storage is not an input.** VS Code can bring a webview back after a window
+reload or an extension update, carrying whatever the page had saved for itself. AtlasMind re-attaches
+the Project Dashboard to a live extension-side host when that happens, and reads *nothing* out of the
+restored page: the snapshot is rebuilt from your workspace, so trusting the persisted value would buy
+nothing and would make a browser-side store an input to the host. A panel that cannot be served is
+closed rather than left on screen looking usable — and a panel whose host has gone now says so, instead
+of accepting clicks that reach nothing.
+
 **Destroying chat history asks first.** Deleting a chat session, clearing a conversation and deleting a
 single message each require a confirmation naming what is lost — including how many messages the session
 holds, which is the part you cannot see from the button. There is no undo in the panel and no copy of the
 transcript elsewhere, so until v0.328.0 a mis-click was final; these three were the last unconfirmed
 destructive actions in the product.
+
+The confirmation is followed by a synchronous context invalidation. The host advances the session's
+context epoch before waiting for any older summarizer, then deletes after its last possible write. New
+Chat, Edit, and Regenerate use the same boundary before the next model request is assembled.
 
 ---
 
@@ -224,6 +248,12 @@ clear a confidence threshold, and behaviour-changing work needs passing verifica
 
 - **AtlasMind never force-pushes.** Where a force is genuinely unavoidable it uses a lease; to a protected
   branch it refuses outright
+- **Protected branches are never deleted.** `git-branch` refuses to delete main, master, production,
+  release/* or hotfix/* — locally and on the remote — and branch, remote and ref arguments are rejected
+  when flag-shaped, so a name can never smuggle a git option
+- **Worktree removal only targets what git itself lists.** `git-worktree` matches the requested path
+  against `git worktree list` before anything runs, never touches the main worktree, and its escalated
+  Windows cleanup (read-only attributes, directory delete) stays inside the workspace root
 - **Promotion is deny-by-default** where required backup or approval evidence is missing
 - **The backup command ships empty** on a production stage with a database, and that emptiness is the
   gate — AtlasMind can't invent a backup that would actually restore your data
@@ -483,7 +513,19 @@ authorization rule. The webview sends no configuration or command payload. The e
 machine-scoped settings, requires exactly one waiting owner-authored run in total for current HEAD, rejects a dirty workflow,
 and checks the exact repository/ref/actor conditions, trigger set, read-only permission, secret/OIDC/write
 absence, immutable action references, checkout credential setting, unique label and existing runner list.
-It cannot dispatch or rerun a workflow.
+The runner it starts cannot dispatch or rerun a workflow.
+
+Since v0.375.0 the *page* can queue one — a **Queue the run…** control that dispatches the trusted workflow
+on GitHub. It is not the runner gaining a capability: the container's token is unchanged and still cannot
+dispatch anything, and queueing starts nothing locally. Four properties bound it. The webview posts a bare
+request with **no payload**, so the host rebuilds the invocation from the validated settings pair and a
+crafted message can ask for the queue step without ever naming a workflow or a ref. The head of the trusted
+branch is read from GitHub and compared with local `HEAD` first, because a dispatch runs the remote tip
+rather than the checkout on screen — a difference leads the dialog, and an unreadable head is stated as
+unknown rather than assumed to agree. It is confirmed modally, naming the repository and the exact command.
+And it is recorded in the workflow audit ledger *before* it is sent, as `actor: user` under stage `ci`: no
+automation-ladder capability governs it, because the ladder governs writes AtlasMind may make unattended
+and this one exists only as a click on a dialog.
 
 Two properties of that policy changed in v0.348.0, in the safe direction. It can now be evaluated **before**
 a run rather than only at the moment of one — a filesystem read needing no Docker, no `gh` and no queued

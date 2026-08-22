@@ -19,6 +19,509 @@ Older entries below describe the software as it was at the time and are delibera
 
 ---
 
+## v0.382.5 — Worktree safety across runner path styles
+
+Git-reported drive-letter and UNC worktree paths now remain absolute when release automation runs on
+Linux or macOS. Workspace-relative requests are resolved using the workspace root's own path syntax, so
+the registered-worktree check continues to refuse unknown paths without misclassifying a valid Windows
+worktree as `<runner cwd>/C:/...`.
+
+## v0.382.4 — Chat context follows the transcript
+
+Every chat session now has a persisted transcript revision. The rolling `context.md` bundle carries the
+revision it summarizes, written last as a commit marker; if it is absent or does not match, AtlasMind
+refuses the bundle and uses the current transcript instead.
+
+Clear, Delete Message, Delete Session, New Chat, Edit, and Regenerate now wait for context invalidation.
+An older maintenance call may finish, but it cannot become current, and the invalidation waits for its
+last possible write before deleting the session artifacts. That closes the race where a delayed summary
+could bring deleted messages back into the next prompt.
+
+## v0.382.3 — A reliability contract for Chat
+
+The next Chat work now has an approved, measurable implementation plan. Transcript revision becomes the
+authority for rolling context; both chat surfaces converge on one turn assembler; and the existing
+heuristic selector plus `find-tool` loop evolves into a model-budget-aware capability broker. The common
+case receives a small likely tool set immediately, a miss can be recovered during the agent loop, and an
+installed external capability outside the agent's ceiling requires explicit one-turn elevation.
+
+The plan also covers partial-stream preservation, scoped approval automation, privacy-safe context/tool
+receipts, an authoritative context meter, keyboard accessibility, and live stress gates. Loading a schema
+continues to grant no execution authority. See the
+[Chat reliability and capability broker plan](Chat-Reliability-and-Capability-Broker-Plan.md).
+
+## v0.382.2 — Delivery chat keeps its Git authority
+
+The Delivery runbook now carries live working-tree evidence into **Ask Atlas** instead of replacing a
+known dirty tree with "cleanliness unavailable". Its approval wording no longer trips AtlasMind's
+turn-scoped no-command ceiling and strips away `git-commit` and terminal access before the model starts.
+
+`git-commit` can now stage and exclusively commit a bounded list of exact tracked or untracked paths.
+Unrelated entries already in the index remain staged. Broad `.` staging, traversal, absolute paths and
+pathspec wildcards are refused; the approval card names how many exact paths will be committed. The GitHub Operator also refuses to recommend `git add .` or a
+commit-message file it has not verified.
+
+## v0.382.1 — Roadmap and workflow synchronization
+
+Roadmap and workflow artifacts are now re-synced from source memory, and the generated roadmap
+canvas metadata now reflects the latest derived backlog items and dependency links.
+
+## v0.382.0 — Reading a dense plan
+
+Layout can only take a heavily interconnected plan so far; the rest is interaction.
+
+**Click a card's body and its neighbourhood lights up** — the card, its direct prerequisites and
+dependents, and every incident edge at full strength, everything else receded. Nothing is sent;
+Escape or a click elsewhere puts the canvas back.
+
+**Search the plan.** The toolbar search shows only items whose text matches *plus everything
+connected to them* — what they wait on, and what waits on them — with a shown-of-total count and a
+re-fit on every keystroke so the result is always in view.
+
+**Fans of edges spread.** Each node's incoming and outgoing arrows get evenly spaced connection
+points across its face instead of stacking into one knot, and edges sit quieter by default — they are
+context until you select, and then the ones that matter come to full strength. Layers also gained
+air, because cards carrying the Atlas pills are taller than the old pitch allowed for.
+
+And the open-source question got a measured answer: dagre — the layout engine Mermaid uses — was
+evaluated on the real 51-node backlog and produced *more* crossings and ~20% longer edges than
+AtlasMind's own pipeline, so no dependency was added.
+
+---
+
+## v0.381.0 — A tree worth reading
+
+The first real backlog run through Calculate tree produced a mess, and the mess was the layout
+algorithm, not the links: every parentless item in one first row wider than the whole plan, dependents
+half a canvas from their prerequisites, unrelated sub-plans interleaved so edges swept across
+everything, and unlinked items taking up prime space.
+
+Auto tree and Calculate tree now run a compact, fully deterministic Sugiyama pipeline. A prerequisite
+sits just before the first thing it unlocks. Unrelated sub-plans lay out as separate blocks, in backlog
+order, whose arrows never cross each other. Crossings inside a block are swept out with alternating
+barycentre passes. Children settle under their parents — a chain draws as one straight line — and a
+node you have dragged acts as an anchor its dependents follow. Items with no links park in a
+near-square block after the plan; they carry no arrows, so the block cannot be misread as dependency.
+
+Same roadmap, same picture, on every machine — and each of those properties is pinned by a test.
+
+---
+
+## v0.380.3 — One writer at a time
+
+A follow-up caught by the repository's own pre-commit gate: the load-time anchor write runs from a
+fire-and-forget first sync, so it could overlap whatever a click did next — two writers of the backlog
+file, with `fs.writeFile` truncating before it writes, and a reader in that window saw an *empty*
+backlog. Message handlers now wait for a started anchor write to settle before touching anything, with
+a re-entrancy guard so the write's own refresh cannot deadlock on itself.
+
+---
+
+## v0.380.2 — The canvas messages arrive
+
+The deepest cause of "the canvas doesn't do anything", found and closed. A dashboard message lives in
+three hand-maintained places — the type union, the handler switch, and the runtime validation gate —
+and nothing bound them together. Fifteen roadmap messages existed in the first two and not the gate,
+so every drag-drop, node save, link operation, suggestions toggle, Auto tree, **Calculate tree**,
+register hand-off and Atlas pill was silently discarded before its handler ever ran: no error, no
+log, no reply. The webview looked perfectly wired because it was — the messages just died at the door.
+
+All fifteen are now admitted with proper shape checks. A message the gate refuses now reports itself
+(once per type per session) instead of vanishing, and a new parity test pins the union, the switch and
+the gate to one list — a message can no longer be handled without being admitted. A panel-flow test
+also drives a drag and a Plan pill through the real message entry point, the one layer every earlier
+test happened to step past.
+
+---
+
+## v0.380.1 — Save saves, and the canvas wires itself
+
+Two fixes behind one symptom — pressing Save on a canvas node appearing to do nothing.
+
+**One id, both sides.** The canvas view and the save path resolved an item's id differently when its
+backlog line had no hidden anchor yet: the view adopted the item's surviving record, the save path
+minted a fresh id around it, and every save, move, or link against the id on screen missed —
+*silently*. Both sides now resolve through one shared function, a diverged anchor is rewritten to
+agree, and an action that still cannot find its item warns and refreshes the canvas instead of doing
+nothing. The editor also closes the moment you press Save.
+
+**Anchored on first load.** The hidden per-line ids used to be written only when your first change
+needed them — which is exactly when they were still provisional. The dashboard now writes them once
+when it loads, so every item is durable before you touch anything. The banner only remains if the
+write could not land (a read-only tree, or a file written by a newer AtlasMind).
+
+---
+
+## v0.380.0 — Plan, Resolve, Completion check
+
+Every roadmap entry — canvas card and backlog row alike — now carries three Atlas pills, and the plan
+finally has somewhere durable to live.
+
+**Plan** files a dedicated markdown plan document for the item under `roadmap/plans/`: a frame of
+questions (Approach, Steps, Verification, Completion criteria), created once and never overwritten,
+with nothing model-generated written by the button itself. The path is recorded against the item, and
+from then on the entry links to its filing record wherever you see it. Atlas drafts the plan in a chat
+hand-off, under the ordinary tool-approval regime.
+
+**Resolve** hands the work to Atlas — reading and following the filed plan when there is one, and
+saying so before deviating where reality disagrees with it.
+
+**Completion check** reports, with evidence from the repository itself, whether the item is actually
+done: complete, incomplete, or not decidable. It never ticks the item off — none of the three pills
+can — because marking work done stays a human act on the Roadmap page.
+
+A delivered entry keeps only the Completion check: nothing is left to plan or resolve, but "is it
+really done?" is a question finished work still has to answer.
+
+---
+
+## v0.379.1 — The dependency canvas responds like a canvas
+
+Four causes of one complaint — the canvas felt unresponsive, unintuitive, and refused to make a
+readable tree — fixed together, because each hid the others.
+
+**Looking around no longer rebuilds the page.** Zoom used to re-render the entire dashboard once per
+wheel tick, and every drag-drop recollected every page's data — git subprocesses, scans, the delivery
+pipeline — before the node visibly landed. Pan, zoom and fit now touch only the canvas transform, and a
+graph write redraws by patching just the roadmap into the last snapshot: a drop lands in tens of
+milliseconds instead of seconds.
+
+**The wheel and the mouse do what you expect.** Zoom anchors at the cursor rather than throwing the
+plan off-screen; a plain wheel pans instead of scrolling the canvas out of view; Shift pans
+horizontally; and the whole card is a drag handle — its buttons and chips stay clicks.
+
+**The tree reads as a tree.** Siblings sit beside what they wait for instead of being ordered by
+priority alone, rows no longer overlap chip-heavy cards, and arrows anchor to each card's measured
+height. The one-column "nothing linked yet" state now offers **Calculate tree** in the very banner that
+explains it — that state is exactly where the canvas used to look broken.
+
+**A background refresh can no longer eat a drag.** A snapshot arriving mid-drag is held until the
+button comes up, with the dropped node kept where you dropped it.
+
+---
+
+## v0.379.0 — Bring the roadmap you already have
+
+AtlasMind's roadmap lives in one markdown file, and that is fine for a project that started here and
+useless for every project that did not. Your plan already exists — as a handful of markdown files under
+`docs/`, as GitHub issues, on a Projects board, or in a spreadsheet somebody exported. Asking you to
+retype it was asking you not to use the canvas.
+
+**Import…** on the Roadmap page reads all four. What it does is bounded by six rules, and every one of
+them is about not damaging a plan that already works.
+
+**It imports rather than mirrors.** `improvement-plan.md` stays the one file that says what the work is,
+because every link, deadline, estimate, assignee and position on the canvas is keyed to it. A second
+source of truth would leave all of that pointing at rows nobody owns.
+
+**You can run it again.** Each imported line records where it came from, so a second run updates what
+moved and adds what is new rather than giving you a second copy of everything. Text matching is only a
+fallback for lines that have no record yet — which is exactly what lets a first import *adopt* a backlog
+you typed by hand instead of duplicating it, and what stops a later import stealing lines that belong to
+a different source.
+
+**Nothing is ever deleted.** An item the source no longer has is reported and left where it is. It might
+have been dropped, or renamed, or your glob might have stopped matching a file — three very different
+things that look identical from here.
+
+**Your edits are never overwritten.** The source title is recorded at import time, so "you changed this"
+and "the source changed" stay separable. When both have moved, you get a conflict showing both texts and
+the import touches nothing.
+
+**You see the whole plan first.** The confirmation names what would be added, what would be retitled,
+what would be left alone, and what could not be read. A dialog that said only "42 to add" would be true
+and would leave out the two things actually worth knowing.
+
+**The page never picks a source.** It asks for the flow; the glob, the file, the project number and the
+column mapping all come from the editor's own pickers. Which spreadsheet column holds the item is asked
+rather than guessed — importing the wrong one fills a roadmap with dates or owner names — and which
+project columns mean *finished* is asked too, because "Done" is a convention, and marking live work as
+delivered is the expensive mistake.
+
+---
+
+## v0.378.0 — The canvas keeps responding, and the plan can say whose it is
+
+**The roadmap canvas stopped accepting input after a while.** The cause was a drag that never ended.
+`pointerup` was bound to the canvas itself, so releasing the button anywhere else — over the editor tabs,
+past the edge of the webview, or after a background refresh re-rendered the page and removed the element
+holding the pointer capture — left the canvas permanently mid-drag. Every movement after that panned or
+dragged, and nothing could be clicked. It took a while to happen because it needed one release to land
+somewhere slightly unusual. The release is now heard on the window, capture loss ends the drag, and so
+does alt-tabbing away.
+
+**"Calculate tree" was impossible to find.** The notice added last release tells you to press it, and the
+shared Atlas-action styling hides that button's label in a screen-reader-only rectangle — so it rendered
+as a mark and a glyph with no words. Naming a control whose name nobody can see is worse than naming
+none. It has its label back.
+
+**A roadmap item can now be assigned to somebody**, from a picker in the node editor drawn from your
+Project Director roster. Not a free-text field: a name no other surface knows about could only ever
+appear as a lane nobody can resolve. This is deliberately separate from "added by" and "completed by" —
+those are history, and this is a plan. It is the only one of the three that can be wrong about the
+future, which is what makes it worth editing.
+
+If somebody is later removed from the roster, work assigned to them is **kept and labelled as such**.
+Deleting a contact is not a statement that their work became nobody's, and quietly folding the two
+together would rewrite a decision you made.
+
+**And a By person view**, alongside the dependency canvas, the backlog and Delivered. The same
+outstanding work in one band per person, each band still ordered by what has to happen first — so an
+arrow crossing between bands is one person waiting on another, which is the question this view exists to
+answer. Bands are ordered by name rather than by how much work is in them, so the picture does not
+reshuffle every time somebody finishes something.
+
+Positions you dragged on the dependency canvas are ignored here, and dragging is not offered. A
+coordinate means something in the arrangement it was set in and nothing in another one; honouring it
+would drop a card into somebody else's lane, which is the most misleading thing this view could do.
+
+---
+
+## v0.377.0 — One release line, several branches
+
+A project with more than one branch has one release line and several points on its way out. AtlasMind
+only ever knew one number — the manifest's — so every delivery stage in the header reported whatever that
+branch's copy of `package.json` happened to say. That is a fact about merge order, not about what is
+deployed anywhere.
+
+**You can now say how the project versions.** A `versioning` block in
+`project_memory/operations/workflow.json` declares three things, which is how the practice actually
+divides: a **scheme** (SemVer where there is an API contract to promise, CalVer where there is not), a
+**source** for the number (derived from the last tag at release time, or held in the manifest by choice),
+and a map from **branch to release channel** — the part that only exists once there is more than one
+branch, and the part most projects leave implicit.
+
+The Release page shows what the checked-out branch would produce next, and the declared rule that decided
+it. The header names the channel each branch publishes to.
+
+**Nothing is assumed.** A project that has declared no policy is told exactly that, and shown what would
+be suggested for the branches it already has. Adopting it means editing that file, so the decision arrives
+as a diff with a reviewer rather than as a default nobody saw. And nothing on this path writes a version,
+tags anything or publishes: the next version is a reading, printed beside the rule that produced it.
+
+**One fix worth naming.** Comparing versions discarded the pre-release suffix, so `1.5.0-rc.1` and
+`1.5.0` compared equal. The release gate that exists to prevent publishing the same version twice asks
+exactly that question — so it would refuse the one release that had never been published, while a
+candidate read as already out. Version comparison now follows the SemVer specification in full.
+
+---
+
+## v0.376.0 — Controls that visibly do the thing
+
+Three roadmap-canvas controls that were reported as doing nothing. One of them genuinely did nothing you
+could see; the other two did exactly what they said and said the wrong thing.
+
+**Arranging the tree worked and happened off-screen.** A re-flow moves every node, while your pan and
+zoom stay precisely where you left them — so on any plan wider than the frame, the whole result landed
+outside the viewport. Arranging now fits the canvas afterwards, which is not decoration: arranging and
+looking at what you arranged are one act. The confirmation message also appears either way. It used to
+be shown only when a hand-placed node had been released, so on a plan nobody had dragged, a working
+control gave no sign at all.
+
+The same fit now runs when the plan **gains an item**. A new item is laid into the tree at the next free
+row of its level and then sat somewhere off-screen, which is indistinguishable from not having been
+added. Only genuine arrivals trigger it — re-fitting on every redraw would fight the pan of anybody
+reading a large plan.
+
+**"Align across" and "Align down" named the axis and never named the feature.** They are now **Auto
+tree**, with **→** and **↓** beside it as its direction. Auto tree keeps whatever orientation the plan
+already declares rather than silently flipping it, and direction still lives in the committed plan,
+because which way a graph reads best depends on its shape rather than on who is looking.
+
+**The suggestions toggle did what it said and said the wrong thing.** Turning it on draws dashed arrows
+and rearranges nothing, which is not what "Suggestions on" sounds like. It reads **Showing
+suggestions** / **Suggestions hidden** now, carries a count of what is drawn, and states the rule
+underneath: a suggestion never moves an item and never blocks one, because an inference should not
+reorder your plan on its own. Accept one and it becomes a real link, which does.
+
+That rule has a consequence worth naming, because it looks like a bug. The tree is built from links you
+have **accepted** — so a plan with nothing accepted has every item at the same level, lays out as a
+single column, and has the dashed suggestions crossing it. Nothing is broken; the layout is correct and
+the plan is flat. The canvas now says exactly that, where you are looking at it, and points at
+**Calculate tree**. It says it only in that state: a plan with links drawn does not need telling, and a
+plan with neither links nor suggestions has nothing to accept.
+
+---
+
+## v0.375.0 — Doing the step instead of describing it
+
+Three surfaces that told you what to do, and now do it — or at least get out of the way while you do.
+
+**Step 2 of the borrowed-machine setup was an instruction to run a command AtlasMind had already
+written.** It composed the command, validated the workflow name and the ref, printed it, and offered to
+copy it or type it into a terminal — and then asked you to finish. That is the definition of work the
+tool could do itself, sitting in the middle of an onboarding flow.
+
+**Queue the run…** now dispatches it, bounded four ways. The page posts a bare request with *no
+payload*, so the host rebuilds the invocation from the validated settings pair — a crafted message can
+ask for the queue step and can never name a workflow or a ref. What would actually run is worked out
+first: a dispatch runs the **remote tip** of the trusted branch, not the checkout on screen, so the head
+is read from GitHub and compared with your local `HEAD`. Where they differ the dialog leads with it;
+where GitHub could not be asked, it says *unknown* rather than implying agreement. It is confirmed
+modally, naming the repository and the exact command. And it goes into the workflow audit ledger before
+it is sent, as `actor: user` — no new automation-ladder switch was invented, because the ladder governs
+what AtlasMind may do *unattended* and this only exists as a click on a dialog.
+
+Queueing still starts nothing on your computer. Lending the machine to the job is the separate step it
+always was, with its own confirmation. One sentence in *that* dialog had to change: it said "AtlasMind
+will not dispatch or rerun a workflow", which a queue button makes false. The claim that was ever
+load-bearing — that nothing the container runs can dispatch anything — is unchanged and still stated.
+
+**The setup drawer holding all of that was nearly invisible.** Its title was a bare text node, which the
+shared layout rule pushed to the far right behind a lone chevron: the whole of the borrowed-machine
+setup, presented as a right-aligned footnote. It now looks like the control it is.
+
+**The Release page listed eight gates flat, unclickable, in the order they were checked.** Check order
+is a property of the checker — root cause before symptom — and it is not the order you want to read. The
+gates now lead with what is blocking the release, then unknown, then ready, with the check order kept
+inside each band. **Unknown ranks with the failures**, because this stage is built on "an unknown is not
+a pass" and sinking unknowns down beside the passes would undo that at the last surface before somebody
+tags a version that can never be replaced.
+
+Each gate now opens where its evidence lives — CI to the Pipeline page, the testing policy to Testing,
+the changelog gates to `CHANGELOG.md` — from a declared table with no fallback: a gate nobody wrote a
+destination for is simply not clickable, because a link that opens somewhere unrelated teaches people to
+distrust the others. And there are filters: **Needs you** (blocked *and* unknown), Blocked, Unknown,
+Ready. Their counts come from the whole board rather than from what the filter admits, so "Blocked 3"
+does not read zero the moment you pick "Ready", and a filter hiding something always says how many.
+
+**Send to terminal now moves focus to the terminal.** Everywhere AtlasMind types a command without
+pressing Enter, the missing newline is the gate — and it only works as one if your keystroke is the very
+next thing available. Typing into a panel you are not focused on left people reading "press Enter to run
+it" with the caret still in a webview. The command is still unsubmitted, and still yours to abandon.
+
+---
+
+## v0.374.0 — A dashboard that can tell you it has stopped listening
+
+This one was reported as "the Delivery runbook's copy and send-to-terminal buttons don't work", and
+every part of that chain turned out to be correct — the buttons, the click handling, the message, the
+validation, the handlers. What had gone was the connection between the two halves of the panel.
+
+A webview outlives the extension object that answers it. When AtlasMind updates, or the extension host
+restarts, VS Code brings the panel and everything drawn in it back; it does not bring the half that
+replies. The page then looks completely healthy — hover works, moving between pages works, nothing
+appears in the console — and every button posts into nothing. The only visible symptom was the Refresh
+button spinning for ever, which is the least likely place to look.
+
+Two changes. The dashboard is now **re-attached to a live host** when VS Code restores it, so the
+situation mostly stops arising; a panel that cannot be served is closed rather than left on screen
+pretending. And when a request goes unanswered anyway, the spinner **stops** and a banner says what has
+happened and how to get out of it — close the tab and reopen it, or reload the window. **Try again** is
+there because a stall is worth ruling out cheaply, but the instruction is the fix, since no button on a
+page whose host has gone can reach anything.
+
+The waiting window is deliberately generous, and disconnection is never guessed at from anything else.
+Collecting a cold dashboard snapshot reads git, the filesystem and your routines; a slow machine is not
+a disconnected one, and claiming otherwise would be the same kind of lie in the opposite direction.
+
+---
+
+## v0.373.0 — The registers can become work
+
+AtlasMind keeps three registers of things somebody found and wrote down: the gap analysis, the
+tech-debt register and the risk register. All three fed the score and the attention band, and none of
+them could reach the roadmap or the issue tracker. The Gap Analysis page's own navigation even said
+*"Turn a gap into planned work"* and routed you to the Roadmap, where you retyped it by hand.
+
+Every finding now carries **Add to roadmap** and **Raise as issue**. Both are derived rather than
+typed: the page names a finding and nothing else, the host works out the wording from a declared table
+and shows the exact line before anything is written, and an issue draft opens in the composer where the
+existing confirmation is still the only route to GitHub. A prefix is added only where it changes what
+the sentence commits to — `Close:` a gap, `Pay down:` debt, `Mitigate:` a risk, that last word matching
+what the ideation board already says so one backlog does not carry two vocabularies.
+
+Provenance runs both ways. A raised item shows where it came from and routes back to the register; the
+register shows "on the roadmap" rather than offering to raise the same finding twice. Each register
+still decides what *outstanding* means for itself, because only it knows: an accepted risk is a closed
+decision, while accepted debt is work somebody agreed to carry.
+
+One removal in the same pass. `issueNumber` on an ideation card was declared, sanitized, and never
+written by anything — a dead field. It is gone rather than filled in: the chain is followable in one
+direction already, and a number copied backwards goes stale the moment an issue is transferred or
+filed from an edited draft.
+
+---
+
+## v0.372.0 — Arranging the roadmap canvas
+
+Four controls on the canvas toolbar, all about making a plan readable rather than changing it.
+
+**Fit all** sits next to the zoom buttons and puts the whole plan on screen, measured from the frame the
+canvas is actually in so it stays right in a split editor. It never zooms past 100% to fill space — two
+nodes blown up to 160% are harder to read than two nodes.
+
+**Snap to grid** applies while you drag, not on drop, so the node lands on the grid while you are still
+holding it. Every layout constant is now a multiple of that grid, so a hand-placed node lines up with an
+auto-aligned one instead of sitting a few pixels off.
+
+**Auto align** re-flows the tree across or down. It works by *releasing* hand-placed positions rather
+than writing new ones, so what you see is the same deterministic layout everybody else's copy shows, and
+the next item added lands in its own column rather than in whatever gap was left. Drag any node again to
+pin it. The direction is stored in the committed plan, not in a setting — two people opening the same
+roadmap should see the same picture — and edges follow, leaving the bottom face rather than the right
+one when the tree runs downward.
+
+**Calculate tree**, carrying the AtlasMind mark, works the dependency tree out from the wording of the
+whole backlog and offers it in one go. The suggestions are not new; the bulk accept is, and it stays a
+deliberate act — a modal names how many links it would add before anything is written. Each accepted
+link keeps the rule that proposed it, and any inference that would make the plan circular is skipped and
+reported rather than saved.
+
+---
+
+## v0.371.0 — The roadmap becomes a graph
+
+An ordered list can only say *this one matters more*. It cannot say **this one cannot start until that
+one lands**, which is the question anybody planning a release actually asks — so a backlog could read
+as well-sequenced and still be unbuildable in the order it was written.
+
+The Roadmap page now opens on a dependency canvas: draggable nodes carrying the item, its branch name,
+its deadline, the days left and an estimate, with arrows for what has to happen first. Press **Route**
+on any node to hide everything that is not that item or a prerequisite of it — completed prerequisites
+included, because the route is how you got here. Nodes are edited where they sit, since the position is
+part of what you are reasoning about.
+
+AtlasMind proposes links from three declared rules and applies none of them. A suggestion is drawn
+dashed, names the rule and the evidence behind it, moves no column, blocks no node, cannot contradict a
+link somebody drew, and cannot make the plan circular. Accepting is one click; so is dismissing, and a
+dismissal is remembered. Estimates come from a published table rather than a model, so the same backlog
+grades identically on two machines — the property that makes an estimate on a committed plan worth
+comparing at all.
+
+Delivered work moves to its own chronological canvas, keeping the links between pieces of work and
+recording when each landed and by whom — unless something outstanding still depends on it, in which
+case it stays on the plan as the left-hand end of a route somebody is still walking. Underneath, a
+backlog line can finally keep an identity across a rename or a reorder, via an invisible id comment
+minted only for the items that actually gained graph data.
+
+---
+
+## v0.370.0 — The git lifecycle becomes real skills
+
+Two chat logs made the gap measurable. A branch-cleanup request ran seventeen improvised terminal
+commands — models were even hallucinating `git_fetch`-style tool names for auto-synthesis to
+reverse-engineer — and stalled unresolved on a Windows-locked worktree. Five new built-in skills close
+it: `git-worktree` (removal only ever targets a worktree git itself lists, and knows the
+OneDrive/read-only failure mode), `git-fetch` (`--prune`), `git-pull` (fast-forward-only by default),
+`git-merge` (conflicts reported with the exact files and both ways out), and `git-stash` (validated
+integer index only). `git-branch` gained merged-into listing and local/force/remote deletion, with
+protected branches refused outright.
+
+Selection and grading caught up too: the git intent pattern now matches "branches" (it literally did
+not, which is why the cleanup run got no git tools), integration flows select `git-merge` itself, and
+local git skills no longer fall through to a `network`-risk "invoke external tool" grade. And two
+prompt-level fixes from the same logs: models are told the per-turn tool-call ceiling before they hit
+it, and told to call `find-tool` before declaring a capability blocker — the way a gap-analysis run
+wrongly concluded it had no way to edit files.
+
+---
+## v0.369.4 — Published baseline refreshed
+
+The README states which Marketplace version its release notes are measured against, and that line can
+only be written after the publish has actually happened. It now names **v0.369.3**.
+
+---
 ## v0.369.3 — Delivery register catches up
 
 A record-keeping release: the Delivery page's register now carries the Local → Integration promotion

@@ -2499,14 +2499,16 @@ function sanitizeDerivedRecord(value: unknown): IdeationDerivedRecord | undefine
   if (text === '') {
     return undefined;
   }
-  const issue = record['issueNumber'];
   return {
     roadmapText: text.slice(0, 400),
     // Recomputed rather than trusted, so a hand-edited board cannot hold a
     // normalization that no longer matches how the roadmap compares text.
     roadmapNormalized: normalizeForRoadmapMatch(text.slice(0, 400)),
     derivedAt: normalizeIso(typeof record['derivedAt'] === 'string' ? record['derivedAt'] : undefined),
-    ...(typeof issue === 'number' && Number.isInteger(issue) && issue > 0 ? { issueNumber: issue } : {}),
+    // An `issueNumber` written by an older build is dropped here rather than
+    // carried: nothing has ever set one, so any value present is a hand edit or
+    // a fiction, and keeping it would put a number on a card that no code
+    // maintains. See `IdeationDerivedRecord` for why there is no such field.
   };
 }
 

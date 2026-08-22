@@ -196,6 +196,7 @@ describe('participant helper logic', () => {
       }),
     };
     const sessionConversation = {
+      getRevision: vi.fn(() => 12),
       buildContext: vi.fn(() => 'legacy session context'),
     };
 
@@ -204,7 +205,7 @@ describe('participant helper logic', () => {
       sessionConversation,
     } as never, 'session-1');
 
-    expect(sessionContextManager.loadContext).toHaveBeenCalledWith('session-1');
+    expect(sessionContextManager.loadContext).toHaveBeenCalledWith('session-1', 12);
     expect(context.sessionContextBundle?.summary).toContain('login handler');
     expect(context.sessionContext).toBe('');
     expect(sessionConversation.buildContext).not.toHaveBeenCalled();

@@ -2,6 +2,66 @@
   "version": 1,
   "records": [
     {
+      "id": "planning-2026-08-21T06:15:00.049Z-4a88f81de79b2dcd",
+      "stageId": "planning",
+      "action": "createIssue",
+      "at": "2026-08-21T06:15:00.049Z",
+      "actor": "user",
+      "requestedLevel": "propose",
+      "effectiveLevel": "propose",
+      "limitedBy": "ceiling",
+      "gates": [
+        {
+          "gate": "automation ladder",
+          "passed": false,
+          "detail": "Your personal ceiling is `propose`. The project allows `auto`; raise `atlasmind.workflow.maxAutomationLevel` to reach it."
+        }
+      ],
+      "inputsFingerprint": "4a88f81de79b2dcd",
+      "outcome": "failed",
+      "detail": "The GitHub CLI failed: Refusing to run gh: argument contains a shell metacharacter. Arguments are passed as an argv array and must never be composed into a command string."
+    },
+    {
+      "id": "ci-2026-08-21T06:10:09.881Z-fbf2bbf80f3efced",
+      "stageId": "ci",
+      "action": "queueLocalCiWorkflowRun",
+      "at": "2026-08-21T06:10:09.881Z",
+      "actor": "user",
+      "requestedLevel": "auto",
+      "effectiveLevel": "auto",
+      "limitedBy": "none",
+      "gates": [
+        {
+          "gate": "automation ladder",
+          "passed": true,
+          "detail": "Dispatched by the user from the Pipeline page after a modal confirmation naming the repository and the exact command."
+        }
+      ],
+      "inputsFingerprint": "fbf2bbf80f3efced",
+      "outputsFingerprint": "4062edaf750fb807",
+      "outcome": "complete"
+    },
+    {
+      "id": "ci-2026-08-21T06:02:41.274Z-4e423674110e5694",
+      "stageId": "ci",
+      "action": "queueLocalCiWorkflowRun",
+      "at": "2026-08-21T06:02:41.274Z",
+      "actor": "user",
+      "requestedLevel": "auto",
+      "effectiveLevel": "auto",
+      "limitedBy": "none",
+      "gates": [
+        {
+          "gate": "automation ladder",
+          "passed": true,
+          "detail": "Dispatched by the user from the Pipeline page after a modal confirmation naming the repository and the exact command."
+        }
+      ],
+      "inputsFingerprint": "4e423674110e5694",
+      "outputsFingerprint": "4062edaf750fb807",
+      "outcome": "complete"
+    },
+    {
       "id": "planning-2026-08-18T21:04:40.023Z-b1423aff19c2e177",
       "stageId": "planning",
       "action": "closeIssue",
@@ -18,8 +78,8 @@
         }
       ],
       "inputsFingerprint": "b1423aff19c2e177",
-      "outcome": "complete",
-      "outputsFingerprint": "4062edaf750fb807"
+      "outputsFingerprint": "4062edaf750fb807",
+      "outcome": "complete"
     }
   ]
 }

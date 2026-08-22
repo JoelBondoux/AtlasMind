@@ -95,4 +95,81 @@ describe('git-branch skill', () => {
     const result = await gitBranchSkill.execute({ action: 'rebase' }, context);
     expect(result).toContain('Error');
   });
+
+  it('rejects flag-shaped branch names so a name can never become an instruction', async () => {
+    const context = makeContext();
+    const result = await gitBranchSkill.execute({ action: 'delete', name: '--force' }, context);
+    expect(result).toContain('invalid');
+    expect(context.gitBranch).not.toHaveBeenCalled();
+    expect(context.runCommand).not.toHaveBeenCalled();
+  });
+
+  it('lists only branches merged into a ref for cleanup candidacy', async () => {
+    const context = makeContext({
+      runCommand: vi.fn().mockResolvedValue({ ok: true, exitCode: 0, stdout: '  old/one\n  old/two', stderr: '' }),
+    });
+    const result = await gitBranchSkill.execute({ action: 'list', mergedInto: 'develop' }, context);
+    expect(context.runCommand).toHaveBeenCalledWith('git', ['branch', '--merged', 'develop']);
+    expect(context.gitBranch).not.toHaveBeenCalled();
+    expect(result).toContain('old/one');
+  });
+
+  it('rejects a flag-shaped mergedInto ref', async () => {
+    const context = makeContext();
+    const result = await gitBranchSkill.execute({ action: 'list', mergedInto: '--contains' }, context);
+    expect(result).toContain('invalid');
+    expect(context.runCommand).not.toHaveBeenCalled();
+  });
+
+  it('includes remote-tracking branches with all', async () => {
+    const context = makeContext({
+      runCommand: vi.fn().mockResolvedValue({ ok: true, exitCode: 0, stdout: '  remotes/origin/x', stderr: '' }),
+    });
+    await gitBranchSkill.execute({ action: 'list', all: true }, context);
+    expect(context.runCommand).toHaveBeenCalledWith('git', ['branch', '--all']);
+  });
+
+  it('refuses to delete a protected branch, locally or remotely', async () => {
+    const context = makeContext();
+    const local = await gitBranchSkill.execute({ action: 'delete', name: 'main' }, context);
+    const remote = await gitBranchSkill.execute({ action: 'delete', name: 'release/1.0', remote: true }, context);
+    expect(local).toContain('protected');
+    expect(remote).toContain('protected');
+    expect(context.gitBranch).not.toHaveBeenCalled();
+    expect(context.runCommand).not.toHaveBeenCalled();
+  });
+
+  it('force-deletes with -D via runCommand', async () => {
+    const context = makeContext();
+    const result = await gitBranchSkill.execute({ action: 'delete', name: 'old/spike', force: true }, context);
+    expect(context.runCommand).toHaveBeenCalledWith('git', ['branch', '-D', 'old/spike']);
+    expect(result).toContain('Force-deleted');
+  });
+
+  it('points at git-worktree when a force-delete is pinned by a worktree', async () => {
+    const context = makeContext({
+      runCommand: vi.fn().mockResolvedValue({
+        ok: false,
+        exitCode: 1,
+        stdout: '',
+        stderr: "error: cannot delete branch 'old/spike' used by worktree at '/repo/.claude/worktrees/spike'",
+      }),
+    });
+    const result = await gitBranchSkill.execute({ action: 'delete', name: 'old/spike', force: true }, context);
+    expect(result).toContain('git-worktree');
+  });
+
+  it('deletes a remote branch with git push --delete', async () => {
+    const context = makeContext();
+    const result = await gitBranchSkill.execute({ action: 'delete', name: 'feature/done', remote: true }, context);
+    expect(context.runCommand).toHaveBeenCalledWith('git', ['push', 'origin', '--delete', 'feature/done']);
+    expect(result).toContain('origin');
+  });
+
+  it('keeps the plain local delete on the context bridge', async () => {
+    const context = makeContext();
+    await gitBranchSkill.execute({ action: 'delete', name: 'feature/done' }, context);
+    expect(context.gitBranch).toHaveBeenCalledWith('delete', 'feature/done');
+    expect(context.runCommand).not.toHaveBeenCalled();
+  });
 });

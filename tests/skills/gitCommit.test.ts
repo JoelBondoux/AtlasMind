@@ -98,6 +98,67 @@ describe('git-commit skill', () => {
     );
   });
 
+  it('stages only explicitly named tracked or untracked paths before committing', async () => {
+    const context = makeContext();
+
+    await gitCommitSkill.execute({
+      message: 'chore: add version helpers',
+      paths: ['scripts/bump-version.js', 'scripts/bump version.mjs'],
+    }, context);
+
+    expect(context.runCommand).toHaveBeenNthCalledWith(
+      1,
+      'git',
+      ['add', '--', 'scripts/bump-version.js', 'scripts/bump version.mjs'],
+      { timeoutMs: 120_000 },
+    );
+    expect(context.runCommand).toHaveBeenNthCalledWith(
+      2,
+      'git',
+      [
+        'commit',
+        '--only',
+        '-m',
+        'chore: add version helpers',
+        '--',
+        'scripts/bump-version.js',
+        'scripts/bump version.mjs',
+      ],
+      { timeoutMs: 120_000 },
+    );
+  });
+
+  it.each(['.', './', '..', '../outside.ts', '/absolute.ts', 'src/*.ts', 'src\\*.ts'])('refuses broad or unsafe commit path %j', async path => {
+    const context = makeContext();
+    const result = await gitCommitSkill.execute({ message: 'chore: unsafe sweep', paths: [path] }, context);
+
+    expect(result).toContain('Error');
+    expect(context.runCommand).not.toHaveBeenCalled();
+  });
+
+  it('refuses to combine exact paths with the all-tracked staging mode', async () => {
+    const context = makeContext();
+    const result = await gitCommitSkill.execute({
+      message: 'chore: ambiguous stage',
+      paths: ['src/index.ts'],
+      stage_tracked: true,
+    }, context);
+
+    expect(result).toContain('Error');
+    expect(context.runCommand).not.toHaveBeenCalled();
+  });
+
+  it('does not commit when exact-path staging fails', async () => {
+    const context = makeContext({
+      runCommand: vi.fn().mockResolvedValue({ ok: false, exitCode: 128, stdout: '', stderr: 'pathspec did not match' }),
+    });
+
+    const result = await gitCommitSkill.execute({ message: 'chore: missing file', paths: ['missing.ts'] }, context);
+
+    expect(result).toContain('pathspec did not match');
+    expect(context.runCommand).toHaveBeenCalledTimes(1);
+  });
+
   it('reports a failed commit', async () => {
     const context = makeContext({
       runCommand: vi.fn().mockResolvedValue({

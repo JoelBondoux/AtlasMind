@@ -58,6 +58,11 @@ context and sending it.
 
 **A snapshot is taken before every write.** That's what makes a failed step recoverable.
 
+**A turn-level capability ceiling is not an approval decision.** Explicit broad instructions such as
+“do not run terminal commands” remove those tools before routing and are checked again before execution.
+Narrow release guards leave Git tools callable so the normal approval policy can gate them; otherwise
+“subject to approval” would paradoxically remove the operation before an approval could be requested.
+
 ---
 
 ## What happens during a project run
@@ -104,9 +109,16 @@ path — you don't have to retype it.
 | Part | What it does |
 |---|---|
 | **Memory Manager** | Reads, writes and searches your project memory |
+| **Session Context Manager** | Maintains a revision-checked working summary without outranking the chat transcript |
 | **Memory Scanner** | The gate that decides what may be written |
 | **Checkpoint Manager** | Snapshots before writes, so a failure is recoverable |
 | **Project Run History** | Every autonomous run, kept per workspace |
+
+The conversation transcript is the source of truth. Its revision advances whenever context-bearing
+content changes, while the rolling session summary records which revision it describes. Chat refuses a
+missing or mismatched marker and falls back to the current transcript. Clear, delete, New Chat, edit, and
+regenerate wait for invalidation, so an older background summary cannot reintroduce a turn the operator
+removed.
 
 ### Reaching outside
 
@@ -188,6 +200,17 @@ Chat, Settings, Project Dashboard, Project Ideation, Mission Control, Project Ru
 Dashboard, Model Providers, Agent Manager, UI Studio, Personality Profile, and the Lens surfaces —
 plus the sidebar trees for Chat, Lens, Director, Project State, Sessions, Runs, Memory, Models, Agents,
 Skills, MCP Servers and Resource Discovery.
+
+A panel is two halves, and the browser half outlives the extension half. VS Code brings a webview and
+its rendered DOM through a window reload or an extension update; it does not bring the object that
+registered `onDidReceiveMessage`. Such a panel comes back looking healthy and is inert — hover works,
+moving between its pages works because that is local, nothing throws — while every message it posts
+lands nowhere. The Project Dashboard closes that two ways: `commands.ts` registers a
+`WebviewPanelSerializer` for `PROJECT_DASHBOARD_VIEW_TYPE` so a restored panel is re-attached to a
+live host (re-applying `webview.options`, which a restored panel does not keep, and reading nothing out
+of the restored webview, since the snapshot is rebuilt from the workspace anyway); and the webview arms
+a watchdog on any request the host must answer, so silence is rendered as silence rather than as a
+spinner that never stops. Any inbound message counts as proof of life, not only a final result.
 
 UI Studio retains the original `atlasmind.openWebsiteStudio` command id and
 `project_memory/domain/website.json` path for compatibility. Format v6 added a revisioned,
@@ -334,6 +357,14 @@ pipeline says **where versions move** and owns guarded promotion. The detected s
 this project asks a newcomer to do**: prerequisites, validation, packaging, deployment and publishing,
 derived from bounded local manifests, scripts, routines, workflows and the stage model. Exact repository
 configuration, runtime conventions, human checks and missing blockers remain visibly different.
+
+When **Ask Atlas** opens from a non-green working-tree step, the host re-runs one bounded
+`git status --short` and rebuilds that row with live cleanliness. Copying or sending the detected
+command keeps the cheaper no-probe path because cleanliness cannot change the command. This separation
+prevents a tree already known to be dirty from becoming “unavailable” at the Chat handoff. If the
+inspected change should be committed, `git-commit` can stage a bounded list of exact tracked or untracked
+paths and commit only that list, leaving unrelated pre-staged entries untouched; broad
+`.`/wildcard/path-traversal staging is refused and the approval summary names the scope.
 
 Versioning is now explicit in both readings. A production path that requires a bump adds **Prepare
 release version** to the Detected Runbook and displays the repository's exact preparation script when it
@@ -613,6 +644,127 @@ the panel is closed and recreated. Folded local/upstream cards derive activity f
 visible commits; recency sorting therefore describes the logical branch rather than always describing its
 local ref.
 
+Three registers record things somebody found and wrote down — the gap analysis, the tech-debt register
+and the risk register — and every finding in all three can become work. **Add to roadmap** and **Raise
+as issue** sit on each finding. The page names a finding by an opaque key and nothing else; the host
+resolves it against the snapshot it last published, derives the wording from a declared table, and shows
+the exact line in a confirmation before anything reaches a tracked file. An issue draft opens in the
+composer, where the existing confirmation is still the only route to GitHub. A prefix is added only where
+it changes what the sentence commits to, and provenance runs both ways: the raised item says where it
+came from and routes back, the register says "on the roadmap" rather than letting the same finding be
+raised twice. That link is stored on the roadmap side, because the gap analysis is regenerated wholesale
+on every run and a link written there would not survive the next scan. Each register still decides what
+*outstanding* means for itself — an accepted risk is a closed decision, accepted debt is work somebody
+agreed to carry.
+
+The Roadmap page holds two different facts about the same backlog, and keeps them apart. The
+**prioritised backlog** is an ordered list, and its order is the only thing that sets Atlas's default
+next-work weighting. The **dependency canvas** answers a question a list cannot: which item cannot start
+until another lands. Nodes carry the item, its branch name, its deadline, the days left and an estimate;
+arrows carry the order. Asking for the *route* to a node hides everything that is not that node or a
+prerequisite of it — completed prerequisites included, because the route is how you got here, and
+everything downstream excluded, because that is a different question. Filtering, panning and switching
+views are offline: the host sends every route with the snapshot, so a way of looking at the plan is never
+something that can fail.
+
+AtlasMind proposes links from three declared rules and applies none of them. A suggestion is drawn dashed,
+names the rule and the evidence behind it, moves no column and blocks no node, and changes nothing until
+somebody accepts it; it can never contradict a link drawn by hand, and it can never make the plan
+circular. Dismissing one is remembered, since a rule-derived suggestion would otherwise reappear on the
+next render. Estimates come from a published table rather than a model, with a per-node AI-assistance
+toggle — the same backlog grades identically on two machines, which is what makes an estimate on a
+committed plan worth comparing. Delivered work moves to its own chronological canvas, laid out by month
+and keeping the links between pieces of work, unless something outstanding still depends on it, in which
+case it stays on the plan as the left-hand end of a route somebody is still walking.
+
+Looking around never rebuilds the page. Pan, zoom and fit apply straight to the canvas transform — the
+full render each zoom step used to trigger rebuilt every page's markup per wheel tick, which is what
+made the canvas feel unresponsive. Zoom is anchored at the cursor (or the frame's centre, from the
+buttons), so the point under it stays under it instead of the plan flying off-screen; a plain wheel
+pans, because the frame does not scroll and letting the wheel fall through scrolled the whole dashboard
+out from under the canvas; Shift turns a single-axis wheel horizontal. The whole card is a drag handle —
+its buttons, chips and fields stay clicks — since most of a card's area is body, and a grab that only
+worked on the title bar read as a canvas that mostly ignored the mouse.
+
+Density is handled by interaction, not just layout. Clicking a card's body highlights its
+neighbourhood — the card, its direct prerequisites and dependents, and every incident edge — while
+everything else recedes; classes only, reapplied after each render, with nothing sent. The toolbar
+search keeps matching items plus their whole connected closure and hides the rest, re-fitting on each
+keystroke; like the route filter it is computed in the webview from the shipped snapshot, because a way
+of looking must not be something that can fail. Fans of edges get deterministic, evenly spaced
+connection points across each node's face (`rmBuildEdgePorts`, computed from the full drawn set so a
+partial mid-drag repaint never shifts an untouched edge), and edges render quieter by default —
+selection is what brings the ones that matter to full strength.
+
+Four toolbar controls arrange the canvas without changing the plan. **Fit all** puts everything on
+screen, measured from the frame the canvas is in and never zooming past 100% to fill space. **Snap to
+grid** applies while you drag rather than on drop, and every layout constant is a multiple of that grid
+so a hand-placed node lines up with an auto-aligned one. **Auto tree** re-flows the tree by *releasing* hand-placed
+positions rather than writing new ones — so the result is the same deterministic layout everybody's copy
+shows, and the next item added lands in its own column; drag a node again to pin it. The layout itself
+is a compact Sugiyama pipeline: a prerequisite sits one step before the earliest thing it unlocks
+(longest-path alone put every parentless item in one first row wider than the plan), unrelated sub-plans
+lay out as separate blocks that never interleave, alternating barycentre sweeps take the crossings out,
+coordinates settle children under parents so a chain reads as one straight line, and items with no links
+park in a near-square block of their own — they carry no arrows, so the block cannot be misread as
+dependency. Edges anchor to each card's measured height, so an arrow enters a tall card at its middle
+rather than above it. **→** and **↓**
+beside it choose the direction, which is stored in the committed plan because which way a graph reads
+best depends on its shape rather than on who is looking; snap-to-grid is remembered per editor, because
+it only changes where your next drag lands. Every arrangement is followed by a fit, computed in the
+webview from the rendered geometry: a re-flow moves every node while pan and zoom stay where they were,
+so on any plan wider than the frame the entire result used to happen out of view — which is why the
+arrange controls read as buttons that did nothing. The same fit runs when the plan gains an item, and
+only on a genuine arrival, so redrawing does not fight the pan of somebody reading a large plan. Where
+nothing is linked yet the canvas states why every item sits at one level — the tree is built from
+accepted links, and a suggestion moves no node by design — and the banner that says so carries
+**Calculate tree** itself, because that state is exactly where somebody concludes the canvas cannot make
+a tree.
+
+A drag ends on a `window` listener rather than on the canvas root. Bound to the root, a release over the
+editor tabs, past the edge of the webview, or after a re-render removed the element holding the pointer
+capture left the drag state set permanently — which read as the canvas refusing input. `lostpointercapture`
+covers a swap that still happens mid-drag and a window blur covers an alt-tab away — but a snapshot
+arriving mid-drag is *held* rather than applied, so a background refresh cannot swap the DOM out from
+under the pointer and eat the gesture; the drag's own end applies the last one held, keeping the dropped
+node where it was dropped. A graph write redraws by rebuilding only the roadmap snapshot and patching it
+into the last full one (`syncRoadmapState`), because recollecting every page — git subprocesses, SSOT and
+testing scans — put seconds between dropping a node and seeing it land.
+
+`layoutRoadmapByAssignee` is a **separate layout**, for the reason `layoutRoadmapCompletion` is: the
+by-person view is a way of *reading* the plan rather than the plan's own arrangement. That decides the
+rule which would otherwise be wrong — stored positions are ignored, because a coordinate dragged on the
+dependency canvas means something there and nothing in a lane arrangement, and honouring it would place a
+node in another person's band. Depth still runs along the reading axis inside each lane, so a band is
+that person's own chain and a crossing arrow is one person waiting on another. Lanes are ordered by name
+(unassigned last, an unresolved id between the two) rather than by workload, so finishing something does
+not reshuffle the canvas. `RoadmapNodeRecord.assigneeId` is a Director contact id, kept even when the
+contact is gone — deleting somebody from the roster is not a statement that their work became
+unassigned — and validated against the live roster in the host rather than trusted from the webview. **Calculate tree**, carrying the AtlasMind mark, works the
+whole dependency tree out from the wording of the backlog and offers it behind one confirmation naming
+how many links it would add.
+
+Every entry — canvas card and backlog row alike — carries three Atlas hand-offs (`roadmapPlanning.ts`):
+**Plan** files a dedicated markdown plan under `roadmap/plans/` (a deterministic scaffold, created once
+and never overwritten — `wx`), records its path on the item's graph record, and hands the drafting to
+Atlas in chat; **Resolve** hands the work itself over, following the filed plan when there is one; and
+**Completion check** asks for evidence that the item is actually done — a report, never a tick, because
+marking work complete stays a human act on the page. Once filed, the plan is linked from the entry as
+its filing record; the link sends the item's opaque id and the host resolves the path from the record,
+so the page can never name a file. All three prompts fence the item text as reported content, since an
+imported backlog line is third-party text. A delivered entry keeps only the Completion check.
+
+The graph is an overlay. `improvement-plan.md` remains the one file that says what the work is; the
+deadlines, positions and links live in `roadmap-graph.json` beside it, keyed on a durable id the backlog
+line carries as an invisible comment, so a rename or a reorder no longer orphans an item's history. The
+ids are written once, when the dashboard first loads — writing them on the first change left every id
+provisional exactly when the first save needed it durable. A record whose anchor is hand-deleted is
+repaired by text match; a record whose item left the backlog is dropped, along with the links touching
+it. The view and the write resolve ids through one shared function (`resolveRoadmapItemIds`), because
+the two once disagreed for unanchored items with surviving records — the same item was `slug` on screen
+and `slug-2` on disk, and every save against it missed silently; an action that still cannot resolve
+its node now warns and resyncs rather than doing nothing.
+
 Human ownership also follows one contract across the dashboard. Branches, active roadmap items, open
 issues and pull requests, unresolved gaps, risks and debt, and documents needing attention all render
 the Director's contact picker beside the work; Director → Assignments changes the same records. The
@@ -722,7 +874,7 @@ never accepted.
 
 | Path | What's in it |
 |---|---|
-| `src/core/` | Orchestration, routing, planning, safety, cost, project services, and CI inspection, trusted-workflow generation, the route model, routing policy, build ledger, act adapter and local CI setup guidance (`ciManager.ts`, `trustedLocalCiStarter.ts`, `ciRoutes.ts`, `ciRoutingPolicy.ts`, `ciCreditMeter.ts`, `ciBuildLedger.ts`, `ciActRoute.ts`, `nodeVersionDetection.ts`, `localCiSetupPlan.ts`, `localCiInstaller.ts`, `localCiInspectionMemory.ts`), the guarded local CI executor (`localCiRunner.ts`), the confirmed-write echo that shows an issue or pull-request write before the re-read lands (`trackerWriteOutcome.ts`) |
+| `src/core/` | Orchestration, routing, planning, safety, cost, project services, and CI inspection, trusted-workflow generation, the route model, routing policy, build ledger, act adapter and local CI setup guidance (`ciManager.ts`, `trustedLocalCiStarter.ts`, `ciRoutes.ts`, `ciRoutingPolicy.ts`, `ciCreditMeter.ts`, `ciBuildLedger.ts`, `ciActRoute.ts`, `nodeVersionDetection.ts`, `localCiSetupPlan.ts`, `localCiInstaller.ts`, `localCiInspectionMemory.ts`), the guarded local CI executor (`localCiRunner.ts`), the confirmed-write echo that shows an issue or pull-request write before the re-read lands (`trackerWriteOutcome.ts`), the roadmap dependency graph with its on-disk overlay (`roadmapGraph.ts`, `roadmapGraphStore.ts`), the declared table saying where each release gate’s evidence lives and how gates rank by urgency (`releaseGateNavigation.ts`), roadmap ingestion from markdown, issues, Projects and spreadsheets with re-runnable reconciliation (`roadmapImport.ts`), the register-to-work hand-off that turns a gap, a debt entry or a risk finding into planned work (`registerHandoff.ts`), and how the project numbers its software across branches — the semver primitives plus the declared scheme, source and branch-to-channel map (`semver.ts`, `versioningPolicy.ts`) |
 | `src/runtime/` | The built-in agents and how the runtime is composed |
 | `src/providers/` | Provider adapters, catalogues, health, local model discovery, `modelRole.ts` (what a model is *for*), and the local-GPU support layer that measures VRAM and reads what each runtime has loaded |
 | `src/skills/` | Built-in tools and skill handlers |

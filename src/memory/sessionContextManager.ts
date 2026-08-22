@@ -6,6 +6,7 @@ const SESSION_CONTEXT_MAX_CHARS = 4000;
 const SSOT_EXCERPT_MAX_CHARS = 400;
 const MAX_SSOT_EXCERPTS = 4;
 const MAINTENANCE_TURNS_LOOKBACK = 3;
+const SESSION_CONTEXT_REVISION_FILE = 'revision.json';
 
 /** Folders in the main SSOT that are worth cross-referencing per session. */
 const SSOT_CROSS_REF_FOLDERS = [
@@ -53,6 +54,10 @@ const SESSION_CONTEXT_SYSTEM_PROMPT = [
 export class SessionContextManager {
   /** In-progress maintenance tasks keyed by sessionId — prevents concurrent runs per session. */
   private readonly activeMaintenance = new Map<string, Promise<void>>();
+  /** Invalidation barriers stop a newer load or maintenance pass crossing an older delete. */
+  private readonly activeInvalidations = new Map<string, Promise<void>>();
+  /** In-memory epoch prevents a superseded completion from committing derived files. */
+  private readonly sessionGenerations = new Map<string, number>();
   /** Set once the SSOT root is known (after autoLoadWorkspaceSsot resolves). */
   private ssotRootUri: vscode.Uri | undefined;
 
@@ -81,16 +86,26 @@ export class SessionContextManager {
    * Returns null if no session folder exists yet (caller falls back to legacy sessionContext string).
    * Transparently reads both new (context.md) and legacy (summary.md etc.) formats.
    */
-  async loadContext(sessionId: string): Promise<SessionContextBundle | null> {
+  async loadContext(sessionId: string, expectedRevision?: number): Promise<SessionContextBundle | null> {
     if (!this.rootUri) {
       return null;
     }
+    await this.activeInvalidations.get(sessionId);
     const dir = this.sessionDir(sessionId);
+    const sourceRevision = await this.readSourceRevision(dir);
+
+    // A derived bundle is cache data, not conversation ground truth. Missing is
+    // safer than stale because the caller can rebuild context from the raw
+    // transcript, while a stale summary can resurrect deleted instructions.
+    if (expectedRevision !== undefined && sourceRevision !== expectedRevision) {
+      return null;
+    }
+    const freshness = sourceRevision === undefined ? 'legacy-unversioned' : 'current';
 
     // New unified format
     const contextMd = await this.readFile(dir, 'context.md');
     if (contextMd) {
-      return this.parseContextBundle(contextMd, dir);
+      return this.parseContextBundle(contextMd, dir, sourceRevision, freshness);
     }
 
     // Legacy 4-file format — read without migrating (migration happens on next maintainContext call)
@@ -108,6 +123,8 @@ export class SessionContextManager {
     const ssotExcerpts = await this.loadSsotExcerpts(ssotLinks);
 
     return {
+      ...(sourceRevision !== undefined ? { sourceRevision } : {}),
+      freshness,
       summary: summary ?? '',
       decisions: decisions ?? '',
       openThreads: openThreads ?? '',
@@ -124,6 +141,7 @@ export class SessionContextManager {
   maintainContext(
     sessionId: string,
     allEntries: SessionTranscriptEntry[],
+    sourceRevision: number,
   ): void {
     if (!this.rootUri) {
       return;
@@ -131,14 +149,7 @@ export class SessionContextManager {
     if (this.activeMaintenance.has(sessionId)) {
       return;
     }
-    const task = this.runMaintenance(sessionId, allEntries)
-      .catch(err => {
-        console.error(`[AtlasMind] SessionContextManager maintenance failed for session ${sessionId}:`, err);
-      })
-      .finally(() => {
-        this.activeMaintenance.delete(sessionId);
-      });
-    this.activeMaintenance.set(sessionId, task);
+    void this.startMaintenance(sessionId, allEntries, sourceRevision);
   }
 
   /**
@@ -148,11 +159,12 @@ export class SessionContextManager {
   async bootstrapFromTranscript(
     sessionId: string,
     entries: SessionTranscriptEntry[],
+    sourceRevision: number,
   ): Promise<void> {
     if (entries.length === 0) {
       return;
     }
-    await this.runMaintenance(sessionId, entries);
+    await this.startMaintenance(sessionId, entries, sourceRevision);
   }
 
   /**
@@ -181,23 +193,87 @@ export class SessionContextManager {
    * Delete the session SSOT folder when the session is deleted by the user.
    */
   async deleteSession(sessionId: string): Promise<void> {
-    if (!this.rootUri) {
-      return;
-    }
-    const dir = this.sessionDir(sessionId);
-    try {
-      await vscode.workspace.fs.delete(dir, { recursive: true, useTrash: false });
-    } catch {
-      // Already gone — fine.
-    }
+    await this.invalidateSession(sessionId);
+  }
+
+  /**
+   * Invalidate every derived artifact for a transcript that was cleared,
+   * edited, truncated, or deleted.
+   *
+   * The generation advances before waiting for old maintenance. That run can
+   * finish its model call, but it cannot commit as current; deletion then runs
+   * after its last possible write so it cannot recreate the stale directory.
+   */
+  async invalidateSession(sessionId: string): Promise<void> {
+    const generation = this.currentGeneration(sessionId) + 1;
+    this.sessionGenerations.set(sessionId, generation);
+
+    const priorInvalidation = this.activeInvalidations.get(sessionId);
+    const priorMaintenance = this.activeMaintenance.get(sessionId);
+    let task!: Promise<void>;
+    task = (async () => {
+      await priorInvalidation;
+      await priorMaintenance;
+      if (!this.rootUri) {
+        return;
+      }
+      try {
+        await vscode.workspace.fs.delete(this.sessionDir(sessionId), { recursive: true, useTrash: false });
+      } catch {
+        // Already gone — fine.
+      }
+    })().finally(() => {
+      if (this.activeInvalidations.get(sessionId) === task) {
+        this.activeInvalidations.delete(sessionId);
+      }
+    });
+    this.activeInvalidations.set(sessionId, task);
+    await task;
   }
 
   // ── Maintenance pipeline ────────────────────────────────────────
 
+  private startMaintenance(
+    sessionId: string,
+    allEntries: SessionTranscriptEntry[],
+    sourceRevision: number,
+  ): Promise<void> {
+    const existing = this.activeMaintenance.get(sessionId);
+    if (existing) {
+      return existing;
+    }
+
+    const generation = this.currentGeneration(sessionId);
+    const invalidation = this.activeInvalidations.get(sessionId);
+    let task!: Promise<void>;
+    task = (async () => {
+      await invalidation;
+      if (!this.isCurrentGeneration(sessionId, generation)) {
+        return;
+      }
+      await this.runMaintenance(sessionId, allEntries, sourceRevision, generation);
+    })()
+      .catch(err => {
+        console.error(`[AtlasMind] SessionContextManager maintenance failed for session ${sessionId}:`, err);
+      })
+      .finally(() => {
+        if (this.activeMaintenance.get(sessionId) === task) {
+          this.activeMaintenance.delete(sessionId);
+        }
+      });
+    this.activeMaintenance.set(sessionId, task);
+    return task;
+  }
+
   private async runMaintenance(
     sessionId: string,
     allEntries: SessionTranscriptEntry[],
+    sourceRevision: number,
+    generation: number,
   ): Promise<void> {
+    if (!this.isCurrentGeneration(sessionId, generation)) {
+      return;
+    }
     const dir = this.sessionDir(sessionId);
     await this.ensureDir(dir);
 
@@ -231,6 +307,10 @@ export class SessionContextManager {
       console.error('[AtlasMind] SessionContextManager maintenance completion failed:', err);
     }
 
+    if (!this.isCurrentGeneration(sessionId, generation)) {
+      return;
+    }
+
     // Extract SSOT links from the new context for cross-referencing
     const ssotLinks = await this.findSsotLinks(newContext || currentContext);
 
@@ -247,6 +327,16 @@ export class SessionContextManager {
       this.writeFile(dir, 'ssot_links.md', ssotLinks),
       this.appendFile(dir, 'transcript.jsonl', transcriptLine),
     ]);
+
+    // The revision file is the commit marker and is intentionally last. A load
+    // during earlier writes sees the prior revision and refuses the bundle.
+    if (newContext && this.isCurrentGeneration(sessionId, generation)) {
+      await this.writeFile(
+        dir,
+        SESSION_CONTEXT_REVISION_FILE,
+        `${JSON.stringify({ sourceRevision })}\n`,
+      );
+    }
   }
 
   // ── Context parsing ─────────────────────────────────────────────
@@ -259,6 +349,8 @@ export class SessionContextManager {
   private async parseContextBundle(
     contextMd: string,
     dir: vscode.Uri,
+    sourceRevision: number | undefined,
+    freshness: NonNullable<SessionContextBundle['freshness']>,
   ): Promise<SessionContextBundle> {
     const concluded = this.extractSection(contextMd, 'Concluded');
     const openThreads = this.extractSection(contextMd, 'Open Threads');
@@ -288,6 +380,8 @@ export class SessionContextManager {
     const ssotExcerpts = await this.loadSsotExcerpts(combinedLinks || null);
 
     return {
+      ...(sourceRevision !== undefined ? { sourceRevision } : {}),
+      freshness,
       summary,
       decisions: concluded,
       openThreads,
@@ -410,6 +504,29 @@ export class SessionContextManager {
       // New file — start empty.
     }
     await vscode.workspace.fs.writeFile(uri, Buffer.from(existing + content, 'utf8'));
+  }
+
+  private async readSourceRevision(dir: vscode.Uri): Promise<number | undefined> {
+    const raw = await this.readFile(dir, SESSION_CONTEXT_REVISION_FILE);
+    if (!raw) {
+      return undefined;
+    }
+    try {
+      const candidate = JSON.parse(raw) as { sourceRevision?: unknown };
+      return Number.isSafeInteger(candidate.sourceRevision) && (candidate.sourceRevision as number) >= 0
+        ? candidate.sourceRevision as number
+        : undefined;
+    } catch {
+      return undefined;
+    }
+  }
+
+  private currentGeneration(sessionId: string): number {
+    return this.sessionGenerations.get(sessionId) ?? 0;
+  }
+
+  private isCurrentGeneration(sessionId: string, generation: number): boolean {
+    return this.currentGeneration(sessionId) === generation;
   }
 
   private extractTurns(entries: SessionTranscriptEntry[]): Array<{ user: string; assistant: string }> {

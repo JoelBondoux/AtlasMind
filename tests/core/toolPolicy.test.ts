@@ -57,6 +57,69 @@ describe('classifyToolInvocation terminal safety', () => {
   });
 });
 
+describe('git skills are graded by what they do, not by the unknown-tool fallback', () => {
+  it('grades git-log, git-blame, and diff-preview as reads', () => {
+    // Before being named here they fell through to the unknown-tool rule and
+    // graded `network`/high — which denied git-log in a read-only turn and put
+    // "invoke external tool" in the approval dialog for a local history read.
+    expect(classifyToolInvocation('git-log', {}).category).toBe('git-read');
+    expect(classifyToolInvocation('git-blame', {}).category).toBe('git-read');
+    expect(classifyToolInvocation('diff-preview', {}).category).toBe('read');
+  });
+
+  it('grades git-branch by action', () => {
+    expect(classifyToolInvocation('git-branch', { action: 'list' }).category).toBe('git-read');
+    expect(classifyToolInvocation('git-branch', { action: 'create' })).toMatchObject({ category: 'git-write', risk: 'medium' });
+    expect(classifyToolInvocation('git-branch', { action: 'delete' })).toMatchObject({ category: 'git-write', risk: 'high' });
+    expect(classifyToolInvocation('git-branch', { action: 'delete', remote: true })).toMatchObject({ category: 'network', risk: 'high' });
+    // Unreadable args grade as the write, never the read.
+    expect(classifyToolInvocation('git-branch', {}).category).toBe('git-write');
+  });
+
+  it('grades git-worktree removal as a workspace write', () => {
+    expect(classifyToolInvocation('git-worktree', { action: 'list' }).category).toBe('git-read');
+    expect(classifyToolInvocation('git-worktree', { action: 'prune' })).toMatchObject({ category: 'git-write', risk: 'medium' });
+    expect(classifyToolInvocation('git-worktree', { action: 'remove' })).toMatchObject({ category: 'workspace-write', risk: 'high' });
+    expect(classifyToolInvocation('git-worktree', {}).category).toBe('workspace-write');
+  });
+
+  it('grades git-stash by whether the entry survives', () => {
+    expect(classifyToolInvocation('git-stash', { action: 'list' }).category).toBe('git-read');
+    expect(classifyToolInvocation('git-stash', { action: 'show' }).category).toBe('git-read');
+    expect(classifyToolInvocation('git-stash', { action: 'push' })).toMatchObject({ category: 'git-write', risk: 'medium' });
+    expect(classifyToolInvocation('git-stash', { action: 'apply' })).toMatchObject({ category: 'git-write', risk: 'medium' });
+    expect(classifyToolInvocation('git-stash', { action: 'pop' })).toMatchObject({ category: 'git-write', risk: 'high' });
+    expect(classifyToolInvocation('git-stash', { action: 'drop' })).toMatchObject({ category: 'git-write', risk: 'high' });
+  });
+
+  it('grades fetch as a network read and pull, merge, and push as writes', () => {
+    expect(classifyToolInvocation('git-fetch', {})).toMatchObject({ category: 'network-read', risk: 'medium' });
+    expect(classifyToolInvocation('git-pull', {})).toMatchObject({ category: 'git-write', risk: 'high' });
+    expect(classifyToolInvocation('git-merge', {})).toMatchObject({ category: 'git-write', risk: 'high' });
+    expect(classifyToolInvocation('git-push', {})).toMatchObject({ category: 'network', risk: 'high' });
+    expect(classifyToolInvocation('git-push', {}).summary).not.toContain('external tool');
+  });
+
+  it('names exact-path staging in the commit approval summary', () => {
+    const policy = classifyToolInvocation('git-commit', {
+      message: 'fix: keep the tree scoped',
+      paths: ['src/a.ts', 'tests/a.test.ts'],
+    });
+
+    expect(policy).toMatchObject({ category: 'git-write', risk: 'high' });
+    expect(policy.summary).toContain('2 exact paths');
+    expect(policy.summary).toContain('create a git commit containing only those paths');
+  });
+
+  it('keeps read grades prompt-free under ask-on-write and gates the writes', () => {
+    expect(requiresToolApproval('ask-on-write', classifyToolInvocation('git-log', {}))).toBe(false);
+    expect(requiresToolApproval('ask-on-write', classifyToolInvocation('git-fetch', {}))).toBe(false);
+    expect(requiresToolApproval('ask-on-write', classifyToolInvocation('git-worktree', { action: 'remove' }))).toBe(true);
+    expect(requiresToolApproval('ask-on-write', classifyToolInvocation('git-branch', { action: 'delete' }))).toBe(true);
+    expect(requiresToolApproval('ask-on-external', classifyToolInvocation('git-fetch', {}))).toBe(true);
+  });
+});
+
 describe('gh is graded by verb, as git is', () => {
   const gh = (...args: string[]) => classifyToolInvocation('terminal-run', { command: 'gh', args });
 

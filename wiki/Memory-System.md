@@ -133,6 +133,15 @@ happened.
 It's capped at 4,000 characters and designed so that picking a conversation up cold actually works —
 loading it orients the model without rebuilding everything from scratch.
 
+The transcript remains the authority. Every session has a revision, and the working document records the
+revision it summarizes only after all of its files have finished writing. If those revisions differ — or
+an older session has no marker — Chat ignores the working document and carries the current transcript.
+
+Clearing, deleting, editing, regenerating, deleting a session, or starting a New Chat waits for the old
+working document to be invalidated. Even if background summarization was already in flight, AtlasMind
+waits for its last possible write and removes it before the next prompt can continue. Deleted turns cannot
+come back through a late summary.
+
 The **Memory Agent** does this maintenance in the background. Point it at a local Ollama model with
 `allowedModels` and all of this background work costs you nothing.
 

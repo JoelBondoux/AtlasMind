@@ -1,4 +1,5 @@
 import { describe, expect, it } from 'vitest';
+import fc from 'fast-check';
 import { mkdtemp, mkdir, readFile, rm, writeFile } from 'node:fs/promises';
 import { tmpdir } from 'node:os';
 import * as path from 'node:path';
@@ -7,6 +8,7 @@ import {
   evaluatePromotionGateExceptFixable,
   classifyBumpLevel,
   bumpVersion,
+  compareSemver,
   setPackageJsonVersion,
   insertChangelogEntry,
   buildInitialChangelog,
@@ -67,6 +69,100 @@ describe('bumpVersion', () => {
   });
   it('tolerates a v-prefix and pre-release suffix', () => {
     expect(bumpVersion('v1.2.3-beta.1', 'patch')).toBe('1.2.4');
+  });
+});
+
+/**
+ * `compareSemver` used to ignore the pre-release suffix, so `1.5.0-rc.1` and
+ * `1.5.0` compared equal and the release gate that asks this question refused
+ * the one release that had never been published. These assertions are the spec,
+ * not a preference — SemVer §11 defines the ordering exactly.
+ */
+describe('compareSemver', () => {
+  const sign = (n: number): number => (n > 0 ? 1 : n < 0 ? -1 : 0);
+
+  it('compares major, minor and patch numerically', () => {
+    expect(sign(compareSemver('1.0.0', '0.9.9'))).toBe(1);
+    expect(sign(compareSemver('1.2.0', '1.10.0'))).toBe(-1);
+    expect(sign(compareSemver('1.2.3', '1.2.3'))).toBe(0);
+  });
+
+  it('ranks a pre-release below the release it leads to', () => {
+    // The assertion the old implementation got wrong, and the reason the
+    // release gate could refuse a version nobody had published.
+    expect(sign(compareSemver('1.5.0-rc.1', '1.5.0'))).toBe(-1);
+    expect(sign(compareSemver('1.5.0', '1.5.0-rc.1'))).toBe(1);
+    expect(sign(compareSemver('1.0.0-alpha', '1.0.0'))).toBe(-1);
+  });
+
+  it('orders the spec’s own example, in order', () => {
+    const ascending = [
+      '1.0.0-alpha',
+      '1.0.0-alpha.1',
+      '1.0.0-alpha.beta',
+      '1.0.0-beta',
+      '1.0.0-beta.2',
+      '1.0.0-beta.11',
+      '1.0.0-rc.1',
+      '1.0.0',
+    ];
+    for (let i = 0; i < ascending.length - 1; i++) {
+      expect(sign(compareSemver(ascending[i], ascending[i + 1]))).toBe(-1);
+      expect(sign(compareSemver(ascending[i + 1], ascending[i]))).toBe(1);
+    }
+  });
+
+  it('compares numeric pre-release fields numerically, not as text', () => {
+    // `beta.11` sorting below `beta.2` is the classic string-comparison bug.
+    expect(sign(compareSemver('1.0.0-beta.11', '1.0.0-beta.2'))).toBe(1);
+  });
+
+  it('ranks a numeric pre-release field below an alphanumeric one', () => {
+    expect(sign(compareSemver('1.0.0-1', '1.0.0-alpha'))).toBe(-1);
+  });
+
+  it('ranks a longer pre-release above its own prefix', () => {
+    expect(sign(compareSemver('1.0.0-alpha.1', '1.0.0-alpha'))).toBe(1);
+  });
+
+  it('ignores build metadata, which the spec gives no precedence', () => {
+    expect(sign(compareSemver('1.0.0+build.9', '1.0.0'))).toBe(0);
+    expect(sign(compareSemver('1.0.0-rc.1+a', '1.0.0-rc.1+b'))).toBe(0);
+  });
+
+  it('tolerates a v-prefix on either side', () => {
+    expect(sign(compareSemver('v1.2.3', '1.2.3'))).toBe(0);
+    expect(sign(compareSemver('v2.0.0', 'v1.9.9'))).toBe(1);
+  });
+
+  it('treats the first dash as the only one that opens a pre-release', () => {
+    // `rc-2` is one identifier. Splitting on every dash would make this two,
+    // and `1.0.0-rc-2` would then sort against `1.0.0-rc.2`.
+    expect(sign(compareSemver('1.0.0-rc-2', '1.0.0-rc-10'))).toBe(1);
+  });
+
+  it('is a total order over arbitrary versions', () => {
+    // Antisymmetry and transitivity, because every caller sorts or thresholds
+    // on this and an ordering that is merely mostly consistent sorts stably
+    // right up until the release it does not.
+    const version = fc.tuple(
+      fc.nat({ max: 9 }),
+      fc.nat({ max: 9 }),
+      fc.nat({ max: 9 }),
+      fc.option(fc.constantFrom('alpha', 'beta', 'rc', 'alpha.1', 'beta.2', 'beta.11', '1', '2'), { nil: undefined }),
+    ).map(([major, minor, patch, pre]) => `${major}.${minor}.${patch}${pre ? `-${pre}` : ''}`);
+
+    fc.assert(fc.property(version, version, (a, b) => {
+      expect(sign(compareSemver(a, b))).toBe(-sign(compareSemver(b, a)));
+    }));
+
+    fc.assert(fc.property(version, version, version, (a, b, c) => {
+      const ab = sign(compareSemver(a, b));
+      const bc = sign(compareSemver(b, c));
+      if (ab === bc && ab !== 0) {
+        expect(sign(compareSemver(a, c))).toBe(ab);
+      }
+    }));
   });
 });
 

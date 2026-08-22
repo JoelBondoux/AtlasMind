@@ -1,0 +1,840 @@
+{
+  "version": 1,
+  "nodes": [
+    {
+      "id": "document-all-gdpr-related-co",
+      "normalizedText": "document all gdpr-related controls and override policies in user-facing and developer documentation.",
+      "imported": {
+        "kind": "markdown",
+        "sourceId": "docs/roadmap.md::document all gdpr related controls and override policies in user facing and developer documentation",
+        "sourceLabel": "docs/**/*roadmap*.md",
+        "importedTitleNormalized": "document all gdpr related controls and override policies in user facing and developer documentation",
+        "importedAt": "2026-08-21T06:17:07.883Z"
+      }
+    },
+    {
+      "id": "e-commerce-shopify-woocommer",
+      "normalizedText": "**e‑commerce:** shopify, woocommerce, bigcommerce, magento 2, wix",
+      "imported": {
+        "kind": "markdown",
+        "sourceId": "docs/roadmap.md::e commerce shopify woocommerce bigcommerce magento 2 wix",
+        "sourceLabel": "docs/**/*roadmap*.md",
+        "importedTitleNormalized": "e commerce shopify woocommerce bigcommerce magento 2 wix",
+        "importedAt": "2026-08-21T06:17:07.883Z"
+      }
+    },
+    {
+      "id": "saas-web-apps-next-js-remix",
+      "normalizedText": "**saas/web apps:** next.js, remix, laravel, django, static, blog/cms",
+      "imported": {
+        "kind": "markdown",
+        "sourceId": "docs/roadmap.md::saas web apps next js remix laravel django static blog cms",
+        "sourceLabel": "docs/**/*roadmap*.md",
+        "importedTitleNormalized": "saas web apps next js remix laravel django static blog cms",
+        "importedAt": "2026-08-21T06:17:07.883Z"
+      }
+    },
+    {
+      "id": "frontend-next-js-sveltekit-n",
+      "normalizedText": "**frontend:** next.js, sveltekit, nuxt, react, vue",
+      "imported": {
+        "kind": "markdown",
+        "sourceId": "docs/roadmap.md::frontend next js sveltekit nuxt react vue",
+        "sourceLabel": "docs/**/*roadmap*.md",
+        "importedTitleNormalized": "frontend next js sveltekit nuxt react vue",
+        "importedAt": "2026-08-21T06:17:07.883Z"
+      }
+    },
+    {
+      "id": "mobile-react-native-expo-flu",
+      "normalizedText": "**mobile:** react native, expo, flutter",
+      "imported": {
+        "kind": "markdown",
+        "sourceId": "docs/roadmap.md::mobile react native expo flutter",
+        "sourceLabel": "docs/**/*roadmap*.md",
+        "importedTitleNormalized": "mobile react native expo flutter",
+        "importedAt": "2026-08-21T06:17:07.883Z"
+      }
+    },
+    {
+      "id": "game-dev-unity-unreal-godot",
+      "normalizedText": "**game dev:** unity, unreal, godot, web-based — specified in [project-composition.md](project-composition.md); phased plan in [`project_memory/roadmap/game-engine-integration.md`](../project_memory/roadmap/game-engine-integration.md).",
+      "imported": {
+        "kind": "markdown",
+        "sourceId": "docs/roadmap.md::game dev unity unreal godot web based specified in project composition md project composition md phased plan in project memory roadmap game engine integration md project memory roadmap game engine integration md",
+        "sourceLabel": "docs/**/*roadmap*.md",
+        "importedTitleNormalized": "game dev unity unreal godot web based specified in project composition md project composition md phased plan in project memory roadmap game engine integration md project memory roadmap game engine integration md",
+        "importedAt": "2026-08-21T06:17:07.883Z"
+      }
+    },
+    {
+      "id": "ai-automation-ai-saas-rag-ag",
+      "normalizedText": "**ai/automation:** ai saas, rag, agentic, local model, orchestrator",
+      "imported": {
+        "kind": "markdown",
+        "sourceId": "docs/roadmap.md::ai automation ai saas rag agentic local model orchestrator",
+        "sourceLabel": "docs/**/*roadmap*.md",
+        "importedTitleNormalized": "ai automation ai saas rag agentic local model orchestrator",
+        "importedAt": "2026-08-21T06:17:07.883Z"
+      }
+    },
+    {
+      "id": "devops-docker-kubernetes-ser",
+      "normalizedText": "**devops:** docker, kubernetes, serverless, terraform",
+      "imported": {
+        "kind": "markdown",
+        "sourceId": "docs/roadmap.md::devops docker kubernetes serverless terraform",
+        "sourceLabel": "docs/**/*roadmap*.md",
+        "importedTitleNormalized": "devops docker kubernetes serverless terraform",
+        "importedAt": "2026-08-21T06:17:07.883Z"
+      }
+    },
+    {
+      "id": "testing-full-playwright-api",
+      "normalizedText": "**testing:** full, playwright, api",
+      "imported": {
+        "kind": "markdown",
+        "sourceId": "docs/roadmap.md::testing full playwright api",
+        "sourceLabel": "docs/**/*roadmap*.md",
+        "importedTitleNormalized": "testing full playwright api",
+        "importedAt": "2026-08-21T06:17:07.883Z"
+      }
+    },
+    {
+      "id": "business-models-marketplace",
+      "normalizedText": "**business models:** marketplace, subscription, booking, crm",
+      "imported": {
+        "kind": "markdown",
+        "sourceId": "docs/roadmap.md::business models marketplace subscription booking crm",
+        "sourceLabel": "docs/**/*roadmap*.md",
+        "importedTitleNormalized": "business models marketplace subscription booking crm",
+        "importedAt": "2026-08-21T06:17:07.883Z"
+      }
+    },
+    {
+      "id": "utilities-auth-payments-emai",
+      "normalizedText": "**utilities:** auth, payments, email, analytics, i18n, accessibility",
+      "imported": {
+        "kind": "markdown",
+        "sourceId": "docs/roadmap.md::utilities auth payments email analytics i18n accessibility",
+        "sourceLabel": "docs/**/*roadmap*.md",
+        "importedTitleNormalized": "utilities auth payments email analytics i18n accessibility",
+        "importedAt": "2026-08-21T06:17:07.883Z"
+      }
+    },
+    {
+      "id": "semantic-codebase-index-code",
+      "normalizedText": "**semantic codebase index (`@codebase` / embeddings rag):** vector index over actual source so agents retrieve relevant code, not just remembered ssot decisions. local embedding option (ollama) keeps it bring-your-own-model and privacy-friendly. biggest single capability gap; benefits all personas.",
+      "imported": {
+        "kind": "markdown",
+        "sourceId": "docs/roadmap.md::semantic codebase index codebase embeddings rag vector index over actual source so agents retrieve relevant code not just remembered ssot decisions local embedding option ollama keeps it bring your own model and privacy friendly biggest single capability gap benefits all personas",
+        "sourceLabel": "docs/**/*roadmap*.md",
+        "importedTitleNormalized": "semantic codebase index codebase embeddings rag vector index over actual source so agents retrieve relevant code not just remembered ssot decisions local embedding option ollama keeps it bring your own model and privacy friendly biggest single capability gap benefits all personas",
+        "importedAt": "2026-08-21T06:17:07.883Z"
+      }
+    },
+    {
+      "id": "multi-file-diff-review-gate",
+      "normalizedText": "**multi-file diff review gate + inline edit:** a review surface showing all proposed edits with per-hunk accept/reject *before* anything touches disk, plus an \"ai edit at cursor\" / inline-diff command. complements the existing checkpoint/rollback safety net (the after-the-fact gate).",
+      "imported": {
+        "kind": "markdown",
+        "sourceId": "docs/roadmap.md::multi file diff review gate inline edit a review surface showing all proposed edits with per hunk accept reject before anything touches disk plus an ai edit at cursor inline diff command complements the existing checkpoint rollback safety net the after the fact gate",
+        "sourceLabel": "docs/**/*roadmap*.md",
+        "importedTitleNormalized": "multi file diff review gate inline edit a review surface showing all proposed edits with per hunk accept reject before anything touches disk plus an ai edit at cursor inline diff command complements the existing checkpoint rollback safety net the after the fact gate",
+        "importedAt": "2026-08-21T06:17:07.883Z"
+      }
+    },
+    {
+      "id": "team-layer-shared-config-per",
+      "normalizedText": "**team layer — shared config + per-developer cost attribution:** team-level (vs personal) settings, shared agents/skills/routines, \"who spent what\" attribution, and a pooled team budget cap. strengthens the currently thinner small-teams story.",
+      "imported": {
+        "kind": "markdown",
+        "sourceId": "docs/roadmap.md::team layer shared config per developer cost attribution team level vs personal settings shared agents skills routines who spent what attribution and a pooled team budget cap strengthens the currently thinner small teams story",
+        "sourceLabel": "docs/**/*roadmap*.md",
+        "importedTitleNormalized": "team layer shared config per developer cost attribution team level vs personal settings shared agents skills routines who spent what attribution and a pooled team budget cap strengthens the currently thinner small teams story",
+        "importedAt": "2026-08-21T06:17:07.883Z"
+      }
+    },
+    {
+      "id": "inline-ghost-text-completion",
+      "normalizedText": "inline / ghost-text completion in the editor (or at minimum an \"ai edit at cursor\" inline-diff command) — the most obvious gap vs copilot/cursor.",
+      "imported": {
+        "kind": "markdown",
+        "sourceId": "docs/roadmap.md::inline ghost text completion in the editor or at minimum an ai edit at cursor inline diff command the most obvious gap vs copilot cursor",
+        "sourceLabel": "docs/**/*roadmap*.md",
+        "importedTitleNormalized": "inline ghost text completion in the editor or at minimum an ai edit at cursor inline diff command the most obvious gap vs copilot cursor",
+        "importedAt": "2026-08-21T06:17:07.883Z"
+      }
+    },
+    {
+      "id": "scheduled-background-autonom",
+      "normalizedText": "scheduled / background autonomous agents — cron-style and background runs that report back (e.g. nightly dependency-update + test routine), building on existing `/ship` routines.",
+      "imported": {
+        "kind": "markdown",
+        "sourceId": "docs/roadmap.md::scheduled background autonomous agents cron style and background runs that report back e g nightly dependency update test routine building on existing ship routines",
+        "sourceLabel": "docs/**/*roadmap*.md",
+        "importedTitleNormalized": "scheduled background autonomous agents cron style and background runs that report back e g nightly dependency update test routine building on existing ship routines",
+        "importedAt": "2026-08-21T06:17:07.883Z"
+      }
+    },
+    {
+      "id": "the-guided-github-workflow-o",
+      "normalizedText": "**the guided github workflow** — one canonical, deterministic, eight-stage workflow (issue intake → branch → develop → pr → ci → release → maintenance → automation), surfaced as a teaching-and-instrumentation page on the project dashboard and adapting to the project's enabled testing protocols.…",
+      "imported": {
+        "kind": "markdown",
+        "sourceId": "docs/roadmap.md::the guided github workflow one canonical deterministic eight stage workflow issue intake branch develop pr ci release maintenance automation surfaced as a teaching and instrumentation page on the project dashboard and adapting to the project s enabled testing protocols",
+        "sourceLabel": "docs/**/*roadmap*.md",
+        "importedTitleNormalized": "the guided github workflow one canonical deterministic eight stage workflow issue intake branch develop pr ci release maintenance automation surfaced as a teaching and instrumentation page on the project dashboard and adapting to the project s enabled testing protocols",
+        "importedAt": "2026-08-21T06:17:07.883Z"
+      }
+    },
+    {
+      "id": "eval-regression-harness-for",
+      "normalizedText": "eval / regression harness for agents: pin \"golden\" tasks and detect when an agent definition or model swap regresses quality (mitigates the risk of the auto-update cadence).",
+      "imported": {
+        "kind": "markdown",
+        "sourceId": "docs/roadmap.md::eval regression harness for agents pin golden tasks and detect when an agent definition or model swap regresses quality mitigates the risk of the auto update cadence",
+        "sourceLabel": "docs/**/*roadmap*.md",
+        "importedTitleNormalized": "eval regression harness for agents pin golden tasks and detect when an agent definition or model swap regresses quality mitigates the risk of the auto update cadence",
+        "importedAt": "2026-08-21T06:17:07.883Z"
+      }
+    },
+    {
+      "id": "monorepo-multi-root-workspac",
+      "normalizedText": "monorepo / multi-root workspace awareness: per-package ssot scoping and routing. specified in [project-composition.md](project-composition.md) — atlasmind is single-root by construction today (123 of 130 `workspacefolders` reads take `[0]`), and phase 1 of the [game engine…",
+      "imported": {
+        "kind": "markdown",
+        "sourceId": "docs/roadmap.md::monorepo multi root workspace awareness per package ssot scoping and routing specified in project composition md project composition md atlasmind is single root by construction today 123 of 130 workspacefolders reads take 0 and phase 1 of the game engine",
+        "sourceLabel": "docs/**/*roadmap*.md",
+        "importedTitleNormalized": "monorepo multi root workspace awareness per package ssot scoping and routing specified in project composition md project composition md atlasmind is single root by construction today 123 of 130 workspacefolders reads take 0 and phase 1 of the game engine",
+        "importedAt": "2026-08-21T06:17:07.883Z"
+      }
+    },
+    {
+      "id": "context-window-token-budget",
+      "normalizedText": "context window / token budget visualizer: show what's in context and let users prune it.",
+      "imported": {
+        "kind": "markdown",
+        "sourceId": "docs/roadmap.md::context window token budget visualizer show what s in context and let users prune it",
+        "sourceLabel": "docs/**/*roadmap*.md",
+        "importedTitleNormalized": "context window token budget visualizer show what s in context and let users prune it",
+        "importedAt": "2026-08-21T06:17:07.883Z"
+      }
+    },
+    {
+      "id": "sast-dependency-cve-integrat",
+      "normalizedText": "sast / dependency-cve integration wired into the security and dependency manager agents via an advisory feed.",
+      "imported": {
+        "kind": "markdown",
+        "sourceId": "docs/roadmap.md::sast dependency cve integration wired into the security and dependency manager agents via an advisory feed",
+        "sourceLabel": "docs/**/*roadmap*.md",
+        "importedTitleNormalized": "sast dependency cve integration wired into the security and dependency manager agents via an advisory feed",
+        "importedAt": "2026-08-21T06:17:07.883Z"
+      }
+    },
+    {
+      "id": "shared-syncable-team-config",
+      "normalizedText": "shared, syncable team config: agents, skills, routines, and personality shared via the repo, plus a team settings layer separate from personal settings.",
+      "imported": {
+        "kind": "markdown",
+        "sourceId": "docs/roadmap.md::shared syncable team config agents skills routines and personality shared via the repo plus a team settings layer separate from personal settings",
+        "sourceLabel": "docs/**/*roadmap*.md",
+        "importedTitleNormalized": "shared syncable team config agents skills routines and personality shared via the repo plus a team settings layer separate from personal settings",
+        "importedAt": "2026-08-21T06:17:07.883Z"
+      }
+    },
+    {
+      "id": "per-developer-cost-attributi",
+      "normalizedText": "per-developer cost attribution and pooled team budget (see top 3).",
+      "imported": {
+        "kind": "markdown",
+        "sourceId": "docs/roadmap.md::per developer cost attribution and pooled team budget see top 3",
+        "sourceLabel": "docs/**/*roadmap*.md",
+        "importedTitleNormalized": "per developer cost attribution and pooled team budget see top 3",
+        "importedAt": "2026-08-21T06:17:07.883Z"
+      }
+    },
+    {
+      "id": "community-team-marketplace-f",
+      "normalizedText": "community/team marketplace for agents & skills: import/export and sharing; drives adoption network effects.",
+      "imported": {
+        "kind": "markdown",
+        "sourceId": "docs/roadmap.md::community team marketplace for agents skills import export and sharing drives adoption network effects",
+        "sourceLabel": "docs/**/*roadmap*.md",
+        "importedTitleNormalized": "community team marketplace for agents skills import export and sharing drives adoption network effects",
+        "importedAt": "2026-08-21T06:17:07.883Z"
+      }
+    },
+    {
+      "id": "decision-changelog-provenanc",
+      "normalizedText": "decision/changelog provenance: link ssot decisions to commits/prs so the project brain is auditable across teammates.",
+      "imported": {
+        "kind": "markdown",
+        "sourceId": "docs/roadmap.md::decision changelog provenance link ssot decisions to commits prs so the project brain is auditable across teammates",
+        "sourceLabel": "docs/**/*roadmap*.md",
+        "importedTitleNormalized": "decision changelog provenance link ssot decisions to commits prs so the project brain is auditable across teammates",
+        "importedAt": "2026-08-21T06:17:07.883Z"
+      }
+    },
+    {
+      "id": "explain-this-codebase-this-f",
+      "normalizedText": "\"explain this codebase / this file\" onboarding mode: guided tours generated from ssot for unfamiliar code.",
+      "imported": {
+        "kind": "markdown",
+        "sourceId": "docs/roadmap.md::explain this codebase this file onboarding mode guided tours generated from ssot for unfamiliar code",
+        "sourceLabel": "docs/**/*roadmap*.md",
+        "importedTitleNormalized": "explain this codebase this file onboarding mode guided tours generated from ssot for unfamiliar code",
+        "importedAt": "2026-08-21T06:17:07.883Z"
+      }
+    },
+    {
+      "id": "safe-by-default-sandbox-dry",
+      "normalizedText": "safe-by-default sandbox / dry-run mode: one-toggle \"show me what would happen, nothing executes.\"",
+      "imported": {
+        "kind": "markdown",
+        "sourceId": "docs/roadmap.md::safe by default sandbox dry run mode one toggle show me what would happen nothing executes",
+        "sourceLabel": "docs/**/*roadmap*.md",
+        "importedTitleNormalized": "safe by default sandbox dry run mode one toggle show me what would happen nothing executes",
+        "importedAt": "2026-08-21T06:17:07.883Z"
+      }
+    },
+    {
+      "id": "guardrail-nudges-learning-ca",
+      "normalizedText": "guardrail nudges & learning callouts: plain-language \"here's why\" so novices learn rather than just accept.",
+      "imported": {
+        "kind": "markdown",
+        "sourceId": "docs/roadmap.md::guardrail nudges learning callouts plain language here s why so novices learn rather than just accept",
+        "sourceLabel": "docs/**/*roadmap*.md",
+        "importedTitleNormalized": "guardrail nudges learning callouts plain language here s why so novices learn rather than just accept",
+        "importedAt": "2026-08-21T06:17:07.883Z"
+      }
+    },
+    {
+      "id": "project-templates-scaffolds",
+      "normalizedText": "project templates / scaffolds beyond `/bootstrap`: pick a stack, get a working starter with tests and ci wired in (complements the prefab architecture packs above).",
+      "imported": {
+        "kind": "markdown",
+        "sourceId": "docs/roadmap.md::project templates scaffolds beyond bootstrap pick a stack get a working starter with tests and ci wired in complements the prefab architecture packs above",
+        "sourceLabel": "docs/**/*roadmap*.md",
+        "importedTitleNormalized": "project templates scaffolds beyond bootstrap pick a stack get a working starter with tests and ci wired in complements the prefab architecture packs above",
+        "importedAt": "2026-08-21T06:17:07.883Z"
+      }
+    },
+    {
+      "id": "reasoning-budget-as-a-first",
+      "normalizedText": "**reasoning-budget as a first-class routing axis** — extend budget + speed routing with a third \"how hard to think\" axis for extended-thinking / test-time-compute models. natural home: taskprofiler. builds on the existing cache-aware, capability-sourced routing work.",
+      "imported": {
+        "kind": "markdown",
+        "sourceId": "docs/roadmap.md::reasoning budget as a first class routing axis extend budget speed routing with a third how hard to think axis for extended thinking test time compute models natural home taskprofiler builds on the existing cache aware capability sourced routing work",
+        "sourceLabel": "docs/**/*roadmap*.md",
+        "importedTitleNormalized": "reasoning budget as a first class routing axis extend budget speed routing with a third how hard to think axis for extended thinking test time compute models natural home taskprofiler builds on the existing cache aware capability sourced routing work",
+        "importedAt": "2026-08-21T06:17:07.883Z"
+      }
+    },
+    {
+      "id": "prompt-injection-tool-poison",
+      "normalizedText": "**prompt-injection & tool-poisoning defense** — highest-priority frontier item given atlasmind combines untrusted inputs (web-fetch, mcp servers, file content, model output) with autonomous tool use. patterns: dual-llm/quarantine so untrusted content never reaches the privileged planner directly,…",
+      "imported": {
+        "kind": "markdown",
+        "sourceId": "docs/roadmap.md::prompt injection tool poisoning defense highest priority frontier item given atlasmind combines untrusted inputs web fetch mcp servers file content model output with autonomous tool use patterns dual llm quarantine so untrusted content never reaches the privileged planner directly",
+        "sourceLabel": "docs/**/*roadmap*.md",
+        "importedTitleNormalized": "prompt injection tool poisoning defense highest priority frontier item given atlasmind combines untrusted inputs web fetch mcp servers file content model output with autonomous tool use patterns dual llm quarantine so untrusted content never reaches the privileged planner directly",
+        "importedAt": "2026-08-21T06:17:07.883Z"
+      }
+    },
+    {
+      "id": "llm-observability-openteleme",
+      "normalizedText": "**llm observability (opentelemetry genai semantic conventions)** — emit standardized traces/spans for agent runs, token usage, and tool calls so dashboards plug into the ecosystem instead of a bespoke format.",
+      "imported": {
+        "kind": "markdown",
+        "sourceId": "docs/roadmap.md::llm observability opentelemetry genai semantic conventions emit standardized traces spans for agent runs token usage and tool calls so dashboards plug into the ecosystem instead of a bespoke format",
+        "sourceLabel": "docs/**/*roadmap*.md",
+        "importedTitleNormalized": "llm observability opentelemetry genai semantic conventions emit standardized traces spans for agent runs token usage and tool calls so dashboards plug into the ecosystem instead of a bespoke format",
+        "importedAt": "2026-08-21T06:17:07.883Z"
+      }
+    },
+    {
+      "id": "sandboxed-execution-for-auto",
+      "normalizedText": "**sandboxed execution for autonomous runs** — microvm/container/wasm isolation for terminal-write and code-run so approvals can safely loosen as autonomy grows. pairs with git-worktree-per-agent isolation for parallel fan-out.",
+      "imported": {
+        "kind": "markdown",
+        "sourceId": "docs/roadmap.md::sandboxed execution for autonomous runs microvm container wasm isolation for terminal write and code run so approvals can safely loosen as autonomy grows pairs with git worktree per agent isolation for parallel fan out",
+        "sourceLabel": "docs/**/*roadmap*.md",
+        "importedTitleNormalized": "sandboxed execution for autonomous runs microvm container wasm isolation for terminal write and code run so approvals can safely loosen as autonomy grows pairs with git worktree per agent isolation for parallel fan out",
+        "importedAt": "2026-08-21T06:17:07.883Z"
+      }
+    },
+    {
+      "id": "open-knowledge-format-okf-in",
+      "normalizedText": "**open knowledge format (okf) interoperability** — google cloud's vendor-neutral markdown standard for curated agent knowledge (v0.1, 2026-06-16) is structurally what atlasmind's ssot already is. rather than reformatting our own files to a two-day-old spec, add okf **import/export** — including a…",
+      "imported": {
+        "kind": "markdown",
+        "sourceId": "docs/roadmap.md::open knowledge format okf interoperability google cloud s vendor neutral markdown standard for curated agent knowledge v0 1 2026 06 16 is structurally what atlasmind s ssot already is rather than reformatting our own files to a two day old spec add okf import export including a",
+        "sourceLabel": "docs/**/*roadmap*.md",
+        "importedTitleNormalized": "open knowledge format okf interoperability google cloud s vendor neutral markdown standard for curated agent knowledge v0 1 2026 06 16 is structurally what atlasmind s ssot already is rather than reformatting our own files to a two day old spec add okf import export including a",
+        "importedAt": "2026-08-21T06:17:07.883Z"
+      }
+    },
+    {
+      "id": "agent-to-agent-interoperabil",
+      "normalizedText": "**agent-to-agent interoperability (a2a and successors)** — the layer above mcp: atlasmind agents collaborating with external agents across tools/vendors. keep the agent definition + messaging boundary protocol-clean.",
+      "imported": {
+        "kind": "markdown",
+        "sourceId": "docs/roadmap.md::agent to agent interoperability a2a and successors the layer above mcp atlasmind agents collaborating with external agents across tools vendors keep the agent definition messaging boundary protocol clean",
+        "sourceLabel": "docs/**/*roadmap*.md",
+        "importedTitleNormalized": "agent to agent interoperability a2a and successors the layer above mcp atlasmind agents collaborating with external agents across tools vendors keep the agent definition messaging boundary protocol clean",
+        "importedAt": "2026-08-21T06:17:07.883Z"
+      }
+    },
+    {
+      "id": "async-ambient-background-age",
+      "normalizedText": "**async / ambient background agents** — \"works while you're away,\" triggered by repo events (new issue, failing ci, dependency cve) rather than chat. architectural ask: an event bus agents subscribe to. seeded by the remote-control server and scheduled-agents backlog item.",
+      "imported": {
+        "kind": "markdown",
+        "sourceId": "docs/roadmap.md::async ambient background agents works while you re away triggered by repo events new issue failing ci dependency cve rather than chat architectural ask an event bus agents subscribe to seeded by the remote control server and scheduled agents backlog item",
+        "sourceLabel": "docs/**/*roadmap*.md",
+        "importedTitleNormalized": "async ambient background agents works while you re away triggered by repo events new issue failing ci dependency cve rather than chat architectural ask an event bus agents subscribe to seeded by the remote control server and scheduled agents backlog item",
+        "importedAt": "2026-08-21T06:17:07.883Z"
+      }
+    },
+    {
+      "id": "graphrag-code-knowledge-grap",
+      "normalizedText": "**graphrag / code knowledge graph** — a graph over symbols, call edges, and ssot decisions alongside the planned vector index, enabling \"what breaks if i change x\" reasoning. design the index layer so a graph can sit beside embeddings later.",
+      "imported": {
+        "kind": "markdown",
+        "sourceId": "docs/roadmap.md::graphrag code knowledge graph a graph over symbols call edges and ssot decisions alongside the planned vector index enabling what breaks if i change x reasoning design the index layer so a graph can sit beside embeddings later",
+        "sourceLabel": "docs/**/*roadmap*.md",
+        "importedTitleNormalized": "graphrag code knowledge graph a graph over symbols call edges and ssot decisions alongside the planned vector index enabling what breaks if i change x reasoning design the index layer so a graph can sit beside embeddings later",
+        "importedAt": "2026-08-21T06:17:07.883Z"
+      }
+    },
+    {
+      "id": "self-improving-project-model",
+      "normalizedText": "**self-improving project model** — evolve curated-text ssot toward a learned model of project conventions updated from accepted/rejected diffs. capture the accept/reject training signal now (via checkpoint/run history) even before it is used.",
+      "imported": {
+        "kind": "markdown",
+        "sourceId": "docs/roadmap.md::self improving project model evolve curated text ssot toward a learned model of project conventions updated from accepted rejected diffs capture the accept reject training signal now via checkpoint run history even before it is used",
+        "sourceLabel": "docs/**/*roadmap*.md",
+        "importedTitleNormalized": "self improving project model evolve curated text ssot toward a learned model of project conventions updated from accepted rejected diffs capture the accept reject training signal now via checkpoint run history even before it is used",
+        "importedAt": "2026-08-21T06:17:07.883Z"
+      }
+    },
+    {
+      "id": "computer-use-browser-use-age",
+      "normalizedText": "**computer-use / browser-use agents** — for e2e testing, scraping, and ui verification; slots next to the vision panel.",
+      "imported": {
+        "kind": "markdown",
+        "sourceId": "docs/roadmap.md::computer use browser use agents for e2e testing scraping and ui verification slots next to the vision panel",
+        "sourceLabel": "docs/**/*roadmap*.md",
+        "importedTitleNormalized": "computer use browser use agents for e2e testing scraping and ui verification slots next to the vision panel",
+        "importedAt": "2026-08-21T06:17:07.883Z"
+      }
+    },
+    {
+      "id": "on-device-frontier-class-mod",
+      "normalizedText": "**on-device frontier-class models** — a fully private, zero-cloud agentic coding mode as local models climb. keep the local path first-class, not a fallback (byo + local-sync architecture already positions for this).",
+      "imported": {
+        "kind": "markdown",
+        "sourceId": "docs/roadmap.md::on device frontier class models a fully private zero cloud agentic coding mode as local models climb keep the local path first class not a fallback byo local sync architecture already positions for this",
+        "sourceLabel": "docs/**/*roadmap*.md",
+        "importedTitleNormalized": "on device frontier class models a fully private zero cloud agentic coding mode as local models climb keep the local path first class not a fallback byo local sync architecture already positions for this",
+        "importedAt": "2026-08-21T06:17:07.883Z"
+      }
+    },
+    {
+      "id": "regulatory-ai-governance-sur",
+      "normalizedText": "**regulatory & ai-governance surface** — eu ai act transparency, data residency, model provenance/cards, auditable autonomous-action logs. generalize the planned gdpr toggle into a reusable \"compliance profile\" abstraction.",
+      "imported": {
+        "kind": "markdown",
+        "sourceId": "docs/roadmap.md::regulatory ai governance surface eu ai act transparency data residency model provenance cards auditable autonomous action logs generalize the planned gdpr toggle into a reusable compliance profile abstraction",
+        "sourceLabel": "docs/**/*roadmap*.md",
+        "importedTitleNormalized": "regulatory ai governance surface eu ai act transparency data residency model provenance cards auditable autonomous action logs generalize the planned gdpr toggle into a reusable compliance profile abstraction",
+        "importedAt": "2026-08-21T06:17:07.883Z"
+      }
+    },
+    {
+      "id": "ai-supply-chain-integrity-si",
+      "normalizedText": "**ai supply-chain integrity** — signed/attested artifacts (slsa-style provenance) for the future agent/skill marketplace, which is otherwise a malware vector. ties to the marketplace backlog item.",
+      "imported": {
+        "kind": "markdown",
+        "sourceId": "docs/roadmap.md::ai supply chain integrity signed attested artifacts slsa style provenance for the future agent skill marketplace which is otherwise a malware vector ties to the marketplace backlog item",
+        "sourceLabel": "docs/**/*roadmap*.md",
+        "importedTitleNormalized": "ai supply chain integrity signed attested artifacts slsa style provenance for the future agent skill marketplace which is otherwise a malware vector ties to the marketplace backlog item",
+        "importedAt": "2026-08-21T06:17:07.883Z"
+      }
+    },
+    {
+      "id": "multimodal-native-dev-loops",
+      "normalizedText": "**multimodal-native dev loops** — video/screen-recording understanding for bug repro and audio-first pairing, building on voice + vision.",
+      "imported": {
+        "kind": "markdown",
+        "sourceId": "docs/roadmap.md::multimodal native dev loops video screen recording understanding for bug repro and audio first pairing building on voice vision",
+        "sourceLabel": "docs/**/*roadmap*.md",
+        "importedTitleNormalized": "multimodal native dev loops video screen recording understanding for bug repro and audio first pairing building on voice vision",
+        "importedAt": "2026-08-21T06:17:07.883Z"
+      }
+    },
+    {
+      "id": "prompt-injection-defense-the",
+      "normalizedText": "**prompt-injection defense** — the security-first positioning is hollow once mcp + autonomy + untrusted content combine.",
+      "imported": {
+        "kind": "markdown",
+        "sourceId": "docs/roadmap.md::prompt injection defense the security first positioning is hollow once mcp autonomy untrusted content combine",
+        "sourceLabel": "docs/**/*roadmap*.md",
+        "importedTitleNormalized": "prompt injection defense the security first positioning is hollow once mcp autonomy untrusted content combine",
+        "importedAt": "2026-08-21T06:17:07.883Z"
+      }
+    },
+    {
+      "id": "reasoning-budget-routing-ext",
+      "normalizedText": "**reasoning-budget routing** — extends multi-axis routing (an existing strength) and rides the biggest model-capability trend.",
+      "imported": {
+        "kind": "markdown",
+        "sourceId": "docs/roadmap.md::reasoning budget routing extends multi axis routing an existing strength and rides the biggest model capability trend",
+        "sourceLabel": "docs/**/*roadmap*.md",
+        "importedTitleNormalized": "reasoning budget routing extends multi axis routing an existing strength and rides the biggest model capability trend",
+        "importedAt": "2026-08-21T06:17:07.883Z"
+      }
+    },
+    {
+      "id": "sandboxed-execution-worktree",
+      "normalizedText": "**sandboxed execution + worktree isolation** — the unlock that lets every other autonomy feature ship safely.",
+      "imported": {
+        "kind": "markdown",
+        "sourceId": "docs/roadmap.md::sandboxed execution worktree isolation the unlock that lets every other autonomy feature ship safely",
+        "sourceLabel": "docs/**/*roadmap*.md",
+        "importedTitleNormalized": "sandboxed execution worktree isolation the unlock that lets every other autonomy feature ship safely",
+        "importedAt": "2026-08-21T06:17:07.883Z"
+      }
+    },
+    {
+      "id": "promote-worktree-isolation-t",
+      "normalizedText": "**promote worktree isolation toward near-term.** atlasmind already runs parallel subtask batches (`taskscheduler.ts`, `promise.all`, cap 5) but on a **single shared working tree** — a latent write-race that is a correctness bug under the safety-first rule. worktree-per-batch isolation…",
+      "imported": {
+        "kind": "markdown",
+        "sourceId": "docs/roadmap.md::promote worktree isolation toward near term atlasmind already runs parallel subtask batches taskscheduler ts promise all cap 5 but on a single shared working tree a latent write race that is a correctness bug under the safety first rule worktree per batch isolation",
+        "sourceLabel": "docs/**/*roadmap*.md",
+        "importedTitleNormalized": "promote worktree isolation toward near term atlasmind already runs parallel subtask batches taskscheduler ts promise all cap 5 but on a single shared working tree a latent write race that is a correctness bug under the safety first rule worktree per batch isolation",
+        "importedAt": "2026-08-21T06:17:07.883Z"
+      }
+    },
+    {
+      "id": "pr-native-github-automation",
+      "normalizedText": "**pr-native github automation.** now tracked as tier 2–3 of [the guided github workflow](../project_memory/roadmap/guided-github-workflow.md) rather than as a separate bet — real `gh`-backed pr creation, ci-check review, and conflict triage, beyond today's git primitives.",
+      "imported": {
+        "kind": "markdown",
+        "sourceId": "docs/roadmap.md::pr native github automation now tracked as tier 2 3 of the guided github workflow project memory roadmap guided github workflow md rather than as a separate bet real gh backed pr creation ci check review and conflict triage beyond today s git primitives",
+        "sourceLabel": "docs/**/*roadmap*.md",
+        "importedTitleNormalized": "pr native github automation now tracked as tier 2 3 of the guided github workflow project memory roadmap guided github workflow md rather than as a separate bet real gh backed pr creation ci check review and conflict triage beyond today s git primitives",
+        "importedAt": "2026-08-21T06:17:07.883Z"
+      }
+    },
+    {
+      "id": "parallel-command-center-ux-n",
+      "normalizedText": "**parallel \"command center\" ux (net-new framing).** a multi-lane view of n concurrent runs/worktrees with per-lane status and diff/approve, making parallel fan-out legible — complements the single-run mission control / project run center.",
+      "imported": {
+        "kind": "markdown",
+        "sourceId": "docs/roadmap.md::parallel command center ux net new framing a multi lane view of n concurrent runs worktrees with per lane status and diff approve making parallel fan out legible complements the single run mission control project run center",
+        "sourceLabel": "docs/**/*roadmap*.md",
+        "importedTitleNormalized": "parallel command center ux net new framing a multi lane view of n concurrent runs worktrees with per lane status and diff approve making parallel fan out legible complements the single run mission control project run center",
+        "importedAt": "2026-08-21T06:17:07.883Z"
+      }
+    },
+    {
+      "id": "not-pursuing-becoming-a-gene",
+      "normalizedText": "**not pursuing:** becoming a generic byo-cli-agent multiplexer — that is supacode's category and undercuts atlasmind's integrated routing / memory / cost / privacy differentiators.",
+      "imported": {
+        "kind": "markdown",
+        "sourceId": "docs/roadmap.md::not pursuing becoming a generic byo cli agent multiplexer that is supacode s category and undercuts atlasmind s integrated routing memory cost privacy differentiators",
+        "sourceLabel": "docs/**/*roadmap*.md",
+        "importedTitleNormalized": "not pursuing becoming a generic byo cli agent multiplexer that is supacode s category and undercuts atlasmind s integrated routing memory cost privacy differentiators",
+        "importedAt": "2026-08-21T06:17:07.883Z"
+      }
+    }
+  ],
+  "edges": [
+    {
+      "from": "prompt-injection-tool-poison",
+      "to": "prompt-injection-defense-the",
+      "origin": "declared",
+      "rule": "explicit-reference",
+      "evidence": "“once MCP + autonomy + untrusted content combine”",
+      "createdAt": "2026-08-21T11:02:08.574Z",
+      "createdBy": "contact-email-joelbondoux-net-1"
+    },
+    {
+      "from": "not-pursuing-becoming-a-gene",
+      "to": "document-all-gdpr-related-co-2",
+      "origin": "declared",
+      "rule": "shared-subject-phase",
+      "evidence": "both mention “atlasmind” and “memory”",
+      "createdAt": "2026-08-21T11:02:08.574Z",
+      "createdBy": "contact-email-joelbondoux-net-1"
+    },
+    {
+      "from": "monorepo-multi-root-workspac",
+      "to": "game-dev-unity-unreal-godot",
+      "origin": "declared",
+      "rule": "shared-subject-phase",
+      "evidence": "both mention “game” and “specified” and “project”",
+      "createdAt": "2026-08-21T11:02:08.574Z",
+      "createdBy": "contact-email-joelbondoux-net-1"
+    },
+    {
+      "from": "pr-native-github-automation",
+      "to": "game-dev-unity-unreal-godot",
+      "origin": "declared",
+      "rule": "shared-subject-phase",
+      "evidence": "both mention “project” and “memory” and “roadmap”",
+      "createdAt": "2026-08-21T11:02:08.574Z",
+      "createdBy": "contact-email-joelbondoux-net-1"
+    },
+    {
+      "from": "semantic-codebase-index-code",
+      "to": "ai-automation-ai-saas-rag-ag",
+      "origin": "declared",
+      "rule": "shared-subject-phase",
+      "evidence": "both mention “local” and “model”",
+      "createdAt": "2026-08-21T11:02:08.574Z",
+      "createdBy": "contact-email-joelbondoux-net-1"
+    },
+    {
+      "from": "on-device-frontier-class-mod",
+      "to": "ai-automation-ai-saas-rag-ag",
+      "origin": "declared",
+      "rule": "shared-subject-phase",
+      "evidence": "both mention “agentic” and “local”",
+      "createdAt": "2026-08-21T11:02:08.574Z",
+      "createdBy": "contact-email-joelbondoux-net-1"
+    },
+    {
+      "from": "semantic-codebase-index-code",
+      "to": "eval-regression-harness-for",
+      "origin": "declared",
+      "rule": "shared-subject-phase",
+      "evidence": "both mention “agents” and “model”",
+      "createdAt": "2026-08-21T11:02:08.574Z",
+      "createdBy": "contact-email-joelbondoux-net-1"
+    },
+    {
+      "from": "semantic-codebase-index-code",
+      "to": "monorepo-multi-root-workspac",
+      "origin": "declared",
+      "rule": "shared-subject-phase",
+      "evidence": "both mention “ssot” and “single”",
+      "createdAt": "2026-08-21T11:02:08.574Z",
+      "createdBy": "contact-email-joelbondoux-net-1"
+    },
+    {
+      "from": "semantic-codebase-index-code",
+      "to": "decision-changelog-provenanc",
+      "origin": "declared",
+      "rule": "shared-subject-phase",
+      "evidence": "both mention “ssot” and “decisions”",
+      "createdAt": "2026-08-21T11:02:08.574Z",
+      "createdBy": "contact-email-joelbondoux-net-1"
+    },
+    {
+      "from": "scheduled-background-autonom",
+      "to": "team-layer-shared-config-per",
+      "origin": "declared",
+      "rule": "shared-subject-phase",
+      "evidence": "both mention “agents” and “routines”",
+      "createdAt": "2026-08-21T11:02:08.574Z",
+      "createdBy": "contact-email-joelbondoux-net-1"
+    },
+    {
+      "from": "agent-to-agent-interoperabil",
+      "to": "team-layer-shared-config-per",
+      "origin": "declared",
+      "rule": "shared-subject-phase",
+      "evidence": "both mention “layer” and “agents”",
+      "createdAt": "2026-08-21T11:02:08.574Z",
+      "createdBy": "contact-email-joelbondoux-net-1"
+    },
+    {
+      "from": "sast-dependency-cve-integrat",
+      "to": "scheduled-background-autonom",
+      "origin": "declared",
+      "rule": "shared-subject-phase",
+      "evidence": "both mention “agents” and “dependency”",
+      "createdAt": "2026-08-21T11:02:08.574Z",
+      "createdBy": "contact-email-joelbondoux-net-1"
+    },
+    {
+      "from": "scheduled-background-autonom",
+      "to": "shared-syncable-team-config",
+      "origin": "declared",
+      "rule": "shared-subject-phase",
+      "evidence": "both mention “agents” and “routines”",
+      "createdAt": "2026-08-21T11:02:08.574Z",
+      "createdBy": "contact-email-joelbondoux-net-1"
+    },
+    {
+      "from": "scheduled-background-autonom",
+      "to": "sandboxed-execution-for-auto",
+      "origin": "declared",
+      "rule": "shared-subject-phase",
+      "evidence": "both mention “autonomous” and “runs”",
+      "createdAt": "2026-08-21T11:02:08.574Z",
+      "createdBy": "contact-email-joelbondoux-net-1"
+    },
+    {
+      "from": "async-ambient-background-age",
+      "to": "scheduled-background-autonom",
+      "origin": "declared",
+      "rule": "shared-subject-phase",
+      "evidence": "both mention “scheduled” and “background” and “agents”",
+      "createdAt": "2026-08-21T11:02:08.574Z",
+      "createdBy": "contact-email-joelbondoux-net-1"
+    },
+    {
+      "from": "monorepo-multi-root-workspac",
+      "to": "decision-changelog-provenanc",
+      "origin": "declared",
+      "rule": "shared-subject-phase",
+      "evidence": "both mention “ssot” and “project”",
+      "createdAt": "2026-08-21T11:02:08.574Z",
+      "createdBy": "contact-email-joelbondoux-net-1"
+    },
+    {
+      "from": "monorepo-multi-root-workspac",
+      "to": "open-knowledge-format-okf-in",
+      "origin": "declared",
+      "rule": "shared-subject-phase",
+      "evidence": "both mention “ssot” and “atlasmind”",
+      "createdAt": "2026-08-21T11:02:08.574Z",
+      "createdBy": "contact-email-joelbondoux-net-1"
+    },
+    {
+      "from": "monorepo-multi-root-workspac",
+      "to": "self-improving-project-model",
+      "origin": "declared",
+      "rule": "shared-subject-phase",
+      "evidence": "both mention “ssot” and “project”",
+      "createdAt": "2026-08-21T11:02:08.574Z",
+      "createdBy": "contact-email-joelbondoux-net-1"
+    },
+    {
+      "from": "not-pursuing-becoming-a-gene",
+      "to": "monorepo-multi-root-workspac",
+      "origin": "declared",
+      "rule": "shared-subject-phase",
+      "evidence": "both mention “routing” and “atlasmind”",
+      "createdAt": "2026-08-21T11:02:08.574Z",
+      "createdBy": "contact-email-joelbondoux-net-1"
+    },
+    {
+      "from": "sast-dependency-cve-integrat",
+      "to": "async-ambient-background-age",
+      "origin": "declared",
+      "rule": "shared-subject-phase",
+      "evidence": "both mention “dependency” and “agents”",
+      "createdAt": "2026-08-21T11:02:08.574Z",
+      "createdBy": "contact-email-joelbondoux-net-1"
+    },
+    {
+      "from": "agent-to-agent-interoperabil",
+      "to": "shared-syncable-team-config",
+      "origin": "declared",
+      "rule": "shared-subject-phase",
+      "evidence": "both mention “agents” and “layer”",
+      "createdAt": "2026-08-21T11:02:08.574Z",
+      "createdBy": "contact-email-joelbondoux-net-1"
+    },
+    {
+      "from": "async-ambient-background-age",
+      "to": "shared-syncable-team-config",
+      "origin": "declared",
+      "rule": "shared-subject-phase",
+      "evidence": "both mention “agents” and “repo”",
+      "createdAt": "2026-08-21T11:02:08.574Z",
+      "createdBy": "contact-email-joelbondoux-net-1"
+    },
+    {
+      "from": "graphrag-code-knowledge-grap",
+      "to": "decision-changelog-provenanc",
+      "origin": "declared",
+      "rule": "shared-subject-phase",
+      "evidence": "both mention “ssot” and “decisions”",
+      "createdAt": "2026-08-21T11:02:08.574Z",
+      "createdBy": "contact-email-joelbondoux-net-1"
+    },
+    {
+      "from": "graphrag-code-knowledge-grap",
+      "to": "explain-this-codebase-this-f",
+      "origin": "declared",
+      "rule": "shared-subject-phase",
+      "evidence": "both mention “ssot” and “code”",
+      "createdAt": "2026-08-21T11:02:08.574Z",
+      "createdBy": "contact-email-joelbondoux-net-1"
+    },
+    {
+      "from": "project-templates-scaffolds",
+      "to": "pr-native-github-automation",
+      "origin": "declared",
+      "rule": "shared-subject-phase",
+      "evidence": "both mention “project” and “beyond”",
+      "createdAt": "2026-08-21T11:02:08.574Z",
+      "createdBy": "contact-email-joelbondoux-net-1"
+    },
+    {
+      "from": "project-templates-scaffolds",
+      "to": "parallel-command-center-ux-n",
+      "origin": "declared",
+      "rule": "shared-subject-phase",
+      "evidence": "both mention “project” and “complements”",
+      "createdAt": "2026-08-21T11:02:08.574Z",
+      "createdBy": "contact-email-joelbondoux-net-1"
+    },
+    {
+      "from": "regulatory-ai-governance-sur",
+      "to": "prompt-injection-tool-poison",
+      "origin": "declared",
+      "rule": "shared-subject-phase",
+      "evidence": "both mention “model” and “autonomous”",
+      "createdAt": "2026-08-21T11:02:08.574Z",
+      "createdBy": "contact-email-joelbondoux-net-1"
+    },
+    {
+      "from": "llm-observability-openteleme",
+      "to": "sandboxed-execution-for-auto",
+      "origin": "declared",
+      "rule": "shared-subject-phase",
+      "evidence": "both mention “agent” and “runs”",
+      "createdAt": "2026-08-21T11:02:08.574Z",
+      "createdBy": "contact-email-joelbondoux-net-1"
+    },
+    {
+      "from": "llm-observability-openteleme",
+      "to": "open-knowledge-format-okf-in",
+      "origin": "declared",
+      "rule": "shared-subject-phase",
+      "evidence": "both mention “agent” and “format”",
+      "createdAt": "2026-08-21T11:02:08.574Z",
+      "createdBy": "contact-email-joelbondoux-net-1"
+    },
+    {
+      "from": "agent-to-agent-interoperabil",
+      "to": "open-knowledge-format-okf-in",
+      "origin": "declared",
+      "rule": "shared-subject-phase",
+      "evidence": "both mention “interoperability” and “agent” and “atlasmind”",
+      "createdAt": "2026-08-21T11:02:08.574Z",
+      "createdBy": "contact-email-joelbondoux-net-1"
+    },
+    {
+      "from": "not-pursuing-becoming-a-gene",
+      "to": "agent-to-agent-interoperabil",
+      "origin": "declared",
+      "rule": "shared-subject-phase",
+      "evidence": "both mention “agent” and “atlasmind”",
+      "createdAt": "2026-08-21T11:02:08.574Z",
+      "createdBy": "contact-email-joelbondoux-net-1"
+    }
+  ],
+  "suggestLinks": true,
+  "dismissed": [],
+  "layoutOrientation": "vertical",
+  "updatedAt": "2026-08-21T12:20:58.725Z"
+}

@@ -823,6 +823,7 @@ const BUILTIN_AGENT_DEFINITIONS: readonly AgentDefinition[] = [
         'Inspect git status, the relevant diff, remotes, and project-scoped instructions before mutating repository or GitHub state.',
         'Complete every safe step in a chained request in order. Pause only for a real approval gate, destructive or irreversible step, merge conflict, authentication blocker, or undefined release procedure.',
         'When no commit message is supplied, derive a concise conventional commit message from the staged diff; keep commits, pull requests, and issue updates strictly aligned with the actual changes.',
+        'For a commit that needs staging, pass the inspected exact paths to git-commit, including intentional untracked files. Never recommend git add . or invent a commit-message file; preserve unrelated work, including pre-staged index entries outside the intended scope, and use the tool message parameter directly.',
         'Obey the workspace\'s branching, protected-target, versioning, documentation, and publishing policies. Never infer that one repository\'s release convention applies to another.',
         'For CI failures, inspect the relevant workflow definition and run logs, identify the failing step from evidence, and verify any proposed workflow or configuration change.',
         FREEFORM_TDD_POLICY.github,

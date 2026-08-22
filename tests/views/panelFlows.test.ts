@@ -1200,10 +1200,10 @@ describe('panel refresh flows', () => {
    * you accept it is not a confirmation.
    */
   describe.each([
-    ['deleteSession', { type: 'deleteSession', payload: 'chat-1' }, 'deleteSession'],
-    ['clearConversation', { type: 'clearConversation' }, 'clearSession'],
-    ['deleteMessage', { type: 'deleteMessage', payload: 'msg-1' }, 'deleteMessage'],
-  ])('%s confirmation', (_label, message, destructiveMethod) => {
+    ['deleteSession', { type: 'deleteSession', payload: 'chat-1' }, 'deleteSession', 'deleteSession'],
+    ['clearConversation', { type: 'clearConversation' }, 'clearSession', 'invalidateSession'],
+    ['deleteMessage', { type: 'deleteMessage', payload: 'msg-1' }, 'deleteMessage', 'invalidateSession'],
+  ])('%s confirmation', (_label, message, destructiveMethod, contextMethod) => {
     function mountChatPanel() {
       const conversation = {
         buildContext: vi.fn().mockReturnValue(''),
@@ -1217,21 +1217,26 @@ describe('panel refresh flows', () => {
         clearSession: vi.fn(),
         deleteMessage: vi.fn().mockReturnValue(true),
       };
+      const sessionContextManager = {
+        invalidateSession: vi.fn().mockResolvedValue(undefined),
+        deleteSession: vi.fn().mockResolvedValue(undefined),
+      };
       ChatPanel.createOrShow(
         { extensionUri: { fsPath: '/ext', path: '/ext' } } as never,
         {
           orchestrator: { processTask: vi.fn() },
           sessionConversation: conversation,
+          sessionContextManager,
           projectRunsRefresh: { event: vi.fn(() => ({ dispose: () => undefined })) },
           projectRunHistory: { listRunsAsync: vi.fn().mockResolvedValue([]) },
           voiceManager: { speak: vi.fn() },
         } as never,
       );
-      return conversation;
+      return { conversation, sessionContextManager };
     }
 
     it('destroys nothing when the operator declines', async () => {
-      const conversation = mountChatPanel();
+      const { conversation, sessionContextManager } = mountChatPanel();
       mocks.showWarningMessage.mockResolvedValue(undefined);
 
       await (ChatPanel.currentPanel as unknown as { handleMessage(message: unknown): Promise<void> })
@@ -1243,10 +1248,11 @@ describe('panel refresh flows', () => {
         expect.any(String),
       );
       expect((conversation as Record<string, ReturnType<typeof vi.fn>>)[destructiveMethod]).not.toHaveBeenCalled();
+      expect((sessionContextManager as Record<string, ReturnType<typeof vi.fn>>)[contextMethod]).not.toHaveBeenCalled();
     });
 
     it('proceeds once the operator confirms', async () => {
-      const conversation = mountChatPanel();
+      const { conversation, sessionContextManager } = mountChatPanel();
       // Answer with whatever verb the dialog offered, so the test does not have
       // to restate the three confirm labels and drift from them.
       mocks.showWarningMessage.mockImplementation(async (_message: string, _options: unknown, action: string) => action);
@@ -1255,6 +1261,7 @@ describe('panel refresh flows', () => {
         .handleMessage(message);
 
       expect((conversation as Record<string, ReturnType<typeof vi.fn>>)[destructiveMethod]).toHaveBeenCalled();
+      expect((sessionContextManager as Record<string, ReturnType<typeof vi.fn>>)[contextMethod]).toHaveBeenCalledWith('chat-1');
     });
   });
 
@@ -3587,6 +3594,74 @@ describe('panel refresh flows', () => {
     removeTempDir(tempRoot);
   });
 
+  it('carries a canvas mutation and an Atlas pill through the message gate to the disk', async () => {
+    // The layer no other test crossed: webview tests asserted the post, and
+    // handler tests called past `isProjectDashboardMessage` — so fifteen
+    // canvas messages shipped handled-but-unvalidated, and every drag, save,
+    // link and pill died silently at the gate. This flow enters through
+    // `handleMessage`, exactly as the webview's messages do.
+    const tempRoot = mkdtempSync(path.join(os.tmpdir(), 'atlasmind-canvas-flow-'));
+    const roadmapDir = path.join(tempRoot, 'project_memory', 'roadmap');
+    mkdirSync(roadmapDir, { recursive: true });
+    const roadmapFile = path.join(roadmapDir, 'improvement-plan.md');
+    writeFileSync(roadmapFile, [
+      '## Prioritized Backlog',
+      '<!-- atlasmind:roadmap-items:start -->',
+      '- [ ] Ship onboarding flow <!-- rm:ship-onboarding-flow -->',
+      '<!-- atlasmind:roadmap-items:end -->',
+    ].join('\n'));
+    mocks.state.workspaceFolders = [{ name: 'Temp', uri: { fsPath: tempRoot, path: tempRoot } }];
+
+    ProjectDashboardPanel.createOrShow(
+      { extensionUri: { fsPath: '/ext', path: '/ext' } } as never,
+      {
+        agentsRefresh: { event: vi.fn(() => ({ dispose: () => undefined })) },
+        skillsRefresh: { event: vi.fn(() => ({ dispose: () => undefined })) },
+        modelsRefresh: { event: vi.fn(() => ({ dispose: () => undefined })) },
+        projectRunsRefresh: { event: vi.fn(() => ({ dispose: () => undefined })) },
+        memoryRefresh: { event: vi.fn(() => ({ dispose: () => undefined })), fire: vi.fn() },
+        toolApprovalManager: { isAutopilot: vi.fn().mockReturnValue(false), onAutopilotChange: vi.fn(() => () => undefined) },
+        modelRouter: { listProviders: vi.fn().mockReturnValue([]), isProviderHealthy: vi.fn().mockReturnValue(true) },
+        agentRegistry: { listAgents: vi.fn().mockReturnValue([]), isEnabled: vi.fn().mockReturnValue(true) },
+        skillsRegistry: { listSkills: vi.fn().mockReturnValue([]), isEnabled: vi.fn().mockReturnValue(true) },
+        sessionConversation: {
+          listSessions: vi.fn().mockReturnValue([]),
+          getActiveSessionId: vi.fn().mockReturnValue('chat-1'),
+          onDidChange: vi.fn(() => ({ dispose: () => undefined })),
+        },
+        projectRunHistory: { listRunsAsync: vi.fn().mockResolvedValue([]) },
+        costTracker: {
+          getSummary: vi.fn().mockReturnValue({ totalCostUsd: 0, totalRequests: 0, totalInputTokens: 0, totalOutputTokens: 0 }),
+          getRecords: vi.fn().mockReturnValue([]),
+        },
+        memoryManager: {
+          listEntries: vi.fn().mockReturnValue([]),
+          getScanResults: vi.fn().mockReturnValue(new Map()),
+          loadFromDisk: vi.fn().mockResolvedValue(undefined),
+        },
+      } as never,
+    );
+
+    const panel = ProjectDashboardPanel.currentPanel as unknown as { handleMessage(message: unknown): Promise<void> };
+
+    // A drag-drop lands in the graph overlay.
+    await panel.handleMessage({ type: 'roadmapNodeMove', payload: { nodeId: 'ship-onboarding-flow', x: 240, y: 160 } });
+    const graphFile = path.join(roadmapDir, 'roadmap-graph.json');
+    const graph = JSON.parse(readFileSync(graphFile, 'utf-8')) as { nodes: Array<{ id: string; position?: { x: number; y: number } }> };
+    expect(graph.nodes.find(node => node.id === 'ship-onboarding-flow')?.position).toEqual({ x: 240, y: 160 });
+
+    // The Plan pill files the plan document, records it, and opens the chat.
+    mocks.executeCommand.mockClear();
+    await panel.handleMessage({ type: 'roadmapPlan', payload: 'ship-onboarding-flow' });
+    const withPlan = JSON.parse(readFileSync(graphFile, 'utf-8')) as { nodes: Array<{ id: string; planPath?: string }> };
+    const planPath = withPlan.nodes.find(node => node.id === 'ship-onboarding-flow')?.planPath;
+    expect(planPath).toBeDefined();
+    expect(readFileSync(path.join(tempRoot, planPath as string), 'utf-8')).toContain('# Plan: Ship onboarding flow');
+    expect(mocks.executeCommand).toHaveBeenCalledWith('atlasmind.openChatPanel', expect.objectContaining({ sendMode: 'new-session' }));
+
+    removeTempDir(tempRoot);
+  });
+
   it('runs the allowlisted Cost Dashboard command but ignores non-allowlisted commands', async () => {
     ProjectDashboardPanel.createOrShow(
       {
@@ -4635,6 +4710,9 @@ describe('model override in the chat panel', () => {
     inputTokens: 1, outputTokens: 1, costUsd: 0, durationMs: 1,
   })) {
     (ChatPanel as unknown as { currentPanel?: { dispose(): void } }).currentPanel?.dispose();
+    const clearSession = vi.fn();
+    const invalidateSession = vi.fn().mockResolvedValue(undefined);
+    const loadContext = vi.fn().mockResolvedValue(null);
     ChatPanel.createOrShow(
       { extensionUri: { fsPath: '/ext', path: '/ext' } } as never,
       {
@@ -4647,12 +4725,19 @@ describe('model override in the chat panel', () => {
           buildContext: vi.fn().mockReturnValue(''),
           listSessions: vi.fn().mockReturnValue([]),
           getActiveSessionId: vi.fn().mockReturnValue('chat-1'),
+          getRevision: vi.fn().mockReturnValue(4),
           getSession: vi.fn().mockReturnValue({ id: 'chat-1', title: 'Chat', entries: [] }),
           selectSession: vi.fn().mockReturnValue(true),
           getTranscript: vi.fn().mockReturnValue([]),
           appendMessage: vi.fn().mockReturnValue('msg-1'),
           updateMessage: vi.fn(),
+          clearSession,
           onDidChange: vi.fn(() => ({ dispose: () => undefined })),
+        },
+        sessionContextManager: {
+          invalidateSession,
+          loadContext,
+          maintainContext: vi.fn(),
         },
         projectRunsRefresh: { event: vi.fn(() => ({ dispose: () => undefined })) },
         projectRunHistory: { listRunsAsync: vi.fn().mockResolvedValue([]) },
@@ -4661,7 +4746,7 @@ describe('model override in the chat panel', () => {
       } as never,
     );
     return {
-      processTask,
+      processTask, clearSession, invalidateSession, loadContext,
       panel: ChatPanel.currentPanel as unknown as { handleMessage(message: unknown): Promise<void> },
     };
   }
@@ -4683,6 +4768,17 @@ describe('model override in the chat panel', () => {
     await panel.handleMessage({ type: 'submitPrompt', payload: { prompt: 'hello', mode: 'send' } });
 
     expect(processTask.mock.calls[0]?.[0]?.constraints?.preferredModel).toBe('openai/gpt-5');
+  });
+
+  it('invalidates New Chat context before attempting to load a bundle', async () => {
+    const { panel, clearSession, invalidateSession, loadContext } = mountWithModels();
+
+    await panel.handleMessage({ type: 'submitPrompt', payload: { prompt: 'start clean', mode: 'new-chat' } });
+
+    expect(clearSession).toHaveBeenCalledWith('chat-1');
+    expect(invalidateSession).toHaveBeenCalledWith('chat-1');
+    expect(loadContext).toHaveBeenCalledWith('chat-1', 4);
+    expect(invalidateSession.mock.invocationCallOrder[0]).toBeLessThan(loadContext.mock.invocationCallOrder[0]!);
   });
 
   it('consumes a next-message pin exactly once', async () => {
@@ -4820,6 +4916,8 @@ describe('editing and regenerating a message', () => {
     const truncateAfter = vi.fn().mockReturnValue(2);
     const updateMessage = vi.fn();
     const deleteMessage = vi.fn().mockReturnValue(true);
+    const invalidateSession = vi.fn().mockResolvedValue(undefined);
+    const bootstrapFromTranscript = vi.fn().mockResolvedValue(undefined);
     const processTask = vi.fn().mockResolvedValue({
       id: 't', agentId: 'a', modelUsed: 'm', response: 'ok',
       inputTokens: 1, outputTokens: 1, costUsd: 0, durationMs: 1,
@@ -4836,11 +4934,18 @@ describe('editing and regenerating a message', () => {
           getSession: vi.fn().mockReturnValue({ id: 'chat-1', title: 'Chat', entries: [] }),
           selectSession: vi.fn().mockReturnValue(true),
           getTranscript: vi.fn().mockReturnValue(transcript),
+          getRevision: vi.fn().mockReturnValue(9),
           appendMessage: vi.fn().mockReturnValue('new-1'),
           updateMessage,
           truncateAfter,
           deleteMessage,
           onDidChange: vi.fn(() => ({ dispose: () => undefined })),
+        },
+        sessionContextManager: {
+          invalidateSession,
+          bootstrapFromTranscript,
+          loadContext: vi.fn().mockResolvedValue(null),
+          maintainContext: vi.fn(),
         },
         projectRunsRefresh: { event: vi.fn(() => ({ dispose: () => undefined })) },
         projectRunHistory: { listRunsAsync: vi.fn().mockResolvedValue([]) },
@@ -4849,7 +4954,7 @@ describe('editing and regenerating a message', () => {
       } as never,
     );
     return {
-      truncateAfter, updateMessage, deleteMessage, processTask,
+      transcript, truncateAfter, updateMessage, deleteMessage, invalidateSession, bootstrapFromTranscript, processTask,
       panel: ChatPanel.currentPanel as unknown as { handleMessage(message: unknown): Promise<void> },
     };
   }
@@ -4882,13 +4987,16 @@ describe('editing and regenerating a message', () => {
   });
 
   it('rewinds and re-runs the edited text', async () => {
-    const { panel, updateMessage, truncateAfter, processTask } = mount();
+    const { panel, transcript, updateMessage, truncateAfter, invalidateSession, bootstrapFromTranscript, processTask } = mount();
     mocks.showWarningMessage.mockImplementation(async (_m: string, _o: unknown, action: string) => action);
 
     await panel.handleMessage({ type: 'editMessage', payload: { entryId: 'u1', content: 'add e2e tests with playwright' } });
 
     expect(updateMessage).toHaveBeenCalledWith('u1', 'add e2e tests with playwright', 'chat-1');
     expect(truncateAfter).toHaveBeenCalledWith('u1', 'chat-1');
+    expect(invalidateSession).toHaveBeenCalledWith('chat-1');
+    expect(bootstrapFromTranscript).toHaveBeenCalledWith('chat-1', transcript, 9);
+    expect(bootstrapFromTranscript.mock.invocationCallOrder[0]).toBeLessThan(processTask.mock.invocationCallOrder[0]!);
     expect(processTask.mock.calls[0]?.[0]?.userMessage).toContain('add e2e tests with playwright');
   });
 

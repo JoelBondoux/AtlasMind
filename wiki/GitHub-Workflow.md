@@ -52,7 +52,7 @@ accidentally become public.
 The Release page runs seven gates in root-cause order: changelog entry present, notes have content, no
 credentials in the notes, version moved on, tag is free, working tree clean, CI passing.
 
-Three things worth knowing:
+Four things worth knowing:
 
 - **A gate that reports *unknown* is never treated as a pass.** "We didn't check" has to stay
   distinguishable from "we checked and it was fine".
@@ -60,6 +60,13 @@ Three things worth knowing:
 - **If the notes contain something shaped like a credential, the release is refused — not quietly
   cleaned up.** Silently publishing an edited version of what you reviewed, without telling you what was
   removed, is the worse outcome.
+- **The gates are listed urgent-first, and each one opens where its evidence lives.** Root-cause order
+  is how they are *checked*; it is not how you want to read them, so blocked gates come first, then
+  unknown, then ready — with the check order preserved inside each band. Unknown ranks with the
+  problems rather than with the passes, for the same reason it is not a pass. Click a gate's link to
+  open the page or file that would answer it: CI to the Pipeline page, the testing policy to Testing,
+  the changelog gates to `CHANGELOG.md`. Filter to **Needs you** (blocked *and* unknown) when you are
+  working through them; whenever a filter is hiding something, the card says how many.
 
 Nothing on that page publishes anything. Tagging and publishing stay with you at every automation level.
 

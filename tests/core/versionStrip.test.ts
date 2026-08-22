@@ -5,6 +5,7 @@ import {
   type VersionStripInput,
   type VersionStripStage,
 } from '../../src/core/versionStrip.ts';
+import { recommendedVersioningPolicy } from '../../src/core/versioningPolicy.ts';
 
 const stage = (over: Partial<VersionStripStage> & Pick<VersionStripStage, 'id' | 'name' | 'rank'>): VersionStripStage => ({
   branchRef: '',
@@ -177,5 +178,37 @@ describe('a project with no pipeline still gets a header', () => {
     // the guess with the same authority.
     expect(buildVersionStrip({ workingVersion: '1.0.0', currentBranch: 'dev' }).source).toBe('branches');
     expect(buildVersionStrip(base).source).toBe('delivery');
+  });
+});
+
+describe('buildVersionStrip — release channels', () => {
+  const policy = recommendedVersioningPolicy({ integrationBranch: 'develop', releaseBranch: 'main' });
+
+  it('shows no channel at all when no policy is declared', () => {
+    // A `beta` pill on a project that never chose a channel model would be the
+    // header asserting how that project releases, on no evidence.
+    for (const pill of buildVersionStrip(base).pills) {
+      expect(pill.channel).toBeUndefined();
+    }
+  });
+
+  it('names the channel each declared branch produces', () => {
+    const strip = buildVersionStrip({ ...base, policy });
+    const byRef = new Map(strip.pills.map(pill => [pill.ref, pill]));
+    expect(byRef.get('develop')?.channel).toMatchObject({ id: 'preview', distTag: 'next' });
+    expect(byRef.get('main')?.channel).toMatchObject({ id: 'stable', distTag: 'latest' });
+  });
+
+  it('gives the working-tree pill the channel of the branch actually checked out', () => {
+    // It carries no `branchRef` by design, so it resolves from `currentBranch`
+    // or it would be the one pill that never knows what it is producing.
+    const strip = buildVersionStrip({ ...base, policy, stages: [seeded[0]] });
+    expect(strip.pills[0].isWorkingTree).toBe(true);
+    expect(strip.pills[0].channel?.id).toBe('preview');
+  });
+
+  it('leaves a branch no channel matches without one', () => {
+    const strip = buildVersionStrip({ ...base, policy, currentBranch: 'feat/9-thing', stages: [seeded[0]] });
+    expect(strip.pills[0].channel).toBeUndefined();
   });
 });

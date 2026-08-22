@@ -400,6 +400,10 @@ AtlasMind now also computes lightweight natural-language routing hints for MCP-b
 
 Risky built-in skills are also filtered by a tool-approval policy before execution. AtlasMind classifies each invocation as readonly, workspace-write, terminal-read, terminal-write, git-read, or git-write, then consults the configured approval mode before allowing the tool to run.
 
+Turn-scoped capability ceilings are narrower than approval policy and apply only when the request explicitly withdraws a broad capability. A no-command directive must name commands, terminal, shell, packages, scripts, or processes; a narrow instruction such as “do not release” is enforced by the release/approval boundary and does not erase unrelated local Git tools. This distinction is load-bearing for host-authored Delivery prompts: approval-qualified release wording must leave `git-status`, `git-diff`, and `git-commit` callable so the ordinary approval manager can make the decision it was designed to make.
+
+`git-commit` supports scoped staging as part of that same guarded invocation. Its optional `paths` list accepts at most 100 explicitly named workspace-relative paths, including intentional untracked files, invokes `git add -- <paths>` without a shell, then commits with `git commit --only -- <paths>` so unrelated entries already in the index remain staged rather than leaking into the new commit. It refuses `.`, traversal, absolute paths, control characters, and pathspec wildcards; `paths` cannot be combined with the legacy `stage_tracked` (`git add -u`) mode. The approval summary names the exact-path count, a failed staging call prevents the commit, and the GitHub Operator is instructed never to recommend `git add .` or an unverified commit-message file.
+
 The Branch Dashboard's readiness, PR/CI, ownership, traceability, comparison, and cleanup readings are deterministic extension-host features, not agent claims. **Ask Atlas** receives the host-derived branch review as fenced context and remains advisory; it cannot invoke a dashboard action. Inspection and comparison are read-only host operations. Cleanup is intentionally outside the general skill surface so neither an agent nor a forged webview message can supply a ref or command: the webview sends an opaque branch id, the host re-resolves live branch state, refreshes remotes, refuses current/default/protected/worktree branches and unique commits, and presents its own confirmation. Local cleanup uses only Git's merged-only `branch -d`; remote cleanup additionally requires loaded PR evidence, a live remote hash match, and typing the exact branch name.
 
 Pipeline CI management is likewise a host feature rather than a general-purpose agent tool. Workflow
@@ -588,9 +592,14 @@ Approval surfaces receive a bounded host-produced argument preview rather than s
 Selection is separate from authorisation, and both had to change: GitHub work is recognised by `TASK_SCOPED_GITHUB_PATTERN` and granted `terminal-run`, because git vocabulary alone selected `git-status`/`git-diff`/`git-log` — none of which can see an issue, a review or a CI run. The `github-operator` agent declares no skills of its own and falls through to exactly this selection, so before this it was advertised for pull-request work while holding only local git reads.
 | `git-status` | ✅ Implemented | Show repository status |
 | `git-diff` | ✅ Implemented | Show repository diff (staged or against a ref) |
-| `git-commit` | ✅ Implemented | Create a commit with a message passed directly to git (no shell quoting needed); optional `stage_tracked` boolean runs `git add -u` first; allows up to 120 s for repository pre-commit hooks |
+| `git-commit` | ✅ Implemented | Create a commit with a message passed directly to git (no shell quoting needed); optional `paths` stages and exclusively commits up to 100 exact tracked/untracked workspace paths while preserving unrelated index entries and refusing broad/pathspec inputs; legacy `stage_tracked` runs `git add -u`; allows up to 120 s for repository pre-commit hooks |
 | `git-log` | ✅ Implemented | Query commit log with ref, filePath, and maxCount (capped at 100) |
-| `git-branch` | ✅ Implemented | List, create, switch, or delete branches with name validation |
+| `git-branch` | ✅ Implemented | List branches (optionally only those merged into a ref — the safe deletion candidates — or including remote-tracking refs), create, switch, or delete locally (`--delete`/`-D`) or on the remote (`git push --delete`); protected branches (main, master, production, release/*, hotfix/*) are refused for deletion, and flag-shaped names are rejected so a branch name can never become a git option |
+| `git-fetch` | ✅ Implemented | Download new commits and refs from a remote without touching the working tree; `--prune` drops remote-tracking refs whose branch was deleted — the first step of a branch cleanup. Classified `network-read`: it changes nothing a person is editing, but it does leave the machine |
+| `git-pull` | ✅ Implemented | Fetch and integrate remote changes; fast-forward-only by default so a routine sync can never invent a merge commit, with explicit `rebase` and `merge` modes for diverged history |
+| `git-merge` | ✅ Implemented | Merge a named branch into the current branch (optional `--no-ff` and message) or abort an in-progress merge; a conflict is reported with the exact conflicted files and both ways out |
+| `git-worktree` | ✅ Implemented | List, remove, or prune git worktrees — a linked worktree pins its branch, so branch cleanup runs through here. Removal only ever targets a worktree `git worktree list` itself names, never the main worktree; registered drive-letter/UNC paths stay absolute across automation hosts, relative paths follow the workspace root's syntax, and force cleanup on Windows can clear read-only attributes and delete the directory only inside the workspace root |
+| `git-stash` | ✅ Implemented | List, show, push (save), apply, pop, or drop stash entries; entries are addressed by a validated integer index (`stash@{n}` is constructed, never accepted as free text) |
 | `rollback-checkpoint` | ✅ Implemented | Restore the most recent automatic pre-write checkpoint |
 | `diagnostics` | ✅ Implemented | Retrieve compiler errors/warnings via the VS Code diagnostics API |
 | `code-symbols` | ✅ Implemented | AST-aware navigation: list symbols, find references, go to definition |
@@ -744,6 +753,13 @@ For each task, the orchestrator builds a context bundle containing:
 5. **Conversation history** — from the chat context.
 
 This bundle is sent to the selected model via the appropriate `ProviderAdapter`.
+
+Conversation context has its own correctness boundary before tool selection. The raw session transcript
+owns a persisted revision; a model-maintained `SessionContextBundle` carries the revision it summarized
+and is accepted only when it matches the snapshot being assembled. A missing or stale bundle grants no
+context authority and AtlasMind falls back to the current transcript. This validation changes neither the
+agent's skill ceiling nor tool approval: context can help select an eligible schema, but cannot authorize,
+elevate, or execute it.
 
 Current MVP behavior:
 - The context bundle is actively built and sent through the orchestrator.

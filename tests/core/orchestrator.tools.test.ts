@@ -4791,6 +4791,22 @@ describe('bounded reply sanitation and turn capabilities', () => {
     expect(isToolAllowedByTurnEnvelope('terminal-run', { command: 'git', args: ['status'] }, envelope)).toBe(false);
   });
 
+  it('does not mistake an approval-qualified Delivery guard for a blanket command ban', () => {
+    const envelope = deriveTurnCapabilityEnvelope(
+      'Resolve this non-green Delivery runbook step. Inspect the current workspace evidence, make the smallest safe change that turns the step green when possible, and explain any remaining manual action or blocker. Release, deployment, publication, and destructive operations remain subject to the normal approval flow.',
+    );
+
+    expect(envelope).toMatchObject({ writesAllowed: true, commandsAllowed: true });
+    expect(isToolAllowedByTurnEnvelope('git-commit', { message: 'fix: resolve runbook step' }, envelope)).toBe(true);
+    expect(isToolAllowedByTurnEnvelope('terminal-run', { command: 'git', args: ['status'] }, envelope)).toBe(true);
+  });
+
+  it('requires a broad command object before applying the no-command ceiling', () => {
+    expect(deriveTurnCapabilityEnvelope('Do not execute a release without approval.').commandsAllowed).toBe(true);
+    expect(deriveTurnCapabilityEnvelope('Do not execute terminal commands.').commandsAllowed).toBe(false);
+    expect(deriveTurnCapabilityEnvelope('Do not run scripts or processes.').commandsAllowed).toBe(false);
+  });
+
   it('groups ACP model and effort variants into one endpoint circuit', () => {
     expect(executionEndpointScope('acp/codex@gpt-5.5#medium', 'acp')).toBe('acp:codex');
     expect(executionEndpointScope('acp/codex@gpt-5.6#low', 'acp')).toBe('acp:codex');
@@ -5158,6 +5174,16 @@ describe('task-scoped skill context', () => {
     expect(selected).not.toContain('web-fetch');
   });
 
+  it('keeps git-commit callable for the host-authored dirty-tree resolution prompt', () => {
+    const selected = selectTaskScopedSkills(
+      { skills: [], skillPolicy: 'task-scoped' },
+      GIT_AND_DELIVERY_SKILLS.map(id => skill(id)),
+      'Resolve this non-green Delivery runbook step. For a dirty working tree, inspect every changed path first; if a commit is the smallest safe resolution, use git-commit with exact paths.',
+    ).map(item => item.id);
+
+    expect(selected).toEqual(expect.arrayContaining(['git-status', 'git-diff', 'git-commit']));
+  });
+
   it('requires both a promotion verb and a declared stage before treating a turn as delivery', () => {
     const select = (message: string, vocabulary?: typeof ATLASMIND_VOCABULARY): string[] =>
       selectTaskScopedSkills(
@@ -5190,6 +5216,47 @@ describe('task-scoped skill context', () => {
     ).map(item => item.id);
 
     expect(selected).toEqual(expect.arrayContaining(['git-commit', 'git-branch', 'git-push']));
+  });
+
+  const BRANCH_CLEANUP_SKILLS = [
+    ...GIT_AND_DELIVERY_SKILLS, 'git-worktree', 'git-fetch', 'git-pull', 'git-stash', 'git-merge',
+  ];
+
+  it('selects the whole branch-cleanup set for a cleanup request, including its typo', () => {
+    // The run that motivated this: "Can you clean up all old and unneccessary
+    // branches?" selected only git-branch, so pruning remote-tracking refs and
+    // removing the worktrees that pinned two of the branches ran as seventeen
+    // improvised terminal commands and stalled on the first locked worktree.
+    const select = (message: string): string[] => selectTaskScopedSkills(
+      { skills: [], skillPolicy: 'task-scoped' },
+      BRANCH_CLEANUP_SKILLS.map(id => skill(id)),
+      message,
+    ).map(item => item.id);
+
+    for (const message of [
+      'Can you clean up all old and unneccessary branches?',
+      'Can you clean up all old and unnecessary branches?',
+      'delete the stale branches',
+    ]) {
+      expect(select(message)).toEqual(expect.arrayContaining(['git-branch', 'git-fetch', 'git-worktree']));
+    }
+  });
+
+  it('selects the merge skill itself for integration flows, and per-word for the rest', () => {
+    const select = (message: string): string[] => selectTaskScopedSkills(
+      { skills: [], skillPolicy: 'task-scoped' },
+      BRANCH_CLEANUP_SKILLS.map(id => skill(id)),
+      message,
+    ).map(item => item.id);
+
+    expect(select('ok, merge to main then publish')).toContain('git-merge');
+    expect(select('remove the leftover worktrees from the repo')).toContain('git-worktree');
+    expect(select('stash my changes before switching branch')).toContain('git-stash');
+    expect(select('fetch and prune the remote branches')).toContain('git-fetch');
+    expect(select('pull the latest develop')).toEqual(expect.arrayContaining(['git-pull', 'git-fetch']));
+    // "pull request" is GitHub vocabulary: the deterministic per-word stage must
+    // not read it as a local pull, and the turn still gets the GitHub set.
+    expect(select('review my pull request checks')).toContain('terminal-run');
   });
 
   it('bundles the write tools for an integration flow without widening a plain commit', () => {

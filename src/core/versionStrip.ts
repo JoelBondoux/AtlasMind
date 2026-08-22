@@ -36,6 +36,8 @@
  * Pure and `vscode`-free.
  */
 
+import { channelForBranch, type VersioningPolicy } from './versioningPolicy.js';
+
 /** One stage of the delivery pipeline, as the dashboard already computes it. */
 export interface VersionStripStage {
   id: string;
@@ -59,6 +61,15 @@ export interface VersionStripInput {
   /** True when the working tree has uncommitted changes. */
   workingTreeDirty?: boolean;
   currentBranch: string;
+  /**
+   * The project's declared versioning policy, when there is one.
+   *
+   * Absent means undeclared, and an undeclared policy shows no channels at
+   * all rather than a guessed set. A pill saying `beta` on a project that
+   * never chose a channel model is a claim about how that project releases,
+   * made by the header, on no evidence.
+   */
+  policy?: VersioningPolicy;
   /** Used only by the fallback, when no pipeline is configured. */
   production?: { branch: string; version: string };
 }
@@ -73,6 +84,12 @@ export interface VersionStripPill {
   version?: string;
   /** Why there is no version, when there is none. */
   note?: string;
+  /**
+   * The release channel this branch produces, when a declared policy names
+   * one. Absent for a branch no channel matches, which is the ordinary case
+   * for a feature branch rather than a fault.
+   */
+  channel?: { id: string; label: string; distTag: string };
   /** The stage matching the checked-out branch, or the working tree itself. */
   isCurrent: boolean;
   /** Only ever true for the working-tree pill. */
@@ -121,6 +138,24 @@ export function buildVersionStrip(input: VersionStripInput): VersionStrip {
   return { pills, droppedByCap: all.length - pills.length, source: 'delivery' };
 }
 
+/**
+ * The channel a branch produces, or nothing. Reads the project's declared
+ * policy and never infers one from the branch name, so the header cannot
+ * claim a release model the project never adopted.
+ */
+function channelFor(
+  input: VersionStripInput,
+  branch: string,
+): { id: string; label: string; distTag: string } | undefined {
+  if (!input.policy || !branch) {
+    return undefined;
+  }
+  const channel = channelForBranch(input.policy, branch);
+  return channel === undefined
+    ? undefined
+    : { id: channel.id, label: channel.label, distTag: channel.distTag };
+}
+
 function toPill(stage: VersionStripStage, input: VersionStripInput): VersionStripPill {
   // No branch means the working tree — the one reading that comes from disk
   // rather than from git, and the one that can be ahead of everything else.
@@ -130,6 +165,9 @@ function toPill(stage: VersionStripStage, input: VersionStripInput): VersionStri
       label: stage.name,
       ref: 'working tree',
       version: input.workingVersion,
+      ...(channelFor(input, normalizeRef(input.currentBranch)) === undefined
+        ? {}
+        : { channel: channelFor(input, normalizeRef(input.currentBranch)) }),
       isCurrent: true,
       isWorkingTree: true,
       isDirty: input.workingTreeDirty === true,
@@ -162,6 +200,7 @@ function toPill(stage: VersionStripStage, input: VersionStripInput): VersionStri
     label: stage.name,
     ref,
     ...(known ? { version: stage.deployedVersion } : { note: `No \`package.json\` version on \`${ref}\`.` }),
+    ...(channelFor(input, ref) === undefined ? {} : { channel: channelFor(input, ref) }),
     isCurrent: stage.isCurrentBranch,
     isWorkingTree: false,
     isDirty: false,

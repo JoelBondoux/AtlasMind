@@ -1,7 +1,7 @@
 # Skills
 
 **A skill is a tool an agent can use.** Reading a file, running your tests, checking git status,
-fetching a URL, setting a breakpoint. AtlasMind ships **45 built-in skills**, and you can add your own
+fetching a URL, setting a breakpoint. AtlasMind ships **50 built-in skills**, and you can add your own
 or connect MCP servers for effectively unlimited extension.
 
 You mostly won't think about these directly. They matter when you want to know *what AtlasMind is able
@@ -27,13 +27,25 @@ to do*, or when you want to deliberately stop an agent doing something.
 | Skill | What it does |
 |-------|-------------|
 | `git-status` · `git-diff` · `git-log` | See where things stand |
-| `git-commit` | Commit, with the message passed straight to git (no quoting problems). Allows up to 120s for your pre-commit hooks |
+| `git-commit` | Commit, with the message passed straight to git (no quoting problems). It can stage and exclusively commit up to 100 exact tracked or untracked paths while preserving unrelated staged entries; `.`, traversal, absolute paths and wildcards are refused. Allows up to 120s for your pre-commit hooks |
 | `git-push` | Push, with a protected-branch guard that refuses force-pushes to main, master, production, release and hotfix branches |
-| `git-branch` | List, create, switch or delete branches |
+| `git-branch` | List branches (including only-merged-into-a-ref, the safe deletion candidates), create, switch, or delete — locally, force (`-D`), or on the remote. Refuses to delete protected branches |
+| `git-fetch` | Download new commits and refs, with `--prune` to drop remote-tracking refs whose branch is gone — the first step of a branch cleanup |
+| `git-pull` | Fetch and integrate, fast-forward-only by default so a routine sync can never invent a merge commit; rebase and merge modes are explicit choices |
+| `git-merge` | Merge a branch into the current one, or abort a conflicted merge. Conflicts are reported with the exact files and both ways out |
+| `git-worktree` | List, remove, or prune worktrees. A worktree pins its branch, so cleanup goes through here; removal only ever targets a worktree git itself lists, never the main one, and Git-reported drive-letter/UNC paths stay absolute across automation hosts |
+| `git-stash` | Set changes aside and bring them back: list, show, push, apply, pop, drop — entries addressed by validated index only |
 | `git-blame` | Who changed this line, when, and in which commit |
 | `git-apply-patch` | Apply a unified diff |
 | `diff-preview` | See what a change would do before it does it |
 | `rollback-checkpoint` | Undo back to the automatic snapshot taken before the last write |
+
+For commit preparation, prefer `git-commit`'s exact `paths` list. AtlasMind passes those paths after
+Git's `--` separator for staging and to `git commit --only`, shows the count in the approval summary,
+preserves unrelated entries already in the index, and stops if staging fails. The older
+`stage_tracked` switch remains for compatibility but stages every tracked modification with `git add -u`;
+it cannot be combined with exact paths. The GitHub Operator never recommends `git add .`, because a
+workspace-wide sweep can silently absorb unrelated work.
 
 ### Understanding your code
 

@@ -1049,7 +1049,9 @@ export async function prepareProjectRunContext(
 ): Promise<{ sessionContextBundle?: import('../types.js').SessionContextBundle; sessionContext: string }> {
   const configuration = vscode.workspace.getConfiguration('atlasmind');
   const sessionContextBundle = sessionId
-    ? await atlas.sessionContextManager?.loadContext(sessionId).catch(() => null) ?? null
+    ? await atlas.sessionContextManager
+      ?.loadContext(sessionId, atlas.sessionConversation.getRevision?.(sessionId) ?? 0)
+      .catch(() => null) ?? null
     : null;
   const sessionContext = sessionContextBundle
     ? ''

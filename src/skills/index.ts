@@ -33,6 +33,10 @@ import { dockerCliSkill } from './dockerCli.js';
 import { vscodeExtensionsSkill } from './vscodeExtensions.js';
 import { httpRequestSkill } from './httpRequest.js';
 import { gitPushSkill } from './gitPush.js';
+import { gitWorktreeSkill } from './gitWorktree.js';
+import { gitFetchSkill, gitPullSkill } from './gitSync.js';
+import { gitStashSkill } from './gitStash.js';
+import { gitMergeSkill } from './gitMerge.js';
 import { codeFormatSkill } from './codeFormat.js';
 import { npmScriptsSkill } from './npmScripts.js';
 import { logFileTailSkill } from './logFileTail.js';
@@ -90,6 +94,11 @@ export {
   vscodeExtensionsSkill,
   httpRequestSkill,
   gitPushSkill,
+  gitWorktreeSkill,
+  gitFetchSkill,
+  gitPullSkill,
+  gitStashSkill,
+  gitMergeSkill,
   codeFormatSkill,
 };
 
@@ -134,6 +143,11 @@ export function createBuiltinSkills(): SkillDefinition[] {
     withPanelPath(vscodeExtensionsSkill, 'VS Code'),
     withPanelPath(httpRequestSkill, 'Search & Fetch'),
     withPanelPath(gitPushSkill, 'Git & Review'),
+    withPanelPath(gitWorktreeSkill, 'Git & Review'),
+    withPanelPath(gitFetchSkill, 'Git & Review'),
+    withPanelPath(gitPullSkill, 'Git & Review'),
+    withPanelPath(gitStashSkill, 'Git & Review'),
+    withPanelPath(gitMergeSkill, 'Git & Review'),
     withPanelPath(codeFormatSkill, 'Code Intelligence'),
     withPanelPath(npmScriptsSkill, 'Execution & Testing'),
     withPanelPath(logFileTailSkill, 'Debugging'),

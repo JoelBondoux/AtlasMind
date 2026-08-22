@@ -40,6 +40,13 @@ placed to do it. If none of them fit, it builds a specialist for the job on the 
 | **DevOps Engineer** | CI/CD pipelines, Dockerfiles, Compose, Kubernetes, Terraform and Bicep |
 | **Dependency Manager** | Updates, vulnerability fixes, peer conflicts and lockfile hygiene |
 
+The **GitHub Operator** inspects status, the relevant diff, remotes, and project instructions before
+mutating repository state. Commit preparation passes the exact inspected paths—including intentional
+untracked files—to `git-commit`, which leaves unrelated pre-staged entries out of the commit; it never
+recommends `git add .` or invents a commit-message file.
+Branch, protected-target, versioning, documentation, and release rules remain project-specific, and
+every write keeps its normal approval boundary.
+
 ### Everything around the code
 
 | Agent | What it's good at |

@@ -125,6 +125,114 @@ gets the minimum evidence set, which forces it onto a model that can actually us
 matters, but it isn't absolute: critical, security, architectural and delivery-risk signals can still
 outrank something that just happens to sit near the top.
 
+That ordering answers *which item matters more*. It cannot answer *which item cannot start until another
+lands* — a different fact, and the one that decides whether a backlog can actually be built in the order
+it's written. The Roadmap page's **dependency canvas** holds it: draggable nodes carrying the item, its
+branch name, its deadline, the days left and an estimate, with arrows for what has to happen first.
+Press **Route** on any node to hide everything that isn't that item or a prerequisite of it — completed
+prerequisites included, because the route is how you got here — and see the outstanding days along it.
+
+Grab a card anywhere to drag it — its buttons and chips stay clicks. The mouse wheel pans the canvas
+(Shift pans sideways), and Ctrl+wheel — or a trackpad pinch — zooms about the cursor, so the point you
+are looking at stays put. Panning and zooming never redraw the page, and a drop lands immediately; the
+tree seats each item beside what it waits for, so arrows stay short instead of crossing the plan.
+
+**Click a card's body** and its neighbourhood lights up — the card, its direct prerequisites and
+dependents, and every arrow touching it — while everything else recedes. Escape or a click on empty
+canvas puts it back. **Search the plan** from the toolbar: only items whose text matches stay, plus
+everything connected to them — what they wait on, and what waits on them — with the rest hidden and
+the view re-fitted as you type. Both are ways of looking: nothing is sent, and nothing changes.
+
+**Every entry carries three Atlas pills — on the canvas card and on its backlog row alike.**
+
+- **Plan** files a dedicated plan document for the item under `roadmap/plans/` — created once as an
+  empty frame (Objective, Context, Approach, Steps, Verification, Completion criteria), never
+  overwritten — records its path against the item, and opens a chat where Atlas drafts it into the
+  file. The entry then shows a **plan** link: the item's filing record, one click from wherever you
+  see the item.
+- **Resolve** hands the work itself to Atlas in chat. When a plan has been filed, the hand-off says to
+  read and follow it — and to say so before deviating where reality disagrees.
+- **Completion check** asks Atlas whether the item is *actually* done, judged against the plan's
+  completion criteria and the code, and reports complete, incomplete, or not decidable — with the
+  evidence. It never ticks the item off: marking work done stays yours, informed by the report.
+
+A delivered entry keeps only the Completion check — there is nothing left to plan or resolve, but "is
+it really done?" is a question finished work still has to answer.
+
+Four controls arrange the canvas. **Fit all**, beside the zoom buttons, puts the whole plan on screen.
+**Snap to grid** lines a dragged node up with the auto-aligned ones. **Auto tree** lays the plan out as
+a tree and fits it on screen, with **→** and **↓** beside it choosing which way the tree runs. The
+layout reads locally by design: each prerequisite sits just before the first thing it unlocks, unrelated
+sub-plans are laid out as separate blocks so their arrows never cross each other, children settle under
+their parents (a chain draws as one straight line), and items with no links park in a compact block of
+their own rather than stretching the first row across the whole canvas. Arranging always re-fits: a
+re-flow moves every node while your pan and zoom stay put, so without the fit the whole result happens
+off-screen and the button reads as though it did nothing. It releases every node you've positioned by
+hand, so drag one again afterwards to pin it. And **Calculate tree**, the
+button carrying the AtlasMind mark, works the whole dependency tree out from the wording of your backlog
+and offers it in one go, behind a confirmation that says how many links it would add.
+
+**The tree is built from links you have accepted.** A suggestion is drawn dashed and deliberately moves
+no item and blocks none — an inference should not reorder your plan on its own. So a plan with nothing
+accepted has no order to draw, and its items are parked in a compact block with the dashed arrows
+overlaid — which can look like a missing layout and is not one. The canvas says so when you are in that
+state, and the banner that says so carries **Calculate tree** itself, so the way out is in the sentence
+that explains it. The suggestions toggle only shows and hides the dashed arrows; it
+carries the count so "showing" with nothing drawn is distinguishable from a control that failed.
+
+**Import a roadmap you already keep somewhere else.** **Import…** in the toolbar reads markdown files
+across a glob, GitHub issues, a GitHub Projects board, or a CSV/TSV export. You are asked which source,
+then for whatever it needs — a glob, a project number, or which spreadsheet column holds the item — and
+then shown exactly what would change before anything is written.
+
+Run it as often as you like. Each imported line records where it came from, so a second run updates what
+moved rather than duplicating everything, and a *first* import adopts items you already typed by hand
+instead of adding them twice. Nothing is ever deleted: an item the source has lost is reported and left
+where it is, because "dropped", "renamed" and "your glob stopped matching that file" look identical from
+here. And your own edits are safe — if you have retitled an item and the source has also changed it,
+you get a conflict showing both texts and nothing is written.
+
+**Four views, not three.** **Dependency canvas**, **Prioritised backlog**, **By person** and
+**Delivered**. By person shows the same outstanding work in one band per person, with each band still
+ordered by what has to happen first — so an arrow crossing between bands is one person waiting on
+another, which is the question the view exists to answer. Bands are ordered by name rather than by how
+much work is in them, so the picture does not reshuffle whenever somebody finishes something; unassigned
+comes last. Positions you dragged on the dependency canvas are ignored here and dragging is not offered:
+a coordinate means something in the arrangement it was set in and nothing in another one, and honouring
+it would drop a card into somebody else's lane.
+
+**Assign an item from its node editor.** The picker is drawn from your Project Director roster — add
+people there first. It is deliberately a different fact from "added by" and "completed by": those are
+history, and this is a plan. If somebody is later removed from the roster, work assigned to them is kept
+and labelled as such rather than folded into unassigned, because deleting a contact is not a statement
+that their work became nobody's.
+
+**Adding an item re-fits the canvas.** A new item is laid into the tree at the next free row of its
+level and would otherwise sit outside a viewport that never moved — indistinguishable from not having
+been added. Only genuine arrivals do this; redrawing the same plan leaves your pan alone.
+
+AtlasMind proposes links and applies none of them. Three declared rules produce suggestions: an item that
+*says* what it waits for ("after…", "depends on…"), two items sharing a subject where one is foundation
+work for the other, and two items sitting on different release gates. Each suggestion is drawn dashed and
+names the rule and the evidence behind it. It moves no column, blocks no node, can't contradict a link
+you drew, and can't make the plan circular — and it changes nothing until you accept it. Dismiss one and
+it stays dismissed.
+
+Estimates come from a published table rather than a model, with a per-item AI-assistance toggle, so the
+same backlog grades identically on two machines. Nodes are edited where they sit — name, branch,
+deadline, estimate — and the branch name follows a rename unless you override it.
+
+Completed items move to a **Delivered** canvas, laid out by month, keeping the links between pieces of
+work and recording when each landed and by whom. One exception: a completed item stays on the plan while
+something outstanding still depends on it, because removing it would make the dependent item look like it
+starts from nothing.
+
+The deadlines, positions and links live in `roadmap-graph.json` beside the plan, keyed on a durable id
+each backlog line carries as an invisible HTML comment — so renaming or reordering an item no longer
+loses its history. The ids are written automatically the first time the dashboard loads, so every item
+is ready to save against before you touch anything; graph records themselves are only created for items
+that actually gain data.
+
 ### Limits and rules
 
 - **Maximum 20 steps** per plan

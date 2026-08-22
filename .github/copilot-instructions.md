@@ -182,7 +182,7 @@ The GitHub Wiki is published from the `wiki/` directory. When any docs-level cha
 > Auto-generated from `project_memory/index/testing-config.json`. Do not edit by hand —
 > changes are overwritten on the next sync. Update the matrix in the AtlasMind Settings → Testing page instead.
 
-This project enforces **32** testing methodologies. When writing or verifying tests, follow the applicable protocols below and report the checks, assertions, or verification artifacts you produced before concluding.
+This project enforces **29** testing methodologies. When writing or verifying tests, follow the applicable protocols below and report the checks, assertions, or verification artifacts you produced before concluding.
 
 ### TDD
 
@@ -226,20 +226,6 @@ This project enforces **32** testing methodologies. When writing or verifying te
 - **Key tools:** GitHub Actions, GitLab CI, Jenkins, CircleCI, Azure DevOps, Buildkite, Husky / pre-commit hooks, Test Impact Analysis (Vitest, Jest)
 - **Primary owner:** Test Developer
 
-### End-to-End
-
-- **What:** Full user-flow simulation (Playwright, Cypress, etc.)
-- **When to apply:** Web and mobile applications with critical user journeys (checkout, login, onboarding). High confidence at the cost of speed.
-- **Key tools:** Playwright, Cypress, Puppeteer, WebdriverIO, Detox (mobile), Appium
-- **Primary owner:** Test Developer
-
-### Contract
-
-- **What:** Consumer-driven API contract verification (Pact)
-- **When to apply:** Microservice architectures where multiple teams own their own services. Consumers write the contract; providers verify it — eliminating integration environment dependency.
-- **Key tools:** Pact (JS, Java, Go, .NET, Ruby, Python), Spring Cloud Contract, Dredd
-- **Primary owner:** Test Developer
-
 ### Security
 
 - **What:** SAST / DAST and dependency vulnerability scanning
@@ -280,13 +266,6 @@ This project enforces **32** testing methodologies. When writing or verifying te
 - **What:** Asserts a value survives every round trip between its representations
 - **When to apply:** Anywhere one value has several forms — JSON and a database row, a domain object and its DTO, markdown and its parsed AST, a display string and the number behind it. Serialization asymmetry is the classic silent corruption: it writes fine, reads back subtly different, and nothing fails until much later.
 - **Key tools:** fast-check / Hypothesis round-trip properties, snapshot fixtures, JSON Schema validation, protobuf/Avro conformance suites
-- **Primary owner:** Test Developer
-
-### Cross-Version Parity
-
-- **What:** Asserts a new version still answers old inputs the way the old version did
-- **When to apply:** Libraries, APIs and file formats with existing consumers. Distinct from compatibility testing: this replays *real recorded behaviour* from the previous version rather than checking a declared contract, so it catches the change nobody documented.
-- **Key tools:** Golden/approval files, recorded request-response fixtures, API diffing (oasdiff, openapi-diff), semantic-release + api-extractor, Pact provider verification against prior consumer versions
 - **Primary owner:** Test Developer
 
 ### Semantic Constraint Testing
@@ -403,7 +382,7 @@ This project enforces **32** testing methodologies. When writing or verifying te
 - **Key tools:** Redaction-boundary tests, prompt-payload inspection, tenant-isolation tests over retrieval, training-opt-out verification, memory-retention window tests, provider zero-retention configuration checks
 - **Primary owner:** Test Developer
 
-<!-- atlasmind:source-digest:23ac6df8145d990b -->
+<!-- atlasmind:source-digest:37ef1eb421aeb50d -->
 <!-- atlasmind:testing-protocols:end -->
 
 <!-- atlasmind:debt-markers:start -->
@@ -447,13 +426,13 @@ reading it. Where a rule and convenience conflict, follow the rule and say that 
 
 ### How far you may go, by stage
 
-The operator's ceiling is `auto`. A stage asking for more than that gets the ceiling, and the levels below already have it applied — they are what is actually permitted.
+The operator's ceiling is `propose`. A stage asking for more than that gets the ceiling, and the levels below already have it applied — they are what is actually permitted.
 
 | Stage | Permitted | What that means for you |
 |---|---|---|
 | Planning & issue intake | `observe` | Report what you find. Do not create, modify or close anything. |
-| Branch creation & naming | `auto` | You may complete this stage without asking, within the rules above. |
-| Local development | `auto` | You may complete this stage without asking, within the rules above. |
+| Branch creation & naming | `propose` | Open it for review and wait for a human decision before it lands. |
+| Local development | `propose` | Open it for review and wait for a human decision before it lands. |
 | Pull requests & review | `observe` | Report what you find. Do not create, modify or close anything. |
 | CI & failure analysis | `observe` | Report what you find. Do not create, modify or close anything. |
 | Release | `observe` | Report what you find. Do not create, modify or close anything. |

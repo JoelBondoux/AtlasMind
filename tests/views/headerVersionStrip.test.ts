@@ -61,3 +61,30 @@ describe('the header reads the delivery pipeline', () => {
     expect(body).toContain('no version');
   });
 });
+
+/**
+ * A channel chip is a claim about how a project releases. It has to come from
+ * something the project declared, or the header is asserting a release process
+ * on the project's behalf — the same failure the "no version" placeholder
+ * exists to avoid one column over.
+ */
+describe('the header names the release channel a branch produces', () => {
+  it('takes the policy from the committed workflow file, never from a guess', () => {
+    expect(panel).toContain('workflowConfigManager?.getConfig()?.versioning === undefined');
+    expect(panel).toContain('policy: workflowConfigManager!.getConfig()!.versioning!');
+  });
+
+  it('renders a chip only when the pill carries a channel', () => {
+    const start = webview.indexOf('function renderVersionPill(pill)');
+    const body = webview.slice(start, webview.indexOf('function renderOverview(snapshot)', start));
+    expect(body).toContain('pill.channel');
+    expect(body).toContain('dashboard-version-pill-channel');
+    // The falsy branch renders nothing at all — not a placeholder, and not a
+    // default channel name.
+    expect(body).toMatch(/pill\.channel[\s\S]*?:\s*'';/);
+  });
+
+  it('styles the chip', () => {
+    expect(panel).toContain('.dashboard-version-pill-channel {');
+  });
+});

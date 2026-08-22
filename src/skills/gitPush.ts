@@ -1,9 +1,9 @@
 import type { SkillDefinition } from '../types.js';
 
-/** Branches that are always protected from force-pushes. */
+/** Branches that are always protected from force-pushes and deletion. */
 const PROTECTED_BRANCHES = new Set(['main', 'master', 'production', 'prod', 'release', 'stable']);
 
-function isProtectedBranch(name: string): boolean {
+export function isProtectedBranch(name: string): boolean {
   const lower = name.toLowerCase().trim();
   return PROTECTED_BRANCHES.has(lower) || lower.startsWith('release/') || lower.startsWith('hotfix/');
 }

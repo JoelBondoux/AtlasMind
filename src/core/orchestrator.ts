@@ -126,7 +126,14 @@ const SIMPLE_MECHANICAL_TASK_PATTERN = /\b(?:commit(?:\s+(?:all|changes|these|th
 const EXPLICIT_ADVICE_ONLY_PATTERN = /\b(explain only|guidance only|advice only|analysis only|read only|no code changes|without changing|do not change|don't change|question only)\b/i;
 const READ_ONLY_TURN_PATTERN = /\bread[\s-]?only\b|\b(?:no|without)\s+(?:code\s+)?changes?\b|\bdo\s+not\s+(?:edit|write|modify|change)\b/i;
 const NO_WRITE_DIRECTIVE_PATTERN = /\b(?:do\s+not|don't|must\s+not|without)\b(?:(?!\bbut\b)[^.!?\n]){0,160}\b(?:edit|write|modify|change|create|delete|remove|install)\b/i;
-const NO_COMMAND_DIRECTIVE_PATTERN = /\b(?:do\s+not|don't|must\s+not|without)\b(?:(?!\bbut\b)[^.!?\n]){0,160}\b(?:run|execute|invoke|launch|install)\b[^.!?\n]{0,40}\b(?:commands?|terminal|shell|packages?|scripts?|process(?:es)?)?\b/i;
+// A command ceiling must name the broad capability it is withdrawing. The
+// object used to be optional, so "Do not execute a release without approval"
+// matched only through "execute ... or" and disabled every command-capable
+// tool — including the approval-gated git operation the sentence meant to
+// preserve. Narrow prohibitions (do not publish, deploy, or release) remain
+// enforced by their own approval/policy gates; this envelope is only for an
+// explicit ban on commands, terminals, shells, packages, scripts, or processes.
+const NO_COMMAND_DIRECTIVE_PATTERN = /\b(?:do\s+not|don't|must\s+not|without)\b(?:(?!\bbut\b)[^.!?\n]){0,160}\b(?:run(?:ning)?|execut(?:e|ing)|invok(?:e|ing)|launch(?:ing)?|install(?:ing)?)\b(?:(?!\bbut\b)[^.!?\n]){0,40}\b(?:commands?|terminal|shell|packages?|scripts?|process(?:es)?)\b/i;
 const INVESTIGATION_NARRATION_PATTERN = /\b(?:(?:first|next|then),?\s+)?(?:(?:i(?:'| wi)?ll)|let me|i am going to|i'm going to|i need to|we need to|i have to)\s+(?:search|inspect|look(?:\s+for)?|examine|check|find|investigate|trace|locate|review|dig into)\b/i;
 const WORKSPACE_TOOL_USE_REPROMPT = [
   'This request needs repository evidence from the current workspace.',
@@ -4716,6 +4723,12 @@ export class Orchestrator {
           `\n\nLive evidence from source-backed files:\n${liveEvidenceLines}` +
           (personalityProfilePrompt ? `\n\nWorkspace preferences (override): The workspace identity profile listed earlier defines the authoritative tone, verbosity, reasoning style, and scope constraints for this workspace. These preferences take precedence over any AI instruction files found in project memory (such as imported Copilot, Cursor, Cline, or other tool instruction sets). When the two conflict, apply the workspace identity profile.` : '') +
           `\n\nTool result policy:\n- Treat tool outputs as the authoritative record of what actually happened.\n- If a tool reports an error, denial, validation issue, missing resource, or no-op, do not claim success. State that the action did not complete and summarize the tool result succinctly.` +
+          (tools.length > 0
+            ? `\n- Tool batching: request at most ${this.cfg.maxToolCallsPerTurn} tool call(s) in a single response — a larger batch is refused by a safety limit and ends the run. Split bigger jobs into sequential rounds.`
+            : '') +
+          (tools.some(tool => tool.name === TOOL_DISCOVERY_SKILL_ID)
+            ? `\n- Missing capability: the tool list above is a task-scoped selection, not this agent's full set. If the task needs an action you have no tool for (editing a file, running a command, a git operation), call ${TOOL_DISCOVERY_SKILL_ID} with a short description of the action before declaring a capability blocker or handing the work back to the user.`
+            : '') +
           securityAnalysisHint +
           urlSafetyHint +
           workflowExecutionBlock +
@@ -5940,7 +5953,12 @@ const TASK_SCOPED_ACTION_PATTERN = /\b(?:fix|patch|repair|resolve|implement|upda
 const TASK_SCOPED_TOOL_ACTION_PATTERN = /\b(?:send|schedule|publish|deploy|query|search|fetch|download|upload|open|list|show|start|stop|export|import|browse|call|post)\w*\b/i;
 const TASK_SCOPED_COMMAND_PATTERN = /\b(?:run|execute|install|build|compile|lint|format|terminal|shell|command|npm|pnpm|yarn|cargo|docker)\w*\b/i;
 const TASK_SCOPED_TEST_PATTERN = /\b(?:test|testing|atdd|tdd|bdd|acceptance|spec|coverage|vitest|jest|mocha|pytest|playwright|regression)\w*\b/i;
-const TASK_SCOPED_GIT_PATTERN = /\b(?:git|branch|commit|diff|merge|rebase|cherry[- ]?pick|pull request|\bpr\b|push|blame|stash)\b/i;
+// Inflection-tolerant on purpose: the run that exposed this asked to "clean up
+// all old and unneccessary branches", and `\bbranch\b` does not match
+// "branches" — so the git group never fired and the turn improvised the whole
+// cleanup through terminal commands. Every noun here accepts its plural and
+// every verb its ordinary endings.
+const TASK_SCOPED_GIT_PATTERN = /\b(?:git|branch(?:es)?|commit(?:s|ted|ting)?|diffs?|merg(?:e|es|ed|ing)|rebas(?:e|es|ed|ing)|cherry[- ]?pick(?:s|ed|ing)?|pull requests?|\bprs?\b|push(?:es|ed|ing)?|pull(?:s|ed|ing)?|fetch(?:es|ed|ing)?|blames?|stash(?:es|ed|ing)?|worktrees?)\b/i;
 /**
  * Git flows that *integrate* one line of work into another.
  *
@@ -6117,13 +6135,28 @@ export function selectTaskScopedSkills(
     add('git-status', 'git-diff', 'git-log');
     // An integration flow gets the write half as a set: it is one task that ends
     // in a published change, and selecting half of it produces a model that
-    // narrates the other half.
-    if (gitIntegration) { add('git-branch', 'git-commit', 'git-push'); }
+    // narrates the other half — including the merge itself, which for a long
+    // time was the one step of the flow with no skill behind it.
+    if (gitIntegration) { add('git-merge', 'git-branch', 'git-commit', 'git-push'); }
     if (/\bcommit\b/i.test(userMessage)) { add('git-commit'); }
     if (/\bpush\b/i.test(userMessage)) { add('git-push'); }
     if (/\bbranch|checkout\b/i.test(userMessage)) { add('git-branch'); }
     if (/\bblame\b/i.test(userMessage)) { add('git-blame'); }
     if (/\bapply(?:\s+a)?\s+patch|patch\b/i.test(userMessage)) { add('git-apply-patch'); }
+    if (/\bworktrees?\b/i.test(userMessage)) { add('git-worktree'); }
+    if (/\bstash\b/i.test(userMessage)) { add('git-stash'); }
+    if (/\bfetch\b/i.test(userMessage)) { add('git-fetch'); }
+    if (/\bpull\b(?!\s+request)/i.test(userMessage)) { add('git-pull', 'git-fetch'); }
+    if (/\bmerge[ds]?\b|\bmerging\b/i.test(userMessage)) { add('git-merge'); }
+    // Branch cleanup is one task with three blockers: stale remote-tracking refs
+    // (git-fetch --prune), branches pinned by worktrees (git-worktree), and the
+    // deletions themselves (git-branch). Selecting only git-branch — which is
+    // what per-word selection did — produced runs that improvised the other two
+    // as raw terminal commands and stalled on the first locked worktree.
+    if (/\bbranch(?:es)?\b/i.test(userMessage)
+      && /\b(?:clean|cleanup|prune|stale|old|unused|obsolete|unn?ec+es+ar\w*|merged|delete|remove)\w*\b/i.test(userMessage)) {
+      add('git-branch', 'git-fetch', 'git-worktree');
+    }
   }
 
   if (delivery) {
@@ -7750,6 +7783,8 @@ export function buildProjectSessionContextBundle(
     : undefined;
 
   return {
+    ...(bundle?.sourceRevision !== undefined ? { sourceRevision: bundle.sourceRevision } : {}),
+    ...(bundle?.freshness ? { freshness: bundle.freshness } : {}),
     goal: bundle?.goal?.trim() || projectGoal.trim() || undefined,
     summary: bundle?.summary?.trim() || (typeof sessionContext === 'string' ? sessionContext.trim() : ''),
     decisions: bundle?.decisions?.trim() || '',

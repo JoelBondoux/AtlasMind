@@ -123,6 +123,8 @@ export interface SessionConversationRecord {
   title: string;
   createdAt: string;
   updatedAt: string;
+  /** Monotonic version of the context-bearing transcript content. */
+  revision: number;
   archivedAt?: string;
   folderId?: string;
   entries: SessionTranscriptEntry[];
@@ -238,6 +240,11 @@ export class SessionConversation {
 
   getActiveSessionId(): string {
     return this.activeSessionId;
+  }
+
+  /** Revision of the transcript snapshot used to validate derived session context. */
+  getRevision(sessionId = this.activeSessionId): number {
+    return this.getMutableSession(sessionId)?.revision ?? 0;
   }
 
   getActiveSession(): SessionConversationRecord {
@@ -432,7 +439,11 @@ export class SessionConversation {
       return;
     }
 
+    const hadEntries = session.entries.length > 0;
     session.entries = [];
+    if (hadEntries) {
+      advanceRevision(session);
+    }
     session.title = DEFAULT_SESSION_TITLE;
     session.updatedAt = new Date().toISOString();
     this.persist();
@@ -445,6 +456,7 @@ export class SessionConversation {
     const idx = session.entries.findIndex(e => e.id === entryId);
     if (idx === -1) return false;
     session.entries.splice(idx, 1);
+    advanceRevision(session);
     session.updatedAt = new Date().toISOString();
     this.persist();
     this.onDidChangeEmitter.fire();
@@ -478,6 +490,7 @@ export class SessionConversation {
       return 0;
     }
     session.entries.length = index + 1;
+    advanceRevision(session);
     session.updatedAt = new Date().toISOString();
     this.persist();
     this.onDidChangeEmitter.fire();
@@ -550,6 +563,7 @@ export class SessionConversation {
       relevanceWeight,
     };
     session.entries.push(entry);
+    advanceRevision(session);
     touchSession(session, content, role);
     this.persist();
     this.onDidChangeEmitter.fire();
@@ -576,6 +590,7 @@ export class SessionConversation {
     if (meta) {
       entry.meta = cloneMetadata(meta);
     }
+    advanceRevision(session);
     touchSession(session, content, entry.role);
     this.persist();
     this.onDidChangeEmitter.fire();
@@ -851,6 +866,7 @@ function createSessionRecord(title?: string): SessionConversationRecord {
     title: title && title.length > 0 ? title : DEFAULT_SESSION_TITLE,
     createdAt: timestamp,
     updatedAt: timestamp,
+    revision: 0,
     entries: [],
   };
 }
@@ -872,6 +888,10 @@ function touchSession(session: SessionConversationRecord, content: string, role:
   }
 }
 
+function advanceRevision(session: SessionConversationRecord): void {
+  session.revision += 1;
+}
+
 function touchFolder(folderId: string, folders: SessionFolderRecord[]): void {
   const folder = folders.find(candidate => candidate.id === folderId);
   if (folder) {
@@ -890,6 +910,9 @@ function buildPreview(session: SessionConversationRecord): string {
 function cloneSession(session: SessionConversationRecord): SessionConversationRecord {
   return {
     ...session,
+    // Sessions written before revisioned context shipped are the initial
+    // revision. Their unversioned derived bundles are rejected independently.
+    revision: normalizeRevision((session as { revision?: unknown }).revision),
     entries: session.entries.map(entry => ({
       ...entry,
       ...(entry.meta ? { meta: cloneMetadata(entry.meta) } : {}),
@@ -955,10 +978,15 @@ function isSessionConversationRecord(value: unknown): value is SessionConversati
     && typeof candidate['title'] === 'string'
     && typeof candidate['createdAt'] === 'string'
     && typeof candidate['updatedAt'] === 'string'
+    && (candidate['revision'] === undefined || normalizeRevision(candidate['revision']) === candidate['revision'])
     && (candidate['archivedAt'] === undefined || typeof candidate['archivedAt'] === 'string')
     && (candidate['folderId'] === undefined || typeof candidate['folderId'] === 'string')
     && Array.isArray(candidate['entries'])
     && candidate['entries'].every(isSessionTranscriptEntry);
+}
+
+function normalizeRevision(value: unknown): number {
+  return Number.isSafeInteger(value) && (value as number) >= 0 ? value as number : 0;
 }
 
 function isSessionFolderRecord(value: unknown): value is SessionFolderRecord {

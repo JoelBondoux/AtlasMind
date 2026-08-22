@@ -4,7 +4,7 @@
 
 <h1 align="center">AtlasMind</h1>
 
-<p align="center"><sub> · <strong>Current source version: 0.369.3</strong> · </sub></p>
+<p align="center"><sub> · <strong>Current source version: 0.382.5</strong> · </sub></p>
 
 
 <p align="center">
@@ -127,11 +127,168 @@ Full detail in the [Security model](wiki/Security.md) and [Tool Execution](wiki/
 
 ---
 
-## What's new in 0.369.3
+## What's new in 0.382.5
 
-The last Marketplace publication, **v0.369.0**, is the baseline — everything below is in it. The full
+- **Worktree cleanup is portable without weakening its safety boundary.** Git-reported drive-letter and
+  UNC paths stay absolute even when AtlasMind is running on a POSIX automation host, and relative paths
+  follow the workspace root's path syntax. A registered Windows worktree is no longer misclassified as
+  an unrelated path by Linux or macOS release checks.
+
+## What's new in 0.382.4
+
+- **Cleared or rewritten chat history cannot survive in AtlasMind's rolling context.** Each session now
+  carries a persisted transcript revision, and every derived context bundle records the revision it
+  summarizes. A mismatch is refused and the current raw transcript is used instead.
+
+- **Context invalidation is ordered, not best-effort.** Clear, Delete Message, Delete Session, New Chat,
+  Edit, and Regenerate wait for older maintenance before removing its artifacts. A delayed summarizer
+  cannot recreate a stale context directory after the destructive action completes.
+
+## What's new in 0.382.3
+
+- **The next Chat reliability programme is approved and bounded.** The implementation plan makes
+  transcript revision the context authority, converges the dedicated and native chat paths, and evolves
+  the existing heuristic selector plus `find-tool` loop into a model-budget-aware capability broker.
+  Installed external capabilities remain deny-by-default and require explicit one-turn elevation.
+
+- **Success is measurable before implementation begins.** The plan sets gates for stale context, lost
+  turns, capability recall, schema-token reduction, authorization escapes, keyboard access, and the live
+  stress battery. See the [Chat reliability and capability broker plan](docs/chat-reliability-capability-broker-plan.md).
+
+## What's new in 0.382.2
+
+- **Delivery chat keeps the Git facts it asks Atlas to resolve.** Opening a non-green working-tree
+  step now rechecks the live repository instead of rebuilding the runbook with cleanliness marked
+  unavailable. Approval-qualified release wording no longer disables every command-capable Git tool.
+
+- **Commits can stage and commit exact paths, including intentional untracked files.** `git-commit`
+  accepts a bounded path list, leaves unrelated pre-staged changes out of the commit, refuses `.`,
+  traversal, absolute paths and pathspec wildcards, and names that scope in the approval summary.
+  The GitHub Operator is explicitly barred from recommending `git add .` or inventing a
+  commit-message file it did not inspect.
+
+## What's new in 0.382.1
+
+- **Roadmap and workflow artifacts are synchronized.** The project memory records and roadmap graph
+  metadata are regenerated so existing backlog entries and roadmap links stay consistent with the latest
+  source updates and execution history.
+
+- **Roadmap backlog text remains the SSOT source for this cycle,** with updated priorities and
+  dependencies tracked in canvas-facing metadata.
+
+## What's new in 0.382.0
+
+The last Marketplace publication, **v0.369.3**, is the baseline — everything below is in it. The full
 history is in [CHANGELOG.md](CHANGELOG.md).
 
+- **The dependency canvas is readable when it is dense.** Click a card's body and its neighbourhood
+  lights up while everything else recedes; a toolbar search shows only matching items plus everything
+  connected to them; fans of edges spread across each node's face instead of arriving as one knot;
+  edges are quieter by default and layers get more air.
+- **The dependency canvas lays out as a readable tree.** A compact, deterministic Sugiyama pipeline
+  replaces the naive pass: prerequisites sit just before what they unlock instead of piling into one
+  giant first row, unrelated sub-plans lay out as separate blocks whose edges never cross each other,
+  crossings are swept out, children settle under their parents so chains draw as straight lines, and
+  unlinked items park in a compact block of their own.
+- **Every canvas action now actually reaches the host.** Fifteen roadmap messages — drags, saves,
+  links, Calculate tree, the Atlas pills, the register hand-offs — were being silently dropped by the
+  dashboard's message gate, which knew nothing about them. All are now admitted with proper shape
+  checks, a dropped message reports itself instead of vanishing, and a parity test pins the message
+  union, the handler switch and the gate to one list so this class of dead button cannot ship again.
+- **Saving a roadmap node works, and the roadmap wires itself up on first load.** The canvas and the
+  save path could resolve an item to two different ids when its line had no hidden anchor yet, and
+  every save against it missed silently. Both now resolve through one shared function; a save that
+  still cannot land says so and refreshes the canvas; and the hidden per-line ids are written once
+  when the dashboard loads instead of on your first change, so every item is durable before you touch
+  anything.
+- **Every roadmap entry carries three Atlas pills, and files its plan.** **Plan** creates a dedicated
+  plan document under `roadmap/plans/` (a deterministic scaffold, created once, never overwritten),
+  links it to the item as its filing record, and hands the drafting to Atlas in chat. **Resolve**
+  hands the work over, following the filed plan when there is one. **Completion check** reports —
+  with evidence — whether the item is actually done, and never ticks it off: marking work complete
+  stays a human act. The pills sit on the canvas cards and the backlog rows alike; a delivered entry
+  keeps only the check.
+- **The roadmap canvas responds like a canvas.** Pan, zoom and fit apply straight to the view instead
+  of rebuilding the whole dashboard per wheel tick; a drag-drop redraws in tens of milliseconds rather
+  than recollecting every page; zoom anchors at the cursor; a plain wheel pans instead of scrolling the
+  canvas away; the whole card drags, not just its title bar. The tree itself got readable: siblings sit
+  beside what they wait for, rows no longer overlap chip-heavy cards, arrows anchor to each card's real
+  height, and the one-column "nothing linked yet" state offers **Calculate tree** in the banner that
+  explains it. A background refresh can no longer eat a drag in flight.
+- **Say how you version, and the dashboard reads it.** A project with several branches has one release
+  line, not one number per branch — but AtlasMind only ever knew the manifest's, so every delivery stage
+  reported whatever that branch's copy said. A `versioning` block in the workflow file now declares a
+  scheme, where the number comes from, and what each branch produces: `develop` making `1.5.0-beta.3`,
+  `main` making `1.5.0`, the same line at two points on its way out. The Release page shows what the
+  current branch would produce next and the rule that decided it; the header names each branch's channel.
+  Nothing is assumed — a project that has declared nothing is told so and shown what would be suggested,
+  and nothing here writes, tags or publishes a version.
+- **The dashboard tells you when it has stopped being connected.** A webview outlives the extension
+  object that answers it, so after an update or a host restart the Project Dashboard could come back
+  looking perfectly healthy and be inert — hover worked, moving between pages worked, and every button
+  posted into nothing. It is now re-attached to a live host when VS Code restores it, and if a request
+  goes unanswered the Refresh spinner stops and a banner says what happened and how to get out of it.
+- **Gaps, debt and risks can become work.** Every finding in all three registers now carries **Add to
+  roadmap** and **Raise as issue**. Both are derived rather than typed — you see the exact line before
+  anything is written, and an issue draft opens in the composer where your confirmation is still the
+  only thing that posts it. A raised item says where it came from and routes back; the register says
+  "on the roadmap" rather than letting you raise the same finding twice.
+- **Arranging the canvas.** **Fit all** beside the zoom controls puts the whole plan on screen.
+  **Snap to grid** lines a dragged node up with the auto-aligned ones. **Auto tree** lays the plan out
+  as a tree and fits it on screen, with **→** and **↓** beside it choosing which way the tree runs —
+  releasing hand-placed positions rather than freezing this moment's arrangement, so the next item added
+  lands in its own column. Arranging always re-fits, and so does adding an item: a re-flow moves every
+  node while your pan stays put, so without the fit the result happens off-screen. And **Calculate
+  tree**, carrying the AtlasMind mark, works the whole dependency tree out from the wording of your
+  backlog and offers it behind one confirmation that says how many links it would add — which is the
+  control that actually builds the tree, because a suggestion is drawn dashed and deliberately moves no
+  item until you accept it.
+- **Bring the roadmap you already have.** **Import…** on the Roadmap page reads a plan from markdown
+  files across a glob, GitHub issues, a GitHub Projects board, or a CSV/TSV export. It imports rather
+  than mirrors, and it is re-runnable: each line records where it came from, so a second run updates
+  what moved instead of duplicating everything — and a first import *adopts* items you already typed by
+  hand rather than adding them twice. Nothing is ever deleted; an item the source has lost is reported
+  and left alone. Your edits are never overwritten — when both sides have changed you get a conflict
+  showing both texts and nothing is written. The confirmation names what would be added, retitled, left
+  alone and skipped before anything happens.
+- **The roadmap can say whose work it is.** Assign an item from its node editor, from your Project
+  Director roster, and switch to the **By person** view: the same outstanding work in one band per
+  person, each band still ordered by what has to happen first, so an arrow crossing bands is one person
+  waiting on another. Assignment is deliberately separate from who raised the item and who finished it —
+  those are history, this is a plan. Work assigned to somebody later removed from the roster is kept and
+  labelled, never quietly reassigned to nobody.
+- **The Roadmap is a dependency canvas, not just a list.** A list can say which item matters more; it
+  cannot say which one *cannot start* until another lands. The Roadmap page now opens on a draggable
+  graph — nodes carrying the item, its branch name, its deadline, the days left and an estimate; arrows
+  carrying what has to happen first. **Route** on any node hides everything that is not that item or a
+  prerequisite of it, and says how many days of work are left on that route. The prioritised backlog is
+  unchanged and still the only place drag-reorder sets Atlas's next-work weighting.
+- **Atlas proposes the links and applies none of them.** Three declared rules produce **suggestions**,
+  drawn dashed, each naming the rule and the evidence behind it. A suggestion moves no column, blocks no
+  node, cannot contradict a link you drew, and cannot make the plan circular — and changes nothing until
+  you accept it. Dismissing one is remembered.
+- **Estimates come from a published table, never a model,** with a per-node AI-assistance toggle. The
+  same backlog grades identically on two machines, which is what makes an estimate on a committed plan
+  worth comparing.
+- **Delivered work gets its own canvas** — laid out by month, keeping the links between pieces of work,
+  recording when each landed and by whom. Completed work stays on the plan only while something
+  outstanding still depends on it.
+- **Agents hold the whole local git lifecycle as real skills.** Five new built-ins — `git-worktree`,
+  `git-fetch`, `git-pull`, `git-merge`, `git-stash` — plus a `git-branch` that can list merged-only
+  candidates and delete locally, force, or on the remote (protected branches refused). Previously a
+  branch cleanup ran as seventeen improvised terminal commands and stalled on a locked worktree;
+  worktree removal now knows the Windows read-only/OneDrive failure mode and only ever targets a
+  worktree git itself lists.
+- **Git requests select git tools reliably.** The intent pattern now matches inflected words
+  ("branches", "merged", "pushing"), integration flows select `git-merge` itself, and a cleanup
+  request selects `git-branch` + `git-fetch` + `git-worktree` together. Local git skills are graded
+  by what they do (argument-aware), instead of falling through to a `network`-risk "external tool"
+  grade that blocked read-only turns and confused approval dialogs.
+- **Two observed failure modes closed at the prompt.** Models are told the per-turn tool-call ceiling
+  before they hit it (a run died requesting 9 tools against a limit of 8 it was never told about),
+  and told that the visible tool list is a task-scoped selection — call `find-tool` before declaring
+  a capability blocker, which is exactly how a gap-analysis run wrongly concluded it could not edit
+  files.
 - **The local CI queue command is findable when you need it.** The borrowed-machine drawer on
   Pipeline → Rules closed the moment the machine read ready — exactly the state the setup journey
   sends you there in, looking for the queue command inside it. It now stays open, with the
@@ -480,6 +637,10 @@ history is in [CHANGELOG.md](CHANGELOG.md).
   AtlasMind guesses which ones your request needs — and when the guess was wrong the assistant quietly
   worked around the gap. It can now ask for what it needs, limited to what your agent may already use and
   still subject to every approval.
+
+  The approved [Chat reliability and capability broker plan](docs/chat-reliability-capability-broker-plan.md)
+  evolves this into model-budget-aware heuristic preloading, deferred discovery, and explicit one-turn
+  elevation without sending every schema on every request.
 
 - **Turning a subscription agent off actually turns it off.** The Models tree could say "model disabled"
   while every turn still routed to it, surviving a reload — the switch touched the agent's base entry
@@ -951,7 +1112,8 @@ history is in [CHANGELOG.md](CHANGELOG.md).
 
   Every command has a **copy** icon and a **send to terminal** icon, and each column has a **▶ Run**
   button for the whole phase. Refreshing the page still runs nothing. Send-to-terminal deliberately
-  does not press Enter, so your own keystroke stays the last gate on a single command; running a column
+  does not press Enter — it moves focus to the terminal instead, so your own keystroke stays the last
+  gate on a single command and is the very next one available; running a column
   opens a confirmation that names every command in order, marks the ones that leave your machine, and
   says whether a failure will stop the rest — it will not on shells without `&&`, which is precisely
   the case where a failed test would otherwise be followed by a publish.
@@ -1182,7 +1344,7 @@ Highlights from the last few releases. Everything here is already in the publish
 | | |
 |---|---|
 | **A team of specialists** | 27 built-in agents — debugger, frontend, backend, reviewer, security, testing, docs, performance, DevOps, dependencies, SEO, UX, release and CI, plus ethics, legal, commercial and market oversight. Add your own. |
-| **45 built-in skills** | File edits, git, terminal, Docker, test runners, code navigation, debugging, web fetch, and more. Extend with your own or connect MCP servers. |
+| **50 built-in skills** | File edits, the full local git lifecycle (branches, worktrees, fetch/pull, merge, stash), terminal, Docker, test runners, code navigation, debugging, web fetch, and more. Extend with your own or connect MCP servers. |
 | **Smart model routing** | Cloud, local, or your existing subscription — chosen per task by fit, cost, speed, health, and past results. |
 | **Project memory** | Architecture, decisions, roadmap, lessons and operations kept as readable Markdown in your repo, retrieved when relevant. |
 | **A guided GitHub workflow** | Ideation → issues → branches → development → pull requests → CI → release → tech debt, each with its own automation level from *watch* to *act*. |
@@ -1264,7 +1426,7 @@ All 142 settings are documented in the [Configuration reference](wiki/Configurat
 
 | Path | What's in it |
 |---|---|
-| `src/core/` | Orchestration, routing, planning, safety, cost, UI Studio's graph/edit/live-preview/repository core (`uiDesignGraph.ts`, `uiEditCommands.ts`, `uiPreviewRuntime.ts`, `uiRepositoryMapping.ts`, `uiRepositoryImport.ts`), CI inspection/scaffolding (`ciManager.ts`, `trustedLocalCiStarter.ts`), the CI route model, routing policy, build ledger and act adapter (`ciRoutes.ts`, `ciRoutingPolicy.ts`, `ciCreditMeter.ts`, `ciBuildLedger.ts`, `ciActRoute.ts`), the local CI guide, GitHub CLI installer and remembered machine inspection (`localCiSetupPlan.ts`, `localCiInstaller.ts`, `localCiInspectionMemory.ts`), confirmed-write echo (`trackerWriteOutcome.ts`) plus the guarded `localCiRunner.ts` executor, and project services |
+| `src/core/` | Orchestration, routing, planning, safety, cost, UI Studio's graph/edit/live-preview/repository core (`uiDesignGraph.ts`, `uiEditCommands.ts`, `uiPreviewRuntime.ts`, `uiRepositoryMapping.ts`, `uiRepositoryImport.ts`), CI inspection/scaffolding (`ciManager.ts`, `trustedLocalCiStarter.ts`), the CI route model, routing policy, build ledger and act adapter (`ciRoutes.ts`, `ciRoutingPolicy.ts`, `ciCreditMeter.ts`, `ciBuildLedger.ts`, `ciActRoute.ts`), the local CI guide, GitHub CLI installer and remembered machine inspection (`localCiSetupPlan.ts`, `localCiInstaller.ts`, `localCiInspectionMemory.ts`), confirmed-write echo (`trackerWriteOutcome.ts`), the register-to-work hand-off (`registerHandoff.ts`), the semver primitives and branch-to-channel versioning policy (`semver.ts`, `versioningPolicy.ts`), the roadmap dependency graph and its overlay store (`roadmapGraph.ts`, `roadmapGraphStore.ts`), release-gate destinations and urgency ordering (`releaseGateNavigation.ts`), roadmap ingestion from markdown, issues, Projects and spreadsheets (`roadmapImport.ts`) plus the guarded `localCiRunner.ts` executor, and project services |
 | `src/runtime/` | Built-in agents and runtime composition |
 | `src/providers/` | Model provider adapters, catalogs, health, `modelRole.ts` (what a model is *for*), and the local-GPU support layer — `gpuProbe.ts`, `localFootprint.ts`, `localRuntimeClient.ts` |
 | `src/skills/` | Built-in tools and skill handlers |
@@ -1276,7 +1438,7 @@ All 142 settings are documented in the [Configuration reference](wiki/Configurat
 | `src/voice/` and `src/remote/` | Voice backends and opt-in remote control |
 | `.github/workflows/` | Hosted release CI plus the separately gated trusted local-runner workflow |
 | `tests/` | Unit, integration, webview, security and regression coverage |
-| `docs/` and `wiki/` | Developer reference, user guides, and the approved UI Studio builder plan |
+| `docs/` and `wiki/` | Developer reference, user guides, and the approved UI Studio and Chat reliability plans |
 
 The full service map is in [Architecture](docs/architecture.md).
 
@@ -1290,7 +1452,7 @@ The full service map is in [Architecture](docs/architecture.md).
 
 **Trust and safety:** [Security](wiki/Security.md) · [Tool Execution](wiki/Tool-Execution.md)
 
-**Under the hood:** [Architecture](docs/architecture.md) · [Development](docs/development.md) · [Local CI and safe runners](docs/local-ci-and-safe-runners.md) · [Roadmap](docs/roadmap.md) · [Contributing](CONTRIBUTING.md)
+**Under the hood:** [Architecture](docs/architecture.md) · [Development](docs/development.md) · [Chat reliability and capability broker plan](docs/chat-reliability-capability-broker-plan.md) · [Local CI and safe runners](docs/local-ci-and-safe-runners.md) · [Roadmap](docs/roadmap.md) · [Contributing](CONTRIBUTING.md)
 
 ---
 
@@ -1302,3 +1464,4 @@ Contributions are welcome — see [CONTRIBUTING.md](CONTRIBUTING.md). If AtlasMi
 [sponsorship](wiki/Funding-and-Sponsorship.md) helps keep it going.
 
 MIT License — see [LICENSE](LICENSE).
+

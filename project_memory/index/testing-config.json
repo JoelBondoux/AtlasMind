@@ -1,6 +1,6 @@
 {
   "version": 2,
-  "updatedAt": "2026-08-13T17:14:13.587Z",
+  "updatedAt": "2026-08-21T05:44:03.236Z",
   "methodologies": [
     {
       "id": "tdd",
@@ -56,7 +56,7 @@
     },
     {
       "id": "e2e",
-      "enabled": true,
+      "enabled": false,
       "assignedAgentId": "test-developer"
     },
     {
@@ -65,7 +65,7 @@
     },
     {
       "id": "contract",
-      "enabled": true,
+      "enabled": false,
       "assignedAgentId": "test-developer"
     },
     {
@@ -134,7 +134,7 @@
     },
     {
       "id": "cross-version-parity",
-      "enabled": true,
+      "enabled": false,
       "assignedAgentId": "test-developer"
     },
     {

@@ -66,8 +66,9 @@ Opening or refreshing the page never runs anything. Every run starts with a clic
 
 - **⧉ Copy** puts the command on the clipboard.
 - **&gt;_ Send to terminal** types it into a terminal named `AtlasMind Delivery`, opened at the project
-  root — **without pressing Enter**. Read it, then run it yourself. That keystroke is deliberately left
-  to you, which is why this button asks nothing first.
+  root — **without pressing Enter**, and moves focus there so Enter is the very next thing you can
+  press. Read it, then run it yourself. That keystroke is deliberately left to you, which is why this
+  button asks nothing first; focus makes the gate reachable without weakening it.
 - **▶ Run** inside an expanded column runs that whole phase, after a confirmation that lists every command in
   the order they will run, marks the ones that reach beyond your machine (a push, a deployment, a
   publication — none of which closing the terminal undoes), and tells you whether a failure will stop
