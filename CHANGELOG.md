@@ -6,6 +6,17 @@ The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/),
 
 ## [Unreleased]
 
+## [0.382.3] - 2026-08-22
+
+### Added
+
+- **Approved the Chat reliability and capability broker implementation plan.** The plan sequences
+  revisioned session context, maintenance coalescing, partial-response preservation, scoped approval
+  automation, a shared turn assembler, model-budget-aware heuristic tool preloading, deferred discovery,
+  explicit one-turn elevation, privacy-safe turn receipts, competitive composer controls, accessibility,
+  and live reliability gates. It records measurable targets without treating capability visibility as
+  authorization or schema loading as execution approval.
+
 ## [0.382.2] - 2026-08-22
 
 ### Fixed

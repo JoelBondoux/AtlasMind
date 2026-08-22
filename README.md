@@ -4,7 +4,7 @@
 
 <h1 align="center">AtlasMind</h1>
 
-<p align="center"><sub> · <strong>Current source version: 0.382.2</strong> · </sub></p>
+<p align="center"><sub> · <strong>Current source version: 0.382.3</strong> · </sub></p>
 
 
 <p align="center">
@@ -126,6 +126,17 @@ Ambitious automation is only worth having if you can trust it. AtlasMind is buil
 Full detail in the [Security model](wiki/Security.md) and [Tool Execution](wiki/Tool-Execution.md).
 
 ---
+
+## What's new in 0.382.3
+
+- **The next Chat reliability programme is approved and bounded.** The implementation plan makes
+  transcript revision the context authority, converges the dedicated and native chat paths, and evolves
+  the existing heuristic selector plus `find-tool` loop into a model-budget-aware capability broker.
+  Installed external capabilities remain deny-by-default and require explicit one-turn elevation.
+
+- **Success is measurable before implementation begins.** The plan sets gates for stale context, lost
+  turns, capability recall, schema-token reduction, authorization escapes, keyboard access, and the live
+  stress battery. See the [Chat reliability and capability broker plan](docs/chat-reliability-capability-broker-plan.md).
 
 ## What's new in 0.382.2
 
@@ -609,6 +620,10 @@ history is in [CHANGELOG.md](CHANGELOG.md).
   AtlasMind guesses which ones your request needs — and when the guess was wrong the assistant quietly
   worked around the gap. It can now ask for what it needs, limited to what your agent may already use and
   still subject to every approval.
+
+  The approved [Chat reliability and capability broker plan](docs/chat-reliability-capability-broker-plan.md)
+  evolves this into model-budget-aware heuristic preloading, deferred discovery, and explicit one-turn
+  elevation without sending every schema on every request.
 
 - **Turning a subscription agent off actually turns it off.** The Models tree could say "model disabled"
   while every turn still routed to it, surviving a reload — the switch touched the agent's base entry
@@ -1406,7 +1421,7 @@ All 142 settings are documented in the [Configuration reference](wiki/Configurat
 | `src/voice/` and `src/remote/` | Voice backends and opt-in remote control |
 | `.github/workflows/` | Hosted release CI plus the separately gated trusted local-runner workflow |
 | `tests/` | Unit, integration, webview, security and regression coverage |
-| `docs/` and `wiki/` | Developer reference, user guides, and the approved UI Studio builder plan |
+| `docs/` and `wiki/` | Developer reference, user guides, and the approved UI Studio and Chat reliability plans |
 
 The full service map is in [Architecture](docs/architecture.md).
 
@@ -1420,7 +1435,7 @@ The full service map is in [Architecture](docs/architecture.md).
 
 **Trust and safety:** [Security](wiki/Security.md) · [Tool Execution](wiki/Tool-Execution.md)
 
-**Under the hood:** [Architecture](docs/architecture.md) · [Development](docs/development.md) · [Local CI and safe runners](docs/local-ci-and-safe-runners.md) · [Roadmap](docs/roadmap.md) · [Contributing](CONTRIBUTING.md)
+**Under the hood:** [Architecture](docs/architecture.md) · [Development](docs/development.md) · [Chat reliability and capability broker plan](docs/chat-reliability-capability-broker-plan.md) · [Local CI and safe runners](docs/local-ci-and-safe-runners.md) · [Roadmap](docs/roadmap.md) · [Contributing](CONTRIBUTING.md)
 
 ---
 

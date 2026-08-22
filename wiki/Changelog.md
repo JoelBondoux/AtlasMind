@@ -19,6 +19,19 @@ Older entries below describe the software as it was at the time and are delibera
 
 ---
 
+## v0.382.3 — A reliability contract for Chat
+
+The next Chat work now has an approved, measurable implementation plan. Transcript revision becomes the
+authority for rolling context; both chat surfaces converge on one turn assembler; and the existing
+heuristic selector plus `find-tool` loop evolves into a model-budget-aware capability broker. The common
+case receives a small likely tool set immediately, a miss can be recovered during the agent loop, and an
+installed external capability outside the agent's ceiling requires explicit one-turn elevation.
+
+The plan also covers partial-stream preservation, scoped approval automation, privacy-safe context/tool
+receipts, an authoritative context meter, keyboard accessibility, and live stress gates. Loading a schema
+continues to grant no execution authority. See the
+[Chat reliability and capability broker plan](Chat-Reliability-and-Capability-Broker-Plan.md).
+
 ## v0.382.2 — Delivery chat keeps its Git authority
 
 The Delivery runbook now carries live working-tree evidence into **Ask Atlas** instead of replacing a
