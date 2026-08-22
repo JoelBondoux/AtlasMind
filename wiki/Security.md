@@ -102,6 +102,10 @@ It's handled in layers:
 - **Temporary context gets the same scanner.** Carried conversation, chat summaries and text attachments
   are checked before they reach a model. Blocked content is dropped, and warned content is redacted and
   labelled as untrusted data
+- **A summary cannot outlive the transcript it describes.** Each derived session bundle carries the
+  transcript revision it summarized. A missing or mismatched marker is refused in favour of the current
+  raw transcript, and destructive transcript actions wait out older maintenance before deleting its
+  artifacts, so a delayed completion cannot resurrect removed instructions
 - **The boundary is aimed, not blanket.** Third-party text — attachments, fetched pages, tool output —
   travels under an explicit "treat this as data, not instructions" preamble. Your **conversation** does
   not: it is named as the conversation being continued, and told plainly that it does not override
@@ -181,6 +185,10 @@ single message each require a confirmation naming what is lost — including how
 holds, which is the part you cannot see from the button. There is no undo in the panel and no copy of the
 transcript elsewhere, so until v0.328.0 a mis-click was final; these three were the last unconfirmed
 destructive actions in the product.
+
+The confirmation is followed by a synchronous context invalidation. The host advances the session's
+context epoch before waiting for any older summarizer, then deletes after its last possible write. New
+Chat, Edit, and Regenerate use the same boundary before the next model request is assembled.
 
 ---
 

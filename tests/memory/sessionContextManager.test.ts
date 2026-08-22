@@ -1,6 +1,6 @@
 import { afterEach, describe, expect, it, vi } from 'vitest';
 import * as vscode from 'vscode';
-import { mkdirSync, mkdtempSync, readFileSync, writeFileSync } from 'node:fs';
+import { existsSync, mkdirSync, mkdtempSync, readFileSync, rmSync, writeFileSync } from 'node:fs';
 import { tmpdir } from 'node:os';
 import nodePath from 'node:path';
 import { removeTempDir } from '../helpers/tempDir.ts';
@@ -16,9 +16,13 @@ const readReal = vi.spyOn(vscode.workspace.fs, 'readFile').mockImplementation(as
     throw new Error('ENOENT');
   }
 });
+const deleteReal = vi.spyOn(vscode.workspace.fs, 'delete').mockImplementation(async (uri: vscode.Uri) => {
+  rmSync(uri.fsPath, { recursive: true, force: true });
+});
 
 afterEach(() => {
   readReal.mockClear();
+  deleteReal.mockClear();
 });
 
 /**
@@ -126,5 +130,64 @@ describe('SessionContextManager parses context.md sections', () => {
       expect(bundle!.decisions).toBe('');
       expect(bundle!.openThreads).toBe('');
     });
+  });
+});
+
+describe('SessionContextManager transcript revision boundary', () => {
+  const entries = [
+    { id: 'u1', role: 'user' as const, content: 'Fix the stale context.', timestamp: '2026-08-22T10:00:00.000Z' },
+    { id: 'a1', role: 'assistant' as const, content: 'I found the race.', timestamp: '2026-08-22T10:00:01.000Z' },
+  ];
+
+  it('loads a bundle only for the transcript revision it summarizes', async () => {
+    const root = mkdtempSync(nodePath.join(tmpdir(), 'atlasmind-session-revision-'));
+    try {
+      const manager = new SessionContextManager(vi.fn().mockResolvedValue([
+        '## Goal',
+        'Prevent stale context.',
+        '',
+        '## Current State',
+        'The race is diagnosed.',
+      ].join('\n')));
+      manager.setSsotRoot(vscode.Uri.file(root));
+
+      await manager.bootstrapFromTranscript('session-1', entries, 7);
+
+      await expect(manager.loadContext('session-1', 6)).resolves.toBeNull();
+      await expect(manager.loadContext('session-1', 7)).resolves.toMatchObject({
+        sourceRevision: 7,
+        freshness: 'current',
+        summary: expect.stringContaining('Prevent stale context'),
+      });
+    } finally {
+      removeTempDir(root);
+    }
+  });
+
+  it('cannot recreate invalidated context when an older maintenance pass finishes late', async () => {
+    const root = mkdtempSync(nodePath.join(tmpdir(), 'atlasmind-session-invalidation-'));
+    let releaseCompletion!: (value: string) => void;
+    const completion = new Promise<string>(resolve => {
+      releaseCompletion = resolve;
+    });
+    const completer = vi.fn().mockReturnValue(completion);
+    try {
+      const manager = new SessionContextManager(completer);
+      manager.setSsotRoot(vscode.Uri.file(root));
+
+      manager.maintainContext('session-1', entries, 3);
+      await vi.waitFor(() => expect(completer).toHaveBeenCalledOnce());
+
+      const invalidated = manager.invalidateSession('session-1');
+      releaseCompletion('## Goal\nThis output is stale.');
+      await invalidated;
+
+      const sessionDir = nodePath.join(root, 'sessions', 'session-1');
+      expect(existsSync(sessionDir)).toBe(false);
+      await expect(manager.loadContext('session-1', 4)).resolves.toBeNull();
+    } finally {
+      releaseCompletion?.('');
+      removeTempDir(root);
+    }
   });
 });

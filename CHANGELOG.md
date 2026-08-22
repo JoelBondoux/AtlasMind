@@ -6,6 +6,22 @@ The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/),
 
 ## [Unreleased]
 
+## [0.382.4] - 2026-08-22
+
+### Fixed
+
+- **Derived chat context is revision-bound to its transcript.** `SessionConversation` persists a
+  monotonic content revision, `SessionContextManager` commits the summarized revision only after its
+  context files are complete, and panel plus native project-context loads refuse missing or mismatched
+  revision markers in favour of rebuilding from the current raw transcript.
+- **Destructive transcript actions synchronously invalidate rolling context.** Clear, Delete Message,
+  Delete Session, New Chat, Edit, and Regenerate now wait for the context boundary; an invalidation epoch
+  prevents an older model completion from committing as current, and deletion waits for its last possible
+  write so delayed maintenance cannot recreate stale session state.
+- **Revision and invalidation behavior is regression-tested at each boundary.** Tests cover persistence
+  and no-op mutations, matching and mismatched loads, late-completion races, destructive panel actions,
+  New Chat ordering, awaited Edit/Regenerate rebuilds, and native chat revision propagation.
+
 ## [0.382.3] - 2026-08-22
 
 ### Added

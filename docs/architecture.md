@@ -1865,6 +1865,23 @@ Persists scanner rule overrides and custom rules in `vscode.Memento` (`globalSta
 
 Interface to the SSOT folder structure. Supports `queryRelevant()` (local hashed embeddings + lexical ranking), `upsert()`, `loadFromDisk()`, and `listEntries()`.
 
+### SessionConversation and SessionContextManager (`src/chat/sessionConversation.ts`, `src/memory/sessionContextManager.ts`)
+
+`SessionConversationRecord.revision` is the monotonic version of context-bearing transcript content and
+is persisted with the transcript; records written before v0.382.4 normalize to revision zero. Append,
+content update, deletion, truncation, and non-empty clear advance it, while a no-op mutation does not.
+
+`SessionContextManager` treats the model-maintained bundle as a revisioned derived cache. A successful
+maintenance pass writes `revision.json` last, and `loadContext(sessionId, expectedRevision)` returns no
+bundle unless that marker matches. `SessionContextBundle.sourceRevision` and `freshness` expose the
+provenance without pretending a legacy or synthetic bundle has a transcript revision.
+
+Per-session invalidation uses an in-memory generation plus an ordered barrier: the generation changes
+before an older maintenance task is awaited, preventing that completion from committing as current, and
+the session folder is deleted only after the task's last possible write. ChatPanel awaits this boundary
+for Clear, Delete Message, Delete Session, New Chat, Edit, and Regenerate; the native project-context path
+also supplies the current revision when it loads a bundle.
+
 ### RemoteControlServer (`src/remote/remoteControlServer.ts`)
 
 Desktop-only localhost WebSocket server that lets the AtlasMind web build remote-control this instance. Off by default; only listens after `AtlasMind: Enable Remote Control`, a workspace-trust approval, and a pairing token (stored in `SecretStorage`, modeled on `ToolWebhookDispatcher`). On an authenticated connection it constructs a `RemoteWebviewHost` (`src/remote/remoteBridge.ts`) — a synthetic `ChatPanelHost` — and binds a real `ChatPanel` to it, so the full chat implementation drives the remote browser. Outbound `webview.postMessage` calls are forwarded over the socket; inbound chat frames are re-validated with `isChatPanelMessage` before dispatch. It also answers read-only `cost`/`runs` RPCs backed by `CostTracker` and `ProjectRunHistory`. Disconnect disposes the ChatPanel (aborting in-flight work, so pending tool approvals default to denied). The wire protocol is the Node-free `src/remote/protocol.ts`, shared with the web build. In `gateway` mode (`atlasmind.remote.mode`) it instead authenticates each connection by an `x-atlas-origin-secret` upgrade header injected by an SSO gateway (verified timing-safe against the pairing-token slot) and records `x-atlas-user-id` for audit, so it can sit behind a Cloudflare Worker + tunnel for cross-machine access without opening an inbound port. See [Remote Control](remote-control.md).

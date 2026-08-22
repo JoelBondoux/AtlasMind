@@ -109,9 +109,16 @@ path — you don't have to retype it.
 | Part | What it does |
 |---|---|
 | **Memory Manager** | Reads, writes and searches your project memory |
+| **Session Context Manager** | Maintains a revision-checked working summary without outranking the chat transcript |
 | **Memory Scanner** | The gate that decides what may be written |
 | **Checkpoint Manager** | Snapshots before writes, so a failure is recoverable |
 | **Project Run History** | Every autonomous run, kept per workspace |
+
+The conversation transcript is the source of truth. Its revision advances whenever context-bearing
+content changes, while the rolling session summary records which revision it describes. Chat refuses a
+missing or mismatched marker and falls back to the current transcript. Clear, delete, New Chat, edit, and
+regenerate wait for invalidation, so an older background summary cannot reintroduce a turn the operator
+removed.
 
 ### Reaching outside
 

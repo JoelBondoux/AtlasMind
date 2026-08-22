@@ -30,6 +30,10 @@ daily-use development machine and must not accept untrusted pull-request code.
 - When multiple transcript matches are found, compact previous/next arrows appear beside Search so the webview can jump through results without leaving the thread.
 - One-tap **quick-reply pills** are a property of Atlas asking a question, not of one panel. `buildQuickReplyPayload` (`src/chat/participant.ts`) turns a response into a webview-ready `{ question, replies }` payload — pills only, never a bare question, matching the Chat panel — with every label and prompt length-capped and control-stripped at that single boundary, since the label is rendered and the prompt is submitted on click. The Chat panel, the Project Ideation panel, the Vision panel, and the dashboard ideation path all post it; `QUICK_REPLY_CSS` in `src/views/webviewUtils.ts` is the single style definition so the four surfaces cannot drift into four different pills. Empty assistant bodies are a separate host-owned recovery state: `buildAssistantResponseMetadata` must attach a failure question plus `quickReplies`, and the webview may render those choices but must never promote the generic “Answered from context” execution summary into the missing answer body.
 - The Project Dashboard Gap Analysis surface now seeds a structured report from workspace signals, then opens a fresh Atlas chat session for live investigation and writes the prioritized findings back into the dashboard.
+- Transcript-changing ChatPanel actions must cross `SessionContextManager.invalidateSession()` before
+  reporting completion or submitting a replacement prompt. Context loads always receive
+  `SessionConversation.getRevision(sessionId)`; maintenance receives the revision of its exact transcript
+  snapshot. Panel-flow tests must assert ordering for any new clear, delete, rewind, or replacement path.
 
 # Development Guide (v0.53.6)
 

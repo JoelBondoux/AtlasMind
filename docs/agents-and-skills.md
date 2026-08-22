@@ -754,6 +754,13 @@ For each task, the orchestrator builds a context bundle containing:
 
 This bundle is sent to the selected model via the appropriate `ProviderAdapter`.
 
+Conversation context has its own correctness boundary before tool selection. The raw session transcript
+owns a persisted revision; a model-maintained `SessionContextBundle` carries the revision it summarized
+and is accepted only when it matches the snapshot being assembled. A missing or stale bundle grants no
+context authority and AtlasMind falls back to the current transcript. This validation changes neither the
+agent's skill ceiling nor tool approval: context can help select an eligible schema, but cannot authorize,
+elevate, or execute it.
+
 Current MVP behavior:
 - The context bundle is actively built and sent through the orchestrator.
 - Skills are not repeated as prose in the system message. Each selected skill's description, natural-language cues, and JSON parameters appear once in the provider's callable tool-definition field.

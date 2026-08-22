@@ -87,6 +87,13 @@ MCP servers bring tools AtlasMind knows nothing about. Rather than treating ever
 
 Conservative where it's unsure, practical where it isn't.
 
+### Context is not authority
+
+A rolling chat summary is accepted only when its recorded transcript revision matches the transcript
+snapshot being assembled. A stale or unversioned bundle is dropped in favour of current raw history.
+Whether context mentions a tool does not add it to the agent's skill ceiling, approve it, or execute it:
+capability eligibility and the approval policy below remain separate boundaries.
+
 ---
 
 ## The terminal is not a shell

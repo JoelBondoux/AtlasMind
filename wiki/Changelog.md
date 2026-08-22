@@ -19,6 +19,17 @@ Older entries below describe the software as it was at the time and are delibera
 
 ---
 
+## v0.382.4 — Chat context follows the transcript
+
+Every chat session now has a persisted transcript revision. The rolling `context.md` bundle carries the
+revision it summarizes, written last as a commit marker; if it is absent or does not match, AtlasMind
+refuses the bundle and uses the current transcript instead.
+
+Clear, Delete Message, Delete Session, New Chat, Edit, and Regenerate now wait for context invalidation.
+An older maintenance call may finish, but it cannot become current, and the invalidation waits for its
+last possible write before deleting the session artifacts. That closes the race where a delayed summary
+could bring deleted messages back into the next prompt.
+
 ## v0.382.3 — A reliability contract for Chat
 
 The next Chat work now has an approved, measurable implementation plan. Transcript revision becomes the

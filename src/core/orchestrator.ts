@@ -7783,6 +7783,8 @@ export function buildProjectSessionContextBundle(
     : undefined;
 
   return {
+    ...(bundle?.sourceRevision !== undefined ? { sourceRevision: bundle.sourceRevision } : {}),
+    ...(bundle?.freshness ? { freshness: bundle.freshness } : {}),
     goal: bundle?.goal?.trim() || projectGoal.trim() || undefined,
     summary: bundle?.summary?.trim() || (typeof sessionContext === 'string' ? sessionContext.trim() : ''),
     decisions: bundle?.decisions?.trim() || '',

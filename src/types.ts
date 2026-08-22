@@ -4181,6 +4181,10 @@ export type MemoryEvidenceType = 'manual' | 'imported' | 'generated-index';
  * Replaces the raw 400-char sessionContext string when available.
  */
 export interface SessionContextBundle {
+  /** Transcript revision summarized by this derived bundle. Absent only for legacy or synthetic bundles. */
+  sourceRevision?: number;
+  /** Whether the bundle passed a revision check or predates revision tracking. */
+  freshness?: 'current' | 'legacy-unversioned';
   /** The top-level goal or problem statement for this session or project run. Rendered before the summary so every agent knows what it is solving. */
   goal?: string;
   /** Rolling compressed summary of the session, updated each turn. */

@@ -41,6 +41,18 @@ Each session gets its own subfolder: `sessions/<session-id>/`. The Memory Agent 
 
 Total cap: 4000 characters. Older content is compressed aggressively; recency is preserved over history. This single document is designed for seamless cold resumption — loading it back into context gives the model everything needed to continue without re-establishing facts.
 
+`context.md` is derived cache data, not the conversation record. Each persisted chat session owns a
+monotonic transcript revision, and successful maintenance writes `revision.json` **after** `context.md`,
+`ssot_links.md`, and the transcript append complete. A caller supplies the transcript revision it is
+assembling; a missing or different `sourceRevision` refuses the bundle and falls back to the current raw
+transcript. Legacy unversioned bundles remain readable only to callers that do not request a revision.
+
+Clear, message deletion, session deletion, New Chat, edit, and regenerate advance or replace the
+transcript and synchronously invalidate the session folder. Invalidation advances an in-memory epoch
+before waiting for older maintenance, then deletes after that task's last possible write. A delayed model
+completion therefore cannot recreate derived context containing a deleted turn. Edit and regenerate wait
+for a rebuild before submitting their replacement prompt.
+
 **Section parsing** terminates on the next `## ` heading or the true end of the document, spelled `$(?![\s\S])` rather than `\z`. JavaScript has no `\z` — that is a Perl/Ruby anchor and in a JS regex it matches a literal `z` — so before v0.295.1 every section was cut at the first `z` after its heading ("Decided to analyze the payload" → "Decided to analy", with the remainder orphaned into the summary), and a trailing section containing no `z` failed to match at all. Open Threads and Current State, being last, were the usual casualties, and every prompt built from the bundle inherited the loss. `$` alone would be wrong too: under the `m` flag it matches at every line end, so the lookahead is what pins it to the end of the document.
 
 **Legacy format:** Sessions created before v0.58.0 use the old 4-file format (`summary.md`, `decisions.md`, `open_threads.md`, `ssot_links.md`). These are read transparently and migrated to `context.md` on the next maintenance run.

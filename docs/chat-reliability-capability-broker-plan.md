@@ -8,6 +8,9 @@
 
 **First implementation milestone:** revisioned session context and safe approval state
 
+**Delivery status:** item 1, transcript revision and context invalidation, is implemented in source
+v0.382.4. Maintenance coalescing and raw-turn durability remain the next item.
+
 ## Problem
 
 AtlasMind already has broad developer tooling, deterministic task-scoped selection, and a `find-tool`

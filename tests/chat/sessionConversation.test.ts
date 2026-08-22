@@ -41,6 +41,54 @@ describe('SessionConversation', () => {
     expect(assistant?.classification).toBe('error');
     expect(assistant?.meta?.turnError).toEqual({ kind: 'failed', message: 'socket hang up' });
   });
+
+  it('increments a persisted revision for every context-bearing transcript mutation', () => {
+    const conversation = new SessionConversation();
+    expect(conversation.getRevision()).toBe(0);
+
+    conversation.recordTurn('first question', 'first answer');
+    expect(conversation.getRevision()).toBe(2);
+
+    const [user, assistant] = conversation.getTranscript();
+    conversation.updateMessage(user!.id, 'edited question');
+    expect(conversation.getRevision()).toBe(3);
+
+    conversation.deleteMessage(assistant!.id);
+    expect(conversation.getRevision()).toBe(4);
+
+    conversation.clearSession();
+    expect(conversation.getRevision()).toBe(5);
+  });
+
+  it('does not advance the revision when a requested transcript mutation changes nothing', () => {
+    const conversation = new SessionConversation();
+    conversation.recordTurn('question', 'answer');
+    const revision = conversation.getRevision();
+
+    expect(conversation.deleteMessage('missing')).toBe(false);
+    expect(conversation.truncateAfter('missing')).toBe(0);
+    expect(conversation.getRevision()).toBe(revision);
+  });
+
+  it('restores legacy sessions without a revision at revision zero', () => {
+    const stored = {
+      activeSessionId: 'legacy-chat',
+      sessions: [{
+        id: 'legacy-chat',
+        title: 'Legacy',
+        createdAt: '2026-08-01T00:00:00.000Z',
+        updatedAt: '2026-08-01T00:00:00.000Z',
+        entries: [],
+      }],
+      folders: [],
+    };
+    const conversation = new SessionConversation({
+      get: () => stored,
+      update: () => Promise.resolve(),
+    });
+
+    expect(conversation.getRevision('legacy-chat')).toBe(0);
+  });
 });
 
 /**

@@ -4,7 +4,7 @@
 
 <h1 align="center">AtlasMind</h1>
 
-<p align="center"><sub> · <strong>Current source version: 0.382.3</strong> · </sub></p>
+<p align="center"><sub> · <strong>Current source version: 0.382.4</strong> · </sub></p>
 
 
 <p align="center">
@@ -126,6 +126,16 @@ Ambitious automation is only worth having if you can trust it. AtlasMind is buil
 Full detail in the [Security model](wiki/Security.md) and [Tool Execution](wiki/Tool-Execution.md).
 
 ---
+
+## What's new in 0.382.4
+
+- **Cleared or rewritten chat history cannot survive in AtlasMind's rolling context.** Each session now
+  carries a persisted transcript revision, and every derived context bundle records the revision it
+  summarizes. A mismatch is refused and the current raw transcript is used instead.
+
+- **Context invalidation is ordered, not best-effort.** Clear, Delete Message, Delete Session, New Chat,
+  Edit, and Regenerate wait for older maintenance before removing its artifacts. A delayed summarizer
+  cannot recreate a stale context directory after the destructive action completes.
 
 ## What's new in 0.382.3
 

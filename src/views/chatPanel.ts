@@ -616,6 +616,7 @@ export class ChatPanel {
               // Remove the message from the current session transcript
               const deleted = this.atlas.sessionConversation.deleteMessage(message.payload, this.selectedSessionId);
               if (deleted) {
+                await this.atlas.sessionContextManager?.invalidateSession(this.selectedSessionId);
                 await this.syncState();
                 await this.host.webview.postMessage({ type: 'status', payload: 'Message deleted.' });
               } else {
@@ -691,6 +692,7 @@ export class ChatPanel {
           return;
         }
         this.atlas.sessionConversation.clearSession(this.selectedSessionId);
+        await this.atlas.sessionContextManager?.invalidateSession(this.selectedSessionId);
         await this.host.webview.postMessage({ type: 'status', payload: 'Conversation cleared for the selected session.' });
         return;
       }
@@ -736,7 +738,7 @@ export class ChatPanel {
           return;
         }
         this.atlas.sessionConversation.deleteSession(message.payload);
-        void this.atlas.sessionContextManager?.deleteSession(message.payload).catch(() => undefined);
+        await this.atlas.sessionContextManager?.deleteSession(message.payload);
         this.selectedSessionId = this.atlas.sessionConversation.getActiveSessionId();
         this.selectedMessageId = undefined;
         this.selectedRunId = undefined;
@@ -1432,9 +1434,13 @@ export class ChatPanel {
       : this.selectedSessionId;
     if (effectiveMode === 'new-chat') {
       this.atlas.sessionConversation.clearSession(activeSessionId);
+      await this.atlas.sessionContextManager?.invalidateSession(activeSessionId);
     }
     // Load structured session context; fall back to legacy string if not yet available.
-    const sessionContextBundle = await this.atlas.sessionContextManager?.loadContext(activeSessionId).catch(() => null) ?? null;
+    const contextSourceRevision = this.atlas.sessionConversation.getRevision?.(activeSessionId) ?? 0;
+    const sessionContextBundle = await this.atlas.sessionContextManager
+      ?.loadContext(activeSessionId, contextSourceRevision)
+      .catch(() => null) ?? null;
     const sessionContext = sessionContextBundle
       ? ''
       : this.atlas.sessionConversation.buildContext({
@@ -1719,6 +1725,7 @@ export class ChatPanel {
       this.atlas.sessionContextManager?.maintainContext(
         activeSessionId,
         this.atlas.sessionConversation.getTranscript(activeSessionId),
+        this.atlas.sessionConversation.getRevision?.(activeSessionId) ?? 0,
       );
       await this.syncState();
 
@@ -3619,15 +3626,16 @@ export class ChatPanel {
     this.atlas.sessionConversation.truncateAfter(userEntry.id, this.selectedSessionId);
     this.atlas.sessionConversation.deleteMessage(userEntry.id, this.selectedSessionId);
 
-    // The session bundle is a rolling summary with no per-turn identity, so it
-    // cannot be rewound — only rebuilt from what the transcript now says. Left
-    // stale it would keep describing turns that no longer exist.
-    void this.atlas.sessionContextManager
-      ?.bootstrapFromTranscript(
-        this.selectedSessionId,
-        this.atlas.sessionConversation.getTranscript(this.selectedSessionId),
-      )
-      .catch(() => undefined);
+    // A rolling bundle cannot be surgically rewound. Invalidate it first and
+    // wait for any older maintenance pass before rebuilding; otherwise the new
+    // prompt can race the old summary back onto disk and dispatch with deleted
+    // turns in its context.
+    await this.atlas.sessionContextManager?.invalidateSession(this.selectedSessionId);
+    await this.atlas.sessionContextManager?.bootstrapFromTranscript(
+      this.selectedSessionId,
+      this.atlas.sessionConversation.getTranscript(this.selectedSessionId),
+      this.atlas.sessionConversation.getRevision?.(this.selectedSessionId) ?? 0,
+    );
 
     await this.syncState();
     await this.runPrompt(prompt, 'send');

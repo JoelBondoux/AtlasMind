@@ -4,6 +4,9 @@
 
 **Approved:** 22 August 2026
 
+**Delivery status:** transcript revision and synchronous context invalidation shipped in source v0.382.4;
+maintenance coalescing and raw-turn durability are next.
+
 AtlasMind will make its two chat surfaces share one revisioned context and capability-selection boundary.
 The full engineering plan is maintained in
 [`docs/chat-reliability-capability-broker-plan.md`](../docs/chat-reliability-capability-broker-plan.md).
