@@ -19,6 +19,13 @@ Older entries below describe the software as it was at the time and are delibera
 
 ---
 
+## v0.382.5 — Worktree safety across runner path styles
+
+Git-reported drive-letter and UNC worktree paths now remain absolute when release automation runs on
+Linux or macOS. Workspace-relative requests are resolved using the workspace root's own path syntax, so
+the registered-worktree check continues to refuse unknown paths without misclassifying a valid Windows
+worktree as `<runner cwd>/C:/...`.
+
 ## v0.382.4 — Chat context follows the transcript
 
 Every chat session now has a persisted transcript revision. The rolling `context.md` bundle carries the

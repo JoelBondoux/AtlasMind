@@ -6,6 +6,15 @@ The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/),
 
 ## [Unreleased]
 
+## [0.382.5] - 2026-08-22
+
+### Fixed
+
+- **Worktree removal recognizes registered paths across runner operating systems.** Drive-letter and
+  UNC paths remain absolute when Git output is inspected on POSIX, while workspace-relative paths are
+  resolved with the workspace root's syntax. This preserves the registered-worktree safety check
+  without turning a valid Windows path into `<posix cwd>/C:/...` during cross-platform automation.
+
 ## [0.382.4] - 2026-08-22
 
 ### Fixed

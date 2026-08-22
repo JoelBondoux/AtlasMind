@@ -4,7 +4,7 @@
 
 <h1 align="center">AtlasMind</h1>
 
-<p align="center"><sub> · <strong>Current source version: 0.382.4</strong> · </sub></p>
+<p align="center"><sub> · <strong>Current source version: 0.382.5</strong> · </sub></p>
 
 
 <p align="center">
@@ -126,6 +126,13 @@ Ambitious automation is only worth having if you can trust it. AtlasMind is buil
 Full detail in the [Security model](wiki/Security.md) and [Tool Execution](wiki/Tool-Execution.md).
 
 ---
+
+## What's new in 0.382.5
+
+- **Worktree cleanup is portable without weakening its safety boundary.** Git-reported drive-letter and
+  UNC paths stay absolute even when AtlasMind is running on a POSIX automation host, and relative paths
+  follow the workspace root's path syntax. A registered Windows worktree is no longer misclassified as
+  an unrelated path by Linux or macOS release checks.
 
 ## What's new in 0.382.4
 

@@ -55,10 +55,22 @@ export function normalizeWorktreePath(input: string): string {
 }
 
 function resolveRequestedPath(requested: string, workspaceRoot: string | undefined): string {
-  if (path.isAbsolute(requested)) {
+  // Git reports paths in the repository host's syntax. Tests, remote execution,
+  // and orchestrated hand-offs can inspect that output on a different host, so
+  // a drive-letter or UNC path must remain absolute even when this process is
+  // running on POSIX. Feeding `C:/repo/wt` to POSIX `path.resolve` prefixes the
+  // runner cwd and makes a registered worktree look unregistered.
+  if (path.isAbsolute(requested) || path.win32.isAbsolute(requested) || path.posix.isAbsolute(requested)) {
     return requested;
   }
-  return workspaceRoot ? path.resolve(workspaceRoot, requested) : path.resolve(requested);
+  if (!workspaceRoot) {
+    return path.resolve(requested);
+  }
+  const workspaceUsesWindowsSyntax = path.win32.isAbsolute(workspaceRoot)
+    && !path.posix.isAbsolute(workspaceRoot);
+  return workspaceUsesWindowsSyntax
+    ? path.win32.resolve(workspaceRoot, requested)
+    : path.resolve(workspaceRoot, requested);
 }
 
 function isInsideWorkspace(candidate: string, workspaceRoot: string | undefined): boolean {

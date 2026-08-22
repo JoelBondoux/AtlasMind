@@ -33,7 +33,7 @@ to do*, or when you want to deliberately stop an agent doing something.
 | `git-fetch` | Download new commits and refs, with `--prune` to drop remote-tracking refs whose branch is gone — the first step of a branch cleanup |
 | `git-pull` | Fetch and integrate, fast-forward-only by default so a routine sync can never invent a merge commit; rebase and merge modes are explicit choices |
 | `git-merge` | Merge a branch into the current one, or abort a conflicted merge. Conflicts are reported with the exact files and both ways out |
-| `git-worktree` | List, remove, or prune worktrees. A worktree pins its branch, so cleanup goes through here; removal only ever targets a worktree git itself lists, never the main one |
+| `git-worktree` | List, remove, or prune worktrees. A worktree pins its branch, so cleanup goes through here; removal only ever targets a worktree git itself lists, never the main one, and Git-reported drive-letter/UNC paths stay absolute across automation hosts |
 | `git-stash` | Set changes aside and bring them back: list, show, push, apply, pop, drop — entries addressed by validated index only |
 | `git-blame` | Who changed this line, when, and in which commit |
 | `git-apply-patch` | Apply a unified diff |

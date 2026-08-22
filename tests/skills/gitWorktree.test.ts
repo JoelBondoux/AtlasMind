@@ -100,7 +100,7 @@ describe('git-worktree skill', () => {
     expect(result).toContain('main worktree');
   });
 
-  it('removes a registered linked worktree', async () => {
+  it('removes a registered drive-letter worktree independently of runner path syntax', async () => {
     const runCommand = vi.fn()
       .mockResolvedValueOnce({ ok: true, exitCode: 0, stdout: PORCELAIN, stderr: '' })
       .mockResolvedValueOnce({ ok: true, exitCode: 0, stdout: '', stderr: '' });
@@ -111,7 +111,7 @@ describe('git-worktree skill', () => {
     expect(result).toContain('fix/char-gate');
   });
 
-  it('resolves a workspace-relative path against the workspace root', async () => {
+  it('resolves a relative path using the workspace root path syntax', async () => {
     const runCommand = vi.fn()
       .mockResolvedValueOnce({ ok: true, exitCode: 0, stdout: PORCELAIN, stderr: '' })
       .mockResolvedValueOnce({ ok: true, exitCode: 0, stdout: '', stderr: '' });
