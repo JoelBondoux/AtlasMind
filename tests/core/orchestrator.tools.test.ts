@@ -4791,6 +4791,22 @@ describe('bounded reply sanitation and turn capabilities', () => {
     expect(isToolAllowedByTurnEnvelope('terminal-run', { command: 'git', args: ['status'] }, envelope)).toBe(false);
   });
 
+  it('does not mistake an approval-qualified Delivery guard for a blanket command ban', () => {
+    const envelope = deriveTurnCapabilityEnvelope(
+      'Resolve this non-green Delivery runbook step. Inspect the current workspace evidence, make the smallest safe change that turns the step green when possible, and explain any remaining manual action or blocker. Release, deployment, publication, and destructive operations remain subject to the normal approval flow.',
+    );
+
+    expect(envelope).toMatchObject({ writesAllowed: true, commandsAllowed: true });
+    expect(isToolAllowedByTurnEnvelope('git-commit', { message: 'fix: resolve runbook step' }, envelope)).toBe(true);
+    expect(isToolAllowedByTurnEnvelope('terminal-run', { command: 'git', args: ['status'] }, envelope)).toBe(true);
+  });
+
+  it('requires a broad command object before applying the no-command ceiling', () => {
+    expect(deriveTurnCapabilityEnvelope('Do not execute a release without approval.').commandsAllowed).toBe(true);
+    expect(deriveTurnCapabilityEnvelope('Do not execute terminal commands.').commandsAllowed).toBe(false);
+    expect(deriveTurnCapabilityEnvelope('Do not run scripts or processes.').commandsAllowed).toBe(false);
+  });
+
   it('groups ACP model and effort variants into one endpoint circuit', () => {
     expect(executionEndpointScope('acp/codex@gpt-5.5#medium', 'acp')).toBe('acp:codex');
     expect(executionEndpointScope('acp/codex@gpt-5.6#low', 'acp')).toBe('acp:codex');
@@ -5156,6 +5172,16 @@ describe('task-scoped skill context', () => {
       'git-status', 'git-diff', 'git-log', 'git-commit', 'git-branch', 'git-push', 'terminal-run',
     ]));
     expect(selected).not.toContain('web-fetch');
+  });
+
+  it('keeps git-commit callable for the host-authored dirty-tree resolution prompt', () => {
+    const selected = selectTaskScopedSkills(
+      { skills: [], skillPolicy: 'task-scoped' },
+      GIT_AND_DELIVERY_SKILLS.map(id => skill(id)),
+      'Resolve this non-green Delivery runbook step. For a dirty working tree, inspect every changed path first; if a commit is the smallest safe resolution, use git-commit with exact paths.',
+    ).map(item => item.id);
+
+    expect(selected).toEqual(expect.arrayContaining(['git-status', 'git-diff', 'git-commit']));
   });
 
   it('requires both a promotion verb and a declared stage before treating a turn as delivery', () => {

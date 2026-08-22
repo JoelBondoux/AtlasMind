@@ -61,6 +61,18 @@ remote is `network`; `git-worktree` listing is a read while removal is a `worksp
 a directory tree from disk; `git-stash` `list`/`show` are reads while `pop` and `drop` are high-risk writes,
 because both discard the stash entry. Unreadable arguments always grade as the write, never the read.
 
+`git-commit` is always a high-risk `git-write`, and its approval summary states when the operation will
+stage and commit an exact path list. Exact-path staging is deliberately part of the same approval-gated
+tool call: up to 100 tracked or untracked workspace paths are passed after `git add --` and again to
+`git commit --only`; unrelated entries already in the index remain staged. `.`, traversal, absolute
+paths, control characters and pathspec wildcards are refused. Staging failure stops before the commit.
+The broad legacy `stage_tracked` mode uses `git add -u` and cannot be combined with `paths`.
+
+The turn-level no-command ceiling is separate from those approvals. It activates only when the request
+explicitly withdraws a broad capability—commands, terminal, shell, packages, scripts, or processes. A
+narrow guard such as “release remains subject to approval” leaves Git tools callable so this page's
+approval policy can actually gate them; it is not interpreted as “disable every command”.
+
 ### Tools AtlasMind hasn't seen before
 
 MCP servers bring tools AtlasMind knows nothing about. Rather than treating everything as maximum risk

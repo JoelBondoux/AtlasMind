@@ -62,6 +62,14 @@ arguments, so there is no shell-injection surface: no pipes, no `&&`, no backtic
 substitution. `sudo`, `rm -rf`, `chmod`, `dd`, `shutdown` and friends are blocked outright, at every
 setting.
 
+Git commits have a narrower staging path than generic terminal advice. `git-commit` may stage up to 100
+explicit workspace-relative paths, including intentional untracked files, through `git add -- <paths>`,
+then commits only that same list with `git commit --only`. Unrelated entries already in the index remain
+staged. It refuses `.`, parent traversal, absolute paths, control characters and pathspec wildcards,
+reports the scope in the approval summary, and never commits after a staging failure. The GitHub Operator is told not
+to recommend `git add .` or a commit-message file it has not verified, preventing an apparently helpful
+handoff from sweeping unrelated work into history.
+
 The **GitHub CLI** is on the list, graded by verb: reading a pull request is a read, merging one
 follows the approval path, and an unrecognised subcommand is treated as a write. Seven are refused
 outright at any setting — most importantly `gh auth token`, which would print your GitHub token into

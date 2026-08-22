@@ -58,6 +58,11 @@ context and sending it.
 
 **A snapshot is taken before every write.** That's what makes a failed step recoverable.
 
+**A turn-level capability ceiling is not an approval decision.** Explicit broad instructions such as
+“do not run terminal commands” remove those tools before routing and are checked again before execution.
+Narrow release guards leave Git tools callable so the normal approval policy can gate them; otherwise
+“subject to approval” would paradoxically remove the operation before an approval could be requested.
+
 ---
 
 ## What happens during a project run
@@ -345,6 +350,14 @@ pipeline says **where versions move** and owns guarded promotion. The detected s
 this project asks a newcomer to do**: prerequisites, validation, packaging, deployment and publishing,
 derived from bounded local manifests, scripts, routines, workflows and the stage model. Exact repository
 configuration, runtime conventions, human checks and missing blockers remain visibly different.
+
+When **Ask Atlas** opens from a non-green working-tree step, the host re-runs one bounded
+`git status --short` and rebuilds that row with live cleanliness. Copying or sending the detected
+command keeps the cheaper no-probe path because cleanliness cannot change the command. This separation
+prevents a tree already known to be dirty from becoming “unavailable” at the Chat handoff. If the
+inspected change should be committed, `git-commit` can stage a bounded list of exact tracked or untracked
+paths and commit only that list, leaving unrelated pre-staged entries untouched; broad
+`.`/wildcard/path-traversal staging is refused and the approval summary names the scope.
 
 Versioning is now explicit in both readings. A production path that requires a bump adds **Prepare
 release version** to the Detected Runbook and displays the repository's exact preparation script when it

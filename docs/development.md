@@ -321,6 +321,15 @@ lands nowhere. Nothing throws, so the console stays clean. It reads as a dozen u
 rather than as one dead channel, and it was reported exactly that way: as the Delivery runbook's
 **copy** and **send to terminal** controls being broken, when every link in that chain was correct.
 
+Delivery discussion adds one more host-side revalidation. Copy/send rebuilds the guide without a Git
+probe because cleanliness cannot change the command being copied; **Ask Atlas** must not reuse that
+shortcut. It calls `resolveDeliveryGuide({ includeWorkingTree: true })`, performs one bounded
+`git status --short`, and carries the resulting clean/dirty/unknown fact into Chat. Failure remains
+unknown, never clean. Keep the handoff's approval language declarative (operations remain subject to
+approval), because the user-message capability parser enforces explicit no-command wording before tool
+selection and a host-authored “do not execute” sentence can otherwise strip the Git tools the handoff
+exists to use.
+
 Two things close it, and a panel that persists across a reload needs both.
 
 **Register a serializer.** `commands.ts` registers a `WebviewPanelSerializer` for

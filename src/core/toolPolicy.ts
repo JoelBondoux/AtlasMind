@@ -126,8 +126,18 @@ export function classifyToolInvocation(
     case 'git-apply-patch':
       return { category: 'workspace-write', risk: 'high', summary: `modify workspace files using ${toolName}` };
 
-    case 'git-commit':
-      return { category: 'git-write', risk: 'high', summary: 'create a git commit in the workspace repository' };
+    case 'git-commit': {
+      const pathCount = Array.isArray(args['paths'])
+        ? args['paths'].filter(path => typeof path === 'string').length
+        : 0;
+      return {
+        category: 'git-write',
+        risk: 'high',
+        summary: pathCount > 0
+          ? `stage ${pathCount} exact path${pathCount === 1 ? '' : 's'} and create a git commit containing only those paths in the workspace repository`
+          : 'create a git commit in the workspace repository',
+      };
+    }
 
     case 'rollback-checkpoint':
       return { category: 'workspace-write', risk: 'high', summary: 'restore the most recent automatic checkpoint' };

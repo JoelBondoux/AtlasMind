@@ -6,6 +6,25 @@ The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/),
 
 ## [Unreleased]
 
+## [0.382.2] - 2026-08-22
+
+### Fixed
+
+- **Delivery chat no longer disables its own Git tools.** The detected-runbook handoff now rechecks
+  live working-tree cleanliness before describing the failing step. Its approval guard is phrased as
+  an approval requirement rather than a blanket `do not execute` directive, and the turn-capability
+  parser now applies the no-command ceiling only when a broad capability such as commands, terminal,
+  shell, packages, scripts, or processes is explicitly withdrawn.
+- **Commits stage only the paths the agent inspected.** `git-commit` accepts up to 100 exact
+  workspace-relative paths, including intentional untracked files, stages them with an argv-only
+  `git add -- <paths>` call, commits them with `git commit --only`, and refuses `.`, traversal,
+  absolute paths, control characters, and pathspec wildcards. Exact-path staging is shown in the
+  approval summary, cannot be combined with the legacy all-tracked mode, preserves unrelated
+  entries that were already staged, and a staging failure stops before commit.
+- **The GitHub Operator no longer invents unsafe Git handoffs.** Its operating contract now forbids
+  `git add .` and unverified commit-message files, requiring commit text and file scope to come from
+  the inspected diff and the `git-commit` parameters.
+
 ## [0.382.1] - 2026-08-21
 
 ### Changed

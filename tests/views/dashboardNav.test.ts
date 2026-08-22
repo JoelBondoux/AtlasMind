@@ -199,6 +199,17 @@ describe('dashboard nav definition', () => {
     expect(delivery).not.toContain('data-payload="${escapeAttr(step.detail)}"');
   });
 
+  it('rechecks Git cleanliness and keeps approval-gated Git tools available for runbook discussions', () => {
+    const handlerStart = HOST_SOURCE.indexOf('private async handleDiscussDeliveryGuideStep');
+    const handlerEnd = HOST_SOURCE.indexOf('private async handleCopyDeliveryCommand', handlerStart);
+    const handler = HOST_SOURCE.slice(handlerStart, handlerEnd);
+
+    expect(handler).toContain('resolveDeliveryGuide({ includeWorkingTree: true })');
+    expect(handler).toContain('Release, deployment, publication, and destructive operations remain subject to the normal approval flow.');
+    expect(handler).toContain('use git-commit with exact paths');
+    expect(handler).not.toContain('Do not execute a release');
+  });
+
   it('says the send button does not press Enter, so the affordances read differently', () => {
     // Copy and send need no dialog because the human still presses Enter; the
     // column run does, and the two must not look interchangeable on screen.

@@ -11841,16 +11841,21 @@ ${buildCardEvidenceSection(source, derivation)}`;
    * *supply* one. Cleanliness is left ungathered because it changes a step's
    * status and never a command, so a copy click does not pay for a git call.
    */
-  private async resolveDeliveryGuide(): Promise<{ guide: ProjectDeliveryGuide; workspaceRoot: string } | undefined> {
+  private async resolveDeliveryGuide(
+    options: { includeWorkingTree?: boolean } = {},
+  ): Promise<{ guide: ProjectDeliveryGuide; workspaceRoot: string } | undefined> {
     const workspaceRoot = vscode.workspace.workspaceFolders?.[0]?.uri.fsPath;
     if (!workspaceRoot) {
       return undefined;
     }
     const workflows = await collectWorkflowSnapshot(workspaceRoot);
+    const workingTreeDirty = options.includeWorkingTree
+      ? await collectWorkingTreeDirty(workspaceRoot)
+      : undefined;
     const guide = await collectProjectDeliveryGuide(
       this.atlas,
       workspaceRoot,
-      undefined,
+      workingTreeDirty,
       workflows,
       this.atlas.deliveryManager?.getConfig() ?? undefined,
     );
@@ -11872,7 +11877,11 @@ ${buildCardEvidenceSection(source, derivation)}`;
   }
 
   private async handleDiscussDeliveryGuideStep(stepId: string): Promise<void> {
-    const resolved = await this.resolveDeliveryGuide();
+    // Discussion needs the live status, unlike copy/send where cleanliness
+    // cannot change the command being resolved. Without this second bounded
+    // read, a step the dashboard already knew was dirty became "unavailable"
+    // at the exact boundary where Atlas was asked to resolve it.
+    const resolved = await this.resolveDeliveryGuide({ includeWorkingTree: true });
     const step = resolved?.guide.phases
       .flatMap(phase => phase.steps)
       .find(candidate => candidate.id === String(stepId ?? '') && candidate.status !== 'configured');
@@ -11889,7 +11898,7 @@ ${buildCardEvidenceSection(source, derivation)}`;
     ].join('\n');
     await vscode.commands.executeCommand('atlasmind.openChatPanel', {
       draftPrompt: [
-        'Resolve this non-green Delivery runbook step. Inspect the current workspace evidence, make the smallest safe change that turns the step green when possible, and explain any remaining manual action or blocker. Do not execute a release, deployment, publication, or destructive command without the normal approval flow.',
+        'Resolve this non-green Delivery runbook step. Inspect the current workspace evidence, make the smallest safe change that turns the step green when possible, and explain any remaining manual action or blocker. Release, deployment, publication, and destructive operations remain subject to the normal approval flow. For a dirty working tree, inspect every changed path first; if a commit is the smallest safe resolution, use git-commit with exact paths and a message derived from the inspected diff. Never sweep unrelated work into the commit with git add . or invent a commit-message file.',
         evidence,
       ].join('\n\n'),
       sendMode: 'new-session',
@@ -16639,6 +16648,23 @@ async function collectProjectDeliveryGuide(
     })),
     workingTreeClean: workingTreeDirty === undefined ? undefined : !workingTreeDirty,
   });
+}
+
+/**
+ * Read only the fact the discussion boundary needs.
+ *
+ * The full dashboard Git snapshot also loads history, branches, upstream
+ * divergence and ownership. Re-running all of that for one runbook row is both
+ * slower and broader than the question. Failure stays `undefined`: an unreadable
+ * Git state is unknown, never clean.
+ */
+async function collectWorkingTreeDirty(workspaceRoot: string): Promise<boolean | undefined> {
+  try {
+    const status = await runGit(workspaceRoot, ['status', '--short']);
+    return status.trim().length > 0;
+  } catch {
+    return undefined;
+  }
 }
 
 async function collectVersionSnapshot(

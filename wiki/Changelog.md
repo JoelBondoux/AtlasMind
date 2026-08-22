@@ -19,6 +19,17 @@ Older entries below describe the software as it was at the time and are delibera
 
 ---
 
+## v0.382.2 — Delivery chat keeps its Git authority
+
+The Delivery runbook now carries live working-tree evidence into **Ask Atlas** instead of replacing a
+known dirty tree with "cleanliness unavailable". Its approval wording no longer trips AtlasMind's
+turn-scoped no-command ceiling and strips away `git-commit` and terminal access before the model starts.
+
+`git-commit` can now stage and exclusively commit a bounded list of exact tracked or untracked paths.
+Unrelated entries already in the index remain staged. Broad `.` staging, traversal, absolute paths and
+pathspec wildcards are refused; the approval card names how many exact paths will be committed. The GitHub Operator also refuses to recommend `git add .` or a
+commit-message file it has not verified.
+
 ## v0.382.1 — Roadmap and workflow synchronization
 
 Roadmap and workflow artifacts are now re-synced from source memory, and the generated roadmap

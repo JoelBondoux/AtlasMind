@@ -4,7 +4,7 @@
 
 <h1 align="center">AtlasMind</h1>
 
-<p align="center"><sub> · <strong>Current source version: 0.382.1</strong> · </sub></p>
+<p align="center"><sub> · <strong>Current source version: 0.382.2</strong> · </sub></p>
 
 
 <p align="center">
@@ -126,6 +126,18 @@ Ambitious automation is only worth having if you can trust it. AtlasMind is buil
 Full detail in the [Security model](wiki/Security.md) and [Tool Execution](wiki/Tool-Execution.md).
 
 ---
+
+## What's new in 0.382.2
+
+- **Delivery chat keeps the Git facts it asks Atlas to resolve.** Opening a non-green working-tree
+  step now rechecks the live repository instead of rebuilding the runbook with cleanliness marked
+  unavailable. Approval-qualified release wording no longer disables every command-capable Git tool.
+
+- **Commits can stage and commit exact paths, including intentional untracked files.** `git-commit`
+  accepts a bounded path list, leaves unrelated pre-staged changes out of the commit, refuses `.`,
+  traversal, absolute paths and pathspec wildcards, and names that scope in the approval summary.
+  The GitHub Operator is explicitly barred from recommending `git add .` or inventing a
+  commit-message file it did not inspect.
 
 ## What's new in 0.382.1
 

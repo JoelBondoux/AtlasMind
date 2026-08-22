@@ -100,6 +100,17 @@ describe('git skills are graded by what they do, not by the unknown-tool fallbac
     expect(classifyToolInvocation('git-push', {}).summary).not.toContain('external tool');
   });
 
+  it('names exact-path staging in the commit approval summary', () => {
+    const policy = classifyToolInvocation('git-commit', {
+      message: 'fix: keep the tree scoped',
+      paths: ['src/a.ts', 'tests/a.test.ts'],
+    });
+
+    expect(policy).toMatchObject({ category: 'git-write', risk: 'high' });
+    expect(policy.summary).toContain('2 exact paths');
+    expect(policy.summary).toContain('create a git commit containing only those paths');
+  });
+
   it('keeps read grades prompt-free under ask-on-write and gates the writes', () => {
     expect(requiresToolApproval('ask-on-write', classifyToolInvocation('git-log', {}))).toBe(false);
     expect(requiresToolApproval('ask-on-write', classifyToolInvocation('git-fetch', {}))).toBe(false);

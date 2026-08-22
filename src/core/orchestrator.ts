@@ -126,7 +126,14 @@ const SIMPLE_MECHANICAL_TASK_PATTERN = /\b(?:commit(?:\s+(?:all|changes|these|th
 const EXPLICIT_ADVICE_ONLY_PATTERN = /\b(explain only|guidance only|advice only|analysis only|read only|no code changes|without changing|do not change|don't change|question only)\b/i;
 const READ_ONLY_TURN_PATTERN = /\bread[\s-]?only\b|\b(?:no|without)\s+(?:code\s+)?changes?\b|\bdo\s+not\s+(?:edit|write|modify|change)\b/i;
 const NO_WRITE_DIRECTIVE_PATTERN = /\b(?:do\s+not|don't|must\s+not|without)\b(?:(?!\bbut\b)[^.!?\n]){0,160}\b(?:edit|write|modify|change|create|delete|remove|install)\b/i;
-const NO_COMMAND_DIRECTIVE_PATTERN = /\b(?:do\s+not|don't|must\s+not|without)\b(?:(?!\bbut\b)[^.!?\n]){0,160}\b(?:run|execute|invoke|launch|install)\b[^.!?\n]{0,40}\b(?:commands?|terminal|shell|packages?|scripts?|process(?:es)?)?\b/i;
+// A command ceiling must name the broad capability it is withdrawing. The
+// object used to be optional, so "Do not execute a release without approval"
+// matched only through "execute ... or" and disabled every command-capable
+// tool — including the approval-gated git operation the sentence meant to
+// preserve. Narrow prohibitions (do not publish, deploy, or release) remain
+// enforced by their own approval/policy gates; this envelope is only for an
+// explicit ban on commands, terminals, shells, packages, scripts, or processes.
+const NO_COMMAND_DIRECTIVE_PATTERN = /\b(?:do\s+not|don't|must\s+not|without)\b(?:(?!\bbut\b)[^.!?\n]){0,160}\b(?:run(?:ning)?|execut(?:e|ing)|invok(?:e|ing)|launch(?:ing)?|install(?:ing)?)\b(?:(?!\bbut\b)[^.!?\n]){0,40}\b(?:commands?|terminal|shell|packages?|scripts?|process(?:es)?)\b/i;
 const INVESTIGATION_NARRATION_PATTERN = /\b(?:(?:first|next|then),?\s+)?(?:(?:i(?:'| wi)?ll)|let me|i am going to|i'm going to|i need to|we need to|i have to)\s+(?:search|inspect|look(?:\s+for)?|examine|check|find|investigate|trace|locate|review|dig into)\b/i;
 const WORKSPACE_TOOL_USE_REPROMPT = [
   'This request needs repository evidence from the current workspace.',
