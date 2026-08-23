@@ -6,6 +6,13 @@ The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/),
 
 ## [Unreleased]
 
+### Fixed
+
+- **Chat startup no longer dies when optional composer controls are absent.** The webview bootstrap now
+  treats search, session-rail, and attachment controls as optional, only hard-failing on the truly
+  essential transcript and composer elements. This preserves the chat surface when a partial DOM or a
+  mismatched markup version is loaded during startup.
+
 ## [0.382.7] - 2026-08-22
 
 ### Changed

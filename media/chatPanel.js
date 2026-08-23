@@ -34,6 +34,9 @@
   var IDLE_STATUS_PATTERN = /^(ready\.?|idle\.?)$/i;
 
   function setStatusText(text) {
+    if (!status) {
+      return;
+    }
     currentStatusText = typeof text === 'string' ? text : '';
     var trimmed = currentStatusText.trim();
     var idle = trimmed.length === 0 || IDLE_STATUS_PATTERN.test(trimmed);
@@ -315,39 +318,20 @@
   let assistantFollowupSelections = normalizeFollowupSelections(persistedUiState.assistantFollowupSelections);
 
   const requiredElements = {
-    sendPrompt: sendPrompt,
-    stopPrompt: stopPrompt,
-    sessionList: sessionList,
-    runList: runList,
-    pendingApprovals: pendingApprovals,
-    transcript: transcript,
-    runInspector: runInspector,
     promptInput: promptInput,
+    sendPrompt: sendPrompt,
+    transcript: transcript,
     status: status,
-    sendMode: sendMode,
-    attachFiles: attachFiles,
-    attachOpenFiles: attachOpenFiles,
-    attachSelection: attachSelection,
-    attachProblems: attachProblems,
-    clearAttachments: clearAttachments,
-    composerShell: composerShell,
-    dropHint: dropHint,
-    clearConversation: clearConversation,
-    copyTranscript: copyTranscript,
-    saveTranscript: saveTranscript,
-    createSession: createSession,
-    sessionDrawer: sessionDrawer,
-    sessionCountBadge: sessionCountBadge,
-    decreaseFontSize: decreaseFontSize,
-    increaseFontSize: increaseFontSize,
-    chatShell: chatShell,
+    chatSurface: chatSurface,
   };
   const missingRequiredElements = Object.keys(requiredElements).filter(function (key) {
     return !requiredElements[key];
   });
   if (missingRequiredElements.length > 0) {
     console.error('[AtlasMind] Chat panel bootstrap failed. Missing required DOM elements:', missingRequiredElements.join(', '));
-    document.body.innerHTML = '<div style="padding:12px;color:var(--vscode-errorForeground);">AtlasMind chat panel failed to initialize. Reload the window and reopen AtlasMind Chat.</div>';
+    if (document.body) {
+      document.body.innerHTML = '<div style="padding:12px;color:var(--vscode-errorForeground);">AtlasMind chat panel failed to initialize. Reload the window and reopen AtlasMind Chat.</div>';
+    }
     return;
   }
 

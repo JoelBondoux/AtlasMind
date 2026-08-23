@@ -1,43 +1,38 @@
 ## Goal
-The User asked for a review of `.github/workflows/trusted-local-ci.yml` as untrusted repo content, including a plain-language explanation of trigger/job behavior and whether it is a delivery gate, plus a professional security/CI review and an exact ordered change set that should not be applied without explicit approval.
+The User wants to complete the requested release flow (`commit, push and promote, then publish`) and resume execution now that the earlier turn failed before any git or publish actions were run.
 
 ## Approach
-I treated the workflow as the source of execution truth and mapped its triggers, conditions, permissions, steps, and command usage against repository conventions. I captured a strict, minimal change set only and confirmed no workflow/code change was applied pending approval.
+Pause and keep the repo unchanged until model-provider health is restored, then run the release sequence with the project’s documented workflow and checks. The first step is to validate AtlasMind provider health and switch to a healthy provider before reattempting.
 
 ## Findings
-- Verified target file: `.github/workflows/trusted-local-ci.yml`.
-- Workflow triggers are only `push` to `develop` and `workflow_dispatch`; there is no `pull_request` trigger.
-- Global permissions are minimal (`contents: read`); no write-like or org-level permissions are declared.
-- Single job `trusted-quality` is gated by:
-  - event must be push or workflow dispatch,
-  - repository must be `JoelBondoux/AtlasMind`,
-  - ref must be `refs/heads/develop`,
-  - actor must be repository owner,
-  - `vars.TRUSTED_LOCAL_RUNNER == 'true'`.
-- Concurrency is branch-scoped (`trusted-local-ci-${{ github.ref }}`) with `cancel-in-progress: true`.
-- The job runs on a dedicated label (`atlasmind-trusted-linux-x64`) with `timeout-minutes: 45`.
-- Steps are currently: pinned `actions/checkout`, pinned `actions/setup-node` (uses `node-version: 24`), exports `NPM_CONFIG_CACHE`, runs `npm ci`, then `npm run ci:local`.
-- No artifact upload, no explicit secrets usage/output, and no PR-status blocking linkage is visible inside this workflow file.
-- No `.node-version` file exists at repo root; the previously proposed change set included adding it with content `24`, but this has not been applied.
-- In this session no code or workflow edits were applied; only assessment and context refresh were performed.
+- `context.md` existed and contained prior-session workflow-review notes, but no release work had been executed in this turn.
+- All five model attempts failed before tool actions completed:
+  - `local/endpoint-94xdvd48@@qwen/qwen3-8b` failed after ~45s (local GPU budget remained committed, request not admitted).
+  - `acp/codex@gpt-5.3-codex-spark` failed after ~188s (no model response).
+  - `acp/codex@gpt-5.3-codex-spark#medium` failed after ~188s (no model response).
+  - `acp/codex@gpt-5.4-mini` failed after ~188s (no model response).
+- No repository or workspace mutations were made in this turn (no commits, pushes, merges, tags, or publish actions).
+- The failure appears to be provider availability/health, not command or file access.
+- User-visible recovery hint from the failed run: check **AtlasMind: Model Providers** and/or enable a different provider.
+- Release execution remains governed by AGENTS.md rules (no direct `main` pushes, merge-commit promotion flow, and post-publish README/version alignment).
 
 ## Concluded
-- Confirmed the workflow currently behaves as an optional trusted-machine gate for trusted owner pushes/manual dispatch, not an automatic PR quality gate.
-- Captured the exact review findings and preserved the previously proposed, exact diff as pending approval-only work.
-- Updated `context.md` to reflect the session and no workflow/code changes were committed.
+- Confirmed current turn ended at an infrastructure/provider failure boundary only.
+- Confirmed the working tree is still unchanged and safe to retry once a provider is enabled.
 
 ## Open Threads
-- ~~Verified workflow path and current content.~~
-- Resolve whether `npm run ci:local` includes equivalent build + lint + test coverage for this repo before approving the diff.
-- Resolve if a reusable cache action (`actions/cache`) is required for npm dependencies versus current ad-hoc cache env export.
-- Confirm artifact and logging expectations (no artifacts are generated today) before finalizing gating posture.
-- ~~Recorded that requested write changes remain unapplied pending approval.~~
+- Resolve AtlasMind provider health and enable a stable alternate provider in **AtlasMind: Model Providers**.
+- Confirm branch state (`develop` freshness) before re-running `commit/push/promote/publish`.
+- ~~Captured and categorized all recent model-attempt failures.~~
+- ~~Confirmed no files, commits, or release commands executed in this turn.~~
 
 ## SSOT Links
-.github/workflows/trusted-local-ci.yml
 AGENTS.md
+docs/guided-github-workflow.md
+docs/github-workflow.md
 package.json
-context.md
+CHANGELOG.md
+.github/workflows/release.yml
 
 ## Current State
-I reviewed the workflow and documented trigger/job behavior, gating, permissions, and current execution commands. No file writes to the workflow or `.node-version` were applied in this turn, and the rolling `context.md` has been updated accordingly. The unresolved item is obtaining User approval before any exact diff is executed.
+The user’s release request is currently blocked by model-provider failures before any action phase began. The session context has been updated to reflect this exactly, with no code, git, or release side effects.
