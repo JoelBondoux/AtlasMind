@@ -6,6 +6,30 @@ The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/),
 
 ## [Unreleased]
 
+## [0.393.0] - 2026-09-03
+
+### Added
+
+- Added pure `gameEngineIdentity.ts` detection for the closed Unreal, Unity, Godot, custom, and
+  unknown vocabulary. Decisive root project files identify an engine; their own declarations supply
+  the version without dependency or filename inference.
+- Added explicit source-verification dates and conservative verified identity ranges for each engine.
+  A newer version is preserved as evidence while every unverified version-dependent surface remains
+  unavailable.
+- Added fixture-backed coverage for all three engines, Godot 3/4 distinction, Unreal custom
+  associations, malformed/truncated evidence, competing project files, conflicting engines, bounds,
+  unsafe paths, and declaration precedence.
+
+### Changed
+
+- Game Engine Integration Phase 2 now has C2.1 complete; bounded asset inventory is next.
+
+### Security
+
+- Engine identity consumes bounded, root-relative text evidence and performs no filesystem or engine
+  operation. Traversal, absolute paths, conflicting duplicate records, excessive inventories, and
+  ambiguous engines all fail closed without guessing.
+
 ## [0.392.0] - 2026-09-03
 
 ### Added

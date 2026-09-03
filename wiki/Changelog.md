@@ -19,6 +19,22 @@ Older entries below describe the software as it was at the time and are delibera
 
 ---
 
+## v0.393.0 — Game engine identity
+
+AtlasMind can now identify Unreal, Unity, and Godot from decisive project files without starting an
+editor or inferring from dependencies. Unreal reads the numeric `EngineAssociation` in one root
+`.uproject`, Unity reads the exact `m_EditorVersion` in `ProjectSettings/ProjectVersion.txt`, and
+Godot reads `config/features` while retaining the documented Godot 3 format distinction. `custom`
+and `unknown` remain legitimate declared values.
+
+Detection consumes bounded root-relative text supplied by its caller and has no filesystem side
+effects. Missing, truncated, malformed, duplicated, unsafe, or cross-engine evidence cannot become a
+guess. A project declaration always wins over detection. Each engine carries a primary-source
+verification date and deliberately narrow verified identity range; AtlasMind preserves a newer
+version string but labels its dependent surfaces not verified instead of extrapolating.
+
+Game Engine Integration Phase 2 is complete through C2.1. Bounded asset inventory is next.
+
 ## v0.392.0 — Upstream divergence foundation
 
 Declared Git upstreams can now be measured without any engine- or product-specific logic. The core

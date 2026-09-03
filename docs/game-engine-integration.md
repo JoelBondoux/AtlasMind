@@ -15,7 +15,7 @@ Where this document and the plan disagree, this document wins.
 
 ### 0.2 Built versus proposed
 
-Phase 0 and Phase 1 are built through C1.8: the `game` persisted-document kind is registered at schema
+Phase 0 and Phase 1 are built through C1.8, and Phase 2 is built through C2.1: the `game` persisted-document kind is registered at schema
 v1; deterministic fixtures cover Unreal, Unity, Godot 3/4 and Perforce; declared component scope
 round-trips through `workflow.json`; and the Project Dashboard now scopes Git, local CI, debt,
 issue-tracker visibility, and observed-delta evidence to those components with explicit `not-visible`
@@ -23,9 +23,10 @@ results. The generic Shopify theme + app + extension bootstrap path supplies the
 composition validation, and four editable game architecture seeds cover single-repo, multi-repo,
 hybrid Git + Perforce, and engine-fork layouts without persisting preset authority or guessed
 coordinates. The engine-agnostic upstream-divergence core now derives commits, changed-path overlap,
-and comparable trends through read-only Git evidence. No engine detector, inventory reader, log parser,
-game command surface, bridge, or game dashboard is built yet; those sections remain intended behaviour.
-Facts about engines are marked as claims requiring verification (§2.4).
+and comparable trends through read-only Git evidence. The pure engine-identity core now reads bounded
+decisive-file evidence, exact declared versions, declaration precedence, and version-surface verification
+without filesystem or editor access. No inventory reader, log parser, game command surface, bridge, or
+game dashboard is built yet; those sections remain intended behaviour.
 
 ### 0.3 Engines in scope
 
@@ -93,6 +94,15 @@ siblings — following the `ACP_SPEC_VERIFIED_AT` and `BUZZ_PROTOCOL_VERIFIED_VE
 Where AtlasMind encounters an engine version outside its verified range it MUST report *"not verified
 against this version"* and degrade, never extrapolate. This is the only mechanism preventing the
 feature rotting silently as engines ship.
+
+Implementation verification was refreshed on 2026-09-03 from primary sources: Epic's
+[`FProjectDescriptor`](https://dev.epicgames.com/documentation/unreal-engine/API/Runtime/Projects/FProjectDescriptor)
+and [installed-build association guidance](https://dev.epicgames.com/documentation/en-us/unreal-engine/using-an-installed-build-of-unreal-engine?application_version=5.2),
+Unity's [Build Automation project-version guidance](https://docs.unity.com/en-us/build-automation/basic-build-configuration/overview)
+and official [`ProjectVersion.txt` sample](https://github.com/Unity-Technologies/Standard-Assets-Characters/blob/master/ProjectSettings/ProjectVersion.txt),
+and Godot's [`ProjectSettings` source](https://github.com/godotengine/godot/blob/master/core/config/project_settings.cpp)
+plus [Godot 3 project-settings documentation](https://docs.godotengine.org/en/3.5/classes/class_projectsettings.html).
+The resulting `*_SURFACE_VERIFIED_AT` constants and narrow identity ranges live beside the parser.
 
 ### 2.5 An engine fork is not an engine installation
 
@@ -263,9 +273,9 @@ The distinguishing behaviour of this feature is what it says when it does not kn
 
 An implementation conforms when:
 
-- [ ] A Unreal, Unity and Godot fixture each resolve to the correct engine and exact version.
-- [ ] A project with an unreadable engine version withholds every version-dependent affordance.
-- [ ] Every engine CLI fact in source sits behind a `*_VERIFIED_AT` constant.
+- [x] An Unreal, Unity and Godot fixture each resolve to the correct engine and exact declared version.
+- [x] A project with an unreadable engine version withholds every version-dependent affordance.
+- [x] Every implemented version-specific engine identity fact in source sits behind a `*_VERIFIED_AT` constant.
 - [ ] The bridge wire format contains no command frame, asserted by test.
 - [ ] The bridge refuses an unauthenticated first frame and binds loopback only.
 - [ ] No code path writes a binary engine asset.

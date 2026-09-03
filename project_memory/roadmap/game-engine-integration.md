@@ -1,6 +1,6 @@
 # Game Engine Integration — Phased Roadmap
 
-> **Status:** Phase 1 complete; Phase 2 / C2.1 next. **Owner:** AtlasMind core. **Created:** 2026-07-30. **Baseline:** v0.213.0.
+> **Status:** Phase 1 complete; Phase 2 in progress through C2.1; C2.2 next. **Owner:** AtlasMind core. **Created:** 2026-07-30. **Baseline:** v0.213.0.
 > This is the SSOT implementation plan. Its normative specifications are
 > [`docs/project-composition.md`](../../docs/project-composition.md) (v0.213.1) and
 > [`docs/game-engine-integration.md`](../../docs/game-engine-integration.md) (v0.213.2), both written
@@ -305,9 +305,12 @@ with per-component VCS, and no existing single-root behaviour has changed.
 correct engine, version, build targets, asset inventory, LFS verdict and fork distance, with no
 plugin installed and no engine running.
 
-- **C2.1** `src/core/gameEngineIdentity.ts` — mirrors `projectArchetype.ts` in structure and
-  discipline. `GAME_ENGINES = ['unreal','unity','godot','custom','unknown']`, detection from decisive
-  **files**, version read and never inferred, `confident: false` when nothing matched.
+- **C2.1** — ✅ `src/core/gameEngineIdentity.ts` mirrors `projectArchetype.ts` in structure and
+  discipline. `GAME_ENGINES = ['unreal','unity','godot','custom','unknown']`; bounded decisive-file
+  evidence reads exact declarations without filesystem/editor access or dependency inference.
+  Cross-engine and invalid inventories remain unconfident `unknown`; an identified engine with an
+  unreadable version withholds dependent surfaces. Declaration wins, and primary-source dates plus
+  narrow verified ranges prevent newer versions from being extrapolated.
 - **C2.2** `src/core/gameAssetInventory.ts` — a bounded walk over each content component's roots.
   Counts and sizes by type, import-error markers, orphan candidates, and the LFS verdict for
   git-tracked components. Bounded three ways with truncation **stated**, per `DebtRegister`.

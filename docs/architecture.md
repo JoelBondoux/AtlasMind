@@ -1359,6 +1359,24 @@ a different component/upstream, invalid snapshot, or backwards clock starts a fi
 and presentation belong to consuming surfaces, so Phase 2 can apply the same facts without forking the
 Git semantics.
 
+### GameEngineIdentity (`src/core/gameEngineIdentity.ts`)
+
+The pure identity boundary for the engine-specific project reader. It accepts a bounded list of
+root-relative text records and recognises only decisive files: one root `.uproject`, Unity's exact
+`ProjectSettings/ProjectVersion.txt`, or one root `project.godot`. It never reads the filesystem,
+starts an editor, probes an installation, or infers identity from dependencies. Competing engine
+families return unconfident `unknown`; multiple Unreal project files identify Unreal but cannot select
+a version; incomplete or malformed decisive evidence names the engine while withholding its version.
+
+Versions are copied only from the project file: numeric Unreal `EngineAssociation`, Unity's exact
+`m_EditorVersion`, and Godot's `config/features`, with the older declared project format preserving the
+Godot 3 family distinction. A GUID/custom Unreal association is not rewritten into a guessed version.
+`UNREAL_SURFACE_VERIFIED_AT`, `UNITY_SURFACE_VERIFIED_AT`, and `GODOT_SURFACE_VERIFIED_AT` pin when the
+primary identity-format documentation was checked. The parsers may preserve newer version evidence,
+but `surfaceVerification: not-verified` withholds dependent behavior outside the deliberately narrow
+verified ranges. `selectEffectiveGameEngineIdentity` applies the shared authority rule: a valid project
+declaration wins, including legitimate `custom` and `unknown` values.
+
 ### ProjectVocabulary (`src/core/projectVocabulary.ts`)
 
 The nouns a project has **declared** for its own delivery pipeline and Git workflow, read once and in one place. It exists because two surfaces were answering the same question from different sources and disagreeing: a request to "promote to staging" was matched against a hand-maintained keyword table in the Orchestrator that contained neither `promote` nor `staging`, so the turn selected no tools and no context — while `project_memory/operations/delivery.json` had already recorded the answer (a stage of kind `staging`, named `Integration`, carrying `branchRef: develop`). The product knew; the part of the product that had to act did not, so the model fell back to `git branch`, found nothing called `staging`, and asked the user a question AtlasMind could have answered.

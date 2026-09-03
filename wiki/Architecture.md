@@ -101,6 +101,7 @@ path — you don't have to retype it.
 | **Task Profiler** | Works out how hard a task really is |
 | **Project Archetype & Prefab Plans** | Describes a project as a small archetype plus composable traits, then builds deterministic create-only starter plans for explicitly selected platforms |
 | **Project Composition & Workspace Scope** | Keeps team-declared component boundaries separate from detected proposals and resolves only the roots a surface opts into |
+| **Game Engine Identity** | Reads bounded decisive project-file evidence for Unreal, Unity, or Godot; preserves exact declared versions and withholds unverified surfaces |
 | **Project Vocabulary** | The delivery stages and branches *your project declared*, so "promote to staging" means what you said it means |
 | **Planner & Task Scheduler** | Breaks a goal into steps and runs them in dependency order |
 | **Mission Runner** | The autonomous loop, and the envelope that contains it |
@@ -114,6 +115,14 @@ commands it records.
 
 Magento follows the extension side of that model: a distributable `library` with published-package and
 personal-data review traits, backed by matching Composer, registration, and module XML identifiers.
+
+Game engine identity follows the same declaration-over-detection rule at a stricter boundary. The pure
+`gameEngineIdentity.ts` recognises only one root `.uproject`, Unity's exact
+`ProjectSettings/ProjectVersion.txt`, or one root `project.godot`; it neither walks the filesystem nor
+starts or probes an editor. Missing and malformed versions withhold dependent behavior, conflicting
+engine families remain unconfident `unknown`, and `custom` can only be declared. Primary-source check
+dates and narrow verified ranges travel with each known engine, so a future version can be named as
+evidence without pretending its behavior was verified.
 BigCommerce Catalyst and Wix Commerce follow the storefront side: hosted `website` identities with UI,
 server, and personal-data review traits. Their prefabs are documentation-only generator handoffs because
 the official tools own version-sensitive source and external provisioning; a handoff never claims that
@@ -959,7 +968,7 @@ never accepted.
 
 | Path | What's in it |
 |---|---|
-| `src/core/` | Orchestration, routing, planning, safety, cost, project services, and CI inspection, trusted-workflow generation, the route model, routing policy, build ledger, act adapter and local CI setup guidance (`ciManager.ts`, `trustedLocalCiStarter.ts`, `ciRoutes.ts`, `ciRoutingPolicy.ts`, `ciCreditMeter.ts`, `ciBuildLedger.ts`, `ciActRoute.ts`, `nodeVersionDetection.ts`, `localCiSetupPlan.ts`, `localCiInstaller.ts`, `localCiInspectionMemory.ts`), the guarded local CI executor (`localCiRunner.ts`), the confirmed-write echo that shows an issue or pull-request write before the re-read lands (`trackerWriteOutcome.ts`), the roadmap dependency graph with its on-disk overlay (`roadmapGraph.ts`, `roadmapGraphStore.ts`), the declared table saying where each release gate’s evidence lives and how gates rank by urgency (`releaseGateNavigation.ts`), roadmap ingestion from markdown, issues, Projects and spreadsheets with re-runnable reconciliation (`roadmapImport.ts`), the register-to-work hand-off that turns a gap, a debt entry or a risk finding into planned work (`registerHandoff.ts`), and how the project numbers its software across branches — the semver primitives plus the declared scheme, source and branch-to-channel map (`semver.ts`, `versioningPolicy.ts`) |
+| `src/core/` | Orchestration, routing, planning, safety, cost, project services, pure game-engine identity (`gameEngineIdentity.ts`), and CI inspection, trusted-workflow generation, the route model, routing policy, build ledger, act adapter and local CI setup guidance (`ciManager.ts`, `trustedLocalCiStarter.ts`, `ciRoutes.ts`, `ciRoutingPolicy.ts`, `ciCreditMeter.ts`, `ciBuildLedger.ts`, `ciActRoute.ts`, `nodeVersionDetection.ts`, `localCiSetupPlan.ts`, `localCiInstaller.ts`, `localCiInspectionMemory.ts`), the guarded local CI executor (`localCiRunner.ts`), the confirmed-write echo that shows an issue or pull-request write before the re-read lands (`trackerWriteOutcome.ts`), the roadmap dependency graph with its on-disk overlay (`roadmapGraph.ts`, `roadmapGraphStore.ts`), the declared table saying where each release gate’s evidence lives and how gates rank by urgency (`releaseGateNavigation.ts`), roadmap ingestion from markdown, issues, Projects and spreadsheets with re-runnable reconciliation (`roadmapImport.ts`), the register-to-work hand-off that turns a gap, a debt entry or a risk finding into planned work (`registerHandoff.ts`), and how the project numbers its software across branches — the semver primitives plus the declared scheme, source and branch-to-channel map (`semver.ts`, `versioningPolicy.ts`) |
 | `src/runtime/` | The built-in agents and how the runtime is composed |
 | `src/providers/` | Provider adapters, catalogues, health, local model discovery, `modelRole.ts` (what a model is *for*), and the local-GPU support layer that measures VRAM and reads what each runtime has loaded |
 | `src/skills/` | Built-in tools and skill handlers |
