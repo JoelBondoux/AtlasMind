@@ -4,7 +4,7 @@
 
 <h1 align="center">AtlasMind</h1>
 
-<p align="center"><sub> · <strong>Current source version: 0.388.0</strong> · </sub></p>
+<p align="center"><sub> · <strong>Current source version: 0.389.0</strong> · </sub></p>
 
 
 <p align="center">
@@ -131,6 +131,25 @@ allow-list, redaction and file-withholding behaviour, retained metadata, provide
 important limits on overrides and compliance claims.
 
 ---
+
+## What's new in 0.389.0
+
+The last Marketplace publication, **v0.382.6**, is the baseline. The full history is in
+[CHANGELOG.md](CHANGELOG.md).
+
+- **Project evidence now follows declared component boundaries.** The dashboard resolves the full
+  composition once and reports Git status, local CI inventory, debt-scan coverage, issue-tracker
+  visibility, and observed-change baselines per component.
+
+- **Unreadable is no longer rendered as zero.** Missing roots and non-Git components remain visible
+  as `not-visible`, with a reason; aggregate issue totals are omitted when no component was actually
+  read.
+
+- **Every migrated count names its scope.** Repository, Pipeline, Issues, Debt, observed-delta, and
+  navigation summaries label the component or partial component set behind their numbers.
+
+- **Game integration Phase 1 advances through C1.5.** The next deliverable is the Shopify
+  theme + app + extension validation case before game-specific presets are introduced.
 
 ## What's new in 0.388.0
 

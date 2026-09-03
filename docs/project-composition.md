@@ -15,12 +15,14 @@ property a reviewer may reject a change for violating.
 
 ### 0.2 Built versus proposed
 
-Phase 1's foundation is built: `projectComposition.ts` owns the closed roles/VCS vocabulary, strict
+Phase 1 is built through C1.5: `projectComposition.ts` owns the closed roles/VCS vocabulary, strict
 normalization, validation, declaration-over-proposal rule, and derived topology; `workspaceScope.ts`
 resolves explicit home/component/all requests while defaulting exactly to the first VS Code workspace
 folder; and `workflowConfig.ts` round-trips the declaration and publishes it in the Markdown mirror.
-No existing consumer has opted into multi-component scope yet. Git/CI/debt/observed-delta migration,
-`not-visible` results, bootstrap presets, and upstream divergence remain proposed.
+The Project Dashboard now opts Git status, local CI, debt scanning, issue-tracker visibility, and
+observed-delta into component scope. Each reports its scope, retains excluded components as
+`not-visible`, and never substitutes zero for an unreadable VCS. Shopify validation, bootstrap presets,
+and upstream divergence remain proposed.
 
 ### 0.3 Non-goals
 

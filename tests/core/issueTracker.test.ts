@@ -3,10 +3,13 @@ import {
   STALE_ISSUE_DAYS,
   buildIssueWorkPrompt,
   describeIssueAction,
+  notVisibleComponentIssues,
   parseGhIssueList,
   sanitizeIssueDraft,
   sanitizeIssueNumber,
+  summarizeComponentIssuePortfolio,
   summarizeIssues,
+  visibleComponentIssues,
   type IssueRecord,
 } from '../../src/core/issueTracker.ts';
 
@@ -142,6 +145,62 @@ describe('summarizeIssues', () => {
   it('ignores closed issues when counting unassigned work', () => {
     const summary = summarizeIssues([issue({ state: 'closed' })], now);
     expect(summary.unassignedCount).toBe(0);
+  });
+});
+
+describe('component issue visibility', () => {
+  const scope = { componentId: 'gameplay', componentLabel: 'Gameplay', vcs: 'git' as const };
+
+  it('keeps a visible zero attached to the component that was actually read', () => {
+    const reading = visibleComponentIssues(scope, 'studio/gameplay', [], Date.parse('2026-08-01T00:00:00Z'));
+    expect(reading).toMatchObject({
+      visibility: 'visible',
+      componentLabel: 'Gameplay',
+      repoSlug: 'studio/gameplay',
+      summary: { openCount: 0 },
+    });
+  });
+
+  it('represents unsupported VCS as not-visible rather than an empty tracker', () => {
+    const reading = notVisibleComponentIssues(
+      { componentId: 'content', componentLabel: 'Content', vcs: 'perforce' },
+      'GitHub issues do not describe this Perforce component.',
+    );
+    expect(reading).toEqual({
+      componentId: 'content',
+      componentLabel: 'Content',
+      vcs: 'perforce',
+      visibility: 'not-visible',
+      reason: 'GitHub issues do not describe this Perforce component.',
+    });
+    expect(reading).not.toHaveProperty('issues');
+  });
+
+  it('aggregates only visible readings and labels partial coverage', () => {
+    const portfolio = summarizeComponentIssuePortfolio([
+      visibleComponentIssues(scope, 'studio/gameplay', [issue(), issue({ number: 2 })], Date.now()),
+      notVisibleComponentIssues(
+        { componentId: 'content', componentLabel: 'Content', vcs: 'external' },
+        'External tracker not connected.',
+      ),
+    ]);
+    expect(portfolio).toEqual({
+      visibleCount: 1,
+      totalCount: 2,
+      openCount: 2,
+      scopeLabel: '1 of 2 declared components',
+      notVisible: ['Content'],
+    });
+  });
+
+  it('omits an aggregate count when no component was visible', () => {
+    const portfolio = summarizeComponentIssuePortfolio([
+      notVisibleComponentIssues(
+        { componentId: 'content', componentLabel: 'Content', vcs: 'perforce' },
+        'Perforce is not a GitHub issue source.',
+      ),
+    ]);
+    expect(portfolio.openCount).toBeUndefined();
   });
 });
 

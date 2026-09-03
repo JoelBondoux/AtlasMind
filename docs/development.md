@@ -855,6 +855,13 @@ partly invalid declaration by dropping entries, persist topology, or make a dete
 target must keep returning only the first folder. Migrate consumers explicitly and in consequence order,
 with tests that assert scope labels and unknown roots before replacing a direct `workspaceFolders[0]` read.
 
+The Project Dashboard now performs that opt-in migration for Git status, local CI, issue visibility, debt
+scans, and observed deltas. Keep detailed legacy repository/GitHub data tied to the declared home component,
+and add a typed component inventory beside it. A missing or non-Git component must remain `not-visible` with
+a reason; do not coerce it to an empty result, omit it from coverage, or compare an observed snapshot whose
+component scope changed. Debt scans must retain component ids on candidates and scanned paths so one
+repository cannot obsolete another repository's evidence at the same relative path.
+
 ## Versioning Workflow
 
 1. Make changes and choose the correct SemVer bump for the same commit.

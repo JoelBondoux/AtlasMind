@@ -290,7 +290,7 @@ describe('a GitHub deep link is resolved by the host, never named by the webview
     // `gh repo view` needs an authenticated CLI, and a route *to* GitHub is most
     // useful on exactly the setups where `gh` is not working.
     expect(PANEL).toContain("runGit(workspaceRoot, ['remote', 'get-url', 'origin'])");
-    expect(PANEL).toContain('buildGithubLinksSnapshot(gitSnapshot.remoteUrl ?? issues.repoSlug)');
+    expect(PANEL).toContain('buildGithubLinksSnapshot(gitSnapshot.remoteUrl ?? dashboardIssues.repoSlug)');
   });
 
   it('renders both routing rows from the one place that knows which page it is building', () => {

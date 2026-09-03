@@ -36,7 +36,11 @@ import {
   parseGhIssueList,
   sanitizeIssueDraft,
   sanitizeIssueNumber,
+  notVisibleComponentIssues,
+  summarizeComponentIssuePortfolio,
   summarizeIssues,
+  visibleComponentIssues,
+  type ComponentIssueTrackerReading,
   type IssueRecord,
   type IssueSummary,
 } from '../core/issueTracker.js';
@@ -92,6 +96,7 @@ import {
   summarizeObservedDelta,
   takeObservedSnapshot,
   type ObservedDelta,
+  type ObservedScope,
   type ObservedSnapshot,
 } from '../core/observedDelta.js';
 import {
@@ -181,10 +186,12 @@ import {
   isDependencyPullRequest,
   reconcileDebtScan,
   scanForDebtMarkers,
+  scopeDebtCandidates,
   setDebtStatus,
   sortDebtEntries,
   type DebtEntry,
   type DebtMetrics,
+  type DebtScanScope,
   type DebtStatus,
 } from '../core/debtRegister.js';
 import {
@@ -206,6 +213,8 @@ import {
   type WorkflowConfigEdit,
   type WorkflowConfigProblem,
 } from '../core/workflowConfig.js';
+import { resolveWorkspaceScope, type WorkspaceScope } from '../core/workspaceScope.js';
+import type { ProjectComposition, ProjectComponentVcs } from '../core/projectComposition.js';
 import {
   buildReviewCommentPrompt,
   derivePullRequestIssueDraft,
@@ -1592,6 +1601,31 @@ interface GitSnapshot {
   gitUserName?: string;
 }
 
+interface DashboardComponentScopeIdentity {
+  componentId: string;
+  componentLabel: string;
+  vcs: ProjectComponentVcs;
+}
+
+type ComponentGitReading = DashboardComponentScopeIdentity & (
+  | { visibility: 'visible'; rootPath: string; snapshot: GitSnapshot }
+  | { visibility: 'not-visible'; reason: string }
+);
+
+type DashboardComponentRepoReading = DashboardComponentScopeIdentity & (
+  | {
+    visibility: 'visible';
+    currentBranch: string;
+    ahead: number;
+    behind: number;
+    staged: number;
+    modified: number;
+    untracked: number;
+    dirty: boolean;
+  }
+  | { visibility: 'not-visible'; reason: string }
+);
+
 interface PackageSnapshot {
   version: string;
   dependencyCount: number;
@@ -1949,6 +1983,11 @@ interface DashboardIssuesSnapshot {
   summary?: IssueSummary;
   /** When the list was last fetched; absent until the first load. */
   loadedAt?: string;
+  /** Per-component tracker visibility; absent for the legacy single-root path. */
+  componentReadings?: ComponentIssueTrackerReading[];
+  componentPortfolio?: ReturnType<typeof summarizeComponentIssuePortfolio>;
+  /** The component whose issue list the detailed board below represents. */
+  scopeLabel?: string;
   busy: boolean;
 }
 
@@ -2146,6 +2185,7 @@ interface DashboardGuidedWorkflowSnapshot {
     status: ObservedDelta['status'];
     headline: string;
     window: string;
+    scope?: ObservedScope;
     changes: Array<{ label: string; kind: string; summary: string; before?: string; after?: string }>;
     droppedByCap: number;
   };
@@ -2622,6 +2662,10 @@ interface DashboardSnapshot {
     contributorTotal: number;
   };
   repo: {
+    /** Exact component boundary behind the legacy headline counts. */
+    scopeLabel?: string;
+    /** One explicit git result per declared component. */
+    components?: DashboardComponentRepoReading[];
     dirty: boolean;
     ahead: number;
     behind: number;
@@ -2692,6 +2736,10 @@ interface DashboardSnapshot {
     scriptCount: number;
     keyScripts: string[];
     workflows: DashboardWorkflow[];
+    /** Local workflow inventory per declared component. */
+    componentCi?: DashboardComponentCiReading[];
+    /** The component represented by the detailed CI controls below. */
+    ciScopeLabel?: string;
     ciManagement: DashboardCiManagement;
     /** Machine-owned execution fabric. Never populated from webview input. */
     localRunner: DashboardLocalCiRunnerSnapshot;
@@ -2765,6 +2813,7 @@ interface DashboardSnapshot {
     entries: DebtEntry[];
     metrics: DebtMetrics;
     lastScanAt?: string;
+    lastScanScope?: DebtScanScope[];
     /** The declared rules, so a grade can be checked against them on screen. */
     rules: Array<{ id: string; domain: string; severity: string; describes: string }>;
     scanning: boolean;
@@ -8961,13 +9010,69 @@ export class ProjectDashboardPanel {
     await this.syncState();
 
     try {
-      const { files, scannedPaths, truncated } = await collectDebtScanFiles(workspaceRoot);
       // A project's own markers, read at scan time rather than cached: the
       // setting can change between scans, and a stale list would keep looking
       // for markers somebody removed.
       const customMarkers = parseCustomDebtMarkers(
         vscode.workspace.getConfiguration('atlasmind').get<string[]>('debt.markers', []),
       );
+      const composition = this.workflowConfig.getConfig()?.composition;
+      const homeComponentId = composition?.components.find(component => component.home)?.id;
+      const declaredScope = await collectDashboardWorkspaceScope(composition);
+      const markerCandidates: import('../core/debtRegister.js').DebtScanCandidate[] = [];
+      const scannedPaths: import('../core/debtRegister.js').DebtScannedPath[] = [];
+      const scanCoverage: DebtScanScope[] = [];
+      let remainingFiles = DEBT_SCAN_MAX_FILES;
+      let truncated = false;
+
+      if (composition) {
+        const roots = new Map(declaredScope.roots.map(root => [root.componentId, root]));
+        const unknown = new Map(declaredScope.unknown.map(entry => [entry.componentId, entry]));
+        for (const component of composition.components) {
+          const root = roots.get(component.id);
+          const missing = unknown.get(component.id);
+          if (!root || missing) {
+            scanCoverage.push({
+              componentId: component.id,
+              componentLabel: component.label,
+              vcs: component.vcs,
+              visibility: 'not-visible',
+              scannedFileCount: 0,
+              truncated: false,
+              reason: missing ? describeMissingComponent(missing.reason) : 'No opened workspace root resolved.',
+            });
+            continue;
+          }
+          const scanned = await collectDebtScanFiles(root.fsPath, remainingFiles);
+          remainingFiles = Math.max(0, remainingFiles - scanned.scannedPaths.length);
+          truncated ||= scanned.truncated;
+          markerCandidates.push(...scopeDebtCandidates(
+            scanForDebtMarkers(scanned.files, customMarkers),
+            { componentId: component.id, componentLabel: component.label },
+          ));
+          scannedPaths.push(...scanned.scannedPaths.map(scannedPath => ({
+            componentId: component.id,
+            path: scannedPath,
+          })));
+          const vcsVisible = component.vcs === 'git';
+          scanCoverage.push({
+            componentId: component.id,
+            componentLabel: component.label,
+            vcs: component.vcs,
+            visibility: vcsVisible ? 'visible' : 'not-visible',
+            scannedFileCount: scanned.scannedPaths.length,
+            truncated: scanned.truncated,
+            ...(vcsVisible ? {} : {
+              reason: `Source markers were scanned, but VCS-derived debt is not visible for ${component.vcs}.`,
+            }),
+          });
+        }
+      } else {
+        const scanned = await collectDebtScanFiles(workspaceRoot);
+        markerCandidates.push(...scanForDebtMarkers(scanned.files, customMarkers));
+        scannedPaths.push(...scanned.scannedPaths);
+        truncated = scanned.truncated;
+      }
       // Two sources, one register. The marker scan finds what somebody wrote
       // down; the signal derivation finds what the project is doing that nobody
       // wrote down at all — an unmerged dependency update, a testing
@@ -8978,20 +9083,38 @@ export class ProjectDashboardPanel {
         this.ciState, this.releaseState, this.workflowConfig, this.auditLedger,
         { register: this.debtManager.get(), scanning: true },
       );
-      const candidates = [
-        ...scanForDebtMarkers(files, customMarkers),
-        ...deriveDebtFromSignals({
+      const uncoveredMethodologies = (snapshot.testing.policyCoverage?.rows ?? [])
+        // `missing` only. `tooling-only` has partial evidence and
+        // `not-file-evident` is a practice, which is never a gap — a
+        // register that recorded those would be recording a category error.
+        .filter(row => row.status === 'missing')
+        .map(row => ({ id: row.id, label: row.label }));
+      const derivedCandidates = composition
+        ? [
+          ...deriveDebtFromSignals({ now: Date.now(), uncoveredMethodologies }),
+          ...(homeComponentId && this.pullRequestsState !== undefined
+            ? scopeDebtCandidates(
+              deriveDebtFromSignals({ now: Date.now(), pullRequests: this.pullRequestsState }),
+              {
+                componentId: homeComponentId,
+                componentLabel: composition.components.find(component => component.id === homeComponentId)?.label ?? homeComponentId,
+              },
+            )
+            : []),
+          ...(snapshot.delivery.componentCi ?? []).flatMap(component => component.visibility === 'visible'
+            ? scopeDebtCandidates(
+              deriveDebtFromSignals({ now: Date.now(), ciWorkflowCount: component.workflows.length }),
+              component,
+            )
+            : []),
+        ]
+        : deriveDebtFromSignals({
           now: Date.now(),
           ...(this.pullRequestsState === undefined ? {} : { pullRequests: this.pullRequestsState }),
-          uncoveredMethodologies: (snapshot.testing.policyCoverage?.rows ?? [])
-            // `missing` only. `tooling-only` has partial evidence and
-            // `not-file-evident` is a practice, which is never a gap — a
-            // register that recorded those would be recording a category error.
-            .filter(row => row.status === 'missing')
-            .map(row => ({ id: row.id, label: row.label })),
+          uncoveredMethodologies,
           ciWorkflowCount: snapshot.delivery.workflows.length,
-        }),
-      ];
+        });
+      const candidates = [...markerCandidates, ...derivedCandidates];
       const at = new Date().toISOString();
       // The derived entries' evidence paths are added to the scanned set, so a
       // signal that has cleared (the update merged, the methodology covered)
@@ -8999,12 +9122,22 @@ export class ProjectDashboardPanel {
       const result = reconcileDebtScan(
         this.debtManager.get(),
         candidates,
-        [...scannedPaths, ...DERIVED_DEBT_EVIDENCE_ROOTS],
+        [
+          ...scannedPaths,
+          ...DERIVED_DEBT_EVIDENCE_ROOTS,
+          ...(composition
+            ? composition.components.flatMap(component => DERIVED_DEBT_EVIDENCE_ROOTS.map(scannedPath => ({
+              componentId: component.id,
+              path: scannedPath,
+            })))
+            : []),
+        ],
         at,
+        composition ? scanCoverage : undefined,
       );
       await this.debtManager.save(result.register, customMarkers);
       void vscode.window.showInformationMessage(
-        `Scanned ${scannedPaths.length} files: ${result.added.length} new, ${result.unchanged} already recorded`
+        `Scanned ${scannedPaths.length} files${composition ? ` across ${scanCoverage.length} declared components` : ''}: ${result.added.length} new, ${result.unchanged} already recorded`
         + `${result.wentObsolete.length > 0 ? `, ${result.wentObsolete.length} now obsolete` : ''}`
         + `${result.reopened.length > 0 ? `, ${result.reopened.length} reopened` : ''}.`
         // Stated, never silent. A scan that quietly stopped at the cap would
@@ -9064,9 +9197,23 @@ export class ProjectDashboardPanel {
    * paths, so what is opened is a workspace-relative path this build wrote.
    */
   private async handleOpenDebtEvidence(payload: { id: string }): Promise<void> {
-    const workspaceRoot = vscode.workspace.workspaceFolders?.[0]?.uri.fsPath;
     const entry = this.debtManager.get().entries.find(candidate => candidate.id === payload.id);
-    if (!workspaceRoot || !entry) {
+    if (!entry) {
+      return;
+    }
+    let workspaceRoot = vscode.workspace.workspaceFolders?.[0]?.uri.fsPath;
+    if (entry.componentId) {
+      const composition = this.workflowConfig.getConfig()?.composition;
+      const scope = await collectDashboardWorkspaceScope(composition);
+      workspaceRoot = scope.roots.find(root => root.componentId === entry.componentId)?.fsPath;
+      if (!workspaceRoot) {
+        void vscode.window.showWarningMessage(
+          `The ${entry.componentLabel ?? entry.componentId} component is not visible in this workspace, so its evidence cannot be opened.`,
+        );
+        return;
+      }
+    }
+    if (!workspaceRoot) {
       return;
     }
     try {
@@ -14247,6 +14394,182 @@ export function parseGhReleaseList(raw: string): MetricReleaseInput[] {
   return out;
 }
 
+/** Resolve the declaration once so every migrated surface sees the same roots. */
+async function collectDashboardWorkspaceScope(composition?: ProjectComposition): Promise<WorkspaceScope> {
+  const folders = await Promise.all((vscode.workspace.workspaceFolders ?? []).map(async folder => {
+    const supportedScheme = folder.uri.scheme === 'file' || folder.uri.scheme === 'vscode-remote';
+    const readable = supportedScheme
+      ? await fs.access(folder.uri.fsPath).then(() => true).catch(() => false)
+      : false;
+    return {
+      name: folder.name,
+      fsPath: folder.uri.fsPath,
+      readable,
+    };
+  }));
+  return resolveWorkspaceScope(
+    folders,
+    composition,
+    composition ? { kind: 'all' } : { kind: 'default' },
+  );
+}
+
+function describeMissingComponent(reason: 'not-open' | 'unreadable' | 'ambiguous'): string {
+  if (reason === 'not-open') {
+    return 'The declared component is not open in this workspace.';
+  }
+  if (reason === 'ambiguous') {
+    return 'More than one workspace folder matches this declared component.';
+  }
+  return 'The workspace folder could not be read.';
+}
+
+/** Git is asked only for components that declare Git. Everything else refuses a count. */
+async function collectComponentGitReadings(
+  scope: WorkspaceScope,
+  composition: ProjectComposition,
+): Promise<ComponentGitReading[]> {
+  const roots = new Map(scope.roots.map(root => [root.componentId, root]));
+  const unknown = new Map(scope.unknown.map(entry => [entry.componentId, entry]));
+  return Promise.all(composition.components.map(async component => {
+    const identity: DashboardComponentScopeIdentity = {
+      componentId: component.id,
+      componentLabel: component.label,
+      vcs: component.vcs,
+    };
+    const missing = unknown.get(component.id);
+    if (missing) {
+      return { ...identity, visibility: 'not-visible', reason: describeMissingComponent(missing.reason) };
+    }
+    const root = roots.get(component.id);
+    if (!root) {
+      return { ...identity, visibility: 'not-visible', reason: 'No opened workspace root resolved for this component.' };
+    }
+    if (component.vcs !== 'git') {
+      return {
+        ...identity,
+        visibility: 'not-visible',
+        reason: `Git status is not visible because this component declares ${component.vcs} version control.`,
+      };
+    }
+    const snapshot = await collectGitSnapshot(root.fsPath);
+    if (snapshot.currentBranch === 'Not a git repository') {
+      return {
+        ...identity,
+        visibility: 'not-visible',
+        reason: 'The component declares Git, but its repository metadata could not be read.',
+      };
+    }
+    return { ...identity, visibility: 'visible', rootPath: root.fsPath, snapshot };
+  }));
+}
+
+async function collectComponentCiReadings(
+  gitReadings: readonly ComponentGitReading[],
+): Promise<DashboardComponentCiReading[]> {
+  return Promise.all(gitReadings.map(async reading => {
+    const identity: DashboardComponentScopeIdentity = {
+      componentId: reading.componentId,
+      componentLabel: reading.componentLabel,
+      vcs: reading.vcs,
+    };
+    if (reading.visibility === 'not-visible') {
+      return { ...identity, visibility: 'not-visible', reason: reading.reason };
+    }
+    const workflows = await collectWorkflowSnapshot(reading.rootPath);
+    return {
+      ...identity,
+      visibility: 'visible',
+      workflows,
+      assessment: assessCiPortfolio(workflows),
+    };
+  }));
+}
+
+function dashboardRepoReadings(readings: readonly ComponentGitReading[]): DashboardComponentRepoReading[] {
+  return readings.map(reading => reading.visibility === 'not-visible'
+    ? {
+      componentId: reading.componentId,
+      componentLabel: reading.componentLabel,
+      vcs: reading.vcs,
+      visibility: 'not-visible',
+      reason: reading.reason,
+    }
+    : {
+      componentId: reading.componentId,
+      componentLabel: reading.componentLabel,
+      vcs: reading.vcs,
+      visibility: 'visible',
+      currentBranch: reading.snapshot.currentBranch,
+      ahead: reading.snapshot.ahead,
+      behind: reading.snapshot.behind,
+      staged: reading.snapshot.staged,
+      modified: reading.snapshot.modified,
+      untracked: reading.snapshot.untracked,
+      dirty: reading.snapshot.dirty,
+    });
+}
+
+function buildIssueComponentReadings(
+  gitReadings: readonly ComponentGitReading[],
+  homeComponentId: string,
+  issues: DashboardIssuesSnapshot,
+): ComponentIssueTrackerReading[] {
+  return gitReadings.map(reading => {
+    const identity = {
+      componentId: reading.componentId,
+      componentLabel: reading.componentLabel,
+      vcs: reading.vcs,
+    };
+    if (reading.visibility === 'not-visible') {
+      return notVisibleComponentIssues(identity, reading.reason);
+    }
+    if (reading.componentId !== homeComponentId) {
+      return notVisibleComponentIssues(
+        identity,
+        'This refresh reads the detailed issue board for the home component only.',
+      );
+    }
+    if (issues.status !== 'ready' || !issues.repoSlug) {
+      return notVisibleComponentIssues(identity, issues.detail);
+    }
+    return visibleComponentIssues(identity, issues.repoSlug, issues.issues, Date.now());
+  });
+}
+
+function buildObservedScope(
+  readings: readonly ComponentGitReading[],
+  homeComponentId: string,
+): ObservedScope | undefined {
+  if (readings.length === 0) {
+    return undefined;
+  }
+  const home = readings.find(reading => reading.componentId === homeComponentId);
+  const visibleHome = home?.visibility === 'visible';
+  const label = `${home?.componentLabel ?? 'Home component'} (${visibleHome ? 1 : 0} of ${readings.length} declared components observed)`;
+  return {
+    label,
+    components: readings.map(reading => reading.componentId === homeComponentId && reading.visibility === 'visible'
+      ? {
+        componentId: reading.componentId,
+        componentLabel: reading.componentLabel,
+        vcs: reading.vcs,
+        visibility: 'visible',
+      }
+      : {
+        componentId: reading.componentId,
+        componentLabel: reading.componentLabel,
+        vcs: reading.vcs,
+        visibility: 'not-visible',
+        reason: reading.componentId === homeComponentId
+          ? reading.visibility === 'not-visible' ? reading.reason : 'The home component could not be observed.'
+          : reading.visibility === 'not-visible'
+            ? reading.reason
+            : 'This delta currently compares the home component; this component is outside that reading.',
+      }),
+  };
+}
+
 async function collectDashboardSnapshot(
   atlas: AtlasMindContext,
   ideationAttachments: TaskImageAttachment[] = [],
@@ -14282,12 +14605,24 @@ async function collectDashboardSnapshot(
   // Per-developer build history, read from workspaceState by the panel.
   localBuilds: readonly CiBuildRecord[] = [],
 ): Promise<DashboardSnapshot> {
-  const workspaceFolder = vscode.workspace.workspaceFolders?.[0];
-  const workspaceRoot = workspaceFolder?.uri.fsPath;
-  const workspaceName = workspaceFolder?.name ?? 'No Workspace';
+  const firstWorkspaceFolder = vscode.workspace.workspaceFolders?.[0];
+  const declaredComposition = workflowConfigManager?.getConfig()?.composition;
+  const declaredScope = await collectDashboardWorkspaceScope(declaredComposition);
+  const homeComponentId = declaredComposition?.components.find(component => component.home)?.id;
+  const homeScopeRoot = homeComponentId
+    ? declaredScope.roots.find(root => root.componentId === homeComponentId)
+    : declaredScope.roots[0];
+  // A declared home is authoritative. Falling back to the first folder when it
+  // is missing would silently read a different component's SSOT and counts.
+  const workspaceRoot = declaredComposition ? homeScopeRoot?.fsPath : firstWorkspaceFolder?.uri.fsPath;
+  const workspaceFolder = (vscode.workspace.workspaceFolders ?? [])
+    .find(folder => folder.uri.fsPath === workspaceRoot) ?? firstWorkspaceFolder;
+  const workspaceName = firstWorkspaceFolder?.name ?? 'No Workspace';
   const configuration = vscode.workspace.getConfiguration('atlasmind');
   const ssotPath = normalizeSsotPath(configuration.get<string>('ssotPath', 'project_memory'));
-  const workspaceRootLabel = workspaceRoot ? path.basename(workspaceRoot) : 'No folder open';
+  const workspaceRootLabel = workspaceRoot
+    ? path.basename(workspaceRoot)
+    : declaredComposition ? 'Home component not visible' : 'No folder open';
   const lensDeclarations = inspectLensDeclarations(
     workspaceFolder?.uri.scheme === 'file' || workspaceFolder?.uri.scheme === 'vscode-remote'
       ? workspaceRoot
@@ -14295,10 +14630,40 @@ async function collectDashboardSnapshot(
   );
   const activeIdeationWorkspace = await loadActiveIdeationWorkspace(workspaceRoot, ssotPath);
 
-  const [gitSnapshot, packageSnapshot, workflowSnapshot, ssotSnapshot, ideationBoard, roadmapSnapshot] = await Promise.all([
-    collectGitSnapshot(workspaceRoot),
+  const componentGitPromise = declaredComposition
+    ? collectComponentGitReadings(declaredScope, declaredComposition)
+    : Promise.resolve([] as ComponentGitReading[]);
+  const componentCiPromise = componentGitPromise.then(readings => declaredComposition
+    ? collectComponentCiReadings(readings)
+    : [] as DashboardComponentCiReading[]);
+  const gitSnapshotPromise = declaredComposition
+    ? componentGitPromise.then(readings => {
+      const home = readings.find(reading => reading.componentId === homeComponentId);
+      return home?.visibility === 'visible' ? home.snapshot : emptyGitSnapshot();
+    })
+    : collectGitSnapshot(workspaceRoot);
+  const workflowSnapshotPromise = declaredComposition
+    ? componentCiPromise.then(readings => {
+      const home = readings.find(reading => reading.componentId === homeComponentId);
+      return home?.visibility === 'visible' ? home.workflows : [];
+    })
+    : collectWorkflowSnapshot(workspaceRoot);
+
+  const [
+    componentGitReadings,
+    componentCiReadings,
+    gitSnapshot,
+    packageSnapshot,
+    workflowSnapshot,
+    ssotSnapshot,
+    ideationBoard,
+    roadmapSnapshot,
+  ] = await Promise.all([
+    componentGitPromise,
+    componentCiPromise,
+    gitSnapshotPromise,
     collectPackageSnapshot(workspaceRoot),
-    collectWorkflowSnapshot(workspaceRoot),
+    workflowSnapshotPromise,
     collectSsotSnapshot(workspaceRoot, ssotPath),
     loadIdeationBoard(workspaceRoot, ssotPath, activeIdeationWorkspace),
     collectRoadmapSnapshot(workspaceRoot, ssotPath),
@@ -14493,6 +14858,11 @@ async function collectDashboardSnapshot(
   const repoLabel = workspaceRoot && gitSnapshot.currentBranch !== 'Not a git repository'
     ? `${workspaceRootLabel} • ${gitSnapshot.currentBranch}`
     : workspaceRootLabel;
+  const homeComponentLabel = declaredComposition?.components.find(component => component.id === homeComponentId)?.label;
+  const repoScopeLabel = homeComponentLabel ? `${homeComponentLabel} home component` : undefined;
+  const observedScope = homeComponentId
+    ? buildObservedScope(componentGitReadings, homeComponentId)
+    : undefined;
 
   // Normalise to /100 from the components actually present rather than assuming the
   // maxScores happen to sum to 100. They did by convention, but nothing enforced it,
@@ -14510,7 +14880,8 @@ async function collectDashboardSnapshot(
       id: 'health',
       label: 'Operational Health',
       value: `${normalizedHealthScore}`,
-      detail: `Composite score across ${scoreBreakdown.components.length} operational dimensions, including ${outcomeCompleteness.score}% outcome completeness.`,
+      detail: `Composite score across ${scoreBreakdown.components.length} operational dimensions, including ${outcomeCompleteness.score}% outcome completeness.`
+        + (repoScopeLabel ? ` Git and CI inputs are scoped to the ${repoScopeLabel}.` : ''),
       tone: blockedEntries > 0 || autopilot ? 'warn' : outcomeCompleteness.score >= 75 ? 'good' : 'accent',
       pageTarget: 'score',
     },
@@ -14518,7 +14889,8 @@ async function collectDashboardSnapshot(
       id: 'branch',
       label: 'Branch State',
       value: gitSnapshot.currentBranch,
-      detail: `${gitSnapshot.staged + gitSnapshot.modified + gitSnapshot.untracked} pending file changes, ${gitSnapshot.ahead} ahead / ${gitSnapshot.behind} behind.`,
+      detail: `${gitSnapshot.staged + gitSnapshot.modified + gitSnapshot.untracked} pending file changes, ${gitSnapshot.ahead} ahead / ${gitSnapshot.behind} behind.`
+        + (repoScopeLabel ? ` Scope: ${repoScopeLabel}.` : ''),
       tone: gitSnapshot.dirty ? 'warn' : 'good',
       pageTarget: 'branches',
     },
@@ -14560,7 +14932,8 @@ async function collectDashboardSnapshot(
       id: 'delivery',
       label: 'Delivery Flow',
       value: `${workflowSnapshot.length} workflow${workflowSnapshot.length === 1 ? '' : 's'}`,
-      detail: `${packageSnapshot.keyScripts.length} critical scripts, ${governanceProviders.length} governance provider${governanceProviders.length === 1 ? '' : 's'}.`,
+      detail: `${packageSnapshot.keyScripts.length} critical scripts, ${governanceProviders.length} governance provider${governanceProviders.length === 1 ? '' : 's'}.`
+        + (repoScopeLabel ? ` Workflow count: ${repoScopeLabel}.` : ''),
       tone: workflowSnapshot.length > 0 ? 'good' : 'warn',
       pageTarget: 'delivery',
     },
@@ -14612,15 +14985,26 @@ async function collectDashboardSnapshot(
   const securityReview = workspaceRoot ? readSecurityReviewConfig(workspaceRoot) : undefined;
   const securityFindings = securityReview ? openSecurityFindings(securityReview) : [];
   const roadmapWithIdeation = withIdeationOrigins(roadmapSnapshot, ideationBoard);
+  const issueComponentReadings = homeComponentId
+    ? buildIssueComponentReadings(componentGitReadings, homeComponentId, issues)
+    : undefined;
+  const dashboardIssues: DashboardIssuesSnapshot = issueComponentReadings
+    ? {
+      ...issues,
+      componentReadings: issueComponentReadings,
+      componentPortfolio: summarizeComponentIssuePortfolio(issueComponentReadings),
+      ...(homeComponentLabel ? { scopeLabel: `${homeComponentLabel} home component` } : {}),
+    }
+    : issues;
   const branchDashboard = deriveBranchDashboard({
     branches: branchInventory.items,
     ...(pullRequests === undefined ? {} : { pullRequests }),
     ...(ci?.branchRuns === undefined ? {} : { ciRuns: ci.branchRuns }),
-    issuesLoaded: issues.status === 'ready',
-    issues: issues.issues,
+    issuesLoaded: dashboardIssues.status === 'ready',
+    issues: dashboardIssues.issues,
     roadmapItems: roadmapWithIdeation.items,
     reviewComments,
-    ...(issues.viewerLogin ? { viewerLogin: issues.viewerLogin } : {}),
+    ...(dashboardIssues.viewerLogin ? { viewerLogin: dashboardIssues.viewerLogin } : {}),
     ...(gitSnapshot.gitUserName ? { gitUserName: gitSnapshot.gitUserName } : {}),
   });
   const enrichedBranchInventory: DashboardBranchesSnapshot = {
@@ -14703,6 +15087,8 @@ async function collectDashboardSnapshot(
       contributorTotal: contributorBreakdown.totalCommits,
     },
     repo: {
+      ...(repoScopeLabel === undefined ? {} : { scopeLabel: repoScopeLabel }),
+      ...(declaredComposition === undefined ? {} : { components: dashboardRepoReadings(componentGitReadings) }),
       dirty: gitSnapshot.dirty,
       ahead: gitSnapshot.ahead,
       behind: gitSnapshot.behind,
@@ -14792,6 +15178,7 @@ async function collectDashboardSnapshot(
       entries: sortDebtEntries(debt?.register.entries ?? []),
       metrics: deriveDebtMetrics(debt?.register ?? { version: 1, entries: [] }, Date.now()),
       ...(debt?.register.lastScanAt === undefined ? {} : { lastScanAt: debt.register.lastScanAt }),
+      ...(debt?.register.lastScanScope === undefined ? {} : { lastScanScope: debt.register.lastScanScope }),
       // The project's own marker rules are published alongside the shipped
       // ones. A grade whose rule is not on the page is a grade nobody can
       // check, which is the same as no rule at all.
@@ -14827,7 +15214,7 @@ async function collectDashboardSnapshot(
       releaseBranch: workflowConfigManager?.getConfig()?.branches.release ?? 'main',
       now: Date.now(),
     }),
-    githubLinks: buildGithubLinksSnapshot(gitSnapshot.remoteUrl ?? issues.repoSlug),
+    githubLinks: buildGithubLinksSnapshot(gitSnapshot.remoteUrl ?? dashboardIssues.repoSlug),
     guidedWorkflow: withObservedDelta(atlas, workspaceRoot, buildGuidedWorkflowSnapshot({
       configuration,
       gitSnapshot,
@@ -14838,7 +15225,7 @@ async function collectDashboardSnapshot(
       packageVersion: packageSnapshot.version,
       ciWorkflowCount: workflowSnapshot.length,
       testing: testingSnapshot,
-      issues,
+      issues: dashboardIssues,
       ...(pullRequests === undefined ? {} : { pullRequests }),
       ...(ci === undefined ? {} : { ci }),
       changelogPresent,
@@ -14864,8 +15251,8 @@ async function collectDashboardSnapshot(
       codeownersPresent,
       issueTemplateCount,
       commitSeries: buildDailySeries(gitSnapshot.commitDates, SERIES_DAY_RANGE),
-    })),
-    issues,
+    }), observedScope),
+    issues: dashboardIssues,
     security: {
       toolApprovalMode,
       allowTerminalWrite,
@@ -14885,6 +15272,8 @@ async function collectDashboardSnapshot(
       scriptCount: packageSnapshot.scriptCount,
       keyScripts: packageSnapshot.keyScripts,
       workflows: workflowSnapshot,
+      ...(declaredComposition === undefined ? {} : { componentCi: componentCiReadings }),
+      ...(repoScopeLabel === undefined ? {} : { ciScopeLabel: repoScopeLabel }),
       ciManagement,
       localRunner: {
         ...(localRunner ?? initialLocalCiRunnerSnapshot(readLocalCiRunnerConfiguration())),
@@ -16650,6 +17039,15 @@ async function collectProjectDeliveryGuide(
   });
 }
 
+type DashboardComponentCiReading = DashboardComponentScopeIdentity & (
+  | {
+    visibility: 'visible';
+    workflows: DashboardWorkflow[];
+    assessment: CiPortfolioAssessment;
+  }
+  | { visibility: 'not-visible'; reason: string }
+);
+
 /**
  * Read only the fact the discussion boundary needs.
  *
@@ -17676,8 +18074,9 @@ function resolveObservedDelta(
   atlas: AtlasMindContext,
   workspaceRoot: string | undefined,
   observed: WorkflowObservedState,
+  scope?: ObservedScope,
 ): ObservedDelta {
-  const root = workspaceRoot ?? '';
+  const root = `${workspaceRoot ?? ''}\u0000${scope ? JSON.stringify(scope) : ''}`;
   if (heldObservedDelta?.root === root) {
     return heldObservedDelta.delta;
   }
@@ -17688,13 +18087,13 @@ function resolveObservedDelta(
   } catch {
     previous = undefined;
   }
-  const delta = compareObservedState(previous, observed);
+  const delta = compareObservedState(previous, observed, scope);
   heldObservedDelta = { root, delta };
   // Stored even on a first look — especially on a first look, because that is
   // what makes the next one a comparison.
   void (async () => {
     try {
-      await state?.update(OBSERVED_BASELINE_STATE_KEY, takeObservedSnapshot(observed, new Date().toISOString()));
+      await state?.update(OBSERVED_BASELINE_STATE_KEY, takeObservedSnapshot(observed, new Date().toISOString(), scope));
     } catch {
       // A baseline that could not be written means the next look is another
       // first look, which reports itself honestly. Nothing to recover.
@@ -17722,15 +18121,17 @@ function withObservedDelta(
   atlas: AtlasMindContext,
   workspaceRoot: string | undefined,
   snapshot: Omit<DashboardGuidedWorkflowSnapshot, 'delta'>,
+  scope?: ObservedScope,
 ): DashboardGuidedWorkflowSnapshot {
   const now = new Date().toISOString();
-  const delta = resolveObservedDelta(atlas, workspaceRoot, snapshot.observed);
+  const delta = resolveObservedDelta(atlas, workspaceRoot, snapshot.observed, scope);
   return {
     ...snapshot,
     delta: {
       status: delta.status,
       headline: summarizeObservedDelta(delta, now),
       window: describeSince(delta.since, now),
+      ...(delta.scope === undefined ? {} : { scope: delta.scope }),
       changes: delta.changes.map(change => ({
         label: change.label,
         kind: change.kind,
@@ -20444,13 +20845,14 @@ const DEBT_SCAN_MAX_BYTES = 512 * 1024;
  */
 async function collectDebtScanFiles(
   workspaceRoot: string,
+  maxFiles = DEBT_SCAN_MAX_FILES,
 ): Promise<{ files: Array<{ path: string; content: string }>; scannedPaths: string[]; truncated: boolean }> {
   const files: Array<{ path: string; content: string }> = [];
   const scannedPaths: string[] = [];
   let truncated = false;
 
   const walk = async (directory: string): Promise<void> => {
-    if (files.length >= DEBT_SCAN_MAX_FILES) {
+    if (files.length >= maxFiles) {
       truncated = true;
       return;
     }
@@ -20461,7 +20863,7 @@ async function collectDebtScanFiles(
       return;
     }
     for (const entry of entries) {
-      if (files.length >= DEBT_SCAN_MAX_FILES) {
+      if (files.length >= maxFiles) {
         truncated = true;
         return;
       }

@@ -36,6 +36,7 @@ export interface WorkspaceScopeRoot {
 export interface UnknownWorkspaceComponent {
   componentId: string;
   componentLabel: string;
+  vcs: ProjectComponentVcs;
   reason: 'not-open' | 'unreadable' | 'ambiguous';
 }
 
@@ -70,14 +71,29 @@ function resolveComponent(
 ): { root?: WorkspaceScopeRoot; unknown?: UnknownWorkspaceComponent } {
   const matches = componentFolderMatches(component, folders);
   if (matches.length === 0) {
-    return { unknown: { componentId: component.id, componentLabel: component.label, reason: 'not-open' } };
+    return { unknown: {
+      componentId: component.id,
+      componentLabel: component.label,
+      vcs: component.vcs,
+      reason: 'not-open',
+    } };
   }
   if (matches.length > 1) {
-    return { unknown: { componentId: component.id, componentLabel: component.label, reason: 'ambiguous' } };
+    return { unknown: {
+      componentId: component.id,
+      componentLabel: component.label,
+      vcs: component.vcs,
+      reason: 'ambiguous',
+    } };
   }
   const folder = matches[0]!;
   if (folder.readable === false) {
-    return { unknown: { componentId: component.id, componentLabel: component.label, reason: 'unreadable' } };
+    return { unknown: {
+      componentId: component.id,
+      componentLabel: component.label,
+      vcs: component.vcs,
+      reason: 'unreadable',
+    } };
   }
   return {
     root: {

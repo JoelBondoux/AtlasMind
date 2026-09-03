@@ -1,6 +1,6 @@
 # Game Engine Integration — Phased Roadmap
 
-> **Status:** Phase 1 in progress; C1.1–C1.3 complete, C1.4 next. **Owner:** AtlasMind core. **Created:** 2026-07-30. **Baseline:** v0.213.0.
+> **Status:** Phase 1 in progress; C1.1–C1.5 complete, C1.6 next. **Owner:** AtlasMind core. **Created:** 2026-07-30. **Baseline:** v0.213.0.
 > This is the SSOT implementation plan. Its normative specifications are
 > [`docs/project-composition.md`](../../docs/project-composition.md) (v0.213.1) and
 > [`docs/game-engine-integration.md`](../../docs/game-engine-integration.md) (v0.213.2), both written
@@ -277,11 +277,12 @@ with per-component VCS, and no existing single-root behaviour has changed.
 - **C1.3** — ✅ Composition is persisted in `workflow.json` (committed, reviewed, owned by the team)
   rather than settings. Unknown fields survive; an invalid/future nested shape is retained opaquely
   instead of partially activated; the Markdown mirror publishes the declared component boundary.
-- **C1.4** Migrate by consequence: git status, CI, debt scan and observed-delta become
-  component-scoped and **label their scope on screen**. An unlabelled count in a multi-repo project
-  is a wrong count.
-- **C1.5** `ObservedDelta`, `DebtRegister` and `IssueTracker` learn `not-visible` as distinct from
-  zero, for any component whose VCS they cannot read.
+- **C1.4** — ✅ Git status, local CI, debt scan and observed-delta resolve declared components and
+  **label their scope on screen**. The detailed legacy GitHub reading remains explicitly scoped to the
+  home component while the component inventory names every exclusion.
+- **C1.5** — ✅ `ObservedDelta`, `DebtRegister` and `IssueTracker` carry `not-visible` as distinct from
+  zero for non-Git, missing, unreadable, or unsupported components. Debt reconciliation is keyed by
+  component plus path, and observed baselines refuse cross-scope comparison.
 - **C1.6** **Shopify composition — the validation case.** The bootstrap picker becomes
   multi-select for composable shapes, so *theme + app + extension* is expressible. Proves the model
   with no game code and no new domain knowledge, and closes a live defect. Phase 1 does not ship

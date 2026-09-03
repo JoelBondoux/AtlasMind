@@ -3778,7 +3778,8 @@
       set('issues', issues.summary.openCount, issues.summary.staleCount > 0 ? 'warn' : 'accent',
         `${issues.summary.openCount} open issue${issues.summary.openCount === 1 ? '' : 's'}`
         + (issues.summary.unassignedCount > 0 ? `, ${issues.summary.unassignedCount} unassigned` : '')
-        + (issues.summary.staleCount > 0 ? `, ${issues.summary.staleCount} stale` : ''));
+        + (issues.summary.staleCount > 0 ? `, ${issues.summary.staleCount} stale` : '')
+        + (issues.scopeLabel ? ` — ${issues.scopeLabel}` : ''));
     }
 
     const pullRequests = snapshot.guidedWorkflow && snapshot.guidedWorkflow.pullRequests;
@@ -3811,7 +3812,8 @@
     const repo = snapshot.repo;
     if (repo) {
       const pending = (repo.staged || 0) + (repo.modified || 0) + (repo.untracked || 0);
-      set('repo', pending, 'accent', `${pending} pending file change${pending === 1 ? '' : 's'}`);
+      set('repo', pending, 'accent', `${pending} pending file change${pending === 1 ? '' : 's'}`
+        + (repo.scopeLabel ? ` — ${repo.scopeLabel}` : ''));
     }
 
     const branches = snapshot.branches;
@@ -5092,12 +5094,29 @@
     const r = snapshot.repo;
     const changed = r.modified + r.staged + r.untracked;
     const scm = { command: 'workbench.view.scm', hint: 'Open Source Control' };
+    const componentReadings = Array.isArray(r.components) ? r.components : [];
+    const componentScopeCard = componentReadings.length ? `
+      <article class="panel-card">
+        <div class="row-head">
+          <div><p class="section-kicker">Declared component scope</p><h3>Git visibility by component</h3></div>
+          <span class="tag">${escapeHtml(String(componentReadings.filter(item => item.visibility === 'visible').length))}/${escapeHtml(String(componentReadings.length))} visible</span>
+        </div>
+        <div class="stack-list">${componentReadings.map(component => component.visibility === 'visible' ? `
+          <div class="recent-item static">
+            <div class="row-head"><strong>${escapeHtml(component.componentLabel)}</strong><span class="tag tag-good">${escapeHtml(component.vcs)} · visible</span></div>
+            <div class="list-meta">${escapeHtml(component.currentBranch)} · ${escapeHtml(String(component.staged + component.modified + component.untracked))} uncommitted · ${escapeHtml(String(component.ahead))} ahead · ${escapeHtml(String(component.behind))} behind</div>
+          </div>` : `
+          <div class="recent-item static">
+            <div class="row-head"><strong>${escapeHtml(component.componentLabel)}</strong><span class="tag tag-warn">${escapeHtml(component.vcs)} · not visible</span></div>
+            <div class="list-meta">${escapeHtml(component.reason || 'No version-control count is available for this component.')}</div>
+          </div>`).join('')}</div>
+      </article>` : '';
     return `
       ${pageSectionOpen('repo')}
         ${renderPageIntro({
           kicker: 'Repository',
-          title: 'Working tree at a glance',
-          summary: `On ${escapeHtml(snapshot.currentBranch)} — ${r.dirty ? `${changed} file${changed === 1 ? '' : 's'} differ from HEAD` : 'the working tree is clean'}${r.behind ? `, ${r.behind} commit${r.behind === 1 ? '' : 's'} behind upstream` : ''}${r.ahead ? `, ${r.ahead} ahead` : ''}. ${r.branchCount} local branch${r.branchCount === 1 ? '' : 'es'}. Open the Branches page for the complete local and remote inventory.`,
+          title: `Working tree at a glance${r.scopeLabel ? ` — ${r.scopeLabel}` : ''}`,
+          summary: `On ${escapeHtml(snapshot.currentBranch)} — ${r.dirty ? `${changed} file${changed === 1 ? '' : 's'} differ from HEAD` : 'the working tree is clean'}${r.behind ? `, ${r.behind} commit${r.behind === 1 ? '' : 's'} behind upstream` : ''}${r.ahead ? `, ${r.ahead} ahead` : ''}. ${r.branchCount} local branch${r.branchCount === 1 ? '' : 'es'}.${r.scopeLabel ? ` Every count in this headline is scoped to ${r.scopeLabel}; the component inventory below names the rest.` : ''} Open the Branches page for the complete local and remote inventory.`,
           chips: [
             { label: r.dirty ? `${changed} uncommitted` : 'Clean tree', tone: r.dirty ? 'warn' : 'good' },
             { label: r.behind ? `${r.behind} behind` : 'Up to date', tone: r.behind ? 'warn' : 'good' },
@@ -5106,6 +5125,7 @@
           action: scm,
           actionLabel: 'Open Source Control',
         })}
+        ${componentScopeCard}
         <div class="panel-grid">
           <article class="panel-card">
             <p class="section-kicker">Repo state</p>
@@ -6565,6 +6585,23 @@
     const list = Array.isArray(issues.issues) ? issues.issues : [];
     const summary = issues.summary || { openCount: 0, closedCount: 0, byLabel: [], byAssignee: [], unassignedCount: 0, staleCount: 0, summary: '' };
     const ready = issues.status === 'ready';
+    const componentReadings = Array.isArray(issues.componentReadings) ? issues.componentReadings : [];
+    const componentTrackerCard = componentReadings.length ? `
+      <article class="panel-card">
+        <div class="row-head">
+          <div><p class="section-kicker">Declared component scope</p><h3>Tracker visibility by component</h3></div>
+          <span class="tag">${escapeHtml(issues.componentPortfolio && issues.componentPortfolio.scopeLabel || '')}</span>
+        </div>
+        <div class="stack-list">${componentReadings.map(component => component.visibility === 'visible' ? `
+          <div class="recent-item static">
+            <div class="row-head"><strong>${escapeHtml(component.componentLabel)}</strong><span class="tag tag-good">visible</span></div>
+            <div class="list-meta">${escapeHtml(component.repoSlug)} · ${escapeHtml(String(component.summary.openCount))} open · ${escapeHtml(String(component.summary.staleCount))} stale</div>
+          </div>` : `
+          <div class="recent-item static">
+            <div class="row-head"><strong>${escapeHtml(component.componentLabel)}</strong><span class="tag tag-warn">not visible</span></div>
+            <div class="list-meta">${escapeHtml(component.reason || 'No issue count is available for this component.')}</div>
+          </div>`).join('')}</div>
+      </article>` : '';
     const filter = state.issueFilter || 'open';
     const search = String(state.issueSearch || '').trim().toLowerCase();
     const unlinkedOpenPullRequests = pullRequestRecords.filter(pr =>
@@ -6598,9 +6635,9 @@
       ${pageSectionOpen('issues')}
         ${renderPageIntro({
           kicker: 'Issue tracker',
-          title: 'What has been reported',
+          title: `What has been reported${issues.scopeLabel ? ` — ${issues.scopeLabel}` : ''}`,
           summary: ready
-            ? `${escapeHtml(summary.summary)} ${issues.loadedAt ? `Read ${escapeHtml(relativeLabel(issues.loadedAt))}.` : ''} Issue text is written by other people — AtlasMind treats it as a report to check, never as instructions.`
+            ? `${escapeHtml(summary.summary)} ${issues.loadedAt ? `Read ${escapeHtml(relativeLabel(issues.loadedAt))}.` : ''}${issues.scopeLabel ? ` These detailed counts cover ${issues.scopeLabel}.` : ''} Issue text is written by other people — AtlasMind treats it as a report to check, never as instructions.`
             : escapeHtml(issues.detail || 'Issues have not been loaded yet.'),
           chips: ready
             ? [
@@ -6610,6 +6647,8 @@
             ]
             : [{ label: issues.status === 'not-loaded' ? 'Not loaded' : 'Unavailable', tone: 'warn' }],
         })}
+
+        ${componentTrackerCard}
 
         ${ready ? '' : `
           <article class="panel-card">
@@ -7325,6 +7364,20 @@
     const debt = snapshot.debt || { entries: [], metrics: {}, rules: [] };
     const metrics = debt.metrics || {};
     const entries = debt.entries || [];
+    const scanScope = Array.isArray(debt.lastScanScope) ? debt.lastScanScope : [];
+    const visibleScopeCount = scanScope.filter(component => component.visibility === 'visible').length;
+    const scanScopeCard = scanScope.length ? `
+      <article class="panel-card">
+        <div class="row-head">
+          <div><p class="card-kicker">Last scan scope</p><h3>${escapeHtml(String(visibleScopeCount))} of ${escapeHtml(String(scanScope.length))} components fully visible</h3></div>
+          <span class="tag ${visibleScopeCount === scanScope.length ? 'tag-good' : 'tag-warn'}">component-scoped</span>
+        </div>
+        <div class="stack-list">${scanScope.map(component => `
+          <div class="recent-item static">
+            <div class="row-head"><strong>${escapeHtml(component.componentLabel)}</strong><span class="tag ${component.visibility === 'visible' ? 'tag-good' : 'tag-warn'}">${escapeHtml(component.visibility)}</span></div>
+            <div class="list-meta">${escapeHtml(component.vcs)} · ${escapeHtml(String(component.scannedFileCount))} source file${component.scannedFileCount === 1 ? '' : 's'} read${component.truncated ? ' · partial at scan cap' : ''}${component.reason ? ` · ${escapeHtml(component.reason)}` : ''}</div>
+          </div>`).join('')}</div>
+      </article>` : '';
     const allOpen = entries.filter(entry =>
       entry.status === 'open' || entry.status === 'accepted' || entry.status === 'scheduled');
 
@@ -7360,7 +7413,7 @@
       kicker: 'Stage 7',
       title: 'What you deferred, and how long ago',
       summary: debt.lastScanAt
-        ? openEntries.length + ' open, ' + (metrics.resolved || 0) + ' resolved. Last scanned ' + (debt.lastScanAt || '').slice(0, 10) + '.'
+        ? openEntries.length + ' open, ' + (metrics.resolved || 0) + ' resolved. Last scanned ' + (debt.lastScanAt || '').slice(0, 10) + (scanScope.length ? ` across ${visibleScopeCount} of ${scanScope.length} fully visible components.` : '.')
         : 'Nothing has been scanned yet. A solo developer has no colleague who remembers the shortcut, and a studio has no shared memory of it either.',
       chips: (metrics.bySeverity || []).map(slice => ({
         label: slice.value + ' ' + slice.label,
@@ -7397,7 +7450,7 @@
             <span class="tag ${DEBT_STATUS_TONE[entry.status] || ''}">${escapeHtml(entry.status)}</span>
           </span>
         </div>
-        <div class="list-meta"><code>${escapeHtml(entry.evidencePath)}${entry.evidenceLine ? ':' + entry.evidenceLine : ''}</code> · ${escapeHtml(entry.domain)} · since ${escapeHtml((entry.detectedAt || '').slice(0, 10))} · graded by <code>${escapeHtml(entry.rule)}</code></div>
+        <div class="list-meta">${entry.componentLabel ? `<strong>${escapeHtml(entry.componentLabel)}</strong> · ` : ''}<code>${escapeHtml(entry.evidencePath)}${entry.evidenceLine ? ':' + entry.evidenceLine : ''}</code> · ${escapeHtml(entry.domain)} · since ${escapeHtml((entry.detectedAt || '').slice(0, 10))} · graded by <code>${escapeHtml(entry.rule)}</code></div>
         <div class="tag-row">
           ${renderDirectorOwnerControl('debt', entry.id)}
           ${renderRegisterHandoff('debt', entry.id)}
@@ -7408,7 +7461,7 @@
         </div>
       </div>`).join('');
 
-    return pageSectionOpen('debt') + intro + `
+    return pageSectionOpen('debt') + intro + scanScopeCard + `
       <div class="panel-grid">
         <article class="panel-card">
           <p class="card-kicker">Where it is${help.button}</p>
@@ -9682,6 +9735,23 @@
       starterReason: 'CI setup is unavailable for this workspace.',
     };
     const assessment = management.assessment || {};
+    const componentCi = Array.isArray(delivery.componentCi) ? delivery.componentCi : [];
+    const componentCiScopeCard = componentCi.length ? `
+      <article class="panel-card">
+        <div class="row-head">
+          <div><p class="card-kicker">Declared component scope</p><h3>CI inventory by component</h3></div>
+          <span class="tag">${escapeHtml(String(componentCi.filter(component => component.visibility === 'visible').length))}/${escapeHtml(String(componentCi.length))} visible</span>
+        </div>
+        <div class="stack-list">${componentCi.map(component => component.visibility === 'visible' ? `
+          <div class="recent-item static">
+            <div class="row-head"><strong>${escapeHtml(component.componentLabel)}</strong><span class="tag ${component.assessment.state === 'ready' ? 'tag-good' : component.assessment.state === 'attention' ? 'tag-warn' : 'tag-critical'}">${escapeHtml(component.assessment.state)}</span></div>
+            <div class="list-meta">${escapeHtml(component.vcs)} · ${escapeHtml(String(component.assessment.workflowCount))} workflow${component.assessment.workflowCount === 1 ? '' : 's'} · ${escapeHtml(String(component.assessment.jobCount))} job${component.assessment.jobCount === 1 ? '' : 's'}</div>
+          </div>` : `
+          <div class="recent-item static">
+            <div class="row-head"><strong>${escapeHtml(component.componentLabel)}</strong><span class="tag tag-warn">not visible</span></div>
+            <div class="list-meta">${escapeHtml(component.reason || 'No CI count is available for this component.')}</div>
+          </div>`).join('')}</div>
+      </article>` : '';
     const stagePaths = (delivery.stages && delivery.stages.paths) || [];
     const requiredChecks = [...new Set(stagePaths.reduce((all, item) => all.concat(item.statusChecks || []), []))];
     const setupHelp = renderWorkflowHelp('pipeline.setup-model', {
@@ -10139,13 +10209,13 @@
     const passRate = completed > 0 ? Math.round(((counts.passing || 0) / completed) * 100) : undefined;
     const intro = renderPageIntro({
       kicker: 'Stage 5',
-      title: 'Pipeline',
+      title: `Pipeline${delivery.ciScopeLabel ? ` — ${delivery.ciScopeLabel}` : ''}`,
       // Four verbs, in the order somebody uses them. The old summary described
       // the setup sequence, which is the one thing on this page most people
       // have already finished.
       summary: intel
         ? `${runs.length} recent run${runs.length === 1 ? '' : 's'} on this branch${completed > 0 ? `, ${Math.round(((counts.passing || 0) / completed) * 100)}% passing` : ''}.${
-          intel.loadedAt ? ` Read ${relativeLabel(intel.loadedAt)}.` : ''} Watch it in Activity, understand it on the Canvas, verify it in Tests, decide where it runs in Rules.`
+          intel.loadedAt ? ` Read ${relativeLabel(intel.loadedAt)}.` : ''}${delivery.ciScopeLabel ? ` Hosted-run details cover ${delivery.ciScopeLabel}; the inventory below labels every declared component.` : ''} Watch it in Activity, understand it on the Canvas, verify it in Tests, decide where it runs in Rules.`
         : 'Watch what runs in Activity, understand the shape of it on the Canvas, verify what the tests prove, and decide where work goes in Rules.',
       chips: report ? [{ label: report.classification, tone: report.classification === 'unknown' ? 'warn' : 'critical' }] : [],
     });
@@ -10197,6 +10267,7 @@
 
     return `${pageSectionOpen('pipeline')}
       ${intro}
+      ${componentCiScopeCard}
       ${renderPipelineTabs(snapshot, runs, pipelineSection, setup)}
       <div class="ci-studio-view" role="tabpanel" aria-label="${escapeAttr(pipelineSection)} pipeline view">${sectionContent}</div>
     </section>`;
@@ -10440,6 +10511,10 @@
     // once, and this is the part that is different every day. A page whose first
     // card never changes is a page people stop reading.
     const delta = wf.delta || { status: 'first-look', headline: '', window: '', changes: [], droppedByCap: 0 };
+    const deltaScope = delta.scope;
+    const notVisibleDeltaComponents = deltaScope && Array.isArray(deltaScope.components)
+      ? deltaScope.components.filter(component => component.visibility === 'not-visible')
+      : [];
     const DELTA_TAG = {
       improved: 'tag-good',
       worsened: 'tag-warn',
@@ -10456,8 +10531,9 @@
     };
     const deltaCard = `
       <article class="panel-card">
-        <p class="card-kicker">What moved</p>
+        <p class="card-kicker">What moved${deltaScope ? ` · ${escapeHtml(deltaScope.label)}` : ''}</p>
         <p class="stat-detail">${escapeHtml(delta.headline)}</p>
+        ${notVisibleDeltaComponents.length ? `<div class="inline-notice"><strong>Partial component coverage</strong><p class="stat-detail">${notVisibleDeltaComponents.map(component => `${escapeHtml(component.componentLabel)}: ${escapeHtml(component.reason || 'not visible')}`).join(' · ')}</p></div>` : ''}
         ${delta.status === 'changed'
           ? `<div class="stack-list">${delta.changes.map(change => `
               <div class="row-head">

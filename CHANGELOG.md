@@ -6,6 +6,35 @@ The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/),
 
 ## [Unreleased]
 
+## [0.389.0] - 2026-09-03
+
+### Added
+
+- Added component-scoped Git, local CI, issue-tracker, debt-scan, and observed-delta readings to the
+  Project Dashboard. Each migrated count carries the component or partial-component label that
+  produced it.
+- Added typed `not-visible` component results for issue tracking and debt scan coverage, including
+  explicit reasons for non-Git VCS, missing roots, and evidence the current reader does not support.
+- Added scope-aware observed snapshots that refuse cross-scope comparison and treat malformed stored
+  scope metadata as an unreadable first look.
+
+### Changed
+
+- Debt entry identity and reconciliation now include the component boundary; a scan can only obsolete
+  evidence from the exact component and path it actually inspected.
+- The dashboard resolves declared composition once per collection pass, keeps its detailed legacy
+  repository/issue/CI reading on the home component, and publishes visibility for every other declared
+  component rather than silently dropping it.
+- Game Engine Integration Phase 1 advances through C1.5; the Shopify composite validation case is next.
+
+### Security
+
+- Non-Git and unresolved components are never sent through Git or GitHub command paths and never
+  receive invented zero counts. The default scope for unmigrated callers remains the first workspace
+  folder.
+- Stored observed-scope metadata is validated before comparison, so corrupt or foreign JSON cannot
+  crash the dashboard or create a false delta.
+
 ## [0.388.0] - 2026-09-03
 
 ### Added

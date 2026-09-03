@@ -152,6 +152,12 @@ composition, so existing behaviour does not move underneath callers. A surface t
 home, one component, or all components receives only opened roots, plus labelled missing/unreadable/ambiguous
 entries; AtlasMind never substitutes another directory or reaches outside the opened workspace set.
 
+The Project Dashboard is the first all-component consumer. Repository status and local CI are read only for
+declared Git components; issue-tracker support, debt-scan coverage, and observed-change baselines carry the
+same component inventory. Detailed GitHub data stays explicitly scoped to the home component. Missing,
+unreadable, non-Git, and currently unsupported components remain visible as `not-visible` with a reason, and
+aggregates omit data that was never read instead of filling it with zero.
+
 ### Remembering
 
 | Part | What it does |
@@ -174,7 +180,9 @@ Game integration begins at the persistence boundary rather than with an engine c
 inside the existing v1 workflow document. That declaration now round-trips with unknown fields preserved
 and appears in the generated workflow mirror; invalid future shapes are retained opaquely rather than partly
 activated. Repository fixtures pin Unreal, Unity, Godot 3/4, multi-root, and a simulated read-only Perforce
-component without storing derived topology, credentials, SDK paths, or engine binaries.
+component without storing derived topology, credentials, SDK paths, or engine binaries. Component-scoped
+Git, local CI, debt, issue visibility, and observed deltas now consume the declaration while preserving that
+Perforce boundary as `not-visible` rather than zero.
 
 ### Reaching outside
 

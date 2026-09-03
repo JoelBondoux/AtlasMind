@@ -19,6 +19,21 @@ Older entries below describe the software as it was at the time and are delibera
 
 ---
 
+## v0.389.0 — Component-scoped project evidence
+
+Declared composition now reaches the Project Dashboard. Git status, local CI inventory, issue-tracker
+visibility, debt scans, and observed-change baselines report which component or partial component set
+their counts cover. The detailed legacy GitHub reading remains explicitly tied to the home component;
+other declared components are shown rather than silently omitted.
+
+Non-Git and unresolved components produce `not-visible` with a reason, never zero. Debt reconciliation
+can obsolete only the exact component/path evidence it scanned, and an observed baseline is discarded
+when its component coverage differs or its stored scope is malformed. Existing callers that have not
+opted in still resolve exactly the first VS Code workspace folder.
+
+Game Engine Integration Phase 1 is complete through C1.5. Shopify theme + app + extension composition is
+the next validation case.
+
 ## v0.388.0 — Project composition and opt-in workspace scope
 
 Projects can now declare an ordered set of components in `workflow.json`. Each component carries a

@@ -46,7 +46,7 @@ describe('resolveWorkspaceScope', () => {
     const scope = resolveWorkspaceScope(folders().slice(0, 2), composition(), { kind: 'all' });
     expect(scope.roots).toHaveLength(2);
     expect(scope.unknown).toEqual([
-      { componentId: 'content', componentLabel: 'Content', reason: 'not-open' },
+      { componentId: 'content', componentLabel: 'Content', vcs: 'perforce', reason: 'not-open' },
     ]);
     expect(scope.label).toBe('All declared components (2 of 3 visible)');
     expect(scope.complete).toBe(false);

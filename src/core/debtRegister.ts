@@ -35,6 +35,7 @@
 import { readFileSync } from 'node:fs';
 import { mkdir, writeFile } from 'node:fs/promises';
 import path from 'node:path';
+import { PROJECT_COMPONENT_VCS, type ProjectComponentVcs } from './projectComposition.js';
 
 export const DEBT_SSOT_PATH = 'project_memory/operations/tech-debt.json';
 export const DEBT_SUMMARY_SSOT_PATH = 'project_memory/operations/tech-debt.md';
@@ -74,6 +75,9 @@ export interface DebtEntry {
   title: string;
   /** Workspace-relative. The register points at evidence, never at a feeling. */
   evidencePath: string;
+  /** Declared component boundary for multi-root evidence. */
+  componentId?: string;
+  componentLabel?: string;
   evidenceLine?: number;
   detectedAt: string;
   severity: DebtSeverity;
@@ -90,6 +94,20 @@ export interface DebtRegister {
   updatedAt?: string;
   /** When the last scan ran, so a stale register says so. */
   lastScanAt?: string;
+  /** Exactly which declared components the last scan could and could not assess. */
+  lastScanScope?: DebtScanScope[];
+}
+
+/** One declared component's coverage in a debt scan. */
+export interface DebtScanScope {
+  componentId: string;
+  componentLabel: string;
+  vcs: ProjectComponentVcs;
+  visibility: 'visible' | 'not-visible';
+  /** Source files read even when VCS-derived signals were not visible. */
+  scannedFileCount: number;
+  truncated: boolean;
+  reason?: string;
 }
 
 // ── The declared severity rules ──────────────────────────────────
@@ -355,6 +373,8 @@ export interface DebtScanCandidate {
   domain: DebtDomain;
   title: string;
   evidencePath: string;
+  componentId?: string;
+  componentLabel?: string;
   evidenceLine?: number;
   severity: DebtSeverity;
   rule: string;
@@ -440,6 +460,18 @@ export function scanForDebtMarkers(
   return found;
 }
 
+/** Attach the declared component boundary to candidates read from one root. */
+export function scopeDebtCandidates(
+  candidates: readonly DebtScanCandidate[],
+  scope: { componentId: string; componentLabel: string },
+): DebtScanCandidate[] {
+  return candidates.map(candidate => ({
+    ...candidate,
+    componentId: scope.componentId,
+    componentLabel: scope.componentLabel,
+  }));
+}
+
 function clampTitle(value: string): string {
   const cleaned = value.replace(/[\u0000-\u001f\u007f]/gu, ' ').replace(/\s+/g, ' ').trim();
   return cleaned.length > 120 ? `${cleaned.slice(0, 117)}…` : cleaned;
@@ -458,7 +490,8 @@ function clampTitle(value: string): string {
  * lose its whole history on a whitespace change.
  */
 export function debtEntryId(candidate: DebtScanCandidate): string {
-  const slug = `${candidate.domain}:${candidate.evidencePath}:${candidate.title}`
+  const componentPrefix = candidate.componentId ? `${candidate.componentId}:` : '';
+  const slug = `${componentPrefix}${candidate.domain}:${candidate.evidencePath}:${candidate.title}`
     .toLowerCase()
     .replace(/[^a-z0-9:/._-]+/g, '-')
     .replace(/-+/g, '-');
@@ -607,6 +640,18 @@ export interface DebtReconcileResult {
   reopened: DebtEntry[];
 }
 
+function markdownCell(value: string): string {
+  return value.replace(/\|/gu, '\\|').replace(/\r?\n/gu, ' ');
+}
+
+export type DebtScannedPath = string | { componentId?: string; path: string };
+
+function scannedPathKey(pathValue: DebtScannedPath): string {
+  return typeof pathValue === 'string'
+    ? `:${pathValue}`
+    : `${pathValue.componentId ?? ''}:${pathValue.path}`;
+}
+
 /**
  * Fold a scan into the register.
  *
@@ -628,13 +673,19 @@ export interface DebtReconcileResult {
 export function reconcileDebtScan(
   register: DebtRegister,
   candidates: readonly DebtScanCandidate[],
-  scannedPaths: readonly string[],
+  scannedPaths: readonly DebtScannedPath[],
   at: string,
+  lastScanScope?: readonly DebtScanScope[],
 ): DebtReconcileResult {
-  const scanned = new Set(scannedPaths);
+  const scanned = new Set(scannedPaths.map(scannedPathKey));
   const seen = new Map<string, DebtScanCandidate>();
+  const legacyMatches = new Map<string, DebtScanCandidate[]>();
   for (const candidate of candidates) {
     seen.set(debtEntryId(candidate), candidate);
+    if (candidate.componentId) {
+      const legacyId = debtEntryId({ ...candidate, componentId: undefined, componentLabel: undefined });
+      legacyMatches.set(legacyId, [...(legacyMatches.get(legacyId) ?? []), candidate]);
+    }
   }
 
   const added: DebtEntry[] = [];
@@ -643,13 +694,26 @@ export function reconcileDebtScan(
   let unchanged = 0;
 
   const entries = register.entries.map(entry => {
-    const match = seen.get(entry.id);
+    let matchId = entry.id;
+    let match = seen.get(matchId);
+    if (!match && entry.componentId === undefined) {
+      const compatible = legacyMatches.get(entry.id) ?? [];
+      if (compatible.length === 1) {
+        match = compatible[0];
+        matchId = debtEntryId(match);
+      }
+    }
     if (match) {
-      seen.delete(entry.id);
+      seen.delete(matchId);
+      const componentChanged = match.componentId !== undefined
+        && (match.componentId !== entry.componentId || match.componentLabel !== entry.componentLabel);
       if (entry.status === 'resolved' || entry.status === 'obsolete') {
         const revived: DebtEntry = {
           ...entry,
+          id: matchId,
           status: 'open',
+          ...(match.componentId === undefined ? {} : { componentId: match.componentId }),
+          ...(match.componentLabel === undefined ? {} : { componentLabel: match.componentLabel }),
           // The line may have moved; everything else about the entry is what it
           // always was, including when it was first detected.
           ...(match.evidenceLine === undefined ? {} : { evidenceLine: match.evidenceLine }),
@@ -664,13 +728,19 @@ export function reconcileDebtScan(
         return revived;
       }
       unchanged += 1;
-      return match.evidenceLine === entry.evidenceLine
+      return match.evidenceLine === entry.evidenceLine && !componentChanged
         ? entry
-        : { ...entry, ...(match.evidenceLine === undefined ? {} : { evidenceLine: match.evidenceLine }) };
+        : {
+          ...entry,
+          id: matchId,
+          ...(match.evidenceLine === undefined ? {} : { evidenceLine: match.evidenceLine }),
+          ...(match.componentId === undefined ? {} : { componentId: match.componentId }),
+          ...(match.componentLabel === undefined ? {} : { componentLabel: match.componentLabel }),
+        };
     }
 
     // Not in the scan. Only meaningful if the file was actually looked at.
-    const wasScanned = scanned.has(entry.evidencePath);
+    const wasScanned = scanned.has(scannedPathKey({ componentId: entry.componentId, path: entry.evidencePath }));
     if (!wasScanned || entry.status === 'obsolete' || entry.status === 'resolved') {
       return entry;
     }
@@ -694,6 +764,8 @@ export function reconcileDebtScan(
       domain: candidate.domain,
       title: candidate.title,
       evidencePath: candidate.evidencePath,
+      ...(candidate.componentId === undefined ? {} : { componentId: candidate.componentId }),
+      ...(candidate.componentLabel === undefined ? {} : { componentLabel: candidate.componentLabel }),
       ...(candidate.evidenceLine === undefined ? {} : { evidenceLine: candidate.evidenceLine }),
       detectedAt: at,
       severity: candidate.severity,
@@ -706,7 +778,13 @@ export function reconcileDebtScan(
   }
 
   return {
-    register: { version: 1, entries, updatedAt: at, lastScanAt: at },
+    register: {
+      version: 1,
+      entries,
+      updatedAt: at,
+      lastScanAt: at,
+      ...(lastScanScope === undefined ? {} : { lastScanScope: lastScanScope.map(scope => ({ ...scope })) }),
+    },
     added,
     wentObsolete,
     unchanged,
@@ -806,7 +884,7 @@ export function buildDebtWorkPrompt(entry: DebtEntry): string {
   return [
     `Look at this recorded technical debt: ${entry.title}`,
     '',
-    `Evidence: ${entry.evidencePath}${entry.evidenceLine ? `:${entry.evidenceLine}` : ''}`,
+    `Evidence${entry.componentLabel ? ` in ${entry.componentLabel}` : ''}: ${entry.evidencePath}${entry.evidenceLine ? `:${entry.evidenceLine}` : ''}`,
     `Domain: ${entry.domain}. Recorded ${entry.detectedAt.slice(0, 10)}.`,
     rule ? `Graded ${entry.severity} by the rule \`${rule.id}\`: ${rule.describes}` : '',
     '',
@@ -909,11 +987,54 @@ export function sanitizeDebtRegister(input: unknown): DebtRegister {
       .map(entry => sanitizeEntry(entry))
       .filter((entry): entry is DebtEntry => entry !== undefined)
     : [];
+  const scanScopeCandidates = Array.isArray(raw['lastScanScope'])
+    && raw['lastScanScope'].length > 0
+    && raw['lastScanScope'].length <= 40
+    ? raw['lastScanScope'].map(entry => sanitizeDebtScanScope(entry))
+    : undefined;
+  const lastScanScope = scanScopeCandidates
+    && scanScopeCandidates.every((entry): entry is DebtScanScope => entry !== undefined)
+    && new Set(scanScopeCandidates.map(entry => entry.componentId)).size === scanScopeCandidates.length
+    ? scanScopeCandidates
+    : undefined;
   return {
     version: 1,
     entries,
     ...(typeof raw['updatedAt'] === 'string' ? { updatedAt: raw['updatedAt'] } : {}),
     ...(typeof raw['lastScanAt'] === 'string' ? { lastScanAt: raw['lastScanAt'] } : {}),
+    ...(lastScanScope === undefined ? {} : { lastScanScope }),
+  };
+}
+
+function sanitizeDebtScanScope(input: unknown): DebtScanScope | undefined {
+  if (!input || typeof input !== 'object' || Array.isArray(input)) {
+    return undefined;
+  }
+  const raw = input as Record<string, unknown>;
+  const componentId = typeof raw['componentId'] === 'string' && /^[a-z0-9][a-z0-9-]{0,63}$/u.test(raw['componentId'])
+    ? raw['componentId']
+    : undefined;
+  const componentLabel = typeof raw['componentLabel'] === 'string' ? clampTitle(raw['componentLabel']) : '';
+  const vcs = (PROJECT_COMPONENT_VCS as readonly unknown[]).includes(raw['vcs'])
+    ? raw['vcs'] as ProjectComponentVcs
+    : undefined;
+  const visibility = raw['visibility'] === 'visible' || raw['visibility'] === 'not-visible'
+    ? raw['visibility']
+    : undefined;
+  const scannedFileCount = Number(raw['scannedFileCount']);
+  if (!componentId || !componentLabel || !vcs || !visibility
+    || !Number.isInteger(scannedFileCount) || scannedFileCount < 0
+    || typeof raw['truncated'] !== 'boolean') {
+    return undefined;
+  }
+  return {
+    componentId,
+    componentLabel,
+    vcs,
+    visibility,
+    scannedFileCount: Math.min(scannedFileCount, 1_000_000),
+    truncated: raw['truncated'],
+    ...(typeof raw['reason'] === 'string' ? { reason: clampTitle(raw['reason']) } : {}),
   };
 }
 
@@ -936,6 +1057,12 @@ function sanitizeEntry(input: unknown): DebtEntry | undefined {
     domain: DOMAINS.includes(raw['domain'] as DebtDomain) ? raw['domain'] as DebtDomain : 'code',
     title: clampTitle(typeof raw['title'] === 'string' ? raw['title'] : 'Untitled'),
     evidencePath,
+    ...(typeof raw['componentId'] === 'string' && /^[a-z0-9][a-z0-9-]{0,63}$/u.test(raw['componentId'])
+      ? { componentId: raw['componentId'] }
+      : {}),
+    ...(typeof raw['componentLabel'] === 'string' && clampTitle(raw['componentLabel'])
+      ? { componentLabel: clampTitle(raw['componentLabel']) }
+      : {}),
     ...(Number.isFinite(line) && line > 0 ? { evidenceLine: Math.floor(line) } : {}),
     detectedAt,
     // An unrecognised severity reads as `low`, never as `high`: a register that
@@ -1046,16 +1173,37 @@ export function renderDebtMarkdown(
     '',
   ];
 
+  if (register.lastScanScope !== undefined) {
+    lines.push(
+      '## Scan scope',
+      '',
+      '| Component | VCS | Visibility | Files read |',
+      '|---|---|---|---|',
+      ...register.lastScanScope.map(scope => [
+        '',
+        markdownCell(scope.componentLabel),
+        `\`${scope.vcs}\``,
+        scope.visibility === 'visible'
+          ? 'visible'
+          : `not-visible${scope.reason ? ` — ${markdownCell(scope.reason)}` : ''}`,
+        `${scope.scannedFileCount}${scope.truncated ? ' (partial)' : ''}`,
+        '',
+      ].join(' | ').trim()),
+      '',
+    );
+  }
+
   if (open.length > 0) {
     lines.push(
       '## Open',
       '',
-      '| Severity | Domain | What | Where | Since | Rule |',
-      '|---|---|---|---|---|---|',
+      '| Severity | Domain | Component | What | Where | Since | Rule |',
+      '|---|---|---|---|---|---|---|',
       ...open.map(entry => [
         '',
         entry.severity,
         entry.domain,
+        markdownCell(entry.componentLabel ?? 'project'),
         entry.title,
         `\`${entry.evidencePath}${entry.evidenceLine ? `:${entry.evidenceLine}` : ''}\``,
         entry.detectedAt.slice(0, 10),

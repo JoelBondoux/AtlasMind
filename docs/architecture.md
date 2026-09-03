@@ -1213,6 +1213,13 @@ The repository's issue tracker, read into the Project Dashboard → **Issues** p
 
 **One bounded read; writes behind a confirmation.** The ready handshake reads issues, pull requests, CI, releases, labels, and milestones into one panel-held snapshot. A reveal retries only after a five-minute freshness window, manual Refresh bypasses the time check, and both routes share one in-flight guard. The read is never part of ordinary render churn, and absence remains typed: "nothing loaded", "the read failed", and "zero issues" are different states. Creating, commenting, closing, and reopening are outward-facing and usually public, so each is gated on a `{ modal: true }` confirmation built by `describeIssueAction` from the same values that will be sent; the webview supplies data only, never a command or an argument list, and `gh` is executed directly rather than through a shell. Failure modes are reported as themselves with the command that fixes them (`gh` missing, not authenticated, no GitHub repo).
 
+**Component visibility is a separate reading from the issue list.** `ComponentIssueTrackerReading`
+records either a real repository summary or `not-visible` with a reason; `summarizeComponentIssuePortfolio`
+aggregates only visible components and omits the aggregate count entirely when none were read. The current
+GitHub list remains the home component's detailed board and says so on screen. Secondary, non-Git, missing,
+and unreadable components stay in the component inventory rather than becoming an invented zero or
+disappearing from the apparent project boundary.
+
 ### WorkflowCurriculum (`src/core/workflowCurriculum.ts`)
 
 The eight-stage guided GitHub workflow as *teachable data*, backing the Project Dashboard → **Workflow** page. `docs/guided-github-workflow.md` is the normative specification; this module is its machine-readable form and the source of every word the page shows.
@@ -1312,6 +1319,12 @@ Topology is derived and never persisted. `deriveProjectTopologies` can state `mu
 
 `resolveWorkspaceScope` is the opt-in resolver. With no target it returns exactly the first workspace folder and does not consult composition, preserving every existing caller until deliberately migrated. Explicit home, component, and all-component requests match only opened workspace roots; missing, unreadable, and ambiguous roots remain labelled unknown entries. The resolver never fabricates a replacement root and never reaches outside VS Code's opened folder set.
 
+The Project Dashboard is the first scoped consumer. One collection pass resolves the declared component
+set, then produces per-component Git and local-CI readings, issue-tracker visibility, debt-scan coverage,
+and an `ObservedScope`. Detailed legacy Git/GitHub fields continue to come from the declared home component
+and are labelled as such; every other component is carried as visible or `not-visible` with a reason. An
+undeclared project preserves the original first-folder path.
+
 ### ProjectVocabulary (`src/core/projectVocabulary.ts`)
 
 The nouns a project has **declared** for its own delivery pipeline and Git workflow, read once and in one place. It exists because two surfaces were answering the same question from different sources and disagreeing: a request to "promote to staging" was matched against a hand-maintained keyword table in the Orchestrator that contained neither `promote` nor `staging`, so the turn selected no tools and no context — while `project_memory/operations/delivery.json` had already recorded the answer (a stage of kind `staging`, named `Integration`, carrying `branchRef: develop`). The product knew; the part of the product that had to act did not, so the model fell back to `git branch`, found nothing called `staging`, and asked the user a question AtlasMind could have answered.
@@ -1389,6 +1402,13 @@ Stage 7. Taking on debt is often the right call — the metaphor is exact, and b
 **Severity does not drift with age.** The obvious feature is to escalate an item the longer it sits, and it fails for the same reason: an entry whose severity changed while nothing about the code changed cannot be compared with last month's. Age is reported alongside severity as its own fact.
 
 **Entries transition; they are never deleted.** `resolved` and `obsolete` are deliberately distinct — `resolved` means somebody did the work, `obsolete` means the evidence disappeared and nobody said they fixed it. Collapsing them would let the register report progress it cannot attest to. Reconciliation can only mark an entry obsolete if its file was actually in the scan, so a scan of `src/` never declares everything in `docs/` gone.
+
+That boundary is now component-aware. A marker candidate and scanned path may carry a component id; entry
+identity includes it, and reconciliation can obsolete only the same component/path pair. `lastScanScope`
+persists each declared component's VCS, visibility, bounded file count, truncation, and exclusion reason,
+and the Markdown/dashboard mirrors publish that table. Non-Git and missing components are `not-visible`,
+never zero-file scans; a visible non-Git root may still contribute source markers while VCS-derived debt
+remains explicitly unavailable.
 
 Entry ids are derived from domain, path and marker text, and deliberately **not** from the line number: code moves, and an entry that got a new id every time somebody added an import above it would lose its whole history on a whitespace change. That stability is what lets a rescan *recognise* an entry rather than duplicate it.
 
@@ -1591,6 +1611,11 @@ Five properties are enforced in the module rather than left to the caller, becau
 **Unknown → known is not zero → n.** If `gh` was missing at the last reading the open-issue count was `undefined`, and "0 → 12 issues" invents a twelve-issue spike that never happened. It reports as `now-known` and carries no `before`. The inverse case, **known → unknown, is news rather than a gap to skip** — a count that used to read and now does not usually means a tool stopped answering, and it ranks *above* the movement it hides because it explains why the rest of the page went quiet.
 
 **A different repository is not a comparison.** A snapshot taken in one repo diffed against another produces confident nonsense, so a changed slug discards the baseline. Absence of a slug on either side is not disagreement, and still compares.
+
+**A different component scope is not a comparison either.** `ObservedScope` travels with both the reading
+and its snapshot, including visible and `not-visible` components. Any scope change starts a new baseline;
+malformed stored scope metadata is an unreadable snapshot rather than an exception. Summaries append the
+scope label, so a movement can never present a home-repository count as a whole-project delta.
 
 **It never reports the user's own actions back to them.** `currentBranch` and `workingTreeClean` are deliberately outside the tracked set: those are the developer's position, not the project's movement, and a delta that says "you are on a different branch" trains somebody to ignore deltas. `ghInstalled` and `hasChangelog` are also excluded, because each is implied by a field already tracked and reporting one movement twice reads as two things happening.
 

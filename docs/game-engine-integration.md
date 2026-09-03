@@ -15,12 +15,14 @@ Where this document and the plan disagree, this document wins.
 
 ### 0.2 Built versus proposed
 
-Phase 0 and the general Phase 1 composition foundation are built: the `game` persisted-document kind
-is registered at schema v1; deterministic fixtures cover Unreal, Unity, Godot 3/4 and Perforce; and
-declared component scope now round-trips through `workflow.json` behind an opt-in resolver. No engine
-detector, inventory reader, log parser, game command surface, bridge, or dashboard is built yet; those
-sections remain intended behaviour. Facts about engines are marked as claims requiring verification
-(§2.4).
+Phase 0 and Phase 1 through C1.5 are built: the `game` persisted-document kind is registered at schema
+v1; deterministic fixtures cover Unreal, Unity, Godot 3/4 and Perforce; declared component scope
+round-trips through `workflow.json`; and the Project Dashboard now scopes Git, local CI, debt,
+issue-tracker visibility, and observed-delta evidence to those components with explicit `not-visible`
+results. Shopify composite validation, game composition presets, and upstream divergence remain before
+Phase 1 exits. No engine detector, inventory reader, log parser, game command surface, bridge, or game
+dashboard is built yet; those sections remain intended behaviour. Facts about engines are marked as
+claims requiring verification (§2.4).
 
 ### 0.3 Engines in scope
 

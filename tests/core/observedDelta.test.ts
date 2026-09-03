@@ -7,6 +7,7 @@ import {
   MAX_REPORTED_CHANGES,
   summarizeObservedDelta,
   takeObservedSnapshot,
+  type ObservedScope,
   type ObservedSnapshot,
 } from '../../src/core/observedDelta.js';
 import type { WorkflowObservedState } from '../../src/core/workflowCurriculum.js';
@@ -21,6 +22,20 @@ function snapshot(state: Partial<WorkflowObservedState>, takenAt = EARLIER): Obs
 function current(state: Partial<WorkflowObservedState>): WorkflowObservedState {
   return { repoSlug: 'owner/repo', ...state };
 }
+
+const componentScope = (contentVisibility: 'visible' | 'not-visible' = 'not-visible'): ObservedScope => ({
+  label: 'Gameplay (1 of 2 declared components visible)',
+  components: [
+    { componentId: 'gameplay', componentLabel: 'Gameplay', vcs: 'git', visibility: 'visible' },
+    {
+      componentId: 'content',
+      componentLabel: 'Content',
+      vcs: 'perforce',
+      visibility: contentVisibility,
+      ...(contentVisibility === 'not-visible' ? { reason: 'Perforce status is not connected.' } : {}),
+    },
+  ],
+});
 
 describe('a first look reports a first look, not eighteen changes', () => {
   it('treats a missing snapshot as a first look with no changes', () => {
@@ -65,6 +80,59 @@ describe('a first look reports a first look, not eighteen changes', () => {
       { openIssueCount: 6 },
     );
     expect(delta.status).toBe('changed');
+  });
+});
+
+describe('component-scoped baselines', () => {
+  it('carries not-visible components without inventing zero-valued fields', () => {
+    const scope = componentScope();
+    const taken = takeObservedSnapshot(current({ ciWorkflowCount: 1 }), NOW, scope);
+    expect(taken.scope).toEqual(scope);
+    expect(taken.scope?.components[1]).toMatchObject({
+      componentLabel: 'Content',
+      visibility: 'not-visible',
+    });
+    expect(taken.state).not.toHaveProperty('content');
+  });
+
+  it('refuses to compare readings taken from different component coverage', () => {
+    const previous = takeObservedSnapshot(current({ openIssueCount: 2 }), EARLIER, componentScope());
+    const nextScope = componentScope('visible');
+    const delta = compareObservedState(previous, current({ openIssueCount: 9 }), nextScope);
+    expect(delta).toMatchObject({ status: 'first-look', firstLookReason: 'different-scope', scope: nextScope });
+    expect(delta.changes).toEqual([]);
+    expect(summarizeObservedDelta(delta, NOW)).toContain('old counts are not comparable');
+  });
+
+  it('labels unchanged and changed summaries with the scope they describe', () => {
+    const scope = componentScope();
+    const previous = takeObservedSnapshot(current({ openIssueCount: 2 }), EARLIER, scope);
+    const unchanged = compareObservedState(previous, current({ openIssueCount: 2 }), scope);
+    expect(summarizeObservedDelta(unchanged, NOW)).toContain('for Gameplay (1 of 2 declared components visible)');
+
+    const changed = compareObservedState(previous, current({ openIssueCount: 3 }), scope);
+    expect(summarizeObservedDelta(changed, NOW)).toContain('for Gameplay (1 of 2 declared components visible)');
+  });
+
+  it('copies scope metadata so later host mutation cannot rewrite the baseline', () => {
+    const original = componentScope();
+    const mutableComponents = original.components.map(component => ({ ...component }));
+    const scope: ObservedScope = { ...original, components: mutableComponents };
+    const taken = takeObservedSnapshot(current({ ciWorkflowCount: 1 }), NOW, scope);
+    mutableComponents[0]!.componentLabel = 'Changed';
+    expect(taken.scope?.components[0]?.componentLabel).toBe('Gameplay');
+  });
+
+  it('treats malformed stored scope metadata as an unreadable baseline', () => {
+    const previous = {
+      takenAt: EARLIER,
+      repoSlug: 'owner/repo',
+      state: { openIssueCount: 2 },
+      scope: { label: 'old scope', components: 'not-an-array' },
+    } as unknown as ObservedSnapshot;
+    const delta = compareObservedState(previous, current({ openIssueCount: 9 }), componentScope());
+    expect(delta).toMatchObject({ status: 'first-look', firstLookReason: 'unreadable-snapshot' });
+    expect(delta.changes).toEqual([]);
   });
 });
 
