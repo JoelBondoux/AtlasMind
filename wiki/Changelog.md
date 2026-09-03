@@ -19,6 +19,22 @@ Older entries below describe the software as it was at the time and are delibera
 
 ---
 
+## v0.388.0 — Project composition and opt-in workspace scope
+
+Projects can now declare an ordered set of components in `workflow.json`. Each component carries a
+role, the existing archetype-plus-traits identity, a portable location, its VCS, and one explicit home.
+One malformed entry refuses the whole declaration instead of disappearing, unknown fields survive, and
+the generated workflow mirror publishes the boundary a reviewer is approving.
+
+Topology is derived and never stored. The new workspace resolver keeps the old first-folder behaviour by
+default, while explicit home, component, and all-component requests resolve only roots VS Code already
+opened. Missing, unreadable, or ambiguous roots remain labelled unknowns rather than being replaced.
+Detected proposals remain separate from effective state until a person declares them.
+
+Game Engine Integration Phase 1 now has its first three deliverables complete. Scoped git/CI/debt/
+observed-delta consumers, `not-visible` VCS results, Shopify validation, game presets, and upstream
+divergence remain next.
+
 ## v0.387.1 — Game integration starts at the safe persistence boundary
 
 Game Engine Integration Phase 0 is complete. The future game profile is registered at schema v1 before

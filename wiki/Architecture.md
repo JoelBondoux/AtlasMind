@@ -100,6 +100,7 @@ path — you don't have to retype it.
 | **Model Router** | Picks a model by budget, speed, capability, health and past outcomes |
 | **Task Profiler** | Works out how hard a task really is |
 | **Project Archetype & Prefab Plans** | Describes a project as a small archetype plus composable traits, then builds deterministic create-only starter plans for explicitly selected platforms |
+| **Project Composition & Workspace Scope** | Keeps team-declared component boundaries separate from detected proposals and resolves only the roots a surface opts into |
 | **Project Vocabulary** | The delivery stages and branches *your project declared*, so "promote to staging" means what you said it means |
 | **Planner & Task Scheduler** | Breaks a goal into steps and runs them in dependency order |
 | **Mission Runner** | The autonomous loop, and the envelope that contains it |
@@ -140,6 +141,17 @@ native generation, and EAS; Flutter discloses dependency retrieval. Every mobile
 permissions, storage, telemetry, device/OS, accessibility, native-module, signing, update, and rollback
 claims as Not assessed.
 
+A project composition is an ordered, team-owned set of components: each has a role, archetype and traits,
+portable location, VCS, and one explicit home. One malformed component refuses the whole declaration
+instead of disappearing from every later count. Topology is derived, never stored; unresolved or unreadable
+roots remain unknown. Detection may offer a proposal, but a proposal cannot become the active composition
+until a person declares it in `workflow.json`.
+
+Workspace scope is opt-in. Its default returns exactly VS Code's first workspace folder without consulting
+composition, so existing behaviour does not move underneath callers. A surface that explicitly requests the
+home, one component, or all components receives only opened roots, plus labelled missing/unreadable/ambiguous
+entries; AtlasMind never substitutes another directory or reaches outside the opened workspace set.
+
 ### Remembering
 
 | Part | What it does |
@@ -159,9 +171,10 @@ removed.
 
 Game integration begins at the persistence boundary rather than with an engine command. The future
 `game.json` profile is registered at schema v1 before any writer exists, while project composition stays
-inside the existing v1 workflow document. Repository fixtures pin Unreal, Unity, Godot 3/4, multi-root,
-and a simulated read-only Perforce component without storing derived topology, credentials, SDK paths,
-or engine binaries. That makes the next composition/parser work deterministic and engine-free.
+inside the existing v1 workflow document. That declaration now round-trips with unknown fields preserved
+and appears in the generated workflow mirror; invalid future shapes are retained opaquely rather than partly
+activated. Repository fixtures pin Unreal, Unity, Godot 3/4, multi-root, and a simulated read-only Perforce
+component without storing derived topology, credentials, SDK paths, or engine binaries.
 
 ### Reaching outside
 

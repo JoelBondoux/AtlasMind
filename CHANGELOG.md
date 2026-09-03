@@ -6,6 +6,35 @@ The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/),
 
 ## [Unreleased]
 
+## [0.388.0] - 2026-09-03
+
+### Added
+
+- Added the pure `ProjectComposition` model with closed component-role and VCS vocabularies,
+  per-component archetype/traits, portable locations, optional upstream declarations, exactly one
+  home, unknown-field retention, and deterministic topology derivation.
+- Added the pure `WorkspaceScope` resolver. Its default returns exactly the first workspace folder;
+  explicit home/component/all requests resolve only opened roots and retain missing, unreadable, or
+  ambiguous components as labelled unknowns.
+- Added workflow composition persistence and a deterministic Markdown component table, backed by a
+  real JSON/Markdown disk round-trip test and the existing multi-root/Perforce fixture.
+
+### Changed
+
+- `WorkflowConfig` now reads a valid direct composition or restores one preserved under `extra` by an
+  older build. Invalid/future nested shapes stay opaque instead of being partially activated or lost.
+- Lowered the dead-export ratchet from 93 to 92 after the composition core made the shared archetype
+  vocabulary an active runtime dependency.
+- Game Engine Integration Phase 1 advances through C1.1–C1.3; scoped git, CI, debt, and observed-delta
+  consumers are next. Normative, architecture, development, roadmap, README, and wiki docs are synced.
+
+### Security
+
+- Component locations reject absolute paths, traversal, control characters, and platform-illegal path
+  syntax. Scope resolution never substitutes a directory or reaches outside VS Code's opened folders.
+- A detector proposal can never become the effective composition by inference; team-owned scope still
+  requires an explicit reviewed workflow declaration.
+
 ## [0.387.1] - 2026-09-03
 
 ### Added

@@ -21,7 +21,6 @@
   "testing": { "inherit": true },
   "stages": [],
   "composition": {
-    "version": 1,
     "components": [
       {
         "id": "gameplay",

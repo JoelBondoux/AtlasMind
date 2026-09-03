@@ -108,6 +108,25 @@ describe('validateWorkflowConfig checks what the file names, not whether it read
     config.labels = { type: [], priority: [], status: [], area: [] };
     expect(validateWorkflowConfig(config).some(p => /nothing will be suggested/.test(p.detail))).toBe(true);
   });
+
+  it('reports an unresolved composition component without deleting its declaration', () => {
+    const config = seeded();
+    config.composition = {
+      components: [
+        {
+          id: 'home', label: 'Home', location: '.', role: 'application',
+          archetype: { archetype: 'generic', traits: [] }, vcs: 'git', home: true,
+        },
+        {
+          id: 'assets', label: 'Assets', location: 'content', role: 'content',
+          archetype: { archetype: 'generic', traits: [] }, vcs: 'perforce', home: false,
+        },
+      ],
+    };
+    const problems = validateWorkflowConfig(config, { workspaceLocations: ['.'] });
+    expect(problems.some(problem => /Assets.*not visible/.test(problem.detail))).toBe(true);
+    expect(config.composition.components.map(component => component.id)).toEqual(['home', 'assets']);
+  });
 });
 
 describe('the label taxonomy', () => {

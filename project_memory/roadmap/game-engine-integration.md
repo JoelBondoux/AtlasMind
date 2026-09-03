@@ -1,6 +1,6 @@
 # Game Engine Integration — Phased Roadmap
 
-> **Status:** Phase 0 complete; Phase 1 next. **Owner:** AtlasMind core. **Created:** 2026-07-30. **Baseline:** v0.213.0.
+> **Status:** Phase 1 in progress; C1.1–C1.3 complete, C1.4 next. **Owner:** AtlasMind core. **Created:** 2026-07-30. **Baseline:** v0.213.0.
 > This is the SSOT implementation plan. Its normative specifications are
 > [`docs/project-composition.md`](../../docs/project-composition.md) (v0.213.1) and
 > [`docs/game-engine-integration.md`](../../docs/game-engine-integration.md) (v0.213.2), both written
@@ -267,13 +267,16 @@ unmade decision.
 **Entry:** Phase 0 complete. **Exit:** a multi-root workspace resolves to a declared component set
 with per-component VCS, and no existing single-root behaviour has changed.
 
-- **C1.1** `src/core/projectComposition.ts` — pure, `vscode`-free, unit-tested. Component roles,
+- **C1.1** — ✅ `src/core/projectComposition.ts` — pure, `vscode`-free, unit-tested. Component roles,
   per-component archetype and `vcs`, derived topology, the declared home component. Detection
-  suggests, declaration decides. An unreadable component is `unknown`, never assumed.
-- **C1.2** `src/core/workspaceScope.ts` — the resolver. **Default resolution is today's
-  `workspaceFolders[0]`**, so nothing changes until a surface opts in.
-- **C1.3** Composition persisted in `workflow.json` (committed, reviewed, owned by the team) rather
-  than settings — a change to how a project is laid out should arrive as a diff with a reviewer.
+  suggests, declaration decides; a proposal can never become effective state by inference. A malformed
+  component invalidates the declaration rather than disappearing, and unreadable state stays unknown.
+- **C1.2** — ✅ `src/core/workspaceScope.ts` — the pure resolver. **Default resolution is today's
+  `workspaceFolders[0]`**, without consulting composition, so nothing changes until a surface opts in.
+  Home, component and all-component requests retain missing, unreadable and ambiguous roots as unknown.
+- **C1.3** — ✅ Composition is persisted in `workflow.json` (committed, reviewed, owned by the team)
+  rather than settings. Unknown fields survive; an invalid/future nested shape is retained opaquely
+  instead of partially activated; the Markdown mirror publishes the declared component boundary.
 - **C1.4** Migrate by consequence: git status, CI, debt scan and observed-delta become
   component-scoped and **label their scope on screen**. An unlabelled count in a multi-repo project
   is a wrong count.

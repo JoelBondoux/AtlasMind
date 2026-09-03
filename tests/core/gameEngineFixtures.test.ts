@@ -48,7 +48,6 @@ describe('game-engine Phase 0 fixtures', () => {
     )) as {
       version: number;
       composition: {
-        version: number;
         components: Array<{
           id: string;
           location: string;
@@ -66,7 +65,6 @@ describe('game-engine Phase 0 fixtures', () => {
       { name: 'Content', path: 'content' },
     ]);
     expect(workflow.version).toBe(1);
-    expect(workflow.composition.version).toBe(1);
     expect(workflow.composition.components.filter(component => component.home)).toEqual([
       expect.objectContaining({ id: 'gameplay', location: 'home', vcs: 'git' }),
     ]);

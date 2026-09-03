@@ -15,11 +15,12 @@ property a reviewer may reject a change for violating.
 
 ### 0.2 Built versus proposed
 
-Phase 0's compatibility and fixture boundary is built: `workflow.json` remains registered at schema
-v1, and a multi-root fixture declares three components including a simulated Perforce content root.
-The composition parser, validator, topology derivation, scope resolver, persistence wiring, and every
-consumer remain proposed. The facts about today's codebase in §1 are verified and dated; everything
-else is a contract for the implementation.
+Phase 1's foundation is built: `projectComposition.ts` owns the closed roles/VCS vocabulary, strict
+normalization, validation, declaration-over-proposal rule, and derived topology; `workspaceScope.ts`
+resolves explicit home/component/all requests while defaulting exactly to the first VS Code workspace
+folder; and `workflowConfig.ts` round-trips the declaration and publishes it in the Markdown mirror.
+No existing consumer has opted into multi-component scope yet. Git/CI/debt/observed-delta migration,
+`not-visible` results, bootstrap presets, and upstream divergence remain proposed.
 
 ### 0.3 Non-goals
 
@@ -61,6 +62,10 @@ games are the *forcing function*, not the owner. This model MUST NOT be game-spe
 
 A **component** is a unit of the project with one location, one role, one archetype and one version
 control system. A project is an ordered set of components plus a declared home (§2.6).
+
+Locations are portable workspace-folder names or normalized workspace-relative paths. Absolute paths,
+traversal, control characters, and platform-illegal path characters are refused: committed composition
+must not bind the team to one machine or become a route outside an opened workspace.
 
 A single-repo project is a project with exactly one component. It is the simplest case, **not** the
 assumed one.
@@ -232,9 +237,10 @@ failure.
 
 ## §8 Resolution — `WorkspaceScope`
 
-All 123 existing `workspaceFolders[0]` call sites resolve through a `WorkspaceScope` whose **default
-resolution is `workspaceFolders[0]`**. Existing behaviour is therefore preserved byte-for-byte until
-a surface opts in.
+`WorkspaceScope` exists and its default resolution is exactly `workspaceFolders[0]`, without consulting
+composition. Existing behaviour is therefore preserved byte-for-byte until a surface opts in. As call
+sites migrate, they MUST resolve through this boundary; missing, unreadable, or ambiguous components
+remain explicit unknown entries rather than being dropped or substituted.
 
 Surfaces migrate **by consequence, not by count**. Those where single-root is actively wrong move
 first — asset inventory, build, git status, debt scan, CI, observed delta. The rest follow when
@@ -247,11 +253,11 @@ land its bugs everywhere simultaneously.
 
 An implementation conforms when:
 
-- [ ] Composition round-trips through `SchemaMigration` v1 with unknown fields preserved.
-- [ ] Topology is computed, and no persisted field stores it.
+- [x] Composition round-trips through `SchemaMigration` v1 with unknown fields preserved.
+- [x] Topology is computed, and no persisted field stores it.
 - [ ] A Shopify project expresses *theme + app + extension* as three components.
 - [ ] A component with `vcs: 'perforce'` reports `not-visible` rather than zero on every git surface.
 - [ ] Every multi-component count on every surface names its scope.
 - [ ] `upstreamDivergence` has no engine-specific symbol in it.
 - [ ] No write path to any non-git version control system exists.
-- [ ] A single-root workspace behaves exactly as it did at v0.213.0.
+- [x] A single-root workspace behaves exactly as it did at v0.213.0; default scope remains the first folder.

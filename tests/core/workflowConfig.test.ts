@@ -10,8 +10,22 @@ import {
 } from '../../src/core/workflowConfig';
 import { WORKFLOW_STAGE_IDS } from '../../src/core/workflowCurriculum';
 import { recommendedVersioningPolicy } from '../../src/core/versioningPolicy';
+import { sanitizeProjectComposition, type ProjectComposition } from '../../src/core/projectComposition';
 
 const seeded = (): WorkflowConfig => seedWorkflowConfig({ profile: 'solo' });
+const composition = (): ProjectComposition => sanitizeProjectComposition({
+  components: [
+    {
+      id: 'home', label: 'Application', location: '.', role: 'application',
+      archetype: { archetype: 'web-app', traits: ['has-ui', 'has-server'] },
+      vcs: 'git', home: true,
+    },
+    {
+      id: 'content', label: 'Content', location: 'content', role: 'content',
+      archetype: { archetype: 'generic', traits: [] }, vcs: 'perforce',
+    },
+  ],
+})!;
 
 describe('seedWorkflowConfig — a seed grants nothing', () => {
   it('ships every stage disabled and at observe, whatever the profile', () => {
@@ -113,6 +127,14 @@ describe('sanitizeWorkflowConfig — reads a file a human may have hand-edited',
     expect(config?.extra).toEqual({ futureField: { a: 1 } });
   });
 
+  it('preserves an own __proto__ field as inert data', () => {
+    const raw = JSON.parse('{"version":1,"extra":{"__proto__":{"polluted":true}}}') as unknown;
+    const config = sanitizeWorkflowConfig(raw)!;
+    expect(Object.prototype).not.toHaveProperty('polluted');
+    expect(Object.prototype.hasOwnProperty.call(config.extra, '__proto__')).toBe(true);
+    expect(config.extra?.['__proto__']).toEqual({ polluted: true });
+  });
+
   it('drops an unrecognised stage id rather than inventing a stage', () => {
     const config = sanitizeWorkflowConfig({ stages: [{ id: 'not-a-stage', enabled: true }] });
     expect(config?.stages.some(stage => (stage.id as string) === 'not-a-stage')).toBe(false);
@@ -140,6 +162,26 @@ describe('sanitizeWorkflowConfig — reads a file a human may have hand-edited',
   it('round-trips a seeded config unchanged', () => {
     const config = seeded();
     expect(sanitizeWorkflowConfig(JSON.parse(JSON.stringify(config)))).toEqual(config);
+  });
+
+  it('round-trips a valid composition in its declared workflow field', () => {
+    const config = { ...seeded(), composition: composition() };
+    const round = sanitizeWorkflowConfig(JSON.parse(JSON.stringify(config)));
+    expect(round?.composition).toEqual(config.composition);
+    expect(round?.extra?.['composition']).toBeUndefined();
+  });
+
+  it('restores a composition preserved by an older build under extra', () => {
+    const round = sanitizeWorkflowConfig({ ...seeded(), extra: { composition: composition() } });
+    expect(round?.composition).toEqual(composition());
+    expect(round?.extra?.['composition']).toBeUndefined();
+  });
+
+  it('preserves an invalid composition opaquely instead of partially activating or losing it', () => {
+    const invalid = { components: [{ id: 'half-a-component' }], futureShape: true };
+    const round = sanitizeWorkflowConfig({ ...seeded(), composition: invalid });
+    expect(round?.composition).toBeUndefined();
+    expect(round?.extra?.['composition']).toEqual(invalid);
   });
 });
 
@@ -238,6 +280,17 @@ describe('renderWorkflowMarkdown', () => {
 
   it('warns that it is generated', () => {
     expect(renderWorkflowMarkdown(seeded())).toMatch(/regenerated and hand edits are lost/);
+  });
+
+  it('publishes the declared component scope without inventing topology', () => {
+    const markdown = renderWorkflowMarkdown({ ...seeded(), composition: composition() });
+    expect(markdown).toContain('| Application | `application` | `.` | `web-app` | `git` | yes |');
+    expect(markdown).toContain('| Content | `content` | `content` | `generic` | `perforce` | no |');
+    expect(markdown).not.toMatch(/multi-root|hybrid topology/i);
+  });
+
+  it('states the legacy first-root boundary when composition is absent', () => {
+    expect(renderWorkflowMarkdown(seeded())).toContain('existing first-workspace-root behaviour applies');
   });
 });
 
