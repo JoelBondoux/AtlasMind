@@ -1397,6 +1397,23 @@ those lists were truncated; the repository-wide generic totals remain exact. Con
 candidates rather than predicted conflicts. The module has no filesystem, process, Git, engine, or
 network dependency.
 
+### GameBuildLog (`src/core/gameBuildLog.ts`)
+
+The pure hostile-input boundary for game build reports a caller has already read. It never locates a
+report or runs a build. Missing evidence yields `no-report`; empty, truncated, oversized, malformed, or
+unrecognized evidence yields `unreadable`; both carry `no-verdict`. Verified display-only commands tell
+the caller how a supported Unreal 5.8, Unity 6000.2, or Godot 4.6 project can produce a report without
+giving the module an execution capability.
+
+Character and line limits reject the whole input before interpretation. Retained diagnostics are capped,
+line-numbered, control-stripped, shared-secret-redacted, and individually length-bounded; raw log content
+is absent from the result type. A captured exit code or verified completion marker decides the build,
+with conflicts withheld as `no-verdict`; matching error lines supply findings only. Exact, unambiguous
+platform/configuration/artifact fields and phase timings may be returned, while conflicting fields are
+named and omitted. Unverified versions retain only safe evidence identity and receive neither engine-
+specific parsing nor a guessed command. The module has no filesystem, process, engine, Git, or network
+dependency.
+
 ### GameAssetInventory (`src/core/gameAssetInventory.ts`)
 
 The explicit-request filesystem boundary for declared game-content roots. A caller resolves an

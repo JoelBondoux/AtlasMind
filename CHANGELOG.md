@@ -6,6 +6,30 @@ The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/),
 
 ## [Unreleased]
 
+## [0.396.0] - 2026-09-03
+
+### Added
+
+- Added pure `gameBuildLog.ts` interpretation for complete caller-supplied Unreal 5.8, Unity 6000.2,
+  and Godot 4.6 build reports. Verified completion markers or a captured exit code produce the overall
+  verdict; bounded error/warning findings do not manufacture one.
+- Added bounded phase timing and exact platform, configuration, and artifact-size extraction where
+  declared log markers support it. Conflicting metadata is withheld and named as ambiguous.
+- Added display-only, primary-source-verified report commands for supported engine versions and focused
+  coverage across missing evidence, bounds, hostile input, redaction, conflicting outcomes, metadata,
+  timing, version refusal, and the no-I/O/no-execution boundary.
+
+### Changed
+
+- Game Engine Integration Phase 2 now has C2.4 complete; the persisted game profile is next.
+
+### Security
+
+- Build logs are treated as hostile input and never retained wholesale. Character, line, diagnostic,
+  path, and field caps bound parsing; retained diagnostic strings are terminal-control-stripped and
+  passed through the shared secret redactor. Missing, truncated, oversized, malformed, unrecognized,
+  and unsupported-version reports return no verdict rather than a false clean build.
+
 ## [0.395.0] - 2026-09-03
 
 ### Added

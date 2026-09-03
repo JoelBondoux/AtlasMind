@@ -15,7 +15,7 @@ Where this document and the plan disagree, this document wins.
 
 ### 0.2 Built versus proposed
 
-Phase 0 and Phase 1 are built through C1.8, and Phase 2 is built through C2.3: the `game` persisted-document kind is registered at schema
+Phase 0 and Phase 1 are built through C1.8, and Phase 2 is built through C2.4: the `game` persisted-document kind is registered at schema
 v1; deterministic fixtures cover Unreal, Unity, Godot 3/4 and Perforce; declared component scope
 round-trips through `workflow.json`; and the Project Dashboard now scopes Git, local CI, debt,
 issue-tracker visibility, and observed-delta evidence to those components with explicit `not-visible`
@@ -28,8 +28,11 @@ decisive-file evidence, exact declared versions, declaration precedence, and ver
 without filesystem or editor access. The explicit-confirmation asset reader inventories bounded declared
 content roots, import/orphan candidates, and conservative Git LFS coverage. The pure engine-divergence
 adapter now binds generic fork evidence to the matching declared engine component, preserves exact
-counts and trends, and interprets only bounded paths against version-pinned source layouts. No log parser, game command
-surface, bridge, or game dashboard is built yet; those sections remain intended behaviour.
+counts and trends, and interprets only bounded paths against version-pinned source layouts. The pure
+build-log reader now interprets only complete caller-supplied reports, with declared caps, sanitized and
+redacted retained diagnostics, conservative completion evidence, and display-only report commands pinned
+to verified engine versions. No game command surface, bridge, or game dashboard is built yet; those
+sections remain intended behaviour.
 
 ### 0.3 Engines in scope
 
@@ -193,6 +196,24 @@ redactor — build logs routinely contain signing paths, tokens and machine name
 
 Where no log exists the surface MUST report **no verdict** and name the command that would produce
 one. It MUST NOT report "0 errors".
+
+Built in C2.4: `parseGameBuildLog` is pure and accepts one caller-supplied report; it performs no file,
+process, engine, Git, or network operation. Character, line, diagnostic, path, and metadata caps apply
+before any value can reach a surface. A truncated, empty, malformed, oversized, or unrecognized report
+returns no verdict, and the full log is never retained. Diagnostic text passes through terminal-control
+sanitization and the shared secret redactor before the bounded records are returned.
+
+An overall success or failure requires a valid captured exit code or a version-pinned completion marker;
+diagnostic-looking lines alone are findings, not a build verdict. Contradictory outcome evidence returns
+no verdict. Unreal 5.8 and Unity 6000.2 completion/report surfaces and Godot 4.6 command flags were
+verified on 2026-09-03 against Epic's
+[Build Operations](https://dev.epicgames.com/documentation/unreal-engine/build-operations-cooking-packaging-deploying-and-running-projects-in-unreal-engine?lang=en-US),
+Unity's [command-line manual](https://docs.unity3d.com/6000.2/Documentation/Manual/EditorCommandLineArguments.html)
+and official [`BuildReport` example](https://github.com/Unity-Technologies/UnityCsReference/blob/master/Editor/Mono/BuildPipeline/BuildPipelineInterfaces.cs/),
+and Godot's [command-line tutorial](https://docs.godotengine.org/en/4.6/tutorials/editor/command_line_tutorial.html).
+Because no stable Godot success/footer marker was verified, only a captured exit code can establish its
+overall result. Commands are inert display templates; unsupported, unknown, custom, or unconfident engine
+identities receive no extrapolated command or version-specific parsing.
 
 ### 4.4 Performance evidence
 

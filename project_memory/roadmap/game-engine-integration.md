@@ -1,6 +1,6 @@
 # Game Engine Integration — Phased Roadmap
 
-> **Status:** Phase 1 complete; Phase 2 in progress through C2.3; C2.4 next. **Owner:** AtlasMind core. **Created:** 2026-07-30. **Baseline:** v0.213.0.
+> **Status:** Phase 1 complete; Phase 2 in progress through C2.4; C2.5 next. **Owner:** AtlasMind core. **Created:** 2026-07-30. **Baseline:** v0.213.0.
 > This is the SSOT implementation plan. Its normative specifications are
 > [`docs/project-composition.md`](../../docs/project-composition.md) (v0.213.1) and
 > [`docs/game-engine-integration.md`](../../docs/game-engine-integration.md) (v0.213.2), both written
@@ -324,9 +324,12 @@ plugin installed and no engine running.
   bounded displayed paths; truncation remains explicit and unverified/custom/unknown engines retain
   generic facts without guessed path meaning. The collector remains pure Git and engine-agnostic, so
   vendor BSP, Chromium, and Postgres forks can reuse it unchanged.
-- **C2.4** `src/core/gameBuildLog.ts` — parse what the project already wrote. Untrusted-input
-  boundary throughout: never throws, regex reads not a parser, size and count caps, control-stripped,
-  secret-redacted. No report yields **"no verdict"** plus the command to produce one — never "0 errors".
+- **C2.4** — ✅ `src/core/gameBuildLog.ts` parses only the complete report a caller already supplied and
+  performs no discovery or execution. Character, line, diagnostic, path, and field caps bound hostile
+  input; retained findings are control-stripped and shared-secret-redacted, while the raw log is never
+  returned. Only a captured exit code or version-pinned completion marker establishes the overall
+  verdict, with conflicts and weak evidence withheld. Missing evidence yields **"no verdict"** plus a
+  verified display-only command where available — never "0 errors" and never an extrapolated command.
 - **C2.5** `src/core/gameProfile.ts` — `project_memory/domain/game.json` plus a `game.md` mirror,
   following `websiteWorkspaceManager`. Declared engine, platform targets, build configurations,
   performance budgets, content roots, discipline ownership. Seeding never overwrites a newer file.

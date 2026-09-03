@@ -19,6 +19,24 @@ Older entries below describe the software as it was at the time and are delibera
 
 ---
 
+## v0.396.0 — Bounded game build-log reading
+
+AtlasMind can now interpret a complete game build report supplied by its caller without finding or
+running a build. Primary-source-pinned Unreal 5.8 and Unity 6000.2 markers can establish completion;
+Godot 4.6 deliberately relies on a captured exit code for the overall verdict because no stable
+documented footer was verified. Engine diagnostic lines remain findings rather than proof that the
+whole build failed.
+
+The reader extracts capped, line-numbered errors and warnings plus bounded phase timings and exact
+platform, configuration, and artifact-size fields where the report says them unambiguously. It never
+retains the full log. Retained text is terminal-control-stripped and passed through the shared secret
+redactor, and all character, line, diagnostic, path, and metadata fields have declared caps.
+
+Missing, empty, truncated, oversized, malformed, unrecognized, and unverified reports return no verdict.
+Supported versions receive a display-only command template for producing a report; custom, unknown,
+unconfident, and unsupported engines receive no guessed command. Game Engine Integration Phase 2 is now
+complete through C2.4, with the persisted game profile next.
+
 ## v0.395.0 — Engine-fork divergence reading
 
 AtlasMind can now apply its generic upstream-divergence evidence to a matching declared `engine`
