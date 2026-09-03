@@ -1,6 +1,6 @@
 # Game Engine Integration — Phased Roadmap
 
-> **Status:** Phase 1 complete; Phase 2 in progress through C2.2; C2.3 next. **Owner:** AtlasMind core. **Created:** 2026-07-30. **Baseline:** v0.213.0.
+> **Status:** Phase 1 complete; Phase 2 in progress through C2.3; C2.4 next. **Owner:** AtlasMind core. **Created:** 2026-07-30. **Baseline:** v0.213.0.
 > This is the SSOT implementation plan. Its normative specifications are
 > [`docs/project-composition.md`](../../docs/project-composition.md) (v0.213.1) and
 > [`docs/game-engine-integration.md`](../../docs/game-engine-integration.md) (v0.213.2), both written
@@ -317,12 +317,13 @@ plugin installed and no engine running.
   candidates and are withheld after truncation. Git components receive conservative root/nested LFS
   coverage, while unsupported rules and Perforce/external/unknown boundaries remain unreadable or
   `not-visible` instead of becoming zero. Symlinks are never followed.
-- **C2.3** Apply `upstreamDivergence` (built in C1.8) to the `engine` component role — commits behind
-  upstream, files diverged, conflict-prone areas, merge-burden trend, plus the engine-specific
-  reading of those numbers. **The module is pure git and engine-agnostic**, which is why it is not
-  called `engineForkDistance` and why it is not built here: a vendor BSP fork, a Chromium fork and a
-  forked Postgres have the same problem, and naming it after games would guarantee a second copy
-  later. The differentiating surface from problem 4.
+- **C2.3** — ✅ `src/core/gameEngineDivergence.ts` applies the generic C1.8 report only to a matching
+  declared `engine` component and upstream. It preserves exact commits behind/ahead, files diverged,
+  conflict-prone candidates, and trend, then adds descriptive burden shapes with no hard-coded
+  threshold. Version-pinned Unreal 5.8, Unity 6000.2.0b4, and Godot 4.6 layouts interpret only the
+  bounded displayed paths; truncation remains explicit and unverified/custom/unknown engines retain
+  generic facts without guessed path meaning. The collector remains pure Git and engine-agnostic, so
+  vendor BSP, Chromium, and Postgres forks can reuse it unchanged.
 - **C2.4** `src/core/gameBuildLog.ts` — parse what the project already wrote. Untrusted-input
   boundary throughout: never throws, regex reads not a parser, size and count caps, control-stripped,
   secret-redacted. No report yields **"no verdict"** plus the command to produce one — never "0 errors".

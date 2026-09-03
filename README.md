@@ -4,7 +4,7 @@
 
 <h1 align="center">AtlasMind</h1>
 
-<p align="center"><sub> · <strong>Current source version: 0.394.0</strong> · </sub></p>
+<p align="center"><sub> · <strong>Current source version: 0.395.0</strong> · </sub></p>
 
 
 <p align="center">
@@ -131,6 +131,29 @@ allow-list, redaction and file-withholding behaviour, retained metadata, provide
 important limits on overrides and compliance claims.
 
 ---
+
+## What's new in 0.395.0
+
+The last Marketplace publication, **v0.382.6**, is the baseline. The full history is in
+[CHANGELOG.md](CHANGELOG.md).
+
+- **Engine forks now receive their own reading without duplicating Git logic.** The pure adapter
+  accepts the generic upstream-divergence report only for the matching declared `engine` component
+  and preserves its exact ahead, behind, diverged-file, conflict-candidate, and trend facts.
+
+- **Merge burden is descriptive, not an invented severity.** Synchronized, local-fork,
+  upstream-intake, and concurrent-change shapes explain the observed relationship; later policy may
+  compare those facts with a team-declared threshold.
+
+- **Engine areas are version-pinned and explicitly sampled.** Verified Unreal 5.8, Unity
+  6000.2.0b4, and Godot 4.6 source layouts classify only the bounded paths already supplied by Git.
+  Truncation labels those area results bounded while repository-wide totals remain exact.
+
+- **Unknown remains useful.** Custom, unknown, unversioned, and unverified engines keep the generic
+  fork facts while withholding engine-specific path meaning. No Git, filesystem, engine, or network
+  action occurs in the interpretation layer.
+
+- **Game integration Phase 2 advances through C2.3.** Bounded build-log parsing is next.
 
 ## What's new in 0.394.0
 
@@ -1705,7 +1728,7 @@ All 142 settings are documented in the [Configuration reference](wiki/Configurat
 
 | Path | What's in it |
 |---|---|
-| `src/core/` | Orchestration, routing, planning, safety, cost, project composition, opt-in workspace scope, read-only upstream distance, game-engine identity, and bounded asset inventory (`projectComposition.ts`, `workspaceScope.ts`, `upstreamDivergence.ts`, `gameEngineIdentity.ts`, `gameAssetInventory.ts`), UI Studio's graph/edit/live-preview/repository core (`uiDesignGraph.ts`, `uiEditCommands.ts`, `uiPreviewRuntime.ts`, `uiRepositoryMapping.ts`, `uiRepositoryImport.ts`), CI inspection/scaffolding (`ciManager.ts`, `trustedLocalCiStarter.ts`), the CI route model, routing policy, build ledger and act adapter (`ciRoutes.ts`, `ciRoutingPolicy.ts`, `ciCreditMeter.ts`, `ciBuildLedger.ts`, `ciActRoute.ts`), the local CI guide, GitHub CLI installer and remembered machine inspection (`localCiSetupPlan.ts`, `localCiInstaller.ts`, `localCiInspectionMemory.ts`), confirmed-write echo (`trackerWriteOutcome.ts`), the register-to-work hand-off (`registerHandoff.ts`), the semver primitives and branch-to-channel versioning policy (`semver.ts`, `versioningPolicy.ts`), the roadmap dependency graph and its overlay store (`roadmapGraph.ts`, `roadmapGraphStore.ts`), release-gate destinations and urgency ordering (`releaseGateNavigation.ts`), roadmap ingestion from markdown, issues, Projects and spreadsheets (`roadmapImport.ts`) plus the guarded `localCiRunner.ts` executor, and project services |
+| `src/core/` | Orchestration, routing, planning, safety, cost, project composition, opt-in workspace scope, read-only upstream distance, game-engine identity, bounded asset inventory, and pure engine-fork interpretation (`projectComposition.ts`, `workspaceScope.ts`, `upstreamDivergence.ts`, `gameEngineIdentity.ts`, `gameAssetInventory.ts`, `gameEngineDivergence.ts`), UI Studio's graph/edit/live-preview/repository core (`uiDesignGraph.ts`, `uiEditCommands.ts`, `uiPreviewRuntime.ts`, `uiRepositoryMapping.ts`, `uiRepositoryImport.ts`), CI inspection/scaffolding (`ciManager.ts`, `trustedLocalCiStarter.ts`), the CI route model, routing policy, build ledger and act adapter (`ciRoutes.ts`, `ciRoutingPolicy.ts`, `ciCreditMeter.ts`, `ciBuildLedger.ts`, `ciActRoute.ts`), the local CI guide, GitHub CLI installer and remembered machine inspection (`localCiSetupPlan.ts`, `localCiInstaller.ts`, `localCiInspectionMemory.ts`), confirmed-write echo (`trackerWriteOutcome.ts`), the register-to-work hand-off (`registerHandoff.ts`), the semver primitives and branch-to-channel versioning policy (`semver.ts`, `versioningPolicy.ts`), the roadmap dependency graph and its overlay store (`roadmapGraph.ts`, `roadmapGraphStore.ts`), release-gate destinations and urgency ordering (`releaseGateNavigation.ts`), roadmap ingestion from markdown, issues, Projects and spreadsheets (`roadmapImport.ts`) plus the guarded `localCiRunner.ts` executor, and project services |
 | `src/runtime/` | Built-in agents and runtime composition |
 | `src/providers/` | Model provider adapters, catalogs, health, `modelRole.ts` (what a model is *for*), and the local-GPU support layer — `gpuProbe.ts`, `localFootprint.ts`, `localRuntimeClient.ts` |
 | `src/skills/` | Built-in tools and skill handlers |

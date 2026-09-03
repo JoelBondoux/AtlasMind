@@ -24,8 +24,8 @@ export const GODOT_SURFACE_VERIFIED_AT = '2026-09-03';
  * report a newer version string while still withholding every surface that has
  * not been checked against that version.
  */
-export const UNREAL_IDENTITY_VERIFIED_RANGE = '5.2–5.7';
-export const UNITY_IDENTITY_VERIFIED_RANGES = ['2019.3', '6000.0'] as const;
+export const UNREAL_IDENTITY_VERIFIED_RANGE = '5.2–5.8';
+export const UNITY_IDENTITY_VERIFIED_RANGES = ['2019.3', '6000.0', '6000.2'] as const;
 export const GODOT_IDENTITY_VERIFIED_RANGE = '3.x and 4.0–4.6';
 
 export const GAME_ENGINE_IDENTITY_SOURCES = Object.freeze({
@@ -237,7 +237,7 @@ function numericParts(version: string): readonly number[] | undefined {
 
 function isVerifiedUnrealVersion(version: string): boolean {
   const parts = numericParts(version);
-  return parts !== undefined && parts[0] === 5 && (parts[1] ?? -1) >= 2 && (parts[1] ?? 99) <= 7;
+  return parts !== undefined && parts[0] === 5 && (parts[1] ?? -1) >= 2 && (parts[1] ?? 99) <= 8;
 }
 
 function isVerifiedUnityVersion(version: string): boolean {

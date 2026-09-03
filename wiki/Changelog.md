@@ -19,6 +19,24 @@ Older entries below describe the software as it was at the time and are delibera
 
 ---
 
+## v0.395.0 — Engine-fork divergence reading
+
+AtlasMind can now apply its generic upstream-divergence evidence to a matching declared `engine`
+component. The adapter preserves the exact commits ahead and behind, diverged-file count,
+conflict-prone candidate count, and comparison trend, then describes the observed relationship as
+synchronized, local fork, upstream intake, or concurrent change. Those are evidence shapes, not
+severity labels or hard-coded policy thresholds.
+
+Verified Unreal 5.8, Unity 6000.2.0b4, and Godot 4.6 source layouts can label the bounded paths shown
+in a report as runtime, editor, plugin, shader, module, platform, or other engine areas. Per-area
+numbers are explicitly displayed-path counts; a truncated list stays bounded while the generic
+repository totals remain exact. An unverified, unversioned, custom, or unknown engine keeps the useful
+Git facts but receives no guessed path meaning.
+
+The interpretation is pure: it runs no Git, filesystem, engine, or network operation. Evidence for a
+different component or a stale upstream declaration is refused. Game Engine Integration Phase 2 is
+now complete through C2.3, with bounded build-log parsing next.
+
 ## v0.394.0 — Bounded game asset inventory
 
 AtlasMind can now inventory declared game-content roots after an explicit confirmation. The

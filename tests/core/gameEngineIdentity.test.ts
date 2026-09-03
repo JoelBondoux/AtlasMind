@@ -203,6 +203,25 @@ describe('gameEngineIdentity', () => {
     expect(result.reasons.join(' ')).toContain('Not verified against this version');
   });
 
+  it('recognises the current versions re-verified for fork-layout interpretation', () => {
+    expect(detectGameEngineIdentity([{
+      path: 'Current.uproject',
+      content: '{"EngineAssociation":"5.8"}',
+    }])).toMatchObject({
+      engine: 'unreal',
+      version: '5.8',
+      surfaceVerification: { status: 'verified' },
+    });
+    expect(detectGameEngineIdentity([{
+      path: 'ProjectSettings/ProjectVersion.txt',
+      content: 'm_EditorVersion: 6000.2.0b4\n',
+    }])).toMatchObject({
+      engine: 'unity',
+      version: '6000.2.0b4',
+      surfaceVerification: { status: 'verified' },
+    });
+  });
+
   it('lets a valid declaration override a conflicting detection', () => {
     const detected = detectGameEngineIdentity([{
       path: 'project.godot',

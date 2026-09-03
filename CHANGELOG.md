@@ -6,6 +6,33 @@ The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/),
 
 ## [Unreleased]
 
+## [0.395.0] - 2026-09-03
+
+### Added
+
+- Added pure `gameEngineDivergence.ts` interpretation for generic upstream-divergence reports attached
+  to declared engine components. Exact commits-ahead/behind, files-diverged, conflict-candidate, and
+  trend evidence is preserved alongside descriptive synchronized, local-fork, upstream-intake, and
+  concurrent-change readings.
+- Added primary-source-pinned path-area maps for Unreal 5.8, Unity 6000.2.0b4, and Godot 4.6. Area
+  counts explicitly describe only the bounded displayed paths; truncation cannot weaken the exact
+  repository-wide totals.
+- Added focused coverage for role and upstream identity gates, unavailable states, exact metric and
+  trend preservation, all burden shapes, engine layouts, version refusal, truncation, unknown/custom
+  engines, defensive copies, and the no-I/O boundary.
+
+### Changed
+
+- Refreshed the verified engine-identity ranges for Unreal 5.8 and Unity 6000.2 after checking their
+  current primary sources.
+- Game Engine Integration Phase 2 now has C2.3 complete; bounded build-log parsing is next.
+
+### Security
+
+- Engine-specific interpretation runs no Git, filesystem, engine, or network operation. A component
+  id or declared-upstream mismatch refuses stale evidence; unknown, custom, unversioned, and
+  unverified layouts retain generic facts while withholding engine-specific path claims.
+
 ## [0.394.0] - 2026-09-03
 
 ### Added

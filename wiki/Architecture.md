@@ -101,7 +101,7 @@ path — you don't have to retype it.
 | **Task Profiler** | Works out how hard a task really is |
 | **Project Archetype & Prefab Plans** | Describes a project as a small archetype plus composable traits, then builds deterministic create-only starter plans for explicitly selected platforms |
 | **Project Composition & Workspace Scope** | Keeps team-declared component boundaries separate from detected proposals and resolves only the roots a surface opts into |
-| **Game Engine Identity & Assets** | Reads bounded decisive project-file evidence for Unreal, Unity, or Godot, then inventories explicitly confirmed content roots without crossing VCS boundaries |
+| **Game Engine Identity, Assets & Fork Reading** | Reads bounded decisive project-file evidence, inventories explicitly confirmed content roots, and interprets generic upstream distance for a matching engine component |
 | **Project Vocabulary** | The delivery stages and branches *your project declared*, so "promote to staging" means what you said it means |
 | **Planner & Task Scheduler** | Breaks a goal into steps and runs them in dependency order |
 | **Mission Runner** | The autonomous loop, and the envelope that contains it |
@@ -195,6 +195,17 @@ lists preserve exact counts, while incomplete evidence remains `unreadable` rath
 Minimal snapshots add growing, shrinking, mixed, and unchanged trends. Comparisons restart when the
 component or upstream changes, history is invalid, or time moves backwards. This keeps the same module
 usable for any declared fork while leaving domain interpretation to the consuming studio.
+
+The game-specific adapter is deliberately downstream of that collector. It requires the current
+component to have the `engine` role and refuses a component-id or declared-upstream mismatch before
+copying the exact generic counts and trend. Its synchronized, local-fork, upstream-intake, and
+concurrent-change labels describe the observed shape; they are not severity or policy thresholds.
+
+Unreal 5.8, Unity 6000.2.0b4, and Godot 4.6 path layouts are pinned to primary source. They classify
+only the bounded path lists already returned by Git, so per-area numbers say “displayed” and a
+truncated report says “bounded”; repository totals remain exact. Other versions plus custom, unknown,
+or unconfirmed engines keep the generic fork facts and receive no guessed path meaning. The adapter
+runs no Git, filesystem, engine, or network operation.
 
 ### Remembering
 
@@ -976,7 +987,7 @@ never accepted.
 
 | Path | What's in it |
 |---|---|
-| `src/core/` | Orchestration, routing, planning, safety, cost, project services, pure game-engine identity (`gameEngineIdentity.ts`), and CI inspection, trusted-workflow generation, the route model, routing policy, build ledger, act adapter and local CI setup guidance (`ciManager.ts`, `trustedLocalCiStarter.ts`, `ciRoutes.ts`, `ciRoutingPolicy.ts`, `ciCreditMeter.ts`, `ciBuildLedger.ts`, `ciActRoute.ts`, `nodeVersionDetection.ts`, `localCiSetupPlan.ts`, `localCiInstaller.ts`, `localCiInspectionMemory.ts`), the guarded local CI executor (`localCiRunner.ts`), the confirmed-write echo that shows an issue or pull-request write before the re-read lands (`trackerWriteOutcome.ts`), the roadmap dependency graph with its on-disk overlay (`roadmapGraph.ts`, `roadmapGraphStore.ts`), the declared table saying where each release gate’s evidence lives and how gates rank by urgency (`releaseGateNavigation.ts`), roadmap ingestion from markdown, issues, Projects and spreadsheets with re-runnable reconciliation (`roadmapImport.ts`), the register-to-work hand-off that turns a gap, a debt entry or a risk finding into planned work (`registerHandoff.ts`), and how the project numbers its software across branches — the semver primitives plus the declared scheme, source and branch-to-channel map (`semver.ts`, `versioningPolicy.ts`) |
+| `src/core/` | Orchestration, routing, planning, safety, cost, project services, pure game-engine identity and divergence interpretation (`gameEngineIdentity.ts`, `gameEngineDivergence.ts`), and CI inspection, trusted-workflow generation, the route model, routing policy, build ledger, act adapter and local CI setup guidance (`ciManager.ts`, `trustedLocalCiStarter.ts`, `ciRoutes.ts`, `ciRoutingPolicy.ts`, `ciCreditMeter.ts`, `ciBuildLedger.ts`, `ciActRoute.ts`, `nodeVersionDetection.ts`, `localCiSetupPlan.ts`, `localCiInstaller.ts`, `localCiInspectionMemory.ts`), the guarded local CI executor (`localCiRunner.ts`), the confirmed-write echo that shows an issue or pull-request write before the re-read lands (`trackerWriteOutcome.ts`), the roadmap dependency graph with its on-disk overlay (`roadmapGraph.ts`, `roadmapGraphStore.ts`), the declared table saying where each release gate’s evidence lives and how gates rank by urgency (`releaseGateNavigation.ts`), roadmap ingestion from markdown, issues, Projects and spreadsheets with re-runnable reconciliation (`roadmapImport.ts`), the register-to-work hand-off that turns a gap, a debt entry or a risk finding into planned work (`registerHandoff.ts`), and how the project numbers its software across branches — the semver primitives plus the declared scheme, source and branch-to-channel map (`semver.ts`, `versioningPolicy.ts`) |
 | `src/runtime/` | The built-in agents and how the runtime is composed |
 | `src/providers/` | Provider adapters, catalogues, health, local model discovery, `modelRole.ts` (what a model is *for*), and the local-GPU support layer that measures VRAM and reads what each runtime has loaded |
 | `src/skills/` | Built-in tools and skill handlers |

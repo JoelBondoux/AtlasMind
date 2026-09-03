@@ -15,7 +15,7 @@ Where this document and the plan disagree, this document wins.
 
 ### 0.2 Built versus proposed
 
-Phase 0 and Phase 1 are built through C1.8, and Phase 2 is built through C2.2: the `game` persisted-document kind is registered at schema
+Phase 0 and Phase 1 are built through C1.8, and Phase 2 is built through C2.3: the `game` persisted-document kind is registered at schema
 v1; deterministic fixtures cover Unreal, Unity, Godot 3/4 and Perforce; declared component scope
 round-trips through `workflow.json`; and the Project Dashboard now scopes Git, local CI, debt,
 issue-tracker visibility, and observed-delta evidence to those components with explicit `not-visible`
@@ -26,7 +26,9 @@ coordinates. The engine-agnostic upstream-divergence core now derives commits, c
 and comparable trends through read-only Git evidence. The pure engine-identity core now reads bounded
 decisive-file evidence, exact declared versions, declaration precedence, and version-surface verification
 without filesystem or editor access. The explicit-confirmation asset reader inventories bounded declared
-content roots, import/orphan candidates, and conservative Git LFS coverage. No log parser, game command
+content roots, import/orphan candidates, and conservative Git LFS coverage. The pure engine-divergence
+adapter now binds generic fork evidence to the matching declared engine component, preserves exact
+counts and trends, and interprets only bounded paths against version-pinned source layouts. No log parser, game command
 surface, bridge, or game dashboard is built yet; those sections remain intended behaviour.
 
 ### 0.3 Engines in scope
@@ -104,12 +106,29 @@ and official [`ProjectVersion.txt` sample](https://github.com/Unity-Technologies
 and Godot's [`ProjectSettings` source](https://github.com/godotengine/godot/blob/master/core/config/project_settings.cpp)
 plus [Godot 3 project-settings documentation](https://docs.godotengine.org/en/3.5/classes/class_projectsettings.html).
 The resulting `*_SURFACE_VERIFIED_AT` constants and narrow identity ranges live beside the parser.
+The current verification also covers Unreal 5.8 and Unity 6000.2 identity declarations needed by the
+fork-layout interpretation.
 
 ### 2.5 An engine fork is not an engine installation
 
 A forked engine is a **component** whose `upstream` is declared (`project-composition.md` §4). Its
-distinguishing fact is distance from that upstream, not its version string. Fork tracking is pure git
-and MUST NOT live in an engine-specific module.
+distinguishing fact is distance from that upstream, not its version string. Git collection and metric
+semantics are pure Git and MUST NOT live in an engine-specific module.
+
+The built `gameEngineDivergence.ts` layer therefore accepts an `UpstreamDivergenceReport`; it does not
+collect one. It MUST verify that the report names the current `engine` component and declared upstream,
+then preserve the exact commits-ahead, commits-behind, files-diverged, conflict-candidate, and trend
+facts. Its merge-burden shape is descriptive rather than a severity or threshold: policy thresholds
+remain team-owned work for C2.7.
+
+Engine-specific area labels are derived only from the bounded displayed paths. They MUST say whether
+the list was truncated and MUST NOT be presented as repository-wide per-area counts. Layout claims are
+pinned at `GAME_ENGINE_DIVERGENCE_SURFACE_VERIFIED_AT`: Epic's current
+[Unreal 5.8 directory structure](https://dev.epicgames.com/documentation/unreal-engine/unreal-engine-directory-structure?lang=en-US),
+Unity's official [6000.2.0b4 C# reference layout](https://github.com/Unity-Technologies/UnityCsReference),
+and Godot's official [4.6 source tree](https://github.com/godotengine/godot/tree/4.6-stable).
+Another version, a missing version, `custom`, or `unknown` keeps the generic Git facts and withholds
+path meaning as *not verified against this version* rather than extrapolating.
 
 ## §3 The game profile
 

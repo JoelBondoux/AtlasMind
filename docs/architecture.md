@@ -1377,6 +1377,26 @@ but `surfaceVerification: not-verified` withholds dependent behavior outside the
 verified ranges. `selectEffectiveGameEngineIdentity` applies the shared authority rule: a valid project
 declaration wins, including legitimate `custom` and `unknown` values.
 
+### GameEngineDivergence (`src/core/gameEngineDivergence.ts`)
+
+The pure domain adapter over `UpstreamDivergence`; it does not collect Git evidence. It first requires
+the current component role to be `engine`, then verifies both component id and declared remote/ref so
+a report produced before a composition edit cannot be attached to the new declaration. Unavailable
+generic states pass through without zeroes. Available reports retain defensive copies of the exact
+ahead, behind, diverged-file, conflict-candidate, and trend facts.
+
+`mergeBurden.shape` describes synchronized, local-fork, upstream-intake, or concurrent-change evidence
+without assigning severity or inventing a threshold. The latter remains a declared policy decision in
+C2.7. `GAME_ENGINE_DIVERGENCE_LAYOUTS` adds a narrower presentation layer: Unreal 5.8, Unity
+6000.2.0b4, and Godot 4.6 path prefixes verified against primary source on
+`GAME_ENGINE_DIVERGENCE_SURFACE_VERIFIED_AT`. Any other version, an unconfirmed engine, or a custom
+layout keeps the generic metrics while withholding area interpretation.
+
+Area records count only paths in the generic report's bounded display lists and say `bounded` when
+those lists were truncated; the repository-wide generic totals remain exact. Conflict-prone paths stay
+candidates rather than predicted conflicts. The module has no filesystem, process, Git, engine, or
+network dependency.
+
 ### GameAssetInventory (`src/core/gameAssetInventory.ts`)
 
 The explicit-request filesystem boundary for declared game-content roots. A caller resolves an
