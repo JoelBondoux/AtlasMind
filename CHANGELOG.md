@@ -6,6 +6,43 @@ The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/),
 
 ## [Unreleased]
 
+## [0.386.0] - 2026-09-03
+
+### Added
+
+- **The Frontend prefab family is complete.** Guided bootstrap now offers explicit Next.js,
+  SvelteKit, Nuxt, React with Vite, and Vue frontend project types.
+- Each frontend prefab writes a documentation-only maintained-generator handoff, Not-assessed
+  privacy and compatibility matrices, literal placeholder commands, and acceptance gates for
+  rendering, routing, data, state, accessibility, browser support, performance, and deployment.
+- Website Studio's framework catalog now includes React and Vue as honest manual-setup choices,
+  completing the five-framework selection surface without inventing a non-interactive Vue command.
+
+### Changed
+
+- SvelteKit setup uses the current `npx sv create` CLI with a minimal TypeScript template, no
+  add-ons, and no dependency installation instead of the retired create-svelte path.
+- Nuxt targets its supported v4 line and keeps dependency/module selection separate; Next.js
+  explicitly disables Git initialization and chooses npm in Website Studio's reviewed command.
+- The React prefab states React's framework-first recommendation and uses Vite's `react-ts`
+  template only for a deliberately client-focused frontend. Vue leaves Router, Pinia, test,
+  lint, formatting, and developer-tools prompts with the operator.
+
+### Security
+
+- Project names remain escaped display data and never enter frontend command blocks. Every command
+  contains literal placeholders and is written for review rather than executed by bootstrap.
+- All five handoffs identify public environment variables, browser storage, cookies, sessions,
+  rendered personal data, third-party scripts, source maps, analytics, caching, and hosting headers
+  as evidence gaps rather than safe defaults.
+
+### Documentation
+
+- Bootstrap, architecture, development, safety, getting-started, roadmap, and wiki guidance now
+  distinguish full-stack frameworks, client-only builds, interactive generators, and frontend
+  acceptance evidence.
+- The managed Frontend roadmap item is complete; the Mobile prefab family is next.
+
 ## [0.385.0] - 2026-09-03
 
 ### Added

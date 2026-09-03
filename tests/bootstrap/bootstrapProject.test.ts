@@ -109,9 +109,14 @@ const SAAS_WEB_BOOTSTRAP_FEATURE = readFileSync(
   new URL('../features/saas-web-bootstrap.feature', import.meta.url),
   'utf-8',
 );
+const FRONTEND_BOOTSTRAP_FEATURE = readFileSync(
+  new URL('../features/frontend-bootstrap.feature', import.meta.url),
+  'utf-8',
+);
 
 function expectDeclaredScenario(title: string): void {
-  expect(`${COMMERCE_BOOTSTRAP_FEATURE}\n${SAAS_WEB_BOOTSTRAP_FEATURE}`).toContain(`Scenario: ${title}`);
+  expect(`${COMMERCE_BOOTSTRAP_FEATURE}\n${SAAS_WEB_BOOTSTRAP_FEATURE}\n${FRONTEND_BOOTSTRAP_FEATURE}`)
+    .toContain(`Scenario: ${title}`);
 }
 
 function seedFile(path: string, content: string): void {
@@ -406,6 +411,67 @@ describe('Feature: safety-first SaaS and web bootstrap prefabs', () => {
     expect(handoff).toContain('--template blog --no-install --no-git --no-ai');
     expect(handoff).toContain('repository-owned content, build-time remote content, or live CMS content');
     expect(handoff).toContain('managed CMS');
+  });
+});
+
+describe('Feature: current frontend project bootstrap', () => {
+  it('Scenario: hand off every frontend generator without executing it', () => {
+    expectDeclaredScenario('Hand off every frontend generator without executing it');
+    const cases = [
+      ['nextjs-frontend', 'NEXTJS_FRONTEND_HANDOFF.md', 'create next-app@latest'],
+      ['sveltekit-frontend', 'SVELTEKIT_FRONTEND_HANDOFF.md', 'npx sv create'],
+      ['nuxt-frontend', 'NUXT_FRONTEND_HANDOFF.md', 'create nuxt@latest'],
+      ['react-frontend', 'REACT_FRONTEND_HANDOFF.md', '--template react-ts'],
+      ['vue-frontend', 'VUE_FRONTEND_HANDOFF.md', 'create vue@latest'],
+    ] as const;
+
+    for (const [template, handoffPath, command] of cases) {
+      const files = buildBootstrapTemplateFiles(template, 'UI $(danger) <img onerror="x"> */\nInjected');
+      const handoff = files.find(file => file.path === handoffPath)?.content ?? '';
+      const commandBlock = /```text\n([\s\S]*?)\n```/.exec(handoff)?.[1] ?? '';
+
+      expect(files.every(file => !file.path.startsWith('/') && !file.path.includes('..')), template).toBe(true);
+      expect(files.filter(file => file.root === 'workspace').every(file => file.path.endsWith('.md')), template).toBe(true);
+      expect(handoff, template).toContain(command);
+      expect(handoff, template).toContain('were not executed by AtlasMind');
+      expect(handoff, template).toContain('<folder-name>');
+      expect(commandBlock, template).not.toContain('UI $(danger)');
+      expect(handoff, template).not.toContain('<img onerror="x">');
+      expect(handoff, template).toContain('&lt;img onerror=&quot;x&quot;&gt;');
+      expect(files.find(file => file.path === 'docs/privacy.md')?.content, template).toContain('Status: Not assessed');
+      expect(files.find(file => file.path === 'docs/compatibility.md')?.content, template).toContain('Status: Not assessed');
+    }
+  });
+
+  it('Scenario: use the current SvelteKit generator', () => {
+    expectDeclaredScenario('Use the current SvelteKit generator');
+    const handoff = buildBootstrapTemplateFiles('sveltekit-frontend', 'Interface')
+      .find(file => file.path === 'SVELTEKIT_FRONTEND_HANDOFF.md')?.content ?? '';
+
+    expect(handoff).toContain('npx sv create');
+    expect(handoff).not.toContain('create-svelte');
+  });
+
+  it("Scenario: keep React's framework decision honest", () => {
+    expectDeclaredScenario("Keep React's framework decision honest");
+    const handoff = buildBootstrapTemplateFiles('react-frontend', 'Interface')
+      .find(file => file.path === 'REACT_FRONTEND_HANDOFF.md')?.content ?? '';
+
+    expect(handoff).toContain('React recommends a framework');
+    expect(handoff).toContain('routing, data, state, metadata, and authentication integration');
+    expect(handoff).toContain('--template react-ts --no-interactive');
+  });
+
+  it('Scenario: keep interactive Vue choices with the operator', () => {
+    expectDeclaredScenario('Keep interactive Vue choices with the operator');
+    const handoff = buildBootstrapTemplateFiles('vue-frontend', 'Interface')
+      .find(file => file.path === 'VUE_FRONTEND_HANDOFF.md')?.content ?? '';
+
+    for (const choice of ['TypeScript', 'Router', 'Pinia', 'unit tests', 'end-to-end tests', 'linting', 'formatting', 'developer tools']) {
+      expect(handoff).toContain(choice);
+    }
+    expect(handoff).toContain('npm install');
+    expect(handoff).toContain('separate review step');
   });
 });
 

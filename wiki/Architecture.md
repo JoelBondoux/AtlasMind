@@ -126,6 +126,12 @@ HTML/CSS surface, escaping, CSP, accessibility contract, built-in tests, and CI 
 tests. The labels map to `website` or `web-app` plus UI/server/personal-data traits rather than introducing
 six framework-named archetypes.
 
+The Frontend family keeps those archetypes and adds a narrower browser contract. Next.js, SvelteKit,
+and Nuxt carry UI and server traits; React/Vite and Vue carry UI only until the generated project proves a
+server boundary. Website Studio's framework catalog also exposes React and Vue as manual setup choices,
+updates SvelteKit to `sv create`, and keeps command metadata separate from the bootstrap handoff: catalog
+commands may run only through the existing preview/confirmation gate, while bootstrap commands never run.
+
 ### Remembering
 
 | Part | What it does |

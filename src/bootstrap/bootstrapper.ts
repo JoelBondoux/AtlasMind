@@ -38,6 +38,10 @@ const KNOWN_TECH_TERMS = [
   'React Router',
   'Remix',
   'Next.js',
+  'SvelteKit',
+  'Nuxt',
+  'Vue',
+  'Vite',
   'Astro',
   'Node.js',
   'Node',
@@ -101,6 +105,10 @@ const KNOWN_TOOL_TERMS = [
   'Composer',
   'django-admin',
   'Astro CLI',
+  'Svelte CLI',
+  'create-nuxt',
+  'create-vite',
+  'create-vue',
   'Elementor',
   'Webflow',
   'n8n',
@@ -120,7 +128,12 @@ export type BootstrapTemplate =
   | 'laravel-saas'
   | 'django-saas'
   | 'static-site'
-  | 'astro-content-site';
+  | 'astro-content-site'
+  | 'nextjs-frontend'
+  | 'sveltekit-frontend'
+  | 'nuxt-frontend'
+  | 'react-frontend'
+  | 'vue-frontend';
 
 export interface BootstrapTemplateFile {
   root: 'workspace' | 'ssot';
@@ -445,6 +458,11 @@ async function collectBootstrapIntake(
           { label: '$(symbol-method) Django SaaS / Web App', description: 'Version-explicit Python/Django environment handoff with project generation, migrations, secrets, and deployment kept outside bootstrap.', template: 'django-saas' as BootstrapTemplate },
           { label: '$(file-code) Static Website', description: 'Dependency-free HTML/CSS starter with a restrictive CSP, accessibility baseline, built-in contract tests, and least-privilege CI.', template: 'static-site' as BootstrapTemplate },
           { label: '$(book) Blog / CMS (Astro Content)', description: 'Reviewable Astro blog/content handoff plus an explicit repository-content versus managed-CMS decision gate.', template: 'astro-content-site' as BootstrapTemplate },
+          { label: '$(server-process) Next.js Frontend', description: 'App Router frontend handoff with server/client, rendering, data, accessibility, performance, and deployment boundaries kept explicit.', template: 'nextjs-frontend' as BootstrapTemplate },
+          { label: '$(symbol-event) SvelteKit Frontend', description: 'Current sv CLI handoff with TypeScript, install, add-ons, adapter, server/browser, and deployment decisions left for review.', template: 'sveltekit-frontend' as BootstrapTemplate },
+          { label: '$(symbol-namespace) Nuxt Frontend', description: 'Nuxt 4 handoff with dependency installation, modules, rendering mode, Nitro preset, data, and hosting kept explicit.', template: 'nuxt-frontend' as BootstrapTemplate },
+          { label: '$(symbol-interface) React Frontend (Vite)', description: 'Client-focused React and TypeScript handoff through Vite, with the framework-versus-SPA decision documented first.', template: 'react-frontend' as BootstrapTemplate },
+          { label: '$(symbol-structure) Vue Frontend', description: 'Interactive create-vue handoff that keeps Router, Pinia, testing, linting, accessibility, and deployment choices visible.', template: 'vue-frontend' as BootstrapTemplate },
         ],
         { placeHolder: 'What type of project is this?' },
       );
@@ -3437,6 +3455,11 @@ function formatTemplateName(template: BootstrapTemplate): string {
     case 'django-saas': return 'Django SaaS / Web App';
     case 'static-site': return 'Static Website';
     case 'astro-content-site': return 'Blog / CMS (Astro Content)';
+    case 'nextjs-frontend': return 'Next.js Frontend';
+    case 'sveltekit-frontend': return 'SvelteKit Frontend';
+    case 'nuxt-frontend': return 'Nuxt Frontend';
+    case 'react-frontend': return 'React Frontend (Vite)';
+    case 'vue-frontend': return 'Vue Frontend';
   }
 }
 
@@ -3535,6 +3558,41 @@ function enrichIntakeForTemplate(intake: BootstrapProjectIntake, template: Boots
       intake.productOutcome ??= 'Launch a content workflow whose schema, editorial authority, preview path, and publishing boundary are explicit.';
       intake.targetAudience ??= 'Readers, content authors, editors, reviewers, and the team operating the publishing pipeline.';
       break;
+    case 'nextjs-frontend':
+      intake.techStack ??= 'Next.js App Router, React, TypeScript, Node.js';
+      intake.thirdPartyTools ??= 'create-next-app, package registry, browser developer tools, GitHub Actions';
+      intake.productSummary ??= 'A Next.js frontend with explicit server/client and rendering boundaries.';
+      intake.productOutcome ??= 'Deliver an accessible, observable, performant interface without treating framework defaults as product decisions.';
+      intake.targetAudience ??= 'End users, assistive-technology users, content owners, and engineers operating the frontend.';
+      break;
+    case 'sveltekit-frontend':
+      intake.techStack ??= 'SvelteKit, Svelte, TypeScript, Vite';
+      intake.thirdPartyTools ??= 'Svelte CLI, package registry, browser developer tools, GitHub Actions';
+      intake.productSummary ??= 'A SvelteKit frontend generated with the current sv CLI and a minimal TypeScript baseline.';
+      intake.productOutcome ??= 'Deliver a small, accessible interface with deliberate server/browser, adapter, and progressive-enhancement choices.';
+      intake.targetAudience ??= 'End users, assistive-technology users, content owners, and engineers operating the frontend.';
+      break;
+    case 'nuxt-frontend':
+      intake.techStack ??= 'Nuxt 4, Vue, TypeScript, Nitro, Vite';
+      intake.thirdPartyTools ??= 'create-nuxt, package registry, browser developer tools, GitHub Actions';
+      intake.productSummary ??= 'A Nuxt 4 frontend with explicit rendering, server-route, module, and Nitro deployment decisions.';
+      intake.productOutcome ??= 'Deliver an accessible Vue interface whose universal-rendering and hosting boundaries are tested rather than assumed.';
+      intake.targetAudience ??= 'End users, assistive-technology users, content owners, and engineers operating the frontend.';
+      break;
+    case 'react-frontend':
+      intake.techStack ??= 'React, TypeScript, Vite';
+      intake.thirdPartyTools ??= 'create-vite, package registry, browser developer tools, GitHub Actions';
+      intake.productSummary ??= 'A client-focused React frontend for constraints that do not need a full-stack React framework.';
+      intake.productOutcome ??= 'Deliver an accessible single-page interface with routing, data, state, and browser support chosen explicitly.';
+      intake.targetAudience ??= 'End users, assistive-technology users, content owners, and engineers operating the frontend.';
+      break;
+    case 'vue-frontend':
+      intake.techStack ??= 'Vue, TypeScript, Vite';
+      intake.thirdPartyTools ??= 'create-vue, package registry, browser developer tools, GitHub Actions';
+      intake.productSummary ??= 'A Vue Single-File Component frontend generated through the official interactive create-vue tool.';
+      intake.productOutcome ??= 'Deliver an accessible Vue interface with routing, state, testing, and build options selected deliberately.';
+      intake.targetAudience ??= 'End users, assistive-technology users, content owners, and engineers operating the frontend.';
+      break;
   }
 }
 
@@ -3569,6 +3627,11 @@ function defaultTemplateProjectName(template: BootstrapTemplate): string {
     case 'django-saas': return 'My Django App';
     case 'static-site': return 'My Static Website';
     case 'astro-content-site': return 'My Content Site';
+    case 'nextjs-frontend': return 'My Next.js Frontend';
+    case 'sveltekit-frontend': return 'My SvelteKit Frontend';
+    case 'nuxt-frontend': return 'My Nuxt Frontend';
+    case 'react-frontend': return 'My React Frontend';
+    case 'vue-frontend': return 'My Vue Frontend';
     default: return 'My Shopify Project';
   }
 }
@@ -3624,6 +3687,13 @@ export function buildBootstrapTemplateFiles(
       break;
     case 'astro-content-site':
       buildSaasWebGeneratorHandoffFiles(files, projectName, saasWebGeneratorSpec(template));
+      break;
+    case 'nextjs-frontend':
+    case 'sveltekit-frontend':
+    case 'nuxt-frontend':
+    case 'react-frontend':
+    case 'vue-frontend':
+      buildSaasWebGeneratorHandoffFiles(files, projectName, frontendGeneratorSpec(template));
       break;
   }
   return files;
@@ -4863,6 +4933,7 @@ function saasWebGeneratorSpec(template: SaasWebGeneratorTemplate): SaasWebGenera
           'pnpm create next-app@latest <folder-name> --yes --skip-install --disable-git --use-pnpm',
         ],
         effects: [
+          '`corepack enable pnpm` can write package-manager shims beside the active Node.js installation and may require elevated access',
           '`pnpm create` retrieves and executes the current generator package',
           'the generator writes a new Next.js source tree using current defaults and may reuse saved preferences',
           '`--skip-install` and `--disable-git` leave application dependency installation and Git initialization separate',
@@ -5075,6 +5146,200 @@ function saasWebGeneratorSpec(template: SaasWebGeneratorTemplate): SaasWebGenera
           'Build host, CDN, preview environment, webhooks, images, search, analytics, and publication workflow',
           'Accessibility, browser, responsive, locale, time-zone, RSS, and degraded-network behaviour',
         ],
+      };
+  }
+}
+
+type FrontendGeneratorTemplate =
+  | 'nextjs-frontend'
+  | 'sveltekit-frontend'
+  | 'nuxt-frontend'
+  | 'react-frontend'
+  | 'vue-frontend';
+
+const FRONTEND_ACCEPTANCE_GATES = [
+  'Declare the rendering boundary (static, client, server, edge, or hybrid) and test the host against the features actually used',
+  'Define routes, navigation, loading, empty, error, offline, unauthenticated, unauthorized, and destructive-action states',
+  'Set measurable accessibility, browser, responsive, localization, bundle, rendering, and interaction-performance budgets',
+  'Review every dependency, package script, public environment variable, network destination, analytics call, and third-party embed',
+  'Run lint, typecheck, unit, component, accessibility, visual, end-to-end, and production-build gates before publication',
+] as const;
+
+const FRONTEND_PRIVACY_SURFACES = [
+  'Forms, route parameters, client state, browser storage, cookies, sessions, uploads, and rendered personal data',
+  'API calls, server loaders/actions, public environment variables, caches, logs, analytics, observability, and error reports',
+  'Authentication, authorization, account recovery, administrative views, third-party scripts, embeds, and consent state',
+  'Development, preview, staging, production, CDN, source-map, retention, export, correction, and deletion behaviour',
+] as const;
+
+const FRONTEND_COMPATIBILITY_SURFACES = [
+  'Framework, UI runtime, TypeScript, Node.js, build-tool, package-manager, and lockfile versions',
+  'Routing, rendering, hydration, data loading, mutations, state, forms, error boundaries, and environment variables',
+  'Host runtime, adapter/preset, asset base paths, CDN/cache, headers, redirects, source maps, and rollback',
+  'Keyboard, screen reader, zoom, contrast, reduced motion, forced colours, localization, and time-zone behaviour',
+  'Supported browsers, devices, viewport sizes, input modes, slow networks, offline states, and performance budgets',
+] as const;
+
+function frontendGeneratorSpec(template: FrontendGeneratorTemplate): SaasWebGeneratorSpec {
+  switch (template) {
+    case 'nextjs-frontend':
+      return {
+        label: 'Next.js Frontend',
+        handoffFile: 'NEXTJS_FRONTEND_HANDOFF.md',
+        ownership: 'create-next-app owns the App Router source, dependency ranges, CSS choice, linter choice, and generated agent instructions; the project owns its server/client and deployment boundaries.',
+        prerequisites: [
+          'Node.js 20.9 or newer, verified against the current Next.js requirements immediately before generation',
+          'Corepack-enabled pnpm and a new child-directory name that does not already contain work',
+          'A written reason to use Next.js rather than a client-only React build, including the intended rendering and hosting model',
+        ],
+        commands: [
+          'corepack enable pnpm',
+          'pnpm create next-app@latest <folder-name> --yes --skip-install --disable-git --use-pnpm',
+        ],
+        effects: [
+          '`corepack enable pnpm` can write package-manager shims beside the active Node.js installation and may require elevated access',
+          '`pnpm create` retrieves and executes the current generator package',
+          'the generator writes App Router source using current defaults and may reuse saved preferences',
+          '`--skip-install` and `--disable-git` keep application dependency installation and repository initialization separate',
+        ],
+        acceptance: [
+          'Record the generated Next.js, React, TypeScript, Node.js, package-manager, and lockfile versions',
+          'Review Server Components, Client Components, route handlers, server actions, caching, metadata, and generated instruction files',
+          ...FRONTEND_ACCEPTANCE_GATES,
+        ],
+        sources: [
+          'https://react.dev/learn/creating-a-react-app',
+          'https://nextjs.org/docs/app/getting-started/installation',
+          'https://nextjs.org/docs/app/api-reference/cli/create-next-app',
+        ],
+        privacySurfaces: FRONTEND_PRIVACY_SURFACES,
+        compatibilitySurfaces: FRONTEND_COMPATIBILITY_SURFACES,
+      };
+    case 'sveltekit-frontend':
+      return {
+        label: 'SvelteKit Frontend',
+        handoffFile: 'SVELTEKIT_FRONTEND_HANDOFF.md',
+        ownership: 'The current sv CLI owns the SvelteKit source and add-on integration; the project owns progressive enhancement, server/browser separation, adapter selection, and deployment.',
+        prerequisites: [
+          'A Node.js release supported by the selected SvelteKit and Vite versions',
+          'A new child-directory name that does not already contain work',
+          'An adapter and rendering decision grounded in the intended host rather than the development server',
+        ],
+        commands: [
+          'npx sv create --template minimal --types ts --no-add-ons --no-install <folder-name>',
+        ],
+        effects: [
+          '`npx` retrieves and executes the current Svelte CLI package',
+          'sv writes a minimal TypeScript SvelteKit project; add-ons and dependency installation remain separate',
+          'adding adapters or add-ons later changes dependencies, configuration, generated source, and deployment behaviour',
+        ],
+        acceptance: [
+          'Record the generated SvelteKit, Svelte, Vite, TypeScript, Node.js, adapter, package-manager, and lockfile versions',
+          'Review load functions, form actions, hooks, server-only modules, environment variables, service workers, and progressive enhancement',
+          ...FRONTEND_ACCEPTANCE_GATES,
+        ],
+        sources: [
+          'https://svelte.dev/docs/kit/creating-a-project',
+          'https://svelte.dev/docs/cli/sv-create',
+          'https://svelte.dev/docs/kit/adapters',
+        ],
+        privacySurfaces: FRONTEND_PRIVACY_SURFACES,
+        compatibilitySurfaces: FRONTEND_COMPATIBILITY_SURFACES,
+      };
+    case 'nuxt-frontend':
+      return {
+        label: 'Nuxt Frontend',
+        handoffFile: 'NUXT_FRONTEND_HANDOFF.md',
+        ownership: 'create-nuxt owns the Nuxt 4 starter and generated Nitro/Vite configuration; the project owns modules, rendering rules, server routes, data boundaries, and deployment preset.',
+        prerequisites: [
+          'Node.js 22 or newer, preferably the current active LTS release, verified against Nuxt 4 requirements',
+          'A new child-directory name that does not already contain work',
+          'A rendering and Nitro deployment decision grounded in the intended host',
+        ],
+        commands: [
+          'npm create nuxt@latest <folder-name> -- --no-install --packageManager npm --no-modules',
+        ],
+        effects: [
+          '`npm create` retrieves and executes the current create-nuxt package',
+          'the generator writes Nuxt 4 source and configuration while application dependency installation remains separate',
+          'modules, server routes, rendering rules, and the Nitro preset can add code, packages, network access, and runtime requirements',
+        ],
+        acceptance: [
+          'Record the generated Nuxt, Vue, Nitro, Vite, TypeScript, Node.js, package-manager, and lockfile versions',
+          'Review server routes, middleware, plugins, composables, runtime config, payloads, hydration, modules, and Nitro preset',
+          ...FRONTEND_ACCEPTANCE_GATES,
+        ],
+        sources: [
+          'https://nuxt.com/docs/4.x/getting-started/installation',
+          'https://nuxt.com/docs/4.x/api/commands/init',
+          'https://nuxt.com/docs/4.x/getting-started/deployment',
+        ],
+        privacySurfaces: FRONTEND_PRIVACY_SURFACES,
+        compatibilitySurfaces: FRONTEND_COMPATIBILITY_SURFACES,
+      };
+    case 'react-frontend':
+      return {
+        label: 'React Frontend (Vite)',
+        handoffFile: 'REACT_FRONTEND_HANDOFF.md',
+        ownership: 'React recommends a framework for new production apps. create-vite owns this deliberately client-focused TypeScript starter; the project owns every routing, data, state, rendering, and deployment choice a framework would otherwise supply.',
+        prerequisites: [
+          'A written reason the frontend is not better served by a React framework such as Next.js or React Router',
+          'Node.js 20.19+, 22.12+, or a newer Vite-supported release and a new child-directory name',
+          'Explicit choices for routing, data fetching, mutations, state, authentication integration, error handling, and document metadata',
+        ],
+        commands: [
+          'npm create vite@latest <folder-name> -- --template react-ts --no-interactive',
+        ],
+        effects: [
+          '`npm create` retrieves and executes the current create-vite package',
+          'the generator writes a basic client-rendered React and TypeScript source tree without installing application dependencies',
+          'routing, data, state, SSR/SSG, testing, accessibility tooling, and deployment are not supplied by the React template',
+        ],
+        acceptance: [
+          'Record the generated React, Vite, TypeScript, Node.js, package-manager, template, and lockfile versions',
+          'Document why client rendering is acceptable and name the owner of routing, data, state, metadata, and authentication integration',
+          ...FRONTEND_ACCEPTANCE_GATES,
+        ],
+        sources: [
+          'https://react.dev/learn/creating-a-react-app',
+          'https://react.dev/learn/build-a-react-app-from-scratch',
+          'https://vite.dev/guide/',
+        ],
+        privacySurfaces: FRONTEND_PRIVACY_SURFACES,
+        compatibilitySurfaces: FRONTEND_COMPATIBILITY_SURFACES,
+      };
+    case 'vue-frontend':
+      return {
+        label: 'Vue Frontend',
+        handoffFile: 'VUE_FRONTEND_HANDOFF.md',
+        ownership: 'The official interactive create-vue tool owns the Vite/SFC starter; AtlasMind must not silently answer its TypeScript, Router, Pinia, test, lint, formatting, or developer-tools prompts.',
+        prerequisites: [
+          'Node.js ^22.18.0 or >=24.12.0, verified against the current Vue quick-start requirements',
+          'A new child-directory name that does not already contain work',
+          'Reviewed choices for TypeScript, JSX, Vue Router, Pinia, unit tests, end-to-end tests, linting, formatting, and developer tools',
+        ],
+        commands: [
+          'npm create vue@latest <folder-name>',
+          'cd <folder-name>',
+          'npm install',
+        ],
+        effects: [
+          '`npm create` retrieves and executes the official create-vue package',
+          'the generator interactively writes source and configuration based on the selected feature set',
+          '`npm install` retrieves packages and runs allowed package lifecycle scripts, so it remains a separate review step',
+        ],
+        acceptance: [
+          'Record the generated Vue, Vite, TypeScript, Node.js, package-manager, selected features, and lockfile versions',
+          'Review Router guards, Pinia stores, composables, public environment variables, SFC boundaries, hydration if added, and developer-tools settings',
+          ...FRONTEND_ACCEPTANCE_GATES,
+        ],
+        sources: [
+          'https://vuejs.org/guide/quick-start.html',
+          'https://vuejs.org/guide/scaling-up/tooling.html',
+          'https://vite.dev/guide/',
+        ],
+        privacySurfaces: FRONTEND_PRIVACY_SURFACES,
+        compatibilitySurfaces: FRONTEND_COMPATIBILITY_SURFACES,
       };
   }
 }

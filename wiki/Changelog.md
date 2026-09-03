@@ -19,6 +19,21 @@ Older entries below describe the software as it was at the time and are delibera
 
 ---
 
+## v0.386.0 — The Frontend prefab family is complete
+
+Guided bootstrap now offers focused Next.js, SvelteKit, Nuxt 4, React/Vite, and Vue frontend options.
+Each writes a maintained-generator handoff, literal-placeholder commands, Not-assessed privacy and
+compatibility matrices, and acceptance gates for rendering, routing, state, data, accessibility, browser
+support, performance, hosting, and rollback. Bootstrap executes none of the commands.
+
+The SvelteKit path now uses `sv create` instead of create-svelte. Nuxt names its supported v4 line. The
+React option records React's framework-first recommendation before offering Vite's TypeScript client
+template, while Vue leaves Router, Pinia, testing, linting, formatting, and developer-tools choices with
+the operator. Website Studio also adds React and Vue manual setup entries and refreshes its existing
+Next.js, Nuxt, and SvelteKit command metadata.
+
+The managed roadmap advances to 12 of 58 items complete; Mobile is next.
+
 ## v0.385.0 — The SaaS/Web prefab family is complete
 
 Guided bootstrap now offers Next.js SaaS / Web App, React Router SaaS / Web App, Laravel SaaS / Web

@@ -243,6 +243,11 @@ describe('archetypeFromProjectTypeLabel', () => {
       ['Django SaaS / Web App', 'web-app'],
       ['Static Website', 'website'],
       ['Blog / CMS (Astro Content)', 'website'],
+      ['Next.js Frontend', 'web-app'],
+      ['SvelteKit Frontend', 'web-app'],
+      ['Nuxt Frontend', 'web-app'],
+      ['React Frontend (Vite)', 'web-app'],
+      ['Vue Frontend', 'web-app'],
     ];
     for (const [label, expected] of cases) {
       expect(archetypeFromProjectTypeLabel(label), label).toBe(expected);

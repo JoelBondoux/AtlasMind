@@ -498,6 +498,13 @@ Astro also suppresses generator-authored AI instruction files. Static Website es
 HTML, emits no inline script/style, starts from a restrictive meta CSP, and requires hosting headers,
 privacy review, and compatibility evidence before publication.
 
+Frontend prefabs add browser-specific trust boundaries without weakening that rule. Project text is escaped
+before Markdown rendering and never interpolated into a command. The handoffs call out public environment
+variables, browser storage, cookies, sessions, route data, source maps, analytics, third-party scripts, and
+rendered personal data. React/Vite is framed as a client-only choice, not a security shortcut; Vue's feature
+prompts and package installation remain separate operator actions; every framework must document server,
+client, build, edge, CDN, header, and rollback ownership before release.
+
 ### The generated workflow specifically
 
 A file in `.github/workflows/` runs on GitHub's infrastructure, with your repository's secrets, on a

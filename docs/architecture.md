@@ -501,7 +501,7 @@ same-origin `script-src`/`connect-src`; review mode separately adds its declared
 
 Four more modules cover the framework half, all pure and unit-tested except the host:
 
-- **`websiteFrameworks.ts`** — the framework catalog. Ten entries, each carrying the scaffold command, the dev/build commands and the output directory. **Every command is a module constant** — never composed, never parsed from documentation, never model-generated, for the reason `acpInstaller.ts` states: that is RCE with extra steps. `custom`, `static` and `wordpress-theme` carry no scaffold command by design. `describeStackCompatibility` grades every framework/platform pairing with a reason, and an `unsupported` pairing stays visible rather than being filtered out of the picker.
+- **`websiteFrameworks.ts`** — the framework catalog. Twelve entries, each carrying the verified scaffold/manual boundary, dev/build commands and output directory. **Every executable command is a module constant** — never composed, never parsed from documentation, never model-generated, for the reason `acpInstaller.ts` states: that is RCE with extra steps. `custom`, `static`, `wordpress-theme`, `react`, and `vue` carry no scaffold command by design; the last two link to their official decision-heavy setup guidance instead. `describeStackCompatibility` grades every framework/platform pairing with a reason, and an `unsupported` pairing stays visible rather than being filtered out of the picker.
 - **`websiteCiTemplate.ts`** — the GitHub Actions workflow. Declared templates with only validated values substituted; branch names, output dirs and node versions are charset-checked before interpolation, and a rendered file still containing a placeholder refuses rather than being written. Explicit `permissions:`, per-environment `concurrency` with `cancel-in-progress: false`, `environment: production` on the production path, and secrets referenced by name only. A platform with no verified deploy action is refused, not guessed at.
 - **`websiteStackSetup.ts`** — `planWebsiteStackSetup` (performs nothing) and `executeWebsiteStackSetup` (takes injected `exec`, `writeFileIfAbsent` and `mergePackageScripts`). Every file and branch step is create-only; every step is re-validated immediately before it acts; execution stops at the first failure and reports what had already succeeded, as `promotionRunner` does.
 - **`websiteDeliverySync.ts`** — `compareWebsiteToDelivery` is a comparison, not a verdict, shaped after `findTaxonomyDrift`: Website Studio keeps its own environments, so the two models can drift, and this makes the drift visible rather than reconciling it silently. `buildDeliverySyncPlan` never clears a populated Delivery field from an empty Studio one, only tightens protection, and never creates a stage — that would mean inventing a backup and rollback policy the Studio does not model.
@@ -2181,6 +2181,8 @@ Bootstrap flow behavior:
      -> Next.js/React Router/Laravel/Django/Astro Content: documentation-only generator handoff
         + runtime, package, database/content, privacy, compatibility, and acceptance gates
      -> Static Website: dependency-free semantic HTML/CSS + CSP/accessibility contract + read-only CI
+     -> Next.js/SvelteKit/Nuxt/React/Vue Frontend: documentation-only current-generator handoff
+        + rendering, state, browser, accessibility, performance, privacy, and deployment gates
   -> write project_soul.md + project brief + roadmap + intake log + repository plan
   -> seed project_memory/ideas/ with intake-aware ideation defaults
   -> seed project-scoped Personality Profile defaults when the intake provides stable project context
@@ -2199,6 +2201,13 @@ generation into a separate directory and review. Static HTML/CSS is the delibera
 runtime surface is small enough to emit locally, escape deterministically, parse in tests, and verify without
 a dependency install. The archetype bridge still collapses these labels into `website` or `web-app` plus
 traits, so platform names do not multiply downstream routing vocabularies.
+
+Frontend labels use the same archetype bridge instead of creating framework archetypes. Next.js,
+SvelteKit, and Nuxt map to `web-app + has-ui + has-server`; client-focused React/Vite and Vue map to
+`web-app + has-ui`. The framework catalog remains a separate build/deploy vocabulary: it now includes
+React and Vue as manual-setup entries, because a safe constant must not answer Vue's interactive choices
+or pretend React supplies routing/data conventions. Its SvelteKit command uses `sv create`; persisted
+`remix` ids remain compatible while their displayed path continues to be React Router framework mode.
 
 Personality Profile flow behavior:
 

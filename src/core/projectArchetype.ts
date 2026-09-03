@@ -348,6 +348,12 @@ export function fromBootstrapLabel(label: string | undefined): ArchetypeIdentity
   if (/next\.js saas|react router saas|laravel saas|django saas/.test(text)) {
     return identity('web-app', 'has-ui', 'has-server', 'handles-personal-data');
   }
+  if (/next\.js frontend|sveltekit frontend|nuxt frontend/.test(text)) {
+    return identity('web-app', 'has-ui', 'has-server');
+  }
+  if (/react frontend|vue frontend/.test(text)) {
+    return identity('web-app', 'has-ui');
+  }
   if (/static website/.test(text)) {
     return identity('website', 'has-ui');
   }
@@ -468,6 +474,7 @@ export function archetypeFromProjectTypeLabel(label: unknown): ProjectArchetype 
     [/magento 2 module|adobe commerce module/, 'library'],
     [/wix commerce|wix.*headless.*commerce/, 'website'],
     [/blog\s*\/\s*cms|astro content/, 'website'],
+    [/next\.js frontend|sveltekit frontend|nuxt frontend|react frontend|vue frontend/, 'web-app'],
   ];
 
   for (const [pattern, archetype] of rules) {

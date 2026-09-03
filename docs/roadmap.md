@@ -31,7 +31,7 @@ AtlasMind will deliver fast-start, opinionated project templates for:
       Magento 2 Module; and Wix Commerce handoff.
     - **SaaS/Web Apps (delivered):** Next.js; React Router framework mode (the maintained path for
       new Remix-style apps); Laravel; Django; Static Website; and Blog/CMS through Astro Content.
-    - **Frontend:** Next.js, SvelteKit, Nuxt, React, Vue
+    - **Frontend (delivered):** Next.js; SvelteKit; Nuxt 4; React with Vite; and Vue.
     - **Mobile:** React Native, Expo, Flutter
     - **Game Dev:** Unity, Unreal, Godot, Web-based — specified in [project-composition.md](project-composition.md); phased plan in [`project_memory/roadmap/game-engine-integration.md`](../project_memory/roadmap/game-engine-integration.md).
     - **AI/Automation:** AI SaaS, RAG, Agentic, Local Model, Orchestrator
@@ -62,6 +62,15 @@ project decisions. Static Website is the exception worth owning natively: a smal
 CSS surface with escaped project text, a restrictive document CSP, accessibility defaults, built-in Node
 contract tests, and least-privilege CI. Blog/CMS makes repository-owned, build-time remote, and live CMS
 content separate declared choices rather than silently adding a hosted content dependency.
+
+The Frontend family is also generator-owned, but narrows the post-generation review around the browser
+boundary. Next.js, SvelteKit, and Nuxt must declare which code and data execute on the server, client,
+edge, or at build time. React records the framework-first recommendation and uses Vite only for a
+deliberately client-focused application; Vue keeps its interactive Router, Pinia, test, lint, formatting,
+and developer-tools choices with the operator. The SvelteKit path uses the current `sv create` CLI rather
+than create-svelte. All five handoffs require explicit routing, loading/error/offline states, public
+environment-variable and browser-storage review, accessibility/browser matrices, performance budgets,
+hosting headers, source-map policy, and rollback evidence before publication.
 
 ### World-Class Developer Experience (Cross-Persona)
 

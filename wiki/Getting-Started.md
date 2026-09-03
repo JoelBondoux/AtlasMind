@@ -127,6 +127,12 @@ and database prompts to you; Django requires a supported Python/Django pair and 
 Static Website is the dependency-free native option and includes semantic HTML, external CSS, CSP and
 accessibility contract tests, and read-only CI. All privacy and compatibility records start Not assessed.
 
+The **Frontend** family provides focused Next.js, SvelteKit, Nuxt 4, React/Vite, and Vue handoffs. Use
+Next.js, SvelteKit, or Nuxt when the interface needs an integrated server/rendering model; use the React
+Vite option only when a client-focused build is a deliberate fit; keep Vue's Router, Pinia, test, lint,
+formatting, and developer-tools prompts under operator control. The SvelteKit guide uses `sv create`, not
+the retired create-svelte path. Bootstrap writes and escapes the guide, but runs none of its commands.
+
 **For an existing codebase:**
 
 ```

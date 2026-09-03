@@ -229,6 +229,14 @@ The **Static Website** option is native because its stable surface is small: sem
 external CSS, a restrictive document CSP, accessibility defaults, Node built-in contract tests, and
 least-privilege CI, with no framework dependency or package installation.
 
+The **Frontend** family adds focused Next.js, SvelteKit, Nuxt, React/Vite, and Vue handoffs. It retains
+the same non-execution and literal-placeholder rules, then makes the frontend-specific obligations
+walkable: server/client/build/edge ownership; routing and state; loading, error, offline, auth, and
+destructive-action states; public environment variables and browser storage; accessibility and browser
+matrices; bundle/rendering/interaction budgets; hosting headers, source maps, and rollback. SvelteKit uses
+the current `sv create` CLI, Nuxt names the supported v4 path, Vue remains interactive, and React's Vite
+starter is offered only after recording the framework-first recommendation.
+
 When guided bootstrap selects **Website / Marketing Site** (or a Shopify store/theme template), AtlasMind also seeds UI Studio from the captured brief. The seed is non-destructive: an existing `project_memory/domain/website.json` is never replaced. From there, **AtlasMind: Open UI Studio** provides the project brief, screens/content, wireframe/UI review, UI system, implementation handoff and website-only delivery dashboards. The website hosting plan remains Develop → Staging → Production: Develop defaults to loopback, Staging is a password-protected client-review subdomain of Production, and Production is public and promotion-protected.
 
 Website Studio is a planning and review boundary, not an execution shortcut. Imported/webview data is bounded and sanitized before SSOT persistence; common credential shapes and n8n webhook URLs are redacted; password and n8n inputs store only provider-prefixed credential references rather than values. Hosting access policies are rebuilt server-side, with HTTPS/loopback/subdomain readiness checks, so a webview payload cannot make Staging public or remove Production protection. Choosing Cloudflare Pages, GitHub Pages, WordPress/Elementor, or another platform does not authorize a deployment, and marking an n8n workflow configured does not trigger it. Publishing continues through the guarded Delivery pipeline, and any future n8n runner must enter the normal tool-risk and approval path.

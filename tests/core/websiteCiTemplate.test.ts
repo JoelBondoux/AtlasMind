@@ -175,6 +175,17 @@ describe('websiteCiTemplate', () => {
       expect(result.contents).toContain('pnpm install --frozen-lockfile');
     });
 
+    it('keeps the build step for manually generated React and Vue projects', () => {
+      for (const frameworkId of ['react', 'vue'] as const) {
+        const result = renderWebsiteCiWorkflow(input({ frameworkId, platformId: 'cloudflare-pages' }));
+        expect(result.ok).toBe(true);
+        if (!result.ok) { continue; }
+        expect(result.contents, frameworkId).toContain('run: npm ci');
+        expect(result.contents, frameworkId).toContain('run: npm run build');
+        expect(result.contents, frameworkId).toContain('pages deploy dist');
+      }
+    });
+
     it('warns that Next.js deploys .next rather than a static export', () => {
       const result = renderWebsiteCiWorkflow(input({ frameworkId: 'nextjs', platformId: 'vercel' }));
       expect(result.ok).toBe(true);

@@ -219,6 +219,18 @@ describe('the vocabularies this module replaces map forward', () => {
       archetype: 'website',
       traits: ['has-ui'],
     });
+    for (const label of ['Next.js Frontend', 'SvelteKit Frontend', 'Nuxt Frontend']) {
+      expect(fromBootstrapLabel(label), label).toEqual({
+        archetype: 'web-app',
+        traits: ['has-ui', 'has-server'],
+      });
+    }
+    for (const label of ['React Frontend (Vite)', 'Vue Frontend']) {
+      expect(fromBootstrapLabel(label), label).toEqual({
+        archetype: 'web-app',
+        traits: ['has-ui'],
+      });
+    }
   });
 
   it('maps a Game label, which the old picker could not express at all', () => {

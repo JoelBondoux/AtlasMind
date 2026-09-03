@@ -4,7 +4,7 @@
 
 <h1 align="center">AtlasMind</h1>
 
-<p align="center"><sub> · <strong>Current source version: 0.385.0</strong> · </sub></p>
+<p align="center"><sub> · <strong>Current source version: 0.386.0</strong> · </sub></p>
 
 
 <p align="center">
@@ -131,6 +131,26 @@ allow-list, redaction and file-withholding behaviour, retained metadata, provide
 important limits on overrides and compliance claims.
 
 ---
+
+## What's new in 0.386.0
+
+The last Marketplace publication, **v0.382.6**, is the baseline. The full history is in
+[CHANGELOG.md](CHANGELOG.md).
+
+- **The Frontend prefab family is complete.** Guided bootstrap now offers focused Next.js,
+  SvelteKit, Nuxt 4, React with Vite, and Vue launchpads with rendering, routing, data, state,
+  accessibility, browser, performance, and deployment decisions kept visible.
+
+- **Current generators, not historical muscle memory.** SvelteKit uses `sv create`, Vue uses
+  `create-vue`, Nuxt targets its supported v4 line, and the React option records React's own
+  framework-first guidance before offering the client-focused Vite/TypeScript path.
+
+- **Generation remains an operator action.** Bootstrap writes reviewable commands with literal
+  placeholders plus Not-assessed privacy and compatibility records; it does not fetch packages,
+  install dependencies, initialize Git, select interactive features, start a server, or deploy.
+
+- **Website Studio now names the full family.** React and Vue are selectable manual setup targets,
+  while existing Next.js, Nuxt, and SvelteKit command metadata is aligned with current upstream CLIs.
 
 ## What's new in 0.385.0
 

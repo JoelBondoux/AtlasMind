@@ -824,6 +824,14 @@ least-privilege workflow using only Node’s built-in test runner. Adding a futu
 choice: either demonstrate that a small stable native contract can be owned and tested, or ship a truthful
 handoff—never a partial copy of upstream source.
 
+Frontend bootstrap has its own executable specification in
+`tests/features/frontend-bootstrap.feature`. Its Vitest bridge exhaustively walks Next.js, SvelteKit,
+Nuxt, React/Vite, and Vue plans; asserts bounded unique documentation-only paths, literal placeholders,
+escaped hostile names, and Not-assessed review records; and pins the current Svelte, React, and Vue
+ownership decisions. Framework-catalog tests separately reject create-svelte, verify Next.js install/Git
+separation and Nuxt's no-install/no-modules flags, and require React/Vue to degrade to documented manual
+setup rather than running an invented command.
+
 ## Versioning Workflow
 
 1. Make changes and choose the correct SemVer bump for the same commit.

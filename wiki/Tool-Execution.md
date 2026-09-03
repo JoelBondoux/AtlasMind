@@ -323,6 +323,13 @@ make install and Git separate operator steps where upstream supports that distin
 remain explicit interactive/versioned procedures rather than AtlasMind inventing safety flags. The native
 Static Website plan writes only bounded create-only files and its CI uses no dependency installation.
 
+The Next.js, SvelteKit, Nuxt, React/Vite, and Vue Frontend options are also documentation-only in
+`/bootstrap`. Literal `<folder-name>` placeholders are never replaced with intake text, and `sv create`,
+`create-nuxt`, `create-vite`, and `create-vue` are not submitted to a terminal. Website Studio's separate
+setup surface can plan only catalog constants behind its full command/file preview and confirmation gate;
+React and Vue intentionally degrade to vendor documentation there because Vue is interactive and a bare
+React starter cannot safely choose the project's routing and data architecture.
+
 ---
 
 ## Subscription agents and their tools
