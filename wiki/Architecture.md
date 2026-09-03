@@ -111,6 +111,13 @@ without claiming it is hosted by WooCommerce. The guided prefab normalizes proje
 display-name, slug, namespace, and path forms, writes only missing files, and never executes the setup
 commands it records.
 
+Magento follows the extension side of that model: a distributable `library` with published-package and
+personal-data review traits, backed by matching Composer, registration, and module XML identifiers.
+BigCommerce Catalyst and Wix Commerce follow the storefront side: hosted `website` identities with UI,
+server, and personal-data review traits. Their prefabs are documentation-only generator handoffs because
+the official tools own version-sensitive source and external provisioning; a handoff never claims that
+the generator, install, Git initialization, or publication occurred.
+
 ### Remembering
 
 | Part | What it does |

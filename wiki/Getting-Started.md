@@ -112,6 +112,12 @@ HPOS and dependency declarations, syntax/contract CI, and compatibility/privacy 
 begin Not assessed. AtlasMind records local setup commands but does not run a generator, install
 packages, start Docker, or contact the network during bootstrap.
 
+The commerce family also includes **Magento 2 Module**, **BigCommerce Catalyst**, and **Wix Commerce**.
+Magento creates only an inert registered module package plus syntax/contract CI. BigCommerce and Wix
+create reviewable generator launchpads instead of copying their maintained source trees. AtlasMind never
+runs those generators: authentication, account/channel/site provisioning, dependency installation, Git
+initialization, development servers, previews, and publication remain explicit operator actions.
+
 **For an existing codebase:**
 
 ```

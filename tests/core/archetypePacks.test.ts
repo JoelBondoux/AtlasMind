@@ -234,6 +234,9 @@ describe('archetypeFromProjectTypeLabel', () => {
       ['Mobile App', 'mobile'],
       ['Game', 'game'],
       ['WooCommerce Extension', 'library'],
+      ['BigCommerce Catalyst', 'website'],
+      ['Magento 2 Module', 'library'],
+      ['Wix Commerce', 'website'],
     ];
     for (const [label, expected] of cases) {
       expect(archetypeFromProjectTypeLabel(label), label).toBe(expected);

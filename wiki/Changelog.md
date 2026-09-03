@@ -19,6 +19,23 @@ Older entries below describe the software as it was at the time and are delibera
 
 ---
 
+## v0.384.0 — The commerce prefab family is complete
+
+Guided bootstrap now includes BigCommerce Catalyst, Magento 2 Module, and Wix Commerce alongside
+Shopify and WooCommerce. Magento receives an inert native module package: Composer metadata,
+registration, module XML, syntax/contract CI, and privacy/compatibility records all agree on one bounded
+identifier, while no route, ACL, observer, schema, or platform-support claim is invented.
+
+Catalyst and Wix use reviewable handoffs to their maintained generators rather than AtlasMind copying a
+large version-sensitive source tree. AtlasMind runs nothing. The handoffs disclose authentication and
+remote provisioning, keep secrets out of commands, and leave installation, Git initialization, previews,
+and publication under operator control. Wix’s conservative command explicitly skips install, Git, and
+publish while warning that the CLI still provisions the Wix business/site and private app when run.
+
+The managed e-commerce roadmap item is complete. Compatibility and privacy records still begin Not
+assessed, because generating or registering a project is not evidence that its checkout, data handling,
+accessibility, or production release works.
+
 ## v0.383.0 — Privacy documented; WooCommerce prefab begun
 
 Local CI inspection-memory tests now pin the time used by fresh-record assertions. Their fixed August

@@ -4,7 +4,7 @@
 
 <h1 align="center">AtlasMind</h1>
 
-<p align="center"><sub> · <strong>Current source version: 0.383.0</strong> · </sub></p>
+<p align="center"><sub> · <strong>Current source version: 0.384.0</strong> · </sub></p>
 
 
 <p align="center">
@@ -131,6 +131,26 @@ allow-list, redaction and file-withholding behaviour, retained metadata, provide
 important limits on overrides and compliance claims.
 
 ---
+
+## What's new in 0.384.0
+
+The last Marketplace publication, **v0.382.6**, is the baseline. The full history is in
+[CHANGELOG.md](CHANGELOG.md).
+
+- **The e-commerce prefab family is complete.** Shopify and WooCommerce are joined by a native,
+  inert Magento 2 module shell plus reviewable handoffs to the maintained BigCommerce Catalyst and
+  Wix Headless Commerce generators.
+
+- **Generator side effects stay explicit.** AtlasMind does not authenticate, provision remote
+  stores/sites/apps, install dependencies, initialize Git, or publish. BigCommerce and Wix launchpads
+  show the official commands and the actions still under operator control.
+
+- **Compatibility and privacy remain evidence-backed.** Every new platform plan starts with
+  Not-assessed matrices; Magento declares no supported platform range, data access, routes, ACLs, or
+  schema before the project makes those decisions.
+
+- **Hostile names cannot become shell or PHP syntax.** Magento identifiers are normalized and
+  letter-prefixed, and external-generator commands retain literal placeholders instead of intake text.
 
 ## What's new in 0.383.0
 

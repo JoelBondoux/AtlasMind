@@ -27,7 +27,8 @@ compliance-profile abstraction remains a frontier item below.
 
 ### Prefab Architecture Packs (Summary)
 AtlasMind will deliver fast-start, opinionated project templates for:
-    - **E‑Commerce:** Shopify and WooCommerce extension prefabs are available; BigCommerce, Magento 2, and Wix remain planned.
+    - **E‑Commerce (delivered):** Shopify; WooCommerce Extension; BigCommerce Catalyst handoff;
+      Magento 2 Module; and Wix Commerce handoff.
     - **SaaS/Web Apps:** Next.js, Remix, Laravel, Django, Static, Blog/CMS
     - **Frontend:** Next.js, SvelteKit, Nuxt, React, Vue
     - **Mobile:** React Native, Expo, Flutter
@@ -44,6 +45,12 @@ Shopify, Next.js SaaS, Static Website, Next.js App Router, React SPA, React Nati
 The WooCommerce slice creates a plugin shell, compatibility and privacy review records, and syntax/
 contract CI. It does not run the official generator, install WooCommerce, or claim compatibility before
 the project supplies evidence. See [Bootstrap and import](agents-and-skills.md#bootstrap-and-import).
+
+The completed family uses two deliberately different boundaries. Magento receives the smallest native
+module package Adobe documents as required, with no business behaviour or compatibility claim. Catalyst
+and Wix remain owned by their maintained generators: AtlasMind records prerequisites, commands, privacy,
+compatibility, and post-generation acceptance gates, but does not authenticate, provision remote account
+resources, install dependencies, initialize Git, or publish.
 
 ### World-Class Developer Experience (Cross-Persona)
 

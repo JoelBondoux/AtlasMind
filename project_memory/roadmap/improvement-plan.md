@@ -12,7 +12,7 @@ This file is the developer-facing backlog AtlasMind should absorb into SSOT and 
 - [x] Pay down: BDD is enabled with no evidence it runs <!-- rm:pay-down-bdd-is-enabled-with -->
 - [x] Pay down: ATDD is enabled with no evidence it runs <!-- rm:pay-down-atdd-is-enabled-wit -->
 - [x] Document all GDPR-related controls and override policies in user-facing and developer documentation. <!-- rm:document-all-gdpr-related-co -->
-- [ ] **E‑Commerce:** Shopify, WooCommerce, BigCommerce, Magento 2, Wix <!-- rm:e-commerce-shopify-woocommer -->
+- [x] **E‑Commerce:** Shopify, WooCommerce, BigCommerce, Magento 2, Wix <!-- rm:e-commerce-shopify-woocommer -->
 - [ ] **SaaS/Web Apps:** Next.js, Remix, Laravel, Django, Static, Blog/CMS <!-- rm:saas-web-apps-next-js-remix -->
 - [ ] **Frontend:** Next.js, SvelteKit, Nuxt, React, Vue <!-- rm:frontend-next-js-sveltekit-n -->
 - [ ] **Mobile:** React Native, Expo, Flutter <!-- rm:mobile-react-native-expo-flu -->

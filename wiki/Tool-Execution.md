@@ -308,6 +308,13 @@ with the exact commands, rather than offered as a button that couldn't work.
 **An agent distributed only as an archive gets no install button at all.** AtlasMind doesn't download and
 unpack archives, so it names the launch command and tells you it's manual.
 
+The same distinction applies to project generators. BigCommerce Catalyst and Wix Headless Commerce are
+shown as **handoffs**, not runnable AtlasMind tools: their upstream CLIs can authenticate, provision
+remote resources, install dependencies, create Git history, and publish. AtlasMind writes the reviewed
+command and acceptance gates into the workspace but never runs it. Project-name input is not substituted
+into shell syntax. Magento and WooCommerce native shells are local create-only file plans and likewise do
+not run their installation or platform commands.
+
 ---
 
 ## Subscription agents and their tools

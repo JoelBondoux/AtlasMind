@@ -114,6 +114,25 @@ describe('traits compose rather than multiplying the archetype set', () => {
     expect(detection.traits).not.toContain('platform-hosted');
   });
 
+  it('recognizes generated commerce project manifests conservatively', () => {
+    const catalyst = detectProjectArchetype({
+      corpus: '{"dependencies":{"@bigcommerce/catalyst-core":"1.0.0"}}',
+      language: 'node',
+      files: ['package.json'],
+    });
+    expect(catalyst.archetype).toBe('website');
+    expect(catalyst.traits).toEqual(expect.arrayContaining(['platform-hosted', 'has-ui', 'has-server', 'handles-personal-data']));
+
+    const magento = detectProjectArchetype({
+      corpus: '{"type": "magento2-module"}',
+      language: 'php',
+      files: ['composer.json', 'registration.php', 'etc/module.xml'],
+    });
+    expect(magento.archetype).toBe('library');
+    expect(magento.traits).toEqual(expect.arrayContaining(['is-published-package', 'handles-personal-data']));
+    expect(magento.traits).not.toContain('platform-hosted');
+  });
+
   it('does not duplicate a trait matched by several signals', () => {
     const detection = detect('electron tauri');
     expect(detection.traits.filter(t => t === 'ships-binaries').length).toBeLessThanOrEqual(1);
@@ -167,6 +186,18 @@ describe('the vocabularies this module replaces map forward', () => {
     expect(fromBootstrapLabel('WooCommerce Extension')).toEqual({
       archetype: 'library',
       traits: ['is-published-package', 'handles-personal-data'],
+    });
+    expect(fromBootstrapLabel('BigCommerce Catalyst')).toEqual({
+      archetype: 'website',
+      traits: ['platform-hosted', 'has-ui', 'has-server', 'handles-personal-data'],
+    });
+    expect(fromBootstrapLabel('Magento 2 Module')).toEqual({
+      archetype: 'library',
+      traits: ['is-published-package', 'handles-personal-data'],
+    });
+    expect(fromBootstrapLabel('Wix Commerce')).toEqual({
+      archetype: 'website',
+      traits: ['platform-hosted', 'has-ui', 'has-server', 'handles-personal-data'],
     });
   });
 

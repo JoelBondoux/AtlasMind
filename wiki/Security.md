@@ -481,6 +481,14 @@ with its complete contents, and offers to open them as real documents first. Aft
 **re-checks the filesystem** rather than trusting exit codes, because a create command can exit
 successfully having done nothing.
 
+Guided commerce prefabs are narrower still: they never enter this command runner. WooCommerce and
+Magento plans write only deterministic, missing files; BigCommerce Catalyst and Wix Commerce write
+documentation-only handoffs to the platforms’ maintained generators. The handoff commands are constant
+source text with literal placeholders, never composed from intake. AtlasMind does not authenticate,
+provision stores/sites/apps, install packages, initialize Git, start a server, or publish. Wix’s reviewed
+conservative form disables install, Git, and publish, while explicitly stating that running the external
+CLI still provisions remote account resources.
+
 ### The generated workflow specifically
 
 A file in `.github/workflows/` runs on GitHub's infrastructure, with your repository's secrets, on a

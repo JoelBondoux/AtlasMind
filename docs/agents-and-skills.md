@@ -208,6 +208,14 @@ relative paths, so intake text cannot escape a PHP comment or choose where files
 the official local-environment commands in the getting-started memory record but never runs an install,
 generator, Docker, or network command during bootstrap. Existing paths are never overwritten.
 
+The remaining commerce prefabs keep that same boundary while matching the platform’s actual ownership
+model. **Magento 2 Module** writes an inert Composer component whose registration, module XML, and PSR-4
+identity agree, plus syntax/contract CI and Not-assessed review records; it does not install or enable the
+module. **BigCommerce Catalyst** and **Wix Commerce** are generator handoffs, not guessed source trees.
+They record the maintained command, prerequisites, external effects, and post-generation gates. Wix’s
+conservative command separates install, Git initialization, and publishing, but the guide still states
+that running it provisions account resources. No intake value is interpolated into either shell command.
+
 When guided bootstrap selects **Website / Marketing Site** (or a Shopify store/theme template), AtlasMind also seeds UI Studio from the captured brief. The seed is non-destructive: an existing `project_memory/domain/website.json` is never replaced. From there, **AtlasMind: Open UI Studio** provides the project brief, screens/content, wireframe/UI review, UI system, implementation handoff and website-only delivery dashboards. The website hosting plan remains Develop → Staging → Production: Develop defaults to loopback, Staging is a password-protected client-review subdomain of Production, and Production is public and promotion-protected.
 
 Website Studio is a planning and review boundary, not an execution shortcut. Imported/webview data is bounded and sanitized before SSOT persistence; common credential shapes and n8n webhook URLs are redacted; password and n8n inputs store only provider-prefixed credential references rather than values. Hosting access policies are rebuilt server-side, with HTTPS/loopback/subdomain readiness checks, so a webview payload cannot make Staging public or remove Production protection. Choosing Cloudflare Pages, GitHub Pages, WordPress/Elementor, or another platform does not authorize a deployment, and marking an n8n workflow configured does not trigger it. Publishing continues through the guarded Delivery pipeline, and any future n8n runner must enter the normal tool-risk and approval path.

@@ -806,6 +806,14 @@ creates a minimal PHP plugin, compatibility/privacy records, and syntax/contract
 official environment commands without executing them. Tests inspect the whole plan, including hostile
 project-name input, without requiring WordPress, Docker, Composer, or a network connection.
 
+The other commerce plans exercise two additional contracts. Magento is safe to build locally because its
+minimum component surface is stable and small: one Composer package, `registration.php`, and
+`etc/module.xml`. Tests assert the three identifiers agree, an all-numeric leading name becomes a valid
+letter-prefixed PHP identifier, the module stays inert, and CI performs only metadata, syntax, and
+scaffold-contract checks. BigCommerce Catalyst and Wix Commerce instead produce documentation-only
+workspace plans plus SSOT guidance. Tests assert they contain no guessed executable source, retain literal
+command placeholders, disclose remote provisioning, and never imply that an unrun generator succeeded.
+
 ## Versioning Workflow
 
 1. Make changes and choose the correct SemVer bump for the same commit.

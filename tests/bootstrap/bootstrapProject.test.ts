@@ -241,6 +241,68 @@ describe('Feature: safe commerce project bootstrap', () => {
     expect(plugin).toContain("define( 'ATLASMIND_123_CAFE_INJECTED_VERSION'");
     expect(implementation).toContain('namespace AtlasMind\\Extension123CafeInjected;');
   });
+
+  it('Scenario: hand off Catalyst generation without cloning upstream', () => {
+    expectDeclaredScenario('Hand off Catalyst generation without cloning upstream');
+    const files = buildBootstrapTemplateFiles('bigcommerce-catalyst', 'Northwind Store');
+    const byPath = new Map(files.map(file => [file.path, file]));
+    const handoff = byPath.get('BIGCOMMERCE_CATALYST_HANDOFF.md')?.content ?? '';
+
+    expect(new Set(files.map(file => `${file.root}:${file.path}`)).size).toBe(files.length);
+    expect(files.every(file => !file.path.startsWith('/') && !file.path.includes('..'))).toBe(true);
+    expect(files.filter(file => file.root === 'workspace').every(file => file.path.endsWith('.md'))).toBe(true);
+    expect(handoff).toContain('Node.js 24');
+    expect(handoff).toContain('pnpm create @bigcommerce/catalyst@latest');
+    expect(handoff).toContain('not executed by AtlasMind');
+    expect(handoff).toContain('not a partial Catalyst clone');
+    expect(byPath.get('docs/privacy.md')?.content).toContain('Status: Not assessed');
+    expect(byPath.get('docs/compatibility.md')?.content).toContain('Catalyst generator');
+  });
+
+  it('Scenario: generate an inert Magento module contract', () => {
+    expectDeclaredScenario('Generate an inert Magento module contract');
+    const files = buildBootstrapTemplateFiles('magento2-module', '../123 Returns */\nInjected');
+    const byPath = new Map(files.map(file => [file.path, file]));
+    const registration = byPath.get('registration.php')?.content ?? '';
+    const moduleXml = byPath.get('etc/module.xml')?.content ?? '';
+    const composer = JSON.parse(byPath.get('composer.json')?.content ?? '{}') as Record<string, unknown>;
+    const workflow = byPath.get('.github/workflows/ci.yml')?.content ?? '';
+
+    expect(files.every(file => !file.path.startsWith('/') && !file.path.includes('..'))).toBe(true);
+    expect(registration).toContain("'AtlasMind_Module123ReturnsInjected'");
+    expect(moduleXml).toContain('<module name="AtlasMind_Module123ReturnsInjected"/>');
+    expect(moduleXml).not.toContain('setup_version');
+    expect(composer).toMatchObject({
+      name: 'atlasmind/module-123-returns-injected',
+      type: 'magento2-module',
+      license: 'proprietary',
+      autoload: {
+        files: ['registration.php'],
+        'psr-4': { 'AtlasMind\\Module123ReturnsInjected\\': '' },
+      },
+    });
+    expect(workflow).toContain('permissions:\n  contents: read');
+    expect(workflow).toContain('composer validate --strict --no-check-publish');
+    expect(workflow).toContain('php tests/scaffold-contract.php');
+    expect(byPath.get('README.md')?.content).toContain('deliberately inert module shell');
+  });
+
+  it('Scenario: keep Wix provisioning under operator control', () => {
+    expectDeclaredScenario('Keep Wix provisioning under operator control');
+    const files = buildBootstrapTemplateFiles('wix-commerce', 'Store "$(danger)"');
+    const byPath = new Map(files.map(file => [file.path, file]));
+    const handoff = byPath.get('WIX_COMMERCE_HANDOFF.md')?.content ?? '';
+
+    expect(files.every(file => !file.path.startsWith('/') && !file.path.includes('..'))).toBe(true);
+    expect(files.filter(file => file.root === 'workspace').every(file => file.path.endsWith('.md'))).toBe(true);
+    expect(handoff).toContain('npm create @wix/new@latest -- headless');
+    expect(handoff).toContain('--site-template commerce');
+    expect(handoff).toContain('--skip-install --skip-git --no-publish');
+    expect(handoff).toContain('provisions a Wix business/site and private');
+    expect(handoff).not.toContain('--business-name "Store "$(danger)""');
+    expect([...byPath.keys()]).not.toContain('wix.config.json');
+    expect([...byPath.keys()]).not.toContain('package.json');
+  });
 });
 
 describe('bootstrapProject', () => {

@@ -85,6 +85,11 @@ const KNOWN_TOOL_TERMS = [
   'GitHub Pages',
   'WordPress',
   'WooCommerce',
+  'BigCommerce',
+  'Magento Open Source',
+  'Adobe Commerce',
+  'Wix Stores',
+  'Wix CLI',
   'Elementor',
   'Webflow',
   'n8n',
@@ -95,7 +100,10 @@ export type BootstrapTemplate =
   | 'shopify-new-store'
   | 'shopify-theme'
   | 'shopify-app'
-  | 'woocommerce-extension';
+  | 'woocommerce-extension'
+  | 'bigcommerce-catalyst'
+  | 'magento2-module'
+  | 'wix-commerce';
 
 export interface BootstrapTemplateFile {
   root: 'workspace' | 'ssot';
@@ -411,6 +419,9 @@ async function collectBootstrapIntake(
           { label: '$(file-code) Shopify Store / Theme', description: 'Full Liquid theme scaffold (layout, sections, snippets, assets, locales), theme-check CI.', template: 'shopify-theme' as BootstrapTemplate },
           { label: '$(server-process) Shopify App', description: 'Remix app scaffold (routes, extensions, shopify.app.toml, .env), deploy workflow.', template: 'shopify-app' as BootstrapTemplate },
           { label: '$(extensions) WooCommerce Extension', description: 'Safe PHP plugin shell, WooCommerce dependency and HPOS declarations, syntax/contract CI, privacy and compatibility review guides.', template: 'woocommerce-extension' as BootstrapTemplate },
+          { label: '$(globe) BigCommerce Catalyst', description: 'Reviewable handoff to BigCommerce’s maintained Catalyst generator; records prerequisites, privacy, compatibility, and post-generation gates without running it.', template: 'bigcommerce-catalyst' as BootstrapTemplate },
+          { label: '$(package) Magento 2 Module', description: 'Minimal registered Composer module with syntax/contract CI and explicit compatibility, privacy, and installation review gates.', template: 'magento2-module' as BootstrapTemplate },
+          { label: '$(cloud) Wix Commerce', description: 'Reviewable handoff to Wix’s maintained Headless Commerce generator with install, Git, publish, provisioning, privacy, and release gates left under operator control.', template: 'wix-commerce' as BootstrapTemplate },
         ],
         { placeHolder: 'What type of project is this?' },
       );
@@ -3394,6 +3405,9 @@ function formatTemplateName(template: BootstrapTemplate): string {
     case 'shopify-theme': return 'Shopify Store / Theme';
     case 'shopify-app': return 'Shopify App';
     case 'woocommerce-extension': return 'WooCommerce Extension';
+    case 'bigcommerce-catalyst': return 'BigCommerce Catalyst';
+    case 'magento2-module': return 'Magento 2 Module';
+    case 'wix-commerce': return 'Wix Commerce';
   }
 }
 
@@ -3429,6 +3443,27 @@ function enrichIntakeForTemplate(intake: BootstrapProjectIntake, template: Boots
       intake.productOutcome ??= 'Ship a reviewable, update-safe WooCommerce extension with explicit compatibility and privacy decisions.';
       intake.targetAudience ??= 'WooCommerce merchants and the developers who operate their stores.';
       break;
+    case 'bigcommerce-catalyst':
+      intake.techStack ??= 'BigCommerce Catalyst, Next.js, React, TypeScript, GraphQL, pnpm';
+      intake.thirdPartyTools ??= 'BigCommerce, Catalyst CLI, GraphQL Storefront API, GitHub Actions';
+      intake.productSummary ??= 'A composable BigCommerce storefront generated and maintained through the official Catalyst toolchain.';
+      intake.productOutcome ??= 'Launch a branded storefront without forking or partially reproducing Catalyst’s upstream scaffold.';
+      intake.targetAudience ??= 'BigCommerce shoppers, merchandisers, and the developers operating the storefront.';
+      break;
+    case 'magento2-module':
+      intake.techStack ??= 'Magento Open Source or Adobe Commerce, PHP, Composer';
+      intake.thirdPartyTools ??= 'Magento CLI, Composer, GitHub Actions';
+      intake.productSummary ??= 'A distributable Magento 2 module with one bounded commerce capability.';
+      intake.productOutcome ??= 'Ship a registered, reviewable module with explicit platform compatibility and data-handling decisions.';
+      intake.targetAudience ??= 'Magento Open Source or Adobe Commerce merchants and their implementation teams.';
+      break;
+    case 'wix-commerce':
+      intake.techStack ??= 'Wix Headless, Wix Stores, Astro, React, TypeScript';
+      intake.thirdPartyTools ??= 'Wix CLI, Wix-managed hosting, GitHub Actions';
+      intake.productSummary ??= 'A Wix-managed headless commerce storefront generated through the official Wix CLI.';
+      intake.productOutcome ??= 'Launch a Wix Stores storefront while keeping provisioning, dependency installation, Git initialization, and publishing explicit.';
+      intake.targetAudience ??= 'Wix shoppers, site operators, and developers maintaining the storefront.';
+      break;
   }
 }
 
@@ -3452,7 +3487,13 @@ async function applyTemplateScaffolding(
 }
 
 function defaultTemplateProjectName(template: BootstrapTemplate): string {
-  return template === 'woocommerce-extension' ? 'My WooCommerce Extension' : 'My Shopify Project';
+  switch (template) {
+    case 'woocommerce-extension': return 'My WooCommerce Extension';
+    case 'bigcommerce-catalyst': return 'My BigCommerce Storefront';
+    case 'magento2-module': return 'My Magento Module';
+    case 'wix-commerce': return 'My Wix Storefront';
+    default: return 'My Shopify Project';
+  }
 }
 
 /**
@@ -3467,14 +3508,28 @@ export function buildBootstrapTemplateFiles(
   projectName: string,
 ): BootstrapTemplateFile[] {
   const files: BootstrapTemplateFile[] = [];
-  if (template === 'shopify-new-store') {
-    buildShopifyNewStoreFiles(files, projectName);
-  } else if (template === 'shopify-theme') {
-    buildShopifyThemeFiles(files, projectName);
-  } else if (template === 'shopify-app') {
-    buildShopifyAppFiles(files, projectName);
-  } else {
-    buildWooCommerceExtensionFiles(files, projectName);
+  switch (template) {
+    case 'shopify-new-store':
+      buildShopifyNewStoreFiles(files, projectName);
+      break;
+    case 'shopify-theme':
+      buildShopifyThemeFiles(files, projectName);
+      break;
+    case 'shopify-app':
+      buildShopifyAppFiles(files, projectName);
+      break;
+    case 'woocommerce-extension':
+      buildWooCommerceExtensionFiles(files, projectName);
+      break;
+    case 'bigcommerce-catalyst':
+      buildBigCommerceCatalystFiles(files, projectName);
+      break;
+    case 'magento2-module':
+      buildMagento2ModuleFiles(files, projectName);
+      break;
+    case 'wix-commerce':
+      buildWixCommerceFiles(files, projectName);
+      break;
   }
   return files;
 }
@@ -4279,6 +4334,444 @@ function buildWooCommerceExtensionFiles(
   );
 }
 
+function buildBigCommerceCatalystFiles(
+  files: BootstrapTemplateFile[],
+  projectName: string,
+): void {
+  const displayName = safeTemplateDisplayName(projectName, 'My BigCommerce Storefront');
+
+  files.push(
+    {
+      root: 'workspace',
+      path: 'BIGCOMMERCE_CATALYST_HANDOFF.md',
+      content: [
+        `# BigCommerce Catalyst handoff — ${displayName}`,
+        '',
+        '> Status: Generator not run. This launchpad records the boundary; it is not a partial Catalyst clone.',
+        '',
+        'Catalyst is maintained as a substantial upstream Next.js storefront. AtlasMind deliberately does',
+        'not copy that source tree, guess its current package versions, authenticate to BigCommerce, create',
+        'a channel, install packages, or start a development server during bootstrap.',
+        '',
+        '## Operator-controlled generation',
+        '',
+        'Current official prerequisites include Node.js 24 and Corepack-enabled pnpm. Verify them against',
+        'the official repository immediately before use, then run the generator interactively:',
+        '',
+        '```bash',
+        'corepack enable pnpm',
+        'pnpm create @bigcommerce/catalyst@latest',
+        '```',
+        '',
+        'Run those commands only after choosing the destination directory and reviewing the account/channel',
+        'prompts. They are shown for review and were not executed by AtlasMind.',
+        '',
+        '## Acceptance gate after generation',
+        '',
+        '- [ ] Record the generated Catalyst version and lockfile.',
+        '- [ ] Confirm the intended BigCommerce store and channel before authorizing the CLI.',
+        '- [ ] Keep storefront/API tokens out of committed files, chat transcripts, and CI logs.',
+        '- [ ] Run the generated project\'s own lint, typecheck, test, and build scripts.',
+        '- [ ] Complete `docs/compatibility.md` and `docs/privacy.md` using evidence from the generated project.',
+        '- [ ] Review checkout, customer-account, locale, search, image, cache, and deployment behaviour.',
+        '- [ ] Import the generated directory into AtlasMind; do not treat this launchpad as the storefront.',
+        '',
+        '## Official sources',
+        '',
+        '- https://github.com/bigcommerce/catalyst',
+        '- https://developer.bigcommerce.com/docs/storefront/catalyst',
+        '',
+      ].join('\n'),
+    },
+    {
+      root: 'workspace',
+      path: 'docs/privacy.md',
+      content: commercePrivacyReview(displayName, [
+        'Storefront/customer access tokens and their storage boundary',
+        'Customer accounts, addresses, carts, orders, wishlists, and consent state',
+        'GraphQL requests, cache entries, analytics, logs, and error reporting',
+        'Checkout redirects and every third-party processor or destination',
+      ]),
+    },
+    {
+      root: 'workspace',
+      path: 'docs/compatibility.md',
+      content: commerceCompatibilityReview(displayName, [
+        'Catalyst generator and generated package versions',
+        'Node.js and pnpm versions declared by the generated project',
+        'BigCommerce channel and Storefront GraphQL API',
+        'Checkout and customer-account flows',
+        'Locales, currencies, tax, search, images, and cache behaviour',
+        'Deployment platform and preview/production environment separation',
+      ]),
+    },
+    {
+      root: 'ssot',
+      path: 'operations/getting-started.md',
+      content: [
+        `# Getting Started — ${displayName}`,
+        '',
+        'AtlasMind created a reviewable Catalyst generator handoff, not executable storefront source.',
+        'Read `BIGCOMMERCE_CATALYST_HANDOFF.md`, verify the live upstream requirements, and decide which',
+        'store/channel the official CLI may access before running anything.',
+        '',
+        'After generation, open the generated directory as the project, preserve its lockfile, and import',
+        'this privacy/compatibility intent into that project. A successful generator exit is setup evidence;',
+        'it is not evidence that checkout, data protection, accessibility, or production deployment works.',
+        '',
+      ].join('\n'),
+    },
+  );
+}
+
+function buildMagento2ModuleFiles(
+  files: BootstrapTemplateFile[],
+  projectName: string,
+): void {
+  const displayName = safeTemplateDisplayName(projectName, 'My Magento Module');
+  const slug = templateSlug(displayName, 'my-magento-module');
+  const componentName = templatePascalIdentifier(slug, 'Module');
+  const vendorName = 'AtlasMind';
+  const moduleName = `${vendorName}_${componentName}`;
+  const phpNamespace = `${vendorName}\\${componentName}`;
+
+  files.push(
+    {
+      root: 'workspace',
+      path: 'registration.php',
+      content: [
+        '<?php',
+        'declare(strict_types=1);',
+        '',
+        'use Magento\\Framework\\Component\\ComponentRegistrar;',
+        '',
+        `ComponentRegistrar::register(ComponentRegistrar::MODULE, '${moduleName}', __DIR__);`,
+        '',
+      ].join('\n'),
+    },
+    {
+      root: 'workspace',
+      path: 'etc/module.xml',
+      content: [
+        '<?xml version="1.0"?>',
+        '<config xmlns:xsi="http://www.w3.org/2001/XMLSchema-instance"',
+        '        xsi:noNamespaceSchemaLocation="urn:magento:framework:Module/etc/module.xsd">',
+        `    <module name="${moduleName}"/>`,
+        '</config>',
+        '',
+      ].join('\n'),
+    },
+    {
+      root: 'workspace',
+      path: 'composer.json',
+      content: `${JSON.stringify({
+        name: `atlasmind/module-${slug}`,
+        description: `${displayName} Magento 2 module`,
+        type: 'magento2-module',
+        version: '0.1.0',
+        license: 'proprietary',
+        autoload: {
+          files: ['registration.php'],
+          'psr-4': { [`${phpNamespace}\\`]: '' },
+        },
+      }, null, 2)}\n`,
+    },
+    {
+      root: 'workspace',
+      path: 'README.md',
+      content: [
+        `# ${displayName}`,
+        '',
+        `Magento module identifier: \`${moduleName}\``,
+        '',
+        'This is a deliberately inert module shell. It registers a Composer component but adds no routes,',
+        'observers, plugins, preferences, ACL grants, cron jobs, database schema, or merchant-facing behaviour.',
+        '',
+        'Before implementation:',
+        '',
+        '- choose and document supported Magento Open Source / Adobe Commerce and PHP versions;',
+        '- add the narrowest module dependencies and permissions the capability actually needs;',
+        '- prefer extension points over core modification and avoid broad class preferences;',
+        '- complete the privacy and compatibility records;',
+        '- test installation, upgrade, disable, uninstall, and rollback on disposable environments.',
+        '',
+        'AtlasMind did not install this module into a Commerce instance or run `bin/magento`.',
+        '',
+      ].join('\n'),
+    },
+    {
+      root: 'workspace',
+      path: 'docs/privacy.md',
+      content: commercePrivacyReview(displayName, [
+        'Customers, addresses, quotes/carts, orders, invoices, shipments, and refunds',
+        'Admin users, roles, integration tokens, webhooks, queues, cron jobs, and exports',
+        'Database tables/attributes, cache entries, indexes, logs, and generated files',
+        'External processors, APIs, analytics, email, search, and payment integrations',
+      ]),
+    },
+    {
+      root: 'workspace',
+      path: 'docs/compatibility.md',
+      content: commerceCompatibilityReview(displayName, [
+        'Magento Open Source / Adobe Commerce edition and patch version',
+        'PHP, Composer, database, search engine, cache, and queue versions',
+        'Checkout, customer account, admin, GraphQL, REST, cron, and indexer modes',
+        'Single-store, multi-store, locale, currency, tax, inventory, and MSI behaviour',
+        'Install, setup:upgrade, compile, deploy, disable, uninstall, and rollback',
+        'Interactions with themes, payment, shipping, tax, and security extensions',
+      ]),
+    },
+    {
+      root: 'workspace',
+      path: 'tests/scaffold-contract.php',
+      content: [
+        '<?php',
+        'declare(strict_types=1);',
+        '',
+        `$moduleName = '${moduleName}';`,
+        "$registration = file_get_contents(__DIR__ . '/../registration.php');",
+        "$moduleXml = file_get_contents(__DIR__ . '/../etc/module.xml');",
+        "$composer = json_decode(file_get_contents(__DIR__ . '/../composer.json'), true);",
+        '',
+        '$failures = [];',
+        "if (false === strpos($registration, \"ComponentRegistrar::MODULE, '{$moduleName}'\")) {",
+        "    $failures[] = 'registration.php does not register the declared module';",
+        '}',
+        "if (false === strpos($moduleXml, \"<module name=\\\"{$moduleName}\\\"/>\")) {",
+        "    $failures[] = 'etc/module.xml does not declare the registered module';",
+        '}',
+        "if (($composer['type'] ?? null) !== 'magento2-module') {",
+        "    $failures[] = 'composer.json type must remain magento2-module';",
+        '}',
+        "if (($composer['autoload']['files'][0] ?? null) !== 'registration.php') {",
+        "    $failures[] = 'composer.json must autoload registration.php';",
+        '}',
+        `if (!array_key_exists('${phpNamespace}\\\\', $composer['autoload']['psr-4'] ?? [])) {`,
+        "    $failures[] = 'composer.json is missing the module PSR-4 namespace';",
+        '}',
+        '',
+        'if ($failures !== []) {',
+        "    fwrite(STDERR, implode(PHP_EOL, $failures) . PHP_EOL);",
+        '    exit(1);',
+        '}',
+        '',
+        "fwrite(STDOUT, 'Magento module scaffold contract is present.' . PHP_EOL);",
+        '',
+      ].join('\n'),
+    },
+    {
+      root: 'workspace',
+      path: '.github/workflows/ci.yml',
+      content: [
+        'name: CI',
+        '',
+        'on:',
+        '  push:',
+        '    branches: [main]',
+        '  pull_request:',
+        '    branches: [main]',
+        '',
+        'permissions:',
+        '  contents: read',
+        '',
+        'jobs:',
+        '  module-contract:',
+        '    runs-on: ubuntu-latest',
+        '    steps:',
+        '      - uses: actions/checkout@v4',
+        '      - name: Show PHP runtime',
+        '        run: php --version',
+        '      - name: Validate Composer metadata',
+        '        run: composer validate --strict --no-check-publish',
+        '      - name: Syntax check',
+        "        run: find . -type f -name '*.php' -not -path './vendor/*' -print0 | xargs -0 -n1 php -l",
+        '      - name: Scaffold contract',
+        '        run: php tests/scaffold-contract.php',
+        '',
+      ].join('\n'),
+    },
+    {
+      root: 'workspace',
+      path: '.gitignore',
+      content: ['/vendor/', 'composer.lock', '.phpunit.result.cache', ''].join('\n'),
+    },
+    {
+      root: 'ssot',
+      path: 'operations/getting-started.md',
+      content: [
+        `# Getting Started — ${displayName}`,
+        '',
+        `AtlasMind created an inert Magento 2 module package named \`${moduleName}\`.`,
+        'It contains only the three required component contracts: `composer.json`, `registration.php`,',
+        'and `etc/module.xml`, plus review records and create-only CI.',
+        '',
+        '## Verification',
+        '',
+        '```bash',
+        'composer validate --strict --no-check-publish',
+        'php -l registration.php',
+        'php tests/scaffold-contract.php',
+        '```',
+        '',
+        '## Installation into a disposable Commerce checkout',
+        '',
+        'Choose either a reviewed Composer path-repository workflow or place the module under',
+        `\`app/code/${vendorName}/${componentName}\`. Then review and run the host project\'s commands:`,
+        '',
+        '```bash',
+        `bin/magento module:enable ${moduleName}`,
+        'bin/magento setup:upgrade',
+        'bin/magento setup:di:compile',
+        'bin/magento cache:flush',
+        '```',
+        '',
+        'Those commands mutate the Commerce installation and were not executed by AtlasMind. Back up the',
+        'database and media, use a disposable environment first, and complete compatibility/privacy evidence',
+        'before enabling the module on a merchant store.',
+        '',
+        'Official references:',
+        '',
+        '- https://developer.adobe.com/commerce/php/development/prepare/component-file-structure',
+        '- https://developer.adobe.com/commerce/php/development/build/component-registration',
+        '- https://developer.adobe.com/commerce/php/development/build/composer-integration',
+        '',
+      ].join('\n'),
+    },
+  );
+}
+
+function buildWixCommerceFiles(
+  files: BootstrapTemplateFile[],
+  projectName: string,
+): void {
+  const displayName = safeTemplateDisplayName(projectName, 'My Wix Storefront');
+
+  files.push(
+    {
+      root: 'workspace',
+      path: 'WIX_COMMERCE_HANDOFF.md',
+      content: [
+        `# Wix Commerce generator handoff — ${displayName}`,
+        '',
+        '> Status: Generator not run. No Wix business, site, app, repository, dependency tree, or publication was created.',
+        '',
+        'Wix’s maintained Headless Commerce template provisions remote Wix resources and generates an Astro',
+        'project. AtlasMind records the review boundary instead of silently invoking that external action or',
+        'copying a version-sensitive Wix project tree.',
+        '',
+        '## Reviewable conservative command',
+        '',
+        'Run from the parent directory where the new project folder should be created. Replace the placeholders',
+        'as data; do not paste secrets into the command:',
+        '',
+        '```bash',
+        'npm create @wix/new@latest -- headless --folder-name <folder-name> --business-name "<business-name>" --site-template commerce --skip-install --skip-git --no-publish',
+        '```',
+        '',
+        'Even with the conservative flags, this command signs in and provisions a Wix business/site and private',
+        'app. It was not executed by AtlasMind. `--skip-install`, `--skip-git`, and `--no-publish` keep dependency',
+        'installation, Git initialization, and publishing as separate operator decisions.',
+        '',
+        '## Acceptance gate after generation',
+        '',
+        '- [ ] Confirm the Wix account and the business/site names before provisioning.',
+        '- [ ] Inspect `wix.config.json`; treat identifiers as configuration and keep credentials elsewhere.',
+        '- [ ] Review the generated package manifest and lockfile before installing dependencies.',
+        '- [ ] Initialize or connect Git only after checking the destination is not nested in another repository.',
+        '- [ ] Run the generated project’s build and tests before `wix dev`, preview, or release.',
+        '- [ ] Store secrets through Wix environment management; never commit `.env.local`.',
+        '- [ ] Complete `docs/compatibility.md` and `docs/privacy.md` in the generated project.',
+        '- [ ] Import the generated directory into AtlasMind; do not treat this launchpad as the storefront.',
+        '',
+        '## Official sources',
+        '',
+        '- https://dev.wix.com/docs/wix-cli/command-reference/project-creation/create-headless',
+        '- https://dev.wix.com/docs/go-headless/get-started/templates/wix-managed-templates/wix-cli-for-headless-templates',
+        '',
+      ].join('\n'),
+    },
+    {
+      root: 'workspace',
+      path: 'docs/privacy.md',
+      content: commercePrivacyReview(displayName, [
+        'Wix site/app identifiers, authentication state, and environment-variable ownership',
+        'Members, contacts, addresses, carts, orders, payments, bookings, and consent state',
+        'Wix APIs, webhooks, automations, analytics, logs, and third-party integrations',
+        'Preview, development, and production environments plus deletion/export behaviour',
+      ]),
+    },
+    {
+      root: 'workspace',
+      path: 'docs/compatibility.md',
+      content: commerceCompatibilityReview(displayName, [
+        'Wix create-new and CLI versions',
+        'Generated Astro, React, Node.js, package-manager, and lockfile versions',
+        'Wix Stores catalog, cart, checkout, member, order, and payment flows',
+        'Development site, preview, release, hosting, domain, and environment configuration',
+        'Locales, currencies, tax, shipping, accessibility, SEO, and responsive layouts',
+        'Webhook, automation, analytics, and third-party integration behaviour',
+      ]),
+    },
+    {
+      root: 'ssot',
+      path: 'operations/getting-started.md',
+      content: [
+        `# Getting Started — ${displayName}`,
+        '',
+        'AtlasMind created a reviewable Wix Headless Commerce generator handoff, not a Wix project.',
+        'Read `WIX_COMMERCE_HANDOFF.md` before authorizing the official CLI. The command provisions remote',
+        'account resources even when install, Git initialization, and publication are disabled.',
+        '',
+        'After generation, inspect the output before installing, then open that generated directory as the',
+        'project and carry these privacy/compatibility records forward. Provisioning success is not evidence',
+        'that checkout, data protection, accessibility, or production release works.',
+        '',
+      ].join('\n'),
+    },
+  );
+}
+
+function commercePrivacyReview(displayName: string, surfaces: readonly string[]): string {
+  return [
+    `# Privacy review — ${displayName}`,
+    '',
+    '> Status: Not assessed. This record asks questions; it does not assert legal compliance.',
+    '',
+    '## Data inventory',
+    '',
+    '| Data category | Purpose | Source | Destination | Retention | Lawful basis | Owner |',
+    '|---|---|---|---|---|---|---|',
+    '| _Not assessed_ |  |  |  |  |  |  |',
+    '',
+    '## Platform surfaces to assess',
+    '',
+    ...surfaces.map(surface => `- [ ] ${surface}.`),
+    '',
+    '## Required decisions',
+    '',
+    '- [ ] Minimise scopes and access to customer, order, payment, address, and analytics data.',
+    '- [ ] Declare each external transfer, processor, residency decision, and credential owner.',
+    '- [ ] Define consent, correction, export, deletion, retention, legal hold, and incident handling.',
+    '- [ ] Verify logs, caches, queues, backups, scheduled work, uninstall, and account-disconnect cleanup.',
+    '',
+  ].join('\n');
+}
+
+function commerceCompatibilityReview(displayName: string, surfaces: readonly string[]): string {
+  return [
+    `# Compatibility record — ${displayName}`,
+    '',
+    '> Status: Not assessed. Declare support only after running the matching matrix.',
+    '',
+    '| Surface | Version/configuration tested | Result | Evidence |',
+    '|---|---|---|---|',
+    ...surfaces.map(surface => `| ${surface} |  | Not assessed |  |`),
+    '',
+    'If a row is not applicable, record why. Never convert an untested row into a compatibility claim.',
+    '',
+  ].join('\n');
+}
+
 function safeTemplateDisplayName(value: string, fallback: string): string {
   const safe = String(value ?? '')
     .replace(/[\u0000-\u001f\u007f]/g, ' ')
@@ -4299,6 +4792,18 @@ function templateSlug(value: string, fallback: string): string {
     .slice(0, 64)
     .replace(/-+$/g, '');
   return slug || fallback;
+}
+
+function templatePascalIdentifier(slug: string, fallback: string): string {
+  const identifier = slug
+    .split('-')
+    .filter(Boolean)
+    .map(segment => `${segment.slice(0, 1).toUpperCase()}${segment.slice(1)}`)
+    .join('');
+  if (!identifier) {
+    return fallback;
+  }
+  return /^[A-Za-z]/.test(identifier) ? identifier : `Module${identifier}`;
 }
 
 function buildShopifyThemeLiquid(projectName: string): string {

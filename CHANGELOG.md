@@ -6,6 +6,39 @@ The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/),
 
 ## [Unreleased]
 
+## [0.384.0] - 2026-09-03
+
+### Added
+
+- **The e-commerce prefab family is complete.** Guided bootstrap now offers BigCommerce Catalyst,
+  Magento 2 Module, and Wix Commerce alongside the existing Shopify and WooCommerce options.
+- **Magento receives a native, inert module contract.** The create-only plan writes matching
+  `composer.json`, `registration.php`, and `etc/module.xml` identities, syntax/contract CI, and
+  compatibility/privacy records. It declares no routes, permissions, schema, observers, or supported
+  platform range before the project supplies evidence.
+- **BigCommerce and Wix use explicit upstream-generator handoffs.** Their maintained generators own
+  large, version-sensitive project trees and can authenticate, provision remote resources, install
+  dependencies, initialize Git, or publish. AtlasMind writes reviewable launchpads and Not-assessed
+  evidence records, and executes none of those actions.
+- BigCommerce Catalyst, Magento 2 modules, and Wix Commerce map into the existing archetype-plus-traits
+  vocabulary, preserving hosted-storefront versus distributable-extension differences without adding
+  platform-named archetypes.
+
+### Security
+
+- Project names remain data: generated Magento identifiers are bounded and letter-prefixed, while
+  generator commands use literal placeholders rather than interpolating intake text into shell syntax.
+- The conservative Wix command keeps dependency installation, Git initialization, and publishing
+  separate through `--skip-install`, `--skip-git`, and `--no-publish`, while explicitly warning that
+  the reviewed command still provisions Wix account resources when the operator runs it.
+
+### Documentation
+
+- Bootstrap, architecture, safety, development, roadmap, and wiki guidance now distinguish native
+  create-only scaffolds from official-generator handoffs and name every residual operator-controlled
+  side effect.
+- The managed e-commerce roadmap item is complete; broader non-commerce prefab families remain open.
+
 ## [0.383.0] - 2026-09-03
 
 ### Added

@@ -1291,6 +1291,13 @@ the WordPress plugin type/header plus WooCommerce evidence, and deliberately doe
 `platform-hosted` because a WooCommerce store may be self-hosted. The commerce trait adds privacy and
 secret-scanning expectations without claiming that every plugin reads customer data.
 
+The completed commerce family preserves the same distinction. A Magento 2 module is a `library` with
+published-package and personal-data review traits, but not `platform-hosted`; its Composer type is the
+decisive detection signal. BigCommerce Catalyst and Wix Commerce storefronts are `website` shapes with
+hosted-platform, UI, server, and personal-data review traits. Catalyst package evidence is detectable from
+manifests; a Wix handoff remains a declaration until the official generator writes `wix.config.json` and
+the generated framework manifest.
+
 **Detection suggests; declaration decides.** Inference from manifests is always a suggestion — the declared value is the truth, mirroring "profiles seed, they do not govern". `detectProjectArchetype` returns `confident: false` when nothing matched, so "this is a generic project" and "we could not tell" stay distinct facts; and `describeArchetypeAgreement` reports a disagreement rather than silently preferring one side, because a project deliberately declared `library` while its manifests look like `web-app` is a decision.
 
 Detection rules are ordered most-specific-first (React Native contains React) and short Node package names are gated to Node projects, because `next` matches inside `cargo-nextest`. The forward-mapping functions retire the other two vocabularies; `delivery.json` never persisted an archetype, so no schema migration was needed.
@@ -2169,6 +2176,8 @@ Bootstrap flow behavior:
      -> sanitize display name, slug, namespace, and generated source independently
      -> write create-only; never run generator, install, Docker, or network commands
      -> WooCommerce: plugin shell + HPOS/dependency guards + CI + Not-assessed review records
+     -> Magento: inert registered Composer module + syntax/contract CI + Not-assessed records
+     -> BigCommerce/Wix: documentation-only official-generator handoff + explicit side-effect gates
   -> write project_soul.md + project brief + roadmap + intake log + repository plan
   -> seed project_memory/ideas/ with intake-aware ideation defaults
   -> seed project-scoped Personality Profile defaults when the intake provides stable project context
