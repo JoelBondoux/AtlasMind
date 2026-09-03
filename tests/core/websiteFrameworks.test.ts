@@ -171,6 +171,12 @@ describe('websiteFrameworks', () => {
   });
 
   describe('commands', () => {
+    it('uses the maintained React Router generator for new Remix-style applications', () => {
+      const scaffold = websiteFrameworkSpec('remix').scaffold;
+      expect(scaffold).toMatchObject({ command: 'npx', args: ['create-react-router@latest'] });
+      expect(scaffold?.args.join(' ')).not.toContain('remix@latest');
+    });
+
     it('routes Hugo through its own binary rather than a package manager', () => {
       const spec = websiteFrameworkSpec('hugo');
       expect(devCommandFor(spec, 'npm')?.command).toBe('hugo');

@@ -19,6 +19,22 @@ Older entries below describe the software as it was at the time and are delibera
 
 ---
 
+## v0.385.0 — The SaaS/Web prefab family is complete
+
+Guided bootstrap now offers Next.js SaaS / Web App, React Router SaaS / Web App, Laravel SaaS / Web
+App, Django SaaS / Web App, Static Website, and Blog / CMS (Astro Content). The five framework-owned
+stacks are reviewable generator handoffs rather than partial source copies: AtlasMind writes current
+commands, prerequisites, effects, Not-assessed evidence matrices, and acceptance gates but runs nothing.
+
+New Remix-style work uses the maintained React Router framework-mode generator. Next.js and Astro keep
+dependency installation and Git initialization separate; Astro also suppresses generator-authored AI
+instruction files. Laravel’s interactive starter/test/database decisions and Django’s Python/version/
+environment decisions stay with the project instead of being guessed.
+
+Static Website is the native exception: escaped semantic HTML, external CSS, a restrictive document CSP,
+keyboard/focus/reduced-motion defaults, Node built-in contract tests, and least-privilege CI, all without a
+framework install. The managed roadmap advances to 11 of 58 items complete; Frontend is next.
+
 ## v0.384.0 — The commerce prefab family is complete
 
 Guided bootstrap now includes BigCommerce Catalyst, Magento 2 Module, and Wix Commerce alongside

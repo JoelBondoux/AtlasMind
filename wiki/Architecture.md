@@ -118,6 +118,14 @@ server, and personal-data review traits. Their prefabs are documentation-only ge
 the official tools own version-sensitive source and external provisioning; a handoff never claims that
 the generator, install, Git initialization, or publication occurred.
 
+The SaaS/Web family applies that ownership boundary to application frameworks. Next.js, React Router,
+Laravel, Django, and Astro Content remain documentation-only generator handoffs with literal placeholders,
+declared runtime/package/database/content effects, and Not-assessed review matrices. New Remix-style work
+uses React Router framework mode. Static Website is emitted natively because its complete dependency-free
+HTML/CSS surface, escaping, CSP, accessibility contract, built-in tests, and CI can be held to deterministic
+tests. The labels map to `website` or `web-app` plus UI/server/personal-data traits rather than introducing
+six framework-named archetypes.
+
 ### Remembering
 
 | Part | What it does |

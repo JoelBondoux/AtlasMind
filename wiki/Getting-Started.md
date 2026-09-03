@@ -118,6 +118,15 @@ create reviewable generator launchpads instead of copying their maintained sourc
 runs those generators: authentication, account/channel/site provisioning, dependency installation, Git
 initialization, development servers, previews, and publication remain explicit operator actions.
 
+The **SaaS/Web App** family adds Next.js, React Router framework mode, Laravel, Django, Static Website,
+and Blog/CMS through Astro Content. Framework-owned source stays behind a generator handoff: AtlasMind
+writes the current reviewable commands and their side effects, but does not fetch or execute them. Generate
+into a separate child directory, inspect source and scripts, then open that directory as the project. Next.js
+and Astro keep dependency installation and Git initialization separate; Laravel leaves starter-kit, test,
+and database prompts to you; Django requires a supported Python/Django pair and isolated environment.
+Static Website is the dependency-free native option and includes semantic HTML, external CSS, CSP and
+accessibility contract tests, and read-only CI. All privacy and compatibility records start Not assessed.
+
 **For an existing codebase:**
 
 ```

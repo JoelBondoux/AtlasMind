@@ -2178,6 +2178,9 @@ Bootstrap flow behavior:
      -> WooCommerce: plugin shell + HPOS/dependency guards + CI + Not-assessed review records
      -> Magento: inert registered Composer module + syntax/contract CI + Not-assessed records
      -> BigCommerce/Wix: documentation-only official-generator handoff + explicit side-effect gates
+     -> Next.js/React Router/Laravel/Django/Astro Content: documentation-only generator handoff
+        + runtime, package, database/content, privacy, compatibility, and acceptance gates
+     -> Static Website: dependency-free semantic HTML/CSS + CSP/accessibility contract + read-only CI
   -> write project_soul.md + project brief + roadmap + intake log + repository plan
   -> seed project_memory/ideas/ with intake-aware ideation defaults
   -> seed project-scoped Personality Profile defaults when the intake provides stable project context
@@ -2187,6 +2190,15 @@ Bootstrap flow behavior:
      (.github workflow/templates, CODEOWNERS, .vscode/extensions.json)
   -> preserve existing files (non-destructive)
 ```
+
+Generator ownership is the architecture boundary, not a framework preference. A maintained upstream
+generator can change its dependency graph, runtime template, lifecycle scripts, database defaults, or
+instruction files faster than an AtlasMind release. Bootstrap therefore records the official command and
+effects but does not execute it or copy its output. The application becomes AtlasMind’s project only after
+generation into a separate directory and review. Static HTML/CSS is the deliberate exception: its complete
+runtime surface is small enough to emit locally, escape deterministically, parse in tests, and verify without
+a dependency install. The archetype bridge still collapses these labels into `website` or `web-app` plus
+traits, so platform names do not multiply downstream routing vocabularies.
 
 Personality Profile flow behavior:
 

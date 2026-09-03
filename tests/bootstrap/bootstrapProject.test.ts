@@ -1,4 +1,7 @@
-import { readFileSync } from 'node:fs';
+import { mkdirSync, mkdtempSync, readFileSync, rmSync, writeFileSync } from 'node:fs';
+import { tmpdir } from 'node:os';
+import { join } from 'node:path';
+import { transformSync } from 'esbuild';
 import { beforeEach, describe, expect, it, vi } from 'vitest';
 
 const vscodeMocks = vi.hoisted(() => ({
@@ -102,9 +105,13 @@ const COMMERCE_BOOTSTRAP_FEATURE = readFileSync(
   new URL('../features/commerce-bootstrap.feature', import.meta.url),
   'utf-8',
 );
+const SAAS_WEB_BOOTSTRAP_FEATURE = readFileSync(
+  new URL('../features/saas-web-bootstrap.feature', import.meta.url),
+  'utf-8',
+);
 
 function expectDeclaredScenario(title: string): void {
-  expect(COMMERCE_BOOTSTRAP_FEATURE).toContain(`Scenario: ${title}`);
+  expect(`${COMMERCE_BOOTSTRAP_FEATURE}\n${SAAS_WEB_BOOTSTRAP_FEATURE}`).toContain(`Scenario: ${title}`);
 }
 
 function seedFile(path: string, content: string): void {
@@ -302,6 +309,103 @@ describe('Feature: safe commerce project bootstrap', () => {
     expect(handoff).not.toContain('--business-name "Store "$(danger)""');
     expect([...byPath.keys()]).not.toContain('wix.config.json');
     expect([...byPath.keys()]).not.toContain('package.json');
+  });
+});
+
+describe('Feature: safety-first SaaS and web bootstrap prefabs', () => {
+  it('Scenario: hand off maintained application generators without executing them', () => {
+    expectDeclaredScenario('Hand off maintained application generators without executing them');
+    const cases = [
+      ['nextjs-saas', 'NEXTJS_SAAS_HANDOFF.md', 'pnpm create next-app@latest'],
+      ['react-router-saas', 'REACT_ROUTER_SAAS_HANDOFF.md', 'npx create-react-router@latest'],
+      ['laravel-saas', 'LARAVEL_SAAS_HANDOFF.md', 'laravel new <folder-name>'],
+      ['django-saas', 'DJANGO_SAAS_HANDOFF.md', '-m django startproject'],
+      ['astro-content-site', 'ASTRO_CONTENT_HANDOFF.md', 'npm create astro@latest'],
+    ] as const;
+
+    for (const [template, handoffPath, command] of cases) {
+      const files = buildBootstrapTemplateFiles(template, 'Acme $(danger) <img onerror="x"> */\nInjected');
+      const handoff = files.find(file => file.path === handoffPath)?.content ?? '';
+      const commandBlock = /```text\n([\s\S]*?)\n```/.exec(handoff)?.[1] ?? '';
+
+      expect(files.every(file => !file.path.startsWith('/') && !file.path.includes('..')), template).toBe(true);
+      expect(files.filter(file => file.root === 'workspace').every(file => file.path.endsWith('.md')), template).toBe(true);
+      expect(handoff, template).toContain(command);
+      expect(handoff, template).toContain('were not executed by AtlasMind');
+      expect(handoff, template).toContain('Effects when an operator runs them');
+      expect(handoff, template).toContain('<folder-name>');
+      expect(commandBlock, template).not.toContain('Acme $(danger)');
+      expect(handoff, template).not.toContain('<img onerror="x">');
+      expect(handoff, template).toContain('&lt;img onerror=&quot;x&quot;&gt;');
+      expect(files.find(file => file.path === 'docs/privacy.md')?.content, template).toContain('Status: Not assessed');
+      expect(files.find(file => file.path === 'docs/compatibility.md')?.content, template).toContain('Status: Not assessed');
+    }
+  });
+
+  it('Scenario: use the maintained React Router path for Remix applications', () => {
+    expectDeclaredScenario('Use the maintained React Router path for Remix applications');
+    const files = buildBootstrapTemplateFiles('react-router-saas', 'Accounts');
+    const handoff = files.find(file => file.path === 'REACT_ROUTER_SAAS_HANDOFF.md')?.content ?? '';
+
+    expect(handoff).toContain('create-react-router@latest');
+    expect(handoff).toContain('maintained successor path');
+    expect(handoff).not.toContain('create-remix');
+  });
+
+  it('Scenario: generate a dependency-free static website contract', async () => {
+    expectDeclaredScenario('Generate a dependency-free static website contract');
+    const files = buildBootstrapTemplateFiles('static-site', '<img src=x onerror="danger">');
+    const byPath = new Map(files.map(file => [file.path, file]));
+    const html = byPath.get('index.html')?.content ?? '';
+    const pkg = JSON.parse(byPath.get('package.json')?.content ?? '{}') as Record<string, unknown>;
+    const contract = byPath.get('tests/static-contract.test.mjs')?.content ?? '';
+    const workflow = byPath.get('.github/workflows/ci.yml')?.content ?? '';
+    const renderedMarkdown = files
+      .filter(file => file.path.endsWith('.md'))
+      .map(file => file.content)
+      .join('\n');
+
+    expect(files.every(file => !file.path.startsWith('/') && !file.path.includes('..'))).toBe(true);
+    expect(html).toContain('&lt;img src=x onerror=&quot;danger&quot;&gt;');
+    expect(html).not.toContain('<img src=x onerror="danger">');
+    expect(renderedMarkdown).toContain('&lt;img src=x onerror=&quot;danger&quot;&gt;');
+    expect(renderedMarkdown).not.toContain('<img src=x onerror="danger">');
+    expect(html).toContain('Content-Security-Policy');
+    expect(html).toContain('<main id="main">');
+    expect(html).toContain('class="skip-link"');
+    expect(html).not.toMatch(/<script(?:\s|>)(?![^>]*\bsrc=)/i);
+    expect(html).not.toMatch(/<style(?:\s|>)/i);
+    expect(pkg).toMatchObject({ private: true, type: 'module', scripts: { test: 'node --test' } });
+    expect(contract).toContain("import test from 'node:test'");
+    expect(contract).toContain('Content-Security-Policy');
+    expect(() => transformSync(contract, { loader: 'js', format: 'esm', target: 'node24' })).not.toThrow();
+    expect(workflow).toContain('permissions:\n  contents: read');
+    expect(workflow).toContain('run: npm test');
+
+    const tempRoot = mkdtempSync(join(tmpdir(), 'atlasmind-static-contract-'));
+    try {
+      mkdirSync(join(tempRoot, 'tests'), { recursive: true });
+      writeFileSync(join(tempRoot, 'index.html'), html, 'utf8');
+      writeFileSync(join(tempRoot, 'tests', 'static-contract.test.mjs'), contract, 'utf8');
+      const { spawnSync } = await vi.importActual<typeof import('node:child_process')>('node:child_process');
+      const run = spawnSync(process.execPath, ['--test', 'tests/static-contract.test.mjs'], {
+        cwd: tempRoot,
+        encoding: 'utf8',
+      });
+      expect(run.status, `${run.stderr}\n${run.stdout}`).toBe(0);
+    } finally {
+      rmSync(tempRoot, { recursive: true, force: true });
+    }
+  });
+
+  it('Scenario: keep content ownership explicit for a blog or CMS', () => {
+    expectDeclaredScenario('Keep content ownership explicit for a blog or CMS');
+    const files = buildBootstrapTemplateFiles('astro-content-site', 'Editorial');
+    const handoff = files.find(file => file.path === 'ASTRO_CONTENT_HANDOFF.md')?.content ?? '';
+
+    expect(handoff).toContain('--template blog --no-install --no-git --no-ai');
+    expect(handoff).toContain('repository-owned content, build-time remote content, or live CMS content');
+    expect(handoff).toContain('managed CMS');
   });
 });
 

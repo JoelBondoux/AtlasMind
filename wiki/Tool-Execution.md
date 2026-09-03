@@ -315,6 +315,14 @@ command and acceptance gates into the workspace but never runs it. Project-name 
 into shell syntax. Magento and WooCommerce native shells are local create-only file plans and likewise do
 not run their installation or platform commands.
 
+Next.js, React Router, Laravel, Django, and Astro Content bootstrap options are handoffs for the same
+reason. Their commands can retrieve and execute packages, write large changing source trees, initialize
+repositories, create environment secrets or databases, run migrations, and shape deployment. Bootstrap
+records those effects and acceptance gates but never submits a command to the runner. Next.js/Astro flags
+make install and Git separate operator steps where upstream supports that distinction; Laravel and Django
+remain explicit interactive/versioned procedures rather than AtlasMind inventing safety flags. The native
+Static Website plan writes only bounded create-only files and its CI uses no dependency installation.
+
 ---
 
 ## Subscription agents and their tools

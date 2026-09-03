@@ -814,6 +814,16 @@ scaffold-contract checks. BigCommerce Catalyst and Wix Commerce instead produce 
 workspace plans plus SSOT guidance. Tests assert they contain no guessed executable source, retain literal
 command placeholders, disclose remote provisioning, and never imply that an unrun generator succeeded.
 
+The SaaS/Web plans add a second exhaustive family over the same pure boundary. Next.js, React Router,
+Laravel, Django, and Astro Content plans must contain workspace Markdown plus SSOT guidance only; tests
+walk every plan, assert unique bounded paths, locate the literal-placeholder command block, and prove that
+hostile project text never reaches it. Each records the generator and dependency/database side effects it
+does not perform. Static Website is intentionally different: tests parse its generated JavaScript contract,
+escape hostile HTML names, reject inline script/style, and pin semantic/CSP/accessibility assertions plus a
+least-privilege workflow using only Node’s built-in test runner. Adding a future generator requires the same
+choice: either demonstrate that a small stable native contract can be owned and tested, or ship a truthful
+handoff—never a partial copy of upstream source.
+
 ## Versioning Workflow
 
 1. Make changes and choose the correct SemVer bump for the same commit.

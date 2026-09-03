@@ -6,6 +6,48 @@ The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/),
 
 ## [Unreleased]
 
+## [0.385.0] - 2026-09-03
+
+### Added
+
+- **The SaaS/Web prefab family is complete.** Guided bootstrap now offers Next.js SaaS / Web App,
+  React Router SaaS / Web App, Laravel SaaS / Web App, Django SaaS / Web App, Static Website, and
+  Blog / CMS (Astro Content) as explicit project types.
+- **Five maintained-generator handoffs keep source ownership honest.** Next.js, React Router,
+  Laravel, Django, and Astro plans write only reviewable Markdown plus Not-assessed privacy and
+  compatibility records. They do not fetch or execute a generator, install dependencies, initialize
+  Git, create or migrate a database, start a server, authenticate, or deploy.
+- **Static Website is a native dependency-free scaffold.** It writes semantic HTML, external CSS,
+  a restrictive document CSP, accessible focus/skip-link/reduced-motion defaults, a Node built-in
+  contract test, and a least-privilege GitHub Actions workflow.
+- The archetype bridge now maps the new bootstrap labels to website or web-app packs with explicit
+  UI, server, and personal-data review traits where appropriate; Laravel manifests are recognized as
+  full-stack web applications with a server trait.
+
+### Changed
+
+- New Remix-style work points at the maintained `create-react-router` framework-mode generator
+  instead of freezing a new project to the legacy create-remix path.
+- Generator commands retain literal placeholders instead of interpolating intake text. Next.js
+  separates dependency installation and Git initialization, while Astro also declines external AI
+  instruction-file generation; Laravel and Django surface their version/database side effects rather
+  than guessing flags they do not own.
+
+### Security
+
+- Static project names are escaped for every HTML context, inline scripts/styles are absent, and the
+  emitted contract checks the CSP, semantic main region, labelled navigation, language, viewport, and
+  skip link before CI can pass.
+- Every generator handoff names account, secret, environment, lifecycle-script, migration, database,
+  hosting, and deployment boundaries that remain under operator control.
+
+### Documentation
+
+- Bootstrap, architecture, development, safety, getting-started, roadmap, and wiki guidance now
+  distinguish application generators, native static output, content ownership, and post-generation
+  acceptance evidence.
+- The managed SaaS/Web Apps roadmap item is complete; the Frontend prefab family is next.
+
 ## [0.384.0] - 2026-09-03
 
 ### Added

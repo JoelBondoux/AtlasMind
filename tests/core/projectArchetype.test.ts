@@ -34,6 +34,7 @@ describe('detection identifies the shapes that actually differ', () => {
     expect(detect('electron').archetype).toBe('desktop');
     expect(detect('astro').archetype).toBe('website');
     expect(detect('next react').archetype).toBe('web-app');
+    expect(detect('"laravel/framework"', 'php').archetype).toBe('web-app');
     expect(detect('express').archetype).toBe('api');
     expect(detect('commander').archetype).toBe('cli');
     expect(detect('fastapi', 'python').archetype).toBe('api');
@@ -198,6 +199,25 @@ describe('the vocabularies this module replaces map forward', () => {
     expect(fromBootstrapLabel('Wix Commerce')).toEqual({
       archetype: 'website',
       traits: ['platform-hosted', 'has-ui', 'has-server', 'handles-personal-data'],
+    });
+    for (const label of [
+      'Next.js SaaS / Web App',
+      'React Router SaaS / Web App',
+      'Laravel SaaS / Web App',
+      'Django SaaS / Web App',
+    ]) {
+      expect(fromBootstrapLabel(label), label).toEqual({
+        archetype: 'web-app',
+        traits: ['has-ui', 'has-server', 'handles-personal-data'],
+      });
+    }
+    expect(fromBootstrapLabel('Static Website')).toEqual({
+      archetype: 'website',
+      traits: ['has-ui'],
+    });
+    expect(fromBootstrapLabel('Blog / CMS (Astro Content)')).toEqual({
+      archetype: 'website',
+      traits: ['has-ui'],
     });
   });
 

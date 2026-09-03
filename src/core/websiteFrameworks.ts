@@ -180,9 +180,9 @@ export const WEBSITE_FRAMEWORK_CATALOG: readonly WebsiteFrameworkSpec[] = [
   {
     id: 'remix',
     label: 'Remix / React Router',
-    description: 'React with server-first data loading. Suits sites with forms and authenticated areas.',
+    description: 'React Router framework mode with server-first data loading — the maintained path for new Remix-style applications.',
     rendering: 'server',
-    scaffold: { command: 'npm', args: ['create', 'remix@latest', '--', '--yes', '--no-install', '--no-git-init'], runtime: 'node', createsOwnDirectory: true },
+    scaffold: { command: 'npx', args: ['create-react-router@latest'], runtime: 'node', createsOwnDirectory: true },
     devCommand: ['run', 'dev'],
     buildCommand: ['run', 'build'],
     outputDir: 'build/client',

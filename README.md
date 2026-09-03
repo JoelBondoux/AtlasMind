@@ -4,7 +4,7 @@
 
 <h1 align="center">AtlasMind</h1>
 
-<p align="center"><sub> · <strong>Current source version: 0.384.0</strong> · </sub></p>
+<p align="center"><sub> · <strong>Current source version: 0.385.0</strong> · </sub></p>
 
 
 <p align="center">
@@ -131,6 +131,27 @@ allow-list, redaction and file-withholding behaviour, retained metadata, provide
 important limits on overrides and compliance claims.
 
 ---
+
+## What's new in 0.385.0
+
+The last Marketplace publication, **v0.382.6**, is the baseline. The full history is in
+[CHANGELOG.md](CHANGELOG.md).
+
+- **The SaaS/Web prefab family is complete.** Guided bootstrap now offers explicit Next.js,
+  React Router framework mode, Laravel, Django, dependency-free Static Website, and Astro Content
+  options alongside the existing Website Studio framework planner.
+
+- **Maintained generators remain upstream-owned.** Next.js and Astro commands disable dependency
+  installation and Git initialization; React Router uses the current `create-react-router` path;
+  Laravel and Django stop at reviewable, version-aware handoffs. AtlasMind executes none of them.
+
+- **Static can be genuinely native.** The static prefab writes escaped semantic HTML, external CSS,
+  a restrictive document CSP, Node built-in contract tests, and least-privilege CI without installing
+  a framework or dependency.
+
+- **A generator exit is not a production claim.** Every handoff starts privacy and compatibility
+  evidence as Not assessed and names the unresolved identity, tenancy, database, billing, content,
+  hosting, deployment, accessibility, and rollback decisions.
 
 ## What's new in 0.384.0
 

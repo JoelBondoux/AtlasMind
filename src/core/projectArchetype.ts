@@ -186,8 +186,9 @@ const RULES: readonly ArchetypeRule[] = [
   },
   {
     archetype: 'web-app',
+    any: ['"laravel/framework"'],
     nodeOnly: ['next', 'nuxt', 'remix', '@sveltejs/kit', 'react', 'vue', '@angular/core', 'svelte'],
-    reason: 'a browser UI framework',
+    reason: 'a full-stack or browser UI framework',
   },
   {
     archetype: 'api',
@@ -206,7 +207,7 @@ const RULES: readonly ArchetypeRule[] = [
 /** Trait signals, all checked — traits compose rather than exclude. */
 const TRAIT_RULES: readonly { trait: ArchetypeTrait; any?: readonly string[]; files?: readonly string[]; reason: string }[] = [
   { trait: 'has-native-build', any: ['cargo.toml', 'cmake', 'go.mod', 'makefile'], files: ['cargo.toml', 'cmakelists.txt', 'makefile', 'go.mod'], reason: 'a native build manifest' },
-  { trait: 'has-server', any: ['express', 'fastify', 'fastapi', 'flask', 'django', 'axum', 'gin-gonic', '@bigcommerce/catalyst'], reason: 'a server framework' },
+  { trait: 'has-server', any: ['express', 'fastify', 'fastapi', 'flask', 'django', '"laravel/framework"', 'axum', 'gin-gonic', '@bigcommerce/catalyst'], reason: 'a server framework' },
   { trait: 'has-ui', any: ['react', 'vue', 'svelte', '@angular/core', 'electron', 'tauri', '@bigcommerce/catalyst'], reason: 'a UI framework' },
   { trait: 'platform-hosted', any: ['@shopify/', 'shopify.app.toml', '@bigcommerce/', 'wix.config.json', 'vsce', '@vscode/vsce'], files: ['shopify.app.toml', 'wix.config.json'], reason: 'a third-party platform manifest' },
   { trait: 'is-published-package', any: ['"type": "wordpress-plugin"', 'requires plugins: woocommerce', '"type": "magento2-module"'], reason: 'a distributable plugin manifest' },
@@ -344,6 +345,15 @@ export function fromBootstrapLabel(label: string | undefined): ArchetypeIdentity
   if (/wix commerce|wix.*headless.*commerce/.test(text)) {
     return identity('website', 'platform-hosted', 'has-ui', 'has-server', 'handles-personal-data');
   }
+  if (/next\.js saas|react router saas|laravel saas|django saas/.test(text)) {
+    return identity('web-app', 'has-ui', 'has-server', 'handles-personal-data');
+  }
+  if (/static website/.test(text)) {
+    return identity('website', 'has-ui');
+  }
+  if (/blog\s*\/\s*cms|astro content/.test(text)) {
+    return identity('website', 'has-ui');
+  }
   if (/vs ?code extension/.test(text)) {
     return identity('library', 'platform-hosted', 'is-published-package');
   }
@@ -457,6 +467,7 @@ export function archetypeFromProjectTypeLabel(label: unknown): ProjectArchetype 
     [/bigcommerce.*catalyst|catalyst.*bigcommerce/, 'website'],
     [/magento 2 module|adobe commerce module/, 'library'],
     [/wix commerce|wix.*headless.*commerce/, 'website'],
+    [/blog\s*\/\s*cms|astro content/, 'website'],
   ];
 
   for (const [pattern, archetype] of rules) {

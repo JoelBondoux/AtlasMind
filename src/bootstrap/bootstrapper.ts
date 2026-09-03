@@ -35,7 +35,10 @@ const KNOWN_TECH_TERMS = [
   'TypeScript',
   'JavaScript',
   'React',
+  'React Router',
+  'Remix',
   'Next.js',
+  'Astro',
   'Node.js',
   'Node',
   'Express',
@@ -49,6 +52,10 @@ const KNOWN_TECH_TERMS = [
   'FastAPI',
   'Django',
   'Flask',
+  'PHP',
+  'Laravel',
+  'HTML',
+  'CSS',
   'Go',
   'Rust',
   'Java',
@@ -90,6 +97,10 @@ const KNOWN_TOOL_TERMS = [
   'Adobe Commerce',
   'Wix Stores',
   'Wix CLI',
+  'Laravel Installer',
+  'Composer',
+  'django-admin',
+  'Astro CLI',
   'Elementor',
   'Webflow',
   'n8n',
@@ -103,7 +114,13 @@ export type BootstrapTemplate =
   | 'woocommerce-extension'
   | 'bigcommerce-catalyst'
   | 'magento2-module'
-  | 'wix-commerce';
+  | 'wix-commerce'
+  | 'nextjs-saas'
+  | 'react-router-saas'
+  | 'laravel-saas'
+  | 'django-saas'
+  | 'static-site'
+  | 'astro-content-site';
 
 export interface BootstrapTemplateFile {
   root: 'workspace' | 'ssot';
@@ -422,6 +439,12 @@ async function collectBootstrapIntake(
           { label: '$(globe) BigCommerce Catalyst', description: 'Reviewable handoff to BigCommerce’s maintained Catalyst generator; records prerequisites, privacy, compatibility, and post-generation gates without running it.', template: 'bigcommerce-catalyst' as BootstrapTemplate },
           { label: '$(package) Magento 2 Module', description: 'Minimal registered Composer module with syntax/contract CI and explicit compatibility, privacy, and installation review gates.', template: 'magento2-module' as BootstrapTemplate },
           { label: '$(cloud) Wix Commerce', description: 'Reviewable handoff to Wix’s maintained Headless Commerce generator with install, Git, publish, provisioning, privacy, and release gates left under operator control.', template: 'wix-commerce' as BootstrapTemplate },
+          { label: '$(server-process) Next.js SaaS / Web App', description: 'Reviewable handoff to create-next-app with package installation, Git initialization, data model, tenancy, authentication, and deployment kept explicit.', template: 'nextjs-saas' as BootstrapTemplate },
+          { label: '$(browser) React Router SaaS / Web App', description: 'Current React Router framework-mode handoff (the successor path for Remix apps), with generated source and dependencies left for review.', template: 'react-router-saas' as BootstrapTemplate },
+          { label: '$(symbol-class) Laravel SaaS / Web App', description: 'Reviewable Laravel installer handoff; database, starter kit, authentication, migrations, frontend dependencies, and hosting remain operator decisions.', template: 'laravel-saas' as BootstrapTemplate },
+          { label: '$(symbol-method) Django SaaS / Web App', description: 'Version-explicit Python/Django environment handoff with project generation, migrations, secrets, and deployment kept outside bootstrap.', template: 'django-saas' as BootstrapTemplate },
+          { label: '$(file-code) Static Website', description: 'Dependency-free HTML/CSS starter with a restrictive CSP, accessibility baseline, built-in contract tests, and least-privilege CI.', template: 'static-site' as BootstrapTemplate },
+          { label: '$(book) Blog / CMS (Astro Content)', description: 'Reviewable Astro blog/content handoff plus an explicit repository-content versus managed-CMS decision gate.', template: 'astro-content-site' as BootstrapTemplate },
         ],
         { placeHolder: 'What type of project is this?' },
       );
@@ -3408,6 +3431,12 @@ function formatTemplateName(template: BootstrapTemplate): string {
     case 'bigcommerce-catalyst': return 'BigCommerce Catalyst';
     case 'magento2-module': return 'Magento 2 Module';
     case 'wix-commerce': return 'Wix Commerce';
+    case 'nextjs-saas': return 'Next.js SaaS / Web App';
+    case 'react-router-saas': return 'React Router SaaS / Web App';
+    case 'laravel-saas': return 'Laravel SaaS / Web App';
+    case 'django-saas': return 'Django SaaS / Web App';
+    case 'static-site': return 'Static Website';
+    case 'astro-content-site': return 'Blog / CMS (Astro Content)';
   }
 }
 
@@ -3464,6 +3493,48 @@ function enrichIntakeForTemplate(intake: BootstrapProjectIntake, template: Boots
       intake.productOutcome ??= 'Launch a Wix Stores storefront while keeping provisioning, dependency installation, Git initialization, and publishing explicit.';
       intake.targetAudience ??= 'Wix shoppers, site operators, and developers maintaining the storefront.';
       break;
+    case 'nextjs-saas':
+      intake.techStack ??= 'Next.js, React, TypeScript, Node.js';
+      intake.thirdPartyTools ??= 'create-next-app, package registry, GitHub Actions';
+      intake.productSummary ??= 'A server-rendered SaaS or web application generated through the official Next.js toolchain.';
+      intake.productOutcome ??= 'Launch a reviewable web application with explicit tenancy, authentication, data, billing, and deployment decisions.';
+      intake.targetAudience ??= 'Application users, account administrators, support staff, and the engineering team operating the service.';
+      break;
+    case 'react-router-saas':
+      intake.techStack ??= 'React Router framework mode, React, TypeScript, Node.js';
+      intake.thirdPartyTools ??= 'create-react-router, package registry, GitHub Actions';
+      intake.productSummary ??= 'A server-first React Router application using the maintained successor path for Remix framework projects.';
+      intake.productOutcome ??= 'Launch a reviewable web application without freezing AtlasMind to a retired generator or deployment template.';
+      intake.targetAudience ??= 'Application users, account administrators, support staff, and the engineering team operating the service.';
+      break;
+    case 'laravel-saas':
+      intake.techStack ??= 'Laravel, PHP, Composer, Vite';
+      intake.thirdPartyTools ??= 'Laravel Installer, Composer, package registry, GitHub Actions';
+      intake.productSummary ??= 'A Laravel SaaS or web application generated through the official interactive installer.';
+      intake.productOutcome ??= 'Launch a reviewable application with the database, starter kit, authentication, queues, tenancy, and deployment chosen deliberately.';
+      intake.targetAudience ??= 'Application users, administrators, support staff, and the team operating the Laravel service.';
+      break;
+    case 'django-saas':
+      intake.techStack ??= 'Django, Python, ASGI or WSGI';
+      intake.thirdPartyTools ??= 'Python virtual environments, pip, django-admin, GitHub Actions';
+      intake.productSummary ??= 'A version-pinned Django SaaS or web application generated inside an isolated Python environment.';
+      intake.productOutcome ??= 'Launch a reviewable Django service with explicit dependencies, settings, database, authentication, and production-server choices.';
+      intake.targetAudience ??= 'Application users, administrators, support staff, and the team operating the Django service.';
+      break;
+    case 'static-site':
+      intake.techStack ??= 'HTML, CSS, Node.js built-in test runner';
+      intake.thirdPartyTools ??= 'GitHub Actions';
+      intake.productSummary ??= 'A dependency-free static website with an accessible, restrictive, testable baseline.';
+      intake.productOutcome ??= 'Publish a small website without adding a framework, package install, server runtime, or hidden deployment decision.';
+      intake.targetAudience ??= 'Visitors reading a public information, brochure, portfolio, or campaign website.';
+      break;
+    case 'astro-content-site':
+      intake.techStack ??= 'Astro, TypeScript, Markdown or MDX, content collections';
+      intake.thirdPartyTools ??= 'Astro CLI, package registry, optional managed CMS, GitHub Actions';
+      intake.productSummary ??= 'A content-first blog or CMS-backed website generated through Astro’s maintained blog template.';
+      intake.productOutcome ??= 'Launch a content workflow whose schema, editorial authority, preview path, and publishing boundary are explicit.';
+      intake.targetAudience ??= 'Readers, content authors, editors, reviewers, and the team operating the publishing pipeline.';
+      break;
   }
 }
 
@@ -3492,6 +3563,12 @@ function defaultTemplateProjectName(template: BootstrapTemplate): string {
     case 'bigcommerce-catalyst': return 'My BigCommerce Storefront';
     case 'magento2-module': return 'My Magento Module';
     case 'wix-commerce': return 'My Wix Storefront';
+    case 'nextjs-saas': return 'My Next.js App';
+    case 'react-router-saas': return 'My React Router App';
+    case 'laravel-saas': return 'My Laravel App';
+    case 'django-saas': return 'My Django App';
+    case 'static-site': return 'My Static Website';
+    case 'astro-content-site': return 'My Content Site';
     default: return 'My Shopify Project';
   }
 }
@@ -3529,6 +3606,24 @@ export function buildBootstrapTemplateFiles(
       break;
     case 'wix-commerce':
       buildWixCommerceFiles(files, projectName);
+      break;
+    case 'nextjs-saas':
+      buildSaasWebGeneratorHandoffFiles(files, projectName, saasWebGeneratorSpec(template));
+      break;
+    case 'react-router-saas':
+      buildSaasWebGeneratorHandoffFiles(files, projectName, saasWebGeneratorSpec(template));
+      break;
+    case 'laravel-saas':
+      buildSaasWebGeneratorHandoffFiles(files, projectName, saasWebGeneratorSpec(template));
+      break;
+    case 'django-saas':
+      buildSaasWebGeneratorHandoffFiles(files, projectName, saasWebGeneratorSpec(template));
+      break;
+    case 'static-site':
+      buildStaticSiteFiles(files, projectName);
+      break;
+    case 'astro-content-site':
+      buildSaasWebGeneratorHandoffFiles(files, projectName, saasWebGeneratorSpec(template));
       break;
   }
   return files;
@@ -4731,6 +4826,579 @@ function buildWixCommerceFiles(
   );
 }
 
+type SaasWebGeneratorTemplate =
+  | 'nextjs-saas'
+  | 'react-router-saas'
+  | 'laravel-saas'
+  | 'django-saas'
+  | 'astro-content-site';
+
+interface SaasWebGeneratorSpec {
+  label: string;
+  handoffFile: string;
+  ownership: string;
+  prerequisites: readonly string[];
+  commands: readonly string[];
+  effects: readonly string[];
+  acceptance: readonly string[];
+  sources: readonly string[];
+  privacySurfaces: readonly string[];
+  compatibilitySurfaces: readonly string[];
+}
+
+function saasWebGeneratorSpec(template: SaasWebGeneratorTemplate): SaasWebGeneratorSpec {
+  switch (template) {
+    case 'nextjs-saas':
+      return {
+        label: 'Next.js SaaS / Web App',
+        handoffFile: 'NEXTJS_SAAS_HANDOFF.md',
+        ownership: 'create-next-app owns the framework source, dependency ranges, linter choice, App Router defaults, and generated agent instructions.',
+        prerequisites: [
+          'Node.js 20.9 or newer, verified against the current Next.js requirements immediately before generation',
+          'Corepack-enabled pnpm and a new child-directory name that does not already contain work',
+          'A decision on whether the application needs server features or can use a static export',
+        ],
+        commands: [
+          'corepack enable pnpm',
+          'pnpm create next-app@latest <folder-name> --yes --skip-install --disable-git --use-pnpm',
+        ],
+        effects: [
+          '`pnpm create` retrieves and executes the current generator package',
+          'the generator writes a new Next.js source tree using current defaults and may reuse saved preferences',
+          '`--skip-install` and `--disable-git` leave application dependency installation and Git initialization separate',
+        ],
+        acceptance: [
+          'Record the generated Next.js, React, Node.js, and package-manager versions plus the lockfile',
+          'Review generated `AGENTS.md`/`CLAUDE.md`, package scripts, lint configuration, and every changed file before accepting them',
+          'Declare the server/static rendering boundary and verify the chosen host supports every feature in use',
+          'Choose tenancy, identity, authorization, database, billing, email, jobs, observability, and backup boundaries before adding them',
+          'Run lint, typecheck, unit, integration, accessibility, end-to-end, and production-build gates before deployment',
+        ],
+        sources: [
+          'https://nextjs.org/docs/app/getting-started/installation',
+          'https://nextjs.org/docs/app/api-reference/cli/create-next-app',
+          'https://nextjs.org/docs/app/getting-started/deploying',
+        ],
+        privacySurfaces: [
+          'Accounts, sessions, tenant membership, roles, invitations, recovery, and administrative access',
+          'Route handlers, server actions, request metadata, caches, logs, analytics, and observability',
+          'Database, object storage, billing, email, background jobs, webhooks, and third-party processors',
+          'Development, preview, staging, and production environment separation',
+        ],
+        compatibilitySurfaces: [
+          'Next.js, React, TypeScript, Node.js, package-manager, and lockfile versions',
+          'App Router conventions, server/client boundaries, caching, route handlers, and server actions',
+          'Node server, container, static export, or platform adapter and its feature limitations',
+          'Authentication, database, billing, jobs, email, observability, and storage adapters',
+          'Modern browser, accessibility, locale, time-zone, responsive, and degraded-network behaviour',
+        ],
+      };
+    case 'react-router-saas':
+      return {
+        label: 'React Router SaaS / Web App',
+        handoffFile: 'REACT_ROUTER_SAAS_HANDOFF.md',
+        ownership: 'React Router framework mode is the maintained successor path for new Remix-style applications; create-react-router owns the source tree and runtime template.',
+        prerequisites: [
+          'A supported Node.js release and npm/npx, verified against the selected React Router template',
+          'A new child-directory name that does not already contain work',
+          'A reviewed runtime/deployment template; framework mode can target different servers and platforms',
+        ],
+        commands: [
+          'npx create-react-router@latest <folder-name>',
+          'cd <folder-name>',
+          'npm install',
+        ],
+        effects: [
+          '`npx` retrieves and executes the current create-react-router package',
+          'the generator writes a framework-mode source tree and its selected runtime configuration',
+          '`npm install` executes package lifecycle scripts and is intentionally a separate review decision',
+        ],
+        acceptance: [
+          'Record the generated React Router, React, Vite, Node.js, package-manager, runtime-template, and lockfile versions',
+          'Review the generator output and package scripts before dependency installation',
+          'Confirm loaders, actions, sessions, cookies, CSRF handling, authorization, and error boundaries fail safely',
+          'Choose tenancy, identity, database, billing, jobs, email, observability, and hosting boundaries before adding them',
+          'Run lint, typecheck, unit, integration, accessibility, end-to-end, and production-build gates before deployment',
+        ],
+        sources: [
+          'https://reactrouter.com/start/framework/installation',
+          'https://reactrouter.com/tutorials/quickstart',
+        ],
+        privacySurfaces: [
+          'Accounts, sessions, cookies, tenant membership, roles, invitations, and administrative access',
+          'Loaders, actions, forms, request metadata, caches, logs, analytics, and observability',
+          'Database, object storage, billing, email, background jobs, webhooks, and third-party processors',
+          'Development, preview, staging, and production environment separation',
+        ],
+        compatibilitySurfaces: [
+          'React Router, React, Vite, TypeScript, Node.js, package-manager, and lockfile versions',
+          'Selected runtime template, server rendering, loaders/actions, sessions, cookies, and streaming',
+          'Authentication, database, billing, jobs, email, observability, and storage adapters',
+          'Hosting runtime, reverse proxy, asset delivery, cache, and environment configuration',
+          'Modern browser, accessibility, locale, time-zone, responsive, and degraded-network behaviour',
+        ],
+      };
+    case 'laravel-saas':
+      return {
+        label: 'Laravel SaaS / Web App',
+        handoffFile: 'LARAVEL_SAAS_HANDOFF.md',
+        ownership: 'The interactive Laravel installer owns framework source, starter-kit, testing-framework, and database choices; AtlasMind must not answer those prompts on the project’s behalf.',
+        prerequisites: [
+          'Supported PHP and Composer releases plus the reviewed Laravel installer',
+          'Node.js/npm or Bun for frontend assets if the chosen starter uses them',
+          'A new child-directory name and a disposable development database boundary',
+        ],
+        commands: [
+          'composer global require laravel/installer',
+          'laravel new <folder-name>',
+        ],
+        effects: [
+          'Composer retrieves executable packages and may run package lifecycle scripts',
+          'the installer interactively chooses a starter kit, test runner, and database, then writes application source',
+          'current defaults can create an SQLite database and run migrations during generation',
+          'the generated `.env` contains environment-specific application material and must never be committed',
+        ],
+        acceptance: [
+          'Record Laravel, PHP, Composer, Node/Bun, database, starter-kit, test-runner, and lockfile versions',
+          'Review `composer.json`, `package.json`, lifecycle scripts, `.env.example`, and migrations before installation or execution',
+          'Confirm authentication, authorization policies, CSRF, validation, queues, scheduler, mail, storage, and rate limits fail safely',
+          'Choose tenancy, billing, database, cache, queue, search, observability, backup, and hosting boundaries explicitly',
+          'Run Composer validation, lint/static analysis, tests, frontend build, migration rollback, and production checks before deployment',
+        ],
+        sources: [
+          'https://laravel.com/framework/docs/12.x',
+          'https://laravel.com/docs/12.x/deployment',
+        ],
+        privacySurfaces: [
+          'Users, sessions, tenant membership, roles, invitations, recovery, and administrator access',
+          'Requests, validation failures, queues, scheduler, mail, notifications, logs, cache, and observability',
+          'Database, filesystem/object storage, billing, search, webhooks, exports, and third-party processors',
+          'Local `.env`, CI secrets, encryption keys, development, staging, and production separation',
+        ],
+        compatibilitySurfaces: [
+          'Laravel, PHP, Composer, Node/Bun, package-manager, and lockfile versions',
+          'Database, migrations, cache, queue, session, mail, search, filesystem, and scheduler drivers',
+          'Starter kit, authentication, authorization, tenancy, billing, and frontend stack',
+          'Web server, process manager, queue workers, scheduler, storage permissions, and deployment topology',
+          'Install, upgrade, rollback, backup restore, locale, time-zone, accessibility, and browser behaviour',
+        ],
+      };
+    case 'django-saas':
+      return {
+        label: 'Django SaaS / Web App',
+        handoffFile: 'DJANGO_SAAS_HANDOFF.md',
+        ownership: 'Django’s installed package owns startproject output; the project must first choose a supported Python/Django pair and an isolated environment.',
+        prerequisites: [
+          'A supported Python release; Django 6.0 requires Python 3.12 or newer',
+          'An isolated virtual-environment path and an explicitly reviewed stable Django version',
+          'A safe Python package identifier distinct from built-ins such as `django` and `test`',
+        ],
+        commands: [
+          'python -m venv <environment-path>',
+          '<environment-python> -m pip install "Django==<reviewed-version>"',
+          '<environment-python> -m django startproject <python-package-name> <folder-name>',
+        ],
+        effects: [
+          'the environment and pip commands create files and retrieve executable packages',
+          'startproject writes `manage.py`, settings, URL configuration, and ASGI/WSGI entry points',
+          'the generated secret key is development material and must be replaced through environment-specific secret management',
+          'migrations, administrator creation, and development-server startup remain separate operator actions',
+        ],
+        acceptance: [
+          'Record Python, Django, pip, dependency-lock, database, ASGI/WSGI server, and operating-system versions',
+          'Review settings, secret handling, allowed hosts, CSRF origins, middleware, URL configuration, and dependencies before running migrations',
+          'Confirm authentication, authorization, admin exposure, sessions, uploads, email, tasks, logging, and rate limits fail safely',
+          'Choose tenancy, billing, database, cache, task queue, observability, backup, and hosting boundaries explicitly',
+          'Run system checks, migrations/rollback, tests, static analysis, asset collection, and deployment checks before release',
+        ],
+        sources: [
+          'https://docs.djangoproject.com/en/6.0/intro/tutorial01/',
+          'https://docs.djangoproject.com/en/6.0/ref/django-admin/',
+          'https://docs.djangoproject.com/en/dev/faq/install/',
+          'https://docs.djangoproject.com/en/6.0/howto/deployment/checklist/',
+        ],
+        privacySurfaces: [
+          'Users, sessions, tenant membership, groups, permissions, recovery, and administrator access',
+          'Requests, forms, uploads, email, tasks, signals, cache, logs, and observability',
+          'Database, media/object storage, billing, search, webhooks, exports, and third-party processors',
+          'Secret key, CSRF/host configuration, CI secrets, and development/staging/production separation',
+        ],
+        compatibilitySurfaces: [
+          'Django, Python, pip/lock tool, database, and operating-system versions',
+          'ASGI/WSGI server, reverse proxy, static/media storage, cache, sessions, email, and task queue',
+          'Authentication, authorization, admin, tenancy, billing, observability, and third-party applications',
+          'Migrations, rollback, backup restore, deployment checks, locale, and time-zone behaviour',
+          'Accessibility, browser, responsive, upload, and degraded-network behaviour',
+        ],
+      };
+    case 'astro-content-site':
+      return {
+        label: 'Blog / CMS (Astro Content)',
+        handoffFile: 'ASTRO_CONTENT_HANDOFF.md',
+        ownership: 'Astro’s maintained blog template owns the source tree; the project separately owns whether content stays in the repository or comes from a managed CMS.',
+        prerequisites: [
+          'Node.js 22.12 or newer and npm, verified against current Astro requirements',
+          'A new child-directory name that does not already contain work',
+          'A declared editorial model: repository-owned content, build-time remote content, or live CMS content',
+        ],
+        commands: [
+          'npm create astro@latest <folder-name> -- --template blog --no-install --no-git --no-ai',
+        ],
+        effects: [
+          '`npm create` retrieves and executes the current create-astro package',
+          'the generator downloads and writes the maintained blog template',
+          '`--no-install`, `--no-git`, and `--no-ai` leave dependencies, repository state, and external instruction files separate',
+          'adding a managed CMS later introduces network, credential, preview, webhook, and content-residency boundaries',
+        ],
+        acceptance: [
+          'Record Astro, Node.js, package-manager, content-loader, integration, adapter, and lockfile versions',
+          'Review the generated source and package scripts before installing dependencies',
+          'Declare content schema, slug stability, authorship, review, preview, scheduled publishing, corrections, deletion, and redirects',
+          'If using a managed CMS, document credentials, webhooks, preview isolation, cache invalidation, residency, export, and outage behaviour',
+          'Run content-schema, broken-link, accessibility, visual, unit, and production-build gates before publication',
+        ],
+        sources: [
+          'https://docs.astro.build/en/install-and-setup/',
+          'https://docs.astro.build/en/guides/content-collections/',
+          'https://github.com/withastro/astro/blob/main/packages/create-astro/README.md',
+        ],
+        privacySurfaces: [
+          'Author/editor identities, drafts, review comments, preview URLs, publication history, and audit metadata',
+          'Newsletter forms, comments, search, analytics, embeds, cookies, logs, and observability',
+          'CMS APIs, webhooks, media/object storage, build cache, CDN, backups, and third-party processors',
+          'Development, preview, staging, production, corrections, export, retention, and deletion behaviour',
+        ],
+        compatibilitySurfaces: [
+          'Astro, Node.js, package-manager, lockfile, content-loader, integration, and adapter versions',
+          'Markdown/MDX schema, content collections, slugs, redirects, feeds, sitemap, and pagination',
+          'Repository-owned, build-time remote, or live CMS content and its failure/cache behaviour',
+          'Build host, CDN, preview environment, webhooks, images, search, analytics, and publication workflow',
+          'Accessibility, browser, responsive, locale, time-zone, RSS, and degraded-network behaviour',
+        ],
+      };
+  }
+}
+
+function buildSaasWebGeneratorHandoffFiles(
+  files: BootstrapTemplateFile[],
+  projectName: string,
+  spec: SaasWebGeneratorSpec,
+): void {
+  const displayName = safeTemplateDisplayName(projectName, spec.label);
+  const markdownName = escapeTemplateHtml(displayName);
+
+  files.push(
+    {
+      root: 'workspace',
+      path: spec.handoffFile,
+      content: [
+        `# ${spec.label} generator handoff — ${markdownName}`,
+        '',
+        '> Status: Generator not run. No framework source, dependency tree, repository, database, account, or deployment was created.',
+        '',
+        spec.ownership,
+        'AtlasMind records a review boundary instead of copying a version-sensitive project tree or silently',
+        'executing a package installer. Generate into a new child directory, inspect it, then open that directory',
+        'as the project. This launchpad is not the generated application.',
+        '',
+        '## Preconditions',
+        '',
+        ...spec.prerequisites.map(item => `- [ ] ${item}.`),
+        '',
+        '## Reviewable commands',
+        '',
+        'Replace angle-bracket placeholders as data. Do not paste secrets into a command:',
+        '',
+        '```text',
+        ...spec.commands,
+        '```',
+        '',
+        'These commands are documentation only and were not executed by AtlasMind.',
+        '',
+        '## Effects when an operator runs them',
+        '',
+        ...spec.effects.map(item => `- ${item}.`),
+        '',
+        '## Acceptance gate after generation',
+        '',
+        ...spec.acceptance.map(item => `- [ ] ${item}.`),
+        '- [ ] Complete `docs/compatibility.md` and `docs/privacy.md` with evidence from the generated application.',
+        '- [ ] Import the generated directory into AtlasMind; do not treat this handoff launchpad as the application.',
+        '',
+        '## Official sources',
+        '',
+        ...spec.sources.map(source => `- ${source}`),
+        '',
+      ].join('\n'),
+    },
+    {
+      root: 'workspace',
+      path: 'docs/privacy.md',
+      content: templatePrivacyReview(markdownName, spec.privacySurfaces),
+    },
+    {
+      root: 'workspace',
+      path: 'docs/compatibility.md',
+      content: templateCompatibilityReview(markdownName, spec.compatibilitySurfaces),
+    },
+    {
+      root: 'ssot',
+      path: 'operations/getting-started.md',
+      content: [
+        `# Getting Started — ${markdownName}`,
+        '',
+        `AtlasMind created a reviewable ${spec.label} generator handoff, not an executable application.`,
+        `Read \`${spec.handoffFile}\`, verify its official sources, and resolve every precondition before`,
+        'running a command. Generate into a new child directory so the upstream tool cannot collide with',
+        'this launchpad or an existing project.',
+        '',
+        'After generation, inspect the source before installation or execution, preserve the generated lockfile,',
+        'and carry these privacy/compatibility records into the generated project. A successful generator exit',
+        'is setup evidence only; it is not evidence that security, accessibility, data protection, or deployment works.',
+        '',
+      ].join('\n'),
+    },
+  );
+}
+
+function buildStaticSiteFiles(
+  files: BootstrapTemplateFile[],
+  projectName: string,
+): void {
+  const displayName = safeTemplateDisplayName(projectName, 'My Static Website');
+  const htmlName = escapeTemplateHtml(displayName);
+  const markdownName = escapeTemplateHtml(displayName);
+  const slug = templateSlug(displayName, 'my-static-website');
+
+  files.push(
+    {
+      root: 'workspace',
+      path: 'index.html',
+      content: [
+        '<!doctype html>',
+        '<html lang="en">',
+        '<head>',
+        '  <meta charset="utf-8">',
+        '  <meta name="viewport" content="width=device-width, initial-scale=1">',
+        "  <meta http-equiv=\"Content-Security-Policy\" content=\"default-src 'self'; base-uri 'none'; form-action 'self'; object-src 'none'; img-src 'self' data:; style-src 'self'; script-src 'self'\">",
+        `  <meta name="description" content="${htmlName}">`,
+        `  <title>${htmlName}</title>`,
+        '  <link rel="stylesheet" href="assets/styles.css">',
+        '</head>',
+        '<body>',
+        '  <a class="skip-link" href="#main">Skip to content</a>',
+        '  <header class="site-header">',
+        `    <span class="brand">${htmlName}</span>`,
+        '    <nav aria-label="Primary">',
+        '      <a aria-current="page" href="./">Home</a>',
+        '      <a href="#about">About</a>',
+        '    </nav>',
+        '  </header>',
+        '  <main id="main">',
+        '    <section class="hero" aria-labelledby="hero-title">',
+        `      <p class="eyebrow">${htmlName}</p>`,
+        '      <h1 id="hero-title">A clear promise belongs here.</h1>',
+        '      <p>Replace this copy with the audience, outcome, and evidence captured in project memory.</p>',
+        '      <a class="button" href="#about">Learn more</a>',
+        '    </section>',
+        '    <section id="about" aria-labelledby="about-title">',
+        '      <h2 id="about-title">About this site</h2>',
+        '      <p>This dependency-free starter keeps content, styling, privacy, and deployment decisions visible.</p>',
+        '    </section>',
+        '  </main>',
+        '  <footer>',
+        '    <p>Replace with ownership, contact, privacy, and accessibility links before publishing.</p>',
+        '  </footer>',
+        '</body>',
+        '</html>',
+        '',
+      ].join('\n'),
+    },
+    {
+      root: 'workspace',
+      path: 'assets/styles.css',
+      content: [
+        ':root {',
+        '  color-scheme: light dark;',
+        '  font-family: system-ui, sans-serif;',
+        '  line-height: 1.6;',
+        '  --surface: #ffffff;',
+        '  --text: #172033;',
+        '  --accent: #174ea6;',
+        '  --focus: #b42318;',
+        '}',
+        '* { box-sizing: border-box; }',
+        'html { scroll-behavior: smooth; }',
+        'body { margin: 0; background: var(--surface); color: var(--text); }',
+        'a { color: var(--accent); }',
+        'a:focus-visible { outline: 3px solid var(--focus); outline-offset: 3px; }',
+        '.skip-link { position: absolute; left: 1rem; top: -5rem; padding: .75rem 1rem; background: var(--surface); }',
+        '.skip-link:focus { top: 1rem; }',
+        '.site-header, main, footer { width: min(70rem, calc(100% - 2rem)); margin-inline: auto; }',
+        '.site-header { display: flex; justify-content: space-between; gap: 1rem; padding-block: 1.25rem; }',
+        'nav { display: flex; flex-wrap: wrap; gap: 1rem; }',
+        '.hero { padding-block: clamp(4rem, 12vw, 9rem); }',
+        'h1 { max-width: 18ch; font-size: clamp(2.5rem, 8vw, 5.5rem); line-height: 1.05; }',
+        '.hero > p { max-width: 62ch; }',
+        '.eyebrow { font-weight: 700; letter-spacing: .08em; text-transform: uppercase; }',
+        '.button { display: inline-block; margin-top: 1rem; padding: .75rem 1rem; border: 2px solid currentColor; }',
+        'section, footer { padding-block: 2rem; }',
+        '@media (prefers-color-scheme: dark) {',
+        '  :root { --surface: #101725; --text: #f4f7fb; --accent: #9cc2ff; --focus: #ffb4a9; }',
+        '}',
+        '@media (prefers-reduced-motion: reduce) { html { scroll-behavior: auto; } }',
+        '',
+      ].join('\n'),
+    },
+    {
+      root: 'workspace',
+      path: 'package.json',
+      content: `${JSON.stringify({
+        name: slug,
+        version: '0.1.0',
+        private: true,
+        type: 'module',
+        scripts: { test: 'node --test' },
+      }, null, 2)}\n`,
+    },
+    {
+      root: 'workspace',
+      path: 'tests/static-contract.test.mjs',
+      content: [
+        "import assert from 'node:assert/strict';",
+        "import { readFile } from 'node:fs/promises';",
+        "import test from 'node:test';",
+        '',
+        "const html = await readFile(new URL('../index.html', import.meta.url), 'utf8');",
+        '',
+        "test('keeps the document accessibility and security contract', () => {",
+        "  assert.match(html, /<html lang=\"[^\"]+\">/);",
+        "  assert.match(html, /<meta name=\"viewport\"/);",
+        "  assert.match(html, /Content-Security-Policy/);",
+        "  assert.match(html, /<main id=\"main\">/);",
+        "  assert.match(html, /class=\"skip-link\"/);",
+        "  assert.match(html, /<nav aria-label=\"Primary\">/);",
+        "  assert.doesNotMatch(html, /<script(?:\s|>)(?![^>]*\bsrc=)/i);",
+        "  assert.doesNotMatch(html, /<style(?:\s|>)/i);",
+        '});',
+        '',
+      ].join('\n'),
+    },
+    {
+      root: 'workspace',
+      path: '.github/workflows/ci.yml',
+      content: [
+        'name: CI',
+        '',
+        'on:',
+        '  push:',
+        '    branches: [main]',
+        '  pull_request:',
+        '    branches: [main]',
+        '',
+        'permissions:',
+        '  contents: read',
+        '',
+        'jobs:',
+        '  static-contract:',
+        '    runs-on: ubuntu-latest',
+        '    timeout-minutes: 5',
+        '    steps:',
+        '      - uses: actions/checkout@v4',
+        '      - uses: actions/setup-node@v4',
+        '        with:',
+        "          node-version: '24'",
+        '      - name: Test static contract',
+        '        run: npm test',
+        '',
+      ].join('\n'),
+    },
+    {
+      root: 'workspace',
+      path: 'docs/privacy.md',
+      content: templatePrivacyReview(markdownName, [
+        'Forms, email links, analytics, embeds, cookies, fonts, maps, video, and third-party scripts',
+        'Web-server, CDN, DNS, access, error, and deployment logs',
+        'Contact details, newsletter data, downloadable files, and every external destination',
+        'Cache, archive, backup, correction, retention, export, and deletion behaviour',
+      ]),
+    },
+    {
+      root: 'workspace',
+      path: 'docs/compatibility.md',
+      content: templateCompatibilityReview(markdownName, [
+        'HTML and CSS validation',
+        'Keyboard, screen reader, zoom, contrast, reduced-motion, and forced-colour behaviour',
+        'Modern browser, responsive layout, print, slow-network, offline, and missing-asset behaviour',
+        'Links, redirects, canonical URLs, metadata, sitemap, robots, social cards, and 404 handling',
+        'Hosting, CDN, compression, cache-control, CSP/header, HTTPS, and rollback configuration',
+      ]),
+    },
+    {
+      root: 'ssot',
+      path: 'operations/getting-started.md',
+      content: [
+        `# Getting Started — ${markdownName}`,
+        '',
+        'AtlasMind created a dependency-free static website. No package was downloaded, no server was',
+        'started, no repository was initialized, and no hosting resource was created.',
+        '',
+        '## Verify',
+        '',
+        '```bash',
+        'npm test',
+        '```',
+        '',
+        'Open `index.html` directly for a content/layout check. Before publishing, choose a local preview',
+        'server that serves only this directory, validate HTML/CSS and links, complete the privacy and',
+        'compatibility records, and review the host’s HTTPS, headers, caching, redirects, and rollback path.',
+        '',
+      ].join('\n'),
+    },
+  );
+}
+
+function templatePrivacyReview(displayName: string, surfaces: readonly string[]): string {
+  return [
+    `# Privacy review — ${displayName}`,
+    '',
+    '> Status: Not assessed. This record asks questions; it does not assert legal compliance.',
+    '',
+    '## Data inventory',
+    '',
+    '| Data category | Purpose | Source | Destination | Retention | Lawful basis | Owner |',
+    '|---|---|---|---|---|---|---|',
+    '| _Not assessed_ |  |  |  |  |  |  |',
+    '',
+    '## Surfaces to assess',
+    '',
+    ...surfaces.map(surface => `- [ ] ${surface}.`),
+    '',
+    '## Required decisions',
+    '',
+    '- [ ] Minimise collected data, credentials, permissions, logging, and third-party disclosure.',
+    '- [ ] Declare each processor, transfer, residency decision, retention period, and accountable owner.',
+    '- [ ] Define consent, access, correction, export, deletion, legal hold, and incident handling.',
+    '- [ ] Verify caches, logs, queues, backups, previews, scheduled work, and account/project deletion.',
+    '',
+  ].join('\n');
+}
+
+function templateCompatibilityReview(displayName: string, surfaces: readonly string[]): string {
+  return [
+    `# Compatibility record — ${displayName}`,
+    '',
+    '> Status: Not assessed. Declare support only after running the matching matrix.',
+    '',
+    '| Surface | Version/configuration tested | Result | Evidence |',
+    '|---|---|---|---|',
+    ...surfaces.map(surface => `| ${surface} |  | Not assessed |  |`),
+    '',
+    'If a row is not applicable, record why. Never convert an untested row into a compatibility claim.',
+    '',
+  ].join('\n');
+}
+
 function commercePrivacyReview(displayName: string, surfaces: readonly string[]): string {
   return [
     `# Privacy review — ${displayName}`,
@@ -4780,6 +5448,15 @@ function safeTemplateDisplayName(value: string, fallback: string): string {
     .trim()
     .slice(0, 80);
   return safe || fallback;
+}
+
+function escapeTemplateHtml(value: string): string {
+  return value
+    .replace(/&/g, '&amp;')
+    .replace(/</g, '&lt;')
+    .replace(/>/g, '&gt;')
+    .replace(/"/g, '&quot;')
+    .replace(/'/g, '&#39;');
 }
 
 function templateSlug(value: string, fallback: string): string {

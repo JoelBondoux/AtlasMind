@@ -29,7 +29,8 @@ compliance-profile abstraction remains a frontier item below.
 AtlasMind will deliver fast-start, opinionated project templates for:
     - **E‑Commerce (delivered):** Shopify; WooCommerce Extension; BigCommerce Catalyst handoff;
       Magento 2 Module; and Wix Commerce handoff.
-    - **SaaS/Web Apps:** Next.js, Remix, Laravel, Django, Static, Blog/CMS
+    - **SaaS/Web Apps (delivered):** Next.js; React Router framework mode (the maintained path for
+      new Remix-style apps); Laravel; Django; Static Website; and Blog/CMS through Astro Content.
     - **Frontend:** Next.js, SvelteKit, Nuxt, React, Vue
     - **Mobile:** React Native, Expo, Flutter
     - **Game Dev:** Unity, Unreal, Godot, Web-based — specified in [project-composition.md](project-composition.md); phased plan in [`project_memory/roadmap/game-engine-integration.md`](../project_memory/roadmap/game-engine-integration.md).
@@ -51,6 +52,16 @@ module package Adobe documents as required, with no business behaviour or compat
 and Wix remain owned by their maintained generators: AtlasMind records prerequisites, commands, privacy,
 compatibility, and post-generation acceptance gates, but does not authenticate, provision remote account
 resources, install dependencies, initialize Git, or publish.
+
+The SaaS/Web family follows the same ownership rule. Next.js, React Router, Laravel, Django, and Astro
+remain upstream-generated: `/bootstrap` records current commands, prerequisites, side effects, privacy/
+compatibility matrices, and acceptance gates but runs nothing. Next.js and Astro expose flags that keep
+application dependency installation and Git initialization separate; Laravel and Django instead receive
+honest interactive/version-pinned handoffs because their database, environment, and runtime choices are
+project decisions. Static Website is the exception worth owning natively: a small dependency-free HTML/
+CSS surface with escaped project text, a restrictive document CSP, accessibility defaults, built-in Node
+contract tests, and least-privilege CI. Blog/CMS makes repository-owned, build-time remote, and live CMS
+content separate declared choices rather than silently adding a hosted content dependency.
 
 ### World-Class Developer Experience (Cross-Persona)
 

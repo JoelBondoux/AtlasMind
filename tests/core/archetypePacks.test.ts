@@ -237,6 +237,12 @@ describe('archetypeFromProjectTypeLabel', () => {
       ['BigCommerce Catalyst', 'website'],
       ['Magento 2 Module', 'library'],
       ['Wix Commerce', 'website'],
+      ['Next.js SaaS / Web App', 'web-app'],
+      ['React Router SaaS / Web App', 'web-app'],
+      ['Laravel SaaS / Web App', 'web-app'],
+      ['Django SaaS / Web App', 'web-app'],
+      ['Static Website', 'website'],
+      ['Blog / CMS (Astro Content)', 'website'],
     ];
     for (const [label, expected] of cases) {
       expect(archetypeFromProjectTypeLabel(label), label).toBe(expected);

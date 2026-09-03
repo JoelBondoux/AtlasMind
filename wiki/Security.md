@@ -489,6 +489,15 @@ provision stores/sites/apps, install packages, initialize Git, start a server, o
 conservative form disables install, Git, and publish, while explicitly stating that running the external
 CLI still provisions remote account resources.
 
+SaaS/Web generator prefabs use the same non-execution boundary. Next.js, React Router, Laravel, Django,
+and Astro commands are documentation with literal placeholders, never a command composed from project
+text. Handoffs identify package retrieval and lifecycle scripts, environment files and secrets, generated
+source, database creation/migrations, runtime/deployment choices, and CMS credentials/webhooks before an
+operator runs anything. Next.js and Astro use supported flags to separate dependency installation and Git;
+Astro also suppresses generator-authored AI instruction files. Static Website escapes the project name for
+HTML, emits no inline script/style, starts from a restrictive meta CSP, and requires hosting headers,
+privacy review, and compatibility evidence before publication.
+
 ### The generated workflow specifically
 
 A file in `.github/workflows/` runs on GitHub's infrastructure, with your repository's secrets, on a
