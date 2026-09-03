@@ -1340,6 +1340,25 @@ later edits. The hybrid content component records only `perforce`, with no depot
 engine-fork component records the boundary but leaves `upstream` absent until the team supplies a real
 remote/ref. Persisted draft values are checked against the closed preset ids before a builder runs.
 
+### UpstreamDivergence (`src/core/upstreamDivergence.ts`)
+
+The generic, read-only measure of distance from a component's declared Git upstream. It accepts a
+resolved component root plus an injected argv runner, resolves one unambiguous remote-tracking ref, and
+uses `merge-base`, `rev-list --left-right --count`, and NUL-delimited path diffs. No shell, fetch,
+checkout, merge, or domain vocabulary belongs here.
+
+Commits ahead/behind come from the symmetric range. Files diverged are the exact union of paths changed
+from the merge base to either tip; conflict-prone paths are the exact intersection and are explicitly
+candidates, not predicted conflicts. Evidence input and file counts are bounded. Display lists have a
+separate cap so large complete evidence retains exact counts, while failed, malformed, or over-bound
+evidence returns `unreadable` without a partial number or raw Git error.
+
+`takeUpstreamDivergenceSnapshot` keeps only the declared comparison identity, time, and four metrics.
+Trend derivation compares like with like and reports growing, shrinking, mixed, or unchanged movement;
+a different component/upstream, invalid snapshot, or backwards clock starts a first look. Persistence
+and presentation belong to consuming surfaces, so Phase 2 can apply the same facts without forking the
+Git semantics.
+
 ### ProjectVocabulary (`src/core/projectVocabulary.ts`)
 
 The nouns a project has **declared** for its own delivery pipeline and Git workflow, read once and in one place. It exists because two surfaces were answering the same question from different sources and disagreeing: a request to "promote to staging" was matched against a hand-maintained keyword table in the Orchestrator that contained neither `promote` nor `staging`, so the turn selected no tools and no context — while `project_memory/operations/delivery.json` had already recorded the answer (a stage of kind `staging`, named `Integration`, carrying `branchRef: develop`). The product knew; the part of the product that had to act did not, so the model fell back to `git branch`, found nothing called `staging`, and asked the user a question AtlasMind could have answered.

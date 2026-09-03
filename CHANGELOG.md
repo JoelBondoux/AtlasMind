@@ -6,6 +6,28 @@ The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/),
 
 ## [Unreleased]
 
+## [0.392.0] - 2026-09-03
+
+### Added
+
+- Added engine-agnostic `upstreamDivergence.ts` with an injected, argv-only Git runner and read-only
+  evidence for commits ahead/behind, paths changed on either side, and conflict-prone path overlap.
+- Added minimal divergence snapshots and deterministic growing, shrinking, mixed, unchanged, and
+  incomparable-baseline trend handling.
+- Added focused coverage for Git command construction, non-Git and unresolved visibility, absent or
+  unsafe declarations, malformed/failed evidence, exact bounded path counts, snapshots, and naming.
+
+### Changed
+
+- Exported the composition module's Git remote/ref validators so persisted declarations and Git
+  consumers share one security boundary.
+- Game Engine Integration Phase 1 is complete through C1.8; Phase 2 project reading is next.
+
+### Security
+
+- Upstream reads never fetch or write, never invoke a shell, suppress raw Git failure text, reject
+  unsafe coordinates and over-bound evidence, and never translate missing evidence into zero.
+
 ## [0.391.0] - 2026-09-03
 
 ### Added

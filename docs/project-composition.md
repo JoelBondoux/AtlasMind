@@ -15,7 +15,7 @@ property a reviewer may reject a change for violating.
 
 ### 0.2 Built versus proposed
 
-Phase 1 is built through C1.7: `projectComposition.ts` owns the closed roles/VCS vocabulary, strict
+Phase 1 is built through C1.8: `projectComposition.ts` owns the closed roles/VCS vocabulary, strict
 normalization, validation, declaration-over-proposal rule, and derived topology; `workspaceScope.ts`
 resolves explicit home/component/all requests while defaulting exactly to the first VS Code workspace
 folder; and `workflowConfig.ts` round-trips the declaration and publishes it in the Markdown mirror.
@@ -24,7 +24,8 @@ observed-delta into component scope. Each reports its scope, retains excluded co
 `not-visible`, and never substitutes zero for an unreadable VCS. Guided bootstrap's explicit Shopify
 multi-select validates theme + app + extension against the same generic model, and its four game
 architecture presets seed editable component sets without persisting a governing preset. Upstream
-divergence remains proposed.
+divergence is now a read-only, engine-agnostic core reading with bounded evidence and comparable
+snapshots; applying it to domain surfaces remains Phase 2 work.
 
 ### 0.3 Non-goals
 
@@ -163,6 +164,18 @@ This is **pure git and MUST NOT be engine-specific**. A forked game engine, a ve
 package, a Chromium fork and a patched Postgres have the same problem, and a module named for one of
 them guarantees a second copy for the others. The module is `upstreamDivergence.ts`.
 
+The implementation resolves the declared remote/ref to one remote-tracking ref and runs only
+argv-array `merge-base`, `rev-list`, and `diff --name-only -z` reads through an injected runner. It
+does not fetch: opening a reading cannot change cached refs or cross a network boundary. "Files
+diverged" is the exact union of paths changed from the merge base to each tip. "Conflict-prone" is
+their exact intersection — evidence that both sides touched a path, never a prediction that Git must
+conflict. Lists are capped for display while counts remain exact; evidence beyond the input bound is
+`unreadable`, not partial or zero.
+
+A minimal snapshot carries the component, declared upstream, time, and four measures. Like-for-like
+snapshots derive growing, shrinking, mixed, or unchanged movement. A different component/upstream,
+invalid snapshot, or backwards clock starts a new baseline so unrelated readings are never compared.
+
 Divergence past a project-declared threshold SHOULD be surfaced through `DebtRegister` as a derived
 signal, graded by the same rule table as every other entry. A register holding two scales is worse
 than one holding half the entries.
@@ -277,6 +290,6 @@ An implementation conforms when:
 - [x] A Shopify project expresses *theme + app + extension* as three components.
 - [ ] A component with `vcs: 'perforce'` reports `not-visible` rather than zero on every git surface.
 - [ ] Every multi-component count on every surface names its scope.
-- [ ] `upstreamDivergence` has no engine-specific symbol in it.
+- [x] `upstreamDivergence` has no engine-specific symbol in it.
 - [ ] No write path to any non-git version control system exists.
 - [x] A single-root workspace behaves exactly as it did at v0.213.0; default scope remains the first folder.

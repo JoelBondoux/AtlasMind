@@ -364,30 +364,37 @@ function sanitizeArchetype(value: unknown): ProjectComponentArchetype | undefine
   };
 }
 
+export function isSafeGitRemoteName(value: unknown): value is string {
+  return typeof value === 'string' && /^[a-z0-9][a-z0-9._-]{0,79}$/iu.test(value);
+}
+
+export function isSafeGitRef(value: unknown): value is string {
+  if (typeof value !== 'string' || value.length === 0 || value.length > 240) {
+    return false;
+  }
+  if (/[\u0000-\u0020\u007f~^:?*\[\\]/u.test(value)) {
+    return false;
+  }
+  if (value.startsWith('/') || value.endsWith('/') || value.endsWith('.') || value.endsWith('.lock')) {
+    return false;
+  }
+  if (value.includes('..') || value.includes('//') || value.includes('@{')) {
+    return false;
+  }
+  return value.split('/').every(segment => segment !== '' && !segment.startsWith('.'));
+}
+
 function sanitizeUpstream(value: unknown): ComponentUpstream | undefined {
   if (!isRecord(value)) {
     return undefined;
   }
   const remote = cleanDisplayText(value['remote'], 80);
   const ref = cleanDisplayText(value['ref'], 240);
-  if (!remote || !/^[a-z0-9][a-z0-9._-]{0,79}$/iu.test(remote) || !ref || !isSafeGitRef(ref)) {
+  if (!isSafeGitRemoteName(remote) || !isSafeGitRef(ref)) {
     return undefined;
   }
   const extra = unknownFields(value, UPSTREAM_KEYS);
   return { remote, ref, ...(extra ? { extra } : {}) };
-}
-
-function isSafeGitRef(ref: string): boolean {
-  if (/[\u0000-\u0020\u007f~^:?*\[\\]/u.test(ref)) {
-    return false;
-  }
-  if (ref.startsWith('/') || ref.endsWith('/') || ref.endsWith('.') || ref.endsWith('.lock')) {
-    return false;
-  }
-  if (ref.includes('..') || ref.includes('//') || ref.includes('@{')) {
-    return false;
-  }
-  return ref.split('/').every(segment => segment !== '' && !segment.startsWith('.'));
 }
 
 function sanitizeComponent(value: unknown): ProjectComponent | undefined {

@@ -169,6 +169,16 @@ Perforce studio, and engine-fork studio. The stored workflow contains no preset 
 so it remains editable team data rather than a governed template. Perforce receives no depot/credential,
 and an engine fork receives no invented upstream coordinates. Selection executes nothing.
 
+Upstream divergence is a general Git reading, not a game service. Given a resolved Git component with
+a declared remote/ref, AtlasMind reads its merge base, commits ahead/behind, paths changed on each side,
+and their overlap through argv-only commands. The union is the exact diverged-file count; the overlap is
+a list of conflict-prone candidates, not a prediction. It never fetches or changes refs. Bounded display
+lists preserve exact counts, while incomplete evidence remains `unreadable` rather than zero.
+
+Minimal snapshots add growing, shrinking, mixed, and unchanged trends. Comparisons restart when the
+component or upstream changes, history is invalid, or time moves backwards. This keeps the same module
+usable for any declared fork while leaving domain interpretation to the consuming studio.
+
 ### Remembering
 
 | Part | What it does |

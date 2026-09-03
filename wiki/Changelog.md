@@ -19,6 +19,21 @@ Older entries below describe the software as it was at the time and are delibera
 
 ---
 
+## v0.392.0 — Upstream divergence foundation
+
+Declared Git upstreams can now be measured without any engine- or product-specific logic. The core
+reading reports commits ahead and behind, the exact union of paths changed on either side of the merge
+base, and the exact overlap whose paths are conflict-prone candidates. Display lists are bounded while
+their counts remain exact.
+
+Small snapshots make the next reading comparable as growing, shrinking, mixed, or unchanged. A changed
+component/upstream, invalid history, or backwards clock starts a fresh baseline instead of comparing
+unlike evidence. Non-Git, unresolved, undeclared, failed, malformed, and over-bound states remain
+explicit unknowns. Git calls use argv arrays, do not invoke a shell, and never fetch or mutate refs.
+
+Game Engine Integration Phase 1 is now complete through C1.8. Phase 2 will consume this general module
+for declared engine components while fork-based and embedded projects can use the same evidence.
+
 ## v0.391.0 — Game architecture seeds
 
 Guided bootstrap now offers four common game layouts: single-repo indie, multi-repo studio, hybrid
