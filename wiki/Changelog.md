@@ -19,6 +19,34 @@ Older entries below describe the software as it was at the time and are delibera
 
 ---
 
+## v0.383.0 — Privacy documented; WooCommerce prefab begun
+
+Local CI inspection-memory tests now pin the time used by fresh-record assertions. Their fixed August
+fixture can no longer age into an expiry failure and block the mutation-testing gate as the calendar moves.
+
+The mutation gate now excludes static mutants after Stryker measured 29 of them as 4% of the configured
+mutations but 96% of a roughly hour-long projection. All non-static mutations in the three declared
+policy modules remain covered; the bounded run classified 740 mutants at 60.68%, above its declared
+50% break threshold, with zero timeouts.
+
+BDD evidence now pairs a Gherkin commerce-bootstrap feature with the matching executable Vitest
+scenarios. The feature names the user behavior, and the test asserts ownership of that scenario before
+exercising the safe file-plan and hostile-name boundaries.
+
+AtlasMind's GDPR and Data Privacy controls now have matching user and developer guides. They explain
+what is detected, when values are redacted or files withheld, how the trusted-model allow-list works,
+what privacy activity retains, and where provider governance information is surfaced.
+
+The guide also records the important negative promise: there is no per-turn GDPR bypass. Ordinary
+approvals and retries cannot override the boundary, and editing or disabling the project policy is a
+persistent configuration change—not a reasoned, logged exception. The roadmap's documentation item is
+complete without claiming certification or a future compliance capability as already shipped.
+
+Guided bootstrap also gains a WooCommerce Extension option. It creates a safe plugin shell with an
+explicit WooCommerce dependency, direct-access guard, HPOS declaration, public-hook starter, CI,
+distribution exclusions, and compatibility/privacy records that begin Not assessed. It runs no install
+or network command; the getting-started record shows those commands for The User to review and run.
+
 ## v0.382.7 — Published baseline recorded
 
 The README now identifies `v0.382.6` as the latest successful Marketplace publication. The source

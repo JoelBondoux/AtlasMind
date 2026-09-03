@@ -16,17 +16,18 @@ The schema review maps fields across forms, API contracts, validators/DTOs, doma
 - Refactor orchestrator and chat participant to support stepwise execution, progress streaming, and partial recovery for multi-step prompts.
 - Update documentation and user guidance to reflect new chat and planning behaviors.
 
-### Project Settings: GDPR Toggle (Security & Compliance)
-- Add a GDPR compliance toggle in project settings. When enabled, AtlasMind will:
-    - Enforce GDPR regulatory restrictions across the project.
-    - Detect, parse, and control retention and transfer of PII data.
-    - Deny overrides unless explicit reasoning is provided within GDPR-compliant frameworks.
-    - Allow overrides only when justified and logged with GDPR-appropriate rationale.
-    - Document all GDPR-related controls and override policies in user-facing and developer documentation.
+### Data Privacy and GDPR controls (Documentation delivered)
+
+AtlasMind's current technical controls, activation defaults, transfer boundary, retained activity
+metadata, provider-governance references, and override limitations are documented in
+[Data privacy and GDPR controls](data-privacy-and-gdpr.md) and the
+[user guide](../wiki/Data-Privacy-and-GDPR.md). The documentation is explicit that AtlasMind does not
+yet implement a reasoned, logged per-run GDPR override or provide compliance certification. The broader
+compliance-profile abstraction remains a frontier item below.
 
 ### Prefab Architecture Packs (Summary)
 AtlasMind will deliver fast-start, opinionated project templates for:
-    - **E‑Commerce:** Shopify, WooCommerce, BigCommerce, Magento 2, Wix
+    - **E‑Commerce:** Shopify and WooCommerce extension prefabs are available; BigCommerce, Magento 2, and Wix remain planned.
     - **SaaS/Web Apps:** Next.js, Remix, Laravel, Django, Static, Blog/CMS
     - **Frontend:** Next.js, SvelteKit, Nuxt, React, Vue
     - **Mobile:** React Native, Expo, Flutter
@@ -39,6 +40,10 @@ AtlasMind will deliver fast-start, opinionated project templates for:
 
 **First Release Focus:**
 Shopify, Next.js SaaS, Static Website, Next.js App Router, React SPA, React Native, AI Orchestrator, Dockerised Full‑Stack, Full Testing, Auth, Payments.
+
+The WooCommerce slice creates a plugin shell, compatibility and privacy review records, and syntax/
+contract CI. It does not run the official generator, install WooCommerce, or claim compatibility before
+the project supplies evidence. See [Bootstrap and import](agents-and-skills.md#bootstrap-and-import).
 
 ### World-Class Developer Experience (Cross-Persona)
 

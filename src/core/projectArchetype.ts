@@ -165,6 +165,13 @@ const RULES: readonly ArchetypeRule[] = [
     reason: 'a desktop shell framework',
   },
   {
+    // A WooCommerce extension is distributable plugin code, not the merchant's
+    // storefront. Keep platform as a trait and use the existing library pack.
+    archetype: 'library',
+    any: ['"type": "wordpress-plugin"', 'requires plugins: woocommerce'],
+    reason: 'a WordPress/WooCommerce extension manifest',
+  },
+  {
     archetype: 'website',
     // Static-site generators produce a *site*, which releases and tests very
     // differently from an application that happens to run in a browser.
@@ -197,6 +204,8 @@ const TRAIT_RULES: readonly { trait: ArchetypeTrait; any?: readonly string[]; fi
   { trait: 'has-server', any: ['express', 'fastify', 'fastapi', 'flask', 'django', 'axum', 'gin-gonic'], reason: 'a server framework' },
   { trait: 'has-ui', any: ['react', 'vue', 'svelte', '@angular/core', 'electron', 'tauri'], reason: 'a UI framework' },
   { trait: 'platform-hosted', any: ['@shopify/', 'shopify.app.toml', 'vsce', '@vscode/vsce'], files: ['shopify.app.toml'], reason: 'a third-party platform manifest' },
+  { trait: 'is-published-package', any: ['"type": "wordpress-plugin"', 'requires plugins: woocommerce'], reason: 'a distributable plugin manifest' },
+  { trait: 'handles-personal-data', any: ['woocommerce'], reason: 'a commerce platform that processes customer and order data' },
   { trait: 'ships-binaries', any: ['pkg', 'nexe', 'pyinstaller', 'electron-builder', 'tauri'], reason: 'a binary packaging tool' },
 ];
 
@@ -318,6 +327,9 @@ export function fromBootstrapLabel(label: string | undefined): ArchetypeIdentity
   if (/shopify app/.test(text)) {
     return identity('web-app', 'platform-hosted', 'has-server');
   }
+  if (/woocommerce (?:extension|plugin)/.test(text)) {
+    return identity('library', 'is-published-package', 'handles-personal-data');
+  }
   if (/vs ?code extension/.test(text)) {
     return identity('library', 'platform-hosted', 'is-published-package');
   }
@@ -427,6 +439,7 @@ export function archetypeFromProjectTypeLabel(label: unknown): ProjectArchetype 
     // Shopify surfaces: a theme is a website, an app is a web app.
     [/shopify (new )?store|shopify.*theme/, 'website'],
     [/shopify app/, 'web-app'],
+    [/woocommerce (?:extension|plugin)/, 'library'],
   ];
 
   for (const [pattern, archetype] of rules) {

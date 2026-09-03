@@ -106,7 +106,11 @@ itself immediately.
 @atlas /bootstrap
 ```
 
-Creates the project memory structure and, optionally, starter CI/CD and governance files.
+Creates the project memory structure and, optionally, starter CI/CD and governance files. Guided intake
+also offers create-only platform prefabs. **WooCommerce Extension** produces a safe PHP plugin shell,
+HPOS and dependency declarations, syntax/contract CI, and compatibility/privacy review records that
+begin Not assessed. AtlasMind records local setup commands but does not run a generator, install
+packages, start Docker, or contact the network during bootstrap.
 
 **For an existing codebase:**
 

@@ -3,8 +3,15 @@ This file is the developer-facing backlog AtlasMind should absorb into SSOT and 
 > Priority order matters: items nearer the top receive more weight, but AtlasMind should still weigh criticality, security, architecture, delivery risk, and fresh execution evidence before choosing the next task.
 ## Prioritized Backlog
 <!-- atlasmind:roadmap-items:start -->
-- [ ] Document all GDPR-related controls and override policies in user-facing and developer documentation. <!-- removed by AtlasMind memory self-heal --> <!-- rm:document-all-gdpr-related-co-2 -->
-- [ ] Document all GDPR-related controls and override policies in user-facing and developer documentation. <!-- rm:document-all-gdpr-related-co -->
+- [x] Pay down: Property-Based is enabled with no evidence it runs <!-- rm:pay-down-property-based-is-e -->
+- [x] Pay down: performance is enabled with no evidence it runs <!-- rm:pay-down-performance-is-enab -->
+- [x] Pay down: mutation Testing is enabled with no evidence it runs <!-- rm:pay-down-mutation-testing-is -->
+- [x] Pay down: Model-Based (MBT) is enabled with no evidence it runs <!-- rm:pay-down-model-based-mbt-is -->
+- [x] Pay down: End-to-End is enabled with no evidence it runs <!-- rm:pay-down-end-to-end-is-enabl -->
+- [x] Pay down: contract is enabled with no evidence it runs <!-- rm:pay-down-contract-is-enabled -->
+- [x] Pay down: BDD is enabled with no evidence it runs <!-- rm:pay-down-bdd-is-enabled-with -->
+- [x] Pay down: ATDD is enabled with no evidence it runs <!-- rm:pay-down-atdd-is-enabled-wit -->
+- [x] Document all GDPR-related controls and override policies in user-facing and developer documentation. <!-- rm:document-all-gdpr-related-co -->
 - [ ] **E‑Commerce:** Shopify, WooCommerce, BigCommerce, Magento 2, Wix <!-- rm:e-commerce-shopify-woocommer -->
 - [ ] **SaaS/Web Apps:** Next.js, Remix, Laravel, Django, Static, Blog/CMS <!-- rm:saas-web-apps-next-js-remix -->
 - [ ] **Frontend:** Next.js, SvelteKit, Nuxt, React, Vue <!-- rm:frontend-next-js-sveltekit-n -->

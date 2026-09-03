@@ -4,7 +4,7 @@
 
 <h1 align="center">AtlasMind</h1>
 
-<p align="center"><sub> · <strong>Current source version: 0.382.7</strong> · </sub></p>
+<p align="center"><sub> · <strong>Current source version: 0.383.0</strong> · </sub></p>
 
 
 <p align="center">
@@ -125,7 +125,41 @@ Ambitious automation is only worth having if you can trust it. AtlasMind is buil
 
 Full detail in the [Security model](wiki/Security.md) and [Tool Execution](wiki/Tool-Execution.md).
 
+Personal and classified project context has a separate, opt-in boundary. The
+[Data privacy and GDPR guide](wiki/Data-Privacy-and-GDPR.md) explains the detector pack, trusted-model
+allow-list, redaction and file-withholding behaviour, retained metadata, provider references, and the
+important limits on overrides and compliance claims.
+
 ---
+
+## What's new in 0.383.0
+
+The last Marketplace publication, **v0.382.6**, is the baseline. The full history is in
+[CHANGELOG.md](CHANGELOG.md).
+
+- **The GDPR controls now have one honest operating contract.** User and developer guides enumerate
+  activation, detection, redaction, trusted-model routing, tool-result withholding, activity retention,
+  provider governance, and the Director PII consent gate. They also state that AtlasMind has no per-turn
+  privacy bypass and does not yet implement reasoned, logged GDPR exceptions or certify compliance.
+
+- **The promoted testing-debt batch and GDPR documentation item are complete.** The live managed
+  backlog now records the reconciled policy evidence and one completed GDPR item, leaving the prefab
+  architecture-pack programme as the next outstanding group.
+
+- **WooCommerce is the next delivered prefab slice.** Guided bootstrap can create a bounded extension
+  shell with a valid plugin header, WooCommerce dependency and HPOS declarations, direct-access guard,
+  public-hook-only starter class, syntax/contract CI, distribution exclusions, and Not-assessed privacy
+  and compatibility records. Bootstrap never runs its network or install commands.
+
+- **The mutation gate is bounded again.** Fixed-date Local CI memory tests no longer expire with the
+  calendar, and Stryker skips the small static-mutant class it measured as consuming nearly the entire
+  projected run while retaining all non-static mutations in the declared policy modules. The bounded
+  run classified 740 mutants and cleared its declared break threshold.
+
+- **The testing-policy debt is reconciled with executable evidence.** Property suites now have a
+  verified 588-test run, mutation testing has a measured score, and Gherkin commerce-bootstrap scenarios
+  are linked to the Vitest behavior that executes them. Five obligations disabled in the current policy
+  are retained as obsolete history instead of lingering as open work.
 
 ## What's new in 0.382.7
 

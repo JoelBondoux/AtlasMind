@@ -6,12 +6,54 @@ The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/),
 
 ## [Unreleased]
 
+## [0.383.0] - 2026-09-03
+
+### Added
+
+- **BDD evidence now pairs Gherkin with executable behavior.** Commerce-bootstrap scenarios live in a
+  `.feature` file and the matching Vitest cases assert that they own those scenario names before testing
+  the generated file plan and hostile-name boundary. This closes the gap where a feature file alone
+  could look like a methodology that actually ran.
+- **Guided bootstrap now includes a WooCommerce Extension prefab.** It creates a bounded PHP plugin
+  shell with WordPress/WooCommerce headers, a direct-access guard, a WooCommerce-active check, an HPOS
+  compatibility declaration, a public-hook-only starter class, Composer and `wp-env` metadata,
+  syntax/contract CI, distribution exclusions, and create-only getting-started guidance.
+- **Compatibility and privacy begin as questions, never claims.** The prefab includes review matrices
+  covering WordPress/WooCommerce versions, HPOS, blocks/editors, customer and order data, transfers,
+  retention, deletion, logs, caches, scheduled actions, and uninstall behaviour. Every row starts
+  `Not assessed`, and bootstrap runs no network or install command.
+- WooCommerce extension evidence resolves through the existing `library` archetype plus
+  `is-published-package` and `handles-personal-data` traits, so it receives package, privacy, and
+  security expectations without multiplying the archetype vocabulary by platform.
+
 ### Fixed
 
+- **The mutation gate is bounded to useful work.** Stryker now ignores static mutants after measuring
+  29 of them as 4% of the configured mutations but 96% of a roughly hour-long projected run. Every
+  non-static mutation in the three declared safety/policy modules remains in scope. The resulting run
+  classified 740 mutants at 60.68%, above the declared 50% break threshold, with zero timeouts.
+- **Local CI inspection-memory tests no longer expire with the calendar.** Assertions about a fresh
+  fixed-date record now pass an equally fixed evaluation time, so the normal and mutation suites keep
+  testing machine/image matching instead of changing meaning after the retention window elapses.
 - **Chat startup no longer dies when optional composer controls are absent.** The webview bootstrap now
   treats search, session-rail, and attachment controls as optional, only hard-failing on the truly
   essential transcript and composer elements. This preserves the chat surface when a partial DOM or a
   mismatched markup version is loaded during startup.
+
+### Documentation
+
+- **The implemented GDPR and Data Privacy controls now have a single operating reference.** User and
+  developer documentation covers activation, detector scope and limits, trusted-model decisions,
+  redaction and file withholding, activity retention, provider governance, Director PII consent, and
+  the testing/control-mapping boundary.
+- **Override claims now match the product.** The guides state that approvals and retries cannot bypass
+  privacy enforcement, while editing or disabling the saved policy is a persistent configuration change
+  without a required or audited GDPR rationale. AtlasMind therefore does not claim the future reasoned,
+  logged exception capability or compliance certification.
+- The completed GDPR documentation item is marked complete in the live developer backlog, and its
+  duplicate imported copy is collapsed into the durable roadmap record.
+- The testing debt register now distinguishes verified property/mutation/BDD evidence from five stale
+  obligations that the current project policy has disabled; every entry keeps its lifecycle history.
 
 ## [0.382.7] - 2026-08-22
 

@@ -1285,6 +1285,12 @@ CODEOWNERS generation is where a role becomes enforceable. Only the managed bloc
 
 **Archetype plus traits, not archetype alone.** A Shopify theme is a `website` that happens to be platform-hosted; a VS Code extension is a `library` that ships a packaged artifact. Modelling those as archetypes multiplies the set every time a platform appears, and each archetype is a promise that something specialises for it. Traits compose instead.
 
+A WooCommerce extension follows the same rule: it is a `library` with
+`is-published-package` and `handles-personal-data`, not a tenth platform-named archetype. Detection uses
+the WordPress plugin type/header plus WooCommerce evidence, and deliberately does not assign
+`platform-hosted` because a WooCommerce store may be self-hosted. The commerce trait adds privacy and
+secret-scanning expectations without claiming that every plugin reads customer data.
+
 **Detection suggests; declaration decides.** Inference from manifests is always a suggestion — the declared value is the truth, mirroring "profiles seed, they do not govern". `detectProjectArchetype` returns `confident: false` when nothing matched, so "this is a generic project" and "we could not tell" stay distinct facts; and `describeArchetypeAgreement` reports a disagreement rather than silently preferring one side, because a project deliberately declared `library` while its manifests look like `web-app` is a decision.
 
 Detection rules are ordered most-specific-first (React Native contains React) and short Node package names are gated to Node projects, because `next` matches inside `cargo-nextest`. The forward-mapping functions retire the other two vocabularies; `delivery.json` never persisted an archetype, so no schema migration was needed.
@@ -2159,6 +2165,10 @@ Bootstrap flow behavior:
   -> run guided/skippable project intake
   -> reuse out-of-turn details from earlier answers so later prompts can be skipped
   -> create SSOT structure
+  -> for an explicitly selected platform prefab, build a deterministic relative-path file plan
+     -> sanitize display name, slug, namespace, and generated source independently
+     -> write create-only; never run generator, install, Docker, or network commands
+     -> WooCommerce: plugin shell + HPOS/dependency guards + CI + Not-assessed review records
   -> write project_soul.md + project brief + roadmap + intake log + repository plan
   -> seed project_memory/ideas/ with intake-aware ideation defaults
   -> seed project-scoped Personality Profile defaults when the intake provides stable project context

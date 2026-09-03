@@ -101,6 +101,19 @@ describe('traits compose rather than multiplying the archetype set', () => {
       .toContain('platform-hosted');
   });
 
+  it('treats a WooCommerce extension as a library with commerce obligations', () => {
+    const detection = detectProjectArchetype({
+      corpus: '{"type": "wordpress-plugin", "description": "WooCommerce extension"}',
+      language: 'php',
+      files: ['composer.json'],
+    });
+    expect(detection.archetype).toBe('library');
+    expect(detection.confident).toBe(true);
+    expect(detection.traits).toContain('is-published-package');
+    expect(detection.traits).toContain('handles-personal-data');
+    expect(detection.traits).not.toContain('platform-hosted');
+  });
+
   it('does not duplicate a trait matched by several signals', () => {
     const detection = detect('electron tauri');
     expect(detection.traits.filter(t => t === 'ships-binaries').length).toBeLessThanOrEqual(1);
@@ -151,6 +164,10 @@ describe('the vocabularies this module replaces map forward', () => {
     expect(fromBootstrapLabel('VS Code Extension')?.archetype).toBe('library');
     expect(fromBootstrapLabel('Shopify Store / Theme')?.archetype).toBe('website');
     expect(fromBootstrapLabel('Shopify App')?.archetype).toBe('web-app');
+    expect(fromBootstrapLabel('WooCommerce Extension')).toEqual({
+      archetype: 'library',
+      traits: ['is-published-package', 'handles-personal-data'],
+    });
   });
 
   it('maps a Game label, which the old picker could not express at all', () => {

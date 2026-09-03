@@ -233,6 +233,7 @@ describe('archetypeFromProjectTypeLabel', () => {
       ['Desktop App', 'desktop'],
       ['Mobile App', 'mobile'],
       ['Game', 'game'],
+      ['WooCommerce Extension', 'library'],
     ];
     for (const [label, expected] of cases) {
       expect(archetypeFromProjectTypeLabel(label), label).toBe(expected);

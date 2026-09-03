@@ -99,10 +99,17 @@ path — you don't have to retype it.
 | **Skills Registry** | What tools exist and which an agent may use |
 | **Model Router** | Picks a model by budget, speed, capability, health and past outcomes |
 | **Task Profiler** | Works out how hard a task really is |
+| **Project Archetype & Prefab Plans** | Describes a project as a small archetype plus composable traits, then builds deterministic create-only starter plans for explicitly selected platforms |
 | **Project Vocabulary** | The delivery stages and branches *your project declared*, so "promote to staging" means what you said it means |
 | **Planner & Task Scheduler** | Breaks a goal into steps and runs them in dependency order |
 | **Mission Runner** | The autonomous loop, and the envelope that contains it |
 | **Cost Tracker** | What everything cost, per session and per model |
+
+WooCommerce does not become a platform-named archetype. An extension resolves as a library with
+published-package and personal-data traits, which supplies package, privacy, and security expectations
+without claiming it is hosted by WooCommerce. The guided prefab normalizes project text into bounded
+display-name, slug, namespace, and path forms, writes only missing files, and never executes the setup
+commands it records.
 
 ### Remembering
 

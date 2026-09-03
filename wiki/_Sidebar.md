@@ -26,6 +26,7 @@
 - [[Remote Control]]
 
 ### Trust
+- [[Data Privacy and GDPR]]
 - [[Security]]
 - [[Tool Execution]]
 

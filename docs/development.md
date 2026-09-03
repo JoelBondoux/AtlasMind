@@ -125,6 +125,12 @@ Turning the check on as a gate was not available: a few hundred pre-existing mis
 
 **Tests live under `tests/`, and nowhere else.** The runner's `include` is `tests/**/*.test.ts`. A test file placed in `src/`, in a singular `test/` directory, or given a `.spec.ts` suffix does not run and reports nothing — its presence then reads as coverage that does not exist. Five such files were found and moved in v0.220.0; two of them did not pass once they ran. If a test seems to be passing suspiciously easily, confirm the runner is picking it up before believing it.
 
+**BDD scenarios have an executable owner.** Gherkin files live under `tests/features/`; the matching
+Vitest scenario reads the feature and executes the behavior named by its `Scenario:` line. A feature
+file on its own is documentation, not evidence that BDD runs, while a Vitest test with no linked
+scenario is an ordinary behavioral test. The pair is what makes the project policy auditable without
+adding a second test runner.
+
 **`evals/` holds batteries that are deliberately *not* in the suite.** `tests/**` asserts what the code is contracted to do, so a failure there is a regression and must block a commit. `evals/chat-window.stress.ts` asserts what the chat window ought to do *for a person reading it* — a higher bar than the code currently clears — and its failures are findings, not regressions. Wiring it into `npm test` would make every finding a blocked commit, and the whole battery would be deleted within a week. It therefore runs from its own config, which is also why `tsconfig.json` (`include: src/**`) and the pre-commit hook are unaffected by anything in `evals/`.
 
 Two rules if you add probes to it. Each probe carries the question it asks *on the user's behalf* and why that shape is realistic for this codebase, so a failure reads as a defect report rather than a red assertion. And every lane interleaves **controls** — probes expected to pass — because a lane where nothing holds is broken outright rather than at the edges, and you cannot tell those apart from failures alone. Probes that scan source rather than calling a function need their regex anchored precisely: two of them originally passed by matching the wrong occurrence, which is a false pass of exactly the kind the battery exists to catch.
@@ -793,6 +799,13 @@ When accepted, AtlasMind creates missing governance files:
 
 Scaffolding is non-destructive and will not overwrite existing files.
 
+Platform prefabs use the same create-only rule. `buildBootstrapTemplateFiles()` is a pure plan boundary:
+it returns bounded workspace/SSOT-relative paths and content before the bootstrapper writes anything.
+The WooCommerce Extension plan normalizes the display name, slug, namespace, and paths separately;
+creates a minimal PHP plugin, compatibility/privacy records, and syntax/contract CI; and records the
+official environment commands without executing them. Tests inspect the whole plan, including hostile
+project-name input, without requiring WordPress, Docker, Composer, or a network connection.
+
 ## Versioning Workflow
 
 1. Make changes and choose the correct SemVer bump for the same commit.
@@ -809,6 +822,11 @@ Scaffolding is non-destructive and will not overwrite existing files.
 - Coverage reports are generated via `npm run test:coverage`.
 - Mutation testing is available through `npm run test:mutation`; the committed Stryker configuration starts with the safety-critical criticality, tool-policy, and agent-registry modules. It is deliberately a separate, slower check rather than part of the normal test command.
 - Stryker runs the suite through **`vitest.stryker.config.ts`**, not the ordinary config. It excludes exactly one test and suppresses the JUnit reporter, both for reasons that are easy to rediscover the hard way. Stryker copies the project into a sandbox, which is fine for the `fs`-only managers here — the copied tree is a perfectly good tree — but wrong for a test whose *subject* is this repository: `tests/baselines/testTypecheck.test.ts` is a ratchet over the working tree, it counts zero inside the sandbox, concludes 244 errors were fixed, and fails. Stryker will not mutate an already-red suite, and is right not to — a mutant "killed" by a test that was failing anyway is not evidence of anything. The exclusion is one file rather than a list of the fifty tests that read repository paths, because almost all of those work fine and a broad list would quietly narrow what mutation testing covers. The reporter override matters just as much: a mutation run executes the suite hundreds of times against deliberately broken code, and letting it write `test-results/junit.xml` would leave the Testing dashboard reporting Stryker's induced failures as the project's own.
+- Static mutants are excluded by `ignoreStatic`. Stryker measured 29 of them as only 4% of the
+  configured mutants but projected them to consume 96% of an hour-long run because each requires the
+  whole 7,659-test process to reload. The bounded gate still exercises every non-static mutation in the
+  three declared policy modules; a separate unbounded static run can be invoked deliberately when its
+  cost is justified.
 - Stryker's `typed-rest-client@2.3.1` pins `qs@6.15.1` exactly even though `6.15.2` contains the CVE-2026-8723 fix. The root manifest therefore overrides `qs` to `6.15.2` across the dependency tree; every other consumer already resolves to or accepts that patch. Keep the override until upstream removes the vulnerable exact pin, and verify both `npm ls qs --all` and production/full `npm audit` before deleting it.
 - CI runs compile, lint, test, and coverage on push and pull requests to **`main` and `develop`**, and on manual `workflow_dispatch`.
 

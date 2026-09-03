@@ -84,19 +84,28 @@ const KNOWN_TOOL_TERMS = [
   'Cloudflare Pages',
   'GitHub Pages',
   'WordPress',
+  'WooCommerce',
   'Elementor',
   'Webflow',
   'n8n',
+  'WooCommerce CLI',
 ];
 
+export type BootstrapTemplate =
+  | 'shopify-new-store'
+  | 'shopify-theme'
+  | 'shopify-app'
+  | 'woocommerce-extension';
 
-
-// Keep the Shopify-specific alias for backwards compat within this file
-type ShopifyTemplate = 'shopify-new-store' | 'shopify-theme' | 'shopify-app';
+export interface BootstrapTemplateFile {
+  root: 'workspace' | 'ssot';
+  path: string;
+  content: string;
+}
 
 interface BootstrapProjectIntake {
   mode: 'guided' | 'minimal' | 'template';
-  selectedTemplate?: ShopifyTemplate;
+  selectedTemplate?: BootstrapTemplate;
   captureNotes: string[];
   projectType?: string;
   projectName?: string;
@@ -131,7 +140,7 @@ interface BootstrapArtifacts {
   settingsUpdated: string[];
   remoteRepoCreated: boolean;
   remoteRepoUrl: string | undefined;
-  templateScaffolded: ShopifyTemplate | undefined;
+  templateScaffolded: BootstrapTemplate | undefined;
   claudeMdWritten: boolean;
   websiteWorkspaceSeeded: boolean;
 }
@@ -386,8 +395,8 @@ async function collectBootstrapIntake(
     if (!hasBootstrapValue(intake.projectType)) {
       const projectTypePick = await vscode.window.showQuickPick(
         [
-          { label: 'Website / Marketing Site', description: 'Seed a client brief, sitemap, design workflow, platform targets, and n8n automation map.', template: undefined as ShopifyTemplate | undefined },
-          { label: 'Web App', description: '', template: undefined as ShopifyTemplate | undefined },
+          { label: 'Website / Marketing Site', description: 'Seed a client brief, sitemap, design workflow, platform targets, and n8n automation map.', template: undefined as BootstrapTemplate | undefined },
+          { label: 'Web App', description: '', template: undefined as BootstrapTemplate | undefined },
           { label: 'API Server', description: '', template: undefined },
           { label: 'CLI Tool', description: '', template: undefined },
           { label: 'Library', description: '', template: undefined },
@@ -398,9 +407,10 @@ async function collectBootstrapIntake(
           // game project could not declare itself and was shipped as `generic`.
           { label: 'Game', description: 'Frame budget as a gate, asset validation in CI, and simulation-focused testing.', template: undefined },
           { label: 'Other', description: '', template: undefined },
-          { label: '$(store) Shopify New Store', description: 'Merchant setup guide, Partner account steps, CLI scaffold, extension recommendations.', template: 'shopify-new-store' as ShopifyTemplate },
-          { label: '$(file-code) Shopify Store / Theme', description: 'Full Liquid theme scaffold (layout, sections, snippets, assets, locales), theme-check CI.', template: 'shopify-theme' as ShopifyTemplate },
-          { label: '$(server-process) Shopify App', description: 'Remix app scaffold (routes, extensions, shopify.app.toml, .env), deploy workflow.', template: 'shopify-app' as ShopifyTemplate },
+          { label: '$(store) Shopify New Store', description: 'Merchant setup guide, Partner account steps, CLI scaffold, extension recommendations.', template: 'shopify-new-store' as BootstrapTemplate },
+          { label: '$(file-code) Shopify Store / Theme', description: 'Full Liquid theme scaffold (layout, sections, snippets, assets, locales), theme-check CI.', template: 'shopify-theme' as BootstrapTemplate },
+          { label: '$(server-process) Shopify App', description: 'Remix app scaffold (routes, extensions, shopify.app.toml, .env), deploy workflow.', template: 'shopify-app' as BootstrapTemplate },
+          { label: '$(extensions) WooCommerce Extension', description: 'Safe PHP plugin shell, WooCommerce dependency and HPOS declarations, syntax/contract CI, privacy and compatibility review guides.', template: 'woocommerce-extension' as BootstrapTemplate },
         ],
         { placeHolder: 'What type of project is this?' },
       );
@@ -3376,19 +3386,20 @@ async function ensureParentDirectory(targetFile: vscode.Uri, workspaceRoot: vsco
   }
 }
 
-// ── Shopify Templates ───────────────────────────────────────
+// ── Project Templates ───────────────────────────────────────
 
-function formatTemplateName(template: ShopifyTemplate): string {
+function formatTemplateName(template: BootstrapTemplate): string {
   switch (template) {
     case 'shopify-new-store': return 'Shopify New Store';
     case 'shopify-theme': return 'Shopify Store / Theme';
     case 'shopify-app': return 'Shopify App';
+    case 'woocommerce-extension': return 'WooCommerce Extension';
   }
 }
 
 // Fills in template-specific defaults on the intake (only where the user didn't already answer)
-// so that generateBootstrapContent has rich Shopify context to work from.
-function enrichIntakeForTemplate(intake: BootstrapProjectIntake, template: ShopifyTemplate): void {
+// so that generateBootstrapContent has rich platform context to work from.
+function enrichIntakeForTemplate(intake: BootstrapProjectIntake, template: BootstrapTemplate): void {
   switch (template) {
     case 'shopify-new-store':
       intake.techStack ??= 'Shopify, Liquid';
@@ -3411,25 +3422,24 @@ function enrichIntakeForTemplate(intake: BootstrapProjectIntake, template: Shopi
       intake.productOutcome ??= 'Enable merchants to accomplish a specific workflow or automation directly within their Shopify admin.';
       intake.targetAudience ??= 'Shopify merchants installing the app from the Shopify App Store.';
       break;
+    case 'woocommerce-extension':
+      intake.techStack ??= 'WooCommerce, WordPress, PHP';
+      intake.thirdPartyTools ??= 'WooCommerce, WordPress, wp-env, Composer, GitHub Actions';
+      intake.productSummary ??= 'A WooCommerce extension that adds one bounded merchant or storefront capability without modifying WooCommerce core.';
+      intake.productOutcome ??= 'Ship a reviewable, update-safe WooCommerce extension with explicit compatibility and privacy decisions.';
+      intake.targetAudience ??= 'WooCommerce merchants and the developers who operate their stores.';
+      break;
   }
 }
 
 async function applyTemplateScaffolding(
   workspaceRoot: vscode.Uri,
   ssotRoot: vscode.Uri,
-  template: ShopifyTemplate,
+  template: BootstrapTemplate,
   intake: BootstrapProjectIntake,
 ): Promise<void> {
-  const projectName = intake.projectName?.trim() || 'My Shopify Project';
-  const files: Array<{ root: 'workspace' | 'ssot'; path: string; content: string }> = [];
-
-  if (template === 'shopify-new-store') {
-    buildShopifyNewStoreFiles(files, projectName);
-  } else if (template === 'shopify-theme') {
-    buildShopifyThemeFiles(files, projectName);
-  } else if (template === 'shopify-app') {
-    buildShopifyAppFiles(files, projectName);
-  }
+  const projectName = intake.projectName?.trim() || defaultTemplateProjectName(template);
+  const files = buildBootstrapTemplateFiles(template, projectName);
 
   for (const file of files) {
     const base = file.root === 'ssot' ? ssotRoot : workspaceRoot;
@@ -3439,6 +3449,34 @@ async function applyTemplateScaffolding(
       await vscode.workspace.fs.writeFile(fileUri, Buffer.from(file.content, 'utf-8'));
     }
   }
+}
+
+function defaultTemplateProjectName(template: BootstrapTemplate): string {
+  return template === 'woocommerce-extension' ? 'My WooCommerce Extension' : 'My Shopify Project';
+}
+
+/**
+ * Build one template plan without touching disk.
+ *
+ * Exported because the file list and generated source are the template's safety
+ * boundary: callers write only these relative paths, create-only, and tests can
+ * inspect the complete result without mocking a VS Code workspace.
+ */
+export function buildBootstrapTemplateFiles(
+  template: BootstrapTemplate,
+  projectName: string,
+): BootstrapTemplateFile[] {
+  const files: BootstrapTemplateFile[] = [];
+  if (template === 'shopify-new-store') {
+    buildShopifyNewStoreFiles(files, projectName);
+  } else if (template === 'shopify-theme') {
+    buildShopifyThemeFiles(files, projectName);
+  } else if (template === 'shopify-app') {
+    buildShopifyAppFiles(files, projectName);
+  } else {
+    buildWooCommerceExtensionFiles(files, projectName);
+  }
+  return files;
 }
 
 function buildShopifyNewStoreFiles(
@@ -3946,6 +3984,321 @@ function buildShopifyAppFiles(
       ].join('\n'),
     },
   );
+}
+
+function buildWooCommerceExtensionFiles(
+  files: BootstrapTemplateFile[],
+  projectName: string,
+): void {
+  const displayName = safeTemplateDisplayName(projectName, 'My WooCommerce Extension');
+  const slug = templateSlug(displayName, 'my-woocommerce-extension');
+  const namespaceSuffix = slug.split('-').map(segment => `${segment.slice(0, 1).toUpperCase()}${segment.slice(1)}`).join('');
+  // Always lead generated PHP identifiers with letters. A project name is
+  // data, and slugs such as `123-orders` are valid paths but invalid bare
+  // namespace/constant prefixes.
+  const namespace = `Extension${namespaceSuffix}`;
+  const constantPrefix = `ATLASMIND_${slug.replace(/-/g, '_').toUpperCase()}`;
+  const mainFile = `${slug}.php`;
+
+  files.push(
+    {
+      root: 'workspace',
+      path: mainFile,
+      content: [
+        '<?php',
+        '/**',
+        ` * Plugin Name: ${displayName}`,
+        ' * Description: A focused WooCommerce extension scaffold generated by AtlasMind.',
+        ' * Version: 0.1.0',
+        ' * Requires PHP: 7.4',
+        ' * Requires Plugins: woocommerce',
+        ` * Text Domain: ${slug}`,
+        ' * Domain Path: /languages',
+        ' * License: GPL-2.0-or-later',
+        ' * License URI: https://www.gnu.org/licenses/gpl-2.0.html',
+        ' */',
+        '',
+        "defined( 'ABSPATH' ) || exit;",
+        '',
+        `define( '${constantPrefix}_VERSION', '0.1.0' );`,
+        `define( '${constantPrefix}_FILE', __FILE__ );`,
+        '',
+        "add_action( 'before_woocommerce_init', static function (): void {",
+        "    if ( class_exists( \\Automattic\\WooCommerce\\Utilities\\FeaturesUtil::class ) ) {",
+        "        \\Automattic\\WooCommerce\\Utilities\\FeaturesUtil::declare_compatibility( 'custom_order_tables', __FILE__, true );",
+        '    }',
+        '} );',
+        '',
+        "add_action( 'plugins_loaded', static function (): void {",
+        "    if ( ! class_exists( 'WooCommerce' ) ) {",
+        '        return;',
+        '    }',
+        '',
+        `    require_once __DIR__ . '/includes/class-${slug}.php';`,
+        `    \\AtlasMind\\${namespace}\\Plugin::init();`,
+        '} );',
+        '',
+      ].join('\n'),
+    },
+    {
+      root: 'workspace',
+      path: `includes/class-${slug}.php`,
+      content: [
+        '<?php',
+        `namespace AtlasMind\\${namespace};`,
+        '',
+        "defined( 'ABSPATH' ) || exit;",
+        '',
+        'final class Plugin {',
+        '    private function __construct() {}',
+        '',
+        '    public static function init(): void {',
+        '        // Register public WooCommerce hooks here. Do not depend on',
+        '        // Automattic\\WooCommerce\\Internal classes or @internal APIs.',
+        `        do_action( '${slug}_initialized' );`,
+        '    }',
+        '}',
+        '',
+      ].join('\n'),
+    },
+    {
+      root: 'workspace',
+      path: 'composer.json',
+      content: `${JSON.stringify({
+        name: `atlasmind/${slug}`,
+        description: `${displayName} WooCommerce extension`,
+        type: 'wordpress-plugin',
+        license: 'GPL-2.0-or-later',
+        require: { php: '>=7.4' },
+      }, null, 2)}\n`,
+    },
+    {
+      root: 'workspace',
+      path: '.wp-env.json',
+      content: `${JSON.stringify({
+        plugins: ['.'],
+        config: { WP_DEBUG: true, SCRIPT_DEBUG: true },
+      }, null, 2)}\n`,
+    },
+    {
+      root: 'workspace',
+      path: 'readme.txt',
+      content: [
+        `=== ${displayName} ===`,
+        'Contributors: replace-with-wordpress-org-user',
+        'Tags: woocommerce',
+        'Requires at least: declare-after-testing',
+        'Tested up to: declare-after-testing',
+        'Requires PHP: 7.4',
+        'Stable tag: 0.1.0',
+        'License: GPLv2 or later',
+        'License URI: https://www.gnu.org/licenses/gpl-2.0.html',
+        '',
+        'A bounded WooCommerce extension scaffold. Replace this description before distribution.',
+        '',
+        '== Description ==',
+        '',
+        'Describe one core purpose, the data it reads or writes, and any external services it contacts.',
+        '',
+        '== Installation ==',
+        '',
+        '1. Install and activate WooCommerce.',
+        `2. Install this extension in \`wp-content/plugins/${slug}\`.`,
+        '3. Activate it from WordPress Plugins.',
+        '',
+        '== Changelog ==',
+        '',
+        '= 0.1.0 =',
+        '* Initial scaffold. No merchant-facing behaviour yet.',
+        '',
+      ].join('\n'),
+    },
+    {
+      root: 'workspace',
+      path: 'docs/privacy.md',
+      content: [
+        `# Privacy review — ${displayName}`,
+        '',
+        '> Status: Not assessed. This scaffold records questions; it does not assert compliance.',
+        '',
+        '## Data inventory',
+        '',
+        '| Data category | Purpose | Source | Destination | Retention | Lawful basis | Owner |',
+        '|---|---|---|---|---|---|---|',
+        '| _Not assessed_ |  |  |  |  |  |  |',
+        '',
+        '## Review before implementation',
+        '',
+        '- [ ] Minimise access to customer, order, payment, address, and analytics data.',
+        '- [ ] Declare every external transfer and verify the processor/DPA and residency decision.',
+        '- [ ] Define deletion, export, correction, consent withdrawal, and legal-hold behaviour.',
+        '- [ ] Verify logs, caches, scheduled actions, backups, and uninstall cleanup.',
+        '- [ ] Update `readme.txt` with the extension\'s actual privacy behaviour.',
+        '',
+      ].join('\n'),
+    },
+    {
+      root: 'workspace',
+      path: 'docs/compatibility.md',
+      content: [
+        `# Compatibility record — ${displayName}`,
+        '',
+        '> Status: Not assessed. Declare support only after running the matching test matrix.',
+        '',
+        '| Surface | Version/feature tested | Result | Evidence |',
+        '|---|---|---|---|',
+        '| WordPress |  | Not assessed |  |',
+        '| WooCommerce |  | Not assessed |  |',
+        '| High-Performance Order Storage | declared compatible in code | Not assessed |  |',
+        '| Cart and Checkout blocks |  | Not assessed |  |',
+        '| Product Editor |  | Not assessed |  |',
+        '| Site Editor / block themes |  | Not assessed |  |',
+        '| Common plugin/theme combinations |  | Not assessed |  |',
+        '',
+        'If a row is not relevant, record why. Do not replace an untested row with a compatibility claim.',
+        '',
+      ].join('\n'),
+    },
+    {
+      root: 'workspace',
+      path: 'tests/scaffold-contract.php',
+      content: [
+        '<?php',
+        `$plugin = file_get_contents( __DIR__ . '/../${mainFile}' );`,
+        '',
+        '$required = [',
+        "    'Requires Plugins: woocommerce',",
+        "    \"defined( 'ABSPATH' ) || exit;\",",
+        "    \"class_exists( 'WooCommerce' )\",",
+        "    \"declare_compatibility( 'custom_order_tables'\",",
+        '];',
+        '',
+        'foreach ( $required as $marker ) {',
+        '    if ( false === strpos( $plugin, $marker ) ) {',
+        "        fwrite( STDERR, \"Missing plugin contract marker: {$marker}\\n\" );",
+        '        exit( 1 );',
+        '    }',
+        '}',
+        '',
+        "fwrite( STDOUT, \"WooCommerce scaffold contract is present.\\n\" );",
+        '',
+      ].join('\n'),
+    },
+    {
+      root: 'workspace',
+      path: '.github/workflows/ci.yml',
+      content: [
+        'name: CI',
+        '',
+        'on:',
+        '  push:',
+        '    branches: [main]',
+        '  pull_request:',
+        '    branches: [main]',
+        '',
+        'permissions:',
+        '  contents: read',
+        '',
+        'jobs:',
+        '  php-contract:',
+        '    runs-on: ubuntu-latest',
+        '    steps:',
+        '      - uses: actions/checkout@v4',
+        '      - name: Show PHP runtime',
+        '        run: php --version',
+        '      - name: Syntax check',
+        "        run: find . -type f -name '*.php' -not -path './vendor/*' -print0 | xargs -0 -n1 php -l",
+        '      - name: Scaffold contract',
+        '        run: php tests/scaffold-contract.php',
+        '',
+      ].join('\n'),
+    },
+    {
+      root: 'workspace',
+      path: '.distignore',
+      content: [
+        '/.git',
+        '/.github',
+        '/.wp-env.json',
+        '/docs',
+        '/project_memory',
+        '/tests',
+        '/vendor',
+        'composer.lock',
+        '',
+      ].join('\n'),
+    },
+    {
+      root: 'ssot',
+      path: 'operations/getting-started.md',
+      content: [
+        `# Getting Started — ${displayName}`,
+        '',
+        '## What AtlasMind created',
+        '',
+        `This is a create-only WooCommerce extension shell rooted at \`${mainFile}\`. It declares`,
+        'WooCommerce as a required plugin, refuses direct PHP access, waits for WooCommerce before',
+        'initialising, and declares HPOS compatibility. It contains no merchant-facing behaviour yet.',
+        '',
+        'The scaffold uses only public WordPress/WooCommerce hooks. Do not import anything under',
+        '`Automattic\\WooCommerce\\Internal` or marked `@internal`; those APIs do not promise extension',
+        'compatibility.',
+        '',
+        '## Local development',
+        '',
+        'Prerequisites: Node.js/npm, Docker, PHP, and optionally Composer.',
+        '',
+        '```bash',
+        'npx @wordpress/env start',
+        'npx @wordpress/env run cli wp plugin install woocommerce --activate',
+        'npx @wordpress/env run cli wp plugin activate ' + slug,
+        '```',
+        '',
+        'AtlasMind never runs those network/install commands during bootstrap. Review them, then run',
+        'them explicitly. For a block-based extension, compare this shell with WooCommerce\'s official',
+        '`@woocommerce/create-woo-extension` template before adding UI code.',
+        '',
+        '## Verification before release',
+        '',
+        '- [ ] Run `php tests/scaffold-contract.php` and PHP syntax checks.',
+        '- [ ] Test supported WordPress and WooCommerce versions.',
+        '- [ ] Exercise HPOS, Cart/Checkout blocks, Product Editor, Site Editor, and common plugin/theme combinations as applicable.',
+        '- [ ] Complete `docs/compatibility.md`; do not publish an untested compatibility claim.',
+        '- [ ] Complete `docs/privacy.md`, including retention, deletion, external transfers, logs, caches, scheduled actions, and uninstall behaviour.',
+        '- [ ] Replace every placeholder in `readme.txt` and verify the distribution archive excludes development-only files.',
+        '',
+        '## Official references',
+        '',
+        '- https://developer.woocommerce.com/docs/extensions/getting-started-extensions/building-your-first-extension/',
+        '- https://developer.woocommerce.com/docs/extensions/best-practices-extensions/extension-development-best-practices',
+        '- https://developer.woocommerce.com/docs/best-practices/compatibility',
+        '- https://developer.wordpress.org/plugins/plugin-basics/header-requirements/',
+        '',
+      ].join('\n'),
+    },
+  );
+}
+
+function safeTemplateDisplayName(value: string, fallback: string): string {
+  const safe = String(value ?? '')
+    .replace(/[\u0000-\u001f\u007f]/g, ' ')
+    .replace(/\*\//g, '')
+    .replace(/\s+/g, ' ')
+    .trim()
+    .slice(0, 80);
+  return safe || fallback;
+}
+
+function templateSlug(value: string, fallback: string): string {
+  const slug = value
+    .normalize('NFKD')
+    .replace(/[\u0300-\u036f]/g, '')
+    .toLowerCase()
+    .replace(/[^a-z0-9]+/g, '-')
+    .replace(/^-+|-+$/g, '')
+    .slice(0, 64)
+    .replace(/-+$/g, '');
+  return slug || fallback;
 }
 
 function buildShopifyThemeLiquid(projectName: string): string {

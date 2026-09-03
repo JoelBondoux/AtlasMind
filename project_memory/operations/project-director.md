@@ -39,7 +39,7 @@ _None recorded yet._
 | develop | branch: develop | Joel Bondoux (you) | in-progress | medium | — |
 | #166 Interface Studio redesign is stranded on an unmerged branch | issue: 166 | Joel Bondoux (you) | todo | medium | — |
 | Deliver AtlasMind Lens in evidence-backed phases: queryable code outline first, then execution journeys, schema/contract wiring review, change impact, tests, data trust, state, configuration, and PR maps. See `project_memory/roadmap/atlasmi | roadmap: roadmap-1 | Joel Bondoux (you) | todo | medium | — |
-| ATDD is enabled with no evidence it runs | debt: test:project_memory/index/testing-config.json:atdd-is-enabled-with-no-evidence-it-runs | Joel Bondoux (you) | todo | medium | — |
+| ATDD is enabled with no evidence it runs | debt: test:project_memory/index/testing-config.json:atdd-is-enabled-with-no-evidence-it-runs | Joel Bondoux (you) | cancelled | medium | — |
 | main | branch: main | Joel Bondoux (you) | todo | medium | — |
 | Core functionality and feature completeness still need work relative to the intended project outcome. | gap: Y29yZSBmdW5jdGlv | Joel Bondoux (you) | todo | high | — |
 | #199 chore: promote develop to main for 0.368.0 | pull-request: 199 | Joel Bondoux (you) | in-progress | medium | — |
@@ -49,4 +49,4 @@ _None recorded yet._
 _No open follow-ups._
 ---
 
-_Last updated: 2026-08-19T01:41:44.219Z._
+_Last updated: 2026-09-03T00:53:18.000Z._

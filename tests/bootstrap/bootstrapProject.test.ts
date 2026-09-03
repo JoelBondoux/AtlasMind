@@ -1,3 +1,4 @@
+import { readFileSync } from 'node:fs';
 import { beforeEach, describe, expect, it, vi } from 'vitest';
 
 const vscodeMocks = vi.hoisted(() => ({
@@ -93,10 +94,18 @@ vi.mock('node:child_process', () => ({
   exec: vscodeMocks.exec,
 }));
 
-import { bootstrapProject } from '../../src/bootstrap/bootstrapper.ts';
+import { bootstrapProject, buildBootstrapTemplateFiles } from '../../src/bootstrap/bootstrapper.ts';
 import type { MemoryEntry } from '../../src/types.ts';
 
 const ROOT = { path: '/workspace', fsPath: '/workspace' };
+const COMMERCE_BOOTSTRAP_FEATURE = readFileSync(
+  new URL('../features/commerce-bootstrap.feature', import.meta.url),
+  'utf-8',
+);
+
+function expectDeclaredScenario(title: string): void {
+  expect(COMMERCE_BOOTSTRAP_FEATURE).toContain(`Scenario: ${title}`);
+}
 
 function seedFile(path: string, content: string): void {
   fileResponses.set(path, Buffer.from(content, 'utf-8'));
@@ -197,6 +206,42 @@ function makeAtlas() {
     },
   } as unknown as import('../../src/extension.ts').AtlasMindContext;
 }
+
+describe('Feature: safe commerce project bootstrap', () => {
+  it('Scenario: generate a bounded WooCommerce extension plan', () => {
+    expectDeclaredScenario('Generate a bounded WooCommerce extension plan');
+    const files = buildBootstrapTemplateFiles('woocommerce-extension', 'Order Notes');
+    const byPath = new Map(files.map(file => [file.path, file]));
+    const plugin = byPath.get('order-notes.php')?.content ?? '';
+
+    expect(new Set(files.map(file => `${file.root}:${file.path}`)).size).toBe(files.length);
+    expect(files.every(file => !file.path.startsWith('/') && !file.path.includes('..'))).toBe(true);
+    expect(plugin).toContain('Requires Plugins: woocommerce');
+    expect(plugin).toContain("defined( 'ABSPATH' ) || exit;");
+    expect(plugin).toContain("class_exists( 'WooCommerce' )");
+    expect(plugin).toContain("declare_compatibility( 'custom_order_tables'");
+    expect(byPath.get('docs/privacy.md')?.content).toContain('Status: Not assessed');
+    expect(byPath.get('docs/compatibility.md')?.content).toContain('Cart and Checkout blocks');
+    expect(byPath.get('tests/scaffold-contract.php')?.content).toContain('Missing plugin contract marker');
+    expect(byPath.get('.github/workflows/ci.yml')?.content).toContain('permissions:\n  contents: read');
+    expect(byPath.get('operations/getting-started.md')?.root).toBe('ssot');
+  });
+
+  it('Scenario: treat a project name as data', () => {
+    expectDeclaredScenario('Treat a project name as data');
+    const files = buildBootstrapTemplateFiles('woocommerce-extension', '../123 Café */\nInjected');
+    const paths = files.map(file => file.path);
+    const plugin = files.find(file => file.path.endsWith('.php') && !file.path.includes('/'))?.content ?? '';
+    const implementation = files.find(file => file.path.startsWith('includes/'))?.content ?? '';
+
+    expect(paths).toContain('123-cafe-injected.php');
+    expect(paths.every(path => !path.includes('..') && !path.includes('\\'))).toBe(true);
+    expect(plugin).not.toContain('*/\nInjected');
+    expect(plugin).not.toContain('\u0000');
+    expect(plugin).toContain("define( 'ATLASMIND_123_CAFE_INJECTED_VERSION'");
+    expect(implementation).toContain('namespace AtlasMind\\Extension123CafeInjected;');
+  });
+});
 
 describe('bootstrapProject', () => {
   beforeEach(() => {

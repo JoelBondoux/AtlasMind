@@ -9,8 +9,15 @@
       "detectedAt": "2026-07-30T04:39:18.633Z",
       "severity": "medium",
       "rule": "uncovered-methodology",
-      "status": "open",
-      "transitions": []
+      "status": "resolved",
+      "transitions": [
+        {
+          "at": "2026-09-03T00:53:18.000Z",
+          "from": "open",
+          "to": "resolved",
+          "note": "Added Gherkin commerce-bootstrap scenarios paired with executable Vitest behavior; 9 tests passed."
+        }
+      ]
     },
     {
       "id": "test:project_memory/index/testing-config.json:atdd-is-enabled-with-no-evidence-it-runs",
@@ -20,8 +27,15 @@
       "detectedAt": "2026-07-30T04:39:18.633Z",
       "severity": "medium",
       "rule": "uncovered-methodology",
-      "status": "open",
-      "transitions": []
+      "status": "obsolete",
+      "transitions": [
+        {
+          "at": "2026-09-02T23:34:00.000Z",
+          "from": "open",
+          "to": "obsolete",
+          "note": "ATDD is disabled in the current testing policy, so the prior enabled-without-evidence signal no longer applies."
+        }
+      ]
     },
     {
       "id": "test:project_memory/index/testing-config.json:mutation-testing-is-enabled-with-no-evidence-it-runs",
@@ -31,8 +45,15 @@
       "detectedAt": "2026-07-30T04:39:18.633Z",
       "severity": "medium",
       "rule": "uncovered-methodology",
-      "status": "open",
-      "transitions": []
+      "status": "resolved",
+      "transitions": [
+        {
+          "at": "2026-09-03T00:50:45.000Z",
+          "from": "open",
+          "to": "resolved",
+          "note": "Stryker classified 740 non-static mutants: 60.68% score, above the configured 50% break threshold, with zero timeouts."
+        }
+      ]
     },
     {
       "id": "test:project_memory/index/testing-config.json:property-based-is-enabled-with-no-evidence-it-runs",
@@ -42,8 +63,15 @@
       "detectedAt": "2026-07-30T04:39:18.633Z",
       "severity": "medium",
       "rule": "uncovered-methodology",
-      "status": "open",
-      "transitions": []
+      "status": "resolved",
+      "transitions": [
+        {
+          "at": "2026-09-02T23:30:36.000Z",
+          "from": "open",
+          "to": "resolved",
+          "note": "Verified 27 fast-check suites: 588 tests passed; normal CI runs the same Vitest suite."
+        }
+      ]
     },
     {
       "id": "test:project_memory/index/testing-config.json:end-to-end-is-enabled-with-no-evidence-it-runs",
@@ -53,8 +81,15 @@
       "detectedAt": "2026-07-30T04:39:18.633Z",
       "severity": "medium",
       "rule": "uncovered-methodology",
-      "status": "open",
-      "transitions": []
+      "status": "obsolete",
+      "transitions": [
+        {
+          "at": "2026-09-02T23:34:00.000Z",
+          "from": "open",
+          "to": "obsolete",
+          "note": "End-to-End is disabled in the current testing policy, so the prior enabled-without-evidence signal no longer applies."
+        }
+      ]
     },
     {
       "id": "test:project_memory/index/testing-config.json:contract-is-enabled-with-no-evidence-it-runs",
@@ -64,8 +99,15 @@
       "detectedAt": "2026-07-30T04:39:18.633Z",
       "severity": "medium",
       "rule": "uncovered-methodology",
-      "status": "open",
-      "transitions": []
+      "status": "obsolete",
+      "transitions": [
+        {
+          "at": "2026-09-02T23:34:00.000Z",
+          "from": "open",
+          "to": "obsolete",
+          "note": "Contract testing is disabled in the current testing policy, so the prior enabled-without-evidence signal no longer applies."
+        }
+      ]
     },
     {
       "id": "test:project_memory/index/testing-config.json:model-based-mbt-is-enabled-with-no-evidence-it-runs",
@@ -75,8 +117,15 @@
       "detectedAt": "2026-07-30T04:39:18.633Z",
       "severity": "medium",
       "rule": "uncovered-methodology",
-      "status": "open",
-      "transitions": []
+      "status": "obsolete",
+      "transitions": [
+        {
+          "at": "2026-09-02T23:34:00.000Z",
+          "from": "open",
+          "to": "obsolete",
+          "note": "Model-Based testing is disabled in the current testing policy, so the prior enabled-without-evidence signal no longer applies."
+        }
+      ]
     },
     {
       "id": "test:project_memory/index/testing-config.json:performance-is-enabled-with-no-evidence-it-runs",
@@ -86,10 +135,17 @@
       "detectedAt": "2026-07-30T04:39:18.633Z",
       "severity": "medium",
       "rule": "uncovered-methodology",
-      "status": "open",
-      "transitions": []
+      "status": "obsolete",
+      "transitions": [
+        {
+          "at": "2026-09-02T23:34:00.000Z",
+          "from": "open",
+          "to": "obsolete",
+          "note": "Performance testing is disabled in the current testing policy, so the prior enabled-without-evidence signal no longer applies."
+        }
+      ]
     }
   ],
-  "updatedAt": "2026-07-30T04:39:18.633Z",
+  "updatedAt": "2026-09-03T00:53:18.000Z",
   "lastScanAt": "2026-07-30T04:39:18.633Z"
 }
