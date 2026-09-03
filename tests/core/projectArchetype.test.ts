@@ -231,6 +231,12 @@ describe('the vocabularies this module replaces map forward', () => {
         traits: ['has-ui'],
       });
     }
+    for (const label of ['React Native Mobile App', 'Expo Mobile App', 'Flutter Mobile App']) {
+      expect(fromBootstrapLabel(label), label).toEqual({
+        archetype: 'mobile',
+        traits: ['has-ui', 'ships-binaries'],
+      });
+    }
   });
 
   it('maps a Game label, which the old picker could not express at all', () => {

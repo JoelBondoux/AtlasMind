@@ -4,7 +4,7 @@
 
 <h1 align="center">AtlasMind</h1>
 
-<p align="center"><sub> · <strong>Current source version: 0.386.0</strong> · </sub></p>
+<p align="center"><sub> · <strong>Current source version: 0.387.0</strong> · </sub></p>
 
 
 <p align="center">
@@ -131,6 +131,27 @@ allow-list, redaction and file-withholding behaviour, retained metadata, provide
 important limits on overrides and compliance claims.
 
 ---
+
+## What's new in 0.387.0
+
+The last Marketplace publication, **v0.382.6**, is the baseline. The full history is in
+[CHANGELOG.md](CHANGELOG.md).
+
+- **The Mobile prefab family is complete.** Guided bootstrap now offers focused React Native,
+  Expo, and Flutter launchpads with platform, permission, accessibility, privacy, signing,
+  update, app-store, and rollback decisions kept visible.
+
+- **Framework-first means framework-first.** The React Native path records the upstream
+  recommendation to use a framework for new applications and reserves the bare Community CLI
+  handoff for native constraints that justify owning both platform projects and toolchains.
+
+- **Generator effects stay reviewable.** Expo skips dependency installation and unreviewed
+  generated agent instructions; Flutter explicitly discloses that project creation retrieves
+  dependencies. AtlasMind does not run either command or generate native projects itself.
+
+- **Mobile evidence starts honestly.** All three handoffs seed Not-assessed privacy and
+  compatibility matrices covering permissions, device storage, telemetry, native modules,
+  OS/device support, physical-device testing, signing, store submission, and update rollback.
 
 ## What's new in 0.386.0
 

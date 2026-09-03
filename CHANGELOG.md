@@ -6,6 +6,41 @@ The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/),
 
 ## [Unreleased]
 
+## [0.387.0] - 2026-09-03
+
+### Added
+
+- **The Mobile prefab family is complete.** Guided bootstrap now offers explicit React Native,
+  Expo, and Flutter mobile project types backed by documentation-only generator handoffs.
+- Every mobile handoff includes literal-placeholder commands, Not-assessed privacy and compatibility
+  matrices, and acceptance gates for permissions, accessibility, performance, native modules,
+  devices, signing, store submission, updates, migration, and rollback.
+- The three labels map to the existing `mobile + has-ui + ships-binaries` project shape, preserving
+  one routing vocabulary instead of introducing framework-named archetypes.
+
+### Changed
+
+- The bare React Native option records React Native's framework-first recommendation and requires a
+  documented constraint before directing an operator to the Community CLI.
+- Expo uses `create-expo-app` with a reviewed SDK placeholder, `--no-install`, and `--no-agents-md`;
+  Continuous Native Generation and optional EAS services remain explicit later decisions.
+- Flutter uses the installed SDK's minimal `flutter create --empty` path, requires a
+  `lowercase_with_underscores` package name, and discloses that initialization retrieves dependencies.
+
+### Security
+
+- Mobile generators are never executed by bootstrap. Hostile project names are escaped for display
+  and never reach command blocks; native generation, dependency/lifecycle execution, emulator/device
+  use, cloud services, signing, and publication remain operator actions.
+- Privacy reviews now call out secure storage, local data, backups, device permissions, push/deep
+  links, background work, telemetry, advertising identifiers, third-party SDKs, retention, and deletion.
+
+### Documentation
+
+- Bootstrap, architecture, development, safety, getting-started, roadmap, and wiki guidance now
+  document the framework-versus-bare choice and mobile platform/release evidence boundary.
+- The managed Mobile roadmap item is complete; the Game Dev prefab family is next.
+
 ## [0.386.0] - 2026-09-03
 
 ### Added

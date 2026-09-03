@@ -505,6 +505,15 @@ rendered personal data. React/Vite is framed as a client-only choice, not a secu
 prompts and package installation remain separate operator actions; every framework must document server,
 client, build, edge, CDN, header, and rollback ownership before release.
 
+Mobile prefabs keep package execution, native generation, platform toolchains, cloud services, signing,
+device installation, and store publication outside bootstrap. The bare React Native handoff requires an
+explicit reason not to use a framework. Expo disables dependency installation and generated instruction
+files in its reviewed command; native projects, config plugins, EAS, credentials, and updates remain later
+decisions. Flutter discloses that creation retrieves dependencies rather than being described as offline.
+All commands contain literal placeholders only, and privacy records treat device permissions, secure/local
+storage, backups, push/deep links, background work, telemetry, advertising identifiers, third-party SDKs,
+retention, and deletion as unassessed until the generated app supplies evidence.
+
 ### The generated workflow specifically
 
 A file in `.github/workflows/` runs on GitHub's infrastructure, with your repository's secrets, on a

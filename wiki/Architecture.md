@@ -132,6 +132,14 @@ server boundary. Website Studio's framework catalog also exposes React and Vue a
 updates SvelteKit to `sv create`, and keeps command metadata separate from the bootstrap handoff: catalog
 commands may run only through the existing preview/confirmation gate, while bootstrap commands never run.
 
+The Mobile family maps React Native, Expo, and Flutter to `mobile` with UI and binary traits. These remain
+documentation-only handoffs because their generators can retrieve packages, create native projects, invoke
+platform toolchains, and lead into signing, devices, cloud services, or store submission. React Native's
+bare path records the framework-first recommendation; Expo separates install, generated instructions,
+native generation, and EAS; Flutter discloses dependency retrieval. Every mobile review matrix starts
+permissions, storage, telemetry, device/OS, accessibility, native-module, signing, update, and rollback
+claims as Not assessed.
+
 ### Remembering
 
 | Part | What it does |

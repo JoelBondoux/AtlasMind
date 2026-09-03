@@ -113,9 +113,13 @@ const FRONTEND_BOOTSTRAP_FEATURE = readFileSync(
   new URL('../features/frontend-bootstrap.feature', import.meta.url),
   'utf-8',
 );
+const MOBILE_BOOTSTRAP_FEATURE = readFileSync(
+  new URL('../features/mobile-bootstrap.feature', import.meta.url),
+  'utf-8',
+);
 
 function expectDeclaredScenario(title: string): void {
-  expect(`${COMMERCE_BOOTSTRAP_FEATURE}\n${SAAS_WEB_BOOTSTRAP_FEATURE}\n${FRONTEND_BOOTSTRAP_FEATURE}`)
+  expect(`${COMMERCE_BOOTSTRAP_FEATURE}\n${SAAS_WEB_BOOTSTRAP_FEATURE}\n${FRONTEND_BOOTSTRAP_FEATURE}\n${MOBILE_BOOTSTRAP_FEATURE}`)
     .toContain(`Scenario: ${title}`);
 }
 
@@ -472,6 +476,66 @@ describe('Feature: current frontend project bootstrap', () => {
     }
     expect(handoff).toContain('npm install');
     expect(handoff).toContain('separate review step');
+  });
+});
+
+describe('Feature: safety-first mobile project bootstrap', () => {
+  it('Scenario: hand off every mobile generator without executing it', () => {
+    expectDeclaredScenario('Hand off every mobile generator without executing it');
+    const cases = [
+      ['react-native-mobile', 'REACT_NATIVE_MOBILE_HANDOFF.md', '@react-native-community/cli@latest'],
+      ['expo-mobile', 'EXPO_MOBILE_HANDOFF.md', 'create-expo-app@latest'],
+      ['flutter-mobile', 'FLUTTER_MOBILE_HANDOFF.md', 'flutter create --empty'],
+    ] as const;
+
+    for (const [template, handoffPath, command] of cases) {
+      const files = buildBootstrapTemplateFiles(template, 'Mobile $(danger) <img onerror="x"> */\nInjected');
+      const handoff = files.find(file => file.path === handoffPath)?.content ?? '';
+      const commandBlock = /```text\n([\s\S]*?)\n```/.exec(handoff)?.[1] ?? '';
+
+      expect(files.every(file => !file.path.startsWith('/') && !file.path.includes('..')), template).toBe(true);
+      expect(files.filter(file => file.root === 'workspace').every(file => file.path.endsWith('.md')), template).toBe(true);
+      expect(handoff, template).toContain(command);
+      expect(handoff, template).toContain('were not executed by AtlasMind');
+      expect(commandBlock, template).not.toContain('Mobile $(danger)');
+      expect(handoff, template).not.toContain('<img onerror="x">');
+      expect(handoff, template).toContain('&lt;img onerror=&quot;x&quot;&gt;');
+      expect(files.find(file => file.path === 'docs/privacy.md')?.content, template).toContain('Status: Not assessed');
+      expect(files.find(file => file.path === 'docs/compatibility.md')?.content, template).toContain('Status: Not assessed');
+    }
+  });
+
+  it('Scenario: prefer a framework for a new React Native application', () => {
+    expectDeclaredScenario('Prefer a framework for a new React Native application');
+    const handoff = buildBootstrapTemplateFiles('react-native-mobile', 'Native App')
+      .find(file => file.path === 'REACT_NATIVE_MOBILE_HANDOFF.md')?.content ?? '';
+
+    expect(handoff).toContain('React Native recommends a framework');
+    expect(handoff).toContain('constraint that is not served well');
+    expect(handoff).toContain('<native-app-name>');
+    expect(handoff).toContain('iOS CocoaPods');
+  });
+
+  it('Scenario: keep Expo native generation and cloud services explicit', () => {
+    expectDeclaredScenario('Keep Expo native generation and cloud services explicit');
+    const handoff = buildBootstrapTemplateFiles('expo-mobile', 'Expo App')
+      .find(file => file.path === 'EXPO_MOBILE_HANDOFF.md')?.content ?? '';
+
+    expect(handoff).toContain('default@<reviewed-sdk> --no-install --no-agents-md');
+    expect(handoff).toContain('skips npm dependencies and CocoaPods');
+    expect(handoff).toContain('Continuous Native Generation');
+    expect(handoff).toContain('optional EAS');
+  });
+
+  it('Scenario: disclose Flutter naming and dependency retrieval', () => {
+    expectDeclaredScenario('Disclose Flutter naming and dependency retrieval');
+    const handoff = buildBootstrapTemplateFiles('flutter-mobile', 'Flutter App')
+      .find(file => file.path === 'FLUTTER_MOBILE_HANDOFF.md')?.content ?? '';
+
+    expect(handoff).toContain('lowercase_with_underscores');
+    expect(handoff).toContain('<dart_package_name>');
+    expect(handoff).toContain('retrieves necessary dependencies');
+    expect(handoff).toContain('does not claim this command is offline');
   });
 });
 

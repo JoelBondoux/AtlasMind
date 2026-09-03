@@ -43,6 +43,10 @@ const KNOWN_TECH_TERMS = [
   'Vue',
   'Vite',
   'Astro',
+  'React Native',
+  'Expo',
+  'Flutter',
+  'Dart',
   'Node.js',
   'Node',
   'Express',
@@ -109,6 +113,13 @@ const KNOWN_TOOL_TERMS = [
   'create-nuxt',
   'create-vite',
   'create-vue',
+  'React Native Community CLI',
+  'create-expo-app',
+  'Expo CLI',
+  'Flutter CLI',
+  'Android Studio',
+  'Xcode',
+  'CocoaPods',
   'Elementor',
   'Webflow',
   'n8n',
@@ -133,7 +144,10 @@ export type BootstrapTemplate =
   | 'sveltekit-frontend'
   | 'nuxt-frontend'
   | 'react-frontend'
-  | 'vue-frontend';
+  | 'vue-frontend'
+  | 'react-native-mobile'
+  | 'expo-mobile'
+  | 'flutter-mobile';
 
 export interface BootstrapTemplateFile {
   root: 'workspace' | 'ssot';
@@ -463,6 +477,9 @@ async function collectBootstrapIntake(
           { label: '$(symbol-namespace) Nuxt Frontend', description: 'Nuxt 4 handoff with dependency installation, modules, rendering mode, Nitro preset, data, and hosting kept explicit.', template: 'nuxt-frontend' as BootstrapTemplate },
           { label: '$(symbol-interface) React Frontend (Vite)', description: 'Client-focused React and TypeScript handoff through Vite, with the framework-versus-SPA decision documented first.', template: 'react-frontend' as BootstrapTemplate },
           { label: '$(symbol-structure) Vue Frontend', description: 'Interactive create-vue handoff that keeps Router, Pinia, testing, linting, accessibility, and deployment choices visible.', template: 'vue-frontend' as BootstrapTemplate },
+          { label: '$(device-mobile) React Native Mobile App', description: 'Bare React Native Community CLI handoff for constraints that justify owning native projects and toolchains instead of using a framework.', template: 'react-native-mobile' as BootstrapTemplate },
+          { label: '$(device-mobile) Expo Mobile App', description: 'Framework-first React Native handoff with dependency installation, generated agent instructions, native generation, EAS, permissions, and updates kept explicit.', template: 'expo-mobile' as BootstrapTemplate },
+          { label: '$(device-mobile) Flutter Mobile App', description: 'Flutter CLI handoff with SDK channel, dependency retrieval, platform targets, identifiers, signing, permissions, and store release kept explicit.', template: 'flutter-mobile' as BootstrapTemplate },
         ],
         { placeHolder: 'What type of project is this?' },
       );
@@ -3460,6 +3477,9 @@ function formatTemplateName(template: BootstrapTemplate): string {
     case 'nuxt-frontend': return 'Nuxt Frontend';
     case 'react-frontend': return 'React Frontend (Vite)';
     case 'vue-frontend': return 'Vue Frontend';
+    case 'react-native-mobile': return 'React Native Mobile App';
+    case 'expo-mobile': return 'Expo Mobile App';
+    case 'flutter-mobile': return 'Flutter Mobile App';
   }
 }
 
@@ -3593,6 +3613,27 @@ function enrichIntakeForTemplate(intake: BootstrapProjectIntake, template: Boots
       intake.productOutcome ??= 'Deliver an accessible Vue interface with routing, state, testing, and build options selected deliberately.';
       intake.targetAudience ??= 'End users, assistive-technology users, content owners, and engineers operating the frontend.';
       break;
+    case 'react-native-mobile':
+      intake.techStack ??= 'React Native, React, TypeScript, Android, iOS';
+      intake.thirdPartyTools ??= 'React Native Community CLI, Metro, Android Studio, Xcode, CocoaPods, GitHub Actions';
+      intake.productSummary ??= 'A bare React Native application for native constraints that are not served well by a framework.';
+      intake.productOutcome ??= 'Deliver an accessible native application with explicit platform, permission, signing, privacy, and release boundaries.';
+      intake.targetAudience ??= 'Mobile users, assistive-technology users, support staff, and engineers operating the Android and iOS releases.';
+      break;
+    case 'expo-mobile':
+      intake.techStack ??= 'Expo, React Native, React, TypeScript, Android, iOS';
+      intake.thirdPartyTools ??= 'create-expo-app, Expo CLI, optional EAS, Android Studio, Xcode, GitHub Actions';
+      intake.productSummary ??= 'A framework-first React Native application generated through the maintained Expo toolchain.';
+      intake.productOutcome ??= 'Deliver an accessible cross-platform application while keeping native generation, cloud services, permissions, updates, signing, and store release deliberate.';
+      intake.targetAudience ??= 'Mobile users, assistive-technology users, support staff, and engineers operating the Android and iOS releases.';
+      break;
+    case 'flutter-mobile':
+      intake.techStack ??= 'Flutter, Dart, Android, iOS';
+      intake.thirdPartyTools ??= 'Flutter CLI, Android Studio, Xcode, CocoaPods, GitHub Actions';
+      intake.productSummary ??= 'A Flutter application generated through the installed Flutter SDK and its platform toolchains.';
+      intake.productOutcome ??= 'Deliver an accessible native application with explicit SDK, platform, dependency, permission, signing, privacy, and release boundaries.';
+      intake.targetAudience ??= 'Mobile users, assistive-technology users, support staff, and engineers operating the Android and iOS releases.';
+      break;
   }
 }
 
@@ -3632,6 +3673,9 @@ function defaultTemplateProjectName(template: BootstrapTemplate): string {
     case 'nuxt-frontend': return 'My Nuxt Frontend';
     case 'react-frontend': return 'My React Frontend';
     case 'vue-frontend': return 'My Vue Frontend';
+    case 'react-native-mobile': return 'My React Native App';
+    case 'expo-mobile': return 'My Expo App';
+    case 'flutter-mobile': return 'my_flutter_app';
     default: return 'My Shopify Project';
   }
 }
@@ -3694,6 +3738,11 @@ export function buildBootstrapTemplateFiles(
     case 'react-frontend':
     case 'vue-frontend':
       buildSaasWebGeneratorHandoffFiles(files, projectName, frontendGeneratorSpec(template));
+      break;
+    case 'react-native-mobile':
+    case 'expo-mobile':
+    case 'flutter-mobile':
+      buildSaasWebGeneratorHandoffFiles(files, projectName, mobileGeneratorSpec(template));
       break;
   }
   return files;
@@ -5340,6 +5389,134 @@ function frontendGeneratorSpec(template: FrontendGeneratorTemplate): SaasWebGene
         ],
         privacySurfaces: FRONTEND_PRIVACY_SURFACES,
         compatibilitySurfaces: FRONTEND_COMPATIBILITY_SURFACES,
+      };
+  }
+}
+
+type MobileGeneratorTemplate =
+  | 'react-native-mobile'
+  | 'expo-mobile'
+  | 'flutter-mobile';
+
+const MOBILE_ACCEPTANCE_GATES = [
+  'Declare supported platforms, OS versions, device classes, orientations, and the emulator/simulator plus physical-device test matrix',
+  'Define navigation, deep/universal/app links, loading, empty, error, offline, interrupted, permission-denied, permission-revoked, and destructive-action states',
+  'Request only necessary permissions at the point of use and document the user-facing purpose, denial path, revocation path, and store disclosure for each one',
+  'Set measurable screen-reader, dynamic-text, contrast, reduced-motion, startup, frame-time, memory, battery, network, and binary-size budgets',
+  'Run lint, static analysis, unit, component/widget, integration, accessibility, platform, end-to-end, signed release-build, and rollback gates before store submission',
+] as const;
+
+const MOBILE_PRIVACY_SURFACES = [
+  'Accounts, sessions, tokens, secure storage, local databases, caches, clipboard, screenshots, backups, exports, and device migration',
+  'Camera, microphone, photos, contacts, calendar, location, motion, health, biometrics, notifications, nearby devices, and tracking permissions',
+  'Deep links, push tokens and payloads, background work, widgets, share extensions, network requests, uploads, and offline synchronization',
+  'Analytics, advertising identifiers, attribution, crash reports, diagnostics, support logs, source maps/symbols, third-party SDKs, retention, correction, and deletion',
+] as const;
+
+const MOBILE_COMPATIBILITY_SURFACES = [
+  'Framework, language, SDK, Node/package-manager where applicable, Android Gradle/JDK/SDK, Xcode/Swift, CocoaPods, and lockfile versions',
+  'Android application id, iOS bundle id, signing identities, entitlements, capabilities, provisioning profiles, build variants, and environment separation',
+  'Native modules/plugins, architecture, rendering engine, platform APIs, lifecycle/background rules, permissions, notifications, links, and update mechanism',
+  'Keyboard and switch input, TalkBack, VoiceOver, dynamic text, contrast, reduced motion, localization, right-to-left, orientation, and safe-area behaviour',
+  'Supported OS/device matrix, low-memory termination, slow or absent networks, interrupted upgrades, app-store review, phased release, crash rollback, and data migration',
+] as const;
+
+function mobileGeneratorSpec(template: MobileGeneratorTemplate): SaasWebGeneratorSpec {
+  switch (template) {
+    case 'react-native-mobile':
+      return {
+        label: 'React Native Mobile App',
+        handoffFile: 'REACT_NATIVE_MOBILE_HANDOFF.md',
+        ownership: 'React Native recommends a framework for new applications. This bare Community CLI path is for constraints that justify owning the Android/iOS projects, native dependencies, navigation, and upgrade work directly.',
+        prerequisites: [
+          'A written constraint that is not served well by a React Native framework such as Expo',
+          'Current React Native environment requirements verified for every target, including Node.js, JDK, Android Studio/SDK, and macOS with Xcode/CocoaPods for iOS',
+          'A portable native application name plus reviewed Android application id, iOS bundle id, organization, signing, minimum-OS, and distribution decisions',
+        ],
+        commands: [
+          'npx @react-native-community/cli@latest init <native-app-name>',
+        ],
+        effects: [
+          '`npx` retrieves and executes the current React Native Community CLI package',
+          'the generator writes JavaScript/TypeScript source plus Android and iOS native projects and dependency manifests',
+          'generation can retrieve application dependencies and iOS CocoaPods, run package lifecycle scripts, and populate package/toolchain caches',
+          'building or running later can start Metro, emulators/simulators, native compilers, signing tools, and connected-device installs',
+        ],
+        acceptance: [
+          'Record the generated React Native, React, Community CLI, Node.js, package-manager, Metro, JDK, Android SDK/Gradle, Xcode, CocoaPods, and lockfile versions',
+          'Review package scripts, native manifests, Gradle files, Podfile, Info.plist, entitlements, permissions, network security, and every generated file before execution',
+          ...MOBILE_ACCEPTANCE_GATES,
+        ],
+        sources: [
+          'https://reactnative.dev/docs/environment-setup',
+          'https://reactnative.dev/docs/getting-started-without-a-framework',
+        ],
+        privacySurfaces: MOBILE_PRIVACY_SURFACES,
+        compatibilitySurfaces: MOBILE_COMPATIBILITY_SURFACES,
+      };
+    case 'expo-mobile':
+      return {
+        label: 'Expo Mobile App',
+        handoffFile: 'EXPO_MOBILE_HANDOFF.md',
+        ownership: 'Expo is React Native’s framework-first path. create-expo-app owns the TypeScript/Expo Router starter; the project owns SDK selection, config plugins, native generation, permissions, EAS use, updates, signing, and store release.',
+        prerequisites: [
+          'A supported Node.js release and package manager verified against the selected Expo SDK',
+          'A reviewed current Expo SDK template specifier to replace `<reviewed-sdk>` and a new child-directory name',
+          'Decisions on supported platforms, Expo Go versus development builds, native identifiers, config plugins, EAS/cloud use, update policy, signing, and distribution',
+        ],
+        commands: [
+          'npx create-expo-app@latest <folder-name> --template default@<reviewed-sdk> --no-install --no-agents-md',
+        ],
+        effects: [
+          '`npx` retrieves and executes the current create-expo-app package',
+          'the default template writes an Expo Router and TypeScript project while `--no-install` skips npm dependencies and CocoaPods',
+          '`--no-agents-md` prevents the generator from adding AGENTS.md, CLAUDE.md, and .claude/settings.json that have not been reviewed',
+          'the default template does not write Android/iOS directories; Continuous Native Generation can create them later from app configuration and config plugins',
+          'optional EAS build, submit, update, and hosting services can upload source/artifacts or publish updates and require separate account, data-region, credential, and rollback review',
+        ],
+        acceptance: [
+          'Record the generated Expo SDK, React Native, React, Expo Router, TypeScript, Node.js, package-manager, template, and lockfile versions',
+          'Review app configuration, config plugins, generated native changes, runtime/update versioning, channels, branches, signing credentials, permissions, and EAS data flows',
+          ...MOBILE_ACCEPTANCE_GATES,
+        ],
+        sources: [
+          'https://reactnative.dev/docs/environment-setup',
+          'https://docs.expo.dev/more/create-expo/',
+          'https://docs.expo.dev/workflow/overview/',
+        ],
+        privacySurfaces: MOBILE_PRIVACY_SURFACES,
+        compatibilitySurfaces: MOBILE_COMPATIBILITY_SURFACES,
+      };
+    case 'flutter-mobile':
+      return {
+        label: 'Flutter Mobile App',
+        handoffFile: 'FLUTTER_MOBILE_HANDOFF.md',
+        ownership: 'The installed Flutter SDK owns the generated Dart and platform projects. The project owns SDK channel/version, target platforms, package selection, native identifiers, permissions, signing, and release.',
+        prerequisites: [
+          'A reviewed Flutter SDK channel and version, confirmed with `flutter --version` and `flutter doctor` against every target platform',
+          'A new lowercase_with_underscores Dart package/directory name to replace `<dart_package_name>`',
+          'Reviewed target platforms, organization, Android application id, iOS bundle id, minimum OS versions, signing, and distribution decisions',
+        ],
+        commands: [
+          'flutter create --empty <dart_package_name>',
+        ],
+        effects: [
+          '`flutter create` writes Dart source, tests, metadata, and selected platform projects from the installed SDK',
+          'project initialization retrieves necessary dependencies and can populate Flutter/Dart caches; AtlasMind does not claim this command is offline',
+          'generated platform files inherit the selected SDK’s defaults and require review before adding plugins or building',
+          'building or running later can start emulators/simulators, native compilers, signing tools, and connected-device installs',
+        ],
+        acceptance: [
+          'Record the Flutter channel and framework, engine, Dart, DevTools, Android SDK/Gradle/JDK, Xcode, CocoaPods, package, and lockfile versions',
+          'Review pubspec, analysis options, generated manifests, Gradle files, Podfile, Info.plist, entitlements, permissions, organization identifiers, and every generated file',
+          ...MOBILE_ACCEPTANCE_GATES,
+        ],
+        sources: [
+          'https://docs.flutter.dev/reference/flutter-cli',
+          'https://docs.flutter.dev/reference/create-new-app',
+        ],
+        privacySurfaces: MOBILE_PRIVACY_SURFACES,
+        compatibilitySurfaces: MOBILE_COMPATIBILITY_SURFACES,
       };
   }
 }

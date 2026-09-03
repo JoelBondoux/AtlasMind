@@ -32,7 +32,7 @@ AtlasMind will deliver fast-start, opinionated project templates for:
     - **SaaS/Web Apps (delivered):** Next.js; React Router framework mode (the maintained path for
       new Remix-style apps); Laravel; Django; Static Website; and Blog/CMS through Astro Content.
     - **Frontend (delivered):** Next.js; SvelteKit; Nuxt 4; React with Vite; and Vue.
-    - **Mobile:** React Native, Expo, Flutter
+    - **Mobile (delivered):** React Native; Expo; and Flutter.
     - **Game Dev:** Unity, Unreal, Godot, Web-based — specified in [project-composition.md](project-composition.md); phased plan in [`project_memory/roadmap/game-engine-integration.md`](../project_memory/roadmap/game-engine-integration.md).
     - **AI/Automation:** AI SaaS, RAG, Agentic, Local Model, Orchestrator
     - **DevOps:** Docker, Kubernetes, Serverless, Terraform
@@ -71,6 +71,15 @@ and developer-tools choices with the operator. The SvelteKit path uses the curre
 than create-svelte. All five handoffs require explicit routing, loading/error/offline states, public
 environment-variable and browser-storage review, accessibility/browser matrices, performance budgets,
 hosting headers, source-map policy, and rollback evidence before publication.
+
+The Mobile family extends that review boundary across native toolchains and app-store delivery. React
+Native records the framework-first recommendation and offers the bare Community CLI only when the project
+has a written native constraint. Expo keeps dependency installation, generated agent instructions,
+Continuous Native Generation, optional EAS services, update channels, and credentials separate. Flutter
+uses its minimal installed-SDK generator, requires the documented Dart package naming convention, and
+states plainly that initialization retrieves dependencies. All three start permission, secure-storage,
+telemetry, native-module, OS/device, accessibility, physical-device, signing, store, migration, and
+rollback evidence as Not assessed; bootstrap runs none of the commands.
 
 ### World-Class Developer Experience (Cross-Persona)
 

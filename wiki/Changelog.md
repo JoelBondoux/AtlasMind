@@ -19,6 +19,20 @@ Older entries below describe the software as it was at the time and are delibera
 
 ---
 
+## v0.387.0 — The Mobile prefab family is complete
+
+Guided bootstrap now offers focused React Native, Expo, and Flutter mobile options. Each writes a
+maintained-generator handoff, literal-placeholder commands, Not-assessed privacy and compatibility
+matrices, and acceptance gates for permissions, accessibility, performance, native modules, devices,
+signing, store submission, update policy, data migration, and rollback. Bootstrap runs none of them.
+
+The React Native option records the upstream framework-first recommendation and reserves the bare
+Community CLI path for explicit native constraints. Expo keeps dependency installation, generated agent
+instructions, Continuous Native Generation, and optional EAS services separate. Flutter requires its
+documented package naming convention and states that project initialization retrieves dependencies.
+
+The managed roadmap advances to 13 of 58 items complete; Game Dev is next.
+
 ## v0.386.0 — The Frontend prefab family is complete
 
 Guided bootstrap now offers focused Next.js, SvelteKit, Nuxt 4, React/Vite, and Vue frontend options.

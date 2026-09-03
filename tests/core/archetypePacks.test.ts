@@ -248,6 +248,9 @@ describe('archetypeFromProjectTypeLabel', () => {
       ['Nuxt Frontend', 'web-app'],
       ['React Frontend (Vite)', 'web-app'],
       ['Vue Frontend', 'web-app'],
+      ['React Native Mobile App', 'mobile'],
+      ['Expo Mobile App', 'mobile'],
+      ['Flutter Mobile App', 'mobile'],
     ];
     for (const [label, expected] of cases) {
       expect(archetypeFromProjectTypeLabel(label), label).toBe(expected);

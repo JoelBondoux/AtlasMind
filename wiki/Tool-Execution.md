@@ -330,6 +330,14 @@ setup surface can plan only catalog constants behind its full command/file previ
 React and Vue intentionally degrade to vendor documentation there because Vue is interactive and a bare
 React starter cannot safely choose the project's routing and data architecture.
 
+React Native, Expo, and Flutter Mobile options follow the same documentation-only rule. Bootstrap never
+submits `npx @react-native-community/cli`, `create-expo-app`, or `flutter create` to a terminal. The bare
+React Native path calls out its dependency/native-toolchain effects and the framework-first recommendation;
+Expo uses supported no-install and no-agent-instruction flags but leaves native generation and EAS for
+separate review; Flutter states that its installed-SDK generator retrieves dependencies. Emulators,
+physical devices, signing credentials, cloud builds/updates, and app-store actions require their own
+operator decisions and are never implied by selecting a prefab.
+
 ---
 
 ## Subscription agents and their tools

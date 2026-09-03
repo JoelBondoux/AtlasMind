@@ -133,6 +133,14 @@ Vite option only when a client-focused build is a deliberate fit; keep Vue's Rou
 formatting, and developer-tools prompts under operator control. The SvelteKit guide uses `sv create`, not
 the retired create-svelte path. Bootstrap writes and escapes the guide, but runs none of its commands.
 
+The **Mobile** family offers React Native, Expo, and Flutter handoffs. For a new React Native app, start
+with Expo unless a written native constraint justifies owning both platform projects and toolchains. Expo
+keeps dependency installation, generated agent instructions, native generation, optional EAS services,
+updates, and credentials separate. Flutter uses the installed SDK, requires a
+`lowercase_with_underscores` package name, and warns that project initialization retrieves dependencies.
+Before running anything, review permissions, local/secure storage, telemetry, supported devices and OS
+versions, accessibility, native modules, signing, store disclosures, data migration, and rollback.
+
 **For an existing codebase:**
 
 ```

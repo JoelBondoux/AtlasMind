@@ -832,6 +832,14 @@ ownership decisions. Framework-catalog tests separately reject create-svelte, ve
 separation and Nuxt's no-install/no-modules flags, and require React/Vue to degrade to documented manual
 setup rather than running an invented command.
 
+Mobile bootstrap is specified in `tests/features/mobile-bootstrap.feature`. The Vitest bridge walks
+React Native, Expo, and Flutter plans; proves every workspace output is documentation-only and every
+command uses literal placeholders; escapes hostile project text; and requires Not-assessed privacy and
+compatibility records. Focused scenarios pin React Native's framework-first boundary, Expo's no-install/
+no-agent-instruction flags plus deferred native generation and EAS, and Flutter's package-name and
+dependency-retrieval disclosures. Additions must preserve that non-execution contract and extend the
+shared permission, device, accessibility, signing, store, update, migration, and rollback matrices.
+
 ## Versioning Workflow
 
 1. Make changes and choose the correct SemVer bump for the same commit.

@@ -2183,6 +2183,8 @@ Bootstrap flow behavior:
      -> Static Website: dependency-free semantic HTML/CSS + CSP/accessibility contract + read-only CI
      -> Next.js/SvelteKit/Nuxt/React/Vue Frontend: documentation-only current-generator handoff
         + rendering, state, browser, accessibility, performance, privacy, and deployment gates
+     -> React Native/Expo/Flutter Mobile: documentation-only current-generator handoff
+        + native toolchain, permission, device, accessibility, privacy, signing, store, and update gates
   -> write project_soul.md + project brief + roadmap + intake log + repository plan
   -> seed project_memory/ideas/ with intake-aware ideation defaults
   -> seed project-scoped Personality Profile defaults when the intake provides stable project context
@@ -2199,7 +2201,8 @@ instruction files faster than an AtlasMind release. Bootstrap therefore records 
 effects but does not execute it or copy its output. The application becomes AtlasMind’s project only after
 generation into a separate directory and review. Static HTML/CSS is the deliberate exception: its complete
 runtime surface is small enough to emit locally, escape deterministically, parse in tests, and verify without
-a dependency install. The archetype bridge still collapses these labels into `website` or `web-app` plus
+a dependency install. The archetype bridge still collapses these labels into `website`, `web-app`, or
+`mobile` plus
 traits, so platform names do not multiply downstream routing vocabularies.
 
 Frontend labels use the same archetype bridge instead of creating framework archetypes. Next.js,
@@ -2208,6 +2211,14 @@ SvelteKit, and Nuxt map to `web-app + has-ui + has-server`; client-focused React
 React and Vue as manual-setup entries, because a safe constant must not answer Vue's interactive choices
 or pretend React supplies routing/data conventions. Its SvelteKit command uses `sv create`; persisted
 `remix` ids remain compatible while their displayed path continues to be React Router framework mode.
+
+Mobile labels likewise map to `mobile + has-ui + ships-binaries`. Their generator plans remain inert
+Markdown because package execution, native project creation, platform toolchains, cloud build/update
+services, signing, device installation, and store submission all cross boundaries that bootstrap cannot
+authorize. The React Native path records the framework-first recommendation; Expo uses no-install and
+no-agent-instruction flags while leaving Continuous Native Generation and EAS separate; Flutter discloses
+its dependency retrieval. Shared matrices start every permission, storage, telemetry, native-module,
+device/OS, accessibility, signing, migration, release, and rollback claim as Not assessed.
 
 Personality Profile flow behavior:
 

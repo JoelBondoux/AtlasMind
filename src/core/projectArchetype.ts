@@ -354,6 +354,9 @@ export function fromBootstrapLabel(label: string | undefined): ArchetypeIdentity
   if (/react frontend|vue frontend/.test(text)) {
     return identity('web-app', 'has-ui');
   }
+  if (/react native mobile|expo mobile|flutter mobile/.test(text)) {
+    return identity('mobile', 'has-ui', 'ships-binaries');
+  }
   if (/static website/.test(text)) {
     return identity('website', 'has-ui');
   }

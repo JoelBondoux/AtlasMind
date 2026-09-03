@@ -15,7 +15,7 @@ This file is the developer-facing backlog AtlasMind should absorb into SSOT and 
 - [x] **E‑Commerce:** Shopify, WooCommerce, BigCommerce, Magento 2, Wix <!-- rm:e-commerce-shopify-woocommer -->
 - [x] **SaaS/Web Apps:** Next.js, Remix, Laravel, Django, Static, Blog/CMS <!-- rm:saas-web-apps-next-js-remix -->
 - [x] **Frontend:** Next.js, SvelteKit, Nuxt, React, Vue <!-- rm:frontend-next-js-sveltekit-n -->
-- [ ] **Mobile:** React Native, Expo, Flutter <!-- rm:mobile-react-native-expo-flu -->
+- [x] **Mobile:** React Native, Expo, Flutter <!-- rm:mobile-react-native-expo-flu -->
 - [ ] **Game Dev:** Unity, Unreal, Godot, Web-based — specified in [project-composition.md](project-composition.md); phased plan in [`project_memory/roadmap/game-engine-integration.md`](../project_memory/roadmap/game-engine-integration.md). <!-- rm:game-dev-unity-unreal-godot -->
 - [ ] **AI/Automation:** AI SaaS, RAG, Agentic, Local Model, Orchestrator <!-- rm:ai-automation-ai-saas-rag-ag -->
 - [ ] **DevOps:** Docker, Kubernetes, Serverless, Terraform <!-- rm:devops-docker-kubernetes-ser -->
