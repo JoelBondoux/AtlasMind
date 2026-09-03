@@ -147,6 +147,7 @@ claims as Not assessed.
 | **Memory Manager** | Reads, writes and searches your project memory |
 | **Session Context Manager** | Maintains a revision-checked working summary without outranking the chat transcript |
 | **Memory Scanner** | The gate that decides what may be written |
+| **Schema Migration** | Versions persisted documents and refuses newer formats instead of overwriting them |
 | **Checkpoint Manager** | Snapshots before writes, so a failure is recoverable |
 | **Project Run History** | Every autonomous run, kept per workspace |
 
@@ -155,6 +156,12 @@ content changes, while the rolling session summary records which revision it des
 missing or mismatched marker and falls back to the current transcript. Clear, delete, New Chat, edit, and
 regenerate wait for invalidation, so an older background summary cannot reintroduce a turn the operator
 removed.
+
+Game integration begins at the persistence boundary rather than with an engine command. The future
+`game.json` profile is registered at schema v1 before any writer exists, while project composition stays
+inside the existing v1 workflow document. Repository fixtures pin Unreal, Unity, Godot 3/4, multi-root,
+and a simulated read-only Perforce component without storing derived topology, credentials, SDK paths,
+or engine binaries. That makes the next composition/parser work deterministic and engine-free.
 
 ### Reaching outside
 

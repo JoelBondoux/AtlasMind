@@ -840,6 +840,14 @@ no-agent-instruction flags plus deferred native generation and EAS, and Flutter'
 dependency-retrieval disclosures. Additions must preserve that non-execution contract and extend the
 shared permission, device, accessibility, signing, store, update, migration, and rollback matrices.
 
+Game integration fixtures live under `tests/fixtures/game-engines/`. They are deliberately minimal
+identity evidence, not runnable projects: Unreal supplies a `.uproject` plus corroborating config, Unity
+supplies `ProjectVersion.txt`, Godot 3 and 4 preserve their distinguishing feature boundary, and the
+composite fixture declares three VS Code roots with one inert Perforce content component. Keep the
+fixture contract in `tests/core/gameEngineFixtures.test.ts` aligned with the normative game/composition
+specifications; never add credentials, console SDK paths, engine binary paths, a live depot, or derived
+topology to these fixtures.
+
 ## Versioning Workflow
 
 1. Make changes and choose the correct SemVer bump for the same commit.

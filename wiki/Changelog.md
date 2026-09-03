@@ -19,6 +19,18 @@ Older entries below describe the software as it was at the time and are delibera
 
 ---
 
+## v0.387.1 — Game integration starts at the safe persistence boundary
+
+Game Engine Integration Phase 0 is complete. The future game profile is registered at schema v1 before
+any writer exists, and project composition remains within the already versioned workflow document.
+A focused migration test proves current-format reads and preserves files written by newer AtlasMind
+versions.
+
+Minimal Unreal, Unity, Godot 3, and Godot 4 fixtures now pin their decisive identity/version evidence.
+A three-root studio fixture adds gameplay, backend, and a simulated Perforce content component while
+storing exactly one home and no derived topology. Its depot coordinate is non-routable, and the fixture
+contract rejects credentials, signing material, console SDK paths, and engine binary paths.
+
 ## v0.387.0 — The Mobile prefab family is complete
 
 Guided bootstrap now offers focused React Native, Expo, and Flutter mobile options. Each writes a

@@ -1,0 +1,6 @@
+; Minimal Godot 3 identity fixture; the version signal is deliberately absent.
+config_version=4
+
+[application]
+
+config/name="AtlasMind Godot 3 Fixture"

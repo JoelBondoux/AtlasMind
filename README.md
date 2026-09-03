@@ -4,7 +4,7 @@
 
 <h1 align="center">AtlasMind</h1>
 
-<p align="center"><sub> · <strong>Current source version: 0.387.0</strong> · </sub></p>
+<p align="center"><sub> · <strong>Current source version: 0.387.1</strong> · </sub></p>
 
 
 <p align="center">
@@ -131,6 +131,21 @@ allow-list, redaction and file-withholding behaviour, retained metadata, provide
 important limits on overrides and compliance claims.
 
 ---
+
+## What's new in 0.387.1
+
+The last Marketplace publication, **v0.382.6**, is the baseline. The full history is in
+[CHANGELOG.md](CHANGELOG.md).
+
+- **Game integration Phase 0 is complete.** The future game profile is registered at schema v1
+  before any writer exists, while composition remains in the already versioned workflow document.
+
+- **Every engine path now has deterministic evidence.** Minimal Unreal, Unity, Godot 3, and Godot 4
+  fixtures pin the decisive identity/version files without requiring an editor installation.
+
+- **Multi-root and Perforce are present from the first implementation test.** A three-component
+  workspace fixture declares one home, a separate backend, and inert Perforce content without storing
+  derived topology or any credential, signing, console SDK, or engine-binary material.
 
 ## What's new in 0.387.0
 

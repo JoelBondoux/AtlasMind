@@ -15,8 +15,11 @@ property a reviewer may reject a change for violating.
 
 ### 0.2 Built versus proposed
 
-**Nothing in this document is built.** Every section describes intended behaviour. The facts about
-today's codebase in §1 are verified and dated; everything else is a contract for the implementation.
+Phase 0's compatibility and fixture boundary is built: `workflow.json` remains registered at schema
+v1, and a multi-root fixture declares three components including a simulated Perforce content root.
+The composition parser, validator, topology derivation, scope resolver, persistence wiring, and every
+consumer remain proposed. The facts about today's codebase in §1 are verified and dated; everything
+else is a contract for the implementation.
 
 ### 0.3 Non-goals
 

@@ -29,6 +29,14 @@ describe('migrateDocument', () => {
     expect(shouldPreserveExisting(outcome)).toBe(true);
   });
 
+  it('registers the game profile at v1 and preserves a future game file', () => {
+    expect(migrateDocument('game', { version: 1, engine: { kind: 'unknown' } }).status).toBe('current');
+
+    const future = migrateDocument('game', { version: 2, engine: { kind: 'unreal' } });
+    expect(future).toMatchObject({ status: 'refused', foundVersion: 2, expectedVersion: 1 });
+    expect(shouldPreserveExisting(future)).toBe(true);
+  });
+
   it('marks only a refusal as must-preserve', () => {
     // An invalid document is corrupt or foreign and may be replaced; a refused
     // one is somebody's real data that this build simply cannot read.

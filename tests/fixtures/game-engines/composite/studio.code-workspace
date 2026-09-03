@@ -1,0 +1,8 @@
+{
+  "folders": [
+    { "name": "Gameplay", "path": "home" },
+    { "name": "Backend", "path": "backend" },
+    { "name": "Content", "path": "content" }
+  ],
+  "settings": {}
+}

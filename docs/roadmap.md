@@ -33,7 +33,7 @@ AtlasMind will deliver fast-start, opinionated project templates for:
       new Remix-style apps); Laravel; Django; Static Website; and Blog/CMS through Astro Content.
     - **Frontend (delivered):** Next.js; SvelteKit; Nuxt 4; React with Vite; and Vue.
     - **Mobile (delivered):** React Native; Expo; and Flutter.
-    - **Game Dev:** Unity, Unreal, Godot, Web-based — specified in [project-composition.md](project-composition.md); phased plan in [`project_memory/roadmap/game-engine-integration.md`](../project_memory/roadmap/game-engine-integration.md).
+    - **Game Dev (Phase 0 delivered; implementation in progress):** Unity, Unreal, Godot, Web-based — the game/workflow schemas and engine/composite fixtures now precede the Phase 1 composition model; specified in [project-composition.md](project-composition.md), with the phased plan in [`project_memory/roadmap/game-engine-integration.md`](../project_memory/roadmap/game-engine-integration.md).
     - **AI/Automation:** AI SaaS, RAG, Agentic, Local Model, Orchestrator
     - **DevOps:** Docker, Kubernetes, Serverless, Terraform
     - **Testing:** Full, Playwright, API

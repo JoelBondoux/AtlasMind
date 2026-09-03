@@ -24,8 +24,8 @@
  *
  * Migrations themselves are pure `(document) => document` steps registered per
  * kind and chained from the version found to the version wanted, so a v1 file
- * opened by a v3 AtlasMind runs 1→2 then 2→3. The registry is deliberately
- * empty today — every document is still at v1 — but the mechanism, its
+ * opened by a v3 AtlasMind runs 1→2 then 2→3. Some document kinds now have
+ * active ladders while newly declared kinds begin at v1; the mechanism, its
  * invariants, and its tests ship *before* 1.0, because 1.0 is the promise that
  * these formats stay readable and that promise needs a way to be kept.
  *
@@ -45,6 +45,7 @@ export type SchemaDocumentKind =
   | 'personality-profile'
   | 'mcp-environment'
   | 'workflow'
+  | 'game'
   | 'ci-routing'
   | 'research'
   | 'roadmap-graph'
@@ -69,6 +70,7 @@ export const CURRENT_SCHEMA_VERSIONS: Readonly<Record<SchemaDocumentKind, number
   'personality-profile': 1,
   'mcp-environment': 1,
   workflow: 1,
+  game: 1,
   'ci-routing': 1,
   research: 1,
   'roadmap-graph': 1,

@@ -6,6 +6,29 @@ The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/),
 
 ## [Unreleased]
 
+## [0.387.1] - 2026-09-03
+
+### Added
+
+- Registered the future `project_memory/domain/game.json` document as schema kind `game` at version 1
+  before any game-profile writer exists; current reads and future-version refusal are pinned by test.
+- Added minimal Unreal, Unity, Godot 3, and Godot 4 identity/version fixtures plus a multi-root studio
+  fixture with gameplay, backend, and simulated Perforce content components.
+- Added an executable fixture contract covering exact engine markers, the one-home invariant, the
+  hybrid VCS boundary, derived-topology absence, inert depot coordinates, and prohibited-data absence.
+
+### Changed
+
+- Corrected `SchemaMigration` documentation to reflect its active testing and website ladders and
+  clarified that composition uses the already registered v1 workflow document.
+- Marked Game Engine Integration Phase 0 complete and synchronized the normative specifications,
+  architecture, developer guidance, human-facing roadmap, README, and wiki.
+
+### Security
+
+- Game fixtures contain no credentials, signing keys, console SDK paths, or engine binary paths. The
+  Perforce fixture uses the reserved `.invalid` namespace and exercises no client or depot.
+
 ## [0.387.0] - 2026-09-03
 
 ### Added

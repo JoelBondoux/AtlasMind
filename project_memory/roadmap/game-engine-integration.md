@@ -1,6 +1,6 @@
 # Game Engine Integration — Phased Roadmap
 
-> **Status:** Not started. **Owner:** AtlasMind core. **Created:** 2026-07-30. **Baseline:** v0.213.0.
+> **Status:** Phase 0 complete; Phase 1 next. **Owner:** AtlasMind core. **Created:** 2026-07-30. **Baseline:** v0.213.0.
 > This is the SSOT implementation plan. Its normative specifications are
 > [`docs/project-composition.md`](../../docs/project-composition.md) (v0.213.1) and
 > [`docs/game-engine-integration.md`](../../docs/game-engine-integration.md) (v0.213.2), both written
@@ -253,12 +253,14 @@ unmade decision.
 - **C0.1b** — ✅ `docs/game-engine-integration.md` (v0.213.2). Engine identity and version rules, the
   `game.json` schema, asset and log reading, the bridge protocol, the security boundary, a
   degradation table covering every "we cannot tell", and a conformance checklist.
-- **C0.2** — Both schemas registered with `SchemaMigration` at v1 *before* anything writes a file.
-  The registry is empty today; a domain document shipping without a migration entry is the exact
-  scenario `interpretVersionedDocument` exists for.
-- **C0.3** — Fixtures under `tests/fixtures/`: a minimal `.uproject` tree, a Unity `ProjectSettings`
+- **C0.2** — ✅ Both schemas registered with `SchemaMigration` at v1 *before* anything writes a file.
+  Composition remains part of the existing `workflow` kind; the game profile is registered as `game`.
+  A focused migration test pins current v1 reads and future-version refusal.
+- **C0.3** — ✅ Fixtures under `tests/fixtures/game-engines/`: a minimal `.uproject` tree, a Unity `ProjectSettings`
   tree, Godot 3 and 4 projects, **and one multi-root composite with a simulated Perforce component**.
-  Everything downstream is unit-testable without an engine or a depot, and this is what makes that true.
+  An executable fixture contract proves the engine markers, exact version evidence, one-home invariant,
+  hybrid VCS boundary, and absence of stored topology or prohibited secrets/SDK paths. Everything
+  downstream is unit-testable without an engine or a depot, and this is what makes that true.
 
 ## Phase 1 — Composition and topology (general, not game-specific)
 

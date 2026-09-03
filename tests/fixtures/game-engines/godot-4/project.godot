@@ -1,0 +1,7 @@
+; Minimal Godot 4 identity fixture.
+config_version=5
+
+[application]
+
+config/name="AtlasMind Godot 4 Fixture"
+config/features=PackedStringArray("4.3", "GL Compatibility")

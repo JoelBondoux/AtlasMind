@@ -15,8 +15,10 @@ Where this document and the plan disagree, this document wins.
 
 ### 0.2 Built versus proposed
 
-**Nothing in this document is built.** Every section describes intended behaviour. Facts about
-today's codebase are verified and dated; facts about engines are marked as claims requiring
+Phase 0 is built: the `game` persisted-document kind is registered at schema v1, and deterministic
+fixtures cover Unreal, Unity, Godot 3/4, plus the composite Perforce boundary. No game profile writer,
+engine detector, inventory reader, log parser, command surface, bridge, or dashboard is built yet;
+those sections remain intended behaviour. Facts about engines are marked as claims requiring
 verification (§2.4).
 
 ### 0.3 Engines in scope
@@ -99,8 +101,9 @@ and MUST NOT live in an engine-specific module.
 `project_memory/domain/game.json`, with a regenerated human-readable mirror at
 `project_memory/domain/game.md` — the `websiteWorkspaceManager` pattern.
 
-Registered with `SchemaMigration` at version 1 before anything writes it. Seeding MUST NOT overwrite
-a file written by a newer AtlasMind; an explicit save may.
+Registered with `SchemaMigration` at version 1 before anything writes it. The registration and
+future-version refusal test are built; no writer exists yet. Seeding MUST NOT overwrite a file written
+by a newer AtlasMind; an explicit save may.
 
 ### 3.2 Contents
 
