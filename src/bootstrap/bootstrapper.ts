@@ -7,7 +7,11 @@ import type { BudgetMode, MemoryDocumentClass, MemoryEntry, MemoryEvidenceType, 
 import { formatCost } from '../core/currencyFormatter.js';
 import { GhClient, ghFailureOf, nodeGhRunner, runGhOrThrow } from '../core/ghClient.js';
 import {
+  buildGameProjectComposition,
   buildShopifyProjectComposition,
+  GAME_COMPOSITION_PRESETS,
+  isGameCompositionPresetId,
+  type GameCompositionPresetId,
   type ShopifyCompositionComponent,
 } from '../core/projectComposition.js';
 import {
@@ -169,6 +173,7 @@ interface BootstrapProjectIntake {
   mode: 'guided' | 'minimal' | 'template';
   selectedTemplate?: BootstrapTemplate;
   shopifyComponents?: ShopifyCompositionComponent[];
+  gameCompositionPreset?: GameCompositionPresetId;
   captureNotes: string[];
   projectType?: string;
   projectName?: string;
@@ -461,7 +466,7 @@ async function collectBootstrapIntake(
         label: string;
         description: string;
         template?: BootstrapTemplate;
-        composition?: 'shopify';
+        composition?: 'shopify' | 'game';
       }>(
         [
           { label: 'Website / Marketing Site', description: 'Seed a client brief, sitemap, design workflow, platform targets, and n8n automation map.', template: undefined as BootstrapTemplate | undefined },
@@ -474,7 +479,12 @@ async function collectBootstrapIntake(
           { label: 'Mobile App', description: '', template: undefined },
           // Games were detectable from their engine but not selectable here, so a
           // game project could not declare itself and was shipped as `generic`.
-          { label: 'Game', description: 'Frame budget as a gate, asset validation in CI, and simulation-focused testing.', template: undefined },
+          {
+            label: 'Game',
+            description: 'Choose a safe architecture preset, then add engine details separately.',
+            template: undefined,
+            composition: 'game',
+          },
           { label: 'Other', description: '', template: undefined },
           {
             label: '$(layers) Shopify composable project',
@@ -547,6 +557,24 @@ async function collectBootstrapIntake(
           if (selected && selected.length > 0) {
             intake.shopifyComponents = selected.map(item => item.component);
             intake.projectType = formatShopifyCompositionLabel(intake.shopifyComponents);
+            intake.mode = 'template';
+          }
+        } else if (projectTypePick.composition === 'game') {
+          const preset = await vscode.window.showQuickPick(
+            GAME_COMPOSITION_PRESETS.map(definition => ({
+              label: definition.label,
+              description: definition.description,
+              presetId: definition.id,
+            })),
+            {
+              placeHolder: 'Choose a starting component layout; the workflow remains editable',
+              ignoreFocusOut: true,
+              title: 'Game Architecture Preset',
+            },
+          );
+          if (preset) {
+            intake.gameCompositionPreset = preset.presetId;
+            intake.projectType = `Game — ${preset.label}`;
             intake.mode = 'template';
           }
         } else if (projectTypePick.template) {
@@ -809,6 +837,9 @@ function buildBootstrapIntakeContext(intake: BootstrapProjectIntake): string {
     intake.shopifyComponents?.length
       ? `Declared Shopify components: ${intake.shopifyComponents.join(', ')}`
       : '',
+    intake.gameCompositionPreset
+      ? `Selected game composition seed: ${formatGameCompositionPresetLabel(intake.gameCompositionPreset)}`
+      : '',
     intake.productSummary ? `What we are building: ${intake.productSummary}` : '',
     intake.productOutcome ? `Primary outcome: ${intake.productOutcome}` : '',
     intake.targetAudience ? `Target audience: ${intake.targetAudience}` : '',
@@ -981,7 +1012,10 @@ async function writeBootstrapComposition(
   ssotRoot: vscode.Uri,
   intake: BootstrapProjectIntake,
 ): Promise<BootstrapArtifacts['compositionStatus']> {
-  const composition = buildShopifyProjectComposition(intake.shopifyComponents ?? []);
+  const composition = buildShopifyProjectComposition(intake.shopifyComponents ?? [])
+    ?? (isGameCompositionPresetId(intake.gameCompositionPreset)
+      ? buildGameProjectComposition(intake.gameCompositionPreset)
+      : undefined);
   if (!composition) {
     return 'none';
   }
@@ -2214,7 +2248,7 @@ function buildBootstrapCompletionSummary(ssotRelPath: string, intake: BootstrapP
       ? `- Scaffolded ${formatTemplateName(artifacts.templateScaffolded)} template files and getting-started guide.`
       : '',
     artifacts.compositionStatus === 'declared'
-      ? `- Declared ${formatShopifyCompositionLabel(intake.shopifyComponents ?? [])} in \`operations/workflow.json\` and regenerated its Markdown mirror.`
+      ? `- Declared ${formatBootstrapCompositionLabel(intake)} in \`operations/workflow.json\` and regenerated its Markdown mirror.`
       : artifacts.compositionStatus === 'preserved'
         ? '- Left the existing workflow declaration untouched; bootstrap never overwrites team-owned composition data.'
         : '',
@@ -3606,6 +3640,17 @@ function formatShopifyCompositionLabel(components: readonly ShopifyCompositionCo
   const chosen = new Set(components);
   const ordered = (['theme', 'app', 'extension'] as const).filter(component => chosen.has(component));
   return `Shopify composition (${ordered.map(component => labels[component]).join(' + ')})`;
+}
+
+function formatGameCompositionPresetLabel(preset: GameCompositionPresetId): string {
+  return GAME_COMPOSITION_PRESETS.find(definition => definition.id === preset)?.label ?? preset;
+}
+
+function formatBootstrapCompositionLabel(intake: BootstrapProjectIntake): string {
+  if (intake.gameCompositionPreset) {
+    return `Game composition (${formatGameCompositionPresetLabel(intake.gameCompositionPreset)})`;
+  }
+  return formatShopifyCompositionLabel(intake.shopifyComponents ?? []);
 }
 
 function formatTemplateName(template: BootstrapTemplate): string {

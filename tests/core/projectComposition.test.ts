@@ -2,8 +2,10 @@ import { readFileSync } from 'node:fs';
 import path from 'node:path';
 import { describe, expect, it } from 'vitest';
 import {
+  buildGameProjectComposition,
   buildShopifyProjectComposition,
   deriveProjectTopologies,
+  GAME_COMPOSITION_PRESETS,
   normalizeComponentLocation,
   sanitizeProjectComposition,
   selectEffectiveProjectComposition,
@@ -103,6 +105,49 @@ describe('composition policy', () => {
       expect.objectContaining({ id: 'shopify-extension', location: '.', home: true }),
     ]);
     expect(buildShopifyProjectComposition([])).toBeUndefined();
+    expect(buildShopifyProjectComposition({ theme: true })).toBeUndefined();
+    expect(buildShopifyProjectComposition(['not-a-component'])).toBeUndefined();
+  });
+
+  it.each(GAME_COMPOSITION_PRESETS)('seeds the $label preset as valid generic composition', preset => {
+    const composition = buildGameProjectComposition(preset.id);
+
+    expect(sanitizeProjectComposition(composition)).toEqual(composition);
+    expect(composition.components.filter(component => component.home)).toHaveLength(1);
+    expect(composition.components[0]).toMatchObject({
+      id: 'gameplay',
+      location: '.',
+      role: 'application',
+      home: true,
+    });
+    expect(composition).not.toHaveProperty('preset');
+    expect(composition).not.toHaveProperty('topology');
+  });
+
+  it('keeps the hybrid content boundary non-Git and does not invent engine upstream coordinates', () => {
+    const hybrid = buildGameProjectComposition('hybrid-git-perforce');
+    const engineFork = buildGameProjectComposition('engine-fork-studio');
+
+    expect(hybrid.components.find(component => component.id === 'content')).toMatchObject({
+      role: 'content',
+      vcs: 'perforce',
+      home: false,
+    });
+    expect(deriveProjectTopologies(hybrid)).toEqual(['hybrid']);
+    expect(engineFork.components.find(component => component.id === 'engine')).toMatchObject({
+      role: 'engine',
+      vcs: 'git',
+    });
+    expect(engineFork.components.find(component => component.id === 'engine')).not.toHaveProperty('upstream');
+  });
+
+  it('returns fresh preset data that remains editable after seeding', () => {
+    const first = buildGameProjectComposition('multi-repo-studio');
+    first.components[0]!.label = 'Our shipped game';
+
+    const second = buildGameProjectComposition('multi-repo-studio');
+    expect(second.components[0]?.label).toBe('Gameplay');
+    expect(deriveProjectTopologies(second, { gitRootCount: 3 })).toEqual(['multi-repo']);
   });
 
   it('derives every applicable topology and stores none of them', () => {

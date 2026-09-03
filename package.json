@@ -2,7 +2,7 @@
   "name": "atlasmind",
   "displayName": "AtlasMind",
   "description": "Developer-centric multi-agent orchestrator for VS Code with model routing, long-term memory, and skills registry.",
-  "version": "0.390.0",
+  "version": "0.391.0",
   "publisher": "JoelBondoux",
   "preview": false,
   "license": "MIT",
@@ -78,7 +78,7 @@
         "commands": [
           {
             "name": "bootstrap",
-            "description": "Initialise project memory, including explicit Shopify component composition"
+            "description": "Initialise project memory with explicit Shopify composition or game architecture presets"
           },
           {
             "name": "import",

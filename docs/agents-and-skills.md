@@ -206,6 +206,12 @@ archetypes, writes one home, and creates a workflow whose stages are all disable
 composition or future/unreadable workflow data is preserved, and the path runs no generator, dependency
 install, network call, or Shopify platform command.
 
+The **Game** choice opens an architecture-seed picker for single-repo indie, multi-repo studio, hybrid
+Git + Perforce studio, and engine-fork studio. The accepted seed is stored as ordinary components, not
+as a governing preset or topology. Perforce and upstream fields stay free of guessed coordinates and
+credentials. This is still a declaration-only bootstrap path: no engine, generator, VCS, or platform
+command runs.
+
 Guided bootstrap's platform prefabs are create-only. The **WooCommerce Extension** option writes a
 minimal PHP plugin shell, explicit WooCommerce dependency and HPOS declarations, a direct-access guard,
 a public-hook-only starter class, `wp-env`/Composer metadata, syntax and scaffold-contract CI,

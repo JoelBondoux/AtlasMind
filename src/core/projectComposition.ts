@@ -79,9 +79,15 @@ export type ShopifyCompositionComponent = typeof SHOPIFY_COMPOSITION_COMPONENTS[
  * workspace component.
  */
 export function buildShopifyProjectComposition(
-  selected: readonly ShopifyCompositionComponent[],
+  selected: unknown,
 ): ProjectComposition | undefined {
-  const chosen = new Set(selected);
+  if (!Array.isArray(selected)) {
+    return undefined;
+  }
+  const chosen = new Set<ShopifyCompositionComponent>(selected.filter(
+    (component): component is ShopifyCompositionComponent =>
+      (SHOPIFY_COMPOSITION_COMPONENTS as readonly unknown[]).includes(component),
+  ));
   const ordered = SHOPIFY_COMPOSITION_COMPONENTS.filter(component => chosen.has(component));
   if (ordered.length === 0) {
     return undefined;
@@ -129,6 +135,126 @@ export function buildShopifyProjectComposition(
       home: component === home,
     })),
   };
+}
+
+export const GAME_COMPOSITION_PRESET_IDS = [
+  'single-repo-indie',
+  'multi-repo-studio',
+  'hybrid-git-perforce',
+  'engine-fork-studio',
+] as const;
+export type GameCompositionPresetId = typeof GAME_COMPOSITION_PRESET_IDS[number];
+
+export function isGameCompositionPresetId(value: unknown): value is GameCompositionPresetId {
+  return (GAME_COMPOSITION_PRESET_IDS as readonly unknown[]).includes(value);
+}
+
+export interface GameCompositionPresetDefinition {
+  id: GameCompositionPresetId;
+  label: string;
+  description: string;
+}
+
+export const GAME_COMPOSITION_PRESETS: readonly GameCompositionPresetDefinition[] = [
+  {
+    id: 'single-repo-indie',
+    label: 'Single-repo indie',
+    description: 'One Git gameplay component owns the workspace and project memory.',
+  },
+  {
+    id: 'multi-repo-studio',
+    label: 'Multi-repo studio',
+    description: 'Gameplay, backend, and team tools are independently scoped Git components.',
+  },
+  {
+    id: 'hybrid-git-perforce',
+    label: 'Hybrid Git + Perforce studio',
+    description: 'Git gameplay and backend components share the project with Perforce content.',
+  },
+  {
+    id: 'engine-fork-studio',
+    label: 'Engine-fork studio',
+    description: 'Gameplay, a separately versioned engine fork, and team tools have distinct boundaries.',
+  },
+];
+
+/**
+ * Seed one common game layout as ordinary project composition.
+ *
+ * The preset id is intentionally absent from the result: presets seed component
+ * data and never govern it. In particular, the engine-fork shape does not invent
+ * an upstream remote/ref. Those coordinates belong to the team and can be added
+ * to the seeded engine component when known.
+ */
+export function buildGameProjectComposition(
+  preset: GameCompositionPresetId,
+): ProjectComposition {
+  const gameplay = (): ProjectComponent => ({
+    id: 'gameplay',
+    label: 'Gameplay',
+    location: '.',
+    role: 'application',
+    archetype: { archetype: 'game', traits: ['has-ui', 'ships-binaries'] },
+    vcs: 'git',
+    home: true,
+  });
+  const backend = (): ProjectComponent => ({
+    id: 'backend',
+    label: 'Backend',
+    location: 'backend',
+    role: 'service',
+    archetype: { archetype: 'api', traits: ['has-server'] },
+    vcs: 'git',
+    home: false,
+  });
+  const tools = (): ProjectComponent => ({
+    id: 'tools',
+    label: 'Team tools',
+    location: 'tools',
+    role: 'tools',
+    archetype: { archetype: 'cli', traits: [] },
+    vcs: 'git',
+    home: false,
+  });
+
+  switch (preset) {
+    case 'single-repo-indie':
+      return { components: [gameplay()] };
+    case 'multi-repo-studio':
+      return { components: [gameplay(), backend(), tools()] };
+    case 'hybrid-git-perforce':
+      return {
+        components: [
+          gameplay(),
+          backend(),
+          {
+            id: 'content',
+            label: 'Content',
+            location: 'content',
+            role: 'content',
+            archetype: { archetype: 'generic', traits: [] },
+            vcs: 'perforce',
+            home: false,
+          },
+        ],
+      };
+    case 'engine-fork-studio':
+      return {
+        components: [
+          gameplay(),
+          {
+            id: 'engine',
+            label: 'Engine fork',
+            location: 'engine',
+            role: 'engine',
+            archetype: { archetype: 'library', traits: ['has-native-build'] },
+            vcs: 'git',
+            home: false,
+          },
+          tools(),
+        ],
+      };
+  }
 }
 
 export interface ProjectCompositionProblem {

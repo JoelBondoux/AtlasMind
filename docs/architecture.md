@@ -1333,6 +1333,13 @@ regenerates the Markdown mirror, and uses `interpretWorkflowConfigDocument` so a
 refused exactly as it is by `WorkflowConfigManager`. Existing declarations and unreadable/invalid sources
 are preserved. The path creates no Shopify source and executes no generator or platform command.
 
+The same adapter offers four game seeds through **Game**: single-repo indie, multi-repo studio, hybrid
+Git + Perforce studio, and engine-fork studio. `buildGameProjectComposition` returns fresh, ordinary
+component data; it deliberately omits the preset id and derived topology, so the seed cannot govern
+later edits. The hybrid content component records only `perforce`, with no depot or credential. The
+engine-fork component records the boundary but leaves `upstream` absent until the team supplies a real
+remote/ref. Persisted draft values are checked against the closed preset ids before a builder runs.
+
 ### ProjectVocabulary (`src/core/projectVocabulary.ts`)
 
 The nouns a project has **declared** for its own delivery pipeline and Git workflow, read once and in one place. It exists because two surfaces were answering the same question from different sources and disagreeing: a request to "promote to staging" was matched against a hand-maintained keyword table in the Orchestrator that contained neither `promote` nor `staging`, so the turn selected no tools and no context — while `project_memory/operations/delivery.json` had already recorded the answer (a stage of kind `staging`, named `Integration`, carrying `branchRef: develop`). The product knew; the part of the product that had to act did not, so the model fell back to `git branch`, found nothing called `staging`, and asked the user a question AtlasMind could have answered.

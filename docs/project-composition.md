@@ -15,15 +15,16 @@ property a reviewer may reject a change for violating.
 
 ### 0.2 Built versus proposed
 
-Phase 1 is built through C1.6: `projectComposition.ts` owns the closed roles/VCS vocabulary, strict
+Phase 1 is built through C1.7: `projectComposition.ts` owns the closed roles/VCS vocabulary, strict
 normalization, validation, declaration-over-proposal rule, and derived topology; `workspaceScope.ts`
 resolves explicit home/component/all requests while defaulting exactly to the first VS Code workspace
 folder; and `workflowConfig.ts` round-trips the declaration and publishes it in the Markdown mirror.
 The Project Dashboard now opts Git status, local CI, debt scanning, issue-tracker visibility, and
 observed-delta into component scope. Each reports its scope, retains excluded components as
 `not-visible`, and never substitutes zero for an unreadable VCS. Guided bootstrap's explicit Shopify
-multi-select validates theme + app + extension against the same generic model. Game presets and upstream
-divergence remain proposed.
+multi-select validates theme + app + extension against the same generic model, and its four game
+architecture presets seed editable component sets without persisting a governing preset. Upstream
+divergence remains proposed.
 
 ### 0.3 Non-goals
 
@@ -242,6 +243,13 @@ invalid document, an orphaned Markdown mirror, and any document written by a new
 not execute a Shopify generator or create a guessed source tree. The app is home when selected, then the
 theme, then the extension; this deterministic priority gives exactly one component the SSOT root while
 sibling locations remain portable.
+
+Choosing **Game** opens a single architecture-seed picker: single-repo indie, multi-repo studio,
+hybrid Git + Perforce studio, or engine-fork studio. Each result is an ordinary composition with one
+home gameplay component. The preset id and topology are not stored, so the result can be edited without
+a later rule restoring the seed. Hybrid content carries only `vcs: perforce`—never a depot or credential.
+The engine fork is a distinct `engine` role but has no upstream remote/ref until the team supplies the
+real coordinates. Like the Shopify path, selection runs no engine, generator, VCS, or platform command.
 
 Where detection finds nothing, the honest answer is one component covering the workspace — not a
 failure.

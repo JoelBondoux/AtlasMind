@@ -861,6 +861,12 @@ The bootstrap adapter must call the shared workflow document interpreter before 
 composition and newer/invalid/unreadable files stay untouched. This path declares boundaries only; adding
 source generation or a platform command would cross the bootstrapper's existing no-execution boundary.
 
+Game architecture presets follow the same adapter and persistence path. Keep all four definitions in
+the pure composition module and assert each sanitizes, has exactly one home, and stores neither preset
+identity nor topology. Preset builders must return fresh editable objects. A hybrid fixture may declare
+`perforce` but no depot/credential; an engine-fork seed may declare the engine role but no guessed
+upstream. The bootstrap integration test must continue to prove selection invokes no command.
+
 The Project Dashboard now performs that opt-in migration for Git status, local CI, issue visibility, debt
 scans, and observed deltas. Keep detailed legacy repository/GitHub data tied to the declared home component,
 and add a typed component inventory beside it. A missing or non-Git component must remain `not-visible` with

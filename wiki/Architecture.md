@@ -164,6 +164,11 @@ same generic component model. It runs no Shopify command and does not invent sou
 composition, invalid/unreadable workflow, orphaned mirror, or newer workflow schema is left untouched;
 new workflow stages remain disabled at `observe`.
 
+The **Game** path then offers four component seeds: single-repo indie, multi-repo studio, hybrid Git +
+Perforce studio, and engine-fork studio. The stored workflow contains no preset identity or topology,
+so it remains editable team data rather than a governed template. Perforce receives no depot/credential,
+and an engine fork receives no invented upstream coordinates. Selection executes nothing.
+
 ### Remembering
 
 | Part | What it does |

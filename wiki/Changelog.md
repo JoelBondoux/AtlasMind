@@ -19,6 +19,19 @@ Older entries below describe the software as it was at the time and are delibera
 
 ---
 
+## v0.391.0 — Game architecture seeds
+
+Guided bootstrap now offers four common game layouts: single-repo indie, multi-repo studio, hybrid
+Git + Perforce studio, and engine-fork studio. Each produces the same generic component data used by
+other project types. Exactly one gameplay component owns project memory; backend, tools, content, and
+engine boundaries appear only where the chosen layout calls for them.
+
+The preset name and derived topology are not persisted, so a seed never governs later edits. The
+hybrid layout stores no depot or credential, while the engine-fork layout waits for the team to declare
+the real upstream remote/ref. Bootstrap executes no engine, generator, VCS, or platform command.
+
+Game Engine Integration Phase 1 is complete through C1.7. Pure upstream-divergence evidence is next.
+
 ## v0.390.0 — Shopify composition at bootstrap
 
 Guided bootstrap can now express a Shopify project as theme + app + extension instead of forcing those

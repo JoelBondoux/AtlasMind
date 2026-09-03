@@ -673,6 +673,38 @@ describe('bootstrapProject', () => {
     expect(showWarningMessage).toHaveBeenCalledWith(expect.stringContaining('existing workflow composition'));
   });
 
+  it('offers a game preset that seeds composition without governing it', async () => {
+    showQuickPick
+      .mockResolvedValueOnce({ intakeMode: 'guided' })
+      .mockResolvedValueOnce({ label: 'Game', composition: 'game' })
+      .mockResolvedValueOnce({ label: 'Hybrid Git + Perforce studio', presetId: 'hybrid-git-perforce' });
+
+    const reported: string[] = [];
+    await bootstrapProject(
+      ROOT as any,
+      makeAtlas(),
+      { markdown: (value: unknown) => { reported.push(String(value)); } } as any,
+    );
+
+    const workflow = JSON.parse(Buffer.from(
+      fileResponses.get('/workspace/project_memory/operations/workflow.json') ?? [],
+    ).toString('utf-8')) as {
+      composition: { components: Array<{ id: string; vcs: string; home: boolean }> };
+    };
+    expect(workflow.composition.components.map(component => component.id)).toEqual([
+      'gameplay',
+      'backend',
+      'content',
+    ]);
+    expect(workflow.composition.components.find(component => component.id === 'content')?.vcs).toBe('perforce');
+    expect(workflow.composition).not.toHaveProperty('preset');
+    expect(reported.join('\n')).toContain('Game composition (Hybrid Git + Perforce studio)');
+    expect(executeCommand).not.toHaveBeenCalled();
+
+    const presetPick = showQuickPick.mock.calls.find(([, options]) => options?.title === 'Game Architecture Preset');
+    expect(presetPick?.[0]).toHaveLength(4);
+  });
+
   it('runs the guided intake and seeds SSOT, settings, and GitHub planning artifacts', async () => {
     showQuickPick
       .mockResolvedValueOnce({ intakeMode: 'guided' })

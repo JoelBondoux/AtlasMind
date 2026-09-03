@@ -15,13 +15,15 @@ Where this document and the plan disagree, this document wins.
 
 ### 0.2 Built versus proposed
 
-Phase 0 and Phase 1 through C1.6 are built: the `game` persisted-document kind is registered at schema
+Phase 0 and Phase 1 through C1.7 are built: the `game` persisted-document kind is registered at schema
 v1; deterministic fixtures cover Unreal, Unity, Godot 3/4 and Perforce; declared component scope
 round-trips through `workflow.json`; and the Project Dashboard now scopes Git, local CI, debt,
 issue-tracker visibility, and observed-delta evidence to those components with explicit `not-visible`
-results. The generic Shopify theme + app + extension bootstrap path now supplies the required non-game
-composition validation. Game composition presets and upstream divergence remain before Phase 1 exits.
-No engine detector, inventory reader, log parser, game command surface, bridge, or game
+results. The generic Shopify theme + app + extension bootstrap path supplies the required non-game
+composition validation, and four editable game architecture seeds cover single-repo, multi-repo,
+hybrid Git + Perforce, and engine-fork layouts without persisting preset authority or guessed
+coordinates. Upstream divergence remains before Phase 1 exits. No engine detector, inventory reader,
+log parser, game command surface, bridge, or game
 dashboard is built yet; those sections remain intended behaviour. Facts about engines are marked as
 claims requiring verification (§2.4).
 

@@ -6,6 +6,28 @@ The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/),
 
 ## [Unreleased]
 
+## [0.391.0] - 2026-09-03
+
+### Added
+
+- Added four game architecture presets to guided bootstrap: single-repo indie, multi-repo studio,
+  hybrid Git + Perforce studio, and engine-fork studio.
+- Added pure preset builders and conformance tests covering valid composition, one home, derived-only
+  topology, non-Git content visibility, fresh editable seed data, and absent upstream guesses.
+- Added end-to-end bootstrap coverage proving the hybrid preset writes generic workflow composition
+  and invokes no engine, VCS, generator, or platform command.
+
+### Changed
+
+- The Game project-type choice now opens a reviewable architecture-preset picker before the remainder
+  of bootstrap. The saved document contains components only; the preset id does not govern later edits.
+- Game Engine Integration Phase 1 advances through C1.7; upstream-divergence evidence is next.
+
+### Security
+
+- Bootstrap validates persisted preset input before using it. The hybrid preset contains no Perforce
+  depot or credential, and the engine-fork preset never invents an upstream remote/ref.
+
 ## [0.390.0] - 2026-09-03
 
 ### Added

@@ -4,7 +4,7 @@
 
 <h1 align="center">AtlasMind</h1>
 
-<p align="center"><sub> · <strong>Current source version: 0.390.0</strong> · </sub></p>
+<p align="center"><sub> · <strong>Current source version: 0.391.0</strong> · </sub></p>
 
 
 <p align="center">
@@ -131,6 +131,23 @@ allow-list, redaction and file-withholding behaviour, retained metadata, provide
 important limits on overrides and compliance claims.
 
 ---
+
+## What's new in 0.391.0
+
+The last Marketplace publication, **v0.382.6**, is the baseline. The full history is in
+[CHANGELOG.md](CHANGELOG.md).
+
+- **Game projects start from an explicit component layout.** Guided bootstrap now offers single-repo
+  indie, multi-repo studio, hybrid Git + Perforce, and engine-fork studio presets.
+
+- **A preset is a seed, not a governor.** The saved workflow contains ordinary editable components,
+  never a persisted preset identity or topology; choosing again cannot replace the team’s declaration.
+
+- **Uncertain coordinates stay absent.** The engine-fork seed creates an engine component but never
+  invents its upstream remote or ref, and the Perforce seed stores no depot, credential, or machine path.
+
+- **Game integration Phase 1 advances through C1.7.** Pure upstream-divergence evidence is the final
+  Phase 1 deliverable.
 
 ## What's new in 0.390.0
 
@@ -1581,7 +1598,7 @@ Type these in the AtlasMind chat panel as `/<command>`, or in the VS Code chat v
 
 | Command | What it does |
 |---|---|
-| `/bootstrap` | Set up project memory and foundations; Shopify projects can declare theme/app/extension composition |
+| `/bootstrap` | Set up project memory and foundations; declare Shopify composition or choose a game architecture seed |
 | `/import` | Build project memory from an existing repository |
 | `/project <goal>` | Plan and run a coordinated piece of multi-step work |
 | `/loop <goal>` | Chase a goal inside cost, time and iteration limits |

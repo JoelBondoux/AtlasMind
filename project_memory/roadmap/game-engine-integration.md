@@ -1,6 +1,6 @@
 # Game Engine Integration — Phased Roadmap
 
-> **Status:** Phase 1 in progress; C1.1–C1.6 complete, C1.7 next. **Owner:** AtlasMind core. **Created:** 2026-07-30. **Baseline:** v0.213.0.
+> **Status:** Phase 1 in progress; C1.1–C1.7 complete, C1.8 next. **Owner:** AtlasMind core. **Created:** 2026-07-30. **Baseline:** v0.213.0.
 > This is the SSOT implementation plan. Its normative specifications are
 > [`docs/project-composition.md`](../../docs/project-composition.md) (v0.213.1) and
 > [`docs/game-engine-integration.md`](../../docs/game-engine-integration.md) (v0.213.2), both written
@@ -288,9 +288,11 @@ with per-component VCS, and no existing single-root behaviour has changed.
   workflow JSON/Markdown pair. The canonical builder uses only generic roles, archetypes, traits,
   locations, VCS and one home; the tested write preserves existing or newer workflow data and executes
   no Shopify command. The model is proven with no game code or new domain vocabulary.
-- **C1.7** Game architecture presets — declared compositions for the common layouts (single-repo
-  indie, multi-repo studio, hybrid git+Perforce, engine-fork studio) offered at bootstrap. Presets
-  **seed and do not govern**, following profiles.
+- **C1.7** — ✅ Game architecture presets — guided bootstrap offers declared compositions for
+  single-repo indie, multi-repo studio, hybrid Git + Perforce, and engine-fork studio layouts.
+  Presets **seed and do not govern**: only fresh editable components are persisted, never the preset id
+  or derived topology. Perforce carries no depot/credential and an engine fork receives no invented
+  upstream coordinates; selection executes no command.
 - **C1.8** `upstreamDivergence.ts` is built here rather than in Phase 2 — it is pure git, needs no
   engine, and serves fork-based and embedded projects immediately. Phase 2 consumes it; it does not
   own it.
