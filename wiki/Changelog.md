@@ -19,6 +19,24 @@ Older entries below describe the software as it was at the time and are delibera
 
 ---
 
+## v0.394.0 — Bounded game asset inventory
+
+AtlasMind can now inventory declared game-content roots after an explicit confirmation. The
+filesystem-only reader groups recognized scenes, textures, models, audio, video, animation,
+materials, shaders, fonts, data, packages, and other engine assets by count and size. It reports
+import-error locations without retaining their raw text, preserves metadata-without-asset findings as
+candidates, and excludes declared engine caches deterministically.
+
+One file, byte, and monotonic-time budget covers the whole component set. A limit, unreadable path,
+or withheld symbolic link stays visible, and incomplete scans withhold orphan completeness rather
+than treating unseen files as absent. Perforce, external, and unknown components report
+`not-visible`, never zero.
+
+Git components also receive conservative LFS evidence from root and nested `.gitattributes` files.
+Normal overrides are applied in declaration order; unsupported LFS syntax makes the verdict
+unreadable rather than falsely declaring an asset uncovered. Game Engine Integration Phase 2 is now
+complete through C2.2, with engine-component fork interpretation next.
+
 ## v0.393.0 — Game engine identity
 
 AtlasMind can now identify Unreal, Unity, and Godot from decisive project files without starting an

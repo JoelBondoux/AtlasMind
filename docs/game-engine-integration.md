@@ -15,7 +15,7 @@ Where this document and the plan disagree, this document wins.
 
 ### 0.2 Built versus proposed
 
-Phase 0 and Phase 1 are built through C1.8, and Phase 2 is built through C2.1: the `game` persisted-document kind is registered at schema
+Phase 0 and Phase 1 are built through C1.8, and Phase 2 is built through C2.2: the `game` persisted-document kind is registered at schema
 v1; deterministic fixtures cover Unreal, Unity, Godot 3/4 and Perforce; declared component scope
 round-trips through `workflow.json`; and the Project Dashboard now scopes Git, local CI, debt,
 issue-tracker visibility, and observed-delta evidence to those components with explicit `not-visible`
@@ -25,8 +25,9 @@ hybrid Git + Perforce, and engine-fork layouts without persisting preset authori
 coordinates. The engine-agnostic upstream-divergence core now derives commits, changed-path overlap,
 and comparable trends through read-only Git evidence. The pure engine-identity core now reads bounded
 decisive-file evidence, exact declared versions, declaration precedence, and version-surface verification
-without filesystem or editor access. No inventory reader, log parser, game command surface, bridge, or
-game dashboard is built yet; those sections remain intended behaviour.
+without filesystem or editor access. The explicit-confirmation asset reader inventories bounded declared
+content roots, import/orphan candidates, and conservative Git LFS coverage. No log parser, game command
+surface, bridge, or game dashboard is built yet; those sections remain intended behaviour.
 
 ### 0.3 Engines in scope
 
@@ -143,6 +144,13 @@ confirmation, never on render.
 Asset paths MUST be traversal-checked. An asset path that escapes its declared root is reported and
 its file affordance withheld, following `parseGhReviewComments`.
 
+Built in C2.2: `scanGameAssetInventory` accepts only host-resolved absolute component roots plus
+declared safe relative roots and requires `confirmed: true` before any filesystem call. One shared
+file/byte/monotonic-time budget covers every component. Symbolic links are never followed; cache
+directories are explicitly named; and a truncated scan states its limit while withholding absence-based
+orphan conclusions. Import-error evidence retains only path, line, and deterministic category — never
+the raw metadata line.
+
 ### 4.2 LFS honesty
 
 For components whose `vcs` is `git`, AtlasMind reports binary assets not covered by `.gitattributes`
@@ -150,6 +158,11 @@ LFS patterns. This is the highest-value early finding and the cheapest to comput
 
 For components whose `vcs` is not `git`, it MUST report `not-visible` and MUST NOT report zero
 (`project-composition.md` §6.1).
+
+The built reader evaluates root and nested `.gitattributes` `filter` rules in declaration order for a
+closed binary-asset extension set. Unsupported or unreadable LFS-affecting syntax withholds the verdict;
+it cannot turn a parser limitation into an uncovered finding. An incomplete inventory reports only
+partial coverage over the files actually observed.
 
 ### 4.3 Build and cook logs
 

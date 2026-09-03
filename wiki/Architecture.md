@@ -101,7 +101,7 @@ path — you don't have to retype it.
 | **Task Profiler** | Works out how hard a task really is |
 | **Project Archetype & Prefab Plans** | Describes a project as a small archetype plus composable traits, then builds deterministic create-only starter plans for explicitly selected platforms |
 | **Project Composition & Workspace Scope** | Keeps team-declared component boundaries separate from detected proposals and resolves only the roots a surface opts into |
-| **Game Engine Identity** | Reads bounded decisive project-file evidence for Unreal, Unity, or Godot; preserves exact declared versions and withholds unverified surfaces |
+| **Game Engine Identity & Assets** | Reads bounded decisive project-file evidence for Unreal, Unity, or Godot, then inventories explicitly confirmed content roots without crossing VCS boundaries |
 | **Project Vocabulary** | The delivery stages and branches *your project declared*, so "promote to staging" means what you said it means |
 | **Planner & Task Scheduler** | Breaks a goal into steps and runs them in dependency order |
 | **Mission Runner** | The autonomous loop, and the envelope that contains it |
@@ -123,6 +123,14 @@ starts or probes an editor. Missing and malformed versions withhold dependent be
 engine families remain unconfident `unknown`, and `custom` can only be declared. Primary-source check
 dates and narrow verified ranges travel with each known engine, so a future version can be named as
 evidence without pretending its behavior was verified.
+
+Asset inventory is a separate, filesystem-only boundary because reading thousands of content files is
+not a render operation. A caller must supply host-resolved component roots, declared relative content
+roots, and explicit confirmation. One file/byte/time budget covers the whole composition; symlinks are
+withheld; traversal never receives an open action; and truncation prevents orphan absence from becoming
+a claim. Perforce/external/unknown components stay `not-visible`. Git components receive conservative
+LFS coverage only when the applicable `.gitattributes` rules were understood; otherwise the verdict is
+unreadable rather than guessed.
 BigCommerce Catalyst and Wix Commerce follow the storefront side: hosted `website` identities with UI,
 server, and personal-data review traits. Their prefabs are documentation-only generator handoffs because
 the official tools own version-sensitive source and external provisioning; a handoff never claims that

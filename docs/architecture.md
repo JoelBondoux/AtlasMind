@@ -1377,6 +1377,33 @@ but `surfaceVerification: not-verified` withholds dependent behavior outside the
 verified ranges. `selectEffectiveGameEngineIdentity` applies the shared authority rule: a valid project
 declaration wins, including legitimate `custom` and `unknown` values.
 
+### GameAssetInventory (`src/core/gameAssetInventory.ts`)
+
+The explicit-request filesystem boundary for declared game-content roots. A caller resolves an
+absolute component root through `WorkspaceScope`, supplies safe relative content roots, and records a
+confirmation before `scanGameAssetInventory` performs any I/O. There is no guessed root, render-time
+scan, engine process, Git command, or symlink traversal. Perforce, external, and unknown VCS boundaries
+produce `not-visible` without an asset count.
+
+One shared file, total-byte, and monotonic-time budget caps the complete multi-component request, so a
+large composition cannot multiply the work. Every returned asset path is re-derived relative to its
+component and traversal-checked before it receives an open affordance. Cache directories are excluded
+by a declared list; Unity/Unreal-style root caches are not excluded merely because a legitimate nested
+asset folder shares their name. A limit or unreadable path marks the component truncated, makes LFS and
+import-marker evidence partial, and withholds metadata-orphan inference because unseen files cannot be
+treated as absent.
+
+The inventory classifies a closed extension set and aggregates counts and bytes by type. Text metadata
+is read behind separate per-file and total caps for import-error/missing-reference locations, but the
+raw line is never retained. Orphan findings are deliberately candidates: only a `.meta`, `.import`, or
+`.remap` sidecar whose matching file or directory is absent from a complete scan qualifies.
+
+For Git components, a conservative `.gitattributes` reader applies root and nested `filter` rules in
+declaration order. Known binary asset paths are reported as covered or uncovered only when every
+applicable LFS rule was safely understood. Quoted, negated, character-class, oversized, unreadable, or
+otherwise unsupported LFS syntax makes the verdict `unreadable`; a parser gap cannot manufacture a
+finding.
+
 ### ProjectVocabulary (`src/core/projectVocabulary.ts`)
 
 The nouns a project has **declared** for its own delivery pipeline and Git workflow, read once and in one place. It exists because two surfaces were answering the same question from different sources and disagreeing: a request to "promote to staging" was matched against a hand-maintained keyword table in the Orchestrator that contained neither `promote` nor `staging`, so the turn selected no tools and no context — while `project_memory/operations/delivery.json` had already recorded the answer (a stage of kind `staging`, named `Integration`, carrying `branchRef: develop`). The product knew; the part of the product that had to act did not, so the model fell back to `git branch`, found nothing called `staging`, and asked the user a question AtlasMind could have answered.

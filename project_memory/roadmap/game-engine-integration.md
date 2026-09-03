@@ -1,6 +1,6 @@
 # Game Engine Integration — Phased Roadmap
 
-> **Status:** Phase 1 complete; Phase 2 in progress through C2.1; C2.2 next. **Owner:** AtlasMind core. **Created:** 2026-07-30. **Baseline:** v0.213.0.
+> **Status:** Phase 1 complete; Phase 2 in progress through C2.2; C2.3 next. **Owner:** AtlasMind core. **Created:** 2026-07-30. **Baseline:** v0.213.0.
 > This is the SSOT implementation plan. Its normative specifications are
 > [`docs/project-composition.md`](../../docs/project-composition.md) (v0.213.1) and
 > [`docs/game-engine-integration.md`](../../docs/game-engine-integration.md) (v0.213.2), both written
@@ -311,9 +311,12 @@ plugin installed and no engine running.
   Cross-engine and invalid inventories remain unconfident `unknown`; an identified engine with an
   unreadable version withholds dependent surfaces. Declaration wins, and primary-source dates plus
   narrow verified ranges prevent newer versions from being extrapolated.
-- **C2.2** `src/core/gameAssetInventory.ts` — a bounded walk over each content component's roots.
-  Counts and sizes by type, import-error markers, orphan candidates, and the LFS verdict for
-  git-tracked components. Bounded three ways with truncation **stated**, per `DebtRegister`.
+- **C2.2** — ✅ `src/core/gameAssetInventory.ts` performs an explicit-confirmation bounded walk over
+  declared component content roots. One shared file/byte/time budget covers the request; counts and
+  sizes are grouped by a closed type catalog; import evidence keeps no raw line; metadata orphans stay
+  candidates and are withheld after truncation. Git components receive conservative root/nested LFS
+  coverage, while unsupported rules and Perforce/external/unknown boundaries remain unreadable or
+  `not-visible` instead of becoming zero. Symlinks are never followed.
 - **C2.3** Apply `upstreamDivergence` (built in C1.8) to the `engine` component role — commits behind
   upstream, files diverged, conflict-prone areas, merge-burden trend, plus the engine-specific
   reading of those numbers. **The module is pure git and engine-agnostic**, which is why it is not

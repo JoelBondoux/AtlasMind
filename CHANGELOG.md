@@ -6,6 +6,31 @@ The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/),
 
 ## [Unreleased]
 
+## [0.394.0] - 2026-09-03
+
+### Added
+
+- Added `gameAssetInventory.ts`, an explicit-confirmation, filesystem-only asset reader over declared
+  component content roots. It reports recognized assets by type and size, bounded import-error
+  locations, metadata-orphan candidates, excluded cache directories, and withheld paths.
+- Added conservative Git LFS coverage from root and nested `.gitattributes` rules. Complete readings
+  name covered and uncovered binary assets; unsupported rules withhold the verdict instead of
+  manufacturing an uncovered result.
+- Added focused coverage for confirmation, file/byte/time limits, shared multi-component budgets,
+  Perforce/external visibility, path validation, engine-cache exclusions, evidence redaction, LFS
+  overrides, and incomplete orphan/LFS behavior.
+
+### Changed
+
+- Game Engine Integration Phase 2 now has C2.2 complete; applying generic upstream divergence to
+  engine components is next.
+
+### Security
+
+- Asset walks never follow symbolic links, never execute an engine or VCS command, accept only
+  absolute host-resolved components plus safe declared relative roots, and retain no raw import-error
+  text. Perforce, external, unknown, unreadable, and truncated inputs never become reassuring zeroes.
+
 ## [0.393.0] - 2026-09-03
 
 ### Added
