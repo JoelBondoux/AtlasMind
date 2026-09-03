@@ -15,14 +15,15 @@ property a reviewer may reject a change for violating.
 
 ### 0.2 Built versus proposed
 
-Phase 1 is built through C1.5: `projectComposition.ts` owns the closed roles/VCS vocabulary, strict
+Phase 1 is built through C1.6: `projectComposition.ts` owns the closed roles/VCS vocabulary, strict
 normalization, validation, declaration-over-proposal rule, and derived topology; `workspaceScope.ts`
 resolves explicit home/component/all requests while defaulting exactly to the first VS Code workspace
 folder; and `workflowConfig.ts` round-trips the declaration and publishes it in the Markdown mirror.
 The Project Dashboard now opts Git status, local CI, debt scanning, issue-tracker visibility, and
 observed-delta into component scope. Each reports its scope, retains excluded components as
-`not-visible`, and never substitutes zero for an unreadable VCS. Shopify validation, bootstrap presets,
-and upstream divergence remain proposed.
+`not-visible`, and never substitutes zero for an unreadable VCS. Guided bootstrap's explicit Shopify
+multi-select validates theme + app + extension against the same generic model. Game presets and upstream
+divergence remain proposed.
 
 ### 0.3 Non-goals
 
@@ -234,6 +235,14 @@ when a human accepts it. This mirrors `projectArchetype.ts`: *a wrong compositio
 single-component one*, because it scopes every count on every surface to boundaries that do not
 exist, and the resulting numbers are wrong in a way nobody can see.
 
+Guided bootstrap is a declaration path, not detection. Choosing **Shopify composable project** opens a
+second multi-select for theme, app, and extension. AtlasMind writes that accepted selection only when
+the workflow has no declared composition; a rerun preserves an existing declaration, an unreadable or
+invalid document, an orphaned Markdown mirror, and any document written by a newer AtlasMind. It does
+not execute a Shopify generator or create a guessed source tree. The app is home when selected, then the
+theme, then the extension; this deterministic priority gives exactly one component the SSOT root while
+sibling locations remain portable.
+
 Where detection finds nothing, the honest answer is one component covering the workspace — not a
 failure.
 
@@ -257,7 +266,7 @@ An implementation conforms when:
 
 - [x] Composition round-trips through `SchemaMigration` v1 with unknown fields preserved.
 - [x] Topology is computed, and no persisted field stores it.
-- [ ] A Shopify project expresses *theme + app + extension* as three components.
+- [x] A Shopify project expresses *theme + app + extension* as three components.
 - [ ] A component with `vcs: 'perforce'` reports `not-visible` rather than zero on every git surface.
 - [ ] Every multi-component count on every surface names its scope.
 - [ ] `upstreamDivergence` has no engine-specific symbol in it.

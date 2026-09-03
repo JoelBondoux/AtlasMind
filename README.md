@@ -4,7 +4,7 @@
 
 <h1 align="center">AtlasMind</h1>
 
-<p align="center"><sub> · <strong>Current source version: 0.389.0</strong> · </sub></p>
+<p align="center"><sub> · <strong>Current source version: 0.390.0</strong> · </sub></p>
 
 
 <p align="center">
@@ -131,6 +131,25 @@ allow-list, redaction and file-withholding behaviour, retained metadata, provide
 important limits on overrides and compliance claims.
 
 ---
+
+## What's new in 0.390.0
+
+The last Marketplace publication, **v0.382.6**, is the baseline. The full history is in
+[CHANGELOG.md](CHANGELOG.md).
+
+- **Shopify projects can declare their real shape during bootstrap.** A second, multi-select picker
+  accepts theme, app, and extension in any combination and writes all selected boundaries into the
+  committed workflow composition.
+
+- **The validation case is game-independent.** Theme, app, and extension reuse the generic component
+  roles, archetypes, traits, portable locations, VCS, and exactly-one-home invariant; no engine field
+  or game-specific branch is involved.
+
+- **Bootstrap does not take ownership away from the team.** The declaration seeds stages disabled at
+  `observe`, runs no Shopify command, and preserves an existing, invalid, unreadable, or newer workflow
+  document instead of replacing it.
+
+- **Game integration Phase 1 advances through C1.6.** Game architecture presets are next.
 
 ## What's new in 0.389.0
 
@@ -1562,7 +1581,7 @@ Type these in the AtlasMind chat panel as `/<command>`, or in the VS Code chat v
 
 | Command | What it does |
 |---|---|
-| `/bootstrap` | Set up project memory and foundations for a new project |
+| `/bootstrap` | Set up project memory and foundations; Shopify projects can declare theme/app/extension composition |
 | `/import` | Build project memory from an existing repository |
 | `/project <goal>` | Plan and run a coordinated piece of multi-step work |
 | `/loop <goal>` | Chase a goal inside cost, time and iteration limits |

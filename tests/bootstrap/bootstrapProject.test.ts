@@ -98,6 +98,8 @@ vi.mock('node:child_process', () => ({
 }));
 
 import { bootstrapProject, buildBootstrapTemplateFiles } from '../../src/bootstrap/bootstrapper.ts';
+import { buildShopifyProjectComposition } from '../../src/core/projectComposition.ts';
+import { seedWorkflowConfig } from '../../src/core/workflowConfig.ts';
 import type { MemoryEntry } from '../../src/types.ts';
 
 const ROOT = { path: '/workspace', fsPath: '/workspace' };
@@ -571,6 +573,104 @@ describe('bootstrapProject', () => {
     workspaceStateStore.clear();
     showWarningMessage.mockResolvedValue(undefined);
     setupVirtualFs();
+  });
+
+  it('declares a selected Shopify composition in the workflow SSOT', async () => {
+    showQuickPick
+      .mockResolvedValueOnce({ intakeMode: 'guided' })
+      .mockResolvedValueOnce({ label: '$(layers) Shopify composable project', composition: 'shopify' })
+      .mockResolvedValueOnce([
+        { component: 'theme' },
+        { component: 'app' },
+        { component: 'extension' },
+      ]);
+
+    const reported: string[] = [];
+    await bootstrapProject(
+      ROOT as any,
+      makeAtlas(),
+      { markdown: (value: unknown) => { reported.push(String(value)); } } as any,
+    );
+
+    const raw = Buffer.from(
+      fileResponses.get('/workspace/project_memory/operations/workflow.json') ?? [],
+    ).toString('utf-8');
+    const workflow = JSON.parse(raw) as {
+      composition: { components: Array<{ id: string; location: string; home: boolean }> };
+      stages: Array<{ enabled: boolean; automationLevel: string }>;
+    };
+    const mirror = Buffer.from(
+      fileResponses.get('/workspace/project_memory/operations/workflow.md') ?? [],
+    ).toString('utf-8');
+
+    expect(workflow.composition.components.map(component => component.id)).toEqual([
+      'shopify-theme',
+      'shopify-app',
+      'shopify-extension',
+    ]);
+    expect(workflow.composition.components.find(component => component.home)).toMatchObject({
+      id: 'shopify-app',
+      location: '.',
+    });
+    expect(workflow.stages.every(stage => !stage.enabled && stage.automationLevel === 'observe')).toBe(true);
+    expect(mirror).toContain('Shopify theme');
+    expect(mirror).toContain('Shopify app');
+    expect(mirror).toContain('Shopify extension');
+    expect(reported.join('\n')).toContain('Shopify composition (Theme + App + Extension)');
+    expect(executeCommand).not.toHaveBeenCalled();
+
+    const compositionPick = showQuickPick.mock.calls.find(([, options]) => options?.title === 'Shopify Project Composition');
+    expect(compositionPick?.[1]).toMatchObject({ canPickMany: true });
+  });
+
+  it('never overwrites a newer workflow document with a bootstrap composition', async () => {
+    const futureWorkflow = JSON.stringify({
+      version: 2,
+      futurePolicy: { compositionAuthority: 'team' },
+    });
+    seedFile('/workspace/project_memory/operations/workflow.json', futureWorkflow);
+    showWarningMessage.mockResolvedValueOnce('Continue');
+    showQuickPick
+      .mockResolvedValueOnce({ intakeMode: 'guided' })
+      .mockResolvedValueOnce({ label: '$(layers) Shopify composable project', composition: 'shopify' })
+      .mockResolvedValueOnce([
+        { component: 'theme' },
+        { component: 'app' },
+        { component: 'extension' },
+      ]);
+
+    const reported: string[] = [];
+    await bootstrapProject(
+      ROOT as any,
+      makeAtlas(),
+      { markdown: (value: unknown) => { reported.push(String(value)); } } as any,
+    );
+
+    expect(Buffer.from(
+      fileResponses.get('/workspace/project_memory/operations/workflow.json') ?? [],
+    ).toString('utf-8')).toBe(futureWorkflow);
+    expect(fileResponses.has('/workspace/project_memory/operations/workflow.md')).toBe(false);
+    expect(reported.join('\n')).toContain('Left the existing workflow declaration untouched');
+  });
+
+  it('never replaces a composition the team already declared', async () => {
+    const existingWorkflow = JSON.stringify({
+      ...seedWorkflowConfig({ profile: 'studio' }),
+      composition: buildShopifyProjectComposition(['theme']),
+    }, null, 2);
+    seedFile('/workspace/project_memory/operations/workflow.json', existingWorkflow);
+    showWarningMessage.mockResolvedValueOnce('Continue');
+    showQuickPick
+      .mockResolvedValueOnce({ intakeMode: 'guided' })
+      .mockResolvedValueOnce({ label: '$(layers) Shopify composable project', composition: 'shopify' })
+      .mockResolvedValueOnce([{ component: 'app' }, { component: 'extension' }]);
+
+    await bootstrapProject(ROOT as any, makeAtlas());
+
+    expect(Buffer.from(
+      fileResponses.get('/workspace/project_memory/operations/workflow.json') ?? [],
+    ).toString('utf-8')).toBe(existingWorkflow);
+    expect(showWarningMessage).toHaveBeenCalledWith(expect.stringContaining('existing workflow composition'));
   });
 
   it('runs the guided intake and seeds SSOT, settings, and GitHub planning artifacts', async () => {

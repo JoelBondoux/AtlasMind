@@ -1135,6 +1135,15 @@ export function readWorkflowFile(workspaceRoot: string): VersionedDocumentRead<W
   } catch {
     return { preserveExisting: false };
   }
+  return interpretWorkflowConfigDocument(parsed);
+}
+
+/**
+ * Interpret a parsed workflow document through the same forward-compatibility
+ * boundary as the node-fs reader. VS Code-backed writers such as bootstrap use
+ * this instead of maintaining a second answer for newer schema versions.
+ */
+export function interpretWorkflowConfigDocument(parsed: unknown): VersionedDocumentRead<WorkflowConfig> {
   const read = interpretVersionedDocument('workflow', parsed, isWorkflowConfig);
   return {
     ...read,

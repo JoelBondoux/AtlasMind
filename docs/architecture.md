@@ -1325,6 +1325,14 @@ and an `ObservedScope`. Detailed legacy Git/GitHub fields continue to come from 
 and are labelled as such; every other component is carried as visible or `not-visible` with a reason. An
 undeclared project preserves the original first-folder path.
 
+Guided bootstrap is the first declaration producer. Its **Shopify composable project** path presents a
+human multi-select for theme, app, and extension, then maps the accepted shapes through
+`buildShopifyProjectComposition` into the same generic roles, archetypes, traits, portable locations and
+single-home invariant. The write creates or augments `workflow.json` only when no composition exists,
+regenerates the Markdown mirror, and uses `interpretWorkflowConfigDocument` so a newer workflow schema is
+refused exactly as it is by `WorkflowConfigManager`. Existing declarations and unreadable/invalid sources
+are preserved. The path creates no Shopify source and executes no generator or platform command.
+
 ### ProjectVocabulary (`src/core/projectVocabulary.ts`)
 
 The nouns a project has **declared** for its own delivery pipeline and Git workflow, read once and in one place. It exists because two surfaces were answering the same question from different sources and disagreeing: a request to "promote to staging" was matched against a hand-maintained keyword table in the Orchestrator that contained neither `promote` nor `staging`, so the turn selected no tools and no context — while `project_memory/operations/delivery.json` had already recorded the answer (a stage of kind `staging`, named `Integration`, carrying `branchRef: develop`). The product knew; the part of the product that had to act did not, so the model fell back to `git branch`, found nothing called `staging`, and asked the user a question AtlasMind could have answered.

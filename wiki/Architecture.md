@@ -158,6 +158,12 @@ same component inventory. Detailed GitHub data stays explicitly scoped to the ho
 unreadable, non-Git, and currently unsupported components remain visible as `not-visible` with a reason, and
 aggregates omit data that was never read instead of filling it with zero.
 
+Guided bootstrap can now declare the non-game validation case directly. **Shopify composable project**
+opens a human multi-select for theme, app, and extension, then persists those accepted shapes through the
+same generic component model. It runs no Shopify command and does not invent source. A pre-existing
+composition, invalid/unreadable workflow, orphaned mirror, or newer workflow schema is left untouched;
+new workflow stages remain disabled at `observe`.
+
 ### Remembering
 
 | Part | What it does |

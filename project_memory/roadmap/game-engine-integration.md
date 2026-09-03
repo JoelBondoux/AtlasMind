@@ -1,6 +1,6 @@
 # Game Engine Integration — Phased Roadmap
 
-> **Status:** Phase 1 in progress; C1.1–C1.5 complete, C1.6 next. **Owner:** AtlasMind core. **Created:** 2026-07-30. **Baseline:** v0.213.0.
+> **Status:** Phase 1 in progress; C1.1–C1.6 complete, C1.7 next. **Owner:** AtlasMind core. **Created:** 2026-07-30. **Baseline:** v0.213.0.
 > This is the SSOT implementation plan. Its normative specifications are
 > [`docs/project-composition.md`](../../docs/project-composition.md) (v0.213.1) and
 > [`docs/game-engine-integration.md`](../../docs/game-engine-integration.md) (v0.213.2), both written
@@ -283,10 +283,11 @@ with per-component VCS, and no existing single-root behaviour has changed.
 - **C1.5** — ✅ `ObservedDelta`, `DebtRegister` and `IssueTracker` carry `not-visible` as distinct from
   zero for non-Git, missing, unreadable, or unsupported components. Debt reconciliation is keyed by
   component plus path, and observed baselines refuse cross-scope comparison.
-- **C1.6** **Shopify composition — the validation case.** The bootstrap picker becomes
-  multi-select for composable shapes, so *theme + app + extension* is expressible. Proves the model
-  with no game code and no new domain knowledge, and closes a live defect. Phase 1 does not ship
-  unless this case works.
+- **C1.6** — ✅ **Shopify composition — the validation case.** Guided bootstrap offers an explicit
+  multi-select for composable shapes, so *theme + app + extension* is expressible and persisted in the
+  workflow JSON/Markdown pair. The canonical builder uses only generic roles, archetypes, traits,
+  locations, VCS and one home; the tested write preserves existing or newer workflow data and executes
+  no Shopify command. The model is proven with no game code or new domain vocabulary.
 - **C1.7** Game architecture presets — declared compositions for the common layouts (single-repo
   indie, multi-repo studio, hybrid git+Perforce, engine-fork studio) offered at bootstrap. Presets
   **seed and do not govern**, following profiles.

@@ -6,6 +6,29 @@ The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/),
 
 ## [Unreleased]
 
+## [0.390.0] - 2026-09-03
+
+### Added
+
+- Added a Shopify composition path to guided bootstrap. A second multi-select picker can declare a
+  theme, app, extension, or any combination of those shapes in the workflow SSOT.
+- Added a deterministic Shopify-to-`ProjectComposition` builder with canonical order, portable sibling
+  locations, component-specific roles/archetypes/traits, and exactly one home component.
+- Added bootstrap integration coverage for the complete theme + app + extension case and the workflow
+  JSON/Markdown output, plus pure composition coverage proving the result has no game-specific fields.
+
+### Changed
+
+- Exposed the workflow document interpreter so VS Code-backed bootstrap writes use the same
+  future-version refusal boundary as the node-fs manager.
+- Game Engine Integration Phase 1 advances through C1.6; game architecture presets are next.
+
+### Security
+
+- Bootstrap never replaces an existing composition, unreadable/invalid workflow, orphaned workflow
+  mirror, or workflow written by a newer AtlasMind. New workflow stages remain disabled at `observe`,
+  and selecting a composition runs no Shopify generator, install, network, or platform command.
+
 ## [0.389.0] - 2026-09-03
 
 ### Added

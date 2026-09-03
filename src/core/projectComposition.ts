@@ -65,6 +65,72 @@ export interface ProjectComposition {
   extra?: Record<string, unknown>;
 }
 
+export const SHOPIFY_COMPOSITION_COMPONENTS = ['theme', 'app', 'extension'] as const;
+export type ShopifyCompositionComponent = typeof SHOPIFY_COMPOSITION_COMPONENTS[number];
+
+/**
+ * Turn the Shopify shapes a person selected during bootstrap into the generic
+ * project-composition model.
+ *
+ * This deliberately contains no game-specific vocabulary. The application-like
+ * component with the broadest runtime boundary becomes home (app, then theme,
+ * then extension), and therefore owns `.`. Sibling locations stay portable and
+ * deterministic. Empty input means no declaration rather than an invented
+ * workspace component.
+ */
+export function buildShopifyProjectComposition(
+  selected: readonly ShopifyCompositionComponent[],
+): ProjectComposition | undefined {
+  const chosen = new Set(selected);
+  const ordered = SHOPIFY_COMPOSITION_COMPONENTS.filter(component => chosen.has(component));
+  if (ordered.length === 0) {
+    return undefined;
+  }
+
+  const home = chosen.has('app') ? 'app' : chosen.has('theme') ? 'theme' : 'extension';
+  const location = (component: ShopifyCompositionComponent): string => {
+    if (component === home) {
+      return '.';
+    }
+    return component === 'extension' ? 'extensions' : component;
+  };
+
+  const components: Record<ShopifyCompositionComponent, Omit<ProjectComponent, 'home' | 'location'>> = {
+    theme: {
+      id: 'shopify-theme',
+      label: 'Shopify theme',
+      role: 'application',
+      archetype: { archetype: 'website', traits: ['has-ui', 'platform-hosted'] },
+      vcs: 'git',
+    },
+    app: {
+      id: 'shopify-app',
+      label: 'Shopify app',
+      role: 'service',
+      archetype: {
+        archetype: 'web-app',
+        traits: ['has-ui', 'has-server', 'platform-hosted', 'handles-personal-data'],
+      },
+      vcs: 'git',
+    },
+    extension: {
+      id: 'shopify-extension',
+      label: 'Shopify extension',
+      role: 'shared-library',
+      archetype: { archetype: 'library', traits: ['platform-hosted'] },
+      vcs: 'git',
+    },
+  };
+
+  return {
+    components: ordered.map(component => ({
+      ...components[component],
+      location: location(component),
+      home: component === home,
+    })),
+  };
+}
+
 export interface ProjectCompositionProblem {
   componentId?: string;
   kind: 'unresolved-location' | 'unreadable-location' | 'unknown-vcs';

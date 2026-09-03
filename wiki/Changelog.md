@@ -19,6 +19,19 @@ Older entries below describe the software as it was at the time and are delibera
 
 ---
 
+## v0.390.0 — Shopify composition at bootstrap
+
+Guided bootstrap can now express a Shopify project as theme + app + extension instead of forcing those
+shapes through mutually exclusive project types. The explicit multi-select writes the selected shapes
+as a generic `ProjectComposition`: stable roles and archetypes, portable roots, Git VCS, and exactly one
+home. This is the Phase 1 validation case precisely because it contains no game-only field or rule.
+
+The write stays conservative. A new workflow starts with every stage disabled at `observe`; bootstrap
+runs no Shopify command and never replaces an existing composition, unreadable/invalid workflow,
+or newer schema. The JSON source and generated Markdown mirror are written together.
+
+Game Engine Integration Phase 1 is complete through C1.6. Game architecture presets are next.
+
 ## v0.389.0 — Component-scoped project evidence
 
 Declared composition now reaches the Project Dashboard. Git status, local CI inventory, issue-tracker

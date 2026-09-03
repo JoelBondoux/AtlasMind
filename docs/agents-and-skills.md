@@ -199,6 +199,13 @@ The **Agent Editor** shows a **Testing Roles** section below Skills. When a meth
 
 During `@atlas /bootstrap` (new project) and `@atlas /import` (existing project), AtlasMind presents an **Auto / Manual / Skip** picker before the methodology list. In Auto mode the inferred methodology set is pre-selected in a customisable QuickPick; Manual lets you choose freely; Skip defaults to TDD + Unit. After confirming, if a test-focused agent exists, an offer is made to assign it as the primary agent for all enabled methodologies.
 
+Guided bootstrap also offers **Shopify composable project**. Its second picker is deliberately
+multi-select, allowing theme + app + extension to be declared together in `operations/workflow.json`.
+That is an explicit human selection, not detected state. It uses the generic component roles and
+archetypes, writes one home, and creates a workflow whose stages are all disabled at `observe`. Existing
+composition or future/unreadable workflow data is preserved, and the path runs no generator, dependency
+install, network call, or Shopify platform command.
+
 Guided bootstrap's platform prefabs are create-only. The **WooCommerce Extension** option writes a
 minimal PHP plugin shell, explicit WooCommerce dependency and HPOS declarations, a direct-access guard,
 a public-hook-only starter class, `wp-env`/Composer metadata, syntax and scaffold-contract CI,

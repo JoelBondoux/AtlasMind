@@ -2,6 +2,7 @@ import { readFileSync } from 'node:fs';
 import path from 'node:path';
 import { describe, expect, it } from 'vitest';
 import {
+  buildShopifyProjectComposition,
   deriveProjectTopologies,
   normalizeComponentLocation,
   sanitizeProjectComposition,
@@ -80,6 +81,30 @@ describe('sanitizeProjectComposition', () => {
 });
 
 describe('composition policy', () => {
+  it('expresses a Shopify theme, app, and extension without game-specific fields', () => {
+    const composition = buildShopifyProjectComposition(['extension', 'theme', 'app'])!;
+
+    expect(composition.components.map(component => component.id)).toEqual([
+      'shopify-theme',
+      'shopify-app',
+      'shopify-extension',
+    ]);
+    expect(composition.components.map(component => component.location)).toEqual(['theme', '.', 'extensions']);
+    expect(composition.components.filter(component => component.home).map(component => component.id))
+      .toEqual(['shopify-app']);
+    expect(composition.components.map(component => component.archetype.archetype))
+      .toEqual(['website', 'web-app', 'library']);
+    expect(JSON.stringify(composition)).not.toMatch(/game|engine/iu);
+    expect(sanitizeProjectComposition(composition)).toEqual(composition);
+  });
+
+  it('uses the only selected Shopify shape as home and refuses an empty selection', () => {
+    expect(buildShopifyProjectComposition(['extension', 'extension'])?.components).toEqual([
+      expect.objectContaining({ id: 'shopify-extension', location: '.', home: true }),
+    ]);
+    expect(buildShopifyProjectComposition([])).toBeUndefined();
+  });
+
   it('derives every applicable topology and stores none of them', () => {
     const composition = declared();
     expect(deriveProjectTopologies(composition, { workspaceFolderCount: 3, gitRootCount: 2 }))

@@ -30,7 +30,7 @@ Two nice touches: a mistyped command gets **corrected rather than answered** (`/
 
 | Command | What it does |
 |---------|-------------|
-| `/bootstrap` | Create project memory for a new project, and optionally scaffold governance files |
+| `/bootstrap` | Create project memory and optional governance files; Shopify projects can declare theme/app/extension composition |
 | `/import` | Read an existing repository and populate project memory from it |
 | `/setup` | Every setup guide and how far along each one is. `/setup acp` jumps straight into one |
 | `/acp` | Guided setup for using a Claude, ChatGPT, Copilot, Gemini or Qwen subscription |

@@ -6,6 +6,16 @@ import type { AtlasMindContext } from '../extension.js';
 import type { BudgetMode, MemoryDocumentClass, MemoryEntry, MemoryEvidenceType, ProjectTestingConfig, RoutineStep, SpeedMode, TestingMethodologyId } from '../types.js';
 import { formatCost } from '../core/currencyFormatter.js';
 import { GhClient, ghFailureOf, nodeGhRunner, runGhOrThrow } from '../core/ghClient.js';
+import {
+  buildShopifyProjectComposition,
+  type ShopifyCompositionComponent,
+} from '../core/projectComposition.js';
+import {
+  interpretWorkflowConfigDocument,
+  renderWorkflowMarkdown,
+  seedWorkflowConfig,
+  type WorkflowConfig,
+} from '../core/workflowConfig.js';
 
 type DependencyMonitoringProvider = 'dependabot' | 'renovate' | 'snyk' | 'azure-devops';
 type DependencyMonitoringSchedule = 'daily' | 'weekly' | 'monthly';
@@ -158,6 +168,7 @@ export interface BootstrapTemplateFile {
 interface BootstrapProjectIntake {
   mode: 'guided' | 'minimal' | 'template';
   selectedTemplate?: BootstrapTemplate;
+  shopifyComponents?: ShopifyCompositionComponent[];
   captureNotes: string[];
   projectType?: string;
   projectName?: string;
@@ -195,6 +206,7 @@ interface BootstrapArtifacts {
   templateScaffolded: BootstrapTemplate | undefined;
   claudeMdWritten: boolean;
   websiteWorkspaceSeeded: boolean;
+  compositionStatus: 'none' | 'declared' | 'preserved';
 }
 
 const BOOTSTRAP_DRAFT_PATH = 'index/bootstrap-draft.json';
@@ -445,7 +457,12 @@ async function collectBootstrapIntake(
     // Project type picker — includes Shopify starter kits as first-class options.
     // Skipped on resume if projectType is already set.
     if (!hasBootstrapValue(intake.projectType)) {
-      const projectTypePick = await vscode.window.showQuickPick(
+      const rawProjectTypePick = await vscode.window.showQuickPick<{
+        label: string;
+        description: string;
+        template?: BootstrapTemplate;
+        composition?: 'shopify';
+      }>(
         [
           { label: 'Website / Marketing Site', description: 'Seed a client brief, sitemap, design workflow, platform targets, and n8n automation map.', template: undefined as BootstrapTemplate | undefined },
           { label: 'Web App', description: '', template: undefined as BootstrapTemplate | undefined },
@@ -459,6 +476,12 @@ async function collectBootstrapIntake(
           // game project could not declare itself and was shipped as `generic`.
           { label: 'Game', description: 'Frame budget as a gate, asset validation in CI, and simulation-focused testing.', template: undefined },
           { label: 'Other', description: '', template: undefined },
+          {
+            label: '$(layers) Shopify composable project',
+            description: 'Declare any combination of theme, app, and extension as independently scoped components.',
+            template: undefined,
+            composition: 'shopify',
+          },
           { label: '$(store) Shopify New Store', description: 'Merchant setup guide, Partner account steps, CLI scaffold, extension recommendations.', template: 'shopify-new-store' as BootstrapTemplate },
           { label: '$(file-code) Shopify Store / Theme', description: 'Full Liquid theme scaffold (layout, sections, snippets, assets, locales), theme-check CI.', template: 'shopify-theme' as BootstrapTemplate },
           { label: '$(server-process) Shopify App', description: 'Remix app scaffold (routes, extensions, shopify.app.toml, .env), deploy workflow.', template: 'shopify-app' as BootstrapTemplate },
@@ -483,15 +506,59 @@ async function collectBootstrapIntake(
         ],
         { placeHolder: 'What type of project is this?' },
       );
+      const projectTypePick = typeof rawProjectTypePick === 'string'
+        ? { label: rawProjectTypePick, description: '' }
+        : rawProjectTypePick;
       if (projectTypePick) {
-        if (projectTypePick.template) {
+        if (projectTypePick.composition === 'shopify') {
+          const selected = await vscode.window.showQuickPick<{
+            label: string;
+            description: string;
+            picked: boolean;
+            component: ShopifyCompositionComponent;
+          }>(
+            [
+              {
+                label: '$(file-code) Theme',
+                description: 'Customer-facing Liquid storefront.',
+                picked: true,
+                component: 'theme',
+              },
+              {
+                label: '$(server-process) App',
+                description: 'Merchant-facing application and service boundary.',
+                picked: true,
+                component: 'app',
+              },
+              {
+                label: '$(extensions) Extension',
+                description: 'Platform extension code with its own evidence boundary.',
+                picked: true,
+                component: 'extension',
+              },
+            ],
+            {
+              placeHolder: 'Select every Shopify component in this project, then press Enter',
+              canPickMany: true,
+              ignoreFocusOut: true,
+              title: 'Shopify Project Composition',
+            },
+          );
+          if (selected && selected.length > 0) {
+            intake.shopifyComponents = selected.map(item => item.component);
+            intake.projectType = formatShopifyCompositionLabel(intake.shopifyComponents);
+            intake.mode = 'template';
+          }
+        } else if (projectTypePick.template) {
           intake.selectedTemplate = projectTypePick.template;
           intake.projectType = projectTypePick.label.replace(/^\$\([^)]+\)\s*/, ''); // strip codicon prefix
           intake.mode = 'template';
         } else {
           intake.projectType = projectTypePick.label;
         }
-        await save(intake);
+        if (hasBootstrapValue(intake.projectType)) {
+          await save(intake);
+        }
       }
     }
 
@@ -739,6 +806,9 @@ function buildBootstrapIntakeContext(intake: BootstrapProjectIntake): string {
   return [
     intake.projectName ? `Project name: ${intake.projectName}` : '',
     intake.projectType ? `Project type: ${intake.projectType}` : '',
+    intake.shopifyComponents?.length
+      ? `Declared Shopify components: ${intake.shopifyComponents.join(', ')}`
+      : '',
     intake.productSummary ? `What we are building: ${intake.productSummary}` : '',
     intake.productOutcome ? `Primary outcome: ${intake.productOutcome}` : '',
     intake.targetAudience ? `Target audience: ${intake.targetAudience}` : '',
@@ -869,6 +939,7 @@ async function applyBootstrapIntake(
   const githubArtifactsUpdated = await writeGitHubPlanningArtifacts(workspaceRoot, intake);
   await writeBootstrapTestingConfig(ssotRoot, intake);
   const claudeMdWritten = await writeBootstrapClaudeMd(workspaceRoot, intake);
+  const compositionStatus = await writeBootstrapComposition(ssotRoot, intake);
   let websiteWorkspaceSeeded = false;
   if (isWebsiteBootstrapProject(intake.projectType)) {
     const { seedWebsiteWorkspace } = await import('../core/websiteWorkspaceManager.js');
@@ -902,7 +973,71 @@ async function applyBootstrapIntake(
     templateScaffolded: undefined,
     claudeMdWritten,
     websiteWorkspaceSeeded,
+    compositionStatus,
   };
+}
+
+async function writeBootstrapComposition(
+  ssotRoot: vscode.Uri,
+  intake: BootstrapProjectIntake,
+): Promise<BootstrapArtifacts['compositionStatus']> {
+  const composition = buildShopifyProjectComposition(intake.shopifyComponents ?? []);
+  if (!composition) {
+    return 'none';
+  }
+
+  const configUri = vscode.Uri.joinPath(ssotRoot, 'operations', 'workflow.json');
+  const summaryUri = vscode.Uri.joinPath(ssotRoot, 'operations', 'workflow.md');
+  const configExists = await pathExists(configUri);
+
+  let config: WorkflowConfig;
+  if (configExists) {
+    let parsed: unknown;
+    try {
+      parsed = JSON.parse(Buffer.from(await vscode.workspace.fs.readFile(configUri)).toString('utf-8'));
+    } catch {
+      vscode.window.showWarningMessage(
+        'AtlasMind left the existing workflow configuration untouched because it could not be read safely.',
+      );
+      return 'preserved';
+    }
+
+    const interpreted = interpretWorkflowConfigDocument(parsed);
+    if (interpreted.preserveExisting || !interpreted.config) {
+      vscode.window.showWarningMessage(
+        interpreted.notice
+          ?? 'AtlasMind left the existing workflow configuration untouched because its schema could not be interpreted safely.',
+      );
+      return 'preserved';
+    }
+    if (interpreted.config.composition) {
+      vscode.window.showWarningMessage(
+        'AtlasMind left the existing workflow composition untouched. Bootstrap never replaces team-owned component boundaries.',
+      );
+      return 'preserved';
+    }
+    config = interpreted.config;
+  } else {
+    if (await pathExists(summaryUri)) {
+      vscode.window.showWarningMessage(
+        'AtlasMind left the existing workflow summary untouched because its source workflow.json is missing.',
+      );
+      return 'preserved';
+    }
+    config = seedWorkflowConfig({ profile: 'solo' });
+  }
+
+  const updated: WorkflowConfig = {
+    ...config,
+    composition,
+    updatedAt: new Date().toISOString(),
+  };
+  await ensureParentDirectory(configUri, ssotRoot);
+  await Promise.all([
+    vscode.workspace.fs.writeFile(configUri, Buffer.from(JSON.stringify(updated, null, 2), 'utf-8')),
+    vscode.workspace.fs.writeFile(summaryUri, Buffer.from(renderWorkflowMarkdown(updated), 'utf-8')),
+  ]);
+  return 'declared';
 }
 
 function isWebsiteBootstrapProject(projectType: string | undefined): boolean {
@@ -2078,6 +2213,11 @@ function buildBootstrapCompletionSummary(ssotRelPath: string, intake: BootstrapP
     artifacts.templateScaffolded
       ? `- Scaffolded ${formatTemplateName(artifacts.templateScaffolded)} template files and getting-started guide.`
       : '',
+    artifacts.compositionStatus === 'declared'
+      ? `- Declared ${formatShopifyCompositionLabel(intake.shopifyComponents ?? [])} in \`operations/workflow.json\` and regenerated its Markdown mirror.`
+      : artifacts.compositionStatus === 'preserved'
+        ? '- Left the existing workflow declaration untouched; bootstrap never overwrites team-owned composition data.'
+        : '',
   ].filter(line => line !== '');
 
   if (intake.productSummary) {
@@ -3456,6 +3596,17 @@ async function ensureParentDirectory(targetFile: vscode.Uri, workspaceRoot: vsco
 }
 
 // ── Project Templates ───────────────────────────────────────
+
+function formatShopifyCompositionLabel(components: readonly ShopifyCompositionComponent[]): string {
+  const labels: Record<ShopifyCompositionComponent, string> = {
+    theme: 'Theme',
+    app: 'App',
+    extension: 'Extension',
+  };
+  const chosen = new Set(components);
+  const ordered = (['theme', 'app', 'extension'] as const).filter(component => chosen.has(component));
+  return `Shopify composition (${ordered.map(component => labels[component]).join(' + ')})`;
+}
 
 function formatTemplateName(template: BootstrapTemplate): string {
   switch (template) {
