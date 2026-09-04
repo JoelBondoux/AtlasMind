@@ -19,7 +19,25 @@ import type { ArdDiscoveredResource, ArdDiscoveryEndpoint, ProjectTestingConfig,
 import { getDisplayCurrency, getExchangeRate } from '../core/currencyFormatter.js';
 import { isLocalSyncStale, LOCAL_MODEL_SYNC_CACHE_KEY, syncLocalModels, type LocalModelSyncResult } from '../providers/localModelSync.js';
 import { TESTING_METHODOLOGY_DEFINITIONS } from '../types.js';
-import { COMPLIANCE_EVIDENCE_DIR, deriveTestingPolicyCoverage, isAssessedControlMapping, parseJUnitReport, type TestingPolicyCoverage, type TestingPolicyTestFile } from '../core/testingPolicyCoverage.js';
+import { deriveTestingPolicyCoverage, parseJUnitReport, type TestingPolicyCoverage, type TestingPolicyTestFile } from '../core/testingPolicyCoverage.js';
+import { complianceCatalogFor } from '../core/complianceControlCatalog.js';
+import { gatherComplianceStackSignals } from '../core/complianceStackSignals.js';
+import {
+  emptyEvidenceLibrary,
+  readComplianceEvidenceFile,
+  readComplianceRegimeFile,
+  sanitizeComplianceEvidenceLibrary,
+  sanitizeComplianceRegimeRegister,
+} from '../core/complianceEvidenceRegister.js';
+import {
+  gradeComplianceRegime,
+  summarizeComplianceBoard,
+  toPolicyGovernance,
+  type ComplianceBoard,
+  type ComplianceReading,
+  type TechnicalCheckInput,
+  type TestingPolicyGovernance,
+} from '../core/complianceReadiness.js';
 import { assessTestingMethodologies, type ProjectTestingEvidence } from '../core/testingAutoAssess.js';
 import { deriveTestingPolicyDetails, type TestingPolicyDetailSet } from '../core/testingPolicyDetail.js';
 import {
@@ -33,16 +51,9 @@ import {
   evaluateTechnicalControls,
   policiesWithTechnicalControls,
   summarizeTechnicalControls,
-  type ComplianceStackSignals,
   type TechnicalControlResult,
   type TechnicalControlSummary,
 } from '../core/complianceTechnicalControls.js';
-import { LENS_ENDPOINT_FILE, normalizeLensEndpointFile } from '../core/lensEndpoints.js';
-import { readDeliveryConfig } from '../core/deliveryManager.js';
-import { readWorkflowConfig } from '../core/workflowConfig.js';
-import { readWorkflowHistory, WORKFLOW_HISTORY_SSOT_PATH } from '../core/workflowAuditRecord.js';
-import { hasProviderDataGovernance } from '../core/providerDataGovernance.js';
-import { readRiskOversightConfig } from '../core/riskOversightManager.js';
 import { detectProjectArchetype } from '../core/projectArchetype.js';
 import { parseAgentBindings } from '../core/buzzAgentBindings.js';
 import { parseCustomDebtMarkers } from '../core/debtRegister.js';
@@ -247,6 +258,14 @@ export interface TestingDashboardSnapshot {
     results: import('../core/complianceTechnicalControls.js').TechnicalControlResult[];
     summary: import('../core/complianceTechnicalControls.js').TechnicalControlSummary;
   }>;
+  /**
+   * How far along each declared governance regime is, graded on its register.
+   *
+   * The replacement for the green "Tested" tag these regimes used to carry.
+   * Every reading carries the declared rule that produced it and the disclaimer
+   * that none of it is a statement of compliance.
+   */
+  compliance?: ComplianceBoard;
   /**
    * Per-enabled-policy evidence: what has tests, what has none, and what is
    * failing according to the project's own test report. See
@@ -6612,15 +6631,24 @@ export function collectTestingDashboardSnapshot(
     frameworkLabel,
   } satisfies Parameters<typeof deriveTestingPolicyCoverage>[0];
 
-  // Two passes, and the order is forced. The technical checks read the coverage
-  // board (a control asking "is security testing performed?" is answered by the
-  // security-testing row), and their results then feed back as evidence — so the
-  // first pass establishes the file-based picture, the checks run against it,
-  // and the second pass adds what the stack proved.
+  // Two passes, and the order is still forced — but for a much weaker reason
+  // than it used to be. The technical checks read the coverage board (a control
+  // asking "is security testing performed?" is answered by the security-testing
+  // row), so the first pass has to establish the file-based picture before they
+  // run. The second pass then only *decorates* governance rows with their
+  // readiness; it can no longer change any row's status, because a governance
+  // row's status is fixed at `governed` on the first pass and every other row
+  // is unaffected by compliance grading.
   //
-  // Only `satisfied` counts. A `gap` is a finding and an `unknown` is silence;
-  // letting either promote a regime to "covered" would rebuild the false-pass
-  // this board has just been cleared of.
+  // What used to happen here was the third route to the false tick:
+  // `if (results.some(r => r.state === 'satisfied')) technicallyEvidenced.push(id)`
+  // promoted a whole regime on one passing check — one of ISO's twenty-five
+  // controls marked all twenty-five met. A satisfied check is now offered to
+  // `complianceReadiness` as evidence for *the one control it answers*, and
+  // only where that control's catalog entry accepts a machine check.
+  // One clock for the whole derivation: two readings in a single render must
+  // not disagree about whether a certificate expired between them.
+  const now = new Date();
   const firstPass = deriveTestingPolicyCoverage(coverageInput);
   const complianceSignals = gatherComplianceStackSignals(workspaceRoot, {
     dependencies: dependencyNames,
@@ -6641,21 +6669,55 @@ export function collectTestingDashboardSnapshot(
   });
 
   const technicalControls: Record<string, { results: TechnicalControlResult[]; summary: TechnicalControlSummary }> = {};
-  const technicallyEvidenced: TestingMethodologyId[] = [];
+  const technicalByRegime = new Map<TestingMethodologyId, TechnicalCheckInput[]>();
   for (const policyId of policiesWithTechnicalControls()) {
     if (!firstPass.rows.some(row => row.id === policyId)) {
       continue;
     }
     const results = evaluateTechnicalControls(policyId, complianceSignals);
     technicalControls[policyId] = { results, summary: summarizeTechnicalControls(policyId, results) };
-    if (results.some(result => result.state === 'satisfied')) {
-      technicallyEvidenced.push(policyId);
-    }
+    technicalByRegime.set(policyId, results.map(result => ({
+      controlRef: result.controlRef,
+      state: result.state,
+      rule: result.rule,
+      question: result.question,
+      ...(result.evidence ? { evidence: result.evidence } : {}),
+    })));
   }
 
-  const policyCoverage = technicallyEvidenced.length > 0
-    ? deriveTestingPolicyCoverage({ ...coverageInput, technicallyEvidenced })
+  // The register is read, never seeded. Twenty-four regimes; rendering a page
+  // must not put committed files in somebody's repository.
+  const evidenceRead = readComplianceEvidenceFile(workspaceRoot);
+  const evidenceLibrary = evidenceRead.config
+    ? sanitizeComplianceEvidenceLibrary(evidenceRead.config, now)
+    : emptyEvidenceLibrary(now);
+
+  const governance = new Map<TestingMethodologyId, TestingPolicyGovernance>();
+  const complianceReadings: ComplianceReading[] = [];
+  for (const row of firstPass.rows) {
+    const catalog = complianceCatalogFor(row.id);
+    if (!catalog) {
+      continue;
+    }
+    const stored = readComplianceRegimeFile(workspaceRoot, catalog.policyId).config;
+    const register = stored
+      ? sanitizeComplianceRegimeRegister(stored, catalog.policyId, evidenceLibrary, now).register
+      : undefined;
+    const reading = gradeComplianceRegime({
+      catalog,
+      ...(register ? { register } : {}),
+      library: evidenceLibrary,
+      ...(technicalByRegime.has(row.id) ? { technical: technicalByRegime.get(row.id)! } : {}),
+      now,
+    });
+    complianceReadings.push(reading);
+    governance.set(row.id, toPolicyGovernance(reading));
+  }
+
+  const policyCoverage = governance.size > 0
+    ? deriveTestingPolicyCoverage({ ...coverageInput, governance })
     : firstPass;
+  const compliance = summarizeComplianceBoard(complianceReadings, now);
   const policyEvidence = {
     testFiles: policyTestFiles,
     dependencies: dependencyNames,
@@ -6684,6 +6746,7 @@ export function collectTestingDashboardSnapshot(
   return {
     policyEvidence,
     technicalControls,
+    compliance,
     frameworkLabel,
     frameworks: detectedFrameworkList,
     testingPolicyLabel,
@@ -6734,197 +6797,6 @@ export function collectTestingDashboardSnapshot(
   };
 }
 
-/**
- * Config and CI files that evidence a testing policy's tooling.
- *
- * A fixed probe list rather than a walk: this runs on every dashboard render, and
- * the paths a tool writes are well known. Returns workspace-relative paths only.
- */
-/**
- * What the stack can be asked about a governance regime.
- *
- * Gathered from files the dashboard already reads. Anything that cannot be
- * gathered is left `undefined` rather than defaulted — `complianceTechnicalControls`
- * treats absent as "not assessed", and a default would turn silence into a pass
- * on the one board where a false pass gets repeated to an auditor.
- */
-function gatherComplianceStackSignals(
-  workspaceRoot: string,
-  input: {
-    readonly dependencies: readonly string[];
-    readonly scripts: readonly string[];
-    readonly coverage: TestingPolicyCoverage;
-    readonly toolApprovalMode?: string;
-    /** Providers the user has switched on — the sub-processors, in effect. */
-    readonly enabledProviderIds?: readonly string[];
-  },
-): ComplianceStackSignals {
-  const deps = input.dependencies.map(value => value.toLowerCase());
-  const scripts = input.scripts.map(value => value.toLowerCase());
-  const has = (candidate: string): boolean => existsSync(path.join(workspaceRoot, candidate));
-
-  let workflowNames: string[] = [];
-  try {
-    workflowNames = readdirSync(path.join(workspaceRoot, '.github', 'workflows'))
-      .filter(name => /\.ya?ml$/i.test(name))
-      .map(name => name.toLowerCase())
-      .slice(0, 60);
-  } catch {
-    workflowNames = [];
-  }
-  const workflowText = workflowNames.join(' ');
-  const mentions = (names: readonly string[]): boolean => names.some(name =>
-    deps.some(dep => dep.includes(name)) || scripts.some(script => script.includes(name)) || workflowText.includes(name));
-
-  // The endpoint file is a committed declaration. Absent means the project has
-  // declared no integrations, which is not the same as having none — so the
-  // signal is omitted rather than reported as zero plaintext destinations.
-  let endpoints: ComplianceStackSignals['endpoints'];
-  try {
-    const parsed = normalizeLensEndpointFile(
-      JSON.parse(readFileSync(path.join(workspaceRoot, LENS_ENDPOINT_FILE), 'utf8')) as unknown,
-    );
-    if (parsed) {
-      const list = parsed.file.endpoints;
-      endpoints = {
-        total: list.length,
-        plaintextNonLoopback: list.filter(entry => {
-          const url = (entry.url ?? '').toLowerCase();
-          if (!url.startsWith('http://')) { return false; }
-          return !/^http:\/\/(localhost|127\.0\.0\.1|\[::1\])(:|\/|$)/i.test(url);
-        }).length,
-        usingSecretRefs: list.filter(entry => (entry.secretRef ?? '').length > 0).length,
-      };
-    }
-  } catch {
-    endpoints = undefined;
-  }
-
-  // Credentials in *settings* rather than in SecretStorage. A VS Code setting
-  // is written to `settings.json` in clear text and is routinely committed or
-  // synced, so a credential-shaped string property is the encryption-at-rest
-  // failure this ecosystem actually has — and unlike a scan of the developer's
-  // own machine it is checkable from the manifest, which is where the decision
-  // was made. `secretRef`-style pointers are the sanctioned shape and are
-  // matched exactly so they do not count against it.
-  let secretsFoundInSettings: boolean | undefined;
-  try {
-    const manifest = JSON.parse(readFileSync(path.join(workspaceRoot, 'package.json'), 'utf8')) as {
-      contributes?: { configuration?: { properties?: Record<string, { type?: unknown }> } };
-    };
-    const properties = manifest.contributes?.configuration?.properties;
-    if (properties) {
-      secretsFoundInSettings = Object.entries(properties).some(([key, schema]) => {
-        const leaf = key.split('.').pop() ?? '';
-        if (/^(secretRef|secretRefs|apiKeySettingKey)$/i.test(leaf)) { return false; }
-        if (!/(apikey|api_key|token|secret|password|credential)/i.test(leaf)) { return false; }
-        // A boolean toggle named `useToken` stores no credential; only a string
-        // property can hold one.
-        return schema?.type === 'string';
-      });
-    }
-  } catch {
-    secretsFoundInSettings = undefined;
-  }
-
-  const delivery = readDeliveryConfig(workspaceRoot);
-  const production = delivery?.stages.find(stage => stage.kind === 'production')
-    ?? [...(delivery?.stages ?? [])].sort((left, right) => right.rank - left.rank)[0];
-  const workflowConfig = readWorkflowConfig(workspaceRoot);
-
-  // Sub-processor risk (ISO A.5.19 / A.5.23, SOC 2 CC9.2). A provider the user
-  // has switched on is one AtlasMind will send project text to, so "are its
-  // retention and training terms on record?" is the supplier control in the
-  // only form this product can answer it.
-  const providerGovernance = input.enabledProviderIds
-    ? {
-      enabled: input.enabledProviderIds.length,
-      withDeclaredGovernance: input.enabledProviderIds.filter(id => hasProviderDataGovernance(id)).length,
-    }
-    : undefined;
-
-  // Risk assessment (SOC 2 CC3.2). Assessed, not empty — a register nobody has
-  // run reports zero findings, and zero-because-unassessed must not read as
-  // zero-because-clean.
-  const risk = readRiskOversightConfig(workspaceRoot);
-  const riskRegister = risk
-    ? {
-      assessed: risk.runs.length > 0,
-      openFindings: risk.findings.filter(finding => finding.status === 'open').length,
-    }
-    : undefined;
-
-  // Secure coding (ISO A.8.28). Configured *and* enforced: a linter that runs
-  // only when somebody remembers is a suggestion, not an applied principle.
-  const lintConfigured = ['eslint.config.js', 'eslint.config.mjs', 'eslint.config.ts', '.eslintrc.json', '.eslintrc.cjs', '.eslintrc.js', 'ruff.toml', '.golangci.yml']
-    .some(candidate => has(candidate))
-    || scripts.some(script => script === 'lint' || script.startsWith('lint:'));
-  const lintInPipeline = workflowNames.length > 0
-    && (workflowConfig?.stages ?? []).some(stage => stage.requiredStatusChecks.length > 0);
-
-  const history = readWorkflowHistory(workspaceRoot);
-  const auditPresent = existsSync(path.join(workspaceRoot, WORKFLOW_HISTORY_SSOT_PATH));
-
-  // A policy the coverage board never scored is omitted rather than reported
-  // as unevidenced: the regime check would otherwise read "guardrails have no
-  // enforcement test" for a project that simply has the policy switched off.
-  const statusOf = (id: string): string | undefined =>
-    input.coverage.rows.find(row => row.id === id)?.status;
-
-  return {
-    ciWorkflowCount: workflowNames.length,
-    ciWorkflowNames: workflowNames,
-    dependencyUpdatesConfigured: has('.github/dependabot.yml')
-      || has('.github/dependabot.yaml')
-      || has('renovate.json')
-      || has('.github/renovate.json'),
-    vulnerabilityScanningConfigured:
-      mentions(['snyk', 'trivy', 'semgrep', 'codeql', 'grype', 'osv-scanner'])
-      || scripts.some(script => script.includes('audit')),
-    secretScanningConfigured:
-      mentions(['gitleaks', 'trufflehog', 'detect-secrets']) || has('.gitleaks.toml'),
-    securityPolicyPresent: has('SECURITY.md'),
-    ...(workflowConfig
-      ? {
-        protectedBranches: workflowConfig.branches.protected,
-        requiredStatusChecks: [...new Set(workflowConfig.stages.flatMap(stage => stage.requiredStatusChecks))],
-        requiredHumanChecks: [...new Set(workflowConfig.stages.flatMap(stage => stage.requiredChecks))],
-      }
-      : {}),
-    ...(production
-      ? {
-        backup: {
-          required: production.backupPolicy.required,
-          hasCommand: (production.backupPolicy.command ?? '').trim().length > 0,
-          hasVerifyCommand: (production.backupPolicy.verifyCommand ?? '').trim().length > 0,
-          // A project whose every stage declares no data store has nothing to
-          // back up, and reporting that as a failure is a false gap.
-          hasDataRepository: (delivery?.stages ?? []).some(stage => stage.data.kind !== 'none'),
-        },
-      }
-      : {}),
-    ...(delivery
-      ? {
-        deploymentStages: {
-          count: delivery.stages.length,
-          hasProtectedProduction: delivery.stages.some(stage => stage.isProtected),
-        },
-      }
-      : {}),
-    ...(endpoints ? { endpoints } : {}),
-    ...(secretsFoundInSettings === undefined ? {} : { secretsFoundInSettings }),
-    ...(providerGovernance ? { providerGovernance } : {}),
-    ...(riskRegister ? { riskRegister } : {}),
-    lintConfigured,
-    lintInPipeline,
-    auditLedger: { present: auditPresent, runCount: history.records.length },
-    ...(input.toolApprovalMode ? { toolApprovalMode: input.toolApprovalMode } : {}),
-    modelCardPresent: has('MODEL_CARD.md') || has('docs/model-card.md'),
-    ...(statusOf('security-testing') === undefined ? {} : { securityTestingEvidenced: statusOf('security-testing') === 'covered' }),
-    ...(statusOf('guardrail') === undefined ? {} : { guardrailEvidenced: statusOf('guardrail') === 'covered' }),
-    ...(statusOf('audit-trail') === undefined ? {} : { auditTrailEvidenced: statusOf('audit-trail') === 'covered' }),
-  };
-}
 
 function probePolicyConfigFiles(workspaceRoot: string): string[] {
   const candidates = [
@@ -6945,32 +6817,15 @@ function probePolicyConfigFiles(workspaceRoot: string): string[] {
       found.push(`${dir}/`);
     }
   }
-  // Compliance control mappings are named per policy, so the directory marker
-  // trick above does not work — a `^…/compliance/gdpr\.md$` pattern has to see
-  // the actual filename or every compliance policy would match every mapping.
-  // Enumerated rather than probed by id: this module does not own the policy
-  // list, and a mapping written by hand should count exactly like a scaffolded
-  // one.
-  try {
-    const entries = readdirSync(path.join(workspaceRoot, COMPLIANCE_EVIDENCE_DIR), { withFileTypes: true, encoding: 'utf8' });
-    for (const entry of entries.slice(0, 80)) {
-      if (!entry.isFile() || !entry.name.toLowerCase().endsWith('.md')) {
-        continue;
-      }
-      // A mapping counts as evidence only once somebody has assessed a control
-      // in it. The file's own preamble says an unassessed row is not the same
-      // as a compliant one, but `configIsEvidence` promotes a policy on the
-      // file's mere existence — so a scaffolded, untouched mapping reported the
-      // regime as met. Presence is the form; this is the form filled in.
-      const text = safeReadTextFile(path.join(workspaceRoot, COMPLIANCE_EVIDENCE_DIR, entry.name));
-      if (isAssessedControlMapping(text)) {
-        found.push(`${COMPLIANCE_EVIDENCE_DIR}/${entry.name}`);
-      }
-    }
-  } catch {
-    // No compliance mappings in this project — not an error, and deliberately
-    // not the same as an empty one: the policy simply reads as unassessed.
-  }
+  // The compliance directory is deliberately *not* probed any more.
+  //
+  // It used to be enumerated here, and a mapping carrying one assessed cell was
+  // pushed in as a config signal, which `configIsEvidence` turned into a
+  // `covered` regime. Two reasons that had to go. The gate matched any table
+  // cell anywhere in the document — the Owner column and the review log
+  // included — so typing `Gap` as a reviewer's name qualified. And the mapping
+  // is now generated by AtlasMind from the register, so reading it back would
+  // be the tool citing its own output as proof.
   return found;
 }
 

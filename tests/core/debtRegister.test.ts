@@ -3,6 +3,7 @@ import {
   DEBT_RULES,
   MAX_MARKERS_PER_FILE,
   scanForDebtMarkers,
+  scopeDebtCandidates,
   commentStartIndex,
   parseCustomDebtMarkers,
   buildDebtMarkerGuidance,
@@ -107,6 +108,104 @@ describe('entry ids are stable, which is what makes a rescan recognise rather th
   it('differs for a different file or a different marker', () => {
     expect(debtEntryId({ ...candidate(1), evidencePath: 'src/b.ts' })).not.toBe(debtEntryId(candidate(1)));
     expect(debtEntryId({ ...candidate(1), title: 'TODO: something else' })).not.toBe(debtEntryId(candidate(1)));
+  });
+});
+
+describe('component-scoped debt scans', () => {
+  const gameplayScope = {
+    componentId: 'gameplay',
+    componentLabel: 'Gameplay',
+    vcs: 'git' as const,
+    visibility: 'visible' as const,
+    scannedFileCount: 1,
+    truncated: false,
+  };
+  const contentScope = {
+    componentId: 'content',
+    componentLabel: 'Content',
+    vcs: 'perforce' as const,
+    visibility: 'not-visible' as const,
+    scannedFileCount: 0,
+    truncated: false,
+    reason: 'Perforce state is not connected.',
+  };
+
+  it('keeps identical paths in different components as different entries', () => {
+    const base = scanForDebtMarkers([file('src/a.ts', '// TODO: retry')]);
+    const gameplay = scopeDebtCandidates(base, gameplayScope);
+    const tools = scopeDebtCandidates(base, { componentId: 'tools', componentLabel: 'Tools' });
+    expect(debtEntryId(gameplay[0]!)).not.toBe(debtEntryId(tools[0]!));
+  });
+
+  it('adopts one legacy unscoped entry instead of duplicating it on the first scoped scan', () => {
+    const base = scanForDebtMarkers([file('src/a.ts', '// TODO: retry')]);
+    const legacy = reconcileDebtScan(EMPTY, base, ['src/a.ts'], AT);
+    const scoped = scopeDebtCandidates(base, gameplayScope);
+    const migrated = reconcileDebtScan(
+      legacy.register,
+      scoped,
+      [{ componentId: 'gameplay', path: 'src/a.ts' }],
+      LATER,
+      [gameplayScope],
+    );
+    expect(migrated.register.entries).toHaveLength(1);
+    expect(migrated.register.entries[0]).toMatchObject({
+      id: debtEntryId(scoped[0]!),
+      componentId: 'gameplay',
+      componentLabel: 'Gameplay',
+      detectedAt: AT,
+    });
+    expect(migrated.added).toEqual([]);
+  });
+
+  it('only obsoletes evidence in the component that was actually scanned', () => {
+    const base = scanForDebtMarkers([file('src/a.ts', '// TODO: retry')]);
+    const candidates = [
+      ...scopeDebtCandidates(base, gameplayScope),
+      ...scopeDebtCandidates(base, { componentId: 'tools', componentLabel: 'Tools' }),
+    ];
+    const first = reconcileDebtScan(
+      EMPTY,
+      candidates,
+      [
+        { componentId: 'gameplay', path: 'src/a.ts' },
+        { componentId: 'tools', path: 'src/a.ts' },
+      ],
+      AT,
+      [gameplayScope, contentScope],
+    );
+    const second = reconcileDebtScan(
+      first.register,
+      candidates.filter(candidate => candidate.componentId === 'tools'),
+      [{ componentId: 'gameplay', path: 'src/a.ts' }],
+      LATER,
+      [gameplayScope, contentScope],
+    );
+    expect(second.register.entries.find(entry => entry.componentId === 'gameplay')?.status).toBe('obsolete');
+    expect(second.register.entries.find(entry => entry.componentId === 'tools')?.status).toBe('open');
+  });
+
+  it('round-trips visible and not-visible scan coverage and publishes it in the mirror', () => {
+    const register = reconcileDebtScan(EMPTY, [], [], AT, [gameplayScope, contentScope]).register;
+    const round = sanitizeDebtRegister(JSON.parse(JSON.stringify(register)));
+    expect(round.lastScanScope).toEqual([gameplayScope, contentScope]);
+    const markdown = renderDebtMarkdown(round);
+    expect(markdown).toContain('| Gameplay | `git` | visible | 1 |');
+    expect(markdown).toContain('| Content | `perforce` | not-visible — Perforce state is not connected. | 0 |');
+  });
+
+  it('does not synthesize a visible zero for an unreadable component', () => {
+    const register = reconcileDebtScan(EMPTY, [], [], AT, [contentScope]).register;
+    expect(register.lastScanScope?.[0]).toMatchObject({ visibility: 'not-visible', scannedFileCount: 0 });
+    expect(register.entries).toEqual([]);
+  });
+
+  it('drops the whole stored coverage claim when one component record is malformed', () => {
+    const raw = reconcileDebtScan(EMPTY, [], [], AT, [gameplayScope, contentScope]).register as unknown as {
+      lastScanScope: Array<Record<string, unknown>>;
+    };
+    delete raw.lastScanScope[1]!.scannedFileCount;
+    expect(sanitizeDebtRegister(raw).lastScanScope).toBeUndefined();
   });
 });
 

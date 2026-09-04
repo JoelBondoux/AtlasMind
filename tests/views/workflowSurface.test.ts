@@ -2221,3 +2221,47 @@ describe('the Release page states how versions are numbered', () => {
     expect(rendered()).toMatch(/never writes|Nothing here writes|is a reading/);
   });
 });
+
+describe('declared composition is visible on every migrated repository surface', () => {
+  const between = (startName: string, endName: string): string => {
+    const start = WEBVIEW_SCRIPT.indexOf(`function ${startName}(`);
+    const end = WEBVIEW_SCRIPT.indexOf(`function ${endName}(`, start + 1);
+    expect(start, `${startName} is missing`).toBeGreaterThan(-1);
+    expect(end, `${endName} is missing`).toBeGreaterThan(start);
+    return WEBVIEW_SCRIPT.slice(start, end);
+  };
+
+  it('labels git status per component and renders not-visible instead of zero', () => {
+    const source = between('renderRepo', 'renderRuntime');
+    expect(source).toContain('componentReadings');
+    expect(source).toContain('Git visibility by component');
+    expect(source).toContain('not visible');
+    expect(source).toContain('Every count in this headline is scoped to');
+  });
+
+  it('labels the detailed issue board and names tracker coverage by component', () => {
+    const source = between('renderIssues', 'renderIssueRow');
+    expect(source).toContain('issues.scopeLabel');
+    expect(source).toContain('Tracker visibility by component');
+    expect(source).toContain('componentPortfolio.scopeLabel');
+  });
+
+  it('publishes the exact debt scan boundary and labels each entry with its component', () => {
+    const source = between('renderDebt', 'renderPipelineDial');
+    expect(source).toContain('debt.lastScanScope');
+    expect(source).toContain('Last scan scope');
+    expect(source).toContain('entry.componentLabel');
+    expect(HOST_PANEL).toContain('scopeDebtCandidates(');
+  });
+
+  it('labels both CI inventory and observed-delta partial coverage', () => {
+    const pipeline = between('renderPipeline', 'renderWorkflowStageActions');
+    const workflow = workflowRenderSource();
+    expect(pipeline).toContain('delivery.componentCi');
+    expect(pipeline).toContain('CI inventory by component');
+    expect(pipeline).toContain('delivery.ciScopeLabel');
+    expect(workflow).toContain('delta.scope');
+    expect(workflow).toContain('Partial component coverage');
+    expect(HOST_PANEL).toContain('resolveWorkspaceScope(');
+  });
+});

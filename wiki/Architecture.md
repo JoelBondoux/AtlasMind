@@ -99,10 +99,120 @@ path — you don't have to retype it.
 | **Skills Registry** | What tools exist and which an agent may use |
 | **Model Router** | Picks a model by budget, speed, capability, health and past outcomes |
 | **Task Profiler** | Works out how hard a task really is |
+| **Project Archetype & Prefab Plans** | Describes a project as a small archetype plus composable traits, then builds deterministic create-only starter plans for explicitly selected platforms |
+| **Project Composition & Workspace Scope** | Keeps team-declared component boundaries separate from detected proposals and resolves only the roots a surface opts into |
+| **Game Engine Project Reading** | Reads bounded decisive project-file evidence, inventories explicitly confirmed content roots, interprets generic upstream distance for a matching engine component, and safely reads an existing build report |
 | **Project Vocabulary** | The delivery stages and branches *your project declared*, so "promote to staging" means what you said it means |
 | **Planner & Task Scheduler** | Breaks a goal into steps and runs them in dependency order |
 | **Mission Runner** | The autonomous loop, and the envelope that contains it |
 | **Cost Tracker** | What everything cost, per session and per model |
+
+WooCommerce does not become a platform-named archetype. An extension resolves as a library with
+published-package and personal-data traits, which supplies package, privacy, and security expectations
+without claiming it is hosted by WooCommerce. The guided prefab normalizes project text into bounded
+display-name, slug, namespace, and path forms, writes only missing files, and never executes the setup
+commands it records.
+
+Magento follows the extension side of that model: a distributable `library` with published-package and
+personal-data review traits, backed by matching Composer, registration, and module XML identifiers.
+
+Game engine identity follows the same declaration-over-detection rule at a stricter boundary. The pure
+`gameEngineIdentity.ts` recognises only one root `.uproject`, Unity's exact
+`ProjectSettings/ProjectVersion.txt`, or one root `project.godot`; it neither walks the filesystem nor
+starts or probes an editor. Missing and malformed versions withhold dependent behavior, conflicting
+engine families remain unconfident `unknown`, and `custom` can only be declared. Primary-source check
+dates and narrow verified ranges travel with each known engine, so a future version can be named as
+evidence without pretending its behavior was verified.
+
+Asset inventory is a separate, filesystem-only boundary because reading thousands of content files is
+not a render operation. A caller must supply host-resolved component roots, declared relative content
+roots, and explicit confirmation. One file/byte/time budget covers the whole composition; symlinks are
+withheld; traversal never receives an open action; and truncation prevents orphan absence from becoming
+a claim. Perforce/external/unknown components stay `not-visible`. Git components receive conservative
+LFS coverage only when the applicable `.gitattributes` rules were understood; otherwise the verdict is
+unreadable rather than guessed.
+
+Build-log interpretation is pure and receives only a complete caller-supplied report. It launches no
+build and retains no raw log. Missing, incomplete, oversized, malformed, unsupported, or unrecognized
+evidence stays no-verdict; supported engine versions receive an inert command template for producing a
+report. Bounded retained diagnostics are control-stripped and secret-redacted. Only a captured exit code
+or verified completion marker decides the overall result, so an error-looking line cannot turn a partial
+log into a fabricated failed build.
+BigCommerce Catalyst and Wix Commerce follow the storefront side: hosted `website` identities with UI,
+server, and personal-data review traits. Their prefabs are documentation-only generator handoffs because
+the official tools own version-sensitive source and external provisioning; a handoff never claims that
+the generator, install, Git initialization, or publication occurred.
+
+The SaaS/Web family applies that ownership boundary to application frameworks. Next.js, React Router,
+Laravel, Django, and Astro Content remain documentation-only generator handoffs with literal placeholders,
+declared runtime/package/database/content effects, and Not-assessed review matrices. New Remix-style work
+uses React Router framework mode. Static Website is emitted natively because its complete dependency-free
+HTML/CSS surface, escaping, CSP, accessibility contract, built-in tests, and CI can be held to deterministic
+tests. The labels map to `website` or `web-app` plus UI/server/personal-data traits rather than introducing
+six framework-named archetypes.
+
+The Frontend family keeps those archetypes and adds a narrower browser contract. Next.js, SvelteKit,
+and Nuxt carry UI and server traits; React/Vite and Vue carry UI only until the generated project proves a
+server boundary. Website Studio's framework catalog also exposes React and Vue as manual setup choices,
+updates SvelteKit to `sv create`, and keeps command metadata separate from the bootstrap handoff: catalog
+commands may run only through the existing preview/confirmation gate, while bootstrap commands never run.
+
+The Mobile family maps React Native, Expo, and Flutter to `mobile` with UI and binary traits. These remain
+documentation-only handoffs because their generators can retrieve packages, create native projects, invoke
+platform toolchains, and lead into signing, devices, cloud services, or store submission. React Native's
+bare path records the framework-first recommendation; Expo separates install, generated instructions,
+native generation, and EAS; Flutter discloses dependency retrieval. Every mobile review matrix starts
+permissions, storage, telemetry, device/OS, accessibility, native-module, signing, update, and rollback
+claims as Not assessed.
+
+A project composition is an ordered, team-owned set of components: each has a role, archetype and traits,
+portable location, VCS, and one explicit home. One malformed component refuses the whole declaration
+instead of disappearing from every later count. Topology is derived, never stored; unresolved or unreadable
+roots remain unknown. Detection may offer a proposal, but a proposal cannot become the active composition
+until a person declares it in `workflow.json`.
+
+Workspace scope is opt-in. Its default returns exactly VS Code's first workspace folder without consulting
+composition, so existing behaviour does not move underneath callers. A surface that explicitly requests the
+home, one component, or all components receives only opened roots, plus labelled missing/unreadable/ambiguous
+entries; AtlasMind never substitutes another directory or reaches outside the opened workspace set.
+
+The Project Dashboard is the first all-component consumer. Repository status and local CI are read only for
+declared Git components; issue-tracker support, debt-scan coverage, and observed-change baselines carry the
+same component inventory. Detailed GitHub data stays explicitly scoped to the home component. Missing,
+unreadable, non-Git, and currently unsupported components remain visible as `not-visible` with a reason, and
+aggregates omit data that was never read instead of filling it with zero.
+
+Guided bootstrap can now declare the non-game validation case directly. **Shopify composable project**
+opens a human multi-select for theme, app, and extension, then persists those accepted shapes through the
+same generic component model. It runs no Shopify command and does not invent source. A pre-existing
+composition, invalid/unreadable workflow, orphaned mirror, or newer workflow schema is left untouched;
+new workflow stages remain disabled at `observe`.
+
+The **Game** path then offers four component seeds: single-repo indie, multi-repo studio, hybrid Git +
+Perforce studio, and engine-fork studio. The stored workflow contains no preset identity or topology,
+so it remains editable team data rather than a governed template. Perforce receives no depot/credential,
+and an engine fork receives no invented upstream coordinates. Selection executes nothing.
+
+Upstream divergence is a general Git reading, not a game service. Given a resolved Git component with
+a declared remote/ref, AtlasMind reads its merge base, commits ahead/behind, paths changed on each side,
+and their overlap through argv-only commands. The union is the exact diverged-file count; the overlap is
+a list of conflict-prone candidates, not a prediction. It never fetches or changes refs. Bounded display
+lists preserve exact counts, while incomplete evidence remains `unreadable` rather than zero.
+
+Minimal snapshots add growing, shrinking, mixed, and unchanged trends. Comparisons restart when the
+component or upstream changes, history is invalid, or time moves backwards. This keeps the same module
+usable for any declared fork while leaving domain interpretation to the consuming studio.
+
+The game-specific adapter is deliberately downstream of that collector. It requires the current
+component to have the `engine` role and refuses a component-id or declared-upstream mismatch before
+copying the exact generic counts and trend. Its synchronized, local-fork, upstream-intake, and
+concurrent-change labels describe the observed shape; they are not severity or policy thresholds.
+
+Unreal 5.8, Unity 6000.2.0b4, and Godot 4.6 path layouts are pinned to primary source. They classify
+only the bounded path lists already returned by Git, so per-area numbers say “displayed” and a
+truncated report says “bounded”; repository totals remain exact. Other versions plus custom, unknown,
+or unconfirmed engines keep the generic fork facts and receive no guessed path meaning. The adapter
+runs no Git, filesystem, engine, or network operation.
 
 ### Remembering
 
@@ -111,6 +221,7 @@ path — you don't have to retype it.
 | **Memory Manager** | Reads, writes and searches your project memory |
 | **Session Context Manager** | Maintains a revision-checked working summary without outranking the chat transcript |
 | **Memory Scanner** | The gate that decides what may be written |
+| **Schema Migration** | Versions persisted documents and refuses newer formats instead of overwriting them |
 | **Checkpoint Manager** | Snapshots before writes, so a failure is recoverable |
 | **Project Run History** | Every autonomous run, kept per workspace |
 
@@ -119,6 +230,15 @@ content changes, while the rolling session summary records which revision it des
 missing or mismatched marker and falls back to the current transcript. Clear, delete, New Chat, edit, and
 regenerate wait for invalidation, so an older background summary cannot reintroduce a turn the operator
 removed.
+
+Game integration begins at the persistence boundary rather than with an engine command. The future
+`game.json` profile is registered at schema v1 before any writer exists, while project composition stays
+inside the existing v1 workflow document. That declaration now round-trips with unknown fields preserved
+and appears in the generated workflow mirror; invalid future shapes are retained opaquely rather than partly
+activated. Repository fixtures pin Unreal, Unity, Godot 3/4, multi-root, and a simulated read-only Perforce
+component without storing derived topology, credentials, SDK paths, or engine binaries. Component-scoped
+Git, local CI, debt, issue visibility, and observed deltas now consume the declaration while preserving that
+Perforce boundary as `not-visible` rather than zero.
 
 ### Reaching outside
 
@@ -792,11 +912,43 @@ gap, risk, debt, document, assignment, and follow-up records. The dashboard clea
 filter hiding that record, scrolls and focuses it, and draws a temporary focus outline. A removed or
 not-yet-loaded record safely degrades to its owning page.
 
+**Every vital file has an owner.** Each tracked document and each artifact the repository is expected to
+keep carries a chip saying who keeps it current: an explicit assignment first, then the person holding
+the Director role, then you, then a stated gap. It is *derived*, not written — `project-director.json`
+is committed, and seeding assignments because a page was opened would put words in somebody's mouth — so
+replacing the Director re-points every unassigned file at once. A derived default is drawn as a dashed
+"default" chip and a recorded one as a filled tag, because a derivation must never read as a decision.
+With no Director named the file falls to you rather than to the first name on the roster, which is
+frequently a bot. One confirmed action on the Delivery page records the defaults as real assignments,
+showing every one before it is written.
+
+The Delivery page's **artifact inventory** can now act on what it reports. Every row carries an
+AtlasMind action, and what it asks for comes from the row's own facts. A missing document the repository
+is expected to keep opens a draft that searches for an equivalent under another name first, then writes
+the file from what the repository already says about itself, marking anything it cannot determine rather
+than inventing it. A present file gets reviewed rather than rewritten — what is stale, missing, or
+contradicted elsewhere, with "this is current" a valid answer. A produced artifact (`out/`, `dist/`,
+`coverage/`, a packaged `.vsix`) is never authored: its row asks how it is produced and whether the
+ignore rules are right, and the draft says so in the text the model reads. The filename opens the file
+and the logo opens the hand-off; the row itself is no longer a click target, because a control nested
+inside a control is invalid markup and unreachable by keyboard.
+
+The Delivery page carries **one runbook per delivery stage**, not one for the project. Local, Staging and
+Production each get their own Prerequisites → Validate → Package → Deploy → Publish columns, derived from
+that stage's own record: its gates, its declared checks, its backup, its target, and whether it publishes
+at all. The local runbook's *Deploy* column becomes **Run it here** — the `dev`/`start`/`watch` script or
+the F5 launch path — and it never lists a publish command; uncommitted work is normal there and blocking
+on a stage you promote into. A **What is different** card states what the open stage asks that the stage
+below it does not, including anything the stage below requires and this one does not, and a side-by-side
+table shows every stage against the same declared rule list. Switching stage is offline: the whole set is
+already in the snapshot.
+
 Detected commands can be copied, typed into a terminal, or run a column at a time, and `deliveryRunPlan.ts`
 decides what a terminal is asked to do before anything is sent. The webview posts an opaque step or phase
-id and the host rebuilds the guide to resolve the command, so the page can name a step but never supply
-one. Send-to-terminal withholds the newline, leaving your keystroke as the last gate on a single command;
-a column run confirms every command in order, marks the ones that leave the machine, and states whether
+key — which carries the stage id verbatim, so it names exactly one runbook — and the host rebuilds the
+guide to resolve the command, so the page can name a step but never supply one. Send-to-terminal withholds
+the newline, leaving your keystroke as the last gate on a single command; a column run names the stage in
+its confirmation, lists every command in order, marks the ones that leave the machine, and states whether
 the shell can stop on failure. Guarded promotion is untouched and remains the only path that executes
 commands from a reviewed `delivery.json`.
 
@@ -874,7 +1026,7 @@ never accepted.
 
 | Path | What's in it |
 |---|---|
-| `src/core/` | Orchestration, routing, planning, safety, cost, project services, and CI inspection, trusted-workflow generation, the route model, routing policy, build ledger, act adapter and local CI setup guidance (`ciManager.ts`, `trustedLocalCiStarter.ts`, `ciRoutes.ts`, `ciRoutingPolicy.ts`, `ciCreditMeter.ts`, `ciBuildLedger.ts`, `ciActRoute.ts`, `nodeVersionDetection.ts`, `localCiSetupPlan.ts`, `localCiInstaller.ts`, `localCiInspectionMemory.ts`), the guarded local CI executor (`localCiRunner.ts`), the confirmed-write echo that shows an issue or pull-request write before the re-read lands (`trackerWriteOutcome.ts`), the roadmap dependency graph with its on-disk overlay (`roadmapGraph.ts`, `roadmapGraphStore.ts`), the declared table saying where each release gate’s evidence lives and how gates rank by urgency (`releaseGateNavigation.ts`), roadmap ingestion from markdown, issues, Projects and spreadsheets with re-runnable reconciliation (`roadmapImport.ts`), the register-to-work hand-off that turns a gap, a debt entry or a risk finding into planned work (`registerHandoff.ts`), and how the project numbers its software across branches — the semver primitives plus the declared scheme, source and branch-to-channel map (`semver.ts`, `versioningPolicy.ts`) |
+| `src/core/` | Orchestration, routing, planning, safety, cost, project services, pure game-engine identity/divergence/build-log interpretation (`gameEngineIdentity.ts`, `gameEngineDivergence.ts`, `gameBuildLog.ts`), and CI inspection, trusted-workflow generation, the route model, routing policy, build ledger, act adapter and local CI setup guidance (`ciManager.ts`, `trustedLocalCiStarter.ts`, `ciRoutes.ts`, `ciRoutingPolicy.ts`, `ciCreditMeter.ts`, `ciBuildLedger.ts`, `ciActRoute.ts`, `nodeVersionDetection.ts`, `localCiSetupPlan.ts`, `localCiInstaller.ts`, `localCiInspectionMemory.ts`), the guarded local CI executor (`localCiRunner.ts`), the confirmed-write echo that shows an issue or pull-request write before the re-read lands (`trackerWriteOutcome.ts`), the roadmap dependency graph with its on-disk overlay (`roadmapGraph.ts`, `roadmapGraphStore.ts`), the declared table saying where each release gate’s evidence lives and how gates rank by urgency (`releaseGateNavigation.ts`), roadmap ingestion from markdown, issues, Projects and spreadsheets with re-runnable reconciliation (`roadmapImport.ts`), the register-to-work hand-off that turns a gap, a debt entry or a risk finding into planned work (`registerHandoff.ts`), and how the project numbers its software across branches — the semver primitives plus the declared scheme, source and branch-to-channel map (`semver.ts`, `versioningPolicy.ts`) |
 | `src/runtime/` | The built-in agents and how the runtime is composed |
 | `src/providers/` | Provider adapters, catalogues, health, local model discovery, `modelRole.ts` (what a model is *for*), and the local-GPU support layer that measures VRAM and reads what each runtime has loaded |
 | `src/skills/` | Built-in tools and skill handlers |

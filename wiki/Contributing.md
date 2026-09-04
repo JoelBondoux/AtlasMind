@@ -51,6 +51,13 @@ npm run package:vsix         # Build a .vsix
 npm run resolve:release-conflicts   # Settle a merge's version-marker conflicts
 ```
 
+The committed mutation gate excludes static mutants. They were 4% of the configured mutations but the
+runner projected them to consume 96% of roughly an hour because each reloads the entire suite. The normal
+gate still evaluates every non-static mutant in the three selected policy modules.
+
+BDD uses Gherkin specifications under `tests/features/` paired with matching `Scenario:` tests in the
+normal Vitest suite. Keep both sides linked: a feature file alone does not prove the behavior runs.
+
 The suite runs on **half this machine's threads** locally (`maxWorkers: '50%'` in `vitest.config.ts`) and on
 the Vitest default in CI. Many of these tests write real project trees into real temporary directories, so
 the default 23 workers on a 24-thread machine saturated CPU and disk together and left the editor

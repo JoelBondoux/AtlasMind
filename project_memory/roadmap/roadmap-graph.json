@@ -550,6 +550,94 @@
         "importedTitleNormalized": "not pursuing becoming a generic byo cli agent multiplexer that is supacode s category and undercuts atlasmind s integrated routing memory cost privacy differentiators",
         "importedAt": "2026-08-21T06:17:07.883Z"
       }
+    },
+    {
+      "id": "pay-down-atdd-is-enabled-wit",
+      "normalizedText": "pay down: atdd is enabled with no evidence it runs",
+      "addedAt": "2026-09-02T23:20:15.604Z",
+      "origin": {
+        "kind": "debt",
+        "sourceId": "test:project_memory/index/testing-config.json:atdd-is-enabled-with-no-evidence-it-runs",
+        "sourceTitle": "ATDD is enabled with no evidence it runs",
+        "raisedAt": "2026-09-02T23:20:15.604Z"
+      }
+    },
+    {
+      "id": "pay-down-bdd-is-enabled-with",
+      "normalizedText": "pay down: bdd is enabled with no evidence it runs",
+      "addedAt": "2026-09-02T23:20:37.194Z",
+      "origin": {
+        "kind": "debt",
+        "sourceId": "test:project_memory/index/testing-config.json:bdd-is-enabled-with-no-evidence-it-runs",
+        "sourceTitle": "BDD is enabled with no evidence it runs",
+        "raisedAt": "2026-09-02T23:20:37.194Z"
+      }
+    },
+    {
+      "id": "pay-down-contract-is-enabled",
+      "normalizedText": "pay down: contract is enabled with no evidence it runs",
+      "addedAt": "2026-09-02T23:20:41.876Z",
+      "origin": {
+        "kind": "debt",
+        "sourceId": "test:project_memory/index/testing-config.json:contract-is-enabled-with-no-evidence-it-runs",
+        "sourceTitle": "Contract is enabled with no evidence it runs",
+        "raisedAt": "2026-09-02T23:20:41.876Z"
+      }
+    },
+    {
+      "id": "pay-down-end-to-end-is-enabl",
+      "normalizedText": "pay down: end-to-end is enabled with no evidence it runs",
+      "addedAt": "2026-09-02T23:21:08.080Z",
+      "origin": {
+        "kind": "debt",
+        "sourceId": "test:project_memory/index/testing-config.json:end-to-end-is-enabled-with-no-evidence-it-runs",
+        "sourceTitle": "End-to-End is enabled with no evidence it runs",
+        "raisedAt": "2026-09-02T23:21:08.080Z"
+      }
+    },
+    {
+      "id": "pay-down-model-based-mbt-is",
+      "normalizedText": "pay down: model-based (mbt) is enabled with no evidence it runs",
+      "addedAt": "2026-09-02T23:21:14.568Z",
+      "origin": {
+        "kind": "debt",
+        "sourceId": "test:project_memory/index/testing-config.json:model-based-mbt-is-enabled-with-no-evidence-it-runs",
+        "sourceTitle": "Model-Based (MBT) is enabled with no evidence it runs",
+        "raisedAt": "2026-09-02T23:21:14.568Z"
+      }
+    },
+    {
+      "id": "pay-down-mutation-testing-is",
+      "normalizedText": "pay down: mutation testing is enabled with no evidence it runs",
+      "addedAt": "2026-09-02T23:21:23.871Z",
+      "origin": {
+        "kind": "debt",
+        "sourceId": "test:project_memory/index/testing-config.json:mutation-testing-is-enabled-with-no-evidence-it-runs",
+        "sourceTitle": "Mutation Testing is enabled with no evidence it runs",
+        "raisedAt": "2026-09-02T23:21:23.871Z"
+      }
+    },
+    {
+      "id": "pay-down-performance-is-enab",
+      "normalizedText": "pay down: performance is enabled with no evidence it runs",
+      "addedAt": "2026-09-02T23:21:31.502Z",
+      "origin": {
+        "kind": "debt",
+        "sourceId": "test:project_memory/index/testing-config.json:performance-is-enabled-with-no-evidence-it-runs",
+        "sourceTitle": "Performance is enabled with no evidence it runs",
+        "raisedAt": "2026-09-02T23:21:31.502Z"
+      }
+    },
+    {
+      "id": "pay-down-property-based-is-e",
+      "normalizedText": "pay down: property-based is enabled with no evidence it runs",
+      "addedAt": "2026-09-02T23:21:37.298Z",
+      "origin": {
+        "kind": "debt",
+        "sourceId": "test:project_memory/index/testing-config.json:property-based-is-enabled-with-no-evidence-it-runs",
+        "sourceTitle": "Property-Based is enabled with no evidence it runs",
+        "raisedAt": "2026-09-02T23:21:37.298Z"
+      }
     }
   ],
   "edges": [
@@ -559,15 +647,6 @@
       "origin": "declared",
       "rule": "explicit-reference",
       "evidence": "“once MCP + autonomy + untrusted content combine”",
-      "createdAt": "2026-08-21T11:02:08.574Z",
-      "createdBy": "contact-email-joelbondoux-net-1"
-    },
-    {
-      "from": "not-pursuing-becoming-a-gene",
-      "to": "document-all-gdpr-related-co-2",
-      "origin": "declared",
-      "rule": "shared-subject-phase",
-      "evidence": "both mention “atlasmind” and “memory”",
       "createdAt": "2026-08-21T11:02:08.574Z",
       "createdBy": "contact-email-joelbondoux-net-1"
     },
@@ -831,10 +910,217 @@
       "evidence": "both mention “agent” and “atlasmind”",
       "createdAt": "2026-08-21T11:02:08.574Z",
       "createdBy": "contact-email-joelbondoux-net-1"
+    },
+    {
+      "from": "pay-down-performance-is-enab",
+      "to": "pay-down-property-based-is-e",
+      "origin": "declared",
+      "rule": "shared-subject-phase",
+      "evidence": "both mention “enabled” and “evidence” and “runs”",
+      "createdAt": "2026-09-02T23:21:49.937Z",
+      "createdBy": "contact-email-joelbondoux-net-1"
+    },
+    {
+      "from": "pay-down-performance-is-enab",
+      "to": "pay-down-mutation-testing-is",
+      "origin": "declared",
+      "rule": "shared-subject-phase",
+      "evidence": "both mention “enabled” and “evidence” and “runs”",
+      "createdAt": "2026-09-02T23:21:49.937Z",
+      "createdBy": "contact-email-joelbondoux-net-1"
+    },
+    {
+      "from": "pay-down-performance-is-enab",
+      "to": "pay-down-model-based-mbt-is",
+      "origin": "declared",
+      "rule": "shared-subject-phase",
+      "evidence": "both mention “enabled” and “evidence” and “runs”",
+      "createdAt": "2026-09-02T23:21:49.937Z",
+      "createdBy": "contact-email-joelbondoux-net-1"
+    },
+    {
+      "from": "pay-down-performance-is-enab",
+      "to": "pay-down-end-to-end-is-enabl",
+      "origin": "declared",
+      "rule": "shared-subject-phase",
+      "evidence": "both mention “enabled” and “evidence” and “runs”",
+      "createdAt": "2026-09-02T23:21:49.937Z",
+      "createdBy": "contact-email-joelbondoux-net-1"
+    },
+    {
+      "from": "semantic-codebase-index-code",
+      "to": "explain-this-codebase-this-f",
+      "origin": "declared",
+      "rule": "shared-subject-phase",
+      "evidence": "both mention “codebase” and “code” and “ssot”",
+      "createdAt": "2026-09-02T23:21:49.937Z",
+      "createdBy": "contact-email-joelbondoux-net-1"
+    },
+    {
+      "from": "semantic-codebase-index-code",
+      "to": "graphrag-code-knowledge-grap",
+      "origin": "declared",
+      "rule": "shared-subject-phase",
+      "evidence": "both mention “index” and “embeddings” and “vector”",
+      "createdAt": "2026-09-02T23:21:49.937Z",
+      "createdBy": "contact-email-joelbondoux-net-1"
+    },
+    {
+      "from": "semantic-codebase-index-code",
+      "to": "self-improving-project-model",
+      "origin": "declared",
+      "rule": "shared-subject-phase",
+      "evidence": "both mention “ssot” and “model”",
+      "createdAt": "2026-09-02T23:21:49.937Z",
+      "createdBy": "contact-email-joelbondoux-net-1"
+    },
+    {
+      "from": "semantic-codebase-index-code",
+      "to": "reasoning-budget-routing-ext",
+      "origin": "declared",
+      "rule": "shared-subject-phase",
+      "evidence": "both mention “model” and “biggest” and “capability”",
+      "createdAt": "2026-09-02T23:21:49.937Z",
+      "createdBy": "contact-email-joelbondoux-net-1"
+    },
+    {
+      "from": "agent-to-agent-interoperabil",
+      "to": "eval-regression-harness-for",
+      "origin": "declared",
+      "rule": "shared-subject-phase",
+      "evidence": "both mention “agents” and “agent” and “definition”",
+      "createdAt": "2026-09-02T23:21:49.937Z",
+      "createdBy": "contact-email-joelbondoux-net-1"
+    },
+    {
+      "from": "monorepo-multi-root-workspac",
+      "to": "promote-worktree-isolation-t",
+      "origin": "declared",
+      "rule": "shared-subject-phase",
+      "evidence": "both mention “atlasmind” and “single”",
+      "createdAt": "2026-09-02T23:21:49.937Z",
+      "createdBy": "contact-email-joelbondoux-net-1"
+    },
+    {
+      "from": "monorepo-multi-root-workspac",
+      "to": "pr-native-github-automation",
+      "origin": "declared",
+      "rule": "shared-subject-phase",
+      "evidence": "both mention “project” and “today”",
+      "createdAt": "2026-09-02T23:21:49.937Z",
+      "createdBy": "contact-email-joelbondoux-net-1"
+    },
+    {
+      "from": "monorepo-multi-root-workspac",
+      "to": "parallel-command-center-ux-n",
+      "origin": "declared",
+      "rule": "shared-subject-phase",
+      "evidence": "both mention “multi” and “project” and “single”",
+      "createdAt": "2026-09-02T23:21:49.937Z",
+      "createdBy": "contact-email-joelbondoux-net-1"
+    },
+    {
+      "from": "self-improving-project-model",
+      "to": "decision-changelog-provenanc",
+      "origin": "declared",
+      "rule": "shared-subject-phase",
+      "evidence": "both mention “ssot” and “project”",
+      "createdAt": "2026-09-02T23:21:49.937Z",
+      "createdBy": "contact-email-joelbondoux-net-1"
+    },
+    {
+      "from": "regulatory-ai-governance-sur",
+      "to": "decision-changelog-provenanc",
+      "origin": "declared",
+      "rule": "shared-subject-phase",
+      "evidence": "both mention “provenance” and “auditable”",
+      "createdAt": "2026-09-02T23:21:49.937Z",
+      "createdBy": "contact-email-joelbondoux-net-1"
+    },
+    {
+      "from": "graphrag-code-knowledge-grap",
+      "to": "open-knowledge-format-okf-in",
+      "origin": "declared",
+      "rule": "shared-subject-phase",
+      "evidence": "both mention “knowledge” and “ssot”",
+      "createdAt": "2026-09-02T23:21:49.937Z",
+      "createdBy": "contact-email-joelbondoux-net-1"
+    },
+    {
+      "from": "on-device-frontier-class-mod",
+      "to": "open-knowledge-format-okf-in",
+      "origin": "declared",
+      "rule": "shared-subject-phase",
+      "evidence": "both mention “cloud” and “already”",
+      "createdAt": "2026-09-02T23:21:49.937Z",
+      "createdBy": "contact-email-joelbondoux-net-1"
+    },
+    {
+      "from": "not-pursuing-becoming-a-gene",
+      "to": "open-knowledge-format-okf-in",
+      "origin": "declared",
+      "rule": "shared-subject-phase",
+      "evidence": "both mention “agent” and “atlasmind”",
+      "createdAt": "2026-09-02T23:21:49.937Z",
+      "createdBy": "contact-email-joelbondoux-net-1"
+    },
+    {
+      "from": "pay-down-performance-is-enab",
+      "to": "pay-down-contract-is-enabled",
+      "origin": "declared",
+      "rule": "shared-subject-phase",
+      "evidence": "both mention “enabled” and “evidence” and “runs”",
+      "createdAt": "2026-09-03T02:13:01.709Z",
+      "createdBy": "contact-email-joelbondoux-net-1"
+    },
+    {
+      "from": "pay-down-performance-is-enab",
+      "to": "pay-down-bdd-is-enabled-with",
+      "origin": "declared",
+      "rule": "shared-subject-phase",
+      "evidence": "both mention “enabled” and “evidence” and “runs”",
+      "createdAt": "2026-09-03T02:13:01.709Z",
+      "createdBy": "contact-email-joelbondoux-net-1"
+    },
+    {
+      "from": "pay-down-performance-is-enab",
+      "to": "pay-down-atdd-is-enabled-wit",
+      "origin": "declared",
+      "rule": "shared-subject-phase",
+      "evidence": "both mention “enabled” and “evidence” and “runs”",
+      "createdAt": "2026-09-03T02:13:01.709Z",
+      "createdBy": "contact-email-joelbondoux-net-1"
+    },
+    {
+      "from": "the-guided-github-workflow-o",
+      "to": "in-the-project-manager-dash",
+      "origin": "declared",
+      "rule": "shared-subject-phase",
+      "evidence": "both mention “project” and “branch”",
+      "createdAt": "2026-09-04T15:28:55.743Z",
+      "createdBy": "contact-email-joelbondoux-net-1"
+    },
+    {
+      "from": "the-guided-github-workflow-o",
+      "to": "when-onboarding-a-new-projec",
+      "origin": "declared",
+      "rule": "shared-subject-phase",
+      "evidence": "both mention “project” and “stage”",
+      "createdAt": "2026-09-04T16:03:39.033Z",
+      "createdBy": "contact-email-joelbondoux-net-1"
+    },
+    {
+      "from": "pr-native-github-automation",
+      "to": "when-onboarding-a-new-projec",
+      "origin": "declared",
+      "rule": "shared-subject-phase",
+      "evidence": "both mention “project” and “roadmap”",
+      "createdAt": "2026-09-04T16:03:39.033Z",
+      "createdBy": "contact-email-joelbondoux-net-1"
     }
   ],
   "suggestLinks": true,
   "dismissed": [],
   "layoutOrientation": "vertical",
-  "updatedAt": "2026-08-21T12:20:58.725Z"
+  "updatedAt": "2026-09-04T16:03:48.560Z"
 }

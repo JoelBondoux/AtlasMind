@@ -19,6 +19,472 @@ Older entries below describe the software as it was at the time and are delibera
 
 ---
 
+## v0.402.4 — The last platform-locked fixture
+
+One more literal Windows path, hidden behind a different drive prefix.
+
+## v0.402.3 — Line endings pinned for fixtures
+
+The repository had no `.gitattributes`, so a test comparing a fixture
+byte-for-byte passed on Linux and failed on Windows — for a reason invisible in
+the assertion message, since the two strings render identically.
+
+## v0.402.2 — CI unblocked
+
+Two checks had been red. `workspaceScope`'s tests used literal Windows paths, so
+they passed on a Windows machine and failed on Linux and macOS — which had been
+blocking every promotion to `main` since the file landed. And a redaction test's
+synthetic API key had not been added to the gitleaks allowlist.
+
+## v0.402.1 — Housekeeping
+
+Committed pending workspace memory: roadmap graph and improvement-plan edits, and
+ideation workspace timestamps. Data only — nothing about how AtlasMind behaves
+changed.
+
+## v0.402.0 — Import what you already wrote
+
+If you had filled in one of the old hand-edited control mappings, the Compliance
+page now offers to read it in rather than making you retype it.
+
+It tells you **what it cannot carry across before it writes anything**. A row
+reading *Satisfied* with nobody's name against it imports as *Not assessed*, with
+your original wording kept as a note — because that is what it always was, and a
+status with nothing behind it is a claim rather than evidence. Rows that do name
+somebody on your Director roster carry across, dated today: the old table had no
+date column, and inventing one would let a reader compute an evidence period from
+a number nobody stood behind.
+
+The stack checks now reach the page as well. On this repository they satisfy seven
+ISO 27001 checks and six SOC 2 ones, shown beside the controls they touch — and
+promoting nothing, because both regimes still have no scope decision.
+
+## v0.401.0 — Somewhere to record what actually evidences a regime
+
+The previous release stopped a governance regime reading green on a filename. This
+one gives you somewhere to put the real thing.
+
+A **Compliance page** sits under *Is it safe*, beside Risk — because risk is what we
+raised about ourselves and compliance is what somebody else will ask us to prove.
+Each control says what would settle it, and the page **withholds *Satisfied* and
+tells you why**: "this control can only be closed by a party outside the project,
+and no such statement is attached" is a sentence you can act on, where accepting the
+status and quietly demoting it later would feel like a bug.
+
+**What an assessor would ask next** is phrased the way it arrives — *"Your evidence
+for CC6.1 expired on 3 November. What is the current one?"* — because that is much
+harder to nod along to than a status.
+
+Recording evidence asks **where** it is: a file here, an https link, or held
+elsewhere and described. The third is an equal, not a fallback. And if you pick a
+file git tracks, AtlasMind says so before a confidential report reaches every clone
+of your repository.
+
+**`/compliance`** walks you through it, and `/compliance next` names the control most
+worth a decision. Neither records anything — a status needs a named person and a
+date, and that decision stays yours.
+
+## v0.400.1 — Standard editions checked against the source
+
+Every standard edition AtlasMind records was verified against the issuing body's own published
+record. Eight of eighteen were wrong, which is worth saying plainly: they had been written from
+recall rather than from sources, and an edition nobody checked is a claim.
+
+The consequential one is the **EU AI Act**. Regulation (EU) 2026/1744 came into force on
+27 July 2026 and moved the high-risk application dates, so the base 2024 citation no longer
+describes the text in force. Also corrected: **OWASP ASVS** (4.0.3 → 5.0.0), **SLSA** (v1.0 →
+v1.2), **SPDX License List** (3.25 → 3.28.0), **CycloneDX** (1.6 → 1.7), **NIST SP 800-53**
+(Rev. 5 → Release 5.2.0), **ISO/IEC 27001** (now carrying the published 2024 climate amendment),
+and **NERC CIP**, whose recorded version family had not described the standards for years.
+
+**HIPAA was deliberately left alone.** The proposed Security Rule update is still a proposal,
+and recording a draft as though it were in force is the same mistake pointing the other way.
+
+## v0.400.0 — A compliance regime is no longer graded on a filename
+
+All twenty-four governance methodologies — ISO 27001, SOC 2, GDPR, HIPAA, PCI DSS, NIST 800-53,
+SLSA, the AI Act regimes and the rest — could reach a green **Tested** tag on evidence far weaker
+than the regime itself. Four separate routes, each of which looked reasonable on its own:
+
+- A **filename**. A test called `data-privacy.test.ts` marked the whole of GDPR met.
+- A **mostly-empty form**. The scaffolded control mapping counted once any one cell carried an
+  assessed status — and the gate was weaker than it looked, matching any table cell anywhere in the
+  document, so typing `Gap` as a reviewer's name qualified.
+- **One passing stack check**, which promoted all twenty-five of ISO 27001's controls.
+- **No gate at all** for four regimes: committing the SBOM your build already produces marked SBOM
+  Verification met.
+
+They are now graded on a **compliance evidence register**, control by control, against a declared
+catalog of 224 controls.
+
+**Every control says what would settle it.** A machine check, a named person's attestation, a
+document, or a statement from an outside party — and that is a *set*, not a ranking, because the
+four differ in kind rather than strength. No scanner can assess "roles and responsibilities
+assigned"; no person's word produces a bill of materials. A control only an outside party can close
+therefore cannot be talked up by a self-assertion, however many are recorded against it.
+
+**A status needs a name and a date.** One with nothing behind it is a claim, not evidence, and is
+not carried. AtlasMind will draft your assessor narrative; it will never assert that a control is
+met.
+
+**Your certificates stay where they are.** `project_memory/` is tracked by git, so a signed report
+committed there goes to everyone who can clone the repository. AtlasMind records where a document
+is, who issued it and when it expires — never the document, and it never opens one.
+
+**Nothing reads as compliant.** The strongest reading available is *Independently assured*, and
+every reading carries the sentence saying only a certification body, auditor, regulator or counsel
+can make that call.
+
+**Every methodology now states which edition it models and when that was last checked**, so you
+cannot be graded against a standard that has since moved on.
+
+## v0.399.0 — Every vital file has an owner
+
+AtlasMind knew which files must never go stale, and it knew how to assign a human owner to a piece of
+*outstanding work*. It had no answer for the standing question. A `README.md` that is perfectly fresh
+today still has to be somebody's job tomorrow, and the ownership badge beside it returned nothing at all
+unless someone had manually assigned it. A file that belongs to everyone belongs to nobody, which is how
+a repository ends up with a `SECURITY.md` written once and never read again.
+
+Every tracked document and every artifact the repository is expected to keep now shows who keeps it
+current. With nobody assigned it falls to the **Director** — the role that already owns the workflow
+itself. With no Director named it falls to you, which is deliberate: that is the contact the project
+already treats as its assignment default, and naming yourself is the only guess that cannot hand
+somebody else's files to a person who never agreed to them. Picking the first name on the roster is
+refused outright — a roster seeded from git history routinely contains bots, and "dependabot owns the
+security policy" is worse than an honest gap because it stops anybody looking.
+
+**A default looks like a default.** A recorded owner is a filled tag; a derived one is dashed and says
+so. Collapsing the two would let a derivation read as a decision on the one surface whose entire purpose
+is recording what people agreed to.
+
+Nothing is written when you open the page. `project-director.json` is committed, and seeding assignments
+because a tab was opened would put words in somebody's mouth — the same rule the workflow file already
+follows. The upside is that a derived default *follows the roster*: replace the Director and every
+unassigned vital file re-points at once, where written records would quietly keep naming whoever left.
+When you do want them frozen, one confirmed action records them as real assignments and shows every one
+before writing.
+
+Vital artifacts are also assignable now, like any other work record. A missing one joins the Director's
+work board; a present one stays off it and carries the standing owner instead, because a file reviewed
+yesterday is not outstanding work and is still somebody's job tomorrow.
+
+---
+
+## v0.398.0 — The artifact inventory can now act
+
+The Delivery page's artifact inventory could tell you a file was missing and could do nothing about it.
+Every row was a dead end in both directions: a red `SECURITY.md` told you it was absent and left you to
+write it, and a green `README.md` told you the file existed and said nothing about whether it still
+described the project — which, for a document nobody has re-read in months, is the question worth asking.
+
+Every row now carries the AtlasMind logo, and what it asks for depends on the row. A missing document
+the repository is expected to keep opens a draft that **searches for an equivalent under another name
+first** — the inventory probes a fixed list of paths, so a `LICENCE` or a `docs/SECURITY.md` reads as
+missing, and a second copy is worse than the reported gap — then writes the file from what the
+repository already says about itself, leaving anything it cannot determine as a marked placeholder
+rather than inventing it.
+
+A present file gets reviewed rather than rewritten: read it, compare it against what the project
+actually does now, and report what is stale, missing, or contradicted by another document. "This is
+current" is a first-class answer, not a cue to invent improvements, and the correction proposed is the
+smallest one that closes a real gap — a wholesale rewrite of a `CONTRIBUTING.md` loses decisions that
+are written down nowhere else.
+
+`out/`, `dist/`, `coverage/` and a packaged `.vsix` are treated differently again, because they are the
+output of a build rather than a document somebody forgot. Their absence is usually correct, so those
+rows ask how the artifact is produced and whether the ignore rules handle it — and the draft states, in
+the text the model reads, that nothing is to be created. Asking an agent to "create the missing coverage
+directory" invites a fabrication committed to the repository as fact.
+
+The row is now two clear controls instead of one ambiguous one: the filename opens the file, the logo
+opens the hand-off. The whole-row click and its chevron are gone, because a control nested inside a
+control is invalid markup and unreachable by keyboard.
+
+---
+
+## v0.397.0 — A runbook for every delivery stage
+
+The Delivery page explained how to ship this project very well, and it explained it exactly once — from
+the production stage. So the question a developer asks most often, *how do I start the dev build?*, was
+answered with a version bump, a changelog gate and a marketplace publish, while the question that
+actually needs care, *what is different about promoting to production?*, was never asked at all.
+
+There is now **one runbook per configured delivery stage**. Local, Staging and Production each get their
+own Prerequisites → Validate → Package → Deploy → Publish columns, derived from that stage's own record:
+its gates, its declared human and CI checks, its backup, its hosting target, and whether it publishes at
+all. The page opens on the stage your checked-out branch represents — and says so — with the others one
+click away. Switching is instant, because the whole set arrives with the page rather than being fetched.
+
+The local runbook is deliberately not a smaller production runbook. Its Deploy column becomes **Run it
+here**: your `dev`, `start`, `watch` or `serve` script, `go run`, `cargo run`, or the F5 launch path when
+the project has a `.vscode/launch.json`. It lists no publish command, and uncommitted work is normal
+there rather than a blocker — while a stage you promote *into* still treats a dirty tree as one, because
+the artifact would not represent what is on disk.
+
+A **What is different** card states what the open stage requires that the stage below it does not, what
+it requires more strictly, and — the direction usually hidden — anything the stage below requires and
+this one does not. A rollback declared on Staging and absent on Production is a real finding, and a
+"what's new here" list would have buried it. Every row names the declared pipeline rule that produced
+it, and a side-by-side table shows all stages against the same rule list, so the same `delivery.json`
+always produces the same comparison. Nothing here is generated by a model.
+
+Running a column now names the environment: "Run the Deploy column?" had three possible answers, and
+the one it meant was the difference between starting a dev server and dispatching a production
+deployment. Steps and columns are addressed by a key carrying the stage id, so a click can never
+resolve to a neighbouring stage's command.
+
+---
+
+## v0.396.0 — Bounded game build-log reading
+
+AtlasMind can now interpret a complete game build report supplied by its caller without finding or
+running a build. Primary-source-pinned Unreal 5.8 and Unity 6000.2 markers can establish completion;
+Godot 4.6 deliberately relies on a captured exit code for the overall verdict because no stable
+documented footer was verified. Engine diagnostic lines remain findings rather than proof that the
+whole build failed.
+
+The reader extracts capped, line-numbered errors and warnings plus bounded phase timings and exact
+platform, configuration, and artifact-size fields where the report says them unambiguously. It never
+retains the full log. Retained text is terminal-control-stripped and passed through the shared secret
+redactor, and all character, line, diagnostic, path, and metadata fields have declared caps.
+
+Missing, empty, truncated, oversized, malformed, unrecognized, and unverified reports return no verdict.
+Supported versions receive a display-only command template for producing a report; custom, unknown,
+unconfident, and unsupported engines receive no guessed command. Game Engine Integration Phase 2 is now
+complete through C2.4, with the persisted game profile next.
+
+## v0.395.0 — Engine-fork divergence reading
+
+AtlasMind can now apply its generic upstream-divergence evidence to a matching declared `engine`
+component. The adapter preserves the exact commits ahead and behind, diverged-file count,
+conflict-prone candidate count, and comparison trend, then describes the observed relationship as
+synchronized, local fork, upstream intake, or concurrent change. Those are evidence shapes, not
+severity labels or hard-coded policy thresholds.
+
+Verified Unreal 5.8, Unity 6000.2.0b4, and Godot 4.6 source layouts can label the bounded paths shown
+in a report as runtime, editor, plugin, shader, module, platform, or other engine areas. Per-area
+numbers are explicitly displayed-path counts; a truncated list stays bounded while the generic
+repository totals remain exact. An unverified, unversioned, custom, or unknown engine keeps the useful
+Git facts but receives no guessed path meaning.
+
+The interpretation is pure: it runs no Git, filesystem, engine, or network operation. Evidence for a
+different component or a stale upstream declaration is refused. Game Engine Integration Phase 2 is
+now complete through C2.3, with bounded build-log parsing next.
+
+## v0.394.0 — Bounded game asset inventory
+
+AtlasMind can now inventory declared game-content roots after an explicit confirmation. The
+filesystem-only reader groups recognized scenes, textures, models, audio, video, animation,
+materials, shaders, fonts, data, packages, and other engine assets by count and size. It reports
+import-error locations without retaining their raw text, preserves metadata-without-asset findings as
+candidates, and excludes declared engine caches deterministically.
+
+One file, byte, and monotonic-time budget covers the whole component set. A limit, unreadable path,
+or withheld symbolic link stays visible, and incomplete scans withhold orphan completeness rather
+than treating unseen files as absent. Perforce, external, and unknown components report
+`not-visible`, never zero.
+
+Git components also receive conservative LFS evidence from root and nested `.gitattributes` files.
+Normal overrides are applied in declaration order; unsupported LFS syntax makes the verdict
+unreadable rather than falsely declaring an asset uncovered. Game Engine Integration Phase 2 is now
+complete through C2.2, with engine-component fork interpretation next.
+
+## v0.393.0 — Game engine identity
+
+AtlasMind can now identify Unreal, Unity, and Godot from decisive project files without starting an
+editor or inferring from dependencies. Unreal reads the numeric `EngineAssociation` in one root
+`.uproject`, Unity reads the exact `m_EditorVersion` in `ProjectSettings/ProjectVersion.txt`, and
+Godot reads `config/features` while retaining the documented Godot 3 format distinction. `custom`
+and `unknown` remain legitimate declared values.
+
+Detection consumes bounded root-relative text supplied by its caller and has no filesystem side
+effects. Missing, truncated, malformed, duplicated, unsafe, or cross-engine evidence cannot become a
+guess. A project declaration always wins over detection. Each engine carries a primary-source
+verification date and deliberately narrow verified identity range; AtlasMind preserves a newer
+version string but labels its dependent surfaces not verified instead of extrapolating.
+
+Game Engine Integration Phase 2 is complete through C2.1. Bounded asset inventory is next.
+
+## v0.392.0 — Upstream divergence foundation
+
+Declared Git upstreams can now be measured without any engine- or product-specific logic. The core
+reading reports commits ahead and behind, the exact union of paths changed on either side of the merge
+base, and the exact overlap whose paths are conflict-prone candidates. Display lists are bounded while
+their counts remain exact.
+
+Small snapshots make the next reading comparable as growing, shrinking, mixed, or unchanged. A changed
+component/upstream, invalid history, or backwards clock starts a fresh baseline instead of comparing
+unlike evidence. Non-Git, unresolved, undeclared, failed, malformed, and over-bound states remain
+explicit unknowns. Git calls use argv arrays, do not invoke a shell, and never fetch or mutate refs.
+
+Game Engine Integration Phase 1 is now complete through C1.8. Phase 2 will consume this general module
+for declared engine components while fork-based and embedded projects can use the same evidence.
+
+## v0.391.0 — Game architecture seeds
+
+Guided bootstrap now offers four common game layouts: single-repo indie, multi-repo studio, hybrid
+Git + Perforce studio, and engine-fork studio. Each produces the same generic component data used by
+other project types. Exactly one gameplay component owns project memory; backend, tools, content, and
+engine boundaries appear only where the chosen layout calls for them.
+
+The preset name and derived topology are not persisted, so a seed never governs later edits. The
+hybrid layout stores no depot or credential, while the engine-fork layout waits for the team to declare
+the real upstream remote/ref. Bootstrap executes no engine, generator, VCS, or platform command.
+
+Game Engine Integration Phase 1 is complete through C1.7. Pure upstream-divergence evidence is next.
+
+## v0.390.0 — Shopify composition at bootstrap
+
+Guided bootstrap can now express a Shopify project as theme + app + extension instead of forcing those
+shapes through mutually exclusive project types. The explicit multi-select writes the selected shapes
+as a generic `ProjectComposition`: stable roles and archetypes, portable roots, Git VCS, and exactly one
+home. This is the Phase 1 validation case precisely because it contains no game-only field or rule.
+
+The write stays conservative. A new workflow starts with every stage disabled at `observe`; bootstrap
+runs no Shopify command and never replaces an existing composition, unreadable/invalid workflow,
+or newer schema. The JSON source and generated Markdown mirror are written together.
+
+Game Engine Integration Phase 1 is complete through C1.6. Game architecture presets are next.
+
+## v0.389.0 — Component-scoped project evidence
+
+Declared composition now reaches the Project Dashboard. Git status, local CI inventory, issue-tracker
+visibility, debt scans, and observed-change baselines report which component or partial component set
+their counts cover. The detailed legacy GitHub reading remains explicitly tied to the home component;
+other declared components are shown rather than silently omitted.
+
+Non-Git and unresolved components produce `not-visible` with a reason, never zero. Debt reconciliation
+can obsolete only the exact component/path evidence it scanned, and an observed baseline is discarded
+when its component coverage differs or its stored scope is malformed. Existing callers that have not
+opted in still resolve exactly the first VS Code workspace folder.
+
+Game Engine Integration Phase 1 is complete through C1.5. Shopify theme + app + extension composition is
+the next validation case.
+
+## v0.388.0 — Project composition and opt-in workspace scope
+
+Projects can now declare an ordered set of components in `workflow.json`. Each component carries a
+role, the existing archetype-plus-traits identity, a portable location, its VCS, and one explicit home.
+One malformed entry refuses the whole declaration instead of disappearing, unknown fields survive, and
+the generated workflow mirror publishes the boundary a reviewer is approving.
+
+Topology is derived and never stored. The new workspace resolver keeps the old first-folder behaviour by
+default, while explicit home, component, and all-component requests resolve only roots VS Code already
+opened. Missing, unreadable, or ambiguous roots remain labelled unknowns rather than being replaced.
+Detected proposals remain separate from effective state until a person declares them.
+
+Game Engine Integration Phase 1 now has its first three deliverables complete. Scoped git/CI/debt/
+observed-delta consumers, `not-visible` VCS results, Shopify validation, game presets, and upstream
+divergence remain next.
+
+## v0.387.1 — Game integration starts at the safe persistence boundary
+
+Game Engine Integration Phase 0 is complete. The future game profile is registered at schema v1 before
+any writer exists, and project composition remains within the already versioned workflow document.
+A focused migration test proves current-format reads and preserves files written by newer AtlasMind
+versions.
+
+Minimal Unreal, Unity, Godot 3, and Godot 4 fixtures now pin their decisive identity/version evidence.
+A three-root studio fixture adds gameplay, backend, and a simulated Perforce content component while
+storing exactly one home and no derived topology. Its depot coordinate is non-routable, and the fixture
+contract rejects credentials, signing material, console SDK paths, and engine binary paths.
+
+## v0.387.0 — The Mobile prefab family is complete
+
+Guided bootstrap now offers focused React Native, Expo, and Flutter mobile options. Each writes a
+maintained-generator handoff, literal-placeholder commands, Not-assessed privacy and compatibility
+matrices, and acceptance gates for permissions, accessibility, performance, native modules, devices,
+signing, store submission, update policy, data migration, and rollback. Bootstrap runs none of them.
+
+The React Native option records the upstream framework-first recommendation and reserves the bare
+Community CLI path for explicit native constraints. Expo keeps dependency installation, generated agent
+instructions, Continuous Native Generation, and optional EAS services separate. Flutter requires its
+documented package naming convention and states that project initialization retrieves dependencies.
+
+The managed roadmap advances to 13 of 58 items complete; Game Dev is next.
+
+## v0.386.0 — The Frontend prefab family is complete
+
+Guided bootstrap now offers focused Next.js, SvelteKit, Nuxt 4, React/Vite, and Vue frontend options.
+Each writes a maintained-generator handoff, literal-placeholder commands, Not-assessed privacy and
+compatibility matrices, and acceptance gates for rendering, routing, state, data, accessibility, browser
+support, performance, hosting, and rollback. Bootstrap executes none of the commands.
+
+The SvelteKit path now uses `sv create` instead of create-svelte. Nuxt names its supported v4 line. The
+React option records React's framework-first recommendation before offering Vite's TypeScript client
+template, while Vue leaves Router, Pinia, testing, linting, formatting, and developer-tools choices with
+the operator. Website Studio also adds React and Vue manual setup entries and refreshes its existing
+Next.js, Nuxt, and SvelteKit command metadata.
+
+The managed roadmap advances to 12 of 58 items complete; Mobile is next.
+
+## v0.385.0 — The SaaS/Web prefab family is complete
+
+Guided bootstrap now offers Next.js SaaS / Web App, React Router SaaS / Web App, Laravel SaaS / Web
+App, Django SaaS / Web App, Static Website, and Blog / CMS (Astro Content). The five framework-owned
+stacks are reviewable generator handoffs rather than partial source copies: AtlasMind writes current
+commands, prerequisites, effects, Not-assessed evidence matrices, and acceptance gates but runs nothing.
+
+New Remix-style work uses the maintained React Router framework-mode generator. Next.js and Astro keep
+dependency installation and Git initialization separate; Astro also suppresses generator-authored AI
+instruction files. Laravel’s interactive starter/test/database decisions and Django’s Python/version/
+environment decisions stay with the project instead of being guessed.
+
+Static Website is the native exception: escaped semantic HTML, external CSS, a restrictive document CSP,
+keyboard/focus/reduced-motion defaults, Node built-in contract tests, and least-privilege CI, all without a
+framework install. The managed roadmap advances to 11 of 58 items complete; Frontend is next.
+
+## v0.384.0 — The commerce prefab family is complete
+
+Guided bootstrap now includes BigCommerce Catalyst, Magento 2 Module, and Wix Commerce alongside
+Shopify and WooCommerce. Magento receives an inert native module package: Composer metadata,
+registration, module XML, syntax/contract CI, and privacy/compatibility records all agree on one bounded
+identifier, while no route, ACL, observer, schema, or platform-support claim is invented.
+
+Catalyst and Wix use reviewable handoffs to their maintained generators rather than AtlasMind copying a
+large version-sensitive source tree. AtlasMind runs nothing. The handoffs disclose authentication and
+remote provisioning, keep secrets out of commands, and leave installation, Git initialization, previews,
+and publication under operator control. Wix’s conservative command explicitly skips install, Git, and
+publish while warning that the CLI still provisions the Wix business/site and private app when run.
+
+The managed e-commerce roadmap item is complete. Compatibility and privacy records still begin Not
+assessed, because generating or registering a project is not evidence that its checkout, data handling,
+accessibility, or production release works.
+
+## v0.383.0 — Privacy documented; WooCommerce prefab begun
+
+Local CI inspection-memory tests now pin the time used by fresh-record assertions. Their fixed August
+fixture can no longer age into an expiry failure and block the mutation-testing gate as the calendar moves.
+
+The mutation gate now excludes static mutants after Stryker measured 29 of them as 4% of the configured
+mutations but 96% of a roughly hour-long projection. All non-static mutations in the three declared
+policy modules remain covered; the bounded run classified 740 mutants at 60.68%, above its declared
+50% break threshold, with zero timeouts.
+
+BDD evidence now pairs a Gherkin commerce-bootstrap feature with the matching executable Vitest
+scenarios. The feature names the user behavior, and the test asserts ownership of that scenario before
+exercising the safe file-plan and hostile-name boundaries.
+
+AtlasMind's GDPR and Data Privacy controls now have matching user and developer guides. They explain
+what is detected, when values are redacted or files withheld, how the trusted-model allow-list works,
+what privacy activity retains, and where provider governance information is surfaced.
+
+The guide also records the important negative promise: there is no per-turn GDPR bypass. Ordinary
+approvals and retries cannot override the boundary, and editing or disabling the project policy is a
+persistent configuration change—not a reasoned, logged exception. The roadmap's documentation item is
+complete without claiming certification or a future compliance capability as already shipped.
+
+Guided bootstrap also gains a WooCommerce Extension option. It creates a safe plugin shell with an
+explicit WooCommerce dependency, direct-access guard, HPOS declaration, public-hook starter, CI,
+distribution exclusions, and compatibility/privacy records that begin Not assessed. It runs no install
+or network command; the getting-started record shows those commands for The User to review and run.
+
+## v0.382.7 — Published baseline recorded
+
+The README now identifies `v0.382.6` as the latest successful Marketplace publication. The source
+version advances separately so future changes remain distinguishable from that immutable release.
+
 ## v0.382.6 — Dashboard data stays data
 
 User-authored Director assignments and follow-ups are now hydrated through DOM `textContent` rather than

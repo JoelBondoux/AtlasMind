@@ -136,14 +136,18 @@ describe('archetype packs stay inside the catalogue', () => {
 });
 
 describe('compliance scaffolding', () => {
-  it('writes a control mapping where the coverage scanner looks for it', () => {
-    // The scaffolder and the scanner must agree on the path, or a project can
-    // hold a complete mapping and still read as never assessed.
+  it('writes a control mapping in the directory the compliance register owns', () => {
+    // The scaffolder and the register must agree on the path, or a project can
+    // hold a complete mapping the Compliance page never finds.
     return scaffoldTestingFramework(workspace, makeConfig(['iso-27001'])).then(result => {
       const written = result.files.find(f => f.path.includes('iso-27001'));
       expect(written?.created).toBe(true);
       expect(written?.path).toBe(`${COMPLIANCE_EVIDENCE_DIR}/iso-27001.md`);
 
+      // And it does *not* make the regime read as met. The mapping used to be
+      // the artifact that promoted a regime to `covered`; a scaffolded and
+      // untouched one therefore reported ISO 27001 as satisfied, which is the
+      // document contradicting its own preamble through the dashboard.
       const coverage = deriveTestingPolicyCoverage({
         enabledMethodologies: ['iso-27001'],
         testFiles: [],
@@ -151,7 +155,8 @@ describe('compliance scaffolding', () => {
         scripts: [],
         configFiles: [`${COMPLIANCE_EVIDENCE_DIR}/iso-27001.md`],
       });
-      expect(coverage.rows.find(r => r.id === 'iso-27001')?.status).toBe('covered');
+      expect(coverage.rows.find(r => r.id === 'iso-27001')?.status).toBe('governed');
+      expect(coverage.coveredCount).toBe(0);
     });
   });
 

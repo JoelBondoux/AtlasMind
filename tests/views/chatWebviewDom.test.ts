@@ -186,6 +186,34 @@ describe('chat webview, rendered', () => {
     input.dispatchEvent(new harness.window.Event('input'));
     expect(list?.classList.contains('hidden')).toBe(true);
   });
+
+  it('keeps the chat shell alive when a non-critical control is missing', () => {
+    const html = buildChatWebviewHtml({ scriptUri: '', cspSource: 'vscode-webview:' });
+    const dom = new JSDOM(html, { runScripts: 'outside-only', pretendToBeVisual: true });
+    const { window } = dom;
+    const posted: Array<{ type?: string; payload?: unknown }> = [];
+
+    (window as unknown as { acquireVsCodeApi: unknown }).acquireVsCodeApi = () => ({
+      postMessage: (message: unknown) => { posted.push(message as { type?: string }); },
+      getState: () => undefined,
+      setState: () => undefined,
+    });
+    (window as unknown as { matchMedia: unknown }).matchMedia = () => ({
+      matches: false,
+      addEventListener() {}, removeEventListener() {}, addListener() {}, removeListener() {},
+    });
+    window.Element.prototype.scrollIntoView = () => undefined;
+
+    const toggleSearch = window.document.getElementById('toggleSearch');
+    toggleSearch?.remove();
+
+    window.eval(readFileSync(path.join(MEDIA_DIR, 'chatPanel.js'), 'utf8'));
+
+    expect(window.document.body.innerHTML).not.toContain('failed to initialize');
+    expect(window.document.getElementById('promptInput')).not.toBeNull();
+    expect(window.document.getElementById('sendPrompt')).not.toBeNull();
+    expect(window.document.getElementById('transcript')).not.toBeNull();
+  });
 });
 
 describe('activity strip', () => {

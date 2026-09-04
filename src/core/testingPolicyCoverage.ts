@@ -26,6 +26,7 @@
  * derivation is unit-testable.
  */
 
+import type { TestingPolicyGovernance } from './complianceReadiness.js';
 import { TESTING_METHODOLOGY_DEFINITIONS, type TestingMethodologyId } from '../types.js';
 
 // ── Public shapes ────────────────────────────────────────────────
@@ -38,7 +39,30 @@ export type TestingPolicyStatus =
   /** Enabled, with no tooling and no tests to show for it. */
   | 'missing'
   /** A practice rather than an artifact — nothing to detect from files. */
-  | 'not-file-evident';
+  | 'not-file-evident'
+  /**
+   * A governance regime, graded on the compliance register rather than here.
+   *
+   * **Terminal for every `compliance-*` methodology, and unreachable for
+   * anything else.** All twenty-four regimes could previously reach `covered`
+   * on evidence far weaker than the regime: a file named `data-privacy.test.ts`
+   * marked the whole of GDPR "Tested"; a scaffolded control mapping with one
+   * cell filled in marked ISO 27001 the same; a single passing stack check
+   * promoted all twenty-five of its controls; and committing an SBOM your build
+   * already produced marked SBOM Verification met with no gate at all.
+   *
+   * None of those is a lie about the *file* — the file is there. They are lies
+   * about the regime, because a regime is not a thing a repository can evidence.
+   * So the row no longer carries a verdict at all: the card renders the
+   * readiness reading from `complianceReadiness`, which is never "Tested" and
+   * never renders green.
+   *
+   * A fifth member rather than leaving compliance rows permanently `missing`,
+   * which would produce no compile error and quietly break five downstream
+   * consumers — and would recreate the "gap that can never close" this file
+   * argues against twice elsewhere.
+   */
+  | 'governed';
 
 export interface TestingPolicyFailure {
   /** Test case name as the report recorded it. */
@@ -82,6 +106,12 @@ export interface TestingPolicyRow {
   /** Chat prompt that addresses this row's gap (or reviews its failures). */
   actionPrompt: string;
   failures: TestingPolicyFailure[];
+  /**
+   * Present only on a `governed` row: how far along the regime is, and the
+   * declared rule that decided it. Absent means the register was not read,
+   * which the renderer shows as not examined rather than as clear.
+   */
+  governance?: TestingPolicyGovernance;
 }
 
 export interface TestingPolicyReportInfo {
@@ -102,6 +132,16 @@ export interface TestingPolicyCoverage {
   toolingOnlyCount: number;
   missingCount: number;
   practiceCount: number;
+  /** Governance regimes, which are graded on the compliance register. */
+  governedCount: number;
+  /**
+   * Rows a test file could actually evidence.
+   *
+   * The denominator every "N of M have tests" reading must use. `activeCount`
+   * includes practices and governance regimes, neither of which a test file can
+   * speak to, so using it made the board permanently and misleadingly short.
+   */
+  assessableCount: number;
   /** Failing cases across the whole report (not just attributed ones). */
   totalFailed: number;
   /** Skipped cases counted from the workspace's own test files. */
@@ -138,23 +178,23 @@ export interface TestingPolicyEvidenceInput {
   /** Detected framework label, used to suggest the right report command. */
   frameworkLabel?: string;
   /**
-   * Policies with at least one control **verified against the stack** by
-   * `complianceTechnicalControls`.
+   * Per-regime readiness, already graded by `complianceReadiness`.
    *
-   * A documentary regime is mostly human attestation, but not entirely: "a
-   * backup is taken before a production promotion" and "no declared endpoint
-   * uses plaintext http" are facts about a stack, and a check that ran and
-   * passed is evidence in exactly the sense this module means. Without this,
-   * a project whose pipeline genuinely enforces four ISO controls read as
-   * having nothing to show for the regime — the withholding failure, which is
-   * the mirror of the false-covered one.
+   * Replaces `technicallyEvidenced`, which was a list of regimes with *at least
+   * one* passing stack check and which promoted the whole regime to `covered`
+   * — one of ISO's twenty-five controls passing marked all twenty-five met.
+   * This carries strictly more information (per control, not per regime) and
+   * strictly less power: it decorates the row and can never change its status,
+   * because a governance row's status is already fixed at `governed`.
+   *
+   * A regime absent from this map has not been read, which reads `unexamined`.
+   * Never as satisfied — unassessed is not a pass, here as everywhere else.
    *
    * Supplied by the caller rather than computed here, so this module stays pure
-   * and does not grow a dependency on the delivery pipeline, the endpoint file
-   * and the audit ledger. A `gap` or `unknown` result must never appear in this
-   * list; only a control that was checked and passed.
+   * and grows no dependency on the register, the delivery pipeline, the
+   * endpoint file or the audit ledger.
    */
-  technicallyEvidenced?: readonly TestingMethodologyId[];
+  governance?: ReadonlyMap<TestingMethodologyId, TestingPolicyGovernance>;
 }
 
 // ── Markers ──────────────────────────────────────────────────────
@@ -197,57 +237,26 @@ const TEST_FILE_SUFFIX = /\.(test|spec)\.[a-z0-9]+$/i;
 const E2E_MARKERS = [/(^|[./_-])e2e([./_-]|$)/i, /(^|\/)(cypress|playwright|e2e)\//i, /\.cy\.[a-z0-9]+$/i];
 
 /**
- * Where a documentary compliance policy keeps its control-mapping evidence.
+ * Where a governance regime keeps its evidence.
  *
- * Under `operations/` rather than a new top-level SSOT folder: `SSOT_FOLDERS`
- * is a declared set and a control mapping is an operational record, not a new
- * kind of memory. The scaffolder writes here and this module reads here, so the
- * two cannot drift about where the evidence lives.
+ * Under `operations/` rather than a new top-level SSOT folder: `SSOT_FOLDERS` is
+ * a declared set and a control register is an operational record, not a new kind
+ * of memory. `complianceEvidenceRegister` owns what lives here; this constant
+ * stays because the scaffolder and several surfaces name the directory.
+ *
+ * **Nothing in this directory is evidence to *this* module any more.** It used
+ * to be: `COMPLIANCE_DOC(id)` matched the control mapping and `configIsEvidence`
+ * promoted the regime to `covered` on the strength of it. Two things were wrong
+ * with that. The gate on it — one assessed cell anywhere in the file — matched
+ * any table cell in the document including the Owner column and the review log,
+ * so typing `Gap` as a reviewer's name qualified. And the mapping is now
+ * *generated* by AtlasMind, so matching it would be the tool reading its own
+ * output back as proof of the thing it was reporting on.
+ *
+ * A governance regime is graded by `complianceReadiness`, from the register,
+ * against a control catalog. Not from here, and not from a filename.
  */
 export const COMPLIANCE_EVIDENCE_DIR = 'project_memory/operations/compliance';
-
-/** The one file that evidences a documentary compliance policy. */
-function COMPLIANCE_DOC(id: string): RegExp {
-  return new RegExp(`^${COMPLIANCE_EVIDENCE_DIR}/${id}\\.md$`, 'i');
-}
-
-/** Statuses a control row can carry once somebody has actually looked at it. */
-const ASSESSED_CONTROL_STATUSES = ['satisfied', 'partial', 'gap', 'not applicable'];
-
-/**
- * Has anybody assessed a single control in this mapping?
- *
- * The mapping's own preamble says it: *"Every row starts at **Not assessed**,
- * which is deliberately not the same as compliant."* But `configIsEvidence`
- * promotes a policy to `covered` on the file's mere existence — so scaffolding
- * a mapping and touching nothing reported SOC 2 or ISO 27001 as met, which is
- * the document contradicting itself through the dashboard. All four mappings in
- * this repository were in exactly that state.
- *
- * Presence means the form exists; this asks whether it has been filled in. The
- * check is deliberately generous — **one** assessed row is enough, because the
- * alternative is grading partial work as nothing and the register already
- * distinguishes `Partial` and `Gap` from `Satisfied`. A mapping that is
- * genuinely half done should read as evidenced and imperfect, not as absent.
- *
- * Only table rows count. The preamble lists every status as a legend, so a
- * substring search over the document would find `Satisfied` in the instructions
- * and mark every untouched mapping as assessed — the precise bug this closes,
- * reintroduced by a simpler implementation.
- */
-export function isAssessedControlMapping(markdown: string): boolean {
-  for (const line of markdown.split('\n')) {
-    const trimmed = line.trim();
-    if (!trimmed.startsWith('|')) {
-      continue;
-    }
-    const cells = trimmed.split('|').map(cell => cell.trim().replace(/[`*_]/g, '').toLowerCase());
-    if (cells.some(cell => ASSESSED_CONTROL_STATUSES.includes(cell))) {
-      return true;
-    }
-  }
-  return false;
-}
 const INTEGRATION_MARKERS = [/(^|[./_-])integration([./_-]|$)/i, /(^|\/)integration\//i];
 
 /**
@@ -494,64 +503,55 @@ export const POLICY_MARKERS: Record<TestingMethodologyId, PolicyMarkers> = {
     scriptPatterns: [/determinism/i, /flake/i],
   },
 
-  // ── Compliance ──────────────────────────────────────────────────
+  // ── Governance regimes ───────────────────────────────────────────
   //
-  // Two shapes here, and the difference is deliberate. A control that a machine
-  // can check leaves a test file behind and is scored like any other policy. A
-  // control that only a person can attest to leaves a *control-mapping
-  // document* behind, and for those the document genuinely is the artifact —
-  // so they carry `configIsEvidence`, the same reading `continuous` needed for
-  // its pipeline definition. Without it a documentary policy would cap at "No
-  // tests yet" forever and read as a gap that can never close, which is exactly
-  // the outcome the archetype packs' `discouraged` list exists to prevent.
-  // `SECURITY.md` is deliberately **not** here.
+  // Every `compliance-*` methodology below is `governed`: its status is fixed,
+  // and nothing in this table can change it. The patterns are kept anyway, and
+  // they are worth keeping — they still populate `files` and `toolingSignals`,
+  // which the Compliance page shows as *candidate evidence already in the tree*.
+  // `data-privacy.test.ts` is a perfectly reasonable thing to reference against
+  // GDPR Art. 17. It was never reasonable as proof of GDPR.
   //
-  // It was, and because `configIsEvidence` promotes every matched config file
-  // to evidence, any repository with a vulnerability-reporting policy read as
-  // *covered* for ISO 27001 — a certification claim resting on a file that says
-  // where to email a bug. That is the false "covered" this whole table is built
-  // to avoid, and it is worst here: an unevidenced gap is a prompt to do the
-  // work, while a false pass on a compliance regime is something somebody
-  // repeats to a customer or an auditor.
+  // **These are hints. They cannot promote anything.** That sentence is here
+  // because the entries below now look like every other row in this table, and
+  // the obvious "tidy-up" is to give them `configIsEvidence` back. They had it.
+  // It is what let a repository with an `ort/` directory read as having met
+  // open-source licence compatibility, and a committed `sbom.json` — the file
+  // your build already produces — read as SBOM Verification met, with no gate
+  // on either.
   //
-  // The only evidence for a documentary regime is its control mapping. A
-  // project with `SECURITY.md` and no mapping now reads `missing`, which is
-  // the true answer.
+  // `SECURITY.md` was once ISO 27001's evidence, so any repository with a
+  // vulnerability-reporting policy read as covered for a certification. That is
+  // the shape of every mistake this block is warning about: the file is real,
+  // and it says nothing whatever about the regime.
   'iso-27001': {
-    configPatterns: [COMPLIANCE_DOC('iso-27001')],
     dependencies: ['vanta', 'drata'],
-    configIsEvidence: true,
   },
   soc2: {
-    configPatterns: [COMPLIANCE_DOC('soc2')],
     dependencies: ['vanta', 'drata', 'secureframe'],
-    configIsEvidence: true,
   },
   gdpr: {
     filePatterns: [/(^|[./_-])(gdpr|privacy|erasure|dsar|retention|consent)([./_-]|$)/i],
-    configPatterns: [COMPLIANCE_DOC('gdpr'), /^PRIVACY\.md$/i],
+    configPatterns: [/^PRIVACY\.md$/i],
     scriptPatterns: [/gdpr/i, /privacy/i],
   },
   hipaa: {
     filePatterns: [/(^|[./_-])(hipaa|phi|safeguard)([./_-]|$)/i],
-    configPatterns: [COMPLIANCE_DOC('hipaa')],
     scriptPatterns: [/hipaa/i],
   },
   'pci-dss': {
     filePatterns: [/(^|[./_-])(pci|cardholder|pan-?leak|tokeni[sz]ation)([./_-]|$)/i],
-    configPatterns: [COMPLIANCE_DOC('pci-dss')],
     dependencies: ['gitleaks', 'trufflehog', 'detect-secrets'],
     scriptPatterns: [/pci/i],
   },
   'nist-800-53': {
-    configPatterns: [COMPLIANCE_DOC('nist-800-53'), /(^|\/)oscal\//i],
+    configPatterns: [/(^|\/)oscal\//i],
     dependencies: ['inspec', 'oscal', 'compliance-trestle'],
-    configIsEvidence: true,
   },
 
   'change-management': {
     filePatterns: [/(^|[./_-])(change-?management|branch-?protection|codeowners)([./_-]|$)/i],
-    configPatterns: [COMPLIANCE_DOC('change-management'), /^\.github\/CODEOWNERS$/i, /^CODEOWNERS$/i],
+    configPatterns: [/^\.github\/CODEOWNERS$/i, /^CODEOWNERS$/i],
     scriptPatterns: [/change-?management/i],
   },
   'audit-trail': {
@@ -565,7 +565,6 @@ export const POLICY_MARKERS: Record<TestingMethodologyId, PolicyMarkers> = {
   },
   'data-retention': {
     filePatterns: [/(^|[./_-])(retention|purge|ttl|legal-?hold)([./_-]|$)/i],
-    configPatterns: [COMPLIANCE_DOC('data-retention')],
     scriptPatterns: [/retention/i, /purge/i],
   },
 
@@ -573,34 +572,28 @@ export const POLICY_MARKERS: Record<TestingMethodologyId, PolicyMarkers> = {
     configPatterns: [/^(sbom|bom)[^/]*\.(json|xml|spdx)$/i, /\.(cdx|spdx)\.json$/i, /(^|\/)sbom\//i],
     dependencies: ['@cyclonedx/cyclonedx-npm', 'cyclonedx-bom', 'syft', 'cdxgen', 'spdx-tools'],
     scriptPatterns: [/sbom/i, /cyclonedx/i, /syft/i],
-    configIsEvidence: true,
   },
   'dependency-licensing': {
     configPatterns: [/^\.?licen[cs]e-?(check|policy|allowlist)\./i, /^deny\.toml$/i, /^\.fossa\.ya?ml$/i],
     dependencies: ['license-checker', 'license-checker-rseidelsohn', 'licensee', 'pip-licenses', 'cargo-deny', 'go-licenses', 'fossa-cli'],
     scriptPatterns: [/licen[cs]e/i],
-    configIsEvidence: true,
   },
   'license-compatibility': {
-    configPatterns: [COMPLIANCE_DOC('license-compatibility'), /^\.ort\.ya?ml$/i, /(^|\/)ort\//i],
+    configPatterns: [/^\.ort\.ya?ml$/i, /(^|\/)ort\//i],
     dependencies: ['ort', 'scancode-toolkit', 'licensed'],
     scriptPatterns: [/licen[cs]e-?compat/i, /^ort$/i],
-    configIsEvidence: true,
   },
   'secure-build-pipeline': {
     configPatterns: [/^\.github\/workflows\/.*(slsa|provenance|attest|sign).*\.ya?ml$/i, /^cosign\./i, /(^|\/)attestations?\//i, /^\.slsa/i],
     dependencies: ['sigstore', '@sigstore/sign', 'cosign', 'slsa-verifier', 'in-toto'],
     scriptPatterns: [/slsa/i, /cosign/i, /provenance/i, /attest/i],
-    configIsEvidence: true,
   },
 
   'ai-safety-compliance': {
-    configPatterns: [COMPLIANCE_DOC('ai-safety-compliance'), /^MODEL_CARD\.md$/i, /(^|\/)model-?cards?\//i],
-    configIsEvidence: true,
+    configPatterns: [/^MODEL_CARD\.md$/i, /(^|\/)model-?cards?\//i],
   },
   'model-output-risk': {
     filePatterns: [/(^|[./_-])(risk-?classif|output-?risk|moderation)([./_-]|$)/i],
-    configPatterns: [COMPLIANCE_DOC('model-output-risk')],
     scriptPatterns: [/risk-?classif/i, /moderation/i],
   },
   'bias-fairness': {
@@ -620,18 +613,17 @@ export const POLICY_MARKERS: Record<TestingMethodologyId, PolicyMarkers> = {
   },
   'ai-data-policy': {
     filePatterns: [/(^|[./_-])(redaction|tenant-?isolation|data-?policy|prompt-?payload)([./_-]|$)/i],
-    configPatterns: [COMPLIANCE_DOC('ai-data-policy')],
     scriptPatterns: [/redaction/i, /data-?policy/i],
   },
 
   // Industry regimes. Documentary by nature — the executable parts of each are
   // already covered by the policies above (audit trail, RBAC, retention), and
   // duplicating them here would double-count the same evidence.
-  'financial-compliance': { configPatterns: [COMPLIANCE_DOC('financial-compliance')], configIsEvidence: true },
-  'medical-compliance': { configPatterns: [COMPLIANCE_DOC('medical-compliance')], configIsEvidence: true },
-  'automotive-compliance': { configPatterns: [COMPLIANCE_DOC('automotive-compliance')], configIsEvidence: true },
-  'aviation-compliance': { configPatterns: [COMPLIANCE_DOC('aviation-compliance')], configIsEvidence: true },
-  'energy-compliance': { configPatterns: [COMPLIANCE_DOC('energy-compliance')], configIsEvidence: true },
+  'financial-compliance': {},
+  'medical-compliance': {},
+  'automotive-compliance': {},
+  'aviation-compliance': {},
+  'energy-compliance': {},
 
   // Practices. Real, valuable, and invisible to a file scan — so never a "gap".
   'v-model': { practiceOnly: true },
@@ -1150,6 +1142,10 @@ const STATUS_LABEL: Record<TestingPolicyStatus, string> = {
   'tooling-only': 'No tests yet',
   missing: 'Nothing found',
   'not-file-evident': 'Practice',
+  // Deliberately a category rather than a verdict. The card shows the
+  // readiness reading beside it, which is the sentence that says how far along
+  // the regime actually is.
+  governed: 'Governance regime',
 };
 
 function matchesAny(value: string, patterns: RegExp[] | undefined): boolean {
@@ -1277,21 +1273,24 @@ export function deriveTestingPolicyCoverage(input: TestingPolicyEvidenceInput): 
       ? configSignalsFor(markers, input)
       : [];
 
-    // A control checked against the stack and found to pass. Counted alongside
-    // the mapping rather than instead of it: the card states both, so "four
-    // controls verified, six still for a person" is what a reader sees.
-    const technicallyEvidenced = !markers.practiceOnly
-      && (input.technicallyEvidenced ?? []).includes(id);
+    // A governance regime is graded on the compliance register, never here.
+    // Keyed on the category rather than an id list so a regime added to a
+    // compliance family is handled without anybody editing this line — the same
+    // idiom `isSensitive` uses in `testingPolicyDetail`.
+    const isGovernance = category.startsWith('compliance-');
+    const governance = isGovernance ? input.governance?.get(id) : undefined;
 
     const status: TestingPolicyStatus = markers.practiceOnly
       ? 'not-file-evident'
-      : matchingFiles.length > 0 || configEvidence.length > 0 || technicallyEvidenced
-        ? 'covered'
-        : toolingSignals.length > 0
-          ? 'tooling-only'
-          : 'missing';
+      : isGovernance
+        ? 'governed'
+        : matchingFiles.length > 0 || configEvidence.length > 0
+          ? 'covered'
+          : toolingSignals.length > 0
+            ? 'tooling-only'
+            : 'missing';
 
-    const detail = buildDetail({ status, label, matchingFileCount: matchingFiles.length, caseCount, skippedCount, toolingSignals, configEvidence, failureCount: failures.length, technicallyEvidenced });
+    const detail = buildDetail({ status, label, matchingFileCount: matchingFiles.length, caseCount, skippedCount, toolingSignals, configEvidence, failureCount: failures.length, governance });
 
     return {
       id,
@@ -1307,8 +1306,9 @@ export function deriveTestingPolicyCoverage(input: TestingPolicyEvidenceInput): 
       detail,
       ...(matchingFiles[0] ? { exampleFile: matchingFiles[0].relativePath } : {}),
       files: matchingFiles.slice(0, 200).map(file => file.relativePath),
-      actionPrompt: buildActionPrompt(id, label, status, failures),
+      actionPrompt: buildActionPrompt(id, label, status, failures, governance),
       failures,
+      ...(governance ? { governance } : {}),
     };
   });
 
@@ -1330,6 +1330,8 @@ export function deriveTestingPolicyCoverage(input: TestingPolicyEvidenceInput): 
   const toolingOnlyCount = rows.filter(row => row.status === 'tooling-only').length;
   const missingCount = rows.filter(row => row.status === 'missing').length;
   const practiceCount = rows.filter(row => row.status === 'not-file-evident').length;
+  const governedCount = rows.filter(row => row.status === 'governed').length;
+  const assessableCount = rows.length - practiceCount - governedCount;
   const totalSkipped = input.testFiles.reduce((sum, file) => sum + Math.max(0, file.skipped), 0);
 
   let reportInfo: TestingPolicyReportInfo | undefined;
@@ -1355,12 +1357,14 @@ export function deriveTestingPolicyCoverage(input: TestingPolicyEvidenceInput): 
     toolingOnlyCount,
     missingCount,
     practiceCount,
+    governedCount,
+    assessableCount,
     totalFailed: report?.failed ?? 0,
     totalSkipped,
     unattributedFailures,
     ...(reportInfo ? { report: reportInfo } : {}),
     reportHint: reportCommandHint(input.frameworkLabel),
-    summary: buildSummary({ activeCount: rows.length, coveredCount, toolingOnlyCount, missingCount, practiceCount, report: reportInfo, totalSkipped }),
+    summary: buildSummary({ activeCount: rows.length, assessableCount, coveredCount, toolingOnlyCount, missingCount, practiceCount, governedCount, report: reportInfo, totalSkipped }),
   };
 }
 
@@ -1373,8 +1377,35 @@ function buildDetail(input: {
   toolingSignals: string[];
   configEvidence: string[];
   failureCount: number;
-  technicallyEvidenced?: boolean;
+  governance?: TestingPolicyGovernance;
 }): string {
+  if (input.status === 'governed') {
+    if (!input.governance) {
+      return 'A governance regime. Nothing has been recorded for it yet — open the Compliance page '
+        + 'to decide scope and start recording evidence.';
+    }
+    const g = input.governance;
+    const parts = [`${g.readinessLabel.toLowerCase()}`];
+    if (g.satisfiedIndependent > 0) {
+      parts.push(`${g.satisfiedIndependent} confirmed by an outside party`);
+    }
+    if (g.satisfiedSelf > 0) {
+      parts.push(`${g.satisfiedSelf} on our own evidence`);
+    }
+    if (g.awaitingIndependent > 0) {
+      parts.push(`${g.awaitingIndependent} awaiting an outside party`);
+    }
+    if (g.expired > 0) {
+      parts.push(`${g.expired} lapsed`);
+    }
+    if (g.gaps > 0) {
+      parts.push(`${g.gaps} not met`);
+    }
+    if (g.notAssessed > 0) {
+      parts.push(`${g.notAssessed} not assessed`);
+    }
+    return `${g.applicable} applicable control${g.applicable === 1 ? '' : 's'} — ${parts.join(', ')}.`;
+  }
   if (input.status === 'not-file-evident') {
     return 'A way of working rather than a file — AtlasMind cannot confirm it from the repository, so it is not counted as a gap.';
   }
@@ -1389,12 +1420,6 @@ function buildDetail(input: {
   if (input.matchingFileCount === 0 && input.configEvidence.length > 0) {
     return `Evidenced by ${input.configEvidence.slice(0, 3).join(', ')} — the pipeline is the artifact for this policy.`;
   }
-  // Verified against the stack rather than by a file. Worth naming explicitly:
-  // a reader seeing "covered" on a compliance regime needs to know it came
-  // from a machine check and that the human controls are still outstanding.
-  if (input.matchingFileCount === 0 && input.technicallyEvidenced === true) {
-    return 'Controls in this regime were verified against the stack. The rest still need a person — see the control list.';
-  }
   const parts = [`${input.matchingFileCount} file${input.matchingFileCount === 1 ? '' : 's'}`, `${input.caseCount} case${input.caseCount === 1 ? '' : 's'}`];
   if (input.skippedCount > 0) {
     parts.push(`${input.skippedCount} skipped`);
@@ -1405,10 +1430,30 @@ function buildDetail(input: {
   return `${parts.join(' · ')}.`;
 }
 
-function buildActionPrompt(id: TestingMethodologyId, label: string, status: TestingPolicyStatus, failures: TestingPolicyFailure[]): string {
+function buildActionPrompt(
+  id: TestingMethodologyId,
+  label: string,
+  status: TestingPolicyStatus,
+  failures: TestingPolicyFailure[],
+  governance?: TestingPolicyGovernance,
+): string {
   if (failures.length > 0) {
     const names = failures.slice(0, 5).map(failure => `"${failure.name}"${failure.file ? ` (${failure.file})` : ''}`).join(', ');
     return `These ${label} tests are failing: ${names}. Read each one, work out why it fails, and fix the cause rather than the assertion. Report what was actually wrong.`;
+  }
+  if (status === 'governed') {
+    // Deliberately asks for help doing the work, never for the work to be
+    // recorded. A status is a claim to an outsider, and it stays a human act
+    // asserted against a named person and a date — a model cannot make one,
+    // and asking it to would be asking it to forge an attestation.
+    const outstanding = governance
+      ? `${governance.notAssessed} of its ${governance.applicable} applicable controls have never been assessed`
+        + `${governance.awaitingIndependent > 0 ? `, and ${governance.awaitingIndependent} can only be closed by a party outside the project` : ''}`
+      : 'nothing has been recorded for it yet';
+    return `The ${label} regime (${id}) is enabled and ${outstanding}. Read `
+      + `\`project_memory/operations/compliance/${id}.md\`, and for each unassessed control tell me `
+      + 'who in this project would know the answer and what evidence would settle it. Do not record '
+      + 'a status — that is a decision a named person makes, against their name and a date.';
   }
   if (status === 'missing' || status === 'tooling-only') {
     return `The ${label} testing policy (${id}) is enabled for this project but has no tests. Propose the smallest useful set of ${label} tests for this codebase, say which files they should cover and why, and write the first one.`;
@@ -1418,23 +1463,37 @@ function buildActionPrompt(id: TestingMethodologyId, label: string, status: Test
 
 function buildSummary(input: {
   activeCount: number;
+  assessableCount: number;
   coveredCount: number;
   toolingOnlyCount: number;
   missingCount: number;
   practiceCount: number;
+  governedCount: number;
   report?: TestingPolicyReportInfo;
   totalSkipped: number;
 }): string {
   if (input.activeCount === 0) {
     return 'No testing policies are enabled yet. Enable the ones this project actually follows to see what each has to show for itself.';
   }
-  const parts = [`${input.coveredCount}/${input.activeCount} enabled polic${input.activeCount === 1 ? 'y has' : 'ies have'} tests`];
+  // The denominator is what a test file could actually evidence. Counting
+  // governance regimes and practices in it made the board read permanently
+  // short against a target nothing in the tree could ever reach.
+  const parts = input.assessableCount > 0
+    ? [`${input.coveredCount}/${input.assessableCount} testable polic${input.assessableCount === 1 ? 'y has' : 'ies have'} tests`]
+    : [];
   const gaps = input.toolingOnlyCount + input.missingCount;
   if (gaps > 0) {
     parts.push(`${gaps} with none`);
   }
   if (input.practiceCount > 0) {
     parts.push(`${input.practiceCount} not detectable from files`);
+  }
+  if (input.governedCount > 0) {
+    // Never folded into a "with tests" reading. A governance regime is not a
+    // thing a test file can speak to, and reporting it beside one implies it is.
+    parts.push(
+      `${input.governedCount} governance regime${input.governedCount === 1 ? '' : 's'} graded on the compliance register`,
+    );
   }
   if (input.report) {
     parts.push(input.report.failed > 0 ? `${input.report.failed} failing test${input.report.failed === 1 ? '' : 's'} in the last report` : 'last report was clean');

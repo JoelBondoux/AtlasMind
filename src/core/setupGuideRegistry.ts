@@ -25,6 +25,7 @@ import {
 import { ACP_SETUP_GUIDE } from './acpSetupPlan.js';
 import { LOCAL_CI_SETUP_GUIDE } from './localCiSetupPlan.js';
 import { LENS_SETUP_GUIDE } from './lensDeclarationPlan.js';
+import { COMPLIANCE_SETUP_GUIDE } from './complianceSetupPlan.js';
 
 /** The Buzz guide, described in the shared shape. */
 export const BUZZ_SETUP_GUIDE: SetupGuideSummary = {
@@ -55,6 +56,12 @@ export const SETUP_GUIDES: readonly SetupGuideSummary[] = [
   BUZZ_SETUP_GUIDE,
   LENS_SETUP_GUIDE,
   LOCAL_CI_SETUP_GUIDE,
+  // Last, and listed for everyone rather than gated on a declared regime. A
+  // project with no governance obligation reads `0/5` here, which is honest:
+  // the guide exists, and nothing is set up. Hiding the row would say the
+  // feature does not exist, which is the failure `buildSetupIndex` already
+  // refuses for a guide whose state could not be gathered.
+  COMPLIANCE_SETUP_GUIDE,
 ];
 
 export function findSetupGuide(id: string): SetupGuideSummary | undefined {

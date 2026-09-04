@@ -308,6 +308,36 @@ with the exact commands, rather than offered as a button that couldn't work.
 **An agent distributed only as an archive gets no install button at all.** AtlasMind doesn't download and
 unpack archives, so it names the launch command and tells you it's manual.
 
+The same distinction applies to project generators. BigCommerce Catalyst and Wix Headless Commerce are
+shown as **handoffs**, not runnable AtlasMind tools: their upstream CLIs can authenticate, provision
+remote resources, install dependencies, create Git history, and publish. AtlasMind writes the reviewed
+command and acceptance gates into the workspace but never runs it. Project-name input is not substituted
+into shell syntax. Magento and WooCommerce native shells are local create-only file plans and likewise do
+not run their installation or platform commands.
+
+Next.js, React Router, Laravel, Django, and Astro Content bootstrap options are handoffs for the same
+reason. Their commands can retrieve and execute packages, write large changing source trees, initialize
+repositories, create environment secrets or databases, run migrations, and shape deployment. Bootstrap
+records those effects and acceptance gates but never submits a command to the runner. Next.js/Astro flags
+make install and Git separate operator steps where upstream supports that distinction; Laravel and Django
+remain explicit interactive/versioned procedures rather than AtlasMind inventing safety flags. The native
+Static Website plan writes only bounded create-only files and its CI uses no dependency installation.
+
+The Next.js, SvelteKit, Nuxt, React/Vite, and Vue Frontend options are also documentation-only in
+`/bootstrap`. Literal `<folder-name>` placeholders are never replaced with intake text, and `sv create`,
+`create-nuxt`, `create-vite`, and `create-vue` are not submitted to a terminal. Website Studio's separate
+setup surface can plan only catalog constants behind its full command/file preview and confirmation gate;
+React and Vue intentionally degrade to vendor documentation there because Vue is interactive and a bare
+React starter cannot safely choose the project's routing and data architecture.
+
+React Native, Expo, and Flutter Mobile options follow the same documentation-only rule. Bootstrap never
+submits `npx @react-native-community/cli`, `create-expo-app`, or `flutter create` to a terminal. The bare
+React Native path calls out its dependency/native-toolchain effects and the framework-first recommendation;
+Expo uses supported no-install and no-agent-instruction flags but leaves native generation and EAS for
+separate review; Flutter states that its installed-SDK generator retrieves dependencies. Emulators,
+physical devices, signing credentials, cloud builds/updates, and app-store actions require their own
+operator decisions and are never implied by selecting a prefab.
+
 ---
 
 ## Subscription agents and their tools

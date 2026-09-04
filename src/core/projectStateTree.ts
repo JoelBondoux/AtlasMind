@@ -418,6 +418,7 @@ export function assignmentDestinationCommand(
     debt: 'debt',
     'testing-policy': 'testing',
     document: 'documents',
+    artifact: 'delivery',
   };
   return dashboardFocusCommand(pageByKind[destination], destination, targetId, 'Open assigned work');
 }

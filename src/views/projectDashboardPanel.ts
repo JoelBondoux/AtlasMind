@@ -3,7 +3,7 @@ import * as os from 'node:os';
 import * as path from 'node:path';
 import * as fs from 'node:fs/promises';
 import { existsSync } from 'node:fs';
-import { readFileSync } from 'node:fs';
+import { mkdirSync, readFileSync, writeFileSync } from 'node:fs';
 import { execFile } from 'node:child_process';
 import { promisify } from 'node:util';
 import { randomUUID } from 'node:crypto';
@@ -21,6 +21,51 @@ import {
   type TestingPolicyCoverage,
   type TestingPolicyRow,
 } from '../core/testingPolicyCoverage.js';
+import {
+  EVIDENCE_KIND_DETAIL,
+  EVIDENCE_KIND_LABEL,
+  complianceCatalogFor,
+  effectiveAccepts,
+  effectivePeriodMonths,
+  type ComplianceMethodologyId,
+} from '../core/complianceControlCatalog.js';
+import type { TestingMethodologyId } from '../types.js';
+import {
+  COMPLIANCE_CONTROL_STATUS_LABEL,
+  COMPLIANCE_EVIDENCE_SSOT_PATH,
+  COMPLIANCE_EVIDENCE_SUMMARY_PATH,
+  appendComplianceHistory,
+  complianceNotesExist,
+  complianceNotesTemplate,
+  complianceRegimeNotesPath,
+  complianceRegimePath,
+  complianceRegimeSummaryPath,
+  emptyEvidenceLibrary,
+  readComplianceEvidenceFile,
+  readComplianceRegimeFile,
+  normalizeRelPath as normalizeComplianceRelPath,
+  sanitizeComplianceEvidenceLibrary,
+  sanitizeComplianceLocator,
+  sanitizeComplianceRegimeRegister,
+  seedComplianceRegister,
+  writeComplianceEvidenceLibrary,
+  writeComplianceRegimeRegister,
+  type ComplianceAttribution,
+  type ComplianceDemotion,
+  type ComplianceEvidence,
+  type ComplianceHistoryEntry,
+  type ComplianceLocator,
+  type ComplianceRegimeRegister,
+} from '../core/complianceEvidenceRegister.js';
+import { gradeComplianceRegime, type ComplianceReading, type TechnicalCheckInput } from '../core/complianceReadiness.js';
+import { buildComplianceSnapshot, reachableStatuses, type ComplianceSnapshot } from '../core/complianceDashboard.js';
+import {
+  describeLegacyImport,
+  hasImportableMapping,
+  planLegacyImport,
+} from '../core/complianceMarkdownImport.js';
+import { evaluateTechnicalControls, policiesWithTechnicalControls } from '../core/complianceTechnicalControls.js';
+import { gatherComplianceStackSignals } from '../core/complianceStackSignals.js';
 import type { TestingPolicyDetail } from '../core/testingPolicyDetail.js';
 import {
   reconcileTestingPolicy,
@@ -36,7 +81,11 @@ import {
   parseGhIssueList,
   sanitizeIssueDraft,
   sanitizeIssueNumber,
+  notVisibleComponentIssues,
+  summarizeComponentIssuePortfolio,
   summarizeIssues,
+  visibleComponentIssues,
+  type ComponentIssueTrackerReading,
   type IssueRecord,
   type IssueSummary,
 } from '../core/issueTracker.js';
@@ -92,6 +141,7 @@ import {
   summarizeObservedDelta,
   takeObservedSnapshot,
   type ObservedDelta,
+  type ObservedScope,
   type ObservedSnapshot,
 } from '../core/observedDelta.js';
 import {
@@ -181,10 +231,12 @@ import {
   isDependencyPullRequest,
   reconcileDebtScan,
   scanForDebtMarkers,
+  scopeDebtCandidates,
   setDebtStatus,
   sortDebtEntries,
   type DebtEntry,
   type DebtMetrics,
+  type DebtScanScope,
   type DebtStatus,
 } from '../core/debtRegister.js';
 import {
@@ -206,6 +258,8 @@ import {
   type WorkflowConfigEdit,
   type WorkflowConfigProblem,
 } from '../core/workflowConfig.js';
+import { resolveWorkspaceScope, type WorkspaceScope } from '../core/workspaceScope.js';
+import type { ProjectComposition, ProjectComponentVcs } from '../core/projectComposition.js';
 import {
   buildReviewCommentPrompt,
   derivePullRequestIssueDraft,
@@ -418,11 +472,25 @@ import {
   readPromotionHistory,
   acquireDeliveryLock,
   releaseDeliveryLock,
-  buildProjectDeliveryGuide,
   type DeliverySeedInput,
   type DeliveryArchetype,
-  type ProjectDeliveryGuide,
+  type DeliveryGuidePhase,
+  type DeliveryGuideStep,
 } from '../core/deliveryManager.js';
+import {
+  buildDeliveryStageRunbooks,
+  type DeliveryStageRunbookSet,
+} from '../core/deliveryStageRunbooks.js';
+import {
+  buildArtifactCompliancePrompt,
+  type ArtifactComplianceIntent,
+} from '../core/artifactCompliance.js';
+import {
+  buildVitalFileAssignments,
+  resolveVitalFileOwnership,
+  type VitalFile,
+  type VitalFileOwnershipReport,
+} from '../core/vitalFileOwnership.js';
 import {
   DELIVERY_RUN_TERMINAL_NAME,
   buildDeliveryRunConfirmation,
@@ -1024,6 +1092,33 @@ type ProjectDashboardMessage =
   | { type: 'createShelfFolder'; payload: string }
   | { type: 'runRiskAnalysis'; payload: { domain: import('../types.js').RiskDomain | 'all' } }
   | { type: 'setRiskFindingStatus'; payload: { findingId: string; status: import('../types.js').RiskStatus; note?: string } }
+  // ── Compliance ──────────────────────────────────────────────────
+  //
+  // Every payload here is opaque ids and nothing else: no status, no path, no
+  // URL, no date, no name, no prose. `setComplianceControlStatus` carries
+  // *which control*, and the host shows the picker — deliberately unlike
+  // `setRiskFindingStatus` above, which does carry a status. A risk finding's
+  // status is a judgement about our own record; a control status is a claim to
+  // an outsider, and it needs a named person and a date the webview has no
+  // business supplying.
+  //
+  // There is deliberately **no** `saveComplianceRegister`. A whole-register
+  // payload could set twenty-five statuses with no attribution in one post,
+  // which is the exact thing the register exists to make impossible. Copying
+  // the Documents page's shape here is the natural mistake; a structural test
+  // enumerates this union and fails if such a message is added.
+  | { type: 'complianceNextControl'; payload: { regimeId: string } }
+  | { type: 'importComplianceMapping'; payload: { regimeId: string } }
+  | { type: 'createComplianceRegister'; payload: { regimeId: string } }
+  | { type: 'decideComplianceScope'; payload: { regimeId: string } }
+  | { type: 'openComplianceNotes'; payload: { regimeId: string } }
+  | { type: 'recordComplianceReview'; payload: { regimeId: string } }
+  | { type: 'recordComplianceEvidence'; payload: { regimeId: string; controlRef: string } }
+  | { type: 'attachComplianceEvidence'; payload: { regimeId: string; controlRef: string } }
+  | { type: 'setComplianceControlStatus'; payload: { regimeId: string; controlRef: string } }
+  | { type: 'detachComplianceEvidence'; payload: { regimeId: string; controlRef: string; evidenceId: string } }
+  | { type: 'openComplianceEvidence'; payload: { evidenceId: string } }
+  | { type: 'renewComplianceEvidence'; payload: { evidenceId: string } }
   | { type: 'setRiskFilter'; payload: string }
   | { type: 'copyContact'; payload: string }
   // Opaque runbook step / phase ids. The host rebuilds the guide and resolves
@@ -1032,6 +1127,8 @@ type ProjectDashboardMessage =
   | { type: 'sendDeliveryCommandToTerminal'; payload: string }
   | { type: 'runDeliveryGuidePhase'; payload: string }
   | { type: 'discussDeliveryGuideStep'; payload: string }
+  | { type: 'discussArtifactSignal'; payload: string }
+  | { type: 'recordVitalFileOwners' }
   | { type: 'openContactDeepLink'; payload: { contactId: string; linkId: string } }
   | { type: 'assignRunOwner'; payload: { runId: string; contactId: string } }
   | { type: 'assignDashboardWorkOwner'; payload: { targetId: string; contactId: string } }
@@ -1118,11 +1215,30 @@ interface DashboardStat {
  */
 const DASHBOARD_PAGE_IDS = [
   'overview', 'score', 'gapAnalysis', 'workflow', 'roadmap', 'issues', 'pullRequests', 'director',
-  'branches', 'repo', 'pipeline', 'testing', 'debt', 'security', 'privacy', 'risk', 'release', 'delivery', 'documents',
+  'branches', 'repo', 'pipeline', 'testing', 'debt', 'security', 'privacy', 'risk', 'compliance', 'release', 'delivery', 'documents',
   'ssot', 'runtime', 'ideation',
 ] as const;
 
 export type DashboardPageId = typeof DASHBOARD_PAGE_IDS[number];
+
+function isComplianceRegimeId(value: unknown): value is ComplianceMethodologyId {
+  return typeof value === 'string' && complianceCatalogFor(value as TestingMethodologyId) !== undefined;
+}
+
+/**
+ * A control reference, constrained to the charset the catalogues actually use
+ * — `A.5.1`, `CC6.1`, `164.312(a)(1)`, `Part 6-9.4.5(a)`, `Req 3.3`.
+ *
+ * Shape only. The host re-resolves it against the catalog, so this is the
+ * cheap rejection rather than the real one.
+ */
+function isComplianceControlRef(value: unknown): boolean {
+  return typeof value === 'string' && /^[A-Za-z0-9][A-Za-z0-9 ().\-/]{0,40}$/.test(value);
+}
+
+function isComplianceEvidenceId(value: unknown): boolean {
+  return typeof value === 'string' && /^ev-[A-Za-z0-9][A-Za-z0-9-]{0,60}$/.test(value);
+}
 
 type DashboardNavigationTarget = {
   page: DashboardPageId;
@@ -1130,7 +1246,7 @@ type DashboardNavigationTarget = {
 };
 
 const DASHBOARD_FOCUS_KINDS: readonly DashboardFocusKind[] = [
-  'branch', 'roadmap', 'issue', 'pull-request', 'gap', 'risk', 'debt', 'document',
+  'branch', 'roadmap', 'issue', 'pull-request', 'gap', 'risk', 'debt', 'document', 'artifact',
   'assignment', 'follow-up',
   // The Testing page already marked its policy cards as focusable targets and
   // nothing could name one: the kind was declared in `types.ts`, rendered as a
@@ -1592,6 +1708,31 @@ interface GitSnapshot {
   gitUserName?: string;
 }
 
+interface DashboardComponentScopeIdentity {
+  componentId: string;
+  componentLabel: string;
+  vcs: ProjectComponentVcs;
+}
+
+type ComponentGitReading = DashboardComponentScopeIdentity & (
+  | { visibility: 'visible'; rootPath: string; snapshot: GitSnapshot }
+  | { visibility: 'not-visible'; reason: string }
+);
+
+type DashboardComponentRepoReading = DashboardComponentScopeIdentity & (
+  | {
+    visibility: 'visible';
+    currentBranch: string;
+    ahead: number;
+    behind: number;
+    staged: number;
+    modified: number;
+    untracked: number;
+    dirty: boolean;
+  }
+  | { visibility: 'not-visible'; reason: string }
+);
+
 interface PackageSnapshot {
   version: string;
   dependencyCount: number;
@@ -1721,6 +1862,8 @@ type ArtifactLifecycle = 'source' | 'build' | 'test' | 'deploy' | 'runtime';
 type ArtifactRetention = 'keep' | 'cache' | 'discard';
 
 interface ArtifactSignal {
+  /** Opaque, stable address for this row. The webview names it and nothing else. */
+  id: string;
   label: string;
   description: string;
   /** Workspace-relative path to open when the artifact exists, or the primary path as a reference. */
@@ -1732,6 +1875,17 @@ interface ArtifactSignal {
   exists: boolean;
   /** True when the artifact is persistent+keep but absent — blocks production readiness. */
   needsAttention: boolean;
+  /**
+   * Which of the three hand-offs this row offers, decided by
+   * `classifyArtifactCompliance` on the host.
+   *
+   * Shipped rather than re-derived in the browser: a second classifier there
+   * would eventually disagree with this one, and the symptom would be a control
+   * whose icon promises a fix while the draft it opens asks a question.
+   */
+  complianceIntent: ArtifactComplianceIntent;
+  /** The imperative shown on that control, from the same declared rule. */
+  complianceAction: string;
 }
 
 interface ArtifactSpec {
@@ -1949,6 +2103,11 @@ interface DashboardIssuesSnapshot {
   summary?: IssueSummary;
   /** When the list was last fetched; absent until the first load. */
   loadedAt?: string;
+  /** Per-component tracker visibility; absent for the legacy single-root path. */
+  componentReadings?: ComponentIssueTrackerReading[];
+  componentPortfolio?: ReturnType<typeof summarizeComponentIssuePortfolio>;
+  /** The component whose issue list the detailed board below represents. */
+  scopeLabel?: string;
   busy: boolean;
 }
 
@@ -2146,6 +2305,7 @@ interface DashboardGuidedWorkflowSnapshot {
     status: ObservedDelta['status'];
     headline: string;
     window: string;
+    scope?: ObservedScope;
     changes: Array<{ label: string; kind: string; summary: string; before?: string; after?: string }>;
     droppedByCap: number;
   };
@@ -2622,6 +2782,10 @@ interface DashboardSnapshot {
     contributorTotal: number;
   };
   repo: {
+    /** Exact component boundary behind the legacy headline counts. */
+    scopeLabel?: string;
+    /** One explicit git result per declared component. */
+    components?: DashboardComponentRepoReading[];
     dirty: boolean;
     ahead: number;
     behind: number;
@@ -2692,6 +2856,10 @@ interface DashboardSnapshot {
     scriptCount: number;
     keyScripts: string[];
     workflows: DashboardWorkflow[];
+    /** Local workflow inventory per declared component. */
+    componentCi?: DashboardComponentCiReading[];
+    /** The component represented by the detailed CI controls below. */
+    ciScopeLabel?: string;
     ciManagement: DashboardCiManagement;
     /** Machine-owned execution fabric. Never populated from webview input. */
     localRunner: DashboardLocalCiRunnerSnapshot;
@@ -2754,8 +2922,12 @@ interface DashboardSnapshot {
     /** Package-format and registry-configuration presence only; credential values are never read. */
     supplyChain: DashboardSupplyChainSnapshot;
     stages: DashboardStagePipeline;
-    /** Detected commands and human gates, grouped in the order a newcomer ships. */
-    guide: ProjectDeliveryGuide;
+    /**
+     * One detected runbook per delivery stage, plus what makes each different
+     * from the stage below it. A single unstaged runbook when no pipeline is
+     * configured — never three invented environments.
+     */
+    runbooks: DeliveryStageRunbookSet;
   };
   /** Stage 6 — what a release from here would look like, and what blocks it. */
   release: DashboardReleaseSnapshot;
@@ -2765,15 +2937,30 @@ interface DashboardSnapshot {
     entries: DebtEntry[];
     metrics: DebtMetrics;
     lastScanAt?: string;
+    lastScanScope?: DebtScanScope[];
     /** The declared rules, so a grade can be checked against them on screen. */
     rules: Array<{ id: string; domain: string; severity: string; describes: string }>;
     scanning: boolean;
   };
   /** Human ownership for actionable records across the dashboard. */
   workAssignments: DashboardWorkAssignmentsSnapshot;
+  /**
+   * Who keeps each vital file current — the standing question the work board
+   * could not answer, because a file that is fresh today is not outstanding work
+   * and still has to be somebody's job tomorrow.
+   */
+  vitalFiles: VitalFileOwnershipReport;
   director: DashboardDirectorSnapshot;
   documents: DashboardDocumentsSnapshot;
   risk: DashboardRiskSnapshot;
+  /**
+   * Governance regimes, graded on the compliance register.
+   *
+   * Absent when no `compliance-*` methodology is enabled — deliberately, and
+   * not as an empty board. A project that never claimed SOC 2 has not
+   * overlooked SOC 2, and a zeroed group would nag it forever.
+   */
+  compliance?: ComplianceSnapshot;
   score: DashboardScoreBreakdown;
   ideation: DashboardIdeationSnapshot;
   gapAnalysis: DashboardGapAnalysisSnapshot;
@@ -3362,6 +3549,20 @@ export function buildTestingPolicyDiscussionPrompt(row: TestingPolicyRow): strin
 function describeTestingPolicyEvidence(row: TestingPolicyRow): string[] {
   const status = boundedDiscussionMarkdown(row.statusLabel, 120);
   const lines = [`- **Displayed status:** ${status}`];
+
+  if (row.status === 'governed') {
+    lines.push('- **What AtlasMind found:** This is a governance regime, graded on the compliance register rather than on the file tree. A file matching its name is a candidate reference, never proof — a test called `data-privacy.test.ts` says nothing about whether GDPR is met.');
+    if (row.governance) {
+      lines.push(`- **Where it stands:** ${row.governance.readinessLabel} — ${row.governance.rule}`);
+      if (row.governance.awaitingIndependent > 0) {
+        lines.push(`- **Outstanding:** ${row.governance.awaitingIndependent} control(s) can only be closed by a party outside this project.`);
+      }
+    } else {
+      lines.push('- **Where it stands:** Nothing has been recorded for it. Unassessed, which is not the same as met.');
+    }
+    lines.push('- **What that does not prove:** Nothing here is a statement of compliance. Only the relevant certification body, auditor, regulator or counsel can make one.');
+    return lines;
+  }
 
   if (row.status === 'not-file-evident') {
     lines.push('- **What AtlasMind found:** This policy describes a way of working, not a particular file or package, so a repository scan cannot honestly mark it present or absent.');
@@ -5045,6 +5246,43 @@ export class ProjectDashboardPanel {
       case 'setRiskFindingStatus':
         await this.handleSetRiskFindingStatus(message.payload);
         return;
+      case 'createComplianceRegister':
+        await this.handleCreateComplianceRegister(message.payload);
+        return;
+      case 'importComplianceMapping':
+        await this.handleImportComplianceMapping(message.payload);
+        return;
+      case 'decideComplianceScope':
+        await this.handleDecideComplianceScope(message.payload);
+        return;
+      case 'openComplianceNotes':
+        await this.handleOpenComplianceNotes(message.payload);
+        return;
+      case 'recordComplianceReview':
+        await this.handleRecordComplianceReview(message.payload);
+        return;
+      case 'recordComplianceEvidence':
+        await this.handleRecordComplianceEvidence(message.payload);
+        return;
+      case 'attachComplianceEvidence':
+        await this.handleAttachComplianceEvidence(message.payload);
+        return;
+      case 'setComplianceControlStatus':
+        await this.handleSetComplianceControlStatus(message.payload);
+        return;
+      case 'detachComplianceEvidence':
+        await this.handleDetachComplianceEvidence(message.payload);
+        return;
+      case 'openComplianceEvidence':
+        await this.handleOpenComplianceEvidence(message.payload);
+        return;
+      case 'renewComplianceEvidence':
+        await this.handleRenewComplianceEvidence(message.payload);
+        return;
+      case 'complianceNextControl':
+        // View-only: the webview picks the next control from the snapshot it
+        // already holds, so there is nothing to resolve or persist here.
+        return;
       case 'setRiskFilter':
         // View-only state; the webview owns it. Nothing to persist.
         return;
@@ -5081,6 +5319,12 @@ export class ProjectDashboardPanel {
         return;
       case 'discussDeliveryGuideStep':
         await this.handleDiscussDeliveryGuideStep(message.payload);
+        return;
+      case 'discussArtifactSignal':
+        await this.handleDiscussArtifactSignal(message.payload);
+        return;
+      case 'recordVitalFileOwners':
+        await this.handleRecordVitalFileOwners();
         return;
       case 'copyContact':
         await this.handleCopyContact(message.payload);
@@ -8961,13 +9205,69 @@ export class ProjectDashboardPanel {
     await this.syncState();
 
     try {
-      const { files, scannedPaths, truncated } = await collectDebtScanFiles(workspaceRoot);
       // A project's own markers, read at scan time rather than cached: the
       // setting can change between scans, and a stale list would keep looking
       // for markers somebody removed.
       const customMarkers = parseCustomDebtMarkers(
         vscode.workspace.getConfiguration('atlasmind').get<string[]>('debt.markers', []),
       );
+      const composition = this.workflowConfig.getConfig()?.composition;
+      const homeComponentId = composition?.components.find(component => component.home)?.id;
+      const declaredScope = await collectDashboardWorkspaceScope(composition);
+      const markerCandidates: import('../core/debtRegister.js').DebtScanCandidate[] = [];
+      const scannedPaths: import('../core/debtRegister.js').DebtScannedPath[] = [];
+      const scanCoverage: DebtScanScope[] = [];
+      let remainingFiles = DEBT_SCAN_MAX_FILES;
+      let truncated = false;
+
+      if (composition) {
+        const roots = new Map(declaredScope.roots.map(root => [root.componentId, root]));
+        const unknown = new Map(declaredScope.unknown.map(entry => [entry.componentId, entry]));
+        for (const component of composition.components) {
+          const root = roots.get(component.id);
+          const missing = unknown.get(component.id);
+          if (!root || missing) {
+            scanCoverage.push({
+              componentId: component.id,
+              componentLabel: component.label,
+              vcs: component.vcs,
+              visibility: 'not-visible',
+              scannedFileCount: 0,
+              truncated: false,
+              reason: missing ? describeMissingComponent(missing.reason) : 'No opened workspace root resolved.',
+            });
+            continue;
+          }
+          const scanned = await collectDebtScanFiles(root.fsPath, remainingFiles);
+          remainingFiles = Math.max(0, remainingFiles - scanned.scannedPaths.length);
+          truncated ||= scanned.truncated;
+          markerCandidates.push(...scopeDebtCandidates(
+            scanForDebtMarkers(scanned.files, customMarkers),
+            { componentId: component.id, componentLabel: component.label },
+          ));
+          scannedPaths.push(...scanned.scannedPaths.map(scannedPath => ({
+            componentId: component.id,
+            path: scannedPath,
+          })));
+          const vcsVisible = component.vcs === 'git';
+          scanCoverage.push({
+            componentId: component.id,
+            componentLabel: component.label,
+            vcs: component.vcs,
+            visibility: vcsVisible ? 'visible' : 'not-visible',
+            scannedFileCount: scanned.scannedPaths.length,
+            truncated: scanned.truncated,
+            ...(vcsVisible ? {} : {
+              reason: `Source markers were scanned, but VCS-derived debt is not visible for ${component.vcs}.`,
+            }),
+          });
+        }
+      } else {
+        const scanned = await collectDebtScanFiles(workspaceRoot);
+        markerCandidates.push(...scanForDebtMarkers(scanned.files, customMarkers));
+        scannedPaths.push(...scanned.scannedPaths);
+        truncated = scanned.truncated;
+      }
       // Two sources, one register. The marker scan finds what somebody wrote
       // down; the signal derivation finds what the project is doing that nobody
       // wrote down at all — an unmerged dependency update, a testing
@@ -8978,20 +9278,38 @@ export class ProjectDashboardPanel {
         this.ciState, this.releaseState, this.workflowConfig, this.auditLedger,
         { register: this.debtManager.get(), scanning: true },
       );
-      const candidates = [
-        ...scanForDebtMarkers(files, customMarkers),
-        ...deriveDebtFromSignals({
+      const uncoveredMethodologies = (snapshot.testing.policyCoverage?.rows ?? [])
+        // `missing` only. `tooling-only` has partial evidence and
+        // `not-file-evident` is a practice, which is never a gap — a
+        // register that recorded those would be recording a category error.
+        .filter(row => row.status === 'missing')
+        .map(row => ({ id: row.id, label: row.label }));
+      const derivedCandidates = composition
+        ? [
+          ...deriveDebtFromSignals({ now: Date.now(), uncoveredMethodologies }),
+          ...(homeComponentId && this.pullRequestsState !== undefined
+            ? scopeDebtCandidates(
+              deriveDebtFromSignals({ now: Date.now(), pullRequests: this.pullRequestsState }),
+              {
+                componentId: homeComponentId,
+                componentLabel: composition.components.find(component => component.id === homeComponentId)?.label ?? homeComponentId,
+              },
+            )
+            : []),
+          ...(snapshot.delivery.componentCi ?? []).flatMap(component => component.visibility === 'visible'
+            ? scopeDebtCandidates(
+              deriveDebtFromSignals({ now: Date.now(), ciWorkflowCount: component.workflows.length }),
+              component,
+            )
+            : []),
+        ]
+        : deriveDebtFromSignals({
           now: Date.now(),
           ...(this.pullRequestsState === undefined ? {} : { pullRequests: this.pullRequestsState }),
-          uncoveredMethodologies: (snapshot.testing.policyCoverage?.rows ?? [])
-            // `missing` only. `tooling-only` has partial evidence and
-            // `not-file-evident` is a practice, which is never a gap — a
-            // register that recorded those would be recording a category error.
-            .filter(row => row.status === 'missing')
-            .map(row => ({ id: row.id, label: row.label })),
+          uncoveredMethodologies,
           ciWorkflowCount: snapshot.delivery.workflows.length,
-        }),
-      ];
+        });
+      const candidates = [...markerCandidates, ...derivedCandidates];
       const at = new Date().toISOString();
       // The derived entries' evidence paths are added to the scanned set, so a
       // signal that has cleared (the update merged, the methodology covered)
@@ -8999,12 +9317,22 @@ export class ProjectDashboardPanel {
       const result = reconcileDebtScan(
         this.debtManager.get(),
         candidates,
-        [...scannedPaths, ...DERIVED_DEBT_EVIDENCE_ROOTS],
+        [
+          ...scannedPaths,
+          ...DERIVED_DEBT_EVIDENCE_ROOTS,
+          ...(composition
+            ? composition.components.flatMap(component => DERIVED_DEBT_EVIDENCE_ROOTS.map(scannedPath => ({
+              componentId: component.id,
+              path: scannedPath,
+            })))
+            : []),
+        ],
         at,
+        composition ? scanCoverage : undefined,
       );
       await this.debtManager.save(result.register, customMarkers);
       void vscode.window.showInformationMessage(
-        `Scanned ${scannedPaths.length} files: ${result.added.length} new, ${result.unchanged} already recorded`
+        `Scanned ${scannedPaths.length} files${composition ? ` across ${scanCoverage.length} declared components` : ''}: ${result.added.length} new, ${result.unchanged} already recorded`
         + `${result.wentObsolete.length > 0 ? `, ${result.wentObsolete.length} now obsolete` : ''}`
         + `${result.reopened.length > 0 ? `, ${result.reopened.length} reopened` : ''}.`
         // Stated, never silent. A scan that quietly stopped at the cap would
@@ -9064,9 +9392,23 @@ export class ProjectDashboardPanel {
    * paths, so what is opened is a workspace-relative path this build wrote.
    */
   private async handleOpenDebtEvidence(payload: { id: string }): Promise<void> {
-    const workspaceRoot = vscode.workspace.workspaceFolders?.[0]?.uri.fsPath;
     const entry = this.debtManager.get().entries.find(candidate => candidate.id === payload.id);
-    if (!workspaceRoot || !entry) {
+    if (!entry) {
+      return;
+    }
+    let workspaceRoot = vscode.workspace.workspaceFolders?.[0]?.uri.fsPath;
+    if (entry.componentId) {
+      const composition = this.workflowConfig.getConfig()?.composition;
+      const scope = await collectDashboardWorkspaceScope(composition);
+      workspaceRoot = scope.roots.find(root => root.componentId === entry.componentId)?.fsPath;
+      if (!workspaceRoot) {
+        void vscode.window.showWarningMessage(
+          `The ${entry.componentLabel ?? entry.componentId} component is not visible in this workspace, so its evidence cannot be opened.`,
+        );
+        return;
+      }
+    }
+    if (!workspaceRoot) {
       return;
     }
     try {
@@ -11794,6 +12136,838 @@ ${buildCardEvidenceSection(source, derivation)}`;
    * change is the only way one leaves the open set — so the register keeps a complete
    * account of what was raised and what was decided.
    */
+
+  // ── Compliance ────────────────────────────────────────────────────
+  //
+  // Every handler below re-reads the register from disk, resolves the opaque
+  // ids the webview sent against it, and gathers every value itself. Nothing a
+  // webview posts becomes a status, a path, a date or a person.
+
+  /** The whole compliance state, re-read. Cheap, and never stale. */
+  private readComplianceState(regimeId: ComplianceMethodologyId): {
+    workspaceRoot: string;
+    catalog: NonNullable<ReturnType<typeof complianceCatalogFor>>;
+    library: ReturnType<typeof emptyEvidenceLibrary>;
+    register: ComplianceRegimeRegister;
+    readOnly: boolean;
+  } | undefined {
+    const workspaceRoot = vscode.workspace.workspaceFolders?.[0]?.uri.fsPath;
+    const catalog = complianceCatalogFor(regimeId);
+    if (!workspaceRoot || !catalog) {
+      return undefined;
+    }
+    const now = new Date();
+    const evidenceRead = readComplianceEvidenceFile(workspaceRoot);
+    const library = evidenceRead.config
+      ? sanitizeComplianceEvidenceLibrary(evidenceRead.config, now)
+      : emptyEvidenceLibrary(now);
+    const read = readComplianceRegimeFile(workspaceRoot, regimeId);
+    const register = read.config
+      ? sanitizeComplianceRegimeRegister(read.config, regimeId, library, now).register
+      : seedComplianceRegister(catalog, now);
+    return {
+      workspaceRoot,
+      catalog,
+      library,
+      register,
+      readOnly: read.preserveExisting || evidenceRead.preserveExisting,
+    };
+  }
+
+  /**
+   * Ask who is asserting this, from the Director roster.
+   *
+   * Never free text. Attribution resolves to a contact id, which keeps the
+   * GDPR-first system-of-record posture the Director already holds — and means
+   * a status always names somebody who exists.
+   */
+  private async pickComplianceAsserter(workspaceRoot: string): Promise<ComplianceAttribution | undefined> {
+    const config = readProjectDirectorConfig(workspaceRoot);
+    const contacts = config?.contacts ?? [];
+    if (contacts.length === 0) {
+      const open = 'Open the Director roster';
+      const choice = await vscode.window.showWarningMessage(
+        'Nobody is on the Director roster, so there is no one to record this against. '
+        + 'A status with no named asserter is a claim rather than evidence, and is not carried.',
+        { modal: true },
+        open,
+      );
+      if (choice === open) {
+        await vscode.commands.executeCommand('atlasmind.openProjectDirector');
+      }
+      return undefined;
+    }
+    const picked = await vscode.window.showQuickPick(
+      contacts.map(contact => ({
+        label: contact.name || contact.id,
+        description: contact.id === config?.selfContactId ? 'you' : '',
+        id: contact.id,
+      })),
+      { title: 'Who is asserting this?', placeHolder: 'This name and today’s date are recorded against it.' },
+    );
+    return picked ? { contactId: picked.id, source: 'human', at: new Date().toISOString() } : undefined;
+  }
+
+  private async saveComplianceRegister(
+    workspaceRoot: string,
+    register: ComplianceRegimeRegister,
+    library: ReturnType<typeof emptyEvidenceLibrary>,
+    catalog: NonNullable<ReturnType<typeof complianceCatalogFor>>,
+    entry: ComplianceHistoryEntry,
+  ): Promise<void> {
+    const now = new Date();
+    // Grade before rendering: the mirror publishes the reading and the rule
+    // that produced it, and a mirror written from a stale grade would say
+    // something the register no longer supports.
+    const reading = gradeComplianceRegime({ catalog, register, library, now });
+    writeComplianceRegimeRegister(workspaceRoot, register, library, catalog, {
+      readingLabel: reading.readinessLabel,
+      readingRule: reading.rule,
+      disclaimer: reading.disclaimer,
+      ...(reading.standard?.kind === 'tracked'
+        ? {
+          standard: {
+            name: reading.standard.name,
+            edition: reading.standard.edition,
+            verifiedAt: reading.standard.verifiedAt,
+          },
+        }
+        : {}),
+    }, now);
+    appendComplianceHistory(workspaceRoot, entry);
+    await this.syncState();
+  }
+
+
+  /**
+   * Import a hand-edited control mapping.
+   *
+   * The confirmation states **what cannot be carried across, before anything is
+   * written** — a count computed afterwards would be a report on something
+   * already done. Nothing is deleted either way: a row that cannot be carried
+   * keeps its original wording as a note on the control.
+   */
+  private async handleImportComplianceMapping(payload: { regimeId: string }): Promise<void> {
+    const state = this.readComplianceState(payload.regimeId as ComplianceMethodologyId);
+    if (!state || state.readOnly) {
+      return;
+    }
+    if (state.register.importedFrom) {
+      await vscode.window.showInformationMessage(
+        `The ${state.catalog.regime} mapping was already imported on `
+        + `${state.register.importedFrom.at.slice(0, 10)}.`,
+        { modal: true, detail: 'Importing twice would overwrite decisions made since.' },
+      );
+      return;
+    }
+
+    const relative = complianceRegimeSummaryPath(state.catalog.policyId);
+    let markdown: string;
+    try {
+      markdown = readFileSync(path.join(state.workspaceRoot, relative), 'utf8');
+    } catch {
+      return;
+    }
+    if (!hasImportableMapping(markdown, state.catalog)) {
+      await vscode.window.showInformationMessage(
+        'There is nothing to import from that file.',
+        { modal: true, detail: 'It is either empty or already generated by AtlasMind.' },
+      );
+      return;
+    }
+
+    const director = readProjectDirectorConfig(state.workspaceRoot);
+    const rosterByName = new Map<string, string>();
+    for (const contact of director?.contacts ?? []) {
+      if (contact.name) {
+        rosterByName.set(contact.name.toLowerCase(), contact.id);
+      }
+      rosterByName.set(contact.id.toLowerCase(), contact.id);
+    }
+
+    const plan = planLegacyImport({
+      markdown,
+      catalog: state.catalog,
+      library: state.library,
+      rosterByName,
+      now: new Date(),
+    });
+
+    const go = 'Import';
+    const choice = await vscode.window.showInformationMessage(
+      `Import the ${state.catalog.regime} mapping?`,
+      { modal: true, detail: describeLegacyImport(plan) },
+      go,
+    );
+    if (choice !== go) {
+      return;
+    }
+
+    writeComplianceEvidenceLibrary(state.workspaceRoot, plan.library, [plan.register], new Date());
+    await this.saveComplianceRegister(
+      state.workspaceRoot,
+      plan.register,
+      plan.library,
+      state.catalog,
+      {
+        id: `imported-${payload.regimeId}-${Date.now()}`,
+        kind: 'imported',
+        summary: `Imported the ${state.catalog.regime} mapping: `
+          + `${plan.carriedRows} carried, ${plan.demotedRows.length} not carried as recorded.`,
+        regimeId: state.catalog.policyId,
+        at: new Date().toISOString(),
+      },
+    );
+  }
+
+  private async handleCreateComplianceRegister(payload: { regimeId: string }): Promise<void> {
+    const state = this.readComplianceState(payload.regimeId as ComplianceMethodologyId);
+    if (!state || state.readOnly) {
+      return;
+    }
+    const create = 'Create the register';
+    const choice = await vscode.window.showInformationMessage(
+      `Create a control register for ${state.catalog.regime}?`,
+      {
+        modal: true,
+        detail: `${state.catalog.controls.length} controls, every one seeded Not assessed — which is deliberately `
+          + 'not the same as compliant. Two files are written into project_memory/operations/compliance/, '
+          + 'and they are committed with the rest of your repository.',
+      },
+      create,
+    );
+    if (choice !== create) {
+      return;
+    }
+    await this.saveComplianceRegister(
+      state.workspaceRoot,
+      seedComplianceRegister(state.catalog, new Date()),
+      state.library,
+      state.catalog,
+      {
+        id: `created-${payload.regimeId}-${Date.now()}`,
+        kind: 'register-created',
+        summary: `Created the ${state.catalog.regime} control register.`,
+        regimeId: state.catalog.policyId,
+        at: new Date().toISOString(),
+      },
+    );
+  }
+
+  private async handleDecideComplianceScope(payload: { regimeId: string }): Promise<void> {
+    const state = this.readComplianceState(payload.regimeId as ComplianceMethodologyId);
+    if (!state || state.readOnly) {
+      return;
+    }
+    const statement = await vscode.window.showInputBox({
+      title: `Scope for ${state.catalog.regime}`,
+      prompt: state.catalog.scoping,
+      value: state.register.scope.statement ?? state.register.scope.proposed ?? '',
+      ignoreFocusOut: true,
+      validateInput: value => value.trim().length < 20
+        ? 'Say what is in scope. Until this is decided every control reads Not assessed.'
+        : undefined,
+    });
+    if (!statement) {
+      return;
+    }
+
+    let variant: string | undefined = state.register.scope.variant;
+    if ((state.catalog.variants ?? []).length > 0) {
+      const picked = await vscode.window.showQuickPick(
+        (state.catalog.variants ?? []).map(entry => ({ label: entry })),
+        { title: 'Which variant applies?', placeHolder: 'This can change what evidence a control will accept.' },
+      );
+      if (!picked) {
+        return;
+      }
+      variant = picked.label;
+    }
+
+    const by = await this.pickComplianceAsserter(state.workspaceRoot);
+    if (!by) {
+      return;
+    }
+    const now = new Date().toISOString();
+    await this.saveComplianceRegister(
+      state.workspaceRoot,
+      {
+        ...state.register,
+        scope: {
+          ...state.register.scope,
+          statement: statement.trim(),
+          decidedBy: by,
+          decidedAt: now,
+          ...(variant ? { variant } : {}),
+        },
+      },
+      state.library,
+      state.catalog,
+      {
+        id: `scope-${payload.regimeId}-${Date.now()}`,
+        kind: 'scope-decided',
+        summary: `Scope decided for ${state.catalog.regime}.`,
+        regimeId: state.catalog.policyId,
+        actorContactId: by.contactId,
+        at: now,
+      },
+    );
+  }
+
+  /**
+   * Record one piece of evidence, then attach it.
+   *
+   * Sequential, cancellable at every step, and **nothing is written until the
+   * final confirmation** — which states what the record will and will not
+   * produce, because "this does not mark the control satisfied" is exactly the
+   * thing somebody assumes it does.
+   */
+  private async handleRecordComplianceEvidence(payload: { regimeId: string; controlRef: string }): Promise<void> {
+    const state = this.readComplianceState(payload.regimeId as ComplianceMethodologyId);
+    if (!state || state.readOnly) {
+      return;
+    }
+    const control = state.catalog.controls.find(entry => entry.ref === payload.controlRef);
+    if (!control) {
+      return;
+    }
+    const accepts = effectiveAccepts(control, state.register.scope.variant);
+
+    const kind = await vscode.window.showQuickPick(
+      (['independent', 'artifact', 'attestation', 'machine-check'] as const).map(entry => ({
+        label: EVIDENCE_KIND_LABEL[entry],
+        description: accepts.includes(entry) ? 'settles this control' : 'does not settle this control on its own',
+        detail: EVIDENCE_KIND_DETAIL[entry],
+        // Not `kind`: `vscode.QuickPickItem` already owns that name for its
+        // separator flag, and the collision silently retypes the whole array.
+        evidenceKind: entry,
+      })),
+      { title: `What kind of evidence is this? (${control.ref})`, ignoreFocusOut: true },
+    );
+    if (!kind) {
+      return;
+    }
+
+    const where = await vscode.window.showQuickPick(
+      [
+        { label: 'A file in this project', id: 'workspace-file' },
+        { label: 'An https link', id: 'url' },
+        { label: 'Held elsewhere — I’ll describe where', id: 'described', description: 'A real answer, not a fallback' },
+      ],
+      { title: 'Where is it?', ignoreFocusOut: true },
+    );
+    if (!where) {
+      return;
+    }
+
+    let locator: ComplianceLocator | undefined;
+    if (where.id === 'workspace-file') {
+      const picked = await vscode.window.showOpenDialog({
+        canSelectMany: false,
+        defaultUri: vscode.Uri.file(state.workspaceRoot),
+        title: 'Pick the document',
+      });
+      const chosen = picked?.[0];
+      if (!chosen) {
+        return;
+      }
+      const rel = path.relative(state.workspaceRoot, chosen.fsPath).replace(/\\/g, '/');
+      const normalized = normalizeComplianceRelPath(rel);
+      if (!normalized) {
+        await vscode.window.showWarningMessage(
+          'That file is outside this project, so the path would only resolve on your machine — and it '
+          + 'would be committed to every clone. Record it as held elsewhere instead.',
+          { modal: true },
+        );
+        return;
+      }
+      locator = { kind: 'workspace-file', path: normalized };
+      if (await this.isTrackedByGit(state.workspaceRoot, normalized)) {
+        const keep = 'Continue anyway';
+        const change = 'Record it as held elsewhere';
+        const answer = await vscode.window.showWarningMessage(
+          `${normalized} is tracked by git.`,
+          {
+            modal: true,
+            detail: 'Recording a reference here does not copy it — but that file is already in your repository '
+              + 'and goes to everyone who can clone it.',
+          },
+          change,
+          keep,
+        );
+        if (answer === change) {
+          const described = await vscode.window.showInputBox({
+            title: 'Where is it held, and who can produce it?',
+            value: path.basename(normalized),
+            ignoreFocusOut: true,
+          });
+          if (!described) {
+            return;
+          }
+          locator = { kind: 'described', where: described };
+        } else if (answer !== keep) {
+          return;
+        }
+      }
+    } else if (where.id === 'url') {
+      const url = await vscode.window.showInputBox({
+        title: 'The https link',
+        ignoreFocusOut: true,
+        validateInput: value => {
+          if (!value.trim()) { return 'Required.'; }
+          return sanitizeComplianceLocator({ kind: 'url', url: value })
+            ? undefined
+            : 'Must be an https link with no credentials, and not a loopback address. Any query string is dropped.';
+        },
+      });
+      if (!url) {
+        return;
+      }
+      locator = sanitizeComplianceLocator({ kind: 'url', url });
+    } else {
+      const described = await vscode.window.showInputBox({
+        title: 'Where is it held, and who can produce it?',
+        placeHolder: 'Held in Vanta; ask the security lead.',
+        ignoreFocusOut: true,
+        validateInput: value => value.trim().length < 5 ? 'Say where somebody would find it.' : undefined,
+      });
+      if (!described) {
+        return;
+      }
+      locator = { kind: 'described', where: described };
+    }
+    if (!locator) {
+      return;
+    }
+
+    const title = await vscode.window.showInputBox({
+      title: 'What is this record called?',
+      ignoreFocusOut: true,
+      validateInput: value => value.trim().length < 3 ? 'Give it a name somebody would recognise.' : undefined,
+    });
+    if (!title) {
+      return;
+    }
+
+    let issuer: string | undefined;
+    let issuerScope: string | undefined;
+    if (kind.evidenceKind === 'independent') {
+      issuer = await vscode.window.showInputBox({
+        title: 'Who issued it?',
+        placeHolder: 'The certification body, auditor, or counterparty.',
+        ignoreFocusOut: true,
+        validateInput: value => value.trim() ? undefined : 'Required for an outside statement.',
+      });
+      if (!issuer) {
+        return;
+      }
+      issuerScope = await vscode.window.showInputBox({
+        title: 'What does their statement cover?',
+        placeHolder: 'The scope they actually examined.',
+        ignoreFocusOut: true,
+        validateInput: value => value.trim()
+          ? undefined
+          : 'Required. A certificate for a different entity or boundary says nothing about this one.',
+      });
+      if (!issuerScope) {
+        return;
+      }
+    }
+
+    const period = effectivePeriodMonths(state.catalog, control, state.register.scope.variant);
+    const suggested = new Date();
+    suggested.setMonth(suggested.getMonth() + period);
+    const validUntil = await vscode.window.showInputBox({
+      title: 'Valid until (YYYY-MM-DD)',
+      value: suggested.toISOString().slice(0, 10),
+      prompt: `This control allows ${period} months. Clear the box if it states no expiry.`,
+      ignoreFocusOut: true,
+      validateInput: value => !value.trim() || Number.isFinite(Date.parse(value))
+        ? undefined
+        : 'Use YYYY-MM-DD, or clear it.',
+    });
+    if (validUntil === undefined) {
+      return;
+    }
+
+    const by = await this.pickComplianceAsserter(state.workspaceRoot);
+    if (!by) {
+      return;
+    }
+
+    const willSatisfy = accepts.includes(kind.evidenceKind);
+    const record = 'Record evidence';
+    const confirmed = await vscode.window.showInformationMessage(
+      `Record "${title}" against ${control.ref}?`,
+      {
+        modal: true,
+        detail: `${control.requirement}\n\n`
+          + `This does not mark the control satisfied — you set that separately. `
+          + (willSatisfy
+            ? `${control.ref} is settled by ${accepts.map(entry => EVIDENCE_KIND_LABEL[entry]).join(' or ')}, so this can carry it.`
+            : `${control.ref} is settled by ${accepts.map(entry => EVIDENCE_KIND_LABEL[entry]).join(' or ')}, so this alone will not carry it.`),
+      },
+      record,
+    );
+    if (confirmed !== record) {
+      return;
+    }
+
+    const now = new Date().toISOString();
+    const id = `ev-${title.toLowerCase().replace(/[^a-z0-9]+/g, '-').replace(/^-|-$/g, '').slice(0, 40) || 'record'}-${Date.now().toString(36)}`;
+    const evidence: ComplianceEvidence = {
+      id,
+      kind: kind.evidenceKind,
+      title: title.trim(),
+      locator,
+      ...(issuer ? { issuer } : {}),
+      ...(issuerScope ? { issuerScope } : {}),
+      assertedBy: by,
+      ...(validUntil.trim() ? { validUntil: new Date(Date.parse(validUntil)).toISOString() } : {}),
+      createdAt: now,
+      updatedAt: now,
+    };
+    const library = sanitizeComplianceEvidenceLibrary(
+      { version: 1, evidence: [...state.library.evidence, evidence], updatedAt: now },
+      new Date(),
+    );
+    const stored = library.evidence[library.evidence.length - 1];
+    const register: ComplianceRegimeRegister = {
+      ...state.register,
+      controls: state.register.controls.map(entry => entry.ref === control.ref
+        ? { ...entry, evidenceIds: [...entry.evidenceIds, stored?.id ?? id] }
+        : entry),
+    };
+    writeComplianceEvidenceLibrary(state.workspaceRoot, library, [register], new Date());
+    await this.saveComplianceRegister(state.workspaceRoot, register, library, state.catalog, {
+      id: `evidence-${id}`,
+      kind: 'evidence-recorded',
+      summary: `Recorded "${title}" against ${control.ref}.`,
+      regimeId: state.catalog.policyId,
+      controlRef: control.ref,
+      evidenceId: stored?.id ?? id,
+      actorContactId: by.contactId,
+      at: now,
+    });
+  }
+
+  /**
+   * Set a control's status, offering **only what it can actually reach**.
+   *
+   * Accepting `satisfied` and demoting it on the next read would be correct and
+   * would feel like a bug. Explaining that this control needs an outside party,
+   * and that none is attached, teaches the model of the system in one sentence.
+   */
+  private async handleSetComplianceControlStatus(payload: { regimeId: string; controlRef: string }): Promise<void> {
+    const state = this.readComplianceState(payload.regimeId as ComplianceMethodologyId);
+    if (!state || state.readOnly) {
+      return;
+    }
+    const control = state.catalog.controls.find(entry => entry.ref === payload.controlRef);
+    const record = state.register.controls.find(entry => entry.ref === payload.controlRef);
+    if (!control || !record) {
+      return;
+    }
+    if (!state.register.scope.decidedAt) {
+      await vscode.window.showWarningMessage(
+        'Decide scope first. Until it is recorded every control reads Not assessed whatever is entered against it.',
+        { modal: true },
+      );
+      return;
+    }
+
+    const reading = gradeComplianceRegime({
+      catalog: state.catalog,
+      register: state.register,
+      library: state.library,
+      now: new Date(),
+    }).controls.find(entry => entry.ref === control.ref)!;
+    const attached = record.evidenceIds
+      .map(id => state.library.evidence.find(entry => entry.id === id))
+      .filter((entry): entry is ComplianceEvidence => entry !== undefined);
+    const reach = reachableStatuses(reading, attached);
+
+    const picked = await vscode.window.showQuickPick(
+      reach.statuses.map(status => ({
+        label: COMPLIANCE_CONTROL_STATUS_LABEL[status],
+        description: status === record.status ? 'current' : '',
+        status,
+      })),
+      {
+        title: `${control.ref} — ${control.requirement}`,
+        placeHolder: reach.ceilingReason
+          ? `Satisfied is not available: ${reach.ceilingReason}`
+          : 'This is recorded against your name and today’s date.',
+        ignoreFocusOut: true,
+      },
+    );
+    if (!picked) {
+      return;
+    }
+
+    let justification: string | undefined = record.justification;
+    if (picked.status === 'not-applicable') {
+      justification = await vscode.window.showInputBox({
+        title: `Why does ${control.ref} not apply?`,
+        value: justification ?? '',
+        prompt: 'An unexplained exclusion is the first thing an assessor challenges.',
+        ignoreFocusOut: true,
+        validateInput: value => value.trim().length < 20 ? 'Say why. "We have no office" is a perfectly good reason.' : undefined,
+      });
+      if (!justification) {
+        return;
+      }
+    }
+
+    const by = await this.pickComplianceAsserter(state.workspaceRoot);
+    if (!by) {
+      return;
+    }
+    const now = new Date().toISOString();
+    const register: ComplianceRegimeRegister = {
+      ...state.register,
+      controls: state.register.controls.map(entry => entry.ref === control.ref
+        ? {
+          ...entry,
+          status: picked.status,
+          assertedBy: by,
+          ...(justification ? { justification } : {}),
+          transitions: [...entry.transitions, { at: now, status: picked.status, by }],
+        }
+        : entry),
+    };
+    await this.saveComplianceRegister(state.workspaceRoot, register, state.library, state.catalog, {
+      id: `status-${payload.regimeId}-${control.ref}-${Date.now()}`,
+      kind: 'status-set',
+      summary: `${control.ref} set to ${COMPLIANCE_CONTROL_STATUS_LABEL[picked.status]}.`,
+      regimeId: state.catalog.policyId,
+      controlRef: control.ref,
+      actorContactId: by.contactId,
+      at: now,
+    });
+  }
+
+  private async handleAttachComplianceEvidence(payload: { regimeId: string; controlRef: string }): Promise<void> {
+    const state = this.readComplianceState(payload.regimeId as ComplianceMethodologyId);
+    if (!state || state.readOnly) {
+      return;
+    }
+    const record = state.register.controls.find(entry => entry.ref === payload.controlRef);
+    if (!record) {
+      return;
+    }
+    const available = state.library.evidence
+      .filter(entry => !entry.retiredAt && !record.evidenceIds.includes(entry.id));
+    if (available.length === 0) {
+      await vscode.window.showInformationMessage(
+        'Nothing else is on file to attach. Record a new piece of evidence instead.',
+        { modal: true },
+      );
+      return;
+    }
+    const picked = await vscode.window.showQuickPick(
+      available.map(entry => ({
+        label: entry.title,
+        description: EVIDENCE_KIND_LABEL[entry.kind],
+        detail: entry.locator.kind === 'described' ? entry.locator.where : undefined,
+        id: entry.id,
+      })),
+      { title: `Attach to ${payload.controlRef}`, ignoreFocusOut: true },
+    );
+    if (!picked) {
+      return;
+    }
+    const register: ComplianceRegimeRegister = {
+      ...state.register,
+      controls: state.register.controls.map(entry => entry.ref === payload.controlRef
+        ? { ...entry, evidenceIds: [...entry.evidenceIds, picked.id] }
+        : entry),
+    };
+    await this.saveComplianceRegister(state.workspaceRoot, register, state.library, state.catalog, {
+      id: `attach-${picked.id}-${Date.now()}`,
+      kind: 'evidence-attached',
+      summary: `Attached "${picked.label}" to ${payload.controlRef}.`,
+      regimeId: state.catalog.policyId,
+      controlRef: payload.controlRef,
+      evidenceId: picked.id,
+      at: new Date().toISOString(),
+    });
+  }
+
+  private async handleDetachComplianceEvidence(
+    payload: { regimeId: string; controlRef: string; evidenceId: string },
+  ): Promise<void> {
+    const state = this.readComplianceState(payload.regimeId as ComplianceMethodologyId);
+    if (!state || state.readOnly) {
+      return;
+    }
+    const register: ComplianceRegimeRegister = {
+      ...state.register,
+      controls: state.register.controls.map(entry => entry.ref === payload.controlRef
+        ? { ...entry, evidenceIds: entry.evidenceIds.filter(id => id !== payload.evidenceId) }
+        : entry),
+    };
+    await this.saveComplianceRegister(state.workspaceRoot, register, state.library, state.catalog, {
+      id: `detach-${payload.evidenceId}-${Date.now()}`,
+      kind: 'evidence-detached',
+      summary: `Detached a record from ${payload.controlRef}.`,
+      regimeId: state.catalog.policyId,
+      controlRef: payload.controlRef,
+      evidenceId: payload.evidenceId,
+      at: new Date().toISOString(),
+    });
+  }
+
+  private async handleOpenComplianceEvidence(payload: { evidenceId: string }): Promise<void> {
+    const workspaceRoot = vscode.workspace.workspaceFolders?.[0]?.uri.fsPath;
+    if (!workspaceRoot) {
+      return;
+    }
+    const read = readComplianceEvidenceFile(workspaceRoot);
+    const library = read.config ? sanitizeComplianceEvidenceLibrary(read.config, new Date()) : undefined;
+    const entry = library?.evidence.find(record => record.id === payload.evidenceId);
+    if (!entry) {
+      return;
+    }
+    if (entry.locator.kind === 'workspace-file') {
+      await this.openWorkspaceRelativeFile(entry.locator.path);
+      return;
+    }
+    if (entry.locator.kind === 'url') {
+      const open = 'Open';
+      const choice = await vscode.window.showInformationMessage(
+        `Open ${entry.locator.url}?`,
+        { modal: true, detail: 'This leaves VS Code and opens your browser.' },
+        open,
+      );
+      if (choice === open) {
+        await vscode.env.openExternal(vscode.Uri.parse(entry.locator.url));
+      }
+      return;
+    }
+    // Nothing to open, and saying so is better than pretending otherwise.
+    await vscode.window.showInformationMessage(
+      `"${entry.title}" is held elsewhere.`,
+      { modal: true, detail: entry.locator.where },
+    );
+  }
+
+  private async handleRenewComplianceEvidence(payload: { evidenceId: string }): Promise<void> {
+    const workspaceRoot = vscode.workspace.workspaceFolders?.[0]?.uri.fsPath;
+    if (!workspaceRoot) {
+      return;
+    }
+    const read = readComplianceEvidenceFile(workspaceRoot);
+    if (read.preserveExisting) {
+      return;
+    }
+    const library = read.config ? sanitizeComplianceEvidenceLibrary(read.config, new Date()) : undefined;
+    const entry = library?.evidence.find(record => record.id === payload.evidenceId);
+    if (!library || !entry) {
+      return;
+    }
+    const validUntil = await vscode.window.showInputBox({
+      title: `New expiry for "${entry.title}" (YYYY-MM-DD)`,
+      value: entry.validUntil?.slice(0, 10) ?? '',
+      ignoreFocusOut: true,
+      validateInput: value => !value.trim() || Number.isFinite(Date.parse(value)) ? undefined : 'Use YYYY-MM-DD.',
+    });
+    if (validUntil === undefined) {
+      return;
+    }
+    const by = await this.pickComplianceAsserter(workspaceRoot);
+    if (!by) {
+      return;
+    }
+    const now = new Date().toISOString();
+    const updated = sanitizeComplianceEvidenceLibrary({
+      version: 1,
+      evidence: library.evidence.map(record => record.id === entry.id
+        ? {
+          ...record,
+          assertedBy: by,
+          ...(validUntil.trim() ? { validUntil: new Date(Date.parse(validUntil)).toISOString() } : {}),
+          updatedAt: now,
+        }
+        : record),
+      updatedAt: now,
+    }, new Date());
+    writeComplianceEvidenceLibrary(workspaceRoot, updated, [], new Date());
+    appendComplianceHistory(workspaceRoot, {
+      id: `renew-${entry.id}-${Date.now()}`,
+      kind: 'evidence-renewed',
+      summary: `Renewed "${entry.title}".`,
+      evidenceId: entry.id,
+      actorContactId: by.contactId,
+      at: now,
+    });
+    await this.syncState();
+  }
+
+  private async handleRecordComplianceReview(payload: { regimeId: string }): Promise<void> {
+    const state = this.readComplianceState(payload.regimeId as ComplianceMethodologyId);
+    if (!state || state.readOnly) {
+      return;
+    }
+    const scope = await vscode.window.showInputBox({
+      title: `What did this ${state.catalog.regime} review cover?`,
+      ignoreFocusOut: true,
+      validateInput: value => value.trim().length < 10 ? 'Say what was reviewed.' : undefined,
+    });
+    if (!scope) {
+      return;
+    }
+    const by = await this.pickComplianceAsserter(state.workspaceRoot);
+    if (!by) {
+      return;
+    }
+    const now = new Date().toISOString();
+    await this.saveComplianceRegister(
+      state.workspaceRoot,
+      { ...state.register, reviews: [{ at: now, by, scope: scope.trim() }, ...state.register.reviews] },
+      state.library,
+      state.catalog,
+      {
+        id: `review-${payload.regimeId}-${Date.now()}`,
+        kind: 'reviewed',
+        summary: `Recorded a review of ${state.catalog.regime}.`,
+        regimeId: state.catalog.policyId,
+        actorContactId: by.contactId,
+        at: now,
+      },
+    );
+  }
+
+  /** Create-only, then open. A notes file that exists is never rewritten. */
+  private async handleOpenComplianceNotes(payload: { regimeId: string }): Promise<void> {
+    const workspaceRoot = vscode.workspace.workspaceFolders?.[0]?.uri.fsPath;
+    const catalog = complianceCatalogFor(payload.regimeId as TestingMethodologyId);
+    if (!workspaceRoot || !catalog) {
+      return;
+    }
+    const relative = complianceRegimeNotesPath(catalog.policyId);
+    const absolute = path.join(workspaceRoot, relative);
+    if (!existsSync(absolute)) {
+      mkdirSync(path.dirname(absolute), { recursive: true });
+      writeFileSync(absolute, complianceNotesTemplate(catalog), 'utf8');
+    }
+    await this.openWorkspaceRelativeFile(relative);
+  }
+
+  /** Is this path tracked by git? "Could not check" is never "ignored". */
+  private async isTrackedByGit(workspaceRoot: string, relative: string): Promise<boolean> {
+    try {
+      await execFileAsync('git', ['check-ignore', '-q', relative], { cwd: workspaceRoot });
+      return false;
+    } catch (error) {
+      // Exit 1 means "not ignored", which is what we are warning about. Any
+      // other failure means git could not answer, and an unanswered question
+      // is not a clean bill of health.
+      const code = (error as { code?: number }).code;
+      return code === 1 || code === undefined;
+    }
+  }
+
   private async handleSetRiskFindingStatus(payload: { findingId: string; status: RiskStatus; note?: string }): Promise<void> {
     const workspaceRoot = vscode.workspace.workspaceFolders?.[0]?.uri.fsPath;
     const manager = this.atlas.riskOversightManager;
@@ -11843,7 +13017,7 @@ ${buildCardEvidenceSection(source, derivation)}`;
    */
   private async resolveDeliveryGuide(
     options: { includeWorkingTree?: boolean } = {},
-  ): Promise<{ guide: ProjectDeliveryGuide; workspaceRoot: string } | undefined> {
+  ): Promise<{ runbooks: DeliveryStageRunbookSet; workspaceRoot: string } | undefined> {
     const workspaceRoot = vscode.workspace.workspaceFolders?.[0]?.uri.fsPath;
     if (!workspaceRoot) {
       return undefined;
@@ -11852,44 +13026,71 @@ ${buildCardEvidenceSection(source, derivation)}`;
     const workingTreeDirty = options.includeWorkingTree
       ? await collectWorkingTreeDirty(workspaceRoot)
       : undefined;
-    const guide = await collectProjectDeliveryGuide(
+    const runbooks = await collectProjectDeliveryRunbooks(
       this.atlas,
       workspaceRoot,
       workingTreeDirty,
       workflows,
       this.atlas.deliveryManager?.getConfig() ?? undefined,
+      // The branch decides only which runbook *opens*; it changes no command,
+      // so an action against an already-open runbook does not pay for a git call.
+      undefined,
     );
-    return { guide, workspaceRoot };
+    return { runbooks, workspaceRoot };
   }
 
-  private async resolveDeliveryGuideCommand(stepId: string): Promise<{ label: string; command: string; workspaceRoot: string } | undefined> {
-    const resolved = await this.resolveDeliveryGuide();
-    if (!resolved) {
-      return undefined;
-    }
-    for (const phase of resolved.guide.phases) {
-      const step = phase.steps.find(candidate => candidate.id === stepId);
-      if (step?.command) {
-        return { label: step.label, command: step.command, workspaceRoot: resolved.workspaceRoot };
+  /**
+   * Find the one step a page-wide key names, and the runbook it belongs to.
+   *
+   * The scan is over every stage's runbook rather than one guide's phases,
+   * because the page now shows several. Matching is on `key`, which carries the
+   * stage id verbatim, so a key can name exactly one step across the whole set
+   * — addressing by `id` would let the Local runbook's "test" step resolve to
+   * whichever stage happened to be built first.
+   */
+  private findDeliveryGuideStep(
+    runbooks: DeliveryStageRunbookSet,
+    stepKey: string,
+  ): { step: DeliveryGuideStep; stageName: string } | undefined {
+    for (const runbook of runbooks.runbooks) {
+      for (const phase of runbook.guide.phases) {
+        const step = phase.steps.find(candidate => candidate.key === stepKey);
+        if (step) {
+          return { step, stageName: runbook.guide.stageName };
+        }
       }
     }
     return undefined;
   }
 
-  private async handleDiscussDeliveryGuideStep(stepId: string): Promise<void> {
+  private async resolveDeliveryGuideCommand(stepKey: string): Promise<{ label: string; command: string; workspaceRoot: string } | undefined> {
+    const resolved = await this.resolveDeliveryGuide();
+    if (!resolved) {
+      return undefined;
+    }
+    const found = this.findDeliveryGuideStep(resolved.runbooks, stepKey);
+    return found?.step.command
+      ? { label: found.step.label, command: found.step.command, workspaceRoot: resolved.workspaceRoot }
+      : undefined;
+  }
+
+  private async handleDiscussDeliveryGuideStep(stepKey: string): Promise<void> {
     // Discussion needs the live status, unlike copy/send where cleanliness
     // cannot change the command being resolved. Without this second bounded
     // read, a step the dashboard already knew was dirty became "unavailable"
     // at the exact boundary where Atlas was asked to resolve it.
     const resolved = await this.resolveDeliveryGuide({ includeWorkingTree: true });
-    const step = resolved?.guide.phases
-      .flatMap(phase => phase.steps)
-      .find(candidate => candidate.id === String(stepId ?? '') && candidate.status !== 'configured');
-    if (!step) {
+    const found = resolved ? this.findDeliveryGuideStep(resolved.runbooks, String(stepKey ?? '')) : undefined;
+    const step = found?.step.status !== 'configured' ? found?.step : undefined;
+    if (!step || !found) {
       vscode.window.setStatusBarMessage('AtlasMind: that runbook issue changed — refresh the Delivery page.', 4000);
       return;
     }
     const evidence = [
+      // The stage leads, because the same step label means different work on
+      // different runbooks and a resolution aimed at the wrong environment is
+      // the failure this whole change exists to prevent.
+      `Delivery stage: ${found.stageName}`,
       `Runbook step: ${step.label}`,
       `Current status: ${step.status}`,
       `Detected detail: ${step.detail}`,
@@ -11905,8 +13106,37 @@ ${buildCardEvidenceSection(source, derivation)}`;
     });
   }
 
-  private async handleCopyDeliveryCommand(stepId: string): Promise<void> {
-    const resolved = await this.resolveDeliveryGuideCommand(String(stepId ?? ''));
+  /**
+   * Hand one artifact-inventory row to chat.
+   *
+   * The row was a dead end in both directions: a missing `SECURITY.md` told you
+   * it was missing and left you to write it, and a present `README.md` said
+   * nothing about whether it still described the project — which, for a document
+   * nobody has re-read in months, is the question worth asking.
+   *
+   * The page sends an artifact id and nothing else, the same rule the delivery
+   * runbook follows. The host re-probes the inventory, resolves the id against
+   * it, and derives *which* of the three requests to make from the row's own
+   * facts — so a crafted message can name a row that does not exist, and can
+   * never choose to have a produced artifact authored.
+   */
+  private async handleDiscussArtifactSignal(artifactId: string): Promise<void> {
+    const workspaceRoot = vscode.workspace.workspaceFolders?.[0]?.uri.fsPath;
+    const artifacts = await collectArtifacts(workspaceRoot);
+    const artifact = artifacts.find(candidate => candidate.id === String(artifactId ?? ''));
+    if (!artifact) {
+      vscode.window.setStatusBarMessage('AtlasMind: that artifact row changed — refresh the Delivery page.', 4000);
+      return;
+    }
+    const request = buildArtifactCompliancePrompt(artifact);
+    await vscode.commands.executeCommand('atlasmind.openChatPanel', {
+      draftPrompt: request.prompt,
+      sendMode: 'new-session',
+    });
+  }
+
+  private async handleCopyDeliveryCommand(stepKey: string): Promise<void> {
+    const resolved = await this.resolveDeliveryGuideCommand(String(stepKey ?? ''));
     if (!resolved) {
       vscode.window.setStatusBarMessage('AtlasMind: that runbook step changed — refresh the Delivery page.', 4000);
       return;
@@ -11928,8 +13158,8 @@ ${buildCardEvidenceSection(source, derivation)}`;
    * missing newline, and a gate the user cannot reach without first clicking
    * somewhere else is one they learn to route around.
    */
-  private async handleSendDeliveryCommandToTerminal(stepId: string): Promise<void> {
-    const resolved = await this.resolveDeliveryGuideCommand(String(stepId ?? ''));
+  private async handleSendDeliveryCommandToTerminal(stepKey: string): Promise<void> {
+    const resolved = await this.resolveDeliveryGuideCommand(String(stepKey ?? ''));
     if (!resolved) {
       vscode.window.setStatusBarMessage('AtlasMind: that runbook step changed — refresh the Delivery page.', 4000);
       return;
@@ -11950,18 +13180,29 @@ ${buildCardEvidenceSection(source, derivation)}`;
    * not watch the output — so where the shell cannot chain with `&&`, a failing
    * check will not stop the packaging that follows it.
    */
-  private async handleRunDeliveryGuidePhase(phaseId: string): Promise<void> {
+  private async handleRunDeliveryGuidePhase(phaseKey: string): Promise<void> {
     const resolved = await this.resolveDeliveryGuide();
-    const phase = resolved?.guide.phases.find(candidate => candidate.id === String(phaseId ?? ''));
+    let phase: DeliveryGuidePhase | undefined;
+    let stageName: string | undefined;
+    for (const runbook of resolved?.runbooks.runbooks ?? []) {
+      const match = runbook.guide.phases.find(candidate => candidate.key === String(phaseKey ?? ''));
+      if (match) {
+        phase = match;
+        // Taken from the rebuilt runbook, never from the message: the stage the
+        // dialog names has to be the stage the commands came from.
+        stageName = runbook.guide.stageId ? runbook.guide.stageName : undefined;
+        break;
+      }
+    }
     if (!resolved || !phase) {
       vscode.window.setStatusBarMessage('AtlasMind: that runbook column changed — refresh the Delivery page.', 4000);
       return;
     }
 
-    const plan = buildDeliveryRunPlan(phase, vscode.env.shell);
+    const plan = buildDeliveryRunPlan(phase, vscode.env.shell, stageName);
     if (plan.commands.length === 0) {
       await vscode.window.showInformationMessage(
-        `The ${plan.phaseLabel} column has no detected command to run. Its steps are manual checks or missing evidence.`,
+        `The ${plan.phaseLabel} column${plan.stageLabel ? ` for ${plan.stageLabel}` : ''} has no detected command to run. Its steps are manual checks or missing evidence.`,
       );
       return;
     }
@@ -11982,7 +13223,7 @@ ${buildCardEvidenceSection(source, derivation)}`;
       terminal.sendText(line, true);
     }
     vscode.window.setStatusBarMessage(
-      `AtlasMind: running the ${plan.phaseLabel} column in the ${DELIVERY_RUN_TERMINAL_NAME} terminal.`,
+      `AtlasMind: running the ${plan.phaseLabel} column${plan.stageLabel ? ` for ${plan.stageLabel}` : ''} in the ${DELIVERY_RUN_TERMINAL_NAME} terminal.`,
       6000,
     );
   }
@@ -12348,6 +13589,79 @@ ${buildCardEvidenceSection(source, derivation)}`;
       await manager.save(clean);
       await vscode.commands.executeCommand('atlasmind.refreshProjectState');
       await this.syncState();
+    }
+  }
+
+  /**
+   * Write the derived vital-file owners into the Director's roster.
+   *
+   * The defaults are a *derivation* everywhere else: they follow the roster, so
+   * replacing the Director re-points every unassigned file at once and nothing
+   * is committed because a tab was opened. This is the one place they become
+   * records, and it is a deliberate act with a dialog in front of it, because
+   * `project-director.json` is git-tracked and these assignments are a statement
+   * about what people have agreed to.
+   *
+   * The rows come from a freshly rebuilt snapshot, never from the message: the
+   * page asks for the defaults to be recorded and cannot say who they name.
+   * Files whose owner was already recorded are untouched, and ids are derived
+   * from the file so running this twice updates rather than duplicates.
+   */
+  private async handleRecordVitalFileOwners(): Promise<void> {
+    const manager = this.atlas.projectDirectorManager;
+    const config = manager?.getConfig();
+    if (!manager || !config) {
+      return;
+    }
+    const report = this.lastSnapshot?.vitalFiles;
+    if (!report) {
+      vscode.window.setStatusBarMessage('AtlasMind: refresh the Delivery page and try again.', 4000);
+      return;
+    }
+    if (report.blocker) {
+      await vscode.window.showWarningMessage(report.blocker);
+      return;
+    }
+    const additions = buildVitalFileAssignments(report, new Date());
+    if (additions.length === 0) {
+      await vscode.window.showInformationMessage('Every vital file already has a recorded owner. Nothing to write.');
+      return;
+    }
+    const ownerName = report.defaultOwner?.contactName ?? 'the default owner';
+    const confirm = `Record ${additions.length}`;
+    const choice = await vscode.window.showWarningMessage(
+      `Record ${ownerName} as the owner of ${additions.length} vital file${additions.length === 1 ? '' : 's'}?`,
+      {
+        modal: true,
+        detail: [
+          `This writes ${additions.length} assignment${additions.length === 1 ? '' : 's'} into ${PROJECT_DIRECTOR_SSOT_PATH}, which is committed to the repository:`,
+          '',
+          ...additions.slice(0, 12).map(entry => `• ${entry.title}`),
+          ...(additions.length > 12 ? [`• and ${additions.length - 12} more`] : []),
+          '',
+          'Until you do this the owner is derived and follows the roster, so replacing the Director re-points every one of them. A recorded owner does not: it keeps naming this person until somebody changes it.',
+        ].join('\n'),
+      },
+      confirm,
+    );
+    if (choice !== confirm) {
+      return;
+    }
+    const assignments = [...config.assignments];
+    for (const addition of additions) {
+      const existing = assignments.findIndex(assignment => assignment.id === addition.id);
+      if (existing >= 0) {
+        assignments[existing] = { ...assignments[existing], ...addition, createdAt: assignments[existing]!.createdAt };
+      } else {
+        assignments.push(addition);
+      }
+    }
+    const clean = sanitizeProjectDirectorConfig({ ...config, assignments });
+    if (clean) {
+      await manager.save(clean);
+      await vscode.commands.executeCommand('atlasmind.refreshProjectState');
+      await this.syncState();
+      vscode.window.setStatusBarMessage(`AtlasMind: recorded ${additions.length} vital-file owner${additions.length === 1 ? '' : 's'}.`, 5000);
     }
   }
 
@@ -12866,7 +14180,7 @@ export function isProjectDashboardMessage(message: unknown): message is ProjectD
   if (candidate['type'] === 'saveBranchPreferences') {
     return normalizeBranchDashboardPreferences(candidate['payload']) !== undefined;
   }
-  if (candidate['type'] === 'ready' || candidate['type'] === 'refresh' || candidate['type'] === 'fetchBranches' || candidate['type'] === 'runGapAnalysis' || candidate['type'] === 'markDeliveryReviewed' || candidate['type'] === 'reimportDelivery' || candidate['type'] === 'seedDirectorFromRepo' || candidate['type'] === 'seedDocumentsFromRepo' || candidate['type'] === 'createRoadmapGate' || candidate['type'] === 'importRoadmap' || candidate['type'] === 'discussDashboardError') {
+  if (candidate['type'] === 'ready' || candidate['type'] === 'refresh' || candidate['type'] === 'fetchBranches' || candidate['type'] === 'runGapAnalysis' || candidate['type'] === 'markDeliveryReviewed' || candidate['type'] === 'reimportDelivery' || candidate['type'] === 'seedDirectorFromRepo' || candidate['type'] === 'seedDocumentsFromRepo' || candidate['type'] === 'createRoadmapGate' || candidate['type'] === 'importRoadmap' || candidate['type'] === 'recordVitalFileOwners' || candidate['type'] === 'discussDashboardError') {
     return true;
   }
 
@@ -13295,7 +14609,7 @@ export function isProjectDashboardMessage(message: unknown): message is ProjectD
     return typeof candidate['payload'] === 'string' && slugifyGateId(candidate['payload']).length > 0;
   }
 
-  if ((candidate['type'] === 'openCommand' || candidate['type'] === 'openSettingKey' || candidate['type'] === 'openFile' || candidate['type'] === 'openRun' || candidate['type'] === 'openRunWithGoal' || candidate['type'] === 'openSession' || candidate['type'] === 'addressGap' || candidate['type'] === 'resolveGapItem' || candidate['type'] === 'resolveGapGroup' || candidate['type'] === 'openGapFiles' || candidate['type'] === 'copyContact' || candidate['type'] === 'copyDeliveryCommand' || candidate['type'] === 'sendDeliveryCommandToTerminal' || candidate['type'] === 'runDeliveryGuidePhase' || candidate['type'] === 'discussDeliveryGuideStep' || candidate['type'] === 'createShelfFolder') && typeof candidate['payload'] === 'string') {
+  if ((candidate['type'] === 'openCommand' || candidate['type'] === 'openSettingKey' || candidate['type'] === 'openFile' || candidate['type'] === 'openRun' || candidate['type'] === 'openRunWithGoal' || candidate['type'] === 'openSession' || candidate['type'] === 'addressGap' || candidate['type'] === 'resolveGapItem' || candidate['type'] === 'resolveGapGroup' || candidate['type'] === 'openGapFiles' || candidate['type'] === 'copyContact' || candidate['type'] === 'copyDeliveryCommand' || candidate['type'] === 'sendDeliveryCommandToTerminal' || candidate['type'] === 'runDeliveryGuidePhase' || candidate['type'] === 'discussDeliveryGuideStep' || candidate['type'] === 'discussArtifactSignal' || candidate['type'] === 'createShelfFolder') && typeof candidate['payload'] === 'string') {
     return candidate['payload'].trim().length > 0;
   }
 
@@ -13388,6 +14702,42 @@ export function isProjectDashboardMessage(message: unknown): message is ProjectD
 
   if (candidate['type'] === 'setRiskFilter') {
     return typeof candidate['payload'] === 'string';
+  }
+
+  // Compliance. A closed vocabulary for the regime, a charset-constrained
+  // control reference, and an id shape for evidence — then the host re-resolves
+  // all three against the register it just read. An unknown id is a stale view
+  // rather than a fault, and resolves to nothing.
+  //
+  // Written as one comparison per message rather than a membership test on a
+  // Set: `dashboardMessageParity` reads this function's source for
+  // `candidate['type'] === '…'` literals, and a Set is invisible to it — the
+  // gate would be real and the parity test would report it missing.
+  if (candidate['type'] === 'complianceNextControl'
+    || candidate['type'] === 'importComplianceMapping'
+    || candidate['type'] === 'createComplianceRegister'
+    || candidate['type'] === 'decideComplianceScope'
+    || candidate['type'] === 'openComplianceNotes'
+    || candidate['type'] === 'recordComplianceReview') {
+    const p = candidate['payload'] as Record<string, unknown> | undefined;
+    return typeof p === 'object' && p !== null && isComplianceRegimeId(p['regimeId']);
+  }
+  if (candidate['type'] === 'recordComplianceEvidence'
+    || candidate['type'] === 'attachComplianceEvidence'
+    || candidate['type'] === 'setComplianceControlStatus') {
+    const p = candidate['payload'] as Record<string, unknown> | undefined;
+    return typeof p === 'object' && p !== null
+      && isComplianceRegimeId(p['regimeId']) && isComplianceControlRef(p['controlRef']);
+  }
+  if (candidate['type'] === 'detachComplianceEvidence') {
+    const p = candidate['payload'] as Record<string, unknown> | undefined;
+    return typeof p === 'object' && p !== null
+      && isComplianceRegimeId(p['regimeId']) && isComplianceControlRef(p['controlRef'])
+      && isComplianceEvidenceId(p['evidenceId']);
+  }
+  if (candidate['type'] === 'openComplianceEvidence' || candidate['type'] === 'renewComplianceEvidence') {
+    const p = candidate['payload'] as Record<string, unknown> | undefined;
+    return typeof p === 'object' && p !== null && isComplianceEvidenceId(p['evidenceId']);
   }
 
   if (candidate['type'] === 'openContactDeepLink') {
@@ -14018,7 +15368,13 @@ function buildReleaseSnapshot(input: {
     // no file would be a gate nobody could ever satisfy.
     ...(input.testingCoverage === undefined ? {} : {
       testingEvidence: (() => {
-        const assessable = input.testingCoverage.rows.filter(row => row.status !== 'not-file-evident');
+        // `governed` joins `not-file-evident` here: neither is a thing a test
+        // file can speak to, and a denominator including them is a target the
+        // tree can never reach. A regime's own standing is on the Compliance
+        // page, and deliberately does not gate a release — a gate that blocks
+        // shipping on ISO 27001 is an unshippable product.
+        const assessable = input.testingCoverage.rows
+          .filter(row => row.status !== 'not-file-evident' && row.status !== 'governed');
         return {
           assessable: assessable.length,
           evidenced: assessable.filter(row => row.status === 'covered').length,
@@ -14247,6 +15603,182 @@ export function parseGhReleaseList(raw: string): MetricReleaseInput[] {
   return out;
 }
 
+/** Resolve the declaration once so every migrated surface sees the same roots. */
+async function collectDashboardWorkspaceScope(composition?: ProjectComposition): Promise<WorkspaceScope> {
+  const folders = await Promise.all((vscode.workspace.workspaceFolders ?? []).map(async folder => {
+    const supportedScheme = folder.uri.scheme === 'file' || folder.uri.scheme === 'vscode-remote';
+    const readable = supportedScheme
+      ? await fs.access(folder.uri.fsPath).then(() => true).catch(() => false)
+      : false;
+    return {
+      name: folder.name,
+      fsPath: folder.uri.fsPath,
+      readable,
+    };
+  }));
+  return resolveWorkspaceScope(
+    folders,
+    composition,
+    composition ? { kind: 'all' } : { kind: 'default' },
+  );
+}
+
+function describeMissingComponent(reason: 'not-open' | 'unreadable' | 'ambiguous'): string {
+  if (reason === 'not-open') {
+    return 'The declared component is not open in this workspace.';
+  }
+  if (reason === 'ambiguous') {
+    return 'More than one workspace folder matches this declared component.';
+  }
+  return 'The workspace folder could not be read.';
+}
+
+/** Git is asked only for components that declare Git. Everything else refuses a count. */
+async function collectComponentGitReadings(
+  scope: WorkspaceScope,
+  composition: ProjectComposition,
+): Promise<ComponentGitReading[]> {
+  const roots = new Map(scope.roots.map(root => [root.componentId, root]));
+  const unknown = new Map(scope.unknown.map(entry => [entry.componentId, entry]));
+  return Promise.all(composition.components.map(async component => {
+    const identity: DashboardComponentScopeIdentity = {
+      componentId: component.id,
+      componentLabel: component.label,
+      vcs: component.vcs,
+    };
+    const missing = unknown.get(component.id);
+    if (missing) {
+      return { ...identity, visibility: 'not-visible', reason: describeMissingComponent(missing.reason) };
+    }
+    const root = roots.get(component.id);
+    if (!root) {
+      return { ...identity, visibility: 'not-visible', reason: 'No opened workspace root resolved for this component.' };
+    }
+    if (component.vcs !== 'git') {
+      return {
+        ...identity,
+        visibility: 'not-visible',
+        reason: `Git status is not visible because this component declares ${component.vcs} version control.`,
+      };
+    }
+    const snapshot = await collectGitSnapshot(root.fsPath);
+    if (snapshot.currentBranch === 'Not a git repository') {
+      return {
+        ...identity,
+        visibility: 'not-visible',
+        reason: 'The component declares Git, but its repository metadata could not be read.',
+      };
+    }
+    return { ...identity, visibility: 'visible', rootPath: root.fsPath, snapshot };
+  }));
+}
+
+async function collectComponentCiReadings(
+  gitReadings: readonly ComponentGitReading[],
+): Promise<DashboardComponentCiReading[]> {
+  return Promise.all(gitReadings.map(async reading => {
+    const identity: DashboardComponentScopeIdentity = {
+      componentId: reading.componentId,
+      componentLabel: reading.componentLabel,
+      vcs: reading.vcs,
+    };
+    if (reading.visibility === 'not-visible') {
+      return { ...identity, visibility: 'not-visible', reason: reading.reason };
+    }
+    const workflows = await collectWorkflowSnapshot(reading.rootPath);
+    return {
+      ...identity,
+      visibility: 'visible',
+      workflows,
+      assessment: assessCiPortfolio(workflows),
+    };
+  }));
+}
+
+function dashboardRepoReadings(readings: readonly ComponentGitReading[]): DashboardComponentRepoReading[] {
+  return readings.map(reading => reading.visibility === 'not-visible'
+    ? {
+      componentId: reading.componentId,
+      componentLabel: reading.componentLabel,
+      vcs: reading.vcs,
+      visibility: 'not-visible',
+      reason: reading.reason,
+    }
+    : {
+      componentId: reading.componentId,
+      componentLabel: reading.componentLabel,
+      vcs: reading.vcs,
+      visibility: 'visible',
+      currentBranch: reading.snapshot.currentBranch,
+      ahead: reading.snapshot.ahead,
+      behind: reading.snapshot.behind,
+      staged: reading.snapshot.staged,
+      modified: reading.snapshot.modified,
+      untracked: reading.snapshot.untracked,
+      dirty: reading.snapshot.dirty,
+    });
+}
+
+function buildIssueComponentReadings(
+  gitReadings: readonly ComponentGitReading[],
+  homeComponentId: string,
+  issues: DashboardIssuesSnapshot,
+): ComponentIssueTrackerReading[] {
+  return gitReadings.map(reading => {
+    const identity = {
+      componentId: reading.componentId,
+      componentLabel: reading.componentLabel,
+      vcs: reading.vcs,
+    };
+    if (reading.visibility === 'not-visible') {
+      return notVisibleComponentIssues(identity, reading.reason);
+    }
+    if (reading.componentId !== homeComponentId) {
+      return notVisibleComponentIssues(
+        identity,
+        'This refresh reads the detailed issue board for the home component only.',
+      );
+    }
+    if (issues.status !== 'ready' || !issues.repoSlug) {
+      return notVisibleComponentIssues(identity, issues.detail);
+    }
+    return visibleComponentIssues(identity, issues.repoSlug, issues.issues, Date.now());
+  });
+}
+
+function buildObservedScope(
+  readings: readonly ComponentGitReading[],
+  homeComponentId: string,
+): ObservedScope | undefined {
+  if (readings.length === 0) {
+    return undefined;
+  }
+  const home = readings.find(reading => reading.componentId === homeComponentId);
+  const visibleHome = home?.visibility === 'visible';
+  const label = `${home?.componentLabel ?? 'Home component'} (${visibleHome ? 1 : 0} of ${readings.length} declared components observed)`;
+  return {
+    label,
+    components: readings.map(reading => reading.componentId === homeComponentId && reading.visibility === 'visible'
+      ? {
+        componentId: reading.componentId,
+        componentLabel: reading.componentLabel,
+        vcs: reading.vcs,
+        visibility: 'visible',
+      }
+      : {
+        componentId: reading.componentId,
+        componentLabel: reading.componentLabel,
+        vcs: reading.vcs,
+        visibility: 'not-visible',
+        reason: reading.componentId === homeComponentId
+          ? reading.visibility === 'not-visible' ? reading.reason : 'The home component could not be observed.'
+          : reading.visibility === 'not-visible'
+            ? reading.reason
+            : 'This delta currently compares the home component; this component is outside that reading.',
+      }),
+  };
+}
+
 async function collectDashboardSnapshot(
   atlas: AtlasMindContext,
   ideationAttachments: TaskImageAttachment[] = [],
@@ -14282,12 +15814,24 @@ async function collectDashboardSnapshot(
   // Per-developer build history, read from workspaceState by the panel.
   localBuilds: readonly CiBuildRecord[] = [],
 ): Promise<DashboardSnapshot> {
-  const workspaceFolder = vscode.workspace.workspaceFolders?.[0];
-  const workspaceRoot = workspaceFolder?.uri.fsPath;
-  const workspaceName = workspaceFolder?.name ?? 'No Workspace';
+  const firstWorkspaceFolder = vscode.workspace.workspaceFolders?.[0];
+  const declaredComposition = workflowConfigManager?.getConfig()?.composition;
+  const declaredScope = await collectDashboardWorkspaceScope(declaredComposition);
+  const homeComponentId = declaredComposition?.components.find(component => component.home)?.id;
+  const homeScopeRoot = homeComponentId
+    ? declaredScope.roots.find(root => root.componentId === homeComponentId)
+    : declaredScope.roots[0];
+  // A declared home is authoritative. Falling back to the first folder when it
+  // is missing would silently read a different component's SSOT and counts.
+  const workspaceRoot = declaredComposition ? homeScopeRoot?.fsPath : firstWorkspaceFolder?.uri.fsPath;
+  const workspaceFolder = (vscode.workspace.workspaceFolders ?? [])
+    .find(folder => folder.uri.fsPath === workspaceRoot) ?? firstWorkspaceFolder;
+  const workspaceName = firstWorkspaceFolder?.name ?? 'No Workspace';
   const configuration = vscode.workspace.getConfiguration('atlasmind');
   const ssotPath = normalizeSsotPath(configuration.get<string>('ssotPath', 'project_memory'));
-  const workspaceRootLabel = workspaceRoot ? path.basename(workspaceRoot) : 'No folder open';
+  const workspaceRootLabel = workspaceRoot
+    ? path.basename(workspaceRoot)
+    : declaredComposition ? 'Home component not visible' : 'No folder open';
   const lensDeclarations = inspectLensDeclarations(
     workspaceFolder?.uri.scheme === 'file' || workspaceFolder?.uri.scheme === 'vscode-remote'
       ? workspaceRoot
@@ -14295,10 +15839,40 @@ async function collectDashboardSnapshot(
   );
   const activeIdeationWorkspace = await loadActiveIdeationWorkspace(workspaceRoot, ssotPath);
 
-  const [gitSnapshot, packageSnapshot, workflowSnapshot, ssotSnapshot, ideationBoard, roadmapSnapshot] = await Promise.all([
-    collectGitSnapshot(workspaceRoot),
+  const componentGitPromise = declaredComposition
+    ? collectComponentGitReadings(declaredScope, declaredComposition)
+    : Promise.resolve([] as ComponentGitReading[]);
+  const componentCiPromise = componentGitPromise.then(readings => declaredComposition
+    ? collectComponentCiReadings(readings)
+    : [] as DashboardComponentCiReading[]);
+  const gitSnapshotPromise = declaredComposition
+    ? componentGitPromise.then(readings => {
+      const home = readings.find(reading => reading.componentId === homeComponentId);
+      return home?.visibility === 'visible' ? home.snapshot : emptyGitSnapshot();
+    })
+    : collectGitSnapshot(workspaceRoot);
+  const workflowSnapshotPromise = declaredComposition
+    ? componentCiPromise.then(readings => {
+      const home = readings.find(reading => reading.componentId === homeComponentId);
+      return home?.visibility === 'visible' ? home.workflows : [];
+    })
+    : collectWorkflowSnapshot(workspaceRoot);
+
+  const [
+    componentGitReadings,
+    componentCiReadings,
+    gitSnapshot,
+    packageSnapshot,
+    workflowSnapshot,
+    ssotSnapshot,
+    ideationBoard,
+    roadmapSnapshot,
+  ] = await Promise.all([
+    componentGitPromise,
+    componentCiPromise,
+    gitSnapshotPromise,
     collectPackageSnapshot(workspaceRoot),
-    collectWorkflowSnapshot(workspaceRoot),
+    workflowSnapshotPromise,
     collectSsotSnapshot(workspaceRoot, ssotPath),
     loadIdeationBoard(workspaceRoot, ssotPath, activeIdeationWorkspace),
     collectRoadmapSnapshot(workspaceRoot, ssotPath),
@@ -14309,12 +15883,13 @@ async function collectDashboardSnapshot(
   );
   const versionSnapshot = await collectVersionSnapshot(workspaceRoot, gitSnapshot.currentBranch, packageSnapshot.version);
   const stagePipeline = await collectDeliveryStagePipeline(atlas, workspaceRoot, gitSnapshot.currentBranch, workflowSnapshot.map(workflow => workflow.name));
-  const deliveryGuide = await collectProjectDeliveryGuide(
+  const deliveryRunbooks = await collectProjectDeliveryRunbooks(
     atlas,
     workspaceRoot,
     gitSnapshot.dirty,
     workflowSnapshot,
     stagePipeline.config ?? undefined,
+    gitSnapshot.currentBranch,
   );
   const hasQualityCi = workflowSnapshot.some(workflow => workflow.role === 'quality'
     || workflow.id.toLowerCase() === 'ci.yml' || workflow.id.toLowerCase() === 'ci.yaml');
@@ -14355,6 +15930,7 @@ async function collectDashboardSnapshot(
   const directorSnapshot = await collectDirectorSnapshot(atlas, workspaceRoot, gitSnapshot.currentBranch, runs);
   const documentsSnapshot = await collectDocumentsSnapshot(atlas, workspaceRoot);
   const riskSnapshot = collectRiskSnapshot(atlas, workspaceRoot);
+  const complianceSnapshot = collectComplianceSnapshot(atlas, workspaceRoot);
   const runtimeTdd = summarizeRuntimeTdd(runs);
   const contributorBreakdown = buildContributorSeries(gitSnapshot.commitLog, SERIES_DAY_RANGE);
   const costSummary = atlas.costTracker.getSummary();
@@ -14480,7 +16056,10 @@ async function collectDashboardSnapshot(
     // contradict the page the score links to.
     ...(testingSnapshot.policyCoverage === undefined ? {} : {
       testing: (() => {
-        const assessableRows = testingSnapshot.policyCoverage.rows.filter(row => row.status !== 'not-file-evident');
+        // See the release gate: a governance regime is graded on its register,
+        // not on whether a file in the tree matched its name.
+        const assessableRows = testingSnapshot.policyCoverage.rows
+          .filter(row => row.status !== 'not-file-evident' && row.status !== 'governed');
         return {
           assessable: assessableRows.length,
           evidenced: assessableRows.filter(row => row.status === 'covered').length,
@@ -14493,6 +16072,11 @@ async function collectDashboardSnapshot(
   const repoLabel = workspaceRoot && gitSnapshot.currentBranch !== 'Not a git repository'
     ? `${workspaceRootLabel} • ${gitSnapshot.currentBranch}`
     : workspaceRootLabel;
+  const homeComponentLabel = declaredComposition?.components.find(component => component.id === homeComponentId)?.label;
+  const repoScopeLabel = homeComponentLabel ? `${homeComponentLabel} home component` : undefined;
+  const observedScope = homeComponentId
+    ? buildObservedScope(componentGitReadings, homeComponentId)
+    : undefined;
 
   // Normalise to /100 from the components actually present rather than assuming the
   // maxScores happen to sum to 100. They did by convention, but nothing enforced it,
@@ -14510,7 +16094,8 @@ async function collectDashboardSnapshot(
       id: 'health',
       label: 'Operational Health',
       value: `${normalizedHealthScore}`,
-      detail: `Composite score across ${scoreBreakdown.components.length} operational dimensions, including ${outcomeCompleteness.score}% outcome completeness.`,
+      detail: `Composite score across ${scoreBreakdown.components.length} operational dimensions, including ${outcomeCompleteness.score}% outcome completeness.`
+        + (repoScopeLabel ? ` Git and CI inputs are scoped to the ${repoScopeLabel}.` : ''),
       tone: blockedEntries > 0 || autopilot ? 'warn' : outcomeCompleteness.score >= 75 ? 'good' : 'accent',
       pageTarget: 'score',
     },
@@ -14518,7 +16103,8 @@ async function collectDashboardSnapshot(
       id: 'branch',
       label: 'Branch State',
       value: gitSnapshot.currentBranch,
-      detail: `${gitSnapshot.staged + gitSnapshot.modified + gitSnapshot.untracked} pending file changes, ${gitSnapshot.ahead} ahead / ${gitSnapshot.behind} behind.`,
+      detail: `${gitSnapshot.staged + gitSnapshot.modified + gitSnapshot.untracked} pending file changes, ${gitSnapshot.ahead} ahead / ${gitSnapshot.behind} behind.`
+        + (repoScopeLabel ? ` Scope: ${repoScopeLabel}.` : ''),
       tone: gitSnapshot.dirty ? 'warn' : 'good',
       pageTarget: 'branches',
     },
@@ -14560,7 +16146,8 @@ async function collectDashboardSnapshot(
       id: 'delivery',
       label: 'Delivery Flow',
       value: `${workflowSnapshot.length} workflow${workflowSnapshot.length === 1 ? '' : 's'}`,
-      detail: `${packageSnapshot.keyScripts.length} critical scripts, ${governanceProviders.length} governance provider${governanceProviders.length === 1 ? '' : 's'}.`,
+      detail: `${packageSnapshot.keyScripts.length} critical scripts, ${governanceProviders.length} governance provider${governanceProviders.length === 1 ? '' : 's'}.`
+        + (repoScopeLabel ? ` Workflow count: ${repoScopeLabel}.` : ''),
       tone: workflowSnapshot.length > 0 ? 'good' : 'warn',
       pageTarget: 'delivery',
     },
@@ -14612,15 +16199,26 @@ async function collectDashboardSnapshot(
   const securityReview = workspaceRoot ? readSecurityReviewConfig(workspaceRoot) : undefined;
   const securityFindings = securityReview ? openSecurityFindings(securityReview) : [];
   const roadmapWithIdeation = withIdeationOrigins(roadmapSnapshot, ideationBoard);
+  const issueComponentReadings = homeComponentId
+    ? buildIssueComponentReadings(componentGitReadings, homeComponentId, issues)
+    : undefined;
+  const dashboardIssues: DashboardIssuesSnapshot = issueComponentReadings
+    ? {
+      ...issues,
+      componentReadings: issueComponentReadings,
+      componentPortfolio: summarizeComponentIssuePortfolio(issueComponentReadings),
+      ...(homeComponentLabel ? { scopeLabel: `${homeComponentLabel} home component` } : {}),
+    }
+    : issues;
   const branchDashboard = deriveBranchDashboard({
     branches: branchInventory.items,
     ...(pullRequests === undefined ? {} : { pullRequests }),
     ...(ci?.branchRuns === undefined ? {} : { ciRuns: ci.branchRuns }),
-    issuesLoaded: issues.status === 'ready',
-    issues: issues.issues,
+    issuesLoaded: dashboardIssues.status === 'ready',
+    issues: dashboardIssues.issues,
     roadmapItems: roadmapWithIdeation.items,
     reviewComments,
-    ...(issues.viewerLogin ? { viewerLogin: issues.viewerLogin } : {}),
+    ...(dashboardIssues.viewerLogin ? { viewerLogin: dashboardIssues.viewerLogin } : {}),
     ...(gitSnapshot.gitUserName ? { gitUserName: gitSnapshot.gitUserName } : {}),
   });
   const enrichedBranchInventory: DashboardBranchesSnapshot = {
@@ -14664,7 +16262,7 @@ async function collectDashboardSnapshot(
   // Named rather than returned directly so the attention feed can be derived
   // from the finished snapshot — reading the same fields the pages render is
   // what stops the Overview and the page it links to disagreeing.
-  const snapshot: Omit<DashboardSnapshot, 'attention' | 'workAssignments'> = {
+  const snapshot: Omit<DashboardSnapshot, 'attention' | 'workAssignments' | 'vitalFiles'> = {
     generatedAt: new Date().toISOString(),
     ssotPresent: ssotSnapshot.totalFiles > 0 || memoryEntries.length > 0,
     workspaceName,
@@ -14703,6 +16301,8 @@ async function collectDashboardSnapshot(
       contributorTotal: contributorBreakdown.totalCommits,
     },
     repo: {
+      ...(repoScopeLabel === undefined ? {} : { scopeLabel: repoScopeLabel }),
+      ...(declaredComposition === undefined ? {} : { components: dashboardRepoReadings(componentGitReadings) }),
       dirty: gitSnapshot.dirty,
       ahead: gitSnapshot.ahead,
       behind: gitSnapshot.behind,
@@ -14792,6 +16392,7 @@ async function collectDashboardSnapshot(
       entries: sortDebtEntries(debt?.register.entries ?? []),
       metrics: deriveDebtMetrics(debt?.register ?? { version: 1, entries: [] }, Date.now()),
       ...(debt?.register.lastScanAt === undefined ? {} : { lastScanAt: debt.register.lastScanAt }),
+      ...(debt?.register.lastScanScope === undefined ? {} : { lastScanScope: debt.register.lastScanScope }),
       // The project's own marker rules are published alongside the shipped
       // ones. A grade whose rule is not on the page is a grade nobody can
       // check, which is the same as no rule at all.
@@ -14827,7 +16428,7 @@ async function collectDashboardSnapshot(
       releaseBranch: workflowConfigManager?.getConfig()?.branches.release ?? 'main',
       now: Date.now(),
     }),
-    githubLinks: buildGithubLinksSnapshot(gitSnapshot.remoteUrl ?? issues.repoSlug),
+    githubLinks: buildGithubLinksSnapshot(gitSnapshot.remoteUrl ?? dashboardIssues.repoSlug),
     guidedWorkflow: withObservedDelta(atlas, workspaceRoot, buildGuidedWorkflowSnapshot({
       configuration,
       gitSnapshot,
@@ -14838,7 +16439,7 @@ async function collectDashboardSnapshot(
       packageVersion: packageSnapshot.version,
       ciWorkflowCount: workflowSnapshot.length,
       testing: testingSnapshot,
-      issues,
+      issues: dashboardIssues,
       ...(pullRequests === undefined ? {} : { pullRequests }),
       ...(ci === undefined ? {} : { ci }),
       changelogPresent,
@@ -14864,8 +16465,8 @@ async function collectDashboardSnapshot(
       codeownersPresent,
       issueTemplateCount,
       commitSeries: buildDailySeries(gitSnapshot.commitDates, SERIES_DAY_RANGE),
-    })),
-    issues,
+    }), observedScope),
+    issues: dashboardIssues,
     security: {
       toolApprovalMode,
       allowTerminalWrite,
@@ -14885,6 +16486,8 @@ async function collectDashboardSnapshot(
       scriptCount: packageSnapshot.scriptCount,
       keyScripts: packageSnapshot.keyScripts,
       workflows: workflowSnapshot,
+      ...(declaredComposition === undefined ? {} : { componentCi: componentCiReadings }),
+      ...(repoScopeLabel === undefined ? {} : { ciScopeLabel: repoScopeLabel }),
       ciManagement,
       localRunner: {
         ...(localRunner ?? initialLocalCiRunnerSnapshot(readLocalCiRunnerConfiguration())),
@@ -14903,11 +16506,12 @@ async function collectDashboardSnapshot(
         localRunner?.image ?? readLocalCiRunnerConfiguration().image,
       ),
       stages: stagePipeline,
-      guide: deliveryGuide,
+      runbooks: deliveryRunbooks,
     },
     director: directorSnapshot,
     documents: documentsSnapshot,
     risk: riskSnapshot,
+    ...(complianceSnapshot ? { compliance: complianceSnapshot } : {}),
     score: scoreBreakdown,
     ideation: {
       boardPath: buildIdeationRelativePath(ssotPath, activeIdeationWorkspace.boardFile),
@@ -14933,6 +16537,18 @@ async function collectDashboardSnapshot(
   const snapshotWithAssignments: Omit<DashboardSnapshot, 'attention'> = {
     ...snapshot,
     workAssignments: { targets: buildDashboardWorkTargets(snapshot) },
+    // Resolved, never written. `project_memory/` is git-tracked, so recording
+    // an owner because somebody opened a tab would commit words nobody said —
+    // the rule `workflowConfig` states about its own file. The default follows
+    // the roster instead, so replacing the Director re-points every unassigned
+    // vital file at once rather than leaving records naming somebody who left.
+    vitalFiles: resolveVitalFileOwnership({
+      files: collectVitalFiles(documentsSnapshot, snapshot.delivery.artifacts),
+      contacts: directorSnapshot.config?.contacts ?? [],
+      teamMembers: directorSnapshot.config?.teamMembers ?? [],
+      ...(directorSnapshot.config?.selfContactId ? { selfContactId: directorSnapshot.config.selfContactId } : {}),
+      assignments: directorSnapshot.config?.assignments ?? [],
+    }),
   };
   return {
     ...snapshotWithAssignments,
@@ -15021,7 +16637,7 @@ function registerFindingKey(kind: RegisterKind, id: string): string {
  * absent: only concrete work a person can take ownership of is assignable.
  */
 function buildDashboardWorkTargets(
-  snapshot: Omit<DashboardSnapshot, 'attention' | 'workAssignments'>,
+  snapshot: Omit<DashboardSnapshot, 'attention' | 'workAssignments' | 'vitalFiles'>,
 ): DashboardWorkTarget[] {
   const targets: DashboardWorkTarget[] = [];
   const seen = new Set<string>();
@@ -15094,7 +16710,57 @@ function buildDashboardWorkTargets(
       status: document.status === 'missing' ? 'blocked' : 'todo', priority: document.status === 'missing' ? 'high' : 'medium',
     });
   }
+  // A vital artifact that is absent is outstanding work. A present one is a
+  // standing responsibility, which the vital-file report answers instead — same
+  // rule as the testing policies above: a clear row on the Director's board is
+  // work that does not exist.
+  for (const artifact of snapshot.delivery.artifacts.filter(entry => entry.needsAttention)) {
+    add({
+      kind: 'artifact', stableId: artifact.id, title: artifact.label, page: 'delivery',
+      status: 'blocked', priority: 'high',
+    });
+  }
   return targets;
+}
+
+/**
+ * The files somebody has to keep current, from the two inventories that hold
+ * them.
+ *
+ * Deliberately *not* the same list as `collectWorkAssignmentTargets`. That one
+ * holds what is outstanding, and registering a clear item on it would put work
+ * that does not exist in front of the Director. This one holds a standing
+ * responsibility: a `README.md` reviewed yesterday is not outstanding work and
+ * still has to be somebody's job tomorrow. The two overlap where a vital file is
+ * also overdue, and an assignment made on either is read by both.
+ *
+ * Ephemeral artifacts are excluded by rule rather than by omission — nobody
+ * keeps `coverage/` up to date, because it is the output of a build.
+ */
+function collectVitalFiles(
+  documents: DashboardDocumentsSnapshot,
+  artifacts: readonly ArtifactSignal[],
+): VitalFile[] {
+  const files: VitalFile[] = documents.autoUpdate.map(document => ({
+    kind: 'document' as const,
+    id: document.id,
+    label: document.label || document.path,
+    path: document.path,
+    reason: `Tracked on the Documents page for ${document.cadence} review.`,
+  }));
+  for (const artifact of artifacts) {
+    if (artifact.retention !== 'keep' || artifact.type !== 'persistent') {
+      continue;
+    }
+    files.push({
+      kind: 'artifact',
+      id: artifact.id,
+      label: artifact.label,
+      path: artifact.path,
+      reason: 'The repository is expected to keep this artifact, so it has to stay current.',
+    });
+  }
+  return files;
 }
 
 /**
@@ -16585,18 +18251,24 @@ async function collectSupplyChainSnapshot(
  * a command. It changes a step's *status*, never a command, so the resolution
  * path does not pay for a git call it cannot use.
  */
-async function collectProjectDeliveryGuide(
+async function collectProjectDeliveryRunbooks(
   atlas: AtlasMindContext,
   workspaceRoot: string | undefined,
   workingTreeDirty: boolean | undefined,
   workflows: readonly DashboardWorkflow[],
   deliveryConfig: DeliveryConfig | undefined,
-): Promise<ProjectDeliveryGuide> {
+  currentBranch: string | undefined,
+): Promise<DeliveryStageRunbookSet> {
   if (!workspaceRoot) {
-    return buildProjectDeliveryGuide({ files: [], workingTreeClean: undefined });
+    return buildDeliveryStageRunbooks({ files: [], workingTreeClean: undefined });
   }
 
   const topFiles = await listDirFiles(workspaceRoot);
+  // The launch configuration is the run path for anything whose entry point is
+  // the editor — this extension included — and it is the one piece of evidence
+  // the local runbook needs that a root-directory listing cannot see.
+  const launchConfig = '.vscode/launch.json';
+  const hasLaunchConfig = await fs.access(path.join(workspaceRoot, launchConfig)).then(() => true, () => false);
   const dotnetManifest = topFiles.find(file => /\.(?:sln|csproj)$/i.test(file));
   const manifestNames = [
     'package.json',
@@ -16635,8 +18307,12 @@ async function collectProjectDeliveryGuide(
   // parser; failure simply leaves the routine unreported, never guessed.
   const routineRegistry = atlas.routineRegistry;
   await routineRegistry?.reload(workspaceRoot).catch(() => undefined);
-  return buildProjectDeliveryGuide({
-    files: [...topFiles, ...workflows.map(workflow => workflow.path)],
+  return buildDeliveryStageRunbooks({
+    files: [
+      ...topFiles,
+      ...workflows.map(workflow => workflow.path),
+      ...(hasLaunchConfig ? [launchConfig] : []),
+    ],
     manifestContents,
     packageJson,
     ...(deliveryConfig ? { deliveryConfig } : {}),
@@ -16647,8 +18323,18 @@ async function collectProjectDeliveryGuide(
       triggers: workflow.triggers.map(trigger => trigger.event),
     })),
     workingTreeClean: workingTreeDirty === undefined ? undefined : !workingTreeDirty,
+    ...(currentBranch ? { currentBranch } : {}),
   });
 }
+
+type DashboardComponentCiReading = DashboardComponentScopeIdentity & (
+  | {
+    visibility: 'visible';
+    workflows: DashboardWorkflow[];
+    assessment: CiPortfolioAssessment;
+  }
+  | { visibility: 'not-visible'; reason: string }
+);
 
 /**
  * Read only the fact the discussion boundary needs.
@@ -17676,8 +19362,9 @@ function resolveObservedDelta(
   atlas: AtlasMindContext,
   workspaceRoot: string | undefined,
   observed: WorkflowObservedState,
+  scope?: ObservedScope,
 ): ObservedDelta {
-  const root = workspaceRoot ?? '';
+  const root = `${workspaceRoot ?? ''}\u0000${scope ? JSON.stringify(scope) : ''}`;
   if (heldObservedDelta?.root === root) {
     return heldObservedDelta.delta;
   }
@@ -17688,13 +19375,13 @@ function resolveObservedDelta(
   } catch {
     previous = undefined;
   }
-  const delta = compareObservedState(previous, observed);
+  const delta = compareObservedState(previous, observed, scope);
   heldObservedDelta = { root, delta };
   // Stored even on a first look — especially on a first look, because that is
   // what makes the next one a comparison.
   void (async () => {
     try {
-      await state?.update(OBSERVED_BASELINE_STATE_KEY, takeObservedSnapshot(observed, new Date().toISOString()));
+      await state?.update(OBSERVED_BASELINE_STATE_KEY, takeObservedSnapshot(observed, new Date().toISOString(), scope));
     } catch {
       // A baseline that could not be written means the next look is another
       // first look, which reports itself honestly. Nothing to recover.
@@ -17722,15 +19409,17 @@ function withObservedDelta(
   atlas: AtlasMindContext,
   workspaceRoot: string | undefined,
   snapshot: Omit<DashboardGuidedWorkflowSnapshot, 'delta'>,
+  scope?: ObservedScope,
 ): DashboardGuidedWorkflowSnapshot {
   const now = new Date().toISOString();
-  const delta = resolveObservedDelta(atlas, workspaceRoot, snapshot.observed);
+  const delta = resolveObservedDelta(atlas, workspaceRoot, snapshot.observed, scope);
   return {
     ...snapshot,
     delta: {
       status: delta.status,
       headline: summarizeObservedDelta(delta, now),
       window: describeSince(delta.since, now),
+      ...(delta.scope === undefined ? {} : { scope: delta.scope }),
       changes: delta.changes.map(change => ({
         label: change.label,
         kind: change.kind,
@@ -18402,6 +20091,36 @@ async function collectWorkflowSnapshot(workspaceRoot: string | undefined): Promi
   }
 }
 
+/**
+ * The opaque address the webview uses for an artifact row.
+ *
+ * Derived from the catalog label, which is unique and stable, so a click made
+ * before a refresh still names the same row after one — and a crafted payload
+ * can only fail to match, since the host re-collects the inventory and looks the
+ * id up rather than trusting anything on the message.
+ */
+function artifactSignalId(label: string): string {
+  return `artifact-${label.toLowerCase().replace(/[^a-z0-9]+/g, '-').replace(/^-|-$/g, '') || 'entry'}`;
+}
+
+/**
+ * Attach the hand-off the host has chosen for a row.
+ *
+ * Applied in one place for every artifact, catalog-derived and detected alike,
+ * so no row can reach the page without one — which is what makes "every row
+ * offers an action" a property of the collector rather than of the renderer
+ * remembering to ask.
+ */
+function withArtifactCompliance(signal: Omit<ArtifactSignal, 'id' | 'complianceIntent' | 'complianceAction'>): ArtifactSignal {
+  const request = buildArtifactCompliancePrompt(signal);
+  return {
+    ...signal,
+    id: artifactSignalId(signal.label),
+    complianceIntent: request.intent,
+    complianceAction: request.action,
+  };
+}
+
 async function collectArtifacts(workspaceRoot: string | undefined): Promise<ArtifactSignal[]> {
   const signals = await Promise.all(ARTIFACT_CATALOG.map(async spec => {
     let resolvedPath: string | undefined;
@@ -18414,7 +20133,7 @@ async function collectArtifacts(workspaceRoot: string | undefined): Promise<Arti
       }
     }
     const exists = resolvedPath !== undefined;
-    return {
+    return withArtifactCompliance({
       label: spec.label,
       description: spec.description,
       path: resolvedPath ?? spec.paths[0] ?? '',
@@ -18424,7 +20143,7 @@ async function collectArtifacts(workspaceRoot: string | undefined): Promise<Arti
       retention: spec.retention,
       exists,
       needsAttention: spec.type === 'persistent' && spec.retention === 'keep' && !exists,
-    } satisfies ArtifactSignal;
+    });
   }));
 
   // Detect packaged extension archives (.vsix) in the workspace root.
@@ -18432,7 +20151,7 @@ async function collectArtifacts(workspaceRoot: string | undefined): Promise<Arti
     try {
       const rootEntries = await fs.readdir(workspaceRoot, { withFileTypes: true });
       const vsixFiles = rootEntries.filter(e => e.isFile() && e.name.endsWith('.vsix'));
-      signals.push({
+      signals.push(withArtifactCompliance({
         label: '*.vsix',
         description: vsixFiles.length > 0
           ? `${vsixFiles.length} packaged extension archive${vsixFiles.length === 1 ? '' : 's'} present in workspace root.`
@@ -18444,7 +20163,7 @@ async function collectArtifacts(workspaceRoot: string | undefined): Promise<Arti
         retention: 'cache',
         exists: vsixFiles.length > 0,
         needsAttention: false,
-      });
+      }));
     } catch {
       // Not a VS Code project or unreadable — skip silently.
     }
@@ -19082,6 +20801,185 @@ const RISK_DOMAIN_LABEL: Record<RiskDomain, string> = {
  * been analysed: an unassessed project is unknown, not safe, and the page must not
  * imply otherwise.
  */
+/**
+ * Read every declared governance regime's register and grade it.
+ *
+ * **Reads only.** Twenty-four regimes; rendering a page must never put a
+ * committed file in somebody's repository, so nothing here seeds, and a regime
+ * with no register on disk is graded from the catalog alone — which reads
+ * `unexamined`, the honest answer.
+ *
+ * One clock for the whole pass, so two regimes in a single render cannot
+ * disagree about whether a certificate expired between them.
+ */
+function collectComplianceSnapshot(
+  atlas: AtlasMindContext,
+  workspaceRoot: string | undefined,
+): ComplianceSnapshot | undefined {
+  if (!workspaceRoot) {
+    return undefined;
+  }
+  // Read here rather than threaded in: the enabled set is a one-file read that
+  // several collectors already make, and passing it down would couple this to
+  // the order the caller happens to compute things in.
+  const enabledMethodologies = (readProjectTestingConfig(workspaceRoot)?.methodologies ?? [])
+    .filter(entry => entry.enabled)
+    .map(entry => entry.id);
+  const declared = enabledMethodologies
+    .map(id => complianceCatalogFor(id as TestingMethodologyId))
+    .filter((catalog): catalog is NonNullable<typeof catalog> => catalog !== undefined);
+  if (declared.length === 0) {
+    // No governance regime is declared. Absent rather than an empty board:
+    // a project that never claimed SOC 2 has not overlooked SOC 2.
+    return undefined;
+  }
+
+  const now = new Date();
+  const evidenceRead = readComplianceEvidenceFile(workspaceRoot);
+  const library = evidenceRead.config
+    ? sanitizeComplianceEvidenceLibrary(evidenceRead.config, now)
+    : emptyEvidenceLibrary(now);
+
+  const registers = new Map<ComplianceMethodologyId, ComplianceRegimeRegister>();
+  const demotions = new Map<ComplianceMethodologyId, readonly ComplianceDemotion[]>();
+  const notesPresent = new Set<ComplianceMethodologyId>();
+  const importable = new Set<ComplianceMethodologyId>();
+  const labels = new Map<ComplianceMethodologyId, string>();
+  const readings: ComplianceReading[] = [];
+  let readOnly = evidenceRead.preserveExisting;
+  let notice = evidenceRead.notice;
+
+  // Stack checks enter as evidence for the single control each answers, and
+  // only where that control's catalog entry accepts a machine check.
+  const technicalByRegime = new Map<string, TechnicalCheckInput[]>();
+  const signals = gatherComplianceSignalsForDashboard(workspaceRoot, atlas);
+  for (const policyId of policiesWithTechnicalControls()) {
+    if (!declared.some(catalog => catalog.policyId === policyId)) {
+      continue;
+    }
+    technicalByRegime.set(policyId, evaluateTechnicalControls(policyId, signals).map(result => ({
+      controlRef: result.controlRef,
+      state: result.state,
+      rule: result.rule,
+      question: result.question,
+      ...(result.evidence ? { evidence: result.evidence } : {}),
+    })));
+  }
+
+  for (const catalog of declared) {
+    const id = catalog.policyId;
+    labels.set(id, methodologyLabel(id));
+    if (complianceNotesExist(workspaceRoot, id)) {
+      notesPresent.add(id);
+    }
+    // A hand-edited mapping still waiting to be read in, so the page can
+    // offer it rather than letting somebody retype what they already wrote.
+    try {
+      const existing = readFileSync(path.join(workspaceRoot, complianceRegimeSummaryPath(id)), 'utf8');
+      if (hasImportableMapping(existing, catalog)) {
+        importable.add(id);
+      }
+    } catch {
+      // No mapping on disk. Not an error, and not the same as an empty one.
+    }
+    const read = readComplianceRegimeFile(workspaceRoot, id);
+    if (read.preserveExisting) {
+      readOnly = true;
+      notice = notice ?? read.notice;
+    }
+    if (read.config) {
+      const sanitized = sanitizeComplianceRegimeRegister(read.config, id, library, now);
+      registers.set(id, sanitized.register);
+      demotions.set(id, sanitized.demotions);
+    }
+    readings.push(gradeComplianceRegime({
+      catalog,
+      ...(registers.has(id) ? { register: registers.get(id)! } : {}),
+      library,
+      ...(technicalByRegime.has(id) ? { technical: technicalByRegime.get(id)! } : {}),
+      now,
+    }));
+  }
+
+  return buildComplianceSnapshot({
+    readings,
+    registers,
+    demotions,
+    library,
+    labels,
+    notesPresent,
+    importable,
+    paths: {
+      evidence: COMPLIANCE_EVIDENCE_SSOT_PATH,
+      evidenceSummary: COMPLIANCE_EVIDENCE_SUMMARY_PATH,
+      register: complianceRegimePath,
+      summary: complianceRegimeSummaryPath,
+      notes: complianceRegimeNotesPath,
+    },
+    readOnly,
+    ...(notice ? { notice } : {}),
+    now,
+  });
+}
+
+/** Display label for a methodology, from the one catalogue that declares it. */
+function methodologyLabel(id: string): string {
+  return TESTING_METHODOLOGY_DEFINITIONS.find(entry => entry.id === id)?.label ?? id;
+}
+
+/**
+ * The stack signals the technical control checks read.
+ *
+ * The same gatherer the Testing page uses, rather than a second one — two
+ * implementations would eventually give different answers to "is a backup taken
+ * before a production promotion?", and a compliance board where two pages
+ * disagree is worse than one that does not answer.
+ *
+ * The coverage board is deliberately **not** gathered here: it means walking
+ * the test tree, and the dashboard renders far more often than that walk is
+ * worth. The two signals derived from it read `unknown`, which is the correct
+ * answer to "we did not look" and never counts as evidence.
+ */
+function gatherComplianceSignalsForDashboard(
+  workspaceRoot: string,
+  atlas: AtlasMindContext,
+): Parameters<typeof evaluateTechnicalControls>[1] {
+  const manifest = readPackageManifest(workspaceRoot);
+  return gatherComplianceStackSignals(workspaceRoot, {
+    dependencies: manifest.dependencies,
+    scripts: manifest.scripts,
+    toolApprovalMode: vscode.workspace.getConfiguration('atlasmind').get<string>('tools.approvalMode'),
+    ...(atlas.modelRouter
+      ? {
+        enabledProviderIds: atlas.modelRouter.listProviders()
+          .filter(provider => provider.enabled)
+          .map(provider => provider.id),
+      }
+      : {}),
+  });
+}
+
+/** Dependency and script names, for the signals that key on tooling. */
+function readPackageManifest(workspaceRoot: string): { dependencies: string[]; scripts: string[] } {
+  try {
+    const parsed = JSON.parse(readFileSync(path.join(workspaceRoot, 'package.json'), 'utf8')) as {
+      dependencies?: Record<string, unknown>;
+      devDependencies?: Record<string, unknown>;
+      scripts?: Record<string, unknown>;
+    };
+    return {
+      dependencies: [
+        ...Object.keys(parsed.dependencies ?? {}),
+        ...Object.keys(parsed.devDependencies ?? {}),
+      ].slice(0, 400),
+      scripts: Object.keys(parsed.scripts ?? {}).slice(0, 200),
+    };
+  } catch {
+    // No manifest, or an unreadable one. Ungathered rather than empty.
+    return { dependencies: [], scripts: [] };
+  }
+}
+
 function collectRiskSnapshot(atlas: AtlasMindContext, workspaceRoot: string | undefined): DashboardRiskSnapshot {
   const config = atlas.riskOversightManager?.getConfig();
   const history = workspaceRoot ? readRiskOversightHistory(workspaceRoot).slice(0, 50) : [];
@@ -20444,13 +22342,14 @@ const DEBT_SCAN_MAX_BYTES = 512 * 1024;
  */
 async function collectDebtScanFiles(
   workspaceRoot: string,
+  maxFiles = DEBT_SCAN_MAX_FILES,
 ): Promise<{ files: Array<{ path: string; content: string }>; scannedPaths: string[]; truncated: boolean }> {
   const files: Array<{ path: string; content: string }> = [];
   const scannedPaths: string[] = [];
   let truncated = false;
 
   const walk = async (directory: string): Promise<void> => {
-    if (files.length >= DEBT_SCAN_MAX_FILES) {
+    if (files.length >= maxFiles) {
       truncated = true;
       return;
     }
@@ -20461,7 +22360,7 @@ async function collectDebtScanFiles(
       return;
     }
     for (const entry of entries) {
-      if (files.length >= DEBT_SCAN_MAX_FILES) {
+      if (files.length >= maxFiles) {
         truncated = true;
         return;
       }
@@ -25547,16 +27446,14 @@ const DASHBOARD_CSS = `
      committing to a click. */
   button.recent-item,
   .recent-item.is-actionable,
-  button.branch-card,
-  button.artifact-row {
+  button.branch-card {
     position: relative;
     padding-right: 30px;
   }
 
   button.recent-item::after,
   .recent-item.is-actionable::after,
-  button.branch-card::after,
-  button.artifact-row::after {
+  button.branch-card::after {
     content: "›";
     position: absolute;
     top: 12px;
@@ -25573,9 +27470,7 @@ const DASHBOARD_CSS = `
   .recent-item.is-actionable:hover::after,
   .recent-item.is-actionable:focus-visible::after,
   button.branch-card:hover::after,
-  button.branch-card:focus-visible::after,
-  button.artifact-row:hover::after,
-  button.artifact-row:focus-visible::after {
+  button.branch-card:focus-visible::after {
     opacity: 1;
     transform: translateX(2px);
   }
@@ -26867,15 +28762,104 @@ const DASHBOARD_CSS = `
     transition: border-color 120ms ease;
   }
 
-  button.artifact-row {
+  /* The filename is the control that opens the file, and the AtlasMind logo the
+     one that opens the hand-off. Both live inside the row, so the row itself is
+     no longer interactive — a control nested in a control is invalid markup and
+     unreachable by keyboard. */
+  .artifact-open {
+    justify-self: start;
+    padding: 0;
+    border: 0;
+    background: none;
+    color: inherit;
+    font: inherit;
+    text-align: left;
     cursor: pointer;
+    text-decoration-line: underline;
+    text-decoration-style: dotted;
+    text-underline-offset: 3px;
+    text-decoration-color: color-mix(in srgb, var(--dash-accent-strong) 45%, transparent);
   }
 
-  button.artifact-row:hover,
-  button.artifact-row:focus-visible {
-    border-color: color-mix(in srgb, var(--dash-accent) 55%, var(--dash-border));
-    outline: none;
+  .artifact-open:hover { color: var(--dash-accent-strong); }
+  .artifact-open:focus-visible { outline: 1px solid var(--vscode-focusBorder); outline-offset: 2px; }
+
+  .artifact-actions {
+    display: flex;
+    align-items: center;
+    gap: 8px;
   }
+
+  /* Visible without a hover, for the reason the runbook's command icons are:
+     a touch or keyboard user never hovers, and an affordance that only appears
+     on hover is one half the room never finds. Muted until wanted, because a
+     column of logos at full strength would compete with the status of each row. */
+  .artifact-actions .atlas-discuss-action { opacity: 0.62; }
+  .artifact-row:hover .atlas-discuss-action,
+  .artifact-actions .atlas-discuss-action:hover,
+  .artifact-actions .atlas-discuss-action:focus-visible { opacity: 1; }
+
+  /* ── Vital-file ownership ─────────────────────────────────────
+     A recorded owner and a derived default must not look the same. The default
+     is drawn as an outline rather than a filled tag, so "nobody has decided this,
+     it falls here" reads as the provisional thing it is. */
+  .vital-owner {
+    display: inline-flex;
+    align-items: center;
+    padding: 1px 8px;
+    border-radius: 999px;
+    border: 1px solid var(--dash-border);
+    font-size: 0.72em;
+    line-height: 1.6;
+    white-space: nowrap;
+  }
+
+  .vital-owner.is-recorded {
+    border-color: color-mix(in srgb, var(--dash-good) 45%, var(--dash-border));
+    background: color-mix(in srgb, var(--dash-good) 12%, transparent);
+    color: var(--dash-good);
+  }
+
+  .vital-owner.is-default {
+    border-style: dashed;
+    border-color: color-mix(in srgb, var(--dash-accent-strong) 45%, var(--dash-border));
+    color: var(--dash-muted);
+  }
+
+  .vital-owner.is-unowned {
+    border-color: color-mix(in srgb, var(--dash-critical) 50%, var(--dash-border));
+    color: var(--dash-critical);
+  }
+
+  .vital-owners { margin-bottom: 14px; }
+  .vital-owners .section-copy { max-width: 820px; }
+  .vital-owner-blocker {
+    margin: 10px 0 0;
+    padding: 9px 11px;
+    border: 1px solid color-mix(in srgb, var(--dash-warn) 45%, var(--dash-border));
+    border-radius: 8px;
+    color: var(--vscode-descriptionForeground);
+    font-size: 0.82em;
+    line-height: 1.45;
+  }
+  /* A fixable weakness and an unresolvable one call for different reactions, so
+     they are not drawn the same: the notice states a working default and how to
+     point it elsewhere, and does not wear the warning border. */
+  .vital-owner-notice {
+    margin: 10px 0 0;
+    color: var(--vscode-descriptionForeground);
+    font-size: 0.8em;
+    line-height: 1.45;
+  }
+  .vital-owner-actions { margin-top: 12px; }
+  .vital-owner-rules { margin-top: 12px; display: grid; gap: 4px; }
+  .vital-owner-rules p {
+    margin: 0;
+    color: var(--vscode-descriptionForeground);
+    font-size: 0.75em;
+    line-height: 1.45;
+  }
+  .vital-owner-rules strong { font-family: var(--vscode-editor-font-family, monospace); }
 
   .artifact-row--ok { border-color: color-mix(in srgb, var(--dash-good) 30%, var(--dash-border)); }
   .artifact-row--warn { border-color: color-mix(in srgb, var(--dash-warn) 38%, var(--dash-border)); }
@@ -27602,6 +29586,52 @@ const DASHBOARD_CSS = `
   .delivery-guide-run:focus-visible { outline: 1px solid var(--vscode-focusBorder); outline-offset: 2px; }
   .delivery-guide-source { margin-top: 6px; font-size: 0.74em; }
 
+  /* ── Delivery: one runbook per stage ────────────────────────
+     The chip carries a blocker count on its left border rather than as a filled
+     background, for the reason the attention band establishes: three saturated
+     chips read as an alarm even when one of them is the local machine. */
+  .delivery-stage-bar { display: flex; flex-wrap: wrap; gap: 6px; margin-bottom: 8px; }
+  .delivery-stage-chip { display: inline-flex; align-items: center; gap: 7px; padding: 5px 13px; border-radius: 999px; border: 1px solid var(--dash-border); border-left-width: 3px; background: transparent; color: var(--dash-muted); font: inherit; font-size: 12px; cursor: pointer; }
+  .delivery-stage-chip:hover { border-color: color-mix(in srgb, var(--dash-accent-strong) 55%, var(--dash-border)); }
+  .delivery-stage-chip.has-blockers { border-left-color: var(--dash-critical); }
+  .delivery-stage-chip.is-active { border-color: color-mix(in srgb, var(--dash-accent-strong) 70%, var(--dash-border)); background: color-mix(in srgb, var(--dash-accent-strong) 16%, transparent); color: color-mix(in srgb, var(--dash-accent-strong) 90%, var(--tint-away) 10%); font-weight: 600; }
+  .delivery-stage-chip.is-active.has-blockers { border-left-color: var(--dash-critical); }
+  .delivery-stage-count { font-variant-numeric: tabular-nums; opacity: 0.7; }
+  .delivery-stage-reason { margin: 0 0 12px; color: var(--vscode-descriptionForeground); font-size: 0.8em; line-height: 1.45; }
+
+  .delivery-difference { margin-bottom: 14px; }
+  .delivery-difference .section-copy { max-width: 820px; }
+  .delivery-difference-list { display: flex; flex-direction: column; gap: 8px; margin-top: 12px; }
+  .delivery-difference-row { display: flex; align-items: flex-start; gap: 9px; padding: 9px 11px; border: 1px solid var(--vscode-widget-border, rgba(127,127,127,0.24)); border-left-width: 3px; border-radius: 8px; background: color-mix(in srgb, var(--vscode-editor-background) 82%, transparent); }
+  .delivery-difference-row.tone-warn { border-left-color: var(--dash-warn); }
+  .delivery-difference-row.tone-critical { border-left-color: var(--dash-critical); }
+  .delivery-difference-icon { display: inline-flex; align-items: center; justify-content: center; width: 18px; font-weight: 800; color: var(--vscode-descriptionForeground); }
+  .delivery-difference-head { display: flex; align-items: center; gap: 6px; flex-wrap: wrap; }
+  .delivery-difference-head strong { font-size: 0.88em; }
+  .delivery-difference-row p { margin: 5px 0 0; color: var(--vscode-descriptionForeground); font-size: 0.79em; line-height: 1.45; overflow-wrap: anywhere; }
+  .delivery-difference-was { font-style: italic; }
+  .delivery-difference-rule { opacity: 0.72; font-size: 0.73em !important; }
+  .delivery-requirement-list { display: grid; grid-template-columns: repeat(auto-fit, minmax(240px, 1fr)); gap: 8px; margin-top: 12px; }
+  .delivery-requirement { padding: 8px 10px; border: 1px solid var(--vscode-widget-border, rgba(127,127,127,0.2)); border-left-width: 3px; border-radius: 8px; }
+  .delivery-requirement.kind-gate { border-left-color: var(--dash-accent-strong); }
+  .delivery-requirement.kind-data { border-left-color: var(--dash-warn); }
+  .delivery-requirement.kind-reach { border-left-color: var(--dash-critical); }
+  .delivery-requirement.kind-recovery { border-left-color: var(--dash-good); }
+  .delivery-requirement strong { display: block; font-size: 0.83em; margin-bottom: 3px; }
+  .delivery-requirement span { color: var(--vscode-descriptionForeground); font-size: 0.77em; line-height: 1.42; overflow-wrap: anywhere; }
+
+  .delivery-matrix { margin-bottom: 14px; }
+  .delivery-matrix .section-copy { max-width: 820px; }
+  /* A wide table scrolls inside its own container; the page body never does. */
+  .delivery-matrix-scroll { margin-top: 12px; overflow-x: auto; }
+  .delivery-matrix-table { border-collapse: collapse; width: 100%; font-size: 0.8em; }
+  .delivery-matrix-table th, .delivery-matrix-table td { padding: 7px 10px; border-bottom: 1px solid var(--vscode-widget-border, rgba(127,127,127,0.2)); text-align: left; }
+  .delivery-matrix-table thead th { font-size: 0.94em; color: var(--vscode-descriptionForeground); font-weight: 600; white-space: nowrap; }
+  .delivery-matrix-table tbody th { font-weight: 600; white-space: nowrap; }
+  .delivery-matrix-table td { text-align: center; width: 1%; white-space: nowrap; }
+  .delivery-matrix-table td.is-required { color: var(--dash-accent-strong); font-weight: 800; }
+  .delivery-matrix-table td.is-absent { color: var(--vscode-descriptionForeground); opacity: 0.5; }
+
   /* ── Delivery: Stages & Promotion ─────────────────────────────── */
   .stage-pipeline-header { display: flex; align-items: flex-start; justify-content: space-between; gap: 12px; flex-wrap: wrap; margin-bottom: 14px; }
   .stage-pipeline-header .tag-row { margin-top: 6px; }
@@ -27813,8 +29843,7 @@ const DASHBOARD_CSS = `
     .ideation-card,
     button.recent-item::after,
     .recent-item.is-actionable::after,
-    button.branch-card::after,
-    button.artifact-row::after {
+    button.branch-card::after {
       transition: none;
     }
     .stat-card.is-actionable:hover,
@@ -27845,9 +29874,7 @@ const DASHBOARD_CSS = `
     .recent-item.is-actionable:hover::after,
     .recent-item.is-actionable:focus-visible::after,
     button.branch-card:hover::after,
-    button.branch-card:focus-visible::after,
-    button.artifact-row:hover::after,
-    button.artifact-row:focus-visible::after {
+    button.branch-card:focus-visible::after {
       transform: none;
     }
   }

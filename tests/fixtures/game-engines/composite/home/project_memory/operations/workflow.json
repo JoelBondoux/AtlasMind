@@ -1,0 +1,52 @@
+{
+  "version": 1,
+  "profile": "studio",
+  "status": "specimen",
+  "branches": {
+    "integration": "develop",
+    "release": "main",
+    "protected": ["main"]
+  },
+  "naming": {
+    "convention": "type-issue-slug",
+    "maxLength": 60,
+    "types": ["feat", "fix", "chore", "docs", "test"]
+  },
+  "labels": {
+    "type": ["bug", "enhancement"],
+    "priority": [],
+    "status": [],
+    "area": []
+  },
+  "testing": { "inherit": true },
+  "stages": [],
+  "composition": {
+    "components": [
+      {
+        "id": "gameplay",
+        "label": "Gameplay",
+        "location": "home",
+        "role": "application",
+        "archetype": { "archetype": "game", "traits": ["has-ui", "ships-binaries"] },
+        "vcs": "git",
+        "home": true
+      },
+      {
+        "id": "backend",
+        "label": "Backend",
+        "location": "backend",
+        "role": "service",
+        "archetype": { "archetype": "api", "traits": ["has-server"] },
+        "vcs": "git"
+      },
+      {
+        "id": "content",
+        "label": "Content",
+        "location": "content",
+        "role": "content",
+        "archetype": { "archetype": "generic", "traits": [] },
+        "vcs": "perforce"
+      }
+    ]
+  }
+}

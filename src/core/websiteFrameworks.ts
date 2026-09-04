@@ -43,6 +43,8 @@ export type WebsiteFrameworkId =
   | 'nextjs'
   | 'nuxt'
   | 'sveltekit'
+  | 'react'
+  | 'vue'
   | 'eleventy'
   | 'hugo'
   | 'remix'
@@ -101,10 +103,11 @@ export interface WebsiteFrameworkSpec {
 /**
  * The catalog.
  *
- * Ten entries rather than thirty. Every one here is a framework somebody
- * building a client website plausibly picks, and each carries a command worth
- * standing behind. A longer list would mean entries nobody verified, and an
- * unverified command in this file is the one thing this file must not contain.
+ * Twelve entries rather than thirty. Every one here is a framework somebody
+ * building a client website plausibly picks, and each carries a build/deploy
+ * contract worth standing behind. A longer list would mean entries nobody
+ * verified, and an unverified command in this file is the one thing this file
+ * must not contain.
  */
 export const WEBSITE_FRAMEWORK_CATALOG: readonly WebsiteFrameworkSpec[] = [
   {
@@ -123,7 +126,7 @@ export const WEBSITE_FRAMEWORK_CATALOG: readonly WebsiteFrameworkSpec[] = [
     label: 'Next.js',
     description: 'React with server rendering and routing. Strong when the site is really an application with pages attached.',
     rendering: 'server',
-    scaffold: { command: 'npm', args: ['create', 'next-app@latest', '--', '--yes', '--skip-install'], runtime: 'node', createsOwnDirectory: true },
+    scaffold: { command: 'npm', args: ['create', 'next-app@latest', '--', '--yes', '--skip-install', '--disable-git', '--use-npm'], runtime: 'node', createsOwnDirectory: true },
     devCommand: ['run', 'dev'],
     buildCommand: ['run', 'build'],
     // Next's default build output. A static export lands in `out/`, which is why
@@ -136,7 +139,7 @@ export const WEBSITE_FRAMEWORK_CATALOG: readonly WebsiteFrameworkSpec[] = [
     label: 'Nuxt',
     description: 'Vue with server rendering and routing — the Vue-side equivalent of Next.',
     rendering: 'server',
-    scaffold: { command: 'npm', args: ['create', 'nuxt@latest', '--', '--no-install', '--packageManager', 'npm', '--gitInit', 'false'], runtime: 'node', createsOwnDirectory: true },
+    scaffold: { command: 'npm', args: ['create', 'nuxt@latest', '--', '--no-install', '--packageManager', 'npm', '--no-modules'], runtime: 'node', createsOwnDirectory: true },
     devCommand: ['run', 'dev'],
     buildCommand: ['run', 'build'],
     outputDir: '.output/public',
@@ -147,11 +150,33 @@ export const WEBSITE_FRAMEWORK_CATALOG: readonly WebsiteFrameworkSpec[] = [
     label: 'SvelteKit',
     description: 'Svelte with routing and adapters. Small output, and adapters for most hosts.',
     rendering: 'hybrid',
-    scaffold: { command: 'npm', args: ['create', 'svelte@latest'], runtime: 'node', createsOwnDirectory: true },
+    scaffold: { command: 'npx', args: ['sv', 'create', '--template', 'minimal', '--types', 'ts', '--no-add-ons', '--no-install'], runtime: 'node', createsOwnDirectory: true },
     devCommand: ['run', 'dev'],
     buildCommand: ['run', 'build'],
     outputDir: 'build',
     wellSupportedOn: ['vercel', 'netlify', 'cloudflare-pages'],
+  },
+  {
+    id: 'react',
+    label: 'React (Vite)',
+    description: 'A client-focused React build. React recommends a framework first; choose this when those constraints do not fit.',
+    rendering: 'static',
+    devCommand: ['run', 'dev'],
+    buildCommand: ['run', 'build'],
+    outputDir: 'dist',
+    wellSupportedOn: ['cloudflare-pages', 'netlify', 'vercel', 'azure-static-web-apps'],
+    manualSetupUrl: 'https://react.dev/learn/creating-a-react-app',
+  },
+  {
+    id: 'vue',
+    label: 'Vue',
+    description: 'A Vite-based Vue Single-Page Application with interactive choices for Router, Pinia, tests, and linting.',
+    rendering: 'static',
+    devCommand: ['run', 'dev'],
+    buildCommand: ['run', 'build'],
+    outputDir: 'dist',
+    wellSupportedOn: ['cloudflare-pages', 'netlify', 'vercel', 'azure-static-web-apps'],
+    manualSetupUrl: 'https://vuejs.org/guide/quick-start.html',
   },
   {
     id: 'eleventy',
@@ -180,9 +205,9 @@ export const WEBSITE_FRAMEWORK_CATALOG: readonly WebsiteFrameworkSpec[] = [
   {
     id: 'remix',
     label: 'Remix / React Router',
-    description: 'React with server-first data loading. Suits sites with forms and authenticated areas.',
+    description: 'React Router framework mode with server-first data loading — the maintained path for new Remix-style applications.',
     rendering: 'server',
-    scaffold: { command: 'npm', args: ['create', 'remix@latest', '--', '--yes', '--no-install', '--no-git-init'], runtime: 'node', createsOwnDirectory: true },
+    scaffold: { command: 'npx', args: ['create-react-router@latest'], runtime: 'node', createsOwnDirectory: true },
     devCommand: ['run', 'dev'],
     buildCommand: ['run', 'build'],
     outputDir: 'build/client',

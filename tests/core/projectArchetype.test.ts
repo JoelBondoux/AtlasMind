@@ -34,6 +34,7 @@ describe('detection identifies the shapes that actually differ', () => {
     expect(detect('electron').archetype).toBe('desktop');
     expect(detect('astro').archetype).toBe('website');
     expect(detect('next react').archetype).toBe('web-app');
+    expect(detect('"laravel/framework"', 'php').archetype).toBe('web-app');
     expect(detect('express').archetype).toBe('api');
     expect(detect('commander').archetype).toBe('cli');
     expect(detect('fastapi', 'python').archetype).toBe('api');
@@ -101,6 +102,38 @@ describe('traits compose rather than multiplying the archetype set', () => {
       .toContain('platform-hosted');
   });
 
+  it('treats a WooCommerce extension as a library with commerce obligations', () => {
+    const detection = detectProjectArchetype({
+      corpus: '{"type": "wordpress-plugin", "description": "WooCommerce extension"}',
+      language: 'php',
+      files: ['composer.json'],
+    });
+    expect(detection.archetype).toBe('library');
+    expect(detection.confident).toBe(true);
+    expect(detection.traits).toContain('is-published-package');
+    expect(detection.traits).toContain('handles-personal-data');
+    expect(detection.traits).not.toContain('platform-hosted');
+  });
+
+  it('recognizes generated commerce project manifests conservatively', () => {
+    const catalyst = detectProjectArchetype({
+      corpus: '{"dependencies":{"@bigcommerce/catalyst-core":"1.0.0"}}',
+      language: 'node',
+      files: ['package.json'],
+    });
+    expect(catalyst.archetype).toBe('website');
+    expect(catalyst.traits).toEqual(expect.arrayContaining(['platform-hosted', 'has-ui', 'has-server', 'handles-personal-data']));
+
+    const magento = detectProjectArchetype({
+      corpus: '{"type": "magento2-module"}',
+      language: 'php',
+      files: ['composer.json', 'registration.php', 'etc/module.xml'],
+    });
+    expect(magento.archetype).toBe('library');
+    expect(magento.traits).toEqual(expect.arrayContaining(['is-published-package', 'handles-personal-data']));
+    expect(magento.traits).not.toContain('platform-hosted');
+  });
+
   it('does not duplicate a trait matched by several signals', () => {
     const detection = detect('electron tauri');
     expect(detection.traits.filter(t => t === 'ships-binaries').length).toBeLessThanOrEqual(1);
@@ -151,6 +184,59 @@ describe('the vocabularies this module replaces map forward', () => {
     expect(fromBootstrapLabel('VS Code Extension')?.archetype).toBe('library');
     expect(fromBootstrapLabel('Shopify Store / Theme')?.archetype).toBe('website');
     expect(fromBootstrapLabel('Shopify App')?.archetype).toBe('web-app');
+    expect(fromBootstrapLabel('WooCommerce Extension')).toEqual({
+      archetype: 'library',
+      traits: ['is-published-package', 'handles-personal-data'],
+    });
+    expect(fromBootstrapLabel('BigCommerce Catalyst')).toEqual({
+      archetype: 'website',
+      traits: ['platform-hosted', 'has-ui', 'has-server', 'handles-personal-data'],
+    });
+    expect(fromBootstrapLabel('Magento 2 Module')).toEqual({
+      archetype: 'library',
+      traits: ['is-published-package', 'handles-personal-data'],
+    });
+    expect(fromBootstrapLabel('Wix Commerce')).toEqual({
+      archetype: 'website',
+      traits: ['platform-hosted', 'has-ui', 'has-server', 'handles-personal-data'],
+    });
+    for (const label of [
+      'Next.js SaaS / Web App',
+      'React Router SaaS / Web App',
+      'Laravel SaaS / Web App',
+      'Django SaaS / Web App',
+    ]) {
+      expect(fromBootstrapLabel(label), label).toEqual({
+        archetype: 'web-app',
+        traits: ['has-ui', 'has-server', 'handles-personal-data'],
+      });
+    }
+    expect(fromBootstrapLabel('Static Website')).toEqual({
+      archetype: 'website',
+      traits: ['has-ui'],
+    });
+    expect(fromBootstrapLabel('Blog / CMS (Astro Content)')).toEqual({
+      archetype: 'website',
+      traits: ['has-ui'],
+    });
+    for (const label of ['Next.js Frontend', 'SvelteKit Frontend', 'Nuxt Frontend']) {
+      expect(fromBootstrapLabel(label), label).toEqual({
+        archetype: 'web-app',
+        traits: ['has-ui', 'has-server'],
+      });
+    }
+    for (const label of ['React Frontend (Vite)', 'Vue Frontend']) {
+      expect(fromBootstrapLabel(label), label).toEqual({
+        archetype: 'web-app',
+        traits: ['has-ui'],
+      });
+    }
+    for (const label of ['React Native Mobile App', 'Expo Mobile App', 'Flutter Mobile App']) {
+      expect(fromBootstrapLabel(label), label).toEqual({
+        archetype: 'mobile',
+        traits: ['has-ui', 'ships-binaries'],
+      });
+    }
   });
 
   it('maps a Game label, which the old picker could not express at all', () => {

@@ -481,6 +481,39 @@ with its complete contents, and offers to open them as real documents first. Aft
 **re-checks the filesystem** rather than trusting exit codes, because a create command can exit
 successfully having done nothing.
 
+Guided commerce prefabs are narrower still: they never enter this command runner. WooCommerce and
+Magento plans write only deterministic, missing files; BigCommerce Catalyst and Wix Commerce write
+documentation-only handoffs to the platforms’ maintained generators. The handoff commands are constant
+source text with literal placeholders, never composed from intake. AtlasMind does not authenticate,
+provision stores/sites/apps, install packages, initialize Git, start a server, or publish. Wix’s reviewed
+conservative form disables install, Git, and publish, while explicitly stating that running the external
+CLI still provisions remote account resources.
+
+SaaS/Web generator prefabs use the same non-execution boundary. Next.js, React Router, Laravel, Django,
+and Astro commands are documentation with literal placeholders, never a command composed from project
+text. Handoffs identify package retrieval and lifecycle scripts, environment files and secrets, generated
+source, database creation/migrations, runtime/deployment choices, and CMS credentials/webhooks before an
+operator runs anything. Next.js and Astro use supported flags to separate dependency installation and Git;
+Astro also suppresses generator-authored AI instruction files. Static Website escapes the project name for
+HTML, emits no inline script/style, starts from a restrictive meta CSP, and requires hosting headers,
+privacy review, and compatibility evidence before publication.
+
+Frontend prefabs add browser-specific trust boundaries without weakening that rule. Project text is escaped
+before Markdown rendering and never interpolated into a command. The handoffs call out public environment
+variables, browser storage, cookies, sessions, route data, source maps, analytics, third-party scripts, and
+rendered personal data. React/Vite is framed as a client-only choice, not a security shortcut; Vue's feature
+prompts and package installation remain separate operator actions; every framework must document server,
+client, build, edge, CDN, header, and rollback ownership before release.
+
+Mobile prefabs keep package execution, native generation, platform toolchains, cloud services, signing,
+device installation, and store publication outside bootstrap. The bare React Native handoff requires an
+explicit reason not to use a framework. Expo disables dependency installation and generated instruction
+files in its reviewed command; native projects, config plugins, EAS, credentials, and updates remain later
+decisions. Flutter discloses that creation retrieves dependencies rather than being described as offline.
+All commands contain literal placeholders only, and privacy records treat device permissions, secure/local
+storage, backups, push/deep links, background work, telemetry, advertising identifiers, third-party SDKs,
+retention, and deletion as unassessed until the generated app supplies evidence.
+
 ### The generated workflow specifically
 
 A file in `.github/workflows/` runs on GitHub's infrastructure, with your repository's secrets, on a

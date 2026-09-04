@@ -15,9 +15,24 @@ Where this document and the plan disagree, this document wins.
 
 ### 0.2 Built versus proposed
 
-**Nothing in this document is built.** Every section describes intended behaviour. Facts about
-today's codebase are verified and dated; facts about engines are marked as claims requiring
-verification (§2.4).
+Phase 0 and Phase 1 are built through C1.8, and Phase 2 is built through C2.4: the `game` persisted-document kind is registered at schema
+v1; deterministic fixtures cover Unreal, Unity, Godot 3/4 and Perforce; declared component scope
+round-trips through `workflow.json`; and the Project Dashboard now scopes Git, local CI, debt,
+issue-tracker visibility, and observed-delta evidence to those components with explicit `not-visible`
+results. The generic Shopify theme + app + extension bootstrap path supplies the required non-game
+composition validation, and four editable game architecture seeds cover single-repo, multi-repo,
+hybrid Git + Perforce, and engine-fork layouts without persisting preset authority or guessed
+coordinates. The engine-agnostic upstream-divergence core now derives commits, changed-path overlap,
+and comparable trends through read-only Git evidence. The pure engine-identity core now reads bounded
+decisive-file evidence, exact declared versions, declaration precedence, and version-surface verification
+without filesystem or editor access. The explicit-confirmation asset reader inventories bounded declared
+content roots, import/orphan candidates, and conservative Git LFS coverage. The pure engine-divergence
+adapter now binds generic fork evidence to the matching declared engine component, preserves exact
+counts and trends, and interprets only bounded paths against version-pinned source layouts. The pure
+build-log reader now interprets only complete caller-supplied reports, with declared caps, sanitized and
+redacted retained diagnostics, conservative completion evidence, and display-only report commands pinned
+to verified engine versions. No game command surface, bridge, or game dashboard is built yet; those
+sections remain intended behaviour.
 
 ### 0.3 Engines in scope
 
@@ -86,11 +101,37 @@ Where AtlasMind encounters an engine version outside its verified range it MUST 
 against this version"* and degrade, never extrapolate. This is the only mechanism preventing the
 feature rotting silently as engines ship.
 
+Implementation verification was refreshed on 2026-09-03 from primary sources: Epic's
+[`FProjectDescriptor`](https://dev.epicgames.com/documentation/unreal-engine/API/Runtime/Projects/FProjectDescriptor)
+and [installed-build association guidance](https://dev.epicgames.com/documentation/en-us/unreal-engine/using-an-installed-build-of-unreal-engine?application_version=5.2),
+Unity's [Build Automation project-version guidance](https://docs.unity.com/en-us/build-automation/basic-build-configuration/overview)
+and official [`ProjectVersion.txt` sample](https://github.com/Unity-Technologies/Standard-Assets-Characters/blob/master/ProjectSettings/ProjectVersion.txt),
+and Godot's [`ProjectSettings` source](https://github.com/godotengine/godot/blob/master/core/config/project_settings.cpp)
+plus [Godot 3 project-settings documentation](https://docs.godotengine.org/en/3.5/classes/class_projectsettings.html).
+The resulting `*_SURFACE_VERIFIED_AT` constants and narrow identity ranges live beside the parser.
+The current verification also covers Unreal 5.8 and Unity 6000.2 identity declarations needed by the
+fork-layout interpretation.
+
 ### 2.5 An engine fork is not an engine installation
 
 A forked engine is a **component** whose `upstream` is declared (`project-composition.md` §4). Its
-distinguishing fact is distance from that upstream, not its version string. Fork tracking is pure git
-and MUST NOT live in an engine-specific module.
+distinguishing fact is distance from that upstream, not its version string. Git collection and metric
+semantics are pure Git and MUST NOT live in an engine-specific module.
+
+The built `gameEngineDivergence.ts` layer therefore accepts an `UpstreamDivergenceReport`; it does not
+collect one. It MUST verify that the report names the current `engine` component and declared upstream,
+then preserve the exact commits-ahead, commits-behind, files-diverged, conflict-candidate, and trend
+facts. Its merge-burden shape is descriptive rather than a severity or threshold: policy thresholds
+remain team-owned work for C2.7.
+
+Engine-specific area labels are derived only from the bounded displayed paths. They MUST say whether
+the list was truncated and MUST NOT be presented as repository-wide per-area counts. Layout claims are
+pinned at `GAME_ENGINE_DIVERGENCE_SURFACE_VERIFIED_AT`: Epic's current
+[Unreal 5.8 directory structure](https://dev.epicgames.com/documentation/unreal-engine/unreal-engine-directory-structure?lang=en-US),
+Unity's official [6000.2.0b4 C# reference layout](https://github.com/Unity-Technologies/UnityCsReference),
+and Godot's official [4.6 source tree](https://github.com/godotengine/godot/tree/4.6-stable).
+Another version, a missing version, `custom`, or `unknown` keeps the generic Git facts and withholds
+path meaning as *not verified against this version* rather than extrapolating.
 
 ## §3 The game profile
 
@@ -99,8 +140,9 @@ and MUST NOT live in an engine-specific module.
 `project_memory/domain/game.json`, with a regenerated human-readable mirror at
 `project_memory/domain/game.md` — the `websiteWorkspaceManager` pattern.
 
-Registered with `SchemaMigration` at version 1 before anything writes it. Seeding MUST NOT overwrite
-a file written by a newer AtlasMind; an explicit save may.
+Registered with `SchemaMigration` at version 1 before anything writes it. The registration and
+future-version refusal test are built; no writer exists yet. Seeding MUST NOT overwrite a file written
+by a newer AtlasMind; an explicit save may.
 
 ### 3.2 Contents
 
@@ -124,6 +166,13 @@ confirmation, never on render.
 Asset paths MUST be traversal-checked. An asset path that escapes its declared root is reported and
 its file affordance withheld, following `parseGhReviewComments`.
 
+Built in C2.2: `scanGameAssetInventory` accepts only host-resolved absolute component roots plus
+declared safe relative roots and requires `confirmed: true` before any filesystem call. One shared
+file/byte/monotonic-time budget covers every component. Symbolic links are never followed; cache
+directories are explicitly named; and a truncated scan states its limit while withholding absence-based
+orphan conclusions. Import-error evidence retains only path, line, and deterministic category — never
+the raw metadata line.
+
 ### 4.2 LFS honesty
 
 For components whose `vcs` is `git`, AtlasMind reports binary assets not covered by `.gitattributes`
@@ -131,6 +180,11 @@ LFS patterns. This is the highest-value early finding and the cheapest to comput
 
 For components whose `vcs` is not `git`, it MUST report `not-visible` and MUST NOT report zero
 (`project-composition.md` §6.1).
+
+The built reader evaluates root and nested `.gitattributes` `filter` rules in declaration order for a
+closed binary-asset extension set. Unsupported or unreadable LFS-affecting syntax withholds the verdict;
+it cannot turn a parser limitation into an uncovered finding. An incomplete inventory reports only
+partial coverage over the files actually observed.
 
 ### 4.3 Build and cook logs
 
@@ -142,6 +196,24 @@ redactor — build logs routinely contain signing paths, tokens and machine name
 
 Where no log exists the surface MUST report **no verdict** and name the command that would produce
 one. It MUST NOT report "0 errors".
+
+Built in C2.4: `parseGameBuildLog` is pure and accepts one caller-supplied report; it performs no file,
+process, engine, Git, or network operation. Character, line, diagnostic, path, and metadata caps apply
+before any value can reach a surface. A truncated, empty, malformed, oversized, or unrecognized report
+returns no verdict, and the full log is never retained. Diagnostic text passes through terminal-control
+sanitization and the shared secret redactor before the bounded records are returned.
+
+An overall success or failure requires a valid captured exit code or a version-pinned completion marker;
+diagnostic-looking lines alone are findings, not a build verdict. Contradictory outcome evidence returns
+no verdict. Unreal 5.8 and Unity 6000.2 completion/report surfaces and Godot 4.6 command flags were
+verified on 2026-09-03 against Epic's
+[Build Operations](https://dev.epicgames.com/documentation/unreal-engine/build-operations-cooking-packaging-deploying-and-running-projects-in-unreal-engine?lang=en-US),
+Unity's [command-line manual](https://docs.unity3d.com/6000.2/Documentation/Manual/EditorCommandLineArguments.html)
+and official [`BuildReport` example](https://github.com/Unity-Technologies/UnityCsReference/blob/master/Editor/Mono/BuildPipeline/BuildPipelineInterfaces.cs/),
+and Godot's [command-line tutorial](https://docs.godotengine.org/en/4.6/tutorials/editor/command_line_tutorial.html).
+Because no stable Godot success/footer marker was verified, only a captured exit code can establish its
+overall result. Commands are inert display templates; unsupported, unknown, custom, or unconfident engine
+identities receive no extrapolated command or version-specific parsing.
 
 ### 4.4 Performance evidence
 
@@ -254,9 +326,9 @@ The distinguishing behaviour of this feature is what it says when it does not kn
 
 An implementation conforms when:
 
-- [ ] A Unreal, Unity and Godot fixture each resolve to the correct engine and exact version.
-- [ ] A project with an unreadable engine version withholds every version-dependent affordance.
-- [ ] Every engine CLI fact in source sits behind a `*_VERIFIED_AT` constant.
+- [x] An Unreal, Unity and Godot fixture each resolve to the correct engine and exact declared version.
+- [x] A project with an unreadable engine version withholds every version-dependent affordance.
+- [x] Every implemented version-specific engine identity fact in source sits behind a `*_VERIFIED_AT` constant.
 - [ ] The bridge wire format contains no command frame, asserted by test.
 - [ ] The bridge refuses an unauthenticated first frame and binds loopback only.
 - [ ] No code path writes a binary engine asset.

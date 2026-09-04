@@ -1,0 +1,3 @@
+P4PORT=perforce.example.invalid:1666
+P4CLIENT=atlasmind_fixture_workspace
+P4USER=fixture-user

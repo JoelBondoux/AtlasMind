@@ -1,3 +1,7 @@
+import { mkdirSync, mkdtempSync, readFileSync, rmSync, writeFileSync } from 'node:fs';
+import { tmpdir } from 'node:os';
+import { join } from 'node:path';
+import { transformSync } from 'esbuild';
 import { beforeEach, describe, expect, it, vi } from 'vitest';
 
 const vscodeMocks = vi.hoisted(() => ({
@@ -93,10 +97,33 @@ vi.mock('node:child_process', () => ({
   exec: vscodeMocks.exec,
 }));
 
-import { bootstrapProject } from '../../src/bootstrap/bootstrapper.ts';
+import { bootstrapProject, buildBootstrapTemplateFiles } from '../../src/bootstrap/bootstrapper.ts';
+import { buildShopifyProjectComposition } from '../../src/core/projectComposition.ts';
+import { seedWorkflowConfig } from '../../src/core/workflowConfig.ts';
 import type { MemoryEntry } from '../../src/types.ts';
 
 const ROOT = { path: '/workspace', fsPath: '/workspace' };
+const COMMERCE_BOOTSTRAP_FEATURE = readFileSync(
+  new URL('../features/commerce-bootstrap.feature', import.meta.url),
+  'utf-8',
+);
+const SAAS_WEB_BOOTSTRAP_FEATURE = readFileSync(
+  new URL('../features/saas-web-bootstrap.feature', import.meta.url),
+  'utf-8',
+);
+const FRONTEND_BOOTSTRAP_FEATURE = readFileSync(
+  new URL('../features/frontend-bootstrap.feature', import.meta.url),
+  'utf-8',
+);
+const MOBILE_BOOTSTRAP_FEATURE = readFileSync(
+  new URL('../features/mobile-bootstrap.feature', import.meta.url),
+  'utf-8',
+);
+
+function expectDeclaredScenario(title: string): void {
+  expect(`${COMMERCE_BOOTSTRAP_FEATURE}\n${SAAS_WEB_BOOTSTRAP_FEATURE}\n${FRONTEND_BOOTSTRAP_FEATURE}\n${MOBILE_BOOTSTRAP_FEATURE}`)
+    .toContain(`Scenario: ${title}`);
+}
 
 function seedFile(path: string, content: string): void {
   fileResponses.set(path, Buffer.from(content, 'utf-8'));
@@ -198,6 +225,322 @@ function makeAtlas() {
   } as unknown as import('../../src/extension.ts').AtlasMindContext;
 }
 
+describe('Feature: safe commerce project bootstrap', () => {
+  it('Scenario: generate a bounded WooCommerce extension plan', () => {
+    expectDeclaredScenario('Generate a bounded WooCommerce extension plan');
+    const files = buildBootstrapTemplateFiles('woocommerce-extension', 'Order Notes');
+    const byPath = new Map(files.map(file => [file.path, file]));
+    const plugin = byPath.get('order-notes.php')?.content ?? '';
+
+    expect(new Set(files.map(file => `${file.root}:${file.path}`)).size).toBe(files.length);
+    expect(files.every(file => !file.path.startsWith('/') && !file.path.includes('..'))).toBe(true);
+    expect(plugin).toContain('Requires Plugins: woocommerce');
+    expect(plugin).toContain("defined( 'ABSPATH' ) || exit;");
+    expect(plugin).toContain("class_exists( 'WooCommerce' )");
+    expect(plugin).toContain("declare_compatibility( 'custom_order_tables'");
+    expect(byPath.get('docs/privacy.md')?.content).toContain('Status: Not assessed');
+    expect(byPath.get('docs/compatibility.md')?.content).toContain('Cart and Checkout blocks');
+    expect(byPath.get('tests/scaffold-contract.php')?.content).toContain('Missing plugin contract marker');
+    expect(byPath.get('.github/workflows/ci.yml')?.content).toContain('permissions:\n  contents: read');
+    expect(byPath.get('operations/getting-started.md')?.root).toBe('ssot');
+  });
+
+  it('Scenario: treat a project name as data', () => {
+    expectDeclaredScenario('Treat a project name as data');
+    const files = buildBootstrapTemplateFiles('woocommerce-extension', '../123 Café */\nInjected');
+    const paths = files.map(file => file.path);
+    const plugin = files.find(file => file.path.endsWith('.php') && !file.path.includes('/'))?.content ?? '';
+    const implementation = files.find(file => file.path.startsWith('includes/'))?.content ?? '';
+
+    expect(paths).toContain('123-cafe-injected.php');
+    expect(paths.every(path => !path.includes('..') && !path.includes('\\'))).toBe(true);
+    expect(plugin).not.toContain('*/\nInjected');
+    expect(plugin).not.toContain('\u0000');
+    expect(plugin).toContain("define( 'ATLASMIND_123_CAFE_INJECTED_VERSION'");
+    expect(implementation).toContain('namespace AtlasMind\\Extension123CafeInjected;');
+  });
+
+  it('Scenario: hand off Catalyst generation without cloning upstream', () => {
+    expectDeclaredScenario('Hand off Catalyst generation without cloning upstream');
+    const files = buildBootstrapTemplateFiles('bigcommerce-catalyst', 'Northwind Store');
+    const byPath = new Map(files.map(file => [file.path, file]));
+    const handoff = byPath.get('BIGCOMMERCE_CATALYST_HANDOFF.md')?.content ?? '';
+
+    expect(new Set(files.map(file => `${file.root}:${file.path}`)).size).toBe(files.length);
+    expect(files.every(file => !file.path.startsWith('/') && !file.path.includes('..'))).toBe(true);
+    expect(files.filter(file => file.root === 'workspace').every(file => file.path.endsWith('.md'))).toBe(true);
+    expect(handoff).toContain('Node.js 24');
+    expect(handoff).toContain('pnpm create @bigcommerce/catalyst@latest');
+    expect(handoff).toContain('not executed by AtlasMind');
+    expect(handoff).toContain('not a partial Catalyst clone');
+    expect(byPath.get('docs/privacy.md')?.content).toContain('Status: Not assessed');
+    expect(byPath.get('docs/compatibility.md')?.content).toContain('Catalyst generator');
+  });
+
+  it('Scenario: generate an inert Magento module contract', () => {
+    expectDeclaredScenario('Generate an inert Magento module contract');
+    const files = buildBootstrapTemplateFiles('magento2-module', '../123 Returns */\nInjected');
+    const byPath = new Map(files.map(file => [file.path, file]));
+    const registration = byPath.get('registration.php')?.content ?? '';
+    const moduleXml = byPath.get('etc/module.xml')?.content ?? '';
+    const composer = JSON.parse(byPath.get('composer.json')?.content ?? '{}') as Record<string, unknown>;
+    const workflow = byPath.get('.github/workflows/ci.yml')?.content ?? '';
+
+    expect(files.every(file => !file.path.startsWith('/') && !file.path.includes('..'))).toBe(true);
+    expect(registration).toContain("'AtlasMind_Module123ReturnsInjected'");
+    expect(moduleXml).toContain('<module name="AtlasMind_Module123ReturnsInjected"/>');
+    expect(moduleXml).not.toContain('setup_version');
+    expect(composer).toMatchObject({
+      name: 'atlasmind/module-123-returns-injected',
+      type: 'magento2-module',
+      license: 'proprietary',
+      autoload: {
+        files: ['registration.php'],
+        'psr-4': { 'AtlasMind\\Module123ReturnsInjected\\': '' },
+      },
+    });
+    expect(workflow).toContain('permissions:\n  contents: read');
+    expect(workflow).toContain('composer validate --strict --no-check-publish');
+    expect(workflow).toContain('php tests/scaffold-contract.php');
+    expect(byPath.get('README.md')?.content).toContain('deliberately inert module shell');
+  });
+
+  it('Scenario: keep Wix provisioning under operator control', () => {
+    expectDeclaredScenario('Keep Wix provisioning under operator control');
+    const files = buildBootstrapTemplateFiles('wix-commerce', 'Store "$(danger)"');
+    const byPath = new Map(files.map(file => [file.path, file]));
+    const handoff = byPath.get('WIX_COMMERCE_HANDOFF.md')?.content ?? '';
+
+    expect(files.every(file => !file.path.startsWith('/') && !file.path.includes('..'))).toBe(true);
+    expect(files.filter(file => file.root === 'workspace').every(file => file.path.endsWith('.md'))).toBe(true);
+    expect(handoff).toContain('npm create @wix/new@latest -- headless');
+    expect(handoff).toContain('--site-template commerce');
+    expect(handoff).toContain('--skip-install --skip-git --no-publish');
+    expect(handoff).toContain('provisions a Wix business/site and private');
+    expect(handoff).not.toContain('--business-name "Store "$(danger)""');
+    expect([...byPath.keys()]).not.toContain('wix.config.json');
+    expect([...byPath.keys()]).not.toContain('package.json');
+  });
+});
+
+describe('Feature: safety-first SaaS and web bootstrap prefabs', () => {
+  it('Scenario: hand off maintained application generators without executing them', () => {
+    expectDeclaredScenario('Hand off maintained application generators without executing them');
+    const cases = [
+      ['nextjs-saas', 'NEXTJS_SAAS_HANDOFF.md', 'pnpm create next-app@latest'],
+      ['react-router-saas', 'REACT_ROUTER_SAAS_HANDOFF.md', 'npx create-react-router@latest'],
+      ['laravel-saas', 'LARAVEL_SAAS_HANDOFF.md', 'laravel new <folder-name>'],
+      ['django-saas', 'DJANGO_SAAS_HANDOFF.md', '-m django startproject'],
+      ['astro-content-site', 'ASTRO_CONTENT_HANDOFF.md', 'npm create astro@latest'],
+    ] as const;
+
+    for (const [template, handoffPath, command] of cases) {
+      const files = buildBootstrapTemplateFiles(template, 'Acme $(danger) <img onerror="x"> */\nInjected');
+      const handoff = files.find(file => file.path === handoffPath)?.content ?? '';
+      const commandBlock = /```text\n([\s\S]*?)\n```/.exec(handoff)?.[1] ?? '';
+
+      expect(files.every(file => !file.path.startsWith('/') && !file.path.includes('..')), template).toBe(true);
+      expect(files.filter(file => file.root === 'workspace').every(file => file.path.endsWith('.md')), template).toBe(true);
+      expect(handoff, template).toContain(command);
+      expect(handoff, template).toContain('were not executed by AtlasMind');
+      expect(handoff, template).toContain('Effects when an operator runs them');
+      expect(handoff, template).toContain('<folder-name>');
+      expect(commandBlock, template).not.toContain('Acme $(danger)');
+      expect(handoff, template).not.toContain('<img onerror="x">');
+      expect(handoff, template).toContain('&lt;img onerror=&quot;x&quot;&gt;');
+      expect(files.find(file => file.path === 'docs/privacy.md')?.content, template).toContain('Status: Not assessed');
+      expect(files.find(file => file.path === 'docs/compatibility.md')?.content, template).toContain('Status: Not assessed');
+    }
+  });
+
+  it('Scenario: use the maintained React Router path for Remix applications', () => {
+    expectDeclaredScenario('Use the maintained React Router path for Remix applications');
+    const files = buildBootstrapTemplateFiles('react-router-saas', 'Accounts');
+    const handoff = files.find(file => file.path === 'REACT_ROUTER_SAAS_HANDOFF.md')?.content ?? '';
+
+    expect(handoff).toContain('create-react-router@latest');
+    expect(handoff).toContain('maintained successor path');
+    expect(handoff).not.toContain('create-remix');
+  });
+
+  it('Scenario: generate a dependency-free static website contract', async () => {
+    expectDeclaredScenario('Generate a dependency-free static website contract');
+    const files = buildBootstrapTemplateFiles('static-site', '<img src=x onerror="danger">');
+    const byPath = new Map(files.map(file => [file.path, file]));
+    const html = byPath.get('index.html')?.content ?? '';
+    const pkg = JSON.parse(byPath.get('package.json')?.content ?? '{}') as Record<string, unknown>;
+    const contract = byPath.get('tests/static-contract.test.mjs')?.content ?? '';
+    const workflow = byPath.get('.github/workflows/ci.yml')?.content ?? '';
+    const renderedMarkdown = files
+      .filter(file => file.path.endsWith('.md'))
+      .map(file => file.content)
+      .join('\n');
+
+    expect(files.every(file => !file.path.startsWith('/') && !file.path.includes('..'))).toBe(true);
+    expect(html).toContain('&lt;img src=x onerror=&quot;danger&quot;&gt;');
+    expect(html).not.toContain('<img src=x onerror="danger">');
+    expect(renderedMarkdown).toContain('&lt;img src=x onerror=&quot;danger&quot;&gt;');
+    expect(renderedMarkdown).not.toContain('<img src=x onerror="danger">');
+    expect(html).toContain('Content-Security-Policy');
+    expect(html).toContain('<main id="main">');
+    expect(html).toContain('class="skip-link"');
+    expect(html).not.toMatch(/<script(?:\s|>)(?![^>]*\bsrc=)/i);
+    expect(html).not.toMatch(/<style(?:\s|>)/i);
+    expect(pkg).toMatchObject({ private: true, type: 'module', scripts: { test: 'node --test' } });
+    expect(contract).toContain("import test from 'node:test'");
+    expect(contract).toContain('Content-Security-Policy');
+    expect(() => transformSync(contract, { loader: 'js', format: 'esm', target: 'node24' })).not.toThrow();
+    expect(workflow).toContain('permissions:\n  contents: read');
+    expect(workflow).toContain('run: npm test');
+
+    const tempRoot = mkdtempSync(join(tmpdir(), 'atlasmind-static-contract-'));
+    try {
+      mkdirSync(join(tempRoot, 'tests'), { recursive: true });
+      writeFileSync(join(tempRoot, 'index.html'), html, 'utf8');
+      writeFileSync(join(tempRoot, 'tests', 'static-contract.test.mjs'), contract, 'utf8');
+      const { spawnSync } = await vi.importActual<typeof import('node:child_process')>('node:child_process');
+      const run = spawnSync(process.execPath, ['--test', 'tests/static-contract.test.mjs'], {
+        cwd: tempRoot,
+        encoding: 'utf8',
+      });
+      expect(run.status, `${run.stderr}\n${run.stdout}`).toBe(0);
+    } finally {
+      rmSync(tempRoot, { recursive: true, force: true });
+    }
+  });
+
+  it('Scenario: keep content ownership explicit for a blog or CMS', () => {
+    expectDeclaredScenario('Keep content ownership explicit for a blog or CMS');
+    const files = buildBootstrapTemplateFiles('astro-content-site', 'Editorial');
+    const handoff = files.find(file => file.path === 'ASTRO_CONTENT_HANDOFF.md')?.content ?? '';
+
+    expect(handoff).toContain('--template blog --no-install --no-git --no-ai');
+    expect(handoff).toContain('repository-owned content, build-time remote content, or live CMS content');
+    expect(handoff).toContain('managed CMS');
+  });
+});
+
+describe('Feature: current frontend project bootstrap', () => {
+  it('Scenario: hand off every frontend generator without executing it', () => {
+    expectDeclaredScenario('Hand off every frontend generator without executing it');
+    const cases = [
+      ['nextjs-frontend', 'NEXTJS_FRONTEND_HANDOFF.md', 'create next-app@latest'],
+      ['sveltekit-frontend', 'SVELTEKIT_FRONTEND_HANDOFF.md', 'npx sv create'],
+      ['nuxt-frontend', 'NUXT_FRONTEND_HANDOFF.md', 'create nuxt@latest'],
+      ['react-frontend', 'REACT_FRONTEND_HANDOFF.md', '--template react-ts'],
+      ['vue-frontend', 'VUE_FRONTEND_HANDOFF.md', 'create vue@latest'],
+    ] as const;
+
+    for (const [template, handoffPath, command] of cases) {
+      const files = buildBootstrapTemplateFiles(template, 'UI $(danger) <img onerror="x"> */\nInjected');
+      const handoff = files.find(file => file.path === handoffPath)?.content ?? '';
+      const commandBlock = /```text\n([\s\S]*?)\n```/.exec(handoff)?.[1] ?? '';
+
+      expect(files.every(file => !file.path.startsWith('/') && !file.path.includes('..')), template).toBe(true);
+      expect(files.filter(file => file.root === 'workspace').every(file => file.path.endsWith('.md')), template).toBe(true);
+      expect(handoff, template).toContain(command);
+      expect(handoff, template).toContain('were not executed by AtlasMind');
+      expect(handoff, template).toContain('<folder-name>');
+      expect(commandBlock, template).not.toContain('UI $(danger)');
+      expect(handoff, template).not.toContain('<img onerror="x">');
+      expect(handoff, template).toContain('&lt;img onerror=&quot;x&quot;&gt;');
+      expect(files.find(file => file.path === 'docs/privacy.md')?.content, template).toContain('Status: Not assessed');
+      expect(files.find(file => file.path === 'docs/compatibility.md')?.content, template).toContain('Status: Not assessed');
+    }
+  });
+
+  it('Scenario: use the current SvelteKit generator', () => {
+    expectDeclaredScenario('Use the current SvelteKit generator');
+    const handoff = buildBootstrapTemplateFiles('sveltekit-frontend', 'Interface')
+      .find(file => file.path === 'SVELTEKIT_FRONTEND_HANDOFF.md')?.content ?? '';
+
+    expect(handoff).toContain('npx sv create');
+    expect(handoff).not.toContain('create-svelte');
+  });
+
+  it("Scenario: keep React's framework decision honest", () => {
+    expectDeclaredScenario("Keep React's framework decision honest");
+    const handoff = buildBootstrapTemplateFiles('react-frontend', 'Interface')
+      .find(file => file.path === 'REACT_FRONTEND_HANDOFF.md')?.content ?? '';
+
+    expect(handoff).toContain('React recommends a framework');
+    expect(handoff).toContain('routing, data, state, metadata, and authentication integration');
+    expect(handoff).toContain('--template react-ts --no-interactive');
+  });
+
+  it('Scenario: keep interactive Vue choices with the operator', () => {
+    expectDeclaredScenario('Keep interactive Vue choices with the operator');
+    const handoff = buildBootstrapTemplateFiles('vue-frontend', 'Interface')
+      .find(file => file.path === 'VUE_FRONTEND_HANDOFF.md')?.content ?? '';
+
+    for (const choice of ['TypeScript', 'Router', 'Pinia', 'unit tests', 'end-to-end tests', 'linting', 'formatting', 'developer tools']) {
+      expect(handoff).toContain(choice);
+    }
+    expect(handoff).toContain('npm install');
+    expect(handoff).toContain('separate review step');
+  });
+});
+
+describe('Feature: safety-first mobile project bootstrap', () => {
+  it('Scenario: hand off every mobile generator without executing it', () => {
+    expectDeclaredScenario('Hand off every mobile generator without executing it');
+    const cases = [
+      ['react-native-mobile', 'REACT_NATIVE_MOBILE_HANDOFF.md', '@react-native-community/cli@latest'],
+      ['expo-mobile', 'EXPO_MOBILE_HANDOFF.md', 'create-expo-app@latest'],
+      ['flutter-mobile', 'FLUTTER_MOBILE_HANDOFF.md', 'flutter create --empty'],
+    ] as const;
+
+    for (const [template, handoffPath, command] of cases) {
+      const files = buildBootstrapTemplateFiles(template, 'Mobile $(danger) <img onerror="x"> */\nInjected');
+      const handoff = files.find(file => file.path === handoffPath)?.content ?? '';
+      const commandBlock = /```text\n([\s\S]*?)\n```/.exec(handoff)?.[1] ?? '';
+
+      expect(files.every(file => !file.path.startsWith('/') && !file.path.includes('..')), template).toBe(true);
+      expect(files.filter(file => file.root === 'workspace').every(file => file.path.endsWith('.md')), template).toBe(true);
+      expect(handoff, template).toContain(command);
+      expect(handoff, template).toContain('were not executed by AtlasMind');
+      expect(commandBlock, template).not.toContain('Mobile $(danger)');
+      expect(handoff, template).not.toContain('<img onerror="x">');
+      expect(handoff, template).toContain('&lt;img onerror=&quot;x&quot;&gt;');
+      expect(files.find(file => file.path === 'docs/privacy.md')?.content, template).toContain('Status: Not assessed');
+      expect(files.find(file => file.path === 'docs/compatibility.md')?.content, template).toContain('Status: Not assessed');
+    }
+  });
+
+  it('Scenario: prefer a framework for a new React Native application', () => {
+    expectDeclaredScenario('Prefer a framework for a new React Native application');
+    const handoff = buildBootstrapTemplateFiles('react-native-mobile', 'Native App')
+      .find(file => file.path === 'REACT_NATIVE_MOBILE_HANDOFF.md')?.content ?? '';
+
+    expect(handoff).toContain('React Native recommends a framework');
+    expect(handoff).toContain('constraint that is not served well');
+    expect(handoff).toContain('<native-app-name>');
+    expect(handoff).toContain('iOS CocoaPods');
+  });
+
+  it('Scenario: keep Expo native generation and cloud services explicit', () => {
+    expectDeclaredScenario('Keep Expo native generation and cloud services explicit');
+    const handoff = buildBootstrapTemplateFiles('expo-mobile', 'Expo App')
+      .find(file => file.path === 'EXPO_MOBILE_HANDOFF.md')?.content ?? '';
+
+    expect(handoff).toContain('default@<reviewed-sdk> --no-install --no-agents-md');
+    expect(handoff).toContain('skips npm dependencies and CocoaPods');
+    expect(handoff).toContain('Continuous Native Generation');
+    expect(handoff).toContain('optional EAS');
+  });
+
+  it('Scenario: disclose Flutter naming and dependency retrieval', () => {
+    expectDeclaredScenario('Disclose Flutter naming and dependency retrieval');
+    const handoff = buildBootstrapTemplateFiles('flutter-mobile', 'Flutter App')
+      .find(file => file.path === 'FLUTTER_MOBILE_HANDOFF.md')?.content ?? '';
+
+    expect(handoff).toContain('lowercase_with_underscores');
+    expect(handoff).toContain('<dart_package_name>');
+    expect(handoff).toContain('retrieves necessary dependencies');
+    expect(handoff).toContain('does not claim this command is offline');
+  });
+});
+
 describe('bootstrapProject', () => {
   beforeEach(() => {
     vi.clearAllMocks();
@@ -230,6 +573,136 @@ describe('bootstrapProject', () => {
     workspaceStateStore.clear();
     showWarningMessage.mockResolvedValue(undefined);
     setupVirtualFs();
+  });
+
+  it('declares a selected Shopify composition in the workflow SSOT', async () => {
+    showQuickPick
+      .mockResolvedValueOnce({ intakeMode: 'guided' })
+      .mockResolvedValueOnce({ label: '$(layers) Shopify composable project', composition: 'shopify' })
+      .mockResolvedValueOnce([
+        { component: 'theme' },
+        { component: 'app' },
+        { component: 'extension' },
+      ]);
+
+    const reported: string[] = [];
+    await bootstrapProject(
+      ROOT as any,
+      makeAtlas(),
+      { markdown: (value: unknown) => { reported.push(String(value)); } } as any,
+    );
+
+    const raw = Buffer.from(
+      fileResponses.get('/workspace/project_memory/operations/workflow.json') ?? [],
+    ).toString('utf-8');
+    const workflow = JSON.parse(raw) as {
+      composition: { components: Array<{ id: string; location: string; home: boolean }> };
+      stages: Array<{ enabled: boolean; automationLevel: string }>;
+    };
+    const mirror = Buffer.from(
+      fileResponses.get('/workspace/project_memory/operations/workflow.md') ?? [],
+    ).toString('utf-8');
+
+    expect(workflow.composition.components.map(component => component.id)).toEqual([
+      'shopify-theme',
+      'shopify-app',
+      'shopify-extension',
+    ]);
+    expect(workflow.composition.components.find(component => component.home)).toMatchObject({
+      id: 'shopify-app',
+      location: '.',
+    });
+    expect(workflow.stages.every(stage => !stage.enabled && stage.automationLevel === 'observe')).toBe(true);
+    expect(mirror).toContain('Shopify theme');
+    expect(mirror).toContain('Shopify app');
+    expect(mirror).toContain('Shopify extension');
+    expect(reported.join('\n')).toContain('Shopify composition (Theme + App + Extension)');
+    expect(executeCommand).not.toHaveBeenCalled();
+
+    const compositionPick = showQuickPick.mock.calls.find(([, options]) => options?.title === 'Shopify Project Composition');
+    expect(compositionPick?.[1]).toMatchObject({ canPickMany: true });
+  });
+
+  it('never overwrites a newer workflow document with a bootstrap composition', async () => {
+    const futureWorkflow = JSON.stringify({
+      version: 2,
+      futurePolicy: { compositionAuthority: 'team' },
+    });
+    seedFile('/workspace/project_memory/operations/workflow.json', futureWorkflow);
+    showWarningMessage.mockResolvedValueOnce('Continue');
+    showQuickPick
+      .mockResolvedValueOnce({ intakeMode: 'guided' })
+      .mockResolvedValueOnce({ label: '$(layers) Shopify composable project', composition: 'shopify' })
+      .mockResolvedValueOnce([
+        { component: 'theme' },
+        { component: 'app' },
+        { component: 'extension' },
+      ]);
+
+    const reported: string[] = [];
+    await bootstrapProject(
+      ROOT as any,
+      makeAtlas(),
+      { markdown: (value: unknown) => { reported.push(String(value)); } } as any,
+    );
+
+    expect(Buffer.from(
+      fileResponses.get('/workspace/project_memory/operations/workflow.json') ?? [],
+    ).toString('utf-8')).toBe(futureWorkflow);
+    expect(fileResponses.has('/workspace/project_memory/operations/workflow.md')).toBe(false);
+    expect(reported.join('\n')).toContain('Left the existing workflow declaration untouched');
+  });
+
+  it('never replaces a composition the team already declared', async () => {
+    const existingWorkflow = JSON.stringify({
+      ...seedWorkflowConfig({ profile: 'studio' }),
+      composition: buildShopifyProjectComposition(['theme']),
+    }, null, 2);
+    seedFile('/workspace/project_memory/operations/workflow.json', existingWorkflow);
+    showWarningMessage.mockResolvedValueOnce('Continue');
+    showQuickPick
+      .mockResolvedValueOnce({ intakeMode: 'guided' })
+      .mockResolvedValueOnce({ label: '$(layers) Shopify composable project', composition: 'shopify' })
+      .mockResolvedValueOnce([{ component: 'app' }, { component: 'extension' }]);
+
+    await bootstrapProject(ROOT as any, makeAtlas());
+
+    expect(Buffer.from(
+      fileResponses.get('/workspace/project_memory/operations/workflow.json') ?? [],
+    ).toString('utf-8')).toBe(existingWorkflow);
+    expect(showWarningMessage).toHaveBeenCalledWith(expect.stringContaining('existing workflow composition'));
+  });
+
+  it('offers a game preset that seeds composition without governing it', async () => {
+    showQuickPick
+      .mockResolvedValueOnce({ intakeMode: 'guided' })
+      .mockResolvedValueOnce({ label: 'Game', composition: 'game' })
+      .mockResolvedValueOnce({ label: 'Hybrid Git + Perforce studio', presetId: 'hybrid-git-perforce' });
+
+    const reported: string[] = [];
+    await bootstrapProject(
+      ROOT as any,
+      makeAtlas(),
+      { markdown: (value: unknown) => { reported.push(String(value)); } } as any,
+    );
+
+    const workflow = JSON.parse(Buffer.from(
+      fileResponses.get('/workspace/project_memory/operations/workflow.json') ?? [],
+    ).toString('utf-8')) as {
+      composition: { components: Array<{ id: string; vcs: string; home: boolean }> };
+    };
+    expect(workflow.composition.components.map(component => component.id)).toEqual([
+      'gameplay',
+      'backend',
+      'content',
+    ]);
+    expect(workflow.composition.components.find(component => component.id === 'content')?.vcs).toBe('perforce');
+    expect(workflow.composition).not.toHaveProperty('preset');
+    expect(reported.join('\n')).toContain('Game composition (Hybrid Git + Perforce studio)');
+    expect(executeCommand).not.toHaveBeenCalled();
+
+    const presetPick = showQuickPick.mock.calls.find(([, options]) => options?.title === 'Game Architecture Preset');
+    expect(presetPick?.[0]).toHaveLength(4);
   });
 
   it('runs the guided intake and seeds SSOT, settings, and GitHub planning artifacts', async () => {

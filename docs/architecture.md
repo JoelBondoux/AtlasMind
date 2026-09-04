@@ -501,7 +501,7 @@ same-origin `script-src`/`connect-src`; review mode separately adds its declared
 
 Four more modules cover the framework half, all pure and unit-tested except the host:
 
-- **`websiteFrameworks.ts`** — the framework catalog. Ten entries, each carrying the scaffold command, the dev/build commands and the output directory. **Every command is a module constant** — never composed, never parsed from documentation, never model-generated, for the reason `acpInstaller.ts` states: that is RCE with extra steps. `custom`, `static` and `wordpress-theme` carry no scaffold command by design. `describeStackCompatibility` grades every framework/platform pairing with a reason, and an `unsupported` pairing stays visible rather than being filtered out of the picker.
+- **`websiteFrameworks.ts`** — the framework catalog. Twelve entries, each carrying the verified scaffold/manual boundary, dev/build commands and output directory. **Every executable command is a module constant** — never composed, never parsed from documentation, never model-generated, for the reason `acpInstaller.ts` states: that is RCE with extra steps. `custom`, `static`, `wordpress-theme`, `react`, and `vue` carry no scaffold command by design; the last two link to their official decision-heavy setup guidance instead. `describeStackCompatibility` grades every framework/platform pairing with a reason, and an `unsupported` pairing stays visible rather than being filtered out of the picker.
 - **`websiteCiTemplate.ts`** — the GitHub Actions workflow. Declared templates with only validated values substituted; branch names, output dirs and node versions are charset-checked before interpolation, and a rendered file still containing a placeholder refuses rather than being written. Explicit `permissions:`, per-environment `concurrency` with `cancel-in-progress: false`, `environment: production` on the production path, and secrets referenced by name only. A platform with no verified deploy action is refused, not guessed at.
 - **`websiteStackSetup.ts`** — `planWebsiteStackSetup` (performs nothing) and `executeWebsiteStackSetup` (takes injected `exec`, `writeFileIfAbsent` and `mergePackageScripts`). Every file and branch step is create-only; every step is re-validated immediately before it acts; execution stops at the first failure and reports what had already succeeded, as `promotionRunner` does.
 - **`websiteDeliverySync.ts`** — `compareWebsiteToDelivery` is a comparison, not a verdict, shaped after `findTaxonomyDrift`: Website Studio keeps its own environments, so the two models can drift, and this makes the drift visible rather than reconciling it silently. `buildDeliverySyncPlan` never clears a populated Delivery field from an empty Studio one, only tightens protection, and never creates a stage — that would mean inventing a backup and rollback policy the Studio does not model.
@@ -985,9 +985,113 @@ publication states remain explicitly unconfigured until an external provider ada
 
 Models a project's **deployment stages** (Local → Staging → Production …) and the **promotion ("push") edges** between them, surfaced on the Project Dashboard → Delivery page. A `DeliveryConfig` (`stages: DeploymentStage[]`, `paths: PromotionPath[]`) is persisted as the source of truth at `project_memory/operations/delivery.json`, with a human-readable `delivery.md` runbook mirror regenerated on every write (`renderDeliveryMarkdown`) so the pipeline is understandable and editable by a newcomer without asking the AI. The persistence helpers (`readDeliveryConfig`/`writeDeliveryConfig`/`seedDeliveryConfig`) are `vscode`-free (node `fs` only), matching the `DataPrivacyManager` pattern.
 
-**The pipeline and the shipping instructions are separate readings of the same evidence.** The stage model answers *where a version moves*; `buildProjectDeliveryGuide` answers *what a newcomer actually does*. The dashboard supplies a bounded root-file and manifest reading, the already-parsed `DeliveryConfig`, the bound routines, workflow names/triggers, and git cleanliness. The pure builder derives an ordered **Prerequisites → Validate → Package → Deploy → Publish** guide for Node, Python, Go, Rust, Maven/Gradle, .NET, or container projects. Exact package scripts/routine steps are `configured`; ecosystem-standard commands are `conventional`; human gates stay `manual`; and absent load-bearing facts are `missing`. This distinction is load-bearing: a standard `cargo test` is useful guidance, but it is not evidence that the repository declared or ran it. Unknown shapes get explicit gaps instead of a fictional universal release command.
+**The pipeline and the shipping instructions are separate readings of the same evidence.** The stage model answers *where a version moves*; `buildProjectDeliveryGuide` answers *what a newcomer actually does*, **for one named stage**. The dashboard supplies a bounded root-file and manifest reading, the already-parsed `DeliveryConfig`, the bound routines, workflow names/triggers, and git cleanliness. The pure builder derives an ordered **Prerequisites → Validate → Package → Deploy → Publish** guide for Node, Python, Go, Rust, Maven/Gradle, .NET, or container projects. Exact package scripts/routine steps are `configured`; ecosystem-standard commands are `conventional`; human gates stay `manual`; and absent load-bearing facts are `missing`. This distinction is load-bearing: a standard `cargo test` is useful guidance, but it is not evidence that the repository declared or ran it. Unknown shapes get explicit gaps instead of a fictional universal release command.
 
 Workspace-authored text is control-stripped and length-capped, evidence paths must remain workspace-relative and traversal-free, and commands render only inside code blocks. Guarded promotion continues to read executable commands server-side from the persisted delivery config or routine, rebuild live preflight state, and apply its ordinary approvals. Detection therefore cannot become authorization.
+
+Every fact that differs between environments comes off the **selected** stage: the version-bump and
+changelog gates, the declared human and CI checks, the backup, the dispatch workflow, the reviewed
+pull request, the hosting target, and whether anything is published at all. Two columns change wording
+for a `local` stage — *Deploy* becomes **Run it here** (the `dev`/`start`/`watch`/`serve` scripts, `go
+run`, `cargo run`, or the `.vscode/launch.json` F5 path) and *Prerequisites* asks about building on
+this machine rather than about a release being meaningful. Three rules keep the local runbook honest:
+uncommitted work is `manual` there and `missing`+blocking on a stage you promote *into*; the publish
+scripts appear only on a stage the pipeline says reaches a registry (or on an unstaged runbook, the
+only other place they could go); and a declared check that restates a step the runbook already derived
+is dropped, because two rows for one fact make the second look like extra work.
+
+`DeliveryGuideStep.key` and `DeliveryGuidePhase.key` carry the stage id verbatim (`<stageId>::<id>`).
+`id` names a step *within* its runbook and repeats across stages — Local and Production both derive
+`validate-test-1` — so an action carrying only `id` would be ambiguous about which environment it
+belongs to, and the same-looking column ends in `npm test` for one stage and `vsce publish` for
+another. Host-side resolution is exact string equality on the key, so it can never land on a
+neighbouring stage's command.
+
+### VitalFileOwnership (`src/core/vitalFileOwnership.ts`)
+
+Who keeps each vital file current. The dashboard knew which files must never go stale — the Documents
+page tracks them, the Delivery artifact inventory lists the ones a repository is expected to keep — and
+it knew how to assign a human owner to a piece of *outstanding work*. It had no answer for the standing
+question: a `README.md` that is fresh today still has to be somebody's job tomorrow, and
+`renderDirectorOwnerBadge` returned an empty string for every file nobody had manually assigned.
+
+Five rules. **A vital file is never ownerless while a Director exists** — the default is the person
+holding the built-in `director` role, which already owns the workflow itself. **An explicit assignment
+always wins, and the two are never confused**: `recorded` separates "somebody decided this" from
+"nobody has, so it falls here", because collapsing them lets a derivation read as a decision on the one
+surface whose purpose is recording what people agreed to. **A default is offered, never written on
+sight** — `project_memory/` is git-tracked, so seeding assignment records because a tab was opened would
+commit words nobody said; the upside of deriving is that the default *follows the roster*, so replacing
+the Director re-points every unassigned file at once where written records would keep naming somebody
+who left. **A guess may name you and must never name a colleague**: with no Director the file falls to
+`selfContactId` — already documented in `ProjectDirectorConfig` as the contact assignments default to —
+and picking the first name on the roster is refused outright, since a roster seeded from git history
+routinely contains bots and "dependabot owns the SECURITY policy" is worse than an honest gap because it
+stops anybody looking. **Only files somebody must keep current are in scope**: nobody keeps `coverage/`
+up to date, so ephemeral artifacts are excluded by rule rather than by omission.
+
+`notice` and `blocker` are kept apart — a fixable weakness ("no Director named, so these fall to you")
+and an unresolvable one ("nobody is on the roster") call for different reactions, and collapsing them
+makes the working case look broken. A `cancelled` assignment is ignored and a `done` one is honoured:
+"we decided not to" is not a lasting claim on a file, while a completed review still names whose file it
+is. `buildVitalFileAssignments` returns exactly what the confirmed record action would write, so the
+dialog can show it before anything happens, with ids derived from the file so a second run updates
+rather than duplicates. Pure, clock-injected + unit-tested (`tests/core/vitalFileOwnership.test.ts`).
+
+### ArtifactCompliance (`src/core/artifactCompliance.ts`)
+
+What to ask Atlas about one row of the Delivery page's artifact inventory. The inventory could report a
+missing file and do nothing about it, and every row was a dead end in both directions: a red
+`SECURITY.md` told you it was absent and left you to write it, and a green `README.md` told you the file
+existed and said nothing about whether it still described the project.
+
+Four rules. **The row's own facts choose the request, not the surface and not a model** —
+`classifyArtifactCompliance` reads `exists`, `type` and `retention`, and the intent is shipped on the
+signal so the browser renders what the host decided; a second classifier there would eventually disagree,
+and the symptom would be an icon promising a fix above a draft that asks a question. **A produced
+artifact is never authored** — `out/`, `dist/`, `coverage/`, `node_modules/` and a packaged `.vsix` are
+absent most of the time and that absence is usually correct, so those rows get an `explain` request whose
+*prompt* states the prohibition, not merely the classifier: a rule enforced only in the branch that
+chose the prompt is one the agent never reads. **An existing file is reviewed, never rewritten on
+sight**, and "this is current" is a first-class answer — the correction asked for is the smallest one
+that closes a real gap, because a wholesale rewrite of a `CONTRIBUTING.md` loses decisions recorded
+nowhere else. **Look before creating** — the inventory probes a fixed path list, so a `LICENCE` or a
+`docs/SECURITY.md` reads as missing, and every `author` prompt searches for an equivalent first.
+
+The `author` set is pinned by test to `needsAttention` (`persistent && keep && !exists`), so the rows the
+page paints amber and the rows that offer to write a file are the same set by construction rather than by
+coincidence. `withArtifactCompliance` in the panel applies the classification to every signal —
+catalog-derived and detected alike — so a row cannot reach the page without an action. The page posts an
+artifact id and nothing else; `handleDiscussArtifactSignal` re-probes the inventory, resolves the id, and
+builds the draft host-side, so a crafted message can name a row that does not exist and can never have a
+produced artifact authored. Pure — no `vscode`, no filesystem — and unit-tested
+(`tests/core/artifactCompliance.test.ts`).
+
+### DeliveryStageRunbooks (`src/core/deliveryStageRunbooks.ts`)
+
+One runbook per delivery stage, and what makes each different from the stage below it. The Delivery
+page explained how to ship this project very well and explained it exactly once, from the production
+stage — so "how do I start the dev build?" was answered with a version bump, a changelog gate and a
+marketplace publish, while "what is actually different about promoting to production?" was never asked.
+
+Five rules carry the semantics. **A stage's requirements come from the pipeline, never from a model** —
+`DELIVERY_STAGE_REQUIREMENT_RULES` is a declared table of fourteen rules (protected, approval,
+distinct approver, pull request, version bump, changelog, CI status checks, human checklist, backup,
+migrations, live data, CI dispatch, hosted away, rollback), every entry names the rule that produced
+it, and the table travels in the payload so a surface publishes the rules that actually graded the
+cards. **The interesting fact is the delta, not the list**: `deltas` states what this stage asks that
+the one below does not, since a reader comparing two twenty-row lists by eye will not find the two
+rows that differ. **A requirement the stage below has and this one does not is reported too** — the
+alarming direction, and the one a "what's new here" list would hide (a rollback declared on Staging
+and absent on Production is a real finding). **Unassessed is not clear**: a project with no configured
+pipeline gets one *unstaged* runbook and `staged: false`, never three fabricated environments.
+**Nothing here decides which stage you are on; it derives it and says so** — the opening runbook comes
+from the checked-out branch matching a stage's declared `branchRef`, with the reason carried alongside.
+
+`changed` is distinct from `added` because comparing on rule id alone would report "both require CI
+checks" as agreement when one requires `CI` and the other requires `CI, e2e, security-scan`. The set
+is capped at eight runbooks with the remainder stated. Pure — no `vscode`, no filesystem, no clock —
+and unit-tested (`tests/core/deliveryStageRunbooks.test.ts`).
 
 ### DeliveryRunPlan (`src/core/deliveryRunPlan.ts`)
 
@@ -998,6 +1102,8 @@ The guide's commands can be copied, typed into a terminal, or run a column at a 
 **Fail-fast is a property of the shell, and it is reported rather than assumed.** `chainDeliveryCommands` joins with `&&` where the shell can stop on failure and sends separate lines where it cannot — Windows PowerShell 5.1 has no `&&`, and an unrecognised shell has made no promise, so it is treated as unable rather than assumed able. `buildDeliveryRunConfirmation` states which happened in the sentence the user actually reads: a column that keeps going after `npm test` fails will happily package and publish a broken build.
 
 **Reach is classified so the confirmation can differ.** "Run the tests" and "publish to a registry" cannot be the same dialog. `classifyDeliveryCommandReach` matches a declared, word-boundary-matched token list (`git push`, `npm publish`, `vsce publish`, `cargo publish`, `docker push`, `gh workflow run`, `terraform apply`, a script named `publish`/`release`/`ship`/`deploy`/`tag`, and similar); an unrecognised command is `local`, which is safe here precisely because the classification only ever *adds* a warning — every command is listed in the confirmation either way, so a miss loses emphasis and never a gate.
+
+**The environment is named in the title, not left to the column label.** Once the page carries a runbook per stage, "Run the Deploy column?" is a question with three different answers, and the one it means is the difference between starting a dev server and dispatching a production deployment. `stageLabel` travels with the plan — taken from the rebuilt runbook, never from the message — so the sentence the user reads cannot omit it.
 
 Single-command actions need no dialog because they are not runs: **copy** writes to the clipboard, and **send to terminal** withholds the trailing newline exactly as `chatPanel` and the setup walkthroughs do, leaving the human's own keystroke as the last gate. Both use one named `AtlasMind Delivery` terminal rooted at the workspace, because a delivery command that runs in whatever directory the active terminal happened to be in is a different command from the one the page displayed. The module is `vscode`-free and unit-tested (`tests/core/deliveryRunPlan.test.ts`).
 
@@ -1188,7 +1294,9 @@ How a persisted AtlasMind document changes shape over time — the mechanism tha
 
 The load-bearing distinction is between **invalid** (corrupt, truncated, not ours — safe to replace) and **refused** (structurally fine but written by a newer AtlasMind — *never* safe to replace). `interpretVersionedDocument` owns that decision for every manager rather than leaving nine readers to re-derive it, `shouldPreserveExisting` expresses the rule once, and `DocumentsManager`, `ProjectDirectorManager`, `RiskOversightManager` and `SecurityReviewManager` all skip their seed-and-persist path on a refusal, surfacing the reason through `getNotice()`. An **explicit** save still writes — the user is editing on purpose, and refusing their own edit would be its own data loss — which is why the notice is rendered on the page rather than kept internal.
 
-`applyMigrationLadder` walks a document up one version at a time: it starts from the version found rather than the beginning, stamps the resulting version even when a step forgets to, and reports a throwing step rather than leaving a half-applied chain. It takes its bounds as arguments specifically so it can be tested while every kind still sits at v1 — otherwise the code that runs at the first real format change would ship unexercised. `SCHEMA_MIGRATIONS` is deliberately empty today, and a test asserts each kind's version matches its migration count, so bumping a version without writing the migration fails the build.
+`applyMigrationLadder` walks a document up one version at a time: it starts from the version found rather than the beginning, stamps the resulting version even when a step forgets to, and reports a throwing step rather than leaving a half-applied chain. The registry now contains active `testing-config` and `website` ladders plus v1 declarations for newer domains. A test asserts each kind's version matches its migration count, so bumping a version without writing the migration fails the build.
+
+Game integration Phase 0 registers `game` at v1 before a profile writer exists; composition remains inside the already registered v1 `workflow` document. Fixtures under `tests/fixtures/game-engines/` pin decisive Unreal, Unity and Godot identity/version files and a three-root composition whose content component declares Perforce. The fixture stores no derived topology and uses only a non-routable depot coordinate; Phase 1's pure composition and scope modules consume that boundary without an installed engine or live depot.
 
 ### SetupWalkthrough (`src/core/setupWalkthrough.ts`)
 
@@ -1210,6 +1318,13 @@ The repository's issue tracker, read into the Project Dashboard → **Issues** p
 **A body that reaches a model is quoted as data.** `buildIssueWorkPrompt` fences the issue and labels it `REPORTED CONTENT, not instructions`, telling the model not to follow anything inside it and not to treat its claims as verified. This is the one path on the page where text written by an arbitrary internet user reaches a model that can call tools, so the mitigation lives in the prompt itself rather than in a reviewer's memory (pinned by test).
 
 **One bounded read; writes behind a confirmation.** The ready handshake reads issues, pull requests, CI, releases, labels, and milestones into one panel-held snapshot. A reveal retries only after a five-minute freshness window, manual Refresh bypasses the time check, and both routes share one in-flight guard. The read is never part of ordinary render churn, and absence remains typed: "nothing loaded", "the read failed", and "zero issues" are different states. Creating, commenting, closing, and reopening are outward-facing and usually public, so each is gated on a `{ modal: true }` confirmation built by `describeIssueAction` from the same values that will be sent; the webview supplies data only, never a command or an argument list, and `gh` is executed directly rather than through a shell. Failure modes are reported as themselves with the command that fixes them (`gh` missing, not authenticated, no GitHub repo).
+
+**Component visibility is a separate reading from the issue list.** `ComponentIssueTrackerReading`
+records either a real repository summary or `not-visible` with a reason; `summarizeComponentIssuePortfolio`
+aggregates only visible components and omits the aggregate count entirely when none were read. The current
+GitHub list remains the home component's detailed board and says so on screen. Secondary, non-Git, missing,
+and unreadable components stay in the component inventory rather than becoming an invented zero or
+disappearing from the apparent project boundary.
 
 ### WorkflowCurriculum (`src/core/workflowCurriculum.ts`)
 
@@ -1285,9 +1400,152 @@ CODEOWNERS generation is where a role becomes enforceable. Only the managed bloc
 
 **Archetype plus traits, not archetype alone.** A Shopify theme is a `website` that happens to be platform-hosted; a VS Code extension is a `library` that ships a packaged artifact. Modelling those as archetypes multiplies the set every time a platform appears, and each archetype is a promise that something specialises for it. Traits compose instead.
 
+A WooCommerce extension follows the same rule: it is a `library` with
+`is-published-package` and `handles-personal-data`, not a tenth platform-named archetype. Detection uses
+the WordPress plugin type/header plus WooCommerce evidence, and deliberately does not assign
+`platform-hosted` because a WooCommerce store may be self-hosted. The commerce trait adds privacy and
+secret-scanning expectations without claiming that every plugin reads customer data.
+
+The completed commerce family preserves the same distinction. A Magento 2 module is a `library` with
+published-package and personal-data review traits, but not `platform-hosted`; its Composer type is the
+decisive detection signal. BigCommerce Catalyst and Wix Commerce storefronts are `website` shapes with
+hosted-platform, UI, server, and personal-data review traits. Catalyst package evidence is detectable from
+manifests; a Wix handoff remains a declaration until the official generator writes `wix.config.json` and
+the generated framework manifest.
+
 **Detection suggests; declaration decides.** Inference from manifests is always a suggestion — the declared value is the truth, mirroring "profiles seed, they do not govern". `detectProjectArchetype` returns `confident: false` when nothing matched, so "this is a generic project" and "we could not tell" stay distinct facts; and `describeArchetypeAgreement` reports a disagreement rather than silently preferring one side, because a project deliberately declared `library` while its manifests look like `web-app` is a decision.
 
 Detection rules are ordered most-specific-first (React Native contains React) and short Node package names are gated to Node projects, because `next` matches inside `cargo-nextest`. The forward-mapping functions retire the other two vocabularies; `delivery.json` never persisted an archetype, so no schema migration was needed.
+
+### ProjectComposition / WorkspaceScope (`src/core/projectComposition.ts`, `src/core/workspaceScope.ts`)
+
+The project boundary for software that lives in more than one repository, workspace folder, or version-control system. A composition is an ordered set of components; each carries a closed role, one existing archetype-plus-traits identity, a portable location, VCS, and an explicit home flag. Exactly one component must be home. Sanitization is deliberately whole-declaration: one malformed component refuses the composition rather than silently removing that component and making downstream counts look complete. Absolute/traversing locations are refused, unknown fields survive through `extra`, and external validation reports an unresolved or unreadable location without mutating the declaration.
+
+Topology is derived and never persisted. `deriveProjectTopologies` can state `multi-repo` or `multi-root` only when the caller supplies the corresponding git-root/workspace evidence; `hybrid` comes from a declared non-git VCS. A detector's proposed composition remains a separate value in `selectEffectiveProjectComposition`: declared state wins, otherwise the existing single-workspace fallback remains effective. Inference never becomes team-owned truth merely by being plausible.
+
+`resolveWorkspaceScope` is the opt-in resolver. With no target it returns exactly the first workspace folder and does not consult composition, preserving every existing caller until deliberately migrated. Explicit home, component, and all-component requests match only opened workspace roots; missing, unreadable, and ambiguous roots remain labelled unknown entries. The resolver never fabricates a replacement root and never reaches outside VS Code's opened folder set.
+
+The Project Dashboard is the first scoped consumer. One collection pass resolves the declared component
+set, then produces per-component Git and local-CI readings, issue-tracker visibility, debt-scan coverage,
+and an `ObservedScope`. Detailed legacy Git/GitHub fields continue to come from the declared home component
+and are labelled as such; every other component is carried as visible or `not-visible` with a reason. An
+undeclared project preserves the original first-folder path.
+
+Guided bootstrap is the first declaration producer. Its **Shopify composable project** path presents a
+human multi-select for theme, app, and extension, then maps the accepted shapes through
+`buildShopifyProjectComposition` into the same generic roles, archetypes, traits, portable locations and
+single-home invariant. The write creates or augments `workflow.json` only when no composition exists,
+regenerates the Markdown mirror, and uses `interpretWorkflowConfigDocument` so a newer workflow schema is
+refused exactly as it is by `WorkflowConfigManager`. Existing declarations and unreadable/invalid sources
+are preserved. The path creates no Shopify source and executes no generator or platform command.
+
+The same adapter offers four game seeds through **Game**: single-repo indie, multi-repo studio, hybrid
+Git + Perforce studio, and engine-fork studio. `buildGameProjectComposition` returns fresh, ordinary
+component data; it deliberately omits the preset id and derived topology, so the seed cannot govern
+later edits. The hybrid content component records only `perforce`, with no depot or credential. The
+engine-fork component records the boundary but leaves `upstream` absent until the team supplies a real
+remote/ref. Persisted draft values are checked against the closed preset ids before a builder runs.
+
+### UpstreamDivergence (`src/core/upstreamDivergence.ts`)
+
+The generic, read-only measure of distance from a component's declared Git upstream. It accepts a
+resolved component root plus an injected argv runner, resolves one unambiguous remote-tracking ref, and
+uses `merge-base`, `rev-list --left-right --count`, and NUL-delimited path diffs. No shell, fetch,
+checkout, merge, or domain vocabulary belongs here.
+
+Commits ahead/behind come from the symmetric range. Files diverged are the exact union of paths changed
+from the merge base to either tip; conflict-prone paths are the exact intersection and are explicitly
+candidates, not predicted conflicts. Evidence input and file counts are bounded. Display lists have a
+separate cap so large complete evidence retains exact counts, while failed, malformed, or over-bound
+evidence returns `unreadable` without a partial number or raw Git error.
+
+`takeUpstreamDivergenceSnapshot` keeps only the declared comparison identity, time, and four metrics.
+Trend derivation compares like with like and reports growing, shrinking, mixed, or unchanged movement;
+a different component/upstream, invalid snapshot, or backwards clock starts a first look. Persistence
+and presentation belong to consuming surfaces, so Phase 2 can apply the same facts without forking the
+Git semantics.
+
+### GameEngineIdentity (`src/core/gameEngineIdentity.ts`)
+
+The pure identity boundary for the engine-specific project reader. It accepts a bounded list of
+root-relative text records and recognises only decisive files: one root `.uproject`, Unity's exact
+`ProjectSettings/ProjectVersion.txt`, or one root `project.godot`. It never reads the filesystem,
+starts an editor, probes an installation, or infers identity from dependencies. Competing engine
+families return unconfident `unknown`; multiple Unreal project files identify Unreal but cannot select
+a version; incomplete or malformed decisive evidence names the engine while withholding its version.
+
+Versions are copied only from the project file: numeric Unreal `EngineAssociation`, Unity's exact
+`m_EditorVersion`, and Godot's `config/features`, with the older declared project format preserving the
+Godot 3 family distinction. A GUID/custom Unreal association is not rewritten into a guessed version.
+`UNREAL_SURFACE_VERIFIED_AT`, `UNITY_SURFACE_VERIFIED_AT`, and `GODOT_SURFACE_VERIFIED_AT` pin when the
+primary identity-format documentation was checked. The parsers may preserve newer version evidence,
+but `surfaceVerification: not-verified` withholds dependent behavior outside the deliberately narrow
+verified ranges. `selectEffectiveGameEngineIdentity` applies the shared authority rule: a valid project
+declaration wins, including legitimate `custom` and `unknown` values.
+
+### GameEngineDivergence (`src/core/gameEngineDivergence.ts`)
+
+The pure domain adapter over `UpstreamDivergence`; it does not collect Git evidence. It first requires
+the current component role to be `engine`, then verifies both component id and declared remote/ref so
+a report produced before a composition edit cannot be attached to the new declaration. Unavailable
+generic states pass through without zeroes. Available reports retain defensive copies of the exact
+ahead, behind, diverged-file, conflict-candidate, and trend facts.
+
+`mergeBurden.shape` describes synchronized, local-fork, upstream-intake, or concurrent-change evidence
+without assigning severity or inventing a threshold. The latter remains a declared policy decision in
+C2.7. `GAME_ENGINE_DIVERGENCE_LAYOUTS` adds a narrower presentation layer: Unreal 5.8, Unity
+6000.2.0b4, and Godot 4.6 path prefixes verified against primary source on
+`GAME_ENGINE_DIVERGENCE_SURFACE_VERIFIED_AT`. Any other version, an unconfirmed engine, or a custom
+layout keeps the generic metrics while withholding area interpretation.
+
+Area records count only paths in the generic report's bounded display lists and say `bounded` when
+those lists were truncated; the repository-wide generic totals remain exact. Conflict-prone paths stay
+candidates rather than predicted conflicts. The module has no filesystem, process, Git, engine, or
+network dependency.
+
+### GameBuildLog (`src/core/gameBuildLog.ts`)
+
+The pure hostile-input boundary for game build reports a caller has already read. It never locates a
+report or runs a build. Missing evidence yields `no-report`; empty, truncated, oversized, malformed, or
+unrecognized evidence yields `unreadable`; both carry `no-verdict`. Verified display-only commands tell
+the caller how a supported Unreal 5.8, Unity 6000.2, or Godot 4.6 project can produce a report without
+giving the module an execution capability.
+
+Character and line limits reject the whole input before interpretation. Retained diagnostics are capped,
+line-numbered, control-stripped, shared-secret-redacted, and individually length-bounded; raw log content
+is absent from the result type. A captured exit code or verified completion marker decides the build,
+with conflicts withheld as `no-verdict`; matching error lines supply findings only. Exact, unambiguous
+platform/configuration/artifact fields and phase timings may be returned, while conflicting fields are
+named and omitted. Unverified versions retain only safe evidence identity and receive neither engine-
+specific parsing nor a guessed command. The module has no filesystem, process, engine, Git, or network
+dependency.
+
+### GameAssetInventory (`src/core/gameAssetInventory.ts`)
+
+The explicit-request filesystem boundary for declared game-content roots. A caller resolves an
+absolute component root through `WorkspaceScope`, supplies safe relative content roots, and records a
+confirmation before `scanGameAssetInventory` performs any I/O. There is no guessed root, render-time
+scan, engine process, Git command, or symlink traversal. Perforce, external, and unknown VCS boundaries
+produce `not-visible` without an asset count.
+
+One shared file, total-byte, and monotonic-time budget caps the complete multi-component request, so a
+large composition cannot multiply the work. Every returned asset path is re-derived relative to its
+component and traversal-checked before it receives an open affordance. Cache directories are excluded
+by a declared list; Unity/Unreal-style root caches are not excluded merely because a legitimate nested
+asset folder shares their name. A limit or unreadable path marks the component truncated, makes LFS and
+import-marker evidence partial, and withholds metadata-orphan inference because unseen files cannot be
+treated as absent.
+
+The inventory classifies a closed extension set and aggregates counts and bytes by type. Text metadata
+is read behind separate per-file and total caps for import-error/missing-reference locations, but the
+raw line is never retained. Orphan findings are deliberately candidates: only a `.meta`, `.import`, or
+`.remap` sidecar whose matching file or directory is absent from a complete scan qualifies.
+
+For Git components, a conservative `.gitattributes` reader applies root and nested `filter` rules in
+declaration order. Known binary asset paths are reported as covered or uncovered only when every
+applicable LFS rule was safely understood. Quoted, negated, character-class, oversized, unreadable, or
+otherwise unsupported LFS syntax makes the verdict `unreadable`; a parser gap cannot manufacture a
+finding.
 
 ### ProjectVocabulary (`src/core/projectVocabulary.ts`)
 
@@ -1367,6 +1625,13 @@ Stage 7. Taking on debt is often the right call — the metaphor is exact, and b
 
 **Entries transition; they are never deleted.** `resolved` and `obsolete` are deliberately distinct — `resolved` means somebody did the work, `obsolete` means the evidence disappeared and nobody said they fixed it. Collapsing them would let the register report progress it cannot attest to. Reconciliation can only mark an entry obsolete if its file was actually in the scan, so a scan of `src/` never declares everything in `docs/` gone.
 
+That boundary is now component-aware. A marker candidate and scanned path may carry a component id; entry
+identity includes it, and reconciliation can obsolete only the same component/path pair. `lastScanScope`
+persists each declared component's VCS, visibility, bounded file count, truncation, and exclusion reason,
+and the Markdown/dashboard mirrors publish that table. Non-Git and missing components are `not-visible`,
+never zero-file scans; a visible non-Git root may still contribute source markers while VCS-derived debt
+remains explicitly unavailable.
+
 Entry ids are derived from domain, path and marker text, and deliberately **not** from the line number: code moves, and an entry that got a new id every time somebody added an import above it would lose its whole history on a whitespace change. That stability is what lets a rescan *recognise* an entry rather than duplicate it.
 
 **A marker only counts when it opens a comment**, and both halves of that rule were learned by running the scanner over this repository — which promptly reported its own rule table, its own tests, and the dashboard copy describing the feature as technical debt. Twenty-nine entries, every one false. A marker inside a string literal, a template literal or a regex is *data*; a marker being discussed in prose ("a `FIXME` asserts that something is wrong") is documentation. Only a marker at the start of a comment is a deferred decision. `commentStartIndex` is a small quote-tracking scanner rather than a regex, because "is this delimiter inside a string" is a question a regex cannot answer.
@@ -1415,13 +1680,15 @@ Four rules carry semantics rather than shape, and each exists because the obviou
 
 **Unknown fields survive a round trip.** Dropping them would mean a newer AtlasMind's settings silently vanish the first time an older build saves the file.
 
+**Composition is declared here, but never inferred here.** The optional `composition` field is the team-owned component boundary. A valid declaration is normalized and written directly; a malformed or future nested shape is retained opaquely under `extra` instead of being partly activated or lost. The Markdown mirror publishes the component, role, location, archetype, VCS and home flag but never a topology, because topology is derived evidence. A seed contains no composition: detection may propose one elsewhere, and only a reviewed save may declare it.
+
 **An empty `command` is the blocker, not an oversight.** A stage that needs a user-authored command ships with `''`, and that emptiness is what holds the gate shut until a human supplies a real one — the `deliveryManager` precedent, for the same reason: a command that silently did nothing would let a stage report success having run nothing at all. `undefined` and `''` are therefore kept apart at every layer, because absent means "needs no command" and empty means "needs one and has none", and collapsing them either turns a deliberate blocker into an oversight or — worse — opens a gate. `stageBlockers` folds the derived blocker in with the declared ones so every surface asking "what is stopping this?" gets one answer.
 
 **The label taxonomy is categorised, not flat.** A drafter picking labels needs one *type* and one *priority*, not an arbitrary subset; a flat list makes "drawn only from the declared taxonomy" satisfiable by three conflicting priorities. Observed repository labels seed `type` only, because sorting somebody's labels into priority, status and area would be guessing at what they mean. `priority` and `status` seed empty — plenty of projects run without either, and inventing a scheme teaches a vocabulary nobody picked.
 
 **`testing: { inherit: true }` is single-valued on purpose.** It exists to *say* that testing requirements live in `testing-config.json` and are deliberately not duplicated, so a reader finding no testing rules here knows that is the design rather than an omission. Per-stage exceptions go in `stages[].testingOverrides`.
 
-**`validateWorkflowConfig` is separate from sanitizing**, because they answer different questions: sanitizing asks "is this file usable", validation asks "does everything it names exist" — which needs knowledge a pure reader does not have, so the known agent ids are passed in. An unresolvable owner is **reported, never dropped**: a silently ownerless stage reads as one nobody was ever assigned, rather than one whose assignee has gone.
+**`validateWorkflowConfig` is separate from sanitizing**, because they answer different questions: sanitizing asks "is this file usable", validation asks "does everything it names exist" — which needs knowledge a pure reader does not have, so known agent ids and workspace locations are passed in. An unresolvable owner or component is **reported, never dropped**: a silently ownerless stage or missing component reads as one nobody ever declared, rather than one whose target is unavailable.
 
 The manager mirrors `documentsManager` including the asymmetry that matters — seeding never writes over a newer-format file, an explicit save does — with one deliberate difference: **it is never seeded on render.** Every other persisted document creates itself on first read. This one gets committed, so writing one into somebody's repository because they opened a tab would be putting words in their mouth in a file other people review.
 
@@ -1566,6 +1833,11 @@ Five properties are enforced in the module rather than left to the caller, becau
 **Unknown → known is not zero → n.** If `gh` was missing at the last reading the open-issue count was `undefined`, and "0 → 12 issues" invents a twelve-issue spike that never happened. It reports as `now-known` and carries no `before`. The inverse case, **known → unknown, is news rather than a gap to skip** — a count that used to read and now does not usually means a tool stopped answering, and it ranks *above* the movement it hides because it explains why the rest of the page went quiet.
 
 **A different repository is not a comparison.** A snapshot taken in one repo diffed against another produces confident nonsense, so a changed slug discards the baseline. Absence of a slug on either side is not disagreement, and still compares.
+
+**A different component scope is not a comparison either.** `ObservedScope` travels with both the reading
+and its snapshot, including visible and `not-visible` components. Any scope change starts a new baseline;
+malformed stored scope metadata is an unreadable snapshot rather than an exception. Summaries append the
+scope label, so a movement can never present a home-repository count as a whole-project delta.
 
 **It never reports the user's own actions back to them.** `currentBranch` and `workingTreeClean` are deliberately outside the tracked set: those are the developer's position, not the project's movement, and a delta that says "you are on a different branch" trains somebody to ignore deltas. `ghInstalled` and `hasChangelog` are also excluded, because each is implied by a field already tracked and reporting one movement twice reads as two things happening.
 
@@ -1803,15 +2075,75 @@ Answers, for every *enabled* testing policy, the question the Testing dashboard 
 
 Each policy has a **marker set** (file-path patterns, dependency names, script-name patterns, config paths) chosen to be something the tooling itself creates — a `.feature` file, a `stryker.conf`, a `__snapshots__` directory — never a word that might appear in a filename, because a false "covered" is the one outcome the panel must not produce. That yields four statuses: `covered` (matching test files exist), `tooling-only` (its tooling is installed but nothing tests with it), `missing` (enabled with nothing to show), and `not-file-evident` for the policies that are a *practice* rather than an artifact (exploratory, black-box, gray-box, V-model, white-box, test-design, agile testing) — those are **never** reported as a gap, since flagging a practice trains people to ignore the panel.
 
-**Every non-practice policy must have a route to `covered`.** `fileEvidencesPolicy` returns false when a policy declares no `filePatterns`, so a policy with neither those nor `configIsEvidence` caps at `tooling-only` — which the summary counts as a gap. `dead-field` and `dependency-graph` both sat there: a project could adopt `knip`, wire it into CI, and still be told it had nothing to show. `explainability` reached the same dead end from a different cause — its pattern matched the *stem* `explainab` with a whole-word trailing boundary, so `explainability` never matched it. All three now carry file patterns, and two invariants in `tests/core/testingPolicyCoverage.test.ts` hold the property: every non-practice policy has a route to `covered`, and every policy matches a test named after its own id (policies named after an *artifact* rather than themselves — `bdd` wants a `.feature`, `continuous` wants a pipeline — are listed as explicit exemptions rather than silently skipped). This is the same dead end `configIsEvidence` was added to fix for the documentary compliance policies, and a row that reads as a gap however much work is done is how a board stops being trusted.
+**Every assessable policy must have a route to `covered`, and a governance regime must not.** `fileEvidencesPolicy` returns false when a policy declares no `filePatterns`, so a policy with neither those nor `configIsEvidence` caps at `tooling-only` — which the summary counts as a gap. `dead-field` and `dependency-graph` both sat there: a project could adopt `knip`, wire it into CI, and still be told it had nothing to show. `explainability` reached the same dead end from a different cause — its pattern matched the *stem* `explainab` with a whole-word trailing boundary, so `explainability` never matched it. All three now carry file patterns. The twenty-four `compliance-*` regimes are **exempt, and the exemption is the point rather than a loophole**: their route to good standing is the compliance register, and requiring them to have a file-based one would be requiring the false tick the exemption exists to remove. The replacement obligation is pinned in the same file — every governance regime must declare a control catalog to be graded against, since "the weakest of zero controls" reads fine and is the identical dead end wearing the opposite coat.
 
-**A compliance regime must not read as met on evidence that proves nothing.** `configIsEvidence` promotes *every* matched config file, so a loose pattern on a documentary policy does not merely over-count — it reports a certification as satisfied. `iso-27001` listed `SECURITY.md`, so any repository with a vulnerability-reporting policy read as covered for ISO 27001; only the control mapping counts now. The second half of the same failure was subtler: a *scaffolded but unassessed* mapping counted, even though the mapping's own preamble says "every row starts at **Not assessed**, which is deliberately not the same as compliant". `isAssessedControlMapping` closes it — the caller (`probePolicyConfigFiles`) reports a mapping as evidence only once at least one control row carries `Satisfied`, `Partial`, `Gap` or `Not applicable`. One row is enough deliberately, since grading half-finished work as nothing is its own false reading, and the check parses **table rows only**: the preamble lists every status as a legend, so a substring search over the document would mark every untouched mapping as assessed. Both directions are pinned by `tests/core/testingPolicyCoverage.test.ts`. The asymmetry is intentional — an unevidenced gap is a prompt to do the work, while a false pass on a regime is repeated to an auditor.
+**A governance regime is not a thing a repository can evidence, so it no longer carries a verdict at all.** This paragraph used to describe a gate — `isAssessedControlMapping` — that let a control mapping count as evidence once one row in it carried an assessed status, reasoning that *"one row is enough deliberately, since grading half-finished work as nothing is its own false reading"*. That reasoning was not wrong; it was answering the wrong question. Both available answers, *nothing* and *Tested*, are false for a half-finished regime, and the fix was to stop asking a yes-or-no question about a twenty-five-control standard. A readiness reading with counts dissolves the binary: half done reads as half done.
+
+So `TestingPolicyStatus` gains **`governed`**, terminal for every `compliance-*` methodology, and `complianceReadiness` grades the regime from `complianceEvidenceRegister` against `complianceControlCatalog`. Four routes to a false tick close at once, and each is worth naming because each looked reasonable alone. A **filename**: `data-privacy.test.ts` marked the whole of GDPR met. A **mostly-empty form**, gated far more weakly than the gate's own comment claimed — it matched any table cell anywhere in the document, the Owner column and the review log included, so typing `Gap` as a reviewer's name qualified. **One passing stack check**, which promoted all twenty-five of ISO's controls. And for `sbom`, `dependency-licensing`, `license-compatibility` and `secure-build-pipeline`, **no gate whatever** — `configIsEvidence` pointed at ordinary build artifacts, so committing the SBOM your build already produces marked SBOM Verification met. A fifth leaked sideways into advice: the disabled-policy scan kept rows reading `covered`, so a project with GDPR switched *off* was told it already practised it.
+
+The mapping is now **generated** from the register, which is why matching it can never come back — reading it would be the tool citing its own output as proof. Markers survive as *candidate references*, since `data-privacy.test.ts` is a reasonable thing to point at for GDPR Art. 17, and they promote nothing. The asymmetry that opened the old paragraph still holds and is the reason for all of it: an unevidenced gap is a prompt to do the work, while a false pass on a regime is repeated to an auditor.
 
 **For a documentary compliance policy the config genuinely *is* the artifact**, which is why `configIsEvidence` — added for continuous testing, whose pipeline definition is all it leaves behind — now also carries the compliance regimes evidenced by a control mapping rather than by tests. Without it a project holding a complete, reviewed ISO 27001 mapping would cap at `tooling-only` ("No tests yet") permanently and read as a gap it could never close. The mapping is found via `COMPLIANCE_EVIDENCE_DIR` (`project_memory/operations/compliance/`), which `probePolicyConfigFiles` enumerates by filename rather than reporting as a directory: the per-policy patterns must see the actual name, or every compliance policy would match every mapping. Enumerating rather than probing by id is deliberate — this module does not own the policy list, and a mapping written by hand counts exactly like a scaffolded one.
 
 **Failures come only from a report the project produced.** `parseJUnitReport` reads the JUnit XML interchange format every mainstream runner can emit (vitest/jest reporters, pytest `--junitxml`, Playwright, surefire, gotestsum, dotnet). Nothing here ever runs a test command — a dashboard that shells out on render is both a surprise and an execution surface — so when no report exists the page says it has *no verdict* and quotes the command that would create one, rather than rendering "0 failures". The report is untrusted input: the parser never throws, resolves no entities beyond the five predefined ones and no external DTDs (attributes are read by regex, not an XML parser), caps how much it reads and how many cases it keeps, clamps and control-strips every string, and prefers the failures it can *count* over the totals the report *asserts* so a hand-edited report cannot present itself as clean. **Failure messages are deliberately never extracted** — an assertion message can carry values from a test environment and this data is rendered in a webview; the test name, suite, and file are enough to open it. Report staleness (a test file changed after the report was written) is surfaced rather than hidden, and skipped-test counts are derived locally from the test files themselves, so that signal exists even with no report at all.
 
 **The explainer is also derived, never routed.** `buildTestingPolicyLaymanGuide` is total over the 69-methodology id union and declares the beginner-facing meaning and expected result of every policy; requirements, use case, and trade-off come from the same catalogue and marker rules that produce the status. The Dashboard host combines that guide with the freshly rebuilt `TestingPolicyRow`, explains why the status follows and what it cannot prove, then opens Chat with a one-shot `ChatPanelDirectResponse`. The response is consumed before any asynchronous work and bypasses `Orchestrator.processTask`, so a deterministic explanation cannot fan out through provider recovery. Chat normalizes, bounds, and secret-redacts the host-authored Markdown/metadata, accepts only an `atlasmind/*` source id, and renders bounded follow-up prompts as quick-reply chips; those chips cannot name commands.
+
+### ComplianceControlCatalog / ComplianceEvidenceRegister / ComplianceReadiness
+
+`src/core/complianceControlCatalog.ts`, `complianceEvidenceRegister.ts`, `complianceReadiness.ts`
+
+What a governance regime actually needs, what is on record, and how far along it is. 224 controls across all twenty-four `compliance-*` regimes — seven of which had no control set at all, and "graded by the weakest applicable control" over an empty set grades *fine*, which is the hole exactly where nobody looks.
+
+**`accepts` is the ceiling, and it is a set rather than a rank.** The central field on a control is the set of evidence kinds that can satisfy it. A single ordered assurance level was the obvious design and it is wrong: the four kinds differ **in kind, not in strength**, and any total order forces a lie somewhere, since no scanner can assess "information security roles and responsibilities assigned" and no person's word produces a bill of materials. With a set the ceiling falls out exactly rather than approximately — `accepts: ['independent']` means no attestation ever closes that control, however many are recorded against it. That is the whole mechanism that stops bare-minimum evidence reading as met. A `machine-check` appears only where a machine answers the *whole* control as this product can express it, and every such row carries its reason: ISO A.8.8 is "identified **and remediated**", so a Dependabot config does not evidence it, while SOC 2 CC6.6 is answered for the declared surface by "no declared endpoint uses plaintext http off the loopback".
+
+**Nine controls did not exist, and their absence was the defect.** The SOC 2 mapping had twenty-four rows and not one was "a service auditor issued a report", so a fully-completed mapping still described a project nobody had audited. Every regime now either declares a control an outside party must sign or states in `noIndependentControl` why it has none, pinned by test so the omission is a decision somebody made rather than one nobody noticed.
+
+**Evidence is referenced, never copied.** `project_memory/` is git-tracked, so a signed SOC 2 report or a data processing agreement committed there goes to every clone and AtlasMind could not take it back out. A record holds a locator and metadata and never a byte of the document, and nothing here ever opens an artifact or sends part of one to a model. Locators come in three honest forms — a workspace-relative path, an `https` URL with query and fragment stripped (one carrying a query is usually a pre-signed link or a session token), or a described location, which is a first-class answer rather than a fallback: "held in Vanta, ask the security lead" tells an assessor how to obtain the document, where an absolute local path tells them nothing and *looks* like it tells them something.
+
+**Seven invariants are re-enforced on every read**, not only on save, so a hand edit — or an agent edit — cannot promote a control. This is the citation gate from `researchRegister` applied to controls: a stored finding whose citations were deleted is demoted, and so is a control whose evidence was. The heaviest is attribution — a status other than not-assessed needs a named person, a parseable date and a human source — because AtlasMind may draft narrative and may never assert that a control is met. Every demotion is counted and reported rather than applied quietly, since silent demotion is indistinguishable from data loss.
+
+**Graded by the weakest applicable control.** Every regime rule fires on *at least one* control in a state, so twenty-four unassessed controls can never hide behind one satisfied one — precisely the arithmetic the old board got wrong. `awaiting-independent` exists because both other options are wrong: grading a control only an outsider can close as `satisfied-self` lets a regime made entirely of them (PCI at Level 1, aviation, energy) read **Self-attested** with no outside evidence at all, and grading it a flat `gap` leaves a project that has done all its own work on the same amber as one that has done none. `control-declared-gap` sits *above* the attribution rules deliberately: recording a failure is free and should not be taxed, and only satisfaction requires attributed, unexpired, class-appropriate evidence.
+
+**No reading means compliant.** The strongest available is *Independently assured*, and it still only says every control has evidence of the kind it asks for. `COMPLIANCE_DISCLAIMER` travels on every reading and into every mirror, nothing renders a `good` tone, and a test asserts no label, rule or statement contains "compliant", "certified", "verified", "passed", "approved", "covered" or "tested" — because replacing a green tag with a differently-worded green tag would be the same defect in new clothes.
+
+`<regime>-user-edit.md` is the one document here a person writes by hand. Prose is absorbed into the generated mirror so there is one file to write and one to read; it is **narrative only**, since a merge that could carry a status would mean parsing hand-edited markdown for grades, which is exactly the failure removed. A leading pipe is neutralised so pasted prose cannot render as a control row, and an unmatched heading is kept under *Additional notes* rather than dropped.
+
+### ComplianceDashboard / ComplianceSetupPlan
+
+`src/core/complianceDashboard.ts`, `src/core/complianceSetupPlan.ts`
+
+The Compliance page (Project Dashboard → *Is it safe*, beside Risk) and the `/compliance` walkthrough. Risk is what we raised about ourselves; compliance is what somebody else will ask us to prove — adjacent, and a different question, which is why they are separate pages rather than two cards.
+
+**The page answers a question a tick cannot.** The board it replaces asked "is this regime met?" and answered with a colour. This asks *what would somebody outside this project ask next, and what would you say?* — `QUESTION_RULES`, declared, ordered by consequence, capped at eight, each naming the rule that raised it. Phrased as questions because a question is what arrives: "CC6.1 is unevidenced" is a status, *"show me the report behind CC6.1"* is the sentence somebody says in a room.
+
+**`reachableStatuses` is the load-bearing piece.** It offers only the statuses a control can actually reach and states the reason for the rest. Accepting *Satisfied* and demoting it on the next read would be correct and would feel like a bug; "this control can only be closed by a party outside the project, and no such statement is attached" teaches the model of the system in one sentence. It checks independence **before** the evidence-class rule, for the reason the grader orders them the same way — both fire on an attestation attached to an independence-only control, and one of the two sentences tells you what to do next.
+
+**Every message carries opaque ids and nothing else** — no status, no path, no URL, no date, no name, no prose. `setComplianceControlStatus` carries *which control* and the host shows the picker, deliberately unlike `setRiskFindingStatus`, which does carry a status: a risk finding's status is a judgement about our own record, where a control status is a claim to an outsider. There is deliberately **no `saveComplianceRegister`** — a whole-register payload could set twenty-five statuses with no attribution in one post, and copying the Documents page's shape here is the natural mistake, so `dashboardMessageParity` enumerates the union. That test reads the validator's *source* for `candidate['type'] === '…'` literals, which is why the gate is written as one comparison per message rather than a `Set` membership test: a `Set` is a real gate the parity test reports as missing.
+
+**The git-tracked warning is what makes reference-only storage true.** Recording evidence asks where it is — a file here, an https link, or held elsewhere and described, the third listed as an equal rather than a fallback. But "reference, never copy" is defeated by the affordance itself: pick `docs/SOC2-TypeII-FY26.pdf` and the report is committed, AtlasMind having invited it rather than done it. A tracked file now offers the described form instead, and a git that cannot answer is reported as could-not-ask rather than as ignored.
+
+**The walkthrough ends at "assess one control end to end", not at "assess every control".** `SetupStep[]` is a flat list, so a step per control makes "step 7 of 31" with a trail that wraps and a finish line that moves when a second regime is enabled. More fundamentally setup is a one-time act — *make this project able to record evidence honestly* — where assessing controls is ongoing work redone every year, and a guide that always reads 60% is one people stop opening. `owner` is **required** because a status cannot be recorded without a named asserter, so a guide that skipped the roster would hand somebody a register in which every action silently fails. Every action opens a surface: this is the guide where "a plan is never an installer" becomes "a plan never marks a control satisfied", pinned by test over every state.
+
+### ComplianceMarkdownImport / ComplianceStackSignals
+
+`src/core/complianceMarkdownImport.ts`, `src/core/complianceStackSignals.ts`
+
+Bringing a hand-edited control mapping into the register, and the stack signals both compliance surfaces read.
+
+**There is no special case for import.** The obvious shortcut is to trust an imported row because somebody clearly typed it deliberately, and that shortcut is the original defect wearing a sympathetic face: a status with nothing behind it is a claim, and a claim does not become evidence by being old. Imported rows are ordinary records handed to the same sanitizer, so a `Satisfied` row naming no owner lands at *Not assessed* with its wording kept as a note. What *is* preserved is a row naming somebody the Director roster knows — that is real work and discarding it would be its own dishonesty — but `assertedBy.at` becomes the import timestamp and the note says so in as many words. The old table had no date column, and a fabricated assertion date is worse than a missing one because a Type II reader would compute a period from it.
+
+The scaffolder's own `AtlasMind checks part of this` pointer is **dropped** rather than imported: it was written by the tool, and importing it would be AtlasMind citing its own boilerplate back as evidence. The scoping paragraph becomes `scope.proposed` and never a decision, so the scope gate still holds until a person adopts it. Rows are read from `### theme` sections under `## Controls` and nowhere else — the `## Review log` table has the same pipe-delimited shape, and the gate this replaced matched any cell in any table in the document, which is how typing `Gap` as a reviewer's *name* could mark a whole regime as evidenced. `planLegacyImport` is pure and separate from writing on purpose: the confirmation states the demotion count *before* anything is written, and a count computed afterwards would be a report on something already done.
+
+`complianceStackSignals` was lifted out of the Settings panel so the Compliance page gathers the same signals rather than growing a second implementation — two would eventually give different answers to "is a backup taken before a production promotion?", and a compliance board where two pages disagree is worse than one that does not answer at all. The coverage board is its one expensive input and is therefore optional: gathering it means walking the test tree, the dashboard renders far more often than that walk is worth, and the two signals derived from it read `unknown`, which is the correct answer to "we did not look" and never counts as evidence.
+
+### TestingStandards (`src/core/testingStandards.ts`)
+
+Which edition of a standard each of the sixty-nine methodologies models, and when AtlasMind last checked that control set. A catalog with no edition on it silently grades a project against whichever version happened to be current when the code was written: ISO 27001 went 2013 to 2022 and renumbered most of Annex A, PCI DSS went 4.0 to 4.0.1, and an assessment made against one edition is **about a different document** from one made against the next. `ComplianceRegimeRegister.assessedAgainst` records which edition an assessment was made under, and a mismatch is reported rather than silently re-pointed.
+
+Declared for all sixty-nine — `kind: 'none'` is a decision somebody made where a missing entry is one nobody made, and several non-compliance methodologies genuinely do track a standard (`accessibility` tracks WCAG, `security-testing` the OWASP ASVS). Held as a table keyed by id rather than a field on each definition, because this is the file that gets *edited* when an edition moves: a revision is then a one-line diff a reviewer can read rather than a hunt through twelve hundred lines of catalogue. `verifiedAt` is a claim that decays, and `isStandardStale` turns it back into a question rather than letting an old date sit quietly.
+
+**AtlasMind never fetches, mirrors or generates the standards themselves.** ISO and PCI control text is copyrighted and licensed — ISO 27001 costs money and may not be redistributed — so mirroring it would be a licensing problem wearing a feature's clothes. What ships is a paraphrase beside the official reference, and no control text is ever model-generated: a hallucinated control in a compliance catalog is the worst artifact this product could produce. The `regulatory` research scan is the early warning, raising a *cited* finding that a new edition exists and setting `supersededBy`; it never edits the table, because a scan reports and a human decides.
 
 ### TestingFrameworkDetection (`src/core/testingFrameworkDetection.ts`)
 
@@ -2159,6 +2491,19 @@ Bootstrap flow behavior:
   -> run guided/skippable project intake
   -> reuse out-of-turn details from earlier answers so later prompts can be skipped
   -> create SSOT structure
+  -> for an explicitly selected platform prefab, build a deterministic relative-path file plan
+     -> sanitize display name, slug, namespace, and generated source independently
+     -> write create-only; never run generator, install, Docker, or network commands
+     -> WooCommerce: plugin shell + HPOS/dependency guards + CI + Not-assessed review records
+     -> Magento: inert registered Composer module + syntax/contract CI + Not-assessed records
+     -> BigCommerce/Wix: documentation-only official-generator handoff + explicit side-effect gates
+     -> Next.js/React Router/Laravel/Django/Astro Content: documentation-only generator handoff
+        + runtime, package, database/content, privacy, compatibility, and acceptance gates
+     -> Static Website: dependency-free semantic HTML/CSS + CSP/accessibility contract + read-only CI
+     -> Next.js/SvelteKit/Nuxt/React/Vue Frontend: documentation-only current-generator handoff
+        + rendering, state, browser, accessibility, performance, privacy, and deployment gates
+     -> React Native/Expo/Flutter Mobile: documentation-only current-generator handoff
+        + native toolchain, permission, device, accessibility, privacy, signing, store, and update gates
   -> write project_soul.md + project brief + roadmap + intake log + repository plan
   -> seed project_memory/ideas/ with intake-aware ideation defaults
   -> seed project-scoped Personality Profile defaults when the intake provides stable project context
@@ -2168,6 +2513,31 @@ Bootstrap flow behavior:
      (.github workflow/templates, CODEOWNERS, .vscode/extensions.json)
   -> preserve existing files (non-destructive)
 ```
+
+Generator ownership is the architecture boundary, not a framework preference. A maintained upstream
+generator can change its dependency graph, runtime template, lifecycle scripts, database defaults, or
+instruction files faster than an AtlasMind release. Bootstrap therefore records the official command and
+effects but does not execute it or copy its output. The application becomes AtlasMind’s project only after
+generation into a separate directory and review. Static HTML/CSS is the deliberate exception: its complete
+runtime surface is small enough to emit locally, escape deterministically, parse in tests, and verify without
+a dependency install. The archetype bridge still collapses these labels into `website`, `web-app`, or
+`mobile` plus
+traits, so platform names do not multiply downstream routing vocabularies.
+
+Frontend labels use the same archetype bridge instead of creating framework archetypes. Next.js,
+SvelteKit, and Nuxt map to `web-app + has-ui + has-server`; client-focused React/Vite and Vue map to
+`web-app + has-ui`. The framework catalog remains a separate build/deploy vocabulary: it now includes
+React and Vue as manual-setup entries, because a safe constant must not answer Vue's interactive choices
+or pretend React supplies routing/data conventions. Its SvelteKit command uses `sv create`; persisted
+`remix` ids remain compatible while their displayed path continues to be React Router framework mode.
+
+Mobile labels likewise map to `mobile + has-ui + ships-binaries`. Their generator plans remain inert
+Markdown because package execution, native project creation, platform toolchains, cloud build/update
+services, signing, device installation, and store submission all cross boundaries that bootstrap cannot
+authorize. The React Native path records the framework-first recommendation; Expo uses no-install and
+no-agent-instruction flags while leaving Continuous Native Generation and EAS separate; Flutter discloses
+its dependency retrieval. Shared matrices start every permission, storage, telemetry, native-module,
+device/OS, accessibility, signing, migration, release, and rollback claim as Not assessed.
 
 Personality Profile flow behavior:
 

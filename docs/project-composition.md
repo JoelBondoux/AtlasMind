@@ -15,8 +15,17 @@ property a reviewer may reject a change for violating.
 
 ### 0.2 Built versus proposed
 
-**Nothing in this document is built.** Every section describes intended behaviour. The facts about
-today's codebase in §1 are verified and dated; everything else is a contract for the implementation.
+Phase 1 is built through C1.8: `projectComposition.ts` owns the closed roles/VCS vocabulary, strict
+normalization, validation, declaration-over-proposal rule, and derived topology; `workspaceScope.ts`
+resolves explicit home/component/all requests while defaulting exactly to the first VS Code workspace
+folder; and `workflowConfig.ts` round-trips the declaration and publishes it in the Markdown mirror.
+The Project Dashboard now opts Git status, local CI, debt scanning, issue-tracker visibility, and
+observed-delta into component scope. Each reports its scope, retains excluded components as
+`not-visible`, and never substitutes zero for an unreadable VCS. Guided bootstrap's explicit Shopify
+multi-select validates theme + app + extension against the same generic model, and its four game
+architecture presets seed editable component sets without persisting a governing preset. Upstream
+divergence is now a read-only, engine-agnostic core reading with bounded evidence and comparable
+snapshots; applying it to domain surfaces remains Phase 2 work.
 
 ### 0.3 Non-goals
 
@@ -58,6 +67,10 @@ games are the *forcing function*, not the owner. This model MUST NOT be game-spe
 
 A **component** is a unit of the project with one location, one role, one archetype and one version
 control system. A project is an ordered set of components plus a declared home (§2.6).
+
+Locations are portable workspace-folder names or normalized workspace-relative paths. Absolute paths,
+traversal, control characters, and platform-illegal path characters are refused: committed composition
+must not bind the team to one machine or become a route outside an opened workspace.
 
 A single-repo project is a project with exactly one component. It is the simplest case, **not** the
 assumed one.
@@ -151,6 +164,18 @@ This is **pure git and MUST NOT be engine-specific**. A forked game engine, a ve
 package, a Chromium fork and a patched Postgres have the same problem, and a module named for one of
 them guarantees a second copy for the others. The module is `upstreamDivergence.ts`.
 
+The implementation resolves the declared remote/ref to one remote-tracking ref and runs only
+argv-array `merge-base`, `rev-list`, and `diff --name-only -z` reads through an injected runner. It
+does not fetch: opening a reading cannot change cached refs or cross a network boundary. "Files
+diverged" is the exact union of paths changed from the merge base to each tip. "Conflict-prone" is
+their exact intersection — evidence that both sides touched a path, never a prediction that Git must
+conflict. Lists are capped for display while counts remain exact; evidence beyond the input bound is
+`unreadable`, not partial or zero.
+
+A minimal snapshot carries the component, declared upstream, time, and four measures. Like-for-like
+snapshots derive growing, shrinking, mixed, or unchanged movement. A different component/upstream,
+invalid snapshot, or backwards clock starts a new baseline so unrelated readings are never compared.
+
 Divergence past a project-declared threshold SHOULD be surfaced through `DebtRegister` as a derived
 signal, graded by the same rule table as every other entry. A register holding two scales is worse
 than one holding half the entries.
@@ -224,14 +249,30 @@ when a human accepts it. This mirrors `projectArchetype.ts`: *a wrong compositio
 single-component one*, because it scopes every count on every surface to boundaries that do not
 exist, and the resulting numbers are wrong in a way nobody can see.
 
+Guided bootstrap is a declaration path, not detection. Choosing **Shopify composable project** opens a
+second multi-select for theme, app, and extension. AtlasMind writes that accepted selection only when
+the workflow has no declared composition; a rerun preserves an existing declaration, an unreadable or
+invalid document, an orphaned Markdown mirror, and any document written by a newer AtlasMind. It does
+not execute a Shopify generator or create a guessed source tree. The app is home when selected, then the
+theme, then the extension; this deterministic priority gives exactly one component the SSOT root while
+sibling locations remain portable.
+
+Choosing **Game** opens a single architecture-seed picker: single-repo indie, multi-repo studio,
+hybrid Git + Perforce studio, or engine-fork studio. Each result is an ordinary composition with one
+home gameplay component. The preset id and topology are not stored, so the result can be edited without
+a later rule restoring the seed. Hybrid content carries only `vcs: perforce`—never a depot or credential.
+The engine fork is a distinct `engine` role but has no upstream remote/ref until the team supplies the
+real coordinates. Like the Shopify path, selection runs no engine, generator, VCS, or platform command.
+
 Where detection finds nothing, the honest answer is one component covering the workspace — not a
 failure.
 
 ## §8 Resolution — `WorkspaceScope`
 
-All 123 existing `workspaceFolders[0]` call sites resolve through a `WorkspaceScope` whose **default
-resolution is `workspaceFolders[0]`**. Existing behaviour is therefore preserved byte-for-byte until
-a surface opts in.
+`WorkspaceScope` exists and its default resolution is exactly `workspaceFolders[0]`, without consulting
+composition. Existing behaviour is therefore preserved byte-for-byte until a surface opts in. As call
+sites migrate, they MUST resolve through this boundary; missing, unreadable, or ambiguous components
+remain explicit unknown entries rather than being dropped or substituted.
 
 Surfaces migrate **by consequence, not by count**. Those where single-root is actively wrong move
 first — asset inventory, build, git status, debt scan, CI, observed delta. The rest follow when
@@ -244,11 +285,11 @@ land its bugs everywhere simultaneously.
 
 An implementation conforms when:
 
-- [ ] Composition round-trips through `SchemaMigration` v1 with unknown fields preserved.
-- [ ] Topology is computed, and no persisted field stores it.
-- [ ] A Shopify project expresses *theme + app + extension* as three components.
+- [x] Composition round-trips through `SchemaMigration` v1 with unknown fields preserved.
+- [x] Topology is computed, and no persisted field stores it.
+- [x] A Shopify project expresses *theme + app + extension* as three components.
 - [ ] A component with `vcs: 'perforce'` reports `not-visible` rather than zero on every git surface.
 - [ ] Every multi-component count on every surface names its scope.
-- [ ] `upstreamDivergence` has no engine-specific symbol in it.
+- [x] `upstreamDivergence` has no engine-specific symbol in it.
 - [ ] No write path to any non-git version control system exists.
-- [ ] A single-root workspace behaves exactly as it did at v0.213.0.
+- [x] A single-root workspace behaves exactly as it did at v0.213.0; default scope remains the first folder.

@@ -1,0 +1,19 @@
+# Line endings for files whose bytes are asserted.
+#
+# There was no .gitattributes at all, so every checkout took whatever the
+# platform's `core.autocrlf` decided. That is harmless for source — the
+# compiler does not care — and fatal for a *fixture*, because a test comparing
+# file contents byte-for-byte then passes on Linux and fails on Windows for a
+# reason that never appears in the diff: the two strings render identically in
+# an assertion message.
+#
+# Scoped deliberately rather than declaring `* text=auto eol=lf` for the whole
+# repository. That would renormalise every tracked file in one commit, which is
+# a large unreviewable diff and a merge hazard for anything in flight. Fixtures
+# are the files that actually need the guarantee.
+tests/fixtures/** text eol=lf
+
+# The compliance mirrors and registers are read back and compared in tests, and
+# they are also what somebody hands an assessor — a file whose line endings
+# depend on who last wrote it is a poor artifact for that.
+project_memory/operations/compliance/** text eol=lf

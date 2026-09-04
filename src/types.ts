@@ -3164,6 +3164,12 @@ export type DashboardWorkKind =
   | 'risk'
   | 'debt'
   | 'document'
+  // A vital repository artifact — a CHANGELOG, a LICENSE, a SECURITY policy — is
+  // a file somebody has to keep current, and the inventory that lists them could
+  // previously only report that one was missing. Without an owner it stays
+  // missing, which is how a repository acquires a SECURITY.md written once and
+  // never read again.
+  | 'artifact'
   // A testing policy is work somebody owns, not just a row on a board. Without
   // an owner a coverage gap belongs to everyone, which in practice means it
   // belongs to nobody — this repository carried eight of them for seven weeks.

@@ -40,6 +40,7 @@
  */
 
 import type { WorkflowObservedState } from './workflowCurriculum.js';
+import { PROJECT_COMPONENT_VCS, type ProjectComponentVcs } from './projectComposition.js';
 
 /**
  * Where a snapshot may be kept, stated in the module so it cannot be got wrong
@@ -167,10 +168,28 @@ export interface ObservedDelta {
   /** When the baseline was taken. Absent on a first look. */
   readonly since?: string;
   /** Why there is no baseline, when there is not one. */
-  readonly firstLookReason?: 'no-snapshot' | 'different-repository' | 'unreadable-snapshot';
+  readonly firstLookReason?: 'no-snapshot' | 'different-repository' | 'unreadable-snapshot' | 'different-scope';
   readonly changes: readonly ObservedChange[];
   /** Changes beyond the cap, stated rather than silently dropped. */
   readonly droppedByCap: number;
+  /** The exact component coverage behind this reading, when composition is declared. */
+  readonly scope?: ObservedScope;
+}
+
+/** One declared component's visibility to this observation. */
+export interface ObservedScopeComponent {
+  readonly componentId: string;
+  readonly componentLabel: string;
+  readonly vcs: ProjectComponentVcs;
+  readonly visibility: 'visible' | 'not-visible';
+  /** Why no count can be claimed for this component. */
+  readonly reason?: string;
+}
+
+/** The component subset from which every count in the delta was derived. */
+export interface ObservedScope {
+  readonly label: string;
+  readonly components: readonly ObservedScopeComponent[];
 }
 
 /** A stored reading. Shape kept flat so it survives JSON round-trips. */
@@ -179,6 +198,7 @@ export interface ObservedSnapshot {
   /** Guards property 4. Absent when the repo was not resolvable. */
   readonly repoSlug?: string;
   readonly state: Partial<WorkflowObservedState>;
+  readonly scope?: ObservedScope;
 }
 
 /**
@@ -281,12 +301,14 @@ function describeMovement(rule: FieldRule, before: Comparable, after: Comparable
 export function compareObservedState(
   previous: ObservedSnapshot | undefined,
   current: WorkflowObservedState,
+  scope?: ObservedScope,
 ): ObservedDelta {
   const firstLook = (reason: NonNullable<ObservedDelta['firstLookReason']>): ObservedDelta => ({
     status: 'first-look',
     firstLookReason: reason,
     changes: [],
     droppedByCap: 0,
+    ...(scope === undefined ? {} : { scope }),
   });
 
   if (!previous || typeof previous !== 'object') {
@@ -299,6 +321,12 @@ export function compareObservedState(
   }
   if (isPresent(previous.repoSlug) && isPresent(current.repoSlug) && previous.repoSlug !== current.repoSlug) {
     return firstLook('different-repository');
+  }
+  if (previous.scope !== undefined && scopeFingerprint(previous.scope) === INVALID_SCOPE_FINGERPRINT) {
+    return firstLook('unreadable-snapshot');
+  }
+  if (!equalObservedScopes(previous.scope, scope)) {
+    return firstLook('different-scope');
   }
 
   const changes: ObservedChange[] = [];
@@ -370,6 +398,7 @@ export function compareObservedState(
     since: previous.takenAt,
     changes: reported,
     droppedByCap: changes.length - reported.length,
+    ...(scope === undefined ? {} : { scope }),
   };
 }
 
@@ -380,7 +409,11 @@ export function compareObservedState(
  * dependency on fields nothing compares, and the first person to add a field to
  * `WorkflowObservedState` would silently change what is persisted.
  */
-export function takeObservedSnapshot(current: WorkflowObservedState, now: string): ObservedSnapshot {
+export function takeObservedSnapshot(
+  current: WorkflowObservedState,
+  now: string,
+  scope?: ObservedScope,
+): ObservedSnapshot {
   const state: Partial<WorkflowObservedState> = {};
   for (const field of DELTA_TRACKED_FIELDS) {
     const value = current[field];
@@ -390,7 +423,65 @@ export function takeObservedSnapshot(current: WorkflowObservedState, now: string
       (state as Record<string, unknown>)[field] = Array.isArray(value) ? [...value] : value;
     }
   }
-  return { takenAt: now, repoSlug: current.repoSlug, state };
+  return {
+    takenAt: now,
+    repoSlug: current.repoSlug,
+    state,
+    ...(scope === undefined ? {} : { scope: copyObservedScope(scope) }),
+  };
+}
+
+const INVALID_SCOPE_FINGERPRINT = '\u0000invalid-observed-scope';
+
+function scopeFingerprint(scope: ObservedScope | undefined): string | undefined {
+  if (scope === undefined) {
+    return undefined;
+  }
+  if (!isValidObservedScope(scope)) {
+    return INVALID_SCOPE_FINGERPRINT;
+  }
+  return JSON.stringify({
+    label: scope.label,
+    components: scope.components.map(component => ({
+      id: component.componentId,
+      label: component.componentLabel,
+      vcs: component.vcs,
+      visibility: component.visibility,
+      reason: component.reason ?? '',
+    })),
+  });
+}
+
+function isValidObservedScope(scope: unknown): scope is ObservedScope {
+  if (!scope || typeof scope !== 'object') {
+    return false;
+  }
+  const candidate = scope as Partial<ObservedScope>;
+  if (typeof candidate.label !== 'string' || !Array.isArray(candidate.components)) {
+    return false;
+  }
+  return candidate.components.every(component => {
+    if (!component || typeof component !== 'object') {
+      return false;
+    }
+    const entry = component as Partial<ObservedScopeComponent>;
+    return typeof entry.componentId === 'string'
+      && typeof entry.componentLabel === 'string'
+      && PROJECT_COMPONENT_VCS.includes(entry.vcs as ProjectComponentVcs)
+      && (entry.visibility === 'visible' || entry.visibility === 'not-visible')
+      && (entry.reason === undefined || typeof entry.reason === 'string');
+  });
+}
+
+function equalObservedScopes(left: ObservedScope | undefined, right: ObservedScope | undefined): boolean {
+  return scopeFingerprint(left) === scopeFingerprint(right);
+}
+
+function copyObservedScope(scope: ObservedScope): ObservedScope {
+  return {
+    label: scope.label,
+    components: scope.components.map(component => ({ ...component })),
+  };
 }
 
 /**
@@ -449,18 +540,21 @@ export function summarizeObservedDelta(delta: ObservedDelta, now: string): strin
         return 'This is a different repository from the last reading, so there is nothing to compare. What changes from here will be reported.';
       case 'unreadable-snapshot':
         return 'The last reading could not be read back, so this counts as a first look. What changes from here will be reported.';
+      case 'different-scope':
+        return `The component scope changed${delta.scope ? ` to ${delta.scope.label}` : ''}, so the old counts are not comparable. What changes from here will be reported.`;
       default:
-        return 'First look. AtlasMind has recorded where the project stands; from now on this reports what moved.';
+        return `First look${delta.scope ? ` at ${delta.scope.label}` : ''}. AtlasMind has recorded where the project stands; from now on this reports what moved.`;
     }
   }
   const window = describeSince(delta.since, now);
+  const scope = delta.scope ? ` for ${delta.scope.label}` : '';
   if (delta.status === 'unchanged') {
-    return `Nothing tracked has moved ${window}.`;
+    return `Nothing tracked has moved ${window}${scope}.`;
   }
   const worse = delta.changes.filter(change => change.kind === 'worsened').length;
   const better = delta.changes.filter(change => change.kind === 'improved').length;
   const total = delta.changes.length + delta.droppedByCap;
-  const parts: string[] = [`${total} ${total === 1 ? 'thing' : 'things'} moved ${window}`];
+  const parts: string[] = [`${total} ${total === 1 ? 'thing' : 'things'} moved ${window}${scope}`];
   if (worse > 0) {
     parts.push(`${worse} the wrong way`);
   }

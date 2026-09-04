@@ -1,0 +1,13 @@
+{
+  "FileVersion": 3,
+  "EngineAssociation": "5.6",
+  "Category": "AtlasMind fixture",
+  "Description": "Minimal project identity fixture; not a runnable game.",
+  "Modules": [
+    {
+      "Name": "FixtureGame",
+      "Type": "Runtime",
+      "LoadingPhase": "Default"
+    }
+  ]
+}

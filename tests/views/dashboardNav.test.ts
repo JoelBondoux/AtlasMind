@@ -175,11 +175,47 @@ describe('dashboard nav definition', () => {
     // be able to choose the text a terminal receives — which is the whole
     // reason the ids are opaque.
     const delivery = deliverySection();
-    expect(delivery).toContain('data-action="delivery-copy-command" data-payload="${escapeAttr(step.id)}"');
-    expect(delivery).toContain('data-action="delivery-send-command" data-payload="${escapeAttr(step.id)}"');
-    expect(delivery).toContain('data-action="delivery-run-phase" data-payload="${escapeAttr(phase.id)}"');
+    expect(delivery).toContain('data-action="delivery-copy-command" data-payload="${escapeAttr(step.key)}"');
+    expect(delivery).toContain('data-action="delivery-send-command" data-payload="${escapeAttr(step.key)}"');
+    expect(delivery).toContain('data-action="delivery-run-phase" data-payload="${escapeAttr(phase.key)}"');
     expect(delivery).not.toContain('data-payload="${escapeAttr(step.command)}"');
     expect(delivery).not.toContain('payload: step.command');
+  });
+
+  it('addresses a runbook step by its page-wide key, never by the id that repeats across stages', () => {
+    // With one runbook per stage, `validate-test-1` exists on Local, Staging and
+    // Production alike — and the columns they belong to end in `npm test` and
+    // `vsce publish`. A payload carrying `step.id` would resolve to whichever
+    // stage the host happened to build first, so the run confirmation could name
+    // one environment while the terminal received another's commands.
+    const delivery = deliverySection();
+    expect(delivery).not.toContain('data-payload="${escapeAttr(step.id)}"');
+    expect(delivery).not.toContain('data-payload="${escapeAttr(phase.id)}"');
+  });
+
+  it('switches stage runbooks in the webview, without asking the host for one', () => {
+    // Choosing which runbook to read is a way of looking at the pipeline, not a
+    // change to it. The whole set is already in the snapshot, so routing the
+    // switch through a message would turn an offline toggle into something that
+    // can fail.
+    expect(WEBVIEW_SCRIPT).toContain("if (action === 'delivery-stage') {");
+    expect(WEBVIEW_SCRIPT).toContain('state.deliveryStageId = String(payload || \'\');');
+    expect(WEBVIEW_SCRIPT).toContain('function activeDeliveryRunbook(snapshot)');
+    const delivery = deliverySection();
+    expect(delivery).toContain('data-action="delivery-stage"');
+  });
+
+  it('states why a stage runbook opened, and never reports an undeclared requirement as safe', () => {
+    const delivery = deliverySection();
+    // A page that silently opens on a different environment than expected is
+    // worse than one that opens and says why.
+    expect(delivery).toContain('delivery-stage-reason');
+    expect(delivery).toContain('set.selectionReason');
+    // A blank matrix cell is "not declared", never "assessed and found fine".
+    expect(delivery).toContain('not that it was assessed and found safe');
+    // A requirement the stage below has and this one does not is the alarming
+    // direction; a "what's new here" list that dropped it would hide it.
+    expect(delivery).toContain("dropped:");
   });
 
   it('starts every runbook phase collapsed and colour-codes its identifier from the strongest non-green step', () => {
@@ -195,8 +231,49 @@ describe('dashboard nav definition', () => {
     const delivery = deliverySection();
     expect(delivery).toContain("step.status !== 'configured' ? renderAtlasDiscussAction(");
     expect(delivery).toContain("'delivery-discuss-step'");
-    expect(delivery).toContain('step.id');
+    expect(delivery).toContain('step.key');
     expect(delivery).not.toContain('data-payload="${escapeAttr(step.detail)}"');
+  });
+
+  const artifactRow = (): string => WEBVIEW_SCRIPT.slice(
+    WEBVIEW_SCRIPT.indexOf('function renderArtifactRow(artifact)'),
+    WEBVIEW_SCRIPT.indexOf('function renderScoreRing(', WEBVIEW_SCRIPT.indexOf('function renderArtifactRow(artifact)')),
+  );
+
+  it('offers an AtlasMind action on every artifact row, present ones included', () => {
+    // The inventory was a dead end in both directions: a missing SECURITY.md
+    // told you it was missing and left you to write it, and a present README.md
+    // said nothing about whether it still described the project. The action is
+    // rendered unconditionally, so a row cannot reach the page without one.
+    const row = artifactRow();
+    const call = row.split('\n').find(line => line.includes('renderAtlasDiscussAction(')) ?? '';
+    expect(call).toContain("renderAtlasDiscussAction('artifact-discuss', artifact.id");
+    // Unconditional: no ternary and no guard stands between a row and its action.
+    expect(call).not.toContain('?');
+    expect(call).not.toContain('&&');
+  });
+
+  it('lets the page name an artifact row and never say what should be done to it', () => {
+    // A produced artifact must never be talked into being authored from the
+    // browser: the host re-probes the inventory and derives the request from the
+    // row's own facts.
+    const row = artifactRow();
+    expect(row).toContain('data-payload="${escapeAttr(artifact.path)}"');
+    expect(row).not.toContain('data-payload="${escapeAttr(artifact.description)}"');
+    expect(WEBVIEW_SCRIPT).toContain("vscode.postMessage({ type: 'discussArtifactSignal', payload: payload })");
+    // The glyph comes from the host's classification, not a second rule here.
+    expect(row).toContain("artifact.complianceIntent === 'author' ? 'fix'");
+  });
+
+  it('stops nesting a control inside the artifact row button, and drops the chevron with it', () => {
+    // The row used to be a button when the file existed, which is exactly the
+    // case that now needs an action inside it. A control nested in a control is
+    // invalid markup and unreachable by keyboard, so the row is a container and
+    // the filename is the control that opens the file.
+    const row = artifactRow();
+    expect(row).not.toContain('<button type="button" class="artifact-row');
+    expect(row).toContain('class="artifact-name artifact-open"');
+    expect(HOST_SOURCE).not.toContain('button.artifact-row::after');
   });
 
   it('rechecks Git cleanliness and keeps approval-gated Git tools available for runbook discussions', () => {

@@ -25,6 +25,8 @@
  * `vscode`-free so the whole derivation is unit-tested.
  */
 
+import type { ProjectComponentVcs } from './projectComposition.js';
+
 export type IssueState = 'open' | 'closed';
 
 export interface IssueRecord {
@@ -57,6 +59,86 @@ export interface IssueSummary {
   /** Open issues older than {@link STALE_ISSUE_DAYS} with no update. */
   staleCount: number;
   summary: string;
+}
+
+/** The component boundary attached to an issue-tracker reading. */
+export interface IssueTrackerComponentScope {
+  componentId: string;
+  componentLabel: string;
+  vcs: ProjectComponentVcs;
+}
+
+/**
+ * One component's tracker result.
+ *
+ * `not-visible` is a first-class result rather than an empty `issues` array.
+ * The latter would claim that a repository has no issues when AtlasMind could
+ * not ask its version-control provider at all.
+ */
+export type ComponentIssueTrackerReading = IssueTrackerComponentScope & (
+  | {
+    visibility: 'visible';
+    repoSlug: string;
+    issues: IssueRecord[];
+    summary: IssueSummary;
+  }
+  | {
+    visibility: 'not-visible';
+    reason: string;
+  }
+);
+
+/** Build a labelled, countable tracker reading for one visible component. */
+export function visibleComponentIssues(
+  scope: IssueTrackerComponentScope,
+  repoSlug: string,
+  issues: IssueRecord[],
+  nowMs: number,
+): ComponentIssueTrackerReading {
+  return {
+    ...scope,
+    visibility: 'visible',
+    repoSlug,
+    issues,
+    summary: summarizeIssues(issues, nowMs),
+  };
+}
+
+/** Build an explicit refusal to claim a count for an unreadable component. */
+export function notVisibleComponentIssues(
+  scope: IssueTrackerComponentScope,
+  reason: string,
+): ComponentIssueTrackerReading {
+  const cleaned = clean(reason, 240) || 'The component tracker could not be read.';
+  return { ...scope, visibility: 'not-visible', reason: cleaned };
+}
+
+/**
+ * A portfolio count exists only across visible components, and the label says
+ * exactly how many declarations contributed to it.
+ */
+export function summarizeComponentIssuePortfolio(
+  readings: readonly ComponentIssueTrackerReading[],
+): { visibleCount: number; totalCount: number; openCount?: number; scopeLabel: string; notVisible: string[] } {
+  const visible = readings.filter((reading): reading is Extract<ComponentIssueTrackerReading, { visibility: 'visible' }> =>
+    reading.visibility === 'visible');
+  const notVisible = readings
+    .filter((reading): reading is Extract<ComponentIssueTrackerReading, { visibility: 'not-visible' }> =>
+      reading.visibility === 'not-visible')
+    .map(reading => reading.componentLabel);
+  const totalCount = readings.length;
+  const visibleCount = visible.length;
+  return {
+    visibleCount,
+    totalCount,
+    ...(visibleCount === 0 ? {} : {
+      openCount: visible.reduce((total, reading) => total + reading.summary.openCount, 0),
+    }),
+    scopeLabel: totalCount <= 1
+      ? visible[0]?.componentLabel ?? readings[0]?.componentLabel ?? 'No component'
+      : `${visibleCount} of ${totalCount} declared components`,
+    notVisible,
+  };
 }
 
 /** An open issue untouched for this long is worth surfacing separately. */

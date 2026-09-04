@@ -4,7 +4,7 @@
 > `improvement-plan.md`; this file holds the deadlines, estimates, branch names
 > and dependency links that a markdown checkbox cannot carry.
 
-Last updated: 2026-08-21T12:20:58.725Z
+Last updated: 2026-09-04T16:03:48.560Z
 
 Suggested links: on — AtlasMind proposes links, and nothing is applied until somebody accepts it
 
@@ -64,13 +64,20 @@ Layout: vertical — the tree runs top to bottom. Nodes moved by hand keep their
 | `pr-native-github-automation` | **pr-native github automation.** now tracked as tier 2–3 of [the guided github w | — | — | derived | yes | — | — |
 | `parallel-command-center-ux-n` | **parallel "command center" ux (net-new framing).** a multi-lane view of n concu | — | — | derived | yes | — | — |
 | `not-pursuing-becoming-a-gene` | **not pursuing:** becoming a generic byo-cli-agent multiplexer — that is supacod | — | — | derived | yes | — | — |
+| `pay-down-atdd-is-enabled-wit` | pay down: atdd is enabled with no evidence it runs | — | — | derived | yes | 2026-09-02 | — |
+| `pay-down-bdd-is-enabled-with` | pay down: bdd is enabled with no evidence it runs | — | — | derived | yes | 2026-09-02 | — |
+| `pay-down-contract-is-enabled` | pay down: contract is enabled with no evidence it runs | — | — | derived | yes | 2026-09-02 | — |
+| `pay-down-end-to-end-is-enabl` | pay down: end-to-end is enabled with no evidence it runs | — | — | derived | yes | 2026-09-02 | — |
+| `pay-down-model-based-mbt-is` | pay down: model-based (mbt) is enabled with no evidence it runs | — | — | derived | yes | 2026-09-02 | — |
+| `pay-down-mutation-testing-is` | pay down: mutation testing is enabled with no evidence it runs | — | — | derived | yes | 2026-09-02 | — |
+| `pay-down-performance-is-enab` | pay down: performance is enabled with no evidence it runs | — | — | derived | yes | 2026-09-02 | — |
+| `pay-down-property-based-is-e` | pay down: property-based is enabled with no evidence it runs | — | — | derived | yes | 2026-09-02 | — |
 
 ## Links
 
 | Must land first | Before | Source | Recorded |
 |---|---|---|---|
 | `prompt-injection-tool-poison` | `prompt-injection-defense-the` | accepted suggestion (explicit-reference) | 2026-08-21 · contact-email-joelbondoux-net-1 |
-| `not-pursuing-becoming-a-gene` | `document-all-gdpr-related-co-2` | accepted suggestion (shared-subject-phase) | 2026-08-21 · contact-email-joelbondoux-net-1 |
 | `monorepo-multi-root-workspac` | `game-dev-unity-unreal-godot` | accepted suggestion (shared-subject-phase) | 2026-08-21 · contact-email-joelbondoux-net-1 |
 | `pr-native-github-automation` | `game-dev-unity-unreal-godot` | accepted suggestion (shared-subject-phase) | 2026-08-21 · contact-email-joelbondoux-net-1 |
 | `semantic-codebase-index-code` | `ai-automation-ai-saas-rag-ag` | accepted suggestion (shared-subject-phase) | 2026-08-21 · contact-email-joelbondoux-net-1 |
@@ -100,6 +107,29 @@ Layout: vertical — the tree runs top to bottom. Nodes moved by hand keep their
 | `llm-observability-openteleme` | `open-knowledge-format-okf-in` | accepted suggestion (shared-subject-phase) | 2026-08-21 · contact-email-joelbondoux-net-1 |
 | `agent-to-agent-interoperabil` | `open-knowledge-format-okf-in` | accepted suggestion (shared-subject-phase) | 2026-08-21 · contact-email-joelbondoux-net-1 |
 | `not-pursuing-becoming-a-gene` | `agent-to-agent-interoperabil` | accepted suggestion (shared-subject-phase) | 2026-08-21 · contact-email-joelbondoux-net-1 |
+| `pay-down-performance-is-enab` | `pay-down-property-based-is-e` | accepted suggestion (shared-subject-phase) | 2026-09-02 · contact-email-joelbondoux-net-1 |
+| `pay-down-performance-is-enab` | `pay-down-mutation-testing-is` | accepted suggestion (shared-subject-phase) | 2026-09-02 · contact-email-joelbondoux-net-1 |
+| `pay-down-performance-is-enab` | `pay-down-model-based-mbt-is` | accepted suggestion (shared-subject-phase) | 2026-09-02 · contact-email-joelbondoux-net-1 |
+| `pay-down-performance-is-enab` | `pay-down-end-to-end-is-enabl` | accepted suggestion (shared-subject-phase) | 2026-09-02 · contact-email-joelbondoux-net-1 |
+| `semantic-codebase-index-code` | `explain-this-codebase-this-f` | accepted suggestion (shared-subject-phase) | 2026-09-02 · contact-email-joelbondoux-net-1 |
+| `semantic-codebase-index-code` | `graphrag-code-knowledge-grap` | accepted suggestion (shared-subject-phase) | 2026-09-02 · contact-email-joelbondoux-net-1 |
+| `semantic-codebase-index-code` | `self-improving-project-model` | accepted suggestion (shared-subject-phase) | 2026-09-02 · contact-email-joelbondoux-net-1 |
+| `semantic-codebase-index-code` | `reasoning-budget-routing-ext` | accepted suggestion (shared-subject-phase) | 2026-09-02 · contact-email-joelbondoux-net-1 |
+| `agent-to-agent-interoperabil` | `eval-regression-harness-for` | accepted suggestion (shared-subject-phase) | 2026-09-02 · contact-email-joelbondoux-net-1 |
+| `monorepo-multi-root-workspac` | `promote-worktree-isolation-t` | accepted suggestion (shared-subject-phase) | 2026-09-02 · contact-email-joelbondoux-net-1 |
+| `monorepo-multi-root-workspac` | `pr-native-github-automation` | accepted suggestion (shared-subject-phase) | 2026-09-02 · contact-email-joelbondoux-net-1 |
+| `monorepo-multi-root-workspac` | `parallel-command-center-ux-n` | accepted suggestion (shared-subject-phase) | 2026-09-02 · contact-email-joelbondoux-net-1 |
+| `self-improving-project-model` | `decision-changelog-provenanc` | accepted suggestion (shared-subject-phase) | 2026-09-02 · contact-email-joelbondoux-net-1 |
+| `regulatory-ai-governance-sur` | `decision-changelog-provenanc` | accepted suggestion (shared-subject-phase) | 2026-09-02 · contact-email-joelbondoux-net-1 |
+| `graphrag-code-knowledge-grap` | `open-knowledge-format-okf-in` | accepted suggestion (shared-subject-phase) | 2026-09-02 · contact-email-joelbondoux-net-1 |
+| `on-device-frontier-class-mod` | `open-knowledge-format-okf-in` | accepted suggestion (shared-subject-phase) | 2026-09-02 · contact-email-joelbondoux-net-1 |
+| `not-pursuing-becoming-a-gene` | `open-knowledge-format-okf-in` | accepted suggestion (shared-subject-phase) | 2026-09-02 · contact-email-joelbondoux-net-1 |
+| `pay-down-performance-is-enab` | `pay-down-contract-is-enabled` | accepted suggestion (shared-subject-phase) | 2026-09-03 · contact-email-joelbondoux-net-1 |
+| `pay-down-performance-is-enab` | `pay-down-bdd-is-enabled-with` | accepted suggestion (shared-subject-phase) | 2026-09-03 · contact-email-joelbondoux-net-1 |
+| `pay-down-performance-is-enab` | `pay-down-atdd-is-enabled-wit` | accepted suggestion (shared-subject-phase) | 2026-09-03 · contact-email-joelbondoux-net-1 |
+| `the-guided-github-workflow-o` | `in-the-project-manager-dash` | accepted suggestion (shared-subject-phase) | 2026-09-04 · contact-email-joelbondoux-net-1 |
+| `the-guided-github-workflow-o` | `when-onboarding-a-new-projec` | accepted suggestion (shared-subject-phase) | 2026-09-04 · contact-email-joelbondoux-net-1 |
+| `pr-native-github-automation` | `when-onboarding-a-new-projec` | accepted suggestion (shared-subject-phase) | 2026-09-04 · contact-email-joelbondoux-net-1 |
 
 ## How a link gets suggested
 

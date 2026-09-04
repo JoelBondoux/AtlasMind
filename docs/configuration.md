@@ -314,7 +314,7 @@ is deliberately labelled **Linux container x64/arm64**. It is not native Windows
 
 ## Guided GitHub workflow
 
-The workflow is a **committed file** (`project_memory/operations/workflow-config.json`), not a setting: a change to how a team works should arrive as a diff with a reviewer. These settings are the *ceiling* over that file, and the two are combined as a minimum — a stage can request `auto` and still only `observe`. All four capability switches default closed.
+The workflow is a **committed file** (`project_memory/operations/workflow.json`), not a setting: a change to how a team works should arrive as a diff with a reviewer. These settings are the *ceiling* over that file, and the two are combined as a minimum — a stage can request `auto` and still only `observe`. All four capability switches default closed. Guided bootstrap can write an explicitly selected Shopify theme/app/extension composition into this file, but it never infers that declaration or replaces an existing/future workflow document.
 
 | Setting | Type | Default | Description |
 |---|---|---|---|

@@ -49,6 +49,11 @@ import { interpretVersionedDocument, type VersionedDocumentRead } from './schema
 import { WORKFLOW_STAGE_IDS, type WorkflowStageId } from './workflowCurriculum.js';
 import { normalizeAutomationLevel, type AutomationLevel } from './workflowAutomation.js';
 import { PROTECTED_BRANCH_NAMES } from './branchNaming.js';
+import {
+  sanitizeProjectComposition,
+  validateProjectComposition,
+  type ProjectComposition,
+} from './projectComposition.js';
 
 export const WORKFLOW_SSOT_PATH = 'project_memory/operations/workflow.json';
 export const WORKFLOW_SUMMARY_SSOT_PATH = 'project_memory/operations/workflow.md';
@@ -168,6 +173,8 @@ export interface WorkflowConfig {
    * what `develop` produces, with nothing to arbitrate.
    */
   versioning?: VersioningPolicy;
+  /** Team-owned component boundaries. Detection may propose, but never writes this field. */
+  composition?: ProjectComposition;
   stages: WorkflowStageConfig[];
   updatedAt?: string;
   /**
@@ -440,7 +447,7 @@ function sanitizeLabelTaxonomy(value: unknown): WorkflowLabelTaxonomy {
 
 const KNOWN_TOP_LEVEL_KEYS = new Set([
   'version', 'profile', 'status', 'branches', 'naming', 'labels', 'testing', 'versioning',
-  'stages', 'updatedAt', 'extra',
+  'composition', 'stages', 'updatedAt', 'extra',
 ]);
 
 /**
@@ -481,18 +488,38 @@ export function sanitizeWorkflowConfig(input: unknown): WorkflowConfig | undefin
   // chose, and every surface downstream would grade it against one.
   const versioning = sanitizeVersioningPolicy(raw['versioning']);
 
+  // Builds older than composition support preserve it under `extra`. Read that
+  // copy back into its declared home, but never prefer it over a direct field.
+  const priorExtra = raw['extra'] && typeof raw['extra'] === 'object' && !Array.isArray(raw['extra'])
+    ? raw['extra'] as Record<string, unknown>
+    : undefined;
+  const compositionSource = raw['composition'] ?? priorExtra?.['composition'];
+  const composition = sanitizeProjectComposition(compositionSource);
+
   const stages = sanitizeStages(raw['stages']);
 
   // Unknown top-level keys survive the round trip. A newer AtlasMind's settings
   // must not silently disappear the first time an older build saves the file.
   const extra: Record<string, unknown> = {};
+  const keepExtra = (key: string, value: unknown): void => {
+    Object.defineProperty(extra, key, { value, enumerable: true, configurable: true, writable: true });
+  };
   for (const [key, value] of Object.entries(raw)) {
     if (!KNOWN_TOP_LEVEL_KEYS.has(key)) {
-      extra[key] = value;
+      keepExtra(key, value);
     }
   }
-  if (raw['extra'] && typeof raw['extra'] === 'object' && !Array.isArray(raw['extra'])) {
-    Object.assign(extra, raw['extra'] as Record<string, unknown>);
+  if (priorExtra) {
+    for (const [key, value] of Object.entries(priorExtra)) {
+      keepExtra(key, value);
+    }
+  }
+  if (composition) {
+    delete extra['composition'];
+  } else if (compositionSource !== undefined) {
+    // A malformed or future nested shape remains byte-for-byte data instead of
+    // becoming a partly repaired declaration or disappearing on the next save.
+    keepExtra('composition', compositionSource);
   }
 
   return {
@@ -520,6 +547,7 @@ export function sanitizeWorkflowConfig(input: unknown): WorkflowConfig | undefin
     // finding no testing rules in this file knows that is the design.
     testing: { inherit: true },
     ...(versioning === undefined ? {} : { versioning }),
+    ...(composition === undefined ? {} : { composition }),
     stages,
     ...(typeof raw['updatedAt'] === 'string' ? { updatedAt: raw['updatedAt'] } : {}),
     ...(Object.keys(extra).length > 0 ? { extra } : {}),
@@ -861,7 +889,12 @@ export interface WorkflowConfigProblem {
  */
 export function validateWorkflowConfig(
   config: WorkflowConfig,
-  context: { knownAgentIds?: readonly string[]; knownBranches?: readonly string[] } = {},
+  context: {
+    knownAgentIds?: readonly string[];
+    knownBranches?: readonly string[];
+    workspaceLocations?: readonly string[];
+    unreadableLocations?: readonly string[];
+  } = {},
 ): WorkflowConfigProblem[] {
   const problems: WorkflowConfigProblem[] = [];
   const known = context.knownAgentIds;
@@ -888,6 +921,15 @@ export function validateWorkflowConfig(
     const versioning = validateVersioningPolicy(config.versioning, context.knownBranches ?? []);
     for (const detail of [...versioning.errors, ...versioning.warnings]) {
       problems.push({ detail });
+    }
+  }
+
+  if (config.composition) {
+    for (const problem of validateProjectComposition(config.composition, {
+      workspaceLocations: context.workspaceLocations,
+      unreadableLocations: context.unreadableLocations,
+    })) {
+      problems.push({ detail: problem.detail });
     }
   }
 
@@ -969,6 +1011,38 @@ function labelLines(taxonomy: WorkflowLabelTaxonomy): string[] {
     : ['- **Labels:** _none declared_ — nothing will be suggested until some are.'];
 }
 
+function compositionLines(composition: ProjectComposition | undefined): string[] {
+  if (!composition) {
+    return ['- **Composition:** not declared; existing first-workspace-root behaviour applies.'];
+  }
+  const lines = [
+    `- **Composition:** ${composition.components.length} declared component${composition.components.length === 1 ? '' : 's'}.`,
+    '',
+    '| Component | Role | Location | Archetype | VCS | Home |',
+    '|---|---|---|---|---|---|',
+  ];
+  for (const component of composition.components) {
+    const safeLabel = component.label
+      .replace(/\\/gu, '\\\\')
+      .replace(/\|/gu, '\\|')
+      .replace(/\[/gu, '\\[')
+      .replace(/\]/gu, '\\]')
+      .replace(/</gu, '&lt;')
+      .replace(/>/gu, '&gt;');
+    lines.push([
+      '',
+      safeLabel,
+      `\`${component.role}\``,
+      `\`${component.location}\``,
+      `\`${component.archetype.archetype}\``,
+      `\`${component.vcs}\``,
+      component.home ? 'yes' : 'no',
+      '',
+    ].join(' | ').trim());
+  }
+  return lines;
+}
+
 /**
  * The human-readable mirror.
  *
@@ -991,6 +1065,7 @@ export function renderWorkflowMarkdown(config: WorkflowConfig): string {
     `- **Types:** ${config.naming.types.join(', ')}`,
     ...labelLines(config.labels),
     ...versioningLines(config.versioning),
+    ...compositionLines(config.composition),
     '',
     'Testing requirements are **not** duplicated here — they come from',
     '`project_memory/index/testing-config.json`. A second copy would drift, and',
@@ -1060,6 +1135,15 @@ export function readWorkflowFile(workspaceRoot: string): VersionedDocumentRead<W
   } catch {
     return { preserveExisting: false };
   }
+  return interpretWorkflowConfigDocument(parsed);
+}
+
+/**
+ * Interpret a parsed workflow document through the same forward-compatibility
+ * boundary as the node-fs reader. VS Code-backed writers such as bootstrap use
+ * this instead of maintaining a second answer for newer schema versions.
+ */
+export function interpretWorkflowConfigDocument(parsed: unknown): VersionedDocumentRead<WorkflowConfig> {
   const read = interpretVersionedDocument('workflow', parsed, isWorkflowConfig);
   return {
     ...read,

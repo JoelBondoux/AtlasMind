@@ -2,6 +2,26 @@
   "version": 1,
   "records": [
     {
+      "id": "ci-2026-08-23T16:46:02.166Z-0ffc69ac4e2aa8ca",
+      "stageId": "ci",
+      "action": "queueLocalCiWorkflowRun",
+      "at": "2026-08-23T16:46:02.166Z",
+      "actor": "user",
+      "requestedLevel": "auto",
+      "effectiveLevel": "auto",
+      "limitedBy": "none",
+      "gates": [
+        {
+          "gate": "automation ladder",
+          "passed": true,
+          "detail": "Dispatched by the user from the Pipeline page after a modal confirmation naming the repository and the exact command."
+        }
+      ],
+      "inputsFingerprint": "0ffc69ac4e2aa8ca",
+      "outcome": "complete",
+      "outputsFingerprint": "4062edaf750fb807"
+    },
+    {
       "id": "planning-2026-08-21T06:15:00.049Z-4a88f81de79b2dcd",
       "stageId": "planning",
       "action": "createIssue",

@@ -106,7 +106,40 @@ itself immediately.
 @atlas /bootstrap
 ```
 
-Creates the project memory structure and, optionally, starter CI/CD and governance files.
+Creates the project memory structure and, optionally, starter CI/CD and governance files. Guided intake
+also offers create-only platform prefabs. **WooCommerce Extension** produces a safe PHP plugin shell,
+HPOS and dependency declarations, syntax/contract CI, and compatibility/privacy review records that
+begin Not assessed. AtlasMind records local setup commands but does not run a generator, install
+packages, start Docker, or contact the network during bootstrap.
+
+The commerce family also includes **Magento 2 Module**, **BigCommerce Catalyst**, and **Wix Commerce**.
+Magento creates only an inert registered module package plus syntax/contract CI. BigCommerce and Wix
+create reviewable generator launchpads instead of copying their maintained source trees. AtlasMind never
+runs those generators: authentication, account/channel/site provisioning, dependency installation, Git
+initialization, development servers, previews, and publication remain explicit operator actions.
+
+The **SaaS/Web App** family adds Next.js, React Router framework mode, Laravel, Django, Static Website,
+and Blog/CMS through Astro Content. Framework-owned source stays behind a generator handoff: AtlasMind
+writes the current reviewable commands and their side effects, but does not fetch or execute them. Generate
+into a separate child directory, inspect source and scripts, then open that directory as the project. Next.js
+and Astro keep dependency installation and Git initialization separate; Laravel leaves starter-kit, test,
+and database prompts to you; Django requires a supported Python/Django pair and isolated environment.
+Static Website is the dependency-free native option and includes semantic HTML, external CSS, CSP and
+accessibility contract tests, and read-only CI. All privacy and compatibility records start Not assessed.
+
+The **Frontend** family provides focused Next.js, SvelteKit, Nuxt 4, React/Vite, and Vue handoffs. Use
+Next.js, SvelteKit, or Nuxt when the interface needs an integrated server/rendering model; use the React
+Vite option only when a client-focused build is a deliberate fit; keep Vue's Router, Pinia, test, lint,
+formatting, and developer-tools prompts under operator control. The SvelteKit guide uses `sv create`, not
+the retired create-svelte path. Bootstrap writes and escapes the guide, but runs none of its commands.
+
+The **Mobile** family offers React Native, Expo, and Flutter handoffs. For a new React Native app, start
+with Expo unless a written native constraint justifies owning both platform projects and toolchains. Expo
+keeps dependency installation, generated agent instructions, native generation, optional EAS services,
+updates, and credentials separate. Flutter uses the installed SDK, requires a
+`lowercase_with_underscores` package name, and warns that project initialization retrieves dependencies.
+Before running anything, review permissions, local/secure storage, telemetry, supported devices and OS
+versions, accessibility, native modules, signing, store disclosures, data migration, and rollback.
 
 **For an existing codebase:**
 

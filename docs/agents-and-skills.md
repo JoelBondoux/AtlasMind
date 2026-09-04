@@ -199,6 +199,66 @@ The **Agent Editor** shows a **Testing Roles** section below Skills. When a meth
 
 During `@atlas /bootstrap` (new project) and `@atlas /import` (existing project), AtlasMind presents an **Auto / Manual / Skip** picker before the methodology list. In Auto mode the inferred methodology set is pre-selected in a customisable QuickPick; Manual lets you choose freely; Skip defaults to TDD + Unit. After confirming, if a test-focused agent exists, an offer is made to assign it as the primary agent for all enabled methodologies.
 
+Guided bootstrap also offers **Shopify composable project**. Its second picker is deliberately
+multi-select, allowing theme + app + extension to be declared together in `operations/workflow.json`.
+That is an explicit human selection, not detected state. It uses the generic component roles and
+archetypes, writes one home, and creates a workflow whose stages are all disabled at `observe`. Existing
+composition or future/unreadable workflow data is preserved, and the path runs no generator, dependency
+install, network call, or Shopify platform command.
+
+The **Game** choice opens an architecture-seed picker for single-repo indie, multi-repo studio, hybrid
+Git + Perforce studio, and engine-fork studio. The accepted seed is stored as ordinary components, not
+as a governing preset or topology. Perforce and upstream fields stay free of guessed coordinates and
+credentials. This is still a declaration-only bootstrap path: no engine, generator, VCS, or platform
+command runs.
+
+Guided bootstrap's platform prefabs are create-only. The **WooCommerce Extension** option writes a
+minimal PHP plugin shell, explicit WooCommerce dependency and HPOS declarations, a direct-access guard,
+a public-hook-only starter class, `wp-env`/Composer metadata, syntax and scaffold-contract CI,
+distribution exclusions, and compatibility/privacy records whose evidence starts **Not assessed**.
+Project names are normalized independently into a bounded display name, plugin slug, namespace, and
+relative paths, so intake text cannot escape a PHP comment or choose where files land. AtlasMind shows
+the official local-environment commands in the getting-started memory record but never runs an install,
+generator, Docker, or network command during bootstrap. Existing paths are never overwritten.
+
+The remaining commerce prefabs keep that same boundary while matching the platform’s actual ownership
+model. **Magento 2 Module** writes an inert Composer component whose registration, module XML, and PSR-4
+identity agree, plus syntax/contract CI and Not-assessed review records; it does not install or enable the
+module. **BigCommerce Catalyst** and **Wix Commerce** are generator handoffs, not guessed source trees.
+They record the maintained command, prerequisites, external effects, and post-generation gates. Wix’s
+conservative command separates install, Git initialization, and publishing, but the guide still states
+that running it provisions account resources. No intake value is interpolated into either shell command.
+
+The **SaaS/Web App** family uses the same source-ownership test. Next.js, React Router framework mode,
+Laravel, Django, and Astro Content produce documentation-only handoffs to their maintained generators;
+all commands contain literal placeholders and none is run during bootstrap. The handoffs name runtime
+requirements, package/lifecycle effects, database or migration behaviour, source/lockfile review, and
+post-generation security, privacy, compatibility, accessibility, test, deployment, and rollback gates.
+React Router is the current path for a new Remix-style app. Next.js and Astro commands keep application
+dependency installation and Git initialization separate; Astro also declines generator-authored AI
+instruction files. Laravel stays interactive because its starter kit, test runner and database are project
+decisions, while Django requires a reviewed Python/Django pair and isolated environment before generation.
+The **Static Website** option is native because its stable surface is small: semantic escaped HTML,
+external CSS, a restrictive document CSP, accessibility defaults, Node built-in contract tests, and
+least-privilege CI, with no framework dependency or package installation.
+
+The **Frontend** family adds focused Next.js, SvelteKit, Nuxt, React/Vite, and Vue handoffs. It retains
+the same non-execution and literal-placeholder rules, then makes the frontend-specific obligations
+walkable: server/client/build/edge ownership; routing and state; loading, error, offline, auth, and
+destructive-action states; public environment variables and browser storage; accessibility and browser
+matrices; bundle/rendering/interaction budgets; hosting headers, source maps, and rollback. SvelteKit uses
+the current `sv create` CLI, Nuxt names the supported v4 path, Vue remains interactive, and React's Vite
+starter is offered only after recording the framework-first recommendation.
+
+The **Mobile** family adds React Native, Expo, and Flutter handoffs without pretending that a generated
+app is ready for a device or store. React Native's bare Community CLI option first records the upstream
+framework recommendation and requires a reason to own both native projects. Expo disables dependency
+installation and generated agent instructions, then keeps Continuous Native Generation, config plugins,
+optional EAS services, update channels, credentials, and store release explicit. Flutter records the SDK
+channel, documented package naming, and unavoidable dependency-retrieval effect. Every option begins
+permissions, secure/local storage, telemetry, native-module, OS/device, accessibility, signing, release,
+migration, and rollback evidence as Not assessed; project text remains display-only and no command runs.
+
 When guided bootstrap selects **Website / Marketing Site** (or a Shopify store/theme template), AtlasMind also seeds UI Studio from the captured brief. The seed is non-destructive: an existing `project_memory/domain/website.json` is never replaced. From there, **AtlasMind: Open UI Studio** provides the project brief, screens/content, wireframe/UI review, UI system, implementation handoff and website-only delivery dashboards. The website hosting plan remains Develop → Staging → Production: Develop defaults to loopback, Staging is a password-protected client-review subdomain of Production, and Production is public and promotion-protected.
 
 Website Studio is a planning and review boundary, not an execution shortcut. Imported/webview data is bounded and sanitized before SSOT persistence; common credential shapes and n8n webhook URLs are redacted; password and n8n inputs store only provider-prefixed credential references rather than values. Hosting access policies are rebuilt server-side, with HTTPS/loopback/subdomain readiness checks, so a webview payload cannot make Staging public or remove Production protection. Choosing Cloudflare Pages, GitHub Pages, WordPress/Elementor, or another platform does not authorize a deployment, and marking an n8n workflow configured does not trigger it. Publishing continues through the guarded Delivery pipeline, and any future n8n runner must enter the normal tool-risk and approval path.

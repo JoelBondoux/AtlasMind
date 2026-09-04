@@ -177,6 +177,21 @@ export type DeliveryGuidePhaseId = 'prepare' | 'validate' | 'package' | 'deploy'
 
 export interface DeliveryGuideStep {
   id: string;
+  /**
+   * The address a surface uses to name this step, unique across every runbook
+   * on the page.
+   *
+   * `id` names the step *within its runbook* and repeats across stages: the
+   * Local and Production runbooks both derive `validate-test-1` from the same
+   * `test` script. Once one page shows a runbook per stage, an action carrying
+   * only `id` is ambiguous about which environment it belongs to — and the two
+   * are not interchangeable, because the same-looking column ends in `npm test`
+   * for one stage and `vsce publish` for another. The key carries the stage id
+   * verbatim (the delivery config's sanitizer clamps and de-duplicates those),
+   * so host-side resolution is exact string equality and can never land on a
+   * neighbouring stage's command.
+   */
+  key: string;
   label: string;
   detail: string;
   status: DeliveryGuideStepStatus;
@@ -189,13 +204,32 @@ export interface DeliveryGuideStep {
 }
 
 export interface DeliveryGuidePhase {
+  /** Which *kind* of column this is. Repeats across stages by design. */
   id: DeliveryGuidePhaseId;
+  /** Unique address across every runbook on the page. See {@link DeliveryGuideStep.key}. */
+  key: string;
   label: string;
   description: string;
   steps: DeliveryGuideStep[];
 }
 
 export interface ProjectDeliveryGuide {
+  /**
+   * The delivery stage this runbook describes, when the pipeline declares one.
+   *
+   * Absent means the runbook is about the project as a whole — the shape every
+   * caller got before the page grew one runbook per stage, and still what a
+   * project with no configured pipeline gets.
+   */
+  stageId?: string;
+  /** What to call this runbook on screen. `Project` when no stage is claimed. */
+  stageName: string;
+  stageKind?: DeploymentStageKind;
+  stageRank?: number;
+  /** Promotions into this stage always confirm and never force-push. */
+  isProtected: boolean;
+  /** The branch whose committed version represents this stage, when declared. */
+  branchRef?: string;
   ecosystem: string;
   toolchain: string;
   target: string;
@@ -220,6 +254,16 @@ export interface DeliveryGuideWorkflowInput {
  * its separate server-side command source and authorization boundary.
  */
 export interface ProjectDeliveryGuideInput {
+  /**
+   * Which stage the runbook is for. Must be the id of a stage in
+   * `deliveryConfig`; an id that resolves to nothing produces an *unstaged*
+   * runbook rather than a differently-staged one, because a runbook labelled
+   * for a stage that does not exist is worse than one that claims no stage.
+   *
+   * Omitted means production — what a single-runbook caller has always meant
+   * by "how does this project ship".
+   */
+  stageId?: string;
   files: readonly string[];
   manifestContents?: Readonly<Record<string, string>>;
   packageJson?: unknown;
@@ -236,6 +280,46 @@ const GUIDE_PHASE_COPY: Record<DeliveryGuidePhaseId, { label: string; descriptio
   deploy: { label: 'Deploy', description: 'How the artifact moves into a hosted environment or production branch.' },
   publish: { label: 'Publish', description: 'How the finished version reaches a registry, marketplace, or release channel.' },
 };
+
+/**
+ * The column heading for one stage's runbook.
+ *
+ * Only two columns genuinely change meaning between stages, and both are on the
+ * local one: there is nothing to *deploy* on your own machine — the equivalent
+ * act is starting the project — and the prerequisites are about being able to
+ * build at all rather than about a release being meaningful. Every other column
+ * keeps one wording across stages on purpose, so a column that looks the same in
+ * two runbooks *is* the same question asked of two environments.
+ */
+function guidePhaseCopy(
+  phaseId: DeliveryGuidePhaseId,
+  stage: DeploymentStage | undefined,
+  stageName: string,
+): { label: string; description: string } {
+  if (stage?.kind === 'local') {
+    if (phaseId === 'prepare') {
+      return {
+        label: 'Prerequisites',
+        description: 'What must be present before this project will build and run on your own machine.',
+      };
+    }
+    if (phaseId === 'deploy') {
+      return {
+        label: 'Run it here',
+        description: 'How to start the project on this machine. Nothing here leaves your computer.',
+      };
+    }
+  }
+  const base = GUIDE_PHASE_COPY[phaseId];
+  if (!stage || phaseId !== 'deploy') {
+    return base;
+  }
+  const branch = guideText(stage.branchRef, 120);
+  return {
+    label: base.label,
+    description: `How the artifact reaches ${stageName}${branch ? ` (branch ${branch})` : ''}.`,
+  };
+}
 
 function guideText(value: unknown, max = 800): string {
   return typeof value === 'string'
@@ -257,10 +341,30 @@ function guideId(phase: DeliveryGuidePhaseId, label: string, index: number): str
 }
 
 /**
+ * The page-wide address of a phase or step. The stage id is carried verbatim
+ * rather than slugged: two stage ids that differ only in punctuation must stay
+ * two addresses, and the config sanitizer has already clamped and de-duplicated
+ * them. Without a stage the local id is already unique on the page.
+ */
+function guideKey(stageId: string | undefined, id: string): string {
+  return stageId ? `${stageId}::${id}` : id;
+}
+
+/**
  * Derive the newcomer-facing delivery runbook from facts already committed to
  * the repository. Exact project scripts/routines are labelled `configured`;
  * standard runtime commands are labelled `conventional`; human-only gates stay
  * `manual`; absent load-bearing facts are `missing` rather than guessed.
+ *
+ * The runbook is written **for one stage**. That used to be implicit — the
+ * builder read the production stage and produced a single guide — which meant
+ * a project with a Local, a Staging and a Production environment had exactly
+ * one answer to "how do I run this", and it was the production one. Every fact
+ * that differs between environments (the version-bump and changelog gates, the
+ * required checks, the backup, the dispatch workflow, the reviewed pull
+ * request, whether anything is published at all) comes off the *selected*
+ * stage, so the three runbooks differ where the pipeline says they differ and
+ * nowhere else.
  */
 export function buildProjectDeliveryGuide(input: ProjectDeliveryGuideInput): ProjectDeliveryGuide {
   const originalFiles = input.files.map(file => guidePath(file)).filter((file): file is string => file !== undefined);
@@ -343,33 +447,43 @@ export function buildProjectDeliveryGuide(input: ProjectDeliveryGuideInput): Pro
 
   const config = input.deliveryConfig;
   const orderedStages = [...(config?.stages ?? [])].sort((a, b) => a.rank - b.rank);
-  const production = orderedStages.find(stage => stage.kind === 'production') ?? orderedStages.at(-1);
-  const target = guideText(production?.hosting.provider) && !/^tbd$/i.test(guideText(production?.hosting.provider))
-    ? guideText(production?.hosting.provider)
+  // Which environment this runbook is about. A caller that names a stage gets
+  // that stage or nothing; a caller that names none gets production, which is
+  // what a single-runbook caller has always meant.
+  const stage = input.stageId
+    ? orderedStages.find(candidate => candidate.id === input.stageId)
+    : orderedStages.find(candidate => candidate.kind === 'production') ?? orderedStages.at(-1);
+  const isLocalStage = stage?.kind === 'local';
+  const stageName = guideText(stage?.name, 120) || 'Project';
+  const stageKey = stage?.id;
+  const target = guideText(stage?.hosting.provider) && !/^tbd$/i.test(guideText(stage?.hosting.provider))
+    ? guideText(stage?.hosting.provider)
     : 'Not configured';
-  const productionPaths = (config?.paths ?? []).filter(candidate => candidate.toStageId === production?.id);
-  const boundRoutineIds = new Set(productionPaths.map(candidate => candidate.routineId).filter((id): id is string => Boolean(id)));
+  const stagePaths = (config?.paths ?? []).filter(candidate => candidate.toStageId === stage?.id);
+  const boundRoutineIds = new Set(stagePaths.map(candidate => candidate.routineId).filter((id): id is string => Boolean(id)));
   const routines = (input.routines ?? []).filter(routine => boundRoutineIds.has(routine.id));
 
   const phases = new Map<DeliveryGuidePhaseId, DeliveryGuidePhase>();
   for (const id of ['prepare', 'validate', 'package', 'deploy', 'publish'] as const) {
-    phases.set(id, { id, ...GUIDE_PHASE_COPY[id], steps: [] });
+    phases.set(id, { id, key: guideKey(stageKey, id), ...guidePhaseCopy(id, stage, stageName), steps: [] });
   }
   const seenCommands = new Set<string>();
   const add = (
     phaseId: DeliveryGuidePhaseId,
-    step: Omit<DeliveryGuideStep, 'id'>,
+    step: Omit<DeliveryGuideStep, 'id' | 'key'>,
   ): void => {
     const phase = phases.get(phaseId)!;
     const command = guideText(step.command, 1_200);
     if (command && seenCommands.has(command)) { return; }
     if (command) { seenCommands.add(command); }
     const safePath = guidePath(step.path);
+    const id = guideId(phaseId, step.label, phase.steps.length);
     phase.steps.push({
       ...step,
       ...(command ? { command } : {}),
       ...(safePath ? { path: safePath } : {}),
-      id: guideId(phaseId, step.label, phase.steps.length),
+      id,
+      key: guideKey(stageKey, id),
     });
   };
 
@@ -418,18 +532,29 @@ export function buildProjectDeliveryGuide(input: ProjectDeliveryGuideInput): Pro
     path: manifestPath,
     blocking: false,
   });
+  // A dirty tree means opposite things at opposite ends of the pipeline. On
+  // your own machine it is the ordinary state of working; on a stage you
+  // promote *into*, it means the artifact would not represent what is on disk.
+  // Grading local uncommitted work as a blocker would make the one runbook a
+  // developer reads every day permanently red for doing its job.
   add('prepare', {
     label: 'Working tree clean',
-    detail: input.workingTreeClean === true
-      ? 'No pending workspace changes were detected.'
-      : input.workingTreeClean === false
-        ? 'The working tree has pending changes; a package or tag would not represent everything on disk.'
-        : 'Git cleanliness was not available and must be checked before shipping.',
-    status: input.workingTreeClean === true ? 'configured' : input.workingTreeClean === false ? 'missing' : 'manual',
+    detail: isLocalStage
+      ? input.workingTreeClean === false
+        ? 'Pending changes are normal while you work here. They matter when you promote, not when you run.'
+        : 'No pending workspace changes were detected.'
+      : input.workingTreeClean === true
+        ? 'No pending workspace changes were detected.'
+        : input.workingTreeClean === false
+          ? 'The working tree has pending changes; a package or tag would not represent everything on disk.'
+          : 'Git cleanliness was not available and must be checked before shipping.',
+    status: input.workingTreeClean === true
+      ? 'configured'
+      : isLocalStage ? 'manual' : input.workingTreeClean === false ? 'missing' : 'manual',
     command: 'git status --short',
-    blocking: input.workingTreeClean === false,
+    blocking: !isLocalStage && input.workingTreeClean === false,
   });
-  const requiresVersionBump = production?.promotionPolicy.requireVersionBump === true;
+  const requiresVersionBump = stage?.promotionPolicy.requireVersionBump === true;
   if (requiresVersionBump) {
     const versionScript = ['prepare:release', 'release:prepare', 'version:bump', 'bump:version', 'version']
       .find(name => scripts.has(name));
@@ -440,37 +565,44 @@ export function buildProjectDeliveryGuide(input: ProjectDeliveryGuideInput): Pro
         ? `Exact script declared in package.json: ${guideText(scripts.get(versionScript), 300)}`
         : currentVersion
           ? `package.json currently declares ${currentVersion}. Promotion requires a newer version and synchronized release notes; Resolve & run prepares them together.`
-          : 'Production requires a version bump, but no manifest version or release-preparation script was detected.',
+          : `${stageName} requires a version bump, but no manifest version or release-preparation script was detected.`,
       ...(versionScript ? { command: toolchain === 'yarn' ? `yarn ${versionScript}` : `${toolchain} run ${versionScript}` } : {}),
       path: packageFile,
       status: versionScript ? 'configured' : currentVersion ? 'manual' : 'missing',
       blocking: !currentVersion && !versionScript,
     });
   }
-  const requiresChangelog = production?.promotionPolicy.requireChangelog === true;
+  const requiresChangelog = stage?.promotionPolicy.requireChangelog === true;
   if (requiresChangelog) {
     add('prepare', {
       label: 'Release notes / changelog',
-      detail: hasFile('CHANGELOG.md') ? 'CHANGELOG.md is present; confirm it contains the version being shipped.' : 'Production requires a changelog, but CHANGELOG.md is missing.',
+      detail: hasFile('CHANGELOG.md') ? 'CHANGELOG.md is present; confirm it contains the version being shipped.' : `${stageName} requires a changelog, but CHANGELOG.md is missing.`,
       status: hasFile('CHANGELOG.md') ? 'manual' : 'missing',
       path: firstFile('CHANGELOG.md'),
       blocking: !hasFile('CHANGELOG.md'),
     });
   }
-  add('prepare', {
-    label: 'Production target',
-    detail: target === 'Not configured' ? 'The Delivery pipeline does not name where production is hosted or published.' : `Production is configured for ${target}.`,
-    status: target === 'Not configured' ? 'missing' : 'configured',
-    path: DELIVERY_SSOT_PATH,
-    blocking: target === 'Not configured',
-  });
-  if (production?.backupPolicy.required) {
+  // Where a stage is hosted is a question about a stage you ship *to*. Asking
+  // it of the local one produces the step "Local target: localhost", which is
+  // noise on the runbook a developer opens most often.
+  if (!isLocalStage) {
     add('prepare', {
-      label: 'Production backup',
-      detail: production.backupPolicy.command ? 'A backup command is configured and remains gated by the promotion flow.' : 'A backup is required, but no command is configured. Promotion remains blocked.',
-      status: production.backupPolicy.command ? 'configured' : 'missing',
+      label: `${stageName} target`,
+      detail: target === 'Not configured'
+        ? `The Delivery pipeline does not name where ${stageName} is hosted or published.`
+        : `${stageName} is configured for ${target}.`,
+      status: target === 'Not configured' ? 'missing' : 'configured',
       path: DELIVERY_SSOT_PATH,
-      blocking: !production.backupPolicy.command,
+      blocking: target === 'Not configured',
+    });
+  }
+  if (stage?.backupPolicy.required) {
+    add('prepare', {
+      label: `${stageName} backup`,
+      detail: stage.backupPolicy.command ? 'A backup command is configured and remains gated by the promotion flow.' : 'A backup is required, but no command is configured. Promotion remains blocked.',
+      status: stage.backupPolicy.command ? 'configured' : 'missing',
+      path: DELIVERY_SSOT_PATH,
+      blocking: !stage.backupPolicy.command,
     });
   }
 
@@ -508,6 +640,57 @@ export function buildProjectDeliveryGuide(input: ProjectDeliveryGuideInput): Pro
     add('validate', { label: '.NET tests', detail: 'Standard .NET solution test command.', command: 'dotnet test --no-restore', path: dotnet, status: 'conventional', blocking: false });
   }
 
+  // The checks a stage declares in `delivery.json` are the clearest statement
+  // of how it differs from the one below it, and until now the runbook did not
+  // read them at all: a stage requiring four green workflows and one requiring
+  // none produced the same Validate column. Both kinds stay `manual` — a
+  // required check is a promise someone else keeps, not a command AtlasMind
+  // can run — and the two are kept apart because a person saying "I looked"
+  // and a machine saying "it passed" must never stand in for each other.
+  //
+  // A declared check that restates a step the runbook already derived is one
+  // fact, not two: the seeded pipeline lists "Working tree clean" as a required
+  // check, and the Prerequisites column already shows it with the git command
+  // that answers it. Listing both puts the same sentence in two columns and
+  // makes the second look like something extra to do.
+  const derivedLabels = new Set(
+    [...phases.values()].flatMap(phase => phase.steps).map(step => step.label.toLowerCase()),
+  );
+  const declaredChecks = (stage?.promotionPolicy.requiredChecks ?? [])
+    .map(check => guideText(check, 120))
+    .filter(check => check && !derivedLabels.has(check.toLowerCase()));
+  const declaredStatusChecks = (stage?.promotionPolicy.requiredStatusChecks ?? []).map(check => guideText(check, 160)).filter(Boolean);
+  const CHECK_DISPLAY_CAP = 8;
+  for (const check of declaredChecks.slice(0, CHECK_DISPLAY_CAP)) {
+    add('validate', {
+      label: check,
+      detail: `Declared in the delivery pipeline as a human check for ${stageName}. Someone confirms it; AtlasMind does not.`,
+      path: DELIVERY_SSOT_PATH,
+      status: 'manual',
+      blocking: false,
+    });
+  }
+  for (const check of declaredStatusChecks.slice(0, CHECK_DISPLAY_CAP)) {
+    add('validate', {
+      label: `CI check: ${check}`,
+      detail: `Named CI status check that must be green before a promotion into ${stageName}.`,
+      path: DELIVERY_SSOT_PATH,
+      status: 'manual',
+      blocking: false,
+    });
+  }
+  const hiddenCheckCount = Math.max(0, declaredChecks.length - CHECK_DISPLAY_CAP)
+    + Math.max(0, declaredStatusChecks.length - CHECK_DISPLAY_CAP);
+  if (hiddenCheckCount > 0) {
+    add('validate', {
+      label: `${hiddenCheckCount} further declared check${hiddenCheckCount === 1 ? '' : 's'}`,
+      detail: `${stageName} declares more checks than this column lists. Open the pipeline file for the full set.`,
+      path: DELIVERY_SSOT_PATH,
+      status: 'manual',
+      blocking: false,
+    });
+  }
+
   if (ecosystem === 'Node.js') {
     const packageScripts = ['package', 'package:vsix', 'pack', 'bundle'].filter(name => scripts.has(name));
     if (packageScripts.length > 0) { packageScripts.forEach(name => addScript('package', name)); }
@@ -526,6 +709,34 @@ export function buildProjectDeliveryGuide(input: ProjectDeliveryGuideInput): Pro
     add('package', { label: 'Publish .NET artifacts', detail: 'Standard release publish output.', command: 'dotnet publish -c Release --no-restore', path: dotnet, status: 'conventional', blocking: false });
   } else if (dockerfile) {
     add('package', { label: 'Build container image', detail: 'Dockerfile detected; choose and record an immutable image tag before publishing.', command: 'docker build .', path: dockerfile, status: 'conventional', blocking: false });
+  }
+
+  // What "deploy" means on your own machine. This is the question the single
+  // production-shaped runbook could never answer — how do I actually start the
+  // thing — and it is the first one a new contributor asks.
+  if (isLocalStage) {
+    if (ecosystem === 'Node.js') {
+      ['dev', 'start', 'watch', 'serve', 'debug'].forEach(name => addScript('deploy', name));
+    } else if (ecosystem === 'Python') {
+      // Nothing conventional enough to name: a Python project's entry point is
+      // whatever the project says it is, and guessing `python main.py` would be
+      // an invented command wearing a detected one's clothes.
+    } else if (ecosystem === 'Go') {
+      add('deploy', { label: 'Run the module', detail: 'Standard Go run for the module root.', command: 'go run .', path: goMod, status: 'conventional', blocking: false });
+    } else if (ecosystem === 'Rust') {
+      add('deploy', { label: 'Run the crate', detail: 'Standard Cargo run.', command: 'cargo run', path: cargo, status: 'conventional', blocking: false });
+    } else if (ecosystem === '.NET') {
+      add('deploy', { label: 'Run the project', detail: 'Standard .NET run.', command: 'dotnet run', path: dotnet, status: 'conventional', blocking: false });
+    }
+    if (hasFile('.vscode/launch.json')) {
+      add('deploy', {
+        label: 'Launch the debugger (F5)',
+        detail: 'A VS Code launch configuration is present, so F5 starts a debug session. That is the run path for an extension or any project whose entry point is the editor.',
+        path: firstFile('.vscode/launch.json'),
+        status: 'configured',
+        blocking: false,
+      });
+    }
   }
 
   const phaseForRoutineStep = (routineStep: RoutineDefinition['steps'][number]): DeliveryGuidePhaseId => {
@@ -548,20 +759,20 @@ export function buildProjectDeliveryGuide(input: ProjectDeliveryGuideInput): Pro
     }
   }
 
-  const dispatchWorkflow = guidePath(production?.promotionPolicy.dispatchWorkflow);
+  const dispatchWorkflow = guidePath(stage?.promotionPolicy.dispatchWorkflow);
   if (dispatchWorkflow) {
     add('deploy', {
-      label: 'Dispatch production workflow',
-      detail: 'The production stage delegates deployment to CI/CD.',
+      label: `Dispatch the ${stageName} workflow`,
+      detail: `${stageName} delegates deployment to CI/CD, so the deploy runs there rather than on this machine.`,
       command: ['gh', 'workflow', 'run', dispatchWorkflow].join(' '),
       path: dispatchWorkflow.startsWith('.github/') ? dispatchWorkflow : `.github/workflows/${dispatchWorkflow}`,
       status: 'configured',
       blocking: false,
     });
   }
-  if (production?.promotionPolicy.viaPullRequest) {
+  if (stage?.promotionPolicy.viaPullRequest) {
     add('deploy', {
-      label: `Promote through a pull request${production.branchRef ? ` into ${guideText(production.branchRef, 120)}` : ''}`,
+      label: `Promote through a pull request${stage.branchRef ? ` into ${guideText(stage.branchRef, 120)}` : ''}`,
       detail: 'This is a human-reviewed gate. Required status checks must pass before the protected target is merged.',
       path: DELIVERY_SSOT_PATH,
       status: 'manual',
@@ -569,7 +780,11 @@ export function buildProjectDeliveryGuide(input: ProjectDeliveryGuideInput): Pro
     });
   }
 
-  const deliveryWorkflows = (input.workflows ?? []).filter(workflow => /\b(deploy|publish|release|ship|promotion)\b/i.test(workflow.name));
+  // A delivery-named workflow describes moving code away from this machine, so
+  // it has no place on the runbook for this machine.
+  const deliveryWorkflows = isLocalStage
+    ? []
+    : (input.workflows ?? []).filter(workflow => /\b(deploy|publish|release|ship|promotion)\b/i.test(workflow.name));
   for (const workflow of deliveryWorkflows) {
     const safeWorkflowPath = guidePath(workflow.path);
     const triggers = workflow.triggers.map(trigger => guideText(trigger, 60)).filter(Boolean);
@@ -586,7 +801,18 @@ export function buildProjectDeliveryGuide(input: ProjectDeliveryGuideInput): Pro
     });
   }
 
-  if (ecosystem === 'Node.js') {
+  // Where the publish scripts belong. A project's `publish:*` and `tag:*`
+  // scripts exist whatever stage you are looking at, so listing them by
+  // ecosystem alone put `npm run publish:release` on the Local runbook (one
+  // click from the button that starts the dev server) and on an Integration
+  // stage that publishes nothing. They belong on the stage the *pipeline* says
+  // reaches a registry — or, with no pipeline at all, on the single unstaged
+  // runbook, which is the only place they could go.
+  const stagePublishes = !stage || (!isLocalStage && /marketplace|registry|pypi|crates\.io|app store/i.test(target));
+  if (!stagePublishes) {
+    // Nothing to say here: "this stage does not publish" is the absence of a
+    // column, not a gap in one.
+  } else if (ecosystem === 'Node.js') {
     [...scripts.keys()]
       .filter(name => /^(?:publish(?:$|:)|release(?:$|:)|ship(?:$|:)|tag:)/i.test(name))
       .slice(0, 6)
@@ -597,14 +823,25 @@ export function buildProjectDeliveryGuide(input: ProjectDeliveryGuideInput): Pro
     add('publish', { label: 'Publish crate', detail: 'Standard crates.io publish command. Review the packaged file list and credentials first.', command: 'cargo publish', path: cargo, status: 'conventional', blocking: false });
   }
 
-  const publishTarget = /marketplace|registry|pypi|crates\.io|app store/i.test(target);
+  const publishTarget = stagePublishes && /marketplace|registry|pypi|crates\.io|app store/i.test(target);
   if (phases.get('validate')!.steps.length === 0) {
     add('validate', { label: 'Project validation', detail: 'No test, lint, compile, or verification command was detected. Declare the checks that make a build trustworthy.', status: 'missing', blocking: true });
   }
   if (phases.get('package')!.steps.length === 0) {
     add('package', { label: 'Packaging command', detail: 'No package, build, bundle, or artifact command was detected.', status: 'missing', blocking: true });
   }
-  if (!publishTarget && target !== 'Not configured' && phases.get('deploy')!.steps.length === 0) {
+  if (isLocalStage) {
+    // "Nothing deploys here" is correct, not a gap. But not knowing how to
+    // *start* the project is a real one, so it is said rather than left blank.
+    if (phases.get('deploy')!.steps.length === 0) {
+      add('deploy', {
+        label: 'Run it on this machine',
+        detail: 'No dev, start, watch, serve, or launch configuration was detected. Declare one so a new contributor can run the project without asking.',
+        status: 'manual',
+        blocking: false,
+      });
+    }
+  } else if (!publishTarget && target !== 'Not configured' && phases.get('deploy')!.steps.length === 0) {
     add('deploy', { label: `Deploy to ${target}`, detail: 'A target is named, but no bound routine or dispatch workflow explains how code reaches it.', path: DELIVERY_SSOT_PATH, status: 'missing', blocking: true });
   }
   if (publishTarget && phases.get('publish')!.steps.length === 0) {
@@ -615,7 +852,12 @@ export function buildProjectDeliveryGuide(input: ProjectDeliveryGuideInput): Pro
     phase.id === 'prepare' || phase.id === 'validate' || phase.id === 'package' || phase.steps.length > 0,
   );
   const allSteps = visiblePhases.flatMap(phase => phase.steps);
+  const stageBranch = guideText(stage?.branchRef, 200);
   return {
+    ...(stage ? { stageId: stage.id, stageKind: stage.kind, stageRank: stage.rank } : {}),
+    stageName,
+    isProtected: stage?.isProtected === true,
+    ...(stageBranch ? { branchRef: stageBranch } : {}),
     ecosystem,
     toolchain,
     target,

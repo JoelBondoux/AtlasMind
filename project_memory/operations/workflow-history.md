@@ -3,7 +3,7 @@
 > Generated from `workflow-history.json` by AtlasMind. Append-only — records
 > transition, they are never deleted or rewritten. Hand edits are lost.
 
-- **Records held:** 4
+- **Records held:** 5
 - **Unfinished:** 0 · **failed:** 1 · **refused:** 0
 
 Inputs and outputs are recorded as **fingerprints, not values**. This file is
@@ -15,6 +15,7 @@ produced the same output without publishing either.
 
 | When | Stage | Action | Level | Outcome | Inputs | Outputs |
 |---|---|---|---|---|---|---|
+| 2026-08-23T16:46:02.166Z | ci | queueLocalCiWorkflowRun | `auto` | complete | `0ffc69ac4e2aa8ca` | `4062edaf750fb807` |
 | 2026-08-21T06:15:00.049Z | planning | createIssue | `propose` | failed | `4a88f81de79b2dcd` | — |
 | 2026-08-21T06:10:09.881Z | ci | queueLocalCiWorkflowRun | `auto` | complete | `fbf2bbf80f3efced` | `4062edaf750fb807` |
 | 2026-08-21T06:02:41.274Z | ci | queueLocalCiWorkflowRun | `auto` | complete | `4e423674110e5694` | `4062edaf750fb807` |

@@ -216,6 +216,11 @@
         ['security', 'Security'],
         ['privacy', 'Privacy'],
         ['risk', 'Risk'],
+        // Risk is what we raised and what we decided. Compliance is what
+        // somebody else will ask us to prove — adjacent, and a different
+        // question. Not under "Ship & record": that group is about moving a
+        // version, and a certificate is not per-release.
+        ['compliance', 'Compliance'],
       ],
     },
     {
@@ -321,6 +326,7 @@
     overview: [['workflow', 'What changed since I last looked'], ['pipeline', 'Whether CI is green right now'], ['roadmap', 'What we said we would build']],
     score: [['gapAnalysis', 'Which gaps pulled the score down'], ['testing', 'What the test evidence actually shows']],
     gapAnalysis: [['roadmap', 'Turn a gap into planned work'], ['debt', 'What was deferred on purpose']],
+    compliance: [['testing', 'Which regimes are declared'], ['risk', 'What we raised about ourselves'], ['director', 'Who can assert a control']],
     ideation: [['roadmap', 'Where a raised card lands'], ['issues', 'File one as an issue']],
     workflow: [['pullRequests', 'What is in flight right now'], ['pipeline', 'Whether the checks passed'], ['release', 'Whether this can ship']],
     roadmap: [['issues', 'What is filed against this'], ['ideation', 'Where these items came from']],
@@ -396,6 +402,20 @@
      * and is still what a drag-to-reorder priority change happens on.
      */
     roadmapView: 'canvas',
+    /**
+     * Which delivery stage's runbook is showing, by stage id.
+     *
+     * Empty means "whichever the host derived from the checked-out branch",
+     * which is the honest default: the branch you are on is evidence of the
+     * environment you are thinking about, and it is a fact the pipeline
+     * declares rather than a preference. A click pins a stage for the session.
+     *
+     * Held in the webview, not the host: choosing which runbook to read is a
+     * way of *looking* at the pipeline, not a change to it, and routing it
+     * through a message would make an offline switch into something that can
+     * fail.
+     */
+    deliveryStageId: '',
     /**
      * The node the canvas is filtered to, if any.
      *
@@ -487,6 +507,8 @@
     },
     /** '' = all, otherwise a domain id, a status, or a `likelihood:impact` matrix cell. */
     riskFilter: '',
+    // Which control the per-control walk is showing, if any.
+    complianceFocus: null,
     activeDetails: {
       commits: '',
       runs: '',
@@ -1464,6 +1486,90 @@
       vscode.postMessage({ type: 'discussDashboardError' });
       return;
     }
+    // ── Compliance ────────────────────────────────────────────────
+    //
+    // Every one of these posts an opaque id and nothing else. The host
+    // re-reads the register, resolves the id against it, and gathers every
+    // value itself. A crafted message can name a control that does not exist,
+    // which resolves to nothing; it can never supply a status, a path, a date
+    // or a person — which is the difference between this and a page that
+    // saves a whole config object.
+    if (action === 'compliance-focus') {
+      const sep = payload.indexOf('::');
+      state.complianceFocus = sep === -1
+        ? null
+        : { regimeId: payload.slice(0, sep), controlRef: payload.slice(sep + 2) };
+      render();
+      return;
+    }
+    if (action === 'compliance-next') {
+      // Resolved from the snapshot already on screen. A round trip to learn
+      // something the page is holding is a round trip that can fail.
+      const compliance = state.snapshot && state.snapshot.compliance;
+      const regime = compliance && compliance.regimes.find(entry => entry.id === payload);
+      if (!regime) { return; }
+      // Mirrors CONTROL_ATTENTION_ORDER in complianceDashboard.ts. A webview
+      // cannot import it; keeping the two in step is the same arrangement
+      // DASHBOARD_FOCUS_KINDS already lives with.
+      const order = ['not-assessed', 'gap', 'expired', 'awaiting-independent'];
+      let next = null;
+      for (let i = 0; i < order.length && !next; i += 1) {
+        next = regime.controls.find(control => control.reading === order[i]) || null;
+      }
+      state.complianceFocus = next ? { regimeId: regime.id, controlRef: next.ref } : null;
+      render();
+      return;
+    }
+    if (action === 'compliance-create') {
+      vscode.postMessage({ type: 'createComplianceRegister', payload: { regimeId: payload } });
+      return;
+    }
+    if (action === 'compliance-import') {
+      vscode.postMessage({ type: 'importComplianceMapping', payload: { regimeId: payload } });
+      return;
+    }
+    if (action === 'compliance-scope') {
+      vscode.postMessage({ type: 'decideComplianceScope', payload: { regimeId: payload } });
+      return;
+    }
+    if (action === 'compliance-notes') {
+      vscode.postMessage({ type: 'openComplianceNotes', payload: { regimeId: payload } });
+      return;
+    }
+    if (action === 'compliance-review') {
+      vscode.postMessage({ type: 'recordComplianceReview', payload: { regimeId: payload } });
+      return;
+    }
+    if (action === 'compliance-record-evidence' || action === 'compliance-attach'
+      || action === 'compliance-set-status') {
+      const sep = payload.indexOf('::');
+      if (sep === -1) { return; }
+      const type = action === 'compliance-record-evidence' ? 'recordComplianceEvidence'
+        : action === 'compliance-attach' ? 'attachComplianceEvidence'
+          : 'setComplianceControlStatus';
+      vscode.postMessage({
+        type: type,
+        payload: { regimeId: payload.slice(0, sep), controlRef: payload.slice(sep + 2) },
+      });
+      return;
+    }
+    if (action === 'compliance-detach') {
+      const parts = payload.split('::');
+      if (parts.length !== 3) { return; }
+      vscode.postMessage({
+        type: 'detachComplianceEvidence',
+        payload: { regimeId: parts[0], controlRef: parts[1], evidenceId: parts[2] },
+      });
+      return;
+    }
+    if (action === 'compliance-open-evidence') {
+      vscode.postMessage({ type: 'openComplianceEvidence', payload: { evidenceId: payload } });
+      return;
+    }
+    if (action === 'compliance-renew') {
+      vscode.postMessage({ type: 'renewComplianceEvidence', payload: { evidenceId: payload } });
+      return;
+    }
     if (action === 'risk-run') {
       // Each run is a real, costed model call, so reflect busy immediately rather
       // than waiting for the round-trip — otherwise a slow start invites double-clicks.
@@ -1516,6 +1622,11 @@
     if (action === 'detail') {
       const [chartId, date, value] = payload.split('|');
       state.activeDetails[chartId] = `${date}: ${value}`;
+      render();
+      return;
+    }
+    if (action === 'delivery-stage') {
+      state.deliveryStageId = String(payload || '');
       render();
       return;
     }
@@ -2493,6 +2604,19 @@
     }
     if (action === 'delivery-discuss-step') {
       if (payload) { vscode.postMessage({ type: 'discussDeliveryGuideStep', payload: payload }); }
+      return;
+    }
+    if (action === 'record-vital-owners') {
+      // The page asks for the derived defaults to be recorded and cannot say who
+      // they name: the host rebuilds them and shows every one before writing.
+      vscode.postMessage({ type: 'recordVitalFileOwners' });
+      return;
+    }
+    if (action === 'artifact-discuss') {
+      // The page names a row; the host re-probes the inventory and decides which
+      // of the three requests that row deserves. A produced artifact can never
+      // be talked into being authored from here.
+      if (payload) { vscode.postMessage({ type: 'discussArtifactSignal', payload: payload }); }
       return;
     }
     if (action === 'promote-plan') {
@@ -3638,6 +3762,7 @@
         ${renderSecurity(snapshot)}
         ${renderPrivacy(snapshot)}
         ${renderRisk(snapshot)}
+        ${renderCompliance(snapshot)}
         ${renderRelease(snapshot)}
         ${renderDelivery(snapshot)}
         ${renderDocuments(snapshot)}
@@ -3778,7 +3903,8 @@
       set('issues', issues.summary.openCount, issues.summary.staleCount > 0 ? 'warn' : 'accent',
         `${issues.summary.openCount} open issue${issues.summary.openCount === 1 ? '' : 's'}`
         + (issues.summary.unassignedCount > 0 ? `, ${issues.summary.unassignedCount} unassigned` : '')
-        + (issues.summary.staleCount > 0 ? `, ${issues.summary.staleCount} stale` : ''));
+        + (issues.summary.staleCount > 0 ? `, ${issues.summary.staleCount} stale` : '')
+        + (issues.scopeLabel ? ` — ${issues.scopeLabel}` : ''));
     }
 
     const pullRequests = snapshot.guidedWorkflow && snapshot.guidedWorkflow.pullRequests;
@@ -3811,7 +3937,8 @@
     const repo = snapshot.repo;
     if (repo) {
       const pending = (repo.staged || 0) + (repo.modified || 0) + (repo.untracked || 0);
-      set('repo', pending, 'accent', `${pending} pending file change${pending === 1 ? '' : 's'}`);
+      set('repo', pending, 'accent', `${pending} pending file change${pending === 1 ? '' : 's'}`
+        + (repo.scopeLabel ? ` — ${repo.scopeLabel}` : ''));
     }
 
     const branches = snapshot.branches;
@@ -4293,6 +4420,76 @@
     const nodes = (graph.active || []).concat(graph.completed || []);
     const found = nodes.find(node => node.origin && node.origin.kind === kind && node.origin.sourceId === id);
     return found ? { text: found.text, id: found.id } : null;
+  }
+
+  /** The resolved vital-file owners, tolerant of a snapshot that never arrived. */
+  function vitalFileReport() {
+    const report = state.snapshot && state.snapshot.vitalFiles;
+    return report && Array.isArray(report.entries)
+      ? report
+      : { entries: [], recordedCount: 0, defaultedCount: 0, unownedCount: 0, rules: [], summary: '' };
+  }
+
+  /**
+   * Who keeps this file current.
+   *
+   * Always rendered for a vital file, which is the whole point: the ownership
+   * badge beside it returns nothing when nobody was manually assigned, and a
+   * file that belongs to everyone belongs to nobody. A *derived* owner is marked
+   * as one — collapsing "somebody decided this" into "nobody has, so it falls
+   * here" would let a default read as a decision on the one surface whose
+   * purpose is recording what people agreed to.
+   */
+  function renderVitalFileOwner(kind, id) {
+    const entry = vitalFileReport().entries.find(candidate =>
+      candidate.file && candidate.file.kind === kind && candidate.file.id === String(id));
+    if (!entry) { return ''; }
+    const owner = entry.owner || {};
+    if (owner.rule === 'unowned') {
+      return `<span class="vital-owner is-unowned" title="${escapeAttr(owner.ruleText || '')}">No owner</span>`;
+    }
+    const name = owner.contactName || 'Unnamed';
+    const extra = owner.otherDirectorCount
+      ? ` ${owner.otherDirectorCount} other person holds the Director role.`
+      : '';
+    return owner.recorded
+      ? `<span class="vital-owner is-recorded" title="${escapeAttr((owner.ruleText || '') + extra)}">Owner: ${escapeHtml(name)}</span>`
+      : `<span class="vital-owner is-default" title="${escapeAttr((owner.ruleText || '') + extra + ' Nothing is written until you record it.')}">Owner: ${escapeHtml(name)} · default</span>`;
+  }
+
+  /**
+   * The standing-ownership card.
+   *
+   * Separate from the work board on purpose: that one holds what is outstanding,
+   * and a file reviewed yesterday is not outstanding work while still being
+   * somebody's job tomorrow. A blocker — no roster, or no Director named — is
+   * stated with the fix rather than shown as a clean empty list.
+   */
+  function renderVitalFileOwnership() {
+    const report = vitalFileReport();
+    if (report.entries.length === 0) { return ''; }
+    const owner = report.defaultOwner;
+    return `
+      <article class="list-card vital-owners" style="grid-column: 1 / -1">
+        <div class="delivery-guide-header">
+          <div>
+            <p class="section-kicker">Who keeps these current</p>
+            <h3>Ownership of vital files</h3>
+            <p class="section-copy">${escapeHtml(report.summary)} A file with nobody assigned falls to the Director — that is derived, so replacing the Director re-points every one of them at once. Recording an owner writes it into the committed roster instead, where it stays until somebody changes it.</p>
+          </div>
+          <span class="tag ${report.unownedCount ? 'tag-critical' : report.defaultedCount ? 'tag-warn' : 'tag-good'}">${report.recordedCount} recorded · ${report.defaultedCount} default${report.unownedCount ? ` · ${report.unownedCount} unowned` : ''}</span>
+        </div>
+        ${report.blocker ? `<p class="vital-owner-blocker">⚠ ${escapeHtml(report.blocker)}</p>` : ''}
+        ${report.notice ? `<p class="vital-owner-notice">${escapeHtml(report.notice)}</p>` : ''}
+        ${(!report.blocker && report.defaultedCount > 0 && owner) ? `
+          <div class="vital-owner-actions">
+            <button type="button" class="action-link" data-action="record-vital-owners"
+              title="${escapeAttr('Write these defaults into project-director.json as assignments. You will see every one before anything is written.')}">Record ${report.defaultedCount} default${report.defaultedCount === 1 ? '' : 's'} to ${escapeHtml(owner.contactName)}</button>
+          </div>` : ''}
+        <div class="vital-owner-rules">
+          ${(report.rules || []).map(rule => `<p><strong>${escapeHtml(rule.id)}</strong> — ${escapeHtml(rule.describes)}</p>`).join('')}
+        </div>
+      </article>`;
   }
 
   function renderDirectorOwnerBadge(kind, stableId) {
@@ -5092,12 +5289,29 @@
     const r = snapshot.repo;
     const changed = r.modified + r.staged + r.untracked;
     const scm = { command: 'workbench.view.scm', hint: 'Open Source Control' };
+    const componentReadings = Array.isArray(r.components) ? r.components : [];
+    const componentScopeCard = componentReadings.length ? `
+      <article class="panel-card">
+        <div class="row-head">
+          <div><p class="section-kicker">Declared component scope</p><h3>Git visibility by component</h3></div>
+          <span class="tag">${escapeHtml(String(componentReadings.filter(item => item.visibility === 'visible').length))}/${escapeHtml(String(componentReadings.length))} visible</span>
+        </div>
+        <div class="stack-list">${componentReadings.map(component => component.visibility === 'visible' ? `
+          <div class="recent-item static">
+            <div class="row-head"><strong>${escapeHtml(component.componentLabel)}</strong><span class="tag tag-good">${escapeHtml(component.vcs)} · visible</span></div>
+            <div class="list-meta">${escapeHtml(component.currentBranch)} · ${escapeHtml(String(component.staged + component.modified + component.untracked))} uncommitted · ${escapeHtml(String(component.ahead))} ahead · ${escapeHtml(String(component.behind))} behind</div>
+          </div>` : `
+          <div class="recent-item static">
+            <div class="row-head"><strong>${escapeHtml(component.componentLabel)}</strong><span class="tag tag-warn">${escapeHtml(component.vcs)} · not visible</span></div>
+            <div class="list-meta">${escapeHtml(component.reason || 'No version-control count is available for this component.')}</div>
+          </div>`).join('')}</div>
+      </article>` : '';
     return `
       ${pageSectionOpen('repo')}
         ${renderPageIntro({
           kicker: 'Repository',
-          title: 'Working tree at a glance',
-          summary: `On ${escapeHtml(snapshot.currentBranch)} — ${r.dirty ? `${changed} file${changed === 1 ? '' : 's'} differ from HEAD` : 'the working tree is clean'}${r.behind ? `, ${r.behind} commit${r.behind === 1 ? '' : 's'} behind upstream` : ''}${r.ahead ? `, ${r.ahead} ahead` : ''}. ${r.branchCount} local branch${r.branchCount === 1 ? '' : 'es'}. Open the Branches page for the complete local and remote inventory.`,
+          title: `Working tree at a glance${r.scopeLabel ? ` — ${r.scopeLabel}` : ''}`,
+          summary: `On ${escapeHtml(snapshot.currentBranch)} — ${r.dirty ? `${changed} file${changed === 1 ? '' : 's'} differ from HEAD` : 'the working tree is clean'}${r.behind ? `, ${r.behind} commit${r.behind === 1 ? '' : 's'} behind upstream` : ''}${r.ahead ? `, ${r.ahead} ahead` : ''}. ${r.branchCount} local branch${r.branchCount === 1 ? '' : 'es'}.${r.scopeLabel ? ` Every count in this headline is scoped to ${r.scopeLabel}; the component inventory below names the rest.` : ''} Open the Branches page for the complete local and remote inventory.`,
           chips: [
             { label: r.dirty ? `${changed} uncommitted` : 'Clean tree', tone: r.dirty ? 'warn' : 'good' },
             { label: r.behind ? `${r.behind} behind` : 'Up to date', tone: r.behind ? 'warn' : 'good' },
@@ -5106,6 +5320,7 @@
           action: scm,
           actionLabel: 'Open Source Control',
         })}
+        ${componentScopeCard}
         <div class="panel-grid">
           <article class="panel-card">
             <p class="section-kicker">Repo state</p>
@@ -6014,8 +6229,12 @@
     const byCategory = new Map();
     rows.forEach(row => {
       const key = row.category || 'other';
-      const bucket = byCategory.get(key) || { covered: 0, gap: 0, practice: 0 };
-      if (row.status === 'covered') { bucket.covered += 1; }
+      const bucket = byCategory.get(key) || { covered: 0, gap: 0, practice: 0, governed: 0 };
+      // A governance regime is neither covered nor a gap here: it is not a
+      // thing a test file can evidence, and counting all twenty-four as gaps
+      // made every compliance family read as total failure.
+      if (row.status === 'governed') { bucket.governed = (bucket.governed || 0) + 1; }
+      else if (row.status === 'covered') { bucket.covered += 1; }
       else if (row.status === 'not-file-evident') { bucket.practice += 1; }
       else { bucket.gap += 1; }
       byCategory.set(key, bucket);
@@ -6189,13 +6408,33 @@
       const severity = finding ? finding.severity : 'none';
       const expanded = state.testingExpandedIds.includes(row.id);
 
+      // A governance regime takes its tone from the readiness reading, and
+      // never `tag-good`: no reading this product can produce is a statement
+      // of compliance, so none of them may render as one.
+      const governance = row.governance;
       const tone = row.failedCount > 0 ? 'tag-critical'
-        : row.status === 'covered' ? 'tag-good'
-        : row.status === 'tooling-only' ? 'tag-warn'
-        : row.status === 'missing' ? 'tag-critical'
-        : '';
+        : row.status === 'governed'
+          ? (governance
+            ? (governance.tone === 'critical' ? 'tag-critical' : governance.tone === 'warn' ? 'tag-warn' : '')
+            : 'tag-critical')
+          : row.status === 'covered' ? 'tag-good'
+            : row.status === 'tooling-only' ? 'tag-warn'
+              : row.status === 'missing' ? 'tag-critical'
+                : '';
       const counts = [];
-      if (row.status !== 'not-file-evident') {
+      if (row.status === 'governed') {
+        if (governance) {
+          counts.push(`${governance.applicable} control${governance.applicable === 1 ? '' : 's'}`);
+          if (governance.satisfiedIndependent > 0) { counts.push(`${governance.satisfiedIndependent} confirmed outside`); }
+          if (governance.satisfiedSelf > 0) { counts.push(`${governance.satisfiedSelf} on our evidence`); }
+          if (governance.awaitingIndependent > 0) { counts.push(`${governance.awaitingIndependent} awaiting an outside party`); }
+          if (governance.expired > 0) { counts.push(`${governance.expired} lapsed`); }
+          if (governance.gaps > 0) { counts.push(`${governance.gaps} not met`); }
+          if (governance.notAssessed > 0) { counts.push(`${governance.notAssessed} not assessed`); }
+        } else {
+          counts.push('nothing recorded');
+        }
+      } else if (row.status !== 'not-file-evident') {
         counts.push(`${row.fileCount} file${row.fileCount === 1 ? '' : 's'}`);
         if (row.caseCount > 0) { counts.push(`${row.caseCount} case${row.caseCount === 1 ? '' : 's'}`); }
         if (row.skippedCount > 0) { counts.push(`${row.skippedCount} skipped`); }
@@ -6238,7 +6477,7 @@
             <p class="section-kicker">Policy coverage</p>
             <h3>What each enabled policy has to show</h3>
           </div>
-          <span class="tag ${gapRows.length > 0 || failingRows.length > 0 ? 'tag-warn' : 'tag-good'}">${escapeHtml(`${coverage.coveredCount}/${coverage.activeCount} with tests`)}</span>
+          <span class="tag ${gapRows.length > 0 || failingRows.length > 0 ? 'tag-warn' : 'tag-good'}">${escapeHtml(`${coverage.coveredCount}/${coverage.assessableCount === undefined ? coverage.activeCount : coverage.assessableCount} with tests`)}</span>
         </div>
         <div class="stat-detail">${escapeHtml(coverage.summary)}</div>
         <div class="tag-row" style="margin-top:8px">
@@ -6254,6 +6493,7 @@
             { label: 'Tooling only', value: coverage.toolingOnlyCount, tone: 'warn' },
             { label: 'Nothing found', value: coverage.missingCount, tone: 'critical' },
             { label: 'Practice (not file-evident)', value: coverage.practiceCount, tone: 'muted' },
+            { label: 'Governance regime', value: coverage.governedCount || 0, tone: 'muted' },
           ], {
             title: 'Enabled policies by evidence',
             caption: `${coverage.activeCount} enabled`,
@@ -6565,6 +6805,23 @@
     const list = Array.isArray(issues.issues) ? issues.issues : [];
     const summary = issues.summary || { openCount: 0, closedCount: 0, byLabel: [], byAssignee: [], unassignedCount: 0, staleCount: 0, summary: '' };
     const ready = issues.status === 'ready';
+    const componentReadings = Array.isArray(issues.componentReadings) ? issues.componentReadings : [];
+    const componentTrackerCard = componentReadings.length ? `
+      <article class="panel-card">
+        <div class="row-head">
+          <div><p class="section-kicker">Declared component scope</p><h3>Tracker visibility by component</h3></div>
+          <span class="tag">${escapeHtml(issues.componentPortfolio && issues.componentPortfolio.scopeLabel || '')}</span>
+        </div>
+        <div class="stack-list">${componentReadings.map(component => component.visibility === 'visible' ? `
+          <div class="recent-item static">
+            <div class="row-head"><strong>${escapeHtml(component.componentLabel)}</strong><span class="tag tag-good">visible</span></div>
+            <div class="list-meta">${escapeHtml(component.repoSlug)} · ${escapeHtml(String(component.summary.openCount))} open · ${escapeHtml(String(component.summary.staleCount))} stale</div>
+          </div>` : `
+          <div class="recent-item static">
+            <div class="row-head"><strong>${escapeHtml(component.componentLabel)}</strong><span class="tag tag-warn">not visible</span></div>
+            <div class="list-meta">${escapeHtml(component.reason || 'No issue count is available for this component.')}</div>
+          </div>`).join('')}</div>
+      </article>` : '';
     const filter = state.issueFilter || 'open';
     const search = String(state.issueSearch || '').trim().toLowerCase();
     const unlinkedOpenPullRequests = pullRequestRecords.filter(pr =>
@@ -6598,9 +6855,9 @@
       ${pageSectionOpen('issues')}
         ${renderPageIntro({
           kicker: 'Issue tracker',
-          title: 'What has been reported',
+          title: `What has been reported${issues.scopeLabel ? ` — ${issues.scopeLabel}` : ''}`,
           summary: ready
-            ? `${escapeHtml(summary.summary)} ${issues.loadedAt ? `Read ${escapeHtml(relativeLabel(issues.loadedAt))}.` : ''} Issue text is written by other people — AtlasMind treats it as a report to check, never as instructions.`
+            ? `${escapeHtml(summary.summary)} ${issues.loadedAt ? `Read ${escapeHtml(relativeLabel(issues.loadedAt))}.` : ''}${issues.scopeLabel ? ` These detailed counts cover ${issues.scopeLabel}.` : ''} Issue text is written by other people — AtlasMind treats it as a report to check, never as instructions.`
             : escapeHtml(issues.detail || 'Issues have not been loaded yet.'),
           chips: ready
             ? [
@@ -6610,6 +6867,8 @@
             ]
             : [{ label: issues.status === 'not-loaded' ? 'Not loaded' : 'Unavailable', tone: 'warn' }],
         })}
+
+        ${componentTrackerCard}
 
         ${ready ? '' : `
           <article class="panel-card">
@@ -7325,6 +7584,20 @@
     const debt = snapshot.debt || { entries: [], metrics: {}, rules: [] };
     const metrics = debt.metrics || {};
     const entries = debt.entries || [];
+    const scanScope = Array.isArray(debt.lastScanScope) ? debt.lastScanScope : [];
+    const visibleScopeCount = scanScope.filter(component => component.visibility === 'visible').length;
+    const scanScopeCard = scanScope.length ? `
+      <article class="panel-card">
+        <div class="row-head">
+          <div><p class="card-kicker">Last scan scope</p><h3>${escapeHtml(String(visibleScopeCount))} of ${escapeHtml(String(scanScope.length))} components fully visible</h3></div>
+          <span class="tag ${visibleScopeCount === scanScope.length ? 'tag-good' : 'tag-warn'}">component-scoped</span>
+        </div>
+        <div class="stack-list">${scanScope.map(component => `
+          <div class="recent-item static">
+            <div class="row-head"><strong>${escapeHtml(component.componentLabel)}</strong><span class="tag ${component.visibility === 'visible' ? 'tag-good' : 'tag-warn'}">${escapeHtml(component.visibility)}</span></div>
+            <div class="list-meta">${escapeHtml(component.vcs)} · ${escapeHtml(String(component.scannedFileCount))} source file${component.scannedFileCount === 1 ? '' : 's'} read${component.truncated ? ' · partial at scan cap' : ''}${component.reason ? ` · ${escapeHtml(component.reason)}` : ''}</div>
+          </div>`).join('')}</div>
+      </article>` : '';
     const allOpen = entries.filter(entry =>
       entry.status === 'open' || entry.status === 'accepted' || entry.status === 'scheduled');
 
@@ -7360,7 +7633,7 @@
       kicker: 'Stage 7',
       title: 'What you deferred, and how long ago',
       summary: debt.lastScanAt
-        ? openEntries.length + ' open, ' + (metrics.resolved || 0) + ' resolved. Last scanned ' + (debt.lastScanAt || '').slice(0, 10) + '.'
+        ? openEntries.length + ' open, ' + (metrics.resolved || 0) + ' resolved. Last scanned ' + (debt.lastScanAt || '').slice(0, 10) + (scanScope.length ? ` across ${visibleScopeCount} of ${scanScope.length} fully visible components.` : '.')
         : 'Nothing has been scanned yet. A solo developer has no colleague who remembers the shortcut, and a studio has no shared memory of it either.',
       chips: (metrics.bySeverity || []).map(slice => ({
         label: slice.value + ' ' + slice.label,
@@ -7397,7 +7670,7 @@
             <span class="tag ${DEBT_STATUS_TONE[entry.status] || ''}">${escapeHtml(entry.status)}</span>
           </span>
         </div>
-        <div class="list-meta"><code>${escapeHtml(entry.evidencePath)}${entry.evidenceLine ? ':' + entry.evidenceLine : ''}</code> · ${escapeHtml(entry.domain)} · since ${escapeHtml((entry.detectedAt || '').slice(0, 10))} · graded by <code>${escapeHtml(entry.rule)}</code></div>
+        <div class="list-meta">${entry.componentLabel ? `<strong>${escapeHtml(entry.componentLabel)}</strong> · ` : ''}<code>${escapeHtml(entry.evidencePath)}${entry.evidenceLine ? ':' + entry.evidenceLine : ''}</code> · ${escapeHtml(entry.domain)} · since ${escapeHtml((entry.detectedAt || '').slice(0, 10))} · graded by <code>${escapeHtml(entry.rule)}</code></div>
         <div class="tag-row">
           ${renderDirectorOwnerControl('debt', entry.id)}
           ${renderRegisterHandoff('debt', entry.id)}
@@ -7408,7 +7681,7 @@
         </div>
       </div>`).join('');
 
-    return pageSectionOpen('debt') + intro + `
+    return pageSectionOpen('debt') + intro + scanScopeCard + `
       <div class="panel-grid">
         <article class="panel-card">
           <p class="card-kicker">Where it is${help.button}</p>
@@ -8173,7 +8446,7 @@
           <div class="ci-section-heading">
             <div>
               <p class="card-kicker">Declared policies</p>
-              <h3>${escapeHtml(`${coverage.coveredCount} of ${coverage.activeCount} evidenced`)}</h3>
+              <h3>${escapeHtml(`${coverage.coveredCount} of ${coverage.assessableCount === undefined ? coverage.activeCount : coverage.assessableCount} evidenced`)}</h3>
               <p class="stat-detail">${escapeHtml(coverage.summary || '')}</p>
             </div>
           </div>
@@ -8182,6 +8455,7 @@
             ${renderMetricPill('Tooling only', String(coverage.toolingOnlyCount), { tone: coverage.toolingOnlyCount ? 'warn' : '', detail: 'Installed, nothing uses it' })}
             ${renderMetricPill('Missing', String(coverage.missingCount), { tone: coverage.missingCount ? 'warn' : 'good', detail: 'Declared, no evidence' })}
             ${renderMetricPill('Practices', String(coverage.practiceCount), { detail: 'Never file-evident — not gaps' })}
+          ${coverage.governedCount ? renderMetricPill('Governance', String(coverage.governedCount), { detail: 'Graded on the compliance register' }) : ''}
           </div>
           <details class="ci-progressive-details">
             <summary>Every declared policy and its evidence</summary>
@@ -8757,7 +9031,13 @@
         <div class="ci-dial-grid">
           ${renderPipelineDial('test-complete', completionPercent, { value: report ? `${completed}/${reportTests}` : '—', label: 'resolved', detail: report ? `${skipped} skipped` : 'No report', resolved: reportTests > 0 && completionPercent === 100 })}
           ${renderPipelineDial('test-pass', passPercent, { value: report ? `${passed}/${completed}` : '—', label: 'passing', detail: report ? `${failed} failing` : `${testing.totalCases || 0} discovered`, resolved: reportTests > 0 && failed === 0 && !report.stale, tone: failed > 0 ? 'critical' : report ? 'good' : 'muted' })}
-          ${renderPipelineDial('policy-cover', coverage.activeCount > 0 ? (coverage.coveredCount / coverage.activeCount) * 100 : undefined, { value: coverage.activeCount > 0 ? `${coverage.coveredCount}/${coverage.activeCount}` : '—', label: 'policies evidenced', detail: `${coverage.missingCount || 0} missing`, resolved: coverage.activeCount > 0 && coverage.coveredCount === coverage.activeCount, tone: coverage.missingCount > 0 ? 'warn' : 'good' })}
+          ${(() => {
+            // Governance regimes are out of this denominator: they are graded on
+            // the compliance register, and leaving them in made a dial that no
+            // amount of testing could ever fill.
+            const testable = coverage.assessableCount === undefined ? coverage.activeCount : coverage.assessableCount;
+            return renderPipelineDial('policy-cover', testable > 0 ? (coverage.coveredCount / testable) * 100 : undefined, { value: testable > 0 ? `${coverage.coveredCount}/${testable}` : '—', label: 'policies evidenced', detail: `${coverage.missingCount || 0} missing`, resolved: testable > 0 && coverage.coveredCount === testable, tone: coverage.missingCount > 0 ? 'warn' : 'good' });
+          })()}
         </div>
         ${cells.length ? `<div class="ci-test-grid" role="img" aria-label="${escapeAttr(report ? `Aggregate display of ${passed} passing, ${failed} failing and ${skipped} skipped tests` : `${testing.totalCases || 0} tests discovered with no current result`)}">${cells.map((status, index) => `<span class="test-cell ${status}" style="--cell-index:${index}" title="${report ? 'Aggregate result display' : 'Discovered; not run'}">${status === 'pass' ? '✓' : status === 'fail' ? '×' : status === 'skip' ? '–' : '?'}</span>`).join('')}</div><p class="stat-detail">${report && reportTests > cellCount ? `${cellCount} proportional display cells summarise ${reportTests} aggregate results; they are not individual named tests.` : report ? 'One cell per reported result.' : 'Discovery cells are not pass results.'}</p>` : ''}
         ${renderDistributionBar('pipeline-test-categories', (testing.categoryCounts || []).map(item => ({ key: item.key, label: item.label, value: item.count, tone: item.key === 'e2e' ? 'accent' : item.key === 'integration' ? 'warn' : 'good' })), { title: 'Test files by category', caption: `${testing.totalFiles || 0} files`, emptyLabel: 'No test files classified.' })}
@@ -9682,6 +9962,23 @@
       starterReason: 'CI setup is unavailable for this workspace.',
     };
     const assessment = management.assessment || {};
+    const componentCi = Array.isArray(delivery.componentCi) ? delivery.componentCi : [];
+    const componentCiScopeCard = componentCi.length ? `
+      <article class="panel-card">
+        <div class="row-head">
+          <div><p class="card-kicker">Declared component scope</p><h3>CI inventory by component</h3></div>
+          <span class="tag">${escapeHtml(String(componentCi.filter(component => component.visibility === 'visible').length))}/${escapeHtml(String(componentCi.length))} visible</span>
+        </div>
+        <div class="stack-list">${componentCi.map(component => component.visibility === 'visible' ? `
+          <div class="recent-item static">
+            <div class="row-head"><strong>${escapeHtml(component.componentLabel)}</strong><span class="tag ${component.assessment.state === 'ready' ? 'tag-good' : component.assessment.state === 'attention' ? 'tag-warn' : 'tag-critical'}">${escapeHtml(component.assessment.state)}</span></div>
+            <div class="list-meta">${escapeHtml(component.vcs)} · ${escapeHtml(String(component.assessment.workflowCount))} workflow${component.assessment.workflowCount === 1 ? '' : 's'} · ${escapeHtml(String(component.assessment.jobCount))} job${component.assessment.jobCount === 1 ? '' : 's'}</div>
+          </div>` : `
+          <div class="recent-item static">
+            <div class="row-head"><strong>${escapeHtml(component.componentLabel)}</strong><span class="tag tag-warn">not visible</span></div>
+            <div class="list-meta">${escapeHtml(component.reason || 'No CI count is available for this component.')}</div>
+          </div>`).join('')}</div>
+      </article>` : '';
     const stagePaths = (delivery.stages && delivery.stages.paths) || [];
     const requiredChecks = [...new Set(stagePaths.reduce((all, item) => all.concat(item.statusChecks || []), []))];
     const setupHelp = renderWorkflowHelp('pipeline.setup-model', {
@@ -10139,13 +10436,13 @@
     const passRate = completed > 0 ? Math.round(((counts.passing || 0) / completed) * 100) : undefined;
     const intro = renderPageIntro({
       kicker: 'Stage 5',
-      title: 'Pipeline',
+      title: `Pipeline${delivery.ciScopeLabel ? ` — ${delivery.ciScopeLabel}` : ''}`,
       // Four verbs, in the order somebody uses them. The old summary described
       // the setup sequence, which is the one thing on this page most people
       // have already finished.
       summary: intel
         ? `${runs.length} recent run${runs.length === 1 ? '' : 's'} on this branch${completed > 0 ? `, ${Math.round(((counts.passing || 0) / completed) * 100)}% passing` : ''}.${
-          intel.loadedAt ? ` Read ${relativeLabel(intel.loadedAt)}.` : ''} Watch it in Activity, understand it on the Canvas, verify it in Tests, decide where it runs in Rules.`
+          intel.loadedAt ? ` Read ${relativeLabel(intel.loadedAt)}.` : ''}${delivery.ciScopeLabel ? ` Hosted-run details cover ${delivery.ciScopeLabel}; the inventory below labels every declared component.` : ''} Watch it in Activity, understand it on the Canvas, verify it in Tests, decide where it runs in Rules.`
         : 'Watch what runs in Activity, understand the shape of it on the Canvas, verify what the tests prove, and decide where work goes in Rules.',
       chips: report ? [{ label: report.classification, tone: report.classification === 'unknown' ? 'warn' : 'critical' }] : [],
     });
@@ -10197,6 +10494,7 @@
 
     return `${pageSectionOpen('pipeline')}
       ${intro}
+      ${componentCiScopeCard}
       ${renderPipelineTabs(snapshot, runs, pipelineSection, setup)}
       <div class="ci-studio-view" role="tabpanel" aria-label="${escapeAttr(pipelineSection)} pipeline view">${sectionContent}</div>
     </section>`;
@@ -10440,6 +10738,10 @@
     // once, and this is the part that is different every day. A page whose first
     // card never changes is a page people stop reading.
     const delta = wf.delta || { status: 'first-look', headline: '', window: '', changes: [], droppedByCap: 0 };
+    const deltaScope = delta.scope;
+    const notVisibleDeltaComponents = deltaScope && Array.isArray(deltaScope.components)
+      ? deltaScope.components.filter(component => component.visibility === 'not-visible')
+      : [];
     const DELTA_TAG = {
       improved: 'tag-good',
       worsened: 'tag-warn',
@@ -10456,8 +10758,9 @@
     };
     const deltaCard = `
       <article class="panel-card">
-        <p class="card-kicker">What moved</p>
+        <p class="card-kicker">What moved${deltaScope ? ` · ${escapeHtml(deltaScope.label)}` : ''}</p>
         <p class="stat-detail">${escapeHtml(delta.headline)}</p>
+        ${notVisibleDeltaComponents.length ? `<div class="inline-notice"><strong>Partial component coverage</strong><p class="stat-detail">${notVisibleDeltaComponents.map(component => `${escapeHtml(component.componentLabel)}: ${escapeHtml(component.reason || 'not visible')}`).join(' · ')}</p></div>` : ''}
         ${delta.status === 'changed'
           ? `<div class="stack-list">${delta.changes.map(change => `
               <div class="row-head">
@@ -12141,6 +12444,299 @@
     `;
   }
 
+
+  // ── Compliance ──────────────────────────────────────────────────────
+  //
+  // The page that replaces a green "Tested" tag. It answers a different
+  // question from the board it came from: not "is this regime met?" — which a
+  // repository cannot know — but "what would somebody outside this project ask
+  // next, and what would you say?"
+  //
+  // Nothing here renders `tag-good`. The strongest reading available is
+  // Independently assured, and it still only says every control has evidence
+  // of the kind it asks for.
+
+  const COMPLIANCE_READING_TONE = {
+    'satisfied-independent': 'accent',
+    'satisfied-self': '',
+    'awaiting-independent': 'warn',
+    partial: 'warn',
+    expired: 'critical',
+    gap: 'critical',
+    'not-assessed': 'muted',
+    'not-applicable': 'muted',
+  };
+
+  function complianceToneClass(tone) {
+    return tone === 'critical' ? 'tag-critical' : tone === 'warn' ? 'tag-warn' : tone === 'accent' ? 'tag-accent' : '';
+  }
+
+  function renderComplianceControlRow(regime, control) {
+    const tone = complianceToneClass(COMPLIANCE_READING_TONE[control.reading] || '');
+    const owner = control.ownerContactId ? escapeHtml(control.ownerContactId) : '<em>unassigned</em>';
+    const evidence = control.evidenceIds.length > 0
+      ? escapeHtml(control.evidenceIds.length + ' record' + (control.evidenceIds.length === 1 ? '' : 's'))
+      : '<em>none</em>';
+    return `
+      <tr>
+        <td><code>${escapeHtml(control.ref)}</code></td>
+        <td>${escapeHtml(control.requirement)}</td>
+        <td class="stat-detail">${escapeHtml(control.acceptsLabel)}</td>
+        <td><span class="tag ${tone}">${escapeHtml(control.readingLabel)}</span></td>
+        <td>${evidence}</td>
+        <td>${owner}</td>
+        <td><button type="button" class="action-link" data-action="compliance-focus" data-payload="${escapeAttr(regime.id + '::' + control.ref)}">Assess</button></td>
+      </tr>`;
+  }
+
+  function renderComplianceFocus(snapshot, regime) {
+    const focus = state.complianceFocus;
+    if (!focus || focus.regimeId !== regime.id) { return ''; }
+    const control = regime.controls.find(entry => entry.ref === focus.controlRef);
+    if (!control) { return ''; }
+
+    const evidence = (snapshot.compliance.evidence || [])
+      .filter(entry => control.evidenceIds.indexOf(entry.id) !== -1);
+
+    return `
+      <article class="panel-card compliance-focus">
+        <div class="ci-section-heading">
+          <div>
+            <p class="card-kicker">${escapeHtml(regime.label + ' · ' + control.ref)}</p>
+            <h3>${escapeHtml(control.requirement)}</h3>
+            <p class="stat-detail">${escapeHtml(control.statement)}</p>
+          </div>
+          <button type="button" class="action-link" data-action="compliance-focus" data-payload="">Close</button>
+        </div>
+
+        <div class="mini-grid">
+          ${renderMetricPill('What would settle it', control.acceptsLabel, { detail: control.acceptsReason || '' })}
+          ${renderMetricPill('Reading', control.readingLabel, { tone: COMPLIANCE_READING_TONE[control.reading] || '' , detail: control.rule })}
+          ${renderMetricPill('Refreshed every', control.periodMonths + ' months', { detail: control.daysUntilExpiry !== undefined ? control.daysUntilExpiry + ' days left' : 'no expiry recorded' })}
+        </div>
+
+        ${control.ceilingReason ? `<p class="section-copy"><strong>Satisfied is not available.</strong> ${escapeHtml(control.ceilingReason)}</p>` : ''}
+
+        ${evidence.length > 0 ? `
+          <h4>Attached</h4>
+          <div class="list-block">${evidence.map(entry => `
+            <div class="list-row">
+              <div>
+                <strong>${escapeHtml(entry.title)}</strong>
+                <div class="list-meta">${escapeHtml(entry.kindLabel)} · ${escapeHtml(entry.locatorLabel)}${entry.validUntil ? ' · until ' + escapeHtml(entry.validUntil.slice(0, 10)) : ''}</div>
+              </div>
+              <button type="button" class="action-link" data-action="compliance-detach" data-payload="${escapeAttr(regime.id + '::' + control.ref + '::' + entry.id)}">Detach</button>
+            </div>`).join('')}</div>` : '<p class="stat-detail">Nothing is attached to this control yet.</p>'}
+
+        ${control.corroborating.length > 0 ? `
+          <details>
+            <summary>${escapeHtml(control.corroborating.length + ' check ran against this control but does not settle it')}</summary>
+            ${control.corroborating.map(entry => `<p class="stat-detail"><strong>${escapeHtml(entry.question)}</strong> — ${escapeHtml(entry.evidence)}</p>`).join('')}
+            <p class="stat-detail"><em>Shown as a signal. A machine check covers a fragment of a control, not the whole of it.</em></p>
+          </details>` : ''}
+
+        ${control.note ? `<p class="stat-detail"><strong>Note.</strong> ${escapeHtml(control.note)}</p>` : ''}
+        ${control.justification ? `<p class="stat-detail"><strong>Excluded because.</strong> ${escapeHtml(control.justification)}</p>` : ''}
+
+        <div class="tag-row">
+          <button type="button" class="action-link primary" data-action="compliance-record-evidence" data-payload="${escapeAttr(regime.id + '::' + control.ref)}"${snapshot.compliance.readOnly ? ' disabled title="A newer AtlasMind wrote this register"' : ''}>Record evidence…</button>
+          <button type="button" class="action-link" data-action="compliance-attach" data-payload="${escapeAttr(regime.id + '::' + control.ref)}"${snapshot.compliance.readOnly ? ' disabled' : ''}>Attach existing…</button>
+          <button type="button" class="action-link" data-action="compliance-set-status" data-payload="${escapeAttr(regime.id + '::' + control.ref)}"${snapshot.compliance.readOnly ? ' disabled' : ''}>Set status…</button>
+          <button type="button" class="action-link" data-action="compliance-next" data-payload="${escapeAttr(regime.id)}">Next control needing a decision →</button>
+        </div>
+      </article>`;
+  }
+
+  function renderComplianceRegime(snapshot, regime) {
+    const tone = complianceToneClass(regime.tone);
+    const counts = regime.counts || {};
+    const segments = [
+      { label: 'Met, confirmed outside', value: counts['satisfied-independent'] || 0, tone: 'accent' },
+      { label: 'Met on our evidence', value: counts['satisfied-self'] || 0, tone: 'good' },
+      { label: 'Awaiting an outside party', value: counts['awaiting-independent'] || 0, tone: 'warn' },
+      { label: 'Partly met', value: counts.partial || 0, tone: 'warn' },
+      { label: 'Lapsed', value: counts.expired || 0, tone: 'critical' },
+      { label: 'Not met', value: counts.gap || 0, tone: 'critical' },
+      { label: 'Not assessed', value: counts['not-assessed'] || 0, tone: 'muted' },
+      { label: 'Not applicable', value: counts['not-applicable'] || 0, tone: 'muted' },
+    ].filter(segment => segment.value > 0);
+
+    const groups = [];
+    const seen = {};
+    regime.controls.forEach(control => {
+      if (!seen[control.theme]) { seen[control.theme] = { label: control.themeLabel, controls: [] }; groups.push(seen[control.theme]); }
+      seen[control.theme].controls.push(control);
+    });
+
+    return `
+      <article class="panel-card">
+        <div class="ci-section-heading">
+          <div>
+            <p class="card-kicker">${escapeHtml(regime.regime)}</p>
+            <h3>${escapeHtml(regime.label)} — <span class="tag ${tone}">${escapeHtml(regime.readinessLabel)}</span></h3>
+            <p class="stat-detail">${escapeHtml(regime.statement)}</p>
+          </div>
+        </div>
+
+        <p class="stat-detail">${escapeHtml(regime.standardDetail)}</p>
+        ${regime.editionDrift ? `<p class="section-copy"><strong>Assessed against a different edition.</strong> This register was assessed against ${escapeHtml(regime.editionDrift.assessedAgainst)}; AtlasMind now models ${escapeHtml(regime.editionDrift.modelled)}. The statuses have not been carried across.</p>` : ''}
+
+        ${!regime.registered ? `
+          <p class="section-copy">No control mapping exists for this regime yet. It reads <em>Not examined</em>, which is the honest answer.</p>
+          ${regime.importable ? '<p class="stat-detail">A hand-written mapping is on disk. Import it rather than retyping what you already wrote — you will be shown what can and cannot be carried across before anything is written.</p>' : ''}
+          <div class="tag-row">
+            ${regime.importable ? `<button type="button" class="action-link primary" data-action="compliance-import" data-payload="${escapeAttr(regime.id)}"${snapshot.compliance.readOnly ? ' disabled' : ''}>Import the existing mapping…</button>` : ''}
+            <button type="button" class="action-link${regime.importable ? '' : ' primary'}" data-action="compliance-create" data-payload="${escapeAttr(regime.id)}"${snapshot.compliance.readOnly ? ' disabled' : ''}>Create an empty register</button>
+          </div>` : `
+          ${segments.length > 0 ? renderDistributionBar('compliance-' + regime.id, segments) : ''}
+          <p class="stat-detail">${escapeHtml(regime.applicableCount + ' applicable control' + (regime.applicableCount === 1 ? '' : 's') + ' of ' + regime.declaredCount + ' declared' + (regime.weakestRef ? ' · weakest: ' + regime.weakestRef : ''))}</p>
+
+          <h4>Scope</h4>
+          ${regime.scopeDecided
+            ? `<p class="stat-detail">${escapeHtml(regime.scopeStatement || '')}${regime.scopeVariant ? ' · ' + escapeHtml(regime.scopeVariant) : ''}</p>`
+            : `<p class="section-copy"><strong>Nothing is in scope until somebody says so.</strong> ${escapeHtml(regime.scopingQuestion)}</p>`}
+          <div class="tag-row">
+            <button type="button" class="action-link${regime.scopeDecided ? '' : ' primary'}" data-action="compliance-scope" data-payload="${escapeAttr(regime.id)}"${snapshot.compliance.readOnly ? ' disabled' : ''}>${regime.scopeDecided ? 'Revise scope…' : 'Decide scope…'}</button>
+            ${regime.scopeProposed ? '<span class="tag tag-warn">A draft is on file and has not been adopted</span>' : ''}
+          </div>
+
+          ${regime.demotions.length > 0 ? `
+            <details>
+              <summary>${escapeHtml(regime.demotions.length + ' recorded status' + (regime.demotions.length === 1 ? ' was' : 'es were') + ' not accepted on read')}</summary>
+              <p class="stat-detail">Nothing was deleted — the wording is kept on the control — but these read as Not assessed until the missing piece is supplied.</p>
+              <table class="mini-table"><thead><tr><th>Ref</th><th>Was</th><th>Why</th></tr></thead><tbody>
+                ${regime.demotions.slice(0, 40).map(entry => `<tr><td><code>${escapeHtml(entry.ref)}</code></td><td>${escapeHtml(entry.from)}</td><td>${escapeHtml(entry.reason)}</td></tr>`).join('')}
+              </tbody></table>
+            </details>` : ''}
+
+          ${regime.notes.length > 0 ? `<div class="list-block">${regime.notes.map(note => `<p class="stat-detail">${escapeHtml(note)}</p>`).join('')}</div>` : ''}
+
+          ${groups.map(group => `
+            <h4>${escapeHtml(group.label)}</h4>
+            <div data-scroll-key="compliance-${escapeAttr(regime.id)}-${escapeAttr(group.label)}" style="overflow-x:auto">
+              <table class="mini-table">
+                <thead><tr><th>Ref</th><th>Requirement</th><th>What would settle it</th><th>Reading</th><th>Evidence</th><th>Owner</th><th></th></tr></thead>
+                <tbody>${group.controls.map(control => renderComplianceControlRow(regime, control)).join('')}</tbody>
+              </table>
+            </div>`).join('')}
+
+          ${renderComplianceFocus(snapshot, regime)}
+
+          <div class="tag-row">
+            <button type="button" class="action-link" data-action="file" data-payload="${escapeAttr(regime.summaryPath)}">Open the mapping</button>
+            <button type="button" class="action-link" data-action="compliance-notes" data-payload="${escapeAttr(regime.id)}">${regime.notesExist ? 'Open your notes' : 'Start a notes file'}</button>
+            <button type="button" class="action-link" data-action="compliance-review" data-payload="${escapeAttr(regime.id)}"${snapshot.compliance.readOnly ? ' disabled' : ''}>Record a review…</button>
+          </div>`}
+      </article>`;
+  }
+
+  function renderCompliance(snapshot) {
+    const wrap = (inner) => pageSectionOpen('compliance') + inner + '</section>';
+    const compliance = snapshot.compliance;
+    if (!compliance) {
+      return wrap(`
+        <article class="panel-card">
+          <h3>No governance regime is declared</h3>
+          <p class="section-copy">Nothing to assess, and that is a decision rather than a gap. If a customer, a regulator or a contract asks you for one — SOC 2, ISO 27001, GDPR — turn it on under Settings → Testing and it will appear here.</p>
+          <div class="tag-row"><button type="button" class="action-link" data-action="page" data-payload="testing">Open Testing</button></div>
+        </article>` + nextStepRow('compliance'));
+    }
+
+    const notice = compliance.readOnly
+      ? `<article class="panel-card tone-warn">
+           <h3>This register was written by a newer AtlasMind</h3>
+           <p class="section-copy">${escapeHtml(compliance.notice || 'It is shown read-only. Nothing here will save until the versions match.')}</p>
+           <p class="stat-detail">Overwriting an assessor-visible record with a build that could not read it is not an inconvenience — it is a compliance incident with a git commit attached.</p>
+         </article>`
+      : '';
+
+    const questions = compliance.questions.length > 0
+      ? `<article class="panel-card">
+           <div class="ci-section-heading"><div>
+             <p class="card-kicker">What an assessor would ask next</p>
+             <h3>${escapeHtml(compliance.questions.length + ' question' + (compliance.questions.length === 1 ? '' : 's'))}</h3>
+             <p class="stat-detail">Phrased the way they arrive, because that is how they arrive.</p>
+           </div></div>
+           <div class="list-block">${compliance.questions.map(question => `
+             <div class="list-row">
+               <div>
+                 <strong>${escapeHtml(question.question)}</strong>
+                 <div class="list-meta">${escapeHtml(question.ruleId)}</div>
+               </div>
+               ${question.regimeId && question.controlRef
+                 ? `<button type="button" class="action-link" data-action="compliance-focus" data-payload="${escapeAttr(question.regimeId + '::' + question.controlRef)}">Open</button>`
+                 : ''}
+             </div>`).join('')}</div>
+         </article>`
+      : '';
+
+    const evidence = compliance.evidence.length > 0
+      ? `<article class="panel-card">
+           <div class="ci-section-heading"><div>
+             <p class="card-kicker">Evidence library</p>
+             <h3>${escapeHtml(compliance.evidence.length + ' record' + (compliance.evidence.length === 1 ? '' : 's'))}</h3>
+             <p class="stat-detail">AtlasMind records where a document is, never the document. project_memory/ is tracked by git.</p>
+           </div></div>
+           <div style="overflow-x:auto"><table class="mini-table">
+             <thead><tr><th>Record</th><th>Kind</th><th>Where</th><th>Issued by</th><th>Valid until</th><th>Used by</th><th></th></tr></thead>
+             <tbody>${compliance.evidence.map(entry => `
+               <tr${entry.retired ? ' class="is-muted"' : ''}>
+                 <td>${escapeHtml(entry.title)}</td>
+                 <td>${escapeHtml(entry.kindLabel)}</td>
+                 <td>${escapeHtml(entry.locatorLabel)}${entry.verifiable ? '' : ' <em>(described)</em>'}</td>
+                 <td>${entry.issuer ? escapeHtml(entry.issuer) : '—'}</td>
+                 <td>${entry.validUntil
+                   ? `<span class="tag ${entry.freshness === 'expired' ? 'tag-critical' : entry.freshness === 'expiring' ? 'tag-warn' : ''}">${escapeHtml(entry.validUntil.slice(0, 10))}</span>`
+                   : '<em>none stated</em>'}</td>
+                 <td>${escapeHtml(entry.usedBy.length + ' control' + (entry.usedBy.length === 1 ? '' : 's'))}</td>
+                 <td>
+                   <button type="button" class="action-link" data-action="compliance-open-evidence" data-payload="${escapeAttr(entry.id)}">Open</button>
+                   ${entry.retired ? '' : `<button type="button" class="action-link" data-action="compliance-renew" data-payload="${escapeAttr(entry.id)}"${compliance.readOnly ? ' disabled' : ''}>Renew…</button>`}
+                 </td>
+               </tr>`).join('')}</tbody>
+           </table></div>
+         </article>`
+      : '';
+
+    return wrap(`
+      <div class="page-intro">
+        <h2>Compliance</h2>
+        <p class="section-copy">${escapeHtml(compliance.summary)}</p>
+        <p class="stat-detail"><em>${escapeHtml(compliance.disclaimer)}</em></p>
+      </div>
+      ${notice}
+      <div class="mini-grid">
+        ${renderMetricPill('Regimes', String(compliance.regimes.length), { detail: 'declared for this project' })}
+        ${renderMetricPill('Lapsed', String(compliance.expiredCount), { tone: compliance.expiredCount > 0 ? 'critical' : '', detail: 'evidence past its validity date' })}
+        ${renderMetricPill('Expiring', String(compliance.expiringSoonCount), { tone: compliance.expiringSoonCount > 0 ? 'warn' : '', detail: 'within 90 days' })}
+        ${renderMetricPill('Not producible', String(compliance.unverifiableCount), { detail: 'controls resting on a description' })}
+      </div>
+      ${questions}
+      ${compliance.regimes.map(regime => renderComplianceRegime(snapshot, regime)).join('')}
+      ${evidence}
+      <details class="panel-card">
+        <summary>How these are graded</summary>
+        <p class="stat-detail">Every reading names the declared rule that produced it. Nothing here is a statement of compliance.</p>
+        <h4>Regime readings</h4>
+        <table class="mini-table"><thead><tr><th>Rule</th><th>What it means</th></tr></thead><tbody>
+          ${compliance.rules.regime.map(rule => `<tr><td><code>${escapeHtml(rule.id)}</code></td><td>${escapeHtml(rule.describes)}</td></tr>`).join('')}
+        </tbody></table>
+        <h4>Control readings</h4>
+        <table class="mini-table"><thead><tr><th>Rule</th><th>What it means</th></tr></thead><tbody>
+          ${compliance.rules.control.map(rule => `<tr><td><code>${escapeHtml(rule.id)}</code></td><td>${escapeHtml(rule.describes)}</td></tr>`).join('')}
+        </tbody></table>
+      </details>
+      <article class="panel-card">
+        <h4>The files</h4>
+        <p class="stat-detail">The JSON is the source of truth; the markdown is generated from it. Your own prose belongs in the <code>-user-edit.md</code> file beside each mapping, which is never overwritten.</p>
+        <div class="tag-row">
+          <button type="button" class="action-link" data-action="file" data-payload="${escapeAttr(compliance.evidenceSummaryPath)}">Open the evidence summary</button>
+        </div>
+      </article>
+      ${nextStepRow('compliance')}
+    `);
+  }
+
   function renderRisk(snapshot) {
     const wrap = (inner) => pageSectionOpen('risk') + inner + '</section>';
     const risk = snapshot.risk;
@@ -12458,6 +13054,7 @@
         <div class="row-head">
           <strong>${escapeHtml(entry.label || entry.path)}</strong>
           <span class="tag-group">
+            ${renderVitalFileOwner('document', entry.id)}
             <span class="tag ${tone}">${escapeHtml(entry.statusLabel)}</span>
             <span class="tag">${escapeHtml(docCadenceLabel(entry.cadence))}</span>
           </span>
@@ -13675,24 +14272,58 @@
       </div>`;
   }
 
+  /** The set of per-stage runbooks, tolerant of a snapshot that never arrived. */
+  function deliveryRunbookSet(snapshot) {
+    const set = snapshot && snapshot.delivery && snapshot.delivery.runbooks;
+    if (!set || !Array.isArray(set.runbooks)) {
+      return { runbooks: [], staged: false, selectionReason: '', omittedStageCount: 0, rules: [] };
+    }
+    return set;
+  }
+
+  /**
+   * The runbook on screen: the one pinned this session, else the one the host
+   * derived from the checked-out branch, else the first stage. A pinned id that
+   * no longer resolves falls through rather than blanking the page — a stage can
+   * be renamed or removed from the pipeline between two renders.
+   */
+  function activeDeliveryRunbook(snapshot) {
+    const set = deliveryRunbookSet(snapshot);
+    const byStage = id => set.runbooks.filter(entry => entry.guide && entry.guide.stageId === id)[0];
+    return (state.deliveryStageId && byStage(state.deliveryStageId))
+      || (set.selectedStageId && byStage(set.selectedStageId))
+      || set.runbooks[0]
+      || null;
+  }
+
   function renderDelivery(snapshot) {
-    const guide = snapshot.delivery && snapshot.delivery.guide;
+    const set = deliveryRunbookSet(snapshot);
+    const runbook = activeDeliveryRunbook(snapshot);
+    const guide = runbook && runbook.guide;
     const blockerCount = guide ? Number(guide.blockerCount || 0) : 0;
+    const staged = set.staged && guide && guide.stageId;
     return `
       ${pageSectionOpen('delivery')}
         ${renderPageIntro({
           kicker: 'Project delivery',
-          title: 'Package, deploy, and publish this project',
+          title: staged
+            ? `How to build, run, and ship at each stage`
+            : 'Package, deploy, and publish this project',
           summary: guide
-            ? `AtlasMind detected the ${guide.ecosystem} toolchain, ${guide.configuredCount} configured or conventional step${guide.configuredCount === 1 ? '' : 's'}, and ${blockerCount} missing blocker${blockerCount === 1 ? '' : 's'}. Opening or refreshing this page never runs a command; every run starts with a click and a confirmation.`
+            ? `${staged ? `One runbook per delivery stage. This is ${guide.stageName}: ` : ''}AtlasMind detected the ${guide.ecosystem} toolchain, ${guide.configuredCount} configured or conventional step${guide.configuredCount === 1 ? '' : 's'}, and ${blockerCount} missing blocker${blockerCount === 1 ? '' : 's'}. Opening or refreshing this page never runs a command; every run starts with a click and a confirmation.`
             : 'AtlasMind could not collect a project-specific delivery guide. The deployment pipeline remains available below.',
           chips: guide ? [
+            ...(staged ? [{ label: guide.stageName, tone: guide.isProtected ? 'critical' : guide.stageKind === 'local' ? 'good' : 'accent' }] : []),
             { label: guide.toolchain || guide.ecosystem, tone: guide.ecosystem === 'Undeclared' ? 'warn' : 'accent' },
             { label: guide.target || 'Target not configured', tone: guide.target === 'Not configured' ? 'warn' : 'good' },
             { label: blockerCount ? `${blockerCount} blocker${blockerCount === 1 ? '' : 's'}` : 'No detected blockers', tone: blockerCount ? 'critical' : 'good' },
           ] : [],
         })}
+        ${renderDeliveryStageBar(set, guide)}
         ${renderProjectDeliveryGuide(guide)}
+        ${renderDeliveryStageDifference(runbook)}
+        ${renderDeliveryStageComparison(set)}
+        ${renderVitalFileOwnership()}
         ${renderStagePipeline(snapshot)}
         <div class="delivery-grid">
           <article class="panel-card">
@@ -13793,6 +14424,157 @@
     `;
   }
 
+  /**
+   * The stage selector: one chip per runbook, lowest rank first.
+   *
+   * Hidden entirely when there is one runbook, because a selector with a single
+   * option is a control that teaches nothing. The reason the page opened where
+   * it did is stated underneath rather than left implicit — a surface that
+   * silently chooses a different environment than you expected is worse than one
+   * that chooses and says so.
+   */
+  function renderDeliveryStageBar(set, guide) {
+    if (!set.staged || set.runbooks.length < 2) { return ''; }
+    const activeId = guide && guide.stageId;
+    return `
+      <div class="delivery-stage-bar" role="tablist" aria-label="Delivery stage runbooks">
+        ${set.runbooks.map(entry => {
+          const stage = entry.guide || {};
+          const blockers = Number(stage.blockerCount || 0);
+          const isActive = stage.stageId === activeId;
+          const hint = [
+            stage.stageKind === 'local' ? 'Your own machine.' : `Target: ${stage.target || 'not configured'}.`,
+            stage.branchRef ? `Branch ${stage.branchRef}.` : '',
+            stage.isProtected ? 'Protected: promotions always confirm.' : '',
+          ].filter(Boolean).join(' ');
+          return `
+            <button type="button" role="tab" aria-selected="${isActive ? 'true' : 'false'}"
+              class="delivery-stage-chip${isActive ? ' is-active' : ''}${blockers > 0 ? ' has-blockers' : ''}"
+              data-action="delivery-stage" data-payload="${escapeAttr(stage.stageId || '')}" title="${escapeAttr(hint)}">
+              <span>${escapeHtml(stage.stageName || 'Stage')}</span>
+              <span class="delivery-stage-count">${blockers > 0 ? `${blockers} blocking` : `${Number(stage.configuredCount || 0)}/${Number(stage.totalCount || 0)}`}</span>
+            </button>`;
+        }).join('')}
+      </div>
+      ${set.selectionReason && !state.deliveryStageId ? `<p class="delivery-stage-reason">${escapeHtml(set.selectionReason)}</p>` : ''}
+      ${set.omittedStageCount > 0 ? `<p class="delivery-stage-reason">${set.omittedStageCount} further stage${set.omittedStageCount === 1 ? '' : 's'} in the pipeline ${set.omittedStageCount === 1 ? 'is' : 'are'} not shown here. The full list is on the Stages card below.</p>` : ''}`;
+  }
+
+  /**
+   * What this stage asks for that the one below it does not — the sentence
+   * somebody needs before promoting, and the thing a pair of twenty-row lists
+   * cannot convey by being read side by side.
+   *
+   * A dropped requirement is shown with the same weight as an added one. It is
+   * the alarming direction (a rollback declared on Staging and absent on
+   * Production is a real finding) and the one a "what's new here" list would
+   * quietly hide.
+   */
+  function renderDeliveryStageDifference(runbook) {
+    if (!runbook || !runbook.guide || !runbook.guide.stageId) { return ''; }
+    const deltas = Array.isArray(runbook.deltas) ? runbook.deltas : [];
+    const requirements = Array.isArray(runbook.requirements) ? runbook.requirements : [];
+    const previous = runbook.comparedToStageName;
+    const changeCopy = {
+      added: { icon: '+', label: 'new here', tone: 'warn' },
+      changed: { icon: 'Δ', label: 'stricter here', tone: 'warn' },
+      dropped: { icon: '−', label: `not required here`, tone: 'critical' },
+    };
+    return `
+      <article class="list-card delivery-difference" style="grid-column: 1 / -1">
+        <p class="section-kicker">What is different</p>
+        <h3>${previous ? `${escapeHtml(runbook.guide.stageName)} compared with ${escapeHtml(previous)}` : `${escapeHtml(runbook.guide.stageName)} requirements`}</h3>
+        <p class="section-copy">${previous
+          ? 'Every row names the declared pipeline rule that produced it. A row missing here is a requirement the stage below has and this one does not — shown, not hidden, because that is the direction worth noticing.'
+          : 'This is the first stage in the pipeline, so there is nothing below it to compare against. These are the requirements it carries.'}</p>
+        ${previous ? (deltas.length > 0 ? `
+          <div class="delivery-difference-list">
+            ${deltas.map(delta => {
+              const meta = changeCopy[delta.change] || changeCopy.added;
+              const req = delta.requirement || {};
+              return `
+                <div class="delivery-difference-row tone-${escapeAttr(meta.tone)}">
+                  <span class="delivery-difference-icon" aria-hidden="true">${meta.icon}</span>
+                  <div>
+                    <div class="delivery-difference-head">
+                      <strong>${escapeHtml(req.label || '')}</strong>
+                      <span class="tag ${meta.tone === 'critical' ? 'tag-critical' : 'tag-warn'}">${escapeHtml(meta.label)}</span>
+                    </div>
+                    <p>${escapeHtml(req.detail || '')}</p>
+                    ${delta.previousDetail && delta.change !== 'dropped' ? `<p class="delivery-difference-was">On ${escapeHtml(previous)}: ${escapeHtml(delta.previousDetail)}</p>` : ''}
+                    ${delta.change === 'dropped' ? `<p class="delivery-difference-was">${escapeHtml(previous)} declares this; ${escapeHtml(runbook.guide.stageName)} does not.</p>` : ''}
+                    <p class="delivery-difference-rule">Rule: ${escapeHtml(req.rule || '')}</p>
+                  </div>
+                </div>`;
+            }).join('')}
+          </div>`
+          : `<div class="dashboard-empty">Nothing differs. ${escapeHtml(runbook.guide.stageName)} declares the same requirements as ${escapeHtml(previous)} — which, for a stage further along the pipeline, is itself worth a look.</div>`) : ''}
+        ${requirements.length > 0 ? `
+          <div class="delivery-requirement-list">
+            ${requirements.map(req => `
+              <div class="delivery-requirement kind-${escapeAttr(req.kind || 'gate')}">
+                <strong>${escapeHtml(req.label || '')}</strong>
+                <span>${escapeHtml(req.detail || '')}</span>
+              </div>`).join('')}
+          </div>`
+          : `<div class="dashboard-empty">${escapeHtml(runbook.guide.stageName)} declares no promotion gates, backup, data store, or rollback in the pipeline file.</div>`}
+      </article>`;
+  }
+
+  /**
+   * Every stage at once, one row per declared rule.
+   *
+   * The per-stage card answers "what changed on the way here"; this answers
+   * "what does the whole pipeline look like", which is the question somebody
+   * asks when deciding whether the shape is right rather than when promoting.
+   * Only rules that fire somewhere are listed — fourteen mostly-empty rows
+   * would bury the four that carry the pipeline's actual policy.
+   */
+  function renderDeliveryStageComparison(set) {
+    if (!set.staged || set.runbooks.length < 2) { return ''; }
+    const rules = Array.isArray(set.rules) ? set.rules : [];
+    const rows = rules.filter(rule => set.runbooks.some(entry =>
+      (entry.requirements || []).some(req => req.ruleId === rule.id)));
+    if (rows.length === 0) { return ''; }
+    return `
+      <article class="list-card delivery-matrix" style="grid-column: 1 / -1">
+        <p class="section-kicker">Side by side</p>
+        <h3>What each stage requires</h3>
+        <p class="section-copy">Derived from the pipeline file, never from a model: the same <code>delivery.json</code> always produces this table. A blank cell means the stage does not declare that requirement — not that it was assessed and found safe.</p>
+        <div class="delivery-matrix-scroll">
+          <table class="delivery-matrix-table">
+            <thead>
+              <tr>
+                <th scope="col">Requirement</th>
+                ${set.runbooks.map(entry => `<th scope="col">${escapeHtml((entry.guide && entry.guide.stageName) || 'Stage')}</th>`).join('')}
+              </tr>
+            </thead>
+            <tbody>
+              ${rows.map(rule => `
+                <tr>
+                  <th scope="row" title="${escapeAttr(rule.describes || '')}">${escapeHtml(deliveryRuleLabel(set, rule.id))}</th>
+                  ${set.runbooks.map(entry => {
+                    const match = (entry.requirements || []).filter(req => req.ruleId === rule.id)[0];
+                    return match
+                      ? `<td class="is-required" title="${escapeAttr(match.detail || '')}"><span aria-label="required">✓</span></td>`
+                      : '<td class="is-absent"><span aria-label="not declared">—</span></td>';
+                  }).join('')}
+                </tr>`).join('')}
+            </tbody>
+          </table>
+        </div>
+      </article>`;
+  }
+
+  /** The human label for a rule, taken from whichever stage declares it. */
+  function deliveryRuleLabel(set, ruleId) {
+    for (const entry of set.runbooks) {
+      const match = (entry.requirements || []).filter(req => req.ruleId === ruleId)[0];
+      if (match && match.label) { return match.label; }
+    }
+    return ruleId;
+  }
+
   function deliveryGuideStatus(status) {
     if (status === 'configured') { return { icon: '✓', label: 'configured', tone: 'good' }; }
     if (status === 'conventional') { return { icon: '◇', label: 'runtime convention', tone: 'accent' }; }
@@ -13819,8 +14601,8 @@
       <article class="list-card delivery-guide" style="grid-column: 1 / -1">
         <div class="delivery-guide-header">
           <div>
-            <p class="section-kicker">Detected runbook</p>
-            <h3>What to do, in order</h3>
+            <p class="section-kicker">Detected runbook${guide.stageId ? ` · ${escapeHtml(guide.stageName)}` : ''}</p>
+            <h3>What to do, in order${guide.stageId ? ` for ${escapeHtml(guide.stageName)}` : ''}</h3>
             <p class="section-copy">Each column starts collapsed. Its numbered identifier carries the strongest status inside: green is fully configured, blue includes a runtime convention, amber needs a manual check, and red has a missing blocker. Open a column for its steps. The AtlasMind logo on any non-green step opens a focused resolution draft; <strong>⧉</strong> copies a command, <strong>&gt;_</strong> types it without pressing Enter, and <strong>▶ Run</strong> runs the column only after you confirm the exact list.</p>
           </div>
           <span class="tag ${guide.blockerCount ? 'tag-critical' : 'tag-good'}">${guide.configuredCount}/${guide.totalCount} detected · ${guide.blockerCount} blocking</span>
@@ -13845,7 +14627,7 @@
                 </div>
                 <span class="delivery-guide-phase-status tag ${phaseTone === 'critical' ? 'tag-critical' : phaseTone === 'warn' ? 'tag-warn' : phaseTone === 'good' ? 'tag-good' : ''}">${escapeHtml(phaseStatus)}</span>
               </summary>
-              ${runnable > 0 ? `<div class="delivery-guide-phase-actions"><button type="button" class="delivery-guide-run" data-action="delivery-run-phase" data-payload="${escapeAttr(phase.id)}" title="Run the ${runnable} detected command${runnable === 1 ? '' : 's'} in this column, in order. You confirm the exact list first." aria-label="Run the ${escapeAttr(phase.label)} column">▶ Run ${runnable}</button></div>` : ''}
+              ${runnable > 0 ? `<div class="delivery-guide-phase-actions"><button type="button" class="delivery-guide-run" data-action="delivery-run-phase" data-payload="${escapeAttr(phase.key)}" title="Run the ${runnable} detected command${runnable === 1 ? '' : 's'} in this column, in order. You confirm the exact list first." aria-label="Run the ${escapeAttr(phase.label)} column">▶ Run ${runnable}</button></div>` : ''}
               <div class="delivery-guide-steps" role="list">
                 ${(phase.steps || []).map(step => {
                   const meta = deliveryGuideStatus(step.status);
@@ -13857,7 +14639,7 @@
                         <span class="tag ${meta.tone === 'critical' ? 'tag-critical' : meta.tone === 'good' ? 'tag-good' : meta.tone === 'warn' ? 'tag-warn' : ''}">${escapeHtml(meta.label)}</span>
                         ${step.status !== 'configured' ? renderAtlasDiscussAction(
                           'delivery-discuss-step',
-                          step.id,
+                          step.key,
                           `Ask AtlasMind to resolve ${step.label}`,
                           { intent: 'fix', title: `Ask AtlasMind to inspect and resolve the non-green “${step.label}” runbook step` },
                         ) : ''}
@@ -13867,8 +14649,8 @@
                         <div class="delivery-guide-command-block">
                           <pre class="delivery-guide-command"><code>${escapeHtml(step.command)}</code></pre>
                           <div class="delivery-guide-command-actions">
-                            <button type="button" class="code-icon-btn" data-action="delivery-copy-command" data-payload="${escapeAttr(step.id)}" title="Copy to clipboard" aria-label="Copy the ${escapeAttr(step.label)} command to the clipboard">⧉</button>
-                            <button type="button" class="code-icon-btn" data-action="delivery-send-command" data-payload="${escapeAttr(step.id)}" title="Send to terminal — typed, not run. Press Enter yourself." aria-label="Send the ${escapeAttr(step.label)} command to the terminal">&gt;_</button>
+                            <button type="button" class="code-icon-btn" data-action="delivery-copy-command" data-payload="${escapeAttr(step.key)}" title="Copy to clipboard" aria-label="Copy the ${escapeAttr(step.label)} command to the clipboard">⧉</button>
+                            <button type="button" class="code-icon-btn" data-action="delivery-send-command" data-payload="${escapeAttr(step.key)}" title="Send to terminal — typed, not run. Press Enter yourself." aria-label="Send the ${escapeAttr(step.label)} command to the terminal">&gt;_</button>
                           </div>
                         </div>` : ''}
                       ${step.path ? `<button type="button" class="action-link delivery-guide-source" data-action="file" data-payload="${escapeAttr(step.path)}">Open ${escapeHtml(step.path)}</button>` : ''}
@@ -15266,6 +16048,20 @@
     `;
   }
 
+  /**
+   * One row of the artifact inventory.
+   *
+   * The row used to *be* a button when the file existed, which is why the Atlas
+   * action could not live inside it: a control nested in a control is invalid
+   * markup and unreachable by keyboard. The row is now a container, and the two
+   * things you can do with it are separate controls — the filename opens the
+   * file, the AtlasMind logo opens the hand-off. The chevron went with the
+   * whole-row click: an affordance that no longer exists must not still be drawn.
+   *
+   * Every row carries a logo, including the green ones. A present artifact is
+   * the case the inventory was silent about, and "this file exists" is not the
+   * same claim as "this file still describes the project".
+   */
   function renderArtifactRow(artifact) {
     const rowClass = artifact.needsAttention ? 'artifact-row--warn'
       : artifact.exists ? 'artifact-row--ok'
@@ -15287,25 +16083,36 @@
       : artifact.retention === 'cache' ? ''
       : '';
 
-    const inner = `
-      <span class="artifact-icon">${icon}</span>
-      <div class="artifact-body">
-        <span class="artifact-name">${escapeHtml(artifact.label)}</span>
-        <span class="artifact-desc">${escapeHtml(artifact.description)}</span>
-        <div class="artifact-tags">
-          <span class="tag">${escapeHtml(artifact.lifecycle)}</span>
-          <span class="tag">${escapeHtml(artifact.type)}</span>
-          <span class="tag">${escapeHtml(artifact.origin)}</span>
-          <span class="tag ${retentionTagClass}">${escapeHtml(artifact.retention)}</span>
-        </div>
-      </div>
-      <span class="artifact-status ${statusClass}">${statusLabel}</span>
-    `;
+    const canOpen = artifact.exists && artifact.path && artifact.path.indexOf('*') === -1;
+    // The glyph comes from the host's classification, never from a second rule
+    // here: an icon promising a fix above a draft that asks a question is worse
+    // than no icon at all.
+    const intent = artifact.complianceIntent === 'author' ? 'fix'
+      : artifact.complianceIntent === 'explain' ? 'discuss'
+      : 'discuss';
+    const actionLabel = artifact.complianceAction || `Ask AtlasMind about ${artifact.label}`;
 
-    if (artifact.exists && artifact.path && !artifact.path.includes('*')) {
-      return `<button type="button" class="artifact-row ${rowClass}" data-action="file" data-payload="${escapeAttr(artifact.path)}">${inner}</button>`;
-    }
-    return `<div class="artifact-row ${rowClass}">${inner}</div>`;
+    return `
+      <div class="artifact-row ${rowClass}">
+        <span class="artifact-icon">${icon}</span>
+        <div class="artifact-body">
+          ${canOpen
+            ? `<button type="button" class="artifact-name artifact-open" data-action="file" data-payload="${escapeAttr(artifact.path)}" title="Open ${escapeAttr(artifact.path)}">${escapeHtml(artifact.label)}</button>`
+            : `<span class="artifact-name">${escapeHtml(artifact.label)}</span>`}
+          <span class="artifact-desc">${escapeHtml(artifact.description)}</span>
+          <div class="artifact-tags">
+            <span class="tag">${escapeHtml(artifact.lifecycle)}</span>
+            <span class="tag">${escapeHtml(artifact.type)}</span>
+            <span class="tag">${escapeHtml(artifact.origin)}</span>
+            <span class="tag ${retentionTagClass}">${escapeHtml(artifact.retention)}</span>
+          </div>
+        </div>
+        <div class="artifact-actions">
+          ${renderVitalFileOwner('artifact', artifact.id)}
+          ${renderAtlasDiscussAction('artifact-discuss', artifact.id, actionLabel, { intent: intent, title: actionLabel })}
+          <span class="artifact-status ${statusClass}">${statusLabel}</span>
+        </div>
+      </div>`;
   }
 
   function renderScoreRing(score) {

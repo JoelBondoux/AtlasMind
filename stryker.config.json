@@ -12,6 +12,7 @@
     "src/core/agentRegistry.ts"
   ],
   "coverageAnalysis": "perTest",
+  "ignoreStatic": true,
   "thresholds": {
     "high": 80,
     "low": 60,

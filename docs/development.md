@@ -125,6 +125,12 @@ Turning the check on as a gate was not available: a few hundred pre-existing mis
 
 **Tests live under `tests/`, and nowhere else.** The runner's `include` is `tests/**/*.test.ts`. A test file placed in `src/`, in a singular `test/` directory, or given a `.spec.ts` suffix does not run and reports nothing — its presence then reads as coverage that does not exist. Five such files were found and moved in v0.220.0; two of them did not pass once they ran. If a test seems to be passing suspiciously easily, confirm the runner is picking it up before believing it.
 
+**BDD scenarios have an executable owner.** Gherkin files live under `tests/features/`; the matching
+Vitest scenario reads the feature and executes the behavior named by its `Scenario:` line. A feature
+file on its own is documentation, not evidence that BDD runs, while a Vitest test with no linked
+scenario is an ordinary behavioral test. The pair is what makes the project policy auditable without
+adding a second test runner.
+
 **`evals/` holds batteries that are deliberately *not* in the suite.** `tests/**` asserts what the code is contracted to do, so a failure there is a regression and must block a commit. `evals/chat-window.stress.ts` asserts what the chat window ought to do *for a person reading it* — a higher bar than the code currently clears — and its failures are findings, not regressions. Wiring it into `npm test` would make every finding a blocked commit, and the whole battery would be deleted within a week. It therefore runs from its own config, which is also why `tsconfig.json` (`include: src/**`) and the pre-commit hook are unaffected by anything in `evals/`.
 
 Two rules if you add probes to it. Each probe carries the question it asks *on the user's behalf* and why that shape is realistic for this codebase, so a failure reads as a defect report rather than a red assertion. And every lane interleaves **controls** — probes expected to pass — because a lane where nothing holds is broken outright rather than at the edges, and you cannot tell those apart from failures alone. Probes that scan source rather than calling a function need their regex anchored precisely: two of them originally passed by matching the wrong occurrence, which is a false pass of exactly the kind the battery exists to catch.
@@ -178,7 +184,7 @@ AtlasMind/
 │   ├── acp/              Agent-side ACP sessions, permissions, Buzz setup/reply boundary
 │   ├── chat/             Chat participant
 │   ├── cli/              Headless CLI and `atlasmind-acp` stdio host
-│   ├── core/             Orchestrator, registries, router, skill drafting, task profiler, cost tracker, currency formatter, webhook dispatcher, UI Studio SSOT (`websiteWorkspaceManager.ts`), authoritative graph/edit/live-preview/repository core (`uiDesignGraph.ts`, `uiEditCommands.ts`, `uiPreviewRuntime.ts`, `uiRepositoryMapping.ts`, `uiRepositoryImport.ts`), and its design/generation modules (`websiteWireframe.ts`, `websiteSitemap.ts`, `websiteLinkGraph.ts`, `websiteDesignPrompt.ts`, `websiteGeneration.ts`, `websiteGenerationRunner.ts`, `websitePreviewServer.ts`, `websiteFrameworks.ts`, `websiteStackSetup.ts`, `websiteCiTemplate.ts`, `websiteDeliverySync.ts`, `websiteWireframePreview.ts`, `websiteContent.ts`, `websiteContentManager.ts`, `websiteReviewComments.ts`, `websiteReviewBundle.ts`), testing config loader + scaffolder + per-policy coverage + codebase-driven auto-assessment + declaration/evidence reconciliation (`testingScaffolder.ts`, `testingPolicyCoverage.ts`, `testingAutoAssess.ts`, `testingReconciliation.ts`), roadmap release gates (`roadmapGates.ts`), the roadmap dependency graph plus its on-disk overlay (`roadmapGraph.ts`, `roadmapGraphStore.ts`), release-gate destinations, filters and urgency ordering (`releaseGateNavigation.ts`), roadmap ingestion and its reconciliation planner (`roadmapImport.ts`) and the register-to-work hand-off (`registerHandoff.ts`), shared setup walkthroughs (`setupWalkthrough.ts`, `setupGuideRegistry.ts`, `acpSetupPlan.ts`), persisted-document migration (`schemaMigration.ts`), issue-tracker parsing (`issueTracker.ts`), CI inspection and starter construction (`ciManager.ts`, `trustedLocalCiStarter.ts`), the CI route model, routing policy, hosted-allowance meter, cross-route build ledger, act fidelity adapter and generated-workflow Node resolution (`ciRoutes.ts`, `ciRoutingPolicy.ts`, `ciCreditMeter.ts`, `ciBuildLedger.ts`, `ciActRoute.ts`, `nodeVersionDetection.ts`), local CI setup guidance, GitHub CLI install planning and the remembered machine inspection (`localCiSetupPlan.ts`, `localCiInstaller.ts`, `localCiInspectionMemory.ts`), issue/pull-request write echo (`trackerWriteOutcome.ts`), the semver primitives and the branch-to-channel versioning policy (`semver.ts`, `versioningPolicy.ts`), delivery/deployment-stage modelling (`deliveryManager.ts`) + detected-runbook terminal planning (`deliveryRunPlan.ts`) + guarded promotion engine (`promotionRunner.ts`) + declared delivery/workflow vocabulary (`projectVocabulary.ts`), Project Director people/follow-up modelling (`projectDirectorManager.ts`) + guarded outbound-comms detection (`directorCommsRunner.ts`) + follow-up reminder scheduler (`followUpScheduler.ts`), Buzz inbound protocol/connection-policy/derivation/subscription (`buzzProtocol.ts`, `buzzConnectionPolicy.ts`, `buzzInboundDerivation.ts`, `buzzClient.ts`, `buzzSocket.ts`, `buzzSigner.ts`, `buzzAgentBindings.ts`, `buzzChannelCatalog.ts`, `buzzInboundService.ts`), security-review register persistence/scoring (`securityReviewManager.ts`), Mission Loop (`missionRunner.ts`, `goalEvaluator.ts`, `missionRegistry.ts`), routing intelligence (`executionQuality.ts`, `modelEvalHarness.ts`)
+│   ├── core/             Orchestrator, registries, router, skill drafting, task profiler, cost tracker, currency formatter, webhook dispatcher, project composition, opt-in workspace scope, read-only upstream distance, game-engine identity, bounded asset inventory, pure engine-fork interpretation, and bounded build-log reading (`projectComposition.ts`, `workspaceScope.ts`, `upstreamDivergence.ts`, `gameEngineIdentity.ts`, `gameAssetInventory.ts`, `gameEngineDivergence.ts`, `gameBuildLog.ts`), UI Studio SSOT (`websiteWorkspaceManager.ts`), authoritative graph/edit/live-preview/repository core (`uiDesignGraph.ts`, `uiEditCommands.ts`, `uiPreviewRuntime.ts`, `uiRepositoryMapping.ts`, `uiRepositoryImport.ts`), and its design/generation modules (`websiteWireframe.ts`, `websiteSitemap.ts`, `websiteLinkGraph.ts`, `websiteDesignPrompt.ts`, `websiteGeneration.ts`, `websiteGenerationRunner.ts`, `websitePreviewServer.ts`, `websiteFrameworks.ts`, `websiteStackSetup.ts`, `websiteCiTemplate.ts`, `websiteDeliverySync.ts`, `websiteWireframePreview.ts`, `websiteContent.ts`, `websiteContentManager.ts`, `websiteReviewComments.ts`, `websiteReviewBundle.ts`), testing config loader + scaffolder + per-policy coverage + codebase-driven auto-assessment + declaration/evidence reconciliation (`testingScaffolder.ts`, `testingPolicyCoverage.ts`, `testingAutoAssess.ts`, `testingReconciliation.ts`), roadmap release gates (`roadmapGates.ts`), the roadmap dependency graph plus its on-disk overlay (`roadmapGraph.ts`, `roadmapGraphStore.ts`), release-gate destinations, filters and urgency ordering (`releaseGateNavigation.ts`), roadmap ingestion and its reconciliation planner (`roadmapImport.ts`) and the register-to-work hand-off (`registerHandoff.ts`), shared setup walkthroughs (`setupWalkthrough.ts`, `setupGuideRegistry.ts`, `acpSetupPlan.ts`), persisted-document migration (`schemaMigration.ts`), issue-tracker parsing (`issueTracker.ts`), CI inspection and starter construction (`ciManager.ts`, `trustedLocalCiStarter.ts`), the CI route model, routing policy, hosted-allowance meter, cross-route build ledger, act fidelity adapter and generated-workflow Node resolution (`ciRoutes.ts`, `ciRoutingPolicy.ts`, `ciCreditMeter.ts`, `ciBuildLedger.ts`, `ciActRoute.ts`, `nodeVersionDetection.ts`), local CI setup guidance, GitHub CLI install planning and the remembered machine inspection (`localCiSetupPlan.ts`, `localCiInstaller.ts`, `localCiInspectionMemory.ts`), issue/pull-request write echo (`trackerWriteOutcome.ts`), the semver primitives and the branch-to-channel versioning policy (`semver.ts`, `versioningPolicy.ts`), delivery/deployment-stage modelling (`deliveryManager.ts`) + per-stage runbooks and their comparison (`deliveryStageRunbooks.ts`) + artifact-inventory hand-offs (`artifactCompliance.ts`) + vital-file ownership (`vitalFileOwnership.ts`) + detected-runbook terminal planning (`deliveryRunPlan.ts`) + guarded promotion engine (`promotionRunner.ts`) + declared delivery/workflow vocabulary (`projectVocabulary.ts`), Project Director people/follow-up modelling (`projectDirectorManager.ts`) + guarded outbound-comms detection (`directorCommsRunner.ts`) + follow-up reminder scheduler (`followUpScheduler.ts`), Buzz inbound protocol/connection-policy/derivation/subscription (`buzzProtocol.ts`, `buzzConnectionPolicy.ts`, `buzzInboundDerivation.ts`, `buzzClient.ts`, `buzzSocket.ts`, `buzzSigner.ts`, `buzzAgentBindings.ts`, `buzzChannelCatalog.ts`, `buzzInboundService.ts`), security-review register persistence/scoring (`securityReviewManager.ts`), Mission Loop (`missionRunner.ts`, `goalEvaluator.ts`, `missionRegistry.ts`), routing intelligence (`executionQuality.ts`, `modelEvalHarness.ts`)
 │   │   ├── lensDashboard.ts Pure Lens catalog, readiness rules, flow map, and ranked actions
 │   │   ├── lensDeclarationPlan.ts Derived walkthrough and worked examples for the five declaration files
 │   │   ├── lensDeclarationDraft.ts Untrusted-model boundary for a proposed declaration: refuse, anchor-check, withhold, merge
@@ -691,13 +697,24 @@ Human ownership is a shared Project Dashboard primitive rather than page-local s
 
 `src/core/projectVocabulary.ts` is the single reader of the nouns a project has *declared* for its delivery pipeline and Git workflow — stage names, stage kinds, branch refs, and the workflow's integration/release/protected branches. It is pure and `fs`-free: callers pass already-parsed `DeliveryConfig`/`WorkflowConfig` fragments, which keeps it unit-testable (`tests/core/projectVocabulary.test.ts`) and stops it becoming a second reader of `delivery.json`. The Orchestrator reads both files per turn (like the testing config) and passes the result to `selectTaskScopedSkills()` and into the system prompt. When adding to it: a term must come from a file the project maintains — do not infer a stage from branch names, because a wrong stage name aims a promotion at the wrong branch. A stage's `kind` is a valid way to name it (this repository's staging stage is called `Integration`), matching is whole-word (`main` must not match inside `domain`), and `describeDeliveryPipeline` returns `undefined` rather than an empty heading so a project with no pipeline is never described as having none.
 
-The Delivery page's **detected runbook** is built by `collectProjectDeliveryGuide` in `projectDashboardPanel.ts` and the pure `buildProjectDeliveryGuide` in `deliveryManager.ts`. Collection is intentionally bounded to root manifests/lockfiles, the workflow inventory already gathered for the page, the parsed delivery config, the routine registry, and git cleanliness; rendering a dashboard must not run package-manager, compiler, test, cloud, or credential probes. When extending detection, keep exact repository declarations (`configured`) distinct from ecosystem defaults (`conventional`) and human attestations (`manual`). A workspace path may be linked only after the builder has rejected absolute paths and traversal.
+The Delivery page's **detected runbooks** are built by `collectProjectDeliveryRunbooks` in `projectDashboardPanel.ts`, the pure `buildDeliveryStageRunbooks` in `deliveryStageRunbooks.ts`, and the pure `buildProjectDeliveryGuide` in `deliveryManager.ts` — **one per configured delivery stage**, plus the comparison between them. Collection is intentionally bounded to root manifests/lockfiles, `.vscode/launch.json`, the workflow inventory already gathered for the page, the parsed delivery config, the routine registry, and git cleanliness; rendering a dashboard must not run package-manager, compiler, test, cloud, or credential probes. The whole set is collected once and every stage's runbook is built from the same evidence, so the stage switch is offline and cannot fail.
+
+When extending detection, keep exact repository declarations (`configured`) distinct from ecosystem defaults (`conventional`) and human attestations (`manual`). A workspace path may be linked only after the builder has rejected absolute paths and traversal. Four rules are specific to the per-stage split and easy to break by accident:
+
+- **Every environment-varying fact comes off the selected stage**, never off production. If you add a gate, read it from `stage`, not from the pipeline's last entry — otherwise three runbooks silently report one stage's policy.
+- **A `local` stage is not a small production stage.** It never publishes, never lists a delivery workflow, has no hosting target step, and grades uncommitted work `manual` rather than blocking; its Deploy column is *Run it here*. A rule that reads well on Production and turns the local runbook permanently red is the failure this split exists to prevent.
+- **Address a step or column by `key`, never `id`.** `id` repeats across stages by design; `key` carries the stage id verbatim, and `tests/views/dashboardNav.test.ts` fails if a payload regresses to `id`.
+- **A requirement is graded by `DELIVERY_STAGE_REQUIREMENT_RULES`, never by a model.** A new requirement needs a new declared rule, or the comparison stops being reproducible — which is the only reason it is worth showing.
+
+**Vital-file ownership** (`src/core/vitalFileOwnership.ts`) answers the standing question the work board cannot: who keeps a file current when nothing about it is outstanding. Three rules when extending it. **Derive, do not write** — `collectVitalFiles` + `resolveVitalFileOwnership` run on every refresh and must stay side-effect free; the only write is `handleRecordVitalFileOwners`, behind a modal that lists every assignment first. **Do not widen `collectWorkAssignmentTargets` to match** — that list holds what is outstanding, and a fresh document on the Director's board is work that does not exist; the two lists are deliberately different and an assignment made on either is read by both. **A default may name you and never a colleague** — if you add a fallback, it must be somebody who cannot be surprised by it; picking the first roster entry is refused because rosters seeded from git history contain bots.
+
+The Delivery page's **artifact inventory** hands a row to chat through `src/core/artifactCompliance.ts` and the `discussArtifactSignal` message. Three rules when extending it. **The request is derived from the row, never sent by the page** — the webview posts an artifact id, `handleDiscussArtifactSignal` re-probes the inventory and builds the draft, so a crafted message can name a row that does not exist and can never choose to have a produced artifact authored. **A new artifact must not need the renderer to remember it**: `withArtifactCompliance` applies the classification in the collector, so any row pushed into the signal list gets an action automatically. **A prohibition belongs in the prompt, not only in the classifier** — the `explain` draft says in full that nothing is to be created, because the branch that chose it is not something the agent reads.
 
 The Delivery page's **promotion dialog** (`renderPromotionModal` in `media/projectDashboard.js`) is a fixed-height column — a title that stays put, a `.promo-body` that scrolls, and an action bar pinned to the bottom — rather than a tall card inside a scrolling overlay. Four properties are load-bearing when editing it. **A tick never re-renders the dialog:** `render()` replaces `#dashboard-root` wholesale, so calling it from the attestation handler rebuilt the dialog and reset its scroller, throwing the reader back to the top on every checkbox of a list meant to be worked down in order; `syncPromotionGate()` updates the meters and button states in place instead, and the body carries `data-scroll-key` so the re-renders that *are* legitimate — progress arriving during a run — keep their position. **Checks the machine ran and confirmations only a person can give are separate metered sections**, because they fail for different reasons and are fixed by different people; one list is how a dialog ends up showing a row of green ticks above a disabled button. The protected-stage text box counts as one of the confirmation gates, so the meter and the footer's readiness line cannot disagree with the button. **Controls are disabled, not conditionally rendered** — "Resolve & run" appears whenever a remediation exists, because a control that materialises mid-scroll moves everything under it.
 
 **Closing that dialog is not cancelling, and it is now possible.** The run belongs to the extension host, so the dialog has never been able to stop it — but while running there was no close control at all (the only button was a disabled "Running…"), and `promotionDone` was dropped whenever `state.promotion` was null, so a run somebody dismissed finished silently. That combination made "you can close this" both unavailable and untrue. The dialog now *detaches* rather than cancels (`promotion-detach`, and Escape while a run is in flight), keeping the state so the result still has somewhere to land, and `renderDetachedPromotionNotice` puts a strip on the Delivery page that reports the run and reopens the dialog. Keep the distinction when editing: `promotion-cancel` discards a dialog with nothing running behind it, `promotion-detach` hides one that has.
 
-The runbook's copy / send-to-terminal / run-column actions go through `src/core/deliveryRunPlan.ts` and the `copyDeliveryCommand`, `sendDeliveryCommandToTerminal` and `runDeliveryGuidePhase` messages. The rule when adding to them: **the webview may name a step, never supply a command.** `resolveDeliveryGuide` rebuilds the guide from the workspace and looks the id up; a payload carrying command text would let a crafted message choose what a terminal receives, and `tests/views/dashboardNav.test.ts` fails if one appears. Cleanliness is deliberately left ungathered on that path — it changes a step's status and never a command, so a copy click does not pay for a git call. Keep `sendText(command, false)` for a single command: withholding the newline is what makes the human's keystroke the last gate, and it is why that action needs no dialog while a column run does. Real promotion commands continue to come from host-side persisted configuration after the promotion gate; nothing here touches that path.
+The runbook's copy / send-to-terminal / run-column actions go through `src/core/deliveryRunPlan.ts` and the `copyDeliveryCommand`, `sendDeliveryCommandToTerminal` and `runDeliveryGuidePhase` messages. The rule when adding to them: **the webview may name a step, never supply a command.** `resolveDeliveryGuide` rebuilds every stage's runbook from the workspace and looks the key up — and `stageLabel` for the confirmation comes from that rebuilt runbook too, so the dialog can never name one environment while the terminal receives another's commands; a payload carrying command text would let a crafted message choose what a terminal receives, and `tests/views/dashboardNav.test.ts` fails if one appears. Cleanliness is deliberately left ungathered on that path — it changes a step's status and never a command, so a copy click does not pay for a git call. Keep `sendText(command, false)` for a single command: withholding the newline is what makes the human's keystroke the last gate, and it is why that action needs no dialog while a column run does. Real promotion commands continue to come from host-side persisted configuration after the promotion gate; nothing here touches that path.
 
 `src/core/branchDashboard.ts` is the pure decision layer over that inventory. `deriveBranchDashboard` receives already-sanitized local branch facts plus the most recently and explicitly loaded PRs, repo-wide CI heads, issues, roadmap items, review comments, and operator identities. One declared rule table derives the visible readiness verdict, reason list, risk rank, cleanup candidacy, and membership in the persisted My branches / Needs my review / Ready / CI failing / Cleanup views. PR status-check rollups take precedence over repo-wide workflow runs for that head. An absent GitHub refresh remains `unknown`/`not-assessed`; do not default it to empty arrays when adding a field. The browser owns only view/sort/direction/group/chip presentation preferences through `vscode.setState`; it cannot persist evidence or a readiness outcome. A failing check, blocked verdict, change request, merge conflict, or structurally broken branch receives the critical red card/tag treatment; pending and merely cautionary states remain warning amber.
 
@@ -793,6 +810,118 @@ When accepted, AtlasMind creates missing governance files:
 
 Scaffolding is non-destructive and will not overwrite existing files.
 
+Platform prefabs use the same create-only rule. `buildBootstrapTemplateFiles()` is a pure plan boundary:
+it returns bounded workspace/SSOT-relative paths and content before the bootstrapper writes anything.
+The WooCommerce Extension plan normalizes the display name, slug, namespace, and paths separately;
+creates a minimal PHP plugin, compatibility/privacy records, and syntax/contract CI; and records the
+official environment commands without executing them. Tests inspect the whole plan, including hostile
+project-name input, without requiring WordPress, Docker, Composer, or a network connection.
+
+The other commerce plans exercise two additional contracts. Magento is safe to build locally because its
+minimum component surface is stable and small: one Composer package, `registration.php`, and
+`etc/module.xml`. Tests assert the three identifiers agree, an all-numeric leading name becomes a valid
+letter-prefixed PHP identifier, the module stays inert, and CI performs only metadata, syntax, and
+scaffold-contract checks. BigCommerce Catalyst and Wix Commerce instead produce documentation-only
+workspace plans plus SSOT guidance. Tests assert they contain no guessed executable source, retain literal
+command placeholders, disclose remote provisioning, and never imply that an unrun generator succeeded.
+
+The SaaS/Web plans add a second exhaustive family over the same pure boundary. Next.js, React Router,
+Laravel, Django, and Astro Content plans must contain workspace Markdown plus SSOT guidance only; tests
+walk every plan, assert unique bounded paths, locate the literal-placeholder command block, and prove that
+hostile project text never reaches it. Each records the generator and dependency/database side effects it
+does not perform. Static Website is intentionally different: tests parse its generated JavaScript contract,
+escape hostile HTML names, reject inline script/style, and pin semantic/CSP/accessibility assertions plus a
+least-privilege workflow using only Node’s built-in test runner. Adding a future generator requires the same
+choice: either demonstrate that a small stable native contract can be owned and tested, or ship a truthful
+handoff—never a partial copy of upstream source.
+
+Frontend bootstrap has its own executable specification in
+`tests/features/frontend-bootstrap.feature`. Its Vitest bridge exhaustively walks Next.js, SvelteKit,
+Nuxt, React/Vite, and Vue plans; asserts bounded unique documentation-only paths, literal placeholders,
+escaped hostile names, and Not-assessed review records; and pins the current Svelte, React, and Vue
+ownership decisions. Framework-catalog tests separately reject create-svelte, verify Next.js install/Git
+separation and Nuxt's no-install/no-modules flags, and require React/Vue to degrade to documented manual
+setup rather than running an invented command.
+
+Mobile bootstrap is specified in `tests/features/mobile-bootstrap.feature`. The Vitest bridge walks
+React Native, Expo, and Flutter plans; proves every workspace output is documentation-only and every
+command uses literal placeholders; escapes hostile project text; and requires Not-assessed privacy and
+compatibility records. Focused scenarios pin React Native's framework-first boundary, Expo's no-install/
+no-agent-instruction flags plus deferred native generation and EAS, and Flutter's package-name and
+dependency-retrieval disclosures. Additions must preserve that non-execution contract and extend the
+shared permission, device, accessibility, signing, store, update, migration, and rollback matrices.
+
+Game integration fixtures live under `tests/fixtures/game-engines/`. They are deliberately minimal
+identity evidence, not runnable projects: Unreal supplies a `.uproject` plus corroborating config, Unity
+supplies `ProjectVersion.txt`, Godot 3 and 4 preserve their distinguishing feature boundary, and the
+composite fixture declares three VS Code roots with one inert Perforce content component. Keep the
+fixture contract in `tests/core/gameEngineFixtures.test.ts` aligned with the normative game/composition
+specifications; never add credentials, console SDK paths, engine binary paths, a live depot, or derived
+topology to these fixtures.
+
+`gameEngineIdentity.ts` consumes those fixtures through caller-supplied text evidence; keep it pure and
+filesystem-free. A decisive file may identify the engine even when its version is unreadable, but it must
+never create a fallback version. Newer versions may be returned exactly as declared only with
+`surfaceVerification: not-verified`; do not widen a verified range without re-checking primary engine
+documentation and advancing the matching `*_SURFACE_VERIFIED_AT` constant. Cross-engine markers,
+unsafe paths, conflicting duplicates, and over-bound inventories must remain unconfident `unknown`.
+
+`gameAssetInventory.ts` is intentionally different: it is the explicit-request filesystem reader. A
+caller must resolve the component root and obtain confirmation before calling it. Keep all three shared
+limits (file count, total bytes, and monotonic duration), never follow symlinks, and never add a guessed
+content root. Any truncated reading must keep orphan assessment withheld and LFS coverage partial.
+Perforce/external/unknown content remains `not-visible`. The LFS parser may grow only by adding tested
+Git-attributes semantics; unsupported syntax must continue to withhold the verdict rather than creating
+false uncovered findings. Do not retain raw import-error lines.
+
+`projectComposition.ts` is the structural trust boundary for the optional composition held in
+`workflow.json`. Add new roles or VCS values only with a specification change and tests. Do not repair a
+partly invalid declaration by dropping entries, persist topology, or make a detected proposal effective.
+`workspaceScope.ts` accepts host-provided opened-folder descriptors and remains `vscode`-free; its omitted
+target must keep returning only the first folder. Migrate consumers explicitly and in consequence order,
+with tests that assert scope labels and unknown roots before replacing a direct `workspaceFolders[0]` read.
+
+The Shopify bootstrap composition test is the non-game conformance case. Keep the theme/app/extension
+picker multi-select and test both the pure canonical mapping and the VS Code-backed JSON/Markdown write.
+The bootstrap adapter must call the shared workflow document interpreter before writing: existing
+composition and newer/invalid/unreadable files stay untouched. This path declares boundaries only; adding
+source generation or a platform command would cross the bootstrapper's existing no-execution boundary.
+
+Game architecture presets follow the same adapter and persistence path. Keep all four definitions in
+the pure composition module and assert each sanitizes, has exactly one home, and stores neither preset
+identity nor topology. Preset builders must return fresh editable objects. A hybrid fixture may declare
+`perforce` but no depot/credential; an engine-fork seed may declare the engine role but no guessed
+upstream. The bootstrap integration test must continue to prove selection invokes no command.
+
+`upstreamDivergence.ts` owns only generic Git semantics. Give it a host-resolved component root and an
+injected argv runner; do not add fetches, shell commands, engine interpretation, or persistence. Keep
+the merge-base diffs separate: their union is files diverged and their intersection is conflict-prone
+evidence. Path display caps must not change exact counts, while incomplete, malformed, or over-bound
+Git output stays `unreadable`. Snapshots are comparable only when component and upstream match and
+time moves forward.
+
+`gameEngineDivergence.ts` is the pure consumer of that generic report. Keep its role, component-id, and
+declared-upstream match gates before any interpretation. Exact generic counts and trends must pass
+through unchanged. Engine areas may use only the bounded displayed path arrays, must expose truncation,
+and must remain withheld for versions outside the layout's primary-source-pinned range. Do not add Git
+or filesystem collection here, call a conflict-prone candidate a predicted conflict, or turn a burden
+shape into hard-coded severity; the threshold is project policy owned by C2.7.
+
+`gameBuildLog.ts` accepts only a report that another layer already read. Keep it pure: no filesystem
+discovery, process launch, build command, engine probe, Git call, or network request. Apply whole-input
+character and line limits before matching, and keep retained diagnostics capped, control-stripped,
+secret-redacted, and individually bounded. Do not let an error-looking line establish the overall build
+result: only a valid captured exit code or a primary-source-pinned completion marker may do that, and a
+conflict yields no verdict. Unsupported versions must receive neither version-specific parsing nor an
+extrapolated report command. Treat command templates as display data only.
+
+The Project Dashboard now performs that opt-in migration for Git status, local CI, issue visibility, debt
+scans, and observed deltas. Keep detailed legacy repository/GitHub data tied to the declared home component,
+and add a typed component inventory beside it. A missing or non-Git component must remain `not-visible` with
+a reason; do not coerce it to an empty result, omit it from coverage, or compare an observed snapshot whose
+component scope changed. Debt scans must retain component ids on candidates and scanned paths so one
+repository cannot obsolete another repository's evidence at the same relative path.
+
 ## Versioning Workflow
 
 1. Make changes and choose the correct SemVer bump for the same commit.
@@ -809,6 +938,11 @@ Scaffolding is non-destructive and will not overwrite existing files.
 - Coverage reports are generated via `npm run test:coverage`.
 - Mutation testing is available through `npm run test:mutation`; the committed Stryker configuration starts with the safety-critical criticality, tool-policy, and agent-registry modules. It is deliberately a separate, slower check rather than part of the normal test command.
 - Stryker runs the suite through **`vitest.stryker.config.ts`**, not the ordinary config. It excludes exactly one test and suppresses the JUnit reporter, both for reasons that are easy to rediscover the hard way. Stryker copies the project into a sandbox, which is fine for the `fs`-only managers here — the copied tree is a perfectly good tree — but wrong for a test whose *subject* is this repository: `tests/baselines/testTypecheck.test.ts` is a ratchet over the working tree, it counts zero inside the sandbox, concludes 244 errors were fixed, and fails. Stryker will not mutate an already-red suite, and is right not to — a mutant "killed" by a test that was failing anyway is not evidence of anything. The exclusion is one file rather than a list of the fifty tests that read repository paths, because almost all of those work fine and a broad list would quietly narrow what mutation testing covers. The reporter override matters just as much: a mutation run executes the suite hundreds of times against deliberately broken code, and letting it write `test-results/junit.xml` would leave the Testing dashboard reporting Stryker's induced failures as the project's own.
+- Static mutants are excluded by `ignoreStatic`. Stryker measured 29 of them as only 4% of the
+  configured mutants but projected them to consume 96% of an hour-long run because each requires the
+  whole 7,659-test process to reload. The bounded gate still exercises every non-static mutation in the
+  three declared policy modules; a separate unbounded static run can be invoked deliberately when its
+  cost is justified.
 - Stryker's `typed-rest-client@2.3.1` pins `qs@6.15.1` exactly even though `6.15.2` contains the CVE-2026-8723 fix. The root manifest therefore overrides `qs` to `6.15.2` across the dependency tree; every other consumer already resolves to or accepts that patch. Keep the override until upstream removes the vulnerable exact pin, and verify both `npm ls qs --all` and production/full `npm audit` before deleting it.
 - CI runs compile, lint, test, and coverage on push and pull requests to **`main` and `develop`**, and on manual `workflow_dispatch`.
 

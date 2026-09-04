@@ -14,6 +14,7 @@ import {
 } from '../../src/core/localCiRunner.ts';
 
 const HOST: LocalCiCapacity = { os: 'win32', arch: 'x64', cpuCount: 24, memoryGb: 63.8 };
+const FRESH_NOW = new Date('2026-08-19T09:00:00.000Z');
 
 function configuration(overrides: Partial<LocalCiRunnerConfiguration> = {}): LocalCiRunnerConfiguration {
   return {
@@ -118,7 +119,7 @@ describe('restoreLocalCiInspection', () => {
 
   it('refuses a record describing a different machine', () => {
     const elsewhere: LocalCiCapacity = { ...HOST, cpuCount: 8 };
-    const outcome = restoreLocalCiInspection(stored, elsewhere, configuration().image);
+    const outcome = restoreLocalCiInspection(stored, elsewhere, configuration().image, FRESH_NOW);
     expect(outcome.restored).toBe(false);
     if (!outcome.restored) {
       expect(outcome.reason).toBe('other-machine');
@@ -126,7 +127,7 @@ describe('restoreLocalCiInspection', () => {
   });
 
   it('restores the machine readings but reports that the image no longer matches', () => {
-    const outcome = restoreLocalCiInspection(stored, HOST, 'ghcr.io/actions/actions-runner@sha256:different');
+    const outcome = restoreLocalCiInspection(stored, HOST, 'ghcr.io/actions/actions-runner@sha256:different', FRESH_NOW);
     expect(outcome.restored).toBe(true);
     if (outcome.restored) {
       expect(outcome.imageMatches).toBe(false);
@@ -140,7 +141,7 @@ describe('applyRememberedInspection', () => {
   it('fills in an unprobed snapshot', () => {
     const snapshot = { ...initialLocalCiRunnerSnapshot(configuration()), host: HOST };
     expect(snapshot.prerequisites.inspection).toBe('not-inspected');
-    const restored = applyRememberedInspection(snapshot, restoreLocalCiInspection(stored, HOST, configuration().image));
+    const restored = applyRememberedInspection(snapshot, restoreLocalCiInspection(stored, HOST, configuration().image, FRESH_NOW));
     expect(restored.prerequisites.inspection).toBe('inspected');
     expect(restored.engine.cliInstalled).toBe(true);
     expect(restored.prerequisites.githubAuthenticated).toBe(true);
@@ -151,7 +152,7 @@ describe('applyRememberedInspection', () => {
       engine: { ...inspected().engine, cliInstalled: false, available: false },
       prerequisites: { inspection: 'inspected', githubCliInstalled: false, githubAuthenticated: false },
     });
-    const restored = applyRememberedInspection(live, restoreLocalCiInspection(stored, HOST, configuration().image));
+    const restored = applyRememberedInspection(live, restoreLocalCiInspection(stored, HOST, configuration().image, FRESH_NOW));
     expect(restored.engine.cliInstalled).toBe(false);
     expect(restored.prerequisites.githubCliInstalled).toBe(false);
   });
@@ -160,7 +161,7 @@ describe('applyRememberedInspection', () => {
     const snapshot = { ...initialLocalCiRunnerSnapshot(configuration()), host: HOST };
     const restored = applyRememberedInspection(
       snapshot,
-      restoreLocalCiInspection(stored, HOST, 'ghcr.io/actions/actions-runner@sha256:different'),
+      restoreLocalCiInspection(stored, HOST, 'ghcr.io/actions/actions-runner@sha256:different', FRESH_NOW),
     );
     expect(restored.engine.imagePresent).toBeUndefined();
     expect(restored.engine.cliInstalled).toBe(true);
@@ -179,7 +180,7 @@ describe('applyRememberedInspection', () => {
       host: HOST,
       lifecycle: 'not-inspected' as const,
     };
-    const restored = applyRememberedInspection(snapshot, restoreLocalCiInspection(stored, HOST, configuration().image));
+    const restored = applyRememberedInspection(snapshot, restoreLocalCiInspection(stored, HOST, configuration().image, FRESH_NOW));
     expect(restored.lifecycle).toBe('not-inspected');
     expect(restored.queuedRun).toBeUndefined();
     expect(restored.containerName).toBeUndefined();

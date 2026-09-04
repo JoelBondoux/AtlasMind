@@ -1,6 +1,6 @@
 # Game Engine Integration — Phased Roadmap
 
-> **Status:** Not started. **Owner:** AtlasMind core. **Created:** 2026-07-30. **Baseline:** v0.213.0.
+> **Status:** Phase 1 complete; Phase 2 in progress through C2.4; C2.5 next. **Owner:** AtlasMind core. **Created:** 2026-07-30. **Baseline:** v0.213.0.
 > This is the SSOT implementation plan. Its normative specifications are
 > [`docs/project-composition.md`](../../docs/project-composition.md) (v0.213.1) and
 > [`docs/game-engine-integration.md`](../../docs/game-engine-integration.md) (v0.213.2), both written
@@ -253,40 +253,51 @@ unmade decision.
 - **C0.1b** — ✅ `docs/game-engine-integration.md` (v0.213.2). Engine identity and version rules, the
   `game.json` schema, asset and log reading, the bridge protocol, the security boundary, a
   degradation table covering every "we cannot tell", and a conformance checklist.
-- **C0.2** — Both schemas registered with `SchemaMigration` at v1 *before* anything writes a file.
-  The registry is empty today; a domain document shipping without a migration entry is the exact
-  scenario `interpretVersionedDocument` exists for.
-- **C0.3** — Fixtures under `tests/fixtures/`: a minimal `.uproject` tree, a Unity `ProjectSettings`
+- **C0.2** — ✅ Both schemas registered with `SchemaMigration` at v1 *before* anything writes a file.
+  Composition remains part of the existing `workflow` kind; the game profile is registered as `game`.
+  A focused migration test pins current v1 reads and future-version refusal.
+- **C0.3** — ✅ Fixtures under `tests/fixtures/game-engines/`: a minimal `.uproject` tree, a Unity `ProjectSettings`
   tree, Godot 3 and 4 projects, **and one multi-root composite with a simulated Perforce component**.
-  Everything downstream is unit-testable without an engine or a depot, and this is what makes that true.
+  An executable fixture contract proves the engine markers, exact version evidence, one-home invariant,
+  hybrid VCS boundary, and absence of stored topology or prohibited secrets/SDK paths. Everything
+  downstream is unit-testable without an engine or a depot, and this is what makes that true.
 
 ## Phase 1 — Composition and topology (general, not game-specific)
 
 **Entry:** Phase 0 complete. **Exit:** a multi-root workspace resolves to a declared component set
 with per-component VCS, and no existing single-root behaviour has changed.
 
-- **C1.1** `src/core/projectComposition.ts` — pure, `vscode`-free, unit-tested. Component roles,
+- **C1.1** — ✅ `src/core/projectComposition.ts` — pure, `vscode`-free, unit-tested. Component roles,
   per-component archetype and `vcs`, derived topology, the declared home component. Detection
-  suggests, declaration decides. An unreadable component is `unknown`, never assumed.
-- **C1.2** `src/core/workspaceScope.ts` — the resolver. **Default resolution is today's
-  `workspaceFolders[0]`**, so nothing changes until a surface opts in.
-- **C1.3** Composition persisted in `workflow.json` (committed, reviewed, owned by the team) rather
-  than settings — a change to how a project is laid out should arrive as a diff with a reviewer.
-- **C1.4** Migrate by consequence: git status, CI, debt scan and observed-delta become
-  component-scoped and **label their scope on screen**. An unlabelled count in a multi-repo project
-  is a wrong count.
-- **C1.5** `ObservedDelta`, `DebtRegister` and `IssueTracker` learn `not-visible` as distinct from
-  zero, for any component whose VCS they cannot read.
-- **C1.6** **Shopify composition — the validation case.** The bootstrap picker becomes
-  multi-select for composable shapes, so *theme + app + extension* is expressible. Proves the model
-  with no game code and no new domain knowledge, and closes a live defect. Phase 1 does not ship
-  unless this case works.
-- **C1.7** Game architecture presets — declared compositions for the common layouts (single-repo
-  indie, multi-repo studio, hybrid git+Perforce, engine-fork studio) offered at bootstrap. Presets
-  **seed and do not govern**, following profiles.
-- **C1.8** `upstreamDivergence.ts` is built here rather than in Phase 2 — it is pure git, needs no
-  engine, and serves fork-based and embedded projects immediately. Phase 2 consumes it; it does not
-  own it.
+  suggests, declaration decides; a proposal can never become effective state by inference. A malformed
+  component invalidates the declaration rather than disappearing, and unreadable state stays unknown.
+- **C1.2** — ✅ `src/core/workspaceScope.ts` — the pure resolver. **Default resolution is today's
+  `workspaceFolders[0]`**, without consulting composition, so nothing changes until a surface opts in.
+  Home, component and all-component requests retain missing, unreadable and ambiguous roots as unknown.
+- **C1.3** — ✅ Composition is persisted in `workflow.json` (committed, reviewed, owned by the team)
+  rather than settings. Unknown fields survive; an invalid/future nested shape is retained opaquely
+  instead of partially activated; the Markdown mirror publishes the declared component boundary.
+- **C1.4** — ✅ Git status, local CI, debt scan and observed-delta resolve declared components and
+  **label their scope on screen**. The detailed legacy GitHub reading remains explicitly scoped to the
+  home component while the component inventory names every exclusion.
+- **C1.5** — ✅ `ObservedDelta`, `DebtRegister` and `IssueTracker` carry `not-visible` as distinct from
+  zero for non-Git, missing, unreadable, or unsupported components. Debt reconciliation is keyed by
+  component plus path, and observed baselines refuse cross-scope comparison.
+- **C1.6** — ✅ **Shopify composition — the validation case.** Guided bootstrap offers an explicit
+  multi-select for composable shapes, so *theme + app + extension* is expressible and persisted in the
+  workflow JSON/Markdown pair. The canonical builder uses only generic roles, archetypes, traits,
+  locations, VCS and one home; the tested write preserves existing or newer workflow data and executes
+  no Shopify command. The model is proven with no game code or new domain vocabulary.
+- **C1.7** — ✅ Game architecture presets — guided bootstrap offers declared compositions for
+  single-repo indie, multi-repo studio, hybrid Git + Perforce, and engine-fork studio layouts.
+  Presets **seed and do not govern**: only fresh editable components are persisted, never the preset id
+  or derived topology. Perforce carries no depot/credential and an engine fork receives no invented
+  upstream coordinates; selection executes no command.
+- **C1.8** — ✅ `upstreamDivergence.ts` is built here rather than in Phase 2. It is pure Git and
+  engine-agnostic: an injected argv runner reads one declared remote-tracking ref without fetching,
+  derives commits ahead/behind, the exact changed-path union and overlap, and like-for-like trend
+  snapshots. Non-Git, unresolved, undeclared, failed, malformed, and over-bound evidence remain
+  explicit unknowns. Phase 2 consumes it; it does not own it.
 
 ## Phase 2 — Read the project (no install, no bridge)
 
@@ -294,21 +305,31 @@ with per-component VCS, and no existing single-root behaviour has changed.
 correct engine, version, build targets, asset inventory, LFS verdict and fork distance, with no
 plugin installed and no engine running.
 
-- **C2.1** `src/core/gameEngineIdentity.ts` — mirrors `projectArchetype.ts` in structure and
-  discipline. `GAME_ENGINES = ['unreal','unity','godot','custom','unknown']`, detection from decisive
-  **files**, version read and never inferred, `confident: false` when nothing matched.
-- **C2.2** `src/core/gameAssetInventory.ts` — a bounded walk over each content component's roots.
-  Counts and sizes by type, import-error markers, orphan candidates, and the LFS verdict for
-  git-tracked components. Bounded three ways with truncation **stated**, per `DebtRegister`.
-- **C2.3** Apply `upstreamDivergence` (built in C1.8) to the `engine` component role — commits behind
-  upstream, files diverged, conflict-prone areas, merge-burden trend, plus the engine-specific
-  reading of those numbers. **The module is pure git and engine-agnostic**, which is why it is not
-  called `engineForkDistance` and why it is not built here: a vendor BSP fork, a Chromium fork and a
-  forked Postgres have the same problem, and naming it after games would guarantee a second copy
-  later. The differentiating surface from problem 4.
-- **C2.4** `src/core/gameBuildLog.ts` — parse what the project already wrote. Untrusted-input
-  boundary throughout: never throws, regex reads not a parser, size and count caps, control-stripped,
-  secret-redacted. No report yields **"no verdict"** plus the command to produce one — never "0 errors".
+- **C2.1** — ✅ `src/core/gameEngineIdentity.ts` mirrors `projectArchetype.ts` in structure and
+  discipline. `GAME_ENGINES = ['unreal','unity','godot','custom','unknown']`; bounded decisive-file
+  evidence reads exact declarations without filesystem/editor access or dependency inference.
+  Cross-engine and invalid inventories remain unconfident `unknown`; an identified engine with an
+  unreadable version withholds dependent surfaces. Declaration wins, and primary-source dates plus
+  narrow verified ranges prevent newer versions from being extrapolated.
+- **C2.2** — ✅ `src/core/gameAssetInventory.ts` performs an explicit-confirmation bounded walk over
+  declared component content roots. One shared file/byte/time budget covers the request; counts and
+  sizes are grouped by a closed type catalog; import evidence keeps no raw line; metadata orphans stay
+  candidates and are withheld after truncation. Git components receive conservative root/nested LFS
+  coverage, while unsupported rules and Perforce/external/unknown boundaries remain unreadable or
+  `not-visible` instead of becoming zero. Symlinks are never followed.
+- **C2.3** — ✅ `src/core/gameEngineDivergence.ts` applies the generic C1.8 report only to a matching
+  declared `engine` component and upstream. It preserves exact commits behind/ahead, files diverged,
+  conflict-prone candidates, and trend, then adds descriptive burden shapes with no hard-coded
+  threshold. Version-pinned Unreal 5.8, Unity 6000.2.0b4, and Godot 4.6 layouts interpret only the
+  bounded displayed paths; truncation remains explicit and unverified/custom/unknown engines retain
+  generic facts without guessed path meaning. The collector remains pure Git and engine-agnostic, so
+  vendor BSP, Chromium, and Postgres forks can reuse it unchanged.
+- **C2.4** — ✅ `src/core/gameBuildLog.ts` parses only the complete report a caller already supplied and
+  performs no discovery or execution. Character, line, diagnostic, path, and field caps bound hostile
+  input; retained findings are control-stripped and shared-secret-redacted, while the raw log is never
+  returned. Only a captured exit code or version-pinned completion marker establishes the overall
+  verdict, with conflicts and weak evidence withheld. Missing evidence yields **"no verdict"** plus a
+  verified display-only command where available — never "0 errors" and never an extrapolated command.
 - **C2.5** `src/core/gameProfile.ts` — `project_memory/domain/game.json` plus a `game.md` mirror,
   following `websiteWorkspaceManager`. Declared engine, platform targets, build configurations,
   performance budgets, content roots, discipline ownership. Seeding never overwrites a newer file.

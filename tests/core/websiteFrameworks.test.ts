@@ -65,7 +65,7 @@ describe('websiteFrameworks', () => {
     it('leaves the frameworks with no verified command without one', () => {
       // An improvised command that usually works is worse than an honest gap,
       // because the failure lands in somebody's repository.
-      for (const id of ['static', 'custom', 'wordpress-theme'] as const) {
+      for (const id of ['static', 'custom', 'wordpress-theme', 'react', 'vue'] as const) {
         expect(websiteFrameworkSpec(id).scaffold).toBeUndefined();
       }
     });
@@ -82,6 +82,7 @@ describe('websiteFrameworks', () => {
       const ids = WEBSITE_FRAMEWORK_CATALOG.map(spec => spec.id);
       expect(new Set(ids).size).toBe(ids.length);
       expect(ids).toContain('custom');
+      expect(ids).toEqual(expect.arrayContaining(['nextjs', 'sveltekit', 'nuxt', 'react', 'vue']));
     });
   });
 
@@ -133,6 +134,14 @@ describe('websiteFrameworks', () => {
       expect(verdict.reason).toContain('only serves pre-built files');
     });
 
+    it('does not call a Vite SPA on GitHub Pages zero-configuration', () => {
+      for (const frameworkId of ['react', 'vue'] as const) {
+        const verdict = describeStackCompatibility(frameworkId, 'github-pages');
+        expect(verdict.compatibility, frameworkId).toBe('workable');
+        expect(verdict.reason, frameworkId).toContain('adjust');
+      }
+    });
+
     it('treats a custom platform as workable and says the deploy step is yours', () => {
       const verdict = describeStackCompatibility('astro', 'custom');
       expect(verdict.compatibility).toBe('workable');
@@ -171,6 +180,31 @@ describe('websiteFrameworks', () => {
   });
 
   describe('commands', () => {
+    it('uses current, reviewable commands for the frontend family', () => {
+      const next = websiteFrameworkSpec('nextjs').scaffold;
+      expect(next?.args).toEqual(expect.arrayContaining(['--skip-install', '--disable-git', '--use-npm']));
+
+      const svelte = websiteFrameworkSpec('sveltekit').scaffold;
+      expect(svelte).toMatchObject({ command: 'npx' });
+      expect(svelte?.args.join(' ')).toBe('sv create --template minimal --types ts --no-add-ons --no-install');
+      expect(svelte?.args.join(' ')).not.toContain('svelte@latest');
+
+      const nuxt = websiteFrameworkSpec('nuxt').scaffold;
+      expect(nuxt?.args).toEqual(expect.arrayContaining(['nuxt@latest', '--no-install', '--no-modules']));
+      expect(nuxt?.args.join(' ')).not.toContain('--gitInit false');
+
+      expect(websiteFrameworkSpec('react').manualSetupUrl).toContain('react.dev');
+      expect(websiteFrameworkSpec('vue').manualSetupUrl).toContain('vuejs.org');
+      expect(buildCommandFor(websiteFrameworkSpec('react'), 'npm')).toEqual({ command: 'npm', args: ['run', 'build'] });
+      expect(buildCommandFor(websiteFrameworkSpec('vue'), 'pnpm')).toEqual({ command: 'pnpm', args: ['run', 'build'] });
+    });
+
+    it('uses the maintained React Router generator for new Remix-style applications', () => {
+      const scaffold = websiteFrameworkSpec('remix').scaffold;
+      expect(scaffold).toMatchObject({ command: 'npx', args: ['create-react-router@latest'] });
+      expect(scaffold?.args.join(' ')).not.toContain('remix@latest');
+    });
+
     it('routes Hugo through its own binary rather than a package manager', () => {
       const spec = websiteFrameworkSpec('hugo');
       expect(devCommandFor(spec, 'npm')?.command).toBe('hugo');

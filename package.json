@@ -2,7 +2,7 @@
   "name": "atlasmind",
   "displayName": "AtlasMind",
   "description": "Developer-centric multi-agent orchestrator for VS Code with model routing, long-term memory, and skills registry.",
-    "version": "0.382.6",
+  "version": "0.402.4",
   "publisher": "JoelBondoux",
   "preview": false,
   "license": "MIT",
@@ -78,7 +78,7 @@
         "commands": [
           {
             "name": "bootstrap",
-            "description": "Initialise a new project with SSOT memory structure"
+            "description": "Initialise project memory with explicit Shopify composition or game architecture presets"
           },
           {
             "name": "import",
@@ -139,6 +139,10 @@
           {
             "name": "lens",
             "description": "Atlas Lenses: what to put in the repository declaration files, with a worked example for each"
+          },
+          {
+            "name": "compliance",
+            "description": "Governance regimes: what evidences each one, control by control. `/compliance next` for the next control needing a decision."
           },
           {
             "name": "localci",
