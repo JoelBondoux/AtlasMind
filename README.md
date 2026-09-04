@@ -4,7 +4,7 @@
 
 <h1 align="center">AtlasMind</h1>
 
-<p align="center"><sub> · <strong>Current source version: 0.402.0</strong> · </sub></p>
+<p align="center"><sub> · <strong>Current source version: 0.402.1</strong> · </sub></p>
 
 
 <p align="center">
@@ -131,6 +131,12 @@ allow-list, redaction and file-withholding behaviour, retained metadata, provide
 important limits on overrides and compliance claims.
 
 ---
+
+## What's new in 0.402.1
+
+Housekeeping. Pending workspace memory committed — roadmap graph and
+improvement-plan edits, and ideation workspace timestamps. Nothing about how
+AtlasMind behaves changed.
 
 ## What's new in 0.402.0
 

@@ -19,6 +19,12 @@ Older entries below describe the software as it was at the time and are delibera
 
 ---
 
+## v0.402.1 — Housekeeping
+
+Committed pending workspace memory: roadmap graph and improvement-plan edits, and
+ideation workspace timestamps. Data only — nothing about how AtlasMind behaves
+changed.
+
 ## v0.402.0 — Import what you already wrote
 
 If you had filled in one of the old hand-edited control mappings, the Compliance

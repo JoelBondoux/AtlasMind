@@ -1,52 +1,7 @@
 {
   "version": 1,
-  "updatedAt": "2026-08-02T10:10:47.445Z",
-  "cards": [
-    {
-      "id": "card-1785665435466-lewvz8",
-      "title": "Next iteration",
-      "body": "Decide which learning should become the next experiment, product slice, or engineering follow-up instead of keeping the board static.",
-      "kind": "idea",
-      "author": "atlas",
-      "x": -240,
-      "y": 37,
-      "color": "sun",
-      "imageSources": [],
-      "media": [],
-      "tags": [],
-      "confidence": 50,
-      "evidenceStrength": 35,
-      "riskScore": 30,
-      "costToValidate": 35,
-      "syncTargets": [],
-      "sourceRunId": "run-1785665435465-azi5f5",
-      "revision": 1,
-      "createdAt": "2026-08-02T10:10:35.465Z",
-      "updatedAt": "2026-08-02T10:10:35.465Z"
-    },
-    {
-      "id": "card-1785665435466-y4omee",
-      "title": "Implementation learnings",
-      "body": "Artifacts and implementation notes worth carrying forward: The interesting thing is we're talking via Atlas Mind - so yes, it certainly is .",
-      "kind": "requirement",
-      "author": "atlas",
-      "x": 260,
-      "y": 52,
-      "color": "sand",
-      "imageSources": [],
-      "media": [],
-      "tags": [],
-      "confidence": 50,
-      "evidenceStrength": 35,
-      "riskScore": 30,
-      "costToValidate": 20,
-      "syncTargets": [],
-      "sourceRunId": "run-1785665435465-azi5f5",
-      "revision": 1,
-      "createdAt": "2026-08-02T10:10:35.465Z",
-      "updatedAt": "2026-08-02T10:10:35.465Z"
-    }
-  ],
+  "updatedAt": "2026-09-04T15:46:24.741Z",
+  "cards": [],
   "connections": [],
   "constraints": {
     "budget": "",
@@ -55,7 +10,6 @@
     "riskTolerance": "",
     "technicalStack": ""
   },
-  "focusCardId": "card-1785665435466-lewvz8",
   "lastAtlasResponse": "Created a new ideation thread from the learned output in project run \"The interesting thing is we're talking via Atlas Mind - so yes, it certainly is\".",
   "nextPrompts": [
     "Which learning from this run deserves its own ideation thread?",

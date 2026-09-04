@@ -4,7 +4,7 @@
 > `improvement-plan.md`; this file holds the deadlines, estimates, branch names
 > and dependency links that a markdown checkbox cannot carry.
 
-Last updated: 2026-09-02T23:21:49.938Z
+Last updated: 2026-09-04T16:03:48.560Z
 
 Suggested links: on — AtlasMind proposes links, and nothing is applied until somebody accepts it
 
@@ -124,6 +124,12 @@ Layout: vertical — the tree runs top to bottom. Nodes moved by hand keep their
 | `graphrag-code-knowledge-grap` | `open-knowledge-format-okf-in` | accepted suggestion (shared-subject-phase) | 2026-09-02 · contact-email-joelbondoux-net-1 |
 | `on-device-frontier-class-mod` | `open-knowledge-format-okf-in` | accepted suggestion (shared-subject-phase) | 2026-09-02 · contact-email-joelbondoux-net-1 |
 | `not-pursuing-becoming-a-gene` | `open-knowledge-format-okf-in` | accepted suggestion (shared-subject-phase) | 2026-09-02 · contact-email-joelbondoux-net-1 |
+| `pay-down-performance-is-enab` | `pay-down-contract-is-enabled` | accepted suggestion (shared-subject-phase) | 2026-09-03 · contact-email-joelbondoux-net-1 |
+| `pay-down-performance-is-enab` | `pay-down-bdd-is-enabled-with` | accepted suggestion (shared-subject-phase) | 2026-09-03 · contact-email-joelbondoux-net-1 |
+| `pay-down-performance-is-enab` | `pay-down-atdd-is-enabled-wit` | accepted suggestion (shared-subject-phase) | 2026-09-03 · contact-email-joelbondoux-net-1 |
+| `the-guided-github-workflow-o` | `in-the-project-manager-dash` | accepted suggestion (shared-subject-phase) | 2026-09-04 · contact-email-joelbondoux-net-1 |
+| `the-guided-github-workflow-o` | `when-onboarding-a-new-projec` | accepted suggestion (shared-subject-phase) | 2026-09-04 · contact-email-joelbondoux-net-1 |
+| `pr-native-github-automation` | `when-onboarding-a-new-projec` | accepted suggestion (shared-subject-phase) | 2026-09-04 · contact-email-joelbondoux-net-1 |
 
 ## How a link gets suggested
 

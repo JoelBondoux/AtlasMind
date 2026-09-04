@@ -1063,10 +1063,64 @@
       "evidence": "both mention “agent” and “atlasmind”",
       "createdAt": "2026-09-02T23:21:49.937Z",
       "createdBy": "contact-email-joelbondoux-net-1"
+    },
+    {
+      "from": "pay-down-performance-is-enab",
+      "to": "pay-down-contract-is-enabled",
+      "origin": "declared",
+      "rule": "shared-subject-phase",
+      "evidence": "both mention “enabled” and “evidence” and “runs”",
+      "createdAt": "2026-09-03T02:13:01.709Z",
+      "createdBy": "contact-email-joelbondoux-net-1"
+    },
+    {
+      "from": "pay-down-performance-is-enab",
+      "to": "pay-down-bdd-is-enabled-with",
+      "origin": "declared",
+      "rule": "shared-subject-phase",
+      "evidence": "both mention “enabled” and “evidence” and “runs”",
+      "createdAt": "2026-09-03T02:13:01.709Z",
+      "createdBy": "contact-email-joelbondoux-net-1"
+    },
+    {
+      "from": "pay-down-performance-is-enab",
+      "to": "pay-down-atdd-is-enabled-wit",
+      "origin": "declared",
+      "rule": "shared-subject-phase",
+      "evidence": "both mention “enabled” and “evidence” and “runs”",
+      "createdAt": "2026-09-03T02:13:01.709Z",
+      "createdBy": "contact-email-joelbondoux-net-1"
+    },
+    {
+      "from": "the-guided-github-workflow-o",
+      "to": "in-the-project-manager-dash",
+      "origin": "declared",
+      "rule": "shared-subject-phase",
+      "evidence": "both mention “project” and “branch”",
+      "createdAt": "2026-09-04T15:28:55.743Z",
+      "createdBy": "contact-email-joelbondoux-net-1"
+    },
+    {
+      "from": "the-guided-github-workflow-o",
+      "to": "when-onboarding-a-new-projec",
+      "origin": "declared",
+      "rule": "shared-subject-phase",
+      "evidence": "both mention “project” and “stage”",
+      "createdAt": "2026-09-04T16:03:39.033Z",
+      "createdBy": "contact-email-joelbondoux-net-1"
+    },
+    {
+      "from": "pr-native-github-automation",
+      "to": "when-onboarding-a-new-projec",
+      "origin": "declared",
+      "rule": "shared-subject-phase",
+      "evidence": "both mention “project” and “roadmap”",
+      "createdAt": "2026-09-04T16:03:39.033Z",
+      "createdBy": "contact-email-joelbondoux-net-1"
     }
   ],
   "suggestLinks": true,
   "dismissed": [],
   "layoutOrientation": "vertical",
-  "updatedAt": "2026-09-02T23:21:49.938Z"
+  "updatedAt": "2026-09-04T16:03:48.560Z"
 }

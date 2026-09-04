@@ -6,6 +6,15 @@ The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/),
 
 ## [Unreleased]
 
+## [0.402.1] - 2026-09-04
+
+### Changed
+
+- Committed pending `project_memory/` working state: roadmap graph and improvement-plan
+  edits, and ideation workspace timestamps. Data only — no source, behaviour or
+  configuration changed.
+
+
 ## [0.402.0] - 2026-09-04
 
 ### Added
