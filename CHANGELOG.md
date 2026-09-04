@@ -6,6 +6,21 @@ The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/),
 
 ## [Unreleased]
 
+## [0.402.5] - 2026-09-04
+
+### Changed
+
+- Extended `.gitattributes` to `project_memory/index/**`. The instruction-sync check
+  hashes those files byte-for-byte to decide whether a managed block in `CLAUDE.md`,
+  `AGENTS.md` and `copilot-instructions.md` is stale — so checking out an old branch
+  and coming back rewrote the line endings, changed the hash, and reported three
+  instruction files as drifted from a file whose content nobody had touched.
+- Refreshed the README's published baseline to **v0.402.4**, the release just put on
+  the Marketplace. `docsIntegrity` asserts the baseline names the newest tag, and the
+  tag only exists once the release has been cut — so this cannot be folded into the
+  release commit, and the suite is red between tagging and this landing.
+
+
 ## [0.402.4] - 2026-09-04
 
 ### Fixed

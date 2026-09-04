@@ -19,6 +19,10 @@ Older entries below describe the software as it was at the time and are delibera
 
 ---
 
+## v0.402.5 — Baseline refreshed
+
+The README now names v0.402.4 as the last Marketplace publication.
+
 ## v0.402.4 — The last platform-locked fixture
 
 One more literal Windows path, hidden behind a different drive prefix.

@@ -17,3 +17,10 @@ tests/fixtures/** text eol=lf
 # they are also what somebody hands an assessor — a file whose line endings
 # depend on who last wrote it is a poor artifact for that.
 project_memory/operations/compliance/** text eol=lf
+
+# The instruction-sync check hashes these byte-for-byte to decide whether a
+# managed block in CLAUDE.md, AGENTS.md and copilot-instructions.md is stale.
+# Without a rule, checking out an old branch and coming back rewrites the line
+# endings, the hash changes, and three instruction files are reported as drifted
+# from a file whose content nobody touched.
+project_memory/index/** text eol=lf

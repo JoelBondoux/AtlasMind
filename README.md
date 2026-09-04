@@ -4,7 +4,7 @@
 
 <h1 align="center">AtlasMind</h1>
 
-<p align="center"><sub> · <strong>Current source version: 0.402.4</strong> · </sub></p>
+<p align="center"><sub> · <strong>Current source version: 0.402.5</strong> · </sub></p>
 
 
 <p align="center">
@@ -132,6 +132,11 @@ important limits on overrides and compliance claims.
 
 ---
 
+## What's new in 0.402.5
+
+Refreshed the published baseline to v0.402.4, the release just put on the
+Marketplace.
+
 ## What's new in 0.402.4
 
 The last of the platform-locked test fixtures. One more literal Windows path was
@@ -252,7 +257,7 @@ declared catalog of 224 controls across all twenty-four regimes:
 
 ## What's new in 0.399.0
 
-The last Marketplace publication, **v0.382.6**, is the baseline. The full history is in
+The last Marketplace publication, **v0.402.4**, is the baseline. The full history is in
 [CHANGELOG.md](CHANGELOG.md).
 
 - **No vital file is ownerless any more.** Every tracked document and every artifact the repository is
@@ -338,7 +343,7 @@ The full history is in [CHANGELOG.md](CHANGELOG.md).
 
 ## What's new in 0.395.0
 
-The last Marketplace publication, **v0.382.6**, is the baseline. The full history is in
+The last Marketplace publication, **v0.402.4**, is the baseline. The full history is in
 [CHANGELOG.md](CHANGELOG.md).
 
 - **Engine forks now receive their own reading without duplicating Git logic.** The pure adapter
@@ -361,7 +366,7 @@ The last Marketplace publication, **v0.382.6**, is the baseline. The full histor
 
 ## What's new in 0.394.0
 
-The last Marketplace publication, **v0.382.6**, is the baseline. The full history is in
+The last Marketplace publication, **v0.402.4**, is the baseline. The full history is in
 [CHANGELOG.md](CHANGELOG.md).
 
 - **Declared game-content roots can now be inventoried on request.** AtlasMind groups recognized
@@ -380,7 +385,7 @@ The last Marketplace publication, **v0.382.6**, is the baseline. The full histor
 
 ## What's new in 0.393.0
 
-The last Marketplace publication, **v0.382.6**, is the baseline. The full history is in
+The last Marketplace publication, **v0.402.4**, is the baseline. The full history is in
 [CHANGELOG.md](CHANGELOG.md).
 
 - **AtlasMind can identify Unreal, Unity, and Godot from their own project files.** It reads the
@@ -400,7 +405,7 @@ The last Marketplace publication, **v0.382.6**, is the baseline. The full histor
 
 ## What's new in 0.392.0
 
-The last Marketplace publication, **v0.382.6**, is the baseline. The full history is in
+The last Marketplace publication, **v0.402.4**, is the baseline. The full history is in
 [CHANGELOG.md](CHANGELOG.md).
 
 - **Declared Git upstreams now have a reusable divergence reading.** AtlasMind derives commits ahead
@@ -420,7 +425,7 @@ The last Marketplace publication, **v0.382.6**, is the baseline. The full histor
 
 ## What's new in 0.391.0
 
-The last Marketplace publication, **v0.382.6**, is the baseline. The full history is in
+The last Marketplace publication, **v0.402.4**, is the baseline. The full history is in
 [CHANGELOG.md](CHANGELOG.md).
 
 - **Game projects start from an explicit component layout.** Guided bootstrap now offers single-repo
@@ -437,7 +442,7 @@ The last Marketplace publication, **v0.382.6**, is the baseline. The full histor
 
 ## What's new in 0.390.0
 
-The last Marketplace publication, **v0.382.6**, is the baseline. The full history is in
+The last Marketplace publication, **v0.402.4**, is the baseline. The full history is in
 [CHANGELOG.md](CHANGELOG.md).
 
 - **Shopify projects can declare their real shape during bootstrap.** A second, multi-select picker
@@ -456,7 +461,7 @@ The last Marketplace publication, **v0.382.6**, is the baseline. The full histor
 
 ## What's new in 0.389.0
 
-The last Marketplace publication, **v0.382.6**, is the baseline. The full history is in
+The last Marketplace publication, **v0.402.4**, is the baseline. The full history is in
 [CHANGELOG.md](CHANGELOG.md).
 
 - **Project evidence now follows declared component boundaries.** The dashboard resolves the full
@@ -475,7 +480,7 @@ The last Marketplace publication, **v0.382.6**, is the baseline. The full histor
 
 ## What's new in 0.388.0
 
-The last Marketplace publication, **v0.382.6**, is the baseline. The full history is in
+The last Marketplace publication, **v0.402.4**, is the baseline. The full history is in
 [CHANGELOG.md](CHANGELOG.md).
 
 - **A project can now declare its real component boundary.** `workflow.json` can hold an ordered
@@ -495,7 +500,7 @@ The last Marketplace publication, **v0.382.6**, is the baseline. The full histor
 
 ## What's new in 0.387.1
 
-The last Marketplace publication, **v0.382.6**, is the baseline. The full history is in
+The last Marketplace publication, **v0.402.4**, is the baseline. The full history is in
 [CHANGELOG.md](CHANGELOG.md).
 
 - **Game integration Phase 0 is complete.** The future game profile is registered at schema v1
@@ -510,7 +515,7 @@ The last Marketplace publication, **v0.382.6**, is the baseline. The full histor
 
 ## What's new in 0.387.0
 
-The last Marketplace publication, **v0.382.6**, is the baseline. The full history is in
+The last Marketplace publication, **v0.402.4**, is the baseline. The full history is in
 [CHANGELOG.md](CHANGELOG.md).
 
 - **The Mobile prefab family is complete.** Guided bootstrap now offers focused React Native,
@@ -531,7 +536,7 @@ The last Marketplace publication, **v0.382.6**, is the baseline. The full histor
 
 ## What's new in 0.386.0
 
-The last Marketplace publication, **v0.382.6**, is the baseline. The full history is in
+The last Marketplace publication, **v0.402.4**, is the baseline. The full history is in
 [CHANGELOG.md](CHANGELOG.md).
 
 - **The Frontend prefab family is complete.** Guided bootstrap now offers focused Next.js,
@@ -551,7 +556,7 @@ The last Marketplace publication, **v0.382.6**, is the baseline. The full histor
 
 ## What's new in 0.385.0
 
-The last Marketplace publication, **v0.382.6**, is the baseline. The full history is in
+The last Marketplace publication, **v0.402.4**, is the baseline. The full history is in
 [CHANGELOG.md](CHANGELOG.md).
 
 - **The SaaS/Web prefab family is complete.** Guided bootstrap now offers explicit Next.js,
@@ -572,7 +577,7 @@ The last Marketplace publication, **v0.382.6**, is the baseline. The full histor
 
 ## What's new in 0.384.0
 
-The last Marketplace publication, **v0.382.6**, is the baseline. The full history is in
+The last Marketplace publication, **v0.402.4**, is the baseline. The full history is in
 [CHANGELOG.md](CHANGELOG.md).
 
 - **The e-commerce prefab family is complete.** Shopify and WooCommerce are joined by a native,
@@ -592,7 +597,7 @@ The last Marketplace publication, **v0.382.6**, is the baseline. The full histor
 
 ## What's new in 0.383.0
 
-The last Marketplace publication, **v0.382.6**, is the baseline. The full history is in
+The last Marketplace publication, **v0.402.4**, is the baseline. The full history is in
 [CHANGELOG.md](CHANGELOG.md).
 
 - **The GDPR controls now have one honest operating contract.** User and developer guides enumerate
@@ -621,7 +626,7 @@ The last Marketplace publication, **v0.382.6**, is the baseline. The full histor
 
 ## What's new in 0.382.7
 
-The last Marketplace publication, **v0.382.6**, is the baseline — everything below is in it. The full
+The last Marketplace publication, **v0.402.4**, is the baseline — everything below is in it. The full
 history is in [CHANGELOG.md](CHANGELOG.md).
 
 - **Release documentation now matches the published extension.** The source version advances separately
