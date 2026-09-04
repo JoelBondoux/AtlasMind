@@ -6,6 +6,66 @@ The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/),
 
 ## [Unreleased]
 
+## [0.401.0] - 2026-09-04
+
+### Added
+
+- Added the **Project Dashboard → Compliance** page, under *Is it safe* beside Risk.
+  Risk is what we raised about ourselves; compliance is what somebody else will ask
+  us to prove. Per-regime readiness with the rule that produced it, a control table
+  grouped by theme, a per-control walk, the evidence library, and both grading rule
+  tables published on the page.
+- Added **"What an assessor would ask next"** — declared, ordered by consequence,
+  capped at eight, each naming the rule that raised it. Phrased as questions
+  because a question is what actually arrives: *"CC6.1 is unevidenced"* is a
+  status, *"show me the report behind CC6.1"* is the sentence somebody says in a
+  room, and it is much harder to nod along to.
+- Added `src/core/complianceDashboard.ts`: the page's view builder, pure so the
+  questions and the ceilings are testable without a workspace. `reachableStatuses`
+  is the load-bearing piece — it offers only the statuses a control can actually
+  reach and states the reason for the rest. Accepting *Satisfied* and demoting it
+  on the next read would be correct and would feel like a bug; explaining that the
+  control needs an outside party teaches the model of the system in one sentence.
+- Added `src/core/complianceSetupPlan.ts` and the **`/compliance`** chat command —
+  the walkthrough, a regime's readout, or `/compliance next` for the control most
+  worth a decision and what would settle it.
+- Added the evidence intake flow: kind, then where (a file here, an https link, or
+  held elsewhere and described — the third listed as an equal, not a fallback),
+  title, issuer and issuer scope for an outside statement, validity dates
+  pre-filled from the control's own period, and an asserter picked from the
+  Director roster. Nothing is written until a final confirmation that states **what
+  the record will and will not produce**.
+- Added a **git-tracked warning** at intake. Reference-only storage is otherwise
+  defeated by the affordance: pick `docs/SOC2-TypeII-FY26.pdf` and you have
+  committed the report — AtlasMind did not copy it, but its dialog invited you to.
+  A tracked file now offers to switch to a described location instead. "Could not
+  ask git" is reported as could-not-ask, never as ignored.
+- Added `writeComplianceRegimeRegister`, which regenerates the mirror from the
+  register and folds in the hand-written notes file.
+
+### Changed
+
+- `/compliance` joins `/setup`, and the guide is listed for every project rather
+  than hidden when no regime is declared. `0/5` is honest — the guide exists and
+  nothing is set up — where hiding the row would say the feature does not exist.
+- The walkthrough ends at **assess one control end to end** rather than walking
+  every control. `SetupStep[]` is a flat list, so a step per control makes "step 7
+  of 31" and moves the finish line when a second regime is enabled; more
+  fundamentally, setup is a one-time act and assessing controls is ongoing work
+  that is never finished. A guide that always reads 60% is one people stop opening.
+- `reachableStatuses` checks independence **before** the evidence-class rule, for
+  the reason the grader already orders them that way: both fire on an attestation
+  attached to an independence-only control, and "we need somebody outside the
+  project to say this" tells you what to do next where "the evidence is the wrong
+  kind" is true and useless.
+
+### Fixed
+
+- Fixed the compliance message gate being invisible to `dashboardMessageParity`,
+  which reads the validator's source for `candidate['type'] === '…'` literals. A
+  `Set` membership test was a real gate that the parity test reported as missing.
+
+
 ## [0.400.1] - 2026-09-04
 
 ### Fixed

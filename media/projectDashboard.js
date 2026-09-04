@@ -216,6 +216,11 @@
         ['security', 'Security'],
         ['privacy', 'Privacy'],
         ['risk', 'Risk'],
+        // Risk is what we raised and what we decided. Compliance is what
+        // somebody else will ask us to prove — adjacent, and a different
+        // question. Not under "Ship & record": that group is about moving a
+        // version, and a certificate is not per-release.
+        ['compliance', 'Compliance'],
       ],
     },
     {
@@ -321,6 +326,7 @@
     overview: [['workflow', 'What changed since I last looked'], ['pipeline', 'Whether CI is green right now'], ['roadmap', 'What we said we would build']],
     score: [['gapAnalysis', 'Which gaps pulled the score down'], ['testing', 'What the test evidence actually shows']],
     gapAnalysis: [['roadmap', 'Turn a gap into planned work'], ['debt', 'What was deferred on purpose']],
+    compliance: [['testing', 'Which regimes are declared'], ['risk', 'What we raised about ourselves'], ['director', 'Who can assert a control']],
     ideation: [['roadmap', 'Where a raised card lands'], ['issues', 'File one as an issue']],
     workflow: [['pullRequests', 'What is in flight right now'], ['pipeline', 'Whether the checks passed'], ['release', 'Whether this can ship']],
     roadmap: [['issues', 'What is filed against this'], ['ideation', 'Where these items came from']],
@@ -501,6 +507,8 @@
     },
     /** '' = all, otherwise a domain id, a status, or a `likelihood:impact` matrix cell. */
     riskFilter: '',
+    // Which control the per-control walk is showing, if any.
+    complianceFocus: null,
     activeDetails: {
       commits: '',
       runs: '',
@@ -1476,6 +1484,86 @@
       // The host retained the error that it sent. A webview-side render failure
       // falls back to a generic diagnosis prompt rather than round-tripping DOM.
       vscode.postMessage({ type: 'discussDashboardError' });
+      return;
+    }
+    // ── Compliance ────────────────────────────────────────────────
+    //
+    // Every one of these posts an opaque id and nothing else. The host
+    // re-reads the register, resolves the id against it, and gathers every
+    // value itself. A crafted message can name a control that does not exist,
+    // which resolves to nothing; it can never supply a status, a path, a date
+    // or a person — which is the difference between this and a page that
+    // saves a whole config object.
+    if (action === 'compliance-focus') {
+      const sep = payload.indexOf('::');
+      state.complianceFocus = sep === -1
+        ? null
+        : { regimeId: payload.slice(0, sep), controlRef: payload.slice(sep + 2) };
+      render();
+      return;
+    }
+    if (action === 'compliance-next') {
+      // Resolved from the snapshot already on screen. A round trip to learn
+      // something the page is holding is a round trip that can fail.
+      const compliance = state.snapshot && state.snapshot.compliance;
+      const regime = compliance && compliance.regimes.find(entry => entry.id === payload);
+      if (!regime) { return; }
+      // Mirrors CONTROL_ATTENTION_ORDER in complianceDashboard.ts. A webview
+      // cannot import it; keeping the two in step is the same arrangement
+      // DASHBOARD_FOCUS_KINDS already lives with.
+      const order = ['not-assessed', 'gap', 'expired', 'awaiting-independent'];
+      let next = null;
+      for (let i = 0; i < order.length && !next; i += 1) {
+        next = regime.controls.find(control => control.reading === order[i]) || null;
+      }
+      state.complianceFocus = next ? { regimeId: regime.id, controlRef: next.ref } : null;
+      render();
+      return;
+    }
+    if (action === 'compliance-create') {
+      vscode.postMessage({ type: 'createComplianceRegister', payload: { regimeId: payload } });
+      return;
+    }
+    if (action === 'compliance-scope') {
+      vscode.postMessage({ type: 'decideComplianceScope', payload: { regimeId: payload } });
+      return;
+    }
+    if (action === 'compliance-notes') {
+      vscode.postMessage({ type: 'openComplianceNotes', payload: { regimeId: payload } });
+      return;
+    }
+    if (action === 'compliance-review') {
+      vscode.postMessage({ type: 'recordComplianceReview', payload: { regimeId: payload } });
+      return;
+    }
+    if (action === 'compliance-record-evidence' || action === 'compliance-attach'
+      || action === 'compliance-set-status') {
+      const sep = payload.indexOf('::');
+      if (sep === -1) { return; }
+      const type = action === 'compliance-record-evidence' ? 'recordComplianceEvidence'
+        : action === 'compliance-attach' ? 'attachComplianceEvidence'
+          : 'setComplianceControlStatus';
+      vscode.postMessage({
+        type: type,
+        payload: { regimeId: payload.slice(0, sep), controlRef: payload.slice(sep + 2) },
+      });
+      return;
+    }
+    if (action === 'compliance-detach') {
+      const parts = payload.split('::');
+      if (parts.length !== 3) { return; }
+      vscode.postMessage({
+        type: 'detachComplianceEvidence',
+        payload: { regimeId: parts[0], controlRef: parts[1], evidenceId: parts[2] },
+      });
+      return;
+    }
+    if (action === 'compliance-open-evidence') {
+      vscode.postMessage({ type: 'openComplianceEvidence', payload: { evidenceId: payload } });
+      return;
+    }
+    if (action === 'compliance-renew') {
+      vscode.postMessage({ type: 'renewComplianceEvidence', payload: { evidenceId: payload } });
       return;
     }
     if (action === 'risk-run') {
@@ -3670,6 +3758,7 @@
         ${renderSecurity(snapshot)}
         ${renderPrivacy(snapshot)}
         ${renderRisk(snapshot)}
+        ${renderCompliance(snapshot)}
         ${renderRelease(snapshot)}
         ${renderDelivery(snapshot)}
         ${renderDocuments(snapshot)}
@@ -12349,6 +12438,297 @@
         </div>
       </article>
     `;
+  }
+
+
+  // ── Compliance ──────────────────────────────────────────────────────
+  //
+  // The page that replaces a green "Tested" tag. It answers a different
+  // question from the board it came from: not "is this regime met?" — which a
+  // repository cannot know — but "what would somebody outside this project ask
+  // next, and what would you say?"
+  //
+  // Nothing here renders `tag-good`. The strongest reading available is
+  // Independently assured, and it still only says every control has evidence
+  // of the kind it asks for.
+
+  const COMPLIANCE_READING_TONE = {
+    'satisfied-independent': 'accent',
+    'satisfied-self': '',
+    'awaiting-independent': 'warn',
+    partial: 'warn',
+    expired: 'critical',
+    gap: 'critical',
+    'not-assessed': 'muted',
+    'not-applicable': 'muted',
+  };
+
+  function complianceToneClass(tone) {
+    return tone === 'critical' ? 'tag-critical' : tone === 'warn' ? 'tag-warn' : tone === 'accent' ? 'tag-accent' : '';
+  }
+
+  function renderComplianceControlRow(regime, control) {
+    const tone = complianceToneClass(COMPLIANCE_READING_TONE[control.reading] || '');
+    const owner = control.ownerContactId ? escapeHtml(control.ownerContactId) : '<em>unassigned</em>';
+    const evidence = control.evidenceIds.length > 0
+      ? escapeHtml(control.evidenceIds.length + ' record' + (control.evidenceIds.length === 1 ? '' : 's'))
+      : '<em>none</em>';
+    return `
+      <tr>
+        <td><code>${escapeHtml(control.ref)}</code></td>
+        <td>${escapeHtml(control.requirement)}</td>
+        <td class="stat-detail">${escapeHtml(control.acceptsLabel)}</td>
+        <td><span class="tag ${tone}">${escapeHtml(control.readingLabel)}</span></td>
+        <td>${evidence}</td>
+        <td>${owner}</td>
+        <td><button type="button" class="action-link" data-action="compliance-focus" data-payload="${escapeAttr(regime.id + '::' + control.ref)}">Assess</button></td>
+      </tr>`;
+  }
+
+  function renderComplianceFocus(snapshot, regime) {
+    const focus = state.complianceFocus;
+    if (!focus || focus.regimeId !== regime.id) { return ''; }
+    const control = regime.controls.find(entry => entry.ref === focus.controlRef);
+    if (!control) { return ''; }
+
+    const evidence = (snapshot.compliance.evidence || [])
+      .filter(entry => control.evidenceIds.indexOf(entry.id) !== -1);
+
+    return `
+      <article class="panel-card compliance-focus">
+        <div class="ci-section-heading">
+          <div>
+            <p class="card-kicker">${escapeHtml(regime.label + ' · ' + control.ref)}</p>
+            <h3>${escapeHtml(control.requirement)}</h3>
+            <p class="stat-detail">${escapeHtml(control.statement)}</p>
+          </div>
+          <button type="button" class="action-link" data-action="compliance-focus" data-payload="">Close</button>
+        </div>
+
+        <div class="mini-grid">
+          ${renderMetricPill('What would settle it', control.acceptsLabel, { detail: control.acceptsReason || '' })}
+          ${renderMetricPill('Reading', control.readingLabel, { tone: COMPLIANCE_READING_TONE[control.reading] || '' , detail: control.rule })}
+          ${renderMetricPill('Refreshed every', control.periodMonths + ' months', { detail: control.daysUntilExpiry !== undefined ? control.daysUntilExpiry + ' days left' : 'no expiry recorded' })}
+        </div>
+
+        ${control.ceilingReason ? `<p class="section-copy"><strong>Satisfied is not available.</strong> ${escapeHtml(control.ceilingReason)}</p>` : ''}
+
+        ${evidence.length > 0 ? `
+          <h4>Attached</h4>
+          <div class="list-block">${evidence.map(entry => `
+            <div class="list-row">
+              <div>
+                <strong>${escapeHtml(entry.title)}</strong>
+                <div class="list-meta">${escapeHtml(entry.kindLabel)} · ${escapeHtml(entry.locatorLabel)}${entry.validUntil ? ' · until ' + escapeHtml(entry.validUntil.slice(0, 10)) : ''}</div>
+              </div>
+              <button type="button" class="action-link" data-action="compliance-detach" data-payload="${escapeAttr(regime.id + '::' + control.ref + '::' + entry.id)}">Detach</button>
+            </div>`).join('')}</div>` : '<p class="stat-detail">Nothing is attached to this control yet.</p>'}
+
+        ${control.corroborating.length > 0 ? `
+          <details>
+            <summary>${escapeHtml(control.corroborating.length + ' check ran against this control but does not settle it')}</summary>
+            ${control.corroborating.map(entry => `<p class="stat-detail"><strong>${escapeHtml(entry.question)}</strong> — ${escapeHtml(entry.evidence)}</p>`).join('')}
+            <p class="stat-detail"><em>Shown as a signal. A machine check covers a fragment of a control, not the whole of it.</em></p>
+          </details>` : ''}
+
+        ${control.note ? `<p class="stat-detail"><strong>Note.</strong> ${escapeHtml(control.note)}</p>` : ''}
+        ${control.justification ? `<p class="stat-detail"><strong>Excluded because.</strong> ${escapeHtml(control.justification)}</p>` : ''}
+
+        <div class="tag-row">
+          <button type="button" class="action-link primary" data-action="compliance-record-evidence" data-payload="${escapeAttr(regime.id + '::' + control.ref)}"${snapshot.compliance.readOnly ? ' disabled title="A newer AtlasMind wrote this register"' : ''}>Record evidence…</button>
+          <button type="button" class="action-link" data-action="compliance-attach" data-payload="${escapeAttr(regime.id + '::' + control.ref)}"${snapshot.compliance.readOnly ? ' disabled' : ''}>Attach existing…</button>
+          <button type="button" class="action-link" data-action="compliance-set-status" data-payload="${escapeAttr(regime.id + '::' + control.ref)}"${snapshot.compliance.readOnly ? ' disabled' : ''}>Set status…</button>
+          <button type="button" class="action-link" data-action="compliance-next" data-payload="${escapeAttr(regime.id)}">Next control needing a decision →</button>
+        </div>
+      </article>`;
+  }
+
+  function renderComplianceRegime(snapshot, regime) {
+    const tone = complianceToneClass(regime.tone);
+    const counts = regime.counts || {};
+    const segments = [
+      { label: 'Met, confirmed outside', value: counts['satisfied-independent'] || 0, tone: 'accent' },
+      { label: 'Met on our evidence', value: counts['satisfied-self'] || 0, tone: 'good' },
+      { label: 'Awaiting an outside party', value: counts['awaiting-independent'] || 0, tone: 'warn' },
+      { label: 'Partly met', value: counts.partial || 0, tone: 'warn' },
+      { label: 'Lapsed', value: counts.expired || 0, tone: 'critical' },
+      { label: 'Not met', value: counts.gap || 0, tone: 'critical' },
+      { label: 'Not assessed', value: counts['not-assessed'] || 0, tone: 'muted' },
+      { label: 'Not applicable', value: counts['not-applicable'] || 0, tone: 'muted' },
+    ].filter(segment => segment.value > 0);
+
+    const groups = [];
+    const seen = {};
+    regime.controls.forEach(control => {
+      if (!seen[control.theme]) { seen[control.theme] = { label: control.themeLabel, controls: [] }; groups.push(seen[control.theme]); }
+      seen[control.theme].controls.push(control);
+    });
+
+    return `
+      <article class="panel-card">
+        <div class="ci-section-heading">
+          <div>
+            <p class="card-kicker">${escapeHtml(regime.regime)}</p>
+            <h3>${escapeHtml(regime.label)} — <span class="tag ${tone}">${escapeHtml(regime.readinessLabel)}</span></h3>
+            <p class="stat-detail">${escapeHtml(regime.statement)}</p>
+          </div>
+        </div>
+
+        <p class="stat-detail">${escapeHtml(regime.standardDetail)}</p>
+        ${regime.editionDrift ? `<p class="section-copy"><strong>Assessed against a different edition.</strong> This register was assessed against ${escapeHtml(regime.editionDrift.assessedAgainst)}; AtlasMind now models ${escapeHtml(regime.editionDrift.modelled)}. The statuses have not been carried across.</p>` : ''}
+
+        ${!regime.registered ? `
+          <p class="section-copy">No control mapping exists for this regime yet. It reads <em>Not examined</em>, which is the honest answer.</p>
+          <div class="tag-row">
+            <button type="button" class="action-link primary" data-action="compliance-create" data-payload="${escapeAttr(regime.id)}"${snapshot.compliance.readOnly ? ' disabled' : ''}>Create the control register</button>
+          </div>` : `
+          ${segments.length > 0 ? renderDistributionBar('compliance-' + regime.id, segments) : ''}
+          <p class="stat-detail">${escapeHtml(regime.applicableCount + ' applicable control' + (regime.applicableCount === 1 ? '' : 's') + ' of ' + regime.declaredCount + ' declared' + (regime.weakestRef ? ' · weakest: ' + regime.weakestRef : ''))}</p>
+
+          <h4>Scope</h4>
+          ${regime.scopeDecided
+            ? `<p class="stat-detail">${escapeHtml(regime.scopeStatement || '')}${regime.scopeVariant ? ' · ' + escapeHtml(regime.scopeVariant) : ''}</p>`
+            : `<p class="section-copy"><strong>Nothing is in scope until somebody says so.</strong> ${escapeHtml(regime.scopingQuestion)}</p>`}
+          <div class="tag-row">
+            <button type="button" class="action-link${regime.scopeDecided ? '' : ' primary'}" data-action="compliance-scope" data-payload="${escapeAttr(regime.id)}"${snapshot.compliance.readOnly ? ' disabled' : ''}>${regime.scopeDecided ? 'Revise scope…' : 'Decide scope…'}</button>
+            ${regime.scopeProposed ? '<span class="tag tag-warn">A draft is on file and has not been adopted</span>' : ''}
+          </div>
+
+          ${regime.demotions.length > 0 ? `
+            <details>
+              <summary>${escapeHtml(regime.demotions.length + ' recorded status' + (regime.demotions.length === 1 ? ' was' : 'es were') + ' not accepted on read')}</summary>
+              <p class="stat-detail">Nothing was deleted — the wording is kept on the control — but these read as Not assessed until the missing piece is supplied.</p>
+              <table class="mini-table"><thead><tr><th>Ref</th><th>Was</th><th>Why</th></tr></thead><tbody>
+                ${regime.demotions.slice(0, 40).map(entry => `<tr><td><code>${escapeHtml(entry.ref)}</code></td><td>${escapeHtml(entry.from)}</td><td>${escapeHtml(entry.reason)}</td></tr>`).join('')}
+              </tbody></table>
+            </details>` : ''}
+
+          ${regime.notes.length > 0 ? `<div class="list-block">${regime.notes.map(note => `<p class="stat-detail">${escapeHtml(note)}</p>`).join('')}</div>` : ''}
+
+          ${groups.map(group => `
+            <h4>${escapeHtml(group.label)}</h4>
+            <div data-scroll-key="compliance-${escapeAttr(regime.id)}-${escapeAttr(group.label)}" style="overflow-x:auto">
+              <table class="mini-table">
+                <thead><tr><th>Ref</th><th>Requirement</th><th>What would settle it</th><th>Reading</th><th>Evidence</th><th>Owner</th><th></th></tr></thead>
+                <tbody>${group.controls.map(control => renderComplianceControlRow(regime, control)).join('')}</tbody>
+              </table>
+            </div>`).join('')}
+
+          ${renderComplianceFocus(snapshot, regime)}
+
+          <div class="tag-row">
+            <button type="button" class="action-link" data-action="file" data-payload="${escapeAttr(regime.summaryPath)}">Open the mapping</button>
+            <button type="button" class="action-link" data-action="compliance-notes" data-payload="${escapeAttr(regime.id)}">${regime.notesExist ? 'Open your notes' : 'Start a notes file'}</button>
+            <button type="button" class="action-link" data-action="compliance-review" data-payload="${escapeAttr(regime.id)}"${snapshot.compliance.readOnly ? ' disabled' : ''}>Record a review…</button>
+          </div>`}
+      </article>`;
+  }
+
+  function renderCompliance(snapshot) {
+    const wrap = (inner) => pageSectionOpen('compliance') + inner + '</section>';
+    const compliance = snapshot.compliance;
+    if (!compliance) {
+      return wrap(`
+        <article class="panel-card">
+          <h3>No governance regime is declared</h3>
+          <p class="section-copy">Nothing to assess, and that is a decision rather than a gap. If a customer, a regulator or a contract asks you for one — SOC 2, ISO 27001, GDPR — turn it on under Settings → Testing and it will appear here.</p>
+          <div class="tag-row"><button type="button" class="action-link" data-action="page" data-payload="testing">Open Testing</button></div>
+        </article>` + nextStepRow('compliance'));
+    }
+
+    const notice = compliance.readOnly
+      ? `<article class="panel-card tone-warn">
+           <h3>This register was written by a newer AtlasMind</h3>
+           <p class="section-copy">${escapeHtml(compliance.notice || 'It is shown read-only. Nothing here will save until the versions match.')}</p>
+           <p class="stat-detail">Overwriting an assessor-visible record with a build that could not read it is not an inconvenience — it is a compliance incident with a git commit attached.</p>
+         </article>`
+      : '';
+
+    const questions = compliance.questions.length > 0
+      ? `<article class="panel-card">
+           <div class="ci-section-heading"><div>
+             <p class="card-kicker">What an assessor would ask next</p>
+             <h3>${escapeHtml(compliance.questions.length + ' question' + (compliance.questions.length === 1 ? '' : 's'))}</h3>
+             <p class="stat-detail">Phrased the way they arrive, because that is how they arrive.</p>
+           </div></div>
+           <div class="list-block">${compliance.questions.map(question => `
+             <div class="list-row">
+               <div>
+                 <strong>${escapeHtml(question.question)}</strong>
+                 <div class="list-meta">${escapeHtml(question.ruleId)}</div>
+               </div>
+               ${question.regimeId && question.controlRef
+                 ? `<button type="button" class="action-link" data-action="compliance-focus" data-payload="${escapeAttr(question.regimeId + '::' + question.controlRef)}">Open</button>`
+                 : ''}
+             </div>`).join('')}</div>
+         </article>`
+      : '';
+
+    const evidence = compliance.evidence.length > 0
+      ? `<article class="panel-card">
+           <div class="ci-section-heading"><div>
+             <p class="card-kicker">Evidence library</p>
+             <h3>${escapeHtml(compliance.evidence.length + ' record' + (compliance.evidence.length === 1 ? '' : 's'))}</h3>
+             <p class="stat-detail">AtlasMind records where a document is, never the document. project_memory/ is tracked by git.</p>
+           </div></div>
+           <div style="overflow-x:auto"><table class="mini-table">
+             <thead><tr><th>Record</th><th>Kind</th><th>Where</th><th>Issued by</th><th>Valid until</th><th>Used by</th><th></th></tr></thead>
+             <tbody>${compliance.evidence.map(entry => `
+               <tr${entry.retired ? ' class="is-muted"' : ''}>
+                 <td>${escapeHtml(entry.title)}</td>
+                 <td>${escapeHtml(entry.kindLabel)}</td>
+                 <td>${escapeHtml(entry.locatorLabel)}${entry.verifiable ? '' : ' <em>(described)</em>'}</td>
+                 <td>${entry.issuer ? escapeHtml(entry.issuer) : '—'}</td>
+                 <td>${entry.validUntil
+                   ? `<span class="tag ${entry.freshness === 'expired' ? 'tag-critical' : entry.freshness === 'expiring' ? 'tag-warn' : ''}">${escapeHtml(entry.validUntil.slice(0, 10))}</span>`
+                   : '<em>none stated</em>'}</td>
+                 <td>${escapeHtml(entry.usedBy.length + ' control' + (entry.usedBy.length === 1 ? '' : 's'))}</td>
+                 <td>
+                   <button type="button" class="action-link" data-action="compliance-open-evidence" data-payload="${escapeAttr(entry.id)}">Open</button>
+                   ${entry.retired ? '' : `<button type="button" class="action-link" data-action="compliance-renew" data-payload="${escapeAttr(entry.id)}"${compliance.readOnly ? ' disabled' : ''}>Renew…</button>`}
+                 </td>
+               </tr>`).join('')}</tbody>
+           </table></div>
+         </article>`
+      : '';
+
+    return wrap(`
+      <div class="page-intro">
+        <h2>Compliance</h2>
+        <p class="section-copy">${escapeHtml(compliance.summary)}</p>
+        <p class="stat-detail"><em>${escapeHtml(compliance.disclaimer)}</em></p>
+      </div>
+      ${notice}
+      <div class="mini-grid">
+        ${renderMetricPill('Regimes', String(compliance.regimes.length), { detail: 'declared for this project' })}
+        ${renderMetricPill('Lapsed', String(compliance.expiredCount), { tone: compliance.expiredCount > 0 ? 'critical' : '', detail: 'evidence past its validity date' })}
+        ${renderMetricPill('Expiring', String(compliance.expiringSoonCount), { tone: compliance.expiringSoonCount > 0 ? 'warn' : '', detail: 'within 90 days' })}
+        ${renderMetricPill('Not producible', String(compliance.unverifiableCount), { detail: 'controls resting on a description' })}
+      </div>
+      ${questions}
+      ${compliance.regimes.map(regime => renderComplianceRegime(snapshot, regime)).join('')}
+      ${evidence}
+      <details class="panel-card">
+        <summary>How these are graded</summary>
+        <p class="stat-detail">Every reading names the declared rule that produced it. Nothing here is a statement of compliance.</p>
+        <h4>Regime readings</h4>
+        <table class="mini-table"><thead><tr><th>Rule</th><th>What it means</th></tr></thead><tbody>
+          ${compliance.rules.regime.map(rule => `<tr><td><code>${escapeHtml(rule.id)}</code></td><td>${escapeHtml(rule.describes)}</td></tr>`).join('')}
+        </tbody></table>
+        <h4>Control readings</h4>
+        <table class="mini-table"><thead><tr><th>Rule</th><th>What it means</th></tr></thead><tbody>
+          ${compliance.rules.control.map(rule => `<tr><td><code>${escapeHtml(rule.id)}</code></td><td>${escapeHtml(rule.describes)}</td></tr>`).join('')}
+        </tbody></table>
+      </details>
+      <article class="panel-card">
+        <h4>The files</h4>
+        <p class="stat-detail">The JSON is the source of truth; the markdown is generated from it. Your own prose belongs in the <code>-user-edit.md</code> file beside each mapping, which is never overwritten.</p>
+        <div class="tag-row">
+          <button type="button" class="action-link" data-action="file" data-payload="${escapeAttr(compliance.evidenceSummaryPath)}">Open the evidence summary</button>
+        </div>
+      </article>
+      ${nextStepRow('compliance')}
+    `);
   }
 
   function renderRisk(snapshot) {

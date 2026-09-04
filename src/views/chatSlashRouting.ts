@@ -37,7 +37,7 @@
  * rather than shipping as a command that works in one place.
  */
 export const ATLAS_SLASH_COMMANDS = [
-  'acp', 'agents', 'bootstrap', 'buzz', 'cost', 'director', 'discover', 'followups',
+  'acp', 'agents', 'bootstrap', 'buzz', 'compliance', 'cost', 'director', 'discover', 'followups',
   'ideate', 'import', 'lens', 'localci', 'loop', 'memory', 'project', 'research', 'runs', 'setup', 'ship', 'skills',
   'sync-instructions', 'vision', 'voice',
 ] as const;
@@ -51,13 +51,13 @@ const KNOWN = new Set<string>(ATLAS_SLASH_COMMANDS);
  * a collecting stream, rather than by mapping each one to a VS Code command.
  *
  * One dispatch, two surfaces. The alternative — a table pairing every slash
- * command with an equivalent command id — is twenty chances for the panel to
+ * command with an equivalent command id — is twenty-two chances for the panel to
  * answer a question differently from `@atlas`, and it would have to be kept
  * correct by hand forever. These handlers are already deterministic and already
  * produce markdown; the panel's only real gap was having nowhere to put it.
  */
 const REPLAYED: ReadonlySet<string> = new Set([
-  'acp', 'agents', 'bootstrap', 'buzz', 'cost', 'director', 'discover',
+  'acp', 'agents', 'bootstrap', 'buzz', 'compliance', 'cost', 'director', 'discover',
   'followups', 'ideate', 'import', 'lens', 'localci', 'memory', 'research', 'runs', 'setup', 'ship', 'skills',
   'sync-instructions', 'vision', 'voice',
 ]);

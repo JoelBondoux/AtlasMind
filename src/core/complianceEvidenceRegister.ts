@@ -1103,6 +1103,37 @@ export function writeComplianceEvidenceLibrary(
   );
 }
 
+/**
+ * Write one regime's register and regenerate its mirror.
+ *
+ * The reading is passed in rather than computed here: this module must not
+ * import the grader at runtime, and the two staying apart is what lets the
+ * grader be tested against generated input with no filesystem in sight.
+ */
+export function writeComplianceRegimeRegister(
+  workspaceRoot: string,
+  register: ComplianceRegimeRegister,
+  library: ComplianceEvidenceLibrary,
+  catalog: ComplianceRegimeCatalog,
+  options: Parameters<typeof renderComplianceRegimeMarkdown>[3],
+  now: Date = new Date(),
+): void {
+  const stamped: ComplianceRegimeRegister = { ...register, updatedAt: now.toISOString() };
+  mkdirSync(path.join(workspaceRoot, COMPLIANCE_DIR), { recursive: true });
+  writeFileSync(
+    path.join(workspaceRoot, complianceRegimePath(catalog.policyId)),
+    `${JSON.stringify(stamped, null, 2)}
+`,
+    'utf8',
+  );
+  const notes = absorbComplianceNotes(readComplianceNotes(workspaceRoot, catalog.policyId), catalog);
+  writeFileSync(
+    path.join(workspaceRoot, complianceRegimeSummaryPath(catalog.policyId)),
+    renderComplianceRegimeMarkdown(stamped, library, catalog, { ...options, notes }, now),
+    'utf8',
+  );
+}
+
 /** Read the hand-written notes file, if there is one. Never created here. */
 export function readComplianceNotes(
   workspaceRoot: string,

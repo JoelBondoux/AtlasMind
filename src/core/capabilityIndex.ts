@@ -105,6 +105,7 @@ export const CAPABILITY_PAGES: readonly CapabilityPage[] = [
   { surface: 'dashboard', id: 'security', title: 'Dashboard — Security', answers: 'dependency and code security findings' },
   { surface: 'dashboard', id: 'privacy', title: 'Dashboard — Privacy', answers: 'what data leaves the machine and what was redacted' },
   { surface: 'dashboard', id: 'risk', title: 'Dashboard — Risk', answers: 'ethical, legal and commercial findings raised by the oversight advisors' },
+  { surface: 'dashboard', id: 'compliance', title: 'Dashboard — Compliance', answers: 'what evidences each declared governance regime — ISO 27001, SOC 2, GDPR — control by control, and what an assessor would ask next' },
   { surface: 'dashboard', id: 'release', title: 'Dashboard — Release', answers: 'release gates, the notes as they would publish, the version the commits warrant' },
   { surface: 'dashboard', id: 'delivery', title: 'Dashboard — Delivery', answers: 'deployment stages, promotions, what must be true before production' },
   { surface: 'dashboard', id: 'documents', title: 'Dashboard — Documents', answers: 'which documents are tracked, which are stale, when each was reviewed' },

@@ -36,6 +36,7 @@ Two nice touches: a mistyped command gets **corrected rather than answered** (`/
 | `/acp` | Guided setup for using a Claude, ChatGPT, Copilot, Gemini or Qwen subscription |
 | `/buzz` | Guided setup for the Buzz messaging integration |
 | `/lens` | What to put in the Lens declaration files, with a worked example for each |
+| `/compliance` | What evidences each declared governance regime. `/compliance <regime>` for one regime's readout; `/compliance next` for the control most worth a decision and what would settle it. Records nothing — a status needs a named person and a date. |
 | `/localci` | Guided setup for running this repository's GitHub CI job on your own computer |
 | `/sync-instructions` | Reconcile every AI tool's instruction file — yours and AtlasMind's — into one agreed set |
 

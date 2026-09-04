@@ -3,7 +3,7 @@ import * as os from 'node:os';
 import * as path from 'node:path';
 import * as fs from 'node:fs/promises';
 import { existsSync } from 'node:fs';
-import { readFileSync } from 'node:fs';
+import { mkdirSync, readFileSync, writeFileSync } from 'node:fs';
 import { execFile } from 'node:child_process';
 import { promisify } from 'node:util';
 import { randomUUID } from 'node:crypto';
@@ -21,6 +21,45 @@ import {
   type TestingPolicyCoverage,
   type TestingPolicyRow,
 } from '../core/testingPolicyCoverage.js';
+import {
+  EVIDENCE_KIND_DETAIL,
+  EVIDENCE_KIND_LABEL,
+  complianceCatalogFor,
+  effectiveAccepts,
+  effectivePeriodMonths,
+  type ComplianceMethodologyId,
+} from '../core/complianceControlCatalog.js';
+import type { TestingMethodologyId } from '../types.js';
+import {
+  COMPLIANCE_CONTROL_STATUS_LABEL,
+  COMPLIANCE_EVIDENCE_SSOT_PATH,
+  COMPLIANCE_EVIDENCE_SUMMARY_PATH,
+  appendComplianceHistory,
+  complianceNotesExist,
+  complianceNotesTemplate,
+  complianceRegimeNotesPath,
+  complianceRegimePath,
+  complianceRegimeSummaryPath,
+  emptyEvidenceLibrary,
+  readComplianceEvidenceFile,
+  readComplianceRegimeFile,
+  normalizeRelPath as normalizeComplianceRelPath,
+  sanitizeComplianceEvidenceLibrary,
+  sanitizeComplianceLocator,
+  sanitizeComplianceRegimeRegister,
+  seedComplianceRegister,
+  writeComplianceEvidenceLibrary,
+  writeComplianceRegimeRegister,
+  type ComplianceAttribution,
+  type ComplianceDemotion,
+  type ComplianceEvidence,
+  type ComplianceHistoryEntry,
+  type ComplianceLocator,
+  type ComplianceRegimeRegister,
+} from '../core/complianceEvidenceRegister.js';
+import { gradeComplianceRegime, type ComplianceReading, type TechnicalCheckInput } from '../core/complianceReadiness.js';
+import { buildComplianceSnapshot, reachableStatuses, type ComplianceSnapshot } from '../core/complianceDashboard.js';
+import { evaluateTechnicalControls, policiesWithTechnicalControls } from '../core/complianceTechnicalControls.js';
 import type { TestingPolicyDetail } from '../core/testingPolicyDetail.js';
 import {
   reconcileTestingPolicy,
@@ -1047,6 +1086,32 @@ type ProjectDashboardMessage =
   | { type: 'createShelfFolder'; payload: string }
   | { type: 'runRiskAnalysis'; payload: { domain: import('../types.js').RiskDomain | 'all' } }
   | { type: 'setRiskFindingStatus'; payload: { findingId: string; status: import('../types.js').RiskStatus; note?: string } }
+  // ── Compliance ──────────────────────────────────────────────────
+  //
+  // Every payload here is opaque ids and nothing else: no status, no path, no
+  // URL, no date, no name, no prose. `setComplianceControlStatus` carries
+  // *which control*, and the host shows the picker — deliberately unlike
+  // `setRiskFindingStatus` above, which does carry a status. A risk finding's
+  // status is a judgement about our own record; a control status is a claim to
+  // an outsider, and it needs a named person and a date the webview has no
+  // business supplying.
+  //
+  // There is deliberately **no** `saveComplianceRegister`. A whole-register
+  // payload could set twenty-five statuses with no attribution in one post,
+  // which is the exact thing the register exists to make impossible. Copying
+  // the Documents page's shape here is the natural mistake; a structural test
+  // enumerates this union and fails if such a message is added.
+  | { type: 'complianceNextControl'; payload: { regimeId: string } }
+  | { type: 'createComplianceRegister'; payload: { regimeId: string } }
+  | { type: 'decideComplianceScope'; payload: { regimeId: string } }
+  | { type: 'openComplianceNotes'; payload: { regimeId: string } }
+  | { type: 'recordComplianceReview'; payload: { regimeId: string } }
+  | { type: 'recordComplianceEvidence'; payload: { regimeId: string; controlRef: string } }
+  | { type: 'attachComplianceEvidence'; payload: { regimeId: string; controlRef: string } }
+  | { type: 'setComplianceControlStatus'; payload: { regimeId: string; controlRef: string } }
+  | { type: 'detachComplianceEvidence'; payload: { regimeId: string; controlRef: string; evidenceId: string } }
+  | { type: 'openComplianceEvidence'; payload: { evidenceId: string } }
+  | { type: 'renewComplianceEvidence'; payload: { evidenceId: string } }
   | { type: 'setRiskFilter'; payload: string }
   | { type: 'copyContact'; payload: string }
   // Opaque runbook step / phase ids. The host rebuilds the guide and resolves
@@ -1143,11 +1208,30 @@ interface DashboardStat {
  */
 const DASHBOARD_PAGE_IDS = [
   'overview', 'score', 'gapAnalysis', 'workflow', 'roadmap', 'issues', 'pullRequests', 'director',
-  'branches', 'repo', 'pipeline', 'testing', 'debt', 'security', 'privacy', 'risk', 'release', 'delivery', 'documents',
+  'branches', 'repo', 'pipeline', 'testing', 'debt', 'security', 'privacy', 'risk', 'compliance', 'release', 'delivery', 'documents',
   'ssot', 'runtime', 'ideation',
 ] as const;
 
 export type DashboardPageId = typeof DASHBOARD_PAGE_IDS[number];
+
+function isComplianceRegimeId(value: unknown): value is ComplianceMethodologyId {
+  return typeof value === 'string' && complianceCatalogFor(value as TestingMethodologyId) !== undefined;
+}
+
+/**
+ * A control reference, constrained to the charset the catalogues actually use
+ * — `A.5.1`, `CC6.1`, `164.312(a)(1)`, `Part 6-9.4.5(a)`, `Req 3.3`.
+ *
+ * Shape only. The host re-resolves it against the catalog, so this is the
+ * cheap rejection rather than the real one.
+ */
+function isComplianceControlRef(value: unknown): boolean {
+  return typeof value === 'string' && /^[A-Za-z0-9][A-Za-z0-9 ().\-/]{0,40}$/.test(value);
+}
+
+function isComplianceEvidenceId(value: unknown): boolean {
+  return typeof value === 'string' && /^ev-[A-Za-z0-9][A-Za-z0-9-]{0,60}$/.test(value);
+}
 
 type DashboardNavigationTarget = {
   page: DashboardPageId;
@@ -2862,6 +2946,14 @@ interface DashboardSnapshot {
   director: DashboardDirectorSnapshot;
   documents: DashboardDocumentsSnapshot;
   risk: DashboardRiskSnapshot;
+  /**
+   * Governance regimes, graded on the compliance register.
+   *
+   * Absent when no `compliance-*` methodology is enabled — deliberately, and
+   * not as an empty board. A project that never claimed SOC 2 has not
+   * overlooked SOC 2, and a zeroed group would nag it forever.
+   */
+  compliance?: ComplianceSnapshot;
   score: DashboardScoreBreakdown;
   ideation: DashboardIdeationSnapshot;
   gapAnalysis: DashboardGapAnalysisSnapshot;
@@ -5146,6 +5238,40 @@ export class ProjectDashboardPanel {
         return;
       case 'setRiskFindingStatus':
         await this.handleSetRiskFindingStatus(message.payload);
+        return;
+      case 'createComplianceRegister':
+        await this.handleCreateComplianceRegister(message.payload);
+        return;
+      case 'decideComplianceScope':
+        await this.handleDecideComplianceScope(message.payload);
+        return;
+      case 'openComplianceNotes':
+        await this.handleOpenComplianceNotes(message.payload);
+        return;
+      case 'recordComplianceReview':
+        await this.handleRecordComplianceReview(message.payload);
+        return;
+      case 'recordComplianceEvidence':
+        await this.handleRecordComplianceEvidence(message.payload);
+        return;
+      case 'attachComplianceEvidence':
+        await this.handleAttachComplianceEvidence(message.payload);
+        return;
+      case 'setComplianceControlStatus':
+        await this.handleSetComplianceControlStatus(message.payload);
+        return;
+      case 'detachComplianceEvidence':
+        await this.handleDetachComplianceEvidence(message.payload);
+        return;
+      case 'openComplianceEvidence':
+        await this.handleOpenComplianceEvidence(message.payload);
+        return;
+      case 'renewComplianceEvidence':
+        await this.handleRenewComplianceEvidence(message.payload);
+        return;
+      case 'complianceNextControl':
+        // View-only: the webview picks the next control from the snapshot it
+        // already holds, so there is nothing to resolve or persist here.
         return;
       case 'setRiskFilter':
         // View-only state; the webview owns it. Nothing to persist.
@@ -12000,6 +12126,756 @@ ${buildCardEvidenceSection(source, derivation)}`;
    * change is the only way one leaves the open set — so the register keeps a complete
    * account of what was raised and what was decided.
    */
+
+  // ── Compliance ────────────────────────────────────────────────────
+  //
+  // Every handler below re-reads the register from disk, resolves the opaque
+  // ids the webview sent against it, and gathers every value itself. Nothing a
+  // webview posts becomes a status, a path, a date or a person.
+
+  /** The whole compliance state, re-read. Cheap, and never stale. */
+  private readComplianceState(regimeId: ComplianceMethodologyId): {
+    workspaceRoot: string;
+    catalog: NonNullable<ReturnType<typeof complianceCatalogFor>>;
+    library: ReturnType<typeof emptyEvidenceLibrary>;
+    register: ComplianceRegimeRegister;
+    readOnly: boolean;
+  } | undefined {
+    const workspaceRoot = vscode.workspace.workspaceFolders?.[0]?.uri.fsPath;
+    const catalog = complianceCatalogFor(regimeId);
+    if (!workspaceRoot || !catalog) {
+      return undefined;
+    }
+    const now = new Date();
+    const evidenceRead = readComplianceEvidenceFile(workspaceRoot);
+    const library = evidenceRead.config
+      ? sanitizeComplianceEvidenceLibrary(evidenceRead.config, now)
+      : emptyEvidenceLibrary(now);
+    const read = readComplianceRegimeFile(workspaceRoot, regimeId);
+    const register = read.config
+      ? sanitizeComplianceRegimeRegister(read.config, regimeId, library, now).register
+      : seedComplianceRegister(catalog, now);
+    return {
+      workspaceRoot,
+      catalog,
+      library,
+      register,
+      readOnly: read.preserveExisting || evidenceRead.preserveExisting,
+    };
+  }
+
+  /**
+   * Ask who is asserting this, from the Director roster.
+   *
+   * Never free text. Attribution resolves to a contact id, which keeps the
+   * GDPR-first system-of-record posture the Director already holds — and means
+   * a status always names somebody who exists.
+   */
+  private async pickComplianceAsserter(workspaceRoot: string): Promise<ComplianceAttribution | undefined> {
+    const config = readProjectDirectorConfig(workspaceRoot);
+    const contacts = config?.contacts ?? [];
+    if (contacts.length === 0) {
+      const open = 'Open the Director roster';
+      const choice = await vscode.window.showWarningMessage(
+        'Nobody is on the Director roster, so there is no one to record this against. '
+        + 'A status with no named asserter is a claim rather than evidence, and is not carried.',
+        { modal: true },
+        open,
+      );
+      if (choice === open) {
+        await vscode.commands.executeCommand('atlasmind.openProjectDirector');
+      }
+      return undefined;
+    }
+    const picked = await vscode.window.showQuickPick(
+      contacts.map(contact => ({
+        label: contact.name || contact.id,
+        description: contact.id === config?.selfContactId ? 'you' : '',
+        id: contact.id,
+      })),
+      { title: 'Who is asserting this?', placeHolder: 'This name and today’s date are recorded against it.' },
+    );
+    return picked ? { contactId: picked.id, source: 'human', at: new Date().toISOString() } : undefined;
+  }
+
+  private async saveComplianceRegister(
+    workspaceRoot: string,
+    register: ComplianceRegimeRegister,
+    library: ReturnType<typeof emptyEvidenceLibrary>,
+    catalog: NonNullable<ReturnType<typeof complianceCatalogFor>>,
+    entry: ComplianceHistoryEntry,
+  ): Promise<void> {
+    const now = new Date();
+    // Grade before rendering: the mirror publishes the reading and the rule
+    // that produced it, and a mirror written from a stale grade would say
+    // something the register no longer supports.
+    const reading = gradeComplianceRegime({ catalog, register, library, now });
+    writeComplianceRegimeRegister(workspaceRoot, register, library, catalog, {
+      readingLabel: reading.readinessLabel,
+      readingRule: reading.rule,
+      disclaimer: reading.disclaimer,
+      ...(reading.standard?.kind === 'tracked'
+        ? {
+          standard: {
+            name: reading.standard.name,
+            edition: reading.standard.edition,
+            verifiedAt: reading.standard.verifiedAt,
+          },
+        }
+        : {}),
+    }, now);
+    appendComplianceHistory(workspaceRoot, entry);
+    await this.syncState();
+  }
+
+  private async handleCreateComplianceRegister(payload: { regimeId: string }): Promise<void> {
+    const state = this.readComplianceState(payload.regimeId as ComplianceMethodologyId);
+    if (!state || state.readOnly) {
+      return;
+    }
+    const create = 'Create the register';
+    const choice = await vscode.window.showInformationMessage(
+      `Create a control register for ${state.catalog.regime}?`,
+      {
+        modal: true,
+        detail: `${state.catalog.controls.length} controls, every one seeded Not assessed — which is deliberately `
+          + 'not the same as compliant. Two files are written into project_memory/operations/compliance/, '
+          + 'and they are committed with the rest of your repository.',
+      },
+      create,
+    );
+    if (choice !== create) {
+      return;
+    }
+    await this.saveComplianceRegister(
+      state.workspaceRoot,
+      seedComplianceRegister(state.catalog, new Date()),
+      state.library,
+      state.catalog,
+      {
+        id: `created-${payload.regimeId}-${Date.now()}`,
+        kind: 'register-created',
+        summary: `Created the ${state.catalog.regime} control register.`,
+        regimeId: state.catalog.policyId,
+        at: new Date().toISOString(),
+      },
+    );
+  }
+
+  private async handleDecideComplianceScope(payload: { regimeId: string }): Promise<void> {
+    const state = this.readComplianceState(payload.regimeId as ComplianceMethodologyId);
+    if (!state || state.readOnly) {
+      return;
+    }
+    const statement = await vscode.window.showInputBox({
+      title: `Scope for ${state.catalog.regime}`,
+      prompt: state.catalog.scoping,
+      value: state.register.scope.statement ?? state.register.scope.proposed ?? '',
+      ignoreFocusOut: true,
+      validateInput: value => value.trim().length < 20
+        ? 'Say what is in scope. Until this is decided every control reads Not assessed.'
+        : undefined,
+    });
+    if (!statement) {
+      return;
+    }
+
+    let variant: string | undefined = state.register.scope.variant;
+    if ((state.catalog.variants ?? []).length > 0) {
+      const picked = await vscode.window.showQuickPick(
+        (state.catalog.variants ?? []).map(entry => ({ label: entry })),
+        { title: 'Which variant applies?', placeHolder: 'This can change what evidence a control will accept.' },
+      );
+      if (!picked) {
+        return;
+      }
+      variant = picked.label;
+    }
+
+    const by = await this.pickComplianceAsserter(state.workspaceRoot);
+    if (!by) {
+      return;
+    }
+    const now = new Date().toISOString();
+    await this.saveComplianceRegister(
+      state.workspaceRoot,
+      {
+        ...state.register,
+        scope: {
+          ...state.register.scope,
+          statement: statement.trim(),
+          decidedBy: by,
+          decidedAt: now,
+          ...(variant ? { variant } : {}),
+        },
+      },
+      state.library,
+      state.catalog,
+      {
+        id: `scope-${payload.regimeId}-${Date.now()}`,
+        kind: 'scope-decided',
+        summary: `Scope decided for ${state.catalog.regime}.`,
+        regimeId: state.catalog.policyId,
+        actorContactId: by.contactId,
+        at: now,
+      },
+    );
+  }
+
+  /**
+   * Record one piece of evidence, then attach it.
+   *
+   * Sequential, cancellable at every step, and **nothing is written until the
+   * final confirmation** — which states what the record will and will not
+   * produce, because "this does not mark the control satisfied" is exactly the
+   * thing somebody assumes it does.
+   */
+  private async handleRecordComplianceEvidence(payload: { regimeId: string; controlRef: string }): Promise<void> {
+    const state = this.readComplianceState(payload.regimeId as ComplianceMethodologyId);
+    if (!state || state.readOnly) {
+      return;
+    }
+    const control = state.catalog.controls.find(entry => entry.ref === payload.controlRef);
+    if (!control) {
+      return;
+    }
+    const accepts = effectiveAccepts(control, state.register.scope.variant);
+
+    const kind = await vscode.window.showQuickPick(
+      (['independent', 'artifact', 'attestation', 'machine-check'] as const).map(entry => ({
+        label: EVIDENCE_KIND_LABEL[entry],
+        description: accepts.includes(entry) ? 'settles this control' : 'does not settle this control on its own',
+        detail: EVIDENCE_KIND_DETAIL[entry],
+        // Not `kind`: `vscode.QuickPickItem` already owns that name for its
+        // separator flag, and the collision silently retypes the whole array.
+        evidenceKind: entry,
+      })),
+      { title: `What kind of evidence is this? (${control.ref})`, ignoreFocusOut: true },
+    );
+    if (!kind) {
+      return;
+    }
+
+    const where = await vscode.window.showQuickPick(
+      [
+        { label: 'A file in this project', id: 'workspace-file' },
+        { label: 'An https link', id: 'url' },
+        { label: 'Held elsewhere — I’ll describe where', id: 'described', description: 'A real answer, not a fallback' },
+      ],
+      { title: 'Where is it?', ignoreFocusOut: true },
+    );
+    if (!where) {
+      return;
+    }
+
+    let locator: ComplianceLocator | undefined;
+    if (where.id === 'workspace-file') {
+      const picked = await vscode.window.showOpenDialog({
+        canSelectMany: false,
+        defaultUri: vscode.Uri.file(state.workspaceRoot),
+        title: 'Pick the document',
+      });
+      const chosen = picked?.[0];
+      if (!chosen) {
+        return;
+      }
+      const rel = path.relative(state.workspaceRoot, chosen.fsPath).replace(/\\/g, '/');
+      const normalized = normalizeComplianceRelPath(rel);
+      if (!normalized) {
+        await vscode.window.showWarningMessage(
+          'That file is outside this project, so the path would only resolve on your machine — and it '
+          + 'would be committed to every clone. Record it as held elsewhere instead.',
+          { modal: true },
+        );
+        return;
+      }
+      locator = { kind: 'workspace-file', path: normalized };
+      if (await this.isTrackedByGit(state.workspaceRoot, normalized)) {
+        const keep = 'Continue anyway';
+        const change = 'Record it as held elsewhere';
+        const answer = await vscode.window.showWarningMessage(
+          `${normalized} is tracked by git.`,
+          {
+            modal: true,
+            detail: 'Recording a reference here does not copy it — but that file is already in your repository '
+              + 'and goes to everyone who can clone it.',
+          },
+          change,
+          keep,
+        );
+        if (answer === change) {
+          const described = await vscode.window.showInputBox({
+            title: 'Where is it held, and who can produce it?',
+            value: path.basename(normalized),
+            ignoreFocusOut: true,
+          });
+          if (!described) {
+            return;
+          }
+          locator = { kind: 'described', where: described };
+        } else if (answer !== keep) {
+          return;
+        }
+      }
+    } else if (where.id === 'url') {
+      const url = await vscode.window.showInputBox({
+        title: 'The https link',
+        ignoreFocusOut: true,
+        validateInput: value => {
+          if (!value.trim()) { return 'Required.'; }
+          return sanitizeComplianceLocator({ kind: 'url', url: value })
+            ? undefined
+            : 'Must be an https link with no credentials, and not a loopback address. Any query string is dropped.';
+        },
+      });
+      if (!url) {
+        return;
+      }
+      locator = sanitizeComplianceLocator({ kind: 'url', url });
+    } else {
+      const described = await vscode.window.showInputBox({
+        title: 'Where is it held, and who can produce it?',
+        placeHolder: 'Held in Vanta; ask the security lead.',
+        ignoreFocusOut: true,
+        validateInput: value => value.trim().length < 5 ? 'Say where somebody would find it.' : undefined,
+      });
+      if (!described) {
+        return;
+      }
+      locator = { kind: 'described', where: described };
+    }
+    if (!locator) {
+      return;
+    }
+
+    const title = await vscode.window.showInputBox({
+      title: 'What is this record called?',
+      ignoreFocusOut: true,
+      validateInput: value => value.trim().length < 3 ? 'Give it a name somebody would recognise.' : undefined,
+    });
+    if (!title) {
+      return;
+    }
+
+    let issuer: string | undefined;
+    let issuerScope: string | undefined;
+    if (kind.evidenceKind === 'independent') {
+      issuer = await vscode.window.showInputBox({
+        title: 'Who issued it?',
+        placeHolder: 'The certification body, auditor, or counterparty.',
+        ignoreFocusOut: true,
+        validateInput: value => value.trim() ? undefined : 'Required for an outside statement.',
+      });
+      if (!issuer) {
+        return;
+      }
+      issuerScope = await vscode.window.showInputBox({
+        title: 'What does their statement cover?',
+        placeHolder: 'The scope they actually examined.',
+        ignoreFocusOut: true,
+        validateInput: value => value.trim()
+          ? undefined
+          : 'Required. A certificate for a different entity or boundary says nothing about this one.',
+      });
+      if (!issuerScope) {
+        return;
+      }
+    }
+
+    const period = effectivePeriodMonths(state.catalog, control, state.register.scope.variant);
+    const suggested = new Date();
+    suggested.setMonth(suggested.getMonth() + period);
+    const validUntil = await vscode.window.showInputBox({
+      title: 'Valid until (YYYY-MM-DD)',
+      value: suggested.toISOString().slice(0, 10),
+      prompt: `This control allows ${period} months. Clear the box if it states no expiry.`,
+      ignoreFocusOut: true,
+      validateInput: value => !value.trim() || Number.isFinite(Date.parse(value))
+        ? undefined
+        : 'Use YYYY-MM-DD, or clear it.',
+    });
+    if (validUntil === undefined) {
+      return;
+    }
+
+    const by = await this.pickComplianceAsserter(state.workspaceRoot);
+    if (!by) {
+      return;
+    }
+
+    const willSatisfy = accepts.includes(kind.evidenceKind);
+    const record = 'Record evidence';
+    const confirmed = await vscode.window.showInformationMessage(
+      `Record "${title}" against ${control.ref}?`,
+      {
+        modal: true,
+        detail: `${control.requirement}\n\n`
+          + `This does not mark the control satisfied — you set that separately. `
+          + (willSatisfy
+            ? `${control.ref} is settled by ${accepts.map(entry => EVIDENCE_KIND_LABEL[entry]).join(' or ')}, so this can carry it.`
+            : `${control.ref} is settled by ${accepts.map(entry => EVIDENCE_KIND_LABEL[entry]).join(' or ')}, so this alone will not carry it.`),
+      },
+      record,
+    );
+    if (confirmed !== record) {
+      return;
+    }
+
+    const now = new Date().toISOString();
+    const id = `ev-${title.toLowerCase().replace(/[^a-z0-9]+/g, '-').replace(/^-|-$/g, '').slice(0, 40) || 'record'}-${Date.now().toString(36)}`;
+    const evidence: ComplianceEvidence = {
+      id,
+      kind: kind.evidenceKind,
+      title: title.trim(),
+      locator,
+      ...(issuer ? { issuer } : {}),
+      ...(issuerScope ? { issuerScope } : {}),
+      assertedBy: by,
+      ...(validUntil.trim() ? { validUntil: new Date(Date.parse(validUntil)).toISOString() } : {}),
+      createdAt: now,
+      updatedAt: now,
+    };
+    const library = sanitizeComplianceEvidenceLibrary(
+      { version: 1, evidence: [...state.library.evidence, evidence], updatedAt: now },
+      new Date(),
+    );
+    const stored = library.evidence[library.evidence.length - 1];
+    const register: ComplianceRegimeRegister = {
+      ...state.register,
+      controls: state.register.controls.map(entry => entry.ref === control.ref
+        ? { ...entry, evidenceIds: [...entry.evidenceIds, stored?.id ?? id] }
+        : entry),
+    };
+    writeComplianceEvidenceLibrary(state.workspaceRoot, library, [register], new Date());
+    await this.saveComplianceRegister(state.workspaceRoot, register, library, state.catalog, {
+      id: `evidence-${id}`,
+      kind: 'evidence-recorded',
+      summary: `Recorded "${title}" against ${control.ref}.`,
+      regimeId: state.catalog.policyId,
+      controlRef: control.ref,
+      evidenceId: stored?.id ?? id,
+      actorContactId: by.contactId,
+      at: now,
+    });
+  }
+
+  /**
+   * Set a control's status, offering **only what it can actually reach**.
+   *
+   * Accepting `satisfied` and demoting it on the next read would be correct and
+   * would feel like a bug. Explaining that this control needs an outside party,
+   * and that none is attached, teaches the model of the system in one sentence.
+   */
+  private async handleSetComplianceControlStatus(payload: { regimeId: string; controlRef: string }): Promise<void> {
+    const state = this.readComplianceState(payload.regimeId as ComplianceMethodologyId);
+    if (!state || state.readOnly) {
+      return;
+    }
+    const control = state.catalog.controls.find(entry => entry.ref === payload.controlRef);
+    const record = state.register.controls.find(entry => entry.ref === payload.controlRef);
+    if (!control || !record) {
+      return;
+    }
+    if (!state.register.scope.decidedAt) {
+      await vscode.window.showWarningMessage(
+        'Decide scope first. Until it is recorded every control reads Not assessed whatever is entered against it.',
+        { modal: true },
+      );
+      return;
+    }
+
+    const reading = gradeComplianceRegime({
+      catalog: state.catalog,
+      register: state.register,
+      library: state.library,
+      now: new Date(),
+    }).controls.find(entry => entry.ref === control.ref)!;
+    const attached = record.evidenceIds
+      .map(id => state.library.evidence.find(entry => entry.id === id))
+      .filter((entry): entry is ComplianceEvidence => entry !== undefined);
+    const reach = reachableStatuses(reading, attached);
+
+    const picked = await vscode.window.showQuickPick(
+      reach.statuses.map(status => ({
+        label: COMPLIANCE_CONTROL_STATUS_LABEL[status],
+        description: status === record.status ? 'current' : '',
+        status,
+      })),
+      {
+        title: `${control.ref} — ${control.requirement}`,
+        placeHolder: reach.ceilingReason
+          ? `Satisfied is not available: ${reach.ceilingReason}`
+          : 'This is recorded against your name and today’s date.',
+        ignoreFocusOut: true,
+      },
+    );
+    if (!picked) {
+      return;
+    }
+
+    let justification: string | undefined = record.justification;
+    if (picked.status === 'not-applicable') {
+      justification = await vscode.window.showInputBox({
+        title: `Why does ${control.ref} not apply?`,
+        value: justification ?? '',
+        prompt: 'An unexplained exclusion is the first thing an assessor challenges.',
+        ignoreFocusOut: true,
+        validateInput: value => value.trim().length < 20 ? 'Say why. "We have no office" is a perfectly good reason.' : undefined,
+      });
+      if (!justification) {
+        return;
+      }
+    }
+
+    const by = await this.pickComplianceAsserter(state.workspaceRoot);
+    if (!by) {
+      return;
+    }
+    const now = new Date().toISOString();
+    const register: ComplianceRegimeRegister = {
+      ...state.register,
+      controls: state.register.controls.map(entry => entry.ref === control.ref
+        ? {
+          ...entry,
+          status: picked.status,
+          assertedBy: by,
+          ...(justification ? { justification } : {}),
+          transitions: [...entry.transitions, { at: now, status: picked.status, by }],
+        }
+        : entry),
+    };
+    await this.saveComplianceRegister(state.workspaceRoot, register, state.library, state.catalog, {
+      id: `status-${payload.regimeId}-${control.ref}-${Date.now()}`,
+      kind: 'status-set',
+      summary: `${control.ref} set to ${COMPLIANCE_CONTROL_STATUS_LABEL[picked.status]}.`,
+      regimeId: state.catalog.policyId,
+      controlRef: control.ref,
+      actorContactId: by.contactId,
+      at: now,
+    });
+  }
+
+  private async handleAttachComplianceEvidence(payload: { regimeId: string; controlRef: string }): Promise<void> {
+    const state = this.readComplianceState(payload.regimeId as ComplianceMethodologyId);
+    if (!state || state.readOnly) {
+      return;
+    }
+    const record = state.register.controls.find(entry => entry.ref === payload.controlRef);
+    if (!record) {
+      return;
+    }
+    const available = state.library.evidence
+      .filter(entry => !entry.retiredAt && !record.evidenceIds.includes(entry.id));
+    if (available.length === 0) {
+      await vscode.window.showInformationMessage(
+        'Nothing else is on file to attach. Record a new piece of evidence instead.',
+        { modal: true },
+      );
+      return;
+    }
+    const picked = await vscode.window.showQuickPick(
+      available.map(entry => ({
+        label: entry.title,
+        description: EVIDENCE_KIND_LABEL[entry.kind],
+        detail: entry.locator.kind === 'described' ? entry.locator.where : undefined,
+        id: entry.id,
+      })),
+      { title: `Attach to ${payload.controlRef}`, ignoreFocusOut: true },
+    );
+    if (!picked) {
+      return;
+    }
+    const register: ComplianceRegimeRegister = {
+      ...state.register,
+      controls: state.register.controls.map(entry => entry.ref === payload.controlRef
+        ? { ...entry, evidenceIds: [...entry.evidenceIds, picked.id] }
+        : entry),
+    };
+    await this.saveComplianceRegister(state.workspaceRoot, register, state.library, state.catalog, {
+      id: `attach-${picked.id}-${Date.now()}`,
+      kind: 'evidence-attached',
+      summary: `Attached "${picked.label}" to ${payload.controlRef}.`,
+      regimeId: state.catalog.policyId,
+      controlRef: payload.controlRef,
+      evidenceId: picked.id,
+      at: new Date().toISOString(),
+    });
+  }
+
+  private async handleDetachComplianceEvidence(
+    payload: { regimeId: string; controlRef: string; evidenceId: string },
+  ): Promise<void> {
+    const state = this.readComplianceState(payload.regimeId as ComplianceMethodologyId);
+    if (!state || state.readOnly) {
+      return;
+    }
+    const register: ComplianceRegimeRegister = {
+      ...state.register,
+      controls: state.register.controls.map(entry => entry.ref === payload.controlRef
+        ? { ...entry, evidenceIds: entry.evidenceIds.filter(id => id !== payload.evidenceId) }
+        : entry),
+    };
+    await this.saveComplianceRegister(state.workspaceRoot, register, state.library, state.catalog, {
+      id: `detach-${payload.evidenceId}-${Date.now()}`,
+      kind: 'evidence-detached',
+      summary: `Detached a record from ${payload.controlRef}.`,
+      regimeId: state.catalog.policyId,
+      controlRef: payload.controlRef,
+      evidenceId: payload.evidenceId,
+      at: new Date().toISOString(),
+    });
+  }
+
+  private async handleOpenComplianceEvidence(payload: { evidenceId: string }): Promise<void> {
+    const workspaceRoot = vscode.workspace.workspaceFolders?.[0]?.uri.fsPath;
+    if (!workspaceRoot) {
+      return;
+    }
+    const read = readComplianceEvidenceFile(workspaceRoot);
+    const library = read.config ? sanitizeComplianceEvidenceLibrary(read.config, new Date()) : undefined;
+    const entry = library?.evidence.find(record => record.id === payload.evidenceId);
+    if (!entry) {
+      return;
+    }
+    if (entry.locator.kind === 'workspace-file') {
+      await this.openWorkspaceRelativeFile(entry.locator.path);
+      return;
+    }
+    if (entry.locator.kind === 'url') {
+      const open = 'Open';
+      const choice = await vscode.window.showInformationMessage(
+        `Open ${entry.locator.url}?`,
+        { modal: true, detail: 'This leaves VS Code and opens your browser.' },
+        open,
+      );
+      if (choice === open) {
+        await vscode.env.openExternal(vscode.Uri.parse(entry.locator.url));
+      }
+      return;
+    }
+    // Nothing to open, and saying so is better than pretending otherwise.
+    await vscode.window.showInformationMessage(
+      `"${entry.title}" is held elsewhere.`,
+      { modal: true, detail: entry.locator.where },
+    );
+  }
+
+  private async handleRenewComplianceEvidence(payload: { evidenceId: string }): Promise<void> {
+    const workspaceRoot = vscode.workspace.workspaceFolders?.[0]?.uri.fsPath;
+    if (!workspaceRoot) {
+      return;
+    }
+    const read = readComplianceEvidenceFile(workspaceRoot);
+    if (read.preserveExisting) {
+      return;
+    }
+    const library = read.config ? sanitizeComplianceEvidenceLibrary(read.config, new Date()) : undefined;
+    const entry = library?.evidence.find(record => record.id === payload.evidenceId);
+    if (!library || !entry) {
+      return;
+    }
+    const validUntil = await vscode.window.showInputBox({
+      title: `New expiry for "${entry.title}" (YYYY-MM-DD)`,
+      value: entry.validUntil?.slice(0, 10) ?? '',
+      ignoreFocusOut: true,
+      validateInput: value => !value.trim() || Number.isFinite(Date.parse(value)) ? undefined : 'Use YYYY-MM-DD.',
+    });
+    if (validUntil === undefined) {
+      return;
+    }
+    const by = await this.pickComplianceAsserter(workspaceRoot);
+    if (!by) {
+      return;
+    }
+    const now = new Date().toISOString();
+    const updated = sanitizeComplianceEvidenceLibrary({
+      version: 1,
+      evidence: library.evidence.map(record => record.id === entry.id
+        ? {
+          ...record,
+          assertedBy: by,
+          ...(validUntil.trim() ? { validUntil: new Date(Date.parse(validUntil)).toISOString() } : {}),
+          updatedAt: now,
+        }
+        : record),
+      updatedAt: now,
+    }, new Date());
+    writeComplianceEvidenceLibrary(workspaceRoot, updated, [], new Date());
+    appendComplianceHistory(workspaceRoot, {
+      id: `renew-${entry.id}-${Date.now()}`,
+      kind: 'evidence-renewed',
+      summary: `Renewed "${entry.title}".`,
+      evidenceId: entry.id,
+      actorContactId: by.contactId,
+      at: now,
+    });
+    await this.syncState();
+  }
+
+  private async handleRecordComplianceReview(payload: { regimeId: string }): Promise<void> {
+    const state = this.readComplianceState(payload.regimeId as ComplianceMethodologyId);
+    if (!state || state.readOnly) {
+      return;
+    }
+    const scope = await vscode.window.showInputBox({
+      title: `What did this ${state.catalog.regime} review cover?`,
+      ignoreFocusOut: true,
+      validateInput: value => value.trim().length < 10 ? 'Say what was reviewed.' : undefined,
+    });
+    if (!scope) {
+      return;
+    }
+    const by = await this.pickComplianceAsserter(state.workspaceRoot);
+    if (!by) {
+      return;
+    }
+    const now = new Date().toISOString();
+    await this.saveComplianceRegister(
+      state.workspaceRoot,
+      { ...state.register, reviews: [{ at: now, by, scope: scope.trim() }, ...state.register.reviews] },
+      state.library,
+      state.catalog,
+      {
+        id: `review-${payload.regimeId}-${Date.now()}`,
+        kind: 'reviewed',
+        summary: `Recorded a review of ${state.catalog.regime}.`,
+        regimeId: state.catalog.policyId,
+        actorContactId: by.contactId,
+        at: now,
+      },
+    );
+  }
+
+  /** Create-only, then open. A notes file that exists is never rewritten. */
+  private async handleOpenComplianceNotes(payload: { regimeId: string }): Promise<void> {
+    const workspaceRoot = vscode.workspace.workspaceFolders?.[0]?.uri.fsPath;
+    const catalog = complianceCatalogFor(payload.regimeId as TestingMethodologyId);
+    if (!workspaceRoot || !catalog) {
+      return;
+    }
+    const relative = complianceRegimeNotesPath(catalog.policyId);
+    const absolute = path.join(workspaceRoot, relative);
+    if (!existsSync(absolute)) {
+      mkdirSync(path.dirname(absolute), { recursive: true });
+      writeFileSync(absolute, complianceNotesTemplate(catalog), 'utf8');
+    }
+    await this.openWorkspaceRelativeFile(relative);
+  }
+
+  /** Is this path tracked by git? "Could not check" is never "ignored". */
+  private async isTrackedByGit(workspaceRoot: string, relative: string): Promise<boolean> {
+    try {
+      await execFileAsync('git', ['check-ignore', '-q', relative], { cwd: workspaceRoot });
+      return false;
+    } catch (error) {
+      // Exit 1 means "not ignored", which is what we are warning about. Any
+      // other failure means git could not answer, and an unanswered question
+      // is not a clean bill of health.
+      const code = (error as { code?: number }).code;
+      return code === 1 || code === undefined;
+    }
+  }
+
   private async handleSetRiskFindingStatus(payload: { findingId: string; status: RiskStatus; note?: string }): Promise<void> {
     const workspaceRoot = vscode.workspace.workspaceFolders?.[0]?.uri.fsPath;
     const manager = this.atlas.riskOversightManager;
@@ -13736,6 +14612,41 @@ export function isProjectDashboardMessage(message: unknown): message is ProjectD
     return typeof candidate['payload'] === 'string';
   }
 
+  // Compliance. A closed vocabulary for the regime, a charset-constrained
+  // control reference, and an id shape for evidence — then the host re-resolves
+  // all three against the register it just read. An unknown id is a stale view
+  // rather than a fault, and resolves to nothing.
+  //
+  // Written as one comparison per message rather than a membership test on a
+  // Set: `dashboardMessageParity` reads this function's source for
+  // `candidate['type'] === '…'` literals, and a Set is invisible to it — the
+  // gate would be real and the parity test would report it missing.
+  if (candidate['type'] === 'complianceNextControl'
+    || candidate['type'] === 'createComplianceRegister'
+    || candidate['type'] === 'decideComplianceScope'
+    || candidate['type'] === 'openComplianceNotes'
+    || candidate['type'] === 'recordComplianceReview') {
+    const p = candidate['payload'] as Record<string, unknown> | undefined;
+    return typeof p === 'object' && p !== null && isComplianceRegimeId(p['regimeId']);
+  }
+  if (candidate['type'] === 'recordComplianceEvidence'
+    || candidate['type'] === 'attachComplianceEvidence'
+    || candidate['type'] === 'setComplianceControlStatus') {
+    const p = candidate['payload'] as Record<string, unknown> | undefined;
+    return typeof p === 'object' && p !== null
+      && isComplianceRegimeId(p['regimeId']) && isComplianceControlRef(p['controlRef']);
+  }
+  if (candidate['type'] === 'detachComplianceEvidence') {
+    const p = candidate['payload'] as Record<string, unknown> | undefined;
+    return typeof p === 'object' && p !== null
+      && isComplianceRegimeId(p['regimeId']) && isComplianceControlRef(p['controlRef'])
+      && isComplianceEvidenceId(p['evidenceId']);
+  }
+  if (candidate['type'] === 'openComplianceEvidence' || candidate['type'] === 'renewComplianceEvidence') {
+    const p = candidate['payload'] as Record<string, unknown> | undefined;
+    return typeof p === 'object' && p !== null && isComplianceEvidenceId(p['evidenceId']);
+  }
+
   if (candidate['type'] === 'openContactDeepLink') {
     const p = candidate['payload'] as Record<string, unknown> | undefined;
     return typeof p === 'object' && p !== null && typeof p['contactId'] === 'string' && p['contactId'].length > 0
@@ -14926,6 +15837,7 @@ async function collectDashboardSnapshot(
   const directorSnapshot = await collectDirectorSnapshot(atlas, workspaceRoot, gitSnapshot.currentBranch, runs);
   const documentsSnapshot = await collectDocumentsSnapshot(atlas, workspaceRoot);
   const riskSnapshot = collectRiskSnapshot(atlas, workspaceRoot);
+  const complianceSnapshot = collectComplianceSnapshot(atlas, workspaceRoot);
   const runtimeTdd = summarizeRuntimeTdd(runs);
   const contributorBreakdown = buildContributorSeries(gitSnapshot.commitLog, SERIES_DAY_RANGE);
   const costSummary = atlas.costTracker.getSummary();
@@ -15506,6 +16418,7 @@ async function collectDashboardSnapshot(
     director: directorSnapshot,
     documents: documentsSnapshot,
     risk: riskSnapshot,
+    ...(complianceSnapshot ? { compliance: complianceSnapshot } : {}),
     score: scoreBreakdown,
     ideation: {
       boardPath: buildIdeationRelativePath(ssotPath, activeIdeationWorkspace.boardFile),
@@ -19795,6 +20708,135 @@ const RISK_DOMAIN_LABEL: Record<RiskDomain, string> = {
  * been analysed: an unassessed project is unknown, not safe, and the page must not
  * imply otherwise.
  */
+/**
+ * Read every declared governance regime's register and grade it.
+ *
+ * **Reads only.** Twenty-four regimes; rendering a page must never put a
+ * committed file in somebody's repository, so nothing here seeds, and a regime
+ * with no register on disk is graded from the catalog alone — which reads
+ * `unexamined`, the honest answer.
+ *
+ * One clock for the whole pass, so two regimes in a single render cannot
+ * disagree about whether a certificate expired between them.
+ */
+function collectComplianceSnapshot(
+  atlas: AtlasMindContext,
+  workspaceRoot: string | undefined,
+): ComplianceSnapshot | undefined {
+  if (!workspaceRoot) {
+    return undefined;
+  }
+  // Read here rather than threaded in: the enabled set is a one-file read that
+  // several collectors already make, and passing it down would couple this to
+  // the order the caller happens to compute things in.
+  const enabledMethodologies = (readProjectTestingConfig(workspaceRoot)?.methodologies ?? [])
+    .filter(entry => entry.enabled)
+    .map(entry => entry.id);
+  const declared = enabledMethodologies
+    .map(id => complianceCatalogFor(id as TestingMethodologyId))
+    .filter((catalog): catalog is NonNullable<typeof catalog> => catalog !== undefined);
+  if (declared.length === 0) {
+    // No governance regime is declared. Absent rather than an empty board:
+    // a project that never claimed SOC 2 has not overlooked SOC 2.
+    return undefined;
+  }
+
+  const now = new Date();
+  const evidenceRead = readComplianceEvidenceFile(workspaceRoot);
+  const library = evidenceRead.config
+    ? sanitizeComplianceEvidenceLibrary(evidenceRead.config, now)
+    : emptyEvidenceLibrary(now);
+
+  const registers = new Map<ComplianceMethodologyId, ComplianceRegimeRegister>();
+  const demotions = new Map<ComplianceMethodologyId, readonly ComplianceDemotion[]>();
+  const notesPresent = new Set<ComplianceMethodologyId>();
+  const labels = new Map<ComplianceMethodologyId, string>();
+  const readings: ComplianceReading[] = [];
+  let readOnly = evidenceRead.preserveExisting;
+  let notice = evidenceRead.notice;
+
+  // Stack checks enter as evidence for the single control each answers, and
+  // only where that control's catalog entry accepts a machine check.
+  const technicalByRegime = new Map<string, TechnicalCheckInput[]>();
+  const signals = gatherComplianceSignalsForDashboard(workspaceRoot);
+  for (const policyId of policiesWithTechnicalControls()) {
+    if (!declared.some(catalog => catalog.policyId === policyId)) {
+      continue;
+    }
+    technicalByRegime.set(policyId, evaluateTechnicalControls(policyId, signals).map(result => ({
+      controlRef: result.controlRef,
+      state: result.state,
+      rule: result.rule,
+      question: result.question,
+      ...(result.evidence ? { evidence: result.evidence } : {}),
+    })));
+  }
+
+  for (const catalog of declared) {
+    const id = catalog.policyId;
+    labels.set(id, methodologyLabel(id));
+    if (complianceNotesExist(workspaceRoot, id)) {
+      notesPresent.add(id);
+    }
+    const read = readComplianceRegimeFile(workspaceRoot, id);
+    if (read.preserveExisting) {
+      readOnly = true;
+      notice = notice ?? read.notice;
+    }
+    if (read.config) {
+      const sanitized = sanitizeComplianceRegimeRegister(read.config, id, library, now);
+      registers.set(id, sanitized.register);
+      demotions.set(id, sanitized.demotions);
+    }
+    readings.push(gradeComplianceRegime({
+      catalog,
+      ...(registers.has(id) ? { register: registers.get(id)! } : {}),
+      library,
+      ...(technicalByRegime.has(id) ? { technical: technicalByRegime.get(id)! } : {}),
+      now,
+    }));
+  }
+
+  return buildComplianceSnapshot({
+    readings,
+    registers,
+    demotions,
+    library,
+    labels,
+    notesPresent,
+    paths: {
+      evidence: COMPLIANCE_EVIDENCE_SSOT_PATH,
+      evidenceSummary: COMPLIANCE_EVIDENCE_SUMMARY_PATH,
+      register: complianceRegimePath,
+      summary: complianceRegimeSummaryPath,
+      notes: complianceRegimeNotesPath,
+    },
+    readOnly,
+    ...(notice ? { notice } : {}),
+    now,
+  });
+}
+
+/** Display label for a methodology, from the one catalogue that declares it. */
+function methodologyLabel(id: string): string {
+  return TESTING_METHODOLOGY_DEFINITIONS.find(entry => entry.id === id)?.label ?? id;
+}
+
+/**
+ * The stack signals the technical control checks read.
+ *
+ * Deliberately minimal here: the Testing page gathers a far richer set, and
+ * duplicating that walk on every dashboard render would pay for a second scan
+ * to answer the same question. An ungathered signal reads `unknown`, which is
+ * the correct answer to "we did not look" and never counts as evidence.
+ */
+function gatherComplianceSignalsForDashboard(
+  workspaceRoot: string,
+): Parameters<typeof evaluateTechnicalControls>[1] {
+  void workspaceRoot;
+  return {};
+}
+
 function collectRiskSnapshot(atlas: AtlasMindContext, workspaceRoot: string | undefined): DashboardRiskSnapshot {
   const config = atlas.riskOversightManager?.getConfig();
   const history = workspaceRoot ? readRiskOversightHistory(workspaceRoot).slice(0, 50) : [];

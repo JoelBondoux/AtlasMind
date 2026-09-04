@@ -19,6 +19,31 @@ Older entries below describe the software as it was at the time and are delibera
 
 ---
 
+## v0.401.0 — Somewhere to record what actually evidences a regime
+
+The previous release stopped a governance regime reading green on a filename. This
+one gives you somewhere to put the real thing.
+
+A **Compliance page** sits under *Is it safe*, beside Risk — because risk is what we
+raised about ourselves and compliance is what somebody else will ask us to prove.
+Each control says what would settle it, and the page **withholds *Satisfied* and
+tells you why**: "this control can only be closed by a party outside the project,
+and no such statement is attached" is a sentence you can act on, where accepting the
+status and quietly demoting it later would feel like a bug.
+
+**What an assessor would ask next** is phrased the way it arrives — *"Your evidence
+for CC6.1 expired on 3 November. What is the current one?"* — because that is much
+harder to nod along to than a status.
+
+Recording evidence asks **where** it is: a file here, an https link, or held
+elsewhere and described. The third is an equal, not a fallback. And if you pick a
+file git tracks, AtlasMind says so before a confidential report reaches every clone
+of your repository.
+
+**`/compliance`** walks you through it, and `/compliance next` names the control most
+worth a decision. Neither records anything — a status needs a named person and a
+date, and that decision stays yours.
+
 ## v0.400.1 — Standard editions checked against the source
 
 Every standard edition AtlasMind records was verified against the issuing body's own published

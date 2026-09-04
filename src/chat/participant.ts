@@ -865,6 +865,7 @@ export async function runDeterministicSlashCommand(
     case 'buzz': await handleBuzzCommand(argument, stream, atlas, token); return true;
     case 'acp': await handleAcpCommand(argument, stream, atlas); return true;
     case 'lens': await handleLensCommand(stream); return true;
+    case 'compliance': await handleComplianceCommand(argument, stream); return true;
     case 'localci': await handleLocalCiCommand(stream, atlas); return true;
     case 'setup': await handleSetupCommand(argument, stream, atlas, token); return true;
     case 'followups': await handleFollowUpsCommand(stream, atlas); return true;
@@ -2332,6 +2333,240 @@ export async function collectLensSetupSteps(): Promise<import('../core/setupWalk
  * and someone may well only ever want one of them. A checklist lets them pick;
  * a wizard would march them through three files to reach the one they came for.
  */
+
+/**
+ * Gather the compliance guide's state from the workspace, never from the user.
+ *
+ * Reads only. Twenty-four regimes; asking `/compliance` a question must not put
+ * a committed file in somebody's repository.
+ */
+async function collectComplianceSetupState(): Promise<
+  import('../core/complianceSetupPlan.js').ComplianceSetupState
+> {
+  const [catalog, register, config, director] = await Promise.all([
+    import('../core/complianceControlCatalog.js'),
+    import('../core/complianceEvidenceRegister.js'),
+    import('../core/testingConfigLoader.js'),
+    import('../core/projectDirectorManager.js'),
+  ]);
+  const workspaceRoot = vscode.workspace.workspaceFolders?.[0]?.uri.fsPath;
+  const empty = {
+    declaredRegimes: [] as never[],
+    registeredRegimes: [] as never[],
+    scopedRegimes: [] as never[],
+    pendingImports: [] as never[],
+    focusControlCount: 0,
+    focusAssessedCount: 0,
+    evidenceCount: 0,
+    verifiableEvidenceCount: 0,
+    expiringWithoutFollowUp: 0,
+    hasRoster: false,
+    preserveExisting: false,
+  };
+  if (!workspaceRoot) {
+    return empty;
+  }
+
+  const declared = (config.readProjectTestingConfig(workspaceRoot)?.methodologies ?? [])
+    .filter(entry => entry.enabled)
+    .map(entry => catalog.complianceCatalogFor(entry.id))
+    .filter((entry): entry is NonNullable<typeof entry> => entry !== undefined);
+  if (declared.length === 0) {
+    return empty;
+  }
+
+  const now = new Date();
+  const evidenceRead = register.readComplianceEvidenceFile(workspaceRoot);
+  const library = evidenceRead.config
+    ? register.sanitizeComplianceEvidenceLibrary(evidenceRead.config, now)
+    : register.emptyEvidenceLibrary(now);
+
+  const registered: string[] = [];
+  const scoped: string[] = [];
+  let preserveExisting = evidenceRead.preserveExisting;
+  let focus: typeof declared[number] | undefined;
+  let focusAssessed = 0;
+
+  for (const entry of declared) {
+    const read = register.readComplianceRegimeFile(workspaceRoot, entry.policyId);
+    if (read.preserveExisting) {
+      preserveExisting = true;
+    }
+    if (!read.config) {
+      continue;
+    }
+    registered.push(entry.policyId);
+    const sanitized = register.sanitizeComplianceRegimeRegister(read.config, entry.policyId, library, now);
+    if (sanitized.register.scope.decidedAt) {
+      scoped.push(entry.policyId);
+    }
+    const assessed = sanitized.register.controls.filter(control => control.status !== 'not-assessed').length;
+    if (!focus || assessed > focusAssessed) {
+      focus = entry;
+      focusAssessed = assessed;
+    }
+  }
+  const chosen = focus ?? declared[0]!;
+
+  const live = library.evidence.filter(entry => !entry.retiredAt);
+  return {
+    declaredRegimes: declared.map(entry => entry.policyId),
+    registeredRegimes: registered as never[],
+    scopedRegimes: scoped as never[],
+    // A mapping written before the register existed, still waiting to be read in.
+    pendingImports: [] as never[],
+    focusRegime: chosen.policyId,
+    focusRegimeLabel: chosen.regime,
+    focusControlCount: chosen.controls.length,
+    focusAssessedCount: focusAssessed,
+    evidenceCount: live.length,
+    verifiableEvidenceCount: live.filter(entry => register.isVerifiableLocator(entry.locator)).length,
+    expiringWithoutFollowUp: live.filter(entry => register.evidenceFreshness(entry, now) === 'expiring').length,
+    hasRoster: (director.readProjectDirectorConfig(workspaceRoot)?.contacts ?? []).length > 0,
+    preserveExisting,
+  };
+}
+
+/**
+ * `/compliance` — the walkthrough, a regime's readout, or the next control.
+ *
+ * Nothing here records anything. `next` names a control and says what would
+ * settle it; it offers no button that sets a status, because a status needs a
+ * named person and a date and that decision belongs on the page.
+ */
+async function handleComplianceCommand(
+  argument: string,
+  stream: vscode.ChatResponseStream,
+): Promise<void> {
+  const [plan, walkthrough, catalogMod, registerMod, readinessMod, dashboardMod] = await Promise.all([
+    import('../core/complianceSetupPlan.js'),
+    import('../core/setupWalkthrough.js'),
+    import('../core/complianceControlCatalog.js'),
+    import('../core/complianceEvidenceRegister.js'),
+    import('../core/complianceReadiness.js'),
+    import('../core/complianceDashboard.js'),
+  ]);
+
+  const state = await collectComplianceSetupState();
+  const steps = plan.buildComplianceSetupPlan(state);
+  const wanted = (argument ?? '').trim().toLowerCase();
+  const workspaceRoot = vscode.workspace.workspaceFolders?.[0]?.uri.fsPath;
+
+  const openBoard = (): void => {
+    stream.button({
+      command: 'atlasmind.openProjectDashboard',
+      title: 'Open the Compliance page',
+      arguments: ['compliance'],
+    });
+  };
+
+  // `/compliance next` — the next control worth a decision, and what would
+  // settle it. Deliberately not a button that decides it.
+  if (wanted === 'next' && workspaceRoot && state.focusRegime) {
+    const catalog = catalogMod.complianceCatalogFor(state.focusRegime);
+    const read = registerMod.readComplianceRegimeFile(workspaceRoot, state.focusRegime);
+    if (catalog && read.config) {
+      const now = new Date();
+      const evidenceRead = registerMod.readComplianceEvidenceFile(workspaceRoot);
+      const library = evidenceRead.config
+        ? registerMod.sanitizeComplianceEvidenceLibrary(evidenceRead.config, now)
+        : registerMod.emptyEvidenceLibrary(now);
+      const sanitized = registerMod.sanitizeComplianceRegimeRegister(read.config, state.focusRegime, library, now);
+      const reading = readinessMod.gradeComplianceRegime({
+        catalog, register: sanitized.register, library, now,
+      });
+      const next = dashboardMod.nextUnassessedControl(reading);
+      if (!next) {
+        stream.markdown(`Every ${catalog.regime} control carries a decision. Nothing is waiting.`);
+        openBoard();
+        return;
+      }
+      stream.markdown([
+        `### ${next.ref} — ${next.requirement}`,
+        '',
+        `**Where it stands.** ${next.readingLabel} — ${next.statement}`,
+        '',
+        `**What would settle it.** ${next.acceptsLabel}.`,
+        ...(next.acceptsReason ? ['', `_${next.acceptsReason}_`] : []),
+        ...(next.requiresIndependence
+          ? ['', '**Only somebody outside this project can close this one.** Nothing you produce about yourself will carry it.']
+          : []),
+        ...(next.corroborating.length > 0
+          ? ['', `AtlasMind checked something related — _${next.corroborating[0]!.question}_ — but this control is not settled by a machine check.`]
+          : []),
+        '',
+        `Refreshed every ${next.periodMonths} months.`,
+        '',
+        '---',
+        '',
+        'Recording the decision is a human act: it goes on the page, against a named person and a date. That is what makes it evidence rather than a claim.',
+      ].join('\n'));
+      openBoard();
+      return;
+    }
+  }
+
+  // `/compliance <regime>` — one regime's readout.
+  const named = wanted
+    ? catalogMod.complianceRegimeIds().map(id => catalogMod.complianceCatalogFor(id))
+      .find(entry => entry?.policyId === wanted)
+    : undefined;
+  if (named && workspaceRoot) {
+    const now = new Date();
+    const evidenceRead = registerMod.readComplianceEvidenceFile(workspaceRoot);
+    const library = evidenceRead.config
+      ? registerMod.sanitizeComplianceEvidenceLibrary(evidenceRead.config, now)
+      : registerMod.emptyEvidenceLibrary(now);
+    const read = registerMod.readComplianceRegimeFile(workspaceRoot, named.policyId);
+    const reg = read.config
+      ? registerMod.sanitizeComplianceRegimeRegister(read.config, named.policyId, library, now).register
+      : undefined;
+    const reading = readinessMod.gradeComplianceRegime({
+      catalog: named, ...(reg ? { register: reg } : {}), library, now,
+    });
+    stream.markdown([
+      `### ${named.regime}`,
+      '',
+      `**${reading.readinessLabel}.** ${reading.statement}`,
+      '',
+      reading.standardDetail,
+      '',
+      `${reading.applicableCount} applicable control${reading.applicableCount === 1 ? '' : 's'} of ${reading.declaredCount} declared.`,
+      '',
+      ...reading.notes.map(note => `- ${note}`),
+      '',
+      `_${reading.disclaimer}_`,
+    ].join('\n'));
+    openBoard();
+    return;
+  }
+
+  // Default: the walkthrough.
+  const progress = plan.complianceSetupProgress(steps);
+  stream.markdown(walkthrough.renderSetupGuideMarkdown(plan.COMPLIANCE_SETUP_GUIDE, steps, progress));
+
+  const next = plan.nextComplianceSetupStep(steps);
+  if (next) {
+    const position = plan.complianceSetupStepPosition(steps, next.id);
+    stream.markdown(['', '---', '', `**Next.** ${next.title} — step ${position.index} of ${position.total}.`].join('\n'));
+    if (next.action && walkthrough.isOpeningAction(next.action.command)) {
+      stream.button({
+        command: next.action.command,
+        title: next.action.title,
+        ...(next.action.args ? { arguments: next.action.args } : {}),
+      });
+    }
+  } else {
+    stream.markdown([
+      '',
+      '---',
+      '',
+      'Set up. Nothing here is a statement of compliance — it records what evidence exists and who said so.',
+    ].join('\n'));
+  }
+  openBoard();
+}
+
 async function handleLensCommand(stream: vscode.ChatResponseStream): Promise<void> {
   const [{ LENS_SETUP_GUIDE }, walkthrough] = await Promise.all([
     import('../core/lensDeclarationPlan.js'),

@@ -90,6 +90,7 @@ describe('slash command counts stated in prose', () => {
   const routingSource = readFileSync(path.join(process.cwd(), 'src', 'views', 'chatSlashRouting.ts'), 'utf8');
   const spelled: Record<number, string> = {
     18: 'eighteen', 19: 'nineteen', 20: 'twenty', 21: 'twenty-one', 22: 'twenty-two', 23: 'twenty-three',
+    24: 'twenty-four', 25: 'twenty-five',
   };
 
   it('states the size of the deterministic set correctly', () => {
