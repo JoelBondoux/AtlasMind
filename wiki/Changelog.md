@@ -19,6 +19,13 @@ Older entries below describe the software as it was at the time and are delibera
 
 ---
 
+## v0.402.2 — CI unblocked
+
+Two checks had been red. `workspaceScope`'s tests used literal Windows paths, so
+they passed on a Windows machine and failed on Linux and macOS — which had been
+blocking every promotion to `main` since the file landed. And a redaction test's
+synthetic API key had not been added to the gitleaks allowlist.
+
 ## v0.402.1 — Housekeeping
 
 Committed pending workspace memory: roadmap graph and improvement-plan edits, and

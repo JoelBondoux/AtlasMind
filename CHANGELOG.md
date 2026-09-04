@@ -6,6 +6,23 @@ The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/),
 
 ## [Unreleased]
 
+## [0.402.2] - 2026-09-04
+
+### Fixed
+
+- Fixed `tests/core/workspaceScope.test.ts` failing on every non-Windows runner.
+  The fixtures were literal Windows paths, and `path.basename('C:\studio\home')`
+  returns the whole string on POSIX rather than `home` — so the suite passed on a
+  Windows machine and failed on both Linux and macOS, blocking every promotion to
+  `main` since the file landed. The paths are now built with `path.join`, so the
+  test means the same thing on every runner.
+- Added `tests/core/gameBuildLog.test.ts` to the gitleaks path allowlist. It
+  asserts the build-log reader redacts an API key before retaining a diagnostic,
+  which requires a key-shaped fixture; the value is the alphabet and has never been
+  valid. The allowlist is by path rather than by pattern on purpose — allowlisting
+  the shape would switch off detection everywhere it matters.
+
+
 ## [0.402.1] - 2026-09-04
 
 ### Changed

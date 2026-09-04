@@ -4,7 +4,7 @@
 
 <h1 align="center">AtlasMind</h1>
 
-<p align="center"><sub> · <strong>Current source version: 0.402.1</strong> · </sub></p>
+<p align="center"><sub> · <strong>Current source version: 0.402.2</strong> · </sub></p>
 
 
 <p align="center">
@@ -131,6 +131,14 @@ allow-list, redaction and file-withholding behaviour, retained metadata, provide
 important limits on overrides and compliance claims.
 
 ---
+
+## What's new in 0.402.2
+
+Two CI blockers cleared so the release could ship. `workspaceScope`'s test
+fixtures were literal Windows paths, so `path.basename` split them on Windows and
+returned the whole string everywhere else — the suite passed on a Windows machine
+and failed on both other runners. And the Unreal build-log reader's redaction test
+was added without its synthetic key being added to the gitleaks allowlist.
 
 ## What's new in 0.402.1
 

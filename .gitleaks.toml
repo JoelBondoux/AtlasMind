@@ -42,4 +42,7 @@ paths = [
   # The JUnit reader is asserted not to surface a failure message containing a
   # key, which requires a fixture containing one.
   '''tests/core/testingPolicyCoverage\.test\.ts''',
+  # The Unreal build-log reader is asserted to redact a key before retaining a
+  # diagnostic, so the fixture is a key-shaped string — the alphabet, in fact.
+  '''tests/core/gameBuildLog\.test\.ts''',
 ]

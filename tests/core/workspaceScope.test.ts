@@ -1,6 +1,17 @@
 import { describe, expect, it } from 'vitest';
 import { sanitizeProjectComposition, type ProjectComposition } from '../../src/core/projectComposition.ts';
+import path from 'node:path';
 import { resolveWorkspaceScope, type WorkspaceFolderReference } from '../../src/core/workspaceScope.ts';
+
+/**
+ * A workspace path in the host's own separator.
+ *
+ * These were written as literal Windows paths, which meant `path.basename`
+ * split them on Windows and returned the whole string everywhere else — so the
+ * suite passed on one developer's machine and failed on both CI runners that
+ * were not Windows.
+ */
+const at = (...segments: string[]): string => path.join('C:', 'studio', ...segments);
 
 const composition = (): ProjectComposition => sanitizeProjectComposition({
   components: [
@@ -11,9 +22,9 @@ const composition = (): ProjectComposition => sanitizeProjectComposition({
 })!;
 
 const folders = (): WorkspaceFolderReference[] => [
-  { name: 'Gameplay', fsPath: 'C:\\studio\\home' },
-  { name: 'Backend', fsPath: 'C:\\studio\\backend' },
-  { name: 'Content', fsPath: 'C:\\studio\\content' },
+  { name: 'Gameplay', fsPath: at('home') },
+  { name: 'Backend', fsPath: at('backend') },
+  { name: 'Content', fsPath: at('content') },
 ];
 
 describe('resolveWorkspaceScope', () => {
@@ -22,7 +33,7 @@ describe('resolveWorkspaceScope', () => {
     expect(scope).toEqual({
       target: { kind: 'default' },
       label: 'Content',
-      roots: [{ name: 'Content', fsPath: 'C:\\studio\\content' }],
+      roots: [{ name: 'Content', fsPath: at('content') }],
       unknown: [],
       complete: true,
     });
@@ -31,7 +42,7 @@ describe('resolveWorkspaceScope', () => {
   it('resolves the declared home only when a caller opts in', () => {
     const scope = resolveWorkspaceScope(folders(), composition(), { kind: 'home' });
     expect(scope.roots).toEqual([
-      expect.objectContaining({ componentId: 'gameplay', fsPath: 'C:\\studio\\home', vcs: 'git' }),
+      expect.objectContaining({ componentId: 'gameplay', fsPath: at('home'), vcs: 'git' }),
     ]);
     expect(scope.complete).toBe(true);
   });
