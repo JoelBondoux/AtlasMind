@@ -19,6 +19,22 @@ Older entries below describe the software as it was at the time and are delibera
 
 ---
 
+## v0.400.1 — Standard editions checked against the source
+
+Every standard edition AtlasMind records was verified against the issuing body's own published
+record. Eight of eighteen were wrong, which is worth saying plainly: they had been written from
+recall rather than from sources, and an edition nobody checked is a claim.
+
+The consequential one is the **EU AI Act**. Regulation (EU) 2026/1744 came into force on
+27 July 2026 and moved the high-risk application dates, so the base 2024 citation no longer
+describes the text in force. Also corrected: **OWASP ASVS** (4.0.3 → 5.0.0), **SLSA** (v1.0 →
+v1.2), **SPDX License List** (3.25 → 3.28.0), **CycloneDX** (1.6 → 1.7), **NIST SP 800-53**
+(Rev. 5 → Release 5.2.0), **ISO/IEC 27001** (now carrying the published 2024 climate amendment),
+and **NERC CIP**, whose recorded version family had not described the standards for years.
+
+**HIPAA was deliberately left alone.** The proposed Security Rule update is still a proposal,
+and recording a draft as though it were in force is the same mistake pointing the other way.
+
 ## v0.400.0 — A compliance regime is no longer graded on a filename
 
 All twenty-four governance methodologies — ISO 27001, SOC 2, GDPR, HIPAA, PCI DSS, NIST 800-53,

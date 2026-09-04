@@ -4,7 +4,7 @@
 
 <h1 align="center">AtlasMind</h1>
 
-<p align="center"><sub> · <strong>Current source version: 0.400.0</strong> · </sub></p>
+<p align="center"><sub> · <strong>Current source version: 0.400.1</strong> · </sub></p>
 
 
 <p align="center">
@@ -131,6 +131,24 @@ allow-list, redaction and file-withholding behaviour, retained metadata, provide
 important limits on overrides and compliance claims.
 
 ---
+
+## What's new in 0.400.1
+
+**Every standard edition AtlasMind records was checked against the issuing body's own published
+record — and eight of the eighteen were wrong.** They had been written from recall rather than
+from sources, and an edition nobody checked is a claim, which is precisely the failure the
+compliance work exists to prevent.
+
+The consequential one is the **EU AI Act**: Regulation (EU) 2026/1744 came into force on
+27 July 2026 and moved the high-risk application dates, so the base 2024 citation no longer
+describes the text in force. Also corrected — **OWASP ASVS** 4.0.3 to 5.0.0, **SLSA** v1.0 to
+v1.2, **SPDX License List** 3.25 to 3.28.0, **CycloneDX** 1.6 to 1.7, **NIST SP 800-53** to
+Release 5.2.0, **ISO/IEC 27001** to carry its published 2024 climate amendment, and **NERC CIP**,
+whose recorded version family had not described the standards for years.
+
+**HIPAA was deliberately left at the 2013 rule.** The proposed Security Rule update is still a
+proposal, and recording a draft as though it were in force is the same mistake pointing the
+other way.
 
 ## What's new in 0.400.0
 

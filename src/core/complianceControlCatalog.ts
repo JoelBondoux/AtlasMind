@@ -386,7 +386,7 @@ export const COMPLIANCE_CONTROL_CATALOG: Readonly<Record<ComplianceMethodologyId
 
   'nist-800-53': {
     policyId: 'nist-800-53',
-    regime: 'NIST SP 800-53 Rev. 5 / SP 800-171',
+    regime: 'NIST SP 800-53 Rev. 5 (Release 5.2.0) / SP 800-171',
     scoping: 'The impact-level baseline (Low / Moderate / High) or the 800-171 CUI scope. Map the tailored baseline, not the full catalogue.',
     variants: ['Low', 'Moderate', 'High', '800-171 CUI'],
     defaultPeriodMonths: 12,

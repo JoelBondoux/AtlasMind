@@ -24,6 +24,7 @@ import type {
   ComplianceEvidenceLibrary,
   ComplianceRegimeRegister,
 } from '../../src/core/complianceEvidenceRegister.ts';
+import { METHODOLOGY_STANDARDS } from '../../src/core/testingStandards.ts';
 
 const NOW = new Date('2026-09-04T00:00:00.000Z');
 
@@ -546,15 +547,23 @@ describe('an assessment made against another edition is named, never re-pointed'
 
     expect(reading.editionDrift?.assessedAgainst).toContain('2013');
     expect(reading.editionDrift?.modelled).toContain('2022');
+    expect(reading.editionDrift?.modelled).not.toContain('2013');
     expect(reading.notes.some(note => note.includes('not been carried across'))).toBe(true);
   });
 
   it('says nothing when the register matches the edition AtlasMind models', () => {
+    // Read from the standards table rather than hardcoded. A literal here went
+    // stale the moment the ISO edition was corrected to carry its 2024
+    // amendment — the detector was right and the fixture was wrong, which is
+    // exactly the direction this test should fail in.
     const catalog = COMPLIANCE_CONTROL_CATALOG[NEEDS_OUTSIDE];
+    const tracking = METHODOLOGY_STANDARDS[NEEDS_OUTSIDE];
+    expect(tracking.kind).toBe('tracked');
+    const current = tracking as { name: string; edition: string };
     const base = register(catalog, []);
     const reading = gradeComplianceRegime({
       catalog,
-      register: { ...base, assessedAgainst: { name: 'ISO/IEC 27001', edition: '2022' } },
+      register: { ...base, assessedAgainst: { name: current.name, edition: current.edition } },
       now: NOW,
     });
     expect(reading.editionDrift).toBeUndefined();

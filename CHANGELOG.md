@@ -6,6 +6,48 @@ The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/),
 
 ## [Unreleased]
 
+## [0.400.1] - 2026-09-04
+
+### Fixed
+
+- Verified every tracked standard edition in `testingStandards.ts` against the issuing body's
+  own published record, and corrected eight of the eighteen. The initial table was populated
+  from recall rather than from sources, which is exactly the failure this feature exists to
+  prevent — an edition nobody checked is a claim, and the module's own rule is that unknown is
+  never current.
+  - **EU AI Act** — the base 2024 citation no longer describes the text in force. Regulation
+    (EU) 2026/1744 (Digital Omnibus on AI, in force 27 July 2026) amended Article 113 and moved
+    the high-risk application dates. Now recorded as the consolidated 2026-07-27 version.
+  - **OWASP ASVS** 4.0.3 → **5.0.0** (30 May 2025), a full restructure to 17 chapters.
+  - **SLSA** v1.0 → **v1.2** (24 November 2025), two releases behind; adds the Source Track.
+  - **SPDX License List** 3.25 → **3.28.0** (20 February 2026), about three releases behind.
+  - **CycloneDX** 1.6 → **1.7** (21 October 2025), also now ECMA-424 2nd Edition.
+  - **NIST SP 800-53** `Rev. 5` → **Rev. 5, Release 5.2.0** (27 August 2025). NIST moved to
+    incremental patch releases rather than a monolithic Rev. 6, so the bare revision number is
+    no longer the precise designation.
+  - **ISO/IEC 27001** 2022 → **2022 + Amd 1:2024**. The climate-action amendment is published
+    and certification-relevant, so a bare `2022` understated what a conforming ISMS must cover.
+  - **NERC CIP** — the recorded "CIP-002 to CIP-013, Version 5/6 family" was wrong three ways:
+    it stopped at CIP-013 and omitted CIP-014 and CIP-015, "Version 5/6" has not described the
+    set for years, and NERC versions each standard independently rather than as a family. Now
+    recorded as "CIP-002 through CIP-015, each at its own approved version".
+- Confirmed correct and left alone: SOC 2 Trust Services Criteria, GDPR, PCI DSS 4.0.1,
+  ISO 26262:2018, DO-178C, DORA, and WCAG 2.2 (now also carrying its ISO/IEC 40500:2025
+  designation and the December 2024 Recommendation revision date).
+- **HIPAA deliberately left at the 2013 Omnibus rule.** The December 2024 NPRM proposing the
+  first major Security Rule update since 2013 is still a proposal — comments closed March 2025
+  and final action is now projected for 2027. A proposed rule does not supersede one in force,
+  and recording it as though it did would be the same class of error in the other direction.
+- Reconciled the NIST edition duplicated in `complianceControlCatalog`'s regime label, so the
+  catalog and the standards table cannot disagree about which edition is modelled.
+
+### Note
+
+- ISO 26262 Edition 3 (DIS since August 2026) and IEC 62304 Edition 2 (FDIS since May 2026) are
+  both mid-revision with 2027 targets. Neither is recorded as superseding, because a draft is
+  not an edition — `supersededBy` means a newer edition has actually been published.
+
+
 ## [0.400.0] - 2026-09-04
 
 ### Added
