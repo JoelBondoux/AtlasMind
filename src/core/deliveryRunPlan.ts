@@ -31,6 +31,12 @@
  * warning — every command in the plan is listed in the confirmation either way,
  * so a miss loses emphasis, never a gate.
  *
+ * **The environment is named in the title, not left to the column label.** Once
+ * the page carries a runbook per stage, "Run the Deploy column?" is a question
+ * with three different answers, and the one it means is the difference between
+ * starting a dev server and dispatching a production deployment. The stage
+ * travels with the plan so the sentence the user reads cannot omit it.
+ *
  * Nothing here touches `vscode`, a terminal, or the filesystem: it is pure, so
  * the properties above are unit-testable.
  */
@@ -55,6 +61,8 @@ export interface DeliveryRunCommand {
 export interface DeliveryRunPlan {
   phaseId: string;
   phaseLabel: string;
+  /** Which environment's column this is, when the runbook is stage-scoped. */
+  stageLabel?: string;
   /** Every runnable command in the column, in the order the guide lists them. */
   commands: DeliveryRunCommand[];
   /** Steps in the column with nothing to run — named so the plan is not read as the column. */
@@ -155,11 +163,14 @@ export function chainDeliveryCommands(
 /**
  * Plan one column of the detected runbook. `phase` must be a phase the host
  * just rebuilt from the workspace — never a shape assembled from a webview
- * message — because everything downstream trusts these command strings.
+ * message — because everything downstream trusts these command strings. The
+ * same applies to `stageLabel`: it is the name off the rebuilt runbook, not a
+ * label the page sent along with the request.
  */
 export function buildDeliveryRunPlan(
   phase: DeliveryGuidePhase,
   shellPath: string | undefined,
+  stageLabel?: string,
 ): DeliveryRunPlan {
   const shellFamily = classifyDeliveryShell(shellPath);
   const commands: DeliveryRunCommand[] = [];
@@ -173,9 +184,11 @@ export function buildDeliveryRunPlan(
     }
   }
   const { lines, failFast } = chainDeliveryCommands(commands.map(entry => entry.command), shellFamily);
+  const stage = String(stageLabel ?? '').trim();
   return {
     phaseId: phase.id,
     phaseLabel: phase.label,
+    ...(stage ? { stageLabel: stage } : {}),
     commands,
     skipped,
     lines,
@@ -201,7 +214,11 @@ export interface DeliveryRunConfirmation {
 export function buildDeliveryRunConfirmation(plan: DeliveryRunPlan): DeliveryRunConfirmation {
   const count = plan.commands.length;
   const lines: string[] = [];
-  lines.push(`AtlasMind will run ${count} command${count === 1 ? '' : 's'} in the ${DELIVERY_RUN_TERMINAL_NAME} terminal, in this order:`);
+  lines.push(
+    plan.stageLabel
+      ? `AtlasMind will run ${count} command${count === 1 ? '' : 's'} from the ${plan.stageLabel} runbook in the ${DELIVERY_RUN_TERMINAL_NAME} terminal, in this order:`
+      : `AtlasMind will run ${count} command${count === 1 ? '' : 's'} in the ${DELIVERY_RUN_TERMINAL_NAME} terminal, in this order:`,
+  );
   lines.push('');
   plan.commands.forEach((entry, index) => {
     lines.push(`${index + 1}. ${entry.command}${entry.reach === 'outward' ? '   ⟵ leaves this machine' : ''}`);
@@ -223,7 +240,9 @@ export function buildDeliveryRunConfirmation(plan: DeliveryRunPlan): DeliveryRun
   );
   lines.push('AtlasMind does not read the terminal output; check the result yourself.');
   return {
-    title: `Run the ${plan.phaseLabel} column?`,
+    title: plan.stageLabel
+      ? `Run the ${plan.phaseLabel} column for ${plan.stageLabel}?`
+      : `Run the ${plan.phaseLabel} column?`,
     detail: lines.join('\n'),
     confirmLabel: plan.outward.length > 0 ? `Run ${count}, including ${plan.outward.length} outward` : `Run ${count} command${count === 1 ? '' : 's'}`,
   };

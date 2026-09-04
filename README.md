@@ -4,7 +4,7 @@
 
 <h1 align="center">AtlasMind</h1>
 
-<p align="center"><sub> · <strong>Current source version: 0.396.0</strong> · </sub></p>
+<p align="center"><sub> · <strong>Current source version: 0.399.0</strong> · </sub></p>
 
 
 <p align="center">
@@ -132,10 +132,77 @@ important limits on overrides and compliance claims.
 
 ---
 
-## What's new in 0.396.0
+## What's new in 0.399.0
 
 The last Marketplace publication, **v0.382.6**, is the baseline. The full history is in
 [CHANGELOG.md](CHANGELOG.md).
+
+- **No vital file is ownerless any more.** Every tracked document and every artifact the repository is
+  expected to keep now shows who keeps it current. With nobody assigned it falls to the **Director** —
+  the role that already owns the workflow itself — and with no Director named it falls to you, which is
+  the one guess that cannot hand somebody else's files to a person who never agreed to them.
+
+- **A default looks like a default.** A recorded owner is a filled tag; a derived one is dashed and says
+  "default". Collapsing the two would let a derivation read as a decision on the one surface whose
+  purpose is recording what people agreed to.
+
+- **Defaults follow the roster until you decide to freeze them.** Nothing is written when you open the
+  page — `project-director.json` is committed, and seeding assignments because a tab was opened would
+  commit words nobody said. Replacing the Director therefore re-points every unassigned file at once.
+  One confirmed action records them as real assignments, showing each one first.
+
+- **Vital artifacts can now be assigned like anything else.** A missing one joins the Director's work
+  board; a present one stays off it and carries the standing owner instead, because a file reviewed
+  yesterday is not outstanding work and is still somebody's job tomorrow.
+
+## What's new in 0.398.0
+
+The full history is in [CHANGELOG.md](CHANGELOG.md).
+
+- **Every row of the artifact inventory now does something.** It could tell you `SECURITY.md` was
+  missing and leave you to write it; a red or amber row now carries the AtlasMind logo, which opens a
+  draft that searches for an equivalent under another name first, then writes the file from what the
+  repository already says about itself — with anything it cannot determine left as a marked placeholder
+  rather than invented.
+
+- **Green rows carry it too, and that is the point.** "This file exists" was never the same claim as
+  "this file still describes the project". The review hand-off reads the file, compares it against what
+  the repository actually does now, and reports what is stale, missing or contradicted elsewhere — with
+  "this is current" a first-class answer rather than a cue to invent improvements.
+
+- **A produced artifact is never authored.** `out/`, `dist/`, `coverage/` and a packaged `.vsix` are
+  absent most of the time and that absence is usually correct, so their rows ask how the artifact is
+  produced and whether the ignore rules are right, and say explicitly that nothing is to be created.
+  Asking an agent to "create the missing coverage directory" invites a fabrication committed as fact.
+
+- **The row is now two clear controls rather than one ambiguous one.** The filename opens the file and
+  the logo opens the hand-off; the whole-row click and its chevron are gone, because a control nested
+  inside a control is invalid markup and unreachable by keyboard.
+
+## What's new in 0.397.0
+
+The full history is in [CHANGELOG.md](CHANGELOG.md).
+
+- **The Delivery page now has a runbook for every stage, not one for the project.** Local, Staging and
+  Production each get their own Prerequisites → Validate → Package → Deploy → Publish columns, derived
+  from that stage's own record. Switching between them is instant — the whole set arrives with the page.
+
+- **The local runbook finally answers "how do I run this?"** Its Deploy column becomes **Run it here**:
+  the project's `dev`/`start`/`watch`/`serve` script, `go run`, `cargo run`, or the F5 launch path when
+  a `.vscode/launch.json` exists. It lists no publish command, and uncommitted work is normal there
+  rather than a blocker — while a stage you promote *into* still treats a dirty tree as one.
+
+- **What is different between two stages is now stated, not left to be spotted.** A card names what the
+  open stage requires that the stage below it does not, what it requires more strictly, and — the
+  direction usually hidden — anything the stage below requires and this one does not. Every row names
+  the declared pipeline rule that produced it, and a side-by-side table shows all stages at once.
+
+- **A run confirmation now says which environment it is for.** "Run the Deploy column?" had three
+  possible answers; it now reads "Run the Deploy column for Production?" and lists that stage's commands.
+
+## What's new in 0.396.0
+
+The full history is in [CHANGELOG.md](CHANGELOG.md).
 
 - **Existing game build logs can now be read without launching a build.** The pure reader accepts a
   caller-supplied report, verifies its engine/version surface, and extracts bounded diagnostics,

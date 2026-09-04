@@ -397,6 +397,20 @@
      */
     roadmapView: 'canvas',
     /**
+     * Which delivery stage's runbook is showing, by stage id.
+     *
+     * Empty means "whichever the host derived from the checked-out branch",
+     * which is the honest default: the branch you are on is evidence of the
+     * environment you are thinking about, and it is a fact the pipeline
+     * declares rather than a preference. A click pins a stage for the session.
+     *
+     * Held in the webview, not the host: choosing which runbook to read is a
+     * way of *looking* at the pipeline, not a change to it, and routing it
+     * through a message would make an offline switch into something that can
+     * fail.
+     */
+    deliveryStageId: '',
+    /**
      * The node the canvas is filtered to, if any.
      *
      * Held in the webview rather than the host: filtering is a way of *looking*
@@ -1519,6 +1533,11 @@
       render();
       return;
     }
+    if (action === 'delivery-stage') {
+      state.deliveryStageId = String(payload || '');
+      render();
+      return;
+    }
     if (action === 'roadmap-view') {
       state.roadmapView = payload === 'list' || payload === 'completed' || payload === 'people'
         ? payload : 'canvas';
@@ -2493,6 +2512,19 @@
     }
     if (action === 'delivery-discuss-step') {
       if (payload) { vscode.postMessage({ type: 'discussDeliveryGuideStep', payload: payload }); }
+      return;
+    }
+    if (action === 'record-vital-owners') {
+      // The page asks for the derived defaults to be recorded and cannot say who
+      // they name: the host rebuilds them and shows every one before writing.
+      vscode.postMessage({ type: 'recordVitalFileOwners' });
+      return;
+    }
+    if (action === 'artifact-discuss') {
+      // The page names a row; the host re-probes the inventory and decides which
+      // of the three requests that row deserves. A produced artifact can never
+      // be talked into being authored from here.
+      if (payload) { vscode.postMessage({ type: 'discussArtifactSignal', payload: payload }); }
       return;
     }
     if (action === 'promote-plan') {
@@ -4295,6 +4327,76 @@
     const nodes = (graph.active || []).concat(graph.completed || []);
     const found = nodes.find(node => node.origin && node.origin.kind === kind && node.origin.sourceId === id);
     return found ? { text: found.text, id: found.id } : null;
+  }
+
+  /** The resolved vital-file owners, tolerant of a snapshot that never arrived. */
+  function vitalFileReport() {
+    const report = state.snapshot && state.snapshot.vitalFiles;
+    return report && Array.isArray(report.entries)
+      ? report
+      : { entries: [], recordedCount: 0, defaultedCount: 0, unownedCount: 0, rules: [], summary: '' };
+  }
+
+  /**
+   * Who keeps this file current.
+   *
+   * Always rendered for a vital file, which is the whole point: the ownership
+   * badge beside it returns nothing when nobody was manually assigned, and a
+   * file that belongs to everyone belongs to nobody. A *derived* owner is marked
+   * as one — collapsing "somebody decided this" into "nobody has, so it falls
+   * here" would let a default read as a decision on the one surface whose
+   * purpose is recording what people agreed to.
+   */
+  function renderVitalFileOwner(kind, id) {
+    const entry = vitalFileReport().entries.find(candidate =>
+      candidate.file && candidate.file.kind === kind && candidate.file.id === String(id));
+    if (!entry) { return ''; }
+    const owner = entry.owner || {};
+    if (owner.rule === 'unowned') {
+      return `<span class="vital-owner is-unowned" title="${escapeAttr(owner.ruleText || '')}">No owner</span>`;
+    }
+    const name = owner.contactName || 'Unnamed';
+    const extra = owner.otherDirectorCount
+      ? ` ${owner.otherDirectorCount} other person holds the Director role.`
+      : '';
+    return owner.recorded
+      ? `<span class="vital-owner is-recorded" title="${escapeAttr((owner.ruleText || '') + extra)}">Owner: ${escapeHtml(name)}</span>`
+      : `<span class="vital-owner is-default" title="${escapeAttr((owner.ruleText || '') + extra + ' Nothing is written until you record it.')}">Owner: ${escapeHtml(name)} · default</span>`;
+  }
+
+  /**
+   * The standing-ownership card.
+   *
+   * Separate from the work board on purpose: that one holds what is outstanding,
+   * and a file reviewed yesterday is not outstanding work while still being
+   * somebody's job tomorrow. A blocker — no roster, or no Director named — is
+   * stated with the fix rather than shown as a clean empty list.
+   */
+  function renderVitalFileOwnership() {
+    const report = vitalFileReport();
+    if (report.entries.length === 0) { return ''; }
+    const owner = report.defaultOwner;
+    return `
+      <article class="list-card vital-owners" style="grid-column: 1 / -1">
+        <div class="delivery-guide-header">
+          <div>
+            <p class="section-kicker">Who keeps these current</p>
+            <h3>Ownership of vital files</h3>
+            <p class="section-copy">${escapeHtml(report.summary)} A file with nobody assigned falls to the Director — that is derived, so replacing the Director re-points every one of them at once. Recording an owner writes it into the committed roster instead, where it stays until somebody changes it.</p>
+          </div>
+          <span class="tag ${report.unownedCount ? 'tag-critical' : report.defaultedCount ? 'tag-warn' : 'tag-good'}">${report.recordedCount} recorded · ${report.defaultedCount} default${report.unownedCount ? ` · ${report.unownedCount} unowned` : ''}</span>
+        </div>
+        ${report.blocker ? `<p class="vital-owner-blocker">⚠ ${escapeHtml(report.blocker)}</p>` : ''}
+        ${report.notice ? `<p class="vital-owner-notice">${escapeHtml(report.notice)}</p>` : ''}
+        ${(!report.blocker && report.defaultedCount > 0 && owner) ? `
+          <div class="vital-owner-actions">
+            <button type="button" class="action-link" data-action="record-vital-owners"
+              title="${escapeAttr('Write these defaults into project-director.json as assignments. You will see every one before anything is written.')}">Record ${report.defaultedCount} default${report.defaultedCount === 1 ? '' : 's'} to ${escapeHtml(owner.contactName)}</button>
+          </div>` : ''}
+        <div class="vital-owner-rules">
+          ${(report.rules || []).map(rule => `<p><strong>${escapeHtml(rule.id)}</strong> — ${escapeHtml(rule.describes)}</p>`).join('')}
+        </div>
+      </article>`;
   }
 
   function renderDirectorOwnerBadge(kind, stableId) {
@@ -12534,6 +12636,7 @@
         <div class="row-head">
           <strong>${escapeHtml(entry.label || entry.path)}</strong>
           <span class="tag-group">
+            ${renderVitalFileOwner('document', entry.id)}
             <span class="tag ${tone}">${escapeHtml(entry.statusLabel)}</span>
             <span class="tag">${escapeHtml(docCadenceLabel(entry.cadence))}</span>
           </span>
@@ -13751,24 +13854,58 @@
       </div>`;
   }
 
+  /** The set of per-stage runbooks, tolerant of a snapshot that never arrived. */
+  function deliveryRunbookSet(snapshot) {
+    const set = snapshot && snapshot.delivery && snapshot.delivery.runbooks;
+    if (!set || !Array.isArray(set.runbooks)) {
+      return { runbooks: [], staged: false, selectionReason: '', omittedStageCount: 0, rules: [] };
+    }
+    return set;
+  }
+
+  /**
+   * The runbook on screen: the one pinned this session, else the one the host
+   * derived from the checked-out branch, else the first stage. A pinned id that
+   * no longer resolves falls through rather than blanking the page — a stage can
+   * be renamed or removed from the pipeline between two renders.
+   */
+  function activeDeliveryRunbook(snapshot) {
+    const set = deliveryRunbookSet(snapshot);
+    const byStage = id => set.runbooks.filter(entry => entry.guide && entry.guide.stageId === id)[0];
+    return (state.deliveryStageId && byStage(state.deliveryStageId))
+      || (set.selectedStageId && byStage(set.selectedStageId))
+      || set.runbooks[0]
+      || null;
+  }
+
   function renderDelivery(snapshot) {
-    const guide = snapshot.delivery && snapshot.delivery.guide;
+    const set = deliveryRunbookSet(snapshot);
+    const runbook = activeDeliveryRunbook(snapshot);
+    const guide = runbook && runbook.guide;
     const blockerCount = guide ? Number(guide.blockerCount || 0) : 0;
+    const staged = set.staged && guide && guide.stageId;
     return `
       ${pageSectionOpen('delivery')}
         ${renderPageIntro({
           kicker: 'Project delivery',
-          title: 'Package, deploy, and publish this project',
+          title: staged
+            ? `How to build, run, and ship at each stage`
+            : 'Package, deploy, and publish this project',
           summary: guide
-            ? `AtlasMind detected the ${guide.ecosystem} toolchain, ${guide.configuredCount} configured or conventional step${guide.configuredCount === 1 ? '' : 's'}, and ${blockerCount} missing blocker${blockerCount === 1 ? '' : 's'}. Opening or refreshing this page never runs a command; every run starts with a click and a confirmation.`
+            ? `${staged ? `One runbook per delivery stage. This is ${guide.stageName}: ` : ''}AtlasMind detected the ${guide.ecosystem} toolchain, ${guide.configuredCount} configured or conventional step${guide.configuredCount === 1 ? '' : 's'}, and ${blockerCount} missing blocker${blockerCount === 1 ? '' : 's'}. Opening or refreshing this page never runs a command; every run starts with a click and a confirmation.`
             : 'AtlasMind could not collect a project-specific delivery guide. The deployment pipeline remains available below.',
           chips: guide ? [
+            ...(staged ? [{ label: guide.stageName, tone: guide.isProtected ? 'critical' : guide.stageKind === 'local' ? 'good' : 'accent' }] : []),
             { label: guide.toolchain || guide.ecosystem, tone: guide.ecosystem === 'Undeclared' ? 'warn' : 'accent' },
             { label: guide.target || 'Target not configured', tone: guide.target === 'Not configured' ? 'warn' : 'good' },
             { label: blockerCount ? `${blockerCount} blocker${blockerCount === 1 ? '' : 's'}` : 'No detected blockers', tone: blockerCount ? 'critical' : 'good' },
           ] : [],
         })}
+        ${renderDeliveryStageBar(set, guide)}
         ${renderProjectDeliveryGuide(guide)}
+        ${renderDeliveryStageDifference(runbook)}
+        ${renderDeliveryStageComparison(set)}
+        ${renderVitalFileOwnership()}
         ${renderStagePipeline(snapshot)}
         <div class="delivery-grid">
           <article class="panel-card">
@@ -13869,6 +14006,157 @@
     `;
   }
 
+  /**
+   * The stage selector: one chip per runbook, lowest rank first.
+   *
+   * Hidden entirely when there is one runbook, because a selector with a single
+   * option is a control that teaches nothing. The reason the page opened where
+   * it did is stated underneath rather than left implicit — a surface that
+   * silently chooses a different environment than you expected is worse than one
+   * that chooses and says so.
+   */
+  function renderDeliveryStageBar(set, guide) {
+    if (!set.staged || set.runbooks.length < 2) { return ''; }
+    const activeId = guide && guide.stageId;
+    return `
+      <div class="delivery-stage-bar" role="tablist" aria-label="Delivery stage runbooks">
+        ${set.runbooks.map(entry => {
+          const stage = entry.guide || {};
+          const blockers = Number(stage.blockerCount || 0);
+          const isActive = stage.stageId === activeId;
+          const hint = [
+            stage.stageKind === 'local' ? 'Your own machine.' : `Target: ${stage.target || 'not configured'}.`,
+            stage.branchRef ? `Branch ${stage.branchRef}.` : '',
+            stage.isProtected ? 'Protected: promotions always confirm.' : '',
+          ].filter(Boolean).join(' ');
+          return `
+            <button type="button" role="tab" aria-selected="${isActive ? 'true' : 'false'}"
+              class="delivery-stage-chip${isActive ? ' is-active' : ''}${blockers > 0 ? ' has-blockers' : ''}"
+              data-action="delivery-stage" data-payload="${escapeAttr(stage.stageId || '')}" title="${escapeAttr(hint)}">
+              <span>${escapeHtml(stage.stageName || 'Stage')}</span>
+              <span class="delivery-stage-count">${blockers > 0 ? `${blockers} blocking` : `${Number(stage.configuredCount || 0)}/${Number(stage.totalCount || 0)}`}</span>
+            </button>`;
+        }).join('')}
+      </div>
+      ${set.selectionReason && !state.deliveryStageId ? `<p class="delivery-stage-reason">${escapeHtml(set.selectionReason)}</p>` : ''}
+      ${set.omittedStageCount > 0 ? `<p class="delivery-stage-reason">${set.omittedStageCount} further stage${set.omittedStageCount === 1 ? '' : 's'} in the pipeline ${set.omittedStageCount === 1 ? 'is' : 'are'} not shown here. The full list is on the Stages card below.</p>` : ''}`;
+  }
+
+  /**
+   * What this stage asks for that the one below it does not — the sentence
+   * somebody needs before promoting, and the thing a pair of twenty-row lists
+   * cannot convey by being read side by side.
+   *
+   * A dropped requirement is shown with the same weight as an added one. It is
+   * the alarming direction (a rollback declared on Staging and absent on
+   * Production is a real finding) and the one a "what's new here" list would
+   * quietly hide.
+   */
+  function renderDeliveryStageDifference(runbook) {
+    if (!runbook || !runbook.guide || !runbook.guide.stageId) { return ''; }
+    const deltas = Array.isArray(runbook.deltas) ? runbook.deltas : [];
+    const requirements = Array.isArray(runbook.requirements) ? runbook.requirements : [];
+    const previous = runbook.comparedToStageName;
+    const changeCopy = {
+      added: { icon: '+', label: 'new here', tone: 'warn' },
+      changed: { icon: 'Δ', label: 'stricter here', tone: 'warn' },
+      dropped: { icon: '−', label: `not required here`, tone: 'critical' },
+    };
+    return `
+      <article class="list-card delivery-difference" style="grid-column: 1 / -1">
+        <p class="section-kicker">What is different</p>
+        <h3>${previous ? `${escapeHtml(runbook.guide.stageName)} compared with ${escapeHtml(previous)}` : `${escapeHtml(runbook.guide.stageName)} requirements`}</h3>
+        <p class="section-copy">${previous
+          ? 'Every row names the declared pipeline rule that produced it. A row missing here is a requirement the stage below has and this one does not — shown, not hidden, because that is the direction worth noticing.'
+          : 'This is the first stage in the pipeline, so there is nothing below it to compare against. These are the requirements it carries.'}</p>
+        ${previous ? (deltas.length > 0 ? `
+          <div class="delivery-difference-list">
+            ${deltas.map(delta => {
+              const meta = changeCopy[delta.change] || changeCopy.added;
+              const req = delta.requirement || {};
+              return `
+                <div class="delivery-difference-row tone-${escapeAttr(meta.tone)}">
+                  <span class="delivery-difference-icon" aria-hidden="true">${meta.icon}</span>
+                  <div>
+                    <div class="delivery-difference-head">
+                      <strong>${escapeHtml(req.label || '')}</strong>
+                      <span class="tag ${meta.tone === 'critical' ? 'tag-critical' : 'tag-warn'}">${escapeHtml(meta.label)}</span>
+                    </div>
+                    <p>${escapeHtml(req.detail || '')}</p>
+                    ${delta.previousDetail && delta.change !== 'dropped' ? `<p class="delivery-difference-was">On ${escapeHtml(previous)}: ${escapeHtml(delta.previousDetail)}</p>` : ''}
+                    ${delta.change === 'dropped' ? `<p class="delivery-difference-was">${escapeHtml(previous)} declares this; ${escapeHtml(runbook.guide.stageName)} does not.</p>` : ''}
+                    <p class="delivery-difference-rule">Rule: ${escapeHtml(req.rule || '')}</p>
+                  </div>
+                </div>`;
+            }).join('')}
+          </div>`
+          : `<div class="dashboard-empty">Nothing differs. ${escapeHtml(runbook.guide.stageName)} declares the same requirements as ${escapeHtml(previous)} — which, for a stage further along the pipeline, is itself worth a look.</div>`) : ''}
+        ${requirements.length > 0 ? `
+          <div class="delivery-requirement-list">
+            ${requirements.map(req => `
+              <div class="delivery-requirement kind-${escapeAttr(req.kind || 'gate')}">
+                <strong>${escapeHtml(req.label || '')}</strong>
+                <span>${escapeHtml(req.detail || '')}</span>
+              </div>`).join('')}
+          </div>`
+          : `<div class="dashboard-empty">${escapeHtml(runbook.guide.stageName)} declares no promotion gates, backup, data store, or rollback in the pipeline file.</div>`}
+      </article>`;
+  }
+
+  /**
+   * Every stage at once, one row per declared rule.
+   *
+   * The per-stage card answers "what changed on the way here"; this answers
+   * "what does the whole pipeline look like", which is the question somebody
+   * asks when deciding whether the shape is right rather than when promoting.
+   * Only rules that fire somewhere are listed — fourteen mostly-empty rows
+   * would bury the four that carry the pipeline's actual policy.
+   */
+  function renderDeliveryStageComparison(set) {
+    if (!set.staged || set.runbooks.length < 2) { return ''; }
+    const rules = Array.isArray(set.rules) ? set.rules : [];
+    const rows = rules.filter(rule => set.runbooks.some(entry =>
+      (entry.requirements || []).some(req => req.ruleId === rule.id)));
+    if (rows.length === 0) { return ''; }
+    return `
+      <article class="list-card delivery-matrix" style="grid-column: 1 / -1">
+        <p class="section-kicker">Side by side</p>
+        <h3>What each stage requires</h3>
+        <p class="section-copy">Derived from the pipeline file, never from a model: the same <code>delivery.json</code> always produces this table. A blank cell means the stage does not declare that requirement — not that it was assessed and found safe.</p>
+        <div class="delivery-matrix-scroll">
+          <table class="delivery-matrix-table">
+            <thead>
+              <tr>
+                <th scope="col">Requirement</th>
+                ${set.runbooks.map(entry => `<th scope="col">${escapeHtml((entry.guide && entry.guide.stageName) || 'Stage')}</th>`).join('')}
+              </tr>
+            </thead>
+            <tbody>
+              ${rows.map(rule => `
+                <tr>
+                  <th scope="row" title="${escapeAttr(rule.describes || '')}">${escapeHtml(deliveryRuleLabel(set, rule.id))}</th>
+                  ${set.runbooks.map(entry => {
+                    const match = (entry.requirements || []).filter(req => req.ruleId === rule.id)[0];
+                    return match
+                      ? `<td class="is-required" title="${escapeAttr(match.detail || '')}"><span aria-label="required">✓</span></td>`
+                      : '<td class="is-absent"><span aria-label="not declared">—</span></td>';
+                  }).join('')}
+                </tr>`).join('')}
+            </tbody>
+          </table>
+        </div>
+      </article>`;
+  }
+
+  /** The human label for a rule, taken from whichever stage declares it. */
+  function deliveryRuleLabel(set, ruleId) {
+    for (const entry of set.runbooks) {
+      const match = (entry.requirements || []).filter(req => req.ruleId === ruleId)[0];
+      if (match && match.label) { return match.label; }
+    }
+    return ruleId;
+  }
+
   function deliveryGuideStatus(status) {
     if (status === 'configured') { return { icon: '✓', label: 'configured', tone: 'good' }; }
     if (status === 'conventional') { return { icon: '◇', label: 'runtime convention', tone: 'accent' }; }
@@ -13895,8 +14183,8 @@
       <article class="list-card delivery-guide" style="grid-column: 1 / -1">
         <div class="delivery-guide-header">
           <div>
-            <p class="section-kicker">Detected runbook</p>
-            <h3>What to do, in order</h3>
+            <p class="section-kicker">Detected runbook${guide.stageId ? ` · ${escapeHtml(guide.stageName)}` : ''}</p>
+            <h3>What to do, in order${guide.stageId ? ` for ${escapeHtml(guide.stageName)}` : ''}</h3>
             <p class="section-copy">Each column starts collapsed. Its numbered identifier carries the strongest status inside: green is fully configured, blue includes a runtime convention, amber needs a manual check, and red has a missing blocker. Open a column for its steps. The AtlasMind logo on any non-green step opens a focused resolution draft; <strong>⧉</strong> copies a command, <strong>&gt;_</strong> types it without pressing Enter, and <strong>▶ Run</strong> runs the column only after you confirm the exact list.</p>
           </div>
           <span class="tag ${guide.blockerCount ? 'tag-critical' : 'tag-good'}">${guide.configuredCount}/${guide.totalCount} detected · ${guide.blockerCount} blocking</span>
@@ -13921,7 +14209,7 @@
                 </div>
                 <span class="delivery-guide-phase-status tag ${phaseTone === 'critical' ? 'tag-critical' : phaseTone === 'warn' ? 'tag-warn' : phaseTone === 'good' ? 'tag-good' : ''}">${escapeHtml(phaseStatus)}</span>
               </summary>
-              ${runnable > 0 ? `<div class="delivery-guide-phase-actions"><button type="button" class="delivery-guide-run" data-action="delivery-run-phase" data-payload="${escapeAttr(phase.id)}" title="Run the ${runnable} detected command${runnable === 1 ? '' : 's'} in this column, in order. You confirm the exact list first." aria-label="Run the ${escapeAttr(phase.label)} column">▶ Run ${runnable}</button></div>` : ''}
+              ${runnable > 0 ? `<div class="delivery-guide-phase-actions"><button type="button" class="delivery-guide-run" data-action="delivery-run-phase" data-payload="${escapeAttr(phase.key)}" title="Run the ${runnable} detected command${runnable === 1 ? '' : 's'} in this column, in order. You confirm the exact list first." aria-label="Run the ${escapeAttr(phase.label)} column">▶ Run ${runnable}</button></div>` : ''}
               <div class="delivery-guide-steps" role="list">
                 ${(phase.steps || []).map(step => {
                   const meta = deliveryGuideStatus(step.status);
@@ -13933,7 +14221,7 @@
                         <span class="tag ${meta.tone === 'critical' ? 'tag-critical' : meta.tone === 'good' ? 'tag-good' : meta.tone === 'warn' ? 'tag-warn' : ''}">${escapeHtml(meta.label)}</span>
                         ${step.status !== 'configured' ? renderAtlasDiscussAction(
                           'delivery-discuss-step',
-                          step.id,
+                          step.key,
                           `Ask AtlasMind to resolve ${step.label}`,
                           { intent: 'fix', title: `Ask AtlasMind to inspect and resolve the non-green “${step.label}” runbook step` },
                         ) : ''}
@@ -13943,8 +14231,8 @@
                         <div class="delivery-guide-command-block">
                           <pre class="delivery-guide-command"><code>${escapeHtml(step.command)}</code></pre>
                           <div class="delivery-guide-command-actions">
-                            <button type="button" class="code-icon-btn" data-action="delivery-copy-command" data-payload="${escapeAttr(step.id)}" title="Copy to clipboard" aria-label="Copy the ${escapeAttr(step.label)} command to the clipboard">⧉</button>
-                            <button type="button" class="code-icon-btn" data-action="delivery-send-command" data-payload="${escapeAttr(step.id)}" title="Send to terminal — typed, not run. Press Enter yourself." aria-label="Send the ${escapeAttr(step.label)} command to the terminal">&gt;_</button>
+                            <button type="button" class="code-icon-btn" data-action="delivery-copy-command" data-payload="${escapeAttr(step.key)}" title="Copy to clipboard" aria-label="Copy the ${escapeAttr(step.label)} command to the clipboard">⧉</button>
+                            <button type="button" class="code-icon-btn" data-action="delivery-send-command" data-payload="${escapeAttr(step.key)}" title="Send to terminal — typed, not run. Press Enter yourself." aria-label="Send the ${escapeAttr(step.label)} command to the terminal">&gt;_</button>
                           </div>
                         </div>` : ''}
                       ${step.path ? `<button type="button" class="action-link delivery-guide-source" data-action="file" data-payload="${escapeAttr(step.path)}">Open ${escapeHtml(step.path)}</button>` : ''}
@@ -15342,6 +15630,20 @@
     `;
   }
 
+  /**
+   * One row of the artifact inventory.
+   *
+   * The row used to *be* a button when the file existed, which is why the Atlas
+   * action could not live inside it: a control nested in a control is invalid
+   * markup and unreachable by keyboard. The row is now a container, and the two
+   * things you can do with it are separate controls — the filename opens the
+   * file, the AtlasMind logo opens the hand-off. The chevron went with the
+   * whole-row click: an affordance that no longer exists must not still be drawn.
+   *
+   * Every row carries a logo, including the green ones. A present artifact is
+   * the case the inventory was silent about, and "this file exists" is not the
+   * same claim as "this file still describes the project".
+   */
   function renderArtifactRow(artifact) {
     const rowClass = artifact.needsAttention ? 'artifact-row--warn'
       : artifact.exists ? 'artifact-row--ok'
@@ -15363,25 +15665,36 @@
       : artifact.retention === 'cache' ? ''
       : '';
 
-    const inner = `
-      <span class="artifact-icon">${icon}</span>
-      <div class="artifact-body">
-        <span class="artifact-name">${escapeHtml(artifact.label)}</span>
-        <span class="artifact-desc">${escapeHtml(artifact.description)}</span>
-        <div class="artifact-tags">
-          <span class="tag">${escapeHtml(artifact.lifecycle)}</span>
-          <span class="tag">${escapeHtml(artifact.type)}</span>
-          <span class="tag">${escapeHtml(artifact.origin)}</span>
-          <span class="tag ${retentionTagClass}">${escapeHtml(artifact.retention)}</span>
-        </div>
-      </div>
-      <span class="artifact-status ${statusClass}">${statusLabel}</span>
-    `;
+    const canOpen = artifact.exists && artifact.path && artifact.path.indexOf('*') === -1;
+    // The glyph comes from the host's classification, never from a second rule
+    // here: an icon promising a fix above a draft that asks a question is worse
+    // than no icon at all.
+    const intent = artifact.complianceIntent === 'author' ? 'fix'
+      : artifact.complianceIntent === 'explain' ? 'discuss'
+      : 'discuss';
+    const actionLabel = artifact.complianceAction || `Ask AtlasMind about ${artifact.label}`;
 
-    if (artifact.exists && artifact.path && !artifact.path.includes('*')) {
-      return `<button type="button" class="artifact-row ${rowClass}" data-action="file" data-payload="${escapeAttr(artifact.path)}">${inner}</button>`;
-    }
-    return `<div class="artifact-row ${rowClass}">${inner}</div>`;
+    return `
+      <div class="artifact-row ${rowClass}">
+        <span class="artifact-icon">${icon}</span>
+        <div class="artifact-body">
+          ${canOpen
+            ? `<button type="button" class="artifact-name artifact-open" data-action="file" data-payload="${escapeAttr(artifact.path)}" title="Open ${escapeAttr(artifact.path)}">${escapeHtml(artifact.label)}</button>`
+            : `<span class="artifact-name">${escapeHtml(artifact.label)}</span>`}
+          <span class="artifact-desc">${escapeHtml(artifact.description)}</span>
+          <div class="artifact-tags">
+            <span class="tag">${escapeHtml(artifact.lifecycle)}</span>
+            <span class="tag">${escapeHtml(artifact.type)}</span>
+            <span class="tag">${escapeHtml(artifact.origin)}</span>
+            <span class="tag ${retentionTagClass}">${escapeHtml(artifact.retention)}</span>
+          </div>
+        </div>
+        <div class="artifact-actions">
+          ${renderVitalFileOwner('artifact', artifact.id)}
+          ${renderAtlasDiscussAction('artifact-discuss', artifact.id, actionLabel, { intent: intent, title: actionLabel })}
+          <span class="artifact-status ${statusClass}">${statusLabel}</span>
+        </div>
+      </div>`;
   }
 
   function renderScoreRing(score) {

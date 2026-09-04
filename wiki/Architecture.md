@@ -912,11 +912,43 @@ gap, risk, debt, document, assignment, and follow-up records. The dashboard clea
 filter hiding that record, scrolls and focuses it, and draws a temporary focus outline. A removed or
 not-yet-loaded record safely degrades to its owning page.
 
+**Every vital file has an owner.** Each tracked document and each artifact the repository is expected to
+keep carries a chip saying who keeps it current: an explicit assignment first, then the person holding
+the Director role, then you, then a stated gap. It is *derived*, not written — `project-director.json`
+is committed, and seeding assignments because a page was opened would put words in somebody's mouth — so
+replacing the Director re-points every unassigned file at once. A derived default is drawn as a dashed
+"default" chip and a recorded one as a filled tag, because a derivation must never read as a decision.
+With no Director named the file falls to you rather than to the first name on the roster, which is
+frequently a bot. One confirmed action on the Delivery page records the defaults as real assignments,
+showing every one before it is written.
+
+The Delivery page's **artifact inventory** can now act on what it reports. Every row carries an
+AtlasMind action, and what it asks for comes from the row's own facts. A missing document the repository
+is expected to keep opens a draft that searches for an equivalent under another name first, then writes
+the file from what the repository already says about itself, marking anything it cannot determine rather
+than inventing it. A present file gets reviewed rather than rewritten — what is stale, missing, or
+contradicted elsewhere, with "this is current" a valid answer. A produced artifact (`out/`, `dist/`,
+`coverage/`, a packaged `.vsix`) is never authored: its row asks how it is produced and whether the
+ignore rules are right, and the draft says so in the text the model reads. The filename opens the file
+and the logo opens the hand-off; the row itself is no longer a click target, because a control nested
+inside a control is invalid markup and unreachable by keyboard.
+
+The Delivery page carries **one runbook per delivery stage**, not one for the project. Local, Staging and
+Production each get their own Prerequisites → Validate → Package → Deploy → Publish columns, derived from
+that stage's own record: its gates, its declared checks, its backup, its target, and whether it publishes
+at all. The local runbook's *Deploy* column becomes **Run it here** — the `dev`/`start`/`watch` script or
+the F5 launch path — and it never lists a publish command; uncommitted work is normal there and blocking
+on a stage you promote into. A **What is different** card states what the open stage asks that the stage
+below it does not, including anything the stage below requires and this one does not, and a side-by-side
+table shows every stage against the same declared rule list. Switching stage is offline: the whole set is
+already in the snapshot.
+
 Detected commands can be copied, typed into a terminal, or run a column at a time, and `deliveryRunPlan.ts`
 decides what a terminal is asked to do before anything is sent. The webview posts an opaque step or phase
-id and the host rebuilds the guide to resolve the command, so the page can name a step but never supply
-one. Send-to-terminal withholds the newline, leaving your keystroke as the last gate on a single command;
-a column run confirms every command in order, marks the ones that leave the machine, and states whether
+key — which carries the stage id verbatim, so it names exactly one runbook — and the host rebuilds the
+guide to resolve the command, so the page can name a step but never supply one. Send-to-terminal withholds
+the newline, leaving your keystroke as the last gate on a single command; a column run names the stage in
+its confirmation, lists every command in order, marks the ones that leave the machine, and states whether
 the shell can stop on failure. Guarded promotion is untouched and remains the only path that executes
 commands from a reviewed `delivery.json`.
 

@@ -985,9 +985,113 @@ publication states remain explicitly unconfigured until an external provider ada
 
 Models a project's **deployment stages** (Local → Staging → Production …) and the **promotion ("push") edges** between them, surfaced on the Project Dashboard → Delivery page. A `DeliveryConfig` (`stages: DeploymentStage[]`, `paths: PromotionPath[]`) is persisted as the source of truth at `project_memory/operations/delivery.json`, with a human-readable `delivery.md` runbook mirror regenerated on every write (`renderDeliveryMarkdown`) so the pipeline is understandable and editable by a newcomer without asking the AI. The persistence helpers (`readDeliveryConfig`/`writeDeliveryConfig`/`seedDeliveryConfig`) are `vscode`-free (node `fs` only), matching the `DataPrivacyManager` pattern.
 
-**The pipeline and the shipping instructions are separate readings of the same evidence.** The stage model answers *where a version moves*; `buildProjectDeliveryGuide` answers *what a newcomer actually does*. The dashboard supplies a bounded root-file and manifest reading, the already-parsed `DeliveryConfig`, the bound routines, workflow names/triggers, and git cleanliness. The pure builder derives an ordered **Prerequisites → Validate → Package → Deploy → Publish** guide for Node, Python, Go, Rust, Maven/Gradle, .NET, or container projects. Exact package scripts/routine steps are `configured`; ecosystem-standard commands are `conventional`; human gates stay `manual`; and absent load-bearing facts are `missing`. This distinction is load-bearing: a standard `cargo test` is useful guidance, but it is not evidence that the repository declared or ran it. Unknown shapes get explicit gaps instead of a fictional universal release command.
+**The pipeline and the shipping instructions are separate readings of the same evidence.** The stage model answers *where a version moves*; `buildProjectDeliveryGuide` answers *what a newcomer actually does*, **for one named stage**. The dashboard supplies a bounded root-file and manifest reading, the already-parsed `DeliveryConfig`, the bound routines, workflow names/triggers, and git cleanliness. The pure builder derives an ordered **Prerequisites → Validate → Package → Deploy → Publish** guide for Node, Python, Go, Rust, Maven/Gradle, .NET, or container projects. Exact package scripts/routine steps are `configured`; ecosystem-standard commands are `conventional`; human gates stay `manual`; and absent load-bearing facts are `missing`. This distinction is load-bearing: a standard `cargo test` is useful guidance, but it is not evidence that the repository declared or ran it. Unknown shapes get explicit gaps instead of a fictional universal release command.
 
 Workspace-authored text is control-stripped and length-capped, evidence paths must remain workspace-relative and traversal-free, and commands render only inside code blocks. Guarded promotion continues to read executable commands server-side from the persisted delivery config or routine, rebuild live preflight state, and apply its ordinary approvals. Detection therefore cannot become authorization.
+
+Every fact that differs between environments comes off the **selected** stage: the version-bump and
+changelog gates, the declared human and CI checks, the backup, the dispatch workflow, the reviewed
+pull request, the hosting target, and whether anything is published at all. Two columns change wording
+for a `local` stage — *Deploy* becomes **Run it here** (the `dev`/`start`/`watch`/`serve` scripts, `go
+run`, `cargo run`, or the `.vscode/launch.json` F5 path) and *Prerequisites* asks about building on
+this machine rather than about a release being meaningful. Three rules keep the local runbook honest:
+uncommitted work is `manual` there and `missing`+blocking on a stage you promote *into*; the publish
+scripts appear only on a stage the pipeline says reaches a registry (or on an unstaged runbook, the
+only other place they could go); and a declared check that restates a step the runbook already derived
+is dropped, because two rows for one fact make the second look like extra work.
+
+`DeliveryGuideStep.key` and `DeliveryGuidePhase.key` carry the stage id verbatim (`<stageId>::<id>`).
+`id` names a step *within* its runbook and repeats across stages — Local and Production both derive
+`validate-test-1` — so an action carrying only `id` would be ambiguous about which environment it
+belongs to, and the same-looking column ends in `npm test` for one stage and `vsce publish` for
+another. Host-side resolution is exact string equality on the key, so it can never land on a
+neighbouring stage's command.
+
+### VitalFileOwnership (`src/core/vitalFileOwnership.ts`)
+
+Who keeps each vital file current. The dashboard knew which files must never go stale — the Documents
+page tracks them, the Delivery artifact inventory lists the ones a repository is expected to keep — and
+it knew how to assign a human owner to a piece of *outstanding work*. It had no answer for the standing
+question: a `README.md` that is fresh today still has to be somebody's job tomorrow, and
+`renderDirectorOwnerBadge` returned an empty string for every file nobody had manually assigned.
+
+Five rules. **A vital file is never ownerless while a Director exists** — the default is the person
+holding the built-in `director` role, which already owns the workflow itself. **An explicit assignment
+always wins, and the two are never confused**: `recorded` separates "somebody decided this" from
+"nobody has, so it falls here", because collapsing them lets a derivation read as a decision on the one
+surface whose purpose is recording what people agreed to. **A default is offered, never written on
+sight** — `project_memory/` is git-tracked, so seeding assignment records because a tab was opened would
+commit words nobody said; the upside of deriving is that the default *follows the roster*, so replacing
+the Director re-points every unassigned file at once where written records would keep naming somebody
+who left. **A guess may name you and must never name a colleague**: with no Director the file falls to
+`selfContactId` — already documented in `ProjectDirectorConfig` as the contact assignments default to —
+and picking the first name on the roster is refused outright, since a roster seeded from git history
+routinely contains bots and "dependabot owns the SECURITY policy" is worse than an honest gap because it
+stops anybody looking. **Only files somebody must keep current are in scope**: nobody keeps `coverage/`
+up to date, so ephemeral artifacts are excluded by rule rather than by omission.
+
+`notice` and `blocker` are kept apart — a fixable weakness ("no Director named, so these fall to you")
+and an unresolvable one ("nobody is on the roster") call for different reactions, and collapsing them
+makes the working case look broken. A `cancelled` assignment is ignored and a `done` one is honoured:
+"we decided not to" is not a lasting claim on a file, while a completed review still names whose file it
+is. `buildVitalFileAssignments` returns exactly what the confirmed record action would write, so the
+dialog can show it before anything happens, with ids derived from the file so a second run updates
+rather than duplicates. Pure, clock-injected + unit-tested (`tests/core/vitalFileOwnership.test.ts`).
+
+### ArtifactCompliance (`src/core/artifactCompliance.ts`)
+
+What to ask Atlas about one row of the Delivery page's artifact inventory. The inventory could report a
+missing file and do nothing about it, and every row was a dead end in both directions: a red
+`SECURITY.md` told you it was absent and left you to write it, and a green `README.md` told you the file
+existed and said nothing about whether it still described the project.
+
+Four rules. **The row's own facts choose the request, not the surface and not a model** —
+`classifyArtifactCompliance` reads `exists`, `type` and `retention`, and the intent is shipped on the
+signal so the browser renders what the host decided; a second classifier there would eventually disagree,
+and the symptom would be an icon promising a fix above a draft that asks a question. **A produced
+artifact is never authored** — `out/`, `dist/`, `coverage/`, `node_modules/` and a packaged `.vsix` are
+absent most of the time and that absence is usually correct, so those rows get an `explain` request whose
+*prompt* states the prohibition, not merely the classifier: a rule enforced only in the branch that
+chose the prompt is one the agent never reads. **An existing file is reviewed, never rewritten on
+sight**, and "this is current" is a first-class answer — the correction asked for is the smallest one
+that closes a real gap, because a wholesale rewrite of a `CONTRIBUTING.md` loses decisions recorded
+nowhere else. **Look before creating** — the inventory probes a fixed path list, so a `LICENCE` or a
+`docs/SECURITY.md` reads as missing, and every `author` prompt searches for an equivalent first.
+
+The `author` set is pinned by test to `needsAttention` (`persistent && keep && !exists`), so the rows the
+page paints amber and the rows that offer to write a file are the same set by construction rather than by
+coincidence. `withArtifactCompliance` in the panel applies the classification to every signal —
+catalog-derived and detected alike — so a row cannot reach the page without an action. The page posts an
+artifact id and nothing else; `handleDiscussArtifactSignal` re-probes the inventory, resolves the id, and
+builds the draft host-side, so a crafted message can name a row that does not exist and can never have a
+produced artifact authored. Pure — no `vscode`, no filesystem — and unit-tested
+(`tests/core/artifactCompliance.test.ts`).
+
+### DeliveryStageRunbooks (`src/core/deliveryStageRunbooks.ts`)
+
+One runbook per delivery stage, and what makes each different from the stage below it. The Delivery
+page explained how to ship this project very well and explained it exactly once, from the production
+stage — so "how do I start the dev build?" was answered with a version bump, a changelog gate and a
+marketplace publish, while "what is actually different about promoting to production?" was never asked.
+
+Five rules carry the semantics. **A stage's requirements come from the pipeline, never from a model** —
+`DELIVERY_STAGE_REQUIREMENT_RULES` is a declared table of fourteen rules (protected, approval,
+distinct approver, pull request, version bump, changelog, CI status checks, human checklist, backup,
+migrations, live data, CI dispatch, hosted away, rollback), every entry names the rule that produced
+it, and the table travels in the payload so a surface publishes the rules that actually graded the
+cards. **The interesting fact is the delta, not the list**: `deltas` states what this stage asks that
+the one below does not, since a reader comparing two twenty-row lists by eye will not find the two
+rows that differ. **A requirement the stage below has and this one does not is reported too** — the
+alarming direction, and the one a "what's new here" list would hide (a rollback declared on Staging
+and absent on Production is a real finding). **Unassessed is not clear**: a project with no configured
+pipeline gets one *unstaged* runbook and `staged: false`, never three fabricated environments.
+**Nothing here decides which stage you are on; it derives it and says so** — the opening runbook comes
+from the checked-out branch matching a stage's declared `branchRef`, with the reason carried alongside.
+
+`changed` is distinct from `added` because comparing on rule id alone would report "both require CI
+checks" as agreement when one requires `CI` and the other requires `CI, e2e, security-scan`. The set
+is capped at eight runbooks with the remainder stated. Pure — no `vscode`, no filesystem, no clock —
+and unit-tested (`tests/core/deliveryStageRunbooks.test.ts`).
 
 ### DeliveryRunPlan (`src/core/deliveryRunPlan.ts`)
 
@@ -998,6 +1102,8 @@ The guide's commands can be copied, typed into a terminal, or run a column at a 
 **Fail-fast is a property of the shell, and it is reported rather than assumed.** `chainDeliveryCommands` joins with `&&` where the shell can stop on failure and sends separate lines where it cannot — Windows PowerShell 5.1 has no `&&`, and an unrecognised shell has made no promise, so it is treated as unable rather than assumed able. `buildDeliveryRunConfirmation` states which happened in the sentence the user actually reads: a column that keeps going after `npm test` fails will happily package and publish a broken build.
 
 **Reach is classified so the confirmation can differ.** "Run the tests" and "publish to a registry" cannot be the same dialog. `classifyDeliveryCommandReach` matches a declared, word-boundary-matched token list (`git push`, `npm publish`, `vsce publish`, `cargo publish`, `docker push`, `gh workflow run`, `terraform apply`, a script named `publish`/`release`/`ship`/`deploy`/`tag`, and similar); an unrecognised command is `local`, which is safe here precisely because the classification only ever *adds* a warning — every command is listed in the confirmation either way, so a miss loses emphasis and never a gate.
+
+**The environment is named in the title, not left to the column label.** Once the page carries a runbook per stage, "Run the Deploy column?" is a question with three different answers, and the one it means is the difference between starting a dev server and dispatching a production deployment. `stageLabel` travels with the plan — taken from the rebuilt runbook, never from the message — so the sentence the user reads cannot omit it.
 
 Single-command actions need no dialog because they are not runs: **copy** writes to the clipboard, and **send to terminal** withholds the trailing newline exactly as `chatPanel` and the setup walkthroughs do, leaving the human's own keystroke as the last gate. Both use one named `AtlasMind Delivery` terminal rooted at the workspace, because a delivery command that runs in whatever directory the active terminal happened to be in is a different command from the one the page displayed. The module is `vscode`-free and unit-tested (`tests/core/deliveryRunPlan.test.ts`).
 

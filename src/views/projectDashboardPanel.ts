@@ -427,11 +427,25 @@ import {
   readPromotionHistory,
   acquireDeliveryLock,
   releaseDeliveryLock,
-  buildProjectDeliveryGuide,
   type DeliverySeedInput,
   type DeliveryArchetype,
-  type ProjectDeliveryGuide,
+  type DeliveryGuidePhase,
+  type DeliveryGuideStep,
 } from '../core/deliveryManager.js';
+import {
+  buildDeliveryStageRunbooks,
+  type DeliveryStageRunbookSet,
+} from '../core/deliveryStageRunbooks.js';
+import {
+  buildArtifactCompliancePrompt,
+  type ArtifactComplianceIntent,
+} from '../core/artifactCompliance.js';
+import {
+  buildVitalFileAssignments,
+  resolveVitalFileOwnership,
+  type VitalFile,
+  type VitalFileOwnershipReport,
+} from '../core/vitalFileOwnership.js';
 import {
   DELIVERY_RUN_TERMINAL_NAME,
   buildDeliveryRunConfirmation,
@@ -1041,6 +1055,8 @@ type ProjectDashboardMessage =
   | { type: 'sendDeliveryCommandToTerminal'; payload: string }
   | { type: 'runDeliveryGuidePhase'; payload: string }
   | { type: 'discussDeliveryGuideStep'; payload: string }
+  | { type: 'discussArtifactSignal'; payload: string }
+  | { type: 'recordVitalFileOwners' }
   | { type: 'openContactDeepLink'; payload: { contactId: string; linkId: string } }
   | { type: 'assignRunOwner'; payload: { runId: string; contactId: string } }
   | { type: 'assignDashboardWorkOwner'; payload: { targetId: string; contactId: string } }
@@ -1139,7 +1155,7 @@ type DashboardNavigationTarget = {
 };
 
 const DASHBOARD_FOCUS_KINDS: readonly DashboardFocusKind[] = [
-  'branch', 'roadmap', 'issue', 'pull-request', 'gap', 'risk', 'debt', 'document',
+  'branch', 'roadmap', 'issue', 'pull-request', 'gap', 'risk', 'debt', 'document', 'artifact',
   'assignment', 'follow-up',
   // The Testing page already marked its policy cards as focusable targets and
   // nothing could name one: the kind was declared in `types.ts`, rendered as a
@@ -1755,6 +1771,8 @@ type ArtifactLifecycle = 'source' | 'build' | 'test' | 'deploy' | 'runtime';
 type ArtifactRetention = 'keep' | 'cache' | 'discard';
 
 interface ArtifactSignal {
+  /** Opaque, stable address for this row. The webview names it and nothing else. */
+  id: string;
   label: string;
   description: string;
   /** Workspace-relative path to open when the artifact exists, or the primary path as a reference. */
@@ -1766,6 +1784,17 @@ interface ArtifactSignal {
   exists: boolean;
   /** True when the artifact is persistent+keep but absent — blocks production readiness. */
   needsAttention: boolean;
+  /**
+   * Which of the three hand-offs this row offers, decided by
+   * `classifyArtifactCompliance` on the host.
+   *
+   * Shipped rather than re-derived in the browser: a second classifier there
+   * would eventually disagree with this one, and the symptom would be a control
+   * whose icon promises a fix while the draft it opens asks a question.
+   */
+  complianceIntent: ArtifactComplianceIntent;
+  /** The imperative shown on that control, from the same declared rule. */
+  complianceAction: string;
 }
 
 interface ArtifactSpec {
@@ -2802,8 +2831,12 @@ interface DashboardSnapshot {
     /** Package-format and registry-configuration presence only; credential values are never read. */
     supplyChain: DashboardSupplyChainSnapshot;
     stages: DashboardStagePipeline;
-    /** Detected commands and human gates, grouped in the order a newcomer ships. */
-    guide: ProjectDeliveryGuide;
+    /**
+     * One detected runbook per delivery stage, plus what makes each different
+     * from the stage below it. A single unstaged runbook when no pipeline is
+     * configured — never three invented environments.
+     */
+    runbooks: DeliveryStageRunbookSet;
   };
   /** Stage 6 — what a release from here would look like, and what blocks it. */
   release: DashboardReleaseSnapshot;
@@ -2820,6 +2853,12 @@ interface DashboardSnapshot {
   };
   /** Human ownership for actionable records across the dashboard. */
   workAssignments: DashboardWorkAssignmentsSnapshot;
+  /**
+   * Who keeps each vital file current — the standing question the work board
+   * could not answer, because a file that is fresh today is not outstanding work
+   * and still has to be somebody's job tomorrow.
+   */
+  vitalFiles: VitalFileOwnershipReport;
   director: DashboardDirectorSnapshot;
   documents: DashboardDocumentsSnapshot;
   risk: DashboardRiskSnapshot;
@@ -5130,6 +5169,12 @@ export class ProjectDashboardPanel {
         return;
       case 'discussDeliveryGuideStep':
         await this.handleDiscussDeliveryGuideStep(message.payload);
+        return;
+      case 'discussArtifactSignal':
+        await this.handleDiscussArtifactSignal(message.payload);
+        return;
+      case 'recordVitalFileOwners':
+        await this.handleRecordVitalFileOwners();
         return;
       case 'copyContact':
         await this.handleCopyContact(message.payload);
@@ -11990,7 +12035,7 @@ ${buildCardEvidenceSection(source, derivation)}`;
    */
   private async resolveDeliveryGuide(
     options: { includeWorkingTree?: boolean } = {},
-  ): Promise<{ guide: ProjectDeliveryGuide; workspaceRoot: string } | undefined> {
+  ): Promise<{ runbooks: DeliveryStageRunbookSet; workspaceRoot: string } | undefined> {
     const workspaceRoot = vscode.workspace.workspaceFolders?.[0]?.uri.fsPath;
     if (!workspaceRoot) {
       return undefined;
@@ -11999,44 +12044,71 @@ ${buildCardEvidenceSection(source, derivation)}`;
     const workingTreeDirty = options.includeWorkingTree
       ? await collectWorkingTreeDirty(workspaceRoot)
       : undefined;
-    const guide = await collectProjectDeliveryGuide(
+    const runbooks = await collectProjectDeliveryRunbooks(
       this.atlas,
       workspaceRoot,
       workingTreeDirty,
       workflows,
       this.atlas.deliveryManager?.getConfig() ?? undefined,
+      // The branch decides only which runbook *opens*; it changes no command,
+      // so an action against an already-open runbook does not pay for a git call.
+      undefined,
     );
-    return { guide, workspaceRoot };
+    return { runbooks, workspaceRoot };
   }
 
-  private async resolveDeliveryGuideCommand(stepId: string): Promise<{ label: string; command: string; workspaceRoot: string } | undefined> {
-    const resolved = await this.resolveDeliveryGuide();
-    if (!resolved) {
-      return undefined;
-    }
-    for (const phase of resolved.guide.phases) {
-      const step = phase.steps.find(candidate => candidate.id === stepId);
-      if (step?.command) {
-        return { label: step.label, command: step.command, workspaceRoot: resolved.workspaceRoot };
+  /**
+   * Find the one step a page-wide key names, and the runbook it belongs to.
+   *
+   * The scan is over every stage's runbook rather than one guide's phases,
+   * because the page now shows several. Matching is on `key`, which carries the
+   * stage id verbatim, so a key can name exactly one step across the whole set
+   * — addressing by `id` would let the Local runbook's "test" step resolve to
+   * whichever stage happened to be built first.
+   */
+  private findDeliveryGuideStep(
+    runbooks: DeliveryStageRunbookSet,
+    stepKey: string,
+  ): { step: DeliveryGuideStep; stageName: string } | undefined {
+    for (const runbook of runbooks.runbooks) {
+      for (const phase of runbook.guide.phases) {
+        const step = phase.steps.find(candidate => candidate.key === stepKey);
+        if (step) {
+          return { step, stageName: runbook.guide.stageName };
+        }
       }
     }
     return undefined;
   }
 
-  private async handleDiscussDeliveryGuideStep(stepId: string): Promise<void> {
+  private async resolveDeliveryGuideCommand(stepKey: string): Promise<{ label: string; command: string; workspaceRoot: string } | undefined> {
+    const resolved = await this.resolveDeliveryGuide();
+    if (!resolved) {
+      return undefined;
+    }
+    const found = this.findDeliveryGuideStep(resolved.runbooks, stepKey);
+    return found?.step.command
+      ? { label: found.step.label, command: found.step.command, workspaceRoot: resolved.workspaceRoot }
+      : undefined;
+  }
+
+  private async handleDiscussDeliveryGuideStep(stepKey: string): Promise<void> {
     // Discussion needs the live status, unlike copy/send where cleanliness
     // cannot change the command being resolved. Without this second bounded
     // read, a step the dashboard already knew was dirty became "unavailable"
     // at the exact boundary where Atlas was asked to resolve it.
     const resolved = await this.resolveDeliveryGuide({ includeWorkingTree: true });
-    const step = resolved?.guide.phases
-      .flatMap(phase => phase.steps)
-      .find(candidate => candidate.id === String(stepId ?? '') && candidate.status !== 'configured');
-    if (!step) {
+    const found = resolved ? this.findDeliveryGuideStep(resolved.runbooks, String(stepKey ?? '')) : undefined;
+    const step = found?.step.status !== 'configured' ? found?.step : undefined;
+    if (!step || !found) {
       vscode.window.setStatusBarMessage('AtlasMind: that runbook issue changed — refresh the Delivery page.', 4000);
       return;
     }
     const evidence = [
+      // The stage leads, because the same step label means different work on
+      // different runbooks and a resolution aimed at the wrong environment is
+      // the failure this whole change exists to prevent.
+      `Delivery stage: ${found.stageName}`,
       `Runbook step: ${step.label}`,
       `Current status: ${step.status}`,
       `Detected detail: ${step.detail}`,
@@ -12052,8 +12124,37 @@ ${buildCardEvidenceSection(source, derivation)}`;
     });
   }
 
-  private async handleCopyDeliveryCommand(stepId: string): Promise<void> {
-    const resolved = await this.resolveDeliveryGuideCommand(String(stepId ?? ''));
+  /**
+   * Hand one artifact-inventory row to chat.
+   *
+   * The row was a dead end in both directions: a missing `SECURITY.md` told you
+   * it was missing and left you to write it, and a present `README.md` said
+   * nothing about whether it still described the project — which, for a document
+   * nobody has re-read in months, is the question worth asking.
+   *
+   * The page sends an artifact id and nothing else, the same rule the delivery
+   * runbook follows. The host re-probes the inventory, resolves the id against
+   * it, and derives *which* of the three requests to make from the row's own
+   * facts — so a crafted message can name a row that does not exist, and can
+   * never choose to have a produced artifact authored.
+   */
+  private async handleDiscussArtifactSignal(artifactId: string): Promise<void> {
+    const workspaceRoot = vscode.workspace.workspaceFolders?.[0]?.uri.fsPath;
+    const artifacts = await collectArtifacts(workspaceRoot);
+    const artifact = artifacts.find(candidate => candidate.id === String(artifactId ?? ''));
+    if (!artifact) {
+      vscode.window.setStatusBarMessage('AtlasMind: that artifact row changed — refresh the Delivery page.', 4000);
+      return;
+    }
+    const request = buildArtifactCompliancePrompt(artifact);
+    await vscode.commands.executeCommand('atlasmind.openChatPanel', {
+      draftPrompt: request.prompt,
+      sendMode: 'new-session',
+    });
+  }
+
+  private async handleCopyDeliveryCommand(stepKey: string): Promise<void> {
+    const resolved = await this.resolveDeliveryGuideCommand(String(stepKey ?? ''));
     if (!resolved) {
       vscode.window.setStatusBarMessage('AtlasMind: that runbook step changed — refresh the Delivery page.', 4000);
       return;
@@ -12075,8 +12176,8 @@ ${buildCardEvidenceSection(source, derivation)}`;
    * missing newline, and a gate the user cannot reach without first clicking
    * somewhere else is one they learn to route around.
    */
-  private async handleSendDeliveryCommandToTerminal(stepId: string): Promise<void> {
-    const resolved = await this.resolveDeliveryGuideCommand(String(stepId ?? ''));
+  private async handleSendDeliveryCommandToTerminal(stepKey: string): Promise<void> {
+    const resolved = await this.resolveDeliveryGuideCommand(String(stepKey ?? ''));
     if (!resolved) {
       vscode.window.setStatusBarMessage('AtlasMind: that runbook step changed — refresh the Delivery page.', 4000);
       return;
@@ -12097,18 +12198,29 @@ ${buildCardEvidenceSection(source, derivation)}`;
    * not watch the output — so where the shell cannot chain with `&&`, a failing
    * check will not stop the packaging that follows it.
    */
-  private async handleRunDeliveryGuidePhase(phaseId: string): Promise<void> {
+  private async handleRunDeliveryGuidePhase(phaseKey: string): Promise<void> {
     const resolved = await this.resolveDeliveryGuide();
-    const phase = resolved?.guide.phases.find(candidate => candidate.id === String(phaseId ?? ''));
+    let phase: DeliveryGuidePhase | undefined;
+    let stageName: string | undefined;
+    for (const runbook of resolved?.runbooks.runbooks ?? []) {
+      const match = runbook.guide.phases.find(candidate => candidate.key === String(phaseKey ?? ''));
+      if (match) {
+        phase = match;
+        // Taken from the rebuilt runbook, never from the message: the stage the
+        // dialog names has to be the stage the commands came from.
+        stageName = runbook.guide.stageId ? runbook.guide.stageName : undefined;
+        break;
+      }
+    }
     if (!resolved || !phase) {
       vscode.window.setStatusBarMessage('AtlasMind: that runbook column changed — refresh the Delivery page.', 4000);
       return;
     }
 
-    const plan = buildDeliveryRunPlan(phase, vscode.env.shell);
+    const plan = buildDeliveryRunPlan(phase, vscode.env.shell, stageName);
     if (plan.commands.length === 0) {
       await vscode.window.showInformationMessage(
-        `The ${plan.phaseLabel} column has no detected command to run. Its steps are manual checks or missing evidence.`,
+        `The ${plan.phaseLabel} column${plan.stageLabel ? ` for ${plan.stageLabel}` : ''} has no detected command to run. Its steps are manual checks or missing evidence.`,
       );
       return;
     }
@@ -12129,7 +12241,7 @@ ${buildCardEvidenceSection(source, derivation)}`;
       terminal.sendText(line, true);
     }
     vscode.window.setStatusBarMessage(
-      `AtlasMind: running the ${plan.phaseLabel} column in the ${DELIVERY_RUN_TERMINAL_NAME} terminal.`,
+      `AtlasMind: running the ${plan.phaseLabel} column${plan.stageLabel ? ` for ${plan.stageLabel}` : ''} in the ${DELIVERY_RUN_TERMINAL_NAME} terminal.`,
       6000,
     );
   }
@@ -12495,6 +12607,79 @@ ${buildCardEvidenceSection(source, derivation)}`;
       await manager.save(clean);
       await vscode.commands.executeCommand('atlasmind.refreshProjectState');
       await this.syncState();
+    }
+  }
+
+  /**
+   * Write the derived vital-file owners into the Director's roster.
+   *
+   * The defaults are a *derivation* everywhere else: they follow the roster, so
+   * replacing the Director re-points every unassigned file at once and nothing
+   * is committed because a tab was opened. This is the one place they become
+   * records, and it is a deliberate act with a dialog in front of it, because
+   * `project-director.json` is git-tracked and these assignments are a statement
+   * about what people have agreed to.
+   *
+   * The rows come from a freshly rebuilt snapshot, never from the message: the
+   * page asks for the defaults to be recorded and cannot say who they name.
+   * Files whose owner was already recorded are untouched, and ids are derived
+   * from the file so running this twice updates rather than duplicates.
+   */
+  private async handleRecordVitalFileOwners(): Promise<void> {
+    const manager = this.atlas.projectDirectorManager;
+    const config = manager?.getConfig();
+    if (!manager || !config) {
+      return;
+    }
+    const report = this.lastSnapshot?.vitalFiles;
+    if (!report) {
+      vscode.window.setStatusBarMessage('AtlasMind: refresh the Delivery page and try again.', 4000);
+      return;
+    }
+    if (report.blocker) {
+      await vscode.window.showWarningMessage(report.blocker);
+      return;
+    }
+    const additions = buildVitalFileAssignments(report, new Date());
+    if (additions.length === 0) {
+      await vscode.window.showInformationMessage('Every vital file already has a recorded owner. Nothing to write.');
+      return;
+    }
+    const ownerName = report.defaultOwner?.contactName ?? 'the default owner';
+    const confirm = `Record ${additions.length}`;
+    const choice = await vscode.window.showWarningMessage(
+      `Record ${ownerName} as the owner of ${additions.length} vital file${additions.length === 1 ? '' : 's'}?`,
+      {
+        modal: true,
+        detail: [
+          `This writes ${additions.length} assignment${additions.length === 1 ? '' : 's'} into ${PROJECT_DIRECTOR_SSOT_PATH}, which is committed to the repository:`,
+          '',
+          ...additions.slice(0, 12).map(entry => `• ${entry.title}`),
+          ...(additions.length > 12 ? [`• and ${additions.length - 12} more`] : []),
+          '',
+          'Until you do this the owner is derived and follows the roster, so replacing the Director re-points every one of them. A recorded owner does not: it keeps naming this person until somebody changes it.',
+        ].join('\n'),
+      },
+      confirm,
+    );
+    if (choice !== confirm) {
+      return;
+    }
+    const assignments = [...config.assignments];
+    for (const addition of additions) {
+      const existing = assignments.findIndex(assignment => assignment.id === addition.id);
+      if (existing >= 0) {
+        assignments[existing] = { ...assignments[existing], ...addition, createdAt: assignments[existing]!.createdAt };
+      } else {
+        assignments.push(addition);
+      }
+    }
+    const clean = sanitizeProjectDirectorConfig({ ...config, assignments });
+    if (clean) {
+      await manager.save(clean);
+      await vscode.commands.executeCommand('atlasmind.refreshProjectState');
+      await this.syncState();
+      vscode.window.setStatusBarMessage(`AtlasMind: recorded ${additions.length} vital-file owner${additions.length === 1 ? '' : 's'}.`, 5000);
     }
   }
 
@@ -13013,7 +13198,7 @@ export function isProjectDashboardMessage(message: unknown): message is ProjectD
   if (candidate['type'] === 'saveBranchPreferences') {
     return normalizeBranchDashboardPreferences(candidate['payload']) !== undefined;
   }
-  if (candidate['type'] === 'ready' || candidate['type'] === 'refresh' || candidate['type'] === 'fetchBranches' || candidate['type'] === 'runGapAnalysis' || candidate['type'] === 'markDeliveryReviewed' || candidate['type'] === 'reimportDelivery' || candidate['type'] === 'seedDirectorFromRepo' || candidate['type'] === 'seedDocumentsFromRepo' || candidate['type'] === 'createRoadmapGate' || candidate['type'] === 'importRoadmap' || candidate['type'] === 'discussDashboardError') {
+  if (candidate['type'] === 'ready' || candidate['type'] === 'refresh' || candidate['type'] === 'fetchBranches' || candidate['type'] === 'runGapAnalysis' || candidate['type'] === 'markDeliveryReviewed' || candidate['type'] === 'reimportDelivery' || candidate['type'] === 'seedDirectorFromRepo' || candidate['type'] === 'seedDocumentsFromRepo' || candidate['type'] === 'createRoadmapGate' || candidate['type'] === 'importRoadmap' || candidate['type'] === 'recordVitalFileOwners' || candidate['type'] === 'discussDashboardError') {
     return true;
   }
 
@@ -13442,7 +13627,7 @@ export function isProjectDashboardMessage(message: unknown): message is ProjectD
     return typeof candidate['payload'] === 'string' && slugifyGateId(candidate['payload']).length > 0;
   }
 
-  if ((candidate['type'] === 'openCommand' || candidate['type'] === 'openSettingKey' || candidate['type'] === 'openFile' || candidate['type'] === 'openRun' || candidate['type'] === 'openRunWithGoal' || candidate['type'] === 'openSession' || candidate['type'] === 'addressGap' || candidate['type'] === 'resolveGapItem' || candidate['type'] === 'resolveGapGroup' || candidate['type'] === 'openGapFiles' || candidate['type'] === 'copyContact' || candidate['type'] === 'copyDeliveryCommand' || candidate['type'] === 'sendDeliveryCommandToTerminal' || candidate['type'] === 'runDeliveryGuidePhase' || candidate['type'] === 'discussDeliveryGuideStep' || candidate['type'] === 'createShelfFolder') && typeof candidate['payload'] === 'string') {
+  if ((candidate['type'] === 'openCommand' || candidate['type'] === 'openSettingKey' || candidate['type'] === 'openFile' || candidate['type'] === 'openRun' || candidate['type'] === 'openRunWithGoal' || candidate['type'] === 'openSession' || candidate['type'] === 'addressGap' || candidate['type'] === 'resolveGapItem' || candidate['type'] === 'resolveGapGroup' || candidate['type'] === 'openGapFiles' || candidate['type'] === 'copyContact' || candidate['type'] === 'copyDeliveryCommand' || candidate['type'] === 'sendDeliveryCommandToTerminal' || candidate['type'] === 'runDeliveryGuidePhase' || candidate['type'] === 'discussDeliveryGuideStep' || candidate['type'] === 'discussArtifactSignal' || candidate['type'] === 'createShelfFolder') && typeof candidate['payload'] === 'string') {
     return candidate['payload'].trim().length > 0;
   }
 
@@ -14674,12 +14859,13 @@ async function collectDashboardSnapshot(
   );
   const versionSnapshot = await collectVersionSnapshot(workspaceRoot, gitSnapshot.currentBranch, packageSnapshot.version);
   const stagePipeline = await collectDeliveryStagePipeline(atlas, workspaceRoot, gitSnapshot.currentBranch, workflowSnapshot.map(workflow => workflow.name));
-  const deliveryGuide = await collectProjectDeliveryGuide(
+  const deliveryRunbooks = await collectProjectDeliveryRunbooks(
     atlas,
     workspaceRoot,
     gitSnapshot.dirty,
     workflowSnapshot,
     stagePipeline.config ?? undefined,
+    gitSnapshot.currentBranch,
   );
   const hasQualityCi = workflowSnapshot.some(workflow => workflow.role === 'quality'
     || workflow.id.toLowerCase() === 'ci.yml' || workflow.id.toLowerCase() === 'ci.yaml');
@@ -15048,7 +15234,7 @@ async function collectDashboardSnapshot(
   // Named rather than returned directly so the attention feed can be derived
   // from the finished snapshot — reading the same fields the pages render is
   // what stops the Overview and the page it links to disagreeing.
-  const snapshot: Omit<DashboardSnapshot, 'attention' | 'workAssignments'> = {
+  const snapshot: Omit<DashboardSnapshot, 'attention' | 'workAssignments' | 'vitalFiles'> = {
     generatedAt: new Date().toISOString(),
     ssotPresent: ssotSnapshot.totalFiles > 0 || memoryEntries.length > 0,
     workspaceName,
@@ -15292,7 +15478,7 @@ async function collectDashboardSnapshot(
         localRunner?.image ?? readLocalCiRunnerConfiguration().image,
       ),
       stages: stagePipeline,
-      guide: deliveryGuide,
+      runbooks: deliveryRunbooks,
     },
     director: directorSnapshot,
     documents: documentsSnapshot,
@@ -15322,6 +15508,18 @@ async function collectDashboardSnapshot(
   const snapshotWithAssignments: Omit<DashboardSnapshot, 'attention'> = {
     ...snapshot,
     workAssignments: { targets: buildDashboardWorkTargets(snapshot) },
+    // Resolved, never written. `project_memory/` is git-tracked, so recording
+    // an owner because somebody opened a tab would commit words nobody said —
+    // the rule `workflowConfig` states about its own file. The default follows
+    // the roster instead, so replacing the Director re-points every unassigned
+    // vital file at once rather than leaving records naming somebody who left.
+    vitalFiles: resolveVitalFileOwnership({
+      files: collectVitalFiles(documentsSnapshot, snapshot.delivery.artifacts),
+      contacts: directorSnapshot.config?.contacts ?? [],
+      teamMembers: directorSnapshot.config?.teamMembers ?? [],
+      ...(directorSnapshot.config?.selfContactId ? { selfContactId: directorSnapshot.config.selfContactId } : {}),
+      assignments: directorSnapshot.config?.assignments ?? [],
+    }),
   };
   return {
     ...snapshotWithAssignments,
@@ -15410,7 +15608,7 @@ function registerFindingKey(kind: RegisterKind, id: string): string {
  * absent: only concrete work a person can take ownership of is assignable.
  */
 function buildDashboardWorkTargets(
-  snapshot: Omit<DashboardSnapshot, 'attention' | 'workAssignments'>,
+  snapshot: Omit<DashboardSnapshot, 'attention' | 'workAssignments' | 'vitalFiles'>,
 ): DashboardWorkTarget[] {
   const targets: DashboardWorkTarget[] = [];
   const seen = new Set<string>();
@@ -15483,7 +15681,57 @@ function buildDashboardWorkTargets(
       status: document.status === 'missing' ? 'blocked' : 'todo', priority: document.status === 'missing' ? 'high' : 'medium',
     });
   }
+  // A vital artifact that is absent is outstanding work. A present one is a
+  // standing responsibility, which the vital-file report answers instead — same
+  // rule as the testing policies above: a clear row on the Director's board is
+  // work that does not exist.
+  for (const artifact of snapshot.delivery.artifacts.filter(entry => entry.needsAttention)) {
+    add({
+      kind: 'artifact', stableId: artifact.id, title: artifact.label, page: 'delivery',
+      status: 'blocked', priority: 'high',
+    });
+  }
   return targets;
+}
+
+/**
+ * The files somebody has to keep current, from the two inventories that hold
+ * them.
+ *
+ * Deliberately *not* the same list as `collectWorkAssignmentTargets`. That one
+ * holds what is outstanding, and registering a clear item on it would put work
+ * that does not exist in front of the Director. This one holds a standing
+ * responsibility: a `README.md` reviewed yesterday is not outstanding work and
+ * still has to be somebody's job tomorrow. The two overlap where a vital file is
+ * also overdue, and an assignment made on either is read by both.
+ *
+ * Ephemeral artifacts are excluded by rule rather than by omission — nobody
+ * keeps `coverage/` up to date, because it is the output of a build.
+ */
+function collectVitalFiles(
+  documents: DashboardDocumentsSnapshot,
+  artifacts: readonly ArtifactSignal[],
+): VitalFile[] {
+  const files: VitalFile[] = documents.autoUpdate.map(document => ({
+    kind: 'document' as const,
+    id: document.id,
+    label: document.label || document.path,
+    path: document.path,
+    reason: `Tracked on the Documents page for ${document.cadence} review.`,
+  }));
+  for (const artifact of artifacts) {
+    if (artifact.retention !== 'keep' || artifact.type !== 'persistent') {
+      continue;
+    }
+    files.push({
+      kind: 'artifact',
+      id: artifact.id,
+      label: artifact.label,
+      path: artifact.path,
+      reason: 'The repository is expected to keep this artifact, so it has to stay current.',
+    });
+  }
+  return files;
 }
 
 /**
@@ -16974,18 +17222,24 @@ async function collectSupplyChainSnapshot(
  * a command. It changes a step's *status*, never a command, so the resolution
  * path does not pay for a git call it cannot use.
  */
-async function collectProjectDeliveryGuide(
+async function collectProjectDeliveryRunbooks(
   atlas: AtlasMindContext,
   workspaceRoot: string | undefined,
   workingTreeDirty: boolean | undefined,
   workflows: readonly DashboardWorkflow[],
   deliveryConfig: DeliveryConfig | undefined,
-): Promise<ProjectDeliveryGuide> {
+  currentBranch: string | undefined,
+): Promise<DeliveryStageRunbookSet> {
   if (!workspaceRoot) {
-    return buildProjectDeliveryGuide({ files: [], workingTreeClean: undefined });
+    return buildDeliveryStageRunbooks({ files: [], workingTreeClean: undefined });
   }
 
   const topFiles = await listDirFiles(workspaceRoot);
+  // The launch configuration is the run path for anything whose entry point is
+  // the editor — this extension included — and it is the one piece of evidence
+  // the local runbook needs that a root-directory listing cannot see.
+  const launchConfig = '.vscode/launch.json';
+  const hasLaunchConfig = await fs.access(path.join(workspaceRoot, launchConfig)).then(() => true, () => false);
   const dotnetManifest = topFiles.find(file => /\.(?:sln|csproj)$/i.test(file));
   const manifestNames = [
     'package.json',
@@ -17024,8 +17278,12 @@ async function collectProjectDeliveryGuide(
   // parser; failure simply leaves the routine unreported, never guessed.
   const routineRegistry = atlas.routineRegistry;
   await routineRegistry?.reload(workspaceRoot).catch(() => undefined);
-  return buildProjectDeliveryGuide({
-    files: [...topFiles, ...workflows.map(workflow => workflow.path)],
+  return buildDeliveryStageRunbooks({
+    files: [
+      ...topFiles,
+      ...workflows.map(workflow => workflow.path),
+      ...(hasLaunchConfig ? [launchConfig] : []),
+    ],
     manifestContents,
     packageJson,
     ...(deliveryConfig ? { deliveryConfig } : {}),
@@ -17036,6 +17294,7 @@ async function collectProjectDeliveryGuide(
       triggers: workflow.triggers.map(trigger => trigger.event),
     })),
     workingTreeClean: workingTreeDirty === undefined ? undefined : !workingTreeDirty,
+    ...(currentBranch ? { currentBranch } : {}),
   });
 }
 
@@ -18803,6 +19062,36 @@ async function collectWorkflowSnapshot(workspaceRoot: string | undefined): Promi
   }
 }
 
+/**
+ * The opaque address the webview uses for an artifact row.
+ *
+ * Derived from the catalog label, which is unique and stable, so a click made
+ * before a refresh still names the same row after one — and a crafted payload
+ * can only fail to match, since the host re-collects the inventory and looks the
+ * id up rather than trusting anything on the message.
+ */
+function artifactSignalId(label: string): string {
+  return `artifact-${label.toLowerCase().replace(/[^a-z0-9]+/g, '-').replace(/^-|-$/g, '') || 'entry'}`;
+}
+
+/**
+ * Attach the hand-off the host has chosen for a row.
+ *
+ * Applied in one place for every artifact, catalog-derived and detected alike,
+ * so no row can reach the page without one — which is what makes "every row
+ * offers an action" a property of the collector rather than of the renderer
+ * remembering to ask.
+ */
+function withArtifactCompliance(signal: Omit<ArtifactSignal, 'id' | 'complianceIntent' | 'complianceAction'>): ArtifactSignal {
+  const request = buildArtifactCompliancePrompt(signal);
+  return {
+    ...signal,
+    id: artifactSignalId(signal.label),
+    complianceIntent: request.intent,
+    complianceAction: request.action,
+  };
+}
+
 async function collectArtifacts(workspaceRoot: string | undefined): Promise<ArtifactSignal[]> {
   const signals = await Promise.all(ARTIFACT_CATALOG.map(async spec => {
     let resolvedPath: string | undefined;
@@ -18815,7 +19104,7 @@ async function collectArtifacts(workspaceRoot: string | undefined): Promise<Arti
       }
     }
     const exists = resolvedPath !== undefined;
-    return {
+    return withArtifactCompliance({
       label: spec.label,
       description: spec.description,
       path: resolvedPath ?? spec.paths[0] ?? '',
@@ -18825,7 +19114,7 @@ async function collectArtifacts(workspaceRoot: string | undefined): Promise<Arti
       retention: spec.retention,
       exists,
       needsAttention: spec.type === 'persistent' && spec.retention === 'keep' && !exists,
-    } satisfies ArtifactSignal;
+    });
   }));
 
   // Detect packaged extension archives (.vsix) in the workspace root.
@@ -18833,7 +19122,7 @@ async function collectArtifacts(workspaceRoot: string | undefined): Promise<Arti
     try {
       const rootEntries = await fs.readdir(workspaceRoot, { withFileTypes: true });
       const vsixFiles = rootEntries.filter(e => e.isFile() && e.name.endsWith('.vsix'));
-      signals.push({
+      signals.push(withArtifactCompliance({
         label: '*.vsix',
         description: vsixFiles.length > 0
           ? `${vsixFiles.length} packaged extension archive${vsixFiles.length === 1 ? '' : 's'} present in workspace root.`
@@ -18845,7 +19134,7 @@ async function collectArtifacts(workspaceRoot: string | undefined): Promise<Arti
         retention: 'cache',
         exists: vsixFiles.length > 0,
         needsAttention: false,
-      });
+      }));
     } catch {
       // Not a VS Code project or unreadable — skip silently.
     }
@@ -25949,16 +26238,14 @@ const DASHBOARD_CSS = `
      committing to a click. */
   button.recent-item,
   .recent-item.is-actionable,
-  button.branch-card,
-  button.artifact-row {
+  button.branch-card {
     position: relative;
     padding-right: 30px;
   }
 
   button.recent-item::after,
   .recent-item.is-actionable::after,
-  button.branch-card::after,
-  button.artifact-row::after {
+  button.branch-card::after {
     content: "›";
     position: absolute;
     top: 12px;
@@ -25975,9 +26262,7 @@ const DASHBOARD_CSS = `
   .recent-item.is-actionable:hover::after,
   .recent-item.is-actionable:focus-visible::after,
   button.branch-card:hover::after,
-  button.branch-card:focus-visible::after,
-  button.artifact-row:hover::after,
-  button.artifact-row:focus-visible::after {
+  button.branch-card:focus-visible::after {
     opacity: 1;
     transform: translateX(2px);
   }
@@ -27269,15 +27554,104 @@ const DASHBOARD_CSS = `
     transition: border-color 120ms ease;
   }
 
-  button.artifact-row {
+  /* The filename is the control that opens the file, and the AtlasMind logo the
+     one that opens the hand-off. Both live inside the row, so the row itself is
+     no longer interactive — a control nested in a control is invalid markup and
+     unreachable by keyboard. */
+  .artifact-open {
+    justify-self: start;
+    padding: 0;
+    border: 0;
+    background: none;
+    color: inherit;
+    font: inherit;
+    text-align: left;
     cursor: pointer;
+    text-decoration-line: underline;
+    text-decoration-style: dotted;
+    text-underline-offset: 3px;
+    text-decoration-color: color-mix(in srgb, var(--dash-accent-strong) 45%, transparent);
   }
 
-  button.artifact-row:hover,
-  button.artifact-row:focus-visible {
-    border-color: color-mix(in srgb, var(--dash-accent) 55%, var(--dash-border));
-    outline: none;
+  .artifact-open:hover { color: var(--dash-accent-strong); }
+  .artifact-open:focus-visible { outline: 1px solid var(--vscode-focusBorder); outline-offset: 2px; }
+
+  .artifact-actions {
+    display: flex;
+    align-items: center;
+    gap: 8px;
   }
+
+  /* Visible without a hover, for the reason the runbook's command icons are:
+     a touch or keyboard user never hovers, and an affordance that only appears
+     on hover is one half the room never finds. Muted until wanted, because a
+     column of logos at full strength would compete with the status of each row. */
+  .artifact-actions .atlas-discuss-action { opacity: 0.62; }
+  .artifact-row:hover .atlas-discuss-action,
+  .artifact-actions .atlas-discuss-action:hover,
+  .artifact-actions .atlas-discuss-action:focus-visible { opacity: 1; }
+
+  /* ── Vital-file ownership ─────────────────────────────────────
+     A recorded owner and a derived default must not look the same. The default
+     is drawn as an outline rather than a filled tag, so "nobody has decided this,
+     it falls here" reads as the provisional thing it is. */
+  .vital-owner {
+    display: inline-flex;
+    align-items: center;
+    padding: 1px 8px;
+    border-radius: 999px;
+    border: 1px solid var(--dash-border);
+    font-size: 0.72em;
+    line-height: 1.6;
+    white-space: nowrap;
+  }
+
+  .vital-owner.is-recorded {
+    border-color: color-mix(in srgb, var(--dash-good) 45%, var(--dash-border));
+    background: color-mix(in srgb, var(--dash-good) 12%, transparent);
+    color: var(--dash-good);
+  }
+
+  .vital-owner.is-default {
+    border-style: dashed;
+    border-color: color-mix(in srgb, var(--dash-accent-strong) 45%, var(--dash-border));
+    color: var(--dash-muted);
+  }
+
+  .vital-owner.is-unowned {
+    border-color: color-mix(in srgb, var(--dash-critical) 50%, var(--dash-border));
+    color: var(--dash-critical);
+  }
+
+  .vital-owners { margin-bottom: 14px; }
+  .vital-owners .section-copy { max-width: 820px; }
+  .vital-owner-blocker {
+    margin: 10px 0 0;
+    padding: 9px 11px;
+    border: 1px solid color-mix(in srgb, var(--dash-warn) 45%, var(--dash-border));
+    border-radius: 8px;
+    color: var(--vscode-descriptionForeground);
+    font-size: 0.82em;
+    line-height: 1.45;
+  }
+  /* A fixable weakness and an unresolvable one call for different reactions, so
+     they are not drawn the same: the notice states a working default and how to
+     point it elsewhere, and does not wear the warning border. */
+  .vital-owner-notice {
+    margin: 10px 0 0;
+    color: var(--vscode-descriptionForeground);
+    font-size: 0.8em;
+    line-height: 1.45;
+  }
+  .vital-owner-actions { margin-top: 12px; }
+  .vital-owner-rules { margin-top: 12px; display: grid; gap: 4px; }
+  .vital-owner-rules p {
+    margin: 0;
+    color: var(--vscode-descriptionForeground);
+    font-size: 0.75em;
+    line-height: 1.45;
+  }
+  .vital-owner-rules strong { font-family: var(--vscode-editor-font-family, monospace); }
 
   .artifact-row--ok { border-color: color-mix(in srgb, var(--dash-good) 30%, var(--dash-border)); }
   .artifact-row--warn { border-color: color-mix(in srgb, var(--dash-warn) 38%, var(--dash-border)); }
@@ -28004,6 +28378,52 @@ const DASHBOARD_CSS = `
   .delivery-guide-run:focus-visible { outline: 1px solid var(--vscode-focusBorder); outline-offset: 2px; }
   .delivery-guide-source { margin-top: 6px; font-size: 0.74em; }
 
+  /* ── Delivery: one runbook per stage ────────────────────────
+     The chip carries a blocker count on its left border rather than as a filled
+     background, for the reason the attention band establishes: three saturated
+     chips read as an alarm even when one of them is the local machine. */
+  .delivery-stage-bar { display: flex; flex-wrap: wrap; gap: 6px; margin-bottom: 8px; }
+  .delivery-stage-chip { display: inline-flex; align-items: center; gap: 7px; padding: 5px 13px; border-radius: 999px; border: 1px solid var(--dash-border); border-left-width: 3px; background: transparent; color: var(--dash-muted); font: inherit; font-size: 12px; cursor: pointer; }
+  .delivery-stage-chip:hover { border-color: color-mix(in srgb, var(--dash-accent-strong) 55%, var(--dash-border)); }
+  .delivery-stage-chip.has-blockers { border-left-color: var(--dash-critical); }
+  .delivery-stage-chip.is-active { border-color: color-mix(in srgb, var(--dash-accent-strong) 70%, var(--dash-border)); background: color-mix(in srgb, var(--dash-accent-strong) 16%, transparent); color: color-mix(in srgb, var(--dash-accent-strong) 90%, var(--tint-away) 10%); font-weight: 600; }
+  .delivery-stage-chip.is-active.has-blockers { border-left-color: var(--dash-critical); }
+  .delivery-stage-count { font-variant-numeric: tabular-nums; opacity: 0.7; }
+  .delivery-stage-reason { margin: 0 0 12px; color: var(--vscode-descriptionForeground); font-size: 0.8em; line-height: 1.45; }
+
+  .delivery-difference { margin-bottom: 14px; }
+  .delivery-difference .section-copy { max-width: 820px; }
+  .delivery-difference-list { display: flex; flex-direction: column; gap: 8px; margin-top: 12px; }
+  .delivery-difference-row { display: flex; align-items: flex-start; gap: 9px; padding: 9px 11px; border: 1px solid var(--vscode-widget-border, rgba(127,127,127,0.24)); border-left-width: 3px; border-radius: 8px; background: color-mix(in srgb, var(--vscode-editor-background) 82%, transparent); }
+  .delivery-difference-row.tone-warn { border-left-color: var(--dash-warn); }
+  .delivery-difference-row.tone-critical { border-left-color: var(--dash-critical); }
+  .delivery-difference-icon { display: inline-flex; align-items: center; justify-content: center; width: 18px; font-weight: 800; color: var(--vscode-descriptionForeground); }
+  .delivery-difference-head { display: flex; align-items: center; gap: 6px; flex-wrap: wrap; }
+  .delivery-difference-head strong { font-size: 0.88em; }
+  .delivery-difference-row p { margin: 5px 0 0; color: var(--vscode-descriptionForeground); font-size: 0.79em; line-height: 1.45; overflow-wrap: anywhere; }
+  .delivery-difference-was { font-style: italic; }
+  .delivery-difference-rule { opacity: 0.72; font-size: 0.73em !important; }
+  .delivery-requirement-list { display: grid; grid-template-columns: repeat(auto-fit, minmax(240px, 1fr)); gap: 8px; margin-top: 12px; }
+  .delivery-requirement { padding: 8px 10px; border: 1px solid var(--vscode-widget-border, rgba(127,127,127,0.2)); border-left-width: 3px; border-radius: 8px; }
+  .delivery-requirement.kind-gate { border-left-color: var(--dash-accent-strong); }
+  .delivery-requirement.kind-data { border-left-color: var(--dash-warn); }
+  .delivery-requirement.kind-reach { border-left-color: var(--dash-critical); }
+  .delivery-requirement.kind-recovery { border-left-color: var(--dash-good); }
+  .delivery-requirement strong { display: block; font-size: 0.83em; margin-bottom: 3px; }
+  .delivery-requirement span { color: var(--vscode-descriptionForeground); font-size: 0.77em; line-height: 1.42; overflow-wrap: anywhere; }
+
+  .delivery-matrix { margin-bottom: 14px; }
+  .delivery-matrix .section-copy { max-width: 820px; }
+  /* A wide table scrolls inside its own container; the page body never does. */
+  .delivery-matrix-scroll { margin-top: 12px; overflow-x: auto; }
+  .delivery-matrix-table { border-collapse: collapse; width: 100%; font-size: 0.8em; }
+  .delivery-matrix-table th, .delivery-matrix-table td { padding: 7px 10px; border-bottom: 1px solid var(--vscode-widget-border, rgba(127,127,127,0.2)); text-align: left; }
+  .delivery-matrix-table thead th { font-size: 0.94em; color: var(--vscode-descriptionForeground); font-weight: 600; white-space: nowrap; }
+  .delivery-matrix-table tbody th { font-weight: 600; white-space: nowrap; }
+  .delivery-matrix-table td { text-align: center; width: 1%; white-space: nowrap; }
+  .delivery-matrix-table td.is-required { color: var(--dash-accent-strong); font-weight: 800; }
+  .delivery-matrix-table td.is-absent { color: var(--vscode-descriptionForeground); opacity: 0.5; }
+
   /* ── Delivery: Stages & Promotion ─────────────────────────────── */
   .stage-pipeline-header { display: flex; align-items: flex-start; justify-content: space-between; gap: 12px; flex-wrap: wrap; margin-bottom: 14px; }
   .stage-pipeline-header .tag-row { margin-top: 6px; }
@@ -28215,8 +28635,7 @@ const DASHBOARD_CSS = `
     .ideation-card,
     button.recent-item::after,
     .recent-item.is-actionable::after,
-    button.branch-card::after,
-    button.artifact-row::after {
+    button.branch-card::after {
       transition: none;
     }
     .stat-card.is-actionable:hover,
@@ -28247,9 +28666,7 @@ const DASHBOARD_CSS = `
     .recent-item.is-actionable:hover::after,
     .recent-item.is-actionable:focus-visible::after,
     button.branch-card:hover::after,
-    button.branch-card:focus-visible::after,
-    button.artifact-row:hover::after,
-    button.artifact-row:focus-visible::after {
+    button.branch-card:focus-visible::after {
       transform: none;
     }
   }

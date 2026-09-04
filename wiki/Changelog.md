@@ -19,6 +19,104 @@ Older entries below describe the software as it was at the time and are delibera
 
 ---
 
+## v0.399.0 — Every vital file has an owner
+
+AtlasMind knew which files must never go stale, and it knew how to assign a human owner to a piece of
+*outstanding work*. It had no answer for the standing question. A `README.md` that is perfectly fresh
+today still has to be somebody's job tomorrow, and the ownership badge beside it returned nothing at all
+unless someone had manually assigned it. A file that belongs to everyone belongs to nobody, which is how
+a repository ends up with a `SECURITY.md` written once and never read again.
+
+Every tracked document and every artifact the repository is expected to keep now shows who keeps it
+current. With nobody assigned it falls to the **Director** — the role that already owns the workflow
+itself. With no Director named it falls to you, which is deliberate: that is the contact the project
+already treats as its assignment default, and naming yourself is the only guess that cannot hand
+somebody else's files to a person who never agreed to them. Picking the first name on the roster is
+refused outright — a roster seeded from git history routinely contains bots, and "dependabot owns the
+security policy" is worse than an honest gap because it stops anybody looking.
+
+**A default looks like a default.** A recorded owner is a filled tag; a derived one is dashed and says
+so. Collapsing the two would let a derivation read as a decision on the one surface whose entire purpose
+is recording what people agreed to.
+
+Nothing is written when you open the page. `project-director.json` is committed, and seeding assignments
+because a tab was opened would put words in somebody's mouth — the same rule the workflow file already
+follows. The upside is that a derived default *follows the roster*: replace the Director and every
+unassigned vital file re-points at once, where written records would quietly keep naming whoever left.
+When you do want them frozen, one confirmed action records them as real assignments and shows every one
+before writing.
+
+Vital artifacts are also assignable now, like any other work record. A missing one joins the Director's
+work board; a present one stays off it and carries the standing owner instead, because a file reviewed
+yesterday is not outstanding work and is still somebody's job tomorrow.
+
+---
+
+## v0.398.0 — The artifact inventory can now act
+
+The Delivery page's artifact inventory could tell you a file was missing and could do nothing about it.
+Every row was a dead end in both directions: a red `SECURITY.md` told you it was absent and left you to
+write it, and a green `README.md` told you the file existed and said nothing about whether it still
+described the project — which, for a document nobody has re-read in months, is the question worth asking.
+
+Every row now carries the AtlasMind logo, and what it asks for depends on the row. A missing document
+the repository is expected to keep opens a draft that **searches for an equivalent under another name
+first** — the inventory probes a fixed list of paths, so a `LICENCE` or a `docs/SECURITY.md` reads as
+missing, and a second copy is worse than the reported gap — then writes the file from what the
+repository already says about itself, leaving anything it cannot determine as a marked placeholder
+rather than inventing it.
+
+A present file gets reviewed rather than rewritten: read it, compare it against what the project
+actually does now, and report what is stale, missing, or contradicted by another document. "This is
+current" is a first-class answer, not a cue to invent improvements, and the correction proposed is the
+smallest one that closes a real gap — a wholesale rewrite of a `CONTRIBUTING.md` loses decisions that
+are written down nowhere else.
+
+`out/`, `dist/`, `coverage/` and a packaged `.vsix` are treated differently again, because they are the
+output of a build rather than a document somebody forgot. Their absence is usually correct, so those
+rows ask how the artifact is produced and whether the ignore rules handle it — and the draft states, in
+the text the model reads, that nothing is to be created. Asking an agent to "create the missing coverage
+directory" invites a fabrication committed to the repository as fact.
+
+The row is now two clear controls instead of one ambiguous one: the filename opens the file, the logo
+opens the hand-off. The whole-row click and its chevron are gone, because a control nested inside a
+control is invalid markup and unreachable by keyboard.
+
+---
+
+## v0.397.0 — A runbook for every delivery stage
+
+The Delivery page explained how to ship this project very well, and it explained it exactly once — from
+the production stage. So the question a developer asks most often, *how do I start the dev build?*, was
+answered with a version bump, a changelog gate and a marketplace publish, while the question that
+actually needs care, *what is different about promoting to production?*, was never asked at all.
+
+There is now **one runbook per configured delivery stage**. Local, Staging and Production each get their
+own Prerequisites → Validate → Package → Deploy → Publish columns, derived from that stage's own record:
+its gates, its declared human and CI checks, its backup, its hosting target, and whether it publishes at
+all. The page opens on the stage your checked-out branch represents — and says so — with the others one
+click away. Switching is instant, because the whole set arrives with the page rather than being fetched.
+
+The local runbook is deliberately not a smaller production runbook. Its Deploy column becomes **Run it
+here**: your `dev`, `start`, `watch` or `serve` script, `go run`, `cargo run`, or the F5 launch path when
+the project has a `.vscode/launch.json`. It lists no publish command, and uncommitted work is normal
+there rather than a blocker — while a stage you promote *into* still treats a dirty tree as one, because
+the artifact would not represent what is on disk.
+
+A **What is different** card states what the open stage requires that the stage below it does not, what
+it requires more strictly, and — the direction usually hidden — anything the stage below requires and
+this one does not. A rollback declared on Staging and absent on Production is a real finding, and a
+"what's new here" list would have buried it. Every row names the declared pipeline rule that produced
+it, and a side-by-side table shows all stages against the same rule list, so the same `delivery.json`
+always produces the same comparison. Nothing here is generated by a model.
+
+Running a column now names the environment: "Run the Deploy column?" had three possible answers, and
+the one it meant was the difference between starting a dev server and dispatching a production
+deployment. Steps and columns are addressed by a key carrying the stage id, so a click can never
+resolve to a neighbouring stage's command.
+
+---
+
 ## v0.396.0 — Bounded game build-log reading
 
 AtlasMind can now interpret a complete game build report supplied by its caller without finding or

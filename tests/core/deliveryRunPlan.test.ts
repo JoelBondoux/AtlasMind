@@ -15,12 +15,13 @@ function step(overrides: Partial<DeliveryGuideStep> & { id: string; label: strin
     detail: 'detail',
     status: 'configured',
     blocking: false,
+    key: overrides.key ?? overrides.id,
     ...overrides,
   };
 }
 
 function phase(steps: DeliveryGuideStep[]): DeliveryGuidePhase {
-  return { id: 'validate', label: 'Validate', description: 'checks', steps };
+  return { id: 'validate', key: 'validate', label: 'Validate', description: 'checks', steps };
 }
 
 describe('classifyDeliveryShell', () => {
@@ -218,5 +219,32 @@ describe('buildDeliveryRunConfirmation', () => {
     );
 
     expect(buildDeliveryRunConfirmation(plan).detail).toContain('Self-review the diff');
+  });
+});
+
+describe('buildDeliveryRunConfirmation — which environment', () => {
+  it('names the stage in the title and the sentence, so a column cannot be ambiguous', () => {
+    // "Run the Deploy column?" has three different answers once the page shows a
+    // runbook per stage, and the one it means is the difference between starting
+    // a dev server and dispatching a production deployment.
+    const plan = buildDeliveryRunPlan(
+      phase([step({ id: 'a', label: 'Test', command: 'npm test' })]),
+      '/bin/bash',
+      'Production',
+    );
+    const confirmation = buildDeliveryRunConfirmation(plan);
+
+    expect(plan.stageLabel).toBe('Production');
+    expect(confirmation.title).toBe('Run the Validate column for Production?');
+    expect(confirmation.detail).toContain('from the Production runbook');
+  });
+
+  it('omits the stage entirely rather than inventing one for an unstaged runbook', () => {
+    const plan = buildDeliveryRunPlan(phase([step({ id: 'a', label: 'Test', command: 'npm test' })]), '/bin/bash');
+    const confirmation = buildDeliveryRunConfirmation(plan);
+
+    expect(plan.stageLabel).toBeUndefined();
+    expect(confirmation.title).toBe('Run the Validate column?');
+    expect(confirmation.detail).not.toContain('runbook');
   });
 });

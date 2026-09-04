@@ -6,6 +6,106 @@ The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/),
 
 ## [Unreleased]
 
+## [0.399.0] - 2026-09-04
+
+### Added
+
+- Added `src/core/vitalFileOwnership.ts`: who keeps each vital file current, from a declared four-rule
+  ladder — an explicit assignment, then the person holding the built-in `director` role, then you, then
+  a stated gap. Every entry names the rule that produced it and the table is published on the surface.
+- Added an owner chip to every tracked document on the Documents page and every `keep` artifact in the
+  Delivery inventory. `renderDirectorOwnerBadge` returned an empty string for anything nobody had
+  manually assigned, so a file that belongs to everyone belonged to nobody.
+- Added an **Ownership of vital files** card to the Delivery page with the counts, the declared rules,
+  and a confirmed action that records the derived defaults as real assignments — showing every one
+  before anything is written.
+- Added `'artifact'` to `DashboardWorkKind`, so a vital repository artifact can carry a Director
+  assignment like any other work record. A missing one joins the work board; a present one does not,
+  by the same rule the testing policies already follow.
+- Added `DashboardSnapshot.vitalFiles`, resolved from the Director roster, the tracked documents and
+  the artifact inventory on every refresh.
+
+### Changed
+
+- Ownership is **derived, not written**. `project_memory/` is git-tracked, so recording an owner
+  because somebody opened a tab would commit words nobody said. A derived default follows the roster,
+  so replacing the Director re-points every unassigned vital file at once, where written records would
+  keep naming somebody who left.
+- A derived default is visually distinct from a recorded one (dashed outline, "default"), and
+  `recorded` carries the distinction in the payload so no surface can lose it.
+
+### Security
+
+- With no Director named the default is `selfContactId` — the contact `ProjectDirectorConfig` already
+  documents as the assignment default — and never the first name on the roster. A roster seeded from
+  git history routinely contains bots, and naming one as the owner of a SECURITY policy is worse than
+  an honest gap because it stops anybody looking. That case is reported as a notice, not hidden.
+
+## [0.398.0] - 2026-09-04
+
+### Added
+
+- Added `src/core/artifactCompliance.ts`: the declared rule that decides what to ask Atlas about one
+  row of the Delivery page's artifact inventory — `review` when the artifact is present, `author` when
+  it is absent and the repository is expected to keep it, `explain` when it is absent and produced
+  rather than authored. Pure, model-free, and byte-identical per row, so a draft is reviewable.
+- Added an AtlasMind action to **every** artifact-inventory row, present ones included. A green row was
+  previously silent, and "this file exists" is not the same claim as "this file still describes the
+  project".
+- Added `ArtifactSignal.id`, `complianceIntent` and `complianceAction`, applied by the collector to
+  every row — catalog-derived and detected alike — so a row cannot reach the page without an action,
+  and the browser renders the intent the host chose rather than re-deriving it.
+- Added the `discussArtifactSignal` message. The page sends an artifact id and nothing else; the host
+  re-probes the inventory, resolves the id, and derives the request from the row's own facts.
+
+### Changed
+
+- The artifact row is a container rather than a button. It became one when the file existed — exactly
+  the case that now needs an action inside it — and a control nested in a control is invalid markup and
+  unreachable by keyboard. The filename is now the control that opens the file, and the chevron that
+  advertised the whole-row click is gone with the click.
+
+### Security
+
+- An `author` request can never be produced for an ephemeral or non-`keep` artifact, and the `explain`
+  prompt states the prohibition in the text the model reads rather than only in the classifier. The
+  webview cannot choose which of the three requests is made.
+
+## [0.397.0] - 2026-09-04
+
+### Added
+
+- Added `src/core/deliveryStageRunbooks.ts`: one detected runbook per configured delivery stage, plus
+  the comparison between adjacent stages. Requirements are graded by a declared fourteen-rule table
+  (`DELIVERY_STAGE_REQUIREMENT_RULES`) that travels in the payload, so the same `delivery.json` always
+  produces the same comparison and every row names the rule that produced it.
+- Added a stage selector, a **What is different** card, and a side-by-side requirement table to the
+  Project Dashboard → Delivery page. Switching stage is offline: the whole set ships with the snapshot.
+- Added the local runbook's **Run it here** column — the project's `dev`/`start`/`watch`/`serve` script,
+  `go run`, `cargo run`, `dotnet run`, or the `.vscode/launch.json` F5 path — and a named gap when none
+  is detected, because not knowing how to start a project is a real finding.
+- Added `DeliveryGuideStep.key` / `DeliveryGuidePhase.key`, a page-wide address carrying the stage id
+  verbatim. `id` repeats across stages by design, so an action carrying only `id` was ambiguous about
+  which environment it belonged to.
+- Added `stageLabel` to `DeliveryRunPlan`, so a column-run confirmation names the environment it is for.
+
+### Changed
+
+- `buildProjectDeliveryGuide` now takes an optional `stageId` and reads every environment-varying fact
+  off that stage: the version-bump and changelog gates, the declared human and CI checks, the backup,
+  the dispatch workflow, the reviewed pull request, the hosting target, and whether anything is
+  published at all. Omitting `stageId` still selects production, so existing callers are unchanged.
+- A `local` stage no longer inherits production's shape: it lists no publish script and no delivery
+  workflow, has no hosting-target step, and grades uncommitted work `manual` rather than blocking —
+  a dirty tree is the ordinary state of working, and grading it red left the runbook a developer reads
+  every day permanently failing for doing its job.
+- Publish scripts now appear only on a stage the pipeline says reaches a registry, or on an unstaged
+  runbook. Listing them by ecosystem alone put `npm run publish:release` one click from the button that
+  starts the dev server, and on an integration stage that publishes nothing.
+- A stage's declared check that restates a step the runbook already derived is no longer listed twice.
+- The runbook resolution, discussion and run handlers now scan every stage's runbook and match on
+  `key`; the Atlas repair draft leads with the delivery stage the step belongs to.
+
 ## [0.396.0] - 2026-09-03
 
 ### Added
