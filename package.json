@@ -2763,7 +2763,7 @@
     "@stryker-mutator/vitest-runner": "^10.0.0",
     "@types/node": "^26.2.0",
     "@types/pg": "^8.21.0",
-    "@types/vscode": "^1.120.0",
+    "@types/vscode": "^1.134.0",
     "@types/ws": "^8.18.1",
     "@typescript-eslint/eslint-plugin": "^8.67.0",
     "@typescript-eslint/parser": "^8.67.0",
@@ -2786,7 +2786,7 @@
     "mysql2": "^3.23.3",
     "pg": "^8.23.0",
     "ws": "^8.21.3",
-    "zod": "^4.4.3"
+    "zod": "^4.5.4"
   },
   "overrides": {
     "@hono/node-server": "^2.0.5",
