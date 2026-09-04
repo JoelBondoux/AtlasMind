@@ -4,7 +4,7 @@
 
 <h1 align="center">AtlasMind</h1>
 
-<p align="center"><sub> · <strong>Current source version: 0.402.3</strong> · </sub></p>
+<p align="center"><sub> · <strong>Current source version: 0.402.4</strong> · </sub></p>
 
 
 <p align="center">
@@ -131,6 +131,11 @@ allow-list, redaction and file-withholding behaviour, retained metadata, provide
 important limits on overrides and compliance claims.
 
 ---
+
+## What's new in 0.402.4
+
+The last of the platform-locked test fixtures. One more literal Windows path was
+hiding behind a different drive prefix.
 
 ## What's new in 0.402.3
 

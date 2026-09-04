@@ -6,6 +6,16 @@ The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/),
 
 ## [Unreleased]
 
+## [0.402.4] - 2026-09-04
+
+### Fixed
+
+- Fixed the last platform-locked fixture in `workspaceScope`. One literal Windows
+  path remained, hidden behind a different drive prefix from the others, and it was
+  the one establishing that two folders sharing a basename are ambiguous — a
+  condition that only arises on a platform where `path.basename` splits the string.
+
+
 ## [0.402.3] - 2026-09-04
 
 ### Fixed

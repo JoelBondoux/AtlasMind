@@ -12,6 +12,8 @@ import { resolveWorkspaceScope, type WorkspaceFolderReference } from '../../src/
  * were not Windows.
  */
 const at = (...segments: string[]): string => path.join('C:', 'studio', ...segments);
+/** A second tree, for the case where two folders share a basename. */
+const elsewhere = (...segments: string[]): string => path.join('D:', 'other', ...segments);
 
 const composition = (): ProjectComposition => sanitizeProjectComposition({
   components: [
@@ -69,7 +71,7 @@ describe('resolveWorkspaceScope', () => {
     expect(resolveWorkspaceScope(unreadable, composition(), { kind: 'component', componentId: 'content' }).unknown)
       .toEqual([expect.objectContaining({ reason: 'unreadable' })]);
 
-    const ambiguous = [...folders(), { name: 'Content copy', fsPath: 'D:\\other\\content' }];
+    const ambiguous = [...folders(), { name: 'Content copy', fsPath: elsewhere('content') }];
     expect(resolveWorkspaceScope(ambiguous, composition(), { kind: 'component', componentId: 'content' }).unknown)
       .toEqual([expect.objectContaining({ reason: 'ambiguous' })]);
   });

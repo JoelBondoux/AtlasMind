@@ -19,6 +19,10 @@ Older entries below describe the software as it was at the time and are delibera
 
 ---
 
+## v0.402.4 — The last platform-locked fixture
+
+One more literal Windows path, hidden behind a different drive prefix.
+
 ## v0.402.3 — Line endings pinned for fixtures
 
 The repository had no `.gitattributes`, so a test comparing a fixture
