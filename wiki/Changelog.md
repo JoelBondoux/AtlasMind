@@ -19,6 +19,23 @@ Older entries below describe the software as it was at the time and are delibera
 
 ---
 
+## v0.402.0 — Import what you already wrote
+
+If you had filled in one of the old hand-edited control mappings, the Compliance
+page now offers to read it in rather than making you retype it.
+
+It tells you **what it cannot carry across before it writes anything**. A row
+reading *Satisfied* with nobody's name against it imports as *Not assessed*, with
+your original wording kept as a note — because that is what it always was, and a
+status with nothing behind it is a claim rather than evidence. Rows that do name
+somebody on your Director roster carry across, dated today: the old table had no
+date column, and inventing one would let a reader compute an evidence period from
+a number nobody stood behind.
+
+The stack checks now reach the page as well. On this repository they satisfy seven
+ISO 27001 checks and six SOC 2 ones, shown beside the controls they touch — and
+promoting nothing, because both regimes still have no scope decision.
+
 ## v0.401.0 — Somewhere to record what actually evidences a regime
 
 The previous release stopped a governance regime reading green on a filename. This

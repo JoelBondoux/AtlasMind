@@ -1524,6 +1524,10 @@
       vscode.postMessage({ type: 'createComplianceRegister', payload: { regimeId: payload } });
       return;
     }
+    if (action === 'compliance-import') {
+      vscode.postMessage({ type: 'importComplianceMapping', payload: { regimeId: payload } });
+      return;
+    }
     if (action === 'compliance-scope') {
       vscode.postMessage({ type: 'decideComplianceScope', payload: { regimeId: payload } });
       return;
@@ -12579,8 +12583,10 @@
 
         ${!regime.registered ? `
           <p class="section-copy">No control mapping exists for this regime yet. It reads <em>Not examined</em>, which is the honest answer.</p>
+          ${regime.importable ? '<p class="stat-detail">A hand-written mapping is on disk. Import it rather than retyping what you already wrote — you will be shown what can and cannot be carried across before anything is written.</p>' : ''}
           <div class="tag-row">
-            <button type="button" class="action-link primary" data-action="compliance-create" data-payload="${escapeAttr(regime.id)}"${snapshot.compliance.readOnly ? ' disabled' : ''}>Create the control register</button>
+            ${regime.importable ? `<button type="button" class="action-link primary" data-action="compliance-import" data-payload="${escapeAttr(regime.id)}"${snapshot.compliance.readOnly ? ' disabled' : ''}>Import the existing mapping…</button>` : ''}
+            <button type="button" class="action-link${regime.importable ? '' : ' primary'}" data-action="compliance-create" data-payload="${escapeAttr(regime.id)}"${snapshot.compliance.readOnly ? ' disabled' : ''}>Create an empty register</button>
           </div>` : `
           ${segments.length > 0 ? renderDistributionBar('compliance-' + regime.id, segments) : ''}
           <p class="stat-detail">${escapeHtml(regime.applicableCount + ' applicable control' + (regime.applicableCount === 1 ? '' : 's') + ' of ' + regime.declaredCount + ' declared' + (regime.weakestRef ? ' · weakest: ' + regime.weakestRef : ''))}</p>

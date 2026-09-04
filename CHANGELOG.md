@@ -6,6 +6,51 @@ The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/),
 
 ## [Unreleased]
 
+## [0.402.0] - 2026-09-04
+
+### Added
+
+- Added `src/core/complianceMarkdownImport.ts` and an **Import** action on the
+  Compliance page, so a project that had filled in one of the old hand-edited
+  mappings does not have to retype it — or, worse, keep editing a file that is now
+  generated and overwritten on the next write.
+- The confirmation states **what cannot be carried across before anything is
+  written**. A count computed afterwards would be a report on something already
+  done, and this is the number somebody actually needs in order to agree.
+
+### Changed
+
+- **There is no special case for import.** The obvious shortcut is to trust an
+  imported row because somebody clearly typed it deliberately, and that shortcut is
+  the original defect wearing a sympathetic face: a status with nothing behind it is
+  a claim, and a claim does not become evidence by being old. Imported rows go
+  through the ordinary sanitizer, so a `Satisfied` row naming no owner lands at
+  *Not assessed* with its wording kept as a note.
+- A row naming somebody on the Director roster **does** carry across — that is real
+  work and discarding it would be its own dishonesty — but `assertedBy.at` is the
+  import date and the note says so in as many words. The old table had no date
+  column, and a fabricated assertion date is worse than a missing one because a
+  Type II reader would compute a period from it.
+- The scaffolder's own `AtlasMind checks part of this` pointer is dropped rather
+  than imported as evidence: it was written by the tool, and importing it would be
+  AtlasMind citing its own boilerplate back to itself. The scoping paragraph becomes
+  `scope.proposed`, never a decision — the scaffolder wrote it and nobody agreed to
+  it, so the scope gate still holds.
+- Only rows under `## Controls` are read. The `## Review log` table has the same
+  pipe-delimited shape, and the gate this feature replaced matched any cell in any
+  table in the document — which is how typing `Gap` as a reviewer's *name* could
+  mark a whole regime as evidenced.
+- Extracted `gatherComplianceStackSignals` into `src/core/complianceStackSignals.ts`
+  so the Compliance page and the Testing page share one implementation. A second
+  one was the obvious alternative and the wrong one: the two surfaces would
+  eventually give different answers to "is a backup taken before a production
+  promotion?", and a compliance board where two pages disagree is worse than one
+  that does not answer. The coverage board is now an optional input, because
+  gathering it means walking the test tree and the dashboard renders far more often
+  than that walk is worth — the two signals derived from it read `unknown`, which
+  is the correct answer to "we did not look".
+
+
 ## [0.401.0] - 2026-09-04
 
 ### Added

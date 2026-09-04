@@ -2343,11 +2343,14 @@ export async function collectLensSetupSteps(): Promise<import('../core/setupWalk
 async function collectComplianceSetupState(): Promise<
   import('../core/complianceSetupPlan.js').ComplianceSetupState
 > {
-  const [catalog, register, config, director] = await Promise.all([
+  const [catalog, register, config, director, importer, fs, nodePath] = await Promise.all([
     import('../core/complianceControlCatalog.js'),
     import('../core/complianceEvidenceRegister.js'),
     import('../core/testingConfigLoader.js'),
     import('../core/projectDirectorManager.js'),
+    import('../core/complianceMarkdownImport.js'),
+    import('node:fs'),
+    import('node:path'),
   ]);
   const workspaceRoot = vscode.workspace.workspaceFolders?.[0]?.uri.fsPath;
   const empty = {
@@ -2383,6 +2386,7 @@ async function collectComplianceSetupState(): Promise<
 
   const registered: string[] = [];
   const scoped: string[] = [];
+  const pending: string[] = [];
   let preserveExisting = evidenceRead.preserveExisting;
   let focus: typeof declared[number] | undefined;
   let focusAssessed = 0;
@@ -2393,6 +2397,19 @@ async function collectComplianceSetupState(): Promise<
       preserveExisting = true;
     }
     if (!read.config) {
+      // A hand-written mapping with nothing behind it yet — worth offering to
+      // read in rather than letting somebody retype what they already wrote.
+      try {
+        const existing = fs.readFileSync(
+          nodePath.default.join(workspaceRoot, register.complianceRegimeSummaryPath(entry.policyId)),
+          'utf8',
+        );
+        if (importer.hasImportableMapping(existing, entry)) {
+          pending.push(entry.policyId);
+        }
+      } catch {
+        // No mapping on disk. Not an error.
+      }
       continue;
     }
     registered.push(entry.policyId);
@@ -2413,8 +2430,7 @@ async function collectComplianceSetupState(): Promise<
     declaredRegimes: declared.map(entry => entry.policyId),
     registeredRegimes: registered as never[],
     scopedRegimes: scoped as never[],
-    // A mapping written before the register existed, still waiting to be read in.
-    pendingImports: [] as never[],
+    pendingImports: pending as never[],
     focusRegime: chosen.policyId,
     focusRegimeLabel: chosen.regime,
     focusControlCount: chosen.controls.length,

@@ -109,6 +109,8 @@ export interface ComplianceRegimeView {
   readonly summaryPath: string;
   readonly notesPath: string;
   readonly notesExist: boolean;
+  /** A hand-edited mapping is on disk and has not been read in yet. */
+  readonly importable: boolean;
   readonly registered: boolean;
   readonly scopeDecided: boolean;
   readonly scopeStatement?: string;
@@ -401,6 +403,7 @@ export interface ComplianceSnapshotInput {
   readonly library: ComplianceEvidenceLibrary;
   readonly labels: ReadonlyMap<ComplianceMethodologyId, string>;
   readonly notesPresent: ReadonlySet<ComplianceMethodologyId>;
+  readonly importable?: ReadonlySet<ComplianceMethodologyId>;
   readonly paths: {
     readonly evidence: string;
     readonly evidenceSummary: string;
@@ -467,6 +470,7 @@ export function buildComplianceSnapshot(input: ComplianceSnapshotInput): Complia
       summaryPath: input.paths.summary(reading.policyId),
       notesPath: input.paths.notes(reading.policyId),
       notesExist: input.notesPresent.has(reading.policyId),
+      importable: input.importable?.has(reading.policyId) ?? false,
       registered: register !== undefined,
       scopeDecided: reading.scopeDecided,
       ...(register?.scope.statement ? { scopeStatement: register.scope.statement } : {}),
