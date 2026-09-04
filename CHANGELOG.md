@@ -6,6 +6,23 @@ The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/),
 
 ## [Unreleased]
 
+## [0.402.3] - 2026-09-04
+
+### Fixed
+
+- Added a `.gitattributes`, which the repository did not have. Without one every
+  checkout took whatever the platform's `core.autocrlf` decided, so
+  `tests/core/gameEngineFixtures.test.ts` — which compares a fixture's contents
+  byte-for-byte — passed on Linux and failed on Windows. The failure is
+  particularly unhelpful because the two strings render identically in the
+  assertion message; nothing in the diff shows a line ending.
+- Scoped to `tests/fixtures/**` and the compliance mirrors rather than declaring
+  `* text=auto eol=lf` for the whole repository. A global rule would renormalise
+  every tracked file in one commit — a large unreviewable diff and a merge hazard
+  for anything in flight — and fixtures are the files that actually need the
+  guarantee.
+
+
 ## [0.402.2] - 2026-09-04
 
 ### Fixed

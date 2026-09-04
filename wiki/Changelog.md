@@ -19,6 +19,12 @@ Older entries below describe the software as it was at the time and are delibera
 
 ---
 
+## v0.402.3 — Line endings pinned for fixtures
+
+The repository had no `.gitattributes`, so a test comparing a fixture
+byte-for-byte passed on Linux and failed on Windows — for a reason invisible in
+the assertion message, since the two strings render identically.
+
 ## v0.402.2 — CI unblocked
 
 Two checks had been red. `workspaceScope`'s tests used literal Windows paths, so

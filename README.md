@@ -4,7 +4,7 @@
 
 <h1 align="center">AtlasMind</h1>
 
-<p align="center"><sub> · <strong>Current source version: 0.402.2</strong> · </sub></p>
+<p align="center"><sub> · <strong>Current source version: 0.402.3</strong> · </sub></p>
 
 
 <p align="center">
@@ -131,6 +131,14 @@ allow-list, redaction and file-withholding behaviour, retained metadata, provide
 important limits on overrides and compliance claims.
 
 ---
+
+## What's new in 0.402.3
+
+Added a `.gitattributes`. There wasn't one, so every checkout took whatever the
+platform decided about line endings — harmless for source, fatal for a test
+fixture compared byte-for-byte. That test passed on Linux and failed on Windows
+for a reason invisible in the assertion message, because the two strings render
+identically.
 
 ## What's new in 0.402.2
 
