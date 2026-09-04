@@ -6136,8 +6136,12 @@
     const byCategory = new Map();
     rows.forEach(row => {
       const key = row.category || 'other';
-      const bucket = byCategory.get(key) || { covered: 0, gap: 0, practice: 0 };
-      if (row.status === 'covered') { bucket.covered += 1; }
+      const bucket = byCategory.get(key) || { covered: 0, gap: 0, practice: 0, governed: 0 };
+      // A governance regime is neither covered nor a gap here: it is not a
+      // thing a test file can evidence, and counting all twenty-four as gaps
+      // made every compliance family read as total failure.
+      if (row.status === 'governed') { bucket.governed = (bucket.governed || 0) + 1; }
+      else if (row.status === 'covered') { bucket.covered += 1; }
       else if (row.status === 'not-file-evident') { bucket.practice += 1; }
       else { bucket.gap += 1; }
       byCategory.set(key, bucket);
@@ -6311,13 +6315,33 @@
       const severity = finding ? finding.severity : 'none';
       const expanded = state.testingExpandedIds.includes(row.id);
 
+      // A governance regime takes its tone from the readiness reading, and
+      // never `tag-good`: no reading this product can produce is a statement
+      // of compliance, so none of them may render as one.
+      const governance = row.governance;
       const tone = row.failedCount > 0 ? 'tag-critical'
-        : row.status === 'covered' ? 'tag-good'
-        : row.status === 'tooling-only' ? 'tag-warn'
-        : row.status === 'missing' ? 'tag-critical'
-        : '';
+        : row.status === 'governed'
+          ? (governance
+            ? (governance.tone === 'critical' ? 'tag-critical' : governance.tone === 'warn' ? 'tag-warn' : '')
+            : 'tag-critical')
+          : row.status === 'covered' ? 'tag-good'
+            : row.status === 'tooling-only' ? 'tag-warn'
+              : row.status === 'missing' ? 'tag-critical'
+                : '';
       const counts = [];
-      if (row.status !== 'not-file-evident') {
+      if (row.status === 'governed') {
+        if (governance) {
+          counts.push(`${governance.applicable} control${governance.applicable === 1 ? '' : 's'}`);
+          if (governance.satisfiedIndependent > 0) { counts.push(`${governance.satisfiedIndependent} confirmed outside`); }
+          if (governance.satisfiedSelf > 0) { counts.push(`${governance.satisfiedSelf} on our evidence`); }
+          if (governance.awaitingIndependent > 0) { counts.push(`${governance.awaitingIndependent} awaiting an outside party`); }
+          if (governance.expired > 0) { counts.push(`${governance.expired} lapsed`); }
+          if (governance.gaps > 0) { counts.push(`${governance.gaps} not met`); }
+          if (governance.notAssessed > 0) { counts.push(`${governance.notAssessed} not assessed`); }
+        } else {
+          counts.push('nothing recorded');
+        }
+      } else if (row.status !== 'not-file-evident') {
         counts.push(`${row.fileCount} file${row.fileCount === 1 ? '' : 's'}`);
         if (row.caseCount > 0) { counts.push(`${row.caseCount} case${row.caseCount === 1 ? '' : 's'}`); }
         if (row.skippedCount > 0) { counts.push(`${row.skippedCount} skipped`); }
@@ -6360,7 +6384,7 @@
             <p class="section-kicker">Policy coverage</p>
             <h3>What each enabled policy has to show</h3>
           </div>
-          <span class="tag ${gapRows.length > 0 || failingRows.length > 0 ? 'tag-warn' : 'tag-good'}">${escapeHtml(`${coverage.coveredCount}/${coverage.activeCount} with tests`)}</span>
+          <span class="tag ${gapRows.length > 0 || failingRows.length > 0 ? 'tag-warn' : 'tag-good'}">${escapeHtml(`${coverage.coveredCount}/${coverage.assessableCount === undefined ? coverage.activeCount : coverage.assessableCount} with tests`)}</span>
         </div>
         <div class="stat-detail">${escapeHtml(coverage.summary)}</div>
         <div class="tag-row" style="margin-top:8px">
@@ -6376,6 +6400,7 @@
             { label: 'Tooling only', value: coverage.toolingOnlyCount, tone: 'warn' },
             { label: 'Nothing found', value: coverage.missingCount, tone: 'critical' },
             { label: 'Practice (not file-evident)', value: coverage.practiceCount, tone: 'muted' },
+            { label: 'Governance regime', value: coverage.governedCount || 0, tone: 'muted' },
           ], {
             title: 'Enabled policies by evidence',
             caption: `${coverage.activeCount} enabled`,
@@ -8328,7 +8353,7 @@
           <div class="ci-section-heading">
             <div>
               <p class="card-kicker">Declared policies</p>
-              <h3>${escapeHtml(`${coverage.coveredCount} of ${coverage.activeCount} evidenced`)}</h3>
+              <h3>${escapeHtml(`${coverage.coveredCount} of ${coverage.assessableCount === undefined ? coverage.activeCount : coverage.assessableCount} evidenced`)}</h3>
               <p class="stat-detail">${escapeHtml(coverage.summary || '')}</p>
             </div>
           </div>
@@ -8337,6 +8362,7 @@
             ${renderMetricPill('Tooling only', String(coverage.toolingOnlyCount), { tone: coverage.toolingOnlyCount ? 'warn' : '', detail: 'Installed, nothing uses it' })}
             ${renderMetricPill('Missing', String(coverage.missingCount), { tone: coverage.missingCount ? 'warn' : 'good', detail: 'Declared, no evidence' })}
             ${renderMetricPill('Practices', String(coverage.practiceCount), { detail: 'Never file-evident — not gaps' })}
+          ${coverage.governedCount ? renderMetricPill('Governance', String(coverage.governedCount), { detail: 'Graded on the compliance register' }) : ''}
           </div>
           <details class="ci-progressive-details">
             <summary>Every declared policy and its evidence</summary>
@@ -8912,7 +8938,13 @@
         <div class="ci-dial-grid">
           ${renderPipelineDial('test-complete', completionPercent, { value: report ? `${completed}/${reportTests}` : '—', label: 'resolved', detail: report ? `${skipped} skipped` : 'No report', resolved: reportTests > 0 && completionPercent === 100 })}
           ${renderPipelineDial('test-pass', passPercent, { value: report ? `${passed}/${completed}` : '—', label: 'passing', detail: report ? `${failed} failing` : `${testing.totalCases || 0} discovered`, resolved: reportTests > 0 && failed === 0 && !report.stale, tone: failed > 0 ? 'critical' : report ? 'good' : 'muted' })}
-          ${renderPipelineDial('policy-cover', coverage.activeCount > 0 ? (coverage.coveredCount / coverage.activeCount) * 100 : undefined, { value: coverage.activeCount > 0 ? `${coverage.coveredCount}/${coverage.activeCount}` : '—', label: 'policies evidenced', detail: `${coverage.missingCount || 0} missing`, resolved: coverage.activeCount > 0 && coverage.coveredCount === coverage.activeCount, tone: coverage.missingCount > 0 ? 'warn' : 'good' })}
+          ${(() => {
+            // Governance regimes are out of this denominator: they are graded on
+            // the compliance register, and leaving them in made a dial that no
+            // amount of testing could ever fill.
+            const testable = coverage.assessableCount === undefined ? coverage.activeCount : coverage.assessableCount;
+            return renderPipelineDial('policy-cover', testable > 0 ? (coverage.coveredCount / testable) * 100 : undefined, { value: testable > 0 ? `${coverage.coveredCount}/${testable}` : '—', label: 'policies evidenced', detail: `${coverage.missingCount || 0} missing`, resolved: testable > 0 && coverage.coveredCount === testable, tone: coverage.missingCount > 0 ? 'warn' : 'good' });
+          })()}
         </div>
         ${cells.length ? `<div class="ci-test-grid" role="img" aria-label="${escapeAttr(report ? `Aggregate display of ${passed} passing, ${failed} failing and ${skipped} skipped tests` : `${testing.totalCases || 0} tests discovered with no current result`)}">${cells.map((status, index) => `<span class="test-cell ${status}" style="--cell-index:${index}" title="${report ? 'Aggregate result display' : 'Discovered; not run'}">${status === 'pass' ? '✓' : status === 'fail' ? '×' : status === 'skip' ? '–' : '?'}</span>`).join('')}</div><p class="stat-detail">${report && reportTests > cellCount ? `${cellCount} proportional display cells summarise ${reportTests} aggregate results; they are not individual named tests.` : report ? 'One cell per reported result.' : 'Discovery cells are not pass results.'}</p>` : ''}
         ${renderDistributionBar('pipeline-test-categories', (testing.categoryCounts || []).map(item => ({ key: item.key, label: item.label, value: item.count, tone: item.key === 'e2e' ? 'accent' : item.key === 'integration' ? 'warn' : 'good' })), { title: 'Test files by category', caption: `${testing.totalFiles || 0} files`, emptyLabel: 'No test files classified.' })}

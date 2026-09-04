@@ -4,7 +4,7 @@
 
 <h1 align="center">AtlasMind</h1>
 
-<p align="center"><sub> · <strong>Current source version: 0.399.0</strong> · </sub></p>
+<p align="center"><sub> · <strong>Current source version: 0.400.0</strong> · </sub></p>
 
 
 <p align="center">
@@ -131,6 +131,35 @@ allow-list, redaction and file-withholding behaviour, retained metadata, provide
 important limits on overrides and compliance claims.
 
 ---
+
+## What's new in 0.400.0
+
+**Governance regimes are no longer graded on a filename.** All twenty-four compliance
+methodologies - ISO 27001, SOC 2, GDPR, HIPAA, PCI DSS, NIST 800-53, SLSA, the AI Act
+regimes and the rest - could reach a green **Tested** tag on evidence far weaker than the
+regime. A test file called `data-privacy.test.ts` marked the whole of GDPR met. A
+scaffolded control mapping with one cell filled in marked ISO 27001 met. One passing stack
+check promoted all twenty-five of ISO's controls. And committing an SBOM your build
+already produces marked SBOM Verification met with no gate at all.
+
+They are now graded on a **compliance evidence register**, control by control, against a
+declared catalog of 224 controls across all twenty-four regimes:
+
+- **Every control declares what would settle it** - a machine check, a named person's
+  attestation, a document, or a statement from an outside party. A control only an outside
+  party can close cannot be talked up by a self-assertion, however many are recorded
+  against it. That ceiling is the whole mechanism.
+- **A status needs a name and a date.** A status with nothing behind it is a claim, not
+  evidence, and is not carried. AtlasMind may draft the narrative; it may never assert
+  that a control is met.
+- **Evidence is referenced, never copied.** `project_memory/` is tracked by git, so a
+  certificate or a signed agreement committed there goes to everyone who can clone it.
+  AtlasMind records a locator and metadata, and never opens the document.
+- **Nothing reads as compliant.** The strongest reading available is *Independently
+  assured*, and every reading carries the sentence saying only a certification body,
+  auditor, regulator or counsel can make that call.
+- **Every methodology states which edition it models and when that was last checked**, so
+  a project cannot be graded against a standard that has since moved on.
 
 ## What's new in 0.399.0
 
@@ -1814,7 +1843,7 @@ All 142 settings are documented in the [Configuration reference](wiki/Configurat
 
 | Path | What's in it |
 |---|---|
-| `src/core/` | Orchestration, routing, planning, safety, cost, project composition, opt-in workspace scope, read-only upstream distance, game-engine identity, bounded asset inventory, pure engine-fork interpretation, and hostile-input build-log reading (`projectComposition.ts`, `workspaceScope.ts`, `upstreamDivergence.ts`, `gameEngineIdentity.ts`, `gameAssetInventory.ts`, `gameEngineDivergence.ts`, `gameBuildLog.ts`), UI Studio's graph/edit/live-preview/repository core (`uiDesignGraph.ts`, `uiEditCommands.ts`, `uiPreviewRuntime.ts`, `uiRepositoryMapping.ts`, `uiRepositoryImport.ts`), CI inspection/scaffolding (`ciManager.ts`, `trustedLocalCiStarter.ts`), the CI route model, routing policy, build ledger and act adapter (`ciRoutes.ts`, `ciRoutingPolicy.ts`, `ciCreditMeter.ts`, `ciBuildLedger.ts`, `ciActRoute.ts`), the local CI guide, GitHub CLI installer and remembered machine inspection (`localCiSetupPlan.ts`, `localCiInstaller.ts`, `localCiInspectionMemory.ts`), confirmed-write echo (`trackerWriteOutcome.ts`), the register-to-work hand-off (`registerHandoff.ts`), the semver primitives and branch-to-channel versioning policy (`semver.ts`, `versioningPolicy.ts`), the roadmap dependency graph and its overlay store (`roadmapGraph.ts`, `roadmapGraphStore.ts`), release-gate destinations and urgency ordering (`releaseGateNavigation.ts`), roadmap ingestion from markdown, issues, Projects and spreadsheets (`roadmapImport.ts`) plus the guarded `localCiRunner.ts` executor, and project services |
+| `src/core/` | Orchestration, routing, planning, safety, cost, project composition, opt-in workspace scope, read-only upstream distance, game-engine identity, bounded asset inventory, pure engine-fork interpretation, and hostile-input build-log reading (`projectComposition.ts`, `workspaceScope.ts`, `upstreamDivergence.ts`, `gameEngineIdentity.ts`, `gameAssetInventory.ts`, `gameEngineDivergence.ts`, `gameBuildLog.ts`), UI Studio's graph/edit/live-preview/repository core (`uiDesignGraph.ts`, `uiEditCommands.ts`, `uiPreviewRuntime.ts`, `uiRepositoryMapping.ts`, `uiRepositoryImport.ts`), CI inspection/scaffolding (`ciManager.ts`, `trustedLocalCiStarter.ts`), the CI route model, routing policy, build ledger and act adapter (`ciRoutes.ts`, `ciRoutingPolicy.ts`, `ciCreditMeter.ts`, `ciBuildLedger.ts`, `ciActRoute.ts`), the local CI guide, GitHub CLI installer and remembered machine inspection (`localCiSetupPlan.ts`, `localCiInstaller.ts`, `localCiInspectionMemory.ts`), confirmed-write echo (`trackerWriteOutcome.ts`), the register-to-work hand-off (`registerHandoff.ts`), the semver primitives and branch-to-channel versioning policy (`semver.ts`, `versioningPolicy.ts`), the roadmap dependency graph and its overlay store (`roadmapGraph.ts`, `roadmapGraphStore.ts`), release-gate destinations and urgency ordering (`releaseGateNavigation.ts`), roadmap ingestion from markdown, issues, Projects and spreadsheets (`roadmapImport.ts`) plus the guarded `localCiRunner.ts` executor, the governance-compliance stack — the control catalog, evidence register and readiness grader (`complianceControlCatalog.ts`, `complianceEvidenceRegister.ts`, `complianceReadiness.ts`) and the per-methodology standard editions (`testingStandards.ts`) — and project services |
 | `src/runtime/` | Built-in agents and runtime composition |
 | `src/providers/` | Model provider adapters, catalogs, health, `modelRole.ts` (what a model is *for*), and the local-GPU support layer — `gpuProbe.ts`, `localFootprint.ts`, `localRuntimeClient.ts` |
 | `src/skills/` | Built-in tools and skill handlers |

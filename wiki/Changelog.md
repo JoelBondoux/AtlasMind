@@ -19,6 +19,44 @@ Older entries below describe the software as it was at the time and are delibera
 
 ---
 
+## v0.400.0 — A compliance regime is no longer graded on a filename
+
+All twenty-four governance methodologies — ISO 27001, SOC 2, GDPR, HIPAA, PCI DSS, NIST 800-53,
+SLSA, the AI Act regimes and the rest — could reach a green **Tested** tag on evidence far weaker
+than the regime itself. Four separate routes, each of which looked reasonable on its own:
+
+- A **filename**. A test called `data-privacy.test.ts` marked the whole of GDPR met.
+- A **mostly-empty form**. The scaffolded control mapping counted once any one cell carried an
+  assessed status — and the gate was weaker than it looked, matching any table cell anywhere in the
+  document, so typing `Gap` as a reviewer's name qualified.
+- **One passing stack check**, which promoted all twenty-five of ISO 27001's controls.
+- **No gate at all** for four regimes: committing the SBOM your build already produces marked SBOM
+  Verification met.
+
+They are now graded on a **compliance evidence register**, control by control, against a declared
+catalog of 224 controls.
+
+**Every control says what would settle it.** A machine check, a named person's attestation, a
+document, or a statement from an outside party — and that is a *set*, not a ranking, because the
+four differ in kind rather than strength. No scanner can assess "roles and responsibilities
+assigned"; no person's word produces a bill of materials. A control only an outside party can close
+therefore cannot be talked up by a self-assertion, however many are recorded against it.
+
+**A status needs a name and a date.** One with nothing behind it is a claim, not evidence, and is
+not carried. AtlasMind will draft your assessor narrative; it will never assert that a control is
+met.
+
+**Your certificates stay where they are.** `project_memory/` is tracked by git, so a signed report
+committed there goes to everyone who can clone the repository. AtlasMind records where a document
+is, who issued it and when it expires — never the document, and it never opens one.
+
+**Nothing reads as compliant.** The strongest reading available is *Independently assured*, and
+every reading carries the sentence saying only a certification body, auditor, regulator or counsel
+can make that call.
+
+**Every methodology now states which edition it models and when that was last checked**, so you
+cannot be graded against a standard that has since moved on.
+
 ## v0.399.0 — Every vital file has an owner
 
 AtlasMind knew which files must never go stale, and it knew how to assign a human owner to a piece of

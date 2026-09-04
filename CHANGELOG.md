@@ -6,6 +6,85 @@ The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/),
 
 ## [Unreleased]
 
+## [0.400.0] - 2026-09-04
+
+### Added
+
+- Added `src/core/complianceControlCatalog.ts`: what each control in a governance regime
+  actually needs before anybody may say it is met. 224 controls across all twenty-four
+  `compliance-*` regimes - seven of which had no control set at all, and "graded by the
+  weakest applicable control" over an empty set grades *fine*, which is the hole exactly
+  where nobody looks. The central field is `accepts`, the set of evidence kinds that can
+  satisfy a control, deliberately a set rather than a rank: the four kinds differ in kind
+  and not in strength, and any total order forces a lie (no scanner can assess "roles and
+  responsibilities assigned"; no person's word produces a bill of materials). The ceiling
+  then falls out exactly - `accepts: ['independent']` means no attestation ever closes it.
+- Added nine controls that did not exist and whose absence was itself the defect: the
+  SOC 2 mapping had twenty-four rows and none of them was "a service auditor issued a
+  report", so a fully-completed mapping still described a project nobody had audited.
+  Every regime now either declares a control an outside party must sign or states why it
+  has none, pinned by test so the omission is a decision somebody made.
+- Added `src/core/complianceEvidenceRegister.ts`: the record of what is on file, who
+  asserted it, when, and when it stops being true. Evidence is **referenced, never
+  copied** - `project_memory/` is git-tracked, and a signed report committed there goes to
+  every clone - so a record holds a locator and metadata and never a byte of the document.
+  Locators come in three honest forms: a workspace-relative path, an `https` URL with the
+  query stripped (an evidence URL carrying one is usually a pre-signed link), or a
+  described location, which is a first-class answer rather than a fallback.
+- Added seven read-time invariants re-enforced on every load, so a hand edit - or an agent
+  edit - cannot promote a control. The one carrying most weight is attribution: a status
+  other than not-assessed needs a named person, a parseable date, and a human source.
+  Every demotion is counted and reported rather than applied quietly.
+- Added `src/core/complianceReadiness.ts`: five regime readings and eight control
+  readings, from two published, ordered rule tables. Graded by the **weakest applicable
+  control**, so twenty-four unassessed controls can never hide behind one satisfied one.
+- Added `<regime>-user-edit.md`, the one file in the compliance directory a person writes
+  by hand. Prose is absorbed into the generated mirror so there is one document to write
+  and one to read; it carries narrative only, and nothing in it can change a grade.
+- Added `src/core/testingStandards.ts`: which edition of a standard each of the sixty-nine
+  methodologies models, and when AtlasMind last checked. Declared for all of them -
+  `kind: 'none'` is a decision somebody made where a missing entry is one nobody made.
+- Added `'compliance-evidence'` and `'compliance-regime'` schema kinds, so a register
+  written by a newer build is refused rather than seeded over.
+
+### Changed
+
+- **A governance regime can no longer read as `covered`.** `TestingPolicyStatus` gains
+  `governed`, terminal for every `compliance-*` methodology. Adding a fifth member rather
+  than leaving them permanently `missing` was deliberate: `missing` would have produced no
+  compile error and quietly broken five downstream consumers, and would have recreated the
+  "gap that can never close" the same file argues against twice.
+- Removed `configIsEvidence` from all thirteen compliance markers, the `COMPLIANCE_DOC`
+  pattern, `isAssessedControlMapping`, and the compliance probe in the settings panel. The
+  gate was weaker than its own comment claimed - it matched any table cell anywhere in the
+  document, review log included, so typing `Gap` as a reviewer's name qualified - and the
+  mapping is now *generated* by AtlasMind, so reading it back would be the tool citing its
+  own output as proof.
+- Replaced `technicallyEvidenced`, which promoted a whole regime when any one stack check
+  passed. A satisfied check is now offered as evidence for **the single control it
+  answers**, and only where that control's catalog entry accepts a machine check;
+  everywhere else it is shown as a corroborating signal and counts for nothing.
+- Governance regimes leave the "N of M evidenced" denominator on the Testing board, the
+  project score and the release gate. A regime is not a thing a test file can speak to,
+  and counting it made a target the tree could never reach. Readiness deliberately does
+  **not** gate a release: a gate that blocks shipping on ISO 27001 is an unshippable
+  product.
+- File and tooling matches are kept for compliance policies as *candidate references* - a
+  test named `data-privacy.test.ts` is a reasonable thing to point at for GDPR Art. 17 -
+  but they can no longer promote anything.
+
+### Fixed
+
+- Fixed a governance regime being proposed for adoption off a filename: the disabled-policy
+  scan kept rows reading `covered`, so a repository with `data-privacy.test.ts` and GDPR
+  switched off was told it already practised GDPR.
+- Fixed four regimes whose `configIsEvidence` pointed at ordinary build artifacts with no
+  gate whatsoever - a committed `sbom.json`, a `deny.toml`, an `ort/` directory, or any
+  workflow filename containing `sign`.
+- Fixed four duplicate `Part 6-9` control references in the ISO 26262 profile, which a
+  register keyed on the reference could not hold apart.
+
+
 ## [0.399.0] - 2026-09-04
 
 ### Added

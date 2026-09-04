@@ -3451,6 +3451,20 @@ function describeTestingPolicyEvidence(row: TestingPolicyRow): string[] {
   const status = boundedDiscussionMarkdown(row.statusLabel, 120);
   const lines = [`- **Displayed status:** ${status}`];
 
+  if (row.status === 'governed') {
+    lines.push('- **What AtlasMind found:** This is a governance regime, graded on the compliance register rather than on the file tree. A file matching its name is a candidate reference, never proof — a test called `data-privacy.test.ts` says nothing about whether GDPR is met.');
+    if (row.governance) {
+      lines.push(`- **Where it stands:** ${row.governance.readinessLabel} — ${row.governance.rule}`);
+      if (row.governance.awaitingIndependent > 0) {
+        lines.push(`- **Outstanding:** ${row.governance.awaitingIndependent} control(s) can only be closed by a party outside this project.`);
+      }
+    } else {
+      lines.push('- **Where it stands:** Nothing has been recorded for it. Unassessed, which is not the same as met.');
+    }
+    lines.push('- **What that does not prove:** Nothing here is a statement of compliance. Only the relevant certification body, auditor, regulator or counsel can make one.');
+    return lines;
+  }
+
   if (row.status === 'not-file-evident') {
     lines.push('- **What AtlasMind found:** This policy describes a way of working, not a particular file or package, so a repository scan cannot honestly mark it present or absent.');
     lines.push('- **What that does not prove:** The team may already follow the practice, but AtlasMind needs a checklist, charter, traceability record, or other explicit evidence before it can describe how consistently.');
@@ -14350,7 +14364,13 @@ function buildReleaseSnapshot(input: {
     // no file would be a gate nobody could ever satisfy.
     ...(input.testingCoverage === undefined ? {} : {
       testingEvidence: (() => {
-        const assessable = input.testingCoverage.rows.filter(row => row.status !== 'not-file-evident');
+        // `governed` joins `not-file-evident` here: neither is a thing a test
+        // file can speak to, and a denominator including them is a target the
+        // tree can never reach. A regime's own standing is on the Compliance
+        // page, and deliberately does not gate a release — a gate that blocks
+        // shipping on ISO 27001 is an unshippable product.
+        const assessable = input.testingCoverage.rows
+          .filter(row => row.status !== 'not-file-evident' && row.status !== 'governed');
         return {
           assessable: assessable.length,
           evidenced: assessable.filter(row => row.status === 'covered').length,
@@ -15031,7 +15051,10 @@ async function collectDashboardSnapshot(
     // contradict the page the score links to.
     ...(testingSnapshot.policyCoverage === undefined ? {} : {
       testing: (() => {
-        const assessableRows = testingSnapshot.policyCoverage.rows.filter(row => row.status !== 'not-file-evident');
+        // See the release gate: a governance regime is graded on its register,
+        // not on whether a file in the tree matched its name.
+        const assessableRows = testingSnapshot.policyCoverage.rows
+          .filter(row => row.status !== 'not-file-evident' && row.status !== 'governed');
         return {
           assessable: assessableRows.length,
           evidenced: assessableRows.filter(row => row.status === 'covered').length,

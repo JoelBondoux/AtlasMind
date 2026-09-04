@@ -49,6 +49,8 @@ export type SchemaDocumentKind =
   | 'ci-routing'
   | 'research'
   | 'roadmap-graph'
+  | 'compliance-evidence'
+  | 'compliance-regime'
   | 'website';
 
 /**
@@ -74,6 +76,8 @@ export const CURRENT_SCHEMA_VERSIONS: Readonly<Record<SchemaDocumentKind, number
   'ci-routing': 1,
   research: 1,
   'roadmap-graph': 1,
+  'compliance-evidence': 1,
+  'compliance-regime': 1,
   website: 13,
 };
 

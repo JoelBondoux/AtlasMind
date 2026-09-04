@@ -19,7 +19,24 @@ import type { ArdDiscoveredResource, ArdDiscoveryEndpoint, ProjectTestingConfig,
 import { getDisplayCurrency, getExchangeRate } from '../core/currencyFormatter.js';
 import { isLocalSyncStale, LOCAL_MODEL_SYNC_CACHE_KEY, syncLocalModels, type LocalModelSyncResult } from '../providers/localModelSync.js';
 import { TESTING_METHODOLOGY_DEFINITIONS } from '../types.js';
-import { COMPLIANCE_EVIDENCE_DIR, deriveTestingPolicyCoverage, isAssessedControlMapping, parseJUnitReport, type TestingPolicyCoverage, type TestingPolicyTestFile } from '../core/testingPolicyCoverage.js';
+import { deriveTestingPolicyCoverage, parseJUnitReport, type TestingPolicyCoverage, type TestingPolicyTestFile } from '../core/testingPolicyCoverage.js';
+import { complianceCatalogFor } from '../core/complianceControlCatalog.js';
+import {
+  emptyEvidenceLibrary,
+  readComplianceEvidenceFile,
+  readComplianceRegimeFile,
+  sanitizeComplianceEvidenceLibrary,
+  sanitizeComplianceRegimeRegister,
+} from '../core/complianceEvidenceRegister.js';
+import {
+  gradeComplianceRegime,
+  summarizeComplianceBoard,
+  toPolicyGovernance,
+  type ComplianceBoard,
+  type ComplianceReading,
+  type TechnicalCheckInput,
+  type TestingPolicyGovernance,
+} from '../core/complianceReadiness.js';
 import { assessTestingMethodologies, type ProjectTestingEvidence } from '../core/testingAutoAssess.js';
 import { deriveTestingPolicyDetails, type TestingPolicyDetailSet } from '../core/testingPolicyDetail.js';
 import {
@@ -247,6 +264,14 @@ export interface TestingDashboardSnapshot {
     results: import('../core/complianceTechnicalControls.js').TechnicalControlResult[];
     summary: import('../core/complianceTechnicalControls.js').TechnicalControlSummary;
   }>;
+  /**
+   * How far along each declared governance regime is, graded on its register.
+   *
+   * The replacement for the green "Tested" tag these regimes used to carry.
+   * Every reading carries the declared rule that produced it and the disclaimer
+   * that none of it is a statement of compliance.
+   */
+  compliance?: ComplianceBoard;
   /**
    * Per-enabled-policy evidence: what has tests, what has none, and what is
    * failing according to the project's own test report. See
@@ -6612,15 +6637,24 @@ export function collectTestingDashboardSnapshot(
     frameworkLabel,
   } satisfies Parameters<typeof deriveTestingPolicyCoverage>[0];
 
-  // Two passes, and the order is forced. The technical checks read the coverage
-  // board (a control asking "is security testing performed?" is answered by the
-  // security-testing row), and their results then feed back as evidence — so the
-  // first pass establishes the file-based picture, the checks run against it,
-  // and the second pass adds what the stack proved.
+  // Two passes, and the order is still forced — but for a much weaker reason
+  // than it used to be. The technical checks read the coverage board (a control
+  // asking "is security testing performed?" is answered by the security-testing
+  // row), so the first pass has to establish the file-based picture before they
+  // run. The second pass then only *decorates* governance rows with their
+  // readiness; it can no longer change any row's status, because a governance
+  // row's status is fixed at `governed` on the first pass and every other row
+  // is unaffected by compliance grading.
   //
-  // Only `satisfied` counts. A `gap` is a finding and an `unknown` is silence;
-  // letting either promote a regime to "covered" would rebuild the false-pass
-  // this board has just been cleared of.
+  // What used to happen here was the third route to the false tick:
+  // `if (results.some(r => r.state === 'satisfied')) technicallyEvidenced.push(id)`
+  // promoted a whole regime on one passing check — one of ISO's twenty-five
+  // controls marked all twenty-five met. A satisfied check is now offered to
+  // `complianceReadiness` as evidence for *the one control it answers*, and
+  // only where that control's catalog entry accepts a machine check.
+  // One clock for the whole derivation: two readings in a single render must
+  // not disagree about whether a certificate expired between them.
+  const now = new Date();
   const firstPass = deriveTestingPolicyCoverage(coverageInput);
   const complianceSignals = gatherComplianceStackSignals(workspaceRoot, {
     dependencies: dependencyNames,
@@ -6641,21 +6675,55 @@ export function collectTestingDashboardSnapshot(
   });
 
   const technicalControls: Record<string, { results: TechnicalControlResult[]; summary: TechnicalControlSummary }> = {};
-  const technicallyEvidenced: TestingMethodologyId[] = [];
+  const technicalByRegime = new Map<TestingMethodologyId, TechnicalCheckInput[]>();
   for (const policyId of policiesWithTechnicalControls()) {
     if (!firstPass.rows.some(row => row.id === policyId)) {
       continue;
     }
     const results = evaluateTechnicalControls(policyId, complianceSignals);
     technicalControls[policyId] = { results, summary: summarizeTechnicalControls(policyId, results) };
-    if (results.some(result => result.state === 'satisfied')) {
-      technicallyEvidenced.push(policyId);
-    }
+    technicalByRegime.set(policyId, results.map(result => ({
+      controlRef: result.controlRef,
+      state: result.state,
+      rule: result.rule,
+      question: result.question,
+      ...(result.evidence ? { evidence: result.evidence } : {}),
+    })));
   }
 
-  const policyCoverage = technicallyEvidenced.length > 0
-    ? deriveTestingPolicyCoverage({ ...coverageInput, technicallyEvidenced })
+  // The register is read, never seeded. Twenty-four regimes; rendering a page
+  // must not put committed files in somebody's repository.
+  const evidenceRead = readComplianceEvidenceFile(workspaceRoot);
+  const evidenceLibrary = evidenceRead.config
+    ? sanitizeComplianceEvidenceLibrary(evidenceRead.config, now)
+    : emptyEvidenceLibrary(now);
+
+  const governance = new Map<TestingMethodologyId, TestingPolicyGovernance>();
+  const complianceReadings: ComplianceReading[] = [];
+  for (const row of firstPass.rows) {
+    const catalog = complianceCatalogFor(row.id);
+    if (!catalog) {
+      continue;
+    }
+    const stored = readComplianceRegimeFile(workspaceRoot, catalog.policyId).config;
+    const register = stored
+      ? sanitizeComplianceRegimeRegister(stored, catalog.policyId, evidenceLibrary, now).register
+      : undefined;
+    const reading = gradeComplianceRegime({
+      catalog,
+      ...(register ? { register } : {}),
+      library: evidenceLibrary,
+      ...(technicalByRegime.has(row.id) ? { technical: technicalByRegime.get(row.id)! } : {}),
+      now,
+    });
+    complianceReadings.push(reading);
+    governance.set(row.id, toPolicyGovernance(reading));
+  }
+
+  const policyCoverage = governance.size > 0
+    ? deriveTestingPolicyCoverage({ ...coverageInput, governance })
     : firstPass;
+  const compliance = summarizeComplianceBoard(complianceReadings, now);
   const policyEvidence = {
     testFiles: policyTestFiles,
     dependencies: dependencyNames,
@@ -6684,6 +6752,7 @@ export function collectTestingDashboardSnapshot(
   return {
     policyEvidence,
     technicalControls,
+    compliance,
     frameworkLabel,
     frameworks: detectedFrameworkList,
     testingPolicyLabel,
@@ -6945,32 +7014,15 @@ function probePolicyConfigFiles(workspaceRoot: string): string[] {
       found.push(`${dir}/`);
     }
   }
-  // Compliance control mappings are named per policy, so the directory marker
-  // trick above does not work — a `^…/compliance/gdpr\.md$` pattern has to see
-  // the actual filename or every compliance policy would match every mapping.
-  // Enumerated rather than probed by id: this module does not own the policy
-  // list, and a mapping written by hand should count exactly like a scaffolded
-  // one.
-  try {
-    const entries = readdirSync(path.join(workspaceRoot, COMPLIANCE_EVIDENCE_DIR), { withFileTypes: true, encoding: 'utf8' });
-    for (const entry of entries.slice(0, 80)) {
-      if (!entry.isFile() || !entry.name.toLowerCase().endsWith('.md')) {
-        continue;
-      }
-      // A mapping counts as evidence only once somebody has assessed a control
-      // in it. The file's own preamble says an unassessed row is not the same
-      // as a compliant one, but `configIsEvidence` promotes a policy on the
-      // file's mere existence — so a scaffolded, untouched mapping reported the
-      // regime as met. Presence is the form; this is the form filled in.
-      const text = safeReadTextFile(path.join(workspaceRoot, COMPLIANCE_EVIDENCE_DIR, entry.name));
-      if (isAssessedControlMapping(text)) {
-        found.push(`${COMPLIANCE_EVIDENCE_DIR}/${entry.name}`);
-      }
-    }
-  } catch {
-    // No compliance mappings in this project — not an error, and deliberately
-    // not the same as an empty one: the policy simply reads as unassessed.
-  }
+  // The compliance directory is deliberately *not* probed any more.
+  //
+  // It used to be enumerated here, and a mapping carrying one assessed cell was
+  // pushed in as a config signal, which `configIsEvidence` turned into a
+  // `covered` regime. Two reasons that had to go. The gate matched any table
+  // cell anywhere in the document — the Owner column and the review log
+  // included — so typing `Gap` as a reviewer's name qualified. And the mapping
+  // is now generated by AtlasMind from the register, so reading it back would
+  // be the tool citing its own output as proof.
   return found;
 }
 
