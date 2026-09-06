@@ -6,6 +6,41 @@ The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/),
 
 ## [Unreleased]
 
+## [0.406.2] - 2026-09-06
+
+### Fixed
+
+- The wiki CLI page told people the `atlasmind` command is on the PATH of new VS
+  Code integrated terminals automatically. It is not, and has not been:
+  `atlasmind.cli.addToTerminalPath` defaults to `false` precisely because putting
+  launchers on a PATH persistently changes the shell environment. Anyone following
+  the page got `command not found`, with nothing on the page to suggest why. The
+  README documented the default correctly the whole time, so the two contradicted
+  each other.
+- The same page buried the fact that the CLI reads credentials **only** from
+  environment variables under a heading two thirds of the way down. VS Code secret
+  storage is not reachable from a subprocess, so a machine with every provider
+  configured in the editor still starts with `configured=no` for all of them. That
+  is the second dead end a new user hits, immediately after the first, and it now
+  leads the page.
+- The provider environment variables were listed as five. The CLI registers
+  adapters for eleven OpenAI-compatible providers plus Anthropic, Azure and a local
+  endpoint; `mistral`, `deepseek`, `zai`, `perplexity`, `huggingface` and `nvidia`
+  were all absent, so working configurations looked unsupported.
+
+### Changed
+
+- The CLI page now positions the tool as what it is — AtlasMind from a checkout, for
+  scripts and CI — and leads its install section with `npm run cli`, which works
+  without any setting being changed. The integrated-terminal PATH option is
+  documented second, as opt-in, including the detail that it only affects terminals
+  opened afterwards.
+- `atlasmind-acp` is now introduced as a transport rather than a command to type.
+  It is written to disk by the extension on activation and pointed at by
+  **AtlasMind: Copy Buzz ACP Agent Setup**; presenting it beside four typed
+  commands implied a fifth one nobody needs to run by hand.
+
+
 ## [0.406.1] - 2026-09-06
 
 ### Security

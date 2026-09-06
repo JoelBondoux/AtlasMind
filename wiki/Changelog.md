@@ -19,6 +19,28 @@ Older entries below describe the software as it was at the time and are delibera
 
 ---
 
+## v0.406.2 -- The CLI page said something untrue
+
+The [[CLI]] page opened by telling you `atlasmind` is available in new VS Code integrated
+terminals automatically. It is not. `atlasmind.cli.addToTerminalPath` ships **off**, on purpose —
+putting launchers on a PATH persistently changes your shell environment, and an extension should ask
+first. So the documented first step produced `command not found`, and the README had the correct
+default written down the entire time.
+
+Past that, a second dead end: the CLI reads API keys **only** from environment variables, since VS Code
+secret storage is not reachable from a subprocess. Every provider you have configured in the editor
+reads `configured=no` here. That was documented, two thirds of the way down, under a heading you would
+reach only after the install step had already failed. It now opens the page.
+
+The environment variable list was also short by ten. `mistral`, `deepseek`, `zai`, `perplexity`,
+`huggingface` and `nvidia` all work and none were listed, so working setups looked unsupported.
+
+The page now describes the CLI as what it actually is — AtlasMind from a checkout, for scripts and CI —
+and leads with `npm run cli`, which works with nothing switched on. `atlasmind-acp` is introduced
+separately as a transport that other tools drive, rather than as a fifth command to type.
+
+---
+
 ## v0.406.1 -- Dependency advisories cleared
 
 Six open Dependabot advisories, plus one `npm audit` had found that Dependabot had not

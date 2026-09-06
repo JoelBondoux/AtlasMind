@@ -4,7 +4,7 @@
 
 <h1 align="center">AtlasMind</h1>
 
-<p align="center"><sub> · <strong>Current source version: 0.406.1</strong> · </sub></p>
+<p align="center"><sub> · <strong>Current source version: 0.406.2</strong> · </sub></p>
 
 
 <p align="center">
@@ -136,6 +136,18 @@ allow-list, redaction and file-withholding behaviour, retained metadata, provide
 important limits on overrides and compliance claims.
 
 ---
+
+## What's new in 0.406.2
+
+The wiki's CLI page said `atlasmind` lands on the PATH of new VS Code integrated
+terminals by itself. It does not — `atlasmind.cli.addToTerminalPath` is off by default,
+so anyone following that page got `command not found`, and the README had the default
+right all along. The page now leads with `npm run cli`, which needs no setting changed.
+
+Two related corrections. The CLI reads API keys **only** from environment variables,
+because VS Code secret storage cannot be reached from a subprocess — a fact that used
+to sit two thirds of the way down and now opens the page. And the list of provider
+variables was five; it is fifteen.
 
 ## What's new in 0.406.1
 
