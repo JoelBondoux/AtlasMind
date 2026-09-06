@@ -4,7 +4,7 @@
 
 <h1 align="center">AtlasMind</h1>
 
-<p align="center"><sub> · <strong>Current source version: 0.406.0</strong> · </sub></p>
+<p align="center"><sub> · <strong>Current source version: 0.406.1</strong> · </sub></p>
 
 
 <p align="center">
@@ -136,6 +136,17 @@ allow-list, redaction and file-withholding behaviour, retained metadata, provide
 important limits on overrides and compliance claims.
 
 ---
+
+## What's new in 0.406.1
+
+Cleared the six open Dependabot advisories, plus one `npm audit` had found that
+Dependabot had not yet raised. `qs`, `fast-uri` and `nanoid` are all on patched
+releases and `npm audit` is clean.
+
+What was holding them back is worth a note: each was already pinned in the
+`overrides` block by a fix for an *earlier* advisory, and those pins had become the
+reason the current fix could not land. They express a version floor now, so the next
+patch is picked up without an edit.
 
 ## What's new in 0.406.0
 

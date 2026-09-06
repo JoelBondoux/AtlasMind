@@ -19,6 +19,24 @@ Older entries below describe the software as it was at the time and are delibera
 
 ---
 
+## v0.406.1 -- Dependency advisories cleared
+
+Six open Dependabot advisories, plus one `npm audit` had found that Dependabot had not
+yet reported. `qs`, `fast-uri` and `nanoid` all moved to patched releases; `npm audit`
+reports nothing outstanding.
+
+All three arrive through other packages rather than being chosen here. Two of them
+(`qs` and `fast-uri`, via the MCP SDK) sit on a runtime path rather than only a build
+one, which is why they were worth doing promptly.
+
+The interesting part is what was holding them back. Each was already pinned in the
+`overrides` block — pins added to fix an *earlier* advisory — and those pins were now
+the reason the current fix could not land. The manifest test guarding them had the same
+shape, asserting an exact version that was correct when written. Both now express a
+floor: at least the patched release, and a later one is fine.
+
+---
+
 ## v0.406.0 -- A Windows command injection, closed
 
 The tool AtlasMind uses to run commands for you passed its arguments through a shell

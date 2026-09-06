@@ -943,7 +943,27 @@ repository cannot obsolete another repository's evidence at the same relative pa
   whole 7,659-test process to reload. The bounded gate still exercises every non-static mutation in the
   three declared policy modules; a separate unbounded static run can be invoked deliberately when its
   cost is justified.
-- Stryker's `typed-rest-client@2.3.1` pins `qs@6.15.1` exactly even though `6.15.2` contains the CVE-2026-8723 fix. The root manifest therefore overrides `qs` to `6.15.2` across the dependency tree; every other consumer already resolves to or accepts that patch. Keep the override until upstream removes the vulnerable exact pin, and verify both `npm ls qs --all` and production/full `npm audit` before deleting it.
+- **Security overrides are floors, not pins.** Three transitive packages are held above
+  a vulnerable release by the root manifest's `overrides` block, because the parents that
+  pull them in ship exact or lagging pins of their own:
+  - `qs` `^6.16.0` — reached through `@modelcontextprotocol/sdk` -> `express`, and through
+    `typed-rest-client` under both Stryker and `vsce`. Answers GHSA-4mjr-xmp4-gh2g and
+    GHSA-x5fp-wj9c-mxmx.
+  - `fast-uri` `^3.1.6` — through `@modelcontextprotocol/sdk` -> `ajv`. Answers
+    GHSA-jqff-g426-hqxp, GHSA-f65p-4m7j-42xc, GHSA-fph4-wmhf-6fwf and GHSA-5jgf-p345-68v8.
+  - `nanoid` `^3.3.18` — through `vitest` -> `vite` -> `postcss`, so test-only. Answers
+    GHSA-2v37-7h3g-55p8.
+
+  Write them as caret ranges. This list previously carried `qs` as the exact string
+  `6.15.2`, correct when written, and `6.15.2` then acquired advisories of its own — at
+  which point the override that existed to keep `qs` patched was what held it on a
+  vulnerable release, and `tests/packageManifest.test.ts` asserted the same exact string
+  and failed the upgrade. Both express a **minimum** now, so a later patch is adopted by
+  `npm update` without editing either. When adding one, record the advisory it answers;
+  before removing one, check `npm ls <package> --all` and `npm audit`.
+- `npm audit` should report zero vulnerabilities. It is worth running independently of
+  Dependabot — the `nanoid` advisory above was found by `audit` and had not yet been
+  raised as an alert.
 - CI runs compile, lint, test, and coverage on push and pull requests to **`main` and `develop`**, and on manual `workflow_dispatch`.
 
 ## Security Reporting

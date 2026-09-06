@@ -6,6 +6,34 @@ The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/),
 
 ## [Unreleased]
 
+## [0.406.1] - 2026-09-06
+
+### Security
+
+- Cleared all six open Dependabot advisories, plus one `npm audit` reported that
+  Dependabot had not yet surfaced. `npm audit` is now clean.
+  - `qs` 6.15.2 -> ^6.16.0 (GHSA-4mjr-xmp4-gh2g, GHSA-x5fp-wj9c-mxmx)
+  - `fast-uri` ^3.1.5 -> ^3.1.6, resolving to 3.1.7 (GHSA-jqff-g426-hqxp,
+    GHSA-f65p-4m7j-42xc, GHSA-fph4-wmhf-6fwf, GHSA-5jgf-p345-68v8)
+  - `nanoid` -> ^3.3.18 (GHSA-2v37-7h3g-55p8), reached through
+    vitest -> vite -> postcss
+- All three are transitive. `qs` and `fast-uri` arrive through
+  `@modelcontextprotocol/sdk` (express and ajv respectively) and are therefore on
+  a runtime path, not only a build one; `nanoid` is test-only. Every parent's
+  declared range already permitted the patched version, so the `overrides` block
+  was what held them back — the two pins that fixed an earlier advisory had
+  become the reason the next one could not be fixed.
+
+### Changed
+
+- The manifest test guarding these overrides asserts a **version floor** rather
+  than an exact string. It read `expect(overrides.qs).toBe('6.15.2')`, which was
+  correct when written and then became the thing refusing the upgrade the moment
+  6.15.2 picked up an advisory of its own: a test that exists to keep a
+  dependency patched must not fail when it *is* patched. Each entry now names the
+  advisory it answers, and a later version passes unedited.
+
+
 ## [0.406.0] - 2026-09-06
 
 ### Security
