@@ -19,6 +19,19 @@ Older entries below describe the software as it was at the time and are delibera
 
 ---
 
+## v0.402.8 -- Stated intent is not completion
+
+An autonomous run that ended with "I will now edit README.md" -- and did not -- was reported as a
+completed phase. A run is now graded on evidence: a changed file, a tool call, or a recorded
+verification. A promise with none of those is called out on the Project Report.
+
+Two things it deliberately does not do. It never treats "no files changed" as failure, because plenty
+of honest work produces prose. And where nothing was observable at all -- an ACP agent runs its tools
+inside its own session, where AtlasMind can see none -- the run reads as unassessed rather than as
+having done nothing.
+
+---
+
 ## v0.402.7 — Instructions are acted on, not summarised
 
 Asking AtlasMind to "update the roadmap to mark the workflow item complete" returned a summary of

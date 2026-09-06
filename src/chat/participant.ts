@@ -28,6 +28,7 @@ import { TaskProfiler } from '../core/taskProfiler.js';
 import { MissionRunner } from '../core/missionRunner.js';
 import type { MissionCheckpointRequest, MissionBlockedRequest, MissionBlockResolution } from '../core/missionRunner.js';
 import { shouldBiasTowardWorkspaceInvestigation } from '../core/orchestrator.js';
+import { assessRunGoalConformance, describeRunGoalConformance } from '../core/runGoalConformance.js';
 import { formatCost, formatCostAdaptive } from '../core/currencyFormatter.js';
 import {
   DEFAULT_MISSION_MAX_ITERATIONS,
@@ -1308,6 +1309,30 @@ export async function runProjectCommand(
     const reportUri = await writeProjectRunSummaryReport(report, projectUiConfig.runReportFolder);
 
     stream.markdown(`## Project Report\n\n${result.synthesis}`);
+
+    // A run that changed nothing, called nothing and proved nothing, whose whole
+    // answer is a promise about what happens next, is not a completed phase.
+    // Reported rather than enforced: the run is over either way, and the reading
+    // is for the person deciding whether to act on it.
+    const goalConformanceNotice = describeRunGoalConformance(assessRunGoalConformance(
+      result.subTaskResults.map(item => ({
+        id: item.subTaskId,
+        title: item.title,
+        output: item.output,
+        // Absent artifacts leave every evidence field undefined, which reads as
+        // "not observable" rather than "nothing happened" - the ACP case.
+        ...(item.artifacts === undefined ? {} : {
+          toolCallCount: item.artifacts.toolCallCount,
+          changedFileCount: item.artifacts.changedFiles.length,
+          ...(item.artifacts.verificationSummary === undefined
+            ? {}
+            : { verificationSummary: item.artifacts.verificationSummary }),
+        }),
+      })),
+    ));
+    if (goalConformanceNotice !== undefined) {
+      stream.markdown(`\n\n${goalConformanceNotice}`);
+    }
     stream.markdown(
       `\n\n---\n*${result.subTaskResults.length} subtask(s) \u00b7 ` +
       `${(result.totalDurationMs / 1000).toFixed(1)}s \u00b7 ` +

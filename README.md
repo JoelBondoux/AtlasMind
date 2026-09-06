@@ -4,7 +4,7 @@
 
 <h1 align="center">AtlasMind</h1>
 
-<p align="center"><sub> · <strong>Current source version: 0.402.7</strong> · </sub></p>
+<p align="center"><sub> · <strong>Current source version: 0.402.8</strong> · </sub></p>
 
 
 <p align="center">
@@ -131,6 +131,14 @@ allow-list, redaction and file-withholding behaviour, retained metadata, provide
 important limits on overrides and compliance claims.
 
 ---
+
+## What's new in 0.402.8
+
+A run that only says what it will do next is no longer reported as a completed
+phase. An autonomous run ended with "I will now edit README.md" -- future tense,
+no diff, no verification -- and that counted as done. Evidence now decides:
+files changed, a tool call, or a recorded verification. Where nothing was
+observable the run is marked unassessed rather than accused of doing nothing.
 
 ## What's new in 0.402.7
 

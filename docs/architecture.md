@@ -1896,6 +1896,16 @@ The boundary follows the same split the module makes everywhere else: a branch a
 
 Pure, with the clock injected: a CalVer plan computed from an ambient clock can be neither tested nor replayed.
 
+### RunGoalConformance (`src/core/runGoalConformance.ts`)
+
+Whether a run did the thing, or only said it would. An autonomous run ended with the single sentence "I will now edit README.md to fix the test failure" — future tense, no diff, no verification — and that was reported as a completed phase, because nothing in the run path asked whether there was any evidence it happened.
+
+**Unknown is never zero.** Every evidence input is optional and absent means *not observable*, never *none happened*. An ACP-routed subtask executes its tools inside the agent's own session, so AtlasMind sees no tool calls at all; counting that as zero would report every subscription-backed run as having done nothing. Absent evidence yields `unassessed`, which is a different sentence from `no-evidence` and deliberately not a criticism.
+
+**A promise is the only verdict that contradicts a completion.** `no-evidence` is a notice — a research or review subtask legitimately changes no files, and collapsing the two would make the actionable signal permanently non-zero and therefore ignored. `stated-intent` is the one saying the run described its next step instead of taking it, and forward-looking phrasing counts *only when there is no evidence at all*: "I will now run the tests" after six changed files is describing what comes next, not standing in for what happened.
+
+**Nothing here blocks, retries or re-runs anything.** It produces a reading and a reading may be ignored, the choice `ideationReadiness` makes for the same reason — a rule that is too eager stays noisy rather than becoming expensive. Every assessment names the declared rule that graded it and the table travels with the report; an empty run is `unassessed`, never `evidenced`, since a run that demonstrated nothing must not read as a success. Pure + unit-tested (`tests/core/runGoalConformance.test.ts`).
+
 ### AttentionFeed (`src/core/attentionFeed.ts`)
 
 What needs a person, gathered from every dashboard page onto the Overview. `ObservedDelta` answers *what changed?*; this answers *what is wrong or due right now*, which the Overview previously did not answer at all — it opened with nine permanently-populated stat cards ("43% coverage", "8 workflows"), and nothing on the page distinguished a project with three failing tests and a blocked release gate from one with neither.

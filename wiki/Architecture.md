@@ -889,6 +889,13 @@ changed. The two layers are not redundant. The Completion check opens with "Chec
 write verbs should contain because it asks for a report, so wording alone still swallows it and only the
 structural marker keeps it reachable.
 
+**Stated intent is not completion.** `runGoalConformance.ts` grades a run on evidence — a changed file,
+a tool call, or a recorded verification — after an autonomous run ended with "I will now edit README.md"
+and was reported as a completed phase. Two refusals shape it: "no files changed" is never treated as
+failure, since plenty of honest work produces prose; and where nothing was observable at all (an ACP
+agent runs its tools inside its own session) the run reads as unassessed rather than as having done
+nothing. It reports and never blocks, retries or re-runs.
+
 The graph is an overlay. `improvement-plan.md` remains the one file that says what the work is; the
 deadlines, positions and links live in `roadmap-graph.json` beside it, keyed on a durable id the backlog
 line carries as an invisible comment, so a rename or a reorder no longer orphans an item's history. The

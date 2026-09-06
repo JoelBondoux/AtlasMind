@@ -6,6 +6,29 @@ The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/),
 
 ## [Unreleased]
 
+## [0.402.8] - 2026-09-06
+
+### Added
+
+- `src/core/runGoalConformance.ts` asks whether a run did the thing or only said it
+  would. An autonomous run ended with the single sentence "I will now edit README.md
+  to fix the test failure" -- future tense, no diff, no verification -- and that was
+  reported as a completed phase. Evidence decides: a changed file, a tool call, or a
+  recorded verification.
+- Three rules carry it. **Unknown is never zero** -- every evidence input is optional
+  and absent means "not observable", so an ACP subtask, which runs its tools inside the
+  agent's own session where AtlasMind sees none, reads as `unassessed` rather than as
+  having done nothing. **A promise is the only verdict that contradicts a completion**
+  -- `no-evidence` stays a notice, since a research subtask legitimately changes no
+  files, and forward-looking phrasing is only read as a substitute for work when there
+  is no evidence at all, so "I will now run the tests" after six changed files is
+  describing what comes next. **Nothing blocks, retries or re-runs** -- the run is over
+  either way and the reading is for the person deciding whether to act on it.
+- Every assessment names the declared rule that produced it, and the table is published
+  with the report. An empty run is `unassessed`, never `evidenced`: a run that
+  demonstrated nothing must not read as a success.
+- Surfaced as one line on the Project Report, absent when there is nothing to say.
+
 ## [0.402.7] - 2026-09-06
 
 ### Fixed
