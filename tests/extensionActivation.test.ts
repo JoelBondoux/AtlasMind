@@ -312,7 +312,7 @@ describe('runActivationStep', () => {
       extensionUri: vscode.Uri.file(extensionRoot),
       globalStorageUri: vscode.Uri.file(globalStorageRoot),
       environmentVariableCollection: environmentVariableCollection as never,
-    }, outputChannel as never);
+    }, outputChannel as never, { force: true });
 
     expect(binDir).toBe(path.join(globalStorageRoot, 'bin'));
     expect(environmentVariableCollection.description).toBe('AtlasMind CLI for VS Code integrated terminals');
@@ -337,6 +337,43 @@ describe('runActivationStep', () => {
     expect(acpRunner).toContain('acpAgent.js');
     expect(outputChannel.appendLine).toHaveBeenCalledWith(
       expect.stringContaining('cliPath enabled AtlasMind launchers in new integrated terminals'),
+    );
+  });
+
+  it('does not touch the terminal PATH unless the setting asks for it', async () => {
+    // Prepending to PATH with `persistent = true` outlives the session and is
+    // restored before the extension loads again, so it is a change to the
+    // user's shell rather than to AtlasMind. It used to happen on every
+    // activation, unasked. The mocked configuration returns nothing for
+    // `cli.addToTerminalPath`, which is what an operator who never set it sees.
+    const extensionRoot = mkdtempSync(path.join(os.tmpdir(), 'atlasmind-cli-optin-'));
+    const globalStorageRoot = path.join(extensionRoot, 'storage');
+    const cliEntryPath = path.join(extensionRoot, 'out', 'cli', 'main.js');
+
+    await fs.mkdir(path.dirname(cliEntryPath), { recursive: true });
+    await fs.mkdir(globalStorageRoot, { recursive: true });
+    await fs.writeFile(cliEntryPath, 'console.log("atlasmind");\n', 'utf8');
+
+    const prepend = vi.fn();
+    const environmentVariableCollection = {
+      description: undefined as string | undefined,
+      persistent: false,
+      prepend,
+    };
+    const outputChannel = { appendLine: vi.fn() };
+
+    const binDir = await ensureAtlasMindCliOnTerminalPath({
+      extensionUri: vscode.Uri.file(extensionRoot),
+      globalStorageUri: vscode.Uri.file(globalStorageRoot),
+      environmentVariableCollection: environmentVariableCollection as never,
+    }, outputChannel as never);
+
+    expect(binDir).toBeUndefined();
+    expect(prepend).not.toHaveBeenCalled();
+    expect(environmentVariableCollection.persistent).toBe(false);
+    // Skipped, not silently: the operator has to be able to find the switch.
+    expect(outputChannel.appendLine).toHaveBeenCalledWith(
+      expect.stringContaining('atlasmind.cli.addToTerminalPath'),
     );
   });
 });

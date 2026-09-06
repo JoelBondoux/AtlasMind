@@ -111,9 +111,11 @@ describe('git skills are graded by what they do, not by the unknown-tool fallbac
     expect(policy.summary).toContain('create a git commit containing only those paths');
   });
 
-  it('keeps read grades prompt-free under ask-on-write and gates the writes', () => {
+  it('keeps local read grades prompt-free under ask-on-write and gates the writes', () => {
     expect(requiresToolApproval('ask-on-write', classifyToolInvocation('git-log', {}))).toBe(false);
-    expect(requiresToolApproval('ask-on-write', classifyToolInvocation('git-fetch', {}))).toBe(false);
+    // `git-fetch` reaches the remote, so it grades `network-read` and is gated
+    // under every mode. See the remote-read test below for the reasoning.
+    expect(requiresToolApproval('ask-on-write', classifyToolInvocation('git-fetch', {}))).toBe(true);
     expect(requiresToolApproval('ask-on-write', classifyToolInvocation('git-worktree', { action: 'remove' }))).toBe(true);
     expect(requiresToolApproval('ask-on-write', classifyToolInvocation('git-branch', { action: 'delete' }))).toBe(true);
     expect(requiresToolApproval('ask-on-external', classifyToolInvocation('git-fetch', {}))).toBe(true);
@@ -206,12 +208,33 @@ describe('MCP tools are graded for what they do, not for their namespace', () =>
     expect(classifyToolInvocation('http-request', {}).category).toBe('network');
   });
 
-  it('lets a remote read through ask-on-write but not ask-on-external', () => {
-    // The two modes ask different questions, and this category has different
-    // answers for them: it changes nothing, and it left the machine.
+  it('gates a remote read under every mode that asks about anything', () => {
+    // A remote read changes nothing *and* carries data off the machine, and
+    // `ask-on-write` used to exempt it on the first half of that sentence
+    // alone. Under the default mode a connected server's `get_customer_data`
+    // then ran and shipped whatever it was asked for with no prompt at all.
+    //
+    // The dialog volume that exemption bought is handled by
+    // `ToolApprovalManager.bypassCategory` instead: the first prompt of a task
+    // can approve the category for the rest of it. One dialog per task, never
+    // zero. `allow-safe-readonly` is the one mode that still lets it through,
+    // because it asks *did this change something?* and the honest answer is no.
     const policy = classifyToolInvocation('mcp:github:get_issue', {});
-    expect(requiresToolApproval('ask-on-write', policy)).toBe(false);
+    expect(policy.category).toBe('network-read');
+    expect(requiresToolApproval('ask-on-write', policy)).toBe(true);
     expect(requiresToolApproval('ask-on-external', policy)).toBe(true);
     expect(requiresToolApproval('always-ask', policy)).toBe(true);
+  });
+
+  it('never lets a remote read pass under a mode that gates local writes', () => {
+    // The property, rather than one tool name: no mode may treat reaching a
+    // third-party service as quieter than editing a file locally.
+    const remote = classifyToolInvocation('mcp:github:get_issue', {});
+    const localWrite = classifyToolInvocation('file-write', { path: 'a.ts' });
+    for (const mode of ['always-ask', 'ask-on-write', 'ask-on-external'] as const) {
+      if (requiresToolApproval(mode, localWrite)) {
+        expect(requiresToolApproval(mode, remote)).toBe(true);
+      }
+    }
   });
 });

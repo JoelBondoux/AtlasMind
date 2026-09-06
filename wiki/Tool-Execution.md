@@ -16,12 +16,18 @@ One setting, `atlasmind.toolApprovalMode`, controls the whole thing:
 | Mode | What gets approved automatically |
 |------|-----------|
 | **`always-ask`** | Nothing. Every single tool call asks |
-| **`ask-on-write`** *(default)* | Reading. Anything that writes, deletes or reaches outside asks |
+| **`ask-on-write`** *(default)* | Local reading only. Anything that writes, deletes or reaches outside asks — including a remote read that changes nothing |
 | **`ask-on-external`** | Reading and workspace edits. Terminal, network and git writes ask |
 | **`allow-safe-readonly`** | Everything except genuinely high-risk operations |
 
 `ask-on-write` is the right default for most people. Start there; loosen it once you've watched
 AtlasMind work for a while.
+
+**A remote read is not a free read.** An MCP tool named `get_customer_data` grades as `network-read`:
+it changes nothing, and it sends whatever it was asked for to a third party. Until v0.405.0
+`ask-on-write` let that through on the first half of that sentence alone. It now asks. To keep that
+from becoming a wall of dialogs, approve the *category* on the first prompt of a task — one dialog per
+task rather than one per call.
 
 ### What an approval looks like
 
@@ -386,9 +392,17 @@ a separate mapping edit. Neither operation authorizes a project-file write.
 
 ## The CLI is stricter
 
-There's no panel to approve things in, so: read-only tools work, workspace and git writes need
-`--allow-writes`, and high-risk external tools stay blocked. File operations resolve real paths before
-the workspace check, so a symlink can't be used to escape the sandbox.
+There's no panel to approve things in, so: local reads work, workspace and git writes need
+`--allow-writes`, terminal commands need `--allow-commands`, and high-risk external tools stay blocked.
+File operations resolve real paths before the workspace check, so a symlink can't be used to escape the
+sandbox.
+
+**Terminal commands are their own flag, and used to be free.** `npm test`, `npm run build` and
+`npm run lint` grade as `terminal-read` — a name describing what they report, not what they do to
+report it. Every one executes whatever the repository's own `package.json` defines, so "read-only"
+mode could still run arbitrary code out of the checkout it was pointed at. `--allow-commands` is
+deliberately separate from `--allow-writes`: running a test suite is not a reason to also be able to
+change files.
 
 ---
 

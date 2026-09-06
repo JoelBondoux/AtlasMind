@@ -3288,7 +3288,9 @@ async function bootstrapAtlasMind(
         workspaceFolder = picked.folder;
       }
 
-      const launcherDirectory = await ensureAtlasMindCliOnTerminalPath(context);
+      // Forced: this path runs only because the user asked to start the
+      // Buzz-managed ACP agent, which cannot launch without the shim on disk.
+      const launcherDirectory = await ensureAtlasMindCliOnTerminalPath(context, undefined, { force: true });
       if (!launcherDirectory) {
         void vscode.window.showErrorMessage('AtlasMind could not create its ACP launcher. Rebuild or reinstall the extension and try again.');
         return;
@@ -4044,10 +4046,33 @@ export function activate(context: vscode.ExtensionContext): void {
 type CliPathContext = Pick<vscode.ExtensionContext, 'extensionUri' | 'globalStorageUri' | 'environmentVariableCollection'>;
 type LogSink = Pick<vscode.OutputChannel, 'appendLine'>;
 
+/**
+ * Put the `atlasmind` launchers on the PATH of new integrated terminals.
+ *
+ * Opt-in, because it is not a change to AtlasMind — it is a persistent change to
+ * the user's shell environment, made on every activation by an extension that
+ * activates on startup, and nobody asked for it. `persistent = true` means it
+ * outlives the session and is restored before the extension is even loaded next
+ * time. That is a reasonable thing to want and an unreasonable thing to assume,
+ * which is what `atlasmind.cli.addToTerminalPath` now settles.
+ *
+ * `force` is for the callers that are *acting on an explicit request* which
+ * needs a launcher on disk — the Buzz ACP runtime setup asks for one by name.
+ * There the shims are the thing the user asked for, so the setting does not
+ * apply; the PATH entry rides along with a surface they opened deliberately.
+ */
 export async function ensureAtlasMindCliOnTerminalPath(
   context: CliPathContext,
   outputChannel?: LogSink,
+  options?: { force?: boolean },
 ): Promise<string | undefined> {
+  if (!options?.force && !vscode.workspace.getConfiguration('atlasmind').get<boolean>('cli.addToTerminalPath', false)) {
+    outputChannel?.appendLine(
+      '[activate] cliPath skipped; atlasmind.cli.addToTerminalPath is off. '
+      + 'Enable it to run `atlasmind` from VS Code integrated terminals.',
+    );
+    return undefined;
+  }
   const cliEntryPath = vscode.Uri.joinPath(context.extensionUri, 'out', 'cli', 'main.js').fsPath;
   const acpEntryPath = vscode.Uri.joinPath(context.extensionUri, 'out', 'cli', 'acpAgent.js').fsPath;
   try {

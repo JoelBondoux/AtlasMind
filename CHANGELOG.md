@@ -6,6 +6,84 @@ The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/),
 
 ## [Unreleased]
 
+## [0.405.0] - 2026-09-06
+
+### Security
+
+- **Model-written skill code no longer runs unless you switch it on.** When the model
+  called a tool no skill provided, `Orchestrator.synthesizeSkillForTool` asked a model to
+  write one and `loadSkillFromSource` evaluated it -- `new Function(...)` in the extension
+  host's own global scope, reachable from any tool name the model happened to invent, with
+  no setting in front of it. Two things compounded it: the model writing that code had just
+  been fed workspace file contents, so a prompt injection in a dependency's README shared a
+  context window with the code generator; and synthesis runs *before* the tool approval gate,
+  so the code executed before anything asked. It now requires `atlasmind.skillAutoSynthesisEnabled`,
+  default `false`. With it off no synthesis request is issued at all -- not "generated and
+  refused", never asked for.
+- **Approval is asked on every synthesis, not only when the scan complains.** It was gated on
+  `scanSkillSource` raising a warning, which made the *quietest* outcome the one where the
+  reviewer never saw the code. A clean scan is not evidence that source is safe; it is
+  evidence that a dozen regexes found nothing they were written to look for -- so the source
+  that trips nothing is the source most worth a human glance before it runs. A scan *error*
+  still refuses outright, and a runtime with no approval surface refuses rather than proceeding.
+- **The skill scanner covers the escapes it had no rule for.** `await import('node:child_process')`
+  matched nothing at all; neither did `process.mainModule.require`, `({}).constructor.constructor(...)`,
+  or `globalThis['pro' + 'cess']`, and the `child_process` / `fs` / `http` rules were written
+  without the `node:` prefix that reaches the same modules. Five new error-severity rules and a
+  prefix fix. `no-constructor-escape` deliberately does not match a bare `constructor(` -- a rule
+  that errored on writing a class would be switched off, and would take the real escapes with it.
+- **Credentials in a tool result are redacted unconditionally.** `redactToolResultForModel`
+  returned the text untouched unless the Data Privacy policy was enabled, and that policy
+  defaults to off -- so out of the box an agent that read a `.env`, a `secrets.yaml` or a CI
+  config forwarded it to the model provider verbatim, while the README stated keys were
+  "redacted before anything is sent to a model". The claim was right and the code was wrong;
+  the code is what moved. The pattern boundary now runs on every tool result for every model,
+  including a model on the trusted allow-list: trusting a model with the project's data is not
+  the same as handing it the project's keys. The Data Privacy policy stays opt-in as the
+  *classification* layer on top, which is a judgement only the operator can make.
+- **A remote read now asks under the default approval mode.** `network-read` was exempt from
+  `ask-on-write` on the grounds that it mutates nothing -- true, and half the sentence: it is
+  also the only read category that carries the operator's data off the machine. A connected MCP
+  server's `get_customer_data` classifies there on its name alone, so under the default mode it
+  ran and sent whatever it was asked for with no prompt. The dialog volume that exemption bought
+  is handled by the mechanism built for it instead: `ToolApprovalManager.bypassCategory` lets the
+  first prompt of a task approve the category for the rest of it -- one dialog per task, never
+  zero. `allow-safe-readonly` still lets it through, because that mode asks *did this change
+  something?* and the answer is no.
+- **The CLI's read-only mode no longer runs package scripts.** `terminal-read` was approved
+  unconditionally, and `npm test`, `npm run build`, `npm run lint` and `vitest` all grade there --
+  a name describing what they report, not what they do to report it. Each executes whatever the
+  target repository's `package.json` defines, so "read-only" could run arbitrary code out of the
+  checkout it was pointed at. It now needs the new `--allow-commands`, kept separate from
+  `--allow-writes` because running a test suite is not a reason to also be able to change files.
+
+### Added
+
+- `atlasmind.skillAutoSynthesisEnabled` (default `false`) -- permit AtlasMind to ask a model to
+  write a skill in JavaScript and execute it when the model calls a tool that does not exist.
+- `atlasmind.cli.addToTerminalPath` (default `false`) -- put the `atlasmind` and `atlasmind-acp`
+  launchers on the `PATH` of new integrated terminals.
+- `--allow-commands` on the AtlasMind CLI -- permit `terminal-read` commands without granting
+  write access.
+
+### Changed
+
+- **The terminal `PATH` is left alone unless asked.** `ensureAtlasMindCliOnTerminalPath` ran on
+  every activation, and the extension activates on startup: it wrote shim scripts and prepended
+  their directory to the `PATH` of every integrated terminal with `persistent = true`, so the
+  change outlived the session and was restored before the extension next loaded. That is a
+  reasonable thing to want and an unreasonable thing to assume. Now behind
+  `atlasmind.cli.addToTerminalPath`, and skipped *audibly* -- the output channel names the setting
+  rather than saying nothing. Starting the Buzz-managed ACP agent still creates the launchers,
+  because that flow cannot run without them and the user asked for it by name.
+- README's safety section no longer overstates the redaction boundary: it now says credentials are
+  pattern-matched, that pattern matching catches known shapes rather than novel ones, and points at
+  the Data Privacy guide for what patterns cannot see. A second bullet states the model-written-code
+  default.
+- `TEST_TYPE_ERROR_CEILING` lowered 244 -> 238 after removing the optional-gate type errors in
+  `tests/cli/main.test.ts`.
+
+
 ## [0.404.0] - 2026-09-06
 
 ### Added

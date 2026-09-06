@@ -54,6 +54,7 @@ export interface ParsedCliArgs {
     provider?: ProviderId;
     model?: string;
     allowWrites: boolean;
+    allowCommands: boolean;
     budget: BudgetMode;
     speed: SpeedMode;
     json: boolean;
@@ -69,6 +70,7 @@ export function parseCliArgs(argv: string[]): ParsedCliArgs {
   const errors: string[] = [];
   const options: ParsedCliArgs['options'] = {
     allowWrites: false,
+    allowCommands: false,
     budget: 'balanced',
     speed: 'balanced',
     json: false,
@@ -139,6 +141,9 @@ export function parseCliArgs(argv: string[]): ParsedCliArgs {
         break;
       case '--allow-writes':
         options.allowWrites = true;
+        break;
+      case '--allow-commands':
+        options.allowCommands = true;
         break;
       case '--budget':
         {
@@ -267,7 +272,10 @@ async function main(): Promise<number> {
     costTracker,
     skillContext,
     providerAdapters: adapters,
-    hooks: createCliRuntimeHooks({ allowWrites: parsed.options.allowWrites }),
+    hooks: createCliRuntimeHooks({
+      allowWrites: parsed.options.allowWrites,
+      allowCommands: parsed.options.allowCommands,
+    }),
   });
   const cliRuntime: AtlasCliRuntime = {
     ...runtime,
@@ -567,21 +575,55 @@ export function createCliProviderAdapters(): ProviderAdapter[] {
   return adapters;
 }
 
-export function createCliRuntimeHooks(options?: { allowWrites?: boolean }): OrchestratorHooks {
+export function createCliRuntimeHooks(
+  options?: { allowWrites?: boolean; allowCommands?: boolean },
+): OrchestratorHooks {
   return {
-    toolApprovalGate: createCliToolApprovalGate(options?.allowWrites ?? false),
+    toolApprovalGate: createCliToolApprovalGate(
+      options?.allowWrites ?? false,
+      options?.allowCommands ?? false,
+    ),
   };
 }
 
-export function createCliToolApprovalGate(allowWrites = false): OrchestratorHooks['toolApprovalGate'] {
+/**
+ * The CLI's authorization gate. Enforced in code, not asked for in a prompt:
+ * a category the flags do not cover is refused here regardless of what the
+ * model was told.
+ *
+ * `terminal-read` is **not** free, which it used to be. The name describes what
+ * the command reports, not what it does to get there: `npm test`, `npm run
+ * build` and `npm run lint` all classify here, and every one of them executes
+ * whatever the repository's own `package.json` defines. So "read-only" mode
+ * could still run arbitrary code out of the checkout it was pointed at — the
+ * exact promise the mode exists to make, broken by the one category whose name
+ * made it look safe. It now needs `--allow-commands`, kept separate from
+ * `--allow-writes` so running a test suite does not also grant the ability to
+ * change files.
+ */
+export function createCliToolApprovalGate(
+  allowWrites = false,
+  allowCommands = false,
+): OrchestratorHooks['toolApprovalGate'] {
   return async (_taskId, toolName, args) => {
     const policy = classifyToolInvocation(toolName, args);
 
     switch (policy.category) {
       case 'read':
       case 'git-read':
-      case 'terminal-read':
         return { approved: true };
+
+      case 'terminal-read':
+        if (allowCommands || allowWrites) {
+          return { approved: true };
+        }
+        return {
+          approved: false,
+          reason:
+            `CLI blocked terminal command "${toolName}" (${policy.summary}). ` +
+            'Commands such as npm test and npm run build execute scripts defined by the repository, ' +
+            'so they are not permitted in read-only mode. Re-run with --allow-commands to allow them.',
+        };
 
       case 'workspace-write':
       case 'git-write':
@@ -707,7 +749,8 @@ function printHelp(): void {
     'Options:',
     '  --workspace <path>        Run against a specific workspace root',
     '  --ssot <relative-path>    Override the SSOT path (default: project_memory when present)',
-    '  --allow-writes           Permit write-capable workspace and git tools in CLI mode',
+    '  --allow-writes            Permit write-capable workspace and git tools in CLI mode',
+    '  --allow-commands          Permit terminal reads (npm test, build, lint) that run repo-defined scripts',
     '  --budget <mode>           cheap | balanced | expensive | auto',
     '  --speed <mode>            fast | balanced | considered | auto',
     '  --daily-limit-usd <n>     Block requests when the CLI budget would be exceeded',

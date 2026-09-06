@@ -107,6 +107,8 @@ Providers**. Azure uses `atlasmind.provider.azure.apiKey`; Bedrock uses
 |---------|---------|-------------|
 | `atlasmind.toolApprovalMode` | `ask-on-write` | When approval is required |
 | `atlasmind.allowTerminalWrite` | `false` | Whether approved terminal commands may change things (installs, commits) |
+| `atlasmind.skillAutoSynthesisEnabled` | `false` | Whether a model may write a new skill and have it run when a tool does not exist. Scanned and shown to you first, every time |
+| `atlasmind.cli.addToTerminalPath` | `false` | Whether the `atlasmind` launchers go on the PATH of new integrated terminals |
 | `atlasmind.chat.revealOnApprovalRequest` | `true` | Bring the chat panel forward when something's waiting on you. You get a notification either way |
 | `atlasmind.maxToolIterations` | `10` | How many tool rounds one turn may take |
 | `atlasmind.maxToolCallsPerTurn` | `8` | How many tools may run at once |

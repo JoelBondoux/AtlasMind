@@ -19,6 +19,39 @@ Older entries below describe the software as it was at the time and are delibera
 
 ---
 
+## v0.405.0 -- Five safety findings, closed
+
+An independent read of the source turned up five places where the behaviour was looser than the
+documentation, the defaults, or the reasoning in the code itself claimed. All five are closed here.
+
+**Model-written code does not run unless you switch it on.** When the model called a tool that did not
+exist, AtlasMind asked a model to write one and executed it inside the editor -- and asked you to review
+it only when a regex scan raised something. That made the quietest outcome the one where nobody saw the
+code, which is backwards: source that trips no rule is the source most worth a glance. It is now behind
+`atlasmind.skillAutoSynthesisEnabled`, off by default, with approval asked **every** time. With the
+setting off, no synthesis request is made at all. The scanner also gained rules for the escapes it had
+none for -- dynamic `import()`, `node:`-prefixed modules, indirect routes to the module loader, the
+Function constructor reached through a `constructor` property, and computed global access.
+
+**Credentials in what a tool read are redacted, always.** This was only happening when the opt-in Data
+Privacy policy was switched on, and that policy is off by default -- so out of the box, an agent that
+read a `.env` sent it to the model provider verbatim, while the README said otherwise. The README was
+right; the code is what changed. The Data Privacy policy remains the opt-in classification layer on
+top, because what counts as confidential in *your* project is a judgement only you can make.
+
+**A remote read asks now.** Under the default `ask-on-write`, an MCP tool named like a read ran with no
+prompt. It changes nothing locally, which was the argument -- and it is also the only read category that
+carries your data off the machine. Approve the category on the first prompt of a task to keep it to one
+dialog rather than one per call.
+
+**The CLI's read-only mode no longer runs `npm test`.** Package scripts execute whatever the repository
+defines, so "read-only" could run arbitrary code from the checkout it was aimed at. New
+`--allow-commands` flag, deliberately separate from `--allow-writes`.
+
+**Your terminal `PATH` is left alone** unless `atlasmind.cli.addToTerminalPath` asks for it.
+
+---
+
 ## v0.404.0 -- Roadmap items have stages, not just a checkbox
 
 An item with a filed plan, a branch, and merged work read exactly like one nobody had touched. There is

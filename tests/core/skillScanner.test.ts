@@ -155,6 +155,56 @@ describe('resolveRules', () => {
   });
 });
 
+describe('escapes the scanner used to have no rule for', () => {
+  // Every case here passed a clean scan before v0.405.0. That mattered more
+  // than it looks: auto-synthesis only asked the operator to review the source
+  // when the scan raised a warning, so the quietest outcome was the one where
+  // nobody saw the code. Approval is unconditional now, and these are closed
+  // as well — a scanner whose gaps are known is worth more than one trusted.
+  const errors = (source: string): string[] =>
+    scanSkillSource('probe', source, CLEAN_CONFIG)
+      .issues.filter(issue => issue.severity === 'error')
+      .map(issue => issue.rule);
+
+  it('blocks dynamic import, which reached every module the require rules block', () => {
+    expect(errors("const cp = await import('child_process');")).toContain('no-dynamic-import');
+    expect(errors("import('node:fs').then(fs => fs.readFileSync('/etc/passwd'));")).toContain('no-dynamic-import');
+  });
+
+  it('blocks the node: specifier the module rules were written without', () => {
+    expect(errors("const cp = require('node:child_process');")).toContain('no-child-process-require');
+    expect(errors("import { exec } from 'node:child_process';")).toContain('no-child-process-import');
+  });
+
+  it('blocks reaching the module loader around the injected require', () => {
+    // The injected `require` throws, but it is one parameter, not a boundary.
+    expect(errors("const r = process.mainModule.require; r('child_process');")).toContain('no-indirect-require');
+    expect(errors("const { createRequire } = mod; createRequire(x)('fs');")).toContain('no-indirect-require');
+  });
+
+  it('blocks the Function constructor reached through a constructor property', () => {
+    expect(errors("({}).constructor.constructor('return process')();")).toContain('no-constructor-escape');
+    expect(errors("[].constructor['constructor']('return this')();")).toContain('no-constructor-escape');
+  });
+
+  it('blocks computed global access, which defeats every name-based rule here', () => {
+    expect(errors("globalThis['pro' + 'cess'].exit(0);")).toContain('no-global-scope-reach');
+    expect(errors("const e = process['e' + 'nv'];")).toContain('no-global-scope-reach');
+  });
+
+  it('does not flag a class body, whose constructor( is not an escape', () => {
+    // A rule that errors on writing a class would be switched off, and would
+    // take the real escapes above with it when it went.
+    const source = [
+      'class Thing {',
+      '  constructor(name) { this.name = name; }',
+      '}',
+      'module.exports.skill = { id: "x", name: "x", execute: async () => "ok" };',
+    ].join('\n');
+    expect(errors(source)).toHaveLength(0);
+  });
+});
+
 describe('BUILTIN_SCAN_RULES', () => {
   it('has valid regex patterns for every built-in rule', () => {
     for (const rule of BUILTIN_SCAN_RULES) {

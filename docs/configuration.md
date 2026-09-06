@@ -106,6 +106,8 @@ When either mode is set to `auto`, the task profiler infers the appropriate leve
 |---|---|---|---|
 | `atlasmind.toolApprovalMode` | `string` | `"ask-on-write"` | Approval policy for tool execution. One of `always-ask`, `ask-on-write`, `ask-on-external`, `allow-safe-readonly`. |
 | `atlasmind.allowTerminalWrite` | `boolean` | `false` | Permit write-capable subprocesses such as installs and commits after explicit approval. |
+| `atlasmind.skillAutoSynthesisEnabled` | `boolean` | `false` | Permit AtlasMind to ask a model to write a skill in JavaScript and execute it when the model calls a tool that does not exist. The generated source runs in the extension host, so this is off by default; with it on the source is scanned, refused outright on an error, and shown to you for approval on **every** synthesis. |
+| `atlasmind.cli.addToTerminalPath` | `boolean` | `false` | Add the `atlasmind` and `atlasmind-acp` launchers to the PATH of new VS Code integrated terminals. A persistent change to your shell environment that outlives the session, so it is opt-in. Starting the Buzz-managed ACP agent creates the launchers regardless, because that flow cannot run without them. |
 | `atlasmind.autoVerifyAfterWrite` | `boolean` | `true` | Run configured verification scripts after successful workspace-write tool batches. |
 | `atlasmind.autoVerifyScripts` | `string[]` | `[`"test"`]` | Package scripts run after successful writes. Entries are sanitized and executed without shell interpolation. |
 | `atlasmind.autoVerifyTimeoutMs` | `number` | `120000` | Per-script timeout in milliseconds for automatic verification. |
@@ -562,10 +564,19 @@ Both of these have been read by real code for months and were absent from the ma
 and a looser setting. Read each as *what it lets through without asking*:
 
 - `always-ask` — nothing.
-- `ask-on-write` — reads: local, git, and `network-read` (a remote call that changes nothing).
+- `ask-on-write` — local reads only: `read` and `git-read`.
 - `ask-on-external` — everything local, **including `workspace-write`, `git-write` and
   `rollback-checkpoint`**. Prompts for `terminal-*`, `network`, `network-read` and audio.
 - `allow-safe-readonly` — `read`, `git-read` and `terminal-read`. Writes and external calls prompt.
+
+`ask-on-write` gated `network-read` from v0.405.0. It had been exempt on the grounds that it mutates
+nothing, which is true and is only half the sentence: it is also the one read category that carries
+your data *off the machine*. A connected MCP server's `get_customer_data` classifies there on its name
+alone, so under the default mode it ran and sent whatever it was asked for with no prompt at all. The
+dialog volume that exemption bought is handled by the mechanism built for it instead — the first
+approval of a task can allow the category for the rest of it, so it is one dialog per task rather than
+one per call. `allow-safe-readonly` still lets it through, because that mode asks *did this change
+something?* and the honest answer is no.
 
 `ask-on-external` asks *did this leave the machine?*; `allow-safe-readonly` asks *did this change
 something?* Neither gates a superset of the other. The manifest enum order drives the settings dropdown,

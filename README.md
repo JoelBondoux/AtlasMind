@@ -4,7 +4,7 @@
 
 <h1 align="center">AtlasMind</h1>
 
-<p align="center"><sub> · <strong>Current source version: 0.404.0</strong> · </sub></p>
+<p align="center"><sub> · <strong>Current source version: 0.405.0</strong> · </sub></p>
 
 
 <p align="center">
@@ -114,8 +114,13 @@ Ambitious automation is only worth having if you can trust it. AtlasMind is buil
 
 - **Nothing risky happens silently.** Writes, external calls, and destructive actions ask first — and you
   choose how often it asks.
-- **Your keys stay in the OS keychain.** Never in settings files, never in your repository, and redacted
-  before anything is sent to a model.
+- **Your keys stay in the OS keychain.** Never in settings files, never in your repository. Credentials
+  found in what a tool read — a `.env`, a config file, a CI log — are pattern-matched and replaced
+  before the result reaches a model. Pattern matching catches known shapes, not novel ones; the
+  [Data privacy guide](wiki/Data-Privacy-and-GDPR.md) covers classifying what those patterns cannot see.
+- **Model-written code does not run unless you say so.** When the model calls a tool that does not exist,
+  AtlasMind can write one — but `atlasmind.skillAutoSynthesisEnabled` is off by default, and with it on
+  every generated skill is scanned and shown to you before it executes.
 - **Work gets verified.** Configured checks run after changes, and a run cannot report success while its
   own verification failed.
 - **Production is protected.** Promoting to production is deny-by-default until the backups and approvals
@@ -131,6 +136,21 @@ allow-list, redaction and file-withholding behaviour, retained metadata, provide
 important limits on overrides and compliance claims.
 
 ---
+
+## What's new in 0.405.0
+
+Five safety findings from an independent read of the source, closed. **Model-written
+code no longer runs unless you switch it on**: when the model called a tool that did
+not exist, AtlasMind would ask a model to write one and execute it, prompting for
+review only when a regex scan raised something -- so the quietest outcome was the one
+where nobody saw the code. It is now off by default, approval is asked every time, and
+the scanner covers the escapes it had no rule for. **Credentials in what a tool read are
+redacted unconditionally**, rather than only when the opt-in privacy policy was on; the
+README promised this and the code did not do it. **A remote read now asks** under the
+default approval mode -- it changes nothing locally and still carries your data off the
+machine. **The CLI's read-only mode no longer runs `npm test`** and the other package
+scripts, which execute whatever the repository defines. And **the terminal PATH is left
+alone** unless you ask for it.
 
 ## What's new in 0.404.0
 
@@ -1978,6 +1998,8 @@ Everything is in the AtlasMind Settings panel, or under `atlasmind.*` in VS Code
 | `dailyCostLimitUsd` | `0` | Daily spending cap; `0` means no cap |
 | `toolApprovalMode` | `ask-on-write` | How often AtlasMind asks before acting |
 | `allowTerminalWrite` | `false` | Whether approved terminal commands may change things |
+| `skillAutoSynthesisEnabled` | `false` | Let a model write a new skill and run it when a tool does not exist. Off; every synthesis is scanned and shown to you first |
+| `cli.addToTerminalPath` | `false` | Put the `atlasmind` launchers on the PATH of new integrated terminals. Off, because it persistently changes your shell |
 | `autoVerifyAfterWrite` | `true` | Run your checks automatically after a change |
 | `ssotPath` | `project_memory` | Where project memory lives in your repo |
 | `chatSessionTurnLimit` | `6` | How much recent conversation carries forward |

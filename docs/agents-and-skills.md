@@ -601,11 +601,39 @@ This is intended as assisted scaffolding, not autonomous self-trust.
 The autonomous **Mission Loop** (`/loop` chat command and the Mission Control panel, backed by `src/core/missionRunner.ts`) sends agents out to "learn what's required" across multiple iterations — but it does so **prefer-existing and gated**:
 
 - Each increment runs through the orchestrator's normal subtask execution, so it first uses already-registered agents, skills, and MCP tools.
-- When `atlasmind.loop.allowDiscovery` is on, the loop may fill a genuine capability gap by **synthesizing** a new agent/skill (the same `skillDrafting`/`agentDrafting` paths as Experimental Skill Learning) or by using **Agentic Resource Discovery**. New capabilities pass the **existing approval gates** before use; nothing is silently auto-trusted.
+- When `atlasmind.loop.allowDiscovery` is on, the loop may fill a genuine capability gap by **synthesizing** a new agent/skill (the same `skillDrafting`/`agentDrafting` paths as Experimental Skill Learning) or by using **Agentic Resource Discovery**. New capabilities pass the **existing approval gates** before use; nothing is silently auto-trusted. Skill synthesis additionally requires `atlasmind.skillAutoSynthesisEnabled` (see below), so `allowDiscovery` alone does not reach it.
 - The loop never bypasses guarded delivery: a goal that implies staging/production deployment is surfaced as a checkpoint/`blocked` and routed through the `PromotionRunner` pipeline rather than executed directly.
 - A goal is only judged **achieved** when the iteration shows passing verification where behaviour changed — the project's Testing Methodology Matrix and TDD policy are inherited automatically (see [Testing](#project-dashboard--testing-page)).
 
 See [Project Planner](../wiki/Project-Planner.md) for how the loop relates to the single-pass planner and scheduler.
+
+### Auto-synthesised skills
+
+When the model calls a tool no registered skill provides, `Orchestrator.synthesizeSkillForTool` can ask a
+model to write one and load it with `loadSkillFromSource` — `new Function('module', 'exports', 'require', source)`,
+evaluated in the extension host's global scope. The injected `require` throws, but it is one parameter
+rather than a boundary: the source runs with the editor's privileges either way. Two gates stand in
+front of it, and both were added in v0.405.0 after the path was found reachable from any invented tool
+name:
+
+1. **`atlasmind.skillAutoSynthesisEnabled`, default `false`.** With it off, no synthesis request is
+   issued at all — the orchestrator returns a message naming the setting and the loop continues with
+   the tools it has. The refusal is cached per skill id, so a model repeating the call does not repeat
+   the cost.
+2. **`generatedSkillApprovalGate` is consulted on every synthesis.** Approval was previously conditional
+   on `scanSkillSource` raising a warning, so source that tripped nothing ran with no prompt — making
+   the quietest outcome the one where the reviewer never saw the code. A scan *error* still refuses
+   outright, with no prompt offered; a runtime with no approval surface refuses rather than proceeding.
+
+Ordering matters: synthesis runs *before* the tool approval gate in the agentic loop, so a generated
+skill's code executes before anything asks about the tool call it was written for. That is why the gate
+above is on the synthesis itself rather than on the invocation.
+
+`scanSkillSource` is a regex pass over source text, not a sandbox. It covers `eval`, `new Function`,
+dynamic `import()`, `child_process` and `node:child_process`, indirect module-loader access
+(`mainModule`, `createRequire`, `_load`), the Function constructor reached through a `constructor`
+property, computed global access (`globalThis['pro' + 'cess']`), shell execution, path traversal and
+hardcoded secrets. It is a filter in front of a human review; the review is the control.
 
 ### Registering Skills
 

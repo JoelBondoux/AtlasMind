@@ -71,6 +71,7 @@ Shows which providers are configured in *this* environment and how many models e
 --provider <id>                 Restrict routing to one provider
 --model <provider/model>        Pin one specific model
 --allow-writes                  Permit changes (see Safety below)
+--allow-commands                Permit terminal reads (npm test, build, lint) that run repo-defined scripts
 --budget <cheap|balanced|expensive|auto>
 --speed <fast|balanced|considered|auto>
 --daily-limit-usd <n>
@@ -89,9 +90,16 @@ how you end up paying for a request that asked the model about your typo.
 
 There's no panel to click "approve" in, so the defaults are stricter:
 
-- **Read-only tools work by default**
+- **Local reads work by default** — files, git status, git log
 - **Workspace writes, git writes and terminal writes are blocked** unless you pass `--allow-writes`
+- **Terminal commands are blocked** unless you pass `--allow-commands`
 - **External and higher-risk tools stay blocked** regardless
+
+`--allow-commands` exists because `terminal-read` is a misleading name for a safe-sounding category.
+`npm test`, `npm run build` and `npm run lint` all grade there, and each executes whatever the
+repository's `package.json` says it does. They were permitted unconditionally until v0.405.0, which
+meant read-only mode could run arbitrary code from the checkout it was aimed at. It is a separate flag
+from `--allow-writes` on purpose: running a test suite should not also grant the ability to edit files.
 
 ---
 
