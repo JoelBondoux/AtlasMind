@@ -19,6 +19,18 @@ Older entries below describe the software as it was at the time and are delibera
 
 ---
 
+## v0.402.7 — Instructions are acted on, not summarised
+
+Asking AtlasMind to "update the roadmap to mark the workflow item complete" returned a summary of
+what had not changed, because the request carried both words the roadmap status responder matches.
+An imperative opening a prompt is a request to act, so it is now routed rather than answered.
+
+This is the second of two layers and they are not redundant: the first covers prompts AtlasMind wrote
+itself, and the Completion check — which opens with "Check", and asks for a report rather than a
+change — is reachable only because of it.
+
+---
+
 ## v0.402.6 — Roadmap hand-offs reach a model again
 
 The Plan, Resolve and Completion-check buttons on the Roadmap page were being answered by AtlasMind

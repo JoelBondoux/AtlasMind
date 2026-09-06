@@ -883,6 +883,11 @@ a guard matching on wording is what failed, so wording cannot be what fixes it. 
 writes a composer draft, so a prompt sent unedited from one is AtlasMind's own text and is never
 intercepted; the marker is one-shot and compared by exact text, so editing the draft hands the turn back
 to the operator, and a status question somebody typed is still answered deterministically as before.
+A second layer narrows the matcher itself: an imperative opening a prompt — "update the roadmap to mark
+the workflow item complete" — is a request to act, and was being answered with a summary of what had not
+changed. The two layers are not redundant. The Completion check opens with "Check", which no list of
+write verbs should contain because it asks for a report, so wording alone still swallows it and only the
+structural marker keeps it reachable.
 
 The graph is an overlay. `improvement-plan.md` remains the one file that says what the work is; the
 deadlines, positions and links live in `roadmap-graph.json` beside it, keyed on a durable id the backlog

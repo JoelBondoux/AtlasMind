@@ -6,6 +6,30 @@ The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/),
 
 ## [Unreleased]
 
+## [0.402.7] - 2026-09-06
+
+### Fixed
+
+- A typed instruction is no longer answered with a roadmap status summary. The
+  structural marker added in 0.402.6 covers prompts AtlasMind composed; this covers
+  the other half, an instruction the operator typed. "Update the roadmap to mark the
+  workflow item complete" carries both trigger words, so a request to change something
+  was answered with a summary of what had not changed. An imperative opening a prompt
+  or a line is a request to act; only a question may be answered deterministically, and
+  the pattern is anchored to a line start because only there is the verb imperative —
+  "what should I write next?" is still a question.
+- The two layers are deliberately not redundant. The imperative guard catches the Plan
+  and Resolve hand-offs on their opening verb, but the Completion check opens with
+  "Check", which no list of write verbs should contain, since it asks for a report.
+  Wording alone still swallows it and the structural marker is what keeps it reachable;
+  a test pins that case so neither layer can be removed as duplicated effort.
+
+### Known
+
+- "where are we on the roadmap" is still not recognised as a status question. It is in
+  the intent vocabulary but not the detail vocabulary, and widening the responder's
+  reach is a separate change from narrowing it.
+
 ## [0.402.6] - 2026-09-06
 
 ### Fixed

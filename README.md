@@ -4,7 +4,7 @@
 
 <h1 align="center">AtlasMind</h1>
 
-<p align="center"><sub> · <strong>Current source version: 0.402.6</strong> · </sub></p>
+<p align="center"><sub> · <strong>Current source version: 0.402.7</strong> · </sub></p>
 
 
 <p align="center">
@@ -131,6 +131,14 @@ allow-list, redaction and file-withholding behaviour, retained metadata, provide
 important limits on overrides and compliance claims.
 
 ---
+
+## What's new in 0.402.7
+
+A typed instruction is no longer answered with a status summary. "Update the
+roadmap to mark the workflow item complete" carries both words the roadmap
+status responder matches, so a request to change something was answered with a
+summary of what had not changed. An imperative opening a prompt is a request to
+act, and only a question may be answered deterministically.
 
 ## What's new in 0.402.6
 

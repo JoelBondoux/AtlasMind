@@ -309,6 +309,14 @@ const ROADMAP_STATUS_DETAIL_PATTERN = /\b(?:outstanding|remaining|left|pending|t
 // A "plan/build" request asks for an ordered plan, not a status dump — we collect the gaps then hand
 // off to real planning. An explicit "status/progress" request still gets the deterministic summary.
 const ROADMAP_PLAN_INTENT_PATTERN = /\b(?:plan|planning|build|building|ship|deliver|delivering|route|path|roadmap to|get to|next milestone|mvp|minimum viable)\b/i;
+// An imperative opening a prompt or a line: a request to *act*, never a question
+// a deterministic summary may answer. "Update the roadmap to mark the workflow
+// item complete" carries both trigger words, so it was answered with a summary
+// of what had not changed instead of being routed to something that could
+// change it. Anchored to a line start because only there is the verb imperative:
+// "what should I write next?" is still a question.
+const ROADMAP_WRITE_INSTRUCTION_PATTERN =
+  /^\s*(?:please\s+|now\s+|can you\s+|could you\s+)*(?:draft|write|implement|create|add|update|mark|tick|resolve|file|generate|edit|delete|remove|refactor|rewrite|fix)\b/im;
 const ROADMAP_STATUS_INTENT_PATTERN = /\b(?:status|progress|outstanding|remaining|left|how many|where are we|what'?s left|done so far|completed|backlog)\b/i;
 // The real developer backlog lives between these markers in improvement-plan.md; everything else in
 // that file (Project Context, Prioritisation Notes legend) is scaffold, not outstanding work.
@@ -5843,6 +5851,9 @@ export function isRoadmapStatusPrompt(
   options?: { composedByAtlas?: boolean },
 ): boolean {
   if (options?.composedByAtlas === true) {
+    return false;
+  }
+  if (ROADMAP_WRITE_INSTRUCTION_PATTERN.test(prompt)) {
     return false;
   }
   return ROADMAP_STATUS_PROMPT_PATTERN.test(prompt) && ROADMAP_STATUS_DETAIL_PATTERN.test(prompt);

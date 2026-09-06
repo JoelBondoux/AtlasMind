@@ -2041,8 +2041,15 @@ describe('generated hand-off prompts are never intercepted by the status respond
     expect(isRoadmapStatusPrompt(prompt, { composedByAtlas: true })).toBe(false);
   });
 
-  it.each(prompts)('%s would otherwise be swallowed, which is why the flag exists', (_label, prompt) => {
-    expect(isRoadmapStatusPrompt(prompt)).toBe(true);
+  // The imperative guard catches Plan and Resolve on their opening verb, but the
+  // Completion check opens with "Check", which no list of write verbs should
+  // contain — it asks for a report. Wording alone still swallows it, so the
+  // structural marker is what keeps it reachable. The two layers are not
+  // redundant, and this is the case that proves it.
+  it('the completion check is saved by the marker alone, not by the imperative guard', () => {
+    const check = buildRoadmapCompletionCheckPrompt(handoffItem, planPath);
+    expect(isRoadmapStatusPrompt(check)).toBe(true);
+    expect(isRoadmapStatusPrompt(check, { composedByAtlas: true })).toBe(false);
   });
 
   it('still intercepts a status question the operator typed themselves', () => {
@@ -2052,5 +2059,32 @@ describe('generated hand-off prompts are never intercepted by the status respond
 
   it('defers a composed hand-off from the status result builder too', async () => {
     await expect(buildRoadmapStatusResult(prompts[0][1], { composedByAtlas: true })).resolves.toBeUndefined();
+  });
+});
+
+describe('a typed instruction is never answered with a status summary', () => {
+  // The structural marker covers prompts AtlasMind composed. This covers the
+  // other half: an instruction the operator typed themselves. "Update the
+  // roadmap to mark the workflow item complete" carries "roadmap" and
+  // "complete", so it matched, and an instruction to change something was
+  // answered with a summary of what had not changed. An imperative is a request
+  // to act; only a question may be answered deterministically.
+  it.each([
+    'Draft the implementation plan for this roadmap item into project_memory/roadmap/plans/x.md',
+    'Update the roadmap to mark the guided workflow item complete',
+    'Mark the roadmap item complete now that the work has landed',
+    'resolve the outstanding roadmap item about the canvas',
+    'Please write up the remaining roadmap items as issues',
+  ])('%s is routed rather than intercepted', prompt => {
+    expect(isRoadmapStatusPrompt(prompt)).toBe(false);
+  });
+
+  it.each([
+    'what roadmap items are still outstanding?',
+    'show roadmap progress',
+    'how many roadmap items are left',
+    'what are the outstanding roadmap items we need to address?',
+  ])('%s is still answered deterministically', prompt => {
+    expect(isRoadmapStatusPrompt(prompt)).toBe(true);
   });
 });
