@@ -6,6 +6,40 @@ The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/),
 
 ## [Unreleased]
 
+## [0.408.0] - 2026-09-06
+
+### Added
+
+- **Double-click a canvas node to zoom in on it and centre it.** `rmZoomToNode`
+  reads the node's real rendered height rather than assuming `RM_NODE_HEIGHT`:
+  nodes grow with their chips, and centring on an assumed height puts a tall
+  node's title off the top of the frame — the part you double-clicked to read.
+  Zooming is capped at one destination rather than creeping further in on each
+  repeat, and controls inside a node are excluded, because double-clicking a
+  button is not a request to move the view.
+- **The backlog list has its own search box.** The one that already existed
+  lives in the canvas toolbar, which does not render in list view — so the queue
+  filter added in 0.407.0 had nothing to drive it unless you had typed a query on
+  the canvas first and then switched. Shipped incomplete in that release; this is
+  the other half.
+
+### Changed
+
+- **Searching the canvas marks matches instead of removing everything else.** It
+  drew only the matches and their connected closure, which answers "show me this
+  corner of the plan" — but the question being asked is "where is this item", and
+  the useful half of that answer is what sits around it. Every node stays drawn
+  with its arrows intact; matches are outlined, the rest is dimmed. The route
+  filter is unchanged and still narrows, because that one is a deliberate "only
+  this route" request.
+- The toolbar reports `N of M match` rather than nodes drawn. With nothing
+  hidden, the old count would have read "40 of 40" for every query.
+- A search with no matches raises a banner and keeps the plan on screen. The
+  previous empty-canvas state is unreachable now that nothing is hidden, and
+  without the banner a zero-match query would dim everything with no explanation
+  — indistinguishable from the plan having been wiped.
+
+
 ## [0.407.0] - 2026-09-06
 
 ### Added

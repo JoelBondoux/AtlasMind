@@ -27763,6 +27763,27 @@ const DASHBOARD_CSS = `
     margin-top: 6px;
   }
 
+  .rm-queue-search {
+    margin-top: 8px;
+  }
+
+  /* A search marks the canvas rather than emptying it. Everything stays drawn,
+     with its arrows, so what a match waits on is still readable — that is the
+     whole point, and it is why this is opacity rather than display. */
+  .rm-node.is-search-dim {
+    opacity: 0.34;
+  }
+
+  .rm-node.is-search-dim:hover,
+  .rm-node.is-search-dim:focus-within {
+    opacity: 0.85;
+  }
+
+  .rm-node.is-search-match {
+    outline: 2px solid var(--dash-accent-strong);
+    outline-offset: 1px;
+  }
+
   /* ── Roadmap: the dependency canvas ────────────────────────────────────
      Urgency is carried on the node's left border rather than as a filled
      background, for the reason the attention band already establishes: a wall of

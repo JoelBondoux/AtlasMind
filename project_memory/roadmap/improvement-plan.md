@@ -16,8 +16,8 @@ This file is the developer-facing backlog AtlasMind should absorb into SSOT and 
 - [ ] When adding an item to the roadmap, the editable queue entry form should also allow the selecting of a gate, tag, and a assigned user. Also the text box could be 400% bigger. <!-- rm:when-adding-an-item-to-the-r -->
 - [ ] In the Project Manager Dash, the chips at the top of teh screen showing the delivery stages and their version number. If clicked on they should invite teh user to make the current branch. If the current branch is one of these then it should be highlighted with a coloured outline. <!-- rm:in-the-project-manager-dash -->
 - [ ] Allow the roadmap canvas to highlight nodes based on gates and users. <!-- rm:allow-the-roadmap-canvas-to -->
-- [ ] If you double click on a roadmap canvas node then you zoom into it. #mvp <!-- rm:if-you-double-click-on-a-roa -->
-- [ ] The search functionality on the roadmap flowcharts should identify the roadmap nodes, but keep the other nodes greyted out so the user can still see dependancies. If they click on a node the same functionality as currently exists takes over. <!-- rm:the-search-functionality-on -->
+- [x] If you double click on a roadmap canvas node then you zoom into it. #mvp <!-- rm:if-you-double-click-on-a-roa -->
+- [x] The search functionality on the roadmap flowcharts should identify the roadmap nodes, but keep the other nodes greyted out so the user can still see dependancies. If they click on a node the same functionality as currently exists takes over. <!-- rm:the-search-functionality-on -->
 - [ ] The delivered Roadmap flow chart should have the exact same functgionality as the dependancy canvas. <!-- rm:the-delivered-roadmap-flow-c -->
 - [ ] The ui Studio should be able to tell where ui elements can be added and have them selectable so new or existing UI elements can be edited. #mvp <!-- rm:the-ui-studio-should-be-able -->
 - [ ] The UI Studio should be able to read the repo and allow the user to select any of the discovered UI surfaces and work on them directly with a rendered output to work with. #mvp <!-- rm:the-ui-studio-should-be-able-2 -->

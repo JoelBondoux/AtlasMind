@@ -785,7 +785,7 @@ describe('reading a dense plan', () => {
     expect(harness.root().querySelector('[data-rm-world="true"]')?.className).not.toContain('rm-has-highlight');
   });
 
-  it('filters the canvas to matching items plus everything connected to them', () => {
+  it('marks what matches and dims the rest, so the plan around a match stays readable', () => {
     const harness = mount();
     harness.send(snapshot({
       active: [
@@ -802,24 +802,93 @@ describe('reading a dense plan', () => {
     input.value = 'Item alpha';
     input.dispatchEvent(new harness.window.Event('input', { bubbles: true }));
 
-    // The match and its dependent stay — the question is "what does it wait
-    // on, and what waits on it" — the unrelated card is hidden.
-    expect(harness.root().querySelector('[data-rm-node="alpha"]')).not.toBeNull();
-    expect(harness.root().querySelector('[data-rm-node="beta"]')).not.toBeNull();
-    expect(harness.root().querySelector('[data-rm-node="loner"]')).toBeNull();
+    // Nothing is removed. A search answers "where is this item", and the useful
+    // half of that answer is what sits around it — so every node stays drawn,
+    // with its arrows, and the match is the one that is marked.
+    const classOf = (id: string) => harness.root().querySelector(`[data-rm-node="${id}"]`)?.className ?? '';
+    expect(classOf('alpha')).toContain('is-search-match');
+    expect(classOf('alpha')).not.toContain('is-search-dim');
+    expect(classOf('beta')).toContain('is-search-dim');
+    expect(harness.root().querySelector('[data-rm-node="loner"]')).not.toBeNull();
+    expect(classOf('loner')).toContain('is-search-dim');
+    // The edge between them is still drawn — dimming would be pointless if the
+    // dependency it exists to keep visible went with the node.
+    expect(harness.root().querySelector('.rm-edge[data-rm-from="alpha"]')).not.toBeNull();
     expect(harness.posted).toEqual([]);
 
     harness.click('[data-action="roadmap-search-clear"]');
-    expect(harness.root().querySelector('[data-rm-node="loner"]')).not.toBeNull();
+    expect(classOf('loner')).not.toContain('is-search-dim');
+    expect(classOf('alpha')).not.toContain('is-search-match');
   });
 
-  it('says when nothing matches, rather than showing a blank canvas', () => {
+  it('says when nothing matches, and still draws the plan', () => {
     const harness = mount();
     harness.send(snapshot());
     const input = harness.root().querySelector('#roadmap-search-input');
     input.value = 'zzz-no-such-item';
     input.dispatchEvent(new harness.window.Event('input', { bubbles: true }));
-    expect(harness.root().querySelector('.rm-empty')?.textContent).toContain('No item matches');
+    // A banner rather than an empty canvas: everything is dimmed, so without
+    // one this state is indistinguishable from the plan having been wiped.
+    expect(harness.root().querySelector('.rm-banner-search')?.textContent).toContain('No item matches');
+    expect(harness.root().querySelectorAll('[data-rm-node]').length).toBeGreaterThan(0);
+  });
+
+  it('zooms in on a node when it is double-clicked', () => {
+    const harness = mount();
+    harness.send(snapshot());
+    harness.posted.length = 0;
+    const world = () => harness.root().querySelector('[data-rm-world="true"]') as { style: { transform: string } } | null;
+    expect(world()?.style.transform ?? '').not.toContain('scale(1.25)');
+
+    const card = harness.root().querySelector('[data-rm-node="alpha"]');
+    expect(card).not.toBeNull();
+    card.dispatchEvent(new harness.window.MouseEvent('dblclick', { bubbles: true }));
+
+    // A view change and nothing else: zooming is a way of looking, so it must
+    // not post a message or write anything.
+    expect(world()?.style.transform ?? '').toContain('scale(1.25)');
+    expect(harness.posted).toEqual([]);
+  });
+
+  it('gives the backlog list its own search box, and filters the queue with it', () => {
+    const harness = mount();
+    harness.send(snapshot());
+    harness.click('[data-action="roadmap-view"][data-payload="list"]');
+
+    // The canvas toolbar carries a search box and does not render in this view,
+    // so without one here the queue filter had nothing to drive it.
+    expect(harness.root().querySelector('#roadmap-search-input')).not.toBeNull();
+    expect(harness.root().querySelectorAll('.roadmap-item').length).toBe(1);
+
+    // Re-queried each time: the input is rebuilt by the render its own event
+    // triggers, so a held reference is detached and its events reach nothing.
+    const type = (value: string) => {
+      const el = harness.root().querySelector('#roadmap-search-input');
+      el.value = value;
+      el.dispatchEvent(new harness.window.Event('input', { bubbles: true }));
+    };
+
+    type('zzz-no-such-item');
+    expect(harness.root().querySelectorAll('.roadmap-item').length).toBe(0);
+    expect(harness.root().querySelector('.roadmap-list')?.textContent).toContain('Nothing in the backlog matches');
+
+    type('alpha');
+    expect(harness.root().querySelectorAll('.roadmap-item').length).toBe(1);
+    // Reordering is by item id against the whole plan, so a filtered drag is
+    // safe — the queue says so rather than leaving it to be discovered.
+    expect(harness.root().querySelector('.rm-queue-filter-note')?.textContent)
+      .toContain('reorders against the whole plan');
+  });
+
+  it('does not zoom when the double-click landed on a control inside the node', () => {
+    const harness = mount();
+    harness.send(snapshot());
+    const button = harness.root().querySelector('[data-rm-node="alpha"] button');
+    if (button) {
+      button.dispatchEvent(new harness.window.MouseEvent('dblclick', { bubbles: true }));
+      const world = harness.root().querySelector('[data-rm-world="true"]') as { style: { transform: string } } | null;
+      expect(world?.style.transform ?? '').not.toContain('scale(1.25)');
+    }
   });
 
   it('spreads a fan of edges across the node face instead of stacking them', () => {

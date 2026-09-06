@@ -139,9 +139,19 @@ tree seats each item beside what it waits for, so arrows stay short instead of c
 
 **Click a card's body** and its neighbourhood lights up — the card, its direct prerequisites and
 dependents, and every arrow touching it — while everything else recedes. Escape or a click on empty
-canvas puts it back. **Search the plan** from the toolbar: only items whose text matches stay, plus
-everything connected to them — what they wait on, and what waits on them — with the rest hidden and
-the view re-fitted as you type. Both are ways of looking: nothing is sent, and nothing changes.
+canvas puts it back. **Double-click a card** to zoom in on it and centre it; it reads the card's real
+height, so a tall one does not end up with its title above the frame, and repeating the gesture does
+not creep further in.
+
+**Search the plan** from the toolbar and matches are outlined while the rest of the plan stays drawn
+and dimmed. It used to keep only the matches and everything connected to them and hide the rest, which
+answers "show me this corner of the plan" — but the question being asked is "where is this item", and
+the useful half of that answer is what sits around it. So nothing is removed: the arrows are still
+there to read. The count reports matches rather than cards drawn, and a search matching nothing says
+so in a banner instead of dimming the canvas with no explanation. The **route filter** is unaffected
+and still narrows the plan, because that one is a deliberate "only this route" request.
+
+All of these are ways of looking: nothing is sent, and nothing changes.
 
 **Every entry carries three Atlas pills — on the canvas card and on its backlog row alike.**
 

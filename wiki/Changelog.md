@@ -19,6 +19,30 @@ Older entries below describe the software as it was at the time and are delibera
 
 ---
 
+## v0.408.0 -- A search that shows you the neighbourhood
+
+**Searching the dependency canvas used to empty it.** It drew the matches and everything
+connected to them and removed the rest — which answers "show me this corner of the plan".
+The question you are actually asking is "where is this item", and the useful half of that
+answer is what sits around it. So nothing is removed now: the whole plan stays drawn with
+its arrows, matches are outlined, and everything else is dimmed.
+
+The count in the toolbar reports matches rather than nodes drawn — with nothing hidden it
+would otherwise have read "40 of 40" for every query — and a search matching nothing raises
+a banner instead of dimming the entire canvas with no explanation.
+
+**Double-click a node to zoom in on it.** It centres on what you clicked and reads the
+node's real rendered height, because nodes grow with their chips and centring on an
+assumed height puts a tall card's title above the frame — the part you double-clicked to
+read. Repeating the gesture does not creep further in; "look at this" is one destination.
+
+**The backlog list has its own search box.** An honest correction: the search added to the
+queue in v0.407.0 could not be reached from that view. The existing box lives in the canvas
+toolbar, which list view does not render, so the filter only worked if you had typed a query
+on the canvas and then switched. That release shipped half the feature. This is the rest.
+
+---
+
 ## v0.407.0 -- The backlog queue stops looking broken
 
 Three things on the Roadmap page's editable queue, each of which read as a control that

@@ -4,7 +4,7 @@
 
 <h1 align="center">AtlasMind</h1>
 
-<p align="center"><sub> · <strong>Current source version: 0.407.0</strong> · </sub></p>
+<p align="center"><sub> · <strong>Current source version: 0.408.0</strong> · </sub></p>
 
 
 <p align="center">
@@ -136,6 +136,24 @@ allow-list, redaction and file-withholding behaviour, retained metadata, provide
 important limits on overrides and compliance claims.
 
 ---
+
+## What's new in 0.408.0
+
+**Double-click a node on the dependency canvas to zoom in on it.** It centres on
+what you clicked, reading the node's real height so a tall card's title does not
+end up above the frame.
+
+**Searching the canvas now marks matches instead of hiding everything else.** It used
+to draw only the matches and the items connected to them, which answers "show me this
+corner of the plan" — but the question you are asking is "where is this item", and the
+useful half of the answer is what sits around it. The whole plan stays drawn with its
+arrows; matches are outlined and the rest is dimmed. A search that matches nothing says
+so, rather than dimming everything with no explanation.
+
+**And the backlog list finally has its own search box.** The one that existed lives in
+the canvas toolbar, which does not render in list view — so the queue filter added in
+0.407.0 had nothing to drive it. That release shipped half the feature; this is the
+other half.
 
 ## What's new in 0.407.0
 

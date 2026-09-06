@@ -3264,6 +3264,36 @@
    * flies away from the cursor — zoom out twice from a panned view and the
    * whole canvas is off-screen, which reads as the page having gone blank.
    */
+  /**
+   * Zoom in on one node and centre it.
+   *
+   * Unlike `rmZoomAt`, which holds a point on screen still while the scale
+   * changes, this one is told *what* to look at and works out where that has to
+   * land. Reads the node's real height rather than assuming `RM_NODE_HEIGHT`:
+   * nodes grow with their chips, and centring on an assumed height puts a tall
+   * node's title off the top of the frame — the part you double-clicked to read.
+   */
+  function rmZoomToNode(nodeId) {
+    const frame = root ? root.querySelector('[data-rm-frame="true"]') : null;
+    const nodeEl = root ? root.querySelector('[data-rm-node="' + cssEscape(nodeId) + '"]') : null;
+    if (!(frame instanceof HTMLElement) || !(nodeEl instanceof HTMLElement)) {
+      return;
+    }
+    const worldX = parseFloat(nodeEl.style.left) || 0;
+    const worldY = parseFloat(nodeEl.style.top) || 0;
+    const centreX = worldX + RM_NODE_WIDTH / 2;
+    const centreY = worldY + (nodeEl.offsetHeight || RM_NODE_HEIGHT) / 2;
+    // Already zoomed in? Double-clicking again should not creep further and
+    // further; the gesture means "look at this", which is one destination.
+    const zoom = Math.min(RM_MAX_ZOOM, Math.max(state.roadmapZoom, 1.25));
+    state.roadmapZoom = zoom;
+    state.roadmapPan = {
+      x: Math.round(frame.clientWidth / 2 - centreX * zoom),
+      y: Math.round(frame.clientHeight / 2 - centreY * zoom),
+    };
+    rmApplyViewTransform();
+  }
+
   function rmZoomAt(nextZoom, anchorX, anchorY) {
     const zoom = Math.min(RM_MAX_ZOOM, Math.max(RM_MIN_ZOOM, Math.round(nextZoom * 100) / 100));
     if (zoom === state.roadmapZoom) {
@@ -3616,6 +3646,30 @@
       el.classList.remove('is-reordering');
     });
   }
+
+  // Double-click a canvas node to zoom in on it and centre it.
+  //
+  // The two clicks underneath still reach the single-click handler, which
+  // toggles the neighbourhood highlight — so it goes on, off, and is set back on
+  // here explicitly rather than left to whichever parity the toggle landed on.
+  // Controls inside a node are excluded for the same reason the click handler
+  // excludes them: double-clicking a button is not a request to move the view.
+  root?.addEventListener('dblclick', event => {
+    const card = event.target instanceof HTMLElement ? event.target.closest('[data-rm-node]') : null;
+    if (!(card instanceof HTMLElement)
+      || card.classList.contains('rm-node-editing')
+      || (event.target instanceof HTMLElement && event.target.closest('button, a, input, textarea, select, label'))) {
+      return;
+    }
+    const id = card.getAttribute('data-rm-node') || '';
+    if (!id) {
+      return;
+    }
+    event.preventDefault();
+    state.roadmapHighlightNodeId = id;
+    rmApplyHighlight();
+    rmZoomToNode(id);
+  });
 
   root?.addEventListener('dragstart', event => {
     const target = event.target instanceof HTMLElement ? event.target.closest('[data-roadmap-id]') : null;
@@ -11266,6 +11320,12 @@
           <p class="section-kicker">Editable queue</p>
           <h3>Prioritized backlog</h3>
           <div class="list-meta">Grab the <span aria-hidden="true">⠿</span> handle on the left of any item and drag it up or down — items higher in the list get more weight in Atlas's next-work decisions. Use the buttons on each item to mark it for the MVP, complete it, edit, or delete.</div>
+          <span class="rm-search rm-queue-search">
+            <input id="roadmap-search-input" type="search" placeholder="Search the backlog…"
+              value="${escapeAttr(state.roadmapSearch || '')}" aria-label="Search the backlog"
+              title="${escapeAttr('Show only items whose text matches. Reordering still applies to the whole plan — a drag means “put this one where that one is”, resolved by item rather than by position on screen.')}" />
+            ${queueQuery ? `<button type="button" class="rm-chip-clear" data-action="roadmap-search-clear" aria-label="Clear the search">×</button>` : ''}
+          </span>
           ${queueQuery ? `<div class="list-meta rm-queue-filter-note">${escapeHtml(`Showing ${queueItems.length} of ${roadmap.items.length} — filtered by “${queueQuery}”.`)} Dragging still reorders against the whole plan, not just what is on screen.</div>` : ''}
           <div class="stack-list roadmap-list">
             ${state.editingRoadmapId === 'new' ? renderRoadmapEditor('new') : ''}
@@ -11691,7 +11751,20 @@
         }
       });
     }
-    return { visible, matches: matches.length, total: all.length, query };
+    // `visible` is matches plus everything reachable from them, and used to be
+    // what the canvas drew. It is kept because the *list* has no arrows and the
+    // route filter still composes with it, but the canvas no longer hides
+    // anything: `matchIds` is what a search now changes on screen, and the rest
+    // of the plan stays drawn and dimmed so the dependencies around a match are
+    // still readable. A graph you cannot see the neighbourhood of is a graph
+    // answering a different question from the one you asked.
+    return {
+      visible,
+      matchIds: new Set(matches.map(node => node.id)),
+      matches: matches.length,
+      total: all.length,
+      query,
+    };
   }
 
   function renderRoadmapViewBar(roadmap) {
@@ -11728,7 +11801,14 @@
     const search = roadmapSearchFilter();
     const allNodes = roadmapCanvasNodes();
     const routed = filter ? allNodes.filter(node => filter.nodes.has(node.id)) : allNodes;
-    const nodes = search ? routed.filter(node => search.visible.has(node.id)) : routed;
+    // A search no longer removes nodes from the canvas. It used to draw only the
+    // matches and their connected closure, which answers "show me this corner of
+    // the plan" — but the question being asked is "where is this item", and the
+    // useful part of the answer is what sits around it. Everything stays drawn;
+    // the matches are marked and the rest is dimmed, so the dependencies are
+    // still there to read. The route filter is unchanged and still narrows,
+    // because that one is a deliberate "only this route" request.
+    const nodes = routed;
     const focusNode = filter ? allNodes.find(node => node.id === state.roadmapFocusNodeId) : null;
 
     // The world is sized to the content it holds, so panning has somewhere to go
@@ -11757,6 +11837,7 @@
         ${renderRoadmapCanvasToolbar(graph, filter, focusNode, allNodes.length, nodes.length)}
         ${graph.anchored ? '' : `<div class="rm-banner" role="status">${escapeHtml('This roadmap is not wired to the canvas yet. AtlasMind writes a hidden id into each backlog line when the dashboard loads, so positions, dates and links can be kept — that write has not landed, so if this banner stays, check that the backlog file is writable.')}</div>`}
         ${graph.cycles.length > 0 ? `<div class="rm-banner rm-banner-bad" role="alert">${escapeHtml(`${graph.cycles.length} circular dependenc${graph.cycles.length === 1 ? 'y' : 'ies'} in this plan — the items highlighted in red each wait for the other, so the plan cannot run in this order. Remove one of the links between them.`)}</div>` : ''}
+        ${search && search.matches === 0 ? `<div class="rm-banner rm-banner-search" role="status">${escapeHtml(`No item matches “${search.query}”.`)} The plan is still drawn, dimmed, so nothing has gone — clear the search to bring it back to full strength.</div>` : ''}
         ${renderRoadmapFlatNotice(graph, visibleEdges, visibleSuggestions)}
         <div class="rm-frame" data-rm-frame="true" data-scroll-key="roadmap-canvas">
           <div class="rm-world" data-rm-world="true"
@@ -11775,10 +11856,8 @@
             </svg>
             ${renderRoadmapLaneBands(graph)}
             ${nodes.length > 0
-              ? nodes.map(node => renderRoadmapNode(node, graph)).join('')
-              : search
-                ? `<div class="rm-empty"><strong>${escapeHtml(`No item matches “${search.query}”`)}</strong><p class="section-copy">Nothing on the plan contains that text. Clear the search to see the whole plan again.</p></div>`
-                : '<div class="rm-empty"><strong>Nothing to draw yet</strong><p class="section-copy">Add a backlog item, or switch to the prioritised backlog to write the first one.</p></div>'}
+              ? nodes.map(node => renderRoadmapNode(node, graph, search)).join('')
+              : '<div class="rm-empty"><strong>Nothing to draw yet</strong><p class="section-copy">Add a backlog item, or switch to the prioritised backlog to write the first one.</p></div>'}
           </div>
         </div>
         ${renderRoadmapCanvasFooter(graph, visibleSuggestions)}
@@ -11844,8 +11923,16 @@
             <span class="rm-search">
               <input id="roadmap-search-input" type="search" placeholder="Search the plan…"
                 value="${escapeAttr(state.roadmapSearch || '')}" aria-label="Search roadmap items"
-                title="${escapeAttr('Show only items whose text matches, plus everything connected to them — what they wait on and what waits on them. A way of looking; nothing is changed.')}" />
-              ${roadmapSearchFilter() ? `<span class="list-meta">${escapeHtml(`${shownCount} of ${totalCount}`)}</span><button type="button" class="rm-chip-clear" data-action="roadmap-search-clear" aria-label="Clear the search">×</button>` : ''}
+                title="${escapeAttr('Highlight items whose text matches. The rest of the plan stays on the canvas, dimmed, so you can still see what a match depends on. A way of looking; nothing is changed.')}" />
+              ${(() => {
+                // Matches, not nodes drawn. A search no longer removes anything
+                // from the canvas, so `shownCount` is now the whole plan and
+                // reporting it here would read "40 of 40" for every query.
+                const active = roadmapSearchFilter();
+                return active
+                  ? `<span class="list-meta">${escapeHtml(`${active.matches} of ${totalCount} match`)}</span><button type="button" class="rm-chip-clear" data-action="roadmap-search-clear" aria-label="Clear the search">×</button>`
+                  : '';
+              })()}
             </span>`}
           ${state.roadmapView === 'completed' ? '' : `
             <button type="button" class="action-link${graph.suggestLinks ? ' is-on' : ''}" data-action="roadmap-suggest-toggle"
@@ -12160,7 +12247,7 @@
     }
   }
 
-  function renderRoadmapNode(node, graph) {
+  function renderRoadmapNode(node, graph, search) {
     if (state.roadmapEditingNodeId === node.id) {
       return renderRoadmapNodeEditor(node, graph);
     }
@@ -12190,6 +12277,11 @@
       inCycle ? 'is-cycle' : '',
       state.roadmapFocusNodeId === node.id ? 'is-focused' : '',
       graph.retainedIds.indexOf(node.id) >= 0 ? 'is-retained' : '',
+      // A search marks rather than removes. The match is raised, everything else
+      // recedes but stays on the canvas with its arrows intact — dimming is the
+      // whole mechanism by which the neighbourhood of a match stays readable.
+      search && search.matchIds.has(node.id) ? 'is-search-match' : '',
+      search && !search.matchIds.has(node.id) ? 'is-search-dim' : '',
     ].filter(Boolean).join(' ');
 
     return `
