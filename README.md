@@ -4,7 +4,7 @@
 
 <h1 align="center">AtlasMind</h1>
 
-<p align="center"><sub> · <strong>Current source version: 0.406.3</strong> · </sub></p>
+<p align="center"><sub> · <strong>Current source version: 0.407.0</strong> · </sub></p>
 
 
 <p align="center">
@@ -136,6 +136,25 @@ allow-list, redaction and file-withholding behaviour, retained metadata, provide
 important limits on overrides and compliance claims.
 
 ---
+
+## What's new in 0.407.0
+
+**Three fixes to the roadmap backlog queue, all of them things that looked broken.**
+
+**Add item** now puts the caret in the entry form and scrolls it into view. The button
+is in the toolbar, the form it opens is further down the page, so pressing it looked
+like nothing had happened.
+
+**The search box now filters the queue**, not just the dependency canvas. It renders
+above both and only the canvas read it. Reordering still applies to the whole plan
+while a filter is on — a drag means "put this one where that one is" and resolves by
+item rather than by screen position — and the queue says so instead of leaving you to
+find out.
+
+**Dragging collapses the queue to one line per item.** Each row is six blocks tall, so
+only about two fitted on screen and the row you were aiming at usually was not one of
+them. The collapse lasts for the drag; the same rows stay in the DOM, so every drop
+target is unchanged. The queue is taller the rest of the time too.
 
 ## What's new in 0.406.3
 

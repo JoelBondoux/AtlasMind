@@ -211,6 +211,21 @@ that their work became nobody's.
 level and would otherwise sit outside a viewport that never moved — indistinguishable from not having
 been added. Only genuine arrivals do this; redrawing the same plan leaves your pan alone.
 
+**The editable queue is the backlog you work in, and three things about it changed.** **Add item** now
+puts the caret in the entry form and brings it on screen: the button sits in the toolbar and the form it
+opens is further down the page, so pressing it used to look like nothing had happened. The search box in
+the toolbar now filters the queue as well as the canvas — it rendered above both and only the canvas
+read it. Matching there is plain text over the item, deliberately *not* the canvas's connected closure:
+the canvas pulls in neighbours so an arrow never points at nothing, and a list has no arrows, so the same
+rule would show items that do not match for no visible reason. Reordering still applies to the whole
+plan while a filter is on, because a drag says "put this one where that one is" and resolves by item, not
+by screen position — the queue says so when a filter is active rather than leaving you to find out.
+
+**Dragging collapses the queue to one line per item.** Every row stacks six blocks — handle and title,
+priority reason, release gates, actions, Atlas pills — so at full height about two entries fit on screen
+and the row you were aiming at was usually not one of them. The collapse lasts for the drag and is
+presentational only: the same rows with the same ids stay in the DOM, so every drop target is unchanged.
+
 AtlasMind proposes links and applies none of them. Three declared rules produce suggestions: an item that
 *says* what it waits for ("after…", "depends on…"), two items sharing a subject where one is foundation
 work for the other, and two items sitting on different release gates. Each suggestion is drawn dashed and

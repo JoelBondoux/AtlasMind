@@ -27727,6 +27727,42 @@ const DASHBOARD_CSS = `
     background: color-mix(in srgb, var(--dash-accent-strong) 10%, transparent);
   }
 
+  /* The queue is the one list on this page you work *in* rather than read, and
+     every row stacks six blocks — handle and title, priority reason, release
+     gates, actions, Atlas pills. Against the shared 480px cap that is about two
+     entries visible at a time, which is not enough of a list to order. */
+  .roadmap-list {
+    max-height: min(72vh, 900px);
+  }
+
+  /* While a drag is in progress the queue collapses to one line per item.
+     Reordering is the one task here that needs to see many entries at once, and
+     at full height the place you are dragging *to* is usually off screen. The
+     collapse is presentational only — nothing is hidden from the DOM, so the
+     drop targets and their ids are exactly the same rows. */
+  .roadmap-list.is-reordering .roadmap-item {
+    padding-top: 4px;
+    padding-bottom: 4px;
+  }
+
+  .roadmap-list.is-reordering .roadmap-item > *:not(.row-head) {
+    display: none;
+  }
+
+  .roadmap-list.is-reordering .roadmap-item .row-head .tag-group {
+    display: none;
+  }
+
+  .roadmap-list.is-reordering .roadmap-item .row-head strong {
+    overflow: hidden;
+    text-overflow: ellipsis;
+    white-space: nowrap;
+  }
+
+  .rm-queue-filter-note {
+    margin-top: 6px;
+  }
+
   /* ── Roadmap: the dependency canvas ────────────────────────────────────
      Urgency is carried on the node's left border rather than as a filled
      background, for the reason the attention band already establishes: a wall of

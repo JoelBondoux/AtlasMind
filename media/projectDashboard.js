@@ -667,6 +667,11 @@
   // A CSS selector for one control to re-focus after the next render. Consumed
   // and cleared by render(), so it never leaks into an unrelated update.
   let refocusAfterRender = '';
+  // Put the caret in the roadmap entry form after the next render, and bring it
+  // on screen. Kept apart from `refocusAfterRender` because that one focuses
+  // with `preventScroll`, which is right for a control you just clicked and
+  // wrong for a form that opened somewhere you are not looking.
+  let focusRoadmapDraftAfterRender = false;
 
   function prepareDashboardFocus(target) {
     state.activePage = target.page;
@@ -1805,6 +1810,12 @@
       state.roadmapView = 'list';
       state.editingRoadmapId = 'new';
       state.roadmapDraftText = '';
+      // Add item is reachable from the top card and from the canvas toolbar,
+      // and the form it opens is inside the queue further down the page — so
+      // pressing it used to look like nothing had happened. Unlike
+      // `refocusAfterRender`, which deliberately does not scroll, this one has
+      // to: the point is to put the caret where you are expected to type.
+      focusRoadmapDraftAfterRender = true;
       render();
       return;
     }
@@ -3598,6 +3609,12 @@
     root?.querySelectorAll('.roadmap-item.drag-over, .roadmap-item.dragging').forEach(el => {
       el.classList.remove('drag-over', 'dragging');
     });
+    // Put the rows back to full height. Cleared here rather than only on
+    // `dragend` because a drop and a cancelled drag both land here, and a queue
+    // left collapsed after the drag ended would look like data had gone.
+    root?.querySelectorAll('.roadmap-list.is-reordering').forEach(el => {
+      el.classList.remove('is-reordering');
+    });
   }
 
   root?.addEventListener('dragstart', event => {
@@ -3607,6 +3624,13 @@
     }
     state.draggedRoadmapId = target.dataset.roadmapId || '';
     target.classList.add('dragging');
+    // Collapse the queue to one line per item for the duration of the drag, so
+    // the row you are aiming at is on screen. Applied to the list that owns this
+    // row rather than every list, since the canvas has draggable nodes too.
+    const list = target.closest('.roadmap-list');
+    if (list) {
+      list.classList.add('is-reordering');
+    }
     if (event.dataTransfer) {
       event.dataTransfer.effectAllowed = 'move';
       event.dataTransfer.setData('text/plain', state.draggedRoadmapId);
@@ -3776,6 +3800,19 @@
         const target = root.querySelector(refocusSelector);
         if (target && typeof target.focus === 'function') {
           target.focus({ preventScroll: true });
+        }
+      }
+
+      // The entry form the Add item button just opened. Scrolled into view as
+      // well as focused, because the button that opens it is not next to it.
+      if (focusRoadmapDraftAfterRender) {
+        focusRoadmapDraftAfterRender = false;
+        const draft = root.querySelector('textarea[data-roadmap-draft]');
+        if (draft) {
+          if (typeof draft.scrollIntoView === 'function') {
+            draft.scrollIntoView({ block: 'center' });
+          }
+          draft.focus();
         }
       }
 
@@ -11169,6 +11206,18 @@
         </section>`;
     }
 
+    // The search box lives in the view bar, which renders above the canvas *and*
+    // above this list — but only the canvas ever read it, so typing here filtered
+    // nothing and looked broken. Matching is plain text over the item, and
+    // deliberately not the canvas's connected closure: the canvas pulls in
+    // neighbours so an arrow never points at nothing, and a list has no arrows,
+    // so the same rule would show items that do not match for no visible reason.
+    const queueQuery = String(state.roadmapSearch || '').trim();
+    const queueNeedle = queueQuery.toLowerCase();
+    const queueItems = queueNeedle
+      ? roadmap.items.filter(item => String(item.text || '').toLowerCase().indexOf(queueNeedle) >= 0)
+      : roadmap.items;
+
     return `
       ${pageSectionOpen('roadmap')}
         ${renderRoadmapViewBar(roadmap)}
@@ -11217,9 +11266,14 @@
           <p class="section-kicker">Editable queue</p>
           <h3>Prioritized backlog</h3>
           <div class="list-meta">Grab the <span aria-hidden="true">⠿</span> handle on the left of any item and drag it up or down — items higher in the list get more weight in Atlas's next-work decisions. Use the buttons on each item to mark it for the MVP, complete it, edit, or delete.</div>
+          ${queueQuery ? `<div class="list-meta rm-queue-filter-note">${escapeHtml(`Showing ${queueItems.length} of ${roadmap.items.length} — filtered by “${queueQuery}”.`)} Dragging still reorders against the whole plan, not just what is on screen.</div>` : ''}
           <div class="stack-list roadmap-list">
             ${state.editingRoadmapId === 'new' ? renderRoadmapEditor('new') : ''}
-            ${roadmap.items.length > 0 ? roadmap.items.map(item => renderRoadmapItem(item)).join('') : '<div class="dashboard-empty">No roadmap items yet. Add the first one above.</div>'}
+            ${roadmap.items.length === 0
+              ? '<div class="dashboard-empty">No roadmap items yet. Add the first one above.</div>'
+              : queueItems.length > 0
+                ? queueItems.map(item => renderRoadmapItem(item)).join('')
+                : `<div class="dashboard-empty">${escapeHtml(`Nothing in the backlog matches “${queueQuery}”.`)} <button type="button" class="action-link" data-action="roadmap-search-clear">Clear the search</button></div>`}
           </div>
         </article>
       </section>

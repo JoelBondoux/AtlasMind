@@ -19,6 +19,34 @@ Older entries below describe the software as it was at the time and are delibera
 
 ---
 
+## v0.407.0 -- The backlog queue stops looking broken
+
+Three things on the Roadmap page's editable queue, each of which read as a control that
+did not work.
+
+**Add item** opened a form further down the page and left your caret where it was, so the
+button looked inert. It now focuses the entry form and brings it on screen.
+
+**The search box filtered the canvas and not the list.** It renders above both, so typing
+while on the backlog did nothing at all. Matching in the queue is plain text over the item
+— deliberately not the canvas's connected closure, which pulls in neighbours so that an
+arrow never points at nothing. A list has no arrows, so the same rule would show items that
+do not match for no reason you could see.
+
+Reordering still works on the whole plan while a filter is on. A drag means "put this one
+where that one is" and is resolved by item rather than by screen position, so a filtered
+drag cannot scramble the order — and the queue tells you that while the filter is active,
+rather than leaving it to be discovered.
+
+**Dragging now collapses the queue to one line per item.** Each row stacks six blocks, so
+about two entries fitted on screen and the row you were dragging *to* usually was not one
+of them. The collapse lasts only for the drag and changes nothing but height: the same rows
+with the same ids stay in the DOM, so every drop target is exactly where it was. The queue
+is also taller the rest of the time, since it is the one list on that page you work in
+rather than read.
+
+---
+
 ## v0.406.3 -- An ACP subscription that only existed in one folder
 
 Naming a subscription agent wrote `atlasmind.acp.agents` to the **workspace**. So the

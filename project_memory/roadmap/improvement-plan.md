@@ -9,10 +9,10 @@ This file is the developer-facing backlog AtlasMind should absorb into SSOT and 
 - [ ] **Semantic codebase index (`@codebase` / embeddings RAG):** Vector index over actual source so agents retrieve relevant code, not just remembered SSOT decisions. Local embedding option (Ollama) keeps it bring-your-own-model and privacy-friendly. Biggest single capability gap; benefits all personas. #mvp #critical <!-- rm:semantic-codebase-index-code -->
 - [ ] Eval / regression harness for agents: pin "golden" tasks and detect when an agent definition or model swap regresses quality (mitigates the risk of the auto-update cadence). <!-- rm:eval-regression-harness-for -->
 - [ ] The number of agents being used (and not used) should impact the project score. The dash, should, however, identify when models and providers are having issues. #mvp <!-- rm:the-number-of-agents-being-u -->
-- [ ] When you click Add Item in the Roadmap dassh, the focus should be taken down to the new entry form #mvp <!-- rm:when-you-click-add-item-in-t -->
-- [ ] The Roadmap Editable Queue panel could be larger, as it only shows a couple of entries at a time. Also, when clicking and dragging, the list should change to a title only list so it becomes easier to slide the entries in the order you want. <!-- rm:the-roadmap-editable-queue-p -->
+- [x] When you click Add Item in the Roadmap dassh, the focus should be taken down to the new entry form #mvp <!-- rm:when-you-click-add-item-in-t -->
+- [x] The Roadmap Editable Queue panel could be larger, as it only shows a couple of entries at a time. Also, when clicking and dragging, the list should change to a title only list so it becomes easier to slide the entries in the order you want. <!-- rm:the-roadmap-editable-queue-p -->
 - [ ] The ACP connection to subscribed providers has stopped working. #mvp #critical <!-- rm:the-acp-connection-to-subscr -->
-- [ ] The roadmap editable queue should be searchable. <!-- rm:the-roadmap-editable-queue-s -->
+- [x] The roadmap editable queue should be searchable. <!-- rm:the-roadmap-editable-queue-s -->
 - [ ] When adding an item to the roadmap, the editable queue entry form should also allow the selecting of a gate, tag, and a assigned user. Also the text box could be 400% bigger. <!-- rm:when-adding-an-item-to-the-r -->
 - [ ] In the Project Manager Dash, the chips at the top of teh screen showing the delivery stages and their version number. If clicked on they should invite teh user to make the current branch. If the current branch is one of these then it should be highlighted with a coloured outline. <!-- rm:in-the-project-manager-dash -->
 - [ ] Allow the roadmap canvas to highlight nodes based on gates and users. <!-- rm:allow-the-roadmap-canvas-to -->

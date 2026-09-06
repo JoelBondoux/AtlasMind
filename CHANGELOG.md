@@ -6,6 +6,43 @@ The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/),
 
 ## [Unreleased]
 
+## [0.407.0] - 2026-09-06
+
+### Added
+
+- **The roadmap search filters the editable queue.** The search box lives in the
+  view bar, which renders above the dependency canvas *and* above the backlog
+  list — but only the canvas ever read it, so typing while on the list filtered
+  nothing and read as a broken control. Matching in the queue is plain text over
+  the item, deliberately **not** the canvas's connected closure: the canvas pulls
+  in neighbours so an arrow never points at nothing, and a list has no arrows, so
+  the same rule would show non-matching items for no visible reason.
+- Reordering still applies to the whole plan while a filter is on. A drag says
+  "put this one where that one is" and `moveRoadmapItem` resolves both by id
+  against the full list, never by screen position — so a filtered drag cannot
+  scramble the order. The queue states this while a filter is active rather than
+  leaving it to be discovered.
+- **Dragging collapses the queue to one line per item.** Every row stacks six
+  blocks — handle and title, priority reason, release gates, actions, Atlas pills
+  — so against the shared 480px list cap about two entries fitted on screen and
+  the row being aimed at usually was not one of them. The collapse lasts for the
+  drag and is presentational only: the same rows with the same ids stay in the
+  DOM, so every drop target is unchanged. Cleared in `clearRoadmapDropMarkers`,
+  which both a drop and a cancelled drag reach, because a queue left collapsed
+  would look like data had gone.
+- The queue itself is taller — `min(72vh, 900px)` against the 480px every other
+  list on the page shares. It is the one list here that is worked in rather than
+  read.
+
+### Fixed
+
+- **Add item puts the caret in the entry form and scrolls it into view.** The
+  button sits in the toolbar and the form it opens is further down the queue, so
+  pressing it looked like nothing had happened. Kept apart from
+  `refocusAfterRender`, which focuses with `preventScroll` — right for a control
+  you just clicked, wrong for a form that opened somewhere you are not looking.
+
+
 ## [0.406.3] - 2026-09-06
 
 ### Fixed
