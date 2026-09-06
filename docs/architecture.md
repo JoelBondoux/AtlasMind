@@ -1813,6 +1813,20 @@ The filing record behind a roadmap item, and the three Atlas hand-offs every ent
 
 `sanitizeRoadmapPlanPath` validates a stored path rather than cleaning it — the value is read from a committed file, resolved against the workspace root and opened in the editor, so a traversal, an absolute path or a drive letter refuses the field whole. The pill payload is one opaque id (a durable node id, or a positional backlog id from a list row), resolved host-side against the roadmap, so the page supplies neither text, nor a path, nor a prompt.
 
+### RoadmapItemStage (`src/core/roadmapItemStage.ts`)
+
+How far a roadmap item has actually got. The backlog is a checkbox — the right shape for the one decision a person makes ("this is done") and the wrong shape for everything before it. An item with a filed plan, a branch and merged work read exactly like an item nobody had touched, which is what made a long-running piece of work impossible to pick up across sessions: the thing you most need to know is whether the code landed and nobody has checked it yet.
+
+**Derived, never a hand-set flag.** Everywhere else a status is evidenced rather than asserted — `testingPolicyCoverage` reads what is on disk, the debt register grades from a rule table. A "To Be Tested" checkbox would be the one place in AtlasMind a state is claimed rather than shown, and it would rot the way this project's own unowned gaps did: set once, true for a week, misleading thereafter, with nothing able to tell the difference.
+
+**The tick stays a human act.** `complete` comes from the markdown checkbox and nothing here writes it — a property test asserts that no combination of git signals produces it, because a derivation that could complete an item would quietly overrule the decision all three hand-off prompts reserve for a person.
+
+**`awaiting-verification` is the state the Completion check was written for.** That hand-off already exists, is deterministic and asks exactly the right question; it simply had nowhere to put its answer while an item was either ticked or untouched. This is the missing rung between them.
+
+**Unknown is never a claim.** Every git signal is optional. With no branch inventory the git-dependent stages are unreachable and the item falls back to what the repository alone can prove, with `assessed` recording which happened so a surface can distinguish "not started" from "not looked at". A branch that is *declared* but does not exist is intent, never progress, and matching is exact — a prefix match would let `feat/login` claim `feat/login-v2`, which is different work. Nothing here blocks anything; it is a reading, as `ideationReadiness` is. Pure + unit-tested (`tests/core/roadmapItemStage.test.ts`).
+
+**Not yet surfaced.** The branch inventory the reading needs is assembled on a different part of the dashboard snapshot from the roadmap section, so wiring it to the Roadmap page is a separate change to the panel and its renderer.
+
 ### GithubDeepLinks (`src/core/githubDeepLinks.ts`)
 
 The GitHub page each dashboard page is about. The dashboard read GitHub, reasoned about it, and then left the user to navigate from the repository root — a small friction repeated many times a day.

@@ -6,6 +6,37 @@ The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/),
 
 ## [Unreleased]
 
+## [0.404.0] - 2026-09-06
+
+### Added
+
+- `src/core/roadmapItemStage.ts` reads how far a roadmap item has actually got:
+  `not-started`, `planned`, `in-progress`, `awaiting-verification`, `complete`. The
+  backlog is a checkbox, which is the right shape for the one decision a person makes
+  and the wrong shape for everything before it -- an item with a filed plan, a branch
+  and merged work read exactly like one nobody had touched, which is what made a
+  long-running piece of work impossible to pick up across sessions.
+- **Derived, never a hand-set flag.** Everywhere else in AtlasMind a status is evidenced
+  rather than asserted, and a "To Be Tested" checkbox would be the one place a state is
+  claimed rather than shown -- set once, true for a week, misleading thereafter, with
+  nothing able to tell the difference.
+- **The tick stays a human act.** `complete` comes only from the markdown checkbox; a
+  property test asserts no combination of git signals can produce it, since the three
+  hand-off prompts reserve that decision for a person.
+- **`awaiting-verification` is the state the Completion check was written for.** That
+  hand-off already existed and asked exactly the right question -- it had nowhere to put
+  its answer, because an item was either ticked or untouched. This is the missing rung.
+- **Unknown is never a claim.** Every git signal is optional; with no branch inventory
+  the git-dependent stages are unreachable and `assessed` says so, so a surface can tell
+  "not started" from "not looked at". A declared branch that does not exist is intent,
+  never progress, and matching is exact so `feat/login` cannot claim `feat/login-v2`.
+
+### Known
+
+- The derivation is not yet surfaced on the Roadmap page. The branch inventory it needs
+  is assembled on a different part of the dashboard snapshot, so wiring it is a separate
+  change to the panel and its renderer rather than something to fold in here.
+
 ## [0.403.1] - 2026-09-06
 
 ### Changed

@@ -19,6 +19,20 @@ Older entries below describe the software as it was at the time and are delibera
 
 ---
 
+## v0.404.0 -- Roadmap items have stages, not just a checkbox
+
+An item with a filed plan, a branch, and merged work read exactly like one nobody had touched. There is
+now a reading between the two: not started, planned, in progress, **to be verified**, done.
+
+Two things it deliberately is not. It is not a flag anybody sets -- it is derived from the plan, the
+branch, and whether that branch merged, because a status somebody ticks is true for a week and
+misleading afterwards. And it never completes an item: the checkbox stays a human act, which a test
+enforces rather than a comment.
+
+The derivation ships in this release; the Roadmap page does not show it yet.
+
+---
+
 ## v0.403.1 -- Pending workspace memory committed
 
 The filed plan for the guided GitHub workflow item, and the roadmap graph record pointing at it.

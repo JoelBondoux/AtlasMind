@@ -4,7 +4,7 @@
 
 <h1 align="center">AtlasMind</h1>
 
-<p align="center"><sub> · <strong>Current source version: 0.403.1</strong> · </sub></p>
+<p align="center"><sub> · <strong>Current source version: 0.404.0</strong> · </sub></p>
 
 
 <p align="center">
@@ -131,6 +131,14 @@ allow-list, redaction and file-withholding behaviour, retained metadata, provide
 important limits on overrides and compliance claims.
 
 ---
+
+## What's new in 0.404.0
+
+Roadmap items can now be read as staged rather than as a checkbox: not started,
+planned, in progress, to be verified, done. It is **derived** from a filed plan,
+the item's branch and whether that branch merged -- never a flag anybody sets --
+and the tick itself stays a human act. The derivation ships here; the Roadmap
+page does not show it yet.
 
 ## What's new in 0.403.1
 

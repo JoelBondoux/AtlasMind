@@ -874,6 +874,15 @@ its filing record; the link sends the item's opaque id and the host resolves the
 so the page can never name a file. All three prompts fence the item text as reported content, since an
 imported backlog line is third-party text. A delivered entry keeps only the Completion check.
 
+**Items have stages, not just a checkbox.** `roadmapItemStage.ts` reads an item as `not-started`,
+`planned`, `in-progress`, `awaiting-verification` or `complete`, derived from a filed plan, the item's
+branch, and whether that branch merged. It is never a flag anybody sets — a status somebody ticks is
+true for a week and misleading afterwards — and it never completes an item, which a property test
+enforces: the checkbox stays a human act. `awaiting-verification` is the rung the Completion-check
+hand-off was written for and previously had nowhere to record. With no branch inventory available the
+git-dependent stages are unreachable and the reading says so, so "not started" stays distinguishable
+from "not looked at". Not yet shown on the Roadmap page.
+
 The chat panel answers a few turns itself rather than routing them — a roadmap status summary, a
 conversation recall — and until v0.402.6 that matcher swallowed all three hand-offs: each ends with the
 sentence saying the model must not tick the item off, so each carried both "roadmap" and "complete",
