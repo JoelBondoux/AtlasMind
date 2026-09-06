@@ -1906,6 +1906,18 @@ Whether a run did the thing, or only said it would. An autonomous run ended with
 
 **Nothing here blocks, retries or re-runs anything.** It produces a reading and a reading may be ignored, the choice `ideationReadiness` makes for the same reason — a rule that is too eager stays noisy rather than becoming expensive. Every assessment names the declared rule that graded it and the table travels with the report; an empty run is `unassessed`, never `evidenced`, since a run that demonstrated nothing must not read as a success. Pure + unit-tested (`tests/core/runGoalConformance.test.ts`).
 
+### PlannedActionCeiling (`src/core/plannedActionCeiling.ts`)
+
+Whether a planned run would act beyond what its stages permit. An autonomous plan was generated whose subtasks included "Bump the version and write the changelog", "Commit the Stage 1/2 hardening work" and "Push to origin/develop" — against a workflow file declaring Release and Automation policy at `observe` and Local development at `propose`. Every one of those levels was already recorded, already resolved, and already respected wherever a *person* asked for the same action in chat. The planner never consulted them, and the only gate that fired was the estimated file count — a proxy for blast radius that says nothing about authority, which a two-file plan pushing to a protected branch clears and a forty-file plan that only reads does not.
+
+**The stage rules are read, never restated.** Detection reuses `detectGovernedAction`; the action-to-stage mapping is exported from `workflowChatGuard` as `stageForGovernedAction` rather than copied; and the caller passes the *already-resolved* effective level per stage. Re-deriving `min(master, ceiling, capability, stage)` here would be a second copy of the one rule this exists to enforce, and the first symptom of drift would be an action refused in chat and permitted by the planner.
+
+**An undeclared workflow says nothing**, the rule `buildWorkflowChatNotice` already states about its own silence — no config means no rules to be outside of, and warning would invent a process the project never adopted. A stage the declared file does not carry is treated the same way: absence is neither a refusal nor a grant.
+
+**An unattended run needs the top rung.** A subtask executes with nobody watching, so it needs `auto`; the same action offered to a person for approval needs only `propose`. Collapsing the two is exactly what let an `observe` stage pass a plan that pushes on its own.
+
+**It adds a reason to stop and never removes one.** A missed classification costs emphasis, never a gate — the direction `deliveryRunPlan` chose for the same kind of word-matching. Nothing here blocks and nothing approves; it contributes one more `approvalReasons` entry, naming the stage and the level per subtask, because the operator's next move is to raise a specific stage or drop a specific subtask and neither is possible from a count. Pure + unit-tested (`tests/core/plannedActionCeiling.test.ts`).
+
 ### AttentionFeed (`src/core/attentionFeed.ts`)
 
 What needs a person, gathered from every dashboard page onto the Overview. `ObservedDelta` answers *what changed?*; this answers *what is wrong or due right now*, which the Overview previously did not answer at all — it opened with nine permanently-populated stat cards ("43% coverage", "8 workflows"), and nothing on the page distinguished a project with three failing tests and a blocked release gate from one with neither.

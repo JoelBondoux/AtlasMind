@@ -896,6 +896,14 @@ failure, since plenty of honest work produces prose; and where nothing was obser
 agent runs its tools inside its own session) the run reads as unassessed rather than as having done
 nothing. It reports and never blocks, retries or re-runs.
 
+**A plan is checked against the levels the project declares.** `plannedActionCeiling.ts` compares each
+planned subtask's implied action against the automation level of the stage that owns it, after an
+autonomous plan proposed committing, version-bumping and pushing on a project declaring Release at
+`observe`. The estimated file count was the only gate, and it measures blast radius rather than
+authority. The action-to-stage mapping is shared with the chat guard rather than copied, so a push
+cannot be refused in chat and permitted by the planner; an undeclared workflow, and a stage the file
+does not carry, both stay silent.
+
 The graph is an overlay. `improvement-plan.md` remains the one file that says what the work is; the
 deadlines, positions and links live in `roadmap-graph.json` beside it, keyed on a durable id the backlog
 line carries as an invisible comment, so a rename or a reorder no longer orphans an item's history. The

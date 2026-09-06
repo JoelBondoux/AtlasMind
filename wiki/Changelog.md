@@ -19,6 +19,20 @@ Older entries below describe the software as it was at the time and are delibera
 
 ---
 
+## v0.402.9 -- Plans are checked against the levels you declared
+
+An autonomous plan proposed committing, bumping the version and pushing to `develop` on a project
+whose workflow file declares Release at `observe` and Local development at `propose`. Those levels are
+respected everywhere a person asks for the same action in chat. The planner had never read them, and
+the only thing standing in the way was the estimated file count -- which measures how much a run
+touches, not whether it is allowed to.
+
+A plan that goes beyond a stage's declared level now says so, naming the stage and the level for each
+subtask so the next move is either raising that stage or dropping that subtask. Where no workflow is
+declared it stays silent, because there are no rules to be outside of.
+
+---
+
 ## v0.402.8 -- Stated intent is not completion
 
 An autonomous run that ended with "I will now edit README.md" -- and did not -- was reported as a

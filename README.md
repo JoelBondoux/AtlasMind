@@ -4,7 +4,7 @@
 
 <h1 align="center">AtlasMind</h1>
 
-<p align="center"><sub> · <strong>Current source version: 0.402.8</strong> · </sub></p>
+<p align="center"><sub> · <strong>Current source version: 0.402.9</strong> · </sub></p>
 
 
 <p align="center">
@@ -131,6 +131,14 @@ allow-list, redaction and file-withholding behaviour, retained metadata, provide
 important limits on overrides and compliance claims.
 
 ---
+
+## What's new in 0.402.9
+
+An autonomous plan is now checked against the automation levels the project
+declares. A generated plan included "commit", "bump the version" and "push to
+origin/develop" against a workflow file declaring Release at `observe` and
+Local development at `propose`, and the only gate that fired was the estimated
+file count -- a proxy for blast radius that says nothing about authority.
 
 ## What's new in 0.402.8
 

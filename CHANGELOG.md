@@ -6,6 +6,39 @@ The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/),
 
 ## [Unreleased]
 
+## [0.402.9] - 2026-09-06
+
+### Added
+
+- `src/core/plannedActionCeiling.ts` checks an autonomous plan against the automation
+  level the project declares for the stage that owns each action. A generated plan
+  included "Bump the version and write the changelog", "Commit the Stage 1/2 hardening
+  work" and "Push to origin/develop" against a workflow file declaring Release and
+  Automation policy at `observe` and Local development at `propose`. Every one of those
+  levels was already recorded, already resolved, and already respected wherever a
+  *person* asked for the same action in chat; the planner never consulted them.
+- Blast radius and authority are different questions. The only gate that fired was the
+  estimated file count, which a two-file plan pushing to a protected branch clears and a
+  forty-file plan that only reads does not. The check is a third approval reason
+  alongside it, stated together rather than as another gate in sequence.
+- Four rules. **The stage rules are read, never restated** -- detection reuses
+  `detectGovernedAction`, the stage mapping is now exported from `workflowChatGuard`
+  rather than copied, and the caller passes the already-resolved effective level, since
+  a second copy of `min(master, ceiling, capability, stage)` would drift into an action
+  refused in chat and permitted by the planner. **An undeclared workflow says nothing**,
+  and a stage the file does not carry is treated the same way -- absence is neither a
+  refusal nor a grant. **An unattended run needs the top rung** (`auto`, where the same
+  action offered to a person for approval needs only `propose`), because collapsing the
+  two is what let an `observe` stage pass a plan that pushes on its own. **It adds a
+  reason to stop and never removes one** -- a missed classification costs emphasis,
+  never a gate.
+
+### Changed
+
+- `stageForGovernedAction` is exported from `workflowChatGuard.ts` so the planner asks
+  the same question the chat notice asks. Two tables would eventually disagree about
+  which stage governs a push.
+
 ## [0.402.8] - 2026-09-06
 
 ### Added

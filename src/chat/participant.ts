@@ -29,6 +29,7 @@ import { MissionRunner } from '../core/missionRunner.js';
 import type { MissionCheckpointRequest, MissionBlockedRequest, MissionBlockResolution } from '../core/missionRunner.js';
 import { shouldBiasTowardWorkspaceInvestigation } from '../core/orchestrator.js';
 import { assessRunGoalConformance, describeRunGoalConformance } from '../core/runGoalConformance.js';
+import { assessPlannedActionCeilings, describePlannedActionCeilings } from '../core/plannedActionCeiling.js';
 import { formatCost, formatCostAdaptive } from '../core/currencyFormatter.js';
 import {
   DEFAULT_MISSION_MAX_ITERATIONS,
@@ -1053,6 +1054,69 @@ async function buildWorkflowNoticeForChat(
   }
 }
 
+
+/**
+ * Effective automation level per enabled stage, or `undefined` when no workflow
+ * is declared.
+ *
+ * Mirrors the dashboard's `automationFor`: the *scopes* are read rather than the
+ * resolved value, because VS Code resolves workspace above user, which is right
+ * for a preference and wrong for a safety ceiling. A disabled stage is omitted
+ * rather than reported at its declared level — a stage nobody enabled has no
+ * expectations, which is what the planner check treats as silence.
+ *
+ * Never throws. This decides whether to *add* an approval reason, and a check
+ * that took a run down would be worse than the gap it closes.
+ */
+async function resolveWorkflowStageLevelsForRun(): Promise<
+  Record<string, import('../core/workflowAutomation.js').AutomationLevel> | undefined
+> {
+  try {
+    const [{ explainAutomationLevel, resolveRestrictiveFlag, resolveRestrictiveLevel }, { readWorkflowConfig }] =
+      await Promise.all([
+        import('../core/workflowAutomation.js'),
+        import('../core/workflowConfig.js'),
+      ]);
+    const workspaceRoot = vscode.workspace.workspaceFolders?.[0]?.uri.fsPath;
+    if (workspaceRoot === undefined) {
+      return undefined;
+    }
+    const config = readWorkflowConfig(workspaceRoot);
+    if (config === undefined) {
+      return undefined;
+    }
+    const configuration = vscode.workspace.getConfiguration('atlasmind');
+    const flag = (key: string): boolean =>
+      resolveRestrictiveFlag(configuration.inspect<boolean>(key) ?? {});
+    const masterEnabled = flag('workflow.enabled');
+    const userCeiling = resolveRestrictiveLevel(configuration.inspect<string>('workflow.maxAutomationLevel') ?? {});
+    // The capability switch that governs each stage. Stages whose actions write
+    // nothing outside the repository carry none, which reads as `true`.
+    const capabilityKey: Record<string, string> = {
+      planning: 'workflow.allowIssueWrites',
+      'pull-request': 'workflow.allowPullRequestWrites',
+      release: 'workflow.allowReleaseWrites',
+    };
+
+    const levels: Record<string, import('../core/workflowAutomation.js').AutomationLevel> = {};
+    for (const stage of config.stages) {
+      if (!stage.enabled) {
+        continue;
+      }
+      const key = capabilityKey[stage.id];
+      levels[stage.id] = explainAutomationLevel({
+        masterEnabled,
+        userCeiling,
+        capabilityEnabled: key === undefined ? true : flag(key),
+        stageLevel: stage.automationLevel,
+      }).level;
+    }
+    return levels;
+  } catch {
+    return undefined;
+  }
+}
+
 export async function prepareProjectRunContext(
   atlas: AtlasMindContext,
   sessionId?: string,
@@ -1174,6 +1238,19 @@ export async function runProjectCommand(
       + 'from your goal alone. If you meant to start a new project here, that is fine and the run will '
       + 'create the files. If you meant to work on an existing codebase, the wrong folder is open.',
     );
+  }
+  // A third independent reason, and the one the file count cannot see: the plan
+  // proposes an action the project's own workflow declares it may not take
+  // unattended. Blast radius and authority are different questions — a two-file
+  // plan that pushes to a protected branch clears the count, and a forty-file
+  // plan that only reads does not.
+  const stageCeilingNotice = describePlannedActionCeilings(assessPlannedActionCeilings({
+    subTasks: preview.subTasks.map(item => ({ id: item.id, title: item.title })),
+    stageLevels: await resolveWorkflowStageLevelsForRun(),
+    unattended: true,
+  }));
+  if (stageCeilingNotice !== undefined) {
+    approvalReasons.push(stageCeilingNotice);
   }
   if (estimatedFiles > projectUiConfig.approvalFileThreshold) {
     approvalReasons.push(
