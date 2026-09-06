@@ -6,6 +6,28 @@ The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/),
 
 ## [Unreleased]
 
+## [0.402.6] - 2026-09-06
+
+### Fixed
+
+- Roadmap hand-offs reach a model again. Every prompt `roadmapPlanning` builds — Plan,
+  Resolve and Completion check — ends with the sentence saying the model must not tick
+  the item off, so every one of them carried both "roadmap" and "complete": exactly the
+  pair `isRoadmapStatusPrompt` matches. The chat panel answered AtlasMind's own
+  instruction with a canned status dump and the hand-off never reached a model, which
+  made the Completion check — the one hand-off whose whole job is to verify an item —
+  unreachable by construction. The wording is the safety notice; it cannot also be the
+  trigger.
+- The bypass is structural rather than another pattern, on the rule already stated for
+  `isCapacityDeferral`: a guard that matches on wording is what broke here, so wording
+  cannot be what fixes it. A composer draft is text AtlasMind wrote, so a prompt sent
+  unedited from one is never a question a deterministic responder may answer. The marker
+  is one-shot and compared by exact text — edit the draft and what is sent is the
+  operator's sentence, not ours — and it suppresses conversation recall on the same
+  reasoning. A status question the operator typed is still intercepted exactly as before.
+- Covered by a property over the hand-off builders rather than three fixtures, so a new
+  hand-off is protected without anyone remembering to add a case.
+
 ## [0.402.5] - 2026-09-04
 
 ### Changed

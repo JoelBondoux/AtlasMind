@@ -60,6 +60,14 @@ import {
   assessProjectWorkspace,
   type ProjectRunOutcome,
 } from '../../src/chat/participant.ts';
+
+import {
+  buildRoadmapCompletionCheckPrompt,
+  buildRoadmapPlanChatPrompt,
+  buildRoadmapResolveChatPrompt,
+  type RoadmapPlanItem,
+} from '../../src/core/roadmapPlanning.ts';
+
 import { describeImageRejections } from '../../src/chat/imageAttachments.ts';
 import type { TaskImageAttachment } from '../../src/types.ts';
 import { type SessionTranscriptEntry } from '../../src/chat/sessionConversation.ts';
@@ -2000,5 +2008,49 @@ describe('whether a project run has anywhere to run', () => {
   it('reports a populated workspace with its file count', () => {
     expect(assessProjectWorkspace(1, 12)).toEqual({ kind: 'populated', fileCount: 12 });
     expect(assessProjectWorkspace(2, 1)).toEqual({ kind: 'populated', fileCount: 1 });
+  });
+});
+
+describe('generated hand-off prompts are never intercepted by the status responder', () => {
+  // Regression. Every hand-off `roadmapPlanning` builds contains "roadmap" and
+  // "complete" — the latter from the provenance sentence telling the model that
+  // ticking the item off stays a human act. That pair is exactly what
+  // `isRoadmapStatusPrompt` matches, so the chat panel short-circuited all three
+  // hand-offs into a canned status dump and the instruction never reached a
+  // model. The guard has to be structural: matching on wording is what broke,
+  // so wording cannot be what fixes it.
+  const handoffItem: RoadmapPlanItem = {
+    nodeId: 'the-guided-github-workflow-o',
+    itemId: 'roadmap-28',
+    text: 'The guided GitHub workflow — one canonical, deterministic, eight-stage workflow',
+    completed: false,
+    focus: 'delivery',
+    branch: 'chore/the-guided-github-workflow-one-canonical-deterministic',
+    estimateDays: 2.5,
+  };
+  const planPath = 'project_memory/roadmap/plans/the-guided-github-workflow-o.md';
+  const prompts: ReadonlyArray<readonly [string, string]> = [
+    ['plan', buildRoadmapPlanChatPrompt(handoffItem, planPath)],
+    ['resolve', buildRoadmapResolveChatPrompt(handoffItem, planPath)],
+    ['completion check', buildRoadmapCompletionCheckPrompt(handoffItem, planPath)],
+    ['resolve with no plan filed', buildRoadmapResolveChatPrompt(handoffItem, undefined)],
+    ['completion check with no plan filed', buildRoadmapCompletionCheckPrompt(handoffItem, undefined)],
+  ];
+
+  it.each(prompts)('%s reaches a model when AtlasMind composed it', (_label, prompt) => {
+    expect(isRoadmapStatusPrompt(prompt, { composedByAtlas: true })).toBe(false);
+  });
+
+  it.each(prompts)('%s would otherwise be swallowed, which is why the flag exists', (_label, prompt) => {
+    expect(isRoadmapStatusPrompt(prompt)).toBe(true);
+  });
+
+  it('still intercepts a status question the operator typed themselves', () => {
+    expect(isRoadmapStatusPrompt('what roadmap items are still outstanding?')).toBe(true);
+    expect(isRoadmapStatusPrompt('what roadmap items are still outstanding?', { composedByAtlas: false })).toBe(true);
+  });
+
+  it('defers a composed hand-off from the status result builder too', async () => {
+    await expect(buildRoadmapStatusResult(prompts[0][1], { composedByAtlas: true })).resolves.toBeUndefined();
   });
 });

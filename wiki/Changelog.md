@@ -19,6 +19,23 @@ Older entries below describe the software as it was at the time and are delibera
 
 ---
 
+## v0.402.6 — Roadmap hand-offs reach a model again
+
+The Plan, Resolve and Completion-check buttons on the Roadmap page were being answered by AtlasMind
+itself instead of being sent anywhere. Each of those prompts ends with the sentence saying the model
+must not tick the item off — so each carried both "roadmap" and "complete", which was exactly what the
+deterministic roadmap-status responder matched. Pressing Plan returned a status summary and the
+instruction never reached a model; the Completion check, whose whole job is to verify an item, could
+never run at all.
+
+The fix is structural rather than another pattern: a guard that matches on wording is what broke, so
+wording is not what fixes it. Nothing but AtlasMind writes a composer draft, so a prompt sent unedited
+from one is AtlasMind's own text and is passed straight through. Edit the draft first and it is your
+sentence again, handled normally — and a roadmap status question you typed yourself is still answered
+deterministically, exactly as before.
+
+---
+
 ## v0.402.5 — Baseline refreshed
 
 The README now names v0.402.4 as the last Marketplace publication.

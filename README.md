@@ -4,7 +4,7 @@
 
 <h1 align="center">AtlasMind</h1>
 
-<p align="center"><sub> · <strong>Current source version: 0.402.5</strong> · </sub></p>
+<p align="center"><sub> · <strong>Current source version: 0.402.6</strong> · </sub></p>
 
 
 <p align="center">
@@ -131,6 +131,15 @@ allow-list, redaction and file-withholding behaviour, retained metadata, provide
 important limits on overrides and compliance claims.
 
 ---
+
+## What's new in 0.402.6
+
+The Plan, Resolve and Completion-check buttons on the Roadmap page were being
+answered by AtlasMind instead of being sent anywhere. Each of those prompts ends
+with the sentence saying the model must not tick the item off — so each carried
+both "roadmap" and "complete", which was exactly what the deterministic
+roadmap-status responder matched. The fix is structural rather than another
+pattern: a prompt AtlasMind composed is never a question AtlasMind intercepts.
 
 ## What's new in 0.402.5
 

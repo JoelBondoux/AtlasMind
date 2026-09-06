@@ -5826,7 +5826,25 @@ async function handleMemoryCommand(
   stream.markdown(`### Memory Results\n\n${rows.join('\n')}`);
 }
 
-export function isRoadmapStatusPrompt(prompt: string): boolean {
+/**
+ * Whether a turn should be answered by the deterministic roadmap summary rather
+ * than routed to a model.
+ *
+ * `composedByAtlas` is a structural bypass, not another pattern. Every hand-off
+ * `roadmapPlanning` builds ends with the sentence saying the model must not tick
+ * the item off — so every one of them carries both "roadmap" and "complete" and
+ * matched here, and the chat panel answered AtlasMind's own instruction with a
+ * status dump instead of sending it anywhere. The wording is the safety notice;
+ * it cannot also be the trigger. A prompt AtlasMind composed is never a question
+ * AtlasMind should intercept, whatever words it happens to contain.
+ */
+export function isRoadmapStatusPrompt(
+  prompt: string,
+  options?: { composedByAtlas?: boolean },
+): boolean {
+  if (options?.composedByAtlas === true) {
+    return false;
+  }
   return ROADMAP_STATUS_PROMPT_PATTERN.test(prompt) && ROADMAP_STATUS_DETAIL_PATTERN.test(prompt);
 }
 
@@ -5881,8 +5899,11 @@ export interface RoadmapStatusResult {
   prefills: SessionComposerPrefill[];
 }
 
-export async function buildRoadmapStatusResult(prompt: string): Promise<RoadmapStatusResult | undefined> {
-  if (!isRoadmapStatusPrompt(prompt)) {
+export async function buildRoadmapStatusResult(
+  prompt: string,
+  options?: { composedByAtlas?: boolean },
+): Promise<RoadmapStatusResult | undefined> {
+  if (!isRoadmapStatusPrompt(prompt, options)) {
     return undefined;
   }
 

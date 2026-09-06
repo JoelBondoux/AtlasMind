@@ -874,6 +874,16 @@ its filing record; the link sends the item's opaque id and the host resolves the
 so the page can never name a file. All three prompts fence the item text as reported content, since an
 imported backlog line is third-party text. A delivered entry keeps only the Completion check.
 
+The chat panel answers a few turns itself rather than routing them — a roadmap status summary, a
+conversation recall — and until v0.402.6 that matcher swallowed all three hand-offs: each ends with the
+sentence saying the model must not tick the item off, so each carried both "roadmap" and "complete",
+which was exactly the trigger. AtlasMind answered its own instruction with a status dump, and the
+Completion check was unreachable by construction. The bypass is structural rather than another pattern —
+a guard matching on wording is what failed, so wording cannot be what fixes it. Nothing but AtlasMind
+writes a composer draft, so a prompt sent unedited from one is AtlasMind's own text and is never
+intercepted; the marker is one-shot and compared by exact text, so editing the draft hands the turn back
+to the operator, and a status question somebody typed is still answered deterministically as before.
+
 The graph is an overlay. `improvement-plan.md` remains the one file that says what the work is; the
 deadlines, positions and links live in `roadmap-graph.json` beside it, keyed on a durable id the backlog
 line carries as an invisible comment, so a rename or a reorder no longer orphans an item's history. The
