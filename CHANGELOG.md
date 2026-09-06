@@ -6,6 +6,15 @@ The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/),
 
 ## [Unreleased]
 
+## [0.403.1] - 2026-09-06
+
+### Changed
+
+- Committed pending workspace memory left by an earlier session: the filed plan for
+  `the-guided-github-workflow-o`, the `planPath` recording it on the roadmap graph, one
+  moved node position, and the rolling session context. The graph already referenced the
+  plan file, so committing one without the other would have left a dangling reference.
+
 ## [0.403.0] - 2026-09-06
 
 ### Added

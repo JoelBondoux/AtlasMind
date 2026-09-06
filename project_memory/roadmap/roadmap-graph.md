@@ -4,7 +4,7 @@
 > `improvement-plan.md`; this file holds the deadlines, estimates, branch names
 > and dependency links that a markdown checkbox cannot carry.
 
-Last updated: 2026-09-04T16:03:48.560Z
+Last updated: 2026-09-06T11:32:17.755Z
 
 Suggested links: on — AtlasMind proposes links, and nothing is applied until somebody accepts it
 

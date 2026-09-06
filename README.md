@@ -4,7 +4,7 @@
 
 <h1 align="center">AtlasMind</h1>
 
-<p align="center"><sub> · <strong>Current source version: 0.403.0</strong> · </sub></p>
+<p align="center"><sub> · <strong>Current source version: 0.403.1</strong> · </sub></p>
 
 
 <p align="center">
@@ -131,6 +131,13 @@ allow-list, redaction and file-withholding behaviour, retained metadata, provide
 important limits on overrides and compliance claims.
 
 ---
+
+## What's new in 0.403.1
+
+Committed workspace memory an earlier session had left uncommitted: the filed
+plan for the guided GitHub workflow item, and the roadmap graph record pointing
+at it. The graph already referenced the file, so one without the other left a
+dangling reference.
 
 ## What's new in 0.403.0
 

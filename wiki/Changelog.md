@@ -19,6 +19,12 @@ Older entries below describe the software as it was at the time and are delibera
 
 ---
 
+## v0.403.1 -- Pending workspace memory committed
+
+The filed plan for the guided GitHub workflow item, and the roadmap graph record pointing at it.
+
+---
+
 ## v0.403.0 -- Subscription turns report what the agent did
 
 A turn routed through a Claude or ChatGPT subscription that wrote a 6 KB file was recorded as

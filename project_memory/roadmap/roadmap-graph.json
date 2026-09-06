@@ -186,7 +186,8 @@
         "sourceLabel": "docs/**/*roadmap*.md",
         "importedTitleNormalized": "the guided github workflow one canonical deterministic eight stage workflow issue intake branch develop pr ci release maintenance automation surfaced as a teaching and instrumentation page on the project dashboard and adapting to the project s enabled testing protocols",
         "importedAt": "2026-08-21T06:17:07.883Z"
-      }
+      },
+      "planPath": "project_memory/roadmap/plans/the-guided-github-workflow-o-the-guided-github-workflow-one-canonical-determi.md"
     },
     {
       "id": "eval-regression-harness-for",
@@ -279,6 +280,10 @@
     {
       "id": "explain-this-codebase-this-f",
       "normalizedText": "\"explain this codebase / this file\" onboarding mode: guided tours generated from ssot for unfamiliar code.",
+      "position": {
+        "x": 661,
+        "y": 741
+      },
       "imported": {
         "kind": "markdown",
         "sourceId": "docs/roadmap.md::explain this codebase this file onboarding mode guided tours generated from ssot for unfamiliar code",
@@ -1122,5 +1127,5 @@
   "suggestLinks": true,
   "dismissed": [],
   "layoutOrientation": "vertical",
-  "updatedAt": "2026-09-04T16:03:48.560Z"
+  "updatedAt": "2026-09-06T11:32:17.755Z"
 }
