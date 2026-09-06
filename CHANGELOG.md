@@ -6,6 +6,41 @@ The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/),
 
 ## [Unreleased]
 
+## [0.406.3] - 2026-09-06
+
+### Fixed
+
+- A configured ACP agent is written to the **global** settings scope. Setup wrote
+  `ConfigurationTarget.Workspace`, so the agent existed only in the folder that
+  happened to be open when it ran. Because `applyModelAvailabilityState` disables
+  the whole ACP provider when `acp.agents` is empty, every other project reported
+  a subscription-backed provider that had silently stopped working — no error, no
+  prompt to configure it, because from that window no agent had ever been named.
+  An agent is a command installed on the machine with npm and a subscription
+  signed into once; neither fact belongs to one repository.
+- `resolveAcpAgentWriteScopes` owns that decision so it is a value a test can
+  walk rather than a target constant at a call site. Global always; the workspace
+  **only when a workspace value already exists**, since that value shadows the
+  global one and writing only the global list would add an agent the open window
+  could not see. An existing override is rewritten, never deleted — it is the
+  same feature's own list, and keeping it in step makes the window correct
+  without ruling that the user's narrowing was a mistake.
+- Deliberately **not** extended to `atlasmind.acp.toolsEnabled`, which stays
+  per-workspace. That grant lets an agent run tools, and an authorization should
+  stay as narrow as it was given rather than widening to every project as a side
+  effect of naming an agent.
+
+### Verified
+
+- The protocol path itself was checked live against the installed agents rather
+  than inferred: `claude-agent-acp` 0.63.0 and `codex-acp` 1.1.7 both complete
+  `initialize` and `session/new`, including with the `settingSources: []` vendor
+  `_meta`, and including through the private-desktop helper whose SHA-256 matches
+  this build. Launch resolution returns `node` + the package's declared entry
+  point for both. `session/new` fails only on a `cwd` that does not exist, which
+  the extension host's own working directory is not.
+
+
 ## [0.406.2] - 2026-09-06
 
 ### Fixed

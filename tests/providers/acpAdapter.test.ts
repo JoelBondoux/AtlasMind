@@ -3,6 +3,7 @@ import {
   AcpAdapter,
   buildPromptBlocks,
   parseAcpAgentSettings,
+  resolveAcpAgentWriteScopes,
   resetAcpProbeCache,
   VERIFIED_ACP_AGENTS,
   SELF_INSTALLED_ACP_AGENTS,
@@ -1786,5 +1787,36 @@ describe('AcpAdapter — isolating the agent from the machine\'s own settings', 
     // The extension lives under _meta only — never alongside the spec fields.
     expect(params['settingSources']).toBeUndefined();
     expect(params['claudeCode']).toBeUndefined();
+  });
+});
+
+describe('where a configured ACP agent is stored', () => {
+  it('always writes the global scope, because an agent is a fact about the machine', () => {
+    // The user installed the command with npm and signed into their own
+    // subscription once. Neither of those is a property of one repository.
+    expect(resolveAcpAgentWriteScopes(undefined).global).toBe(true);
+    expect(resolveAcpAgentWriteScopes({}).global).toBe(true);
+    expect(resolveAcpAgentWriteScopes({ workspaceValue: [{ id: 'claude' }] }).global).toBe(true);
+  });
+
+  it('leaves the workspace alone when it has no value of its own', () => {
+    // The regression this closes: setup wrote workspace-only, so every project
+    // that never ran it read an empty `acp.agents` and disabled the provider
+    // outright — a subscription that had silently stopped existing.
+    expect(resolveAcpAgentWriteScopes(undefined).workspace).toBe(false);
+    expect(resolveAcpAgentWriteScopes({}).workspace).toBe(false);
+  });
+
+  it('rewrites a workspace value that already exists, or it would shadow the new agent', () => {
+    // A workspace value wins over the global one, so writing only the global
+    // list would add an agent the open window could not see.
+    expect(resolveAcpAgentWriteScopes({ workspaceValue: [] }).workspace).toBe(true);
+    expect(resolveAcpAgentWriteScopes({ workspaceValue: [{ id: 'codex' }] }).workspace).toBe(true);
+    expect(resolveAcpAgentWriteScopes({ workspaceFolderValue: [{ id: 'codex' }] }).workspace).toBe(true);
+  });
+
+  it('ignores a non-array workspace value, which is not a list that could shadow one', () => {
+    expect(resolveAcpAgentWriteScopes({ workspaceValue: 'claude-agent-acp' }).workspace).toBe(false);
+    expect(resolveAcpAgentWriteScopes({ workspaceValue: null }).workspace).toBe(false);
   });
 });

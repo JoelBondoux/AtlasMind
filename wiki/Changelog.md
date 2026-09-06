@@ -19,6 +19,31 @@ Older entries below describe the software as it was at the time and are delibera
 
 ---
 
+## v0.406.3 -- An ACP subscription that only existed in one folder
+
+Naming a subscription agent wrote `atlasmind.acp.agents` to the **workspace**. So the
+agent existed in the folder that happened to be open when you set it up, and nowhere else
+— and because AtlasMind disables the entire ACP provider when no agent is named, every
+other project reported a subscription-backed provider that had simply stopped working.
+No error, no offer to configure it: from that window's point of view there had never
+been an agent at all.
+
+An ACP agent is a command installed on the machine with npm and a subscription signed
+into once. Neither of those is a property of one repository, so it belongs in user
+settings, which is where it is written now.
+
+Two smaller decisions inside that. A workspace value **shadows** the global one, so a
+project that already had a list gets it rewritten too — otherwise adding an agent would
+put it somewhere the open window could not see. And the existing list is rewritten rather
+than removed, because it is the same feature's own setting and somebody may have
+narrowed it deliberately.
+
+`atlasmind.acp.toolsEnabled` is deliberately left per-project. Letting an agent run tools
+is an authorization, and an authorization should stay as narrow as it was granted — not
+widen across every project because you named an agent.
+
+---
+
 ## v0.406.2 -- The CLI page said something untrue
 
 The [[CLI]] page opened by telling you `atlasmind` is available in new VS Code integrated

@@ -93,7 +93,7 @@ Providers**. Azure uses `atlasmind.provider.azure.apiKey`; Bedrock uses
 
 | Setting | Default | What it does |
 |---------|---------|-------------|
-| `atlasmind.acp.agents` | `[]` | Which subscription agents AtlasMind may use. **Empty by default — nothing runs until you name it** |
+| `atlasmind.acp.agents` | `[]` | Which subscription agents AtlasMind may use. **Empty by default — nothing runs until you name it.** Stored in your **user** settings, because the agent is a command installed on this machine and a subscription you signed into once, not a property of one repository — so naming it once makes it available in every project |
 | `atlasmind.acp.toolsEnabled` | `false` | **Let subscription agents act.** Makes them eligible for tool-backed work and automatically allows their own operations, with each one logged. Off means completions only |
 | `atlasmind.acp.mcpServers` | `[]` | Which MCP servers a subscription agent may reach. Empty means none |
 | `atlasmind.acp.modelStanding` | `{}` | Tell AtlasMind how a subscription's models rank against each other, where it can't work that out itself |

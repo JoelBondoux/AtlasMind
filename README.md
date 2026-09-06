@@ -4,7 +4,7 @@
 
 <h1 align="center">AtlasMind</h1>
 
-<p align="center"><sub> · <strong>Current source version: 0.406.2</strong> · </sub></p>
+<p align="center"><sub> · <strong>Current source version: 0.406.3</strong> · </sub></p>
 
 
 <p align="center">
@@ -136,6 +136,20 @@ allow-list, redaction and file-withholding behaviour, retained metadata, provide
 important limits on overrides and compliance claims.
 
 ---
+
+## What's new in 0.406.3
+
+**Your ACP subscription follows you between projects.** Naming a subscription agent
+wrote it to the *workspace*, so it existed only in the folder open at the time — and
+because AtlasMind disables the whole ACP provider when no agent is named, every other
+project showed a subscription that had quietly stopped working, with nothing on screen
+to say why. The agent is a command installed on your machine and a subscription you
+signed into once, so it is stored in your user settings now. An existing per-project
+list is kept in step rather than deleted.
+
+The permission to let those agents run tools stays per-project on purpose: widening an
+authorization as a side effect of naming an agent is the opposite of what that setting
+is for.
 
 ## What's new in 0.406.2
 

@@ -2491,6 +2491,52 @@ const defaultAcpProcessFactory: AcpProcessFactory = (config, cwd, options) => {
   };
 };
 
+/** Where a newly configured ACP agent list has to be written. */
+export interface AcpAgentWriteScopes {
+  /** Always true: the agent list describes this machine, not this repository. */
+  global: true;
+  /**
+   * Also rewrite the workspace value — only when one already exists, because a
+   * workspace value shadows the global one and would hide the agent just added.
+   */
+  workspace: boolean;
+}
+
+/**
+ * Decide where a configured ACP agent list is stored.
+ *
+ * **An ACP agent is a fact about the machine, not about the repository.** The
+ * user installed `claude-agent-acp` globally with npm and signed into their own
+ * subscription once; nothing about that is per-project. It was written to
+ * `ConfigurationTarget.Workspace`, which meant the agent existed only in the
+ * folder that happened to be open when setup ran — and `applyModelAvailabilityState`
+ * disables the whole ACP provider when `acp.agents` is empty, so every *other*
+ * project reported a subscription provider that had simply stopped working, with
+ * no message, because from that window's point of view no agent was ever named.
+ *
+ * The workspace value is **rewritten, never removed**. Removing it is the tidier
+ * end state and the wrong thing to do to a setting the user may have narrowed on
+ * purpose: this is the same feature's own list, so keeping it in step makes the
+ * open window correct without deciding that their override was a mistake. Where
+ * no workspace value exists — every project that never ran setup — the global
+ * one now governs, which is the whole point.
+ *
+ * Deliberately **not** applied to `acp.toolsEnabled`. That grant lets an agent
+ * run tools, and an authorization is exactly the kind of thing that should stay
+ * as narrow as it was given; widening it to every project as a side effect of
+ * naming an agent would be the opposite of this codebase's rule.
+ */
+export function resolveAcpAgentWriteScopes(inspected: {
+  workspaceValue?: unknown;
+  workspaceFolderValue?: unknown;
+} | undefined): AcpAgentWriteScopes {
+  return {
+    global: true,
+    workspace: Array.isArray(inspected?.workspaceValue)
+      || Array.isArray(inspected?.workspaceFolderValue),
+  };
+}
+
 /** Read the user's configured agents, falling back to nothing (deny by default). */
 export function parseAcpAgentSettings(raw: unknown): AcpAgentConfig[] {
   if (!Array.isArray(raw)) {
