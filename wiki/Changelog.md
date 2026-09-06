@@ -19,6 +19,26 @@ Older entries below describe the software as it was at the time and are delibera
 
 ---
 
+## v0.406.0 -- A Windows command injection, closed
+
+The tool AtlasMind uses to run commands for you passed its arguments through a shell
+on Windows. It had a reason -- `npm` is `npm.cmd` there, and Windows will not spawn a
+`.cmd` directly -- but a shell joins the arguments into one command line without
+escaping them, and those arguments are written by a model. An argument of `&`
+followed by anything ran as a command in its own right, while the approval dialog
+showed only `npm run test`.
+
+The fix is what AtlasMind already does for ACP agents: **go around the Windows shim
+instead of through it.** Every npm package declares where its real entry point lives,
+so AtlasMind reads that and runs it with Node directly. No shell is involved, and a
+command that cannot be resolved that way is refused rather than run unsafely -- the
+only fallback available would be the shell this exists to remove.
+
+Nothing you do changes: `npm test` still runs `npm test`. The difference is that
+nothing else can ride along with it.
+
+---
+
 ## v0.405.0 -- Five safety findings, closed
 
 An independent read of the source turned up five places where the behaviour was looser than the

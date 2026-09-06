@@ -35,7 +35,13 @@
  */
 
 import { existsSync, readFileSync, readdirSync } from 'node:fs';
-import * as path from 'node:path';
+import {
+  WINDOWS_EXECUTABLE,
+  directoryOf,
+  findExecutableOnPath,
+  findWindowsNodeEntryPoint,
+  isRealNodeExecutable,
+} from '../core/windowsShimBypass.js';
 
 /** Filesystem and PATH access, injected so the resolution is testable. */
 export interface AcpLaunchProbe {
@@ -73,22 +79,6 @@ export type AcpLaunchResolution =
   | { status: 'unresolved'; reason: string };
 
 /**
- * How many packages are read while looking for a `bin` mapping.
- *
- * A global `node_modules` is normally tens of entries, but it is a directory the
- * user controls and this runs on a spawn path, so the sweep is bounded rather
- * than trusted to be small. Hitting the cap reports `unresolved` — the honest
- * answer, and the user can always configure an absolute path.
- */
-const MAX_PACKAGES_SCANNED = 400;
-
-/** What Windows can spawn without a shell: a real executable image. */
-const WINDOWS_EXECUTABLE = /\.(exe|com)$/i;
-
-/** Entry points Node can be handed. A shim pointing anywhere else is not ours. */
-const NODE_SCRIPT = /\.(js|cjs|mjs)$/i;
-
-/**
  * Work out how to start an agent.
  *
  * The order is deliberate: an absolute path the user supplied is honoured first
@@ -121,7 +111,7 @@ export function resolveAcpLaunch(
     return { status: 'direct', command: resolved, args };
   }
 
-  const script = findNodeEntryPoint(command, directoryOf(resolved), probe);
+  const script = findWindowsNodeEntryPoint(command, directoryOf(resolved), probe);
   if (!script) {
     return {
       status: 'unresolved',
@@ -131,7 +121,7 @@ export function resolveAcpLaunch(
     };
   }
 
-  if (!probe.nodeExecPath || !/(^|[\\/])node(?:\.exe)?$/i.test(probe.nodeExecPath)) {
+  if (!isRealNodeExecutable(probe.nodeExecPath)) {
     return {
       status: 'unresolved',
       reason: `\`${command}\` is installed, but a real \`node.exe\` was not found on PATH. `
@@ -141,104 +131,6 @@ export function resolveAcpLaunch(
   }
 
   return { status: 'node', command: probe.nodeExecPath, args: [script, ...args], viaShim: resolved };
-}
-
-/**
- * Find the JavaScript file a Windows shim stands in for.
- *
- * npm puts the shims for a global install directly beside `node_modules`, so the
- * packages that could own this `bin` name are all one or two levels below the
- * shim's own directory. Two passes, cheapest first:
- *
- * 1. **The likely name.** Most `bin` names match their package's last path
- *    segment, so `node_modules/<command>` and `node_modules/@scope/<command>`
- *    are checked before anything is swept. `claude-agent-acp` and `codex-acp`
- *    are both found here.
- * 2. **The declared mapping.** Otherwise every package's `bin` field is read
- *    until one declares this command. This is the pass that finds `gemini`
- *    inside `@google/gemini-cli`, where the names do not match at all.
- */
-function findNodeEntryPoint(command: string, shimDirectory: string, probe: AcpLaunchProbe): string | undefined {
-  if (!shimDirectory) {
-    return undefined;
-  }
-  const root = `${shimDirectory}\\node_modules`;
-  const entries = probe.readDirectory(root);
-  if (entries.length === 0) {
-    return undefined;
-  }
-
-  const scopes = entries.filter(entry => entry.startsWith('@'));
-
-  // Pass 1 — the package named after the command.
-  for (const candidate of [command, ...scopes.map(scope => `${scope}\\${command}`)]) {
-    const entry = readBinEntry(`${root}\\${candidate}`, command, probe);
-    if (entry) {
-      return entry;
-    }
-  }
-
-  // Pass 2 — whatever actually declares it.
-  let scanned = 0;
-  for (const entry of entries) {
-    if (entry.startsWith('.')) {
-      continue;
-    }
-    const candidates = entry.startsWith('@')
-      ? probe.readDirectory(`${root}\\${entry}`).map(inner => `${entry}\\${inner}`)
-      : [entry];
-    for (const candidate of candidates) {
-      if (++scanned > MAX_PACKAGES_SCANNED) {
-        return undefined;
-      }
-      const found = readBinEntry(`${root}\\${candidate}`, command, probe);
-      if (found) {
-        return found;
-      }
-    }
-  }
-  return undefined;
-}
-
-/**
- * Read one package's `bin` declaration and return the entry point for `command`.
- *
- * `bin` has two legal shapes — a bare string (which names the package's own
- * last path segment as the command) and a map — and both are handled, because a
- * package using the string form is not an edge case, it is the common one.
- *
- * The resolved path is required to exist and to be a file Node can run. A `bin`
- * pointing at something else belongs to a package that is not what we are
- * looking for, and handing Node an arbitrary path from a `package.json` because
- * a name matched is exactly the sort of hopeful spawn this module replaces.
- */
-function readBinEntry(packageDirectory: string, command: string, probe: AcpLaunchProbe): string | undefined {
-  const manifest = probe.readJsonFile(`${packageDirectory}\\package.json`);
-  if (typeof manifest !== 'object' || manifest === null) {
-    return undefined;
-  }
-  const record = manifest as Record<string, unknown>;
-  const bin = record['bin'];
-
-  let relative = '';
-  if (typeof bin === 'string') {
-    const name = typeof record['name'] === 'string' ? record['name'].split('/').pop() : undefined;
-    relative = name === command ? bin : '';
-  } else if (typeof bin === 'object' && bin !== null && !Array.isArray(bin)) {
-    const target = (bin as Record<string, unknown>)[command];
-    relative = typeof target === 'string' ? target : '';
-  }
-  if (!relative) {
-    return undefined;
-  }
-
-  const script = `${packageDirectory}\\${relative.replace(/^\.\//, '').replace(/\//g, '\\')}`;
-  return NODE_SCRIPT.test(script) && probe.fileExists(script) ? script : undefined;
-}
-
-function directoryOf(target: string): string {
-  const cut = Math.max(target.lastIndexOf('\\'), target.lastIndexOf('/'));
-  return cut > 0 ? target.slice(0, cut) : '';
 }
 
 /**
@@ -254,7 +146,7 @@ function directoryOf(target: string): string {
 export function createAcpLaunchProbe(): AcpLaunchProbe {
   return {
     platform: process.platform,
-    findExecutable: findAcpExecutable,
+    findExecutable: findExecutableOnPath,
     fileExists: target => {
       try {
         return existsSync(target);
@@ -282,48 +174,8 @@ export function createAcpLaunchProbe(): AcpLaunchProbe {
     // Starting an npm ACP entry point through it creates an Electron/GUI parent
     // in the agent tree and defeats the console-containment boundary.
     nodeExecPath: process.platform === 'win32'
-      ? findAcpExecutable('node.exe')
+      ? findExecutableOnPath('node.exe')
       : process.execPath,
   };
 }
 
-/**
- * Resolve a command against PATH, applying `PATHEXT` on Windows.
- *
- * The empty suffix is tried first and on purpose, even though on Windows it
- * usually finds an unexecutable shell script: knowing that the shim is *there*
- * is what distinguishes "installed, but Windows cannot start it this way" from
- * "not installed", and those two need different messages. The caller decides
- * what to do with a non-executable hit.
- */
-function findAcpExecutable(command: string): string | undefined {
-  const trimmed = command.trim();
-  if (!trimmed) {
-    return undefined;
-  }
-  // An explicit path is honoured as given: the user pointed at a specific file,
-  // and searching PATH for it would be second-guessing them.
-  if (/[\\/]/.test(trimmed)) {
-    return existsSync(trimmed) ? trimmed : undefined;
-  }
-
-  const suffixes = process.platform === 'win32'
-    ? (path.extname(trimmed)
-      ? ['']
-      : ['', ...(process.env['PATHEXT'] ?? '.EXE;.CMD;.BAT;.COM').split(';').filter(Boolean)])
-    : [''];
-
-  for (const directory of (process.env['PATH'] ?? process.env['Path'] ?? '').split(path.delimiter)) {
-    const entry = directory.trim();
-    if (!entry) {
-      continue;
-    }
-    for (const suffix of suffixes) {
-      const candidate = path.join(entry, `${trimmed}${suffix}`);
-      if (existsSync(candidate)) {
-        return candidate;
-      }
-    }
-  }
-  return undefined;
-}

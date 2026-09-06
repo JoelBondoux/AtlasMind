@@ -8,6 +8,10 @@ import { OpenAiCompatibleAdapter } from '../providers/openai-compatible.js';
 import { AnthropicAdapter } from '../providers/anthropic.js';
 import type { ProviderAdapter } from '../providers/adapter.js';
 import type { BudgetMode, SpeedMode, ProviderId, AgentDefinition, OrchestratorHooks, TaskRequest, ProjectProgressUpdate } from '../types.js';
+import {
+  createWorkspaceCommandProbe,
+  resolveWorkspaceCommand,
+} from '../core/windowsShimBypass.js';
 import { NodeMemoryManager } from './nodeMemoryManager.js';
 import { createNodeSkillExecutionContext } from './nodeSkillContext.js';
 import { NodeCostTracker } from './nodeCostTracker.js';
@@ -443,10 +447,22 @@ async function runBuildCommand(parsed: ParsedCliArgs, workspaceRoot: string): Pr
       settled = true;
       resolve(code);
     };
-    const proc = spawn('npm', ['run', 'build'], {
+    const npm = resolveWorkspaceCommand('npm', ['run', 'build'], createWorkspaceCommandProbe());
+    if (npm.status === 'unresolved') {
+      process.stderr.write(`${npm.reason}
+`);
+      resolveOnce(1);
+      return;
+    }
+    const proc = spawn(npm.command, npm.args, {
       cwd: workspaceRoot,
       stdio: 'inherit',
-      shell: process.platform === 'win32',
+      // Resolved rather than shelled. These three call sites pass a fixed
+      // argument array, so there is nothing here for a shell to interpolate —
+      // but `shell: true` is the pattern that made `runCommand` injectable, and
+      // leaving it in three places invites the fourth. See
+      // `core/windowsShimBypass.ts`.
+      shell: false,
     });
     proc.on('error', error => {
       process.stderr.write(`Failed to start build command: ${error.message}\n`);
@@ -470,10 +486,22 @@ async function runLintCommand(parsed: ParsedCliArgs, workspaceRoot: string): Pro
       settled = true;
       resolve(code);
     };
-    const proc = spawn('npm', args, {
+    const npm = resolveWorkspaceCommand('npm', args, createWorkspaceCommandProbe());
+    if (npm.status === 'unresolved') {
+      process.stderr.write(`${npm.reason}
+`);
+      resolveOnce(1);
+      return;
+    }
+    const proc = spawn(npm.command, npm.args, {
       cwd: workspaceRoot,
       stdio: 'inherit',
-      shell: process.platform === 'win32',
+      // Resolved rather than shelled. These three call sites pass a fixed
+      // argument array, so there is nothing here for a shell to interpolate —
+      // but `shell: true` is the pattern that made `runCommand` injectable, and
+      // leaving it in three places invites the fourth. See
+      // `core/windowsShimBypass.ts`.
+      shell: false,
     });
     proc.on('error', error => {
       process.stderr.write(`Failed to start lint command: ${error.message}\n`);
@@ -497,10 +525,22 @@ async function runTestCommand(parsed: ParsedCliArgs, workspaceRoot: string): Pro
       settled = true;
       resolve(code);
     };
-    const proc = spawn('npm', args, {
+    const npm = resolveWorkspaceCommand('npm', args, createWorkspaceCommandProbe());
+    if (npm.status === 'unresolved') {
+      process.stderr.write(`${npm.reason}
+`);
+      resolveOnce(1);
+      return;
+    }
+    const proc = spawn(npm.command, npm.args, {
       cwd: workspaceRoot,
       stdio: 'inherit',
-      shell: process.platform === 'win32',
+      // Resolved rather than shelled. These three call sites pass a fixed
+      // argument array, so there is nothing here for a shell to interpolate —
+      // but `shell: true` is the pattern that made `runCommand` injectable, and
+      // leaving it in three places invites the fourth. See
+      // `core/windowsShimBypass.ts`.
+      shell: false,
     });
     proc.on('error', error => {
       process.stderr.write(`Failed to start test command: ${error.message}\n`);

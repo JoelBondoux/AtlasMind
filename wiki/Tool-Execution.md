@@ -390,6 +390,19 @@ a separate mapping edit. Neither operation authorizes a project-file write.
 
 ---
 
+## Arguments are arguments, never commands
+
+Every command AtlasMind runs is spawned with the arguments as an array and **no shell**, so a `&`, `|` or
+`>` among them is a character the command receives rather than something an interpreter acts on.
+
+This was not always true on Windows, and the exception is worth knowing because the reasoning for it was
+plausible. `npm` on Windows is `npm.cmd`, which cannot be spawned directly, so the path used a shell to
+make it work — and a shell joins the argument array into one string without escaping it. Since those
+arguments are written by a model, an argument list ending `&`, `curl`, `...` ran a second command that no
+approval dialog ever showed. Fixed in v0.406.0 by resolving the shim to its real entry point instead.
+
+---
+
 ## The CLI is stricter
 
 There's no panel to approve things in, so: local reads work, workspace and git writes need

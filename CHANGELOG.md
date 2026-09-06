@@ -6,6 +6,56 @@ The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/),
 
 ## [Unreleased]
 
+## [0.406.0] - 2026-09-06
+
+### Security
+
+- **Fixed a command injection in `SkillExecutionContext.runCommand` on Windows.** The
+  path passed `shell: process.platform === 'win32'`, with `mapExecutableForWindows`
+  rewriting `npm` to `npm.cmd` -- a `.cmd` cannot be spawned directly since the fix
+  for CVE-2024-27980, so the shell was there to make the mapping work. But
+  `execFile` with a shell concatenates the argument array into one command line
+  **without escaping it** (Node's own DEP0190 warns about exactly this), and `args`
+  on this path is model-generated. An argument of `&` followed by anything was
+  therefore executed by `cmd.exe` as a command of its own, while the approval dialog
+  showed only the intended command. Verified by execution against Node 24, not
+  inferred from documentation.
+
+  The fix is the discipline `providers/acpLaunch.ts` already established for the
+  same Windows problem: **bypass the shim rather than invoke it.** npm records what
+  each `bin` name stands for in its package's own `package.json`, so the declared
+  entry point is read and handed to Node directly, `shell: false`. A command that
+  cannot be resolved that way is **refused with a written reason** rather than run
+  through a shell -- the alternative to a bypass is the hazard itself, so falling
+  back to one would defeat the change.
+- `shell: true` also removed from the three CLI spawn sites (`build`, `lint`,
+  `test`). Those pass fixed argument arrays and were not injectable, but leaving the
+  pattern in three places is how a fourth one acquires it.
+
+### Added
+
+- `src/core/windowsShimBypass.ts` -- how a Windows `bin` shim is resolved to
+  something spawnable without a shell, and the refusal when it cannot be. Extracted
+  from `acpLaunch.ts`, which solved it first; `acpLaunch.ts` keeps its ACP-specific
+  resolution order and messages and now delegates the mechanism, so there is one
+  implementation of what may be spawned rather than two that could disagree about
+  one of them. `resolveWorkspaceCommand` serves the extension host and the CLI, so
+  both answer "can this be run safely?" identically. Pure apart from an injected
+  probe + unit-tested.
+
+### Changed
+
+- `mapExecutableForWindows` removed. Naming the `.cmd` was never the hard part;
+  being able to spawn it without `cmd.exe` interpreting the arguments was, and the
+  mapping actively required the shell that made this exploitable.
+- `acpLaunch.ts` no longer carries its own PATH search -- a third copy of the same
+  `PATHEXT` walk. It uses `findExecutableOnPath` from the shared module, which has
+  no `vscode` or MCP dependency, so the reason the duplicate existed no longer
+  applies.
+- `UNREFERENCED_EXPORT_CEILING` held at 93 rather than raised: the extraction's new
+  exports are all referenced.
+
+
 ## [0.405.0] - 2026-09-06
 
 ### Security

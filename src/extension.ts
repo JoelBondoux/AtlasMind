@@ -3,6 +3,10 @@ import * as vscode from 'vscode';
 import * as path from 'path';
 import * as os from 'os';
 import { readFileSync } from 'fs';
+import {
+  createWorkspaceCommandProbe,
+  resolveWorkspaceCommand,
+} from './core/windowsShimBypass.js';
 import * as fs from 'fs/promises';
 import { execFile } from 'child_process';
 import { promisify } from 'util';
@@ -4900,7 +4904,32 @@ function buildSkillExecutionContext(
 
       const cwdRaw = options?.cwd?.trim() || workspaceRoot;
       const cwd = await assertInsideWorkspace(cwdRaw, 'runCommand');
-      const mappedExecutable = mapExecutableForWindows(executable.trim());
+
+      // Decide how to start this before starting it, and never through a shell.
+      //
+      // This path used to pass `shell: process.platform === 'win32'`, with
+      // `mapExecutableForWindows` turning `npm` into `npm.cmd` — a `.cmd` cannot
+      // be spawned directly since CVE-2024-27980, so the shell was there to make
+      // the mapping work. But `execFile` with a shell concatenates the argument
+      // array into one command line **without escaping it** (Node's own DEP0190
+      // warns about exactly this), and `args` here comes from a model. An
+      // argument of `&` followed by anything was therefore run by `cmd.exe` as a
+      // command of its own: the approval dialog showed `npm run test`, and
+      // whatever came after the `&` ran too. Confirmed against Node 24 rather
+      // than inferred from the docs.
+      //
+      // `resolveWorkspaceCommand` bypasses the shim instead — the discipline
+      // `acpLaunch.ts` established for the same Windows problem — and refuses
+      // when it cannot, because the alternative to a bypass is the shell this
+      // exists to remove.
+      const resolution = resolveWorkspaceCommand(
+        executable.trim(),
+        args ?? [],
+        createWorkspaceCommandProbe(),
+      );
+      if (resolution.status === 'unresolved') {
+        return { ok: false, exitCode: 1, stdout: '', stderr: resolution.reason };
+      }
 
       // A test command inherits the machine's testing resource budget: every
       // Node child (Jest/Vitest workers included) gets a heap cap through
@@ -4911,7 +4940,7 @@ function buildSkillExecutionContext(
         : undefined;
 
       try {
-        const pending = execFileAsync(mappedExecutable, args ?? [], {
+        const pending = execFileAsync(resolution.command, resolution.args, {
           cwd,
           timeout: clampInteger(options?.timeoutMs, 30000, 1000, 300000),
           windowsHide: true,
@@ -4921,8 +4950,10 @@ function buildSkillExecutionContext(
           // because runners print their failures last.
           maxBuffer: 4 * 1024 * 1024,
           ...(env ? { env: env as NodeJS.ProcessEnv } : {}),
-          // .cmd files on Windows cannot be spawned directly — they require cmd.exe
-          shell: process.platform === 'win32',
+          // Never a shell: the arguments are model-generated, and a shell would
+          // run the metacharacters among them. `resolution` has already turned a
+          // Windows shim into a spawnable image or a Node entry point.
+          shell: false,
         });
         // Below-normal priority for every agent-issued command: this path is
         // never the user's interactive terminal, and the desktop staying
@@ -5621,31 +5652,6 @@ function clipCommandOutput(text: string): string {
     return trimmed;
   }
   return `…[earlier output truncated]\n${trimmed.slice(-COMMAND_OUTPUT_CLIP_BYTES)}`;
-}
-
-function mapExecutableForWindows(executable: string): string {
-  if (process.platform !== 'win32') {
-    return executable;
-  }
-
-  switch (executable) {
-    case 'npm':
-      return 'npm.cmd';
-    case 'npx':
-      return 'npx.cmd';
-    case 'pnpm':
-      return 'pnpm.cmd';
-    case 'yarn':
-      return 'yarn.cmd';
-    case 'tsc':
-      return 'tsc.cmd';
-    case 'eslint':
-      return 'eslint.cmd';
-    case 'vitest':
-      return 'vitest.cmd';
-    default:
-      return executable;
-  }
 }
 
 async function runPostToolVerification(
