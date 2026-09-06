@@ -6,6 +6,37 @@ The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/),
 
 ## [Unreleased]
 
+## [0.403.0] - 2026-09-06
+
+### Added
+
+- `CompletionResponse.delegatedToolCallCount` — tool calls a *provider* ran inside its
+  own session, distinct from `toolCalls`, which are calls handed back for AtlasMind to
+  execute. An ACP turn that wrote a 6 KB plan file was reported as "Answered from
+  context and session history" with no tool calls listed and 617 input tokens billed,
+  because a subscription-backed agent does its own work behind the protocol. The
+  `session/update` tool events were already parsed and already logged to the output
+  channel; nothing counted them, so the one surface a person reads said the opposite of
+  what happened.
+- **Absent means not observable, never none.** A provider that cannot report this omits
+  the field and its turns read exactly as before; only a provider that genuinely watched
+  the session reports `0`, which is then a real observation — an agent that answered
+  without tools did answer from context. The ACP adapter always reports, including zero.
+- Counted **per turn**, since an ACP session is reused across messages and a cumulative
+  figure would credit this turn with the last one's work. A `tool_call_update` is not
+  counted: it is a change to a call already announced, and counting both would double
+  every tool the agent reported progress on.
+
+### Changed
+
+- The delegated count reaches the run record, so a subscription-backed subtask now grades
+  `evidenced` rather than `unassessed` under `runGoalConformance` — the gap that module
+  deliberately refused to guess about in 0.402.8.
+
+### Fixed
+
+- A turn whose provider ran its own tools no longer claims it answered from context.
+
 ## [0.402.9] - 2026-09-06
 
 ### Added

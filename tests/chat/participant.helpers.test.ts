@@ -2088,3 +2088,55 @@ describe('a typed instruction is never answered with a status summary', () => {
     expect(isRoadmapStatusPrompt(prompt)).toBe(true);
   });
 });
+
+describe('a provider that ran its own tools is not "answered from context"', () => {
+  // The observed case: an ACP turn wrote a 6 KB file and the transcript said
+  // "Answered from context and session history" with no tool calls listed,
+  // because the agent executed them inside its own session where AtlasMind runs
+  // nothing. The events were parsed and logged; nothing counted them.
+  const acpResult = (delegatedToolCallCount: number | undefined) => ({
+    agentId: 'default',
+    modelUsed: 'acp/codex@gpt-5.3-codex',
+    costUsd: 0,
+    inputTokens: 617,
+    outputTokens: 561,
+    artifacts: {
+      output: 'Implemented the plan.',
+      outputPreview: 'Implemented the plan.',
+      toolCallCount: 0,
+      toolCalls: [],
+      checkpointedTools: [],
+      ...(delegatedToolCallCount === undefined ? {} : { delegatedToolCallCount }),
+    },
+  });
+
+  it('says the agent ran them, rather than claiming nothing happened', () => {
+    const metadata = buildAssistantResponseMetadata('Draft the plan', acpResult(4), { hasSessionContext: true });
+    expect(metadata.thoughtSummary?.summary).toBe('The agent ran 4 tool calls inside its own session.');
+  });
+
+  it('uses the singular for one call', () => {
+    const metadata = buildAssistantResponseMetadata('Draft the plan', acpResult(1), { hasSessionContext: true });
+    expect(metadata.thoughtSummary?.summary).toContain('1 tool call inside');
+  });
+
+  it('still says answered from context when the agent genuinely ran none', () => {
+    // Zero is a real observation here, not an absence: this adapter watched the
+    // session. An agent that answered without tools did answer from context.
+    const metadata = buildAssistantResponseMetadata('What is this file?', acpResult(0), { hasSessionContext: true });
+    expect(metadata.thoughtSummary?.summary).toBe('Answered from context and session history.');
+  });
+
+  it('leaves a provider that cannot report it unchanged', () => {
+    const metadata = buildAssistantResponseMetadata('What is this file?', acpResult(undefined), { hasSessionContext: true });
+    expect(metadata.thoughtSummary?.summary).toBe('Answered from context and session history.');
+  });
+
+  it('does not override a real AtlasMind-executed tool count', () => {
+    const metadata = buildAssistantResponseMetadata('Fix it', {
+      ...acpResult(3),
+      artifacts: { ...acpResult(3).artifacts, toolCallCount: 2 },
+    }, {});
+    expect(metadata.thoughtSummary?.summary).toContain('Used 2 tool calls');
+  });
+});

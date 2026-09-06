@@ -1399,7 +1399,9 @@ export async function runProjectCommand(
         // Absent artifacts leave every evidence field undefined, which reads as
         // "not observable" rather than "nothing happened" - the ACP case.
         ...(item.artifacts === undefined ? {} : {
-          toolCallCount: item.artifacts.toolCallCount,
+          // A provider's own tool calls are evidence the work happened, even
+          // though AtlasMind executed none of them.
+          toolCallCount: item.artifacts.toolCallCount + (item.artifacts.delegatedToolCallCount ?? 0),
           changedFileCount: item.artifacts.changedFiles.length,
           ...(item.artifacts.verificationSummary === undefined
             ? {}
@@ -5138,6 +5140,7 @@ export function buildAssistantResponseMetadata(
   options?: { hasSessionContext?: boolean; imageAttachments?: TaskImageAttachment[]; routingContext?: Record<string, unknown>; policies?: SessionPolicySnapshot[]; responseText?: string },
 ): SessionTranscriptMetadata {
   const toolCallCount = result.artifacts?.toolCallCount ?? 0;
+  const delegatedToolCallCount = result.artifacts?.delegatedToolCallCount;
   const toolCalls = result.artifacts?.toolCalls ?? [];
   const responseWasEmpty = options?.responseText !== undefined && options.responseText.trim().length === 0;
   const attempts = result.modelAttempts ?? [];
@@ -5160,6 +5163,12 @@ export function buildAssistantResponseMetadata(
     summary = actionSummary
       ? `Used ${toolCallCount} tool call${toolCallCount === 1 ? '' : 's'} — ${actionSummary}.`
       : `Used ${toolCallCount} tool call${toolCallCount === 1 ? '' : 's'}.`;
+  } else if (delegatedToolCallCount !== undefined && delegatedToolCallCount > 0) {
+    // The agent ran these inside its own session, where AtlasMind saw the
+    // announcements but executed nothing. Reporting it as "answered from
+    // context" claimed the opposite of what happened.
+    summary = `The agent ran ${delegatedToolCallCount} tool call${delegatedToolCallCount === 1 ? '' : 's'} `
+      + 'inside its own session.';
   } else {
     summary = `Answered from context${options?.hasSessionContext ? ' and session history' : ''}.`;
   }

@@ -19,6 +19,20 @@ Older entries below describe the software as it was at the time and are delibera
 
 ---
 
+## v0.403.0 -- Subscription turns report what the agent did
+
+A turn routed through a Claude or ChatGPT subscription that wrote a 6 KB file was recorded as
+"Answered from context and session history", with no tool calls and 617 input tokens. The agent runs
+its tools inside its own session, where AtlasMind executes nothing -- and the events were already
+being parsed and written to the output channel. Nothing counted them, so the one surface a person
+reads said the opposite of what happened.
+
+The distinction that makes this safe: a provider that cannot report its own tool use omits the number
+entirely and reads exactly as before. Only a provider that genuinely watched reports zero, and zero
+then means the agent really did answer without tools.
+
+---
+
 ## v0.402.9 -- Plans are checked against the levels you declared
 
 An autonomous plan proposed committing, bumping the version and pushing to `develop` on a project

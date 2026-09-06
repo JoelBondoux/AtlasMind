@@ -297,3 +297,10 @@ the batch.
 - [[Getting Started]] — connecting your first provider
 - [[Security]] — the trusted-model gate and data privacy policy
 - [[Project Planner]] — parallel execution
+
+**The agent's own tool calls are counted.** A subscription-backed agent runs tools inside its own
+session, where AtlasMind executes nothing. Those events were parsed and logged from the start but never
+counted, so a turn that wrote a 6 KB file reported "Answered from context and session history" with no
+tool calls. `delegatedToolCallCount` carries them now. A provider that cannot report its own tool use
+omits the number and reads exactly as before; only one that genuinely watched reports zero, and zero
+then means the agent really did answer without tools.

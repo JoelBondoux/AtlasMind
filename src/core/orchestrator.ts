@@ -2238,6 +2238,24 @@ export class Orchestrator {
         onProgress?.(diagnostic);
       }
     }
+    // A provider that ran its own tools observed work AtlasMind never executed.
+    // Without this the turn has no artifacts at all, and "no artifacts" was read
+    // downstream as "no tools ran" — so every subscription-backed turn reported
+    // itself as answered from context with nothing done.
+    const delegatedToolCallCount = completion.delegatedToolCallCount;
+    const artifactsWithDelegated = delegatedToolCallCount === undefined
+      ? executionArtifacts
+      : {
+        ...(executionArtifacts ?? {
+          output: sanitizedCompletion.content,
+          outputPreview: sanitizedCompletion.content.slice(0, 400),
+          toolCallCount: 0,
+          toolCalls: [],
+          checkpointedTools: [],
+        }),
+        delegatedToolCallCount,
+      };
+
     let result: TaskResult = {
       id: request.id,
       agentId: agent.id,
@@ -2249,7 +2267,7 @@ export class Orchestrator {
       ...(estimatedCompressionSavingsUsd > 0 ? { contextCompressionSavingsUsd: estimatedCompressionSavingsUsd } : {}),
       durationMs,
       ...(modelAttempts.length > 0 ? { modelAttempts } : {}),
-      ...(executionArtifacts ? { artifacts: executionArtifacts } : {}),
+      ...(artifactsWithDelegated ? { artifacts: artifactsWithDelegated } : {}),
       ...(autoDisabledProvider ? { autoDisabledProvider } : {}),
       ...(finalAttempt.iterationLimitHit ? { iterationLimitHit: true } : {}),
       ...(finalAttempt.suggestedIterationLimit !== undefined ? { suggestedIterationLimit: finalAttempt.suggestedIterationLimit } : {}),

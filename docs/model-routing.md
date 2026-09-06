@@ -421,6 +421,26 @@ Two different things are reported, and conflating them made every ACP completion
 
 Because ACP models are subscription-backed, they are priced at zero per token; the router's subscription handling, not the adapter, is what stops that from winning budget mode by default. ACP itself does **not** disclose an account tier or remaining allowance, so its plan label is display-only and never participates in quota gating or usage accounting.
 
+### The agent's own tool calls are counted, not assumed absent
+
+A subscription-backed agent executes tools inside its own session; AtlasMind sees the `session/update`
+announcements and runs none of them. Those events were parsed and written to the output channel from
+the start, and nothing counted them — so a turn that wrote a 6 KB file was recorded as "Answered from
+context and session history" with no tool calls and 617 input tokens. The one surface a person reads
+said the opposite of what happened, which is the shape of failure the hallucination-detection protocol
+exists to catch, arriving in AtlasMind's own telemetry rather than in a model's answer.
+
+`CompletionResponse.delegatedToolCallCount` carries it, deliberately distinct from `toolCalls` (calls
+handed back for AtlasMind to execute). **Absent means not observable, never none:** a provider that
+cannot report it omits the field and its turns read exactly as before, while a provider that genuinely
+watched reports `0` — a real observation, since an agent that answered without tools did answer from
+context. Counted per turn, because an ACP session is reused across messages and a cumulative figure
+would credit this turn with the last one's work; `tool_call_update` is excluded, since it is a change
+to a call already announced and counting both would double every tool the agent reported progress on.
+
+The count reaches the run record, so a subscription-backed subtask grades `evidenced` under
+`runGoalConformance` rather than `unassessed` — the gap that module deliberately refused to guess about.
+
 ### Subscription capacity is advanced over metered tokens
 
 Subscription providers are preferred over pay-per-token for ordinary work, because the capacity is already bought. The preference keys on the provider's `pricingModel`, never on a list of provider ids, so a new subscription provider inherits it without being enumerated anywhere. Only a provider that exposes an **authoritative** allowance, such as Copilot, receives quota-specific treatment:

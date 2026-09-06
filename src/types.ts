@@ -4322,6 +4322,11 @@ export interface SubTaskExecutionArtifacts {
   toolCallCount: number;
   /** Number of tool calls whose raw result was classified as a failure. */
   failedToolCallCount?: number;
+  /**
+   * Tool calls the provider ran inside its own session, which AtlasMind
+   * observed but did not execute. Absent means not observable, never none.
+   */
+  delegatedToolCallCount?: number;
   toolCalls: ToolExecutionArtifact[];
   verificationSummary?: string;
   tddStatus?: 'verified' | 'blocked' | 'missing' | 'not-applicable';

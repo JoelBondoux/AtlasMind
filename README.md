@@ -4,7 +4,7 @@
 
 <h1 align="center">AtlasMind</h1>
 
-<p align="center"><sub> · <strong>Current source version: 0.402.9</strong> · </sub></p>
+<p align="center"><sub> · <strong>Current source version: 0.403.0</strong> · </sub></p>
 
 
 <p align="center">
@@ -131,6 +131,14 @@ allow-list, redaction and file-withholding behaviour, retained metadata, provide
 important limits on overrides and compliance claims.
 
 ---
+
+## What's new in 0.403.0
+
+Turns run on a Claude or ChatGPT subscription now report the tools the agent
+ran. An ACP turn that wrote a 6 KB file was recorded as "Answered from context
+and session history" with no tool calls and 617 input tokens, because the agent
+executes its tools inside its own session where AtlasMind runs nothing. The
+events were already parsed and logged; nothing counted them.
 
 ## What's new in 0.402.9
 
