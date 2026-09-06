@@ -816,7 +816,9 @@ describe('reading a dense plan', () => {
     expect(harness.root().querySelector('.rm-edge[data-rm-from="alpha"]')).not.toBeNull();
     expect(harness.posted).toEqual([]);
 
-    harness.click('[data-action="roadmap-search-clear"]');
+    // One clear for every lens: three separate clears would be three clicks to
+    // get back to a plan you can read.
+    harness.click('[data-action="roadmap-emphasis-clear"]');
     expect(classOf('loner')).not.toContain('is-search-dim');
     expect(classOf('alpha')).not.toContain('is-search-match');
   });
@@ -831,6 +833,79 @@ describe('reading a dense plan', () => {
     // one this state is indistinguishable from the plan having been wiped.
     expect(harness.root().querySelector('.rm-banner-search')?.textContent).toContain('No item matches');
     expect(harness.root().querySelectorAll('[data-rm-node]').length).toBeGreaterThan(0);
+  });
+
+  it('highlights the items on a release gate, and leaves the rest drawn', () => {
+    const harness = mount();
+    harness.send(snapshot({
+      active: [
+        node('alpha', { gates: ['mvp'], position: { x: 80, y: 80 }, dependents: ['beta'] }),
+        node('beta', { position: { x: 400, y: 80 }, depth: 1, prerequisites: ['alpha'] }),
+      ],
+      edges: [{ from: 'alpha', to: 'beta', origin: 'declared' }],
+      suggested: [],
+    }));
+    harness.posted.length = 0;
+
+    const select = harness.root().querySelector('[data-action="roadmap-emphasis-gate"]');
+    expect(select).not.toBeNull();
+    select.value = 'mvp';
+    select.dispatchEvent(new harness.window.Event('change', { bubbles: true }));
+
+    const classOf = (id: string) => harness.root().querySelector(`[data-rm-node="${id}"]`)?.className ?? '';
+    expect(classOf('alpha')).toContain('is-search-match');
+    expect(classOf('beta')).toContain('is-search-dim');
+    // Nothing removed, and the arrow between them survives — the point of
+    // highlighting rather than filtering is seeing what the answer depends on.
+    expect(harness.root().querySelector('.rm-edge[data-rm-from="alpha"]')).not.toBeNull();
+    // A way of looking: nothing is sent and nothing is written.
+    expect(harness.posted).toEqual([]);
+  });
+
+  it('combines the lenses rather than letting one cancel another', () => {
+    const harness = mount();
+    harness.send(snapshot({
+      active: [
+        node('alpha', { gates: ['mvp'], position: { x: 80, y: 80 } }),
+        node('beta', { text: 'Item alpha too', position: { x: 400, y: 80 } }),
+      ],
+      edges: [],
+      suggested: [],
+    }));
+
+    const select = harness.root().querySelector('[data-action="roadmap-emphasis-gate"]');
+    select.value = 'mvp';
+    select.dispatchEvent(new harness.window.Event('change', { bubbles: true }));
+    const input = harness.root().querySelector('#roadmap-search-input');
+    input.value = 'alpha';
+    input.dispatchEvent(new harness.window.Event('input', { bubbles: true }));
+
+    const classOf = (id: string) => harness.root().querySelector(`[data-rm-node="${id}"]`)?.className ?? '';
+    // "MVP items whose text says alpha" — beta matches the text and not the
+    // gate, so it is not emphasised. Switching between lenses instead of
+    // combining them is what reads as a filter that does not work.
+    expect(classOf('alpha')).toContain('is-search-match');
+    expect(classOf('beta')).toContain('is-search-dim');
+  });
+
+  it('keeps every edge on a live repaint while a lens is on', () => {
+    const harness = mount();
+    harness.send(snapshot({
+      active: [
+        node('alpha', { position: { x: 80, y: 80 }, dependents: ['beta'] }),
+        node('beta', { text: 'Completely unrelated', position: { x: 400, y: 80 }, depth: 1, prerequisites: ['alpha'] }),
+      ],
+      edges: [{ from: 'alpha', to: 'beta', origin: 'declared' }],
+      suggested: [],
+    }));
+    const input = harness.root().querySelector('#roadmap-search-input');
+    input.value = 'Item alpha';
+    input.dispatchEvent(new harness.window.Event('input', { bubbles: true }));
+
+    // The edge redraw used to drop anything outside the search's connected set,
+    // which since matches stopped hiding nodes would strip the arrows off a
+    // node still on screen the moment anything triggered a repaint.
+    expect(harness.root().querySelector('.rm-edge[data-rm-from="alpha"]')).not.toBeNull();
   });
 
   it('zooms in on a node when it is double-clicked', () => {

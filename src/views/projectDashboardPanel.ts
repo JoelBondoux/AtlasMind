@@ -27784,6 +27784,30 @@ const DASHBOARD_CSS = `
     outline-offset: 1px;
   }
 
+  .rm-emphasis-control {
+    display: inline-flex;
+    align-items: center;
+    gap: 4px;
+    font-size: 11px;
+  }
+
+  .rm-emphasis-label {
+    color: color-mix(in srgb, var(--vscode-foreground) 60%, transparent);
+  }
+
+  .rm-emphasis-control select {
+    background: var(--vscode-dropdown-background);
+    color: var(--vscode-dropdown-foreground);
+    border: 1px solid var(--dash-border);
+    border-radius: 4px;
+    padding: 2px 4px;
+    font-size: 11px;
+  }
+
+  .rm-emphasis-count {
+    white-space: nowrap;
+  }
+
   /* ── Roadmap: the dependency canvas ────────────────────────────────────
      Urgency is carried on the node's left border rather than as a filled
      background, for the reason the attention band already establishes: a wall of

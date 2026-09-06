@@ -442,6 +442,11 @@
      * route filter — a way of looking must not be something that can fail.
      */
     roadmapSearch: '',
+    // The other two emphasis lenses. Not persisted: which slice of the plan you
+    // are looking at right now is a property of this sitting, not of the
+    // project, and restoring a dimmed canvas on open would read as a bug.
+    roadmapEmphasisGate: '',
+    roadmapEmphasisPerson: '',
     /** Live drag offsets, so a node follows the pointer before the host has saved. */
     roadmapDragOffsets: {},
     /**
@@ -1657,6 +1662,17 @@
     }
     if (action === 'roadmap-search-clear') {
       state.roadmapSearch = '';
+      state.roadmapFitAfterRender = true;
+      render();
+      return;
+    }
+    if (action === 'roadmap-emphasis-clear') {
+      // Clears every lens at once. Three separate clears is three clicks to get
+      // back to a plan you can read, and the state people want is "show me
+      // everything again" rather than "remove exactly one of these".
+      state.roadmapSearch = '';
+      state.roadmapEmphasisGate = '';
+      state.roadmapEmphasisPerson = '';
       state.roadmapFitAfterRender = true;
       render();
       return;
@@ -3042,6 +3058,19 @@
       if (targetId) {
         vscode.postMessage({ type: 'assignDashboardWorkOwner', payload: { targetId: targetId, contactId: target.value } });
       }
+      return;
+    }
+    // Emphasis lenses. A way of looking, so nothing is posted and nothing is
+    // written — and no re-fit either: the plan has not moved, and re-fitting
+    // would throw away the pan and zoom you set up to read this part of it.
+    if (target.getAttribute('data-action') === 'roadmap-emphasis-gate') {
+      state.roadmapEmphasisGate = target.value || '';
+      render();
+      return;
+    }
+    if (target.getAttribute('data-action') === 'roadmap-emphasis-person') {
+      state.roadmapEmphasisPerson = target.value || '';
+      render();
     }
   });
 
@@ -3407,9 +3436,11 @@
     const graph = roadmapGraph();
     const nodes = nodesOverride || roadmapCanvasNodes();
     const filter = roadmapRouteFilter();
-    const search = roadmapSearchFilter();
-    const drawable = node => (!search || search.visible.has(node.id));
-    const shown = nodes.filter(drawable);
+    // Only the route filter removes nodes. A search marks and dims but draws
+    // everything, so excluding its non-matches here would delete their edges on
+    // the next live repaint — a node still on screen with its arrows gone the
+    // moment you dragged anything.
+    const shown = nodes;
     const allVisible = graph.edges.filter(edge =>
       (!filter || filter.edges.has(edge.from + '->' + edge.to))
       && shown.some(n => n.id === edge.from) && shown.some(n => n.id === edge.to));
@@ -11728,43 +11759,110 @@
    * Null when inactive, like the route filter, so callers keep one obvious
    * "show everything" branch. Entirely offline.
    */
-  function roadmapSearchFilter() {
+  const RM_UNASSIGNED = '__unassigned__';
+
+  /**
+   * What the canvas is emphasising, and why.
+   *
+   * Three lenses share one mechanism: the text search, a release gate, and a
+   * person. They are *combined*, not switched between — a node is emphasised
+   * only if it satisfies every lens that is on, so "MVP items assigned to Sam"
+   * is a question you can ask. Switching between them would make the second
+   * control silently cancel the first, which is the behaviour people report as
+   * a filter that does not work.
+   *
+   * None of them removes a node. Everything stays drawn with its arrows and the
+   * unemphasised part dims, because the value of asking "which of these are on
+   * the MVP" is seeing what the answer depends on. The route filter is the one
+   * control that genuinely narrows the plan, and it is deliberately separate.
+   *
+   * Returns null when no lens is active, so every caller has one obvious
+   * "emphasise nothing" branch. Entirely offline.
+   */
+  function roadmapEmphasis() {
     const query = String(state.roadmapSearch || '').trim().toLowerCase();
-    if (query.length === 0 || state.roadmapView === 'completed') {
+    const gate = String(state.roadmapEmphasisGate || '');
+    const person = String(state.roadmapEmphasisPerson || '');
+    if ((!query && !gate && !person) || state.roadmapView === 'completed') {
       return null;
     }
     const all = roadmapCanvasNodes();
-    const matches = all.filter(node => String(node.text).toLowerCase().indexOf(query) >= 0);
-    const byId = new Map(all.map(node => [node.id, node]));
-    const visible = new Set();
-    const stack = matches.map(node => node.id);
-    while (stack.length > 0) {
-      const id = stack.pop();
-      if (visible.has(id) || !byId.has(id)) {
-        continue;
-      }
-      visible.add(id);
-      const node = byId.get(id);
-      (node.prerequisites || []).concat(node.dependents || []).forEach(neighbour => {
-        if (!visible.has(neighbour)) {
-          stack.push(neighbour);
-        }
-      });
+    const lenses = [];
+    if (query) {
+      lenses.push(node => String(node.text).toLowerCase().indexOf(query) >= 0);
     }
-    // `visible` is matches plus everything reachable from them, and used to be
-    // what the canvas drew. It is kept because the *list* has no arrows and the
-    // route filter still composes with it, but the canvas no longer hides
-    // anything: `matchIds` is what a search now changes on screen, and the rest
-    // of the plan stays drawn and dimmed so the dependencies around a match are
-    // still readable. A graph you cannot see the neighbourhood of is a graph
-    // answering a different question from the one you asked.
+    if (gate) {
+      lenses.push(node => (node.gates || []).indexOf(gate) >= 0);
+    }
+    if (person) {
+      // Unassigned is a real answer to "whose is this?", and the most useful
+      // one on a plan nobody has divided up yet.
+      lenses.push(node => (person === RM_UNASSIGNED ? !node.assigneeId : node.assigneeId === person));
+    }
+    const matches = all.filter(node => lenses.every(test => test(node)));
     return {
-      visible,
       matchIds: new Set(matches.map(node => node.id)),
       matches: matches.length,
       total: all.length,
       query,
+      gate,
+      person,
     };
+  }
+
+  /**
+   * The gate and person pickers, and the count of what they emphasise.
+   *
+   * Both are drawn from what the plan actually contains — the declared release
+   * gates and the people the host laid out — rather than from a fixed list, so
+   * a project with no gates and nobody assigned gets neither control instead of
+   * two empty menus that do nothing.
+   */
+  function renderRoadmapEmphasisControls(graph, totalCount) {
+    const gates = getRoadmapGates();
+    const people = graph.people || [];
+    const emphasis = roadmapEmphasis();
+    const gateSelect = gates.length === 0 ? '' : `
+      <label class="rm-emphasis-control"><span class="rm-emphasis-label">Gate</span>
+        <select data-action="roadmap-emphasis-gate" aria-label="Highlight items on a release gate"
+          title="${escapeAttr('Highlight the items tagged for one release. The rest of the plan stays drawn and dimmed, so you can still see what they depend on.')}">
+          <option value=""${state.roadmapEmphasisGate ? '' : ' selected'}>Any gate</option>
+          ${gates.map(gate => `<option value="${escapeAttr(gate.id)}"${gate.id === state.roadmapEmphasisGate ? ' selected' : ''}>${escapeHtml(gate.label)}</option>`).join('')}
+        </select>
+      </label>`;
+    const personSelect = people.length === 0 ? '' : `
+      <label class="rm-emphasis-control"><span class="rm-emphasis-label">Person</span>
+        <select data-action="roadmap-emphasis-person" aria-label="Highlight items assigned to one person"
+          title="${escapeAttr('Highlight one person’s items. The rest of the plan stays drawn and dimmed, so an arrow leaving their work still shows who is waiting on it.')}">
+          <option value=""${state.roadmapEmphasisPerson ? '' : ' selected'}>Anyone</option>
+          ${people.map(person => `<option value="${escapeAttr(person.id)}"${person.id === state.roadmapEmphasisPerson ? ' selected' : ''}>${escapeHtml(person.name)}</option>`).join('')}
+          <option value="${RM_UNASSIGNED}"${state.roadmapEmphasisPerson === RM_UNASSIGNED ? ' selected' : ''}>Unassigned</option>
+        </select>
+      </label>`;
+    // Matches, not nodes drawn. No lens removes anything from the canvas, so
+    // `shownCount` is the whole plan and reporting it would read "40 of 40".
+    const count = emphasis
+      ? `<span class="list-meta rm-emphasis-count">${escapeHtml(`${emphasis.matches} of ${totalCount} match ${roadmapEmphasisLabels(emphasis)}`)}</span>`
+        + `<button type="button" class="rm-chip-clear" data-action="roadmap-emphasis-clear" aria-label="Show the whole plan at full strength">×</button>`
+      : '';
+    return `${gateSelect}${personSelect}${count}`;
+  }
+
+  /** What the active lenses are called, for a message that names them. */
+  function roadmapEmphasisLabels(emphasis) {
+    if (!emphasis) { return ''; }
+    const parts = [];
+    if (emphasis.query) { parts.push(`“${emphasis.query}”`); }
+    if (emphasis.gate) {
+      const gate = getRoadmapGates().find(entry => entry.id === emphasis.gate);
+      parts.push(gate ? gate.label : emphasis.gate);
+    }
+    if (emphasis.person) {
+      parts.push(emphasis.person === RM_UNASSIGNED
+        ? 'unassigned'
+        : (roadmapPersonName(emphasis.person) || 'that person'));
+    }
+    return parts.join(' + ');
   }
 
   function renderRoadmapViewBar(roadmap) {
@@ -11798,7 +11896,7 @@
   function renderRoadmapCanvas() {
     const graph = roadmapGraph();
     const filter = roadmapRouteFilter();
-    const search = roadmapSearchFilter();
+    const search = roadmapEmphasis();
     const allNodes = roadmapCanvasNodes();
     const routed = filter ? allNodes.filter(node => filter.nodes.has(node.id)) : allNodes;
     // A search no longer removes nodes from the canvas. It used to draw only the
@@ -11837,7 +11935,7 @@
         ${renderRoadmapCanvasToolbar(graph, filter, focusNode, allNodes.length, nodes.length)}
         ${graph.anchored ? '' : `<div class="rm-banner" role="status">${escapeHtml('This roadmap is not wired to the canvas yet. AtlasMind writes a hidden id into each backlog line when the dashboard loads, so positions, dates and links can be kept — that write has not landed, so if this banner stays, check that the backlog file is writable.')}</div>`}
         ${graph.cycles.length > 0 ? `<div class="rm-banner rm-banner-bad" role="alert">${escapeHtml(`${graph.cycles.length} circular dependenc${graph.cycles.length === 1 ? 'y' : 'ies'} in this plan — the items highlighted in red each wait for the other, so the plan cannot run in this order. Remove one of the links between them.`)}</div>` : ''}
-        ${search && search.matches === 0 ? `<div class="rm-banner rm-banner-search" role="status">${escapeHtml(`No item matches “${search.query}”.`)} The plan is still drawn, dimmed, so nothing has gone — clear the search to bring it back to full strength.</div>` : ''}
+        ${search && search.matches === 0 ? `<div class="rm-banner rm-banner-search" role="status">${escapeHtml(`No item matches ${roadmapEmphasisLabels(search)}.`)} The plan is still drawn, dimmed, so nothing has gone — clear the highlight to bring it back to full strength.</div>` : ''}
         ${renderRoadmapFlatNotice(graph, visibleEdges, visibleSuggestions)}
         <div class="rm-frame" data-rm-frame="true" data-scroll-key="roadmap-canvas">
           <div class="rm-world" data-rm-world="true"
@@ -11924,16 +12022,8 @@
               <input id="roadmap-search-input" type="search" placeholder="Search the plan…"
                 value="${escapeAttr(state.roadmapSearch || '')}" aria-label="Search roadmap items"
                 title="${escapeAttr('Highlight items whose text matches. The rest of the plan stays on the canvas, dimmed, so you can still see what a match depends on. A way of looking; nothing is changed.')}" />
-              ${(() => {
-                // Matches, not nodes drawn. A search no longer removes anything
-                // from the canvas, so `shownCount` is now the whole plan and
-                // reporting it here would read "40 of 40" for every query.
-                const active = roadmapSearchFilter();
-                return active
-                  ? `<span class="list-meta">${escapeHtml(`${active.matches} of ${totalCount} match`)}</span><button type="button" class="rm-chip-clear" data-action="roadmap-search-clear" aria-label="Clear the search">×</button>`
-                  : '';
-              })()}
-            </span>`}
+            </span>
+            ${renderRoadmapEmphasisControls(graph, totalCount)}`}
           ${state.roadmapView === 'completed' ? '' : `
             <button type="button" class="action-link${graph.suggestLinks ? ' is-on' : ''}" data-action="roadmap-suggest-toggle"
               aria-pressed="${graph.suggestLinks ? 'true' : 'false'}"

@@ -4,7 +4,7 @@
 
 <h1 align="center">AtlasMind</h1>
 
-<p align="center"><sub> · <strong>Current source version: 0.408.0</strong> · </sub></p>
+<p align="center"><sub> · <strong>Current source version: 0.409.0</strong> · </sub></p>
 
 
 <p align="center">
@@ -136,6 +136,25 @@ allow-list, redaction and file-withholding behaviour, retained metadata, provide
 important limits on overrides and compliance claims.
 
 ---
+
+## What's new in 0.409.0
+
+**Highlight the roadmap canvas by release gate and by person.** Two pickers next to
+the search box. They are built from what your plan actually contains, so a project
+with no gates and nobody assigned gets neither control rather than two empty menus.
+
+**The three lenses combine.** Search text, gate and person all apply at once, so
+"MVP items assigned to Sam" is a question you can ask. Letting one replace another
+is what makes a filter feel broken.
+
+As with search, nothing is removed — matches are outlined, the rest of the plan stays
+drawn and dimmed, so you can still see what the highlighted work depends on. One
+button clears every lens.
+
+**And a fix to last release's change.** The live edge repaint still dropped anything
+outside a search's connected set, which was right while a search hid nodes and wrong
+once it stopped. Dragging anything while a search was active stripped the arrows off
+every node that was on screen but not matched.
 
 ## What's new in 0.408.0
 

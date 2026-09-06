@@ -151,6 +151,18 @@ there to read. The count reports matches rather than cards drawn, and a search m
 so in a banner instead of dimming the canvas with no explanation. The **route filter** is unaffected
 and still narrows the plan, because that one is a deliberate "only this route" request.
 
+**Highlight by release gate or by person** with the two pickers beside the search box. They are built
+from what the plan actually holds — your declared gates, and the people the host laid out — so a project
+with no gates and nobody assigned gets neither control instead of two empty menus. *Unassigned* is
+offered as a person, because it is a real answer to "whose is this?" and the most useful one on a plan
+nobody has divided up yet.
+
+**The three lenses combine rather than replace each other.** A card is highlighted only if it satisfies
+every lens that is on, so "MVP items assigned to Sam" is a question you can ask; letting the second
+control cancel the first is what makes a filter feel broken. One button clears all three. Neither picker
+is remembered between sittings — which slice of the plan you are looking at now is not a property of the
+project — and changing one leaves your pan and zoom alone, because the plan has not moved.
+
 All of these are ways of looking: nothing is sent, and nothing changes.
 
 **Every entry carries three Atlas pills — on the canvas card and on its backlog row alike.**

@@ -19,6 +19,39 @@ Older entries below describe the software as it was at the time and are delibera
 
 ---
 
+## v0.409.0 -- Highlight the plan by gate, by person, or both
+
+The canvas could be searched by text. It could not answer "which of these are on the
+MVP" or "what is Sam waiting on", which are the two questions a plan with releases and
+people in it gets asked most.
+
+Two pickers now sit beside the search box, built from what the plan actually contains —
+the declared release gates, and the people the host laid out. A project with no gates
+and nobody assigned gets neither control, rather than two empty menus that do nothing.
+**Unassigned** is offered as a person, because it is a real answer to "whose is this?"
+and the most useful one on a plan nobody has divided up yet.
+
+**The three lenses combine rather than replace each other.** A card is highlighted only
+if it satisfies every lens that is on, so "MVP items assigned to Sam" is a question you
+can ask. Letting the second control silently cancel the first is exactly what people
+report as a filter that does not work.
+
+As with search, none of them removes anything: matches are outlined, the rest of the
+plan stays drawn and dimmed with its arrows intact, because the value of asking "which
+of these are on the MVP" is seeing what the answer depends on. One button clears every
+lens — three separate clears is three clicks back to a plan you can read.
+
+Neither is remembered between sittings. Which slice of the plan you are looking at right
+now is not a property of the project, and reopening onto a dimmed canvas would read as a
+bug. Changing a lens also leaves your pan and zoom alone: the plan has not moved.
+
+**A correction to v0.408.0.** When search stopped hiding nodes, the live edge repaint was
+not updated with it — it still dropped anything outside a search's connected set. Dragging
+anything while a search was active stripped the arrows off every node that was on screen
+but not matched. Only the route filter removes nodes now, and only it filters edges.
+
+---
+
 ## v0.408.0 -- A search that shows you the neighbourhood
 
 **Searching the dependency canvas used to empty it.** It drew the matches and everything

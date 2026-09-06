@@ -6,6 +6,41 @@ The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/),
 
 ## [Unreleased]
 
+## [0.409.0] - 2026-09-07
+
+### Added
+
+- **Highlight the canvas by release gate and by person.** Two pickers beside the
+  search box, drawn from what the plan actually contains — the declared gates and
+  the people the host laid out — so a project with no gates and nobody assigned
+  gets neither control rather than two empty menus that do nothing.
+- **The three lenses combine rather than replace each other.** A node is
+  emphasised only if it satisfies every lens that is on, so "MVP items assigned
+  to Sam" is a question the canvas can answer. Switching between them would let
+  the second control silently cancel the first, which is exactly the behaviour
+  people report as a filter that does not work.
+- `Unassigned` is offered as a person, because it is a real answer to "whose is
+  this?" and the most useful one on a plan nobody has divided up yet.
+- One clear for every lens. Three separate clears is three clicks back to a plan
+  you can read, and the state people want is "show me everything again".
+
+### Fixed
+
+- **A live edge repaint no longer strips the arrows off dimmed nodes.**
+  `rmRedrawEdges` still excluded anything outside the connected set of a search —
+  correct while a search hid nodes, and wrong the moment 0.408.0 stopped hiding
+  them. Dragging anything while a search was active deleted the edges of every
+  node that was on screen but not matched. Only the route filter removes nodes,
+  and only it filters edges.
+
+### Changed
+
+- Emphasis state is not persisted. Which slice of the plan you are looking at is
+  a property of this sitting rather than of the project, and restoring a dimmed
+  canvas on open would read as a bug.
+- Changing a lens does not re-fit the view. The plan has not moved, and a re-fit
+  would discard the pan and zoom you set up to read this part of it.
+
 ## [0.408.0] - 2026-09-06
 
 ### Added
