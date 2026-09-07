@@ -60,6 +60,7 @@ import {
 import { redactSecrets, redactSecretsWithWarning } from '../utils/secretRedactor.js';
 import { readDeliveryConfig } from './deliveryManager.js';
 import { readWorkflowConfig } from './workflowConfig.js';
+import { assessPlannedActionCeilings, describePlannedActionCeilings } from './plannedActionCeiling.js';
 import {
   describeDeliveryPipeline,
   hasPromotionIntent,
@@ -577,6 +578,7 @@ export class Orchestrator {
   private dataPrivacy?: DataPrivacyManager;
   private onClassifiedContentForUntrustedModel?: OrchestratorHooks['onClassifiedContentForUntrustedModel'];
   private readSettingHook?: OrchestratorHooks['readSetting'];
+  private resolveWorkflowStageLevelsHook?: OrchestratorHooks['resolveWorkflowStageLevels'];
 
   constructor(
     private agents: AgentRegistry,
@@ -603,6 +605,7 @@ export class Orchestrator {
     this.onModelSelected = hooks?.onModelSelected;
     this.onClassifiedContentForUntrustedModel = hooks?.onClassifiedContentForUntrustedModel;
     this.readSettingHook = hooks?.readSetting;
+    this.resolveWorkflowStageLevelsHook = hooks?.resolveWorkflowStageLevels;
     this.classifier = new ClassifierService(router, providers, taskProfiler);
     this.cfg = { ...defaultConfig, ...config };
 
@@ -2453,6 +2456,38 @@ export class Orchestrator {
     }
     onProgress?.({ type: 'planned', plan });
 
+    // Authority, before anything is spent on it.
+    //
+    // `plannedActionCeiling` was written for this and was reachable from one
+    // surface: the chat participant, where it contributes an approval reason.
+    // The chat panel, the CLI, the mission runner and the run centre all reach
+    // `processProject` without passing through it — so an unattended run could
+    // plan a merge into a protected branch, spend several model attempts, and
+    // stop at a tool-permission wall it then described as the reason. Every fact
+    // needed to refuse was recorded before the run started.
+    //
+    // Checked here rather than at the four call sites so the guarantee belongs
+    // to the run rather than to whichever surface happened to start it. The
+    // module stays a pure reporter — nothing in it blocks and nothing in it
+    // approves — and the decision to stop is taken here, where the run is.
+    const stageLevels = await (this.resolveWorkflowStageLevelsHook?.().catch(() => undefined));
+    const ceilingReport = assessPlannedActionCeilings({
+      subTasks: plan.subTasks.map(task => ({ id: task.id, title: task.title })),
+      // Passed through as-is: `undefined` is the module's "no workflow declared"
+      // case and means there are no rules to be outside of, which is not the
+      // same as a workflow that permits everything.
+      stageLevels,
+      // A subtask executes with nobody watching, so it needs the top rung. The
+      // same action offered to a person for approval needs only `propose`.
+      unattended: true,
+    });
+    if (ceilingReport.declared && ceilingReport.breaches.length > 0) {
+      const refusal = describePlannedActionCeilings(ceilingReport)
+        ?? 'This project would act beyond what the declared workflow permits unattended.';
+      onProgress?.({ type: 'error', message: refusal });
+      throw new Error(refusal);
+    }
+
     const projectBudget = this.costs.getDailyBudgetStatus(this.estimateProjectCost(plan.subTasks.length, constraints).lowUsd);
     if (projectBudget?.blocked) {
       throw new Error(projectBudget.reason ?? 'AtlasMind blocked project execution because the daily cost limit has been reached.');
@@ -3217,7 +3252,20 @@ export class Orchestrator {
           let skill = this.skills.get(toolCall.name);
           const toolArguments = isJsonObject(toolCall.arguments) ? toolCall.arguments : {};
           if (!isToolAllowedByTurnEnvelope(toolCall.name, toolArguments, context.turnCapabilities)) {
-            const deniedMessage = `Tool "${toolCall.name}" was denied by the user's turn-scoped read-only constraint.`;
+            // Names the gate, and says what it is not.
+            //
+            // This read "denied by the user's turn-scoped read-only
+            // constraint", which is accurate and reads to a model as a blanket
+            // prohibition: one relayed it back as "a security policy preventing
+            // write operations … disables any terminal-run command that
+            // modifies files, including git", and stopped. It is a per-turn
+            // choice, it is the reason *this* call was refused rather than a
+            // statement about the repository, and other routes to the same
+            // outcome may well be open.
+            const deniedMessage = `Tool "${toolCall.name}" was refused: this turn is running read-only, `
+              + 'which is a per-turn choice and not a repository-wide policy. Re-send the request with writes '
+              + 'enabled for the turn if that is what you want. Do not conclude that every write is forbidden — '
+              + 'read-only tools, and any route that does not write locally, are unaffected.';
             await this.toolWebhookDispatcher?.emit({
               event: 'tool.failed',
               timestamp: new Date().toISOString(),

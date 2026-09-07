@@ -2545,7 +2545,11 @@ describe('Orchestrator agentic loop', () => {
     expect(requests[0]?.messages[0]?.content).toContain('workspace writes are disabled');
     expect(requests[0]?.messages[0]?.content).toContain('terminal, shell, package-install, and process-launch tools are disabled');
     expect(runCommand).not.toHaveBeenCalled();
-    expect(result.artifacts?.toolCalls[0]?.resultPreview).toContain('turn-scoped read-only constraint');
+    // The refusal names the gate and says what it is not: a model read the old
+    // wording as a blanket prohibition and stopped, reporting "a security policy
+    // preventing write operations".
+    expect(result.artifacts?.toolCalls[0]?.resultPreview).toContain('this turn is running read-only');
+    expect(result.artifacts?.toolCalls[0]?.resultPreview).toContain('not a repository-wide policy');
   });
 
   it('returns the final completion after a streamed tool-call preamble', async () => {

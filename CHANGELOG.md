@@ -6,6 +6,43 @@ The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/),
 
 ## [Unreleased]
 
+## [0.416.0] - 2026-09-07
+
+### Fixed
+
+- **An autonomous run now checks its own workflow ceiling before it spends
+  anything.** `plannedActionCeiling` was written for exactly this and was
+  reachable from one surface — the chat participant, where it adds an approval
+  reason. The chat panel, the CLI, the mission runner and the run centre all
+  reach `processProject` without passing through it. Observed: "pr to main / test
+  and merge" against a project declaring `main` protected and its Release and
+  Pull-request stages at `observe` produced three runs, about £0.28, an attempted
+  local merge into the protected branch, and a misattributed refusal. Every fact
+  needed to refuse was recorded before the first run started.
+- The assessment now happens inside `processProject`, after planning and before
+  any execution, so the guarantee belongs to the run rather than to whichever
+  surface started it. The module stays a pure reporter — nothing in it blocks and
+  nothing in it approves — and the decision to stop is taken by the caller.
+- Stage levels arrive through a new `resolveWorkflowStageLevels` hook rather than
+  `readSetting`, because the rule is `min(master, ceiling, capability, stage)`
+  resolved **most restrictively across scopes** so a workspace file cannot raise a
+  ceiling the user set. That needs `inspect()`, which only the editor host has.
+  The host hands over the same resolver the chat participant uses, so a plan
+  cannot be refused in chat and permitted by an autonomous run.
+- **The planner can now name `github-operator`.** It was absent from the role
+  vocabulary, so the model could not choose it however well the goal matched: a
+  GitHub task went to `general-assistant`, which improvised
+  `git checkout main && git merge && git push` while the correct command was
+  already documented three lines above in the same prompt. The planner is also
+  told not to plan a local merge into a protected branch, and that merging a pull
+  request is `gh pr merge <number>` as its own approval-gated step.
+- **A read-only refusal says what it is not.** "Denied by the user's turn-scoped
+  read-only constraint" is accurate and reads to a model as a blanket
+  prohibition: one relayed it back as "a security policy preventing write
+  operations … disables any terminal-run command that modifies files, including
+  git", and stopped. It now says the read-only state is a per-turn choice rather
+  than a repository policy, and that other routes are unaffected.
+
 ## [0.415.0] - 2026-09-07
 
 ### Fixed

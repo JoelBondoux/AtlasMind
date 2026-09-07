@@ -1068,7 +1068,7 @@ async function buildWorkflowNoticeForChat(
  * Never throws. This decides whether to *add* an approval reason, and a check
  * that took a run down would be worse than the gap it closes.
  */
-async function resolveWorkflowStageLevelsForRun(): Promise<
+export async function resolveWorkflowStageLevelsForRun(): Promise<
   Record<string, import('../core/workflowAutomation.js').AutomationLevel> | undefined
 > {
   try {

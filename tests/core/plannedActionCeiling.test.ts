@@ -1,3 +1,5 @@
+import { readFileSync } from 'node:fs';
+import path from 'node:path';
 import { describe, expect, it } from 'vitest';
 import {
   assessPlannedActionCeilings,
@@ -140,5 +142,46 @@ describe('the stage mapping is shared, not copied', () => {
     expect(byId.get('a')?.stageId).toBe(stageForGovernedAction('pull-request'));
     expect(byId.get('b')?.stageId).toBe(stageForGovernedAction('branch'));
     expect(byId.get('c')?.stageId).toBe(stageForGovernedAction('release'));
+  });
+});
+
+describe('the check belongs to the run, not to the surface that started it', () => {
+  const ORCHESTRATOR = readFileSync(path.join(process.cwd(), 'src/core/orchestrator.ts'), 'utf8');
+  const TYPES = readFileSync(path.join(process.cwd(), 'src/types.ts'), 'utf8');
+  const EXTENSION = readFileSync(path.join(process.cwd(), 'src/extension.ts'), 'utf8');
+
+  it('processProject assesses ceilings before it spends anything', () => {
+    // It was reachable only from the chat participant. The chat panel, the CLI,
+    // the mission runner and the run centre all reach processProject without
+    // passing through it, so an unattended run could plan a merge into a
+    // protected branch and discover a tool-permission wall several model
+    // attempts later.
+    const body = ORCHESTRATOR.slice(ORCHESTRATOR.indexOf('async processProject('));
+    const assess = body.indexOf('assessPlannedActionCeilings(');
+    const execute = body.indexOf('scheduler.execute(');
+    expect(assess, 'processProject must assess ceilings').toBeGreaterThan(-1);
+    expect(assess, 'the assessment must come before execution').toBeLessThan(execute);
+  });
+
+  it('stops the run on a breach rather than adding a note to it', () => {
+    const body = ORCHESTRATOR.slice(ORCHESTRATOR.indexOf('async processProject('));
+    expect(body).toContain('ceilingReport.declared && ceilingReport.breaches.length > 0');
+    expect(body).toContain('throw new Error(refusal)');
+  });
+
+  it('treats a subtask as unattended, which needs the top rung', () => {
+    const body = ORCHESTRATOR.slice(ORCHESTRATOR.indexOf('async processProject('));
+    expect(body).toContain('unattended: true');
+  });
+
+  it('takes the levels from the host, because the rule needs inspect()', () => {
+    // `min(master, ceiling, capability, stage)` is resolved most restrictively
+    // across scopes so a workspace file cannot raise a ceiling the user set.
+    // Only the editor host can see scopes, so it is a hook rather than a
+    // `readSetting` call — and the host hands over the *same* resolver the chat
+    // participant uses, so a plan cannot be refused in chat and permitted here.
+    expect(TYPES).toContain('resolveWorkflowStageLevels?:');
+    expect(EXTENSION).toContain('resolveWorkflowStageLevels: async ()');
+    expect(EXTENSION).toContain('resolveWorkflowStageLevelsForRun');
   });
 });

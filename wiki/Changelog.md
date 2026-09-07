@@ -19,6 +19,41 @@ Older entries below describe the software as it was at the time and are delibera
 
 ---
 
+## v0.416.0 -- Refuse in the first second, not after four model attempts
+
+Asked to "test and merge" a pull request into `main`, an autonomous run took three attempts
+and about £0.28, planned `git checkout main && git merge && git push` against a branch the
+project declares protected, and finished by reporting "a security policy preventing write
+operations". Every fact needed to refuse was already recorded: `main` protected in
+`delivery.json`, the Release and Pull-request stages at `observe`, and a staging stage the
+request bypassed.
+
+**The check existed and only one surface used it.** `plannedActionCeiling` was written for
+this case — its own header describes a plan that pushed to origin against stages declared
+`observe` — and was called only from the chat participant. The chat panel, the CLI, the
+mission runner and the run centre all start a project run without it. It now runs inside the
+run itself, after planning and before anything executes, so the guarantee belongs to the run
+rather than to whichever surface happened to start it.
+
+The stage levels come from the editor host rather than a plain settings read, because the
+rule is resolved *most restrictively across scopes* — a workspace file must not raise a
+ceiling the user set — and only the host can see scopes. It hands over the same resolver the
+chat participant uses, so a plan cannot be refused in chat and permitted by an autonomous
+run.
+
+**The planner could not name the role that knew better.** `github-operator` was absent from
+the role vocabulary, so GitHub work went to the general assistant — which improvised local
+git while `gh pr merge <number>` sat documented three lines above in the same prompt. It is
+now nameable, and the planner is told that merging a pull request is that command as its own
+approval-gated step, never a local merge into a protected branch.
+
+**And a read-only turn now says what it is not.** "Denied by the user's turn-scoped read-only
+constraint" is accurate, and a model read it as a blanket prohibition and stopped. It now says
+this is a per-turn choice rather than a repository policy, and that other routes are
+unaffected.
+
+---
+
 ## v0.415.0 -- Chat opens where you keep chat
 
 A prompt handed to chat from a panel opened a detached editor tab. Every hand-off — a

@@ -3,22 +3,14 @@ This file is the developer-facing backlog AtlasMind should absorb into SSOT and 
 > Priority order matters: items nearer the top receive more weight, but AtlasMind should still weigh criticality, security, architecture, delivery risk, and fresh execution evidence before choosing the next task.
 ## Prioritized Backlog
 <!-- atlasmind:roadmap-items:start -->
+- [ ] Add a way to manually and automatically sync github sponsors to the contributors md files using some pre-built and manual rulesets. This may need a new dashboard page.
 - [ ] **Async / ambient background agents** — "works while you're away," triggered by repo events (new issue, failing CI, dependency CVE) rather than chat. Architectural ask: an event bus agents subscribe to. Seeded by the remote-control server and scheduled-agents backlog item. #mvp <!-- rm:async-ambient-background-age -->
 - [ ] **Utilities:** Auth, Payments, Email, Analytics, i18n, Accessibility #mvp #critical <!-- rm:utilities-auth-payments-emai -->
-- [ ] When onboarding a new project an early stage user prompt should be given to write in their own words the outline, outcome or ambition of the project. This can then be parsed by AM to the Ideation board, and then to a roadmap filling out all the associated files as well. #mvp <!-- rm:when-onboarding-a-new-projec -->
 - [ ] **Semantic codebase index (`@codebase` / embeddings RAG):** Vector index over actual source so agents retrieve relevant code, not just remembered SSOT decisions. Local embedding option (Ollama) keeps it bring-your-own-model and privacy-friendly. Biggest single capability gap; benefits all personas. #mvp #critical <!-- rm:semantic-codebase-index-code -->
 - [ ] Eval / regression harness for agents: pin "golden" tasks and detect when an agent definition or model swap regresses quality (mitigates the risk of the auto-update cadence). <!-- rm:eval-regression-harness-for -->
+- [ ] When onboarding a new project an early stage user prompt should be given to write in their own words the outline, outcome or ambition of the project. This can then be parsed by AM to the Ideation board, and then to a roadmap filling out all the associated files as well. #mvp <!-- rm:when-onboarding-a-new-projec -->
 - [ ] The number of agents being used (and not used) should impact the project score. The dash, should, however, identify when models and providers are having issues. #mvp <!-- rm:the-number-of-agents-being-u -->
-- [x] When you click Add Item in the Roadmap dassh, the focus should be taken down to the new entry form #mvp <!-- rm:when-you-click-add-item-in-t -->
-- [x] The Roadmap Editable Queue panel could be larger, as it only shows a couple of entries at a time. Also, when clicking and dragging, the list should change to a title only list so it becomes easier to slide the entries in the order you want. <!-- rm:the-roadmap-editable-queue-p -->
 - [ ] The ACP connection to subscribed providers has stopped working. #mvp #critical <!-- rm:the-acp-connection-to-subscr -->
-- [x] The roadmap editable queue should be searchable. <!-- rm:the-roadmap-editable-queue-s -->
-- [x] When adding an item to the roadmap, the editable queue entry form should also allow the selecting of a gate, tag, and a assigned user. Also the text box could be 400% bigger. <!-- rm:when-adding-an-item-to-the-r -->
-- [x] In the Project Manager Dash, the chips at the top of teh screen showing the delivery stages and their version number. If clicked on they should invite teh user to make the current branch. If the current branch is one of these then it should be highlighted with a coloured outline. <!-- rm:in-the-project-manager-dash -->
-- [x] Allow the roadmap canvas to highlight nodes based on gates and users. <!-- rm:allow-the-roadmap-canvas-to -->
-- [x] If you double click on a roadmap canvas node then you zoom into it. #mvp <!-- rm:if-you-double-click-on-a-roa -->
-- [x] The search functionality on the roadmap flowcharts should identify the roadmap nodes, but keep the other nodes greyted out so the user can still see dependancies. If they click on a node the same functionality as currently exists takes over. <!-- rm:the-search-functionality-on -->
-- [x] The delivered Roadmap flow chart should have the exact same functgionality as the dependancy canvas. <!-- rm:the-delivered-roadmap-flow-c -->
 - [ ] The ui Studio should be able to tell where ui elements can be added and have them selectable so new or existing UI elements can be edited. #mvp <!-- rm:the-ui-studio-should-be-able -->
 - [ ] The UI Studio should be able to read the repo and allow the user to select any of the discovered UI surfaces and work on them directly with a rendered output to work with. #mvp <!-- rm:the-ui-studio-should-be-able-2 -->
 - [ ] **Game Dev (Phase 1 foundation delivered; scoped consumers next):** Unity, Unreal, Godot, Web-based — specified in [project-composition.md](project-composition.md); phased plan in [`project_memory/roadmap/game-engine-integration.md`](../project_memory/roadmap/game-engine-integration.md). <!-- rm:game-dev-unity-unreal-godot -->
@@ -62,6 +54,15 @@ This file is the developer-facing backlog AtlasMind should absorb into SSOT and 
 - [ ] **Sandboxed execution + worktree isolation** — the unlock that lets every other autonomy feature ship safely. #mvp <!-- rm:sandboxed-execution-worktree -->
 - [ ] **PR-native GitHub automation.** Now tracked as Tier 2–3 of [the guided GitHub workflow](../project_memory/roadmap/guided-github-workflow.md) rather than as a separate bet — real `gh`-backed PR creation, CI-check review, and conflict triage, beyond today's git primitives. <!-- rm:pr-native-github-automation -->
 - [ ] **Parallel "command center" UX (net-new framing).** A multi-lane view of N concurrent runs/worktrees with per-lane status and diff/approve, making parallel fan-out legible — complements the single-run Mission Control / Project Run Center. <!-- rm:parallel-command-center-ux-n -->
+- [x] When you click Add Item in the Roadmap dassh, the focus should be taken down to the new entry form #mvp <!-- rm:when-you-click-add-item-in-t -->
+- [x] The Roadmap Editable Queue panel could be larger, as it only shows a couple of entries at a time. Also, when clicking and dragging, the list should change to a title only list so it becomes easier to slide the entries in the order you want. <!-- rm:the-roadmap-editable-queue-p -->
+- [x] The roadmap editable queue should be searchable. <!-- rm:the-roadmap-editable-queue-s -->
+- [x] When adding an item to the roadmap, the editable queue entry form should also allow the selecting of a gate, tag, and a assigned user. Also the text box could be 400% bigger. <!-- rm:when-adding-an-item-to-the-r -->
+- [x] In the Project Manager Dash, the chips at the top of teh screen showing the delivery stages and their version number. If clicked on they should invite teh user to make the current branch. If the current branch is one of these then it should be highlighted with a coloured outline. <!-- rm:in-the-project-manager-dash -->
+- [x] Allow the roadmap canvas to highlight nodes based on gates and users. <!-- rm:allow-the-roadmap-canvas-to -->
+- [x] If you double click on a roadmap canvas node then you zoom into it. #mvp <!-- rm:if-you-double-click-on-a-roa -->
+- [x] The search functionality on the roadmap flowcharts should identify the roadmap nodes, but keep the other nodes greyted out so the user can still see dependancies. If they click on a node the same functionality as currently exists takes over. <!-- rm:the-search-functionality-on -->
+- [x] The delivered Roadmap flow chart should have the exact same functgionality as the dependancy canvas. <!-- rm:the-delivered-roadmap-flow-c -->
 - [x] Pay down: Property-Based is enabled with no evidence it runs <!-- rm:pay-down-property-based-is-e -->
 - [x] Pay down: performance is enabled with no evidence it runs <!-- rm:pay-down-performance-is-enab -->
 - [x] Pay down: mutation Testing is enabled with no evidence it runs <!-- rm:pay-down-mutation-testing-is -->

@@ -4,7 +4,7 @@
 
 <h1 align="center">AtlasMind</h1>
 
-<p align="center"><sub> · <strong>Current source version: 0.415.0</strong> · </sub></p>
+<p align="center"><sub> · <strong>Current source version: 0.416.0</strong> · </sub></p>
 
 
 <p align="center">
@@ -136,6 +136,22 @@ allow-list, redaction and file-withholding behaviour, retained metadata, provide
 important limits on overrides and compliance claims.
 
 ---
+
+## What's new in 0.416.0
+
+**An autonomous run now refuses work its own workflow forbids, before spending anything.**
+Asking one to merge into a protected branch used to produce several model attempts, a
+local `git merge` it was never allowed to make, and a refusal blaming the wrong thing —
+while the project's declared stages had said no all along. The check already existed and
+was reachable from one surface; it now belongs to the run, so the chat panel, the CLI, the
+mission runner and the run centre all get it.
+
+**The planner can name the `github-operator` role.** It was missing from the role list, so
+GitHub work went to the general assistant, which improvised local git commands while the
+correct `gh pr merge` was documented in the same prompt.
+
+**A read-only turn says what it is not.** The old refusal read to a model as a blanket ban
+on writing, so it stopped and reported a "security policy" that does not exist.
 
 ## What's new in 0.415.0
 

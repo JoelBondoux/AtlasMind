@@ -2282,6 +2282,12 @@ async function bootstrapAtlasMind(
       hooks: {
         readSetting: <T>(key: string, fallback: T) =>
           vscode.workspace.getConfiguration('atlasmind').get<T>(key, fallback),
+        // The same resolution the chat participant uses, so a plan cannot be
+        // refused in chat and permitted by an autonomous run.
+        resolveWorkflowStageLevels: async () => {
+          const { resolveWorkflowStageLevelsForRun } = await import('./chat/participant.js');
+          return resolveWorkflowStageLevelsForRun();
+        },
         toolApprovalGate,
         generatedSkillApprovalGate,
         writeCheckpointHook,
