@@ -19,6 +19,29 @@ Older entries below describe the software as it was at the time and are delibera
 
 ---
 
+## v0.423.0 -- A status document for people who don't open VS Code
+
+Everything good about the project manager was invisible to the people who most need it — a producer, a
+client, a technical director — because a panel is the wrong container for an audience that isn't in
+the panel. The producer's report is the fix: roadmap progress by gate, open risks and their recorded
+decisions, delivery readiness, and cost against estimate, as markdown and a single self-contained HTML
+page.
+
+Built as gather → model → render, with the model emitted alongside the document so the planned GitHub
+Pages portal can consume it later rather than being a rewrite.
+
+**No model writes any of it.** The same project state produces a byte-identical report, and the clock
+is injected — otherwise every run would differ and drown the real changes. A generated status summary
+is a claim nobody checked, in a committed file, attributed to the project, and this is the document
+most likely to be forwarded to somebody who cannot check it.
+
+**And a section that could not be read says so.** *Not assessed* and *none recorded* render
+differently, because a report about a project with eleven open risks must not look identical to one
+whose risk register could not be read. The HTML carries no script, link, image or URL, so it opens
+from an email attachment or a memory stick.
+
+---
+
 ## v0.422.0 -- What did this feature cost?
 
 The join nobody else has. An issue tracker cannot see tokens; a cost tracker cannot see a plan.

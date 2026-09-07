@@ -6,6 +6,47 @@ The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/),
 
 ## [Unreleased]
 
+## [0.423.0] - 2026-09-07
+
+### Added
+
+- **`src/core/producerReport.ts` — the project's status as a document somebody without
+  VS Code can read.** Roadmap item `NOW-3`, and the fix for the project manager's
+  structural problem: everything good about it is invisible to a producer, a client or a
+  technical director, because a panel is the wrong container for an audience that is not
+  in the panel.
+
+  **Three layers, separated on purpose:** *gather* (the caller reads the managers) →
+  *model* (`ProducerReportData`) → *render* (markdown, and a self-contained HTML page).
+  The model is emitted alongside the rendered document so the planned GitHub Pages portal
+  (`NOW-4`) can consume it without this being rebuilt — the difference between a portal
+  being a renderer and a portal being a rewrite. It also gives the MCP roadmap server
+  (`NXT-7`) something to serve without a second gatherer.
+
+  **No model output anywhere in the path.** The same project state produces a
+  byte-identical report, asserted by test. A generated status summary is a claim nobody
+  checked, written into a committed file and attributed to the project — and this is the
+  document most likely to be forwarded to somebody who cannot check it. The clock is
+  injected for the same reason: `new Date()` inside would make every run differ and drown
+  a real change in noise.
+
+  **A section that could not be gathered says so.** Every input is optional; `undefined`
+  means *not assessed* and `[]` means *looked, found none*, and the two render
+  differently. Omitting an unavailable section would let a report about a project with
+  eleven open risks look identical to one whose risk register could not be read, which is
+  the specific way a status document becomes worse than none. A risk with no recorded
+  decision says so rather than reading as handled.
+
+  **Nothing here decides what may be published** — which sections are safe at a public URL
+  is the caller's decision against repository visibility, so a section cannot leak merely
+  by being added to the model.
+
+  The HTML is one file with **no script, link, image or URL of any kind**, because it has
+  to open from an email attachment or a memory stick — wherever the person who needs it
+  actually is. Everything interpolated is escaped, since risk titles and roadmap text can
+  be imported from third-party trackers. An absent estimate renders as a dash, never
+  `$0.00`, and unattributed spend is stated rather than folded into item totals.
+
 ## [0.422.0] - 2026-09-07
 
 ### Added
