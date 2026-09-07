@@ -19,6 +19,16 @@ Older entries below describe the software as it was at the time and are delibera
 
 ---
 
+## v0.420.11 -- Nine items on the backlog
+
+Author-added: an approval flow from ideas through to roadmap, documentation, legal and commercial
+changes; richer commit content for workflow and analytics mapping; Gantt, milestone and critical-path
+tracking; a team-management surface for workload, estimates and rotas; a bug tracker and a
+test-management interface for the PM dashboard; a Kanban board; wider baseline comparison; and a
+commit-message action in the Source Control panel.
+
+---
+
 ## v0.420.10 -- What the portal may publish, decided
 
 `NOW-4` now specifies its publishing default rather than proposing one. Public: roadmap progress by

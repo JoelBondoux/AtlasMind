@@ -4,7 +4,7 @@
 > `improvement-plan.md`; this file holds the deadlines, estimates, branch names
 > and dependency links that a markdown checkbox cannot carry.
 
-Last updated: 2026-09-07T20:01:10.060Z
+Last updated: 2026-09-07T20:43:29.578Z
 
 Suggested links: on — AtlasMind proposes links, and nothing is applied until somebody accepts it
 
@@ -135,6 +135,12 @@ Layout: vertical — the tree runs top to bottom. Nodes moved by hand keep their
 | `on-device-frontier-class-mod` | `offer-a-capability-you-are-c` | accepted suggestion (shared-subject-phase) | 2026-09-07 · contact-email-joelbondoux-net-1 |
 | `pr-native-github-automation` | `offer-a-capability-you-are-c` | accepted suggestion (shared-subject-phase) | 2026-09-07 · contact-email-joelbondoux-net-1 |
 | `pay-down-performance-is-enab` | `offer-a-capability-you-are-c` | accepted suggestion (shared-subject-phase) | 2026-09-07 · contact-email-joelbondoux-net-1 |
+| `pr-native-github-automation` | `either-have-a-built-in-gnatt` | accepted suggestion (shared-subject-phase) | 2026-09-07 · contact-email-joelbondoux-net-1 |
+| `the-guided-github-workflow-o` | `either-have-a-built-in-gnatt` | accepted suggestion (shared-subject-phase) | 2026-09-07 · contact-email-joelbondoux-net-1 |
+| `extend-the-test-surface-to-h` | `team-management-surface-to-m` | accepted suggestion (shared-subject-phase) | 2026-09-07 · contact-email-joelbondoux-net-1 |
+| `extend-the-test-surface-to-h` | `offer-a-capability-you-are-c` | accepted suggestion (shared-subject-phase) | 2026-09-07 · contact-email-joelbondoux-net-1 |
+| `pr-native-github-automation` | `explore-a-github-pages-hoste` | accepted suggestion (shared-subject-phase) | 2026-09-07 · contact-email-joelbondoux-net-1 |
+| `the-guided-github-workflow-o` | `explore-a-github-pages-hoste` | accepted suggestion (shared-subject-phase) | 2026-09-07 · contact-email-joelbondoux-net-1 |
 
 ## How a link gets suggested
 

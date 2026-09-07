@@ -6,6 +6,22 @@ The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/),
 
 ## [Unreleased]
 
+## [0.420.11] - 2026-09-07
+
+### Added
+
+- **Nine backlog items, author-added.** An approval flow for changes moving from ideas to
+  roadmap, documentation, legal and commercial; richer commit content so workflows and
+  analytics can be mapped to it; Gantt / milestone / critical-path tracking or a generated
+  GitHub project tracker; a team-management surface for workload, estimates and rotas; a
+  bug tracker for the PM dashboard; a test-management interface for testing teams; a
+  Kanban board, built in or via GitHub Projects; wider baseline comparison; and an
+  AtlasMind action in the Source Control panel that drafts a commit message.
+
+  Recorded as they were written. Several are producer-console shaped and overlap
+  `ROADMAP.md`'s `NXT-9`; sequencing them against it is a separate pass, not a silent
+  edit.
+
 ## [0.420.10] - 2026-09-07
 
 ### Changed

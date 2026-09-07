@@ -3,12 +3,21 @@ This file is the developer-facing backlog AtlasMind should absorb into SSOT and 
 > Priority order matters: items nearer the top receive more weight, but AtlasMind should still weigh criticality, security, architecture, delivery risk, and fresh execution evidence before choosing the next task.
 ## Prioritized Backlog
 <!-- atlasmind:roadmap-items:start -->
-- [ ] Sometimes when deleting all sessions in AM chat window, the chat history of an old session stays on the screen and doesn't refresh to a blank chat. #mvp #critical
+- [ ] Add an approval flow system for changes, ideas -> roadmaps, documentation, legal and commercial changes. #mvp <!-- rm:add-an-approval-flow-system -->
 - [ ] **Async / ambient background agents** — "works while you're away," triggered by repo events (new issue, failing CI, dependency CVE) rather than chat. Architectural ask: an event bus agents subscribe to. Seeded by the remote-control server and scheduled-agents backlog item. #mvp <!-- rm:async-ambient-background-age -->
+- [ ] Create more smart content in commits so workflows and analytics can be mapped to them. #mvp <!-- rm:create-more-smart-content-in -->
+- [ ] Either have a built in gnatt progress, milestone, critical path, roadmap tracker or feed it into an automatrically created Github project tracker. #mvp <!-- rm:either-have-a-built-in-gnatt -->
+- [ ] Team management surface to manage workload, estimated work times, rotas, and integrate with common rota management applications. <!-- rm:team-management-surface-to-m -->
+- [ ] We need a Bug Tracking system for the PM dash. #mvp <!-- rm:we-need-a-bug-tracking-syste -->
+- [ ] Extend the test surface to have a test management interface for testing teams. Create test cases, have discreet context for tests assets that are name associated to testers #mvp <!-- rm:extend-the-test-surface-to-h -->
 - [ ] **Utilities:** Auth, Payments, Email, Analytics, i18n, Accessibility #mvp #critical <!-- rm:utilities-auth-payments-emai -->
-- [ ] Explore a github pages hosted (within the host repo) web portal for AM Project Manager. #mvp
 - [ ] **Semantic codebase index (`@codebase` / embeddings RAG):** Vector index over actual source so agents retrieve relevant code, not just remembered SSOT decisions. Local embedding option (Ollama) keeps it bring-your-own-model and privacy-friendly. Biggest single capability gap; benefits all personas. #mvp #critical <!-- rm:semantic-codebase-index-code -->
 - [ ] Eval / regression harness for agents: pin "golden" tasks and detect when an agent definition or model swap regresses quality (mitigates the risk of the auto-update cadence). <!-- rm:eval-regression-harness-for -->
+- [ ] Add a built-in or utilise Git-Hub projects Kanban board. #mvp <!-- rm:add-a-built-in-or-utilise-gi -->
+- [ ] expand baseline comparrison features. <!-- rm:expand-baseline-comparrison -->
+- [ ] Add an AM logo to the generic Source Control side panel next to the icon "Create Pull Request" to have AM generate a commit message. <!-- rm:add-an-am-logo-to-the-generi -->
+- [ ] Sometimes when deleting all sessions in AM chat window, the chat history of an old session stays on the screen and doesn't refresh to a blank chat. #mvp #critical <!-- rm:sometimes-when-deleting-all -->
+- [ ] Explore a github pages hosted (within the host repo) web portal for AM Project Manager. #mvp <!-- rm:explore-a-github-pages-hoste -->
 - [ ] The Lens surfaces are not all accessible as they need a file selected. #mvp <!-- rm:the-lens-surfaces-are-not-al -->
 - [ ] On the roadmap and ideation canvases allow for a drag box to select a number of nodes to allow them all to be moved together. #mvp <!-- rm:on-the-roadmap-and-ideation -->
 - [ ] I think CTRL-MouseScroll on the project dashboard should zoom in/out in the same way that chromium browsers work. <!-- rm:i-think-ctrl-mousescroll-on -->

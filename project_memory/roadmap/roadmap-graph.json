@@ -169,10 +169,6 @@
     {
       "id": "scheduled-background-autonom",
       "normalizedText": "scheduled / background autonomous agents — cron-style and background runs that report back (e.g. nightly dependency-update + test routine), building on existing `/ship` routines.",
-      "position": {
-        "x": 2332,
-        "y": 807
-      },
       "imported": {
         "kind": "markdown",
         "sourceId": "docs/roadmap.md::scheduled background autonomous agents cron style and background runs that report back e g nightly dependency update test routine building on existing ship routines",
@@ -184,10 +180,6 @@
     {
       "id": "the-guided-github-workflow-o",
       "normalizedText": "**the guided github workflow** — one canonical, deterministic, eight-stage workflow (issue intake → branch → develop → pr → ci → release → maintenance → automation), surfaced as a teaching-and-instrumentation page on the project dashboard and adapting to the project's enabled testing protocols.…",
-      "position": {
-        "x": 5839,
-        "y": 13
-      },
       "imported": {
         "kind": "markdown",
         "sourceId": "docs/roadmap.md::the guided github workflow one canonical deterministic eight stage workflow issue intake branch develop pr ci release maintenance automation surfaced as a teaching and instrumentation page on the project dashboard and adapting to the project s enabled testing protocols",
@@ -288,10 +280,6 @@
     {
       "id": "explain-this-codebase-this-f",
       "normalizedText": "\"explain this codebase / this file\" onboarding mode: guided tours generated from ssot for unfamiliar code.",
-      "position": {
-        "x": 1116,
-        "y": 803
-      },
       "imported": {
         "kind": "markdown",
         "sourceId": "docs/roadmap.md::explain this codebase this file onboarding mode guided tours generated from ssot for unfamiliar code",
@@ -325,10 +313,6 @@
     {
       "id": "project-templates-scaffolds",
       "normalizedText": "project templates / scaffolds beyond `/bootstrap`: pick a stack, get a working starter with tests and ci wired in (complements the prefab architecture packs above).",
-      "position": {
-        "x": 4232,
-        "y": 437
-      },
       "imported": {
         "kind": "markdown",
         "sourceId": "docs/roadmap.md::project templates scaffolds beyond bootstrap pick a stack get a working starter with tests and ci wired in complements the prefab architecture packs above",
@@ -340,10 +324,6 @@
     {
       "id": "reasoning-budget-as-a-first",
       "normalizedText": "**reasoning-budget as a first-class routing axis** — extend budget + speed routing with a third \"how hard to think\" axis for extended-thinking / test-time-compute models. natural home: taskprofiler. builds on the existing cache-aware, capability-sourced routing work.",
-      "position": {
-        "x": 4133,
-        "y": 779
-      },
       "imported": {
         "kind": "markdown",
         "sourceId": "docs/roadmap.md::reasoning budget as a first class routing axis extend budget speed routing with a third how hard to think axis for extended thinking test time compute models natural home taskprofiler builds on the existing cache aware capability sourced routing work",
@@ -498,10 +478,6 @@
     {
       "id": "promote-worktree-isolation-t",
       "normalizedText": "**promote worktree isolation toward near-term.** atlasmind already runs parallel subtask batches (`taskscheduler.ts`, `promise.all`, cap 5) but on a **single shared working tree** — a latent write-race that is a correctness bug under the safety-first rule. worktree-per-batch isolation…",
-      "position": {
-        "x": 1708,
-        "y": 788
-      },
       "imported": {
         "kind": "markdown",
         "sourceId": "docs/roadmap.md::promote worktree isolation toward near term atlasmind already runs parallel subtask batches taskscheduler ts promise all cap 5 but on a single shared working tree a latent write race that is a correctness bug under the safety first rule worktree per batch isolation",
@@ -513,10 +489,6 @@
     {
       "id": "pr-native-github-automation",
       "normalizedText": "**pr-native github automation.** now tracked as tier 2–3 of [the guided github workflow](../project_memory/roadmap/guided-github-workflow.md) rather than as a separate bet — real `gh`-backed pr creation, ci-check review, and conflict triage, beyond today's git primitives.",
-      "position": {
-        "x": 3299,
-        "y": 780
-      },
       "imported": {
         "kind": "markdown",
         "sourceId": "docs/roadmap.md::pr native github automation now tracked as tier 2 3 of the guided github workflow project memory roadmap guided github workflow md rather than as a separate bet real gh backed pr creation ci check review and conflict triage beyond today s git primitives",
@@ -528,10 +500,6 @@
     {
       "id": "parallel-command-center-ux-n",
       "normalizedText": "**parallel \"command center\" ux (net-new framing).** a multi-lane view of n concurrent runs/worktrees with per-lane status and diff/approve, making parallel fan-out legible — complements the single-run mission control / project run center.",
-      "position": {
-        "x": 1438,
-        "y": 790
-      },
       "imported": {
         "kind": "markdown",
         "sourceId": "docs/roadmap.md::parallel command center ux net new framing a multi lane view of n concurrent runs worktrees with per lane status and diff approve making parallel fan out legible complements the single run mission control project run center",
@@ -610,10 +578,6 @@
       "id": "pay-down-performance-is-enab",
       "normalizedText": "pay down: performance is enabled with no evidence it runs",
       "addedAt": "2026-09-02T23:21:31.502Z",
-      "position": {
-        "x": 3825,
-        "y": 776
-      },
       "origin": {
         "kind": "debt",
         "sourceId": "test:project_memory/index/testing-config.json:performance-is-enabled-with-no-evidence-it-runs",
@@ -1191,10 +1155,64 @@
       "evidence": "both mention “evidence” and “runs” and “enabled”",
       "createdAt": "2026-09-07T19:59:06.435Z",
       "createdBy": "contact-email-joelbondoux-net-1"
+    },
+    {
+      "from": "pr-native-github-automation",
+      "to": "either-have-a-built-in-gnatt",
+      "origin": "declared",
+      "rule": "shared-subject-phase",
+      "evidence": "both mention “roadmap” and “github” and “project”",
+      "createdAt": "2026-09-07T20:43:21.894Z",
+      "createdBy": "contact-email-joelbondoux-net-1"
+    },
+    {
+      "from": "the-guided-github-workflow-o",
+      "to": "either-have-a-built-in-gnatt",
+      "origin": "declared",
+      "rule": "shared-subject-phase",
+      "evidence": "both mention “github” and “project”",
+      "createdAt": "2026-09-07T20:43:21.894Z",
+      "createdBy": "contact-email-joelbondoux-net-1"
+    },
+    {
+      "from": "extend-the-test-surface-to-h",
+      "to": "team-management-surface-to-m",
+      "origin": "declared",
+      "rule": "shared-subject-phase",
+      "evidence": "both mention “management” and “surface”",
+      "createdAt": "2026-09-07T20:43:21.894Z",
+      "createdBy": "contact-email-joelbondoux-net-1"
+    },
+    {
+      "from": "extend-the-test-surface-to-h",
+      "to": "offer-a-capability-you-are-c",
+      "origin": "declared",
+      "rule": "shared-subject-phase",
+      "evidence": "both mention “context” and “name”",
+      "createdAt": "2026-09-07T20:43:21.894Z",
+      "createdBy": "contact-email-joelbondoux-net-1"
+    },
+    {
+      "from": "pr-native-github-automation",
+      "to": "explore-a-github-pages-hoste",
+      "origin": "declared",
+      "rule": "shared-subject-phase",
+      "evidence": "both mention “github” and “project”",
+      "createdAt": "2026-09-07T20:43:21.894Z",
+      "createdBy": "contact-email-joelbondoux-net-1"
+    },
+    {
+      "from": "the-guided-github-workflow-o",
+      "to": "explore-a-github-pages-hoste",
+      "origin": "declared",
+      "rule": "shared-subject-phase",
+      "evidence": "both mention “github” and “project”",
+      "createdAt": "2026-09-07T20:43:21.894Z",
+      "createdBy": "contact-email-joelbondoux-net-1"
     }
   ],
   "suggestLinks": true,
   "dismissed": [],
   "layoutOrientation": "vertical",
-  "updatedAt": "2026-09-07T20:01:10.060Z"
+  "updatedAt": "2026-09-07T20:43:29.578Z"
 }
