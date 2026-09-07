@@ -19,6 +19,32 @@ Older entries below describe the software as it was at the time and are delibera
 
 ---
 
+## v0.421.0 -- Cost you can attribute, and re-price
+
+The foundation the roadmap's `Now` waits on. Two fields, and a module deciding what may honestly be
+said about them.
+
+**Every cost record now carries the workspace it came from.** History is stored per machine, so until
+now every project's spend was in one undifferentiated list and "what did this project cost" was not a
+missing feature but an uncomputable question. The key is normalized by one shared function, because
+cost records and run records are joined on it and two normalizers would eventually disagree about a
+trailing slash — the join would match nothing and every project would report zero, which looks like
+missing data rather than a broken key.
+
+**Cache writes are recorded separately from cache reads.** They are priced in opposite directions — a
+read is cheaper than an ordinary input token, a write is dearer — so two requests with identical
+input totals can differ in real cost by a multiple. The value was already in hand and discarded: the
+Anthropic adapter parsed it, folded it into the total, and dropped it one line later. Because a sum
+cannot be taken apart afterwards, older records are permanently un-repriceable rather than
+repairable, which is why this had to land first.
+
+**And the rule that keeps the eventual saving claim honest: an absent field is unknown, never zero.**
+A missing write count defaulted to zero would price a cache-heavy request as though it wrote nothing
+— understating the comparison in exactly the direction that flatters us. Such records are graded
+*partial*: real money, counted in actual spend, barred from a savings claim.
+
+---
+
 ## v0.420.11 -- Nine items on the backlog
 
 Author-added: an approval flow from ideas through to roadmap, documentation, legal and commercial

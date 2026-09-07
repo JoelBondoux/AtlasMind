@@ -6,6 +6,58 @@ The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/),
 
 ## [Unreleased]
 
+## [0.421.0] - 2026-09-07
+
+### Added
+
+- **Cost records can now be attributed to a project and re-priced against another
+  model** — roadmap item `NOW-1`, the foundation the rest of `Now` waits on.
+
+  **`workspaceKey` on every cost record.** Cost history persists to VS Code
+  `globalState`, which is machine-wide, so until now every project's spend landed in one
+  undifferentiated list: "what did this project cost" was not a missing feature but an
+  *uncomputable question*. `CostTracker.setWorkspaceKey()` is called once at activation
+  and `record()` stamps each entry, rather than each call site remembering to — there are
+  several, and one that forgot would produce spend belonging to no project, which reads on
+  the dashboard as a project that cost nothing.
+
+  The key is normalized by `normalizeWorkspaceKey`, now **exported from
+  `projectRunHistory.ts` and shared** rather than copied. Cost records and run records are
+  joined on this string; two normalizers would eventually disagree about a trailing slash
+  or a Windows drive-letter case, the join would match nothing, and every project would
+  report zero — a failure that looks like missing data rather than a broken key. Pinned by
+  test.
+
+  **`cacheWriteTokens`, kept apart from `cachedInputTokens`.** Reads and writes are priced
+  in **opposite** directions — a cache read is cheaper than an ordinary input token, a
+  write is dearer — so the split is load-bearing, not a refinement: two requests with
+  identical `inputTokens` can differ in real cost by a multiple. The value was already in
+  hand and thrown away: the Anthropic adapter parsed `cache_creation_input_tokens`, folded
+  it into the input total, and discarded it one line later. Both the streaming and
+  non-streaming paths now report it.
+
+  Because a sum cannot be taken apart afterwards, **records written before this field are
+  permanently un-repriceable rather than repairable**, which is why this had to land before
+  anything built on it.
+
+- **`src/core/costRepricing.ts`** — decides what may honestly be said about a record,
+  graded against a published rule table. Pure, `vscode`-free, unit-tested.
+
+  **An absent field is unknown, never zero.** Defaulting a missing write count to `0`
+  would price a cache-heavy request as though it wrote nothing, understating the
+  counterfactual in the direction that flatters us. `partial` therefore exists as a third
+  state: the record is real money and belongs in *actual* spend, but may not carry a
+  savings claim. Collapsing it into `unusable` would understate what was spent; collapsing
+  it into `repriceable` would fabricate a saving.
+
+  A genuine zero is accepted — if a provider reports *either* cache field it speaks about
+  caching, so the absent one is a real zero; if it reports neither, that is silence and
+  silence is unknown. `REPRICING_CAVEAT` travels with any derived figure, since a flagship
+  model generally emits more output for the same prompt, making every such number a floor
+  rather than an estimate. A record with no `workspaceKey` is **unattributed, never
+  adopted** by whichever workspace happens to be open — guessing would put another
+  project's spend on this project's roadmap item.
+
 ## [0.420.11] - 2026-09-07
 
 ### Added

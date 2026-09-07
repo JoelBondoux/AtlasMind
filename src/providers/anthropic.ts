@@ -125,6 +125,7 @@ export class AnthropicAdapter implements ProviderAdapter {
       inputTokens: result.usage.input_tokens + cacheReadTokens + cacheCreationTokens,
       outputTokens: result.usage.output_tokens,
       ...(cacheReadTokens > 0 ? { cachedInputTokens: cacheReadTokens } : {}),
+      ...(cacheCreationTokens > 0 ? { cacheWriteTokens: cacheCreationTokens } : {}),
       finishReason: mapFinishReason(result.stop_reason),
       toolCalls: toolCalls.length > 0 ? toolCalls : undefined,
     };
@@ -175,6 +176,7 @@ export class AnthropicAdapter implements ProviderAdapter {
     let inputTokens = 0;
     let outputTokens = 0;
     let cacheReadTokens = 0;
+    let cacheWriteTokens = 0;
     let model = request.model;
     let stopReason: string | null = null;
     const toolCalls: ToolCall[] = [];
@@ -214,7 +216,8 @@ export class AnthropicAdapter implements ProviderAdapter {
               const usage = msg['usage'] as Record<string, number> | undefined;
               if (usage) {
                 cacheReadTokens = usage['cache_read_input_tokens'] ?? 0;
-                inputTokens = (usage['input_tokens'] ?? 0) + cacheReadTokens + (usage['cache_creation_input_tokens'] ?? 0);
+                cacheWriteTokens = usage['cache_creation_input_tokens'] ?? 0;
+                inputTokens = (usage['input_tokens'] ?? 0) + cacheReadTokens + cacheWriteTokens;
               }
             }
           } else if (type === 'content_block_start') {
@@ -260,6 +263,7 @@ export class AnthropicAdapter implements ProviderAdapter {
       inputTokens,
       outputTokens,
       ...(cacheReadTokens > 0 ? { cachedInputTokens: cacheReadTokens } : {}),
+      ...(cacheWriteTokens > 0 ? { cacheWriteTokens } : {}),
       finishReason: mapFinishReason(stopReason as AnthropicMessagesResponse['stop_reason']),
       toolCalls: toolCalls.length > 0 ? toolCalls : undefined,
     };

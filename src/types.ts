@@ -4826,8 +4826,27 @@ export interface CostRecord {
   messageId?: string;
   inputTokens: number;
   outputTokens: number;
-  /** Portion of `inputTokens` served from the provider's prompt cache, when reported. */
+  /**
+   * The workspace this request was made against.
+   *
+   * Cost history is stored per machine, so without this every project's spend
+   * lands in one undifferentiated list and "what did this project cost" has no
+   * answer — not a missing feature but an uncomputable question. Optional
+   * because records written before it existed cannot be back-filled: a record
+   * with no key is *unattributed*, never attributed to the current workspace.
+   */
+  workspaceKey?: string;
+  /** Portion of `inputTokens` served from the provider's prompt cache (a cache *read*), when reported. */
   cachedInputTokens?: number;
+  /**
+   * Portion of `inputTokens` written *into* the provider's prompt cache (a cache
+   * *write*), when reported.
+   *
+   * Reads and writes are priced differently and in opposite directions, so
+   * re-pricing this request against another model needs both. Absent means the
+   * provider did not report it — never zero. See `costRepricing.ts`.
+   */
+  cacheWriteTokens?: number;
   costUsd: number;
   budgetCostUsd?: number;
   compressionSavingsUsd?: number;

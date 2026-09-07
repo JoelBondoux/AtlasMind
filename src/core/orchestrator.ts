@@ -1763,6 +1763,7 @@ export class Orchestrator {
     let aggregateInputTokens = 0;
     let aggregateOutputTokens = 0;
     let aggregateCachedInputTokens = 0;
+    let aggregateCacheWriteTokens = 0;
     let autoDisabledProvider: TaskResult['autoDisabledProvider'];
     const modelAttempts: TaskModelAttempt[] = [];
     // Seeded from earlier turns: an endpoint that has failed hard twice should
@@ -1982,6 +1983,7 @@ export class Orchestrator {
           aggregateInputTokens += taskAttempt.completion.inputTokens;
           aggregateOutputTokens += taskAttempt.completion.outputTokens;
           aggregateCachedInputTokens += taskAttempt.completion.cachedInputTokens ?? 0;
+          aggregateCacheWriteTokens += taskAttempt.completion.cacheWriteTokens ?? 0;
           attemptedModels.add(currentModel);
           modelAttempts.push({
             model: currentModel,
@@ -2282,6 +2284,13 @@ export class Orchestrator {
     const inputTokens = aggregateInputTokens || completion.inputTokens;
     const outputTokens = aggregateOutputTokens || completion.outputTokens;
     const cachedInputTokens = aggregateCachedInputTokens || (completion.cachedInputTokens ?? 0);
+    // Kept `undefined` when the provider said nothing, rather than defaulted to
+    // 0 like the read count above. Absent means "not reported", and
+    // `assessRepricing` distinguishes that from a genuine zero to decide whether
+    // this request may carry a counterfactual figure at all.
+    const cacheWriteTokens = aggregateCacheWriteTokens > 0
+      ? aggregateCacheWriteTokens
+      : completion.cacheWriteTokens;
     const estimatedCompressionSavingsUsd = compressionEnabled
       ? Math.max(0, (estimateTokens(String((request.context['sessionContext'] ?? '') + '\n' + (request.context['nativeChatContext'] ?? '') + '\n' + (request.context['attachmentContext'] ?? ''))) - estimateTokens(String(completion.content))) * ((this.router.getModelInfo(modelUsed)?.inputPricePer1k ?? 0) / 1000))
       : 0;
@@ -2344,6 +2353,7 @@ export class Orchestrator {
       inputTokens,
       outputTokens,
       ...(cachedInputTokens > 0 ? { cachedInputTokens } : {}),
+      ...(cacheWriteTokens !== undefined ? { cacheWriteTokens } : {}),
       costUsd: costUsd,
       budgetCostUsd: finalCost.budgetCostUsd,
       compressionSavingsUsd: estimatedCompressionSavingsUsd,
