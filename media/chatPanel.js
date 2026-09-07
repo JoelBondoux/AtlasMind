@@ -301,7 +301,12 @@
   let forceTranscriptScrollOnNextRender = false;
   let queuedComposerMode = undefined;
   let chatFontScale = normalizeChatFontScale(persistedUiState.chatFontScale);
-  let narrowSessionDrawerOpen = persistedUiState.narrowSessionDrawerOpen !== false;
+  // Closed until asked for. `!== false` opened it for anybody who had never
+  // touched the control, which is everybody on a first run — and in the sidebar,
+  // where the chat usually lives, the drawer sits above the transcript and takes
+  // room from the thing you opened chat to read. An explicit choice is still
+  // remembered in both directions.
+  let narrowSessionDrawerOpen = persistedUiState.narrowSessionDrawerOpen === true;
   let wideSessionRailCollapsed = Boolean(persistedUiState.wideSessionRailCollapsed);
   let runsCollapsed = persistedUiState.runsCollapsed !== false;
   let promptHistory = Array.isArray(persistedUiState.promptHistory)

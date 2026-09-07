@@ -130,6 +130,18 @@ const ACTION_STAGE: Record<WorkflowGovernedAction, string> = {
   release: 'release',
 };
 
+/**
+ * The stage that owns an action.
+ *
+ * Exported so the run planner can ask the same question the chat notice asks,
+ * rather than keeping a second copy of the mapping. Two tables would eventually
+ * disagree about which stage governs a push, and the symptom would be an action
+ * refused in chat and permitted by a plan.
+ */
+export function stageForGovernedAction(action: WorkflowGovernedAction): string {
+  return ACTION_STAGE[action];
+}
+
 export interface WorkflowChatNotice {
   action: WorkflowGovernedAction;
   /** The stage whose declared rules apply. */

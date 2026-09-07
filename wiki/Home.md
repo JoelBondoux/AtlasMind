@@ -4,15 +4,23 @@
 
 # AtlasMind
 
-**Your AI delivery team, inside VS Code.**
+**Your AI project manager, inside VS Code — with a delivery team attached.**
 
-Most AI coding tools give you one assistant in one chat box. AtlasMind gives you a team — and keeps
-everything the team learns attached to your project.
+Most AI coding tools give you an assistant in a chat box. That solves *writing code*. It doesn't tell
+you what to build next, what's blocking it, who owns it, what you deferred three weeks ago, whether
+your tests cover what you claim, or whether you're fit to release.
 
-Ask for what you want in plain English. AtlasMind picks the right specialist, picks a model that suits
-the task and your budget, reads what it needs from your code, does the work, checks it, and shows you
-what changed and what it cost. Your decisions, architecture notes and lessons learned stay in the
-project, not in a chat window you'll close and never find again.
+AtlasMind is a **23-page project dashboard** built from your own repository — roadmap and dependency
+graph, issues, pull requests, people, risk, compliance, technical debt, testing evidence, documents,
+delivery and release — where every grade names the rule that produced it. Attached to it is a team of
+27 AI specialists that can carry the work out: ask in plain English, and AtlasMind picks the
+specialist and a model that suits the task and your budget, does the work, checks it, and shows you
+what changed and what it cost.
+
+**The management half needs no chat of its own.** Already happy with Copilot, Claude Code, Cursor,
+Codex, Gemini CLI or Windsurf? Keep it — AtlasMind syncs your testing methodologies, debt markers and
+workflow rules into the instruction files those tools already read, so whichever agent writes the
+code is told the same rules.
 
 **Nothing risky happens without your say-so.** Every automatic step is one you switched on, and you
 can switch it off again.
@@ -75,6 +83,15 @@ See [[Model Routing]].
 
 ## What makes it different
 
+**It manages the project, not just the code.** Twenty-three dashboard pages built from git, GitHub and
+your own files — roadmap dependencies, risk, compliance, tech debt, testing evidence, release
+readiness. Registers transition rather than forget, and every grade cites a published rule so the same
+project reads the same way in March and in July.
+
+**It works with the AI tool you already use.** The management layer reads your repository, not your
+chat history, and it writes its rules into Copilot, Claude Code, Cursor, Codex, Gemini and Windsurf
+instruction files. Its own agents are optional.
+
 **It remembers your project.** Architecture, decisions, domain knowledge and lessons live as readable
 Markdown files in your repository and come back when they're relevant. See [[Memory System]].
 
@@ -116,6 +133,7 @@ code, get checked against your repository, and report honestly when nobody has l
 | [[Delivery]] | Moving work safely towards production |
 | [[Website Studio|UI Studio]] | Visual design, content, screens, full built-in-browser preview, responsive inspection, and implementation handoff for websites and other interfaces |
 | [[Resource Discovery]] | Finding and adding new MCP servers, agents and skills |
+| [[Bring Your Own AI Tool]] | Using the management layer with Copilot, Claude Code, Cursor, Codex, Gemini or Windsurf instead of AtlasMind's chat |
 | [[Remote Control]] | Driving a desktop instance from a browser |
 
 ### Trust
@@ -145,5 +163,15 @@ Day to day, `develop` is where work lands and `main` is reserved for release-rea
 
 ## Licence
 
-AtlasMind is open source under the [MIT Licence](https://github.com/JoelBondoux/AtlasMind/blob/main/LICENSE).
-There's no paid tier and no plan to add one.
+The **source code** is open source under the
+[MIT Licence](https://github.com/JoelBondoux/AtlasMind/blob/main/LICENSE), permanently — compile it
+yourself and you owe nothing and enter into no agreement.
+
+AtlasMind follows the [Open Source Maintenance Fee](https://opensourcemaintenancefee.org) model, so
+from **v1.0.0** the official binary release carries a maintenance fee for organizations with annual
+gross revenue of US$10,000 or more that use it in revenue-generating activities — $10–$60 a month by
+headcount, under
+[OSMFEULA.txt](https://github.com/JoelBondoux/AtlasMind/blob/develop/OSMFEULA.txt). **No fee is payable
+before v1.0.0**, and individuals and anyone outside revenue-generating work never pay one. There is
+no feature gating and no lesser edition: every user gets the same software. See
+[Funding and Sponsorship](Funding-and-Sponsorship.md).

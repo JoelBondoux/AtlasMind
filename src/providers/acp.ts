@@ -565,6 +565,16 @@ interface AcpTurnResult {
   inputTokens: number;
   outputTokens: number;
   agentName?: string;
+  /**
+   * Tool calls the agent announced over `session/update` during this turn.
+   *
+   * Counted per turn rather than per session: a session is reused across
+   * messages, and a cumulative figure would credit this turn with the last
+   * one's work. `tool_call_update` is deliberately not counted — it is a
+   * change to a call already announced, so counting both would double every
+   * tool the agent reported progress on.
+   */
+  delegatedToolCallCount: number;
 }
 
 interface AcpLiveSession {
@@ -1304,6 +1314,10 @@ export class AcpAdapter implements ProviderAdapter {
         inputTokens: turn.inputTokens,
         outputTokens: turn.outputTokens,
         finishReason: turn.finishReason,
+        // Always reported, including as 0: this adapter genuinely watched the
+        // session, so zero here means "the agent ran no tools" rather than
+        // "nobody looked" — the distinction the field exists to carry.
+        delegatedToolCallCount: turn.delegatedToolCallCount,
       };
       live.transcript = [
         ...cloneTranscript(request.messages),
@@ -1643,6 +1657,7 @@ export class AcpAdapter implements ProviderAdapter {
         inputTokens: turn.inputTokens,
         outputTokens: turn.outputTokens,
         finishReason: turn.finishReason,
+        delegatedToolCallCount: turn.delegatedToolCallCount,
       };
     } finally {
       request.signal?.removeEventListener('abort', abortBeforePrompt);
@@ -1927,6 +1942,8 @@ class AcpSession {
   private readonly pending = new Map<number, { resolve: (result: Record<string, unknown>) => void; reject: (error: Error) => void }>();
   private onText: ((chunk: string) => void) | undefined;
   private text = '';
+  /** Tool calls announced this turn. Reset with the text at each prompt. */
+  private delegatedToolCalls = 0;
   /** Latest reported context occupancy. Diagnostic; never billed. */
   private context: { usedTokens?: number; windowTokens?: number } = {};
 
@@ -2071,6 +2088,7 @@ class AcpSession {
   ): Promise<AcpTurnResult> {
     this.onText = onTextChunk;
     this.text = '';
+    this.delegatedToolCalls = 0;
 
     let rejectAbort: ((reason: Error) => void) | undefined;
     let promptStarted = false;
@@ -2108,6 +2126,7 @@ class AcpSession {
         // token count would feed the cost tracker a number nobody measured.
         inputTokens: usage.inputTokens ?? 0,
         outputTokens: usage.outputTokens ?? 0,
+        delegatedToolCallCount: this.delegatedToolCalls,
       };
     } finally {
       signal?.removeEventListener('abort', abort);
@@ -2387,6 +2406,12 @@ class AcpSession {
       return;
     }
     if (update.kind === 'tool_call') {
+      // Only a first announcement counts. An update is a change to a call
+      // already counted, and counting both would double every tool the agent
+      // reported progress on.
+      if (!update.toolCall.isUpdate) {
+        this.delegatedToolCalls += 1;
+      }
       this.emitToolEvent(update.toolCall);
       return;
     }
@@ -2465,6 +2490,52 @@ const defaultAcpProcessFactory: AcpProcessFactory = (config, cwd, options) => {
     kill: () => { child.kill(); },
   };
 };
+
+/** Where a newly configured ACP agent list has to be written. */
+export interface AcpAgentWriteScopes {
+  /** Always true: the agent list describes this machine, not this repository. */
+  global: true;
+  /**
+   * Also rewrite the workspace value — only when one already exists, because a
+   * workspace value shadows the global one and would hide the agent just added.
+   */
+  workspace: boolean;
+}
+
+/**
+ * Decide where a configured ACP agent list is stored.
+ *
+ * **An ACP agent is a fact about the machine, not about the repository.** The
+ * user installed `claude-agent-acp` globally with npm and signed into their own
+ * subscription once; nothing about that is per-project. It was written to
+ * `ConfigurationTarget.Workspace`, which meant the agent existed only in the
+ * folder that happened to be open when setup ran — and `applyModelAvailabilityState`
+ * disables the whole ACP provider when `acp.agents` is empty, so every *other*
+ * project reported a subscription provider that had simply stopped working, with
+ * no message, because from that window's point of view no agent was ever named.
+ *
+ * The workspace value is **rewritten, never removed**. Removing it is the tidier
+ * end state and the wrong thing to do to a setting the user may have narrowed on
+ * purpose: this is the same feature's own list, so keeping it in step makes the
+ * open window correct without deciding that their override was a mistake. Where
+ * no workspace value exists — every project that never ran setup — the global
+ * one now governs, which is the whole point.
+ *
+ * Deliberately **not** applied to `acp.toolsEnabled`. That grant lets an agent
+ * run tools, and an authorization is exactly the kind of thing that should stay
+ * as narrow as it was given; widening it to every project as a side effect of
+ * naming an agent would be the opposite of this codebase's rule.
+ */
+export function resolveAcpAgentWriteScopes(inspected: {
+  workspaceValue?: unknown;
+  workspaceFolderValue?: unknown;
+} | undefined): AcpAgentWriteScopes {
+  return {
+    global: true,
+    workspace: Array.isArray(inspected?.workspaceValue)
+      || Array.isArray(inspected?.workspaceFolderValue),
+  };
+}
 
 /** Read the user's configured agents, falling back to nothing (deny by default). */
 export function parseAcpAgentSettings(raw: unknown): AcpAgentConfig[] {

@@ -88,3 +88,75 @@ describe('the header names the release channel a branch produces', () => {
     expect(panel).toContain('.dashboard-version-pill-channel {');
   });
 });
+
+describe('a stage pill can move the checkout, under guard', () => {
+  const checkout = panel.slice(
+    panel.indexOf('private async checkoutVersionPillBranch'),
+    panel.indexOf('private async saveRoadmap'),
+  );
+
+  it('found the handler', () => {
+    expect(checkout.length).toBeGreaterThan(200);
+  });
+
+  it('puts the branch before the disambiguator, never after it', () => {
+    // `checkout <branch> --` switches branch. `checkout -- <branch>` reads the
+    // name as a pathspec and restores a *file* of that name from the index,
+    // discarding uncommitted work on it. The two differ by one argument
+    // position and by everything else.
+    expect(checkout).toContain("['checkout', branch, '--']");
+    expect(checkout).not.toContain("'checkout', '--', branch");
+  });
+
+  it('never forces, stashes or discards', () => {
+    // Quoted argument forms only. A bare substring search matches the prose
+    // above the method, which says the word "stashes" precisely because the
+    // code does not do it — the debt register learned this the same way.
+    for (const forbidden of ["'--force'", "'-f'", "'stash'", "'reset'", "'--hard'"]) {
+      expect(checkout, `${forbidden} must not be passed to git on this path`).not.toContain(forbidden);
+    }
+  });
+
+  it('refuses a pill that names no branch it could switch to', () => {
+    // The working-tree pill is a reading from disk and has no ref; the current
+    // pill is the branch already checked out.
+    expect(checkout).toContain('pill.isWorkingTree || pill.isCurrent || !pill.ref');
+  });
+
+  it('resolves the pill from the strip it last sent, not from the message', () => {
+    // The webview posts an id. A branch name arriving from the webview would be
+    // a ref this panel never drew.
+    expect(checkout).toContain('this.lastSnapshot?.versionStrip.pills');
+    expect(checkout).toContain('entry.id === pillId');
+  });
+
+  it('will not create a branch as a side effect of a click', () => {
+    expect(checkout).toContain('refs/heads/');
+    expect(checkout).toContain('There is no local branch called');
+  });
+
+  it('names the uncommitted work before anything runs', () => {
+    expect(checkout).toContain("['status', '--porcelain']");
+    expect(checkout).toContain('modal: true');
+  });
+
+  it('sends the pill id and nothing else from the webview', () => {
+    const start = webview.indexOf("versionStrip?.addEventListener('click'");
+    expect(start, 'the strip has no listener of its own').toBeGreaterThan(-1);
+    const body = webview.slice(start, start + 1200);
+    expect(body).toContain("type: 'versionPillCheckout'");
+    // The payload is the pill id. Nothing here reads a ref, a branch or a label.
+    expect(body).not.toContain('pill.ref');
+  });
+
+  it('only offers the control on a pill that can use it', () => {
+    const start = webview.indexOf('function renderVersionPill(pill)');
+    const body = webview.slice(start, webview.indexOf('function renderOverview(snapshot)', start));
+    expect(body).toContain('!pill.isWorkingTree && !pill.isCurrent && pill.ref');
+  });
+
+  it('outlines the stage you are standing on', () => {
+    expect(panel).toContain('.dashboard-version-pill-current {');
+    expect(panel).toMatch(/\.dashboard-version-pill-current \{[\s\S]*?outline:/);
+  });
+});

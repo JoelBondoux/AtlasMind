@@ -14,6 +14,7 @@ import {
   ACP_PROVIDER_BRIDGES,
   ACP_PROVIDER_ID,
   parseAcpAgentSettings,
+  resolveAcpAgentWriteScopes,
   isAcpConsoleModeChosen,
   resetAcpProbeCache,
 } from '../providers/index.js';
@@ -1855,7 +1856,14 @@ async function configureAcpProvider(atlas: AtlasMindContext): Promise<void> {
     ...existing.filter(agent => agent.id !== id),
     { id, command, ...(args.length > 0 ? { args } : {}) },
   ];
-  await configuration.update('acp.agents', next, vscode.ConfigurationTarget.Workspace);
+  // Global, because the agent names a command installed on this machine and a
+  // subscription signed into once — see `resolveAcpAgentWriteScopes` for what
+  // storing it per-workspace did to every project that never ran this flow.
+  const scopes = resolveAcpAgentWriteScopes(configuration.inspect<unknown>('acp.agents'));
+  await configuration.update('acp.agents', next, vscode.ConfigurationTarget.Global);
+  if (scopes.workspace) {
+    await configuration.update('acp.agents', next, vscode.ConfigurationTarget.Workspace);
+  }
 
   // Report what is actually true rather than declaring success on a write.
   const workspaceRoot = vscode.workspace.workspaceFolders?.[0]?.uri.fsPath;

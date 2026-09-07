@@ -1,0 +1,133 @@
+END USER LICENSE AGREEMENT
+Open Source Maintenance Fee Agreement — OSMF EULA v1.1
+
+This Open Source Maintenance Fee Agreement ("Agreement") is a legal agreement
+between you ("User") and the AtlasMind project ("Project") for the use of
+AtlasMind ("Software"), an open source software project licensed under the MIT
+License ("OSI License"), an OSI-approved open source license. Project offers a
+Binary Release of the Software to Users in exchange for a maintenance fee
+("Fee"). "Binary Release" refers to pre-compiled executable versions of the
+Software provided by Project. By accessing or using the Binary Release, User
+agrees to be bound by the terms of this Agreement.
+
+1. APPLICABILITY
+
+Project agrees to provide User with the Binary Release in exchange for the Fees
+outlined in Section 2, subject to the terms of this Agreement. The Fee applies
+only to Users that use the Software as part of revenue-generating activities and
+have an annual gross revenue greater than or equal to US$10,000. Users whose
+annual gross revenue is less than US$10,000 are exempt from this Fee. In
+addition, Users who pay separate support and/or maintenance fees to the
+maintainers of the Software are exempt from the Fee outlined in this Agreement.
+This distinction ensures that duplicate fees are not imposed, promoting fairness
+and consistency while respecting alternative support arrangements.
+
+2. MONTHLY FEE AND PAYMENT TERMS
+
+Revenue-generating Users required to pay the Fee shall follow the payment terms
+set forth by the Project. Failure to comply with these terms may result in
+suspending access to the Binary Release. However, this does not restrict the
+User from obtaining or redistributing binaries from other sources or
+self-compiling them.
+
+The Project's payment terms are set out in the Schedule at the end of this
+Agreement.
+
+3. NATURE OF THE FEE
+
+The Fee is not a license fee. The Software's source code is licensed to User
+under the OSI License and remains freely distributable under the terms of the
+OSI License and any applicable open-source licenses.
+
+4. CONFLICTS WITH OSI LICENSE
+
+To the extent any term of this Agreement conflicts with User's rights under the
+OSI License regarding the Software, the OSI License shall govern. This Agreement
+applies only to the Binary Release and does not limit User's ability to access,
+modify, or distribute the Software's source code or self-compiled binaries. User
+may independently compile binaries from the Software's source code without this
+Agreement, subject to OSI License terms. User may redistribute the Binary
+Release received under this Agreement, provided such redistribution complies
+with the OSI License (e.g., including copyright and permission notices). This
+Agreement imposes no additional restrictions on such rights.
+
+5. DISCLAIMER OF WARRANTY AND LIMITATION OF LIABILITY
+
+THE SOFTWARE AND BINARY RELEASE ARE PROVIDED BY THE PROJECT "AS IS" AND ANY
+EXPRESSED OR IMPLIED WARRANTIES, INCLUDING, BUT NOT LIMITED TO, THE IMPLIED
+WARRANTIES OF MERCHANTABILITY AND FITNESS FOR A PARTICULAR PURPOSE ARE
+DISCLAIMED. IN NO EVENT SHALL THE PROJECT OR ITS CONTRIBUTORS BE LIABLE FOR ANY
+DIRECT, INDIRECT, INCIDENTAL, SPECIAL, EXEMPLARY, OR CONSEQUENTIAL DAMAGES
+(INCLUDING, BUT NOT LIMITED TO, PROCUREMENT OF SUBSTITUTE GOODS OR SERVICES;
+LOSS OF USE, DATA, OR PROFITS; OR BUSINESS INTERRUPTION) HOWEVER CAUSED AND ON
+ANY THEORY OF LIABILITY, WHETHER IN CONTRACT, STRICT LIABILITY, OR TORT
+(INCLUDING NEGLIGENCE OR OTHERWISE) ARISING IN ANY WAY OUT OF THE USE OF THE
+SOFTWARE AND BINARY RELEASE, EVEN IF ADVISED OF THE POSSIBILITY OF SUCH DAMAGE.
+
+================================================================================
+SCHEDULE — THE PROJECT'S PAYMENT TERMS (referenced in Section 2)
+================================================================================
+
+Sections 1 to 5 above are the OSMF EULA v1.1 template, unaltered. This Schedule
+sets out the payment terms Section 2 refers to. It adds no obligation beyond
+Section 1 and restricts no right; where it and Section 4 conflict, Section 4 and
+the MIT License govern.
+
+COMMENCEMENT
+
+  The Fee is payable in respect of Binary Releases of AtlasMind version 1.0.0
+  and later. No Fee is payable in respect of any Binary Release before v1.0.0.
+
+  AtlasMind is in Beta until v1.0.0. During Beta no Fee is payable by anyone,
+  and the MIT License in the file LICENSE is the only agreement that applies to
+  any release. This Agreement takes effect for a User on the first Binary
+  Release of v1.0.0 or later that the User accesses or uses.
+
+  Version 1.0.0 is also the release at which AtlasMind's configuration and
+  memory formats freeze. Payment is asked from the point the Software becomes
+  something an organization can build on, and not before.
+
+MONTHLY FEE
+
+  For Users to whom Section 1 applies, by organization size:
+
+    Fewer than 20 employees ............................. US$10 per month
+    20 to 100 employees ................................. US$40 per month
+    More than 100 employees ............................. US$60 per month
+
+  Payable through GitHub Sponsors:
+  https://github.com/sponsors/JoelBondoux
+
+  The corresponding tiers are named "Maintenance Fee: Small Organizations",
+  "Maintenance Fee: Medium Organizations" and "Maintenance Fee: Large
+  Organizations". A single payment covering twelve months may be made through
+  the one-off tier instead; tell the Project and it is recorded as the year's
+  Fee.
+
+WHAT THE FEE FUNDS
+
+  Ongoing maintenance: issue triage, releases, dependency and security updates.
+  The Fee is not a support contract, and purchases no feature, no priority, no
+  service level, and no privilege of any kind. Every User receives the same
+  Software.
+
+WHO IS EXEMPT
+
+  Per Section 1, Users with annual gross revenue below US$10,000, and Users who
+  do not use the Software as part of revenue-generating activities. This
+  includes individuals, students, hobby projects, non-profits and open source
+  projects, none of which are within scope at any size.
+
+  A separate voluntary "Supporter" tier exists for those Users. It is not this
+  Fee and nothing is owed by anyone paying it, or by anyone who does not.
+
+WHERE THE SOFTWARE STAYS FREE
+
+  Per Sections 3 and 4, the source code is MIT licensed and always will be. Any
+  User may clone this repository and compile AtlasMind for themselves, with no
+  Fee and without entering into this Agreement. This Agreement covers only the
+  Binary Release the Project publishes — for AtlasMind, the .vsix distributed
+  through the Visual Studio Marketplace.
+
+  Source: https://github.com/JoelBondoux/AtlasMind
+  Model:  https://opensourcemaintenancefee.org

@@ -135,8 +135,21 @@ describe('resolveCliSsotRoot', () => {
 });
 
 describe('createCliToolApprovalGate', () => {
+  // `toolApprovalGate` is optional on `OrchestratorHooks`, so the factory's
+  // return type is `... | undefined` and every call site here would need a
+  // non-null assertion. This says it once: the factory always returns a gate,
+  // and a build where it does not should fail loudly here rather than be
+  // silently asserted away at a dozen call sites.
+  const makeGate = (allowWrites?: boolean, allowCommands?: boolean) => {
+    const gate = createCliToolApprovalGate(allowWrites, allowCommands);
+    if (!gate) {
+      throw new Error('createCliToolApprovalGate returned no gate.');
+    }
+    return gate;
+  };
+
   it('denies write-capable tools by default', async () => {
-    const gate = createCliToolApprovalGate(false);
+    const gate = makeGate(false);
 
     const decision = await gate('task-1', 'file-write', { path: '/workspace/README.md', content: 'pwned' });
 
@@ -145,7 +158,7 @@ describe('createCliToolApprovalGate', () => {
   });
 
   it('continues to deny external tools even when write opt-in is enabled', async () => {
-    const gate = createCliToolApprovalGate(true);
+    const gate = makeGate(true);
 
     const decision = await gate('task-2', 'web-fetch', { url: 'https://example.com' });
 
@@ -154,10 +167,39 @@ describe('createCliToolApprovalGate', () => {
   });
 
   it('allows write-capable tools only after explicit opt-in', async () => {
-    const gate = createCliToolApprovalGate(true);
+    const gate = makeGate(true);
 
     const decision = await gate('task-3', 'git-commit', { message: 'test' });
 
     expect(decision).toEqual({ approved: true });
+  });
+
+  it('denies terminal reads by default, because npm scripts run repo-defined code', async () => {
+    // `terminal-read` describes what the command reports, not what it does to
+    // get there. `npm test` executes whatever this checkout's package.json
+    // says it does, so letting it through unconditionally meant "read-only"
+    // mode could run arbitrary code out of the repository it was aimed at.
+    const gate = makeGate(false);
+
+    const decision = await gate('task-4', 'terminal-run', { command: 'npm', args: ['test'] });
+
+    expect(decision.approved).toBe(false);
+    expect(decision.reason).toContain('--allow-commands');
+  });
+
+  it('allows terminal reads after --allow-commands, without granting writes', async () => {
+    // The two flags are separate on purpose: running a test suite is not a
+    // reason to also be able to change files.
+    const gate = makeGate(false, true);
+
+    expect(await gate('task-5', 'terminal-run', { command: 'npm', args: ['test'] })).toEqual({ approved: true });
+    expect((await gate('task-5', 'file-write', { path: '/workspace/a.ts', content: 'x' })).approved).toBe(false);
+  });
+
+  it('still allows plain local reads with no opt-in at all', async () => {
+    const gate = makeGate(false);
+
+    expect(await gate('task-6', 'file-read', { path: '/workspace/README.md' })).toEqual({ approved: true });
+    expect(await gate('task-6', 'git-status', {})).toEqual({ approved: true });
   });
 });

@@ -290,7 +290,7 @@ export function buildAcpSetupPlan(state: AcpSetupState): SetupStep[] {
       { text: `Ask Atlas something with the ACP model selected — \`acp/${first?.id ?? 'claude'}\` — and watch the reply stream in.` },
       { text: 'If nothing arrives, the two usual causes are a subscription that has run out for the day, and an agent that starts but exits immediately. The agent\'s own output says which; run it once in a terminal to see it.' },
     ],
-    action: { command: 'atlasmind.openChatPanel', title: 'Open chat' },
+    action: { command: 'atlasmind.openChat', title: 'Open chat' },
   });
 
   return steps;

@@ -441,7 +441,13 @@ describe('arranging is separated from changing', () => {
     // The fit runs after the render that produced the nodes it measures, and
     // clears its own flag first — fitting renders, so a flag cleared afterwards
     // would fit for ever.
-    expect(WEBVIEW_SCRIPT).toMatch(/state\.roadmapFitAfterRender = false;\s*\n\s*fitRoadmapCanvas\(\);/);
+    // The scope is read and reset in the same breath, so a narrowing's framing
+    // cannot leak into the next arrange.
+    expect(WEBVIEW_SCRIPT).toMatch(
+      /state\.roadmapFitAfterRender = false;\s*\n\s*const scope = state\.roadmapFitScope;\s*\n\s*state\.roadmapFitScope = 'all';\s*\n\s*fitRoadmapCanvas\(scope\);/);
+    // An arrange frames the whole re-flowed tree, never a leftover match set.
+    expect(align.slice(0, 800)).not.toContain("roadmapFitScope = 'emphasis'");
+    expect(derive.slice(0, 500)).not.toContain("roadmapFitScope = 'emphasis'");
   });
 
   it('re-fits when the plan gains an item, and not on every redraw', () => {

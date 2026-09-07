@@ -2,8 +2,10 @@ import { describe, expect, it } from 'vitest';
 import {
   AI_ASSIST_MULTIPLIER,
   MAX_DERIVED_EDGES_IN,
+  ROADMAP_CANVAS_MARGIN,
   ROADMAP_EDGE_RULES,
   ROADMAP_GRID_SIZE,
+  ROADMAP_ROW_HEIGHT,
   daysUntilDeadline,
   deriveRoadmapEdges,
   describeRoadmapSchedule,
@@ -597,6 +599,34 @@ describe('layout orientation', () => {
     }
     // Near-square, not one endless row: four items fold onto two reading rows.
     expect(new Set(loose.map(node => node.position.x)).size).toBe(2);
+
+    // One slot of separation, not two. `cursor` carries the inter-component
+    // gap, which is sized for two linked sub-plans whose edges need room to be
+    // read; nothing crosses this boundary, and the doubled gap put the block
+    // far enough down that it was easy not to know it was there.
+    expect(Math.min(...loose.map(node => node.position.y)))
+      .toBe(chainMax + ROADMAP_ROW_HEIGHT);
+
+    // It fills along the reading axis before the cross axis: an editor pane is
+    // wider than it is tall, so the block grows alongside the plan rather than
+    // away from it. The first two items share a row and differ in x.
+    const first = nodeOf('loose-1');
+    const second = loose.find(node => node.position.y === first.position.y && node.position.x !== first.position.x);
+    expect(second, 'the second unlinked item shares the first one’s row').toBeDefined();
+  });
+
+  it('starts the unlinked block at the margin when nothing is linked', () => {
+    const graph = resolveRoadmapGraph({
+      items: [item({ id: 'solo-1' }), item({ id: 'solo-2' }), item({ id: 'solo-3' })],
+      records: [],
+      declaredEdges: [],
+      deriveSuggestions: false,
+      now: NOW,
+    });
+    // With no linked component there is no plan to sit after, so the block
+    // starts where the plan would have: no leading empty band to scroll past.
+    expect(Math.min(...graph.nodes.map(node => node.position.y))).toBe(ROADMAP_CANVAS_MARGIN);
+    expect(Math.min(...graph.nodes.map(node => node.position.x))).toBe(ROADMAP_CANVAS_MARGIN);
   });
 
   it('aligns a chain into one straight line', () => {

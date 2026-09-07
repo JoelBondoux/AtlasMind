@@ -31,7 +31,7 @@ const REPO_ROOT = path.resolve(__dirname, '..', '..');
  * Lower this after fixing errors. Never raise it: a rise means a new test was
  * added that does not type-check, and the message names the files.
  */
-const TEST_TYPE_ERROR_CEILING = 244;
+const TEST_TYPE_ERROR_CEILING = 238;
 
 function collectTypeErrors(): string[] {
   try {

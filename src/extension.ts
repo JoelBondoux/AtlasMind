@@ -3,6 +3,10 @@ import * as vscode from 'vscode';
 import * as path from 'path';
 import * as os from 'os';
 import { readFileSync } from 'fs';
+import {
+  createWorkspaceCommandProbe,
+  resolveWorkspaceCommand,
+} from './core/windowsShimBypass.js';
 import * as fs from 'fs/promises';
 import { execFile } from 'child_process';
 import { promisify } from 'util';
@@ -2278,6 +2282,12 @@ async function bootstrapAtlasMind(
       hooks: {
         readSetting: <T>(key: string, fallback: T) =>
           vscode.workspace.getConfiguration('atlasmind').get<T>(key, fallback),
+        // The same resolution the chat participant uses, so a plan cannot be
+        // refused in chat and permitted by an autonomous run.
+        resolveWorkflowStageLevels: async () => {
+          const { resolveWorkflowStageLevelsForRun } = await import('./chat/participant.js');
+          return resolveWorkflowStageLevelsForRun();
+        },
         toolApprovalGate,
         generatedSkillApprovalGate,
         writeCheckpointHook,
@@ -3288,7 +3298,9 @@ async function bootstrapAtlasMind(
         workspaceFolder = picked.folder;
       }
 
-      const launcherDirectory = await ensureAtlasMindCliOnTerminalPath(context);
+      // Forced: this path runs only because the user asked to start the
+      // Buzz-managed ACP agent, which cannot launch without the shim on disk.
+      const launcherDirectory = await ensureAtlasMindCliOnTerminalPath(context, undefined, { force: true });
       if (!launcherDirectory) {
         void vscode.window.showErrorMessage('AtlasMind could not create its ACP launcher. Rebuild or reinstall the extension and try again.');
         return;
@@ -3410,7 +3422,7 @@ async function bootstrapAtlasMind(
       const sessionId = existing?.id ?? atlas.sessionConversation.createSession(BUZZ_GUIDE_SESSION_TITLE);
       atlas.sessionConversation.selectSession(sessionId);
       atlas.sessionConversation.appendMessage('assistant', body, sessionId);
-      await vscode.commands.executeCommand('atlasmind.openChatPanel', { sessionId });
+      await vscode.commands.executeCommand('atlasmind.openChat', { sessionId });
 
       // The one question the guide cannot answer for itself, asked as chips.
       const { ChatPanel } = await import('./views/chatPanel.js');
@@ -4044,10 +4056,33 @@ export function activate(context: vscode.ExtensionContext): void {
 type CliPathContext = Pick<vscode.ExtensionContext, 'extensionUri' | 'globalStorageUri' | 'environmentVariableCollection'>;
 type LogSink = Pick<vscode.OutputChannel, 'appendLine'>;
 
+/**
+ * Put the `atlasmind` launchers on the PATH of new integrated terminals.
+ *
+ * Opt-in, because it is not a change to AtlasMind — it is a persistent change to
+ * the user's shell environment, made on every activation by an extension that
+ * activates on startup, and nobody asked for it. `persistent = true` means it
+ * outlives the session and is restored before the extension is even loaded next
+ * time. That is a reasonable thing to want and an unreasonable thing to assume,
+ * which is what `atlasmind.cli.addToTerminalPath` now settles.
+ *
+ * `force` is for the callers that are *acting on an explicit request* which
+ * needs a launcher on disk — the Buzz ACP runtime setup asks for one by name.
+ * There the shims are the thing the user asked for, so the setting does not
+ * apply; the PATH entry rides along with a surface they opened deliberately.
+ */
 export async function ensureAtlasMindCliOnTerminalPath(
   context: CliPathContext,
   outputChannel?: LogSink,
+  options?: { force?: boolean },
 ): Promise<string | undefined> {
+  if (!options?.force && !vscode.workspace.getConfiguration('atlasmind').get<boolean>('cli.addToTerminalPath', false)) {
+    outputChannel?.appendLine(
+      '[activate] cliPath skipped; atlasmind.cli.addToTerminalPath is off. '
+      + 'Enable it to run `atlasmind` from VS Code integrated terminals.',
+    );
+    return undefined;
+  }
   const cliEntryPath = vscode.Uri.joinPath(context.extensionUri, 'out', 'cli', 'main.js').fsPath;
   const acpEntryPath = vscode.Uri.joinPath(context.extensionUri, 'out', 'cli', 'acpAgent.js').fsPath;
   try {
@@ -4875,7 +4910,32 @@ function buildSkillExecutionContext(
 
       const cwdRaw = options?.cwd?.trim() || workspaceRoot;
       const cwd = await assertInsideWorkspace(cwdRaw, 'runCommand');
-      const mappedExecutable = mapExecutableForWindows(executable.trim());
+
+      // Decide how to start this before starting it, and never through a shell.
+      //
+      // This path used to pass `shell: process.platform === 'win32'`, with
+      // `mapExecutableForWindows` turning `npm` into `npm.cmd` — a `.cmd` cannot
+      // be spawned directly since CVE-2024-27980, so the shell was there to make
+      // the mapping work. But `execFile` with a shell concatenates the argument
+      // array into one command line **without escaping it** (Node's own DEP0190
+      // warns about exactly this), and `args` here comes from a model. An
+      // argument of `&` followed by anything was therefore run by `cmd.exe` as a
+      // command of its own: the approval dialog showed `npm run test`, and
+      // whatever came after the `&` ran too. Confirmed against Node 24 rather
+      // than inferred from the docs.
+      //
+      // `resolveWorkspaceCommand` bypasses the shim instead — the discipline
+      // `acpLaunch.ts` established for the same Windows problem — and refuses
+      // when it cannot, because the alternative to a bypass is the shell this
+      // exists to remove.
+      const resolution = resolveWorkspaceCommand(
+        executable.trim(),
+        args ?? [],
+        createWorkspaceCommandProbe(),
+      );
+      if (resolution.status === 'unresolved') {
+        return { ok: false, exitCode: 1, stdout: '', stderr: resolution.reason };
+      }
 
       // A test command inherits the machine's testing resource budget: every
       // Node child (Jest/Vitest workers included) gets a heap cap through
@@ -4886,7 +4946,7 @@ function buildSkillExecutionContext(
         : undefined;
 
       try {
-        const pending = execFileAsync(mappedExecutable, args ?? [], {
+        const pending = execFileAsync(resolution.command, resolution.args, {
           cwd,
           timeout: clampInteger(options?.timeoutMs, 30000, 1000, 300000),
           windowsHide: true,
@@ -4896,8 +4956,10 @@ function buildSkillExecutionContext(
           // because runners print their failures last.
           maxBuffer: 4 * 1024 * 1024,
           ...(env ? { env: env as NodeJS.ProcessEnv } : {}),
-          // .cmd files on Windows cannot be spawned directly — they require cmd.exe
-          shell: process.platform === 'win32',
+          // Never a shell: the arguments are model-generated, and a shell would
+          // run the metacharacters among them. `resolution` has already turned a
+          // Windows shim into a spawnable image or a Node entry point.
+          shell: false,
         });
         // Below-normal priority for every agent-issued command: this path is
         // never the user's interactive terminal, and the desktop staying
@@ -5596,31 +5658,6 @@ function clipCommandOutput(text: string): string {
     return trimmed;
   }
   return `…[earlier output truncated]\n${trimmed.slice(-COMMAND_OUTPUT_CLIP_BYTES)}`;
-}
-
-function mapExecutableForWindows(executable: string): string {
-  if (process.platform !== 'win32') {
-    return executable;
-  }
-
-  switch (executable) {
-    case 'npm':
-      return 'npm.cmd';
-    case 'npx':
-      return 'npx.cmd';
-    case 'pnpm':
-      return 'pnpm.cmd';
-    case 'yarn':
-      return 'yarn.cmd';
-    case 'tsc':
-      return 'tsc.cmd';
-    case 'eslint':
-      return 'eslint.cmd';
-    case 'vitest':
-      return 'vitest.cmd';
-    default:
-      return executable;
-  }
 }
 
 async function runPostToolVerification(

@@ -55,7 +55,7 @@ Return ONLY valid JSON (no markdown fences, no prose) matching this exact schema
       "id": "short-slug",
       "title": "Short title",
       "description": "What this agent should produce or do — be concrete.",
-      "role": "one of: architect, backend-engineer, frontend-engineer, tester, documentation-writer, devops, data-engineer, security-reviewer, general-assistant",
+      "role": "one of: architect, backend-engineer, frontend-engineer, tester, documentation-writer, devops, data-engineer, security-reviewer, github-operator, general-assistant",
       "skills": ["exact skill IDs chosen from the catalog below"],
       "dependsOn": ["ids of subtasks that must complete first"]
     }
@@ -71,6 +71,8 @@ Rules:
 - Use test-driven delivery for code or behavior changes: plan test-first subtasks ahead of implementation subtasks whenever the goal adds, fixes, or changes behavior.
 - When TDD applies, make implementation subtasks depend on the relevant regression-capture or test-authoring subtask so execution can follow a red-to-green flow.
 - Prefer the tester role for explicit regression and coverage subtasks, and engineer roles for implementation or refactor subtasks.
+- Use the github-operator role for any subtask whose work is git or gh: branches, pull requests, reviews, merges, releases. It is the role that knows the repository conventions and the gh commands; general-assistant improvises local git, which is how a merge into a protected branch gets attempted instead of "gh pr merge".
+- Never plan a local merge into a protected branch (main, master, production, release). Merging a pull request is "gh pr merge <number>", planned as its own approval-gated step. If the project declares a staging stage, say so rather than routing around it.
 - Be concrete: descriptions should state what deliverable the agent should produce.
 - No circular dependencies.
 - Git commits: always use the git-commit skill (not terminal-run) for creating commits. The git-commit skill accepts a "message" parameter and passes it directly to git without shell quoting. Use terminal-run only for staging (e.g. "git add <file>") or git subcommands that have no dedicated skill.

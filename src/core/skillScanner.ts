@@ -25,9 +25,57 @@ export const BUILTIN_SCAN_RULES: SerializedScanRule[] = [
     builtIn: true,
   },
   {
+    id: 'no-dynamic-import',
+    severity: 'error',
+    // `await import('node:child_process')` reaches the same capability as
+    // `require('child_process')` and matched no rule at all, which made a clean
+    // scan mean less than it read as. Matches the call form only, so a static
+    // `import x from 'y'` declaration is judged by the module rules below.
+    pattern: '(?:^|[^.\\w$])import\\s*\\(',
+    message: 'Dynamic import() is forbidden - it reaches any module, including the ones the module rules block.',
+    enabled: true,
+    builtIn: true,
+  },
+  {
+    id: 'no-indirect-require',
+    severity: 'error',
+    // The injected `require` throws, but it is one parameter, not a boundary:
+    // `process.mainModule.require` and `module.constructor._load` are the same
+    // capability arrived at from the host's own globals.
+    pattern: '\\b(?:mainModule|createRequire|_load|_compile|_resolveFilename)\\b',
+    message: 'Reaching the module loader indirectly (mainModule, createRequire, _load) is forbidden.',
+    enabled: true,
+    builtIn: true,
+  },
+  {
+    id: 'no-constructor-escape',
+    severity: 'error',
+    // `({}).constructor.constructor('return process')()` is the Function
+    // constructor without the words `new Function`, so `no-function-constructor`
+    // never sees it. Deliberately does not match a bare `constructor(` - that is
+    // a class body, and a rule that errors on writing a class would be turned
+    // off, taking this one with it.
+    pattern: '\\.\\s*constructor\\s*(?:\\[|\\.\\s*(?:constructor|call|apply|bind))',
+    message: 'Reaching a constructor property to build a function is forbidden - it is the Function constructor by another name.',
+    enabled: true,
+    builtIn: true,
+  },
+  {
+    id: 'no-global-scope-reach',
+    severity: 'error',
+    // The synthesised skill runs in the extension host's global scope, so
+    // `globalThis` / `global` / `process` are all in reach whatever the prompt
+    // asked for. Computed member access is the obfuscation that matters:
+    // `globalThis['pro' + 'cess']` defeats every literal rule in this file.
+    pattern: '\\b(?:globalThis|global|process)\\s*\\[',
+    message: 'Computed access to a global object is forbidden - it bypasses every name-based rule in the scanner.',
+    enabled: true,
+    builtIn: true,
+  },
+  {
     id: 'no-child-process-require',
     severity: 'error',
-    pattern: "require\\s*\\(\\s*['\"`]child_process['\"`]",
+    pattern: "require\\s*\\(\\s*['\"`](?:node:)?child_process['\"`]",
     message: 'The child_process module is not permitted in skills â€” shell command execution risk.',
     enabled: true,
     builtIn: true,
@@ -35,7 +83,7 @@ export const BUILTIN_SCAN_RULES: SerializedScanRule[] = [
   {
     id: 'no-child-process-import',
     severity: 'error',
-    pattern: "from\\s*['\"`]child_process['\"`]",
+    pattern: "from\\s*['\"`](?:node:)?child_process['\"`]",
     message: 'The child_process module is not permitted in skills â€” shell command execution risk.',
     enabled: true,
     builtIn: true,
@@ -69,7 +117,7 @@ export const BUILTIN_SCAN_RULES: SerializedScanRule[] = [
   {
     id: 'no-http-require',
     severity: 'warning',
-    pattern: "require\\s*\\(\\s*['\"`]https?['\"`]",
+    pattern: "require\\s*\\(\\s*['\"`](?:node:)?https?['\"`]",
     message:
       'Direct HTTP module usage may exfiltrate data. Use a dedicated web-fetch skill instead.',
     enabled: true,
@@ -78,7 +126,7 @@ export const BUILTIN_SCAN_RULES: SerializedScanRule[] = [
   {
     id: 'no-http-import',
     severity: 'warning',
-    pattern: "from\\s*['\"`]https?['\"`]",
+    pattern: "from\\s*['\"`](?:node:)?https?['\"`]",
     message:
       'Direct HTTP module usage may exfiltrate data. Use a dedicated web-fetch skill instead.',
     enabled: true,
@@ -96,7 +144,7 @@ export const BUILTIN_SCAN_RULES: SerializedScanRule[] = [
   {
     id: 'no-fs-direct',
     severity: 'warning',
-    pattern: "require\\s*\\(\\s*['\"`]fs(?:\\/promises)?['\"`]",
+    pattern: "require\\s*\\(\\s*['\"`](?:node:)?fs(?:\\/promises)?['\"`]",
     message:
       'Direct filesystem access bypasses workspace safety boundaries. Use SkillExecutionContext.readFile/writeFile.',
     enabled: true,

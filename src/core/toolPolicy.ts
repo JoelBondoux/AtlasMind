@@ -175,10 +175,18 @@ export function requiresToolApproval(mode: ToolApprovalMode, policy: ToolInvocat
     case 'always-ask':
       return true;
     case 'ask-on-write':
-      // `network-read` passes: it mutates nothing, which is the question this
-      // mode asks. `ask-on-external` is the mode that cares that it left the
-      // machine, and it still gates it below.
-      return policy.category !== 'read' && policy.category !== 'git-read' && policy.category !== 'network-read';
+      // `network-read` is gated, and the reasoning that once exempted it was
+      // half an answer. It is true that it mutates nothing locally; it is also
+      // true that it is the only read category that carries the operator's data
+      // *off the machine*. A connected MCP server's `get_customer_data`
+      // classifies here on its name alone, so under the default mode it ran and
+      // shipped whatever it was asked for with no prompt at all.
+      //
+      // The dialog volume this used to avoid is handled by the mechanism built
+      // for it rather than by an exemption: `ToolApprovalManager.bypassCategory`
+      // lets the first prompt of a task approve the category for the rest of it.
+      // One dialog per task, not per call — and never zero.
+      return policy.category !== 'read' && policy.category !== 'git-read';
     case 'ask-on-external':
       return policy.category === 'terminal-read' || policy.category === 'terminal-write' ||
         policy.category === 'network' || policy.category === 'network-read' ||

@@ -1,5 +1,12 @@
 import * as vscode from 'vscode';
 import { readFileSync } from 'node:fs';
+import * as nodeFs from 'node:fs';
+import * as path from 'node:path';
+import {
+  scanUiSurfaces,
+  UI_SURFACE_SCAN_HEAD_BYTES,
+  type UiSurfaceScanReport,
+} from '../core/uiSurfaceScan.js';
 import {
   assessWebsiteHostingEnvironments,
   importClientWebsiteIntake,
@@ -366,6 +373,8 @@ export class WebsiteStudioPanel {
 
   private render(targetPage: WebsiteStudioPage = this.activePage): void {
     this.activePage = targetPage;
+    // One walk per render, not one per reference: this reads the workspace.
+    const uiSurfaces = this.scanWorkspaceUiSurfaces();
     this.panel.webview.html = getWebsiteStudioHtml(
       this.panel.webview,
       this.config,
@@ -382,9 +391,61 @@ export class WebsiteStudioPanel {
           this.workspaceRoot,
         ),
         ...(this.deliveryDriftSummary ? { deliveryDriftSummary: this.deliveryDriftSummary } : {}),
+        ...(uiSurfaces ? { uiSurfaces } : {}),
         scriptContent: this.readScript(),
       },
     );
+  }
+
+  /**
+   * The UI surfaces this workspace contains.
+   *
+   * Runs on render because the answer changes whenever somebody adds a file,
+   * and the alternative — a cached list — is a picker that quietly omits the
+   * component you just created. The scan is bounded and never throws; an
+   * unreadable workspace yields `undefined`, which the field renders as *not
+   * scanned* rather than as an empty project.
+   */
+  private scanWorkspaceUiSurfaces(): UiSurfaceScanReport | undefined {
+    if (!this.workspaceRoot) {
+      return undefined;
+    }
+    const root = this.workspaceRoot;
+    try {
+      return scanUiSurfaces({
+        readDirectory: relativePath => nodeFs
+          .readdirSync(relativePath ? path.join(root, relativePath) : root, { withFileTypes: true })
+          .map(entry => {
+            let bytes = 0;
+            if (entry.isFile()) {
+              try {
+                bytes = nodeFs.statSync(path.join(root, relativePath, entry.name)).size;
+              } catch {
+                bytes = 0;
+              }
+            }
+            return { name: entry.name, isDirectory: entry.isDirectory(), bytes };
+          }),
+        readHead: relativePath => {
+          try {
+            // Only the head: the rules that need content are confirming a
+            // classification, not parsing the file.
+            const handle = nodeFs.openSync(path.join(root, relativePath), 'r');
+            try {
+              const buffer = Buffer.alloc(UI_SURFACE_SCAN_HEAD_BYTES);
+              const read = nodeFs.readSync(handle, buffer, 0, UI_SURFACE_SCAN_HEAD_BYTES, 0);
+              return buffer.subarray(0, read).toString('utf8');
+            } finally {
+              nodeFs.closeSync(handle);
+            }
+          } catch {
+            return undefined;
+          }
+        },
+      });
+    } catch {
+      return undefined;
+    }
   }
 
   /**
@@ -624,7 +685,7 @@ export class WebsiteStudioPanel {
         }
         case 'openCommand':
           if (input.payload === 'atlasmind.openChatPanel') {
-            await vscode.commands.executeCommand(input.payload, {
+            await vscode.commands.executeCommand('atlasmind.openChat', {
               draftPrompt: 'Help me turn the current UI Studio brief, screen map, content design, wireframes, UI system, implementation guide, and any website delivery choices into the next safe implementation milestone. Ground the plan in project_memory/domain/website.json and the configured content directory, preserve platform and credential safety boundaries, and propose the smallest reviewable build step for the selected interface profile.',
             });
           } else {
@@ -702,7 +763,7 @@ export class WebsiteStudioPanel {
       return;
     }
 
-    await vscode.commands.executeCommand('atlasmind.openChatPanel', {
+    await vscode.commands.executeCommand('atlasmind.openChat', {
       draftPrompt: composed.prompt,
       sendMode: 'new-session',
     });
@@ -908,6 +969,13 @@ export interface WebsiteStudioHtmlOptions {
   contentDirectory?: string;
   /** Read-only host assessment; hashes only, never source content. */
   repositoryMappingAssessments?: readonly UiRepositoryMappingAssessment[];
+  /**
+   * UI surfaces found in the workspace, offered as choices for a mapping's
+   * source file. Absent means *not scanned*, which the field states rather than
+   * showing an empty list — "this project has no UI" and "nobody looked" are
+   * different answers, and only one of them is worth acting on.
+   */
+  uiSurfaces?: UiSurfaceScanReport;
   /** The canvas script, read from `media/websiteStudio.js`. */
   scriptContent?: string;
   /** Fallback when the script could not be read inline. */
@@ -1770,7 +1838,7 @@ function renderStackPage(
   options: WebsiteStudioHtmlOptions,
 ): string {
   const readiness = new Map(assessWebsiteHostingEnvironments(config).map(item => [item.id, item]));
-  const guide = renderImplementationGuide(config);
+  const guide = renderImplementationGuide(config, options.uiSurfaces);
   if (config.surfaceKind !== 'website') {
     return `
       <section class="studio-page${activePage === 'stack' ? ' active' : ''}" data-page="stack">
@@ -1842,8 +1910,37 @@ function renderStackPage(
   `;
 }
 
-function renderImplementationGuide(config: WebsiteWorkspaceConfig): string {
+/**
+ * The discovered surfaces, as choices for a mapping's source file.
+ *
+ * A `<datalist>` rather than a `<select>`: discovery is bounded and conservative
+ * by design, so a surface it missed must still be typeable — replacing the field
+ * with a menu would make the scan's misses unreachable instead of merely
+ * unlisted. Absent scan and empty result are rendered differently, because
+ * "this project has no UI" and "nobody looked" are different answers.
+ */
+function renderUiSurfaceChoices(report: UiSurfaceScanReport | undefined): { list: string; hint: string } {
+  if (!report) {
+    return { list: '', hint: 'The workspace has not been scanned for UI surfaces.' };
+  }
+  if (report.surfaces.length === 0) {
+    return {
+      list: '',
+      hint: `No UI surfaces found — ${report.filesExamined} file(s) looked at, ${report.filesExcluded} excluded by rule. Type a path if one was missed.`,
+    };
+  }
+  const options = report.surfaces
+    .map(surface => `<option value="${escapeHtml(surface.path)}">${escapeHtml(`${surface.adapterId} · ${surface.kind}`)}</option>`)
+    .join('');
+  return {
+    list: `<datalist id="uiSurfaceChoices">${options}</datalist>`,
+    hint: `${report.surfaces.length} UI surface(s) found in this workspace${report.truncated ? ' (list truncated — the scan hit a cap)' : ''}. Start typing to pick one, or enter any path.`,
+  };
+}
+
+function renderImplementationGuide(config: WebsiteWorkspaceConfig, uiSurfaces?: UiSurfaceScanReport): string {
   const guide = config.implementation;
+  const surfaceChoices = renderUiSurfaceChoices(uiSurfaces);
   const targets = [
     ...config.designGraph.components.map(component => ({ value: `component:${component.id}`, label: `Component · ${component.label}` })),
     ...config.designGraph.tokens.map(token => ({ value: `token:${token.id}`, label: `Token · ${token.label}` })),
@@ -1881,10 +1978,11 @@ function renderImplementationGuide(config: WebsiteWorkspaceConfig): string {
           ${field('Label', 'newMappingLabel', 'Button source', 'Button source')}
           <label class="field"><span>Adapter</span><select id="newMappingAdapter">${UI_REPOSITORY_ADAPTERS.map(adapter => `<option value="${adapter.id}">${escapeHtml(adapter.label)}</option>`).join('')}</select></label>
           <label class="field"><span>Design target</span><select id="newMappingTarget"><option value="">Choose a graph target</option>${targets.map(target => `<option value="${escapeHtml(target.value)}">${escapeHtml(target.label)}</option>`).join('')}</select></label>
-          ${field('Source file', 'newMappingSourcePath', 'src/components/Button.tsx', 'src/components/Button.tsx')}
+          <label class="field"><span>Source file</span><input id="newMappingSourcePath" list="uiSurfaceChoices" value="" placeholder="src/components/Button.tsx" /></label>${surfaceChoices.list}
           <button type="button" id="addRepositoryMapping"${guide.repositoryMappings.length >= 200 || targets.length === 0 ? ' disabled' : ''}>Add mapping</button>
         </div>
         <p class="token-help">Component relation rows use <code>graph-id | source-name</code>. This first adapter slice records declared/partial/unsupported coverage and never claims lossless import.</p>
+        <p class="token-help">${escapeHtml(surfaceChoices.hint)}</p>
         <div id="repositoryMappingEditor" class="component-editor repository-mapping-editor" aria-live="polite"></div>
       </div>
     </article>`;

@@ -57,9 +57,10 @@ import {
   MAX_LOOP_MESSAGES,
   CONTEXT_SAFE_OUTPUT_MARGIN,
 } from '../constants.js';
-import { redactSecretsWithWarning } from '../utils/secretRedactor.js';
+import { redactSecrets, redactSecretsWithWarning } from '../utils/secretRedactor.js';
 import { readDeliveryConfig } from './deliveryManager.js';
 import { readWorkflowConfig } from './workflowConfig.js';
+import { assessPlannedActionCeilings, describePlannedActionCeilings } from './plannedActionCeiling.js';
 import {
   describeDeliveryPipeline,
   hasPromotionIntent,
@@ -577,6 +578,7 @@ export class Orchestrator {
   private dataPrivacy?: DataPrivacyManager;
   private onClassifiedContentForUntrustedModel?: OrchestratorHooks['onClassifiedContentForUntrustedModel'];
   private readSettingHook?: OrchestratorHooks['readSetting'];
+  private resolveWorkflowStageLevelsHook?: OrchestratorHooks['resolveWorkflowStageLevels'];
 
   constructor(
     private agents: AgentRegistry,
@@ -603,6 +605,7 @@ export class Orchestrator {
     this.onModelSelected = hooks?.onModelSelected;
     this.onClassifiedContentForUntrustedModel = hooks?.onClassifiedContentForUntrustedModel;
     this.readSettingHook = hooks?.readSetting;
+    this.resolveWorkflowStageLevelsHook = hooks?.resolveWorkflowStageLevels;
     this.classifier = new ClassifierService(router, providers, taskProfiler);
     this.cfg = { ...defaultConfig, ...config };
 
@@ -787,13 +790,65 @@ export class Orchestrator {
   }
 
   /**
-   * Redact a tool result for an un-trusted model. File-read tools whose target
-   * path is classified are withheld entirely; everything else is scanned for
-   * classified terms/regex/regulated data and redacted span-by-span.
+   * Redact a tool result before it reaches a model, in two layers that must not
+   * be confused for one another.
+   *
+   * **The credential boundary is unconditional.** `redactSecrets` runs on every
+   * tool result for every model, because a credential in a context window is
+   * never useful to the task and is the one thing that cannot be un-sent. This
+   * used to be reachable only *through* the Data Privacy policy below — which
+   * is opt-in and off by default — so out of the box an agent that read a
+   * `.env`, a `secrets.yaml` or a CI config forwarded it to the provider
+   * verbatim, while the README promised keys were "redacted before anything is
+   * sent to a model". The claim was right and the code was wrong; this is the
+   * side that moved.
+   *
+   * **The Data Privacy policy is the classification layer on top**, and stays
+   * opt-in: it encodes what *this project* calls confidential, which is a
+   * judgement only the operator can make. File-read tools whose target path is
+   * classified are withheld entirely; everything else is scanned for classified
+   * terms, regexes and regulated data and redacted span-by-span. A trusted
+   * model is exempt from *that* layer — the operator named it precisely so
+   * classified context reaches it intact — and is never exempt from the
+   * credential boundary, because trusting a model with the project's data is
+   * not the same as handing it the project's keys.
    */
-  private redactToolResultForModel(toolCall: ToolCall, result: string, modelId: string): string {
-    if (!this.dataPrivacy?.isEnabled() || this.dataPrivacy.isModelTrusted(modelId) || !result) {
+  /**
+   * Apply the credential boundary and, when it fires, *say so in the result*.
+   *
+   * A silent replacement is not safe here, only quiet. The model reads a file,
+   * receives `[REDACTED]` where a key was, and has no way to know the text it
+   * holds differs from the text on disk — so the next `file-write` reconstructed
+   * from that read overwrites a live credential with the placeholder. The
+   * redaction would then have destroyed the secret it was protecting, which is a
+   * worse outcome than the leak and much harder to notice.
+   *
+   * The note is appended rather than substituted into the placeholder because it
+   * must survive the model summarising or excerpting the result.
+   */
+  private redactToolResultSecrets(toolCall: ToolCall, result: string): string {
+    const redaction = redactSecrets(result);
+    if (redaction.redactedCount === 0) {
       return result;
+    }
+    console.warn(
+      `[AtlasMind] Secret redactor: removed ${redaction.redactedCount} potential secret(s) ` +
+      `(${redaction.redactedTypes.join(', ')}) from "tool result (${toolCall.name})" before sending to LLM.`,
+    );
+    return `${redaction.text}
+
+[AtlasMind] ${redaction.redactedCount} credential-shaped value(s) in this ` +
+      'result were replaced with [REDACTED] before you saw them. The real values are still on disk. ' +
+      'Do not write [REDACTED] back into any file, and do not treat it as the literal content.';
+  }
+
+  private redactToolResultForModel(toolCall: ToolCall, result: string, modelId: string): string {
+    if (!result) {
+      return result;
+    }
+    const patternSafe = this.redactToolResultSecrets(toolCall, result);
+    if (!this.dataPrivacy?.isEnabled() || this.dataPrivacy.isModelTrusted(modelId)) {
+      return patternSafe;
     }
     const args = (toolCall.arguments ?? {}) as Record<string, unknown>;
     const candidatePath = ['path', 'filePath', 'file', 'uri', 'target']
@@ -805,7 +860,7 @@ export class Orchestrator {
         return `[CONFIDENTIAL FILE WITHHELD] "${candidatePath}" is classified by the Data Privacy policy and cannot be read by an un-trusted model. Assign a trusted model in the Project Dashboard → Privacy page to access it.`;
       }
     }
-    return this.dataPrivacy.redactForModel(result, modelId).text;
+    return this.dataPrivacy.redactForModel(patternSafe, modelId).text;
   }
 
   /**
@@ -2238,6 +2293,24 @@ export class Orchestrator {
         onProgress?.(diagnostic);
       }
     }
+    // A provider that ran its own tools observed work AtlasMind never executed.
+    // Without this the turn has no artifacts at all, and "no artifacts" was read
+    // downstream as "no tools ran" — so every subscription-backed turn reported
+    // itself as answered from context with nothing done.
+    const delegatedToolCallCount = completion.delegatedToolCallCount;
+    const artifactsWithDelegated = delegatedToolCallCount === undefined
+      ? executionArtifacts
+      : {
+        ...(executionArtifacts ?? {
+          output: sanitizedCompletion.content,
+          outputPreview: sanitizedCompletion.content.slice(0, 400),
+          toolCallCount: 0,
+          toolCalls: [],
+          checkpointedTools: [],
+        }),
+        delegatedToolCallCount,
+      };
+
     let result: TaskResult = {
       id: request.id,
       agentId: agent.id,
@@ -2249,7 +2322,7 @@ export class Orchestrator {
       ...(estimatedCompressionSavingsUsd > 0 ? { contextCompressionSavingsUsd: estimatedCompressionSavingsUsd } : {}),
       durationMs,
       ...(modelAttempts.length > 0 ? { modelAttempts } : {}),
-      ...(executionArtifacts ? { artifacts: executionArtifacts } : {}),
+      ...(artifactsWithDelegated ? { artifacts: artifactsWithDelegated } : {}),
       ...(autoDisabledProvider ? { autoDisabledProvider } : {}),
       ...(finalAttempt.iterationLimitHit ? { iterationLimitHit: true } : {}),
       ...(finalAttempt.suggestedIterationLimit !== undefined ? { suggestedIterationLimit: finalAttempt.suggestedIterationLimit } : {}),
@@ -2382,6 +2455,38 @@ export class Orchestrator {
       }
     }
     onProgress?.({ type: 'planned', plan });
+
+    // Authority, before anything is spent on it.
+    //
+    // `plannedActionCeiling` was written for this and was reachable from one
+    // surface: the chat participant, where it contributes an approval reason.
+    // The chat panel, the CLI, the mission runner and the run centre all reach
+    // `processProject` without passing through it — so an unattended run could
+    // plan a merge into a protected branch, spend several model attempts, and
+    // stop at a tool-permission wall it then described as the reason. Every fact
+    // needed to refuse was recorded before the run started.
+    //
+    // Checked here rather than at the four call sites so the guarantee belongs
+    // to the run rather than to whichever surface happened to start it. The
+    // module stays a pure reporter — nothing in it blocks and nothing in it
+    // approves — and the decision to stop is taken here, where the run is.
+    const stageLevels = await (this.resolveWorkflowStageLevelsHook?.().catch(() => undefined));
+    const ceilingReport = assessPlannedActionCeilings({
+      subTasks: plan.subTasks.map(task => ({ id: task.id, title: task.title })),
+      // Passed through as-is: `undefined` is the module's "no workflow declared"
+      // case and means there are no rules to be outside of, which is not the
+      // same as a workflow that permits everything.
+      stageLevels,
+      // A subtask executes with nobody watching, so it needs the top rung. The
+      // same action offered to a person for approval needs only `propose`.
+      unattended: true,
+    });
+    if (ceilingReport.declared && ceilingReport.breaches.length > 0) {
+      const refusal = describePlannedActionCeilings(ceilingReport)
+        ?? 'This project would act beyond what the declared workflow permits unattended.';
+      onProgress?.({ type: 'error', message: refusal });
+      throw new Error(refusal);
+    }
 
     const projectBudget = this.costs.getDailyBudgetStatus(this.estimateProjectCost(plan.subTasks.length, constraints).lowUsd);
     if (projectBudget?.blocked) {
@@ -3147,7 +3252,20 @@ export class Orchestrator {
           let skill = this.skills.get(toolCall.name);
           const toolArguments = isJsonObject(toolCall.arguments) ? toolCall.arguments : {};
           if (!isToolAllowedByTurnEnvelope(toolCall.name, toolArguments, context.turnCapabilities)) {
-            const deniedMessage = `Tool "${toolCall.name}" was denied by the user's turn-scoped read-only constraint.`;
+            // Names the gate, and says what it is not.
+            //
+            // This read "denied by the user's turn-scoped read-only
+            // constraint", which is accurate and reads to a model as a blanket
+            // prohibition: one relayed it back as "a security policy preventing
+            // write operations … disables any terminal-run command that
+            // modifies files, including git", and stopped. It is a per-turn
+            // choice, it is the reason *this* call was refused rather than a
+            // statement about the repository, and other routes to the same
+            // outcome may well be open.
+            const deniedMessage = `Tool "${toolCall.name}" was refused: this turn is running read-only, `
+              + 'which is a per-turn choice and not a repository-wide policy. Re-send the request with writes '
+              + 'enabled for the turn if that is what you want. Do not conclude that every write is forbidden — '
+              + 'read-only tools, and any route that does not write locally, are unaffected.';
             await this.toolWebhookDispatcher?.emit({
               event: 'tool.failed',
               timestamp: new Date().toISOString(),
@@ -3513,6 +3631,26 @@ export class Orchestrator {
       return cachedFailure;
     }
 
+    // Deny by default. Synthesis ends in `new Function(...)` over source a model
+    // wrote, evaluated in the extension host's own global scope — the single
+    // most consequential thing AtlasMind can do, and it used to be reachable
+    // from any tool name the model happened to invent. Two facts compound:
+    // the model writing that code has just been fed workspace file contents, so
+    // a prompt injection in a dependency's README shares a context window with
+    // the code generator; and synthesis runs *before* the tool approval gate, so
+    // the code executed before anything asked. It is now an explicit setting the
+    // operator turns on, named in the refusal so the capability is discoverable
+    // without being silent.
+    if (!this.readSetting<boolean>('skillAutoSynthesisEnabled', false)) {
+      const error =
+        `No skill is registered for tool "${toolName}", and skill auto-synthesis is disabled. ` +
+        'Auto-synthesis asks a model to write JavaScript and then executes it inside the editor, ' +
+        'so it is off by default. Enable `atlasmind.skillAutoSynthesisEnabled` to allow it, or ' +
+        'author the skill in the Agent Manager. Use one of the tools you were given instead.';
+      this.failedAutoSyntheses.set(skillId, error);
+      return error;
+    }
+
     onProgress?.(`No skill found for "${toolName}" — attempting auto-synthesis.`);
     const synthesisPrompt = buildAutoSynthesisPrompt({
       toolName: skillId,
@@ -3563,22 +3701,35 @@ export class Orchestrator {
       return error;
     }
 
+    // Approval is required on **every** synthesis, not only on a scan warning.
+    //
+    // A clean scan is not evidence that the code is safe; it is evidence that
+    // twelve regexes over source text found nothing they were written to look
+    // for. That is a lower bar than it reads as — the scanner cannot see through
+    // `globalThis['pro' + 'cess']`, and until this release it had no rule at all
+    // for `await import('node:child_process')`. Gating the prompt on the
+    // scanner's own findings made the *quietest* outcome the one where the
+    // reviewer never saw the code, which is exactly backwards: the source that
+    // trips nothing is the source most worth a human glance before it runs.
     const warningIssues = scanResult.issues.filter(issue => issue.severity === 'warning');
-    if (warningIssues.length > 0) {
-      onProgress?.(`Auto-synthesized skill "${skillId}" raised ${warningIssues.length} review warning(s); awaiting user approval.`);
-      if (!this.generatedSkillApprovalGate) {
-        const warningSummary = warningIssues.map(issue => issue.message).join('; ');
-        const error = `Auto-synthesis paused: generated skill requires explicit review before execution — ${warningSummary}`;
-        this.failedAutoSyntheses.set(skillId, error);
-        return error;
-      }
+    onProgress?.(
+      warningIssues.length > 0
+        ? `Auto-synthesized skill "${skillId}" raised ${warningIssues.length} review warning(s); awaiting user approval.`
+        : `Auto-synthesized skill "${skillId}" passed the security scan; awaiting user approval before it runs.`,
+    );
+    if (!this.generatedSkillApprovalGate) {
+      const error =
+        `Auto-synthesis paused: generated skill "${skillId}" requires explicit review before execution, ` +
+        'and no approval surface is available in this runtime.';
+      this.failedAutoSyntheses.set(skillId, error);
+      return error;
+    }
 
-      const approval = await this.generatedSkillApprovalGate(skillId, scanResult, source);
-      if (!approval.approved) {
-        const error = `Auto-synthesis not approved: ${approval.reason || `Generated skill "${skillId}" requires a safer or more specific revision before execution.`}`;
-        this.failedAutoSyntheses.set(skillId, error);
-        return error;
-      }
+    const approval = await this.generatedSkillApprovalGate(skillId, scanResult, source);
+    if (!approval.approved) {
+      const error = `Auto-synthesis not approved: ${approval.reason || `Generated skill "${skillId}" requires a safer or more specific revision before execution.`}`;
+      this.failedAutoSyntheses.set(skillId, error);
+      return error;
     }
 
     const loaded = loadSkillFromSource(source);

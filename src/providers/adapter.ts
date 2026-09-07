@@ -89,6 +89,20 @@ export interface CompletionResponse {
   finishReason: 'stop' | 'length' | 'error' | 'tool_calls';
   /** Populated when finishReason is 'tool_calls'. */
   toolCalls?: ToolCall[];
+  /**
+   * Tool calls the *provider* ran inside its own session.
+   *
+   * Distinct from `toolCalls`, which are calls handed back for AtlasMind to
+   * execute. A subscription-backed agent does its own work behind the protocol,
+   * so AtlasMind sees the events but never runs them — and reporting that as
+   * zero made every such turn read as "answered from context" with no tools,
+   * which is the opposite of what happened.
+   *
+   * **Absent means not observable, never none.** A provider that cannot report
+   * this omits the field; only a provider that genuinely watched the session
+   * reports `0`.
+   */
+  delegatedToolCallCount?: number;
 }
 
 // ── Discovery ────────────────────────────────────────────────────

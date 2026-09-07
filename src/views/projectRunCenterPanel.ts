@@ -409,7 +409,7 @@ export class ProjectRunCenterPanel {
       return;
     }
 
-    await vscode.commands.executeCommand('atlasmind.openChatPanel', {
+    await vscode.commands.executeCommand('atlasmind.openChat', {
       sessionId: run.chatSessionId,
       messageId: run.chatMessageId,
       sendMode: 'send',
@@ -666,7 +666,7 @@ export class ProjectRunCenterPanel {
 
     const sessionId = this.atlas.sessionConversation.createSession(`Draft: ${deriveProjectRunTitle(goal || this.previewState?.goal || 'Project Run')}`);
 
-    await vscode.commands.executeCommand('atlasmind.openChatPanel', {
+    await vscode.commands.executeCommand('atlasmind.openChat', {
       sessionId,
       draftPrompt: buildDraftDiscussionPrompt(goal, planDraft, this.previewState),
       sendMode: 'send',

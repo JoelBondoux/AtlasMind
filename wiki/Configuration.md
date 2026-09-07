@@ -93,7 +93,7 @@ Providers**. Azure uses `atlasmind.provider.azure.apiKey`; Bedrock uses
 
 | Setting | Default | What it does |
 |---------|---------|-------------|
-| `atlasmind.acp.agents` | `[]` | Which subscription agents AtlasMind may use. **Empty by default — nothing runs until you name it** |
+| `atlasmind.acp.agents` | `[]` | Which subscription agents AtlasMind may use. **Empty by default — nothing runs until you name it.** Stored in your **user** settings, because the agent is a command installed on this machine and a subscription you signed into once, not a property of one repository — so naming it once makes it available in every project |
 | `atlasmind.acp.toolsEnabled` | `false` | **Let subscription agents act.** Makes them eligible for tool-backed work and automatically allows their own operations, with each one logged. Off means completions only |
 | `atlasmind.acp.mcpServers` | `[]` | Which MCP servers a subscription agent may reach. Empty means none |
 | `atlasmind.acp.modelStanding` | `{}` | Tell AtlasMind how a subscription's models rank against each other, where it can't work that out itself |
@@ -107,6 +107,8 @@ Providers**. Azure uses `atlasmind.provider.azure.apiKey`; Bedrock uses
 |---------|---------|-------------|
 | `atlasmind.toolApprovalMode` | `ask-on-write` | When approval is required |
 | `atlasmind.allowTerminalWrite` | `false` | Whether approved terminal commands may change things (installs, commits) |
+| `atlasmind.skillAutoSynthesisEnabled` | `false` | Whether a model may write a new skill and have it run when a tool does not exist. Scanned and shown to you first, every time |
+| `atlasmind.cli.addToTerminalPath` | `false` | Whether the `atlasmind` launchers go on the PATH of new integrated terminals |
 | `atlasmind.chat.revealOnApprovalRequest` | `true` | Bring the chat panel forward when something's waiting on you. You get a notification either way |
 | `atlasmind.maxToolIterations` | `10` | How many tool rounds one turn may take |
 | `atlasmind.maxToolCallsPerTurn` | `8` | How many tools may run at once |

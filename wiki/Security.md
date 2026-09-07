@@ -205,13 +205,52 @@ federation, opt-in finders, and installs that arrive disabled.
 
 ## Custom skills
 
-Anything you write or import is scanned before it can be enabled. `eval`, `new Function`, `child_process`,
-shell execution, path traversal and hardcoded secrets **block enablement**. Environment access, direct
-fetching, raw Node http and direct filesystem use are flagged and allowed.
+Anything you write or import is scanned before it can be enabled. `eval`, `new Function`,
+`child_process` (including `node:child_process`), dynamic `import()`, indirect routes to the module
+loader (`process.mainModule.require`, `createRequire`), the Function constructor reached through a
+`constructor` property, computed access to a global object, shell execution, path traversal and
+hardcoded secrets **block enablement**. Environment access, direct fetching, raw Node http and direct
+filesystem use are flagged and allowed.
 
 Built-in skills are pre-approved and skip the scan.
 
-Auto-generated skill drafts get an extra one-time review gate on top.
+### Commands never go through a shell
+
+A tool call that runs a command passes its arguments as an array, and AtlasMind spawns with `shell: false`
+on every platform. That matters most on Windows, where it briefly did not: `npm` is `npm.cmd` there, a
+`.cmd` cannot be spawned directly since the fix for CVE-2024-27980, and the shell that made it work also
+made every argument live. Node concatenates an argument array into one command line without escaping it,
+so `&` followed by anything became a second command — with model-written arguments as the delivery
+mechanism and an approval dialog showing only the intended command.
+
+From v0.406.0 AtlasMind bypasses the Windows shim instead of invoking it, reading the entry point the
+package's own `package.json` declares and handing it to Node. A command that cannot be resolved that way
+is **refused with a reason**, because the only fallback available is the shell the change exists to
+remove.
+
+Which *executable* may run is a separate control and still applies: an unrecognised command grades
+`terminal-write` at high risk, needs approval, and needs `atlasmind.allowTerminalWrite`.
+
+### Model-written skills are off by default
+
+When the model calls a tool that does not exist, AtlasMind can ask a model to write one and then run
+it. That is the most consequential thing this extension can do — the source is evaluated inside the
+extension host, so it runs with the editor's own privileges — and the model writing it has just been
+shown workspace file contents, so text from a dependency's README or a fetched page shares a context
+window with the code generator.
+
+From v0.405.0:
+
+- **It requires `atlasmind.skillAutoSynthesisEnabled`, which is off.** With it off, no synthesis
+  request is made at all; the model is told the tool does not exist and carries on with what it has.
+- **Approval is asked on every synthesis, not only on a scan warning.** It used to be conditional on
+  the scanner raising something, which made the *quietest* outcome the one where nobody saw the code.
+  A clean scan is not evidence of safety — it is evidence that a dozen regexes found nothing they were
+  written to look for.
+- **A scanner error still refuses outright**, with no prompt offered.
+
+The scan is a regex pass over source text, not a sandbox. It is a filter in front of a human review,
+and the review is the control.
 
 ---
 

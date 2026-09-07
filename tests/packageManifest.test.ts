@@ -2,6 +2,7 @@ import { existsSync, readFileSync } from 'node:fs';
 import path from 'node:path';
 import { describe, expect, it } from 'vitest';
 import manifest from '../package.json';
+import { compareSemver } from '../src/core/semver.ts';
 
 const REPO_ROOT = path.resolve(__dirname, '..');
 
@@ -64,10 +65,31 @@ describe('package manifest', () => {
     expect(readme).toContain(`Current source version: ${manifest.version}`);
   });
 
-  it('keeps the Stryker REST client on the patched qs release', () => {
-    const overrides = manifest.overrides as Record<string, unknown>;
+  it('keeps the transitive dependencies with advisories on a patched release', () => {
+    // A **floor**, not an exact pin. This asserted `qs === '6.15.2'` because
+    // that was the patched release when it was written — and then 6.15.2 picked
+    // up an advisory of its own, at which point the test that existed to keep
+    // the dependency patched was the thing refusing the patch. Every override
+    // here is load-bearing for a security advisory, so each is checked as
+    // "at least this version" and a later one passes unedited.
+    const overrides = manifest.overrides as Record<string, string>;
+    const floors: Record<string, string> = {
+      qs: '6.16.0',           // GHSA-4mjr-xmp4-gh2g, GHSA-x5fp-wj9c-mxmx
+      'fast-uri': '3.1.6',    // GHSA-jqff-g426-hqxp and three siblings
+      nanoid: '3.3.18',       // GHSA-2v37-7h3g-55p8
+    };
 
-    expect(overrides.qs).toBe('6.15.2');
+    for (const [name, floor] of Object.entries(floors)) {
+      const declared = overrides[name];
+      expect(declared, `${name} must stay overridden — it carries a security advisory`).toBeTruthy();
+      // Only the caret form is used here; a range this test cannot read is a
+      // failure rather than something to interpret hopefully.
+      expect(declared, `${name} override should be a caret or exact version`).toMatch(/^\^?\d+\.\d+\.\d+$/);
+      expect(
+        compareSemver(declared.replace(/^\^/, ''), floor),
+        `${name} override ${declared} is below the patched ${floor}`,
+      ).toBeGreaterThanOrEqual(0);
+    }
   });
 
   it('provides validation and editor guidance for explicit Lens field mappings', () => {
@@ -133,10 +155,27 @@ describe('package manifest', () => {
   it('keeps the README sales-led and free of competitor comparison charts', () => {
     const readme = readFileSync(new URL('../README.md', import.meta.url), 'utf8');
 
-    expect(readme).toContain('Your AI delivery team, inside VS Code.');
+    // The tagline leads with the management layer, because that is the half a
+    // reader cannot get from any other AI coding extension. "Delivery team"
+    // alone described AtlasMind when the orchestrator was the whole product;
+    // the dashboard, the registers and the lenses have since become the larger
+    // half, and a listing that undersells them sells the wrong product.
+    expect(readme).toContain('Your AI project manager, inside VS Code');
     expect(readme).toContain(`## What's new in ${manifest.version}`);
     expect(readme).not.toContain('| Feature | AtlasMind | Copilot');
     expect(readme).not.toContain('wiki/Comparison.md');
+  });
+
+  /**
+   * The Marketplace listing is indexed on `description` and `keywords`, so a
+   * positioning change that stops at the README changes nothing about who
+   * finds the extension. This pins the half that is searchable.
+   */
+  it('describes the management layer in the fields the Marketplace indexes', () => {
+    expect(manifest.description).toMatch(/project management/i);
+    expect(manifest.keywords).toEqual(expect.arrayContaining(['project-management', 'roadmap']));
+    // Still an orchestrator; the point is that it is no longer only that.
+    expect(manifest.keywords).toEqual(expect.arrayContaining(['agents', 'multi-agent']));
   });
 
   it('uses the ACP panel’s wording in the native Settings search entry', () => {

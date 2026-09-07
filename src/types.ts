@@ -1350,6 +1350,18 @@ export interface OrchestratorHooks {
    */
   readSetting?: <T>(key: string, fallback: T) => T;
 
+  /**
+   * The effective automation level of each declared workflow stage.
+   *
+   * Its own hook rather than something derived from `readSetting`, because the
+   * rule is `min(master, ceiling, capability, stage)` taken **most restrictively
+   * across scopes** — a workspace file must not be able to raise a ceiling the
+   * user set. That needs `inspect()`, which only the editor host has. Returning
+   * `undefined` means no workflow is declared, which is not the same as one that
+   * permits everything: it means there are no rules to be outside of.
+   */
+  resolveWorkflowStageLevels?: () => Promise<Record<string, import('./core/workflowAutomation.js').AutomationLevel> | undefined>;
+
   /** Gate function that determines whether a tool invocation should proceed. */
   toolApprovalGate?: (
     taskId: string,
@@ -4322,6 +4334,11 @@ export interface SubTaskExecutionArtifacts {
   toolCallCount: number;
   /** Number of tool calls whose raw result was classified as a failure. */
   failedToolCallCount?: number;
+  /**
+   * Tool calls the provider ran inside its own session, which AtlasMind
+   * observed but did not execute. Absent means not observable, never none.
+   */
+  delegatedToolCallCount?: number;
   toolCalls: ToolExecutionArtifact[];
   verificationSummary?: string;
   tddStatus?: 'verified' | 'blocked' | 'missing' | 'not-applicable';

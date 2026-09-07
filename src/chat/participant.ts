@@ -28,6 +28,8 @@ import { TaskProfiler } from '../core/taskProfiler.js';
 import { MissionRunner } from '../core/missionRunner.js';
 import type { MissionCheckpointRequest, MissionBlockedRequest, MissionBlockResolution } from '../core/missionRunner.js';
 import { shouldBiasTowardWorkspaceInvestigation } from '../core/orchestrator.js';
+import { assessRunGoalConformance, describeRunGoalConformance } from '../core/runGoalConformance.js';
+import { assessPlannedActionCeilings, describePlannedActionCeilings } from '../core/plannedActionCeiling.js';
 import { formatCost, formatCostAdaptive } from '../core/currencyFormatter.js';
 import {
   DEFAULT_MISSION_MAX_ITERATIONS,
@@ -309,6 +311,14 @@ const ROADMAP_STATUS_DETAIL_PATTERN = /\b(?:outstanding|remaining|left|pending|t
 // A "plan/build" request asks for an ordered plan, not a status dump — we collect the gaps then hand
 // off to real planning. An explicit "status/progress" request still gets the deterministic summary.
 const ROADMAP_PLAN_INTENT_PATTERN = /\b(?:plan|planning|build|building|ship|deliver|delivering|route|path|roadmap to|get to|next milestone|mvp|minimum viable)\b/i;
+// An imperative opening a prompt or a line: a request to *act*, never a question
+// a deterministic summary may answer. "Update the roadmap to mark the workflow
+// item complete" carries both trigger words, so it was answered with a summary
+// of what had not changed instead of being routed to something that could
+// change it. Anchored to a line start because only there is the verb imperative:
+// "what should I write next?" is still a question.
+const ROADMAP_WRITE_INSTRUCTION_PATTERN =
+  /^\s*(?:please\s+|now\s+|can you\s+|could you\s+)*(?:draft|write|implement|create|add|update|mark|tick|resolve|file|generate|edit|delete|remove|refactor|rewrite|fix)\b/im;
 const ROADMAP_STATUS_INTENT_PATTERN = /\b(?:status|progress|outstanding|remaining|left|how many|where are we|what'?s left|done so far|completed|backlog)\b/i;
 // The real developer backlog lives between these markers in improvement-plan.md; everything else in
 // that file (Project Context, Prioritisation Notes legend) is scaffold, not outstanding work.
@@ -471,7 +481,7 @@ const NATURAL_LANGUAGE_COMMAND_INTENTS: AtlasCommandIntentDefinition[] = [
   },
   {
     pattern: /\b(?:open|show|launch|bring up)\s+(?:the\s+)?(?:atlasmind\s+)?chat\s+panel\b/i,
-    commandId: 'atlasmind.openChatPanel',
+    commandId: 'atlasmind.openChat',
     summary: 'Opened the AtlasMind Chat Panel.',
   },
   {
@@ -1044,6 +1054,69 @@ async function buildWorkflowNoticeForChat(
   }
 }
 
+
+/**
+ * Effective automation level per enabled stage, or `undefined` when no workflow
+ * is declared.
+ *
+ * Mirrors the dashboard's `automationFor`: the *scopes* are read rather than the
+ * resolved value, because VS Code resolves workspace above user, which is right
+ * for a preference and wrong for a safety ceiling. A disabled stage is omitted
+ * rather than reported at its declared level — a stage nobody enabled has no
+ * expectations, which is what the planner check treats as silence.
+ *
+ * Never throws. This decides whether to *add* an approval reason, and a check
+ * that took a run down would be worse than the gap it closes.
+ */
+export async function resolveWorkflowStageLevelsForRun(): Promise<
+  Record<string, import('../core/workflowAutomation.js').AutomationLevel> | undefined
+> {
+  try {
+    const [{ explainAutomationLevel, resolveRestrictiveFlag, resolveRestrictiveLevel }, { readWorkflowConfig }] =
+      await Promise.all([
+        import('../core/workflowAutomation.js'),
+        import('../core/workflowConfig.js'),
+      ]);
+    const workspaceRoot = vscode.workspace.workspaceFolders?.[0]?.uri.fsPath;
+    if (workspaceRoot === undefined) {
+      return undefined;
+    }
+    const config = readWorkflowConfig(workspaceRoot);
+    if (config === undefined) {
+      return undefined;
+    }
+    const configuration = vscode.workspace.getConfiguration('atlasmind');
+    const flag = (key: string): boolean =>
+      resolveRestrictiveFlag(configuration.inspect<boolean>(key) ?? {});
+    const masterEnabled = flag('workflow.enabled');
+    const userCeiling = resolveRestrictiveLevel(configuration.inspect<string>('workflow.maxAutomationLevel') ?? {});
+    // The capability switch that governs each stage. Stages whose actions write
+    // nothing outside the repository carry none, which reads as `true`.
+    const capabilityKey: Record<string, string> = {
+      planning: 'workflow.allowIssueWrites',
+      'pull-request': 'workflow.allowPullRequestWrites',
+      release: 'workflow.allowReleaseWrites',
+    };
+
+    const levels: Record<string, import('../core/workflowAutomation.js').AutomationLevel> = {};
+    for (const stage of config.stages) {
+      if (!stage.enabled) {
+        continue;
+      }
+      const key = capabilityKey[stage.id];
+      levels[stage.id] = explainAutomationLevel({
+        masterEnabled,
+        userCeiling,
+        capabilityEnabled: key === undefined ? true : flag(key),
+        stageLevel: stage.automationLevel,
+      }).level;
+    }
+    return levels;
+  } catch {
+    return undefined;
+  }
+}
+
 export async function prepareProjectRunContext(
   atlas: AtlasMindContext,
   sessionId?: string,
@@ -1165,6 +1238,19 @@ export async function runProjectCommand(
       + 'from your goal alone. If you meant to start a new project here, that is fine and the run will '
       + 'create the files. If you meant to work on an existing codebase, the wrong folder is open.',
     );
+  }
+  // A third independent reason, and the one the file count cannot see: the plan
+  // proposes an action the project's own workflow declares it may not take
+  // unattended. Blast radius and authority are different questions — a two-file
+  // plan that pushes to a protected branch clears the count, and a forty-file
+  // plan that only reads does not.
+  const stageCeilingNotice = describePlannedActionCeilings(assessPlannedActionCeilings({
+    subTasks: preview.subTasks.map(item => ({ id: item.id, title: item.title })),
+    stageLevels: await resolveWorkflowStageLevelsForRun(),
+    unattended: true,
+  }));
+  if (stageCeilingNotice !== undefined) {
+    approvalReasons.push(stageCeilingNotice);
   }
   if (estimatedFiles > projectUiConfig.approvalFileThreshold) {
     approvalReasons.push(
@@ -1300,6 +1386,32 @@ export async function runProjectCommand(
     const reportUri = await writeProjectRunSummaryReport(report, projectUiConfig.runReportFolder);
 
     stream.markdown(`## Project Report\n\n${result.synthesis}`);
+
+    // A run that changed nothing, called nothing and proved nothing, whose whole
+    // answer is a promise about what happens next, is not a completed phase.
+    // Reported rather than enforced: the run is over either way, and the reading
+    // is for the person deciding whether to act on it.
+    const goalConformanceNotice = describeRunGoalConformance(assessRunGoalConformance(
+      result.subTaskResults.map(item => ({
+        id: item.subTaskId,
+        title: item.title,
+        output: item.output,
+        // Absent artifacts leave every evidence field undefined, which reads as
+        // "not observable" rather than "nothing happened" - the ACP case.
+        ...(item.artifacts === undefined ? {} : {
+          // A provider's own tool calls are evidence the work happened, even
+          // though AtlasMind executed none of them.
+          toolCallCount: item.artifacts.toolCallCount + (item.artifacts.delegatedToolCallCount ?? 0),
+          changedFileCount: item.artifacts.changedFiles.length,
+          ...(item.artifacts.verificationSummary === undefined
+            ? {}
+            : { verificationSummary: item.artifacts.verificationSummary }),
+        }),
+      })),
+    ));
+    if (goalConformanceNotice !== undefined) {
+      stream.markdown(`\n\n${goalConformanceNotice}`);
+    }
     stream.markdown(
       `\n\n---\n*${result.subTaskResults.length} subtask(s) \u00b7 ` +
       `${(result.totalDurationMs / 1000).toFixed(1)}s \u00b7 ` +
@@ -5028,6 +5140,7 @@ export function buildAssistantResponseMetadata(
   options?: { hasSessionContext?: boolean; imageAttachments?: TaskImageAttachment[]; routingContext?: Record<string, unknown>; policies?: SessionPolicySnapshot[]; responseText?: string },
 ): SessionTranscriptMetadata {
   const toolCallCount = result.artifacts?.toolCallCount ?? 0;
+  const delegatedToolCallCount = result.artifacts?.delegatedToolCallCount;
   const toolCalls = result.artifacts?.toolCalls ?? [];
   const responseWasEmpty = options?.responseText !== undefined && options.responseText.trim().length === 0;
   const attempts = result.modelAttempts ?? [];
@@ -5050,6 +5163,12 @@ export function buildAssistantResponseMetadata(
     summary = actionSummary
       ? `Used ${toolCallCount} tool call${toolCallCount === 1 ? '' : 's'} — ${actionSummary}.`
       : `Used ${toolCallCount} tool call${toolCallCount === 1 ? '' : 's'}.`;
+  } else if (delegatedToolCallCount !== undefined && delegatedToolCallCount > 0) {
+    // The agent ran these inside its own session, where AtlasMind saw the
+    // announcements but executed nothing. Reporting it as "answered from
+    // context" claimed the opposite of what happened.
+    summary = `The agent ran ${delegatedToolCallCount} tool call${delegatedToolCallCount === 1 ? '' : 's'} `
+      + 'inside its own session.';
   } else {
     summary = `Answered from context${options?.hasSessionContext ? ' and session history' : ''}.`;
   }
@@ -5826,7 +5945,28 @@ async function handleMemoryCommand(
   stream.markdown(`### Memory Results\n\n${rows.join('\n')}`);
 }
 
-export function isRoadmapStatusPrompt(prompt: string): boolean {
+/**
+ * Whether a turn should be answered by the deterministic roadmap summary rather
+ * than routed to a model.
+ *
+ * `composedByAtlas` is a structural bypass, not another pattern. Every hand-off
+ * `roadmapPlanning` builds ends with the sentence saying the model must not tick
+ * the item off — so every one of them carries both "roadmap" and "complete" and
+ * matched here, and the chat panel answered AtlasMind's own instruction with a
+ * status dump instead of sending it anywhere. The wording is the safety notice;
+ * it cannot also be the trigger. A prompt AtlasMind composed is never a question
+ * AtlasMind should intercept, whatever words it happens to contain.
+ */
+export function isRoadmapStatusPrompt(
+  prompt: string,
+  options?: { composedByAtlas?: boolean },
+): boolean {
+  if (options?.composedByAtlas === true) {
+    return false;
+  }
+  if (ROADMAP_WRITE_INSTRUCTION_PATTERN.test(prompt)) {
+    return false;
+  }
   return ROADMAP_STATUS_PROMPT_PATTERN.test(prompt) && ROADMAP_STATUS_DETAIL_PATTERN.test(prompt);
 }
 
@@ -5881,8 +6021,11 @@ export interface RoadmapStatusResult {
   prefills: SessionComposerPrefill[];
 }
 
-export async function buildRoadmapStatusResult(prompt: string): Promise<RoadmapStatusResult | undefined> {
-  if (!isRoadmapStatusPrompt(prompt)) {
+export async function buildRoadmapStatusResult(
+  prompt: string,
+  options?: { composedByAtlas?: boolean },
+): Promise<RoadmapStatusResult | undefined> {
+  if (!isRoadmapStatusPrompt(prompt, options)) {
     return undefined;
   }
 

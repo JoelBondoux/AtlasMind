@@ -392,6 +392,22 @@
     timescale: 30,
     editingRoadmapId: '',
     roadmapDraftText: '',
+    /** Release gates ticked on the entry form, applied when the draft is saved. */
+    roadmapDraftGates: [],
+    /** Owner chosen on the entry form. Applied after the item exists — see `pendingRoadmapOwner`. */
+    roadmapDraftOwner: '',
+    /**
+     * An owner chosen while adding an item, waiting for the item to exist.
+     *
+     * Assignment addresses a node by its durable id, and a brand-new item has no
+     * id until the host has written it and sent the next snapshot. So the choice
+     * is held for exactly one snapshot, applied through the ordinary
+     * `roadmapNodeUpdate` path, and if it cannot be resolved there it is
+     * reported rather than dropped — a silently discarded assignment is the one
+     * outcome worth ruling out, because the user watched themselves make it.
+     */
+    pendingRoadmapOwner: null,
+    roadmapOwnerNotice: '',
     draggedRoadmapId: '',
     /**
      * Which roadmap view is showing: the dependency canvas, the ordered backlog,
@@ -442,6 +458,11 @@
      * route filter — a way of looking must not be something that can fail.
      */
     roadmapSearch: '',
+    // The other two emphasis lenses. Not persisted: which slice of the plan you
+    // are looking at right now is a property of this sitting, not of the
+    // project, and restoring a dimmed canvas on open would read as a bug.
+    roadmapEmphasisGate: '',
+    roadmapEmphasisPerson: '',
     /** Live drag offsets, so a node follows the pointer before the host has saved. */
     roadmapDragOffsets: {},
     /**
@@ -468,6 +489,18 @@
      * is exactly how the arrange controls read before this existed.
      */
     roadmapFitAfterRender: false,
+    /**
+     * What the pending fit should frame: the whole plan, or only what the
+     * emphasis lenses matched.
+     *
+     * Search stopped removing nodes from the canvas — everything stays drawn so
+     * the dependencies around a match are still readable — which quietly made
+     * the re-fit a no-op: fitting *all* nodes after narrowing frames exactly
+     * what it framed before. Narrowing now concludes by showing you what it
+     * found. Reset to 'all' every time the flag is consumed, so one emphasis fit
+     * cannot leak into the next arrange or view change.
+     */
+    roadmapFitScope: 'all',
     editingDoc: null,
     gapBusy: false,
     gapStatus: '',
@@ -667,6 +700,11 @@
   // A CSS selector for one control to re-focus after the next render. Consumed
   // and cleared by render(), so it never leaks into an unrelated update.
   let refocusAfterRender = '';
+  // Put the caret in the roadmap entry form after the next render, and bring it
+  // on screen. Kept apart from `refocusAfterRender` because that one focuses
+  // with `preventScroll`, which is right for a control you just clicked and
+  // wrong for a form that opened somewhere you are not looking.
+  let focusRoadmapDraftAfterRender = false;
 
   function prepareDashboardFocus(target) {
     state.activePage = target.page;
@@ -786,6 +824,33 @@
 
   refreshButton?.addEventListener('click', () => {
     requestRepositoryRefresh('refresh');
+  });
+
+  /**
+   * The version strip lives in the host markup, outside `#dashboard-root`, so
+   * the delegated click handler on the root never saw it — which is why its
+   * existing "+N more" button did nothing. One listener here covers both it and
+   * the stage pills.
+   *
+   * A pill posts its own id and nothing else. The host resolves that against the
+   * strip it drew this page from, so a message can name a stage that exists and
+   * can never supply a branch name of its own.
+   */
+  versionStrip?.addEventListener('click', event => {
+    const trigger = event.target instanceof Element ? event.target.closest('[data-action]') : null;
+    if (!(trigger instanceof HTMLElement)) {
+      return;
+    }
+    const action = trigger.dataset.action;
+    const payload = trigger.dataset.payload || '';
+    if (action === 'page') {
+      state.activePage = payload;
+      render();
+      return;
+    }
+    if (action === 'version-pill-checkout' && payload) {
+      vscode.postMessage({ type: 'versionPillCheckout', payload: payload });
+    }
   });
 
   // The shortcut is in the tooltip and in `aria-keyshortcuts`, not printed on
@@ -919,6 +984,10 @@
       if (arrivedIds.length > 0 && hadNodes) {
         state.roadmapFitAfterRender = true;
       }
+      // The item just added now exists and has a durable id, so an owner chosen
+      // while typing it can finally be applied. One attempt, against this
+      // snapshot only.
+      applyPendingRoadmapOwner();
       if (state.roadmapFocusNodeId && !roadmapNodeIds.has(state.roadmapFocusNodeId)) {
         state.roadmapFocusNodeId = '';
       }
@@ -1656,6 +1725,17 @@
       render();
       return;
     }
+    if (action === 'roadmap-emphasis-clear') {
+      // Clears every lens at once. Three separate clears is three clicks to get
+      // back to a plan you can read, and the state people want is "show me
+      // everything again" rather than "remove exactly one of these".
+      state.roadmapSearch = '';
+      state.roadmapEmphasisGate = '';
+      state.roadmapEmphasisPerson = '';
+      state.roadmapFitAfterRender = true;
+      render();
+      return;
+    }
     if (action === 'roadmap-clear-focus') {
       state.roadmapFocusNodeId = '';
       render();
@@ -1805,6 +1885,12 @@
       state.roadmapView = 'list';
       state.editingRoadmapId = 'new';
       state.roadmapDraftText = '';
+      // Add item is reachable from the top card and from the canvas toolbar,
+      // and the form it opens is inside the queue further down the page — so
+      // pressing it used to look like nothing had happened. Unlike
+      // `refocusAfterRender`, which deliberately does not scroll, this one has
+      // to: the point is to put the caret where you are expected to type.
+      focusRoadmapDraftAfterRender = true;
       render();
       return;
     }
@@ -1816,9 +1902,24 @@
       render();
       return;
     }
+    if (action === 'roadmap-draft-gate') {
+      const index = state.roadmapDraftGates.indexOf(payload);
+      state.roadmapDraftGates = index >= 0
+        ? state.roadmapDraftGates.filter(id => id !== payload)
+        : state.roadmapDraftGates.concat([payload]);
+      render();
+      return;
+    }
+    if (action === 'roadmap-owner-notice-dismiss') {
+      state.roadmapOwnerNotice = '';
+      render();
+      return;
+    }
     if (action === 'roadmap-cancel') {
       state.editingRoadmapId = '';
       state.roadmapDraftText = '';
+      state.roadmapDraftGates = [];
+      state.roadmapDraftOwner = '';
       render();
       return;
     }
@@ -2929,6 +3030,7 @@
       // Re-fit on every narrowing, so the result is always in view — a filter
       // whose matches land off-screen reads as a filter that found nothing.
       state.roadmapFitAfterRender = true;
+      state.roadmapFitScope = 'emphasis';
       render();
     }
     if (target instanceof HTMLInputElement && target.id === 'privacy-rule-value') {
@@ -3031,6 +3133,31 @@
       if (targetId) {
         vscode.postMessage({ type: 'assignDashboardWorkOwner', payload: { targetId: targetId, contactId: target.value } });
       }
+      return;
+    }
+    // Emphasis lenses. A way of looking, so nothing is posted and nothing is
+    // written — and no re-fit either: the plan has not moved, and re-fitting
+    // would throw away the pan and zoom you set up to read this part of it.
+    if (target.getAttribute('data-action') === 'roadmap-draft-owner') {
+      state.roadmapDraftOwner = target.value || '';
+      return;
+    }
+    // The gate and person pickers narrow the same way the search box does —
+    // `roadmapEmphasis` combines all three into one set — so they conclude the
+    // same way. Leaving them out would mean the count said "3 of 40 match" and
+    // nothing moved for two of the three lenses.
+    if (target.getAttribute('data-action') === 'roadmap-emphasis-gate') {
+      state.roadmapEmphasisGate = target.value || '';
+      state.roadmapFitAfterRender = true;
+      state.roadmapFitScope = 'emphasis';
+      render();
+      return;
+    }
+    if (target.getAttribute('data-action') === 'roadmap-emphasis-person') {
+      state.roadmapEmphasisPerson = target.value || '';
+      state.roadmapFitAfterRender = true;
+      state.roadmapFitScope = 'emphasis';
+      render();
     }
   });
 
@@ -3245,6 +3372,62 @@
     if (label instanceof HTMLElement) {
       label.textContent = Math.round(state.roadmapZoom * 100) + '%';
     }
+    rmUpdateEdgeHints();
+  }
+
+  /**
+   * Four strips that glow when the plan continues past an edge.
+   *
+   * The canvas clips, so a node outside the frame is not merely small — it is
+   * absent, and indistinguishable from one that does not exist. That is fine
+   * while you are the one who panned, and misleading everywhere else: a fit that
+   * could not zoom below 40%, a route filter, a plan someone else laid out.
+   *
+   * Decorative on purpose (`aria-hidden`), because it says *where to look* and
+   * carries no information a reader cannot get from the counts already on the
+   * toolbar. Rendered once and toggled by class rather than rebuilt, so panning
+   * costs four class writes rather than a render.
+   */
+  const RM_EDGE_HINT_MARKUP = ['left', 'right', 'top', 'bottom']
+    .map(side => '<div class="rm-edge-hint rm-edge-hint-' + side + '" aria-hidden="true"></div>')
+    .join('');
+
+  const RM_EDGE_HINT_SIDES = [
+    ['left', 'has-off-left'],
+    ['right', 'has-off-right'],
+    ['top', 'has-off-top'],
+    ['bottom', 'has-off-bottom'],
+  ];
+
+  function rmUpdateEdgeHints() {
+    if (!root) { return; }
+    const frame = root.querySelector('[data-rm-frame="true"]');
+    if (!(frame instanceof HTMLElement)) { return; }
+    const width = frame.clientWidth;
+    const height = frame.clientHeight;
+    const off = { left: false, right: false, top: false, bottom: false };
+    // An unmeasurable frame is not an empty one. Without this every node reads
+    // as past the right and bottom edges, so a hidden or not-yet-laid-out page
+    // would light up all four strips.
+    if (width > 0 && height > 0) {
+      const zoom = state.roadmapZoom;
+      const pan = state.roadmapPan;
+      for (const el of root.querySelectorAll('[data-rm-node]')) {
+        const x = parseFloat(el.style.left) || 0;
+        const y = parseFloat(el.style.top) || 0;
+        const height_ = el.offsetHeight || RM_NODE_HEIGHT;
+        // Wholly past the edge, not merely crossing it: a card half off the
+        // right side is one you can see, and pointing at it would mean the
+        // strips were lit almost permanently and so worth nothing.
+        if ((x + RM_NODE_WIDTH) * zoom + pan.x < 0) { off.left = true; }
+        if (x * zoom + pan.x > width) { off.right = true; }
+        if ((y + height_) * zoom + pan.y < 0) { off.top = true; }
+        if (y * zoom + pan.y > height) { off.bottom = true; }
+      }
+    }
+    for (const [side, className] of RM_EDGE_HINT_SIDES) {
+      frame.classList.toggle(className, off[side]);
+    }
   }
 
   /**
@@ -3253,6 +3436,36 @@
    * flies away from the cursor — zoom out twice from a panned view and the
    * whole canvas is off-screen, which reads as the page having gone blank.
    */
+  /**
+   * Zoom in on one node and centre it.
+   *
+   * Unlike `rmZoomAt`, which holds a point on screen still while the scale
+   * changes, this one is told *what* to look at and works out where that has to
+   * land. Reads the node's real height rather than assuming `RM_NODE_HEIGHT`:
+   * nodes grow with their chips, and centring on an assumed height puts a tall
+   * node's title off the top of the frame — the part you double-clicked to read.
+   */
+  function rmZoomToNode(nodeId) {
+    const frame = root ? root.querySelector('[data-rm-frame="true"]') : null;
+    const nodeEl = root ? root.querySelector('[data-rm-node="' + cssEscape(nodeId) + '"]') : null;
+    if (!(frame instanceof HTMLElement) || !(nodeEl instanceof HTMLElement)) {
+      return;
+    }
+    const worldX = parseFloat(nodeEl.style.left) || 0;
+    const worldY = parseFloat(nodeEl.style.top) || 0;
+    const centreX = worldX + RM_NODE_WIDTH / 2;
+    const centreY = worldY + (nodeEl.offsetHeight || RM_NODE_HEIGHT) / 2;
+    // Already zoomed in? Double-clicking again should not creep further and
+    // further; the gesture means "look at this", which is one destination.
+    const zoom = Math.min(RM_MAX_ZOOM, Math.max(state.roadmapZoom, 1.25));
+    state.roadmapZoom = zoom;
+    state.roadmapPan = {
+      x: Math.round(frame.clientWidth / 2 - centreX * zoom),
+      y: Math.round(frame.clientHeight / 2 - centreY * zoom),
+    };
+    rmApplyViewTransform();
+  }
+
   function rmZoomAt(nextZoom, anchorX, anchorY) {
     const zoom = Math.min(RM_MAX_ZOOM, Math.max(RM_MIN_ZOOM, Math.round(nextZoom * 100) / 100));
     if (zoom === state.roadmapZoom) {
@@ -3366,9 +3579,11 @@
     const graph = roadmapGraph();
     const nodes = nodesOverride || roadmapCanvasNodes();
     const filter = roadmapRouteFilter();
-    const search = roadmapSearchFilter();
-    const drawable = node => (!search || search.visible.has(node.id));
-    const shown = nodes.filter(drawable);
+    // Only the route filter removes nodes. A search marks and dims but draws
+    // everything, so excluding its non-matches here would delete their edges on
+    // the next live repaint — a node still on screen with its arrows gone the
+    // moment you dragged anything.
+    const shown = nodes;
     const allVisible = graph.edges.filter(edge =>
       (!filter || filter.edges.has(edge.from + '->' + edge.to))
       && shown.some(n => n.id === edge.from) && shown.some(n => n.id === edge.to));
@@ -3598,7 +3813,37 @@
     root?.querySelectorAll('.roadmap-item.drag-over, .roadmap-item.dragging').forEach(el => {
       el.classList.remove('drag-over', 'dragging');
     });
+    // Put the rows back to full height. Cleared here rather than only on
+    // `dragend` because a drop and a cancelled drag both land here, and a queue
+    // left collapsed after the drag ended would look like data had gone.
+    root?.querySelectorAll('.roadmap-list.is-reordering').forEach(el => {
+      el.classList.remove('is-reordering');
+    });
   }
+
+  // Double-click a canvas node to zoom in on it and centre it.
+  //
+  // The two clicks underneath still reach the single-click handler, which
+  // toggles the neighbourhood highlight — so it goes on, off, and is set back on
+  // here explicitly rather than left to whichever parity the toggle landed on.
+  // Controls inside a node are excluded for the same reason the click handler
+  // excludes them: double-clicking a button is not a request to move the view.
+  root?.addEventListener('dblclick', event => {
+    const card = event.target instanceof HTMLElement ? event.target.closest('[data-rm-node]') : null;
+    if (!(card instanceof HTMLElement)
+      || card.classList.contains('rm-node-editing')
+      || (event.target instanceof HTMLElement && event.target.closest('button, a, input, textarea, select, label'))) {
+      return;
+    }
+    const id = card.getAttribute('data-rm-node') || '';
+    if (!id) {
+      return;
+    }
+    event.preventDefault();
+    state.roadmapHighlightNodeId = id;
+    rmApplyHighlight();
+    rmZoomToNode(id);
+  });
 
   root?.addEventListener('dragstart', event => {
     const target = event.target instanceof HTMLElement ? event.target.closest('[data-roadmap-id]') : null;
@@ -3607,6 +3852,13 @@
     }
     state.draggedRoadmapId = target.dataset.roadmapId || '';
     target.classList.add('dragging');
+    // Collapse the queue to one line per item for the duration of the drag, so
+    // the row you are aiming at is on screen. Applied to the list that owns this
+    // row rather than every list, since the canvas has draggable nodes too.
+    const list = target.closest('.roadmap-list');
+    if (list) {
+      list.classList.add('is-reordering');
+    }
     if (event.dataTransfer) {
       event.dataTransfer.effectAllowed = 'move';
       event.dataTransfer.setData('text/plain', state.draggedRoadmapId);
@@ -3779,6 +4031,19 @@
         }
       }
 
+      // The entry form the Add item button just opened. Scrolled into view as
+      // well as focused, because the button that opens it is not next to it.
+      if (focusRoadmapDraftAfterRender) {
+        focusRoadmapDraftAfterRender = false;
+        const draft = root.querySelector('textarea[data-roadmap-draft]');
+        if (draft) {
+          if (typeof draft.scrollIntoView === 'function') {
+            draft.scrollIntoView({ block: 'center' });
+          }
+          draft.focus();
+        }
+      }
+
       // --- Restore focus and cursor position if needed ---
       if (activeId) {
         let el = null;
@@ -3848,7 +4113,16 @@
        */
       if (state.roadmapFitAfterRender && !rmDrag && state.activePage === 'roadmap' && state.roadmapView !== 'list') {
         state.roadmapFitAfterRender = false;
-        fitRoadmapCanvas();
+        const scope = state.roadmapFitScope;
+        state.roadmapFitScope = 'all';
+        fitRoadmapCanvas(scope);
+      } else {
+        // A render writes the transform inline, so it never passes through
+        // `rmApplyViewTransform` — without this the edge hints would only ever
+        // update on a pan or a zoom, and a plan that arrives already extending
+        // past the frame would show none. Skipped when a fit just ran, because
+        // the fit applies the transform and updates them itself.
+        rmUpdateEdgeHints();
       }
       // The split buttons this render just produced are shells; fill them from
       // the one cadence the timer is actually running on.
@@ -3984,7 +4258,7 @@
             ${badge ? `title="${escapeAttr(badge.title)}"` : ''}
             data-action="page" data-payload="${escapeAttr(id)}"
             class="nav-tab${isActive ? ' active' : ''}">
-            <span class="nav-tab-label">${escapeHtml(label)}</span>
+            <span class="nav-tab-label" data-label="${escapeAttr(label)}">${escapeHtml(label)}</span>
             ${badge ? `<span class="nav-badge nav-badge-${escapeAttr(badge.tone)}" aria-hidden="true">${escapeHtml(String(badge.count))}</span>` : ''}
           </button>`;
       }).join('');
@@ -4185,12 +4459,32 @@
     const channel = pill.channel
       ? `<span class="dashboard-version-pill-channel" title="${escapeAttr('Publishes to ' + pill.channel.distTag)}">${escapeHtml(pill.channel.label)}</span>`
       : '';
+    const body = `<strong>${escapeHtml(pill.label)}</strong>`
+      + `<span class="dashboard-version-pill-muted">${escapeHtml(pill.ref)}</span>`
+      + `${value}${channel}${pill.isDirty ? '<span class="dashboard-version-pill-dirty" aria-label="uncommitted changes">•</span>' : ''}`;
+    // Only a pill that names a branch you are not already on can be switched to.
+    // The working-tree pill has no branch by design, and offering to check out
+    // the branch you are standing on is an action with nothing to do.
+    const switchable = !pill.isWorkingTree && !pill.isCurrent && pill.ref;
+    if (!switchable) {
+      return `
+        <span class="${classes.join(' ')}"${pill.note ? ` title="${escapeAttr(pill.note)}"` : ''}>
+          ${body}
+        </span>
+      `;
+    }
+    // The payload is the pill's id and nothing else. The host resolves it
+    // against the strip it drew this page from, so a crafted message can name a
+    // stage that exists and can never supply a branch name of its own.
+    const title = pill.note
+      ? `${pill.note}\n\nClick to switch to ${pill.ref}.`
+      : `Switch this checkout to ${pill.ref}. You will be asked to confirm, and nothing is committed, pushed or discarded.`;
     return `
-      <span class="${classes.join(' ')}"${pill.note ? ` title="${escapeAttr(pill.note)}"` : ''}>
-        <strong>${escapeHtml(pill.label)}</strong>
-        <span class="dashboard-version-pill-muted">${escapeHtml(pill.ref)}</span>
-        ${value}${channel}${pill.isDirty ? '<span class="dashboard-version-pill-dirty" aria-label="uncommitted changes">•</span>' : ''}
-      </span>
+      <button type="button" class="${classes.join(' ')} dashboard-version-pill-switch"
+        data-action="version-pill-checkout" data-payload="${escapeAttr(pill.id)}"
+        title="${escapeAttr(title)}">
+        ${body}
+      </button>
     `;
   }
 
@@ -11169,6 +11463,18 @@
         </section>`;
     }
 
+    // The search box lives in the view bar, which renders above the canvas *and*
+    // above this list — but only the canvas ever read it, so typing here filtered
+    // nothing and looked broken. Matching is plain text over the item, and
+    // deliberately not the canvas's connected closure: the canvas pulls in
+    // neighbours so an arrow never points at nothing, and a list has no arrows,
+    // so the same rule would show items that do not match for no visible reason.
+    const queueQuery = String(state.roadmapSearch || '').trim();
+    const queueNeedle = queueQuery.toLowerCase();
+    const queueItems = queueNeedle
+      ? roadmap.items.filter(item => String(item.text || '').toLowerCase().indexOf(queueNeedle) >= 0)
+      : roadmap.items;
+
     return `
       ${pageSectionOpen('roadmap')}
         ${renderRoadmapViewBar(roadmap)}
@@ -11217,9 +11523,21 @@
           <p class="section-kicker">Editable queue</p>
           <h3>Prioritized backlog</h3>
           <div class="list-meta">Grab the <span aria-hidden="true">⠿</span> handle on the left of any item and drag it up or down — items higher in the list get more weight in Atlas's next-work decisions. Use the buttons on each item to mark it for the MVP, complete it, edit, or delete.</div>
+          <span class="rm-search rm-queue-search">
+            <input id="roadmap-search-input" type="search" placeholder="Search the backlog…"
+              value="${escapeAttr(state.roadmapSearch || '')}" aria-label="Search the backlog"
+              title="${escapeAttr('Show only items whose text matches. Reordering still applies to the whole plan — a drag means “put this one where that one is”, resolved by item rather than by position on screen.')}" />
+            ${queueQuery ? `<button type="button" class="rm-chip-clear" data-action="roadmap-search-clear" aria-label="Clear the search">×</button>` : ''}
+          </span>
+          ${queueQuery ? `<div class="list-meta rm-queue-filter-note">${escapeHtml(`Showing ${queueItems.length} of ${roadmap.items.length} — filtered by “${queueQuery}”.`)} Dragging still reorders against the whole plan, not just what is on screen.</div>` : ''}
+          ${state.roadmapOwnerNotice ? `<div class="rm-banner rm-banner-owner" role="status">${escapeHtml(state.roadmapOwnerNotice)}<button type="button" class="rm-chip-clear" data-action="roadmap-owner-notice-dismiss" aria-label="Dismiss">×</button></div>` : ''}
           <div class="stack-list roadmap-list">
             ${state.editingRoadmapId === 'new' ? renderRoadmapEditor('new') : ''}
-            ${roadmap.items.length > 0 ? roadmap.items.map(item => renderRoadmapItem(item)).join('') : '<div class="dashboard-empty">No roadmap items yet. Add the first one above.</div>'}
+            ${roadmap.items.length === 0
+              ? '<div class="dashboard-empty">No roadmap items yet. Add the first one above.</div>'
+              : queueItems.length > 0
+                ? queueItems.map(item => renderRoadmapItem(item)).join('')
+                : `<div class="dashboard-empty">${escapeHtml(`Nothing in the backlog matches “${queueQuery}”.`)} <button type="button" class="action-link" data-action="roadmap-search-clear">Clear the search</button></div>`}
           </div>
         </article>
       </section>
@@ -11404,11 +11722,37 @@
     const draft = state.editingRoadmapId === 'new'
       ? state.roadmapDraftText
       : state.roadmapDraftText || (getRoadmapItems().find(item => item.id === itemId)?.text ?? '');
+    const isNew = state.editingRoadmapId === 'new';
+    const gates = getRoadmapGates();
+    const people = (roadmapGraph().people || []);
+    // Only offered while adding. An item that exists already carries an Owner
+    // control and gate chips on its own row, and a second copy here would be two
+    // controls for one fact, disagreeing the moment either is used.
+    const gatePicker = !isNew || gates.length === 0 ? '' : `
+      <div class="gate-toggle-row" role="group" aria-label="Release gates for this item">
+        <span class="gate-toggle-hint" title="${escapeAttr(GATE_HELP_TEXT)}">Release:</span>
+        ${gates.map(gate => {
+          const on = state.roadmapDraftGates.indexOf(gate.id) >= 0;
+          return `<button type="button" class="gate-toggle${on ? ' is-on' : ''}" data-action="roadmap-draft-gate"
+            data-payload="${escapeAttr(gate.id)}" aria-pressed="${on ? 'true' : 'false'}"
+            title="${escapeAttr(on ? `Take this item off the ${gate.label} release.` : `Put this item on the ${gate.label} release.`)}">${escapeHtml(gate.label)}</button>`;
+        }).join('')}
+      </div>`;
+    const ownerPicker = !isNew || people.length === 0 ? '' : `
+      <label class="work-owner-control"><span>Owner</span>
+        <select class="work-owner-select" data-action="roadmap-draft-owner" aria-label="Assign an owner to this new item"
+          title="${escapeAttr('Who is doing this. Applied once the item has been written, because an assignment names the item by its durable id and a new one does not have one yet.')}">
+          <option value=""${state.roadmapDraftOwner ? '' : ' selected'}>— unassigned —</option>
+          ${people.map(person => `<option value="${escapeAttr(person.id)}"${person.id === state.roadmapDraftOwner ? ' selected' : ''}>${escapeHtml(person.name)}</option>`).join('')}
+        </select>
+      </label>`;
     return `
       <div class="panel-card roadmap-editor">
-        <p class="section-kicker">${escapeHtml(state.editingRoadmapId === 'new' ? 'Add roadmap item' : 'Edit roadmap item')}</p>
-        <textarea class="roadmap-textarea" data-roadmap-draft="true" rows="3" placeholder="Describe the next backlog item...">${escapeHtml(draft)}</textarea>
+        <p class="section-kicker">${escapeHtml(isNew ? 'Add roadmap item' : 'Edit roadmap item')}</p>
+        <textarea class="roadmap-textarea" data-roadmap-draft="true" rows="12" placeholder="Describe the next backlog item...">${escapeHtml(draft)}</textarea>
+        ${gatePicker}
         <div class="tag-row">
+          ${ownerPicker}
           <button type="button" class="action-link" data-action="roadmap-save" data-payload="${escapeAttr(itemId)}">Save</button>
           <button type="button" class="action-link" data-action="roadmap-cancel" data-payload="${escapeAttr(itemId)}">Cancel</button>
         </div>
@@ -11435,7 +11779,10 @@
       gates: Array.isArray(item.gates) ? item.gates.slice() : (item.isMvp ? ['mvp'] : []),
     }));
     if (state.editingRoadmapId === 'new') {
-      items.unshift({ id: createRoadmapItemId(text), text, completed: false, gates: [] });
+      items.unshift({ id: createRoadmapItemId(text), text, completed: false, gates: state.roadmapDraftGates.slice() });
+      // Held for one snapshot. The item has no durable id until the host has
+      // written it, and assignment addresses a node by that id.
+      state.pendingRoadmapOwner = state.roadmapDraftOwner ? { text, contactId: state.roadmapDraftOwner } : null;
     } else {
       const target = items.find(item => item.id === state.editingRoadmapId);
       if (target) {
@@ -11445,7 +11792,40 @@
 
     state.editingRoadmapId = '';
     state.roadmapDraftText = '';
+    state.roadmapDraftGates = [];
+    state.roadmapDraftOwner = '';
     persistRoadmapItems(items);
+  }
+
+  /**
+   * Apply an owner chosen while the item was still being typed.
+   *
+   * Runs once, against the first snapshot after the save, and resolves the item
+   * by its text — the client-minted id is a suggestion the host is free to
+   * re-mint, so matching on it would miss exactly when the host did its job. If
+   * the item is not there, or carries no node id yet, the choice is *reported*
+   * rather than discarded: the user watched themselves pick an owner, so
+   * silently dropping it is the one outcome worth ruling out.
+   */
+  function applyPendingRoadmapOwner() {
+    const pending = state.pendingRoadmapOwner;
+    if (!pending) {
+      return;
+    }
+    state.pendingRoadmapOwner = null;
+    const items = getRoadmapItems();
+    const created = items.find(item => item.text === pending.text);
+    if (created && created.nodeId) {
+      vscode.postMessage({
+        type: 'roadmapNodeUpdate',
+        payload: { nodeId: created.nodeId, assigneeId: pending.contactId },
+      });
+      return;
+    }
+    const name = roadmapPersonName(pending.contactId) || 'that person';
+    state.roadmapOwnerNotice = `The item was added, but it could not be assigned to ${name} automatically. `
+      + 'Use the Owner control on its row.';
+    announce(state.roadmapOwnerNotice);
   }
 
   function persistRoadmapItems(items) {
@@ -11614,30 +11994,124 @@
    * Null when inactive, like the route filter, so callers keep one obvious
    * "show everything" branch. Entirely offline.
    */
-  function roadmapSearchFilter() {
+  const RM_UNASSIGNED = '__unassigned__';
+
+  /**
+   * What the canvas is emphasising, and why.
+   *
+   * Three lenses share one mechanism: the text search, a release gate, and a
+   * person. They are *combined*, not switched between — a node is emphasised
+   * only if it satisfies every lens that is on, so "MVP items assigned to Sam"
+   * is a question you can ask. Switching between them would make the second
+   * control silently cancel the first, which is the behaviour people report as
+   * a filter that does not work.
+   *
+   * None of them removes a node. Everything stays drawn with its arrows and the
+   * unemphasised part dims, because the value of asking "which of these are on
+   * the MVP" is seeing what the answer depends on. The route filter is the one
+   * control that genuinely narrows the plan, and it is deliberately separate.
+   *
+   * Returns null when no lens is active, so every caller has one obvious
+   * "emphasise nothing" branch. Entirely offline.
+   */
+  function roadmapEmphasis() {
     const query = String(state.roadmapSearch || '').trim().toLowerCase();
-    if (query.length === 0 || state.roadmapView === 'completed') {
+    const gate = String(state.roadmapEmphasisGate || '');
+    const person = String(state.roadmapEmphasisPerson || '');
+    if (!query && !gate && !person) {
       return null;
     }
+    // Delivered work is emphasised the same way. "When did the auth work ship",
+    // "which of the MVP has landed" and "what did Sam deliver" are questions
+    // about history, and they were unanswerable because the lenses stopped at
+    // the outstanding plan. The *authoring* controls stay off there, since
+    // nothing is added to a record of what already happened.
+    const delivered = state.roadmapView === 'completed';
     const all = roadmapCanvasNodes();
-    const matches = all.filter(node => String(node.text).toLowerCase().indexOf(query) >= 0);
-    const byId = new Map(all.map(node => [node.id, node]));
-    const visible = new Set();
-    const stack = matches.map(node => node.id);
-    while (stack.length > 0) {
-      const id = stack.pop();
-      if (visible.has(id) || !byId.has(id)) {
-        continue;
-      }
-      visible.add(id);
-      const node = byId.get(id);
-      (node.prerequisites || []).concat(node.dependents || []).forEach(neighbour => {
-        if (!visible.has(neighbour)) {
-          stack.push(neighbour);
-        }
-      });
+    const lenses = [];
+    if (query) {
+      lenses.push(node => String(node.text).toLowerCase().indexOf(query) >= 0);
     }
-    return { visible, matches: matches.length, total: all.length, query };
+    if (gate) {
+      lenses.push(node => (node.gates || []).indexOf(gate) >= 0);
+    }
+    if (person) {
+      // Who a piece of work belongs to is a different field once it has landed:
+      // on the plan it is who is *going* to do it, and on the record it is who
+      // did. `completedBy` wins there, falling back to the assignment for an
+      // item delivered without anybody being recorded against it.
+      const personOf = node => (delivered ? (node.completedBy || node.assigneeId) : node.assigneeId);
+      // Unassigned is a real answer to "whose is this?", and the most useful
+      // one on a plan nobody has divided up yet.
+      lenses.push(node => (person === RM_UNASSIGNED ? !personOf(node) : personOf(node) === person));
+    }
+    const matches = all.filter(node => lenses.every(test => test(node)));
+    return {
+      matchIds: new Set(matches.map(node => node.id)),
+      matches: matches.length,
+      total: all.length,
+      query,
+      gate,
+      person,
+    };
+  }
+
+  /**
+   * The gate and person pickers, and the count of what they emphasise.
+   *
+   * Both are drawn from what the plan actually contains — the declared release
+   * gates and the people the host laid out — rather than from a fixed list, so
+   * a project with no gates and nobody assigned gets neither control instead of
+   * two empty menus that do nothing.
+   */
+  function renderRoadmapEmphasisControls(graph, totalCount) {
+    const gates = getRoadmapGates();
+    const people = graph.people || [];
+    const emphasis = roadmapEmphasis();
+    const gateSelect = gates.length === 0 ? '' : `
+      <label class="rm-emphasis-control"><span class="rm-emphasis-label">Gate</span>
+        <select data-action="roadmap-emphasis-gate" aria-label="Highlight items on a release gate"
+          title="${escapeAttr('Highlight the items tagged for one release. The rest of the plan stays drawn and dimmed, so you can still see what they depend on.')}">
+          <option value=""${state.roadmapEmphasisGate ? '' : ' selected'}>Any gate</option>
+          ${gates.map(gate => `<option value="${escapeAttr(gate.id)}"${gate.id === state.roadmapEmphasisGate ? ' selected' : ''}>${escapeHtml(gate.label)}</option>`).join('')}
+        </select>
+      </label>`;
+    const delivered = state.roadmapView === 'completed';
+    const personSelect = people.length === 0 ? '' : `
+      <label class="rm-emphasis-control"><span class="rm-emphasis-label">Person</span>
+        <select data-action="roadmap-emphasis-person" aria-label="${escapeAttr(delivered ? 'Highlight items delivered by one person' : 'Highlight items assigned to one person')}"
+          title="${escapeAttr(delivered
+            ? 'Highlight what one person delivered — who finished it where that was recorded, otherwise who it was assigned to. The rest of the record stays drawn and dimmed.'
+            : 'Highlight one person’s items. The rest of the plan stays drawn and dimmed, so an arrow leaving their work still shows who is waiting on it.')}">
+          <option value=""${state.roadmapEmphasisPerson ? '' : ' selected'}>Anyone</option>
+          ${people.map(person => `<option value="${escapeAttr(person.id)}"${person.id === state.roadmapEmphasisPerson ? ' selected' : ''}>${escapeHtml(person.name)}</option>`).join('')}
+          <option value="${RM_UNASSIGNED}"${state.roadmapEmphasisPerson === RM_UNASSIGNED ? ' selected' : ''}>Unassigned</option>
+        </select>
+      </label>`;
+    // Matches, not nodes drawn. No lens removes anything from the canvas, so
+    // `shownCount` is the whole plan and reporting it would read "40 of 40".
+    const count = emphasis
+      ? `<span class="list-meta rm-emphasis-count">${escapeHtml(`${emphasis.matches} of ${totalCount} match ${roadmapEmphasisLabels(emphasis)}`)}</span>`
+        + `<button type="button" class="rm-chip-clear" data-action="roadmap-emphasis-clear" aria-label="Show the whole plan at full strength">×</button>`
+      : '';
+    return `${gateSelect}${personSelect}${count}`;
+  }
+
+  /** What the active lenses are called, for a message that names them. */
+  function roadmapEmphasisLabels(emphasis) {
+    if (!emphasis) { return ''; }
+    const parts = [];
+    if (emphasis.query) { parts.push(`“${emphasis.query}”`); }
+    if (emphasis.gate) {
+      const gate = getRoadmapGates().find(entry => entry.id === emphasis.gate);
+      parts.push(gate ? gate.label : emphasis.gate);
+    }
+    if (emphasis.person) {
+      parts.push(emphasis.person === RM_UNASSIGNED
+        ? 'unassigned'
+        : (roadmapPersonName(emphasis.person) || 'that person'));
+    }
+    return parts.join(' + ');
   }
 
   function renderRoadmapViewBar(roadmap) {
@@ -11656,25 +12130,47 @@
       people: (graph.lanes || []).length,
       completed: graph.completed.length,
     };
+    // Adding an item was reachable only from a card below the fold and from the
+    // far end of the canvas toolbar, behind nine other buttons — so the page you
+    // open to work on the backlog did not visibly offer the one thing you most
+    // often came to do. The control sits in the first row of the page now, where
+    // it is visible the moment the page opens. It stays outside the tablist,
+    // since a button that is not a tab must not be a child of one, and it is
+    // absent on Delivered for the reason the canvas toolbar already omits it
+    // there: nothing is added to a record of what already happened.
     return `
-      <div class="rm-view-bar" role="tablist" aria-label="Roadmap views">
-        ${views.map(([id, label, hint]) => `
-          <button type="button" role="tab" aria-selected="${state.roadmapView === id ? 'true' : 'false'}"
-            class="rm-view-chip${state.roadmapView === id ? ' is-active' : ''}"
-            data-action="roadmap-view" data-payload="${escapeAttr(id)}" title="${escapeAttr(hint)}">
-            <span>${escapeHtml(label)}</span>
-            <span class="rm-view-count">${counts[id]}</span>
-          </button>`).join('')}
+      <div class="rm-view-row">
+        <div class="rm-view-bar" role="tablist" aria-label="Roadmap views">
+          ${views.map(([id, label, hint]) => `
+            <button type="button" role="tab" aria-selected="${state.roadmapView === id ? 'true' : 'false'}"
+              class="rm-view-chip${state.roadmapView === id ? ' is-active' : ''}"
+              data-action="roadmap-view" data-payload="${escapeAttr(id)}" title="${escapeAttr(hint)}">
+              <span>${escapeHtml(label)}</span>
+              <span class="rm-view-count">${counts[id]}</span>
+            </button>`).join('')}
+        </div>
+        ${state.roadmapView === 'completed' ? '' : `
+          <button type="button" class="rm-add-item" data-action="roadmap-add" data-payload="new"
+            title="${escapeAttr('Add an item to the prioritised backlog. Opens the entry form with the caret already in it.')}">
+            <span aria-hidden="true">+</span><span>Add roadmap item</span>
+          </button>`}
       </div>`;
   }
 
   function renderRoadmapCanvas() {
     const graph = roadmapGraph();
     const filter = roadmapRouteFilter();
-    const search = roadmapSearchFilter();
+    const search = roadmapEmphasis();
     const allNodes = roadmapCanvasNodes();
     const routed = filter ? allNodes.filter(node => filter.nodes.has(node.id)) : allNodes;
-    const nodes = search ? routed.filter(node => search.visible.has(node.id)) : routed;
+    // A search no longer removes nodes from the canvas. It used to draw only the
+    // matches and their connected closure, which answers "show me this corner of
+    // the plan" — but the question being asked is "where is this item", and the
+    // useful part of the answer is what sits around it. Everything stays drawn;
+    // the matches are marked and the rest is dimmed, so the dependencies are
+    // still there to read. The route filter is unchanged and still narrows,
+    // because that one is a deliberate "only this route" request.
+    const nodes = routed;
     const focusNode = filter ? allNodes.find(node => node.id === state.roadmapFocusNodeId) : null;
 
     // The world is sized to the content it holds, so panning has somewhere to go
@@ -11703,6 +12199,7 @@
         ${renderRoadmapCanvasToolbar(graph, filter, focusNode, allNodes.length, nodes.length)}
         ${graph.anchored ? '' : `<div class="rm-banner" role="status">${escapeHtml('This roadmap is not wired to the canvas yet. AtlasMind writes a hidden id into each backlog line when the dashboard loads, so positions, dates and links can be kept — that write has not landed, so if this banner stays, check that the backlog file is writable.')}</div>`}
         ${graph.cycles.length > 0 ? `<div class="rm-banner rm-banner-bad" role="alert">${escapeHtml(`${graph.cycles.length} circular dependenc${graph.cycles.length === 1 ? 'y' : 'ies'} in this plan — the items highlighted in red each wait for the other, so the plan cannot run in this order. Remove one of the links between them.`)}</div>` : ''}
+        ${search && search.matches === 0 ? `<div class="rm-banner rm-banner-search" role="status">${escapeHtml(`No item matches ${roadmapEmphasisLabels(search)}.`)} The plan is still drawn, dimmed, so nothing has gone — clear the highlight to bring it back to full strength.</div>` : ''}
         ${renderRoadmapFlatNotice(graph, visibleEdges, visibleSuggestions)}
         <div class="rm-frame" data-rm-frame="true" data-scroll-key="roadmap-canvas">
           <div class="rm-world" data-rm-world="true"
@@ -11721,11 +12218,10 @@
             </svg>
             ${renderRoadmapLaneBands(graph)}
             ${nodes.length > 0
-              ? nodes.map(node => renderRoadmapNode(node, graph)).join('')
-              : search
-                ? `<div class="rm-empty"><strong>${escapeHtml(`No item matches “${search.query}”`)}</strong><p class="section-copy">Nothing on the plan contains that text. Clear the search to see the whole plan again.</p></div>`
-                : '<div class="rm-empty"><strong>Nothing to draw yet</strong><p class="section-copy">Add a backlog item, or switch to the prioritised backlog to write the first one.</p></div>'}
+              ? nodes.map(node => renderRoadmapNode(node, graph, search)).join('')
+              : '<div class="rm-empty"><strong>Nothing to draw yet</strong><p class="section-copy">Add a backlog item, or switch to the prioritised backlog to write the first one.</p></div>'}
           </div>
+          ${RM_EDGE_HINT_MARKUP}
         </div>
         ${renderRoadmapCanvasFooter(graph, visibleSuggestions)}
       </article>`;
@@ -11786,13 +12282,15 @@
             <span class="list-meta">${escapeHtml(`${shownCount} of ${totalCount} items · ${filter.route.routeDays}d of work left · ${filter.route.completedCount} already delivered`)}</span>
           ` : ''}
           ${linking ? `<span class="rm-filter-chip rm-linking" title="${escapeAttr('Click “Needs this” on the item that has to wait, or press Escape to cancel.')}">Linking from “${escapeHtml(String(linking.text).slice(0, 32))}…”<button type="button" class="rm-chip-clear" data-action="roadmap-link-cancel" aria-label="Cancel linking">×</button></span>` : ''}
-          ${state.roadmapView === 'completed' ? '' : `
-            <span class="rm-search">
-              <input id="roadmap-search-input" type="search" placeholder="Search the plan…"
-                value="${escapeAttr(state.roadmapSearch || '')}" aria-label="Search roadmap items"
-                title="${escapeAttr('Show only items whose text matches, plus everything connected to them — what they wait on and what waits on them. A way of looking; nothing is changed.')}" />
-              ${roadmapSearchFilter() ? `<span class="list-meta">${escapeHtml(`${shownCount} of ${totalCount}`)}</span><button type="button" class="rm-chip-clear" data-action="roadmap-search-clear" aria-label="Clear the search">×</button>` : ''}
-            </span>`}
+          <span class="rm-search">
+            <input id="roadmap-search-input" type="search"
+              placeholder="${escapeAttr(state.roadmapView === 'completed' ? 'Search what shipped…' : 'Search the plan…')}"
+              value="${escapeAttr(state.roadmapSearch || '')}" aria-label="Search roadmap items"
+              title="${escapeAttr(state.roadmapView === 'completed'
+                ? 'Highlight delivered items whose text matches. The rest stays on the chart, dimmed, so the work around a match is still readable. A way of looking; nothing is changed.'
+                : 'Highlight items whose text matches. The rest of the plan stays on the canvas, dimmed, so you can still see what a match depends on. A way of looking; nothing is changed.')}" />
+          </span>
+          ${renderRoadmapEmphasisControls(graph, totalCount)}
           ${state.roadmapView === 'completed' ? '' : `
             <button type="button" class="action-link${graph.suggestLinks ? ' is-on' : ''}" data-action="roadmap-suggest-toggle"
               aria-pressed="${graph.suggestLinks ? 'true' : 'false'}"
@@ -11925,10 +12423,23 @@
    * otherwise silently leave the canvas at a zoom no control can undo — and the
    * pan then centres whatever that zoom could reach.
    */
-  function fitRoadmapCanvas() {
+  /**
+   * Frame the plan, or the part of it an emphasis lens matched.
+   *
+   * `scope` is 'all' (the Fit all button, an arrange, a view change) or
+   * 'emphasis' (the search box and the gate/person pickers). An emphasis fit
+   * falls back to the whole plan when nothing matched: a query that found
+   * nothing has nothing to frame, and flying off to an empty region would read
+   * as the canvas having lost the plan.
+   */
+  function fitRoadmapCanvas(scope) {
     if (!root) { return; }
     const frame = root.querySelector('[data-rm-frame="true"]');
-    const nodes = [...root.querySelectorAll('[data-rm-node]')];
+    const all = [...root.querySelectorAll('[data-rm-node]')];
+    const matched = scope === 'emphasis'
+      ? [...root.querySelectorAll('[data-rm-node].is-search-match')]
+      : [];
+    const nodes = matched.length > 0 ? matched : all;
     if (!frame || nodes.length === 0) { return; }
 
     let minX = Infinity, minY = Infinity, maxX = -Infinity, maxY = -Infinity;
@@ -11961,7 +12472,8 @@
     // drawn, and the full render this used to do priced every "Fit all" at a
     // rebuild of the whole dashboard.
     rmApplyViewTransform();
-    announce('Fitted ' + nodes.length + ' item' + (nodes.length === 1 ? '' : 's') + ' at ' + Math.round(state.roadmapZoom * 100) + '%.');
+    announce('Fitted ' + nodes.length + (matched.length > 0 ? ' matching' : '') + ' item'
+      + (nodes.length === 1 ? '' : 's') + ' at ' + Math.round(state.roadmapZoom * 100) + '%.');
   }
 
   /**
@@ -12106,7 +12618,7 @@
     }
   }
 
-  function renderRoadmapNode(node, graph) {
+  function renderRoadmapNode(node, graph, search) {
     if (state.roadmapEditingNodeId === node.id) {
       return renderRoadmapNodeEditor(node, graph);
     }
@@ -12136,6 +12648,11 @@
       inCycle ? 'is-cycle' : '',
       state.roadmapFocusNodeId === node.id ? 'is-focused' : '',
       graph.retainedIds.indexOf(node.id) >= 0 ? 'is-retained' : '',
+      // A search marks rather than removes. The match is raised, everything else
+      // recedes but stays on the canvas with its arrows intact — dimming is the
+      // whole mechanism by which the neighbourhood of a match stays readable.
+      search && search.matchIds.has(node.id) ? 'is-search-match' : '',
+      search && !search.matchIds.has(node.id) ? 'is-search-dim' : '',
     ].filter(Boolean).join(' ');
 
     return `

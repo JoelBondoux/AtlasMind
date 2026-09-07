@@ -1,28 +1,91 @@
 # CLI
 
-**AtlasMind from a terminal.** Same orchestrator, same agents, same model routing, same project memory,
-same safety rules — without opening the editor.
+**AtlasMind from a checkout, for scripts and CI.** Same orchestrator, same agents, same model routing,
+same project memory — without opening the editor.
 
-Useful when you want to run something against a repository from the command line, check what providers
-are configured without launching VS Code, or use AtlasMind in a script or CI-style workflow.
+Useful when you want to run something against a repository from a script, a CI-style workflow, or a
+terminal you already have open. It is not a second front end for the extension: it exposes four
+commands, and everything else about AtlasMind lives in the editor.
+
+> **Two things are worth separating before you start.** The CLI does not inherit anything from your
+> VS Code installation — not your API keys, not your provider setup. It reads credentials from
+> environment variables and nothing else. Set those up first; the rest of this page assumes you have.
+
+---
+
+## Connecting providers
+
+**Do this first.** The CLI cannot read VS Code's secret storage — that API only exists inside the
+editor — so a machine with every provider configured in AtlasMind still starts from zero here. Until
+an environment variable is present, `atlasmind providers list` reports `configured=no` for everything
+and any request fails to route.
+
+```text
+ATLASMIND_PROVIDER_ANTHROPIC_APIKEY
+ATLASMIND_PROVIDER_OPENAI_APIKEY
+ATLASMIND_PROVIDER_GOOGLE_APIKEY
+ATLASMIND_PROVIDER_MISTRAL_APIKEY
+ATLASMIND_PROVIDER_DEEPSEEK_APIKEY
+ATLASMIND_PROVIDER_ZAI_APIKEY
+ATLASMIND_PROVIDER_XAI_APIKEY
+ATLASMIND_PROVIDER_COHERE_APIKEY
+ATLASMIND_PROVIDER_PERPLEXITY_APIKEY
+ATLASMIND_PROVIDER_HUGGINGFACE_APIKEY
+ATLASMIND_PROVIDER_NVIDIA_APIKEY
+
+ATLASMIND_LOCAL_OPENAI_BASE_URL      Ollama, LM Studio, any OpenAI-compatible local endpoint
+ATLASMIND_PROVIDER_AZURE_APIKEY      Azure also needs both variables below
+ATLASMIND_AZURE_OPENAI_ENDPOINT
+ATLASMIND_AZURE_OPENAI_DEPLOYMENTS   Comma-separated deployment names
+```
+
+A provider adapter is registered only when its key is present, so the list you get back is exactly
+what this shell can reach.
+
+| Provider | In the CLI? |
+|---|---|
+| Local (Ollama, LM Studio) | Yes |
+| Anthropic | Yes |
+| OpenAI-compatible providers | Yes — the eleven keys above |
+| Azure OpenAI | Yes, with endpoint and deployments set |
+| GitHub Copilot | **No** — it depends on a VS Code API that only exists in the editor |
+| Amazon Bedrock | Not yet — extension only for now |
 
 ---
 
 ## Getting it
 
-Once AtlasMind is installed as a VS Code extension, `atlasmind` is available in **new VS Code integrated
-terminals** automatically. AtlasMind adds it to the terminal's own PATH.
+### From a checkout
 
-It does **not** change your system PATH or affect terminals outside VS Code. That's deliberate — an
-extension quietly editing your shell configuration is not a good neighbour.
-
-Working from source instead:
+The dependable route, and the one to use in CI:
 
 ```bash
 npm install
 npm run compile
 npm run cli -- providers list
 ```
+
+Or call the built entry point directly, which is what `npm run cli` does:
+
+```bash
+node ./out/cli/main.js providers list
+```
+
+### On the PATH of VS Code integrated terminals
+
+Optional, off by default. Set **`atlasmind.cli.addToTerminalPath`** to `true`, then open a **new**
+integrated terminal — existing ones keep the environment they started with. AtlasMind writes launcher
+shims into its own storage directory and prepends that directory to the terminal's PATH, after which
+`atlasmind` and `atlasmind-acp` resolve as commands.
+
+It does **not** change your system PATH or affect terminals outside VS Code, which is why it ships off:
+an extension that quietly edits your shell environment is not a good neighbour.
+
+### Where project memory comes from
+
+1. `--ssot`, if you passed it and the path exists
+2. Otherwise `project_memory/`, if it exists
+3. Otherwise it runs with no loaded memory — it still knows where memory *would* go
 
 ---
 
@@ -44,7 +107,8 @@ Runs one task through the default agent, streaming the response where the provid
 atlasmind project "Add retry handling to the provider registry"
 ```
 
-The full autonomous workflow — planning, batched steps, and a final summary.
+The full autonomous workflow — planning, batched steps, and a final summary. Read the safety section
+below before pointing this at a repository you care about.
 
 ### Look at project memory
 
@@ -59,7 +123,8 @@ atlasmind memory query "routing budget gates"
 atlasmind providers list
 ```
 
-Shows which providers are configured in *this* environment and how many models each currently offers.
+Shows which providers this environment can reach and how many models each currently offers. The
+fastest way to confirm your keys are visible before running anything that costs money.
 
 ---
 
@@ -71,6 +136,7 @@ Shows which providers are configured in *this* environment and how many models e
 --provider <id>                 Restrict routing to one provider
 --model <provider/model>        Pin one specific model
 --allow-writes                  Permit changes (see Safety below)
+--allow-commands                Permit terminal reads (npm test, build, lint) that run repo-defined scripts
 --budget <cheap|balanced|expensive|auto>
 --speed <fast|balanced|considered|auto>
 --daily-limit-usd <n>
@@ -89,48 +155,24 @@ how you end up paying for a request that asked the model about your typo.
 
 There's no panel to click "approve" in, so the defaults are stricter:
 
-- **Read-only tools work by default**
+- **Local reads work by default** — files, git status, git log
 - **Workspace writes, git writes and terminal writes are blocked** unless you pass `--allow-writes`
+- **Terminal commands are blocked** unless you pass `--allow-commands`
 - **External and higher-risk tools stay blocked** regardless
 
----
-
-## Connecting providers
-
-The CLI reads credentials from environment variables:
-
-```text
-ATLASMIND_PROVIDER_OPENAI_APIKEY
-ATLASMIND_PROVIDER_ANTHROPIC_APIKEY
-ATLASMIND_PROVIDER_GOOGLE_APIKEY
-ATLASMIND_PROVIDER_COHERE_APIKEY
-ATLASMIND_PROVIDER_XAI_APIKEY
-ATLASMIND_AZURE_OPENAI_ENDPOINT
-ATLASMIND_AZURE_OPENAI_DEPLOYMENTS
-ATLASMIND_LOCAL_OPENAI_BASE_URL
-```
-
-| Provider | In the CLI? |
-|---|---|
-| Local (Ollama, LM Studio) | Yes |
-| Anthropic | Yes |
-| OpenAI-compatible providers | Yes |
-| Azure OpenAI | Yes, with endpoint and deployments configured |
-| GitHub Copilot | **No** — it depends on a VS Code API that only exists in the editor |
-| Amazon Bedrock | Not yet — extension only for now |
-
-### Where project memory comes from
-
-1. `--ssot`, if you passed it and the path exists
-2. Otherwise `project_memory/`, if it exists
-3. Otherwise it runs with no loaded memory — it still knows where memory *would* go
+`--allow-commands` exists because `terminal-read` is a misleading name for a safe-sounding category.
+`npm test`, `npm run build` and `npm run lint` all grade there, and each executes whatever the
+repository's `package.json` says it does. They were permitted unconditionally until v0.405.0, which
+meant read-only mode could run arbitrary code from the checkout it was aimed at. It is a separate flag
+from `--allow-writes` on purpose: running a test suite should not also grant the ability to edit files.
 
 ---
 
 ## Letting other tools drive AtlasMind
 
-`atlasmind-acp` presents AtlasMind itself as an ACP agent over local stdio, so another tool can use
-AtlasMind's orchestrator, agents, routing, memory and workspace tools as its backend.
+`atlasmind-acp` is a different thing from the CLI above, and you are not expected to type it. It
+presents AtlasMind itself as an ACP agent over local stdio, so another tool can use AtlasMind's
+orchestrator, agents, routing, memory and workspace tools as its backend.
 
 ```bash
 atlasmind-acp --workspace /absolute/path/to/project
@@ -172,9 +214,9 @@ credentials out of VS Code's secret storage — the child process gets what you 
 
 ## What it can't do
 
+- Nothing carries over from the editor — keys, provider setup and Copilot capacity all stay there
 - It uses the default built-in agent unless you narrow routing with `--provider` or `--model`
 - Provider availability depends entirely on the environment variables present
-- Copilot-backed work stays in the editor
 - ACP agent mode can't inherit Copilot capacity or your VS Code stored credentials
 - One ACP turn runs at a time
 - It's built for orchestration and automation, not for reproducing every panel in the extension

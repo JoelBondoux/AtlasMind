@@ -421,6 +421,26 @@ Two different things are reported, and conflating them made every ACP completion
 
 Because ACP models are subscription-backed, they are priced at zero per token; the router's subscription handling, not the adapter, is what stops that from winning budget mode by default. ACP itself does **not** disclose an account tier or remaining allowance, so its plan label is display-only and never participates in quota gating or usage accounting.
 
+### The agent's own tool calls are counted, not assumed absent
+
+A subscription-backed agent executes tools inside its own session; AtlasMind sees the `session/update`
+announcements and runs none of them. Those events were parsed and written to the output channel from
+the start, and nothing counted them — so a turn that wrote a 6 KB file was recorded as "Answered from
+context and session history" with no tool calls and 617 input tokens. The one surface a person reads
+said the opposite of what happened, which is the shape of failure the hallucination-detection protocol
+exists to catch, arriving in AtlasMind's own telemetry rather than in a model's answer.
+
+`CompletionResponse.delegatedToolCallCount` carries it, deliberately distinct from `toolCalls` (calls
+handed back for AtlasMind to execute). **Absent means not observable, never none:** a provider that
+cannot report it omits the field and its turns read exactly as before, while a provider that genuinely
+watched reports `0` — a real observation, since an agent that answered without tools did answer from
+context. Counted per turn, because an ACP session is reused across messages and a cumulative figure
+would credit this turn with the last one's work; `tool_call_update` is excluded, since it is a change
+to a call already announced and counting both would double every tool the agent reported progress on.
+
+The count reaches the run record, so a subscription-backed subtask grades `evidenced` under
+`runGoalConformance` rather than `unassessed` — the gap that module deliberately refused to guess about.
+
 ### Subscription capacity is advanced over metered tokens
 
 Subscription providers are preferred over pay-per-token for ordinary work, because the capacity is already bought. The preference keys on the provider's `pricingModel`, never on a list of provider ids, so a new subscription provider inherits it without being enumerated anywhere. Only a provider that exposes an **authoritative** allowance, such as Copilot, receives quota-specific treatment:
@@ -516,6 +536,7 @@ A variant is a different *effort*, not another subscription. `acp/claude#high` a
 Two configuration properties follow from the probe being expensive:
 
 - **ACP is "configured" when an agent is in `atlasmind.acp.agents`** — never by an API key. It is keyless by construction, so falling through to a secret lookup reported it unconfigured on every refresh, which skipped discovery *and* set provider health to false.
+- **The agent list is written to the global scope, because an agent describes the machine and not the repository.** The user installed the command with npm and signed into their own subscription once; neither fact is per-project. Setup wrote `ConfigurationTarget.Workspace`, so the agent existed only in the folder that happened to be open at the time — and since `applyModelAvailabilityState` disables the whole provider when `acp.agents` is empty, every *other* project reported a subscription that had silently stopped working, with no message, because from that window there was never an agent to begin with. `resolveAcpAgentWriteScopes` owns the decision: global always, plus the workspace **only when a workspace value already exists**, since that value shadows the global one and writing just the global list would add an agent the open window could not see. An existing override is rewritten rather than deleted — it is the same feature's own list, and keeping it in step makes the window correct without ruling that the user's narrowing was a mistake. Deliberately **not** extended to `atlasmind.acp.toolsEnabled`: that grant lets an agent run tools, and an authorization should stay as narrow as it was given rather than widening to every project as a side effect of naming an agent.
 - **The enclosing discovery budget is derived from `ACP_PROBE_TIMEOUT_MS`, not restated.** An ACP probe spawns a process per agent and opens a session — roughly 9s for two agents on a warm machine, against a 10s per-provider startup budget whose expiry marks the provider unhealthy with nothing to re-probe afterwards. Two numbers in two files is exactly how they drifted past each other.
 
 The long-lived routed adapter takes its agent list as a **getter**, not an array: it is constructed once at activation, so a snapshot left an agent added later invisible to routing until a window reload, while every throwaway adapter built per panel click already saw it.

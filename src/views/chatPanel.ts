@@ -415,6 +415,18 @@ export class ChatPanel {
   private pendingComposerMode: ComposerSendMode | undefined;
   private pendingDirectResponse: ChatPanelDirectResponse | undefined;
   private pendingComposerContextPatch: Record<string, unknown> | undefined;
+  /**
+   * The composer draft AtlasMind itself composed, held until it is sent.
+   *
+   * Nothing but AtlasMind writes a composer draft, so a prompt arriving
+   * unedited from one is by definition AtlasMind's own text — a hand-off meant
+   * for a model, never a question for a deterministic responder to answer. It
+   * deliberately outlives `pendingComposerDraft`, which is cleared the moment
+   * the draft is pushed to the webview and so is already gone by send time.
+   * Compared by exact text: edit the draft and the marker no longer applies,
+   * because what is sent is then the operator's sentence, not ours.
+   */
+  private pendingComposerHandoffPrompt: string | undefined;
   private pendingPromptSubmission: PendingPromptSubmission | undefined;
   private activePromptExecution: ActivePromptExecution | undefined;
   private recoveryNotice: ChatPanelRecoveryNotice | undefined;
@@ -499,6 +511,7 @@ export class ChatPanel {
       : atlas.sessionConversation.getActiveSessionId();
     this.selectedMessageId = initialTarget?.messageId;
     this.pendingComposerDraft = initialTarget?.autoSubmit ? undefined : initialTarget?.draftPrompt;
+    this.pendingComposerHandoffPrompt = this.pendingComposerDraft;
     this.pendingComposerMode = initialTarget?.sendMode;
     this.pendingDirectResponse = initialTarget?.directResponse;
     this.pendingComposerContextPatch = initialTarget?.contextPatch;
@@ -584,6 +597,7 @@ export class ChatPanel {
     this.selectedMessageId = normalizedTarget.messageId;
     this.selectedRunId = undefined;
     this.pendingComposerDraft = normalizedTarget.autoSubmit ? undefined : normalizedTarget.draftPrompt;
+    this.pendingComposerHandoffPrompt = this.pendingComposerDraft;
     this.pendingComposerMode = normalizedTarget.sendMode;
     this.pendingDirectResponse = normalizedTarget.directResponse;
     this.pendingComposerContextPatch = normalizedTarget.contextPatch;
@@ -2974,6 +2988,19 @@ export class ChatPanel {
     await this.syncState();
   }
 
+  /**
+   * Whether this turn is the composer draft AtlasMind put there, sent unedited.
+   *
+   * One-shot: the marker authorises exactly the prompt it was set for, and is
+   * cleared whether or not it matched, so a draft the operator abandoned and
+   * retyped cannot mark an unrelated later message.
+   */
+  private consumeComposerHandoff(prompt: string): boolean {
+    const pending = this.pendingComposerHandoffPrompt;
+    this.pendingComposerHandoffPrompt = undefined;
+    return pending !== undefined && pending.trim() === prompt.trim();
+  }
+
   private async preparePromptRequest(
     prompt: string,
     attachments: ChatComposerAttachment[],
@@ -3004,6 +3031,7 @@ export class ChatPanel {
       // past a model-free turn.
       this.pendingDirectResponse = undefined;
       this.pendingComposerContextPatch = undefined;
+      this.pendingComposerHandoffPrompt = undefined;
       return {
         userMessage: prompt,
         directResponse: hostAuthoredResponse,
@@ -3052,7 +3080,10 @@ export class ChatPanel {
     // invented summary of a conversation that had a verbatim record sitting in
     // memory. Of every fabrication available in this product that is the
     // worst-shaped: it contradicts something the operator can scroll up and read.
-    const recallRequest = forceSteer ? undefined : parseConversationRecallRequest(prompt);
+    // Consumed before either deterministic responder runs: both answer the turn
+    // outright, and neither may answer a prompt AtlasMind wrote for a model.
+    const composedByAtlas = this.consumeComposerHandoff(prompt);
+    const recallRequest = forceSteer || composedByAtlas ? undefined : parseConversationRecallRequest(prompt);
     const recalled = recallRequest
       ? answerConversationRecall(
         recallRequest,
@@ -3064,7 +3095,9 @@ export class ChatPanel {
       )
       : undefined;
 
-    const roadmapStatus = forceSteer || recalled ? undefined : await buildRoadmapStatusResult(prompt);
+    const roadmapStatus = forceSteer || recalled
+      ? undefined
+      : await buildRoadmapStatusResult(prompt, { composedByAtlas });
     const currentImageAttachments = attachments
       .map(item => item.imageAttachment)
       .filter((item): item is TaskImageAttachment => Boolean(item));

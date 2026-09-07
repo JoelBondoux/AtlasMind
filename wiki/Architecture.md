@@ -391,6 +391,19 @@ closed loss finding. Facts (200), findings (40), and exact-name suggestions are 
 The report stores adapter, graph revision, design/source fingerprints, and time, but no source excerpt or
 executable value. The 12 → 13 migration adds only `lastImport: null` to existing mappings.
 
+`uiSurfaceScan.ts` answers the question that came *before* all of that: what is there to map. Mapping
+validates a path it is given, and nothing scanned for one — so every mapping started with somebody typing a
+workspace-relative path from memory, which is fine on a project you wrote last week and useless on the one
+you have just been handed. Five declared rules classify by extension and location, reading a bounded head of
+a file only where the path cannot answer: a stylesheet qualifies only if it declares custom properties, a
+`media/` script only if it builds markup. Every candidate names the rule that claimed it and the table travels
+with the report, so the list is arguable. Dependencies and build output are never entered — `out/`, `dist/`
+and `coverage/` hold derived copies of the project's own UI, so a mapping onto one records a source the next
+build overwrites. Bounded on directories, files and results with the truncation stated; an unreadable
+directory is a miss rather than a failure. The Studio offers the result as a suggestion list rather than a
+menu, so a surface the scan missed stays reachable by typing, and an empty result reads differently from an
+absent scan.
+
 The webview's exact import command carries only mapping id and expected revision. The host resolves and reads
 the already mapped 2 MiB-contained source snapshot, selects the mapping's adapter, and creates the report.
 Copying suggestions edits only the visible form; a separate revisioned Apply action is required. Import never
@@ -874,6 +887,45 @@ its filing record; the link sends the item's opaque id and the host resolves the
 so the page can never name a file. All three prompts fence the item text as reported content, since an
 imported backlog line is third-party text. A delivered entry keeps only the Completion check.
 
+**Items have stages, not just a checkbox.** `roadmapItemStage.ts` reads an item as `not-started`,
+`planned`, `in-progress`, `awaiting-verification` or `complete`, derived from a filed plan, the item's
+branch, and whether that branch merged. It is never a flag anybody sets — a status somebody ticks is
+true for a week and misleading afterwards — and it never completes an item, which a property test
+enforces: the checkbox stays a human act. `awaiting-verification` is the rung the Completion-check
+hand-off was written for and previously had nowhere to record. With no branch inventory available the
+git-dependent stages are unreachable and the reading says so, so "not started" stays distinguishable
+from "not looked at". Not yet shown on the Roadmap page.
+
+The chat panel answers a few turns itself rather than routing them — a roadmap status summary, a
+conversation recall — and until v0.402.6 that matcher swallowed all three hand-offs: each ends with the
+sentence saying the model must not tick the item off, so each carried both "roadmap" and "complete",
+which was exactly the trigger. AtlasMind answered its own instruction with a status dump, and the
+Completion check was unreachable by construction. The bypass is structural rather than another pattern —
+a guard matching on wording is what failed, so wording cannot be what fixes it. Nothing but AtlasMind
+writes a composer draft, so a prompt sent unedited from one is AtlasMind's own text and is never
+intercepted; the marker is one-shot and compared by exact text, so editing the draft hands the turn back
+to the operator, and a status question somebody typed is still answered deterministically as before.
+A second layer narrows the matcher itself: an imperative opening a prompt — "update the roadmap to mark
+the workflow item complete" — is a request to act, and was being answered with a summary of what had not
+changed. The two layers are not redundant. The Completion check opens with "Check", which no list of
+write verbs should contain because it asks for a report, so wording alone still swallows it and only the
+structural marker keeps it reachable.
+
+**Stated intent is not completion.** `runGoalConformance.ts` grades a run on evidence — a changed file,
+a tool call, or a recorded verification — after an autonomous run ended with "I will now edit README.md"
+and was reported as a completed phase. Two refusals shape it: "no files changed" is never treated as
+failure, since plenty of honest work produces prose; and where nothing was observable at all (an ACP
+agent runs its tools inside its own session) the run reads as unassessed rather than as having done
+nothing. It reports and never blocks, retries or re-runs.
+
+**A plan is checked against the levels the project declares.** `plannedActionCeiling.ts` compares each
+planned subtask's implied action against the automation level of the stage that owns it, after an
+autonomous plan proposed committing, version-bumping and pushing on a project declaring Release at
+`observe`. The estimated file count was the only gate, and it measures blast radius rather than
+authority. The action-to-stage mapping is shared with the chat guard rather than copied, so a push
+cannot be refused in chat and permitted by the planner; an undeclared workflow, and a stage the file
+does not carry, both stay silent.
+
 The graph is an overlay. `improvement-plan.md` remains the one file that says what the work is; the
 deadlines, positions and links live in `roadmap-graph.json` beside it, keyed on a durable id the backlog
 line carries as an invisible comment, so a rename or a reorder no longer orphans an item's history. The
@@ -893,18 +945,32 @@ validates the contact, and stores a closed work-kind/id link in the Project Dire
 of truth. Branch tokens are checked once more against fresh Git state before saving, so a stale card
 cannot assign a renamed or replaced ref.
 
-Project State is the personal ToDo projection of that contract. Active assignments owned by the
-Director contact marked as **me** appear one per row under **Waiting on you**, carrying status, priority,
-and a link to the work's owning page; due and overdue follow-ups appear individually too. Completed,
-cancelled, and colleague-owned assignments are omitted. Project Director's own **Follow-ups** group uses
-the same source: those due reminders plus the active assignments owned by **me**.
-VS Code treats a native tree view's `badge` as container activity and hides a view's description when
-the panel collapses, so AtlasMind projects the same count through the three public channels that own
-these locations: `TreeView.badge` on the AtlasMind activity-bar icon, a dynamic
-**Project State · N waiting** title that remains visible when closed, and a coloured file-decoration
-badge on **Waiting on you**. Project Director repeats those three channels with a dynamic
-**Project Director · N follow-ups** title and a coloured Follow-ups row badge. Dashboard owner saves
-refresh both trees immediately, and external Project Director file changes follow the same path.
+Project State is the personal ToDo projection of that contract, and Project Director is deliberately
+**not** the same list. Project State answers *what is waiting on me*: active assignments and due or
+overdue follow-ups that **name** the Director contact marked as **me**, one per row under **Waiting on
+you**, carrying status, priority, and a link to the work's owning page. Completed, cancelled, and
+colleague-owned records are omitted, and an unowned record counts only on a solo project, where there is
+nobody else it could belong to.
+
+Project Director answers a different question: *what should be worked on first, and what is somebody
+else sitting on*. Its **Work on next** group is a ranked board built by `directorPriority.ts` from a
+declared rule table, and every row publishes the rule that graded it. Work that other outstanding work
+declares a dependency on leads, then work past its date or with nothing recorded against it for a
+fortnight, then work that is simply ready to pick up. Rows say whose the work is and how late it is,
+because the flag is the fact this view exists to surface. What is holding other work up comes from the
+roadmap graph's *declared* edges only — a suggested link must not tell somebody their colleague is
+blocking the release — and when that graph cannot be read the view says so in its own row rather than
+reporting that nothing is blocked.
+
+The two views therefore no longer report the same number for the same reason. VS Code treats a native
+tree view's `badge` as container activity and hides a view's description when the panel collapses, so
+AtlasMind projects each count through the three public channels that own these locations:
+`TreeView.badge` on the AtlasMind activity-bar icon, a dynamic **Project State · N waiting** title that
+remains visible when closed, and a coloured file-decoration badge on **Waiting on you**. Project
+Director repeats those three channels with a dynamic **Project Director · N flagged** title, counting
+only what is late or holding somebody up — never the ready-to-pick-up rows, because a badge that counts
+the backlog is permanently non-zero and stops being read. Dashboard owner saves refresh both trees
+immediately, and external Project Director file changes follow the same path.
 
 Tree commands use a guarded `ProjectDashboardOpenTarget`: a validated page plus an optional allowlisted
 work kind and bounded stable id. Matching focus markers live on branch, roadmap, issue, pull-request,
@@ -1026,7 +1092,7 @@ never accepted.
 
 | Path | What's in it |
 |---|---|
-| `src/core/` | Orchestration, routing, planning, safety, cost, project services, pure game-engine identity/divergence/build-log interpretation (`gameEngineIdentity.ts`, `gameEngineDivergence.ts`, `gameBuildLog.ts`), and CI inspection, trusted-workflow generation, the route model, routing policy, build ledger, act adapter and local CI setup guidance (`ciManager.ts`, `trustedLocalCiStarter.ts`, `ciRoutes.ts`, `ciRoutingPolicy.ts`, `ciCreditMeter.ts`, `ciBuildLedger.ts`, `ciActRoute.ts`, `nodeVersionDetection.ts`, `localCiSetupPlan.ts`, `localCiInstaller.ts`, `localCiInspectionMemory.ts`), the guarded local CI executor (`localCiRunner.ts`), the confirmed-write echo that shows an issue or pull-request write before the re-read lands (`trackerWriteOutcome.ts`), the roadmap dependency graph with its on-disk overlay (`roadmapGraph.ts`, `roadmapGraphStore.ts`), the declared table saying where each release gate’s evidence lives and how gates rank by urgency (`releaseGateNavigation.ts`), roadmap ingestion from markdown, issues, Projects and spreadsheets with re-runnable reconciliation (`roadmapImport.ts`), the register-to-work hand-off that turns a gap, a debt entry or a risk finding into planned work (`registerHandoff.ts`), and how the project numbers its software across branches — the semver primitives plus the declared scheme, source and branch-to-channel map (`semver.ts`, `versioningPolicy.ts`) |
+| `src/core/` | Orchestration, routing, planning, safety, cost, project services, pure game-engine identity/divergence/build-log interpretation (`gameEngineIdentity.ts`, `gameEngineDivergence.ts`, `gameBuildLog.ts`), and CI inspection, trusted-workflow generation, the route model, routing policy, build ledger, act adapter and local CI setup guidance (`ciManager.ts`, `trustedLocalCiStarter.ts`, `ciRoutes.ts`, `ciRoutingPolicy.ts`, `ciCreditMeter.ts`, `ciBuildLedger.ts`, `ciActRoute.ts`, `nodeVersionDetection.ts`, `localCiSetupPlan.ts`, `localCiInstaller.ts`, `localCiInspectionMemory.ts`), the guarded local CI executor (`localCiRunner.ts`), the confirmed-write echo that shows an issue or pull-request write before the re-read lands (`trackerWriteOutcome.ts`), the roadmap dependency graph with its on-disk overlay (`roadmapGraph.ts`, `roadmapGraphStore.ts`), the declared table saying where each release gate’s evidence lives and how gates rank by urgency (`releaseGateNavigation.ts`), roadmap ingestion from markdown, issues, Projects and spreadsheets with re-runnable reconciliation (`roadmapImport.ts`), the register-to-work hand-off that turns a gap, a debt entry or a risk finding into planned work (`registerHandoff.ts`), and how the project numbers its software across branches — the semver primitives plus the declared scheme, source and branch-to-channel map (`semver.ts`, `versioningPolicy.ts`), and how a Windows `bin` shim is resolved to something spawnable without a shell — the module that makes model-generated command arguments unable to become commands (`windowsShimBypass.ts`) |
 | `src/runtime/` | The built-in agents and how the runtime is composed |
 | `src/providers/` | Provider adapters, catalogues, health, local model discovery, `modelRole.ts` (what a model is *for*), and the local-GPU support layer that measures VRAM and reads what each runtime has loaded |
 | `src/skills/` | Built-in tools and skill handlers |

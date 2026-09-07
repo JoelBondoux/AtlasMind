@@ -21,12 +21,27 @@ AtlasMind can also use your Copilot subscription as one of its models, so it isn
 
 ### Does it cost anything?
 
-The extension is free and MIT licensed. What you pay for is the model.
+For individuals, students, and anyone using it outside revenue-generating work: it's free, now and
+always. What you pay for is the model. The source code is MIT licensed permanently, and compiling it
+yourself is free for everybody without exception.
 
 You can genuinely run it for **no additional cost** using a Claude, ChatGPT, Copilot or Qwen
 subscription you already have, or a local model via Ollama or LM Studio. If you'd rather use API keys,
 set `atlasmind.budgetMode` to `cheap` and `atlasmind.dailyCostLimitUsd` to a number you're comfortable
 with. `/cost` shows what you've spent this session.
+
+**If you're using it at work, there is a maintenance fee — from v1.0.0.** AtlasMind follows the
+[Open Source Maintenance Fee](https://opensourcemaintenancefee.org) model: organizations with annual
+gross revenue of US$10,000 or more that use the official releases in revenue-generating activities
+pay $10–$60 a month by headcount, under
+[OSMFEULA.txt](https://github.com/JoelBondoux/AtlasMind/blob/develop/OSMFEULA.txt). **No fee is payable
+before v1.0.0** — during Beta the MIT licence is the only agreement that applies to any release.
+
+The fee attaches to the **official binary** (the Marketplace `.vsix`), not to the source: compiling
+it yourself is MIT and free for everyone, permanently. It buys nothing — no feature, no priority, no
+service level — because every user gets the same software; it funds issue triage, releases, and
+dependency and security updates. Nobody outside that scope pays anything, ever. See
+[Funding and Sponsorship](Funding-and-Sponsorship.md).
 
 ### Which models can it use?
 

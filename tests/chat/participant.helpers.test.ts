@@ -60,6 +60,14 @@ import {
   assessProjectWorkspace,
   type ProjectRunOutcome,
 } from '../../src/chat/participant.ts';
+
+import {
+  buildRoadmapCompletionCheckPrompt,
+  buildRoadmapPlanChatPrompt,
+  buildRoadmapResolveChatPrompt,
+  type RoadmapPlanItem,
+} from '../../src/core/roadmapPlanning.ts';
+
 import { describeImageRejections } from '../../src/chat/imageAttachments.ts';
 import type { TaskImageAttachment } from '../../src/types.ts';
 import { type SessionTranscriptEntry } from '../../src/chat/sessionConversation.ts';
@@ -2000,5 +2008,135 @@ describe('whether a project run has anywhere to run', () => {
   it('reports a populated workspace with its file count', () => {
     expect(assessProjectWorkspace(1, 12)).toEqual({ kind: 'populated', fileCount: 12 });
     expect(assessProjectWorkspace(2, 1)).toEqual({ kind: 'populated', fileCount: 1 });
+  });
+});
+
+describe('generated hand-off prompts are never intercepted by the status responder', () => {
+  // Regression. Every hand-off `roadmapPlanning` builds contains "roadmap" and
+  // "complete" — the latter from the provenance sentence telling the model that
+  // ticking the item off stays a human act. That pair is exactly what
+  // `isRoadmapStatusPrompt` matches, so the chat panel short-circuited all three
+  // hand-offs into a canned status dump and the instruction never reached a
+  // model. The guard has to be structural: matching on wording is what broke,
+  // so wording cannot be what fixes it.
+  const handoffItem: RoadmapPlanItem = {
+    nodeId: 'the-guided-github-workflow-o',
+    itemId: 'roadmap-28',
+    text: 'The guided GitHub workflow — one canonical, deterministic, eight-stage workflow',
+    completed: false,
+    focus: 'delivery',
+    branch: 'chore/the-guided-github-workflow-one-canonical-deterministic',
+    estimateDays: 2.5,
+  };
+  const planPath = 'project_memory/roadmap/plans/the-guided-github-workflow-o.md';
+  const prompts: ReadonlyArray<readonly [string, string]> = [
+    ['plan', buildRoadmapPlanChatPrompt(handoffItem, planPath)],
+    ['resolve', buildRoadmapResolveChatPrompt(handoffItem, planPath)],
+    ['completion check', buildRoadmapCompletionCheckPrompt(handoffItem, planPath)],
+    ['resolve with no plan filed', buildRoadmapResolveChatPrompt(handoffItem, undefined)],
+    ['completion check with no plan filed', buildRoadmapCompletionCheckPrompt(handoffItem, undefined)],
+  ];
+
+  it.each(prompts)('%s reaches a model when AtlasMind composed it', (_label, prompt) => {
+    expect(isRoadmapStatusPrompt(prompt, { composedByAtlas: true })).toBe(false);
+  });
+
+  // The imperative guard catches Plan and Resolve on their opening verb, but the
+  // Completion check opens with "Check", which no list of write verbs should
+  // contain — it asks for a report. Wording alone still swallows it, so the
+  // structural marker is what keeps it reachable. The two layers are not
+  // redundant, and this is the case that proves it.
+  it('the completion check is saved by the marker alone, not by the imperative guard', () => {
+    const check = buildRoadmapCompletionCheckPrompt(handoffItem, planPath);
+    expect(isRoadmapStatusPrompt(check)).toBe(true);
+    expect(isRoadmapStatusPrompt(check, { composedByAtlas: true })).toBe(false);
+  });
+
+  it('still intercepts a status question the operator typed themselves', () => {
+    expect(isRoadmapStatusPrompt('what roadmap items are still outstanding?')).toBe(true);
+    expect(isRoadmapStatusPrompt('what roadmap items are still outstanding?', { composedByAtlas: false })).toBe(true);
+  });
+
+  it('defers a composed hand-off from the status result builder too', async () => {
+    await expect(buildRoadmapStatusResult(prompts[0][1], { composedByAtlas: true })).resolves.toBeUndefined();
+  });
+});
+
+describe('a typed instruction is never answered with a status summary', () => {
+  // The structural marker covers prompts AtlasMind composed. This covers the
+  // other half: an instruction the operator typed themselves. "Update the
+  // roadmap to mark the workflow item complete" carries "roadmap" and
+  // "complete", so it matched, and an instruction to change something was
+  // answered with a summary of what had not changed. An imperative is a request
+  // to act; only a question may be answered deterministically.
+  it.each([
+    'Draft the implementation plan for this roadmap item into project_memory/roadmap/plans/x.md',
+    'Update the roadmap to mark the guided workflow item complete',
+    'Mark the roadmap item complete now that the work has landed',
+    'resolve the outstanding roadmap item about the canvas',
+    'Please write up the remaining roadmap items as issues',
+  ])('%s is routed rather than intercepted', prompt => {
+    expect(isRoadmapStatusPrompt(prompt)).toBe(false);
+  });
+
+  it.each([
+    'what roadmap items are still outstanding?',
+    'show roadmap progress',
+    'how many roadmap items are left',
+    'what are the outstanding roadmap items we need to address?',
+  ])('%s is still answered deterministically', prompt => {
+    expect(isRoadmapStatusPrompt(prompt)).toBe(true);
+  });
+});
+
+describe('a provider that ran its own tools is not "answered from context"', () => {
+  // The observed case: an ACP turn wrote a 6 KB file and the transcript said
+  // "Answered from context and session history" with no tool calls listed,
+  // because the agent executed them inside its own session where AtlasMind runs
+  // nothing. The events were parsed and logged; nothing counted them.
+  const acpResult = (delegatedToolCallCount: number | undefined) => ({
+    agentId: 'default',
+    modelUsed: 'acp/codex@gpt-5.3-codex',
+    costUsd: 0,
+    inputTokens: 617,
+    outputTokens: 561,
+    artifacts: {
+      output: 'Implemented the plan.',
+      outputPreview: 'Implemented the plan.',
+      toolCallCount: 0,
+      toolCalls: [],
+      checkpointedTools: [],
+      ...(delegatedToolCallCount === undefined ? {} : { delegatedToolCallCount }),
+    },
+  });
+
+  it('says the agent ran them, rather than claiming nothing happened', () => {
+    const metadata = buildAssistantResponseMetadata('Draft the plan', acpResult(4), { hasSessionContext: true });
+    expect(metadata.thoughtSummary?.summary).toBe('The agent ran 4 tool calls inside its own session.');
+  });
+
+  it('uses the singular for one call', () => {
+    const metadata = buildAssistantResponseMetadata('Draft the plan', acpResult(1), { hasSessionContext: true });
+    expect(metadata.thoughtSummary?.summary).toContain('1 tool call inside');
+  });
+
+  it('still says answered from context when the agent genuinely ran none', () => {
+    // Zero is a real observation here, not an absence: this adapter watched the
+    // session. An agent that answered without tools did answer from context.
+    const metadata = buildAssistantResponseMetadata('What is this file?', acpResult(0), { hasSessionContext: true });
+    expect(metadata.thoughtSummary?.summary).toBe('Answered from context and session history.');
+  });
+
+  it('leaves a provider that cannot report it unchanged', () => {
+    const metadata = buildAssistantResponseMetadata('What is this file?', acpResult(undefined), { hasSessionContext: true });
+    expect(metadata.thoughtSummary?.summary).toBe('Answered from context and session history.');
+  });
+
+  it('does not override a real AtlasMind-executed tool count', () => {
+    const metadata = buildAssistantResponseMetadata('Fix it', {
+      ...acpResult(3),
+      artifacts: { ...acpResult(3).artifacts, toolCallCount: 2 },
+    }, {});
+    expect(metadata.thoughtSummary?.summary).toContain('Used 2 tool calls');
   });
 });

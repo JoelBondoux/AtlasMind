@@ -19,6 +19,868 @@ Older entries below describe the software as it was at the time and are delibera
 
 ---
 
+## v0.420.4 -- Bring your own AI tool, properly documented
+
+The previous release *said* AtlasMind's chat is optional. [[Bring Your Own AI Tool]] is the page that
+makes it followable: what works with no AtlasMind chat and no model provider at all, the exact
+instruction file each tool reads, both managed-block marker pairs quoted so you can find or delete
+them by hand, the sync command, and a setup that skips connecting a provider entirely.
+
+It also draws the boundary honestly — the specialists, `/project`, `/loop`, Mission Control and the
+Atlas hand-off pills do need AtlasMind's agents. Selling a boundary without drawing it is worse than
+saying nothing: somebody adopts the route, hits the first hand-off pill, and concludes the claim was
+marketing.
+
+Marketplace category `Other` became `Visualization`, which is what the dashboard, the dependency
+canvas and eleven lenses actually are. `Testing` was considered and rejected — that category is test
+adapters and runners, and AtlasMind grades testing evidence rather than running a suite.
+
+---
+
+## v0.420.3 -- A project manager with an orchestrator attached
+
+The marketing described the product AtlasMind used to be. Everything reader-facing led with
+"multi-agent orchestrator" and a delivery team — accurate when the orchestrator *was* the product,
+and not for a while now. The Project Dashboard is 23 pages, the registers transition and grade
+against published rule tables, the lenses read live services. That is the larger half, and it had
+one row in a fourteen-row table.
+
+Repositioned across the README hero, "What is AtlasMind?", "Who it's for", "What's included" and
+this wiki.
+
+The expensive part was `package.json`. The README is read by people who already found the extension;
+`description` and `keywords` are what the Marketplace *indexes*, and neither held a single
+project-management word — so nobody searching for one could find it. Both now do, without dropping
+the agent keywords.
+
+And it now says out loud that **you don't need AtlasMind's chat**. The management layer reads your
+repository rather than a conversation, and AtlasMind already writes its testing methodologies, debt
+markers and workflow rules into the instruction files Copilot, Claude Code, Cursor, Codex, Gemini CLI
+and Windsurf read. That shipped a while ago and was never advertised, which made AtlasMind look like
+an either/or against tools nobody is going to give up.
+
+---
+
+## v0.420.2 -- A README that isn't a second changelog
+
+The README held **71** `What's new in x.y.z` sections across 2,149 of its 2,460 lines — a changelog
+maintained by hand, inside the document that doubles as the Marketplace listing. It now carries two
+lists and a link: **What's new**, five headline changes since the last publication (v0.402.4), which
+is what somebody installing the next release actually gets; and **Recently shipped**, the five most
+important things already in the published build. Everything else is in
+[CHANGELOG.md](https://github.com/JoelBondoux/AtlasMind/blob/main/CHANGELOG.md), which is what it is
+for.
+
+341 lines, down from 2,460.
+
+Beyond tidiness: a reader deciding whether to install had to scroll past eighteen versions of
+internal fixes before reaching anything addressed to them, and per-patch notes on a listing page age
+into noise the moment they ship — nobody ever deletes them. Two curated lists have to be *chosen*,
+which is exactly what a chronological log cannot do.
+
+---
+
+## v0.420.1 -- Links that resolve
+
+Six wiki links to `OSMFEULA.txt` and `MAINTENANCE_FEE.md` were 404s. Both files are new and live
+only on `develop`, and the links pointed at `blob/main/` — the convention the wiki already uses for
+`LICENSE` and `CHANGELOG.md`, which works only because those have been on `main` for a long time.
+Now pointed at `develop`; links to files that really are on `main` were left as they were.
+
+Behind it: `main` is at 0.402.4 against `develop`'s 0.420.1, so the release promotion is roughly
+eighteen minor versions overdue, and waiting for it was not a fix but an open-ended outage on a link
+to licence terms.
+
+When 1.0.0 exists the EULA link should move once more — to a **tag**, not a branch. Terms somebody
+is agreeing to deserve an immutable reference, and 1.0.0 is when the fee commences anyway.
+
+---
+
+## v0.420.0 -- The Open Source Maintenance Fee, in full
+
+AtlasMind now follows the [OSMF](https://opensourcemaintenancefee.org) model completely.
+`OSMFEULA.txt` carries the EULA v1.1 template unaltered, with the payment terms attached as a
+Schedule — Section 2 defers those to the project, which is where the v1.0.0 commencement
+legitimately lives. `package.json` declares `SEE LICENSE IN OSMFEULA.txt`, because the manifest
+describes the `.vsix` and that is what the fee attaches to.
+
+**The split is the whole design, and both halves matter.** The source code stays MIT permanently:
+clone the repository, compile AtlasMind, owe nothing, sign nothing — Section 4 guarantees it. The
+official binary release is what the EULA covers. For a VS Code extension that is how nearly everyone
+installs it, so this is a genuine change and not a technicality, and saying otherwise would be
+selling it dishonestly.
+
+From **v1.0.0**, organizations with annual gross revenue of at least US$10,000 using the official
+releases in revenue-generating activities pay $10/$40/$60 a month by headcount. **Nothing is payable
+before v1.0.0.** Individuals, students, hobby projects, non-profits, open source projects and anyone
+below the revenue floor never pay at all.
+
+Several claims elsewhere stopped being true and were rewritten rather than quietly dropped — "no
+paid tier, no feature gate", "fully open source... no paywall", "the extension is free and MIT
+licensed". What survives is narrower and still exactly true: no feature gating, no lesser edition,
+every user gets the same software, and no amount of money buys a feature, a vote, priority triage or
+a service level.
+
+---
+
+## v0.419.4 -- Tiers that don't sell anything
+
+Five tiers, matching GitHub Sponsors: a voluntary **$5 Supporter** for individuals, students and
+anyone outside commercial work; three **Maintenance Fee** bands by headcount (**$10** under 20
+employees, **$40** to 100, **$60** above) that apply only from v1.0.0; and a **one-off** of any
+amount.
+
+The substantive change is what left. The old tiers sold early access to roadmap discussions, a vote
+on priorities, priority issue triage and a logo on the README — a paid tier wearing a sponsorship
+label. "No paid tier, no feature gate, and no plan to add one" stops being true the moment faster
+triage is for sale, whatever the invoice says. A fee funding maintenance everyone benefits from
+equally is a different thing from a fee buying you position in the queue, and only one of them fits
+under that sentence.
+
+Supporter and the Maintenance Fee stay visibly separate, because collapsing them gets both wrong in
+opposite directions: an individual reading a fee schedule concludes they owe something, and an
+organization reading a tip jar concludes nothing is expected. No individual is ever in scope of the
+fee.
+
+`CONTRIBUTORS.md` follows the same two groups, opt-in and undated — "supported from the very
+beginning" stops being true for everyone who arrives later.
+
+---
+
+## v0.419.3 -- Not before 1.0.0
+
+The maintenance fee announced in 0.419.2 comes into force at **v1.0.0**, and not before.
+During Beta the MIT licence is the whole story and nobody is asked for anything. The previous
+entry gave no start date, which read as a fee owed today by anyone using AtlasMind at work.
+
+A version is the better trigger. OSMF suggests announcing three to six months ahead, but a date
+arrives whether or not the software is ready; 1.0.0 arrives when it is, and anybody can check it
+rather than trusting a promise. It is also the release where the configuration and memory formats
+freeze -- the point where this becomes something you can build on without being migrated out from
+under. A Beta that may still move under you hasn't earned the ask.
+
+Every surface that mentions the fee now carries both claims together: **not before 1.0.0**, and
+**optional even then**.
+
+---
+
+## v0.419.2 -- An Open Source Maintenance Fee, optionally
+
+AtlasMind now participates in the [Open Source Maintenance Fee](https://opensourcemaintenancefee.org).
+Organisations with annual gross revenue of USD 10,000 or more that use it in revenue-generating
+work are asked for the model's own tiers -- $10/mo under 20 employees, $40/mo to 100, $60/mo
+above. Everyone else is asked for nothing.
+
+The distinction it rests on is worth quoting: *the source code is free -- as in freedom -- but
+the maintenance is not.* And the reason for a fee rather than a general appeal is that "support
+us if this helps you" puts the question of how much on the person least equipped to answer it,
+which is usually why nothing gets sent.
+
+**The licence does not change.** OSMF as published makes the fee mandatory for qualifying
+commercial users, enforced by an EULA on the binary release. AtlasMind does not do that: the
+LICENSE is unmodified MIT, the `.vsix` carries no terms of its own, `package.json` still says
+`"license": "MIT"`, and nothing is withheld from anyone who doesn't pay. For a VS Code extension
+the binary *is* how everyone installs it, so a fee-bearing binary would be the product rather
+than a carve-out.
+
+See [MAINTENANCE_FEE.md](https://github.com/JoelBondoux/AtlasMind/blob/develop/MAINTENANCE_FEE.md)
+and [Funding and Sponsorship](Funding-and-Sponsorship.md).
+
+---
+
+## v0.419.1 -- Ticks that stayed ticked
+
+Five backlog items delivered across 0.418.0-0.418.2 were ticked as each shipped and found
+un-ticked afterwards. An open Project Dashboard holds the backlog in memory and writes its
+whole copy back whenever you edit it, so a session started before those releases restores the
+state it was opened with. Ticked again.
+
+---
+
+## v0.419.0 -- Which way the plan continues
+
+The roadmap canvas clips at its frame, so a node outside it is not small -- it is absent, and
+absent looks exactly like does-not-exist. That is fine while you are the one who just panned.
+It is misleading everywhere else: after a fit that could not zoom out far enough, under a
+route filter, or on a plan somebody else laid out.
+
+Each edge the plan continues past now carries a faint glow. The ideation board has had this
+since it gained a viewport; the roadmap canvas was the one without it. An edge lights only
+when a card is wholly past it -- one you can half-see is one you can see -- and a frame that
+cannot be measured lights nothing at all.
+
+---
+
+## v0.418.2 -- A search that shows you what it found
+
+Searching the roadmap canvas asked for a re-fit on every keystroke, and the fit ran. It just
+could not do anything, because search stopped removing nodes from the canvas when it became a
+highlight rather than a filter -- everything stays drawn so the dependencies around a match
+are still readable. Fitting *all* the nodes after narrowing therefore framed exactly what it
+framed before: a request satisfied and invisible.
+
+A search now zooms and pans to the matches themselves, and so do the gate and person filters,
+which narrow through the same mechanism. A query that matches nothing frames the whole plan
+instead -- there is nothing to zoom to, and flying off to an empty region of canvas reads as
+the plan having been lost.
+
+---
+
+## v0.418.1 -- Unlinked items you can actually find
+
+Roadmap items with no dependencies are parked in a block of their own after the linked plan.
+That is the right idea -- they say nothing about order, and they carry no arrows, so a grid
+cannot be misread as a sequence. Where the block went was the problem.
+
+It began two slots past the plan, a gap sized for two linked sub-plans whose arrows need room
+to be read, when nothing crosses this boundary at all. Then it grew downward before it grew
+sideways: six cards deep before a second column started. On a backlog where most items have
+no declared dependencies -- which is most backlogs -- that put the majority of the plan below
+the fold, behind a band of empty canvas.
+
+One slot separates it now, and it fills across the window before it fills down it.
+
+---
+
+## v0.418.0 -- The dashboard's own furniture
+
+Three things about the Project Dashboard that were quietly wrong.
+
+The navigation shifted sideways every time you changed page. The selected tab is drawn
+bolder than the others, bold text is wider, and nothing was holding the width — so the
+active pill grew and nudged its neighbours along. Overview showed it worst, being both the
+page you land on and the first pill in the first group. Every label now reserves its bold
+width at all times. In a narrow window, a group of tabs could also reach past the edge of
+its box, because the row was only allowed to break *between* groups; tabs wrap inside their
+group now.
+
+Road to MVP lists every item tagged for the release, which on a real backlog is a lot of
+them. At the old spacing they arrived as a wall of small text. The columns are wider, the
+padding inside each is doubled, and wrapped rows are separated -- and the connecting line
+between milestones, which used to dangle into empty space at the end of every wrapped row,
+now stops where the row does.
+
+And adding an item to the roadmap is offered where you land. It was previously reachable
+from a card below the fold, or from the far end of the canvas toolbar behind nine other
+buttons.
+
+---
+
+## v0.417.1 -- A backlog that counts only what is left
+
+The MVP gate is supposed to answer one question: what still has to happen before a first
+usable release. It was answering it wrongly. Three items on it were already delivered, three
+were second copies of another line, and one was not work at all -- a recorded decision not to
+build something, carrying an `#mvp` tag it could never discharge.
+
+A triage against the codebase closed them. The guided GitHub workflow is shipped in full.
+The broken ACP connection to subscribed providers was fixed in 0.406.3, where setup had been
+writing the agent list to the workspace settings scope: the provider then disabled itself in
+every window except the one setup ran in, with no error to explain why. "Not pursuing a
+generic BYO-CLI-agent multiplexer" moved to the decisions folder, where its reasoning can be
+read instead of waiting to be ticked -- along with what it deliberately does not rule out,
+which is using another vendor's agent as a completion source under AtlasMind's own routing,
+memory and cost accounting.
+
+The duplicated lines were folded into whichever twin stated the problem better, and the
+`#mvp` gate travelled with them rather than being dropped.
+
+---
+
+## v0.417.0 -- Two sidebar views, two questions
+
+Project State and Project Director sat one above the other and showed the same number. Not
+by coincidence: both called one collector — every due follow-up in the project, plus every
+assignment owned by you — so on a project whose director is also its developer the second
+badge carried no information at all.
+
+They now ask different questions.
+
+**Project State** is your list. Active assignments and due follow-ups that **name** you.
+An unowned item counts only on a solo project, where there is nobody else it could be; on a
+team project an unowned item is nobody's, and quietly putting it on your list would assign
+it to you.
+
+**Project Director** is the project's list: what to work on first across everybody, with
+what somebody else is sitting on flagged — past its date, started and untouched for a
+fortnight, or with other outstanding work waiting on it. Rows say whose it is and how late.
+Its badge counts only those flags, because a badge that counts the backlog is permanently
+non-zero and stops being read.
+
+Every row publishes the rule that graded it, ranking is by consequence rather than by
+magnitude — one item three others wait on outranks a pile of individually late ones — and
+"holding up other work" is derived from the roadmap's *declared* dependency edges only. A
+suggested link must never tell you a colleague is blocking the release. When that graph
+cannot be read, the view says the question was not asked instead of answering "none".
+
+---
+
+## v0.416.1 -- Roadmap: offering a capability without overselling it
+
+A new backlog entry, and the framing is the point of it.
+
+AtlasMind already has the catalogue (45 recommended MCP servers, GitHub among them),
+the discovery, and a non-destructive install that seeds a server disabled. What it has
+never had is a reason to mention any of that at the moment you need it. So: when run
+history shows repeated use of a tool a catalogued server covers, offer that server once.
+
+Evidence-triggered, never speculative — "you have run `gh` forty-one times in this
+project", not "AtlasMind thinks you need an MCP".
+
+And deliberately **not** sold as a cost saving. A GitHub MCP publishes roughly thirty tools
+into the same tool-context budget that has already been observed overflowing in a real run,
+dropping twenty-five skill descriptions on the way. It plausibly costs context rather than
+saving it. The offer says what it adds and what it consumes, because a saving nobody
+measured is the kind of claim this codebase refuses everywhere else.
+
+A refusal is remembered per server, per project, and never raised again. Installs stay
+seeded-disabled: an offer is not trust, and installing an MCP server runs somebody else's
+code — which is what the AI supply-chain integrity entry is about.
+
+There is an optional second rung, off by default: when the local catalogue has nothing that
+fits, query the enabled ARD finders. That is a separate switch from having finders at all,
+because seeding them disabled was itself a deny-by-default decision and one setting carrying
+both would undo it. It sends the category — `"github"` — never the goal, the repository name,
+or anything derived from your code. A miss is cached under the same don't-nag rule as a
+refusal, so an every-session round trip does not become the cost of asking.
+
+---
+
+## v0.416.0 -- Refuse in the first second, not after four model attempts
+
+Asked to "test and merge" a pull request into `main`, an autonomous run took three attempts
+and about £0.28, planned `git checkout main && git merge && git push` against a branch the
+project declares protected, and finished by reporting "a security policy preventing write
+operations". Every fact needed to refuse was already recorded: `main` protected in
+`delivery.json`, the Release and Pull-request stages at `observe`, and a staging stage the
+request bypassed.
+
+**The check existed and only one surface used it.** `plannedActionCeiling` was written for
+this case — its own header describes a plan that pushed to origin against stages declared
+`observe` — and was called only from the chat participant. The chat panel, the CLI, the
+mission runner and the run centre all start a project run without it. It now runs inside the
+run itself, after planning and before anything executes, so the guarantee belongs to the run
+rather than to whichever surface happened to start it.
+
+The stage levels come from the editor host rather than a plain settings read, because the
+rule is resolved *most restrictively across scopes* — a workspace file must not raise a
+ceiling the user set — and only the host can see scopes. It hands over the same resolver the
+chat participant uses, so a plan cannot be refused in chat and permitted by an autonomous
+run.
+
+**The planner could not name the role that knew better.** `github-operator` was absent from
+the role vocabulary, so GitHub work went to the general assistant — which improvised local
+git while `gh pr merge <number>` sat documented three lines above in the same prompt. It is
+now nameable, and the planner is told that merging a pull request is that command as its own
+approval-gated step, never a local merge into a protected branch.
+
+**And a read-only turn now says what it is not.** "Denied by the user's turn-scoped read-only
+constraint" is accurate, and a model read it as a blanket prohibition and stopped. It now says
+this is a per-turn choice rather than a repository policy, and that other routes are
+unaffected.
+
+---
+
+## v0.415.0 -- Chat opens where you keep chat
+
+A prompt handed to chat from a panel opened a detached editor tab. Every hand-off — a
+dashboard button, a register finding, a roadmap pill, an MCP error, a run-center draft —
+called the command that always creates one. So the prompt landed in the viewport while
+the chat the user actually works in sat in the sidebar.
+
+They all mean "put this in front of me", not "open a tab". The rule for that already
+existed: reveal the detached panel only if it was the last surface used and is still
+open, otherwise the sidebar. Only a handful of callers used it. A shared
+`atlasmind.openChat` command now exposes it and the thirty-one hand-off sites across six
+panels go through it. *Open Chat Panel* and *Focus Chat View* are untouched — they name a
+surface, and remain the way to ask for one deliberately.
+
+**The session drawer also starts closed now.** Its default opened it for anybody who had
+never touched the control, which is everybody on a first run, and in the sidebar it sits
+directly above the transcript you opened chat to read. An explicit choice is still
+remembered in both directions.
+
+---
+
+## v0.414.1 -- The guarantee moved to where every caller passes
+
+v0.414.0 asked before reconciling, on the save you drive from the dashboard. Four other
+paths write the roadmap too — the anchor writer, the importer, the shared document writer,
+and raise-as-work from the ideation board — and they still took the old branch that
+appended everything. Two of them run with nobody watching; the anchor writer runs on
+render.
+
+So not duplicating cannot depend on somebody having been asked. Loose items are now adopted
+into the managed block wherever the document is serialized, and `## Existing Notes` keeps
+prose only. The prompt stays, because reorganising a tracked file is worth announcing — it
+is simply no longer the thing that makes it safe.
+
+---
+
+## v0.414.0 -- Reconcile a roadmap instead of copying it
+
+Saving against a roadmap AtlasMind did not write — hand-authored, an older format, one
+somebody reformatted — used to append the entire previous file underneath the new one as
+`## Existing Notes`. Items included. That copies the whole backlog in a single save and
+never heals, because every later save touches only the managed block at the top.
+
+It is how this repository's own roadmap came to list 123 items where there were 72, with
+27 anchor ids appearing twice — the hazard the graph store documents about a duplicated
+line stealing another item's history. Nothing reported it, because both halves looked
+like a roadmap.
+
+The save now stops and offers to fold the loose items in, naming how many it would adopt
+and how many are already on the roadmap. Decline and nothing is written: losing a
+dashboard edit is recoverable, and a silently duplicated backlog is not.
+
+`roadmapReconcile.ts` separates items from prose before anything is preserved — appending
+both is what made the duplicate, and dropping both would lose the backlog. Orphans match
+on the same normalized key the importer adopts by, so a roadmap imported once and
+reconciled later does not end up with two spellings of one line. An orphan the dashboard
+already holds is skipped rather than merged, because the incoming line is the one carrying
+the durable anchor. A checkbox inside a code fence is an example, not somebody's backlog
+item. Adopted lines get no anchor: minting one would claim graph history they do not have.
+
+---
+
+## v0.413.1 -- The roadmap held two copies of itself
+
+A stale `## Existing Notes` block carried an older snapshot of the backlog, so the file listed 123
+items where there were 72. Every ranking read off it double-counted, and the dependency graph
+tracked 58 nodes against those 123 lines — which is how it stayed invisible.
+
+Duplicates were removed by keeping the first occurrence, checked safe before anything was deleted:
+every later copy sat inside the stale block, none was longer, none was ticked where the first was
+not, and none carried an anchor the first lacked. The anchor count is unchanged and every graph node
+still resolves, so no item lost its history.
+
+One pair had to be merged rather than dropped. Both Game Dev lines shared an anchor, and the stale
+copy was the richer one — it recorded that Phase 1 had landed — so its wording moved onto the line
+that stayed. The gates block declaring `#mvp` and `#critical` was the one load-bearing thing inside
+the stale wrapper and was kept.
+
+---
+
+## v0.413.0 -- The Studio can find your interface
+
+The UI Studio could map a design target onto a source file, and could not tell you what
+there was to map. Every mapping started with somebody typing a workspace-relative path
+from memory — fine on a project you wrote last week, useless on the one you have just
+been handed, which is precisely the case the Studio is for.
+
+AtlasMind now scans the workspace and offers what it found. Five declared rules decide
+what counts as a UI surface, each candidate records which rule claimed it, and the rule
+table travels with the list — so what you are choosing from can be argued with rather
+than taken on trust.
+
+Extension and location do most of the work, with a bounded look at the head of a file
+only where the path cannot answer. A stylesheet is offered only if it declares custom
+properties, because every project has stylesheets and the ones worth treating as a design
+surface are the ones holding tokens. A script under `media/` is offered only if it builds
+markup, or the rule would claim every helper and polyfill beside it.
+
+Dependencies and build output are never entered. `out/`, `dist/` and `coverage/` matter
+most there: they hold *derived* copies of your own interface, so they look right, and a
+mapping onto one records a source your next build overwrites.
+
+The scan is bounded three ways and says when it stopped — a list showing the first 200 of
+4,000 files while presenting itself as the answer is worse than one that admits it
+truncated. It never throws; an unreadable folder is a miss rather than an error, because
+under-reporting is safe when anything it missed can still be typed by hand.
+
+That is why the field offers a suggestion list rather than a menu. Discovery is
+deliberately conservative, and replacing the input with a dropdown would make its misses
+unreachable instead of merely unlisted. A scan that found nothing and a workspace nobody
+could scan read differently, too.
+
+Checked against AtlasMind's own repository rather than asserted: 7 surfaces out of 1,456
+files examined — two React components, one stylesheet carrying tokens, and exactly the
+four webview scripts — with no false positives.
+
+---
+
+## v0.412.0 -- The Delivered chart answers questions too
+
+Every lens on the roadmap stopped at the outstanding plan. So "when did the auth work
+ship", "which of the MVP has actually landed" and "what did Sam deliver" — all questions
+about the record rather than the plan — had no way to be asked on the chart that holds
+the answer. The Delivered view now takes the same search box, gate picker and person
+picker as the dependency canvas.
+
+**Person means something different once work has landed.** On the plan it is who is going
+to do it; on the record it is who did. So the Delivered chart matches on who completed an
+item where that was recorded, falling back to who it was assigned to for anything
+delivered without a name against it.
+
+**Parity here is about the ways of looking, not about every control.** Add item, Import,
+Calculate tree, the suggestion toggle, Auto tree, the orientation buttons and snap-to-grid
+stay off the Delivered chart, and that is a decision rather than an omission. Nothing is
+added to a record of what already happened. Inferring dependencies between things that
+have all shipped changes nothing. And the chart is columned by month — it answers "when
+did this land" — so a tree layout would fight those columns rather than arrange them.
+
+Zoom, fit, panning, click-to-highlight and double-click-to-zoom were already shared and
+still are. A test pins both halves: the lenses that must be there, and the authoring
+controls that must not, so "parity" cannot quietly grow into an Add button on a record of
+the past.
+
+---
+
+## v0.411.0 -- The stage pills switch your checkout
+
+The header shows a pill per delivery stage with the version on each. They were labels.
+A pill naming a branch you are not on is now a button: click it and AtlasMind offers to
+move this checkout there. The stage you are standing on carries a coloured outline
+rather than a fill — the strip is read at a glance, and a filled pill among outlined
+ones reads as an alert instead of "you are here".
+
+Giving a header pill the power to move a working tree needs guards, and there are five.
+
+The webview posts **the pill's id, never a branch name**, resolved against the strip the
+panel last sent — so a message can name a stage that exists and can never introduce a ref
+of its own. The **working-tree pill is refused**: it is a reading from disk and has no
+branch by design. The **branch must already exist locally**, because a click on a version
+number must not create a `staging` on a machine that never had one. **Uncommitted work is
+counted and named in the confirmation** rather than discovered afterwards — git carries a
+dirty tree across when it can and refuses when it cannot, and neither is what somebody
+clicking a version number expects. And the confirmation **names the branch as well as the
+stage**, since "switch to Production" and "move this checkout to `main`" are the same act
+described at two distances, and only one of them is checkable.
+
+Nothing on the path forces, stashes, resets or discards. That is pinned by a test which
+matches quoted git arguments rather than bare words — the method's own comment contains
+"stashes" precisely because the code does not, and the first version of the test failed
+on its own prose.
+
+**A quieter fix alongside it.** The version strip lives in the host markup, outside the
+dashboard's root element, so the delegated click handler never saw it. Its "+N more"
+button — the one that opens the Delivery page when there are more stages than fit — had
+silently done nothing since it was added. One listener now covers both.
+
+---
+
+## v0.410.0 -- Say what an item is when you add it
+
+Adding a roadmap item meant typing a line into a three-row box and then setting
+everything else — its release, who is doing it — on the row afterwards. The entry form
+now carries a release-gate picker, an owner picker, and a text box four times the size.
+
+**Gates needed no host change.** The save already sanitises a per-item gate list against
+the gates a project has declared, so ticked gates are simply part of the new item.
+
+**An owner did.** Assignment names an item by its durable id, and a brand-new item has
+none until the host has written it — so the choice is held for exactly one snapshot and
+then applied through the ordinary roster-validated update path. It is resolved by the
+item's *text*, not by the id the browser minted: that id is a suggestion the host is free
+to re-mint, and matching on it would miss precisely when the host had done its job.
+
+If the item cannot be found, the choice is reported in a dismissible notice rather than
+discarded. You watched yourself pick somebody, so silently losing it is the one outcome
+worth ruling out.
+
+Both controls appear only while adding. An item that already exists carries gate chips and
+an Owner control on its own row, and a second copy in the form would be two controls for
+one fact, disagreeing the moment either was used.
+
+---
+
+## v0.409.0 -- Highlight the plan by gate, by person, or both
+
+The canvas could be searched by text. It could not answer "which of these are on the
+MVP" or "what is Sam waiting on", which are the two questions a plan with releases and
+people in it gets asked most.
+
+Two pickers now sit beside the search box, built from what the plan actually contains —
+the declared release gates, and the people the host laid out. A project with no gates
+and nobody assigned gets neither control, rather than two empty menus that do nothing.
+**Unassigned** is offered as a person, because it is a real answer to "whose is this?"
+and the most useful one on a plan nobody has divided up yet.
+
+**The three lenses combine rather than replace each other.** A card is highlighted only
+if it satisfies every lens that is on, so "MVP items assigned to Sam" is a question you
+can ask. Letting the second control silently cancel the first is exactly what people
+report as a filter that does not work.
+
+As with search, none of them removes anything: matches are outlined, the rest of the
+plan stays drawn and dimmed with its arrows intact, because the value of asking "which
+of these are on the MVP" is seeing what the answer depends on. One button clears every
+lens — three separate clears is three clicks back to a plan you can read.
+
+Neither is remembered between sittings. Which slice of the plan you are looking at right
+now is not a property of the project, and reopening onto a dimmed canvas would read as a
+bug. Changing a lens also leaves your pan and zoom alone: the plan has not moved.
+
+**A correction to v0.408.0.** When search stopped hiding nodes, the live edge repaint was
+not updated with it — it still dropped anything outside a search's connected set. Dragging
+anything while a search was active stripped the arrows off every node that was on screen
+but not matched. Only the route filter removes nodes now, and only it filters edges.
+
+---
+
+## v0.408.0 -- A search that shows you the neighbourhood
+
+**Searching the dependency canvas used to empty it.** It drew the matches and everything
+connected to them and removed the rest — which answers "show me this corner of the plan".
+The question you are actually asking is "where is this item", and the useful half of that
+answer is what sits around it. So nothing is removed now: the whole plan stays drawn with
+its arrows, matches are outlined, and everything else is dimmed.
+
+The count in the toolbar reports matches rather than nodes drawn — with nothing hidden it
+would otherwise have read "40 of 40" for every query — and a search matching nothing raises
+a banner instead of dimming the entire canvas with no explanation.
+
+**Double-click a node to zoom in on it.** It centres on what you clicked and reads the
+node's real rendered height, because nodes grow with their chips and centring on an
+assumed height puts a tall card's title above the frame — the part you double-clicked to
+read. Repeating the gesture does not creep further in; "look at this" is one destination.
+
+**The backlog list has its own search box.** An honest correction: the search added to the
+queue in v0.407.0 could not be reached from that view. The existing box lives in the canvas
+toolbar, which list view does not render, so the filter only worked if you had typed a query
+on the canvas and then switched. That release shipped half the feature. This is the rest.
+
+---
+
+## v0.407.0 -- The backlog queue stops looking broken
+
+Three things on the Roadmap page's editable queue, each of which read as a control that
+did not work.
+
+**Add item** opened a form further down the page and left your caret where it was, so the
+button looked inert. It now focuses the entry form and brings it on screen.
+
+**The search box filtered the canvas and not the list.** It renders above both, so typing
+while on the backlog did nothing at all. Matching in the queue is plain text over the item
+— deliberately not the canvas's connected closure, which pulls in neighbours so that an
+arrow never points at nothing. A list has no arrows, so the same rule would show items that
+do not match for no reason you could see.
+
+Reordering still works on the whole plan while a filter is on. A drag means "put this one
+where that one is" and is resolved by item rather than by screen position, so a filtered
+drag cannot scramble the order — and the queue tells you that while the filter is active,
+rather than leaving it to be discovered.
+
+**Dragging now collapses the queue to one line per item.** Each row stacks six blocks, so
+about two entries fitted on screen and the row you were dragging *to* usually was not one
+of them. The collapse lasts only for the drag and changes nothing but height: the same rows
+with the same ids stay in the DOM, so every drop target is exactly where it was. The queue
+is also taller the rest of the time, since it is the one list on that page you work in
+rather than read.
+
+---
+
+## v0.406.3 -- An ACP subscription that only existed in one folder
+
+Naming a subscription agent wrote `atlasmind.acp.agents` to the **workspace**. So the
+agent existed in the folder that happened to be open when you set it up, and nowhere else
+— and because AtlasMind disables the entire ACP provider when no agent is named, every
+other project reported a subscription-backed provider that had simply stopped working.
+No error, no offer to configure it: from that window's point of view there had never
+been an agent at all.
+
+An ACP agent is a command installed on the machine with npm and a subscription signed
+into once. Neither of those is a property of one repository, so it belongs in user
+settings, which is where it is written now.
+
+Two smaller decisions inside that. A workspace value **shadows** the global one, so a
+project that already had a list gets it rewritten too — otherwise adding an agent would
+put it somewhere the open window could not see. And the existing list is rewritten rather
+than removed, because it is the same feature's own setting and somebody may have
+narrowed it deliberately.
+
+`atlasmind.acp.toolsEnabled` is deliberately left per-project. Letting an agent run tools
+is an authorization, and an authorization should stay as narrow as it was granted — not
+widen across every project because you named an agent.
+
+---
+
+## v0.406.2 -- The CLI page said something untrue
+
+The [[CLI]] page opened by telling you `atlasmind` is available in new VS Code integrated
+terminals automatically. It is not. `atlasmind.cli.addToTerminalPath` ships **off**, on purpose —
+putting launchers on a PATH persistently changes your shell environment, and an extension should ask
+first. So the documented first step produced `command not found`, and the README had the correct
+default written down the entire time.
+
+Past that, a second dead end: the CLI reads API keys **only** from environment variables, since VS Code
+secret storage is not reachable from a subprocess. Every provider you have configured in the editor
+reads `configured=no` here. That was documented, two thirds of the way down, under a heading you would
+reach only after the install step had already failed. It now opens the page.
+
+The environment variable list was also short by ten. `mistral`, `deepseek`, `zai`, `perplexity`,
+`huggingface` and `nvidia` all work and none were listed, so working setups looked unsupported.
+
+The page now describes the CLI as what it actually is — AtlasMind from a checkout, for scripts and CI —
+and leads with `npm run cli`, which works with nothing switched on. `atlasmind-acp` is introduced
+separately as a transport that other tools drive, rather than as a fifth command to type.
+
+---
+
+## v0.406.1 -- Dependency advisories cleared
+
+Six open Dependabot advisories, plus one `npm audit` had found that Dependabot had not
+yet reported. `qs`, `fast-uri` and `nanoid` all moved to patched releases; `npm audit`
+reports nothing outstanding.
+
+All three arrive through other packages rather than being chosen here. Two of them
+(`qs` and `fast-uri`, via the MCP SDK) sit on a runtime path rather than only a build
+one, which is why they were worth doing promptly.
+
+The interesting part is what was holding them back. Each was already pinned in the
+`overrides` block — pins added to fix an *earlier* advisory — and those pins were now
+the reason the current fix could not land. The manifest test guarding them had the same
+shape, asserting an exact version that was correct when written. Both now express a
+floor: at least the patched release, and a later one is fine.
+
+---
+
+## v0.406.0 -- A Windows command injection, closed
+
+The tool AtlasMind uses to run commands for you passed its arguments through a shell
+on Windows. It had a reason -- `npm` is `npm.cmd` there, and Windows will not spawn a
+`.cmd` directly -- but a shell joins the arguments into one command line without
+escaping them, and those arguments are written by a model. An argument of `&`
+followed by anything ran as a command in its own right, while the approval dialog
+showed only `npm run test`.
+
+The fix is what AtlasMind already does for ACP agents: **go around the Windows shim
+instead of through it.** Every npm package declares where its real entry point lives,
+so AtlasMind reads that and runs it with Node directly. No shell is involved, and a
+command that cannot be resolved that way is refused rather than run unsafely -- the
+only fallback available would be the shell this exists to remove.
+
+Nothing you do changes: `npm test` still runs `npm test`. The difference is that
+nothing else can ride along with it.
+
+---
+
+## v0.405.0 -- Five safety findings, closed
+
+An independent read of the source turned up five places where the behaviour was looser than the
+documentation, the defaults, or the reasoning in the code itself claimed. All five are closed here.
+
+**Model-written code does not run unless you switch it on.** When the model called a tool that did not
+exist, AtlasMind asked a model to write one and executed it inside the editor -- and asked you to review
+it only when a regex scan raised something. That made the quietest outcome the one where nobody saw the
+code, which is backwards: source that trips no rule is the source most worth a glance. It is now behind
+`atlasmind.skillAutoSynthesisEnabled`, off by default, with approval asked **every** time. With the
+setting off, no synthesis request is made at all. The scanner also gained rules for the escapes it had
+none for -- dynamic `import()`, `node:`-prefixed modules, indirect routes to the module loader, the
+Function constructor reached through a `constructor` property, and computed global access.
+
+**Credentials in what a tool read are redacted, always.** This was only happening when the opt-in Data
+Privacy policy was switched on, and that policy is off by default -- so out of the box, an agent that
+read a `.env` sent it to the model provider verbatim, while the README said otherwise. The README was
+right; the code is what changed. The Data Privacy policy remains the opt-in classification layer on
+top, because what counts as confidential in *your* project is a judgement only you can make.
+
+**A remote read asks now.** Under the default `ask-on-write`, an MCP tool named like a read ran with no
+prompt. It changes nothing locally, which was the argument -- and it is also the only read category that
+carries your data off the machine. Approve the category on the first prompt of a task to keep it to one
+dialog rather than one per call.
+
+**The CLI's read-only mode no longer runs `npm test`.** Package scripts execute whatever the repository
+defines, so "read-only" could run arbitrary code from the checkout it was aimed at. New
+`--allow-commands` flag, deliberately separate from `--allow-writes`.
+
+**Your terminal `PATH` is left alone** unless `atlasmind.cli.addToTerminalPath` asks for it.
+
+---
+
+## v0.404.0 -- Roadmap items have stages, not just a checkbox
+
+An item with a filed plan, a branch, and merged work read exactly like one nobody had touched. There is
+now a reading between the two: not started, planned, in progress, **to be verified**, done.
+
+Two things it deliberately is not. It is not a flag anybody sets -- it is derived from the plan, the
+branch, and whether that branch merged, because a status somebody ticks is true for a week and
+misleading afterwards. And it never completes an item: the checkbox stays a human act, which a test
+enforces rather than a comment.
+
+The derivation ships in this release; the Roadmap page does not show it yet.
+
+---
+
+## v0.403.1 -- Pending workspace memory committed
+
+The filed plan for the guided GitHub workflow item, and the roadmap graph record pointing at it.
+
+---
+
+## v0.403.0 -- Subscription turns report what the agent did
+
+A turn routed through a Claude or ChatGPT subscription that wrote a 6 KB file was recorded as
+"Answered from context and session history", with no tool calls and 617 input tokens. The agent runs
+its tools inside its own session, where AtlasMind executes nothing -- and the events were already
+being parsed and written to the output channel. Nothing counted them, so the one surface a person
+reads said the opposite of what happened.
+
+The distinction that makes this safe: a provider that cannot report its own tool use omits the number
+entirely and reads exactly as before. Only a provider that genuinely watched reports zero, and zero
+then means the agent really did answer without tools.
+
+---
+
+## v0.402.9 -- Plans are checked against the levels you declared
+
+An autonomous plan proposed committing, bumping the version and pushing to `develop` on a project
+whose workflow file declares Release at `observe` and Local development at `propose`. Those levels are
+respected everywhere a person asks for the same action in chat. The planner had never read them, and
+the only thing standing in the way was the estimated file count -- which measures how much a run
+touches, not whether it is allowed to.
+
+A plan that goes beyond a stage's declared level now says so, naming the stage and the level for each
+subtask so the next move is either raising that stage or dropping that subtask. Where no workflow is
+declared it stays silent, because there are no rules to be outside of.
+
+---
+
+## v0.402.8 -- Stated intent is not completion
+
+An autonomous run that ended with "I will now edit README.md" -- and did not -- was reported as a
+completed phase. A run is now graded on evidence: a changed file, a tool call, or a recorded
+verification. A promise with none of those is called out on the Project Report.
+
+Two things it deliberately does not do. It never treats "no files changed" as failure, because plenty
+of honest work produces prose. And where nothing was observable at all -- an ACP agent runs its tools
+inside its own session, where AtlasMind can see none -- the run reads as unassessed rather than as
+having done nothing.
+
+---
+
+## v0.402.7 — Instructions are acted on, not summarised
+
+Asking AtlasMind to "update the roadmap to mark the workflow item complete" returned a summary of
+what had not changed, because the request carried both words the roadmap status responder matches.
+An imperative opening a prompt is a request to act, so it is now routed rather than answered.
+
+This is the second of two layers and they are not redundant: the first covers prompts AtlasMind wrote
+itself, and the Completion check — which opens with "Check", and asks for a report rather than a
+change — is reachable only because of it.
+
+---
+
+## v0.402.6 — Roadmap hand-offs reach a model again
+
+The Plan, Resolve and Completion-check buttons on the Roadmap page were being answered by AtlasMind
+itself instead of being sent anywhere. Each of those prompts ends with the sentence saying the model
+must not tick the item off — so each carried both "roadmap" and "complete", which was exactly what the
+deterministic roadmap-status responder matched. Pressing Plan returned a status summary and the
+instruction never reached a model; the Completion check, whose whole job is to verify an item, could
+never run at all.
+
+The fix is structural rather than another pattern: a guard that matches on wording is what broke, so
+wording is not what fixes it. Nothing but AtlasMind writes a composer draft, so a prompt sent unedited
+from one is AtlasMind's own text and is passed straight through. Edit the draft first and it is your
+sentence again, handled normally — and a roadmap status question you typed yourself is still answered
+deterministically, exactly as before.
+
+---
+
+## v0.402.5 — Baseline refreshed
+
+The README now names v0.402.4 as the last Marketplace publication.
+
 ## v0.402.4 — The last platform-locked fixture
 
 One more literal Windows path, hidden behind a different drive prefix.

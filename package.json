@@ -1,11 +1,11 @@
 {
   "name": "atlasmind",
   "displayName": "AtlasMind",
-  "description": "Developer-centric multi-agent orchestrator for VS Code with model routing, long-term memory, and skills registry.",
-  "version": "0.402.4",
+  "description": "AI project management for VS Code: roadmap, risk, tech debt, compliance, testing and release tracked from your own repository — with a multi-agent AI team, or the AI coding tool you already use.",
+  "version": "0.420.4",
   "publisher": "JoelBondoux",
   "preview": false,
-  "license": "MIT",
+  "license": "SEE LICENSE IN OSMFEULA.txt",
   "funding": {
     "type": "GitHub Sponsors",
     "url": "https://github.com/sponsors/JoelBondoux"
@@ -24,7 +24,7 @@
   "categories": [
     "AI",
     "Chat",
-    "Other"
+    "Visualization"
   ],
   "keywords": [
     "ai",
@@ -32,7 +32,15 @@
     "orchestrator",
     "multi-agent",
     "llm",
-    "copilot"
+    "copilot",
+    "project-management",
+    "roadmap",
+    "planning",
+    "dashboard",
+    "technical-debt",
+    "compliance",
+    "release-management",
+    "delivery"
   ],
   "icon": "media/icon.png",
   "activationEvents": [
@@ -1870,6 +1878,18 @@
           "description": "How AtlasMind requests approval before running tools with side effects or external execution. Each mode is described by what it does NOT prompt for. The last two are different axes, not a stricter and a looser setting: ask-on-external gates anything leaving the editor but allows local file writes, while allow-safe-readonly does the opposite.",
           "markdownDescription": "How AtlasMind requests approval before running tools with side effects or external execution. This is the main safety dial for automation.\n\n**Each mode is described by what it lets through without asking** — that is the part you need to know, and naming only the additions is how a mode came to be chosen for the wrong reason.\n\n- `always-ask`: nothing. Every tool action prompts.\n- `ask-on-write`: reads — local reads, git reads, and remote reads that change nothing.\n- `ask-on-external`: everything local, **including file writes, deletes and commits**. It prompts for anything that leaves the editor: terminal, network, audio.\n- `allow-safe-readonly`: local reads, git reads and terminal reads. Writes and external calls prompt.\n\n**The last two are different axes, not a stricter and a looser setting.** `ask-on-external` asks *did this leave the machine?*; `allow-safe-readonly` asks *did this change something?* Neither gates a superset of the other, so moving between them tightens one thing and loosens another.\n\nExamples:\n- Highly regulated repo: `always-ask`\n- Normal coding workflow: `ask-on-write`\n- Trusted local automation where the risk you care about is reaching outside: `ask-on-external`\n- Read-only investigation or audits: `allow-safe-readonly`"
         },
+        "atlasmind.skillAutoSynthesisEnabled": {
+          "type": "boolean",
+          "default": false,
+          "description": "Allow AtlasMind to ask a model to write a new skill in JavaScript and execute it when a tool it called does not exist. Off by default; every synthesis still requires explicit approval.",
+          "markdownDescription": "Allow AtlasMind to ask a model to write a new skill in JavaScript and execute it when the model calls a tool that does not exist.\n\n**This is the most consequential capability in the extension, which is why it is off.** The generated source is evaluated inside the extension host, so it runs with the editor's own privileges. The model writing it has just been shown workspace file contents, so text from a dependency's README or a fetched web page shares a context window with the code generator.\n\nWhen enabled, two things still hold: the source is scanned for forbidden constructs and refused outright on an error, and **every** synthesis asks you to review the code before it runs \u2014 not only the ones that raise a warning.\n\nExamples:\n- Normal use, including agentic workflows: `false` \u2014 author skills in the Agent Manager instead\n- Throwaway sandbox where you want the model to improvise tooling and will read each diff: `true`"
+        },
+        "atlasmind.cli.addToTerminalPath": {
+          "type": "boolean",
+          "default": false,
+          "description": "Add the AtlasMind CLI launchers to the PATH of new VS Code integrated terminals. Off by default because it persistently changes your shell environment.",
+          "markdownDescription": "Add the `atlasmind` and `atlasmind-acp` launchers to the `PATH` of new VS Code integrated terminals.\n\nOff by default. This is not a change to AtlasMind but a persistent change to your shell environment: VS Code restores it before the extension loads, so it outlives the session. Enable it if you want to run `atlasmind` from a terminal in this editor.\n\nStarting the Buzz-managed ACP agent creates the launchers regardless, because that flow cannot run without them \u2014 there you asked for it by name.\n\nExamples:\n- You use the AtlasMind CLI from the integrated terminal: `true`\n- You only use the extension UI: `false`"
+        },
         "atlasmind.allowTerminalWrite": {
           "type": "boolean",
           "default": false,
@@ -2791,12 +2811,13 @@
   "overrides": {
     "@hono/node-server": "^2.0.5",
     "brace-expansion": "^5.0.9",
-    "fast-uri": "^3.1.5",
+    "fast-uri": "^3.1.6",
     "hono": "^4.13.0",
     "ip-address": "^10.4.0",
     "js-yaml": "^4.3.1",
+    "nanoid": "^3.3.18",
     "postcss": "^8.5.25",
-    "qs": "6.15.2",
+    "qs": "^6.16.0",
     "undici": "^7.29.0"
   }
 }

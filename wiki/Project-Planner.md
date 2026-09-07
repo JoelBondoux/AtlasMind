@@ -139,9 +139,31 @@ tree seats each item beside what it waits for, so arrows stay short instead of c
 
 **Click a card's body** and its neighbourhood lights up — the card, its direct prerequisites and
 dependents, and every arrow touching it — while everything else recedes. Escape or a click on empty
-canvas puts it back. **Search the plan** from the toolbar: only items whose text matches stay, plus
-everything connected to them — what they wait on, and what waits on them — with the rest hidden and
-the view re-fitted as you type. Both are ways of looking: nothing is sent, and nothing changes.
+canvas puts it back. **Double-click a card** to zoom in on it and centre it; it reads the card's real
+height, so a tall one does not end up with its title above the frame, and repeating the gesture does
+not creep further in.
+
+**Search the plan** from the toolbar and matches are outlined while the rest of the plan stays drawn
+and dimmed. It used to keep only the matches and everything connected to them and hide the rest, which
+answers "show me this corner of the plan" — but the question being asked is "where is this item", and
+the useful half of that answer is what sits around it. So nothing is removed: the arrows are still
+there to read. The count reports matches rather than cards drawn, and a search matching nothing says
+so in a banner instead of dimming the canvas with no explanation. The **route filter** is unaffected
+and still narrows the plan, because that one is a deliberate "only this route" request.
+
+**Highlight by release gate or by person** with the two pickers beside the search box. They are built
+from what the plan actually holds — your declared gates, and the people the host laid out — so a project
+with no gates and nobody assigned gets neither control instead of two empty menus. *Unassigned* is
+offered as a person, because it is a real answer to "whose is this?" and the most useful one on a plan
+nobody has divided up yet.
+
+**The three lenses combine rather than replace each other.** A card is highlighted only if it satisfies
+every lens that is on, so "MVP items assigned to Sam" is a question you can ask; letting the second
+control cancel the first is what makes a filter feel broken. One button clears all three. Neither picker
+is remembered between sittings — which slice of the plan you are looking at now is not a property of the
+project — and changing one leaves your pan and zoom alone, because the plan has not moved.
+
+All of these are ways of looking: nothing is sent, and nothing changes.
 
 **Every entry carries three Atlas pills — on the canvas card and on its backlog row alike.**
 
@@ -211,6 +233,29 @@ that their work became nobody's.
 level and would otherwise sit outside a viewport that never moved — indistinguishable from not having
 been added. Only genuine arrivals do this; redrawing the same plan leaves your pan alone.
 
+**The editable queue is the backlog you work in, and three things about it changed.** **Add item** now
+puts the caret in the entry form and brings it on screen: the button sits in the toolbar and the form it
+opens is further down the page, so pressing it used to look like nothing had happened. The search box in
+the toolbar now filters the queue as well as the canvas — it rendered above both and only the canvas
+read it. Matching there is plain text over the item, deliberately *not* the canvas's connected closure:
+the canvas pulls in neighbours so an arrow never points at nothing, and a list has no arrows, so the same
+rule would show items that do not match for no visible reason. Reordering still applies to the whole
+plan while a filter is on, because a drag says "put this one where that one is" and resolves by item, not
+by screen position — the queue says so when a filter is active rather than leaving you to find out.
+
+**The entry form says what the item is, not just what it is called.** Adding an item gives you a release-gate
+picker, an owner picker, and a text box four times the size of the old one. Gates are written with the item.
+The owner is applied once the item exists — an assignment names an item by a durable id a brand-new one does
+not have yet — and is resolved by the item's text rather than by the id the browser minted, because that id is
+a suggestion the host is free to re-mint. If it cannot be applied, you get a notice rather than silence. Both
+controls appear only while adding: an item that already exists carries its gate chips and Owner control on its
+own row.
+
+**Dragging collapses the queue to one line per item.** Every row stacks six blocks — handle and title,
+priority reason, release gates, actions, Atlas pills — so at full height about two entries fit on screen
+and the row you were aiming at was usually not one of them. The collapse lasts for the drag and is
+presentational only: the same rows with the same ids stay in the DOM, so every drop target is unchanged.
+
 AtlasMind proposes links and applies none of them. Three declared rules produce suggestions: an item that
 *says* what it waits for ("after…", "depends on…"), two items sharing a subject where one is foundation
 work for the other, and two items sitting on different release gates. Each suggestion is drawn dashed and
@@ -226,6 +271,19 @@ Completed items move to a **Delivered** canvas, laid out by month, keeping the l
 work and recording when each landed and by whom. One exception: a completed item stays on the plan while
 something outstanding still depends on it, because removing it would make the dependent item look like it
 starts from nothing.
+
+**The Delivered chart takes the same lenses as the dependency canvas** — search, release gate and person.
+"When did the auth work ship", "which of the MVP has landed" and "what did Sam deliver" are questions
+about the record rather than the plan, and they had nowhere to be asked. *Person* means something
+different here: on the plan it is who is going to do the work, on the record it is who did, so the chart
+matches on who completed an item where that was recorded and falls back to who it was assigned to.
+
+The authoring controls are deliberately absent from it. Add item, Import, Calculate tree, the suggestion
+toggle, Auto tree, the orientation buttons and snap-to-grid are all off, because nothing is added to a
+record of what already happened, inferring dependencies between things that have all shipped changes
+nothing, and the chart is columned by month — so a tree layout would fight those columns rather than
+arrange them. Zoom, fit, panning, click-to-highlight and double-click-to-zoom work exactly as they do on
+the plan.
 
 The deadlines, positions and links live in `roadmap-graph.json` beside the plan, keyed on a durable id
 each backlog line carries as an invisible HTML comment — so renaming or reordering an item no longer

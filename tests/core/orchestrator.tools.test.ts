@@ -2545,7 +2545,11 @@ describe('Orchestrator agentic loop', () => {
     expect(requests[0]?.messages[0]?.content).toContain('workspace writes are disabled');
     expect(requests[0]?.messages[0]?.content).toContain('terminal, shell, package-install, and process-launch tools are disabled');
     expect(runCommand).not.toHaveBeenCalled();
-    expect(result.artifacts?.toolCalls[0]?.resultPreview).toContain('turn-scoped read-only constraint');
+    // The refusal names the gate and says what it is not: a model read the old
+    // wording as a blanket prohibition and stopped, reporting "a security policy
+    // preventing write operations".
+    expect(result.artifacts?.toolCalls[0]?.resultPreview).toContain('this turn is running read-only');
+    expect(result.artifacts?.toolCalls[0]?.resultPreview).toContain('not a repository-wide policy');
   });
 
   it('returns the final completion after a streamed tool-call preamble', async () => {
@@ -2653,7 +2657,7 @@ describe('Orchestrator agentic loop', () => {
     );
   });
 
-  it('pauses warning-only auto-synthesized skills until the user approves them', async () => {
+  it('pauses auto-synthesized skills until the user approves them', async () => {
     const generatedSkillApprovalGate = vi.fn().mockResolvedValue({ approved: false, reason: 'Review the draft and refine it first.' });
     const provider: ProviderAdapter = {
       providerId: 'local',
@@ -2695,6 +2699,7 @@ describe('Orchestrator agentic loop', () => {
       undefined,
       undefined,
       generatedSkillApprovalGate,
+      { readSetting: <T,>(key: string, fallback: T) => (key === 'skillAutoSynthesisEnabled' ? (true as T) : fallback) },
     );
 
     const result = await orchestrator.processTask({
@@ -2709,7 +2714,7 @@ describe('Orchestrator agentic loop', () => {
     expect(result.response).toContain('not approved');
   });
 
-  it('allows warning-only auto-synthesized skills to proceed after explicit approval', async () => {
+  it('allows auto-synthesized skills to proceed after explicit approval', async () => {
     const generatedSkillApprovalGate = vi.fn().mockResolvedValue({ approved: true });
     const provider: ProviderAdapter = {
       providerId: 'local',
@@ -2751,6 +2756,7 @@ describe('Orchestrator agentic loop', () => {
       undefined,
       undefined,
       generatedSkillApprovalGate,
+      { readSetting: <T,>(key: string, fallback: T) => (key === 'skillAutoSynthesisEnabled' ? (true as T) : fallback) },
     );
 
     const result = await orchestrator.processTask({
@@ -2763,6 +2769,197 @@ describe('Orchestrator agentic loop', () => {
 
     expect(generatedSkillApprovalGate).toHaveBeenCalledTimes(1);
     expect(result.response).toBe('Approved helper result delivered.');
+  });
+
+  it('does not synthesise a skill at all unless the setting is on', async () => {
+    // Synthesis ends in `new Function(...)` over model-written source, in the
+    // extension host's own scope, and it used to be reachable from any tool
+    // name the model happened to invent. The property here is not "it refuses
+    // to run the code" but "it never asks for the code": the second provider
+    // call is the one that would generate it, and it must not happen.
+    const generatedSkillApprovalGate = vi.fn().mockResolvedValue({ approved: true });
+    const complete = vi.fn()
+      .mockResolvedValueOnce({
+        content: '',
+        model: 'local/echo-1',
+        inputTokens: 8,
+        outputTokens: 4,
+        finishReason: 'tool_calls',
+        toolCalls: [{ id: 'call-1', name: 'workspace-probe', arguments: {} }],
+      })
+      .mockResolvedValueOnce({
+        content: 'I could not use that tool, so here is what I can tell you instead.',
+        model: 'local/echo-1',
+        inputTokens: 10,
+        outputTokens: 12,
+        finishReason: 'stop',
+      });
+    const provider: ProviderAdapter = {
+      providerId: 'local',
+      complete,
+      listModels: vi.fn().mockResolvedValue(['local/echo-1']),
+      healthCheck: vi.fn().mockResolvedValue(true),
+    };
+
+    // No `readSetting` override: this is what an operator who never touched the
+    // setting sees, and the orchestrator's fallback is what has to be false.
+    const orchestrator = makeOrchestrator(
+      provider,
+      [],
+      makeSkillContext(),
+      undefined,
+      undefined,
+      undefined,
+      undefined,
+      undefined,
+      undefined,
+      generatedSkillApprovalGate,
+    );
+
+    await orchestrator.processTask({
+      id: 'task-generated-skill-disabled',
+      userMessage: 'Probe the workspace using a helper skill.',
+      context: {},
+      constraints: { budget: 'balanced', speed: 'balanced' },
+      timestamp: new Date().toISOString(),
+    });
+
+    // Two calls: the turn that asked for the tool, and the turn that carried on
+    // without it. A third would be the synthesis request.
+    expect(complete).toHaveBeenCalledTimes(2);
+    expect(generatedSkillApprovalGate).not.toHaveBeenCalled();
+  });
+
+  it('asks for approval even when the generated source raises no warning', async () => {
+    // Approval used to be gated on the scanner's own findings, which made the
+    // quietest outcome the one where nobody saw the code. A clean scan is not
+    // evidence of safety; it is evidence that a dozen regexes found nothing
+    // they were written to look for. This source trips none of them.
+    const generatedSkillApprovalGate = vi.fn().mockResolvedValue({ approved: false, reason: 'Not this time.' });
+    const cleanSource = [
+      '```javascript',
+      'exports.skill = {',
+      '  id: "workspace-probe",',
+      '  name: "Workspace Probe",',
+      '  description: "probe",',
+      '  parameters: { type: "object", properties: {} },',
+      '  execute: async () => "probed",',
+      '};',
+      '```',
+    ].join('\n');
+    const provider: ProviderAdapter = {
+      providerId: 'local',
+      complete: vi.fn()
+        .mockResolvedValueOnce({
+          content: '',
+          model: 'local/echo-1',
+          inputTokens: 8,
+          outputTokens: 4,
+          finishReason: 'tool_calls',
+          toolCalls: [{ id: 'call-1', name: 'workspace-probe', arguments: {} }],
+        })
+        .mockResolvedValueOnce({
+          content: cleanSource,
+          model: 'local/echo-1',
+          inputTokens: 12,
+          outputTokens: 20,
+          finishReason: 'stop',
+        })
+        .mockResolvedValueOnce({
+          content: 'Understood, I will not use that helper.',
+          model: 'local/echo-1',
+          inputTokens: 10,
+          outputTokens: 12,
+          finishReason: 'stop',
+        }),
+      listModels: vi.fn().mockResolvedValue(['local/echo-1']),
+      healthCheck: vi.fn().mockResolvedValue(true),
+    };
+
+    const orchestrator = makeOrchestrator(
+      provider,
+      [],
+      makeSkillContext(),
+      undefined,
+      undefined,
+      undefined,
+      undefined,
+      undefined,
+      undefined,
+      generatedSkillApprovalGate,
+      { readSetting: <T,>(key: string, fallback: T) => (key === 'skillAutoSynthesisEnabled' ? (true as T) : fallback) },
+    );
+
+    await orchestrator.processTask({
+      id: 'task-generated-skill-clean-scan',
+      userMessage: 'Probe the workspace using a helper skill.',
+      context: {},
+      constraints: { budget: 'balanced', speed: 'balanced' },
+      timestamp: new Date().toISOString(),
+    });
+
+    const [, scanResult] = generatedSkillApprovalGate.mock.calls[0] ?? [];
+    expect(generatedSkillApprovalGate).toHaveBeenCalledTimes(1);
+    expect((scanResult as { issues: unknown[] }).issues).toHaveLength(0);
+  });
+
+  it('redacts credentials out of a tool result with no privacy policy configured', async () => {
+    // The Data Privacy policy is opt-in and off by default, and the credential
+    // boundary used to be reachable only through it — so out of the box an
+    // agent that read a `.env` forwarded it to the provider verbatim, while the
+    // README said keys were redacted before anything reached a model. No
+    // DataPrivacyManager is injected here, which is the default configuration.
+    const secret = 'sk-ant-api03-' + 'A'.repeat(40);
+    const complete = vi.fn()
+      .mockResolvedValueOnce({
+        content: '',
+        model: 'local/echo-1',
+        inputTokens: 8,
+        outputTokens: 4,
+        finishReason: 'tool_calls',
+        toolCalls: [{ id: 'call-1', name: 'file-read', arguments: { path: '/workspace/.env' } }],
+      })
+      .mockResolvedValueOnce({
+        content: 'I read the file.',
+        model: 'local/echo-1',
+        inputTokens: 10,
+        outputTokens: 6,
+        finishReason: 'stop',
+      });
+    const provider: ProviderAdapter = {
+      providerId: 'local',
+      complete,
+      listModels: vi.fn().mockResolvedValue(['local/echo-1']),
+      healthCheck: vi.fn().mockResolvedValue(true),
+    };
+
+    const orchestrator = makeOrchestrator(
+      provider,
+      [{
+        id: 'file-read',
+        name: 'Read File',
+        description: 'Read a workspace file.',
+        parameters: { type: 'object', required: ['path'], properties: { path: { type: 'string' } } },
+        execute: async () => `ANTHROPIC_API_KEY=${secret}`,
+      }],
+      makeSkillContext(),
+    );
+
+    await orchestrator.processTask({
+      id: 'task-tool-result-redaction',
+      userMessage: 'Read the env file.',
+      context: {},
+      constraints: { budget: 'balanced', speed: 'balanced' },
+      timestamp: new Date().toISOString(),
+    });
+
+    const followUp = JSON.stringify(complete.mock.calls[1]?.[0] ?? {});
+    expect(followUp).not.toContain(secret);
+    expect(followUp).toContain('[REDACTED]');
+    // Silent replacement would be quiet, not safe: the model holds text that
+    // differs from what is on disk, and the next write reconstructed from it
+    // would overwrite a live credential with the placeholder.
+    expect(followUp).toContain('Do not write [REDACTED] back into any file');
   });
 
   it('caps the agentic loop at MAX_TOOL_ITERATIONS', async () => {

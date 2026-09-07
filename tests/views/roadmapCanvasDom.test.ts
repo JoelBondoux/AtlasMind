@@ -425,6 +425,17 @@ describe('the canvas talks to the host in node ids', () => {
   });
 });
 
+/**
+ * jsdom reports every element as zero-sized, and the fit reads the frame's own
+ * box. Pinned on the prototype rather than on one element because a render
+ * replaces the frame, and a test that pins the instance measures a detached node
+ * from the second render onward.
+ */
+function pinFrameSize(harness: { window: { HTMLElement: { prototype: object } } }, width: number, height: number): void {
+  Object.defineProperty(harness.window.HTMLElement.prototype, 'clientWidth', { value: width, configurable: true });
+  Object.defineProperty(harness.window.HTMLElement.prototype, 'clientHeight', { value: height, configurable: true });
+}
+
 describe('arranging the canvas', () => {
   it('fits the whole plan without asking the host anything', () => {
     const harness = mount();
@@ -456,6 +467,100 @@ describe('arranging the canvas', () => {
     const world = harness.root().querySelector('[data-rm-world="true"]');
     const scale = Number(/scale\(([\d.]+)\)/.exec(world.style.transform)?.[1]);
     expect(scale).toBeLessThanOrEqual(1);
+  });
+
+  it('concludes a search by framing what it matched, not the whole plan', () => {
+    const harness = mount();
+    // Searching re-renders, which replaces the frame — so the measurement the
+    // fit reads is pinned on the prototype rather than on one element.
+    pinFrameSize(harness, 800, 400);
+    harness.send(snapshot());
+    // The after-render fit only runs on the page it is about, and the harness
+    // opens on the default page with every section rendered.
+    harness.click('[data-action="page"][data-payload="roadmap"]');
+    harness.click('[data-action="roadmap-fit"]');
+    const transform = (): string =>
+      harness.root().querySelector('[data-rm-world="true"]')?.style.transform ?? '';
+    const whole = transform();
+
+    // Search stopped removing nodes from the canvas, so a re-fit that framed
+    // *all* of them framed exactly what it framed before — a no-op dressed as a
+    // response. The match is alpha alone, which sits 320px left of beta.
+    const input = harness.root().querySelector('#roadmap-search-input');
+    input.value = 'alpha';
+    input.dispatchEvent(new harness.window.Event('input', { bubbles: true }));
+
+    expect(harness.root().querySelector('[data-rm-node="alpha"]')?.className).toContain('is-search-match');
+    expect(harness.root().querySelector('[data-rm-node="beta"]')?.className).toContain('is-search-dim');
+    expect(transform()).not.toBe(whole);
+    // Every node is still drawn: the dependencies around a match are the useful
+    // half of the answer. Only the framing narrowed.
+    expect(harness.root().querySelectorAll('[data-rm-node]').length).toBe(2);
+  });
+
+  it('frames the whole plan when a search matches nothing', () => {
+    const harness = mount();
+    pinFrameSize(harness, 800, 400);
+    harness.send(snapshot());
+    harness.click('[data-action="page"][data-payload="roadmap"]');
+
+    const transform = (): string =>
+      harness.root().querySelector('[data-rm-world="true"]')?.style.transform ?? '';
+    harness.click('[data-action="roadmap-fit"]');
+    const whole = transform();
+
+    const input = harness.root().querySelector('#roadmap-search-input');
+    input.value = 'nothing here matches this';
+    input.dispatchEvent(new harness.window.Event('input', { bubbles: true }));
+
+    // A query that found nothing has nothing to frame, and flying off to an
+    // empty region of the canvas would read as the plan having been lost. It
+    // falls back to the whole plan, which is exactly where Fit all puts it.
+    expect(harness.root().querySelector('.is-search-match')).toBeNull();
+    expect(transform()).toBe(whole);
+  });
+
+  it('glows on the side the plan continues past', () => {
+    const harness = mount();
+    // Small enough that beta (x=400) is wholly past the right edge and alpha
+    // (x=80) is not past any of them.
+    pinFrameSize(harness, 200, 200);
+    harness.send(snapshot());
+    harness.click('[data-action="page"][data-payload="roadmap"]');
+
+    const frame = harness.root().querySelector('[data-rm-frame="true"]');
+    expect(frame.className).toContain('has-off-right');
+    expect(frame.className).not.toContain('has-off-left');
+    expect(frame.className).not.toContain('has-off-top');
+    // The frame clips, so a node outside it is absent rather than small — and
+    // absent is indistinguishable from does-not-exist.
+    expect(harness.root().querySelectorAll('.rm-edge-hint').length).toBe(4);
+  });
+
+  it('lights no edge when the whole plan is in the frame', () => {
+    const harness = mount();
+    pinFrameSize(harness, 1200, 800);
+    harness.send(snapshot());
+    harness.click('[data-action="page"][data-payload="roadmap"]');
+
+    const frame = harness.root().querySelector('[data-rm-frame="true"]');
+    for (const side of ['has-off-left', 'has-off-right', 'has-off-top', 'has-off-bottom']) {
+      expect(frame.className, `${side} must be off when nothing is out of view`).not.toContain(side);
+    }
+  });
+
+  it('lights no edge when the frame cannot be measured', () => {
+    // jsdom's default: every box is zero. An unmeasurable frame is not an empty
+    // one — without the guard every node reads as past the right and bottom
+    // edges, so a hidden or not-yet-laid-out page lights all four strips.
+    const harness = mount();
+    harness.send(snapshot());
+    harness.click('[data-action="page"][data-payload="roadmap"]');
+
+    const frame = harness.root().querySelector('[data-rm-frame="true"]');
+    for (const side of ['has-off-left', 'has-off-right', 'has-off-top', 'has-off-bottom']) {
+      expect(frame.className, `${side} must be off when the frame has no size`).not.toContain(side);
+    }
   });
 
   it('does nothing rather than throwing when there is nothing to fit', () => {
@@ -785,7 +890,7 @@ describe('reading a dense plan', () => {
     expect(harness.root().querySelector('[data-rm-world="true"]')?.className).not.toContain('rm-has-highlight');
   });
 
-  it('filters the canvas to matching items plus everything connected to them', () => {
+  it('marks what matches and dims the rest, so the plan around a match stays readable', () => {
     const harness = mount();
     harness.send(snapshot({
       active: [
@@ -802,24 +907,255 @@ describe('reading a dense plan', () => {
     input.value = 'Item alpha';
     input.dispatchEvent(new harness.window.Event('input', { bubbles: true }));
 
-    // The match and its dependent stay — the question is "what does it wait
-    // on, and what waits on it" — the unrelated card is hidden.
-    expect(harness.root().querySelector('[data-rm-node="alpha"]')).not.toBeNull();
-    expect(harness.root().querySelector('[data-rm-node="beta"]')).not.toBeNull();
-    expect(harness.root().querySelector('[data-rm-node="loner"]')).toBeNull();
+    // Nothing is removed. A search answers "where is this item", and the useful
+    // half of that answer is what sits around it — so every node stays drawn,
+    // with its arrows, and the match is the one that is marked.
+    const classOf = (id: string) => harness.root().querySelector(`[data-rm-node="${id}"]`)?.className ?? '';
+    expect(classOf('alpha')).toContain('is-search-match');
+    expect(classOf('alpha')).not.toContain('is-search-dim');
+    expect(classOf('beta')).toContain('is-search-dim');
+    expect(harness.root().querySelector('[data-rm-node="loner"]')).not.toBeNull();
+    expect(classOf('loner')).toContain('is-search-dim');
+    // The edge between them is still drawn — dimming would be pointless if the
+    // dependency it exists to keep visible went with the node.
+    expect(harness.root().querySelector('.rm-edge[data-rm-from="alpha"]')).not.toBeNull();
     expect(harness.posted).toEqual([]);
 
-    harness.click('[data-action="roadmap-search-clear"]');
-    expect(harness.root().querySelector('[data-rm-node="loner"]')).not.toBeNull();
+    // One clear for every lens: three separate clears would be three clicks to
+    // get back to a plan you can read.
+    harness.click('[data-action="roadmap-emphasis-clear"]');
+    expect(classOf('loner')).not.toContain('is-search-dim');
+    expect(classOf('alpha')).not.toContain('is-search-match');
   });
 
-  it('says when nothing matches, rather than showing a blank canvas', () => {
+  it('says when nothing matches, and still draws the plan', () => {
     const harness = mount();
     harness.send(snapshot());
     const input = harness.root().querySelector('#roadmap-search-input');
     input.value = 'zzz-no-such-item';
     input.dispatchEvent(new harness.window.Event('input', { bubbles: true }));
-    expect(harness.root().querySelector('.rm-empty')?.textContent).toContain('No item matches');
+    // A banner rather than an empty canvas: everything is dimmed, so without
+    // one this state is indistinguishable from the plan having been wiped.
+    expect(harness.root().querySelector('.rm-banner-search')?.textContent).toContain('No item matches');
+    expect(harness.root().querySelectorAll('[data-rm-node]').length).toBeGreaterThan(0);
+  });
+
+  it('highlights the items on a release gate, and leaves the rest drawn', () => {
+    const harness = mount();
+    harness.send(snapshot({
+      active: [
+        node('alpha', { gates: ['mvp'], position: { x: 80, y: 80 }, dependents: ['beta'] }),
+        node('beta', { position: { x: 400, y: 80 }, depth: 1, prerequisites: ['alpha'] }),
+      ],
+      edges: [{ from: 'alpha', to: 'beta', origin: 'declared' }],
+      suggested: [],
+    }));
+    harness.posted.length = 0;
+
+    const select = harness.root().querySelector('[data-action="roadmap-emphasis-gate"]');
+    expect(select).not.toBeNull();
+    select.value = 'mvp';
+    select.dispatchEvent(new harness.window.Event('change', { bubbles: true }));
+
+    const classOf = (id: string) => harness.root().querySelector(`[data-rm-node="${id}"]`)?.className ?? '';
+    expect(classOf('alpha')).toContain('is-search-match');
+    expect(classOf('beta')).toContain('is-search-dim');
+    // Nothing removed, and the arrow between them survives — the point of
+    // highlighting rather than filtering is seeing what the answer depends on.
+    expect(harness.root().querySelector('.rm-edge[data-rm-from="alpha"]')).not.toBeNull();
+    // A way of looking: nothing is sent and nothing is written.
+    expect(harness.posted).toEqual([]);
+  });
+
+  it('combines the lenses rather than letting one cancel another', () => {
+    const harness = mount();
+    harness.send(snapshot({
+      active: [
+        node('alpha', { gates: ['mvp'], position: { x: 80, y: 80 } }),
+        node('beta', { text: 'Item alpha too', position: { x: 400, y: 80 } }),
+      ],
+      edges: [],
+      suggested: [],
+    }));
+
+    const select = harness.root().querySelector('[data-action="roadmap-emphasis-gate"]');
+    select.value = 'mvp';
+    select.dispatchEvent(new harness.window.Event('change', { bubbles: true }));
+    const input = harness.root().querySelector('#roadmap-search-input');
+    input.value = 'alpha';
+    input.dispatchEvent(new harness.window.Event('input', { bubbles: true }));
+
+    const classOf = (id: string) => harness.root().querySelector(`[data-rm-node="${id}"]`)?.className ?? '';
+    // "MVP items whose text says alpha" — beta matches the text and not the
+    // gate, so it is not emphasised. Switching between lenses instead of
+    // combining them is what reads as a filter that does not work.
+    expect(classOf('alpha')).toContain('is-search-match');
+    expect(classOf('beta')).toContain('is-search-dim');
+  });
+
+  it('keeps every edge on a live repaint while a lens is on', () => {
+    const harness = mount();
+    harness.send(snapshot({
+      active: [
+        node('alpha', { position: { x: 80, y: 80 }, dependents: ['beta'] }),
+        node('beta', { text: 'Completely unrelated', position: { x: 400, y: 80 }, depth: 1, prerequisites: ['alpha'] }),
+      ],
+      edges: [{ from: 'alpha', to: 'beta', origin: 'declared' }],
+      suggested: [],
+    }));
+    const input = harness.root().querySelector('#roadmap-search-input');
+    input.value = 'Item alpha';
+    input.dispatchEvent(new harness.window.Event('input', { bubbles: true }));
+
+    // The edge redraw used to drop anything outside the search's connected set,
+    // which since matches stopped hiding nodes would strip the arrows off a
+    // node still on screen the moment anything triggered a repaint.
+    expect(harness.root().querySelector('.rm-edge[data-rm-from="alpha"]')).not.toBeNull();
+  });
+
+  it('gives the Delivered chart the same lenses as the plan', () => {
+    const harness = mount();
+    harness.send(snapshot());
+    harness.click('[data-action="roadmap-view"][data-payload="completed"]');
+
+    // "When did the auth work ship" and "what did Sam deliver" are questions
+    // about history, and they were unanswerable because the lenses stopped at
+    // the outstanding plan.
+    expect(harness.root().querySelector('#roadmap-search-input')).not.toBeNull();
+    expect(harness.root().querySelector('[data-action="roadmap-emphasis-gate"]')).not.toBeNull();
+    expect(harness.root().querySelector('[data-action="roadmap-emphasis-person"]')).not.toBeNull();
+
+    const input = harness.root().querySelector('#roadmap-search-input');
+    input.value = 'gamma';
+    input.dispatchEvent(new harness.window.Event('input', { bubbles: true }));
+    expect(harness.root().querySelector('[data-rm-node="gamma"]')?.className).toContain('is-search-match');
+  });
+
+  it('keeps the authoring controls off the Delivered chart', () => {
+    const harness = mount();
+    harness.send(snapshot());
+    harness.click('[data-action="roadmap-view"][data-payload="completed"]');
+
+    // Parity is about the ways of *looking*. Nothing is added to a record of
+    // what already happened, and the chart is columned by month, so a tree
+    // layout would fight the columns rather than arrange them.
+    for (const action of ['roadmap-add', 'roadmap-import', 'roadmap-derive-links', 'roadmap-auto-align', 'roadmap-suggest-toggle']) {
+      expect(
+        harness.root().querySelector(`[data-action="${action}"]`),
+        `${action} must not appear on the Delivered chart`,
+      ).toBeNull();
+    }
+    // The ways of looking that do apply are still there.
+    expect(harness.root().querySelector('[data-action="roadmap-fit"]')).not.toBeNull();
+    expect(harness.root().querySelector('[data-action="roadmap-zoom-in"]')).not.toBeNull();
+  });
+
+  it('zooms in on a node when it is double-clicked', () => {
+    const harness = mount();
+    harness.send(snapshot());
+    harness.posted.length = 0;
+    const world = () => harness.root().querySelector('[data-rm-world="true"]') as { style: { transform: string } } | null;
+    expect(world()?.style.transform ?? '').not.toContain('scale(1.25)');
+
+    const card = harness.root().querySelector('[data-rm-node="alpha"]');
+    expect(card).not.toBeNull();
+    card.dispatchEvent(new harness.window.MouseEvent('dblclick', { bubbles: true }));
+
+    // A view change and nothing else: zooming is a way of looking, so it must
+    // not post a message or write anything.
+    expect(world()?.style.transform ?? '').toContain('scale(1.25)');
+    expect(harness.posted).toEqual([]);
+  });
+
+  it('offers gates and an owner on the entry form, and saves the gates with the item', () => {
+    const harness = mount();
+    harness.send(snapshot());
+    harness.click('[data-action="roadmap-view"][data-payload="list"]');
+    harness.click('[data-action="roadmap-add"]');
+
+    // Gates ride along in the save payload the host already understands; the
+    // owner cannot, because assignment names a node by an id that does not
+    // exist until the item has been written.
+    expect(harness.root().querySelector('[data-action="roadmap-draft-gate"]')).not.toBeNull();
+    const textarea = harness.root().querySelector('textarea[data-roadmap-draft]');
+    expect(textarea).not.toBeNull();
+    expect(Number(textarea.getAttribute('rows'))).toBeGreaterThan(8);
+
+    textarea.value = 'A brand new backlog item';
+    textarea.dispatchEvent(new harness.window.Event('input', { bubbles: true }));
+    harness.click('[data-action="roadmap-draft-gate"][data-payload="mvp"]');
+    harness.posted.length = 0;
+    harness.click('[data-action="roadmap-save"]');
+
+    const saved = harness.posted.find(message => message.type === 'saveRoadmap');
+    const items = (saved?.payload as { items: Array<{ text: string; gates: string[] }> } | undefined)?.items ?? [];
+    const created = items.find(item => item.text === 'A brand new backlog item');
+    expect(created?.gates).toEqual(['mvp']);
+  });
+
+  it('reports an owner it could not apply rather than dropping it', () => {
+    const harness = mount();
+    harness.send(snapshot());
+    harness.click('[data-action="roadmap-view"][data-payload="list"]');
+    harness.click('[data-action="roadmap-add"]');
+
+    const textarea = harness.root().querySelector('textarea[data-roadmap-draft]');
+    textarea.value = 'An item nobody will find';
+    textarea.dispatchEvent(new harness.window.Event('input', { bubbles: true }));
+    // Choose an owner, then let a snapshot arrive that does not contain the
+    // item — the host rejected the write, or re-minted it beyond recognition.
+    const select = harness.root().querySelector('[data-action="roadmap-draft-owner"]');
+    expect(select, 'the fixture has a roster, so the owner picker must render').not.toBeNull();
+    select.value = 'contact-1';
+    select.dispatchEvent(new harness.window.Event('change', { bubbles: true }));
+    harness.click('[data-action="roadmap-save"]');
+    harness.send(snapshot());
+
+    // The user watched themselves pick an owner, so the one outcome ruled out
+    // is silence.
+    expect(harness.root().querySelector('.rm-banner-owner')?.textContent)
+      .toContain('could not be assigned');
+  });
+
+  it('gives the backlog list its own search box, and filters the queue with it', () => {
+    const harness = mount();
+    harness.send(snapshot());
+    harness.click('[data-action="roadmap-view"][data-payload="list"]');
+
+    // The canvas toolbar carries a search box and does not render in this view,
+    // so without one here the queue filter had nothing to drive it.
+    expect(harness.root().querySelector('#roadmap-search-input')).not.toBeNull();
+    expect(harness.root().querySelectorAll('.roadmap-item').length).toBe(1);
+
+    // Re-queried each time: the input is rebuilt by the render its own event
+    // triggers, so a held reference is detached and its events reach nothing.
+    const type = (value: string) => {
+      const el = harness.root().querySelector('#roadmap-search-input');
+      el.value = value;
+      el.dispatchEvent(new harness.window.Event('input', { bubbles: true }));
+    };
+
+    type('zzz-no-such-item');
+    expect(harness.root().querySelectorAll('.roadmap-item').length).toBe(0);
+    expect(harness.root().querySelector('.roadmap-list')?.textContent).toContain('Nothing in the backlog matches');
+
+    type('alpha');
+    expect(harness.root().querySelectorAll('.roadmap-item').length).toBe(1);
+    // Reordering is by item id against the whole plan, so a filtered drag is
+    // safe — the queue says so rather than leaving it to be discovered.
+    expect(harness.root().querySelector('.rm-queue-filter-note')?.textContent)
+      .toContain('reorders against the whole plan');
+  });
+
+  it('does not zoom when the double-click landed on a control inside the node', () => {
+    const harness = mount();
+    harness.send(snapshot());
+    const button = harness.root().querySelector('[data-rm-node="alpha"] button');
+    if (button) {
+      button.dispatchEvent(new harness.window.MouseEvent('dblclick', { bubbles: true }));
+      const world = harness.root().querySelector('[data-rm-world="true"]') as { style: { transform: string } } | null;
+      expect(world?.style.transform ?? '').not.toContain('scale(1.25)');
+    }
   });
 
   it('spreads a fan of edges across the node face instead of stacking them', () => {
