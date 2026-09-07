@@ -19,6 +19,28 @@ Older entries below describe the software as it was at the time and are delibera
 
 ---
 
+## v0.428.0 -- What the same work would have cost elsewhere
+
+The engine behind AtlasMind's central claim. Take a request that was actually made, keep its exact
+token counts — including the split between ordinary input, cache reads and cache writes — price those
+identical tokens at a nominated comparison model, and report the difference.
+
+**Almost all of it is about when to refuse.** The arithmetic is four multiplications; the value is in
+never producing a number that flatters us.
+
+A record that cannot be re-priced is excluded from **both** sides, never counted as a zero saving. A
+missing rate refuses the record rather than falling back, because pricing cache reads at the full
+input rate would raise the counterfactual and *increase* the apparent saving — every fallback
+available here errs the same way, which is why there is none. A negative saving is reported as
+negative, since clamping a loss to zero is the one arithmetic choice that makes a headline a lie
+rather than an overstatement. Nothing priced means no figure at all, because "$0.00 saved" reads as
+*this did not help*.
+
+The comparison model is named in the result, and the floor caveat travels with it — flagships emit
+more output for the same prompt, so re-pricing our output count at their rate understates them.
+
+---
+
 ## v0.427.0 -- A model with no price was costing nothing
 
 The bug behind the price-map roadmap item, and the more consequential half of it. Any model the

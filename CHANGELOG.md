@@ -6,6 +6,45 @@ The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/),
 
 ## [Unreleased]
 
+## [0.428.0] - 2026-09-07
+
+### Added
+
+- **`src/core/counterfactualPricing.ts` — what the same work would have cost at another
+  model.** Roadmap item `NXT-1`, and the module that makes AtlasMind's central claim.
+
+  The method, published with the figure: take a request that was actually made, keep its
+  exact token counts — including the split between ordinary input, cache reads and cache
+  writes — price those identical tokens at a nominated comparison model, and report the
+  difference.
+
+  **Almost all of it is about when to refuse.** The arithmetic is four multiplications;
+  the value is in never producing a number that flatters us.
+
+  - **A record that cannot be re-priced is excluded from both sides.** Not a zero saving,
+    not actual-cost against a missing counterfactual — excluded, with the exclusion
+    reported. Leaving it in either total makes the comparison a mixture of measured and
+    assumed.
+  - **A missing rate refuses the record rather than falling back.** Pricing cache reads at
+    the full input rate when the comparison model has no cache-read rate would *raise* the
+    counterfactual and therefore increase the apparent saving. Every fallback available
+    here errs in our favour, which is exactly why there is none.
+  - **A negative saving is reported as negative.** Routing to something dearer than the
+    comparison model is a real outcome; clamping at zero would turn a loss into a wash,
+    the one arithmetic choice that makes the headline a lie rather than an overstatement.
+  - **No records priced means no figure**, not a saving of zero — `$0.00 saved` reads as
+    *this did not help*.
+  - **The comparison model is named in the result**, so no surface can show a saving
+    without saying what it is a saving against.
+  - **The figure is a floor and says so.** Flagships generally emit more output for the
+    same prompt, so re-pricing our output count at their rate understates them.
+    `REPRICING_CAVEAT` travels with every result, and `describeCounterfactual` exists so a
+    renderer that only wanted the number cannot drop the caveat or the model name.
+
+  Rates are supplied by the caller rather than looked up, since only the caller knows the
+  router's cache-read defaults — which keeps this module pure and keeps the defaulting
+  decision where it was already being made.
+
 ## [0.427.0] - 2026-09-07
 
 ### Fixed
