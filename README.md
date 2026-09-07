@@ -4,13 +4,14 @@
 
 <h1 align="center">AtlasMind</h1>
 
-<p align="center"><sub> · <strong>Current source version: 0.420.2</strong> · </sub></p>
+<p align="center"><sub> · <strong>Current source version: 0.420.3</strong> · </sub></p>
 
 
 <p align="center">
   <strong>BETA</strong><br />
-  <strong>Your AI delivery team, inside VS Code.</strong><br />
-  <em>Describe what you want built. Watch it get done. Keep every decision.</em>
+  <strong>Your AI project manager, inside VS Code — with a delivery team attached.</strong><br />
+  <em>Roadmap, risk, compliance and release, tracked from your own repository.<br />
+  Bring the AI coding tool you already use, or use the team built in.</em>
 </p>
 
 <p align="center">
@@ -25,14 +26,25 @@
 
 ## What is AtlasMind?
 
-Most AI coding tools give you one assistant in one chat box. AtlasMind gives you a **team**.
+**AtlasMind manages your project. It can also do the work.**
 
-Ask for what you want in plain English. AtlasMind picks the right specialist for the job, picks a
-model that suits the task and your budget, reads what it needs from your project, does the work,
-checks it, and shows you exactly what changed and what it cost.
+Most AI coding tools give you an assistant in a chat box. That solves *writing code*. It doesn't
+tell you what to build next, what's blocking it, who owns it, what you deferred three weeks ago and
+why, whether your tests actually cover what you claim, or whether you're fit to release.
 
-The important part is what happens next. Your decisions, architecture notes, lessons learned, and
-run history stay with the **project** — not in a chat window you'll close and never find again.
+That's the job AtlasMind does. A **23-page project dashboard** built entirely from your own
+repository: roadmap and dependency graph, issues and pull requests, people and follow-ups, risk,
+compliance, technical debt, testing evidence, documents, delivery and release readiness. Nothing is
+a form you fill in twice — it reads git, GitHub, your files and your project memory, then grades
+what it finds against rules it **publishes on the card**, so you can see the reasoning and disagree
+with it.
+
+Attached to that is a team of **27 AI specialists** that can pick the work up and carry it out. Ask
+in plain English; AtlasMind routes to the right specialist and a model that suits the task and your
+budget, does the work, verifies it, and shows you what changed and what it cost.
+
+**That second half is optional.** If you already have a favourite AI coding tool, keep it — see
+below.
 
 **You stay in charge throughout.** Nothing risky happens without your approval. Every automatic
 step is one you switched on, and you can switch it off again.
@@ -41,15 +53,36 @@ step is one you switched on, and you can switch it off again.
 
 ## Who it's for
 
-- **Solo developers and freelancers** who want the coordination of a bigger team without hiring one.
+- **Solo developers and freelancers** carrying the project-management load themselves, on top of the code.
 - **Small teams** who need a shared, reviewable way of working rather than everyone prompting differently.
+- **Anyone already happy with their AI coding tool** who wants the management layer around it, not a replacement for it.
 - **People learning professional practice** — the guided workflow explains *why* each step exists, not just what to click.
 
 You do not need to be an AI expert. You do need a project you care about getting right.
 
 ---
 
+## Use the AI coding tool you already have
+
+**The management side doesn't need AtlasMind's chat.** Work the dashboard, keep the registers, run
+the workflow — and let Copilot, Claude Code, Cursor, Codex, Gemini CLI or Windsurf write the code.
+
+AtlasMind writes what it knows into the instruction files those tools already read —
+`.github/copilot-instructions.md`, `CLAUDE.md`, `AGENTS.md`, `.cursorrules`, `GEMINI.md`,
+`.windsurfrules` — as a **managed block** it maintains and you can delete: your enabled testing
+methodologies, the technical-debt markers it scans for, and the stage-by-stage rules of your
+declared GitHub workflow. Whatever agent you use gets told the same rules AtlasMind holds itself to,
+and the registers keep working because they read your repository rather than your chat history.
+
+Its own agents are there when you want them. They are not a prerequisite.
+
+---
+
 ## What you can actually do with it
+
+**Run the project.** The dashboard is the point: what needs a person right now, what changed since
+you last looked, what's blocking the roadmap, what you owe, and whether you can ship. Every number
+links to the page that owns it, and every grade names the rule that produced it.
 
 **Fix or build something.** Ask in chat like you'd ask a colleague. AtlasMind looks at your code,
 picks a specialist, makes the change, verifies it, and reports back.
@@ -88,6 +121,10 @@ guide even when the eventual implementation is native rather than HTML.
 5. Ask for something.
 
 That's it. The [Getting Started guide](wiki/Getting-Started.md) covers the longer version.
+
+**Only want the management layer?** Steps 3 and 4 are enough — run **AtlasMind: Open Project
+Dashboard** and it reads your repository from there. A model provider is only needed for the parts
+that ask a model to do something.
 
 ---
 
@@ -137,7 +174,7 @@ important limits on overrides and compliance claims.
 
 ---
 
-## What's new in 0.420.2
+## What's new in 0.420.3
 
 The last Marketplace publication, **v0.402.4**, is the baseline — these are the headline changes
 landing on top of it. Every release is written up in full in [CHANGELOG.md](CHANGELOG.md).
@@ -193,7 +230,10 @@ Highlights from the last few releases. Everything here is already in the publish
 
 | | |
 |---|---|
-| **A team of specialists** | 27 built-in agents — debugger, frontend, backend, reviewer, security, testing, docs, performance, DevOps, dependencies, SEO, UX, release and CI, plus ethics, legal, commercial and market oversight. Add your own. |
+| **A 23-page project dashboard** | Overview, project score, gap analysis, workflow, roadmap, issues, pull requests, people & follow-ups, branches, repository, pipeline, testing, tech debt, security, privacy, risk, compliance, release, delivery, documents, project memory, runtime and ideation. Built from your repository, not from data you re-enter. |
+| **Registers that don't forget** | Tech debt, risk, compliance and research findings *transition* rather than vanish — resolved stays distinct from obsolete, accepted from dismissed — each graded by a published rule table so two people reading the same project get the same answer in March and in July. |
+| **A roadmap that knows what blocks what** | A dependency graph beside the prioritised backlog: readable tree layout, release gates, owners, estimates, routes to any item, and honest "not assessed" instead of a confident zero. |
+| **A team of specialists** | 27 built-in agents — debugger, frontend, backend, reviewer, security, testing, docs, performance, DevOps, dependencies, SEO, UX, release and CI, plus ethics, legal, commercial and market oversight. Add your own. Optional: bring your own AI tool instead. |
 | **50 built-in skills** | File edits, the full local git lifecycle (branches, worktrees, fetch/pull, merge, stash), terminal, Docker, test runners, code navigation, debugging, web fetch, and more. Extend with your own or connect MCP servers. |
 | **Smart model routing** | Cloud, local, or your existing subscription — chosen per task by fit, cost, speed, health, and past results. |
 | **Project memory** | Architecture, decisions, roadmap, lessons and operations kept as readable Markdown in your repo, retrieved when relevant. |
@@ -202,7 +242,7 @@ Highlights from the last few releases. Everything here is already in the publish
 | **Ideation board** | Visual thinking that reaches the backlog — cards become roadmap items, roadmap items become issue drafts. |
 | **Tech debt register** | Deferred work found from your own code markers, graded by a published rule you can read, tracked rather than forgotten. |
 | **Testing strategy** | 69 configurable methodologies — including data & schema, AI-specific and compliance families — with owners, tooling, evidence checks, scaffolding, and sync to other AI tools. |
-| **Project dashboard** | Roadmap, issues, branches, delivery, documents, risk, privacy, stakeholders and follow-ups in one place. |
+| **Works with your existing AI tool** | Testing methodologies, debt markers and workflow rules synced into Copilot, Claude Code, Cursor, Codex, Gemini CLI and Windsurf instruction files as a managed block. The management layer needs no chat of its own. |
 | **UI Studio** | Design websites, apps, extensions, desktop tools, and other interfaces through screens, flows, content, wireframes, tokens, components, full built-in-browser preview, responsive inspection, and implementation handoff. Website profiles also keep protected Develop → Staging → Production delivery. |
 | **Voice, vision & remote** | Local or hosted speech, image analysis, opt-in remote control, and a keep-awake lock for long runs. |
 | **Lenses over your code — and your services** | Eleven read-only views built from what your project declares: flow, change impact, test evidence, state lifecycle, config precedence, field wiring, branch change story — plus three that compare your declared schemas against what a live API or database actually serves. Shape only: never a row, never a write, off by default. |

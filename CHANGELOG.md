@@ -6,6 +6,41 @@ The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/),
 
 ## [Unreleased]
 
+## [0.420.3] - 2026-09-07
+
+### Changed
+
+- **The marketing material described the product AtlasMind used to be.** Every
+  reader-facing surface led with "multi-agent orchestrator" and a delivery team, which
+  was accurate when the orchestrator *was* the product. It has not been for a while: the
+  Project Dashboard is **23 pages**, the registers transition and grade against published
+  rule tables, and the lenses read live services. That is the larger half now, and it was
+  represented by one row in a fourteen-row table.
+
+  Repositioned as **a project manager with an orchestrator attached**, in the README hero,
+  "What is AtlasMind?", "Who it's for", "What's included" and `wiki/Home.md`.
+
+- **`package.json`'s `description` and `keywords` were the expensive part.** The README is
+  read by people who already found the extension; `description` and `keywords` are what
+  the Marketplace indexes, and neither contained a single project-management word --
+  so nobody searching for one could find it. The description now leads with project
+  management, and eight keywords were added (`project-management`, `roadmap`, `planning`,
+  `dashboard`, `technical-debt`, `compliance`, `release-management`, `delivery`). The
+  agent keywords stay: the point is that it is no longer *only* that.
+
+- **"You do not need AtlasMind's chat" is now stated, because it is true and load-bearing.**
+  The management layer reads the repository, not a conversation, and
+  `testingProtocolSync` and `buildDebtMarkerGuidance` already write managed blocks into
+  the instruction files other tools read -- Copilot, Claude Code, Cursor, Codex, Gemini
+  CLI, Windsurf. So the dashboard, registers and workflow work while somebody else's agent
+  writes the code. That was shipped and unadvertised, which made the product look like an
+  either/or against tools people are not going to give up.
+
+- **Two assertions in `packageManifest.test.ts` moved with it.** The README tagline was
+  pinned to the old wording, so it now pins the new one with a note on why; and a new test
+  pins the Marketplace-indexed fields, since a repositioning that stops at the README
+  changes nothing about who finds the extension.
+
 ## [0.420.2] - 2026-09-07
 
 ### Changed

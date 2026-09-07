@@ -19,6 +19,30 @@ Older entries below describe the software as it was at the time and are delibera
 
 ---
 
+## v0.420.3 -- A project manager with an orchestrator attached
+
+The marketing described the product AtlasMind used to be. Everything reader-facing led with
+"multi-agent orchestrator" and a delivery team — accurate when the orchestrator *was* the product,
+and not for a while now. The Project Dashboard is 23 pages, the registers transition and grade
+against published rule tables, the lenses read live services. That is the larger half, and it had
+one row in a fourteen-row table.
+
+Repositioned across the README hero, "What is AtlasMind?", "Who it's for", "What's included" and
+this wiki.
+
+The expensive part was `package.json`. The README is read by people who already found the extension;
+`description` and `keywords` are what the Marketplace *indexes*, and neither held a single
+project-management word — so nobody searching for one could find it. Both now do, without dropping
+the agent keywords.
+
+And it now says out loud that **you don't need AtlasMind's chat**. The management layer reads your
+repository rather than a conversation, and AtlasMind already writes its testing methodologies, debt
+markers and workflow rules into the instruction files Copilot, Claude Code, Cursor, Codex, Gemini CLI
+and Windsurf read. That shipped a while ago and was never advertised, which made AtlasMind look like
+an either/or against tools nobody is going to give up.
+
+---
+
 ## v0.420.2 -- A README that isn't a second changelog
 
 The README held **71** `What's new in x.y.z` sections across 2,149 of its 2,460 lines — a changelog

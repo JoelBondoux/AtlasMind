@@ -1,8 +1,8 @@
 {
   "name": "atlasmind",
   "displayName": "AtlasMind",
-  "description": "Developer-centric multi-agent orchestrator for VS Code with model routing, long-term memory, and skills registry.",
-  "version": "0.420.2",
+  "description": "AI project management for VS Code: roadmap, risk, tech debt, compliance, testing and release tracked from your own repository — with a multi-agent AI team, or the AI coding tool you already use.",
+  "version": "0.420.3",
   "publisher": "JoelBondoux",
   "preview": false,
   "license": "SEE LICENSE IN OSMFEULA.txt",
@@ -32,7 +32,15 @@
     "orchestrator",
     "multi-agent",
     "llm",
-    "copilot"
+    "copilot",
+    "project-management",
+    "roadmap",
+    "planning",
+    "dashboard",
+    "technical-debt",
+    "compliance",
+    "release-management",
+    "delivery"
   ],
   "icon": "media/icon.png",
   "activationEvents": [

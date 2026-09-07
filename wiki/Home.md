@@ -4,15 +4,23 @@
 
 # AtlasMind
 
-**Your AI delivery team, inside VS Code.**
+**Your AI project manager, inside VS Code — with a delivery team attached.**
 
-Most AI coding tools give you one assistant in one chat box. AtlasMind gives you a team — and keeps
-everything the team learns attached to your project.
+Most AI coding tools give you an assistant in a chat box. That solves *writing code*. It doesn't tell
+you what to build next, what's blocking it, who owns it, what you deferred three weeks ago, whether
+your tests cover what you claim, or whether you're fit to release.
 
-Ask for what you want in plain English. AtlasMind picks the right specialist, picks a model that suits
-the task and your budget, reads what it needs from your code, does the work, checks it, and shows you
-what changed and what it cost. Your decisions, architecture notes and lessons learned stay in the
-project, not in a chat window you'll close and never find again.
+AtlasMind is a **23-page project dashboard** built from your own repository — roadmap and dependency
+graph, issues, pull requests, people, risk, compliance, technical debt, testing evidence, documents,
+delivery and release — where every grade names the rule that produced it. Attached to it is a team of
+27 AI specialists that can carry the work out: ask in plain English, and AtlasMind picks the
+specialist and a model that suits the task and your budget, does the work, checks it, and shows you
+what changed and what it cost.
+
+**The management half needs no chat of its own.** Already happy with Copilot, Claude Code, Cursor,
+Codex, Gemini CLI or Windsurf? Keep it — AtlasMind syncs your testing methodologies, debt markers and
+workflow rules into the instruction files those tools already read, so whichever agent writes the
+code is told the same rules.
 
 **Nothing risky happens without your say-so.** Every automatic step is one you switched on, and you
 can switch it off again.
@@ -74,6 +82,15 @@ See [[Model Routing]].
 ---
 
 ## What makes it different
+
+**It manages the project, not just the code.** Twenty-three dashboard pages built from git, GitHub and
+your own files — roadmap dependencies, risk, compliance, tech debt, testing evidence, release
+readiness. Registers transition rather than forget, and every grade cites a published rule so the same
+project reads the same way in March and in July.
+
+**It works with the AI tool you already use.** The management layer reads your repository, not your
+chat history, and it writes its rules into Copilot, Claude Code, Cursor, Codex, Gemini and Windsurf
+instruction files. Its own agents are optional.
 
 **It remembers your project.** Architecture, decisions, domain knowledge and lessons live as readable
 Markdown files in your repository and come back when they're relevant. See [[Memory System]].

@@ -155,10 +155,27 @@ describe('package manifest', () => {
   it('keeps the README sales-led and free of competitor comparison charts', () => {
     const readme = readFileSync(new URL('../README.md', import.meta.url), 'utf8');
 
-    expect(readme).toContain('Your AI delivery team, inside VS Code.');
+    // The tagline leads with the management layer, because that is the half a
+    // reader cannot get from any other AI coding extension. "Delivery team"
+    // alone described AtlasMind when the orchestrator was the whole product;
+    // the dashboard, the registers and the lenses have since become the larger
+    // half, and a listing that undersells them sells the wrong product.
+    expect(readme).toContain('Your AI project manager, inside VS Code');
     expect(readme).toContain(`## What's new in ${manifest.version}`);
     expect(readme).not.toContain('| Feature | AtlasMind | Copilot');
     expect(readme).not.toContain('wiki/Comparison.md');
+  });
+
+  /**
+   * The Marketplace listing is indexed on `description` and `keywords`, so a
+   * positioning change that stops at the README changes nothing about who
+   * finds the extension. This pins the half that is searchable.
+   */
+  it('describes the management layer in the fields the Marketplace indexes', () => {
+    expect(manifest.description).toMatch(/project management/i);
+    expect(manifest.keywords).toEqual(expect.arrayContaining(['project-management', 'roadmap']));
+    // Still an orchestrator; the point is that it is no longer only that.
+    expect(manifest.keywords).toEqual(expect.arrayContaining(['agents', 'multi-agent']));
   });
 
   it('uses the ACP panel’s wording in the native Settings search entry', () => {
