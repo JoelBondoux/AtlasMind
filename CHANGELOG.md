@@ -6,6 +6,25 @@ The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/),
 
 ## [Unreleased]
 
+## [0.418.2] - 2026-09-07
+
+### Fixed
+
+- **A search on the roadmap canvas concludes by framing what it matched.** The search
+  box already asked for a re-fit on every keystroke, and the fit already ran -- but
+  search stopped *removing* nodes from the canvas when it became a highlight rather
+  than a filter, so fitting all of them after narrowing framed exactly what it had
+  framed before. The request was satisfied and invisible.
+- `fitRoadmapCanvas` takes a scope. `'emphasis'` frames the nodes carrying
+  `is-search-match`; `'all'` -- Fit all, an arrange, a view change -- is unchanged. The
+  scope is reset every time the pending-fit flag is consumed, so one narrowing cannot
+  leak its framing into the next arrange.
+- **The gate and person pickers narrow the same way and now conclude the same way.**
+  `roadmapEmphasis` already combines all three lenses into one match set; leaving two
+  of them out would have meant the count saying "3 of 40 match" while nothing moved.
+- **A query that matches nothing frames the whole plan.** There is nothing to zoom to,
+  and flying off to an empty region of the canvas reads as the plan having been lost.
+
 ## [0.418.1] - 2026-09-07
 
 ### Fixed

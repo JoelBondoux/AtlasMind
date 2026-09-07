@@ -425,6 +425,17 @@ describe('the canvas talks to the host in node ids', () => {
   });
 });
 
+/**
+ * jsdom reports every element as zero-sized, and the fit reads the frame's own
+ * box. Pinned on the prototype rather than on one element because a render
+ * replaces the frame, and a test that pins the instance measures a detached node
+ * from the second render onward.
+ */
+function pinFrameSize(harness: { window: { HTMLElement: { prototype: object } } }, width: number, height: number): void {
+  Object.defineProperty(harness.window.HTMLElement.prototype, 'clientWidth', { value: width, configurable: true });
+  Object.defineProperty(harness.window.HTMLElement.prototype, 'clientHeight', { value: height, configurable: true });
+}
+
 describe('arranging the canvas', () => {
   it('fits the whole plan without asking the host anything', () => {
     const harness = mount();
@@ -456,6 +467,57 @@ describe('arranging the canvas', () => {
     const world = harness.root().querySelector('[data-rm-world="true"]');
     const scale = Number(/scale\(([\d.]+)\)/.exec(world.style.transform)?.[1]);
     expect(scale).toBeLessThanOrEqual(1);
+  });
+
+  it('concludes a search by framing what it matched, not the whole plan', () => {
+    const harness = mount();
+    // Searching re-renders, which replaces the frame — so the measurement the
+    // fit reads is pinned on the prototype rather than on one element.
+    pinFrameSize(harness, 800, 400);
+    harness.send(snapshot());
+    // The after-render fit only runs on the page it is about, and the harness
+    // opens on the default page with every section rendered.
+    harness.click('[data-action="page"][data-payload="roadmap"]');
+    harness.click('[data-action="roadmap-fit"]');
+    const transform = (): string =>
+      harness.root().querySelector('[data-rm-world="true"]')?.style.transform ?? '';
+    const whole = transform();
+
+    // Search stopped removing nodes from the canvas, so a re-fit that framed
+    // *all* of them framed exactly what it framed before — a no-op dressed as a
+    // response. The match is alpha alone, which sits 320px left of beta.
+    const input = harness.root().querySelector('#roadmap-search-input');
+    input.value = 'alpha';
+    input.dispatchEvent(new harness.window.Event('input', { bubbles: true }));
+
+    expect(harness.root().querySelector('[data-rm-node="alpha"]')?.className).toContain('is-search-match');
+    expect(harness.root().querySelector('[data-rm-node="beta"]')?.className).toContain('is-search-dim');
+    expect(transform()).not.toBe(whole);
+    // Every node is still drawn: the dependencies around a match are the useful
+    // half of the answer. Only the framing narrowed.
+    expect(harness.root().querySelectorAll('[data-rm-node]').length).toBe(2);
+  });
+
+  it('frames the whole plan when a search matches nothing', () => {
+    const harness = mount();
+    pinFrameSize(harness, 800, 400);
+    harness.send(snapshot());
+    harness.click('[data-action="page"][data-payload="roadmap"]');
+
+    const transform = (): string =>
+      harness.root().querySelector('[data-rm-world="true"]')?.style.transform ?? '';
+    harness.click('[data-action="roadmap-fit"]');
+    const whole = transform();
+
+    const input = harness.root().querySelector('#roadmap-search-input');
+    input.value = 'nothing here matches this';
+    input.dispatchEvent(new harness.window.Event('input', { bubbles: true }));
+
+    // A query that found nothing has nothing to frame, and flying off to an
+    // empty region of the canvas would read as the plan having been lost. It
+    // falls back to the whole plan, which is exactly where Fit all puts it.
+    expect(harness.root().querySelector('.is-search-match')).toBeNull();
+    expect(transform()).toBe(whole);
   });
 
   it('does nothing rather than throwing when there is nothing to fit', () => {

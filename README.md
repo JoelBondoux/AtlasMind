@@ -4,7 +4,7 @@
 
 <h1 align="center">AtlasMind</h1>
 
-<p align="center"><sub> · <strong>Current source version: 0.418.1</strong> · </sub></p>
+<p align="center"><sub> · <strong>Current source version: 0.418.2</strong> · </sub></p>
 
 
 <p align="center">
@@ -136,6 +136,16 @@ allow-list, redaction and file-withholding behaviour, retained metadata, provide
 important limits on overrides and compliance claims.
 
 ---
+
+## What's new in 0.418.2
+
+**Narrowing the roadmap canvas now concludes by showing you what it found.** Search stopped
+removing nodes from the canvas a few releases ago — everything stays drawn, matches are
+marked and the rest is dimmed, because the dependencies *around* a match are half the answer.
+That quietly turned the re-fit into a no-op: fitting all the nodes after narrowing frames
+exactly what it framed before. A search, a gate filter or a person filter now zooms and pans
+to the matches themselves. A query that matches nothing frames the whole plan instead of
+flying off to an empty region of canvas.
 
 ## What's new in 0.418.1
 

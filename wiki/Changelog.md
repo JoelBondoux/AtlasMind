@@ -19,6 +19,21 @@ Older entries below describe the software as it was at the time and are delibera
 
 ---
 
+## v0.418.2 -- A search that shows you what it found
+
+Searching the roadmap canvas asked for a re-fit on every keystroke, and the fit ran. It just
+could not do anything, because search stopped removing nodes from the canvas when it became a
+highlight rather than a filter -- everything stays drawn so the dependencies around a match
+are still readable. Fitting *all* the nodes after narrowing therefore framed exactly what it
+framed before: a request satisfied and invisible.
+
+A search now zooms and pans to the matches themselves, and so do the gate and person filters,
+which narrow through the same mechanism. A query that matches nothing frames the whole plan
+instead -- there is nothing to zoom to, and flying off to an empty region of canvas reads as
+the plan having been lost.
+
+---
+
 ## v0.418.1 -- Unlinked items you can actually find
 
 Roadmap items with no dependencies are parked in a block of their own after the linked plan.

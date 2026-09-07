@@ -489,6 +489,18 @@
      * is exactly how the arrange controls read before this existed.
      */
     roadmapFitAfterRender: false,
+    /**
+     * What the pending fit should frame: the whole plan, or only what the
+     * emphasis lenses matched.
+     *
+     * Search stopped removing nodes from the canvas — everything stays drawn so
+     * the dependencies around a match are still readable — which quietly made
+     * the re-fit a no-op: fitting *all* nodes after narrowing frames exactly
+     * what it framed before. Narrowing now concludes by showing you what it
+     * found. Reset to 'all' every time the flag is consumed, so one emphasis fit
+     * cannot leak into the next arrange or view change.
+     */
+    roadmapFitScope: 'all',
     editingDoc: null,
     gapBusy: false,
     gapStatus: '',
@@ -3018,6 +3030,7 @@
       // Re-fit on every narrowing, so the result is always in view — a filter
       // whose matches land off-screen reads as a filter that found nothing.
       state.roadmapFitAfterRender = true;
+      state.roadmapFitScope = 'emphasis';
       render();
     }
     if (target instanceof HTMLInputElement && target.id === 'privacy-rule-value') {
@@ -3129,13 +3142,21 @@
       state.roadmapDraftOwner = target.value || '';
       return;
     }
+    // The gate and person pickers narrow the same way the search box does —
+    // `roadmapEmphasis` combines all three into one set — so they conclude the
+    // same way. Leaving them out would mean the count said "3 of 40 match" and
+    // nothing moved for two of the three lenses.
     if (target.getAttribute('data-action') === 'roadmap-emphasis-gate') {
       state.roadmapEmphasisGate = target.value || '';
+      state.roadmapFitAfterRender = true;
+      state.roadmapFitScope = 'emphasis';
       render();
       return;
     }
     if (target.getAttribute('data-action') === 'roadmap-emphasis-person') {
       state.roadmapEmphasisPerson = target.value || '';
+      state.roadmapFitAfterRender = true;
+      state.roadmapFitScope = 'emphasis';
       render();
     }
   });
@@ -4036,7 +4057,9 @@
        */
       if (state.roadmapFitAfterRender && !rmDrag && state.activePage === 'roadmap' && state.roadmapView !== 'list') {
         state.roadmapFitAfterRender = false;
-        fitRoadmapCanvas();
+        const scope = state.roadmapFitScope;
+        state.roadmapFitScope = 'all';
+        fitRoadmapCanvas(scope);
       }
       // The split buttons this render just produced are shells; fill them from
       // the one cadence the timer is actually running on.
@@ -12336,10 +12359,23 @@
    * otherwise silently leave the canvas at a zoom no control can undo — and the
    * pan then centres whatever that zoom could reach.
    */
-  function fitRoadmapCanvas() {
+  /**
+   * Frame the plan, or the part of it an emphasis lens matched.
+   *
+   * `scope` is 'all' (the Fit all button, an arrange, a view change) or
+   * 'emphasis' (the search box and the gate/person pickers). An emphasis fit
+   * falls back to the whole plan when nothing matched: a query that found
+   * nothing has nothing to frame, and flying off to an empty region would read
+   * as the canvas having lost the plan.
+   */
+  function fitRoadmapCanvas(scope) {
     if (!root) { return; }
     const frame = root.querySelector('[data-rm-frame="true"]');
-    const nodes = [...root.querySelectorAll('[data-rm-node]')];
+    const all = [...root.querySelectorAll('[data-rm-node]')];
+    const matched = scope === 'emphasis'
+      ? [...root.querySelectorAll('[data-rm-node].is-search-match')]
+      : [];
+    const nodes = matched.length > 0 ? matched : all;
     if (!frame || nodes.length === 0) { return; }
 
     let minX = Infinity, minY = Infinity, maxX = -Infinity, maxY = -Infinity;
@@ -12372,7 +12408,8 @@
     // drawn, and the full render this used to do priced every "Fit all" at a
     // rebuild of the whole dashboard.
     rmApplyViewTransform();
-    announce('Fitted ' + nodes.length + ' item' + (nodes.length === 1 ? '' : 's') + ' at ' + Math.round(state.roadmapZoom * 100) + '%.');
+    announce('Fitted ' + nodes.length + (matched.length > 0 ? ' matching' : '') + ' item'
+      + (nodes.length === 1 ? '' : 's') + ' at ' + Math.round(state.roadmapZoom * 100) + '%.');
   }
 
   /**
