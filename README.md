@@ -4,7 +4,7 @@
 
 <h1 align="center">AtlasMind</h1>
 
-<p align="center"><sub> · <strong>Current source version: 0.416.0</strong> · </sub></p>
+<p align="center"><sub> · <strong>Current source version: 0.416.1</strong> · </sub></p>
 
 
 <p align="center">
@@ -136,6 +136,15 @@ allow-list, redaction and file-withholding behaviour, retained metadata, provide
 important limits on overrides and compliance claims.
 
 ---
+
+## What's new in 0.416.1
+
+Roadmap entry added: **offer a capability you are clearly reaching for**. When your run
+history shows repeated use of a tool a catalogued MCP server covers, AtlasMind should offer
+that server once — and say what it consumes as well as what it adds, because a GitHub MCP
+publishes around thirty tools into a context budget that has already been seen to overflow.
+A refusal is remembered and never re-raised, installs stay disabled until you enable them,
+and looking further afield in the resource directory is a separate opt-in switch.
 
 ## What's new in 0.416.0
 

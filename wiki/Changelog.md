@@ -19,6 +19,37 @@ Older entries below describe the software as it was at the time and are delibera
 
 ---
 
+## v0.416.1 -- Roadmap: offering a capability without overselling it
+
+A new backlog entry, and the framing is the point of it.
+
+AtlasMind already has the catalogue (45 recommended MCP servers, GitHub among them),
+the discovery, and a non-destructive install that seeds a server disabled. What it has
+never had is a reason to mention any of that at the moment you need it. So: when run
+history shows repeated use of a tool a catalogued server covers, offer that server once.
+
+Evidence-triggered, never speculative — "you have run `gh` forty-one times in this
+project", not "AtlasMind thinks you need an MCP".
+
+And deliberately **not** sold as a cost saving. A GitHub MCP publishes roughly thirty tools
+into the same tool-context budget that has already been observed overflowing in a real run,
+dropping twenty-five skill descriptions on the way. It plausibly costs context rather than
+saving it. The offer says what it adds and what it consumes, because a saving nobody
+measured is the kind of claim this codebase refuses everywhere else.
+
+A refusal is remembered per server, per project, and never raised again. Installs stay
+seeded-disabled: an offer is not trust, and installing an MCP server runs somebody else's
+code — which is what the AI supply-chain integrity entry is about.
+
+There is an optional second rung, off by default: when the local catalogue has nothing that
+fits, query the enabled ARD finders. That is a separate switch from having finders at all,
+because seeding them disabled was itself a deny-by-default decision and one setting carrying
+both would undo it. It sends the category — `"github"` — never the goal, the repository name,
+or anything derived from your code. A miss is cached under the same don't-nag rule as a
+refusal, so an every-session round trip does not become the cost of asking.
+
+---
+
 ## v0.416.0 -- Refuse in the first second, not after four model attempts
 
 Asked to "test and merge" a pull request into `main`, an autonomous run took three attempts

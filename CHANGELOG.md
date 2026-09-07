@@ -6,6 +6,26 @@ The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/),
 
 ## [Unreleased]
 
+## [0.416.1] - 2026-09-07
+
+### Added
+
+- Roadmap entry: **offer a capability you are clearly reaching for.** When run
+  history shows repeated use of a tool a catalogued MCP server covers, offer that
+  server once — evidence-triggered rather than speculative, and deliberately
+  *not* framed as a cost saving. A GitHub MCP publishes roughly thirty tools into
+  the same tool-context budget that already overflowed in an observed run, so it
+  plausibly costs context rather than saving it; the offer states what it adds
+  and what it consumes.
+- A refusal is remembered per server per project and never re-raised. Installs
+  stay seeded-disabled as `ardInstaller` already does: an offer is not trust, and
+  installing an MCP server runs third-party code.
+- Optional second rung, off by default: query the enabled ARD finders when the
+  local catalogue has nothing. Separate switch from having finders at all, since
+  seeding them disabled was itself a deny-by-default decision. Sends the category
+  rather than the goal, the repository name, or anything derived from the code,
+  and caches a miss under the same don't-nag rule as a refusal.
+
 ## [0.416.0] - 2026-09-07
 
 ### Fixed
