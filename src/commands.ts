@@ -314,6 +314,35 @@ export function registerCommands(
 
     const { modelCatalogFreshness } = await import('./providers/modelCatalogFreshness.js');
 
+    // A comparison is only made when one is nominated. AtlasMind choosing a
+    // flagship on the user's behalf would be deciding what their saving is a
+    // saving *against*, which is the substance of the claim rather than a
+    // default.
+    const costRecords = atlas.costTracker.getWorkspaceRecords();
+    let comparisonNote: string | undefined;
+    const comparisonModelId = vscode.workspace.getConfiguration('atlasmind')
+      .get<string>('cost.comparisonModel', '').trim();
+    if (comparisonModelId) {
+      const { describeCounterfactual, summarizeCounterfactual } =
+        await import('./core/counterfactualPricing.js');
+      const info = atlas.modelRouter.getModelInfo(comparisonModelId);
+      comparisonNote = info
+        ? describeCounterfactual(summarizeCounterfactual(costRecords, {
+            modelId: comparisonModelId,
+            displayName: info.name || comparisonModelId,
+            inputPricePer1k: info.inputPricePer1k,
+            outputPricePer1k: info.outputPricePer1k,
+            // The router's own cache-read rate, rather than a rate invented
+            // here. A model with no cache-write price simply refuses records
+            // that used one.
+            cachedInputPricePer1k: atlas.modelRouter.cacheReadPricePer1k(info),
+            ...(info.cachedInputPricePer1k !== undefined
+              ? { cacheWritePricePer1k: info.cachedInputPricePer1k }
+              : {}),
+          }))
+        : `No comparison was made: "${comparisonModelId}" is not a model AtlasMind knows the price of.`;
+    }
+
     const input = buildProducerReportInput({
       projectName: folder.name,
       generatedAt: new Date(),
@@ -321,6 +350,7 @@ export function registerCommands(
       // the report states how old that table is rather than leaving a reader to
       // assume the numbers are current.
       pricingNote: modelCatalogFreshness(new Date()).note,
+      ...(comparisonNote ? { comparisonNote } : {}),
       ...(version ? { version } : {}),
       ...(roadmapMarkdown !== undefined ? { roadmapMarkdown } : {}),
       ...(atlas.riskOversightManager.getConfig() ? { riskConfig: atlas.riskOversightManager.getConfig()! } : {}),

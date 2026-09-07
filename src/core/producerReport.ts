@@ -97,6 +97,8 @@ export interface ProducerReportInput {
     lines: readonly ProducerReportCostLine[];
     unattributedCostUsd: number;
     totalCostUsd: number;
+    /** The counterfactual sentence, when a comparison model is nominated. */
+    comparisonNote?: string;
     /**
      * How old the prices behind these figures are.
      *
@@ -133,6 +135,14 @@ export interface ProducerReportData {
     unattributedCostUsd?: number;
     totalCostUsd?: number;
     pricingNote?: string;
+    /**
+     * The counterfactual sentence, when a comparison model is nominated.
+     *
+     * Carried as a whole sentence rather than as numbers, so the model name and
+     * the floor caveat cannot be separated from the figure by a renderer that
+     * only wanted the total.
+     */
+    comparisonNote?: string;
   };
 }
 
@@ -159,6 +169,7 @@ export function buildProducerReportData(input: ProducerReportInput): ProducerRep
           unattributedCostUsd: input.cost.unattributedCostUsd,
           totalCostUsd: input.cost.totalCostUsd,
           ...(input.cost.pricingNote ? { pricingNote: input.cost.pricingNote } : {}),
+          ...(input.cost.comparisonNote ? { comparisonNote: input.cost.comparisonNote } : {}),
         },
   };
 }
@@ -252,6 +263,10 @@ export function renderProducerReportMarkdown(data: ProducerReportData): string {
       lines.push(`Unattributed spend: **${money(data.cost.unattributedCostUsd)}** of ${money(data.cost.totalCostUsd ?? 0)} total. `
         + 'Reported separately rather than divided across items, because a distributed figure cannot be told from a measured one.');
     }
+    if (data.cost.comparisonNote) {
+      lines.push('');
+      lines.push(`**Compared with a flagship model.** ${data.cost.comparisonNote}`);
+    }
     if (data.cost.pricingNote) {
       lines.push('');
       lines.push(`_${data.cost.pricingNote}_`);
@@ -344,6 +359,9 @@ export function renderProducerReportHtml(data: ProducerReportData): string {
       parts.push(`<p>Unattributed spend: <strong>${esc(money(data.cost.unattributedCostUsd))}</strong> of `
         + `${esc(money(data.cost.totalCostUsd ?? 0))} total. Reported separately rather than divided across items, `
         + 'because a distributed figure cannot be told from a measured one.</p>');
+    }
+    if (data.cost.comparisonNote) {
+      parts.push(`<p><strong>Compared with a flagship model.</strong> ${esc(data.cost.comparisonNote)}</p>`);
     }
     if (data.cost.pricingNote) {
       parts.push(`<p class="gap">${esc(data.cost.pricingNote)}</p>`);

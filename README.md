@@ -4,7 +4,7 @@
 
 <h1 align="center">AtlasMind</h1>
 
-<p align="center"><sub> · <strong>Current source version: 0.428.0</strong> · </sub></p>
+<p align="center"><sub> · <strong>Current source version: 0.429.0</strong> · </sub></p>
 
 
 <p align="center">
@@ -175,7 +175,7 @@ important limits on overrides and compliance claims.
 
 ---
 
-## What's new in 0.428.0
+## What's new in 0.429.0
 
 The last Marketplace publication, **v0.420.4**, brought the changes below. Every release is written
 up in full in [CHANGELOG.md](CHANGELOG.md).
@@ -300,6 +300,7 @@ Everything is in the AtlasMind Settings panel, or under `atlasmind.*` in VS Code
 | `budgetMode` | `balanced` | How much you're willing to spend per task |
 | `speedMode` | `balanced` | Fast answers versus more considered ones |
 | `dailyCostLimitUsd` | `0` | Daily spending cap; `0` means no cap |
+| `cost.comparisonModel` | *(empty)* | Re-price your spend against this model to see what the same work would have cost. Empty by default — the choice decides what the saving is measured against |
 | `cost.historyLocation` | `machine-private` | Where this project's spend history lives. `repository` makes it diffable and report-readable; changing it moves what's already there |
 | `producerReport.publishEnabled` | `false` | Allow the producer report to be prepared for GitHub Pages. A Pages site is public **even from a private repository** |
 | `producerReport.publishRisks` · `publishCost` | `false` | Add the risk register or cost to the published page. Off separately, because each is a disclosure |

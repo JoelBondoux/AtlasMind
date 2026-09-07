@@ -28,6 +28,7 @@ Start here. If you change nothing else, change these.
 | `atlasmind.producerReport.publishEnabled` | `false` | Lets the producer report be prepared for GitHub Pages. **A Pages site is public even from a private repository** — access control is an Enterprise Cloud feature. On its own this publishes roadmap progress and delivery readiness, nothing else |
 | `atlasmind.producerReport.publishRisks` | `false` | Adds the risk register to the published page — commercial, legal and ethical findings, and the decisions recorded against them |
 | `atlasmind.producerReport.publishCost` | `false` | Adds cost against estimate to the published page. Compounds with the setting below: spend committed to the repository *and* published becomes public |
+| `atlasmind.cost.comparisonModel` | *(empty)* | Model to re-price your spend against, so cost surfaces can say what the same work would have cost elsewhere. Empty by default: the choice decides what the saving is a saving *against*, and picking one for you would be making the claim on your behalf |
 | `atlasmind.cost.historyLocation` | `machine-private` | Where this project's spend history lives. Private keeps it out of the repository; `repository` makes it diffable and lets the producer report carry cost for someone who never opens VS Code. Changing it moves the existing history and tells you how many records moved |
 
 

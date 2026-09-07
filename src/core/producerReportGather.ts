@@ -147,6 +147,7 @@ function costLines(
   records: readonly CostRecord[] | undefined,
   items: readonly GatheredRoadmapItem[],
   pricingNote: string | undefined,
+  comparisonNote: string | undefined,
 ): ProducerReportInput['cost'] | undefined {
   if (!records) { return undefined; }
   const report = buildRoadmapCostReport(records);
@@ -165,6 +166,7 @@ function costLines(
     unattributedCostUsd: report.unattributedCostUsd,
     totalCostUsd: report.totalCostUsd,
     ...(pricingNote ? { pricingNote } : {}),
+    ...(comparisonNote ? { comparisonNote } : {}),
   };
 }
 
@@ -185,6 +187,14 @@ export interface GatherInput {
    * the note; it never claims the prices are current.
    */
   pricingNote?: string;
+  /**
+   * The counterfactual sentence, when a comparison model is nominated.
+   *
+   * Composed by the caller with `describeCounterfactual`, because only the
+   * caller can resolve a model's rates. Absent means no comparison was asked
+   * for — never a saving of zero.
+   */
+  comparisonNote?: string;
 }
 
 /** Assemble everything the renderer needs, preserving every could-not-read as a gap. */
@@ -195,14 +205,17 @@ export function buildProducerReportInput(input: GatherInput): ProducerReportInpu
   const gates = input.roadmapMarkdown === undefined
     ? undefined
     : parseRoadmapGates(input.roadmapMarkdown);
+  const risks = openRisks(input.riskConfig);
+  const delivery = deliveryReadiness(input.deliveryConfig);
+  const cost = costLines(input.costRecords, items ?? [], input.pricingNote, input.comparisonNote);
 
   return {
     projectName: input.projectName,
     generatedAt: input.generatedAt,
     ...(input.version ? { version: input.version } : {}),
     ...(items && gates ? { gates: gateProgress(items, gates) } : {}),
-    ...(openRisks(input.riskConfig) ? { risks: openRisks(input.riskConfig)! } : {}),
-    ...(deliveryReadiness(input.deliveryConfig) ? { delivery: deliveryReadiness(input.deliveryConfig)! } : {}),
-    ...(costLines(input.costRecords, items ?? [], input.pricingNote) ? { cost: costLines(input.costRecords, items ?? [], input.pricingNote)! } : {}),
+    ...(risks ? { risks } : {}),
+    ...(delivery ? { delivery } : {}),
+    ...(cost ? { cost } : {}),
   };
 }

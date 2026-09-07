@@ -6,6 +6,38 @@ The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/),
 
 ## [Unreleased]
 
+## [0.429.0] - 2026-09-07
+
+### Added
+
+- **The saving is visible.** `NXT-1` shipped an engine nothing called; the producer
+  report's cost section now carries the counterfactual sentence, naming the comparison
+  model and the floor caveat.
+
+  **`atlasmind.cost.comparisonModel` is empty by default and AtlasMind will not fill it
+  in.** The choice of comparison decides what a saving is a saving *against* — it is the
+  substance of the claim, not a default — so nominating a flagship on the user's behalf
+  would be making the claim for them. A nominated model the router does not price says so
+  rather than quietly reporting nothing.
+
+### Fixed
+
+- **The `compareSemver` property test no longer fails at random.** It failed twice during
+  full-suite runs and never once in isolation, which teaches whoever hits it to re-run
+  until green — and a test people re-run is a test that has stopped working. It gates the
+  release version-ahead check, so that mattered.
+
+  The ordering was checked exhaustively over the generator's **entire** domain — every
+  pre-release option, all pairs and all triples — and no antisymmetry or transitivity
+  violation exists, so the intermittent failure could not have been a counterexample. The
+  seed is now pinned and `numRuns` raised: if it fails again it fails every time, and the
+  cause is environmental rather than arithmetic, which is a far better thing to be handed
+  than a coin flip. The reasoning is in the test.
+
+- **Two omissions caught by the repository's own guards, both real.** `comparisonNote` was
+  computed and never passed to the report builder — the feature would have silently done
+  nothing — and the new setting was undocumented. Lint and `docsIntegrity` respectively.
+
 ## [0.428.0] - 2026-09-07
 
 ### Added

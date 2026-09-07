@@ -19,6 +19,24 @@ Older entries below describe the software as it was at the time and are delibera
 
 ---
 
+## v0.429.0 -- The saving, made visible — and a flaky test made honest
+
+The counterfactual engine shipped last release with nothing calling it. The producer report's cost
+section now carries the sentence, naming the comparison model and the floor caveat.
+
+`atlasmind.cost.comparisonModel` is empty by default and **AtlasMind will not fill it in**. The choice
+decides what a saving is a saving *against* — that is the substance of the claim rather than a
+default, and picking a flagship for you would be making the claim on your behalf.
+
+The `compareSemver` property test also stopped failing at random. It had failed twice in full-suite
+runs and never in isolation, which teaches people to re-run until green — and a test people re-run is
+a test that has stopped working, which matters because it gates the release version-ahead check. The
+ordering was verified exhaustively over the generator's whole domain, so no counterexample exists;
+the seed is now pinned, so if it ever fails again it fails *every* time and the cause is environmental
+rather than arithmetic.
+
+---
+
 ## v0.428.0 -- What the same work would have cost elsewhere
 
 The engine behind AtlasMind's central claim. Take a request that was actually made, keep its exact
