@@ -19,6 +19,31 @@ Older entries below describe the software as it was at the time and are delibera
 
 ---
 
+## v0.410.0 -- Say what an item is when you add it
+
+Adding a roadmap item meant typing a line into a three-row box and then setting
+everything else — its release, who is doing it — on the row afterwards. The entry form
+now carries a release-gate picker, an owner picker, and a text box four times the size.
+
+**Gates needed no host change.** The save already sanitises a per-item gate list against
+the gates a project has declared, so ticked gates are simply part of the new item.
+
+**An owner did.** Assignment names an item by its durable id, and a brand-new item has
+none until the host has written it — so the choice is held for exactly one snapshot and
+then applied through the ordinary roster-validated update path. It is resolved by the
+item's *text*, not by the id the browser minted: that id is a suggestion the host is free
+to re-mint, and matching on it would miss precisely when the host had done its job.
+
+If the item cannot be found, the choice is reported in a dismissible notice rather than
+discarded. You watched yourself pick somebody, so silently losing it is the one outcome
+worth ruling out.
+
+Both controls appear only while adding. An item that already exists carries gate chips and
+an Owner control on its own row, and a second copy in the form would be two controls for
+one fact, disagreeing the moment either was used.
+
+---
+
 ## v0.409.0 -- Highlight the plan by gate, by person, or both
 
 The canvas could be searched by text. It could not answer "which of these are on the

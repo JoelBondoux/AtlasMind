@@ -392,6 +392,22 @@
     timescale: 30,
     editingRoadmapId: '',
     roadmapDraftText: '',
+    /** Release gates ticked on the entry form, applied when the draft is saved. */
+    roadmapDraftGates: [],
+    /** Owner chosen on the entry form. Applied after the item exists — see `pendingRoadmapOwner`. */
+    roadmapDraftOwner: '',
+    /**
+     * An owner chosen while adding an item, waiting for the item to exist.
+     *
+     * Assignment addresses a node by its durable id, and a brand-new item has no
+     * id until the host has written it and sent the next snapshot. So the choice
+     * is held for exactly one snapshot, applied through the ordinary
+     * `roadmapNodeUpdate` path, and if it cannot be resolved there it is
+     * reported rather than dropped — a silently discarded assignment is the one
+     * outcome worth ruling out, because the user watched themselves make it.
+     */
+    pendingRoadmapOwner: null,
+    roadmapOwnerNotice: '',
     draggedRoadmapId: '',
     /**
      * Which roadmap view is showing: the dependency canvas, the ordered backlog,
@@ -929,6 +945,10 @@
       if (arrivedIds.length > 0 && hadNodes) {
         state.roadmapFitAfterRender = true;
       }
+      // The item just added now exists and has a durable id, so an owner chosen
+      // while typing it can finally be applied. One attempt, against this
+      // snapshot only.
+      applyPendingRoadmapOwner();
       if (state.roadmapFocusNodeId && !roadmapNodeIds.has(state.roadmapFocusNodeId)) {
         state.roadmapFocusNodeId = '';
       }
@@ -1843,9 +1863,24 @@
       render();
       return;
     }
+    if (action === 'roadmap-draft-gate') {
+      const index = state.roadmapDraftGates.indexOf(payload);
+      state.roadmapDraftGates = index >= 0
+        ? state.roadmapDraftGates.filter(id => id !== payload)
+        : state.roadmapDraftGates.concat([payload]);
+      render();
+      return;
+    }
+    if (action === 'roadmap-owner-notice-dismiss') {
+      state.roadmapOwnerNotice = '';
+      render();
+      return;
+    }
     if (action === 'roadmap-cancel') {
       state.editingRoadmapId = '';
       state.roadmapDraftText = '';
+      state.roadmapDraftGates = [];
+      state.roadmapDraftOwner = '';
       render();
       return;
     }
@@ -3063,6 +3098,10 @@
     // Emphasis lenses. A way of looking, so nothing is posted and nothing is
     // written — and no re-fit either: the plan has not moved, and re-fitting
     // would throw away the pan and zoom you set up to read this part of it.
+    if (target.getAttribute('data-action') === 'roadmap-draft-owner') {
+      state.roadmapDraftOwner = target.value || '';
+      return;
+    }
     if (target.getAttribute('data-action') === 'roadmap-emphasis-gate') {
       state.roadmapEmphasisGate = target.value || '';
       render();
@@ -11358,6 +11397,7 @@
             ${queueQuery ? `<button type="button" class="rm-chip-clear" data-action="roadmap-search-clear" aria-label="Clear the search">×</button>` : ''}
           </span>
           ${queueQuery ? `<div class="list-meta rm-queue-filter-note">${escapeHtml(`Showing ${queueItems.length} of ${roadmap.items.length} — filtered by “${queueQuery}”.`)} Dragging still reorders against the whole plan, not just what is on screen.</div>` : ''}
+          ${state.roadmapOwnerNotice ? `<div class="rm-banner rm-banner-owner" role="status">${escapeHtml(state.roadmapOwnerNotice)}<button type="button" class="rm-chip-clear" data-action="roadmap-owner-notice-dismiss" aria-label="Dismiss">×</button></div>` : ''}
           <div class="stack-list roadmap-list">
             ${state.editingRoadmapId === 'new' ? renderRoadmapEditor('new') : ''}
             ${roadmap.items.length === 0
@@ -11549,11 +11589,37 @@
     const draft = state.editingRoadmapId === 'new'
       ? state.roadmapDraftText
       : state.roadmapDraftText || (getRoadmapItems().find(item => item.id === itemId)?.text ?? '');
+    const isNew = state.editingRoadmapId === 'new';
+    const gates = getRoadmapGates();
+    const people = (roadmapGraph().people || []);
+    // Only offered while adding. An item that exists already carries an Owner
+    // control and gate chips on its own row, and a second copy here would be two
+    // controls for one fact, disagreeing the moment either is used.
+    const gatePicker = !isNew || gates.length === 0 ? '' : `
+      <div class="gate-toggle-row" role="group" aria-label="Release gates for this item">
+        <span class="gate-toggle-hint" title="${escapeAttr(GATE_HELP_TEXT)}">Release:</span>
+        ${gates.map(gate => {
+          const on = state.roadmapDraftGates.indexOf(gate.id) >= 0;
+          return `<button type="button" class="gate-toggle${on ? ' is-on' : ''}" data-action="roadmap-draft-gate"
+            data-payload="${escapeAttr(gate.id)}" aria-pressed="${on ? 'true' : 'false'}"
+            title="${escapeAttr(on ? `Take this item off the ${gate.label} release.` : `Put this item on the ${gate.label} release.`)}">${escapeHtml(gate.label)}</button>`;
+        }).join('')}
+      </div>`;
+    const ownerPicker = !isNew || people.length === 0 ? '' : `
+      <label class="work-owner-control"><span>Owner</span>
+        <select class="work-owner-select" data-action="roadmap-draft-owner" aria-label="Assign an owner to this new item"
+          title="${escapeAttr('Who is doing this. Applied once the item has been written, because an assignment names the item by its durable id and a new one does not have one yet.')}">
+          <option value=""${state.roadmapDraftOwner ? '' : ' selected'}>— unassigned —</option>
+          ${people.map(person => `<option value="${escapeAttr(person.id)}"${person.id === state.roadmapDraftOwner ? ' selected' : ''}>${escapeHtml(person.name)}</option>`).join('')}
+        </select>
+      </label>`;
     return `
       <div class="panel-card roadmap-editor">
-        <p class="section-kicker">${escapeHtml(state.editingRoadmapId === 'new' ? 'Add roadmap item' : 'Edit roadmap item')}</p>
-        <textarea class="roadmap-textarea" data-roadmap-draft="true" rows="3" placeholder="Describe the next backlog item...">${escapeHtml(draft)}</textarea>
+        <p class="section-kicker">${escapeHtml(isNew ? 'Add roadmap item' : 'Edit roadmap item')}</p>
+        <textarea class="roadmap-textarea" data-roadmap-draft="true" rows="12" placeholder="Describe the next backlog item...">${escapeHtml(draft)}</textarea>
+        ${gatePicker}
         <div class="tag-row">
+          ${ownerPicker}
           <button type="button" class="action-link" data-action="roadmap-save" data-payload="${escapeAttr(itemId)}">Save</button>
           <button type="button" class="action-link" data-action="roadmap-cancel" data-payload="${escapeAttr(itemId)}">Cancel</button>
         </div>
@@ -11580,7 +11646,10 @@
       gates: Array.isArray(item.gates) ? item.gates.slice() : (item.isMvp ? ['mvp'] : []),
     }));
     if (state.editingRoadmapId === 'new') {
-      items.unshift({ id: createRoadmapItemId(text), text, completed: false, gates: [] });
+      items.unshift({ id: createRoadmapItemId(text), text, completed: false, gates: state.roadmapDraftGates.slice() });
+      // Held for one snapshot. The item has no durable id until the host has
+      // written it, and assignment addresses a node by that id.
+      state.pendingRoadmapOwner = state.roadmapDraftOwner ? { text, contactId: state.roadmapDraftOwner } : null;
     } else {
       const target = items.find(item => item.id === state.editingRoadmapId);
       if (target) {
@@ -11590,7 +11659,40 @@
 
     state.editingRoadmapId = '';
     state.roadmapDraftText = '';
+    state.roadmapDraftGates = [];
+    state.roadmapDraftOwner = '';
     persistRoadmapItems(items);
+  }
+
+  /**
+   * Apply an owner chosen while the item was still being typed.
+   *
+   * Runs once, against the first snapshot after the save, and resolves the item
+   * by its text — the client-minted id is a suggestion the host is free to
+   * re-mint, so matching on it would miss exactly when the host did its job. If
+   * the item is not there, or carries no node id yet, the choice is *reported*
+   * rather than discarded: the user watched themselves pick an owner, so
+   * silently dropping it is the one outcome worth ruling out.
+   */
+  function applyPendingRoadmapOwner() {
+    const pending = state.pendingRoadmapOwner;
+    if (!pending) {
+      return;
+    }
+    state.pendingRoadmapOwner = null;
+    const items = getRoadmapItems();
+    const created = items.find(item => item.text === pending.text);
+    if (created && created.nodeId) {
+      vscode.postMessage({
+        type: 'roadmapNodeUpdate',
+        payload: { nodeId: created.nodeId, assigneeId: pending.contactId },
+      });
+      return;
+    }
+    const name = roadmapPersonName(pending.contactId) || 'that person';
+    state.roadmapOwnerNotice = `The item was added, but it could not be assigned to ${name} automatically. `
+      + 'Use the Owner control on its row.';
+    announce(state.roadmapOwnerNotice);
   }
 
   function persistRoadmapItems(items) {

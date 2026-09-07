@@ -4,7 +4,7 @@
 
 <h1 align="center">AtlasMind</h1>
 
-<p align="center"><sub> · <strong>Current source version: 0.409.0</strong> · </sub></p>
+<p align="center"><sub> · <strong>Current source version: 0.410.0</strong> · </sub></p>
 
 
 <p align="center">
@@ -136,6 +136,20 @@ allow-list, redaction and file-withholding behaviour, retained metadata, provide
 important limits on overrides and compliance claims.
 
 ---
+
+## What's new in 0.410.0
+
+**The roadmap entry form now takes a release gate and an owner, and its text box is
+four times the size.** Adding an item used to mean typing into a three-row box and
+setting everything else on the row afterwards.
+
+The owner is applied once the item has actually been written, because an assignment
+names an item by a durable id a brand-new one does not have yet. If it cannot be
+applied, the form says so rather than quietly dropping it — you watched yourself pick
+somebody, so silence is the wrong answer.
+
+Both controls appear only while adding. An item that already exists carries its gate
+chips and Owner control on its own row.
 
 ## What's new in 0.409.0
 

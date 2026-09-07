@@ -925,6 +925,56 @@ describe('reading a dense plan', () => {
     expect(harness.posted).toEqual([]);
   });
 
+  it('offers gates and an owner on the entry form, and saves the gates with the item', () => {
+    const harness = mount();
+    harness.send(snapshot());
+    harness.click('[data-action="roadmap-view"][data-payload="list"]');
+    harness.click('[data-action="roadmap-add"]');
+
+    // Gates ride along in the save payload the host already understands; the
+    // owner cannot, because assignment names a node by an id that does not
+    // exist until the item has been written.
+    expect(harness.root().querySelector('[data-action="roadmap-draft-gate"]')).not.toBeNull();
+    const textarea = harness.root().querySelector('textarea[data-roadmap-draft]');
+    expect(textarea).not.toBeNull();
+    expect(Number(textarea.getAttribute('rows'))).toBeGreaterThan(8);
+
+    textarea.value = 'A brand new backlog item';
+    textarea.dispatchEvent(new harness.window.Event('input', { bubbles: true }));
+    harness.click('[data-action="roadmap-draft-gate"][data-payload="mvp"]');
+    harness.posted.length = 0;
+    harness.click('[data-action="roadmap-save"]');
+
+    const saved = harness.posted.find(message => message.type === 'saveRoadmap');
+    const items = (saved?.payload as { items: Array<{ text: string; gates: string[] }> } | undefined)?.items ?? [];
+    const created = items.find(item => item.text === 'A brand new backlog item');
+    expect(created?.gates).toEqual(['mvp']);
+  });
+
+  it('reports an owner it could not apply rather than dropping it', () => {
+    const harness = mount();
+    harness.send(snapshot());
+    harness.click('[data-action="roadmap-view"][data-payload="list"]');
+    harness.click('[data-action="roadmap-add"]');
+
+    const textarea = harness.root().querySelector('textarea[data-roadmap-draft]');
+    textarea.value = 'An item nobody will find';
+    textarea.dispatchEvent(new harness.window.Event('input', { bubbles: true }));
+    // Choose an owner, then let a snapshot arrive that does not contain the
+    // item — the host rejected the write, or re-minted it beyond recognition.
+    const select = harness.root().querySelector('[data-action="roadmap-draft-owner"]');
+    expect(select, 'the fixture has a roster, so the owner picker must render').not.toBeNull();
+    select.value = 'contact-1';
+    select.dispatchEvent(new harness.window.Event('change', { bubbles: true }));
+    harness.click('[data-action="roadmap-save"]');
+    harness.send(snapshot());
+
+    // The user watched themselves pick an owner, so the one outcome ruled out
+    // is silence.
+    expect(harness.root().querySelector('.rm-banner-owner')?.textContent)
+      .toContain('could not be assigned');
+  });
+
   it('gives the backlog list its own search box, and filters the queue with it', () => {
     const harness = mount();
     harness.send(snapshot());

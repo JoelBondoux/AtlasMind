@@ -13,7 +13,7 @@ This file is the developer-facing backlog AtlasMind should absorb into SSOT and 
 - [x] The Roadmap Editable Queue panel could be larger, as it only shows a couple of entries at a time. Also, when clicking and dragging, the list should change to a title only list so it becomes easier to slide the entries in the order you want. <!-- rm:the-roadmap-editable-queue-p -->
 - [ ] The ACP connection to subscribed providers has stopped working. #mvp #critical <!-- rm:the-acp-connection-to-subscr -->
 - [x] The roadmap editable queue should be searchable. <!-- rm:the-roadmap-editable-queue-s -->
-- [ ] When adding an item to the roadmap, the editable queue entry form should also allow the selecting of a gate, tag, and a assigned user. Also the text box could be 400% bigger. <!-- rm:when-adding-an-item-to-the-r -->
+- [x] When adding an item to the roadmap, the editable queue entry form should also allow the selecting of a gate, tag, and a assigned user. Also the text box could be 400% bigger. <!-- rm:when-adding-an-item-to-the-r -->
 - [ ] In the Project Manager Dash, the chips at the top of teh screen showing the delivery stages and their version number. If clicked on they should invite teh user to make the current branch. If the current branch is one of these then it should be highlighted with a coloured outline. <!-- rm:in-the-project-manager-dash -->
 - [x] Allow the roadmap canvas to highlight nodes based on gates and users. <!-- rm:allow-the-roadmap-canvas-to -->
 - [x] If you double click on a roadmap canvas node then you zoom into it. #mvp <!-- rm:if-you-double-click-on-a-roa -->

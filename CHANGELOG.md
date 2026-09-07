@@ -6,6 +6,29 @@ The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/),
 
 ## [Unreleased]
 
+## [0.410.0] - 2026-09-07
+
+### Added
+
+- **The roadmap entry form takes a release gate and an owner, and its text box is
+  four times the size.** Adding an item meant typing a line into a three-row box
+  and then setting everything else on the row afterwards.
+- **Gates ride along in the save.** `saveRoadmap` already sanitises a per-item
+  gate list against the declared gates, so the ticked gates are simply part of
+  the new item and no host change was needed.
+- **An owner is applied after the item exists, and reported if it cannot be.**
+  Assignment addresses a node by its durable id, and a brand-new item has none
+  until the host has written it — so the choice is held for exactly one
+  snapshot, resolved by the item's *text* rather than its id, and applied
+  through the ordinary roster-validated `roadmapNodeUpdate` path. Matching on
+  the client-minted id would miss precisely when the host re-minted it, which is
+  the host doing its job. If the item cannot be found, the choice is shown in a
+  dismissible notice rather than discarded: the user watched themselves pick an
+  owner, so silence is the one outcome worth ruling out.
+- Both controls appear only while *adding*. An item that already exists carries
+  gate chips and an Owner control on its own row, and a second copy in the form
+  would be two controls for one fact, disagreeing the moment either was used.
+
 ## [0.409.0] - 2026-09-07
 
 ### Added

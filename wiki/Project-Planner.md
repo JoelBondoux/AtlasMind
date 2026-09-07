@@ -243,6 +243,14 @@ rule would show items that do not match for no visible reason. Reordering still 
 plan while a filter is on, because a drag says "put this one where that one is" and resolves by item, not
 by screen position — the queue says so when a filter is active rather than leaving you to find out.
 
+**The entry form says what the item is, not just what it is called.** Adding an item gives you a release-gate
+picker, an owner picker, and a text box four times the size of the old one. Gates are written with the item.
+The owner is applied once the item exists — an assignment names an item by a durable id a brand-new one does
+not have yet — and is resolved by the item's text rather than by the id the browser minted, because that id is
+a suggestion the host is free to re-mint. If it cannot be applied, you get a notice rather than silence. Both
+controls appear only while adding: an item that already exists carries its gate chips and Owner control on its
+own row.
+
 **Dragging collapses the queue to one line per item.** Every row stacks six blocks — handle and title,
 priority reason, release gates, actions, Atlas pills — so at full height about two entries fit on screen
 and the row you were aiming at was usually not one of them. The collapse lasts for the drag and is
