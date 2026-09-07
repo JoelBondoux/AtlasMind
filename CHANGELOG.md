@@ -6,6 +6,31 @@ The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/),
 
 ## [Unreleased]
 
+## [0.413.1] - 2026-09-07
+
+### Fixed
+
+- **The roadmap held two copies of itself.** A stale `## Existing Notes` block
+  carried an older snapshot of the backlog, so the file listed 123 items where
+  there were 72 — and every ranking read off it double-counted. `roadmapGraph`
+  tracked 58 nodes against those 123 lines, which is how the discrepancy stayed
+  invisible.
+- Duplicates were removed by keeping the **first** occurrence, verified safe
+  first: every later copy sat inside the stale block, none was longer, none was
+  ticked where the first was not, and none carried an anchor the first lacked.
+  Anchor count is unchanged at 72 and all 58 graph nodes still resolve, so no
+  item's history was orphaned — the hazard `roadmapGraphStore` documents about a
+  duplicated line stealing another item's record.
+- **One pair needed merging rather than dropping.** Both Game Dev lines shared
+  the anchor `rm:game-dev-unity-unreal-godot`, and the stale copy was the
+  *richer* one — it recorded that Phase 1 had landed. Its wording was ported onto
+  the canonical line before the duplicate was removed.
+- Removed an orphaned second `atlasmind:roadmap-items:end` marker. The parser
+  takes the first match, so it was inert rather than harmful, but a file with two
+  end markers reads as a block boundary nobody can locate. The one load-bearing
+  thing inside the stale wrapper — the `roadmap-gates` managed block declaring
+  `#mvp` and `#critical` — was kept.
+
 ## [0.413.0] - 2026-09-07
 
 ### Added

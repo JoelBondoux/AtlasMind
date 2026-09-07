@@ -4,7 +4,7 @@
 
 <h1 align="center">AtlasMind</h1>
 
-<p align="center"><sub> · <strong>Current source version: 0.413.0</strong> · </sub></p>
+<p align="center"><sub> · <strong>Current source version: 0.413.1</strong> · </sub></p>
 
 
 <p align="center">
@@ -136,6 +136,17 @@ allow-list, redaction and file-withholding behaviour, retained metadata, provide
 important limits on overrides and compliance claims.
 
 ---
+
+## What's new in 0.413.1
+
+**The roadmap held two copies of itself.** A stale section carried an older snapshot of the
+backlog, so the file listed 123 items where there were 72 — and any ranking read off it
+double-counted.
+
+Duplicates were removed by keeping the first occurrence, checked safe first: no later copy
+was longer, ticked where the first was not, or carried an anchor the first lacked. Every
+item kept its history. One pair was merged instead of dropped, because the stale copy of
+the Game Dev line was the richer one.
 
 ## What's new in 0.413.0
 

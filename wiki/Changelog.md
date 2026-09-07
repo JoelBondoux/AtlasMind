@@ -19,6 +19,24 @@ Older entries below describe the software as it was at the time and are delibera
 
 ---
 
+## v0.413.1 -- The roadmap held two copies of itself
+
+A stale `## Existing Notes` block carried an older snapshot of the backlog, so the file listed 123
+items where there were 72. Every ranking read off it double-counted, and the dependency graph
+tracked 58 nodes against those 123 lines — which is how it stayed invisible.
+
+Duplicates were removed by keeping the first occurrence, checked safe before anything was deleted:
+every later copy sat inside the stale block, none was longer, none was ticked where the first was
+not, and none carried an anchor the first lacked. The anchor count is unchanged and every graph node
+still resolves, so no item lost its history.
+
+One pair had to be merged rather than dropped. Both Game Dev lines shared an anchor, and the stale
+copy was the richer one — it recorded that Phase 1 had landed — so its wording moved onto the line
+that stayed. The gates block declaring `#mvp` and `#critical` was the one load-bearing thing inside
+the stale wrapper and was kept.
+
+---
+
 ## v0.413.0 -- The Studio can find your interface
 
 The UI Studio could map a design target onto a source file, and could not tell you what
