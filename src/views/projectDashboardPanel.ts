@@ -1,6 +1,7 @@
 import * as vscode from 'vscode';
 import * as os from 'node:os';
 import * as path from 'node:path';
+import { assessUnmanagedRoadmap, planRoadmapReconcile } from '../core/roadmapReconcile.js';
 import * as fs from 'node:fs/promises';
 import { existsSync } from 'node:fs';
 import { mkdirSync, readFileSync, writeFileSync } from 'node:fs';
@@ -6667,7 +6668,53 @@ export class ProjectDashboardPanel {
         .map(item => item.nodeId as string),
     );
 
-    const nextDocument = serializeDashboardRoadmapDocument(existing, sanitizedItems, declaredGates);
+    // A roadmap without the managed markers gets its whole previous body
+    // appended under `## Existing Notes` — items included — which duplicates the
+    // backlog in one save and never heals, because every later save touches only
+    // the block at the top. Measured on this repository: 123 item lines where
+    // there were 72, and 27 anchor ids appearing twice. So the save stops and
+    // offers to fold the loose items in instead, rather than reorganising a
+    // tracked file on the way past.
+    let baseDocument = existing;
+    let itemsToWrite = sanitizedItems;
+    const unmanaged = assessUnmanagedRoadmap(existing);
+    if (unmanaged.wouldDuplicate) {
+      const plan = planRoadmapReconcile(existing, sanitizedItems.map(item => item.text));
+      const detail = `${filePath} has ${unmanaged.orphanItemTexts.length} item(s) outside the block AtlasMind manages`
+        + `${unmanaged.truncated ? ' (more than it counted)' : ''}.\n\n`
+        + `Saving as-is would keep them as a second copy of the backlog. Reconciling adopts `
+        + `${plan.adopted.length} of them as roadmap items`
+        + `${plan.alreadyPresent > 0 ? `, skips ${plan.alreadyPresent} already on the roadmap` : ''}`
+        + `, and keeps the remaining prose as notes.\n\nNothing is deleted.`;
+      const choice = await vscode.window.showWarningMessage(
+        'Reconcile this roadmap first?',
+        { modal: true, detail },
+        'Reconcile and save',
+      );
+      if (choice !== 'Reconcile and save') {
+        // Refused, not written. The dashboard edit is lost rather than applied
+        // on top of a file that would duplicate — which is recoverable, where a
+        // duplicated backlog silently is not.
+        return;
+      }
+      itemsToWrite = [
+        ...sanitizedItems,
+        // No id and no anchor: an adopted line is a new roadmap item, and
+        // minting an anchor here would claim graph history it does not have.
+        ...plan.adopted.map((text, index) => ({
+          id: `adopted-${index + 1}`,
+          text,
+          completed: false,
+          isMvp: false,
+          gates: [] as string[],
+        })),
+      ];
+      // Only the prose survives as notes: the items have been lifted into the
+      // managed block, and preserving them again is the duplication itself.
+      baseDocument = plan.notes;
+    }
+
+    const nextDocument = serializeDashboardRoadmapDocument(baseDocument, itemsToWrite, declaredGates);
     await fs.writeFile(filePath, nextDocument, 'utf-8');
     await this.stampRoadmapCompletion(workspaceRoot, ssotPath, sanitizedItems, previouslyCompleted);
 

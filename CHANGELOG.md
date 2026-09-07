@@ -6,6 +6,33 @@ The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/),
 
 ## [Unreleased]
 
+## [0.414.0] - 2026-09-07
+
+### Fixed
+
+- **A roadmap without the managed markers is reconciled, not duplicated.** The
+  writer had two paths: replace the managed block in place when both markers are
+  present, or emit a fresh document and append the entire previous file verbatim
+  under `## Existing Notes`. The second duplicates the whole backlog in one save
+  and never heals, because every later save touches only the block at the top. It
+  fires on any roadmap AtlasMind did not write — hand-authored, an older format,
+  or one somebody reformatted.
+- The save now stops and offers to fold the loose items in, naming how many it
+  would adopt and how many are already on the roadmap. Declining writes nothing:
+  losing a dashboard edit is recoverable, a silently duplicated backlog is not.
+
+### Added
+
+- **`roadmapReconcile.ts`** separates items from prose before anything is
+  preserved — appending both is what made the duplicate, and dropping both would
+  lose the backlog. Orphans match on the same normalized key `roadmapImport`
+  adopts by, so a roadmap imported once and reconciled later does not acquire two
+  spellings of one line. An orphan the dashboard already holds is skipped rather
+  than merged: the incoming line is the one carrying the durable anchor. Content
+  inside a managed block is ignored, and a checkbox inside a fence is an example
+  rather than somebody's backlog item. Adopted lines get no anchor, because
+  minting one would claim graph history they do not have. Pure + unit-tested.
+
 ## [0.413.1] - 2026-09-07
 
 ### Fixed

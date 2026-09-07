@@ -19,6 +19,32 @@ Older entries below describe the software as it was at the time and are delibera
 
 ---
 
+## v0.414.0 -- Reconcile a roadmap instead of copying it
+
+Saving against a roadmap AtlasMind did not write — hand-authored, an older format, one
+somebody reformatted — used to append the entire previous file underneath the new one as
+`## Existing Notes`. Items included. That copies the whole backlog in a single save and
+never heals, because every later save touches only the managed block at the top.
+
+It is how this repository's own roadmap came to list 123 items where there were 72, with
+27 anchor ids appearing twice — the hazard the graph store documents about a duplicated
+line stealing another item's history. Nothing reported it, because both halves looked
+like a roadmap.
+
+The save now stops and offers to fold the loose items in, naming how many it would adopt
+and how many are already on the roadmap. Decline and nothing is written: losing a
+dashboard edit is recoverable, and a silently duplicated backlog is not.
+
+`roadmapReconcile.ts` separates items from prose before anything is preserved — appending
+both is what made the duplicate, and dropping both would lose the backlog. Orphans match
+on the same normalized key the importer adopts by, so a roadmap imported once and
+reconciled later does not end up with two spellings of one line. An orphan the dashboard
+already holds is skipped rather than merged, because the incoming line is the one carrying
+the durable anchor. A checkbox inside a code fence is an example, not somebody's backlog
+item. Adopted lines get no anchor: minting one would claim graph history they do not have.
+
+---
+
 ## v0.413.1 -- The roadmap held two copies of itself
 
 A stale `## Existing Notes` block carried an older snapshot of the backlog, so the file listed 123
