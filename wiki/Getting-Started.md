@@ -17,6 +17,11 @@ real work. Everything below is the longer explanation.
 And **one way to reach a model** — see [step 1](#1-connect-a-model) below. If you already pay for
 Claude, ChatGPT, Copilot or Qwen, you can use that instead of buying API credit.
 
+> **Only want the project-management side?** You can skip step 1 entirely. The dashboard, the
+> registers, the lenses and the workflow read your repository and need no model — and AtlasMind will
+> tell your existing assistant (Copilot, Claude Code, Cursor, Codex, Gemini CLI, Windsurf) the rules
+> it holds itself to. See [[Bring Your Own AI Tool]].
+
 ---
 
 ## Install it

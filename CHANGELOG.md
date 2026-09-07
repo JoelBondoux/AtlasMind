@@ -6,6 +6,38 @@ The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/),
 
 ## [Unreleased]
 
+## [0.420.4] - 2026-09-07
+
+### Added
+
+- **`wiki/Bring-Your-Own-AI-Tool.md` — the management layer as a first-class route.**
+  0.420.3 said in a paragraph that AtlasMind's chat is optional; this is the page that
+  makes it followable. What works with no AtlasMind chat and no model provider at all
+  (23 dashboard pages, the registers, the lenses, the workflow, ideation, project
+  memory); the exact instruction file each tool reads; both managed-block marker pairs
+  quoted so somebody can find or delete them by hand; the sync command; and a six-step
+  setup that skips connecting a provider.
+
+  It also states **what genuinely does need AtlasMind's agents** -- the specialists,
+  `/project`, `/loop`, Mission Control, the Atlas hand-off pills, and anything asking a
+  model to assess something. A page selling a boundary without drawing it is worse than
+  no page: somebody adopts it, hits the first hand-off pill, and concludes the whole
+  claim was marketing. What those produce is a draft or a record you approve, so
+  declining them costs automation rather than information -- and the hand-off prompts
+  are text you can paste into your own tool.
+
+  Linked from `_Sidebar.md` under *Other ways in*, `Home.md`, the README, and
+  `Getting-Started.md`, where a callout now says step 1 is skippable.
+
+### Changed
+
+- **Marketplace `categories`: `Other` → `Visualization`.** `Other` is not a category
+  anybody browses, and the dashboard, dependency canvas, charts and eleven lenses are
+  the visualization claim. `Testing` was considered and rejected: that category is
+  populated by test adapters and runners, and AtlasMind grades testing evidence rather
+  than executing a suite, so listing there would put it in front of people wanting
+  something it does not do.
+
 ## [0.420.3] - 2026-09-07
 
 ### Changed

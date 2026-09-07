@@ -4,7 +4,7 @@
 
 <h1 align="center">AtlasMind</h1>
 
-<p align="center"><sub> · <strong>Current source version: 0.420.3</strong> · </sub></p>
+<p align="center"><sub> · <strong>Current source version: 0.420.4</strong> · </sub></p>
 
 
 <p align="center">
@@ -74,7 +74,8 @@ methodologies, the technical-debt markers it scans for, and the stage-by-stage r
 declared GitHub workflow. Whatever agent you use gets told the same rules AtlasMind holds itself to,
 and the registers keep working because they read your repository rather than your chat history.
 
-Its own agents are there when you want them. They are not a prerequisite.
+Its own agents are there when you want them. They are not a prerequisite. Full setup in
+[Bring Your Own AI Tool](wiki/Bring-Your-Own-AI-Tool.md).
 
 ---
 
@@ -174,7 +175,7 @@ important limits on overrides and compliance claims.
 
 ---
 
-## What's new in 0.420.3
+## What's new in 0.420.4
 
 The last Marketplace publication, **v0.402.4**, is the baseline — these are the headline changes
 landing on top of it. Every release is written up in full in [CHANGELOG.md](CHANGELOG.md).

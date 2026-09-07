@@ -19,6 +19,24 @@ Older entries below describe the software as it was at the time and are delibera
 
 ---
 
+## v0.420.4 -- Bring your own AI tool, properly documented
+
+The previous release *said* AtlasMind's chat is optional. [[Bring Your Own AI Tool]] is the page that
+makes it followable: what works with no AtlasMind chat and no model provider at all, the exact
+instruction file each tool reads, both managed-block marker pairs quoted so you can find or delete
+them by hand, the sync command, and a setup that skips connecting a provider entirely.
+
+It also draws the boundary honestly — the specialists, `/project`, `/loop`, Mission Control and the
+Atlas hand-off pills do need AtlasMind's agents. Selling a boundary without drawing it is worse than
+saying nothing: somebody adopts the route, hits the first hand-off pill, and concludes the claim was
+marketing.
+
+Marketplace category `Other` became `Visualization`, which is what the dashboard, the dependency
+canvas and eleven lenses actually are. `Testing` was considered and rejected — that category is test
+adapters and runners, and AtlasMind grades testing evidence rather than running a suite.
+
+---
+
 ## v0.420.3 -- A project manager with an orchestrator attached
 
 The marketing described the product AtlasMind used to be. Everything reader-facing led with

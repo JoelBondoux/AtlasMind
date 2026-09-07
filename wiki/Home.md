@@ -133,6 +133,7 @@ code, get checked against your repository, and report honestly when nobody has l
 | [[Delivery]] | Moving work safely towards production |
 | [[Website Studio|UI Studio]] | Visual design, content, screens, full built-in-browser preview, responsive inspection, and implementation handoff for websites and other interfaces |
 | [[Resource Discovery]] | Finding and adding new MCP servers, agents and skills |
+| [[Bring Your Own AI Tool]] | Using the management layer with Copilot, Claude Code, Cursor, Codex, Gemini or Windsurf instead of AtlasMind's chat |
 | [[Remote Control]] | Driving a desktop instance from a browser |
 
 ### Trust

@@ -22,6 +22,7 @@
 - [[Resource Discovery]]
 
 ### Other ways in
+- [[Bring Your Own AI Tool]]
 - [[CLI]]
 - [[Remote Control]]
 
