@@ -685,6 +685,21 @@ function dayDiff(fromKey: string, toKey: string): number {
 }
 
 /**
+ * Whole calendar days between two dates, in the same terms follow-up urgency
+ * uses — `undefined` when either end is unreadable.
+ *
+ * Exported because the priority board needs exactly this arithmetic and a
+ * second copy of "what day is it" would eventually disagree with this one:
+ * a follow-up would read overdue on one surface and due today on another.
+ */
+export function calendarDaysBetween(from: string | Date, to: string | Date): number | undefined {
+  const fromKey = from instanceof Date ? dateKey(from) : toDateKey(from);
+  const toKey = to instanceof Date ? dateKey(to) : toDateKey(to);
+  if (!fromKey || !toKey) { return undefined; }
+  return dayDiff(fromKey, toKey);
+}
+
+/**
  * Classify a follow-up's urgency. `overdue`/`due-soon`/`upcoming` are derived
  * from `dueDate` relative to now; `done`/`cancelled` collapse to `done`; a
  * snoozed item that has not yet re-surfaced is `snoozed`, otherwise it is

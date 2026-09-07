@@ -6,6 +6,34 @@ The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/),
 
 ## [Unreleased]
 
+## [0.417.0] - 2026-09-07
+
+### Added
+
+- `directorPriority.ts`: the personal-vs-project split behind the two sidebar people
+  views, pure and unit-tested. `collectSelfWork` answers *what is mine*;
+  `buildDirectorPriorities` answers *what should the project do first, and what is
+  somebody else sitting on*, as a board ranked by a declared rule table where every
+  row publishes the rule that graded it.
+- Project Director's **Work on next** group flags work that is past its date, has had
+  nothing recorded against it for a fortnight, or that other outstanding work declares
+  a dependency on — derived from the roadmap graph's *declared* edges only.
+- `calendarDaysBetween`, exported from `projectDirectorManager`, so one module decides
+  what day it is and a follow-up cannot read overdue on one surface and due today on
+  another.
+
+### Changed
+
+- **Project State is scoped to what names you.** It took every due follow-up in the
+  project regardless of owner, so its "waiting on you" count was the whole project's
+  count and matched the Project Director badge exactly. An unowned record now counts
+  as yours only on a solo project, where there is nobody else it could belong to.
+- The Project Director badge counts **flags, not work**: items late or holding somebody
+  up, never the ready-to-pick-up rows. A badge that counts the backlog is permanently
+  non-zero and stops being read. Its title reads `Project Director · N flagged`.
+- An unreadable roadmap dependency graph is reported as *not assessed* in its own row
+  rather than as "nothing is blocking anything".
+
 ## [0.416.1] - 2026-09-07
 
 ### Added

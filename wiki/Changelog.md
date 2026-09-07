@@ -19,6 +19,34 @@ Older entries below describe the software as it was at the time and are delibera
 
 ---
 
+## v0.417.0 -- Two sidebar views, two questions
+
+Project State and Project Director sat one above the other and showed the same number. Not
+by coincidence: both called one collector — every due follow-up in the project, plus every
+assignment owned by you — so on a project whose director is also its developer the second
+badge carried no information at all.
+
+They now ask different questions.
+
+**Project State** is your list. Active assignments and due follow-ups that **name** you.
+An unowned item counts only on a solo project, where there is nobody else it could be; on a
+team project an unowned item is nobody's, and quietly putting it on your list would assign
+it to you.
+
+**Project Director** is the project's list: what to work on first across everybody, with
+what somebody else is sitting on flagged — past its date, started and untouched for a
+fortnight, or with other outstanding work waiting on it. Rows say whose it is and how late.
+Its badge counts only those flags, because a badge that counts the backlog is permanently
+non-zero and stops being read.
+
+Every row publishes the rule that graded it, ranking is by consequence rather than by
+magnitude — one item three others wait on outranks a pile of individually late ones — and
+"holding up other work" is derived from the roadmap's *declared* dependency edges only. A
+suggested link must never tell you a colleague is blocking the release. When that graph
+cannot be read, the view says the question was not asked instead of answering "none".
+
+---
+
 ## v0.416.1 -- Roadmap: offering a capability without overselling it
 
 A new backlog entry, and the framing is the point of it.

@@ -3,7 +3,11 @@ import { describeAcpBridgeState, resolveAcpBridgeState, registerTreeViews } from
 import * as vscode from 'vscode';
 
 vi.mock('vscode', () => ({
-  TreeItem: class {},
+  // Carries the label so a row's rendered text can be asserted — the Director
+  // tree ranks its rows, and an order that cannot be read back is not pinned.
+  TreeItem: class {
+    constructor(public label?: unknown, public collapsibleState?: unknown) {}
+  },
   EventEmitter: class {
     fire() {}
     event = vi.fn();
@@ -111,6 +115,10 @@ describe('registerTreeViews', () => {
     }, {
       id: 'asg-other', title: 'A colleague owns this', assigneeContactId: 'contact-colleague',
       status: 'todo', priority: 'high', linkedWork: { kind: 'risk', id: 'risk-1' },
+    }, {
+      id: 'asg-stuck', title: 'A colleague is sitting on this', assigneeContactId: 'contact-colleague',
+      status: 'in-progress', priority: 'high', due: '2020-01-01',
+      linkedWork: { kind: 'issue', id: '7' },
     });
     const refreshListener = projectDirectorRefresh.mock.calls[0]?.[0] as (() => void) | undefined;
     expect(refreshListener).toBeTypeOf('function');
@@ -121,14 +129,17 @@ describe('registerTreeViews', () => {
     };
     const projectStateTreeView = viewFor('atlasmind.projectStateView');
     const projectDirectorTreeView = viewFor('atlasmind.projectDirectorView');
+    // The two views must not report the same number for the same reason. Project
+    // State counts what names me; Project Director counts what is late or
+    // holding somebody up, whoever owns it — here the colleague's overdue item.
     expect(projectStateTreeView.badge).toMatchObject({ value: 1, tooltip: '1 thing waiting on you' });
     expect(projectStateTreeView.title).toBe('Project State · 1 waiting');
     expect(projectStateTreeView.description).toBeUndefined();
     expect(projectDirectorTreeView.badge).toMatchObject({
       value: 1,
-      tooltip: '1 Director follow-up needing attention',
+      tooltip: '1 item late or holding up other work',
     });
-    expect(projectDirectorTreeView.title).toBe('Project Director · 1 follow-up');
+    expect(projectDirectorTreeView.title).toBe('Project Director · 1 flagged');
     expect(projectDirectorTreeView.description).toBeUndefined();
 
     const decorationProvider = vi.mocked(vscode.window.registerFileDecorationProvider).mock.calls[0]?.[0];
@@ -147,7 +158,7 @@ describe('registerTreeViews', () => {
     );
     expect(directorDecoration).toMatchObject({
       badge: '1',
-      tooltip: '1 Director follow-up needing attention',
+      tooltip: '1 item late or holding up other work',
       color: { id: 'notificationsWarningIcon.foreground' },
     });
 
@@ -160,13 +171,25 @@ describe('registerTreeViews', () => {
     const projectDirectorOptions = vi.mocked(vscode.window.createTreeView).mock.calls
       .find(([viewId]) => viewId === 'atlasmind.projectDirectorView')?.[1] as any;
     const directorRoots = projectDirectorOptions.treeDataProvider.getChildren();
-    const followUpsRoot = directorRoots.find((item: any) => item.group === 'followups');
-    expect(followUpsRoot.resourceUri?.toString()).toBe('atlasmind-project-director:/follow-ups');
-    const directorFollowUps = projectDirectorOptions.treeDataProvider.getChildren(followUpsRoot);
-    expect(directorFollowUps[0].command).toMatchObject({
+    const prioritiesRoot = directorRoots.find((item: any) => item.group === 'priorities');
+    expect(prioritiesRoot.resourceUri?.toString()).toBe('atlasmind-project-director:/follow-ups');
+    const directorPriorities = projectDirectorOptions.treeDataProvider.getChildren(prioritiesRoot);
+    // Ranked by consequence: the colleague's overdue item leads, ahead of the
+    // two that are merely waiting to be picked up.
+    expect(directorPriorities[0].label).toBe('A colleague is sitting on this');
+    expect(directorPriorities[0].command).toMatchObject({
       command: 'atlasmind.openProjectDashboard',
-      arguments: [{ page: 'branches', focus: { kind: 'branch', id: 'develop' } }],
+      arguments: [{ page: 'issues', focus: { kind: 'issue', id: '7' } }],
     });
+    // The trailing row is rule 5: with no workspace the roadmap dependency
+    // graph could not be read, so nothing is graded as holding up other work —
+    // and the view says the question was not asked rather than answering "none".
+    expect(directorPriorities.map((item: any) => item.label)).toEqual([
+      'A colleague is sitting on this',
+      'A colleague owns this',
+      'Finish the branch',
+      'What depends on what: not assessed',
+    ]);
 
     directorConfig.assignments.splice(0);
     refreshListener?.();

@@ -15,9 +15,18 @@ import {
   resolveRestrictiveLevel,
 } from '../core/workflowAutomation.js';
 import { SSOT_FOLDERS } from '../types.js';
-import type { AgentDefinition, ArdDiscoveredResource, ArdDiscoveryEndpoint, Assignment, FollowUp, McpServerState, MemoryEntry, ProjectDashboardOpenTarget, ProjectDirectorConfig, ProjectRunRecord, ProviderConfig, SkillDefinition, SkillScanResult } from '../types.js';
+import type { AgentDefinition, ArdDiscoveredResource, ArdDiscoveryEndpoint, Assignment, McpServerState, MemoryEntry, ProjectDashboardOpenTarget, ProjectRunRecord, ProviderConfig, SkillDefinition, SkillScanResult } from '../types.js';
 import { ACP_PROVIDER_ID, findAcpBridge, parseAcpAgentSettings, peekAcpAgentProbe } from '../providers/acp.js';
 import { deriveFollowUpUrgency, resolveTeamMode } from '../core/projectDirectorManager.js';
+import {
+  buildDirectorPriorities,
+  collectSelfWork,
+  roadmapDependentsForAssignments,
+  type DirectorPriorityBoard,
+  type DirectorPriorityItem,
+  type RoadmapDependencyReading,
+} from '../core/directorPriority.js';
+import { readRoadmapGraphFile } from '../core/roadmapGraphStore.js';
 import { assessPipelinePromotions } from '../core/promotionReadiness.js';
 import type { SessionConversationSummary, SessionFolderSummary } from '../chat/sessionConversation.js';
 import { ChatPanel, ChatViewProvider } from './chatPanel.js';
@@ -135,8 +144,8 @@ export function registerTreeViews(
   );
   const projectDirectorAttentionDecorations = new AttentionDecorationProvider(
     projectDirectorAttentionUri,
-    'Director follow-up needing attention',
-    'Director follow-ups needing attention',
+    'item late or holding up other work',
+    'items late or holding up other work',
   );
   /**
    * Badge and visibility, recomputed together.
@@ -189,16 +198,30 @@ export function registerTreeViews(
     set('atlasmind.hasMcpServers', (atlas.mcpServerRegistry?.listServers?.() ?? []).length > 0);
   };
 
+  /**
+   * The Director badge counts **flags, not work.**
+   *
+   * It used to count every due follow-up plus every assignment owned by "me",
+   * which is exactly what the Project State badge counts — so on a project
+   * where the director is also the developer both views showed the same number
+   * for the same reason, and the second one said nothing. This view answers a
+   * different question: what is late, not moving, or holding somebody else up.
+   * Ordinary ready-to-pick-up work is listed but never badged, because a badge
+   * that counts the backlog is permanently non-zero and therefore ignored.
+   */
   const refreshDirectorAttention = (): void => {
-    const attention = collectDirectorAttention(atlas.projectDirectorManager?.getConfig());
-    const count = attention.followUps.length + attention.assignments.length;
+    const board = projectDirectorProvider.board();
+    const count = board.flaggedCount;
     projectDirectorTreeView.title = count > 0
-      ? `Project Director · ${count} follow-up${count === 1 ? '' : 's'}`
+      ? `Project Director · ${count} flagged`
       : 'Project Director';
     projectDirectorTreeView.description = undefined;
     projectDirectorAttentionDecorations.update(count);
     projectDirectorTreeView.badge = count > 0
-      ? { value: count, tooltip: `${count} Director follow-up${count === 1 ? '' : 's'} needing attention` }
+      ? {
+        value: count,
+        tooltip: `${count} item${count === 1 ? '' : 's'} late or holding up other work`,
+      }
       : undefined;
   };
   refreshDirectorAttention();
@@ -1192,17 +1215,21 @@ type DirectorTreeNode = DirectorGroupItem | DirectorEntryItem;
 
 class DirectorGroupItem extends vscode.TreeItem {
   constructor(
-    public readonly group: 'stakeholders' | 'team' | 'followups',
+    public readonly group: 'stakeholders' | 'team' | 'priorities',
     label: string,
     count: number,
     icon: string,
     attentionUri?: vscode.Uri,
+    tooltip?: string,
   ) {
     super(`${label} (${count})`, vscode.TreeItemCollapsibleState.Expanded);
     this.contextValue = `director-group-${group}`;
     this.iconPath = new vscode.ThemeIcon(icon);
     if (attentionUri) {
       this.resourceUri = attentionUri;
+    }
+    if (tooltip) {
+      this.tooltip = tooltip;
     }
   }
 }
@@ -1214,11 +1241,59 @@ class DirectorEntryItem extends vscode.TreeItem {
     icon: string,
     command: vscode.Command = { command: 'atlasmind.openProjectDirector', title: 'Open Project Director' },
     color?: string,
+    tooltip?: string,
   ) {
     super(label || '—', vscode.TreeItemCollapsibleState.None);
     this.description = description;
     this.iconPath = new vscode.ThemeIcon(icon, color ? new vscode.ThemeColor(color) : undefined);
     this.command = command;
+    if (tooltip) {
+      this.tooltip = tooltip;
+    }
+  }
+}
+
+/**
+ * How many outstanding roadmap items wait on each piece of linked work.
+ *
+ * The only dependency information AtlasMind actually holds is the roadmap
+ * graph's declared edges. Reading and joining them lives in `directorPriority`;
+ * this is the `fs` half — read the file, hand it over, and cache it, because a
+ * tree refreshes on unrelated events and this is the one thing here that
+ * touches disk.
+ *
+ * Returns `undefined` when the graph could not be read at all, and the board
+ * treats that as *not assessed* rather than as "nothing blocks anything".
+ */
+const ROADMAP_DEPENDENTS_TTL_MS = 30_000;
+let roadmapGraphCache: { at: number; value: RoadmapDependencyReading | undefined } | undefined;
+
+function readRoadmapDependents(
+  assignments: readonly Assignment[],
+  now: number = Date.now(),
+): ReadonlyMap<string, number> | undefined {
+  if (!roadmapGraphCache || now - roadmapGraphCache.at >= ROADMAP_DEPENDENTS_TTL_MS) {
+    roadmapGraphCache = { at: now, value: readRoadmapDependencyGraph() };
+  }
+  const reading = roadmapGraphCache.value;
+  return reading ? roadmapDependentsForAssignments(reading, assignments) : undefined;
+}
+
+function readRoadmapDependencyGraph(): RoadmapDependencyReading | undefined {
+  const workspaceFolder = vscode.workspace.workspaceFolders?.[0];
+  if (!workspaceFolder) {
+    return undefined;
+  }
+  const rawSsotPath = vscode.workspace.getConfiguration?.('atlasmind')?.get<string>('ssotPath', 'project_memory')
+    ?? 'project_memory';
+  const ssotPath = getValidatedSsotPath(rawSsotPath);
+  if (!ssotPath) {
+    return undefined;
+  }
+  try {
+    return readRoadmapGraphFile(workspaceFolder.uri.fsPath, ssotPath).config;
+  } catch {
+    return undefined;
   }
 }
 
@@ -1362,9 +1437,15 @@ class ProjectStateTreeProvider implements vscode.TreeDataProvider<vscode.TreeIte
 
     // Follow-ups are already in memory on the Director manager, so this costs
     // nothing. Runs likewise.
+    //
+    // Scoped to **what names me**. This section is titled "Waiting on you", and
+    // it used to take every due follow-up in the project regardless of owner —
+    // so a director's personal list was the whole project's list, and it matched
+    // the Project Director badge exactly. Who owns what is now decided once, in
+    // `directorPriority.ts`, and the other view asks a different question.
     const directorConfig = this.atlas.projectDirectorManager?.getConfig();
     if (directorConfig) {
-      const directorAttention = collectDirectorAttention(directorConfig);
+      const directorAttention = collectSelfWork(directorConfig);
       const assignedWork = directorAttention.assignments.map(assignment => ({
             id: assignment.id,
             title: assignment.title,
@@ -1389,9 +1470,25 @@ class ProjectStateTreeProvider implements vscode.TreeDataProvider<vscode.TreeIte
   }
 }
 
+/**
+ * The Project Director tree: what the project should do first, and what
+ * somebody else is sitting on.
+ *
+ * Deliberately **not** the same list as Project State. That view answers "what
+ * is waiting on *me*"; this one answers "what should be worked on first, across
+ * everybody" and flags the work that is late, not moving, or that other work is
+ * waiting on. Both used to call one collector, so on a project where the
+ * director and the developer are the same person the two badges were the same
+ * number for the same reason.
+ *
+ * The ranking itself lives in `directorPriority.ts`, which is pure and tested
+ * and publishes the rule that graded every row; this class is a renderer.
+ */
 class ProjectDirectorTreeProvider implements vscode.TreeDataProvider<DirectorTreeNode> {
   private readonly _onDidChangeTreeData = new vscode.EventEmitter<DirectorTreeNode | undefined>();
   readonly onDidChangeTreeData = this._onDidChangeTreeData.event;
+
+  private cached: DirectorPriorityBoard | undefined;
 
   constructor(
     private readonly atlas: AtlasMindContext,
@@ -1399,7 +1496,25 @@ class ProjectDirectorTreeProvider implements vscode.TreeDataProvider<DirectorTre
   ) {}
 
   refresh(): void {
+    this.cached = undefined;
     this._onDidChangeTreeData.fire(undefined);
+  }
+
+  /**
+   * Rebuild the board and return it.
+   *
+   * Independent of `getChildren` for the reason `ProjectStateTreeProvider.compute`
+   * is: the badge is computed from this, and a cache only `getChildren` filled
+   * would leave the badge reading a board that the collapsed view never built.
+   */
+  board(): DirectorPriorityBoard {
+    const config = this.atlas.projectDirectorManager?.getConfig();
+    const board = buildDirectorPriorities({
+      config,
+      dependents: readRoadmapDependents(config?.assignments ?? []),
+    });
+    this.cached = board;
+    return board;
   }
 
   getTreeItem(element: DirectorTreeNode): vscode.TreeItem {
@@ -1413,7 +1528,7 @@ class ProjectDirectorTreeProvider implements vscode.TreeDataProvider<DirectorTre
     }
     const nameOf = (contactId: string): string =>
       config.contacts.find(contact => contact.id === contactId)?.name ?? '—';
-    const attention = collectDirectorAttention(config);
+    const board = this.cached ?? this.board();
 
     if (!element) {
       const groups: DirectorTreeNode[] = [];
@@ -1424,11 +1539,12 @@ class ProjectDirectorTreeProvider implements vscode.TreeDataProvider<DirectorTre
         groups.push(new DirectorGroupItem('team', 'Team', config.teamMembers.length, 'organization'));
       }
       groups.push(new DirectorGroupItem(
-        'followups',
-        'Follow-ups',
-        attention.followUps.length + attention.assignments.length,
-        'bell',
+        'priorities',
+        'Work on next',
+        board.totalCount,
+        'list-ordered',
         this.attentionUri,
+        board.summary,
       ));
       return groups;
     }
@@ -1441,68 +1557,87 @@ class ProjectDirectorTreeProvider implements vscode.TreeDataProvider<DirectorTre
       return config.teamMembers.map(member =>
         new DirectorEntryItem(nameOf(member.contactId), member.discipline, 'person'));
     }
-    if (element instanceof DirectorGroupItem && element.group === 'followups') {
-      if (attention.followUps.length === 0 && attention.assignments.length === 0) {
-        const empty = new vscode.TreeItem('Nothing due', vscode.TreeItemCollapsibleState.None);
+    if (element instanceof DirectorGroupItem && element.group === 'priorities') {
+      const rows: DirectorTreeNode[] = board.items.map(item => directorPriorityRow(item));
+      if (rows.length === 0) {
+        const empty = new vscode.TreeItem(
+          board.emptyState === 'unexamined' ? 'Nothing recorded yet' : 'Nothing to pick up',
+          vscode.TreeItemCollapsibleState.None,
+        );
         empty.contextValue = 'director-empty';
-        return [empty as DirectorTreeNode];
+        empty.tooltip = board.summary;
+        rows.push(empty as DirectorTreeNode);
       }
-      const followUps = attention.followUps.map(followUp => {
-        const overdue = deriveFollowUpUrgency(followUp) === 'overdue';
-        return new DirectorEntryItem(
-          followUp.title,
-          `due ${followUp.dueDate}`,
-          overdue ? 'warning' : 'clock',
-          dashboardTreeCommand({
-            page: 'director',
-            focus: { kind: 'follow-up', id: followUp.id },
-          }, 'Open this follow-up'),
-          overdue ? 'charts.red' : 'charts.yellow',
+      if (board.droppedByCap > 0) {
+        // Truncation is stated rather than silent: a capped list that says
+        // nothing reads as "that is everything".
+        const more = new vscode.TreeItem(
+          `${board.droppedByCap} more not shown`,
+          vscode.TreeItemCollapsibleState.None,
         );
-      });
-      const assignments = attention.assignments.map(assignment => {
-        const destination = assignment.linkedWork?.kind
-          ?? (assignment.linkedRunId ? 'run' as const : 'director' as const);
-        const targetId = assignment.linkedWork?.id ?? assignment.linkedRunId ?? assignment.id;
-        const command = assignmentDestinationCommand(destination, targetId);
-        return new DirectorEntryItem(
-          assignment.title,
-          `${assignment.status.replace(/-/g, ' ')} · ${assignment.priority}`,
-          assignment.status === 'blocked' ? 'circle-slash'
-            : assignment.status === 'in-progress' ? 'sync' : 'circle-outline',
-          {
-            command: command.command,
-            title: command.title,
-            ...(command.args ? { arguments: command.args } : {}),
-          },
+        more.contextValue = 'director-more';
+        more.iconPath = new vscode.ThemeIcon('ellipsis');
+        more.command = { command: 'atlasmind.openProjectDirector', title: 'Open Project Director' };
+        rows.push(more as DirectorTreeNode);
+      }
+      // Rule 5: a question nobody asked must not read as an answer of "none".
+      // Only worth saying where a dependency graph could have changed a grade.
+      if (!board.dependenciesAssessed && board.dependenciesMatter) {
+        const unassessed = new vscode.TreeItem(
+          'What depends on what: not assessed',
+          vscode.TreeItemCollapsibleState.None,
         );
-      });
-      return [...followUps, ...assignments];
+        unassessed.contextValue = 'director-unassessed';
+        unassessed.iconPath = new vscode.ThemeIcon('question');
+        unassessed.tooltip = 'The roadmap dependency graph could not be read, so nothing here is graded '
+          + 'as holding up other work. Unknown rather than none.';
+        unassessed.command = dashboardTreeCommand({ page: 'roadmap' }, 'Open the Roadmap');
+        rows.push(unassessed as DirectorTreeNode);
+      }
+      return rows;
     }
     return [];
   }
 }
 
-function collectDirectorAttention(config: ProjectDirectorConfig | undefined): {
-  followUps: FollowUp[];
-  assignments: Assignment[];
-} {
-  if (!config) {
-    return { followUps: [], assignments: [] };
+/**
+ * One priority row.
+ *
+ * The description carries the *flag* — how late, how many are waiting, whose it
+ * is — because that is the fact this view exists to surface and a title alone
+ * cannot show it. Colour is reserved for the two grades that mean something is
+ * wrong; ordinary next work is uncoloured, or the whole list reads as an alarm.
+ */
+function directorPriorityRow(item: DirectorPriorityItem): DirectorEntryItem {
+  const command: vscode.Command = item.source.kind === 'follow-up'
+    ? dashboardTreeCommand({ page: 'director', focus: { kind: 'follow-up', id: item.source.id } }, 'Open this follow-up')
+    : (() => {
+      const resolved = assignmentDestinationCommand(item.destination, item.targetId);
+      return {
+        command: resolved.command,
+        title: resolved.title,
+        ...(resolved.args ? { arguments: resolved.args } : {}),
+      };
+    })();
+  const parts: string[] = [];
+  if (item.waitingCount !== undefined) {
+    parts.push(`blocking ${item.waitingCount}`);
+  } else if (item.ageDays !== undefined) {
+    parts.push(`${item.ageDays}d`);
   }
-  const followUps = config.followUps.filter(followUp => {
-    const urgency = deriveFollowUpUrgency(followUp);
-    return followUp.status !== 'done'
-      && followUp.status !== 'cancelled'
-      && (urgency === 'overdue' || urgency === 'due-soon');
-  });
-  const assignments = config.selfContactId
-    ? config.assignments.filter(assignment =>
-      assignment.assigneeContactId === config.selfContactId
-      && assignment.status !== 'done'
-      && assignment.status !== 'cancelled')
-    : [];
-  return { followUps, assignments };
+  parts.push(item.mine ? 'yours' : item.ownerName ?? 'unowned');
+  return new DirectorEntryItem(
+    item.title,
+    parts.join(' · '),
+    item.severity === 'blocking' ? 'circle-slash'
+      : item.severity === 'late' ? 'warning'
+        : 'circle-outline',
+    command,
+    item.severity === 'blocking' ? 'charts.red'
+      : item.severity === 'late' ? 'charts.yellow'
+        : undefined,
+    `${item.detail}\n\nGraded by: ${item.rule}`,
+  );
 }
 
 function dashboardTreeCommand(target: ProjectDashboardOpenTarget, title: string): vscode.Command {

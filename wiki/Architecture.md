@@ -945,18 +945,32 @@ validates the contact, and stores a closed work-kind/id link in the Project Dire
 of truth. Branch tokens are checked once more against fresh Git state before saving, so a stale card
 cannot assign a renamed or replaced ref.
 
-Project State is the personal ToDo projection of that contract. Active assignments owned by the
-Director contact marked as **me** appear one per row under **Waiting on you**, carrying status, priority,
-and a link to the work's owning page; due and overdue follow-ups appear individually too. Completed,
-cancelled, and colleague-owned assignments are omitted. Project Director's own **Follow-ups** group uses
-the same source: those due reminders plus the active assignments owned by **me**.
-VS Code treats a native tree view's `badge` as container activity and hides a view's description when
-the panel collapses, so AtlasMind projects the same count through the three public channels that own
-these locations: `TreeView.badge` on the AtlasMind activity-bar icon, a dynamic
-**Project State · N waiting** title that remains visible when closed, and a coloured file-decoration
-badge on **Waiting on you**. Project Director repeats those three channels with a dynamic
-**Project Director · N follow-ups** title and a coloured Follow-ups row badge. Dashboard owner saves
-refresh both trees immediately, and external Project Director file changes follow the same path.
+Project State is the personal ToDo projection of that contract, and Project Director is deliberately
+**not** the same list. Project State answers *what is waiting on me*: active assignments and due or
+overdue follow-ups that **name** the Director contact marked as **me**, one per row under **Waiting on
+you**, carrying status, priority, and a link to the work's owning page. Completed, cancelled, and
+colleague-owned records are omitted, and an unowned record counts only on a solo project, where there is
+nobody else it could belong to.
+
+Project Director answers a different question: *what should be worked on first, and what is somebody
+else sitting on*. Its **Work on next** group is a ranked board built by `directorPriority.ts` from a
+declared rule table, and every row publishes the rule that graded it. Work that other outstanding work
+declares a dependency on leads, then work past its date or with nothing recorded against it for a
+fortnight, then work that is simply ready to pick up. Rows say whose the work is and how late it is,
+because the flag is the fact this view exists to surface. What is holding other work up comes from the
+roadmap graph's *declared* edges only — a suggested link must not tell somebody their colleague is
+blocking the release — and when that graph cannot be read the view says so in its own row rather than
+reporting that nothing is blocked.
+
+The two views therefore no longer report the same number for the same reason. VS Code treats a native
+tree view's `badge` as container activity and hides a view's description when the panel collapses, so
+AtlasMind projects each count through the three public channels that own these locations:
+`TreeView.badge` on the AtlasMind activity-bar icon, a dynamic **Project State · N waiting** title that
+remains visible when closed, and a coloured file-decoration badge on **Waiting on you**. Project
+Director repeats those three channels with a dynamic **Project Director · N flagged** title, counting
+only what is late or holding somebody up — never the ready-to-pick-up rows, because a badge that counts
+the backlog is permanently non-zero and stops being read. Dashboard owner saves refresh both trees
+immediately, and external Project Director file changes follow the same path.
 
 Tree commands use a guarded `ProjectDashboardOpenTarget`: a validated page plus an optional allowlisted
 work kind and bounded stable id. Matching focus markers live on branch, roadmap, issue, pull-request,
