@@ -4,7 +4,7 @@
 
 <h1 align="center">AtlasMind</h1>
 
-<p align="center"><sub> · <strong>Current source version: 0.424.0</strong> · </sub></p>
+<p align="center"><sub> · <strong>Current source version: 0.425.0</strong> · </sub></p>
 
 
 <p align="center">
@@ -175,7 +175,7 @@ important limits on overrides and compliance claims.
 
 ---
 
-## What's new in 0.424.0
+## What's new in 0.425.0
 
 The last Marketplace publication, **v0.420.4**, brought the changes below. Every release is written
 up in full in [CHANGELOG.md](CHANGELOG.md).
@@ -300,6 +300,8 @@ Everything is in the AtlasMind Settings panel, or under `atlasmind.*` in VS Code
 | `budgetMode` | `balanced` | How much you're willing to spend per task |
 | `speedMode` | `balanced` | Fast answers versus more considered ones |
 | `dailyCostLimitUsd` | `0` | Daily spending cap; `0` means no cap |
+| `producerReport.publishEnabled` | `false` | Allow the producer report to be prepared for GitHub Pages. A Pages site is public **even from a private repository** |
+| `producerReport.publishRisks` · `publishCost` | `false` | Add the risk register or cost to the published page. Off separately, because each is a disclosure |
 | `toolApprovalMode` | `ask-on-write` | How often AtlasMind asks before acting |
 | `allowTerminalWrite` | `false` | Whether approved terminal commands may change things |
 | `skillAutoSynthesisEnabled` | `false` | Let a model write a new skill and run it when a tool does not exist. Off; every synthesis is scanned and shown to you first |

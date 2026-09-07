@@ -19,6 +19,26 @@ Older entries below describe the software as it was at the time and are delibera
 
 ---
 
+## v0.425.0 -- Preparing the page, deliberately
+
+The publication gate shipped two releases ago with nothing calling it. **AtlasMind: Prepare Producer
+Report for Publication** wires it, and the three settings that govern it now control something real:
+`publishEnabled`, `publishRisks`, `publishCost`, all off.
+
+Two commands rather than one with a flag — generating a report for yourself and preparing one for the
+open internet are different decisions, and a single command with a setting would let the second
+happen because of a checkbox ticked weeks ago.
+
+Repository visibility is read at the moment it matters rather than cached, because a repository can
+be made public between one publication and the next and the warning is only worth something if it
+describes the repository as it is now. The confirmation lists the warnings, what will be published
+and what is withheld, before a byte is written.
+
+Also fixed: the configuration docs cited `atlasmind.cost.historyLocation`, a roadmap proposal that was
+never implemented. The docs-integrity test caught it the same day the reference was introduced.
+
+---
+
 ## v0.424.0 -- The producer report, actually produced
 
 The previous release shipped the renderer with nothing to call it. **AtlasMind: Generate Producer

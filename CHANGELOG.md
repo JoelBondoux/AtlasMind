@@ -6,6 +6,41 @@ The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/),
 
 ## [Unreleased]
 
+## [0.425.0] - 2026-09-07
+
+### Added
+
+- **`AtlasMind: Prepare Producer Report for Publication`, and the three settings that
+  govern it** — roadmap item `NOW-4`. The gate shipped in 0.423.1 with nothing calling
+  it; this wires it, so the settings now control something real.
+
+  **Two commands rather than one with a flag.** Generating a report for yourself and
+  preparing one for the open internet are different decisions, and a single command with
+  a setting would let the second happen because of a checkbox somebody ticked weeks ago.
+
+  **Repository visibility is read at the moment it matters**, not cached — a repository
+  can be made public between one publication and the next, and the warning is only worth
+  anything if it describes the repository as it is now. An unreadable answer is treated
+  as `unknown`, which the gate treats as public.
+
+  Settings, all `false` by default: `producerReport.publishEnabled`,
+  `publishRisks`, `publishCost`. On its own the master switch publishes roadmap progress
+  by gate and delivery readiness — what a client actually asks for, naming neither a
+  person nor a sum.
+
+  The confirmation is modal and lists the warnings, what will be published and what is
+  withheld, before anything is written. The prepared page goes to
+  `project_memory/operations/producer-site/`.
+
+### Fixed
+
+- **The configuration docs cited a setting that does not exist.** `docsIntegrity` caught
+  `atlasmind.cost.historyLocation` referenced in three places — it is a `ROADMAP.md`
+  proposal from `NOW-1`, never implemented, because the cost-history location work has not
+  been built. Reworded to describe the interaction without naming an id that resolves to
+  nothing. Exactly the drift that test exists to catch, and it caught it on the same day
+  the reference was introduced.
+
 ## [0.424.0] - 2026-09-07
 
 ### Added

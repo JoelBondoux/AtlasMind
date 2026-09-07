@@ -347,8 +347,109 @@ export function registerCommands(
     }
   };
 
+  /**
+   * Prepare the report for GitHub Pages.
+   *
+   * Deliberately two commands rather than one flag on the first: generating a
+   * report for yourself and preparing one for the open internet are different
+   * decisions, and a single command with a setting would let the second happen
+   * because of a checkbox somebody ticked weeks ago.
+   */
+  const publishProducerReport = async (): Promise<void> => {
+    const atlas = requireAtlas();
+    if (!atlas) { return; }
+    const folder = vscode.workspace.workspaceFolders?.[0];
+    if (!folder) {
+      void vscode.window.showInformationMessage('Open a project folder before publishing a producer report.');
+      return;
+    }
+
+    const config = vscode.workspace.getConfiguration('atlasmind');
+    const [{ decidePublication, buildPublishableReport }, { renderProducerReportHtml, renderProducerReportMarkdown }, fs, path] =
+      await Promise.all([
+        import('./core/producerReportPublication.js'),
+        import('./core/producerReport.js'),
+        import('node:fs/promises'),
+        import('node:path'),
+      ]);
+
+    const root = folder.uri.fsPath;
+    const ssotPath = config.get<string>('ssotPath', 'project_memory');
+    const dataPath = path.join(root, ssotPath, 'operations', 'producer-report.json');
+
+    let data;
+    try {
+      data = JSON.parse(await fs.readFile(dataPath, 'utf8'));
+    } catch {
+      void vscode.window.showWarningMessage(
+        'No producer report to publish yet. Run "AtlasMind: Generate Producer Report" first.',
+      );
+      return;
+    }
+
+    // Asked at the moment it matters rather than cached: a repository can be
+    // made public between one publication and the next, and the warning is only
+    // worth anything if it describes the repository as it is now.
+    let visibility: 'public' | 'private' | 'unknown' = 'unknown';
+    try {
+      const { runGhOrThrow } = await import('./core/ghClient.js');
+      const raw = (await runGhOrThrow(root, ['repo', 'view', '--json', 'visibility', '-q', '.visibility'])).trim().toLowerCase();
+      visibility = raw === 'public' ? 'public' : raw === 'private' || raw === 'internal' ? 'private' : 'unknown';
+    } catch { visibility = 'unknown'; }
+
+    const decision = decidePublication(
+      {
+        enabled: config.get<boolean>('producerReport.publishEnabled', false),
+        sections: {
+          risks: config.get<boolean>('producerReport.publishRisks', false),
+          cost: config.get<boolean>('producerReport.publishCost', false),
+        },
+      },
+      visibility,
+    );
+
+    if (!decision.publish) {
+      void vscode.window.showInformationMessage(
+        `${decision.reason ?? 'Nothing to publish.'} Turn on "atlasmind.producerReport.publishEnabled" to prepare a page.`,
+      );
+      return;
+    }
+
+    const confirmed = await vscode.window.showWarningMessage(
+      `Prepare a public status page for ${folder.name}?`,
+      {
+        modal: true,
+        detail: [
+          ...decision.warnings,
+          '',
+          `Will publish: ${decision.publishedSections.join(', ')}.`,
+          decision.withheldSections.length > 0
+            ? `Withheld: ${decision.withheldSections.join(', ')}.`
+            : 'Nothing withheld.',
+        ].join('\n'),
+      },
+      'Prepare page',
+    );
+    if (confirmed !== 'Prepare page') { return; }
+
+    const publishable = buildPublishableReport(data, decision);
+    const siteDir = path.join(root, ssotPath, 'operations', 'producer-site');
+    await fs.mkdir(siteDir, { recursive: true });
+    await Promise.all([
+      fs.writeFile(path.join(siteDir, 'index.html'), renderProducerReportHtml(publishable.data), 'utf8'),
+      fs.writeFile(path.join(siteDir, 'index.md'), renderProducerReportMarkdown(publishable.data), 'utf8'),
+      fs.writeFile(path.join(siteDir, 'producer-report.json'), `${JSON.stringify(publishable.data, null, 2)}\n`, 'utf8'),
+    ]);
+
+    void vscode.window.showInformationMessage(
+      `Public page prepared in ${ssotPath}/operations/producer-site/. `
+      + 'Point GitHub Pages at that folder, or copy it into your Pages source, to serve it.',
+    );
+  };
+
   context.subscriptions.push(
     vscode.commands.registerCommand('atlasmind.generateProducerReport', generateProducerReport),
+    vscode.commands.registerCommand('atlasmind.publishProducerReport', publishProducerReport),
 
     vscode.commands.registerCommand('atlasmind.openGettingStarted', async () => {
       await vscode.commands.executeCommand(
