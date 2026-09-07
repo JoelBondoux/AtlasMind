@@ -6,6 +6,40 @@ The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/),
 
 ## [Unreleased]
 
+## [0.429.2] - 2026-09-07
+
+### Added
+
+- **`docs/security-data-flow.md` and `docs/security-hardening-roadmap.md`** — Phase 0 of
+  a security hardening review. **Evidence only; no behaviour changed.**
+
+  Each hypothesis was verified against the source at `284ef096` and carries file and line
+  citations. Findings, in the order they matter:
+
+  - **A timer started at activation sends up to 4,000 characters of raw project memory to
+    a possibly-cloud model, unredacted, unclassified, and writes the result back to
+    project files.** `extension.ts:2628` is ungated; `memoryAgent.ts:84` embeds the file
+    content verbatim; `memoryAgent.ts:53` dispatches it. The `'local'` argument at
+    `memoryAgent.ts:46` reads like a constraint and is a **fallback** —
+    `orchestrator.ts:7325-7337` returns the model's own provider whenever metadata exists.
+    `DataPrivacyManager` is wired to the orchestrator alone at `extension.ts:2612`,
+    sixteen lines above the timer that bypasses it. Three failures on that path are
+    swallowed (`memoryAgent.ts:48-50`, `:63-65`, `extension.ts:2646-2648`).
+  - **No mandatory egress boundary.** 21 prompt-bearing provider calls across 8 files
+    outside the adapters; only `orchestrator.ts` references the redactor at all.
+  - **Two hypotheses were partly wrong, in the code's favour, and are recorded as such.**
+    Skill auto-synthesis is deny-by-default (`orchestrator.ts:3672`) with a comment naming
+    the exact risk, and `safeRequire` (`skillDrafting.ts:93-95`) blocks every import. The
+    residual gap is narrower than "regex scanning as a sandbox": no isolation from ambient
+    host globals once enabled.
+
+  The roadmap classifies P0–P3 with acceptance criteria and the regression test that
+  proves each — a security fix with no failing-first test being a claim rather than a
+  change. **What the pass did not verify is listed explicitly**, including read-only
+  enforcement, Autopilot ceilings, routine preview, and `toolApprovalManager.ts` /
+  `toolPolicy.ts`, which were not read. An audit implying it looked everywhere is the same
+  failure as a test that cannot fail.
+
 ## [0.429.1] - 2026-09-07
 
 ### Fixed

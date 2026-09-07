@@ -19,6 +19,26 @@ Older entries below describe the software as it was at the time and are delibera
 
 ---
 
+## v0.429.2 -- A security audit, evidence first
+
+Phase 0 of a security hardening review: two documents, no behaviour changed. Every hypothesis was
+checked against the source with file and line citations rather than taken from the documentation.
+
+The headline finding: **a timer started at activation sends up to 4,000 characters of raw project
+memory to a possibly-cloud model** — unredacted, unclassified — and writes the result back into
+project files. The `'local'` argument on that path reads like a constraint and is actually a
+fallback, and the privacy manager is wired to the orchestrator alone, sixteen lines above the timer
+that bypasses it. Three failures on the same path are swallowed silently.
+
+Two hypotheses turned out **partly wrong in the code's favour** and are recorded that way: skill
+auto-synthesis is deny-by-default with a comment naming the exact risk, and generated code cannot
+import anything. The real gap is narrower than it looked.
+
+What the pass did *not* verify is listed explicitly — an audit implying it looked everywhere is the
+same failure as a test that cannot fail.
+
+---
+
 ## v0.429.1 -- Two tests that could not fail
 
 The dead-test-directory item turned out to be worse than the nit it was written as. Agent routing had
