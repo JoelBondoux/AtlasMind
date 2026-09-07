@@ -19,6 +19,502 @@ Older entries below describe the software as it was at the time and are delibera
 
 ---
 
+## v0.423.1 -- The gate before the portal
+
+The safety core of the Pages portal, built before the publisher because it is the part that is
+expensive to get wrong. Not yet wired: nothing calls it, no setting exists, and no page can be
+published. Settings were deliberately left out — a switch that controls nothing is worse than no
+switch.
+
+The fact it turns on is one most people do not know: **a GitHub Pages site is public even when the
+repository is private.** So publishing the producer's report means publishing to the open internet,
+and that report can carry stakeholder names, a register of commercial, legal and ethical findings,
+and what the project has spent.
+
+Deny by default, per section: on means roadmap gates and delivery readiness, which name neither a
+person nor a sum. Risks and cost need their own switches, and the warning names what they expose
+before it happens. A withheld section keeps its heading and says so, because a page that silently
+omits cost reads as a project that spent nothing. And withholding cost leaves no residual total —
+a page showing "$15 total" with no lines discloses the very number it withheld.
+
+---
+
+## v0.423.0 -- A status document for people who don't open VS Code
+
+Everything good about the project manager was invisible to the people who most need it — a producer, a
+client, a technical director — because a panel is the wrong container for an audience that isn't in
+the panel. The producer's report is the fix: roadmap progress by gate, open risks and their recorded
+decisions, delivery readiness, and cost against estimate, as markdown and a single self-contained HTML
+page.
+
+Built as gather → model → render, with the model emitted alongside the document so the planned GitHub
+Pages portal can consume it later rather than being a rewrite.
+
+**No model writes any of it.** The same project state produces a byte-identical report, and the clock
+is injected — otherwise every run would differ and drown the real changes. A generated status summary
+is a claim nobody checked, in a committed file, attributed to the project, and this is the document
+most likely to be forwarded to somebody who cannot check it.
+
+**And a section that could not be read says so.** *Not assessed* and *none recorded* render
+differently, because a report about a project with eleven open risks must not look identical to one
+whose risk register could not be read. The HTML carries no script, link, image or URL, so it opens
+from an email attachment or a memory stick.
+
+---
+
+## v0.422.0 -- What did this feature cost?
+
+The join nobody else has. An issue tracker cannot see tokens; a cost tracker cannot see a plan.
+AtlasMind now holds both, and spend is attributed to the roadmap item it was incurred against.
+
+Starting work from a roadmap item attributes **the whole chat session** to it, because nearly all the
+work on an item is follow-up turns and attributing only the first would under-report so badly the
+number would be useless. Since a session left open while you wander elsewhere would then charge
+unrelated work to the item, every attributed record says whether it was *inferred* from the session
+or *stated* outright — and an unstated provenance counts as inferred, the weaker claim.
+
+Three rules keep the figures honest. **Unattributed spend is reported, never distributed** — a number
+spread pro rata is indistinguishable from a measured one once it is on screen. **No spend attributed
+is not zero spend**, because an item nobody has worked on and an item whose work predates attribution
+both show no money and only one of them was free. And **an absent estimate is not an estimate of
+zero**, or every unestimated item would read as over budget the moment it cost anything.
+
+---
+
+## v0.421.0 -- Cost you can attribute, and re-price
+
+The foundation the roadmap's `Now` waits on. Two fields, and a module deciding what may honestly be
+said about them.
+
+**Every cost record now carries the workspace it came from.** History is stored per machine, so until
+now every project's spend was in one undifferentiated list and "what did this project cost" was not a
+missing feature but an uncomputable question. The key is normalized by one shared function, because
+cost records and run records are joined on it and two normalizers would eventually disagree about a
+trailing slash — the join would match nothing and every project would report zero, which looks like
+missing data rather than a broken key.
+
+**Cache writes are recorded separately from cache reads.** They are priced in opposite directions — a
+read is cheaper than an ordinary input token, a write is dearer — so two requests with identical
+input totals can differ in real cost by a multiple. The value was already in hand and discarded: the
+Anthropic adapter parsed it, folded it into the total, and dropped it one line later. Because a sum
+cannot be taken apart afterwards, older records are permanently un-repriceable rather than
+repairable, which is why this had to land first.
+
+**And the rule that keeps the eventual saving claim honest: an absent field is unknown, never zero.**
+A missing write count defaulted to zero would price a cache-heavy request as though it wrote nothing
+— understating the comparison in exactly the direction that flatters us. Such records are graded
+*partial*: real money, counted in actual spend, barred from a savings claim.
+
+---
+
+## v0.420.11 -- Nine items on the backlog
+
+Author-added: an approval flow from ideas through to roadmap, documentation, legal and commercial
+changes; richer commit content for workflow and analytics mapping; Gantt, milestone and critical-path
+tracking; a team-management surface for workload, estimates and rotas; a bug tracker and a
+test-management interface for the PM dashboard; a Kanban board; wider baseline comparison; and a
+commit-message action in the Source Control panel.
+
+---
+
+## v0.420.10 -- What the portal may publish, decided
+
+`NOW-4` now specifies its publishing default rather than proposing one. Public: roadmap progress by
+gate, and delivery readiness — what a client actually asks for. Opt-in, one section at a time:
+stakeholders, assignments, follow-ups, the risk register, and all cost.
+
+It also checks repository visibility at publish time and warns differently for a private repository.
+A Pages site is public whether or not the repo is, so the two defaults point opposite ways: GitHub's
+is *publish publicly*, while somebody who made their repository private has already said the
+opposite. Where a tool's default contradicts a user's expressed intent, saying so out loud is the
+minimum — and it costs one API call at the moment it matters.
+
+Every decision `Now` depended on is recorded. The single remaining question sits against `NXT-8` and
+blocks nothing.
+
+---
+
+## v0.420.9 -- The portal joins MVP, and Now is re-cut to fit it
+
+Publishing the producer's report as a GitHub Pages portal moves into MVP as `NOW-4`. Rather than
+letting Now grow to six items, the price map moved out to `NXT-0` — and the dependencies say that is
+right rather than convenient: nothing in Now needs it, since `NOW-2` reports actual spend that
+today's code already prices, while the *savings* claim does, and `NXT-0` now sits directly in front
+of it.
+
+A committed HTML file is readable by whoever clones the repository. A portal is a link you can send a
+client. That distinction is the whole of the PM pillar's structural gap, which is why the portal is
+not merely a second renderer.
+
+The privacy design is in the item rather than deferred. **A GitHub Pages site is public by default
+even from a private repository** — access control is an Enterprise Cloud feature — and the report can
+carry stakeholder names, a risk register and, if cost history is set to `repository`, your spend.
+Publishing is therefore off until switched on, controlled per section, with people and money off even
+once it is on; the proposed default is roadmap progress by gate plus delivery readiness.
+
+---
+
+## v0.420.8 -- Four decisions, three new items
+
+Every open roadmap question is answered, and the section becomes a decision record rather than
+disappearing. The producer's console gets proved first, with counterfactual pricing following on the
+same foundation. Solo producers and small studios lead the beta — most of them BYOK anyway, so the
+cost story still gets tested, on the people the console is actually for.
+
+Three items join Next. **Fetch the database drivers on first use** keeps the Lens live-database
+feature and moves its cost to the people who use it — though the item argues both sides, because the
+measured saving is ~1.7 MB against a 21 MB dependency tree and a runtime fetch adds a supply-chain
+surface a pinned dependency does not have. **Wire ideation, vision, UI Studio and Buzz into the
+project manager** — all four stay, so they earn their place by connecting rather than by existing.
+And **Slack as a Buzz alternative**, sized small because `directorCommsRunner` was written for
+exactly this and already matches the tool names a Slack MCP server exposes.
+
+---
+
+## v0.420.7 -- Cost history gets a switch, not a verdict
+
+Where cost history lives was the one open decision blocking the roadmap's first item. It becomes a
+setting — `atlasmind.cost.historyLocation`, defaulting to **machine-private**, with **in-repository**
+one switch away.
+
+The default is deliberately the less useful of the two. In-repo is what lets the producer's report
+carry a cost section for someone who never opens VS Code; it is also what commits a record of your
+API spend to a repository you may later make public. Deny-by-default is the house rule for that shape
+of choice. The consequence is written down rather than left to be discovered: with the default
+untouched the report renders cost as *not shared*, never as zero, because a report that quietly omits
+cost reads as a project that spent nothing.
+
+A second-line item joins Later: mirroring cost history to a destination you nominate. A copy and
+never a move, off by default, confirmed by name on first use — and carrying a warning that "a secure
+source" means either a path you already own (small, credential-free) or a cloud integration with an
+SDK and a token-refresh path (not small), and that "secure" needs defining before it appears in any
+UI.
+
+---
+
+## v0.420.6 -- A roadmap that says what to do first
+
+`ROADMAP.md` arrives at the repository root: three horizons, dependency-ordered, each item carrying
+the problem, the outcome, the gap it closes, acceptance criteria and what it depends on — plus an
+*Explicitly not doing* list and five open decisions. Written for a closed beta with no customers, no
+hosting budget and no analytics, so every item runs on the user's own machine.
+
+It does not replace the live backlog in `project_memory/roadmap/improvement-plan.md`, which the
+Project Dashboard parses and which carries durable item ids; reformatting that file would have broken
+it. The new file says what to do first, the backlog stays the record of everything outstanding.
+
+The document opens with **What the code says**, because reading the code disagreed with the analysis
+in four places — cache *writes* are not recorded so past requests cannot be re-priced; cost is stored
+machine-wide with no project field, making per-project attribution uncomputable rather than merely
+missing; the model router reads execution outcomes rather than project memory, so "memory informs
+routing" would be untrue; and a daily spend cap already exists. A day-one *projected* saving is
+recorded as a deliberate refusal: a repo scan cannot know your request volume.
+
+---
+
+## v0.420.5 -- Baseline refreshed
+
+Post-release housekeeping: the README's published baseline now names **v0.420.4**, the release just
+put on the Marketplace, and its "what's new" list reads as shipped rather than queued.
+
+---
+
+## v0.420.4 -- Bring your own AI tool, properly documented
+
+The previous release *said* AtlasMind's chat is optional. [[Bring Your Own AI Tool]] is the page that
+makes it followable: what works with no AtlasMind chat and no model provider at all, the exact
+instruction file each tool reads, both managed-block marker pairs quoted so you can find or delete
+them by hand, the sync command, and a setup that skips connecting a provider entirely.
+
+It also draws the boundary honestly — the specialists, `/project`, `/loop`, Mission Control and the
+Atlas hand-off pills do need AtlasMind's agents. Selling a boundary without drawing it is worse than
+saying nothing: somebody adopts the route, hits the first hand-off pill, and concludes the claim was
+marketing.
+
+Marketplace category `Other` became `Visualization`, which is what the dashboard, the dependency
+canvas and eleven lenses actually are. `Testing` was considered and rejected — that category is test
+adapters and runners, and AtlasMind grades testing evidence rather than running a suite.
+
+---
+
+## v0.420.3 -- A project manager with an orchestrator attached
+
+The marketing described the product AtlasMind used to be. Everything reader-facing led with
+"multi-agent orchestrator" and a delivery team — accurate when the orchestrator *was* the product,
+and not for a while now. The Project Dashboard is 23 pages, the registers transition and grade
+against published rule tables, the lenses read live services. That is the larger half, and it had
+one row in a fourteen-row table.
+
+Repositioned across the README hero, "What is AtlasMind?", "Who it's for", "What's included" and
+this wiki.
+
+The expensive part was `package.json`. The README is read by people who already found the extension;
+`description` and `keywords` are what the Marketplace *indexes*, and neither held a single
+project-management word — so nobody searching for one could find it. Both now do, without dropping
+the agent keywords.
+
+And it now says out loud that **you don't need AtlasMind's chat**. The management layer reads your
+repository rather than a conversation, and AtlasMind already writes its testing methodologies, debt
+markers and workflow rules into the instruction files Copilot, Claude Code, Cursor, Codex, Gemini CLI
+and Windsurf read. That shipped a while ago and was never advertised, which made AtlasMind look like
+an either/or against tools nobody is going to give up.
+
+---
+
+## v0.420.2 -- A README that isn't a second changelog
+
+The README held **71** `What's new in x.y.z` sections across 2,149 of its 2,460 lines — a changelog
+maintained by hand, inside the document that doubles as the Marketplace listing. It now carries two
+lists and a link: **What's new**, five headline changes since the last publication (v0.402.4), which
+is what somebody installing the next release actually gets; and **Recently shipped**, the five most
+important things already in the published build. Everything else is in
+[CHANGELOG.md](https://github.com/JoelBondoux/AtlasMind/blob/main/CHANGELOG.md), which is what it is
+for.
+
+341 lines, down from 2,460.
+
+Beyond tidiness: a reader deciding whether to install had to scroll past eighteen versions of
+internal fixes before reaching anything addressed to them, and per-patch notes on a listing page age
+into noise the moment they ship — nobody ever deletes them. Two curated lists have to be *chosen*,
+which is exactly what a chronological log cannot do.
+
+---
+
+## v0.420.1 -- Links that resolve
+
+Six wiki links to `OSMFEULA.txt` and `MAINTENANCE_FEE.md` were 404s. Both files are new and live
+only on `develop`, and the links pointed at `blob/main/` — the convention the wiki already uses for
+`LICENSE` and `CHANGELOG.md`, which works only because those have been on `main` for a long time.
+Now pointed at `develop`; links to files that really are on `main` were left as they were.
+
+Behind it: `main` is at 0.402.4 against `develop`'s 0.420.1, so the release promotion is roughly
+eighteen minor versions overdue, and waiting for it was not a fix but an open-ended outage on a link
+to licence terms.
+
+When 1.0.0 exists the EULA link should move once more — to a **tag**, not a branch. Terms somebody
+is agreeing to deserve an immutable reference, and 1.0.0 is when the fee commences anyway.
+
+---
+
+## v0.420.0 -- The Open Source Maintenance Fee, in full
+
+AtlasMind now follows the [OSMF](https://opensourcemaintenancefee.org) model completely.
+`OSMFEULA.txt` carries the EULA v1.1 template unaltered, with the payment terms attached as a
+Schedule — Section 2 defers those to the project, which is where the v1.0.0 commencement
+legitimately lives. `package.json` declares `SEE LICENSE IN OSMFEULA.txt`, because the manifest
+describes the `.vsix` and that is what the fee attaches to.
+
+**The split is the whole design, and both halves matter.** The source code stays MIT permanently:
+clone the repository, compile AtlasMind, owe nothing, sign nothing — Section 4 guarantees it. The
+official binary release is what the EULA covers. For a VS Code extension that is how nearly everyone
+installs it, so this is a genuine change and not a technicality, and saying otherwise would be
+selling it dishonestly.
+
+From **v1.0.0**, organizations with annual gross revenue of at least US$10,000 using the official
+releases in revenue-generating activities pay $10/$40/$60 a month by headcount. **Nothing is payable
+before v1.0.0.** Individuals, students, hobby projects, non-profits, open source projects and anyone
+below the revenue floor never pay at all.
+
+Several claims elsewhere stopped being true and were rewritten rather than quietly dropped — "no
+paid tier, no feature gate", "fully open source... no paywall", "the extension is free and MIT
+licensed". What survives is narrower and still exactly true: no feature gating, no lesser edition,
+every user gets the same software, and no amount of money buys a feature, a vote, priority triage or
+a service level.
+
+---
+
+## v0.419.4 -- Tiers that don't sell anything
+
+Five tiers, matching GitHub Sponsors: a voluntary **$5 Supporter** for individuals, students and
+anyone outside commercial work; three **Maintenance Fee** bands by headcount (**$10** under 20
+employees, **$40** to 100, **$60** above) that apply only from v1.0.0; and a **one-off** of any
+amount.
+
+The substantive change is what left. The old tiers sold early access to roadmap discussions, a vote
+on priorities, priority issue triage and a logo on the README — a paid tier wearing a sponsorship
+label. "No paid tier, no feature gate, and no plan to add one" stops being true the moment faster
+triage is for sale, whatever the invoice says. A fee funding maintenance everyone benefits from
+equally is a different thing from a fee buying you position in the queue, and only one of them fits
+under that sentence.
+
+Supporter and the Maintenance Fee stay visibly separate, because collapsing them gets both wrong in
+opposite directions: an individual reading a fee schedule concludes they owe something, and an
+organization reading a tip jar concludes nothing is expected. No individual is ever in scope of the
+fee.
+
+`CONTRIBUTORS.md` follows the same two groups, opt-in and undated — "supported from the very
+beginning" stops being true for everyone who arrives later.
+
+---
+
+## v0.419.3 -- Not before 1.0.0
+
+The maintenance fee announced in 0.419.2 comes into force at **v1.0.0**, and not before.
+During Beta the MIT licence is the whole story and nobody is asked for anything. The previous
+entry gave no start date, which read as a fee owed today by anyone using AtlasMind at work.
+
+A version is the better trigger. OSMF suggests announcing three to six months ahead, but a date
+arrives whether or not the software is ready; 1.0.0 arrives when it is, and anybody can check it
+rather than trusting a promise. It is also the release where the configuration and memory formats
+freeze -- the point where this becomes something you can build on without being migrated out from
+under. A Beta that may still move under you hasn't earned the ask.
+
+Every surface that mentions the fee now carries both claims together: **not before 1.0.0**, and
+**optional even then**.
+
+---
+
+## v0.419.2 -- An Open Source Maintenance Fee, optionally
+
+AtlasMind now participates in the [Open Source Maintenance Fee](https://opensourcemaintenancefee.org).
+Organisations with annual gross revenue of USD 10,000 or more that use it in revenue-generating
+work are asked for the model's own tiers -- $10/mo under 20 employees, $40/mo to 100, $60/mo
+above. Everyone else is asked for nothing.
+
+The distinction it rests on is worth quoting: *the source code is free -- as in freedom -- but
+the maintenance is not.* And the reason for a fee rather than a general appeal is that "support
+us if this helps you" puts the question of how much on the person least equipped to answer it,
+which is usually why nothing gets sent.
+
+**The licence does not change.** OSMF as published makes the fee mandatory for qualifying
+commercial users, enforced by an EULA on the binary release. AtlasMind does not do that: the
+LICENSE is unmodified MIT, the `.vsix` carries no terms of its own, `package.json` still says
+`"license": "MIT"`, and nothing is withheld from anyone who doesn't pay. For a VS Code extension
+the binary *is* how everyone installs it, so a fee-bearing binary would be the product rather
+than a carve-out.
+
+See [MAINTENANCE_FEE.md](https://github.com/JoelBondoux/AtlasMind/blob/develop/MAINTENANCE_FEE.md)
+and [Funding and Sponsorship](Funding-and-Sponsorship.md).
+
+---
+
+## v0.419.1 -- Ticks that stayed ticked
+
+Five backlog items delivered across 0.418.0-0.418.2 were ticked as each shipped and found
+un-ticked afterwards. An open Project Dashboard holds the backlog in memory and writes its
+whole copy back whenever you edit it, so a session started before those releases restores the
+state it was opened with. Ticked again.
+
+---
+
+## v0.419.0 -- Which way the plan continues
+
+The roadmap canvas clips at its frame, so a node outside it is not small -- it is absent, and
+absent looks exactly like does-not-exist. That is fine while you are the one who just panned.
+It is misleading everywhere else: after a fit that could not zoom out far enough, under a
+route filter, or on a plan somebody else laid out.
+
+Each edge the plan continues past now carries a faint glow. The ideation board has had this
+since it gained a viewport; the roadmap canvas was the one without it. An edge lights only
+when a card is wholly past it -- one you can half-see is one you can see -- and a frame that
+cannot be measured lights nothing at all.
+
+---
+
+## v0.418.2 -- A search that shows you what it found
+
+Searching the roadmap canvas asked for a re-fit on every keystroke, and the fit ran. It just
+could not do anything, because search stopped removing nodes from the canvas when it became a
+highlight rather than a filter -- everything stays drawn so the dependencies around a match
+are still readable. Fitting *all* the nodes after narrowing therefore framed exactly what it
+framed before: a request satisfied and invisible.
+
+A search now zooms and pans to the matches themselves, and so do the gate and person filters,
+which narrow through the same mechanism. A query that matches nothing frames the whole plan
+instead -- there is nothing to zoom to, and flying off to an empty region of canvas reads as
+the plan having been lost.
+
+---
+
+## v0.418.1 -- Unlinked items you can actually find
+
+Roadmap items with no dependencies are parked in a block of their own after the linked plan.
+That is the right idea -- they say nothing about order, and they carry no arrows, so a grid
+cannot be misread as a sequence. Where the block went was the problem.
+
+It began two slots past the plan, a gap sized for two linked sub-plans whose arrows need room
+to be read, when nothing crosses this boundary at all. Then it grew downward before it grew
+sideways: six cards deep before a second column started. On a backlog where most items have
+no declared dependencies -- which is most backlogs -- that put the majority of the plan below
+the fold, behind a band of empty canvas.
+
+One slot separates it now, and it fills across the window before it fills down it.
+
+---
+
+## v0.418.0 -- The dashboard's own furniture
+
+Three things about the Project Dashboard that were quietly wrong.
+
+The navigation shifted sideways every time you changed page. The selected tab is drawn
+bolder than the others, bold text is wider, and nothing was holding the width — so the
+active pill grew and nudged its neighbours along. Overview showed it worst, being both the
+page you land on and the first pill in the first group. Every label now reserves its bold
+width at all times. In a narrow window, a group of tabs could also reach past the edge of
+its box, because the row was only allowed to break *between* groups; tabs wrap inside their
+group now.
+
+Road to MVP lists every item tagged for the release, which on a real backlog is a lot of
+them. At the old spacing they arrived as a wall of small text. The columns are wider, the
+padding inside each is doubled, and wrapped rows are separated -- and the connecting line
+between milestones, which used to dangle into empty space at the end of every wrapped row,
+now stops where the row does.
+
+And adding an item to the roadmap is offered where you land. It was previously reachable
+from a card below the fold, or from the far end of the canvas toolbar behind nine other
+buttons.
+
+---
+
+## v0.417.1 -- A backlog that counts only what is left
+
+The MVP gate is supposed to answer one question: what still has to happen before a first
+usable release. It was answering it wrongly. Three items on it were already delivered, three
+were second copies of another line, and one was not work at all -- a recorded decision not to
+build something, carrying an `#mvp` tag it could never discharge.
+
+A triage against the codebase closed them. The guided GitHub workflow is shipped in full.
+The broken ACP connection to subscribed providers was fixed in 0.406.3, where setup had been
+writing the agent list to the workspace settings scope: the provider then disabled itself in
+every window except the one setup ran in, with no error to explain why. "Not pursuing a
+generic BYO-CLI-agent multiplexer" moved to the decisions folder, where its reasoning can be
+read instead of waiting to be ticked -- along with what it deliberately does not rule out,
+which is using another vendor's agent as a completion source under AtlasMind's own routing,
+memory and cost accounting.
+
+The duplicated lines were folded into whichever twin stated the problem better, and the
+`#mvp` gate travelled with them rather than being dropped.
+
+---
+
+## v0.417.0 -- Two sidebar views, two questions
+
+Project State and Project Director sat one above the other and showed the same number. Not
+by coincidence: both called one collector — every due follow-up in the project, plus every
+assignment owned by you — so on a project whose director is also its developer the second
+badge carried no information at all.
+
+They now ask different questions.
+
+**Project State** is your list. Active assignments and due follow-ups that **name** you.
+An unowned item counts only on a solo project, where there is nobody else it could be; on a
+team project an unowned item is nobody's, and quietly putting it on your list would assign
+it to you.
+
+**Project Director** is the project's list: what to work on first across everybody, with
+what somebody else is sitting on flagged — past its date, started and untouched for a
+fortnight, or with other outstanding work waiting on it. Rows say whose it is and how late.
+Its badge counts only those flags, because a badge that counts the backlog is permanently
+non-zero and stops being read.
+
+Every row publishes the rule that graded it, ranking is by consequence rather than by
+magnitude — one item three others wait on outranks a pile of individually late ones — and
+"holding up other work" is derived from the roadmap's *declared* dependency edges only. A
+suggested link must never tell you a colleague is blocking the release. When that graph
+cannot be read, the view says the question was not asked instead of answering "none".
+
+---
+
 ## v0.416.1 -- Roadmap: offering a capability without overselling it
 
 A new backlog entry, and the framing is the point of it.

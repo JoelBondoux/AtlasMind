@@ -10982,6 +10982,7 @@ ${buildCardEvidenceSection(source, derivation)}`;
     await vscode.commands.executeCommand('atlasmind.openChat', {
       draftPrompt: buildRoadmapPlanChatPrompt(resolved.item, planPath),
       sendMode: 'new-session',
+      roadmapItemId: resolved.nodeId,
     });
   }
 
@@ -11002,6 +11003,7 @@ ${buildCardEvidenceSection(source, derivation)}`;
         ? buildRoadmapResolveChatPrompt(resolved.item, planPath)
         : buildRoadmapCompletionCheckPrompt(resolved.item, planPath),
       sendMode: 'new-session',
+      roadmapItemId: resolved.nodeId,
     });
   }
 
@@ -24145,6 +24147,10 @@ const DASHBOARD_CSS = `
     display: flex;
     flex-direction: column;
     gap: 4px;
+    /* Without this a group is sized by its widest possible content and cannot
+       shrink, so at narrow widths it reaches past the wrapper's edge instead of
+       wrapping inside it. */
+    min-width: 0;
   }
 
   .nav-group + .nav-group {
@@ -24163,7 +24169,36 @@ const DASHBOARD_CSS = `
 
   .nav-group-tabs {
     display: flex;
+    /* A group never splits across rows, but its own tabs must be allowed to.
+       Without wrapping here the row could only break *between* groups, so a
+       four-tab group in a narrow window overflowed the nav's wrapper and drew
+       over the edge of the frame. Wrapping inside the group keeps the cluster
+       readable as one unit and keeps every pill inside the box. */
+    flex-wrap: wrap;
     gap: 6px;
+  }
+
+  /* Selection also changes the label's weight (600 -> 700), and bold text is
+     wider — so on every page change the active pill grew and shoved the tabs to
+     its right along by a pixel or two. Overview showed it worst, being the
+     landing page and the first pill in the first group: it sat bold and wide on
+     load and shrank the moment you went anywhere else. The label reserves its
+     bold width at all times via a zero-height ghost copy, so weight can change
+     without anything moving. */
+  .nav-tab-label {
+    display: inline-flex;
+    flex-direction: column;
+    align-items: center;
+  }
+
+  .nav-tab-label::after {
+    content: attr(data-label);
+    font-weight: 700;
+    height: 0;
+    overflow: hidden;
+    visibility: hidden;
+    pointer-events: none;
+    user-select: none;
   }
 
   /* ── Needs you (Overview header) ──────────────────────────────────────
@@ -28003,11 +28038,51 @@ const DASHBOARD_CSS = `
      background, for the reason the attention band already establishes: a wall of
      saturated cards reads as an alarm state even when most of them are fine. */
 
+  /* The view chips and the one action that belongs to the page rather than to a
+     view. Wraps as a unit, so on a narrow window the button drops beneath the
+     chips instead of squeezing them. */
+  .rm-view-row {
+    display: flex;
+    flex-wrap: wrap;
+    align-items: center;
+    justify-content: space-between;
+    gap: 8px 16px;
+    margin-bottom: 12px;
+  }
+
   .rm-view-bar {
     display: flex;
     flex-wrap: wrap;
     gap: 6px;
-    margin-bottom: 12px;
+  }
+
+  /* Deliberately the one filled control in this row. The chips choose a way of
+     looking at the plan and read as a set; this changes the plan, and a fifth
+     outlined pill beside them would have been lost among them again. */
+  .rm-add-item {
+    display: inline-flex;
+    align-items: center;
+    gap: 7px;
+    padding: 6px 14px;
+    border-radius: 999px;
+    border: 1px solid color-mix(in srgb, var(--dash-accent-strong) 80%, white 20%);
+    background: color-mix(in srgb, var(--dash-accent) 84%, transparent);
+    color: var(--vscode-button-foreground, var(--vscode-foreground));
+    font: inherit;
+    font-size: 12px;
+    font-weight: 600;
+    cursor: pointer;
+    white-space: nowrap;
+    transition: background var(--dash-dur-fast) var(--dash-ease), border-color var(--dash-dur-fast) var(--dash-ease);
+  }
+
+  .rm-add-item:hover {
+    background: color-mix(in srgb, var(--dash-accent-strong) 88%, transparent);
+  }
+
+  .rm-add-item:focus-visible {
+    outline: 2px solid var(--dash-accent-strong);
+    outline-offset: 2px;
   }
 
   .rm-view-chip {
@@ -28209,6 +28284,64 @@ const DASHBOARD_CSS = `
   }
 
   .rm-frame:active { cursor: grabbing; }
+
+  /* ── The plan continues that way ──────────────────────────────────────
+     The frame clips, so a node outside it is not small, it is *absent* — and
+     absent is indistinguishable from does-not-exist. A slight glow on the side
+     the plan continues on says which way to look, without drawing anything that
+     could be mistaken for a node or an edge.
+
+     Deliberately faint and gradient rather than a line: an edge treatment strong
+     enough to read as a border would look like the canvas had been resized.
+     Non-interactive, so a strip can never swallow the drag that would follow
+     it. */
+  .rm-edge-hint {
+    position: absolute;
+    pointer-events: none;
+    opacity: 0;
+    transition: opacity var(--dash-dur-value) var(--dash-ease);
+  }
+
+  .rm-edge-hint-left,
+  .rm-edge-hint-right {
+    top: 0;
+    bottom: 0;
+    width: 44px;
+  }
+
+  .rm-edge-hint-top,
+  .rm-edge-hint-bottom {
+    left: 0;
+    right: 0;
+    height: 44px;
+  }
+
+  .rm-edge-hint-left {
+    left: 0;
+    background: linear-gradient(to right, color-mix(in srgb, var(--dash-accent-strong) 26%, transparent), transparent);
+  }
+
+  .rm-edge-hint-right {
+    right: 0;
+    background: linear-gradient(to left, color-mix(in srgb, var(--dash-accent-strong) 26%, transparent), transparent);
+  }
+
+  .rm-edge-hint-top {
+    top: 0;
+    background: linear-gradient(to bottom, color-mix(in srgb, var(--dash-accent-strong) 26%, transparent), transparent);
+  }
+
+  .rm-edge-hint-bottom {
+    bottom: 0;
+    background: linear-gradient(to top, color-mix(in srgb, var(--dash-accent-strong) 26%, transparent), transparent);
+  }
+
+  .rm-frame.has-off-left .rm-edge-hint-left,
+  .rm-frame.has-off-right .rm-edge-hint-right,
+  .rm-frame.has-off-top .rm-edge-hint-top,
+  .rm-frame.has-off-bottom .rm-edge-hint-bottom {
+    opacity: 1;
+  }
 
   .rm-world {
     position: absolute;
@@ -28545,37 +28678,69 @@ const DASHBOARD_CSS = `
     transition: width var(--dash-dur-value) var(--dash-ease);
   }
 
+  /* The track holds every item tagged for the release, so on a real backlog it
+     wraps to several rows. At 96px a column, no column gap and no row gap, that
+     read as a wall of 11px text rather than as a list of milestones. The columns
+     are wider, the padding inside each is doubled, and wrapped rows are given a
+     row gap — but the *column* gap stays zero, because the connector between two
+     milestones is drawn across the boundary and a gap would leave it hanging in
+     mid-air. Breathing room comes from padding inside the column instead. */
   .mvp-track {
     display: flex;
     align-items: flex-start;
-    gap: 0;
+    column-gap: 0;
+    row-gap: 16px;
     flex-wrap: wrap;
-    margin: 6px 0 2px;
+    margin: 8px 0 4px;
   }
 
   .mvp-node {
     position: relative;
-    flex: 1 1 96px;
-    min-width: 96px;
+    flex: 1 1 132px;
+    min-width: 132px;
     display: flex;
     flex-direction: column;
     align-items: center;
     text-align: center;
-    gap: 6px;
-    padding-top: 4px;
+    gap: 8px;
+    padding: 8px 8px 4px;
   }
 
-  .mvp-node:not(:last-child)::after {
+  /* One connector per boundary was drawn as a single bar reaching out of its own
+     column and into the next one's half. That works in a single row and leaves a
+     line dangling into empty space at the end of every wrapped row — which the
+     row gap would have made obvious. Each column now draws only its own half, so
+     a boundary inside a row still joins seamlessly (the column gap is zero) and
+     a boundary at the end of a row stops at the edge instead of pointing at
+     nothing. */
+  .mvp-node::before,
+  .mvp-node::after {
     content: "";
     position: absolute;
-    top: 17px;
-    left: calc(50% + 16px);
-    right: calc(-50% + 16px);
+    top: 22px;
     height: 2px;
     background: color-mix(in srgb, var(--dash-border) 80%, transparent);
   }
 
-  .mvp-node.done:not(:last-child)::after {
+  .mvp-node::before {
+    left: 0;
+    right: calc(50% + 16px);
+  }
+
+  .mvp-node::after {
+    left: calc(50% + 16px);
+    right: 0;
+  }
+
+  .mvp-node:first-child::before,
+  .mvp-node:last-child::after {
+    content: none;
+  }
+
+  /* A boundary reads as complete only when the milestone on each side is, so the
+     right half is tinted by this node and the left half by the one before it. */
+  .mvp-node.done::after,
+  .mvp-node.done + .mvp-node::before {
     background: color-mix(in srgb, var(--dash-good) 60%, var(--dash-border));
   }
 
@@ -28610,11 +28775,11 @@ const DASHBOARD_CSS = `
 
   .mvp-node-label {
     font-size: 11px;
-    line-height: 1.3;
+    line-height: 1.45;
     color: var(--dash-muted);
     overflow-wrap: anywhere;
     word-break: break-word;
-    max-width: 120px;
+    max-width: 150px;
   }
 
   .mvp-node.active .mvp-node-label {
@@ -30103,6 +30268,8 @@ const DASHBOARD_CSS = `
     .mvp-progress-fill,
     .dist-seg,
     .nav-tab,
+    .rm-add-item,
+    .rm-edge-hint,
     .stat-card,
     .chart-bar,
     .action-card,

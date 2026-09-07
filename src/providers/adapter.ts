@@ -86,6 +86,21 @@ export interface CompletionResponse {
    * cache usage.
    */
   cachedInputTokens?: number;
+  /**
+   * Portion of `inputTokens` the provider *wrote into* its prompt cache this
+   * request, when it reports it.
+   *
+   * Kept separate from `cachedInputTokens` because the two are priced
+   * differently and in opposite directions — a cache read is cheaper than an
+   * ordinary input token, a cache write is dearer. Re-pricing a request against
+   * a different model needs the split, and folding both into `inputTokens`
+   * (which is what happened before this field existed) loses it irreversibly:
+   * the sum cannot be taken apart afterwards.
+   *
+   * Omitted when the provider does not report it, which is not the same as
+   * zero. Anything deriving a figure from this must treat absent as *unknown*.
+   */
+  cacheWriteTokens?: number;
   finishReason: 'stop' | 'length' | 'error' | 'tool_calls';
   /** Populated when finishReason is 'tool_calls'. */
   toolCalls?: ToolCall[];

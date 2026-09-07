@@ -193,6 +193,15 @@ export interface ChatPanelTarget {
    */
   directResponse?: ChatPanelDirectResponse;
   contextPatch?: Record<string, unknown>;
+  /**
+   * The roadmap item this hand-off is work on.
+   *
+   * Distinct from `contextPatch`, which is cleared after one turn. Attribution
+   * has to survive the whole session, because almost all the work on an item is
+   * follow-up turns and attributing only the first would under-report so badly
+   * the figure would be useless.
+   */
+  roadmapItemId?: string;
   preserveFocus?: boolean;
 }
 
@@ -416,6 +425,23 @@ export class ChatPanel {
   private pendingDirectResponse: ChatPanelDirectResponse | undefined;
   private pendingComposerContextPatch: Record<string, unknown> | undefined;
   /**
+   * Roadmap item a hand-off named, not yet bound to a session.
+   *
+   * `sendMode: 'new-session'` means the session it belongs to does not exist
+   * yet, so the id waits here and binds to whichever session sends the next
+   * request.
+   */
+  private pendingRoadmapItemId: string | undefined;
+  /**
+   * Session → roadmap item, for as long as this panel lives.
+   *
+   * In-memory on purpose. If the panel is disposed the attribution is lost and
+   * later turns record as unattributed — which is the safe direction to fail:
+   * under-reporting what an item cost is recoverable, while charging unrelated
+   * work to it is a wrong number nobody can spot afterwards.
+   */
+  private readonly roadmapItemBySession = new Map<string, string>();
+  /**
    * The composer draft AtlasMind itself composed, held until it is sent.
    *
    * Nothing but AtlasMind writes a composer draft, so a prompt arriving
@@ -515,6 +541,7 @@ export class ChatPanel {
     this.pendingComposerMode = initialTarget?.sendMode;
     this.pendingDirectResponse = initialTarget?.directResponse;
     this.pendingComposerContextPatch = initialTarget?.contextPatch;
+    this.pendingRoadmapItemId = initialTarget?.roadmapItemId;
     this.host.webview.html = this.getHtml();
 
     this.host.onDidDispose(() => this.dispose(), null, this.disposables);
@@ -601,6 +628,9 @@ export class ChatPanel {
     this.pendingComposerMode = normalizedTarget.sendMode;
     this.pendingDirectResponse = normalizedTarget.directResponse;
     this.pendingComposerContextPatch = normalizedTarget.contextPatch;
+    if (normalizedTarget.roadmapItemId) {
+      this.pendingRoadmapItemId = normalizedTarget.roadmapItemId;
+    }
     this.activeSurface = 'chat';
     await this.syncState();
     if (normalizedTarget.autoSubmit && normalizedTarget.draftPrompt) {
@@ -3134,6 +3164,18 @@ export class ChatPanel {
       Object.assign(context, this.pendingComposerContextPatch);
       this.pendingComposerContextPatch = undefined;
     }
+    // Bind a pending hand-off to this session on its first request, then keep
+    // attributing the session's later turns to the same item. Unlike the patch
+    // above this is not consumed, because the follow-up turns are where most of
+    // an item's cost actually lands.
+    if (this.pendingRoadmapItemId) {
+      this.roadmapItemBySession.set(activeSessionId, this.pendingRoadmapItemId);
+      this.pendingRoadmapItemId = undefined;
+    }
+    const attributedRoadmapItemId = this.roadmapItemBySession.get(activeSessionId);
+    if (attributedRoadmapItemId) {
+      context['roadmapItemId'] = attributedRoadmapItemId;
+    }
     const operatorAdaptation = forceSteer
       ? undefined
       : await applyOperatorFrustrationAdaptation(prompt, this.atlas, context);
@@ -4031,6 +4073,12 @@ function normalizeChatPanelTarget(target?: string | ChatPanelTarget): ChatPanelT
     ...(target.autoSubmit === true ? { autoSubmit: true } : {}),
     ...(directResponse ? { directResponse } : {}),
     ...(isJsonRecord(target.contextPatch) ? { contextPatch: target.contextPatch } : {}),
+    // Constrained to the id charset the roadmap anchors use rather than passed
+    // through: this reaches a cost record that a dashboard groups on, and an
+    // arbitrary string would let a crafted target invent a bucket.
+    ...(typeof target.roadmapItemId === 'string' && /^[A-Za-z0-9][A-Za-z0-9_-]{0,80}$/.test(target.roadmapItemId.trim())
+      ? { roadmapItemId: target.roadmapItemId.trim() }
+      : {}),
     ...(target.preserveFocus === true ? { preserveFocus: true } : {}),
   };
 }

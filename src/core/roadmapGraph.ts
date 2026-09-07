@@ -1285,6 +1285,8 @@ function applyRoadmapLayout(
   };
 
   let cursor = ROADMAP_CANVAS_MARGIN;
+  /** The furthest cross coordinate any *linked* node reached, if there are any. */
+  let planExtent: number | undefined;
 
   for (const [, members] of [...componentMembers.entries()].sort((left, right) => left[0] - right[0])) {
     // ── 3. Order the layers: barycentre sweeps ─────────────────────────────
@@ -1361,6 +1363,7 @@ function applyRoadmapLayout(
       occupied.add(cellKey(member.position.x, member.position.y));
       extent = Math.max(extent, cross);
     }
+    planExtent = planExtent === undefined ? extent : Math.max(planExtent, extent);
     // One empty slot between components, so blocks read as blocks.
     cursor = extent + 2 * crossPitch;
   }
@@ -1370,22 +1373,39 @@ function applyRoadmapLayout(
   // They say nothing about order, so they get a near-square grid after the
   // components rather than one row wider than the whole plan — and they carry
   // no arrows, so the grid cannot be misread as dependency.
+  //
+  // Near, though. Two things used to put this block somewhere it was easy not
+  // to know existed, and on a backlog where most items have no declared
+  // dependencies that is most of the plan.
+  //
+  // It started from `cursor`, which carries the *inter-component* separation of
+  // two slots — a gap sized for two linked sub-plans whose edges need room to
+  // be read. Nothing crosses this boundary: an unlinked item has no arrows at
+  // all. One slot separates it now, which is still a clear break at a 360px
+  // pitch against a card that renders around 300px, and half the empty space.
+  //
+  // And it filled along the *cross* axis first, so the block grew away from the
+  // plan before it grew alongside it — six items deep before the second column
+  // started. An editor pane is wider than it is tall in almost every layout, so
+  // it now fills along the reading axis first: the same near-square grid in
+  // slots, turned the way the window opens.
   if (isolated.length > 0) {
     const ordered = [...isolated].sort((left, right) =>
       right.priorityScore - left.priorityScore || left.id.localeCompare(right.id));
     const perRow = Math.max(1, Math.ceil(Math.sqrt(ordered.length)));
+    const base = planExtent === undefined ? ROADMAP_CANVAS_MARGIN : planExtent + crossPitch;
     const lastInRow = new Map<number, number>();
     ordered.forEach((node, i) => {
       const row = Math.floor(i / perRow);
-      const reading = ROADMAP_CANVAS_MARGIN + row * readingPitch;
-      const slot = cursor + (i % perRow) * crossPitch;
-      let cross = Math.max(slot, (lastInRow.get(row) ?? Number.NEGATIVE_INFINITY) + crossPitch);
+      const cross = base + row * crossPitch;
+      const slot = ROADMAP_CANVAS_MARGIN + (i % perRow) * readingPitch;
+      let reading = Math.max(slot, (lastInRow.get(row) ?? Number.NEGATIVE_INFINITY) + readingPitch);
       let position = toPosition(reading, cross);
       while (occupied.has(cellKey(position.x, position.y))) {
-        cross += crossPitch;
+        reading += readingPitch;
         position = toPosition(reading, cross);
       }
-      lastInRow.set(row, cross);
+      lastInRow.set(row, reading);
       node.position = position;
       occupied.add(cellKey(position.x, position.y));
     });

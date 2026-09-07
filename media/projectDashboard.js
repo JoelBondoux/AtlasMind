@@ -489,6 +489,18 @@
      * is exactly how the arrange controls read before this existed.
      */
     roadmapFitAfterRender: false,
+    /**
+     * What the pending fit should frame: the whole plan, or only what the
+     * emphasis lenses matched.
+     *
+     * Search stopped removing nodes from the canvas — everything stays drawn so
+     * the dependencies around a match are still readable — which quietly made
+     * the re-fit a no-op: fitting *all* nodes after narrowing frames exactly
+     * what it framed before. Narrowing now concludes by showing you what it
+     * found. Reset to 'all' every time the flag is consumed, so one emphasis fit
+     * cannot leak into the next arrange or view change.
+     */
+    roadmapFitScope: 'all',
     editingDoc: null,
     gapBusy: false,
     gapStatus: '',
@@ -3018,6 +3030,7 @@
       // Re-fit on every narrowing, so the result is always in view — a filter
       // whose matches land off-screen reads as a filter that found nothing.
       state.roadmapFitAfterRender = true;
+      state.roadmapFitScope = 'emphasis';
       render();
     }
     if (target instanceof HTMLInputElement && target.id === 'privacy-rule-value') {
@@ -3129,13 +3142,21 @@
       state.roadmapDraftOwner = target.value || '';
       return;
     }
+    // The gate and person pickers narrow the same way the search box does —
+    // `roadmapEmphasis` combines all three into one set — so they conclude the
+    // same way. Leaving them out would mean the count said "3 of 40 match" and
+    // nothing moved for two of the three lenses.
     if (target.getAttribute('data-action') === 'roadmap-emphasis-gate') {
       state.roadmapEmphasisGate = target.value || '';
+      state.roadmapFitAfterRender = true;
+      state.roadmapFitScope = 'emphasis';
       render();
       return;
     }
     if (target.getAttribute('data-action') === 'roadmap-emphasis-person') {
       state.roadmapEmphasisPerson = target.value || '';
+      state.roadmapFitAfterRender = true;
+      state.roadmapFitScope = 'emphasis';
       render();
     }
   });
@@ -3350,6 +3371,62 @@
     const label = root ? root.querySelector('[data-action="roadmap-zoom-reset"]') : null;
     if (label instanceof HTMLElement) {
       label.textContent = Math.round(state.roadmapZoom * 100) + '%';
+    }
+    rmUpdateEdgeHints();
+  }
+
+  /**
+   * Four strips that glow when the plan continues past an edge.
+   *
+   * The canvas clips, so a node outside the frame is not merely small — it is
+   * absent, and indistinguishable from one that does not exist. That is fine
+   * while you are the one who panned, and misleading everywhere else: a fit that
+   * could not zoom below 40%, a route filter, a plan someone else laid out.
+   *
+   * Decorative on purpose (`aria-hidden`), because it says *where to look* and
+   * carries no information a reader cannot get from the counts already on the
+   * toolbar. Rendered once and toggled by class rather than rebuilt, so panning
+   * costs four class writes rather than a render.
+   */
+  const RM_EDGE_HINT_MARKUP = ['left', 'right', 'top', 'bottom']
+    .map(side => '<div class="rm-edge-hint rm-edge-hint-' + side + '" aria-hidden="true"></div>')
+    .join('');
+
+  const RM_EDGE_HINT_SIDES = [
+    ['left', 'has-off-left'],
+    ['right', 'has-off-right'],
+    ['top', 'has-off-top'],
+    ['bottom', 'has-off-bottom'],
+  ];
+
+  function rmUpdateEdgeHints() {
+    if (!root) { return; }
+    const frame = root.querySelector('[data-rm-frame="true"]');
+    if (!(frame instanceof HTMLElement)) { return; }
+    const width = frame.clientWidth;
+    const height = frame.clientHeight;
+    const off = { left: false, right: false, top: false, bottom: false };
+    // An unmeasurable frame is not an empty one. Without this every node reads
+    // as past the right and bottom edges, so a hidden or not-yet-laid-out page
+    // would light up all four strips.
+    if (width > 0 && height > 0) {
+      const zoom = state.roadmapZoom;
+      const pan = state.roadmapPan;
+      for (const el of root.querySelectorAll('[data-rm-node]')) {
+        const x = parseFloat(el.style.left) || 0;
+        const y = parseFloat(el.style.top) || 0;
+        const height_ = el.offsetHeight || RM_NODE_HEIGHT;
+        // Wholly past the edge, not merely crossing it: a card half off the
+        // right side is one you can see, and pointing at it would mean the
+        // strips were lit almost permanently and so worth nothing.
+        if ((x + RM_NODE_WIDTH) * zoom + pan.x < 0) { off.left = true; }
+        if (x * zoom + pan.x > width) { off.right = true; }
+        if ((y + height_) * zoom + pan.y < 0) { off.top = true; }
+        if (y * zoom + pan.y > height) { off.bottom = true; }
+      }
+    }
+    for (const [side, className] of RM_EDGE_HINT_SIDES) {
+      frame.classList.toggle(className, off[side]);
     }
   }
 
@@ -4036,7 +4113,16 @@
        */
       if (state.roadmapFitAfterRender && !rmDrag && state.activePage === 'roadmap' && state.roadmapView !== 'list') {
         state.roadmapFitAfterRender = false;
-        fitRoadmapCanvas();
+        const scope = state.roadmapFitScope;
+        state.roadmapFitScope = 'all';
+        fitRoadmapCanvas(scope);
+      } else {
+        // A render writes the transform inline, so it never passes through
+        // `rmApplyViewTransform` — without this the edge hints would only ever
+        // update on a pan or a zoom, and a plan that arrives already extending
+        // past the frame would show none. Skipped when a fit just ran, because
+        // the fit applies the transform and updates them itself.
+        rmUpdateEdgeHints();
       }
       // The split buttons this render just produced are shells; fill them from
       // the one cadence the timer is actually running on.
@@ -4172,7 +4258,7 @@
             ${badge ? `title="${escapeAttr(badge.title)}"` : ''}
             data-action="page" data-payload="${escapeAttr(id)}"
             class="nav-tab${isActive ? ' active' : ''}">
-            <span class="nav-tab-label">${escapeHtml(label)}</span>
+            <span class="nav-tab-label" data-label="${escapeAttr(label)}">${escapeHtml(label)}</span>
             ${badge ? `<span class="nav-badge nav-badge-${escapeAttr(badge.tone)}" aria-hidden="true">${escapeHtml(String(badge.count))}</span>` : ''}
           </button>`;
       }).join('');
@@ -12044,15 +12130,30 @@
       people: (graph.lanes || []).length,
       completed: graph.completed.length,
     };
+    // Adding an item was reachable only from a card below the fold and from the
+    // far end of the canvas toolbar, behind nine other buttons — so the page you
+    // open to work on the backlog did not visibly offer the one thing you most
+    // often came to do. The control sits in the first row of the page now, where
+    // it is visible the moment the page opens. It stays outside the tablist,
+    // since a button that is not a tab must not be a child of one, and it is
+    // absent on Delivered for the reason the canvas toolbar already omits it
+    // there: nothing is added to a record of what already happened.
     return `
-      <div class="rm-view-bar" role="tablist" aria-label="Roadmap views">
-        ${views.map(([id, label, hint]) => `
-          <button type="button" role="tab" aria-selected="${state.roadmapView === id ? 'true' : 'false'}"
-            class="rm-view-chip${state.roadmapView === id ? ' is-active' : ''}"
-            data-action="roadmap-view" data-payload="${escapeAttr(id)}" title="${escapeAttr(hint)}">
-            <span>${escapeHtml(label)}</span>
-            <span class="rm-view-count">${counts[id]}</span>
-          </button>`).join('')}
+      <div class="rm-view-row">
+        <div class="rm-view-bar" role="tablist" aria-label="Roadmap views">
+          ${views.map(([id, label, hint]) => `
+            <button type="button" role="tab" aria-selected="${state.roadmapView === id ? 'true' : 'false'}"
+              class="rm-view-chip${state.roadmapView === id ? ' is-active' : ''}"
+              data-action="roadmap-view" data-payload="${escapeAttr(id)}" title="${escapeAttr(hint)}">
+              <span>${escapeHtml(label)}</span>
+              <span class="rm-view-count">${counts[id]}</span>
+            </button>`).join('')}
+        </div>
+        ${state.roadmapView === 'completed' ? '' : `
+          <button type="button" class="rm-add-item" data-action="roadmap-add" data-payload="new"
+            title="${escapeAttr('Add an item to the prioritised backlog. Opens the entry form with the caret already in it.')}">
+            <span aria-hidden="true">+</span><span>Add roadmap item</span>
+          </button>`}
       </div>`;
   }
 
@@ -12120,6 +12221,7 @@
               ? nodes.map(node => renderRoadmapNode(node, graph, search)).join('')
               : '<div class="rm-empty"><strong>Nothing to draw yet</strong><p class="section-copy">Add a backlog item, or switch to the prioritised backlog to write the first one.</p></div>'}
           </div>
+          ${RM_EDGE_HINT_MARKUP}
         </div>
         ${renderRoadmapCanvasFooter(graph, visibleSuggestions)}
       </article>`;
@@ -12321,10 +12423,23 @@
    * otherwise silently leave the canvas at a zoom no control can undo — and the
    * pan then centres whatever that zoom could reach.
    */
-  function fitRoadmapCanvas() {
+  /**
+   * Frame the plan, or the part of it an emphasis lens matched.
+   *
+   * `scope` is 'all' (the Fit all button, an arrange, a view change) or
+   * 'emphasis' (the search box and the gate/person pickers). An emphasis fit
+   * falls back to the whole plan when nothing matched: a query that found
+   * nothing has nothing to frame, and flying off to an empty region would read
+   * as the canvas having lost the plan.
+   */
+  function fitRoadmapCanvas(scope) {
     if (!root) { return; }
     const frame = root.querySelector('[data-rm-frame="true"]');
-    const nodes = [...root.querySelectorAll('[data-rm-node]')];
+    const all = [...root.querySelectorAll('[data-rm-node]')];
+    const matched = scope === 'emphasis'
+      ? [...root.querySelectorAll('[data-rm-node].is-search-match')]
+      : [];
+    const nodes = matched.length > 0 ? matched : all;
     if (!frame || nodes.length === 0) { return; }
 
     let minX = Infinity, minY = Infinity, maxX = -Infinity, maxY = -Infinity;
@@ -12357,7 +12472,8 @@
     // drawn, and the full render this used to do priced every "Fit all" at a
     // rebuild of the whole dashboard.
     rmApplyViewTransform();
-    announce('Fitted ' + nodes.length + ' item' + (nodes.length === 1 ? '' : 's') + ' at ' + Math.round(state.roadmapZoom * 100) + '%.');
+    announce('Fitted ' + nodes.length + (matched.length > 0 ? ' matching' : '') + ' item'
+      + (nodes.length === 1 ? '' : 's') + ' at ' + Math.round(state.roadmapZoom * 100) + '%.');
   }
 
   /**
