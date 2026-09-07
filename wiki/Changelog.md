@@ -19,6 +19,20 @@ Older entries below describe the software as it was at the time and are delibera
 
 ---
 
+## v0.419.0 -- Which way the plan continues
+
+The roadmap canvas clips at its frame, so a node outside it is not small -- it is absent, and
+absent looks exactly like does-not-exist. That is fine while you are the one who just panned.
+It is misleading everywhere else: after a fit that could not zoom out far enough, under a
+route filter, or on a plan somebody else laid out.
+
+Each edge the plan continues past now carries a faint glow. The ideation board has had this
+since it gained a viewport; the roadmap canvas was the one without it. An edge lights only
+when a card is wholly past it -- one you can half-see is one you can see -- and a frame that
+cannot be measured lights nothing at all.
+
+---
+
 ## v0.418.2 -- A search that shows you what it found
 
 Searching the roadmap canvas asked for a re-fit on every keystroke, and the fit ran. It just

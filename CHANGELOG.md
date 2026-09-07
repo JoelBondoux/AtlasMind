@@ -6,6 +6,29 @@ The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/),
 
 ## [Unreleased]
 
+## [0.419.0] - 2026-09-07
+
+### Added
+
+- **Off-screen edge hints on the roadmap canvas.** Four faint gradient strips, one per
+  side, lit when the plan continues past that edge. The frame clips, so a node outside
+  it is not small -- it is absent, and absent is indistinguishable from
+  does-not-exist. That is fine while you are the one who panned and misleading
+  everywhere else: after a fit that could not zoom below 40%, under a route filter, on
+  a plan somebody else laid out.
+- **Parity, not a new idea.** The ideation board has had exactly this since it gained a
+  viewport, with the same "wholly past the edge" rule; the roadmap canvas was the only
+  one without it. The rule is deliberately strict -- a card half off the right side is
+  one you can see, and pointing at it would leave the strips lit almost permanently
+  and therefore worth nothing.
+- **An unmeasurable frame lights nothing.** Without that guard every node reads as past
+  the right and bottom edges, so a hidden or not-yet-laid-out page would light all four
+  strips. Pinned by test, along with the lit and the all-clear cases.
+- The strips are `aria-hidden` and non-interactive: they say *where to look* and carry
+  nothing a reader cannot get from the counts already on the toolbar, and a strip that
+  took pointer events could swallow the drag that follows it. They are rendered once
+  and toggled by class, so panning costs four class writes rather than a render.
+
 ## [0.418.2] - 2026-09-07
 
 ### Fixed

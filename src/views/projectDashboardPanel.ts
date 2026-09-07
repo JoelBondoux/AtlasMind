@@ -28283,6 +28283,64 @@ const DASHBOARD_CSS = `
 
   .rm-frame:active { cursor: grabbing; }
 
+  /* ── The plan continues that way ──────────────────────────────────────
+     The frame clips, so a node outside it is not small, it is *absent* — and
+     absent is indistinguishable from does-not-exist. A slight glow on the side
+     the plan continues on says which way to look, without drawing anything that
+     could be mistaken for a node or an edge.
+
+     Deliberately faint and gradient rather than a line: an edge treatment strong
+     enough to read as a border would look like the canvas had been resized.
+     Non-interactive, so a strip can never swallow the drag that would follow
+     it. */
+  .rm-edge-hint {
+    position: absolute;
+    pointer-events: none;
+    opacity: 0;
+    transition: opacity var(--dash-dur-value) var(--dash-ease);
+  }
+
+  .rm-edge-hint-left,
+  .rm-edge-hint-right {
+    top: 0;
+    bottom: 0;
+    width: 44px;
+  }
+
+  .rm-edge-hint-top,
+  .rm-edge-hint-bottom {
+    left: 0;
+    right: 0;
+    height: 44px;
+  }
+
+  .rm-edge-hint-left {
+    left: 0;
+    background: linear-gradient(to right, color-mix(in srgb, var(--dash-accent-strong) 26%, transparent), transparent);
+  }
+
+  .rm-edge-hint-right {
+    right: 0;
+    background: linear-gradient(to left, color-mix(in srgb, var(--dash-accent-strong) 26%, transparent), transparent);
+  }
+
+  .rm-edge-hint-top {
+    top: 0;
+    background: linear-gradient(to bottom, color-mix(in srgb, var(--dash-accent-strong) 26%, transparent), transparent);
+  }
+
+  .rm-edge-hint-bottom {
+    bottom: 0;
+    background: linear-gradient(to top, color-mix(in srgb, var(--dash-accent-strong) 26%, transparent), transparent);
+  }
+
+  .rm-frame.has-off-left .rm-edge-hint-left,
+  .rm-frame.has-off-right .rm-edge-hint-right,
+  .rm-frame.has-off-top .rm-edge-hint-top,
+  .rm-frame.has-off-bottom .rm-edge-hint-bottom {
+    opacity: 1;
+  }
+
   .rm-world {
     position: absolute;
     top: 0;
@@ -30209,6 +30267,7 @@ const DASHBOARD_CSS = `
     .dist-seg,
     .nav-tab,
     .rm-add-item,
+    .rm-edge-hint,
     .stat-card,
     .chart-bar,
     .action-card,

@@ -520,6 +520,49 @@ describe('arranging the canvas', () => {
     expect(transform()).toBe(whole);
   });
 
+  it('glows on the side the plan continues past', () => {
+    const harness = mount();
+    // Small enough that beta (x=400) is wholly past the right edge and alpha
+    // (x=80) is not past any of them.
+    pinFrameSize(harness, 200, 200);
+    harness.send(snapshot());
+    harness.click('[data-action="page"][data-payload="roadmap"]');
+
+    const frame = harness.root().querySelector('[data-rm-frame="true"]');
+    expect(frame.className).toContain('has-off-right');
+    expect(frame.className).not.toContain('has-off-left');
+    expect(frame.className).not.toContain('has-off-top');
+    // The frame clips, so a node outside it is absent rather than small — and
+    // absent is indistinguishable from does-not-exist.
+    expect(harness.root().querySelectorAll('.rm-edge-hint').length).toBe(4);
+  });
+
+  it('lights no edge when the whole plan is in the frame', () => {
+    const harness = mount();
+    pinFrameSize(harness, 1200, 800);
+    harness.send(snapshot());
+    harness.click('[data-action="page"][data-payload="roadmap"]');
+
+    const frame = harness.root().querySelector('[data-rm-frame="true"]');
+    for (const side of ['has-off-left', 'has-off-right', 'has-off-top', 'has-off-bottom']) {
+      expect(frame.className, `${side} must be off when nothing is out of view`).not.toContain(side);
+    }
+  });
+
+  it('lights no edge when the frame cannot be measured', () => {
+    // jsdom's default: every box is zero. An unmeasurable frame is not an empty
+    // one — without the guard every node reads as past the right and bottom
+    // edges, so a hidden or not-yet-laid-out page lights all four strips.
+    const harness = mount();
+    harness.send(snapshot());
+    harness.click('[data-action="page"][data-payload="roadmap"]');
+
+    const frame = harness.root().querySelector('[data-rm-frame="true"]');
+    for (const side of ['has-off-left', 'has-off-right', 'has-off-top', 'has-off-bottom']) {
+      expect(frame.className, `${side} must be off when the frame has no size`).not.toContain(side);
+    }
+  });
+
   it('does nothing rather than throwing when there is nothing to fit', () => {
     const harness = mount();
     harness.send(snapshot({ active: [], edges: [], suggested: [], routes: {} }));

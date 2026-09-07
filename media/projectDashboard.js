@@ -3372,6 +3372,62 @@
     if (label instanceof HTMLElement) {
       label.textContent = Math.round(state.roadmapZoom * 100) + '%';
     }
+    rmUpdateEdgeHints();
+  }
+
+  /**
+   * Four strips that glow when the plan continues past an edge.
+   *
+   * The canvas clips, so a node outside the frame is not merely small — it is
+   * absent, and indistinguishable from one that does not exist. That is fine
+   * while you are the one who panned, and misleading everywhere else: a fit that
+   * could not zoom below 40%, a route filter, a plan someone else laid out.
+   *
+   * Decorative on purpose (`aria-hidden`), because it says *where to look* and
+   * carries no information a reader cannot get from the counts already on the
+   * toolbar. Rendered once and toggled by class rather than rebuilt, so panning
+   * costs four class writes rather than a render.
+   */
+  const RM_EDGE_HINT_MARKUP = ['left', 'right', 'top', 'bottom']
+    .map(side => '<div class="rm-edge-hint rm-edge-hint-' + side + '" aria-hidden="true"></div>')
+    .join('');
+
+  const RM_EDGE_HINT_SIDES = [
+    ['left', 'has-off-left'],
+    ['right', 'has-off-right'],
+    ['top', 'has-off-top'],
+    ['bottom', 'has-off-bottom'],
+  ];
+
+  function rmUpdateEdgeHints() {
+    if (!root) { return; }
+    const frame = root.querySelector('[data-rm-frame="true"]');
+    if (!(frame instanceof HTMLElement)) { return; }
+    const width = frame.clientWidth;
+    const height = frame.clientHeight;
+    const off = { left: false, right: false, top: false, bottom: false };
+    // An unmeasurable frame is not an empty one. Without this every node reads
+    // as past the right and bottom edges, so a hidden or not-yet-laid-out page
+    // would light up all four strips.
+    if (width > 0 && height > 0) {
+      const zoom = state.roadmapZoom;
+      const pan = state.roadmapPan;
+      for (const el of root.querySelectorAll('[data-rm-node]')) {
+        const x = parseFloat(el.style.left) || 0;
+        const y = parseFloat(el.style.top) || 0;
+        const height_ = el.offsetHeight || RM_NODE_HEIGHT;
+        // Wholly past the edge, not merely crossing it: a card half off the
+        // right side is one you can see, and pointing at it would mean the
+        // strips were lit almost permanently and so worth nothing.
+        if ((x + RM_NODE_WIDTH) * zoom + pan.x < 0) { off.left = true; }
+        if (x * zoom + pan.x > width) { off.right = true; }
+        if ((y + height_) * zoom + pan.y < 0) { off.top = true; }
+        if (y * zoom + pan.y > height) { off.bottom = true; }
+      }
+    }
+    for (const [side, className] of RM_EDGE_HINT_SIDES) {
+      frame.classList.toggle(className, off[side]);
+    }
   }
 
   /**
@@ -4060,6 +4116,13 @@
         const scope = state.roadmapFitScope;
         state.roadmapFitScope = 'all';
         fitRoadmapCanvas(scope);
+      } else {
+        // A render writes the transform inline, so it never passes through
+        // `rmApplyViewTransform` — without this the edge hints would only ever
+        // update on a pan or a zoom, and a plan that arrives already extending
+        // past the frame would show none. Skipped when a fit just ran, because
+        // the fit applies the transform and updates them itself.
+        rmUpdateEdgeHints();
       }
       // The split buttons this render just produced are shells; fill them from
       // the one cadence the timer is actually running on.
@@ -12158,6 +12221,7 @@
               ? nodes.map(node => renderRoadmapNode(node, graph, search)).join('')
               : '<div class="rm-empty"><strong>Nothing to draw yet</strong><p class="section-copy">Add a backlog item, or switch to the prioritised backlog to write the first one.</p></div>'}
           </div>
+          ${RM_EDGE_HINT_MARKUP}
         </div>
         ${renderRoadmapCanvasFooter(graph, visibleSuggestions)}
       </article>`;

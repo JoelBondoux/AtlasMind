@@ -4,7 +4,7 @@
 
 <h1 align="center">AtlasMind</h1>
 
-<p align="center"><sub> · <strong>Current source version: 0.418.2</strong> · </sub></p>
+<p align="center"><sub> · <strong>Current source version: 0.419.0</strong> · </sub></p>
 
 
 <p align="center">
@@ -136,6 +136,19 @@ allow-list, redaction and file-withholding behaviour, retained metadata, provide
 important limits on overrides and compliance claims.
 
 ---
+
+## What's new in 0.419.0
+
+**The roadmap canvas says which way the plan continues.** A faint glow on any edge the plan
+extends past — the treatment the ideation board has had all along, now on the canvas that
+lacked it. The frame clips, so a node outside it is not merely small, it is *absent*, and
+absent is indistinguishable from does-not-exist. That is fine while you are the one who
+panned, and misleading everywhere else: after a fit that could not zoom below 40%, under a
+route filter, on a plan somebody else laid out.
+
+An edge lights only when a card is *wholly* past it — one you can half-see is one you can
+see — and an unmeasurable frame lights nothing at all, since every node would otherwise read
+as past the right and bottom edges.
 
 ## What's new in 0.418.2
 
