@@ -10982,6 +10982,7 @@ ${buildCardEvidenceSection(source, derivation)}`;
     await vscode.commands.executeCommand('atlasmind.openChat', {
       draftPrompt: buildRoadmapPlanChatPrompt(resolved.item, planPath),
       sendMode: 'new-session',
+      roadmapItemId: resolved.nodeId,
     });
   }
 
@@ -11002,6 +11003,7 @@ ${buildCardEvidenceSection(source, derivation)}`;
         ? buildRoadmapResolveChatPrompt(resolved.item, planPath)
         : buildRoadmapCompletionCheckPrompt(resolved.item, planPath),
       sendMode: 'new-session',
+      roadmapItemId: resolved.nodeId,
     });
   }
 

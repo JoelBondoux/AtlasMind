@@ -4836,6 +4836,27 @@ export interface CostRecord {
    * with no key is *unattributed*, never attributed to the current workspace.
    */
   workspaceKey?: string;
+  /**
+   * The roadmap item this spend was incurred against, when it is known.
+   *
+   * Deliberately here rather than on `ProjectRunRecord`: attribution is then a
+   * group-by rather than a cost→run→item join, and it works for the many chat
+   * turns that never create a run at all.
+   *
+   * Absent means unattributed, which is a real and common state — never
+   * "belongs to whatever item is selected".
+   */
+  roadmapItemId?: string;
+  /**
+   * How `roadmapItemId` came to be set.
+   *
+   * `session` is an inference: work began from a roadmap item and every turn in
+   * that chat session inherits it. That is right almost always and wrong when
+   * somebody wanders onto something else without starting a new session, so the
+   * provenance travels with the number and the surface shows it. An inference
+   * displayed as an assertion is the failure this field exists to prevent.
+   */
+  roadmapAttribution?: 'session' | 'explicit';
   /** Portion of `inputTokens` served from the provider's prompt cache (a cache *read*), when reported. */
   cachedInputTokens?: number;
   /**

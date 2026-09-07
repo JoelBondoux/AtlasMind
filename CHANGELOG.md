@@ -6,6 +6,53 @@ The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/),
 
 ## [Unreleased]
 
+## [0.422.0] - 2026-09-07
+
+### Added
+
+- **Spend is attributed to the roadmap item it was incurred against** — roadmap item
+  `NOW-2`, and the join nobody else in the market has: an issue tracker cannot see tokens,
+  a cost tracker cannot see a plan.
+
+  **The id lives on `CostRecord`, not `ProjectRunRecord`.** The roadmap originally
+  mirrored `ideationOrigin` on the run record; directly on the cost record, attribution is
+  a group-by rather than a cost→run→item join, and it covers the many chat turns that
+  never create a run at all — which is most of them.
+
+  **A roadmap hand-off attributes its whole chat session, and says that it did.**
+  Attributing only the first turn would under-report so badly the figure would be useless,
+  since nearly all the work on an item is follow-up turns. But a session left open while
+  you wander elsewhere would then charge unrelated work to the item, so `roadmapAttribution`
+  records `session` (inferred) against `explicit` (stated), the counts are kept apart all
+  the way to the surface, and an *unstated* provenance counts as inferred — the weaker
+  claim. An inference presented as an assertion is the failure this field exists to
+  prevent.
+
+  The session map is in-memory: if the chat panel is disposed, later turns record as
+  unattributed. That is the safe direction to fail — under-reporting an item's cost is
+  visible and recoverable, while charging it work it never did is a wrong number nobody
+  can spot afterwards.
+
+- **`src/core/roadmapCostAttribution.ts`** — pure, unit-tested, with the rules that keep
+  the number honest:
+
+  - **Unattributed spend is reported, never distributed.** Spreading it pro rata would
+    make every item's figure wrong in a way no reader could detect, because a distributed
+    number looks exactly like a measured one. On a project that has just switched
+    attribution on, unattributed *is* most of the money, and that is the honest picture.
+  - **No spend attributed is not zero spend.** An item nobody has worked on and an item
+    whose work predates attribution both show no money; only one was free. Printing
+    `$0.00` would say *this was free*, which is the most misleading thing this feature
+    could display.
+  - **An absent estimate is not an estimate of zero**, or every unestimated item reads as
+    over budget the moment it costs anything. `attributionCoverage` returns `undefined`
+    rather than 0% when nothing has been spent, so a fresh install is not reported as an
+    attribution failure.
+
+  The roadmap item id is charset-validated at the webview boundary rather than passed
+  through, since it reaches a cost record that a dashboard groups on and an arbitrary
+  string would let a crafted target invent a bucket.
+
 ## [0.421.0] - 2026-09-07
 
 ### Added

@@ -2348,6 +2348,12 @@ export class Orchestrator {
       ...(finalCost.providerId ? { providerId: finalCost.providerId } : {}),
       ...(finalCost.pricingModel ? { pricingModel: finalCost.pricingModel } : {}),
       billingCategory: finalCost.billingCategory,
+      // Attribution is an inference from the session the work began in, so it
+      // travels with its provenance. A surface showing the cost of a roadmap
+      // item must be able to say it was inferred rather than asserted.
+      ...(typeof request.context['roadmapItemId'] === 'string' && request.context['roadmapItemId']
+        ? { roadmapItemId: request.context['roadmapItemId'], roadmapAttribution: 'session' as const }
+        : {}),
       ...(typeof request.context['chatSessionId'] === 'string' ? { sessionId: request.context['chatSessionId'] } : {}),
       ...(typeof request.context['chatMessageId'] === 'string' ? { messageId: request.context['chatMessageId'] } : {}),
       inputTokens,

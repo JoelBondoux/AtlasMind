@@ -19,6 +19,25 @@ Older entries below describe the software as it was at the time and are delibera
 
 ---
 
+## v0.422.0 -- What did this feature cost?
+
+The join nobody else has. An issue tracker cannot see tokens; a cost tracker cannot see a plan.
+AtlasMind now holds both, and spend is attributed to the roadmap item it was incurred against.
+
+Starting work from a roadmap item attributes **the whole chat session** to it, because nearly all the
+work on an item is follow-up turns and attributing only the first would under-report so badly the
+number would be useless. Since a session left open while you wander elsewhere would then charge
+unrelated work to the item, every attributed record says whether it was *inferred* from the session
+or *stated* outright — and an unstated provenance counts as inferred, the weaker claim.
+
+Three rules keep the figures honest. **Unattributed spend is reported, never distributed** — a number
+spread pro rata is indistinguishable from a measured one once it is on screen. **No spend attributed
+is not zero spend**, because an item nobody has worked on and an item whose work predates attribution
+both show no money and only one of them was free. And **an absent estimate is not an estimate of
+zero**, or every unestimated item would read as over budget the moment it cost anything.
+
+---
+
 ## v0.421.0 -- Cost you can attribute, and re-price
 
 The foundation the roadmap's `Now` waits on. Two fields, and a module deciding what may honestly be
