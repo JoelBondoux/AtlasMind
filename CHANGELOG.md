@@ -6,6 +6,49 @@ The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/),
 
 ## [Unreleased]
 
+## [0.431.0] - 2026-09-08
+
+### Added
+
+- **`src/core/modelEgress.ts` — the one place prompt content is cleared for
+  transmission**, and the architectural test that keeps it that way. Security hardening
+  Phase 1, foundation.
+
+  Context is carried as **origin-tagged parts** rather than pooled into strings: a system
+  instruction we wrote, a file read out of the repository and a tool result from somebody
+  else's server carry different risk, and once concatenated that distinction cannot be
+  recovered. Eleven declared origins, each with a published rule.
+
+  - **Repository-derived context is redacted; user-authored prompts are not.** Silently
+    editing what somebody typed means they believe they sent one thing and sent another.
+    A secret-shaped value in a user prompt bound for an **external** provider stops and
+    asks, and offers a redacted alternative. A local destination does not interrupt —
+    sending your own key to your own hardware is not exfiltration, and prompting for it
+    trains people through the dialog that matters.
+  - **Unknown origins fail closed**: strict mode throws where somebody can fix the call
+    site; production treats the part as the *most* sensitive class rather than the least.
+  - **Images are not described as text-redacted.** They pass through, are marked opaque,
+    and the caller is told so it can surface the destination.
+  - **Logs carry categories, never content** — origin, provider, model, redaction count,
+    rule names. Asserted by a test that the log line contains no fragment of the secret or
+    the prompt body. A log that helps you debug a leak by reproducing it is not a safety
+    feature.
+  - Size limits are per origin: background memory is held far tighter than a user prompt.
+
+- **`tests/security/modelEgressBoundary.test.ts` — the item's real deliverable.** A
+  boundary every caller must *remember* is the arrangement being replaced; it had already
+  been forgotten in seven files out of eight. This fails when production code reaches a
+  provider outside the boundary, and **ratchets**: recorded counts may only fall, and a
+  count set too high fails too, so the debt list cannot drift from reality.
+
+  **It found a call site the Phase 0 hand-grep missed** — `commands.ts:2741` — which is
+  the argument for the test in one line. It also keys on the *receiver* rather than the
+  method name, so wrappers that delegate to a provider are not counted as a boundary: what
+  matters is the last hop. Measured baseline: **19 direct egress points across 8 files**.
+
+  No caller is migrated yet. The boundary and its ratchet land first so migration is
+  visible and cannot regress; migrating a file means lowering its number.
+
 ## [0.430.0] - 2026-09-08
 
 ### Changed

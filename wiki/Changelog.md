@@ -19,6 +19,29 @@ Older entries below describe the software as it was at the time and are delibera
 
 ---
 
+## v0.431.0 -- One place where prompt content leaves
+
+The egress boundary, and the test that keeps it one place. Context is now carried as
+**origin-tagged parts** rather than pooled into strings — a system instruction, a repository file
+and a tool result from someone else's server carry different risk, and once concatenated that
+distinction cannot be recovered.
+
+Repository-derived context is redacted. **User-authored prompts are not**: silently editing what
+somebody typed means they believe they sent one thing and sent another, so a secret bound for an
+external provider stops and asks, offering a redacted alternative. A local destination does not
+interrupt, because sending your own key to your own hardware is not exfiltration and prompting for it
+would train people through the dialog that matters.
+
+Unknown origins fail closed — loud in development where somebody can fix the call site, treated as
+the *most* sensitive class in production where they cannot. Images are not described as
+text-redacted; they are marked opaque and the destination surfaced. Logs carry origin, provider,
+model, redaction count and rule names, and a test asserts they contain no fragment of the secret.
+
+The architectural test is the real deliverable, and it earned its keep immediately: it found a direct
+provider call the hand audit had missed.
+
+---
+
 ## v0.430.0 -- Installing AtlasMind no longer sends anything anywhere
 
 The first fix from the security audit, and the only finding that was reachable with no user action:
