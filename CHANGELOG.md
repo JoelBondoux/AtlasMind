@@ -6,6 +6,33 @@ The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/),
 
 ## [Unreleased]
 
+## [0.420.2] - 2026-09-07
+
+### Changed
+
+- **The README no longer carries the release history.** It held **71** `What's new in
+  x.y.z` sections spanning 2,149 of its 2,460 lines -- a second changelog, maintained by
+  hand, in the document that is also the Marketplace listing. It now carries two lists
+  and a link:
+
+  - **What's new** -- five headline changes since the last Marketplace publication,
+    v0.402.4, which is what somebody installing the next release actually receives.
+  - **Recently shipped** -- the five most important changes already in the published
+    build.
+
+  Full history lives in `CHANGELOG.md`, which is what it is for. The README is 341 lines,
+  down from 2,460.
+
+  **Why it mattered beyond tidiness.** A reader looking for "should I install this"
+  had to scroll past eighteen versions of internal fixes to reach anything addressed to
+  them, and a per-patch note on the Marketplace page ages into noise the moment it
+  ships -- nobody deletes it, so it accumulates. Two curated lists have to be *chosen*,
+  which is the property a chronological log cannot have.
+
+  The `last Marketplace publication, **v0.402.4**` line is kept -- `docsIntegrity`
+  asserts it names the newest tag, and it is what makes the first list's scope honest
+  rather than implying everything below shipped.
+
 ## [0.420.1] - 2026-09-07
 
 ### Fixed

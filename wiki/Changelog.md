@@ -19,6 +19,25 @@ Older entries below describe the software as it was at the time and are delibera
 
 ---
 
+## v0.420.2 -- A README that isn't a second changelog
+
+The README held **71** `What's new in x.y.z` sections across 2,149 of its 2,460 lines — a changelog
+maintained by hand, inside the document that doubles as the Marketplace listing. It now carries two
+lists and a link: **What's new**, five headline changes since the last publication (v0.402.4), which
+is what somebody installing the next release actually gets; and **Recently shipped**, the five most
+important things already in the published build. Everything else is in
+[CHANGELOG.md](https://github.com/JoelBondoux/AtlasMind/blob/main/CHANGELOG.md), which is what it is
+for.
+
+341 lines, down from 2,460.
+
+Beyond tidiness: a reader deciding whether to install had to scroll past eighteen versions of
+internal fixes before reaching anything addressed to them, and per-patch notes on a listing page age
+into noise the moment they ship — nobody ever deletes them. Two curated lists have to be *chosen*,
+which is exactly what a chronological log cannot do.
+
+---
+
 ## v0.420.1 -- Links that resolve
 
 Six wiki links to `OSMFEULA.txt` and `MAINTENANCE_FEE.md` were 404s. Both files are new and live
