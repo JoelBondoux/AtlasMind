@@ -4,7 +4,7 @@
 
 <h1 align="center">AtlasMind</h1>
 
-<p align="center"><sub> · <strong>Current source version: 0.414.0</strong> · </sub></p>
+<p align="center"><sub> · <strong>Current source version: 0.414.1</strong> · </sub></p>
 
 
 <p align="center">
@@ -136,6 +136,13 @@ allow-list, redaction and file-withholding behaviour, retained metadata, provide
 important limits on overrides and compliance claims.
 
 ---
+
+## What's new in 0.414.1
+
+**The roadmap can no longer be duplicated by any path, not just the one that asks.**
+0.414.0 added a prompt on the interactive save; four other paths still wrote the old
+way, and two of them run without anybody watching. Loose items are now folded into the
+managed block wherever the roadmap is written, and the notes section keeps prose only.
 
 ## What's new in 0.414.0
 

@@ -1,3 +1,5 @@
+import { readFileSync } from 'node:fs';
+import path from 'node:path';
 import { describe, expect, it } from 'vitest';
 import {
   assessUnmanagedRoadmap,
@@ -105,5 +107,26 @@ describe('planning what a reconcile would adopt', () => {
   it('plans nothing for an already-managed document', () => {
     const plan = planRoadmapReconcile(managed('- [ ] Ship the thing'), ['Ship the thing']);
     expect(plan.adopted).toEqual([]);
+  });
+});
+
+describe('the serializer cannot duplicate, whoever calls it', () => {
+  const PANEL = readFileSync(path.join(process.cwd(), 'src/views/projectDashboardPanel.ts'), 'utf8');
+  const body = PANEL.slice(
+    PANEL.indexOf('function serializeDashboardRoadmapDocument('),
+    PANEL.indexOf('function serializeDashboardRoadmapDocument(') + 4000,
+  );
+
+  it('adopts loose items into the block instead of preserving them beside it', () => {
+    // Five call sites reach this function and two run with nobody watching --
+    // the anchor writer runs on render -- so not duplicating cannot depend on
+    // somebody having been asked.
+    expect(body).toContain('planRoadmapReconcile(existing, items.map(item => item.text)).adopted');
+  });
+
+  it('preserves prose only, never the raw previous document', () => {
+    // `## Existing Notes` holding the old body verbatim is the duplication.
+    expect(body).toContain('planRoadmapReconcile(existing, []).notes');
+    expect(body).not.toContain('`\n\n## Existing Notes\n${existing.trim()}\n`');
   });
 });

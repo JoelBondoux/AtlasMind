@@ -22061,7 +22061,20 @@ function serializeDashboardRoadmapDocument(
   gates: RoadmapGate[] = normalizeGates([]),
 ): string {
   const declaredGates = normalizeGates(gates);
-  const normalizedItems = items.filter(item => item.text.trim().length > 0);
+  // An unmanaged document's loose items are adopted into the block rather than
+  // preserved beside it. This is the structural half of the fix: five call sites
+  // reach this function and two of them run without a person watching — the
+  // anchor writer runs on render — so refusing to duplicate cannot depend on
+  // somebody being asked. The interactive save asks *as well*, because
+  // reorganising a tracked file is worth announcing; it just is not what makes
+  // it safe. Dropping the orphans instead would be worse than duplicating them.
+  const adopted = planRoadmapReconcile(existing, items.map(item => item.text)).adopted;
+  const normalizedItems: typeof items = [
+    ...items,
+    // No anchor: an adopted line is a new item, and minting one would claim
+    // graph history it does not have.
+    ...adopted.map(text => ({ text, completed: false, gates: [] as string[] })),
+  ].filter(item => item.text.trim().length > 0);
   const itemLines = normalizedItems.length > 0
     ? normalizedItems.map(item => {
         const selected = item.gates ?? (item.isMvp ? [MVP_GATE_ID] : []);
@@ -22096,7 +22109,10 @@ function serializeDashboardRoadmapDocument(
     ));
   }
 
-  const preservedNotes = existing.trim().length > 0 ? `\n\n## Existing Notes\n${existing.trim()}\n` : '\n';
+  // Prose only. The items that were in here are now in the managed block above,
+  // and preserving them a second time is the duplication itself.
+  const preservedProse = planRoadmapReconcile(existing, []).notes;
+  const preservedNotes = preservedProse.length > 0 ? `\n\n## Existing Notes\n${preservedProse}\n` : '\n';
   return withGates([
     '# Developer Roadmap',
     '',

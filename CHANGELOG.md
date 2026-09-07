@@ -6,6 +6,23 @@ The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/),
 
 ## [Unreleased]
 
+## [0.414.1] - 2026-09-07
+
+### Fixed
+
+- **The no-duplication guarantee moved into the serializer, so it holds for every
+  caller.** 0.414.0 asked before reconciling on the interactive save; the other
+  four paths that write the roadmap — the anchor writer, the importer, the shared
+  document writer, and raise-as-work from the ideation board — still took the old
+  append-everything branch. Two of them run with nobody watching (the anchor
+  writer runs on render), so refusing to duplicate cannot depend on somebody
+  having been asked.
+- Loose items are now adopted into the managed block wherever the document is
+  serialized, and `## Existing Notes` keeps prose only. The interactive prompt
+  stays, because reorganising a tracked file is worth announcing — it is just no
+  longer the thing that makes it safe. Dropping the orphans instead would have
+  been worse than duplicating them.
+
 ## [0.414.0] - 2026-09-07
 
 ### Fixed

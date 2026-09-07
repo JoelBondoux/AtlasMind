@@ -19,6 +19,21 @@ Older entries below describe the software as it was at the time and are delibera
 
 ---
 
+## v0.414.1 -- The guarantee moved to where every caller passes
+
+v0.414.0 asked before reconciling, on the save you drive from the dashboard. Four other
+paths write the roadmap too — the anchor writer, the importer, the shared document writer,
+and raise-as-work from the ideation board — and they still took the old branch that
+appended everything. Two of them run with nobody watching; the anchor writer runs on
+render.
+
+So not duplicating cannot depend on somebody having been asked. Loose items are now adopted
+into the managed block wherever the document is serialized, and `## Existing Notes` keeps
+prose only. The prompt stays, because reorganising a tracked file is worth announcing — it
+is simply no longer the thing that makes it safe.
+
+---
+
 ## v0.414.0 -- Reconcile a roadmap instead of copying it
 
 Saving against a roadmap AtlasMind did not write — hand-authored, an older format, one
