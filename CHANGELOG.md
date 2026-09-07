@@ -6,6 +6,28 @@ The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/),
 
 ## [Unreleased]
 
+## [0.420.10] - 2026-09-07
+
+### Changed
+
+- **The portal's publishing default is decided, so `NOW-4` specifies it rather than
+  proposing it.** Public by default: **roadmap progress by gate** and **delivery
+  readiness** — what a client actually asks for. Opt-in, one section at a time:
+  stakeholders, assignments, follow-ups, the risk register, and all cost.
+
+- **Repository visibility is now checked at publish time, and changes the warning.** A
+  GitHub Pages site is public whether or not the repository is, so the two defaults point
+  opposite ways: GitHub's is *publish publicly*, while somebody who made their repository
+  private has already expressed the opposite intent. Where a tool's default contradicts a
+  user's stated one, saying so in those words is the minimum, and it costs a single API
+  call at the moment it matters. Enabling a sensitive section now also states whether the
+  repository is public or private *while asking*, rather than leaving the user to
+  remember.
+
+- **`Now` is fully unblocked.** Every decision it depended on is recorded. The one
+  remaining open question — whether the database-driver problem is install weight or
+  start-up cost — sits against `NXT-8` and blocks nothing.
+
 ## [0.420.9] - 2026-09-07
 
 ### Changed

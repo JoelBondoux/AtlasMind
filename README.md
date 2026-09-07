@@ -4,7 +4,7 @@
 
 <h1 align="center">AtlasMind</h1>
 
-<p align="center"><sub> · <strong>Current source version: 0.420.9</strong> · </sub></p>
+<p align="center"><sub> · <strong>Current source version: 0.420.10</strong> · </sub></p>
 
 
 <p align="center">
@@ -175,7 +175,7 @@ important limits on overrides and compliance claims.
 
 ---
 
-## What's new in 0.420.9
+## What's new in 0.420.10
 
 The last Marketplace publication, **v0.420.4**, brought the changes below. Every release is written
 up in full in [CHANGELOG.md](CHANGELOG.md).

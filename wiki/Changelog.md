@@ -19,6 +19,23 @@ Older entries below describe the software as it was at the time and are delibera
 
 ---
 
+## v0.420.10 -- What the portal may publish, decided
+
+`NOW-4` now specifies its publishing default rather than proposing one. Public: roadmap progress by
+gate, and delivery readiness — what a client actually asks for. Opt-in, one section at a time:
+stakeholders, assignments, follow-ups, the risk register, and all cost.
+
+It also checks repository visibility at publish time and warns differently for a private repository.
+A Pages site is public whether or not the repo is, so the two defaults point opposite ways: GitHub's
+is *publish publicly*, while somebody who made their repository private has already said the
+opposite. Where a tool's default contradicts a user's expressed intent, saying so out loud is the
+minimum — and it costs one API call at the moment it matters.
+
+Every decision `Now` depended on is recorded. The single remaining question sits against `NXT-8` and
+blocks nothing.
+
+---
+
 ## v0.420.9 -- The portal joins MVP, and Now is re-cut to fit it
 
 Publishing the producer's report as a GitHub Pages portal moves into MVP as `NOW-4`. Rather than

@@ -272,8 +272,14 @@ status is a link.
 by decision; see the re-cut note below.
 **Acceptance criteria:**
 - Publishing is **off until switched on**, and the switch names what will become readable.
-- **Per-section control over what is published**, with stakeholder details and cost **excluded by
-  default** — see the warning below.
+- **Per-section control**, with a declared default set: **roadmap progress by gate** and **delivery
+  readiness** publish; **stakeholders, assignments, follow-ups, the risk register and all cost**
+  do not, until each is switched on individually.
+- **Repository visibility is checked at publish time and changes the warning.** A private repository
+  publishing a public page is the surprising case and must be called out in those words — a user who
+  made the repo private has already expressed an intent the Pages default contradicts.
+- Enabling a sensitive section names what becomes readable at a public URL, and says whether the
+  repository is public or private when it asks.
 - A published page states when it was generated; a stale page says so rather than looking current.
 - Publishing is a committed workflow the user can read, not a hidden push.
 - Turning it off removes the published page, and says whether the removal succeeded.
@@ -295,9 +301,13 @@ repository — not hosting we run.
 > commercial, legal and ethical findings with recorded decisions. And if cost history is set to
 > `repository` (`NOW-1`), spend becomes public too.
 >
-> Hence: off by default, per-section, and the two most sensitive sections off even once it is on. The
-> useful default is a page showing **roadmap progress by gate and delivery readiness** — which is
-> what a client actually asks for — with people and money opt-in.
+> Hence the decided default: a page showing **roadmap progress by gate and delivery readiness** —
+> which is what a client actually asks for — with **people and money opt-in**, one section at a time.
+>
+> The visibility check exists because the two defaults point opposite ways. GitHub's is *publish
+> publicly*; a user who made their repository private has already said something different. Where a
+> tool's default and a user's expressed intent disagree, saying so out loud is the minimum, and it
+> costs one API call at the moment it matters.
 
 ### [NOW-5] Twenty beta users, individually recruited
 **Problem:** Nobody is using AtlasMind, there is no telemetry, and there is no way to get any. Every
@@ -681,17 +691,14 @@ Recorded rather than deleted, so a later reader can see what was chosen and what
 | Slack as a Buzz alternative? | **Yes, via a Slack MCP server** | `NXT-10`, sized S because `directorCommsRunner` was already built for it. Alternatives, not a migration |
 | Which beta pool leads? | **Solo producers and small studios**, most of whom will also be BYOK | `NOW-5` recruits there first, so the cost story is tested on the people the console is for rather than on a second audience |
 | Is the GitHub Pages portal in MVP? | **Yes** | It becomes `NOW-4`. To hold the five-item cap, the price map moved to `NXT-0` — nothing in Now needed it, and it sits directly in front of the savings claim that does |
+| What may the portal publish by default? | **Roadmap progress by gate and delivery readiness.** Stakeholders, assignments, follow-ups, risks and cost are opt-in, one section at a time | `NOW-4` also checks repository visibility at publish time and warns differently for a private repo, because a Pages site is public regardless and that contradicts an intent the user has already expressed |
 
 ## Still open
+
+Everything else is decided; `Now` can be started.
 
 1. **Is install weight or start-up cost the real problem with the database drivers?** They have
    different answers — a verified runtime fetch for the first, plain lazy loading for the second, at
    a fraction of the work and with no new supply-chain surface. `NXT-8` is written for the fetch
-   because that is what was asked; it is worth thirty seconds' thought before it is built.
-
-2. **What may the portal publish by default?** The portal is in MVP (`NOW-4`) and I have proposed a
-   default of roadmap progress by gate plus delivery readiness, with **people and cost opt-in**,
-   because a GitHub Pages site is public even from a private repository unless you are on Enterprise
-   Cloud. If you intend the portal to carry stakeholder assignments or spend for a client, that needs
-   to be a deliberate choice rather than a default, and it may argue for a private-repo Pages check
-   at publish time. This shapes `NOW-4`'s settings, not whether it ships.
+   because that is what was asked; it is worth thirty seconds' thought before it is built. It blocks
+   nothing in Now.
