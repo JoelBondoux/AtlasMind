@@ -19,6 +19,94 @@ Older entries below describe the software as it was at the time and are delibera
 
 ---
 
+## v0.423.1 -- The gate before the portal
+
+The safety core of the Pages portal, built before the publisher because it is the part that is
+expensive to get wrong. Not yet wired: nothing calls it, no setting exists, and no page can be
+published. Settings were deliberately left out — a switch that controls nothing is worse than no
+switch.
+
+The fact it turns on is one most people do not know: **a GitHub Pages site is public even when the
+repository is private.** So publishing the producer's report means publishing to the open internet,
+and that report can carry stakeholder names, a register of commercial, legal and ethical findings,
+and what the project has spent.
+
+Deny by default, per section: on means roadmap gates and delivery readiness, which name neither a
+person nor a sum. Risks and cost need their own switches, and the warning names what they expose
+before it happens. A withheld section keeps its heading and says so, because a page that silently
+omits cost reads as a project that spent nothing. And withholding cost leaves no residual total —
+a page showing "$15 total" with no lines discloses the very number it withheld.
+
+---
+
+## v0.423.0 -- A status document for people who don't open VS Code
+
+Everything good about the project manager was invisible to the people who most need it — a producer, a
+client, a technical director — because a panel is the wrong container for an audience that isn't in
+the panel. The producer's report is the fix: roadmap progress by gate, open risks and their recorded
+decisions, delivery readiness, and cost against estimate, as markdown and a single self-contained HTML
+page.
+
+Built as gather → model → render, with the model emitted alongside the document so the planned GitHub
+Pages portal can consume it later rather than being a rewrite.
+
+**No model writes any of it.** The same project state produces a byte-identical report, and the clock
+is injected — otherwise every run would differ and drown the real changes. A generated status summary
+is a claim nobody checked, in a committed file, attributed to the project, and this is the document
+most likely to be forwarded to somebody who cannot check it.
+
+**And a section that could not be read says so.** *Not assessed* and *none recorded* render
+differently, because a report about a project with eleven open risks must not look identical to one
+whose risk register could not be read. The HTML carries no script, link, image or URL, so it opens
+from an email attachment or a memory stick.
+
+---
+
+## v0.422.0 -- What did this feature cost?
+
+The join nobody else has. An issue tracker cannot see tokens; a cost tracker cannot see a plan.
+AtlasMind now holds both, and spend is attributed to the roadmap item it was incurred against.
+
+Starting work from a roadmap item attributes **the whole chat session** to it, because nearly all the
+work on an item is follow-up turns and attributing only the first would under-report so badly the
+number would be useless. Since a session left open while you wander elsewhere would then charge
+unrelated work to the item, every attributed record says whether it was *inferred* from the session
+or *stated* outright — and an unstated provenance counts as inferred, the weaker claim.
+
+Three rules keep the figures honest. **Unattributed spend is reported, never distributed** — a number
+spread pro rata is indistinguishable from a measured one once it is on screen. **No spend attributed
+is not zero spend**, because an item nobody has worked on and an item whose work predates attribution
+both show no money and only one of them was free. And **an absent estimate is not an estimate of
+zero**, or every unestimated item would read as over budget the moment it cost anything.
+
+---
+
+## v0.421.0 -- Cost you can attribute, and re-price
+
+The foundation the roadmap's `Now` waits on. Two fields, and a module deciding what may honestly be
+said about them.
+
+**Every cost record now carries the workspace it came from.** History is stored per machine, so until
+now every project's spend was in one undifferentiated list and "what did this project cost" was not a
+missing feature but an uncomputable question. The key is normalized by one shared function, because
+cost records and run records are joined on it and two normalizers would eventually disagree about a
+trailing slash — the join would match nothing and every project would report zero, which looks like
+missing data rather than a broken key.
+
+**Cache writes are recorded separately from cache reads.** They are priced in opposite directions — a
+read is cheaper than an ordinary input token, a write is dearer — so two requests with identical
+input totals can differ in real cost by a multiple. The value was already in hand and discarded: the
+Anthropic adapter parsed it, folded it into the total, and dropped it one line later. Because a sum
+cannot be taken apart afterwards, older records are permanently un-repriceable rather than
+repairable, which is why this had to land first.
+
+**And the rule that keeps the eventual saving claim honest: an absent field is unknown, never zero.**
+A missing write count defaulted to zero would price a cache-heavy request as though it wrote nothing
+— understating the comparison in exactly the direction that flatters us. Such records are graded
+*partial*: real money, counted in actual spend, barred from a savings claim.
+
+---
+
 ## v0.420.11 -- Nine items on the backlog
 
 Author-added: an approval flow from ideas through to roadmap, documentation, legal and commercial

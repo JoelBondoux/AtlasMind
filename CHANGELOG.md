@@ -6,6 +6,184 @@ The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/),
 
 ## [Unreleased]
 
+## [0.423.1] - 2026-09-07
+
+### Added
+
+- **`src/core/producerReportPublication.ts` — the gate deciding what may leave the
+  machine.** The safety core of roadmap item `NOW-4`, built before the publisher rather
+  than alongside it, because this is the part that is expensive to get wrong.
+
+  **Not yet wired.** Nothing calls it, no setting exists, and no page can be published —
+  the Pages workflow, the command and the settings are the remaining half of `NOW-4`.
+  Settings were deliberately *not* added in this commit: a switch that controls nothing
+  is worse than no switch.
+
+  The fact it turns on: **a GitHub Pages site is public even when the repository is
+  private** — access control requires Enterprise Cloud. So on a free or Pro account,
+  publishing the report means publishing to the open internet, and the report can carry
+  stakeholder names, a register of commercial, legal and ethical findings, and what the
+  project has spent. `projectDirectorManager` avoids hoarding personal data and prefers a
+  reference it resolves on demand; publishing that section to a public URL would undo it
+  in one step.
+
+  - **Deny by default, per section.** Off until switched on, and then only roadmap gates
+    and delivery readiness — what a client actually asks for, naming neither a person nor
+    a sum. Risks and cost each need their own switch, and the warning **names what they
+    expose** before it happens.
+  - **Withholding is reported, never silent.** A withheld section becomes `not-assessed`
+    with its entries dropped rather than deleted, so the page keeps the heading and states
+    the omission. A page that silently omits cost reads as a project that spent nothing.
+  - **A private repository gets a different warning, not a quieter one**, because GitHub's
+    default and the user's expressed intent point in opposite directions. **Unknown
+    visibility is treated as public** — the assumption that keeps a secret.
+  - **It never publishes.** It returns a decision; the caller confirms and acts, so a
+    policy change cannot become a publication. The outbound artefact is a narrowed *copy*
+    and the local report keeps everything, since whoever ran it owns the data.
+  - Withholding cost leaves **no residual totals** — asserted by test, because a page
+    showing "$15 total" with no lines discloses exactly the number it was meant to
+    withhold.
+
+## [0.423.0] - 2026-09-07
+
+### Added
+
+- **`src/core/producerReport.ts` — the project's status as a document somebody without
+  VS Code can read.** Roadmap item `NOW-3`, and the fix for the project manager's
+  structural problem: everything good about it is invisible to a producer, a client or a
+  technical director, because a panel is the wrong container for an audience that is not
+  in the panel.
+
+  **Three layers, separated on purpose:** *gather* (the caller reads the managers) →
+  *model* (`ProducerReportData`) → *render* (markdown, and a self-contained HTML page).
+  The model is emitted alongside the rendered document so the planned GitHub Pages portal
+  (`NOW-4`) can consume it without this being rebuilt — the difference between a portal
+  being a renderer and a portal being a rewrite. It also gives the MCP roadmap server
+  (`NXT-7`) something to serve without a second gatherer.
+
+  **No model output anywhere in the path.** The same project state produces a
+  byte-identical report, asserted by test. A generated status summary is a claim nobody
+  checked, written into a committed file and attributed to the project — and this is the
+  document most likely to be forwarded to somebody who cannot check it. The clock is
+  injected for the same reason: `new Date()` inside would make every run differ and drown
+  a real change in noise.
+
+  **A section that could not be gathered says so.** Every input is optional; `undefined`
+  means *not assessed* and `[]` means *looked, found none*, and the two render
+  differently. Omitting an unavailable section would let a report about a project with
+  eleven open risks look identical to one whose risk register could not be read, which is
+  the specific way a status document becomes worse than none. A risk with no recorded
+  decision says so rather than reading as handled.
+
+  **Nothing here decides what may be published** — which sections are safe at a public URL
+  is the caller's decision against repository visibility, so a section cannot leak merely
+  by being added to the model.
+
+  The HTML is one file with **no script, link, image or URL of any kind**, because it has
+  to open from an email attachment or a memory stick — wherever the person who needs it
+  actually is. Everything interpolated is escaped, since risk titles and roadmap text can
+  be imported from third-party trackers. An absent estimate renders as a dash, never
+  `$0.00`, and unattributed spend is stated rather than folded into item totals.
+
+## [0.422.0] - 2026-09-07
+
+### Added
+
+- **Spend is attributed to the roadmap item it was incurred against** — roadmap item
+  `NOW-2`, and the join nobody else in the market has: an issue tracker cannot see tokens,
+  a cost tracker cannot see a plan.
+
+  **The id lives on `CostRecord`, not `ProjectRunRecord`.** The roadmap originally
+  mirrored `ideationOrigin` on the run record; directly on the cost record, attribution is
+  a group-by rather than a cost→run→item join, and it covers the many chat turns that
+  never create a run at all — which is most of them.
+
+  **A roadmap hand-off attributes its whole chat session, and says that it did.**
+  Attributing only the first turn would under-report so badly the figure would be useless,
+  since nearly all the work on an item is follow-up turns. But a session left open while
+  you wander elsewhere would then charge unrelated work to the item, so `roadmapAttribution`
+  records `session` (inferred) against `explicit` (stated), the counts are kept apart all
+  the way to the surface, and an *unstated* provenance counts as inferred — the weaker
+  claim. An inference presented as an assertion is the failure this field exists to
+  prevent.
+
+  The session map is in-memory: if the chat panel is disposed, later turns record as
+  unattributed. That is the safe direction to fail — under-reporting an item's cost is
+  visible and recoverable, while charging it work it never did is a wrong number nobody
+  can spot afterwards.
+
+- **`src/core/roadmapCostAttribution.ts`** — pure, unit-tested, with the rules that keep
+  the number honest:
+
+  - **Unattributed spend is reported, never distributed.** Spreading it pro rata would
+    make every item's figure wrong in a way no reader could detect, because a distributed
+    number looks exactly like a measured one. On a project that has just switched
+    attribution on, unattributed *is* most of the money, and that is the honest picture.
+  - **No spend attributed is not zero spend.** An item nobody has worked on and an item
+    whose work predates attribution both show no money; only one was free. Printing
+    `$0.00` would say *this was free*, which is the most misleading thing this feature
+    could display.
+  - **An absent estimate is not an estimate of zero**, or every unestimated item reads as
+    over budget the moment it costs anything. `attributionCoverage` returns `undefined`
+    rather than 0% when nothing has been spent, so a fresh install is not reported as an
+    attribution failure.
+
+  The roadmap item id is charset-validated at the webview boundary rather than passed
+  through, since it reaches a cost record that a dashboard groups on and an arbitrary
+  string would let a crafted target invent a bucket.
+
+## [0.421.0] - 2026-09-07
+
+### Added
+
+- **Cost records can now be attributed to a project and re-priced against another
+  model** — roadmap item `NOW-1`, the foundation the rest of `Now` waits on.
+
+  **`workspaceKey` on every cost record.** Cost history persists to VS Code
+  `globalState`, which is machine-wide, so until now every project's spend landed in one
+  undifferentiated list: "what did this project cost" was not a missing feature but an
+  *uncomputable question*. `CostTracker.setWorkspaceKey()` is called once at activation
+  and `record()` stamps each entry, rather than each call site remembering to — there are
+  several, and one that forgot would produce spend belonging to no project, which reads on
+  the dashboard as a project that cost nothing.
+
+  The key is normalized by `normalizeWorkspaceKey`, now **exported from
+  `projectRunHistory.ts` and shared** rather than copied. Cost records and run records are
+  joined on this string; two normalizers would eventually disagree about a trailing slash
+  or a Windows drive-letter case, the join would match nothing, and every project would
+  report zero — a failure that looks like missing data rather than a broken key. Pinned by
+  test.
+
+  **`cacheWriteTokens`, kept apart from `cachedInputTokens`.** Reads and writes are priced
+  in **opposite** directions — a cache read is cheaper than an ordinary input token, a
+  write is dearer — so the split is load-bearing, not a refinement: two requests with
+  identical `inputTokens` can differ in real cost by a multiple. The value was already in
+  hand and thrown away: the Anthropic adapter parsed `cache_creation_input_tokens`, folded
+  it into the input total, and discarded it one line later. Both the streaming and
+  non-streaming paths now report it.
+
+  Because a sum cannot be taken apart afterwards, **records written before this field are
+  permanently un-repriceable rather than repairable**, which is why this had to land before
+  anything built on it.
+
+- **`src/core/costRepricing.ts`** — decides what may honestly be said about a record,
+  graded against a published rule table. Pure, `vscode`-free, unit-tested.
+
+  **An absent field is unknown, never zero.** Defaulting a missing write count to `0`
+  would price a cache-heavy request as though it wrote nothing, understating the
+  counterfactual in the direction that flatters us. `partial` therefore exists as a third
+  state: the record is real money and belongs in *actual* spend, but may not carry a
+  savings claim. Collapsing it into `unusable` would understate what was spent; collapsing
+  it into `repriceable` would fabricate a saving.
+
+  A genuine zero is accepted — if a provider reports *either* cache field it speaks about
+  caching, so the absent one is a real zero; if it reports neither, that is silence and
+  silence is unknown. `REPRICING_CAVEAT` travels with any derived figure, since a flagship
+  model generally emits more output for the same prompt, making every such number a floor
+  rather than an estimate. A record with no `workspaceKey` is **unattributed, never
+  adopted** by whichever workspace happens to be open — guessing would put another
+  project's spend on this project's roadmap item.
+
 ## [0.420.11] - 2026-09-07
 
 ### Added

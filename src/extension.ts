@@ -1827,6 +1827,7 @@ async function bootstrapAtlasMind(
   const coreReady = await runTimedActivationStep('buildAtlasContext', outputChannel, async () => {
     const costTracker = new startupModules.CostTracker();
     costTracker.attachStorage(context.globalState);
+  costTracker.setWorkspaceKey(vscode.workspace.workspaceFolders?.[0]?.uri.fsPath);
     const memoryManager = new startupModules.MemoryManager();
     const skillsRefresh = new vscode.EventEmitter<void>();
     const agentsRefresh = new vscode.EventEmitter<void>();

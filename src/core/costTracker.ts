@@ -1,6 +1,8 @@
 import * as vscode from 'vscode';
 import type { CostRecord } from '../types.js';
 import { formatCost } from './currencyFormatter.js';
+import { normalizeWorkspaceKey } from './projectRunHistory.js';
+import { recordsForWorkspace, summarizeRepricingCoverage, type RepricingCoverage } from './costRepricing.js';
 
 export interface CostSummary {
   totalCostUsd: number;
@@ -49,6 +51,7 @@ export class CostTracker {
   private dailyTotals: Record<string, number> = {};
   private globalState: vscode.Memento | undefined;
   private budgetAlertLevel: 'none' | 'warning' | 'limit' = 'none';
+  private workspaceKey: string | undefined;
 
   /** Optionally attach globalState for persistence across sessions. */
   attachStorage(globalState: vscode.Memento): void {
@@ -56,8 +59,43 @@ export class CostTracker {
     this.loadFromStorage();
   }
 
+  /**
+   * The workspace new records belong to.
+   *
+   * Normalized through `projectRunHistory`'s function rather than a copy, so a
+   * cost record and a run record produced on the same machine key identically
+   * — the join between them is what makes cost-per-roadmap-item possible, and
+   * two normalizers would break it silently rather than loudly.
+   */
+  setWorkspaceKey(workspaceKey: string | undefined): void {
+    this.workspaceKey = normalizeWorkspaceKey(workspaceKey);
+  }
+
+  /**
+   * Records for the attached workspace only.
+   *
+   * Storage is machine-wide, so without this every project's spend is in one
+   * list. Records predating `workspaceKey` are excluded rather than assumed to
+   * be this project's — see `recordsForWorkspace`.
+   */
+  getWorkspaceRecords(options?: CostQueryOptions): readonly CostRecord[] {
+    if (!this.workspaceKey) { return []; }
+    return recordsForWorkspace(this.filterRecords(options), this.workspaceKey);
+  }
+
+  /** How much of the history can honestly carry a counterfactual figure. */
+  getRepricingCoverage(options?: CostQueryOptions): RepricingCoverage {
+    return summarizeRepricingCoverage(this.filterRecords(options));
+  }
+
   record(entry: CostRecord): void {
-    this.records.push(entry);
+    // Stamped here rather than at each call site: there are several, and one
+    // that forgot would produce spend attributable to no project, which reads
+    // on the dashboard as a project that cost nothing.
+    const stamped: CostRecord = entry.workspaceKey || !this.workspaceKey
+      ? entry
+      : { ...entry, workspaceKey: this.workspaceKey };
+    this.records.push(stamped);
     const day = localIsoDate(new Date(entry.timestamp));
     this.dailyTotals[day] = (this.dailyTotals[day] ?? 0) + this.getBudgetCostUsd(entry);
     this.persist();

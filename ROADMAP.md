@@ -218,16 +218,33 @@ the cost dashboard can break spend down by roadmap item.
 **Why now:** PM2 — the report's judgement that this is the single most differentiating unbuilt
 feature matches what the code shows: both halves exist and the join is one optional field.
 **Acceptance criteria:**
-- A run started from a roadmap item records that item's durable id.
-- An item's page shows spend to date against its estimate, or states plainly that no spend has been
+- Work started from a roadmap item records that item's durable id **on the cost record itself**.
+- An item shows spend to date against its estimate, or states plainly that no spend has been
   attributed yet — never a zero that reads as "free".
 - Spend that cannot be attributed to any item is reported as unattributed rather than distributed.
 - The attribution survives an item being renamed or reordered.
-**Touches:** `src/types.ts` (`ProjectRunRecord`), `src/core/projectRunHistory.ts`,
-`src/core/roadmapGraph.ts` / `roadmapGraphStore.ts` (estimates), `src/views/costDashboardPanel.ts`.
+- Every attributed record says **how** it was attributed, so an inference is never mistaken for an
+  assertion.
+**Touches:** `src/types.ts` (`CostRecord`), `src/core/costTracker.ts`,
+`src/core/roadmapCostAttribution.ts` (new), the roadmap hand-off in
+`src/views/projectDashboardPanel.ts`, `src/views/chatPanel.ts`, `src/core/orchestrator.ts`.
 **Size:** M
 **Runs where:** Local only.
 **Depends on:** NOW-1.
+
+> **The id goes on `CostRecord`, not `ProjectRunRecord`.** The original shape here mirrored
+> `ideationOrigin` on the run record, which would have made attribution a three-way join —
+> cost → run → item — and would have missed every chat turn that never creates a run, which is most
+> of them. Directly on the cost record it is a group-by, and it works wherever spend happens.
+>
+> **A roadmap-attributed session attributes its whole session, and says that it did.** The
+> alternative — attributing only the first turn — under-reports so badly it would make the feature
+> useless, since almost all the work in a session is follow-up turns. But a session left open while
+> you wander onto something else would then charge unrelated work to the item, so the attribution
+> carries its provenance (`session` rather than `explicit`) and the surface shows which. An inference
+> presented as an assertion is the failure mode here: a confident wrong number is worse than no
+> number, and this is the one place where being able to see *why* a cost landed where it did is what
+> makes it correctable.
 
 ### [NOW-3] The producer's report
 **Problem:** Everything good about the project manager is invisible to the people who most need it.

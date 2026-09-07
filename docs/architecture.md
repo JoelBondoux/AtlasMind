@@ -2530,9 +2530,46 @@ User message → Chat Participant → Orchestrator.processTask()
       → ordinary function-calling provider: ProviderAdapter.complete(AtlasMind tool definitions)
       → eligible ACP with delegated execution enabled: ProviderAdapter.complete(no AtlasMind tool definitions)
           → ACP-native operation → AcpPermission → ToolApprovalManager
-  → CostTracker.record()
+  → CostTracker.record()      (stamps workspaceKey; carries the cache read/write split)
   → TaskResult → Chat response stream
 ```
+
+### Cost records, attribution and re-pricing
+
+`CostRecord` carries two fields whose absence is meaningful, and one module
+(`src/core/costRepricing.ts`, pure) that decides what may be said about them.
+
+**`workspaceKey`** — cost history is persisted to VS Code `globalState`, which is
+machine-wide, so without a workspace on each record every project's spend lands in one
+undifferentiated list and "what did this project cost" is not a missing feature but an
+uncomputable question. `CostTracker.setWorkspaceKey()` is called once at activation and
+`record()` stamps every entry, rather than each call site remembering to — there are
+several, and one that forgot would produce spend belonging to no project, which reads on
+the dashboard as a project that cost nothing.
+
+The key is normalized by `normalizeWorkspaceKey`, **exported from `projectRunHistory.ts`
+and shared** rather than copied. Cost records and run records are joined on this string;
+two normalizers would eventually disagree about a trailing slash or a Windows drive-letter
+case, the join would match nothing, and every project would report zero — a failure that
+looks like missing data rather than a broken key. Pinned by test.
+
+**`cacheWriteTokens`** — the tokens a provider wrote *into* its prompt cache, kept apart
+from `cachedInputTokens` (tokens read *from* it). The two are priced in opposite
+directions — a read is cheaper than an ordinary input token, a write is dearer — so the
+split is load-bearing rather than a refinement: two requests with identical `inputTokens`
+can differ in real cost by a multiple. The Anthropic adapter already parsed
+`cache_creation_input_tokens`, folded it into the input total and discarded it; since a sum
+cannot be taken apart afterwards, records written before this field existed are
+permanently un-repriceable rather than repairable.
+
+`assessRepricing()` grades each record `repriceable` / `partial` / `unusable` against a
+published rule table. The distinction that matters: **an absent field is unknown, never
+zero.** Defaulting a missing write count to `0` would price a cache-heavy request as though
+it wrote nothing, understating the counterfactual in the direction that flatters us. A
+`partial` record still counts toward *actual* spend — it is real money — but may not carry
+a savings claim. `REPRICING_CAVEAT` travels with any figure derived here, because a
+flagship model generally emits more output for the same prompt, making every such number a
+floor rather than an estimate.
 
 Project execution flow:
 
