@@ -4,7 +4,7 @@
 
 <h1 align="center">AtlasMind</h1>
 
-<p align="center"><sub> · <strong>Current source version: 0.419.3</strong> · </sub></p>
+<p align="center"><sub> · <strong>Current source version: 0.419.4</strong> · </sub></p>
 
 
 <p align="center">
@@ -136,6 +136,16 @@ allow-list, redaction and file-withholding behaviour, retained metadata, provide
 important limits on overrides and compliance claims.
 
 ---
+
+## What's new in 0.419.4
+
+**Sponsorship tiers, and the privileges they no longer carry.** Five tiers: a voluntary
+$5 Supporter for individuals and anyone outside commercial work, the three Maintenance Fee
+bands by headcount ($10 / $40 / $60, from v1.0.0 only), and a one-off of any amount. The
+old tiers sold early access, a vote on priorities, priority issue triage and a README logo
+— a paid tier wearing a sponsorship label, since "no feature gate" stops being true the
+moment faster triage is for sale. Those are gone. Recognition in `CONTRIBUTORS.md` is all
+that's left, opt-in and undated. See [MAINTENANCE_FEE.md](MAINTENANCE_FEE.md).
 
 ## What's new in 0.419.3
 
@@ -2411,8 +2421,12 @@ nothing is withheld from anyone who doesn't pay.
 **During Beta there is no fee at all.** Nobody is being asked for anything today. It is published
 early so it arrives as a plan rather than a surprise, and 1.0.0 is the trigger because that is when
 the configuration and memory formats freeze — a Beta that may still move under you has not earned the
-ask. See [MAINTENANCE_FEE.md](MAINTENANCE_FEE.md), or
+ask. Individuals and anyone outside commercial work are never in scope at all; there's a voluntary $5
+Supporter tier for them, and it is not the fee. See [MAINTENANCE_FEE.md](MAINTENANCE_FEE.md), or
 [Funding and sponsorship](wiki/Funding-and-Sponsorship.md) for the wider picture.
+
+No tier buys a feature, a vote, priority triage or a logo. There is no paid tier of AtlasMind, and
+sponsorship that came with privileges would be one however it was worded.
 
 MIT License — see [LICENSE](LICENSE).
 

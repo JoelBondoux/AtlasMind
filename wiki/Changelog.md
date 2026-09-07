@@ -19,6 +19,30 @@ Older entries below describe the software as it was at the time and are delibera
 
 ---
 
+## v0.419.4 -- Tiers that don't sell anything
+
+Five tiers, matching GitHub Sponsors: a voluntary **$5 Supporter** for individuals, students and
+anyone outside commercial work; three **Maintenance Fee** bands by headcount (**$10** under 20
+employees, **$40** to 100, **$60** above) that apply only from v1.0.0; and a **one-off** of any
+amount.
+
+The substantive change is what left. The old tiers sold early access to roadmap discussions, a vote
+on priorities, priority issue triage and a logo on the README — a paid tier wearing a sponsorship
+label. "No paid tier, no feature gate, and no plan to add one" stops being true the moment faster
+triage is for sale, whatever the invoice says. A fee funding maintenance everyone benefits from
+equally is a different thing from a fee buying you position in the queue, and only one of them fits
+under that sentence.
+
+Supporter and the Maintenance Fee stay visibly separate, because collapsing them gets both wrong in
+opposite directions: an individual reading a fee schedule concludes they owe something, and an
+organization reading a tip jar concludes nothing is expected. No individual is ever in scope of the
+fee.
+
+`CONTRIBUTORS.md` follows the same two groups, opt-in and undated — "supported from the very
+beginning" stops being true for everyone who arrives later.
+
+---
+
 ## v0.419.3 -- Not before 1.0.0
 
 The maintenance fee announced in 0.419.2 comes into force at **v1.0.0**, and not before.

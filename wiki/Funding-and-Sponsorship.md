@@ -21,26 +21,39 @@ nobody notices until it breaks.
 
 ---
 
-## Levels
+## Tiers
 
-| Tier | Suggested | What you get |
+| Tier | Amount | Who it's for |
 |---|---|---|
-| **Supporter** | £3–£5/mo | A thank-you, and an optional name listing in `CONTRIBUTORS.md` |
-| **Sustainer** | £10–£20/mo | Early access to roadmap discussions, and a vote on priorities |
-| **Backer** | £50+/mo | Priority consideration for integrations and feature proposals, priority issue triage, and public recognition including in changelogs |
-| **Sponsor** | £100–£500/mo | Logo on the README, listed as a sponsor, and direct async access for questions |
+| **Supporter** | $5/mo | Individuals, students, and anyone using AtlasMind outside commercial work. Entirely voluntary — this is **not** the Maintenance Fee |
+| **Maintenance Fee: Small Organizations** | $10/mo | Organizations with fewer than 20 employees |
+| **Maintenance Fee: Medium Organizations** | $40/mo | Organizations with 20 to 100 employees |
+| **Maintenance Fee: Large Organizations** | $60/mo | Organizations with more than 100 employees |
 | **One-off** | Any amount | Pay what it's worth, no ongoing commitment |
 
-Recognition is entirely your choice. If you'd rather support the project privately, that's fine — say
-so and nothing gets published.
+The three Maintenance Fee tiers are for organizations with annual gross revenue of at least
+US$10,000 that use AtlasMind's official releases as part of revenue-generating activities, and they
+**do not apply before v1.0.0** — see below. They fund ongoing maintenance: issue triage, releases,
+dependency and security updates. Not a support contract.
+
+**No tier buys anything.** Not a feature, not a vote on priorities, not priority triage, not a logo.
+An earlier version of this page offered exactly those, and they were a paid tier wearing a
+sponsorship label: the moment a vote or faster triage is for sale, "no paid tier, no feature gate"
+stops being true however the invoice is worded. What sponsorship buys is the project's time, and
+what the Maintenance Fee funds is maintenance that already benefits everyone equally.
+
+Recognition is the one exception, and it is entirely your choice and off by default. Say the word and
+you're listed in
+[CONTRIBUTORS.md](https://github.com/JoelBondoux/AtlasMind/blob/main/CONTRIBUTORS.md); say nothing and
+nothing is published.
 
 ---
 
 ## If your team relies on it
 
-Team sponsorship is the simplest way to fund the unglamorous parts: provider and integration
-maintenance, compatibility with new VS Code and provider APIs, onboarding documentation, and release
-hygiene you can depend on.
+From v1.0.0 that is what the Maintenance Fee is for, and until then it is what sponsorship is for.
+Either way it funds the unglamorous parts: provider and integration maintenance, compatibility with
+new VS Code and provider APIs, onboarding documentation, and release hygiene you can depend on.
 
 ---
 
@@ -58,9 +71,9 @@ the short version:
 | | |
 |---|---|
 | **In force from** | **v1.0.0** — not before |
-| **Who it's for** | Organisations with annual gross revenue of **USD 10,000 or more** using AtlasMind in revenue-generating work |
+| **Who it's for** | Organizations with annual gross revenue of **US$10,000 or more** that use AtlasMind's official releases as part of revenue-generating activities |
 | **Amount** | **$10/mo** under 20 employees · **$40/mo** 20–100 · **$60/mo** over 100 |
-| **Who it's not for** | Everyone else — individuals, students, hobby projects, non-profits, open source projects |
+| **Who it's not for** | Everyone else — individuals, students, hobby projects, non-profits, open source projects. The **$5 Supporter** tier is where they go, and it is voluntary |
 | **Required?** | **No** |
 
 **Why 1.0.0 rather than a date.** OSMF suggests announcing three to six months ahead. A version is

@@ -90,20 +90,34 @@ elsewhere — and then decide.
 ## The tiers (from v1.0.0)
 
 Taken from the OSMF's own recommended structure rather than invented here, so they are comparable
-with every other project using the model:
+with every other project using the model. These are the GitHub Sponsors tier names, so the one you
+want is the one that matches your headcount:
 
-| Organisation size | Fee |
-|---|---|
-| Under 20 employees | $10/month |
-| 20–100 employees | $40/month |
-| Over 100 employees | $60/month |
+| Sponsors tier | Organization size | Fee |
+|---|---|---|
+| **Maintenance Fee: Small Organizations** | Fewer than 20 employees | $10/month |
+| **Maintenance Fee: Medium Organizations** | 20 to 100 employees | $40/month |
+| **Maintenance Fee: Large Organizations** | More than 100 employees | $60/month |
+
+All three fund the same thing: issue triage, releases, dependency and security updates. Not a
+support contract.
 
 Payable through [GitHub Sponsors](https://github.com/sponsors/JoelBondoux) once 1.0.0 ships. If a
-monthly line item is harder for you to get approved than a single invoice, a one-off of twelve
-months is fine — say so and it will be recorded as the year's fee.
+monthly line item is harder for you to get approved than a single invoice, the **one-off** tier
+takes any amount — send twelve months, say so, and it is recorded as the year's fee.
 
-Nothing needs doing today. If your organisation wants to get the approval out of the way early,
+Nothing needs doing today. If your organization wants to get the approval out of the way early,
 sponsor at whatever level suits and it will count.
+
+## The $5 Supporter tier is not this
+
+There is a separate **Supporter** tier at $5/month for individuals, students, and anyone using
+AtlasMind outside commercial work. It is entirely voluntary, it is not the Maintenance Fee, and no
+individual is ever within scope of the fee at any revenue or headcount.
+
+It exists because the two asks are aimed at different people and collapsing them would get both
+wrong — an individual reading a fee schedule concludes they owe something, and an organization
+reading a tip jar concludes nothing is expected.
 
 ## Recognition
 

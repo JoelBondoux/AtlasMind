@@ -6,6 +6,39 @@ The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/),
 
 ## [Unreleased]
 
+## [0.419.4] - 2026-09-07
+
+### Changed
+
+- **The sponsorship tiers match the ones on GitHub Sponsors, and no longer sell
+  anything.** Five: a voluntary **$5 Supporter** for individuals, students and anyone
+  using AtlasMind outside commercial work; the three **Maintenance Fee** bands by
+  headcount (**$10** under 20 employees, **$40** to 100, **$60** above), which apply
+  only from v1.0.0 and only to organizations with annual gross revenue of at least
+  US$10,000 using official releases in revenue-generating activities; and a **one-off**
+  of any amount.
+
+  **The privileges are gone, and that is the substantive change.** The old wiki tiers
+  offered early access to roadmap discussions, a vote on priorities, priority issue
+  triage, and a logo on the README. That is a paid tier wearing a sponsorship label:
+  "no paid tier, no feature gate, and no plan to add one" stops being true the moment
+  faster triage is for sale, however the invoice is worded. A fee that funds maintenance
+  everyone benefits from equally is a different thing from a fee that buys you position
+  in the queue, and only the first one is compatible with the sentence above it in the
+  README.
+
+  **Supporter and the Maintenance Fee are kept visibly separate.** Collapsing them gets
+  both wrong in opposite directions: an individual reading a fee schedule concludes they
+  owe something, and an organization reading a tip jar concludes nothing is expected.
+  No individual is in scope of the fee at any revenue or headcount.
+
+  `CONTRIBUTORS.md` is restructured onto the same two groups, and its acknowledgement
+  policy now says listings carry no date or duration -- wording like "supported from the
+  very beginning" stops being true for everyone who arrives later, and ranks people by
+  when they found the project rather than by what they did. Organizations are listed
+  without their tier, since the tier is a headcount band and publishing it says something
+  about the organization rather than about their support.
+
 ## [0.419.3] - 2026-09-07
 
 ### Changed
