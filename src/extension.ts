@@ -1781,6 +1781,7 @@ async function bootstrapAtlasMind(
       sessionConversationModule,
       sessionContextManagerModule,
       memoryAgentModule,
+      backgroundMemoryPolicyModule,
       agentAutoUpdaterModule,
       skillAutoAssignerModule,
       runtimeCoreModule,
@@ -1821,6 +1822,7 @@ async function bootstrapAtlasMind(
       import('./chat/sessionConversation.js'),
       import('./memory/sessionContextManager.js'),
       import('./memory/memoryAgent.js'),
+      import('./core/backgroundMemoryPolicy.js'),
       import('./core/agentAutoUpdater.js'),
       import('./core/skillAutoAssigner.js'),
       import('./runtime/core.js'),
@@ -1884,6 +1886,12 @@ async function bootstrapAtlasMind(
       SessionConversation: sessionConversationModule.SessionConversation,
       SessionContextManager: sessionContextManagerModule.SessionContextManager,
       MemoryAgentExecutor: memoryAgentModule.MemoryAgentExecutor,
+      BackgroundFailureNotices: backgroundMemoryPolicyModule.BackgroundFailureNotices,
+      resolveBackgroundSummarizationMode: backgroundMemoryPolicyModule.resolveBackgroundSummarizationMode,
+      resolveMemorySelfHealingMode: backgroundMemoryPolicyModule.resolveMemorySelfHealingMode,
+      backgroundSummarizationRunsAtAll: backgroundMemoryPolicyModule.backgroundSummarizationRunsAtAll,
+      selfHealingMayScan: backgroundMemoryPolicyModule.selfHealingMayScan,
+      selfHealingMayWrite: backgroundMemoryPolicyModule.selfHealingMayWrite,
       AgentAutoUpdater: agentAutoUpdaterModule.AgentAutoUpdater,
       SkillAutoAssigner: skillAutoAssignerModule.SkillAutoAssigner,
       createAtlasRuntime: runtimeCoreModule.createAtlasRuntime,
@@ -2546,6 +2554,25 @@ async function bootstrapAtlasMind(
       }),
     );
 
+    /**
+     * Background memory diagnostics, deduplicated but never discarded.
+     *
+     * Replaces three silent `catch` blocks on this path. A background task that
+     * fails every cycle must not notify every cycle, and must not become
+     * invisible either — so the output channel always receives the line and the
+     * deduper only governs whether it is *raised*.
+     */
+    const backgroundFailureNotices = new startupModules.BackgroundFailureNotices();
+    const backgroundMemoryNotices = {
+      report: (signature: string, message: string): void => {
+        outputChannel.appendLine(`[AtlasMind] background memory: ${message}`);
+        if (backgroundFailureNotices.shouldNotify(signature)) {
+          outputChannel.appendLine('[AtlasMind] background memory: (further identical notices suppressed)');
+        }
+      },
+      clear: (): void => backgroundFailureNotices.clear(),
+    };
+
     // Wire the memory agent executor now that runtime is available.
     // It owns all memory maintenance LLM calls and respects the memory-agent's allowedModels config.
     const memoryAgentExecutor = new startupModules.MemoryAgentExecutor(
@@ -2554,6 +2581,24 @@ async function bootstrapAtlasMind(
       runtime.taskProfiler,
       memoryManager,
       runtime.agentRegistry,
+      {
+        // Read per call, so switching the setting off takes effect on the next
+        // cycle rather than at the next reload.
+        mode: () => startupModules.resolveBackgroundSummarizationMode(
+          vscode.workspace.getConfiguration('atlasmind').get('memory.backgroundSummarizationMode'),
+        ),
+        reporter: {
+          failure: (signature, message) => backgroundMemoryNotices.report(signature, message),
+          externalDispatch: (providerId) => {
+            // Stated before it happens, because a cloud fallback that nobody is
+            // told about is the specific thing this work exists to end.
+            outputChannel.appendLine(
+              `[AtlasMind] background memory: sending project-memory content to external provider "${providerId}" `
+              + '(atlasmind.memory.backgroundSummarizationMode is "routed").',
+            );
+          },
+        },
+      },
     );
     maintenanceCompleter = (sys: string, user: string) => memoryAgentExecutor.complete(sys, user);
 
@@ -2625,7 +2670,28 @@ async function bootstrapAtlasMind(
     }
 
     // Periodically refresh snippets for stale SSOT entries (max 3 per cycle to avoid cost spikes).
+    //
+    // Gated three ways, because this timer previously did all of the following
+    // merely because the extension activated: read project memory, send up to
+    // 4 000 characters of it to a routed model that could be a cloud provider,
+    // and write the reply back into project files — with every failure
+    // swallowed. See `docs/security-data-flow.md` §2.
+    //
+    // The mode is read inside the tick rather than captured at activation, so
+    // turning the setting off stops the next cycle rather than requiring a
+    // reload.
     const ssotSnippetRefreshHandle = setInterval(() => {
+      const summarizationMode = startupModules.resolveBackgroundSummarizationMode(
+        vscode.workspace.getConfiguration('atlasmind').get('memory.backgroundSummarizationMode'),
+      );
+      const selfHealingMode = startupModules.resolveMemorySelfHealingMode(
+        vscode.workspace.getConfiguration('atlasmind').get('memory.selfHealingMode'),
+      );
+      // Off means no file is read and no model is selected, not a request that
+      // is prepared and discarded.
+      if (!startupModules.backgroundSummarizationRunsAtAll(summarizationMode)) { return; }
+      if (!startupModules.selfHealingMayScan(selfHealingMode)) { return; }
+
       const ssotRoot = sessionContextManager.getSsotRoot();
       if (!ssotRoot) { return; }
       const stale = memoryAgentExecutor.detectStaleEntries();
@@ -2637,14 +2703,30 @@ async function bootstrapAtlasMind(
             const raw = await vscode.workspace.fs.readFile(fileUri);
             const content = Buffer.from(raw).toString('utf8');
             const newSnippet = await memoryAgentExecutor.summarizeSsotEntry(entryPath, content);
-            if (newSnippet) {
-              const entry = memoryManager.listEntries().find(e => e.path === entryPath);
-              if (entry) {
-                memoryManager.upsert({ ...entry, snippet: newSnippet });
-              }
+            if (!newSnippet) { continue; }
+
+            if (!startupModules.selfHealingMayWrite(selfHealingMode)) {
+              // Report-only and ask both stop here. A refreshed snippet that is
+              // computed and not written is reported rather than dropped, so
+              // "nothing happened" and "something was withheld" stay distinct.
+              backgroundMemoryNotices.report(
+                `snippet-withheld:${entryPath}`,
+                `A refreshed snippet for ${entryPath} was not written: memory self-healing is `
+                + `"${selfHealingMode}". Set atlasmind.memory.selfHealingMode to "apply" to write automatically.`,
+              );
+              continue;
             }
-          } catch {
-            // Silent — best-effort refresh only.
+
+            const entry = memoryManager.listEntries().find(e => e.path === entryPath);
+            if (entry) {
+              memoryManager.upsert({ ...entry, snippet: newSnippet });
+            }
+          } catch (error) {
+            backgroundMemoryNotices.report(
+              `snippet-refresh-failed:${entryPath}`,
+              `Background snippet refresh failed for ${entryPath}: `
+              + `${error instanceof Error ? error.message : String(error)}`,
+            );
           }
         }
       })();

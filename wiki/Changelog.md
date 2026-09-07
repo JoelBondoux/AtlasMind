@@ -19,6 +19,32 @@ Older entries below describe the software as it was at the time and are delibera
 
 ---
 
+## v0.430.0 -- Installing AtlasMind no longer sends anything anywhere
+
+The first fix from the security audit, and the only finding that was reachable with no user action:
+a timer started at activation sent project-memory content to a routed model and wrote the reply back
+into your files.
+
+Two settings, both defaulting to the restrictive value. **`memory.backgroundSummarizationMode`** is
+`off` — and off means *no request is issued at all*, not one prepared and discarded, because a
+feature that reaches the network before checking whether it is enabled has already done the thing the
+setting exists to prevent. **`memory.selfHealingMode`** is `report-only`, so a background timer cannot
+change a file in your repository.
+
+`local-only` is checked against the provider that would **actually receive the bytes**, not requested
+of the router — the bug it replaces passed `'local'` as a fallback that read like a constraint. An
+unrecognised provider reads as *not* local, and an unrecognised setting value resolves to the
+restrictive mode, so a typo cannot be the reason memory leaves the machine.
+
+Three silent `catch` blocks are gone. A routed call to an external provider is now announced before it
+happens.
+
+Also fixed, found because the new settings tipped it over its budget: the capability index was
+truncating its own page list while reporting `omitted.pages: 0` — eleven pages missing, and nothing
+said so.
+
+---
+
 ## v0.429.2 -- A security audit, evidence first
 
 Phase 0 of a security hardening review: two documents, no behaviour changed. Every hypothesis was

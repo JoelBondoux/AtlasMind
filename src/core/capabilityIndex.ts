@@ -115,7 +115,21 @@ export const CAPABILITY_PAGES: readonly CapabilityPage[] = [
 ];
 
 /** How much of a prompt the index may occupy before it is truncated. */
-export const DEFAULT_CAPABILITY_INDEX_CHARS = 4000;
+/**
+ * Raised from 4 000 once the drop accounting stopped lying.
+ *
+ * At 4 000 the real manifest overflowed and the old `clamp` cut the pages list
+ * mid-way while reporting `omitted.pages: 0` — measured: eleven pages missing,
+ * `dashboard:debt` among them, and nothing said so. Fixing the accounting made
+ * the loss visible rather than smaller, which is the right order to do it in but
+ * leaves a page index missing a third of its pages.
+ *
+ * 5 600 is where the full list fits (it settles at ~5 250, so there is room for
+ * a few more pages before anything is dropped — honestly, now). The cost is
+ * roughly 300 extra tokens on prompts carrying the index, paid so that the ids
+ * the closing instruction calls authoritative actually are.
+ */
+export const DEFAULT_CAPABILITY_INDEX_CHARS = 5600;
 
 const clamp = (value: string, max: number): string =>
   value.length <= max ? value : `${value.slice(0, max - 1).trimEnd()}…`;
@@ -270,7 +284,33 @@ export function buildCapabilityIndex(input: CapabilityIndexInput = {}): Capabili
       omitted.settings += settings.length;
       body = sections.filter(section => !section.startsWith('\nCommands') && !section.startsWith('\nSettings')).join('\n');
     }
-    body = clamp(body, budget);
+  }
+
+  // Pages are dropped whole, and counted.
+  //
+  // This used to end in `clamp(body, budget)`, which cut the pages list
+  // mid-way — so the index silently lost its last few page ids while reporting
+  // `omitted.pages: 0`. Measured on the real manifest at the real default:
+  // `dashboard:debt` was absent and nothing said so. An index that under-reports
+  // what it dropped is worse than a shorter one, because the closing instruction
+  // tells the model these ids are the ones that exist.
+  //
+  // A page cut in half is also unusable in a way a missing page is not: half an
+  // id looks like a real id.
+  if (body.length > budget) {
+    const prefix = sections
+      .filter(section => !section.startsWith('\nCommands') && !section.startsWith('\nSettings') && !section.startsWith('\nPages'))
+      .join('\n');
+    const kept: string[] = [];
+    for (const line of pageLines) {
+      const candidate = `${prefix}\n\nPages that can be opened:\n${[...kept, line].join('\n')}`;
+      if (candidate.length > budget) { break; }
+      kept.push(line);
+    }
+    omitted.pages = pageLines.length - kept.length;
+    body = kept.length > 0
+      ? `${prefix}\n\nPages that can be opened:\n${kept.join('\n')}`
+      : clamp(prefix, budget);
   }
 
   return { text: `${body}${namespaceSummary}\n${closing}`, omitted };

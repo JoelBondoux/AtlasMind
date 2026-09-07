@@ -6,6 +6,63 @@ The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/),
 
 ## [Unreleased]
 
+## [0.430.0] - 2026-09-08
+
+### Changed
+
+- **Background memory work no longer runs because AtlasMind was installed.** Security
+  hardening P0-1, P0-2 and P0-3, landed together because they are one code path and
+  closing two of three holes leaves the timer running.
+
+  Two settings, both defaulting to the restrictive value:
+
+  - **`atlasmind.memory.backgroundSummarizationMode`** — `off` (default) | `local-only` |
+    `routed`. Off means **no model request is issued at all**: no file is read for the
+    purpose, no model selected, no provider resolved. A feature that reaches the network
+    before checking whether it is enabled has already done the thing the setting exists to
+    prevent.
+  - **`atlasmind.memory.selfHealingMode`** — `off` | `report-only` (default) | `ask` |
+    `apply`. Under the default a background timer **cannot modify a file in your
+    repository**. A snippet computed and withheld is reported, so "nothing happened" and
+    "something was withheld" stay distinguishable.
+
+  **`local-only` is enforced against the resolved provider**, not requested of the router.
+  The bug it replaces passed `'local'` as a *fallback* argument that read like a
+  constraint — `resolveProviderIdForModel` returns the model's own provider whenever
+  metadata exists, so a cheap cloud model satisfied it. Locality is now checked after
+  resolution, against the provider that would actually receive the bytes, and an
+  unrecognised provider id reads as **not** local because `ProviderId` is an open union
+  and a negative check would let tomorrow's provider through.
+
+  **An unrecognised mode resolves to the restrictive value**, so a typo cannot be the
+  reason project memory reaches a cloud provider. **No prior setting is migrated into a
+  permissive mode** — no old setting ever asked that question, so no old value can answer
+  it.
+
+  **Three silent `catch` blocks are gone.** Every refusal and failure now names a rule and
+  reaches the output channel; a routed call to an external provider is announced *before*
+  it happens. Repeats of an unchanged failure are deduplicated rather than discarded — the
+  previous behaviour was invisibility, and a fix that swings to notifying every cycle
+  would just be turned off.
+
+  `MemoryAgentExecutor` takes the gate as an optional constructor argument that
+  **fails closed**: a construction site not updated to supply one refuses every background
+  model call rather than keeping the old ungated behaviour.
+
+### Fixed
+
+- **The capability index silently truncated its own page list while reporting that it
+  had not.** Found because the two settings above tipped it over its 4,000-character
+  budget: the final `clamp()` cut the pages section mid-way, `omitted.pages` stayed `0`,
+  and `dashboard:debt` was absent with nothing saying so. Since the closing instruction
+  tells the model those ids are the ones that exist, an index that under-reports what it
+  dropped is worse than a shorter one — and half an id looks like a real id.
+
+  Pages are now dropped whole and counted. Fixing the accounting made the loss visible
+  rather than smaller (eleven pages), so the budget is raised to 5,600, where the full
+  list fits with room for a few more. Costs roughly 300 tokens on prompts carrying the
+  index, paid so the ids it calls authoritative actually are.
+
 ## [0.429.2] - 2026-09-07
 
 ### Added
