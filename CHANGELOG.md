@@ -6,6 +6,45 @@ The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/),
 
 ## [Unreleased]
 
+## [0.431.1] - 2026-09-08
+
+### Changed
+
+- **Eight of the nine files that reached a provider directly now go through the egress
+  boundary.** Direct call sites: **19 → 11**, all remaining ones in `orchestrator.ts`.
+  Migrated: `planner`, `classifierService`, `agentAutoUpdater`, `skillAutoAssigner`,
+  `memoryAgent`, `modelComparisonPanel` (×2) and `commands`.
+
+  Each declares what its context actually is rather than letting it travel unlabelled.
+  The planner's user message mixes the operator's goal with retrieved SSOT content and is
+  labelled `project-memory`, because the stricter origin has to govern — a part cannot be
+  half-redacted. The agent updater and skill assigner send text assembled from definitions,
+  so they are `generated-instruction`: redacted, not confirmed, since there is no operator
+  to ask. The comparison panel's judge prompt embeds other models' answers, which is
+  generated content rather than anything typed. Background memory uses the tightest origin
+  there is.
+
+- **`EgressDestination` replaces a bespoke narrow provider type.** `classifierService`
+  declared its own structural `CompletionProvider` requiring `maxTokens` and `temperature`,
+  which made a real adapter unassignable to the guarded dispatcher — the shape of thing
+  that pushes a call site into casting around the gate. The boundary now asks for the two
+  things it needs, somewhere to send and a name for the audit line.
+
+- **A path with no way to ask a human may not answer on its behalf.** The dispatcher's
+  `confirmSecret` callback is optional and its absence **refuses**, so background work
+  cannot send a prompt containing a credential. That is the correct outcome rather than an
+  inconvenience.
+
+### Known remaining
+
+- **`orchestrator.ts` keeps its 11 direct calls, deliberately.** Its messages are the whole
+  conversation in one array — system prompt, session context, the operator's turn, tool
+  results — and labelling them at dispatch would mean inferring origin from `role`. That is
+  exactly what the boundary refuses: `role: 'user'` carries both what somebody typed and a
+  workspace file pasted into a prompt, and those are not the same risk. Labelling belongs
+  where the messages are built, which is a change to the construction sites rather than the
+  dispatch, and gets its own commit. The ratchet holds the count at 11 meanwhile.
+
 ## [0.431.0] - 2026-09-08
 
 ### Added

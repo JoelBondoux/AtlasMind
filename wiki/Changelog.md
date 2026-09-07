@@ -19,6 +19,26 @@ Older entries below describe the software as it was at the time and are delibera
 
 ---
 
+## v0.431.1 -- Eight of nine, through the gate
+
+Direct provider calls fall from 19 to 11, with every remaining one in the orchestrator. The planner,
+classifier, agent updater, skill assigner, memory agent, model comparison panel and skill drafting
+command all now declare what their context actually is instead of letting it travel unlabelled.
+
+The labels are decisions, not paperwork. The planner's user message mixes the operator's goal with
+retrieved memory, so it takes the stricter of the two origins — a part cannot be half-redacted. The
+agent updater sends text assembled from definitions, so it is *generated*: redacted rather than
+confirmed, because there is no operator to ask. And a path with no way to ask a human may not answer
+on their behalf: the confirmation callback is optional and its absence **refuses**, so background
+work simply cannot send a prompt containing a credential.
+
+The orchestrator's eleven stay for now, on purpose. Its messages are the whole conversation in one
+array, and labelling them at dispatch would mean inferring origin from `role` — exactly what the
+boundary refuses, since `role: 'user'` carries both what somebody typed and a file pasted into a
+prompt. That labelling belongs where the messages are built.
+
+---
+
 ## v0.431.0 -- One place where prompt content leaves
 
 The egress boundary, and the test that keeps it one place. Context is now carried as

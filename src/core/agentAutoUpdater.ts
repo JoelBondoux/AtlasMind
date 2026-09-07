@@ -4,6 +4,8 @@ import type { ModelRouter } from './modelRouter.js';
 import type { ProviderRegistry } from '../providers/registry.js';
 import type { TaskProfiler } from './taskProfiler.js';
 import { resolveProviderIdForModel } from './orchestrator.js';
+import { dispatchGuardedCompletion } from './modelEgress.js';
+import { isLocalProviderId } from './backgroundMemoryPolicy.js';
 
 const UPDATE_CONSTRAINTS: RoutingConstraints = { budget: 'balanced', speed: 'balanced' };
 const UPDATE_MAX_TOKENS = 2048;
@@ -106,14 +108,21 @@ export class AgentAutoUpdater {
 
     let responseContent: string;
     try {
-      const response = await provider.complete({
-        model,
-        messages: [
-          { role: 'system', content: UPDATE_SYSTEM_PROMPT },
-          { role: 'user', content: userPrompt },
-        ],
-        maxTokens: UPDATE_MAX_TOKENS,
-        temperature: UPDATE_TEMPERATURE,
+      const response = await dispatchGuardedCompletion({
+        provider,
+        // Generated: the prompt is assembled from agent definitions rather than
+        // typed by anyone, so it is redacted rather than confirmed.
+        origins: ['system-prompt', 'generated-instruction'],
+        external: !isLocalProviderId(provider.providerId),
+        request: {
+          model,
+          messages: [
+            { role: 'system', content: UPDATE_SYSTEM_PROMPT },
+            { role: 'user', content: userPrompt },
+          ],
+          maxTokens: UPDATE_MAX_TOKENS,
+          temperature: UPDATE_TEMPERATURE,
+        },
       });
       responseContent = response.content;
     } catch {

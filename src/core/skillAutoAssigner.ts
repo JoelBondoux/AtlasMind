@@ -4,6 +4,8 @@ import type { ModelRouter } from './modelRouter.js';
 import type { ProviderRegistry } from '../providers/registry.js';
 import type { TaskProfiler } from './taskProfiler.js';
 import { resolveProviderIdForModel } from './orchestrator.js';
+import { dispatchGuardedCompletion } from './modelEgress.js';
+import { isLocalProviderId } from './backgroundMemoryPolicy.js';
 
 const CONSTRAINTS: RoutingConstraints = { budget: 'cheap', speed: 'fast' };
 const MAX_TOKENS = 512;
@@ -110,14 +112,19 @@ export class SkillAutoAssigner {
 
     let responseContent: string;
     try {
-      const response = await provider.complete({
-        model,
-        messages: [
-          { role: 'system', content: SYSTEM_PROMPT },
-          { role: 'user', content: userPrompt },
-        ],
-        maxTokens: MAX_TOKENS,
-        temperature: 0.1,
+      const response = await dispatchGuardedCompletion({
+        provider,
+        origins: ['system-prompt', 'generated-instruction'],
+        external: !isLocalProviderId(provider.providerId),
+        request: {
+          model,
+          messages: [
+            { role: 'system', content: SYSTEM_PROMPT },
+            { role: 'user', content: userPrompt },
+          ],
+          maxTokens: MAX_TOKENS,
+          temperature: 0.1,
+        },
       });
       responseContent = response.content;
     } catch {

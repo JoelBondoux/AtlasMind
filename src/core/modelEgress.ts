@@ -46,6 +46,7 @@
  * alongside; this module only decides.
  */
 
+import type { CompletionRequest, CompletionResponse } from '../providers/adapter.js';
 import { redactSecrets } from '../utils/secretRedactor.js';
 
 /**
@@ -312,4 +313,113 @@ export function describeEgressAudit(
   if (truncatedOrigins.length > 0) { bits.push(`truncated=${truncatedOrigins.join('|')}`); }
   if (opaque > 0) { bits.push(`images=${opaque}`); }
   return `[AtlasMind] model egress: ${bits.join(' ')}`;
+}
+
+export class ModelEgressRefused extends Error {
+  constructor(
+    readonly origin: ModelContextOrigin | undefined,
+    readonly redactedRules: readonly string[],
+    message: string,
+  ) {
+    super(message);
+    this.name = 'ModelEgressRefused';
+  }
+}
+
+/**
+ * The minimum a destination must expose.
+ *
+ * Structural rather than `ProviderAdapter`, because the boundary needs exactly
+ * two things — somewhere to send, and a name for the audit line. Demanding the
+ * full adapter would push callers holding a narrower handle into casting around
+ * the gate, which is the one thing it must not encourage.
+ */
+export interface EgressDestination {
+  providerId?: string;
+  complete(request: CompletionRequest): Promise<CompletionResponse>;
+}
+
+export interface GuardedCompletionInput {
+  provider: EgressDestination;
+  request: CompletionRequest;
+  /**
+   * What each message is, positionally.
+   *
+   * Positional rather than inferred, because guessing an origin from a role is
+   * exactly the unlabelled context this module exists to refuse: `role: 'user'`
+   * is used both for what the operator typed and for a workspace file pasted
+   * into a prompt, and those are not the same risk. A shorter list than
+   * `messages` leaves the remainder unlabelled, which fails closed.
+   */
+  origins: readonly ModelContextOrigin[];
+  /** True when the provider is not on this machine. */
+  external: boolean;
+  strictOrigins?: boolean;
+  /** Receives one content-free audit line per dispatch. */
+  onAudit?: (line: string) => void;
+  /**
+   * Asked when a user-authored prompt carries a secret bound off-machine.
+   *
+   * Absent means **refuse**: a path with no way to ask a human is not a path
+   * that may answer on their behalf. Background work therefore cannot send a
+   * prompt containing a credential, which is the correct outcome rather than an
+   * inconvenience.
+   */
+  confirmSecret?: (details: { origin: ModelContextOrigin; rules: readonly string[]; reason: string })
+    => Promise<'send-original' | 'send-redacted' | 'cancel'>;
+}
+
+/**
+ * The single guarded path to a provider.
+ *
+ * Every prompt-bearing call should arrive here. `tests/security/modelEgressBoundary.test.ts`
+ * fails when one does not, and ratchets, so the list of exceptions can only
+ * shrink.
+ */
+export async function dispatchGuardedCompletion(
+  input: GuardedCompletionInput,
+): Promise<CompletionResponse> {
+  const strictOrigins = input.strictOrigins
+    ?? (process.env['NODE_ENV'] !== 'production' || process.env['VITEST'] !== undefined);
+
+  const parts: OriginTaggedText[] = input.request.messages.map((message, index) => ({
+    // An index past the supplied origins is deliberately not defaulted to
+    // something benign: `undefined` reaches `ruleFor`, which fails closed.
+    origin: input.origins[index] as ModelContextOrigin,
+    text: message.content,
+  }));
+
+  const prepared = prepareEgress(parts, { strictOrigins, external: input.external });
+
+  if (prepared.status === 'refused') {
+    throw new ModelEgressRefused(undefined, [], prepared.reason);
+  }
+
+  let cleared = prepared.status === 'ready' ? prepared.parts : undefined;
+
+  if (prepared.status === 'needs-confirmation') {
+    if (!input.confirmSecret) {
+      throw new ModelEgressRefused(prepared.origin, prepared.redactedRules, prepared.reason);
+    }
+    const answer = await input.confirmSecret({
+      origin: prepared.origin,
+      rules: prepared.redactedRules,
+      reason: prepared.reason,
+    });
+    if (answer === 'cancel') {
+      throw new ModelEgressRefused(prepared.origin, prepared.redactedRules, 'Cancelled before sending.');
+    }
+    cleared = answer === 'send-redacted' ? prepared.redactedAlternative : parts;
+  }
+
+  const messages = input.request.messages.map((message, index) => ({
+    ...message,
+    content: cleared?.[index]?.text ?? message.content,
+  }));
+
+  if (prepared.status === 'ready' && input.onAudit) {
+    input.onAudit(describeEgressAudit(prepared.audit, input.provider.providerId ?? 'unknown', input.request.model));
+  }
+
+  return input.provider.complete({ ...input.request, messages });
 }

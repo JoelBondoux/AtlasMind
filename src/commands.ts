@@ -2738,20 +2738,29 @@ async function draftSkillWithAtlas(atlas: AtlasMindContext, initialFolderPath?: 
 
   let draftSource: string;
   try {
-    const response = await provider.complete({
-      model,
-      temperature: 0.2,
-      maxTokens: 1600,
-      messages: [
-        {
-          role: 'system',
-          content: 'You write safe, minimal AtlasMind custom skill modules. Return only JavaScript source code for a CommonJS module.',
-        },
-        {
-          role: 'user',
-          content: buildSkillDraftPrompt({ skillId, goal }),
-        },
-      ],
+    const { dispatchGuardedCompletion } = await import('./core/modelEgress.js');
+    const { isLocalProviderId } = await import('./core/backgroundMemoryPolicy.js');
+    const response = await dispatchGuardedCompletion({
+      provider,
+      // The user names a goal, but the prompt around it is assembled by
+      // AtlasMind, so the part carrying the goal is labelled as the operator's.
+      origins: ['system-prompt', 'user-prompt'],
+      external: !isLocalProviderId(providerId),
+      request: {
+        model,
+        temperature: 0.2,
+        maxTokens: 1600,
+        messages: [
+          {
+            role: 'system',
+            content: 'You write safe, minimal AtlasMind custom skill modules. Return only JavaScript source code for a CommonJS module.',
+          },
+          {
+            role: 'user',
+            content: buildSkillDraftPrompt({ skillId, goal }),
+          },
+        ],
+      },
     });
     draftSource = extractGeneratedSkillCode(response.content);
   } catch (err) {

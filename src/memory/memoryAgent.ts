@@ -8,6 +8,7 @@ import {
   decideBackgroundSummarization,
   type BackgroundSummarizationMode,
 } from '../core/backgroundMemoryPolicy.js';
+import { dispatchGuardedCompletion } from '../core/modelEgress.js';
 import type { MemoryEntry, RoutingConstraints } from '../types.js';
 import type { MemoryManager } from './memoryManager.js';
 
@@ -115,14 +116,23 @@ export class MemoryAgentExecutor {
     }
 
     try {
-      const response = await provider.complete({
-        model,
-        messages: [
-          { role: 'system', content: systemPrompt },
-          { role: 'user', content: userPrompt },
-        ],
-        maxTokens: MEMORY_MAX_TOKENS,
-        temperature: MEMORY_TEMPERATURE,
+      const response = await dispatchGuardedCompletion({
+        provider,
+        // `background-memory` is the tightest text origin: this content is
+        // repository memory gathered with no operator in the loop, so it is
+        // redacted and held to the smallest size limit.
+        origins: ['system-prompt', 'background-memory'],
+        external: decision.external,
+        request: {
+          model,
+          messages: [
+            { role: 'system', content: systemPrompt },
+            { role: 'user', content: userPrompt },
+          ],
+          maxTokens: MEMORY_MAX_TOKENS,
+          temperature: MEMORY_TEMPERATURE,
+        },
+        onAudit: line => reporter?.failure('egress-audit', line),
       });
       return response.content;
     } catch (error) {

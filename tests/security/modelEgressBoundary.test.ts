@@ -35,16 +35,19 @@ const EXEMPT_FILES = new Set([
  * longer calls a provider directly.
  */
 const LEGACY_DIRECT_CALLERS: Readonly<Record<string, number>> = {
+  /**
+   * The main chat and tool-loop path, and the last one left.
+   *
+   * Not migrated with the other eight because its messages are the whole
+   * conversation — system prompt, session context, the operator's turn and tool
+   * results in one array — and the origins would have to be inferred from
+   * `role`. That is exactly what the boundary refuses: `role: 'user'` carries
+   * both what somebody typed and a workspace file pasted into a prompt, and
+   * those are not the same risk. Labelling belongs where the messages are
+   * built, which is a change to this file's construction sites rather than to
+   * its dispatch, and deserves its own commit.
+   */
   'core/orchestrator.ts': 11,
-  'views/modelComparisonPanel.ts': 2,
-  // Found by this test, not by the Phase 0 audit — a hand grep missed it, which
-  // is the argument for the test in one line.
-  'commands.ts': 1,
-  'core/agentAutoUpdater.ts': 1,
-  'core/classifierService.ts': 1,
-  'core/planner.ts': 1,
-  'core/skillAutoAssigner.ts': 1,
-  'memory/memoryAgent.ts': 1,
 };
 
 /**
