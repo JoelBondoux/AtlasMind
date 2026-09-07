@@ -4,7 +4,7 @@
 
 <h1 align="center">AtlasMind</h1>
 
-<p align="center"><sub> · <strong>Current source version: 0.420.4</strong> · </sub></p>
+<p align="center"><sub> · <strong>Current source version: 0.420.5</strong> · </sub></p>
 
 
 <p align="center">
@@ -175,10 +175,10 @@ important limits on overrides and compliance claims.
 
 ---
 
-## What's new in 0.420.4
+## What's new in 0.420.5
 
-The last Marketplace publication, **v0.402.4**, is the baseline — these are the headline changes
-landing on top of it. Every release is written up in full in [CHANGELOG.md](CHANGELOG.md).
+The last Marketplace publication, **v0.420.4**, brought the changes below. Every release is written
+up in full in [CHANGELOG.md](CHANGELOG.md).
 
 - **AtlasMind follows the Open Source Maintenance Fee model.** The source code stays MIT permanently,
   and compiling it yourself is free for everyone, always. From **v1.0.0** the official Marketplace

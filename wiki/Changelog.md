@@ -19,6 +19,13 @@ Older entries below describe the software as it was at the time and are delibera
 
 ---
 
+## v0.420.5 -- Baseline refreshed
+
+Post-release housekeeping: the README's published baseline now names **v0.420.4**, the release just
+put on the Marketplace, and its "what's new" list reads as shipped rather than queued.
+
+---
+
 ## v0.420.4 -- Bring your own AI tool, properly documented
 
 The previous release *said* AtlasMind's chat is optional. [[Bring Your Own AI Tool]] is the page that

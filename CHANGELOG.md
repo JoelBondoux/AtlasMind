@@ -6,6 +6,19 @@ The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/),
 
 ## [Unreleased]
 
+## [0.420.5] - 2026-09-07
+
+### Fixed
+
+- **The README's published baseline names v0.420.4, the release just published.** It said
+  v0.402.4, which was true until the tag went up a minute earlier. `docsIntegrity` asserts
+  the stated baseline matches the newest tag, so the repository's own suite is red between
+  tagging and this commit -- by design, and it cannot be folded into the release commit
+  because the tag it must name does not exist yet.
+
+  The section reads *brought the changes below* rather than *landing on top of it*, because
+  those five bullets are now in the published build rather than queued ahead of it.
+
 ## [0.420.4] - 2026-09-07
 
 ### Added
