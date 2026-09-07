@@ -6,6 +6,44 @@ The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/),
 
 ## [Unreleased]
 
+## [0.420.7] - 2026-09-07
+
+### Changed
+
+- **Where cost history lives becomes a setting, and `NOW-1` is unblocked.** The roadmap
+  posed it as an either/or -- in the repository (diffable, survives a clone, lets the
+  producer's report carry cost) or private to the machine (spend never committed). It is
+  now proposed as `atlasmind.cost.historyLocation`, defaulting to **machine-private**.
+
+  The default is the *less* useful option on purpose. In-repo is what makes the cost
+  section of the producer's report work for someone who never opens VS Code; it is also
+  what commits a record of your API spend to a repository you may later make public, and
+  the first thing AtlasMind would write into `project_memory/` that is about *you* rather
+  than about the project. Deny-by-default is the house rule for that shape of choice.
+
+  Recorded as a consequence rather than left to be discovered: with the default untouched,
+  the producer's report must render cost as **not shared**, never as zero -- a report
+  silently omitting cost reads as a project that spent nothing. Switching the setting
+  moves the existing history rather than starting a new one.
+
+### Added
+
+- **`LTR-4` — copy cost history to a destination you nominate.** Second-line by request.
+  A mirror, never a move, so the primary store stays authoritative and a misconfigured
+  destination cannot lose history; off by default, with the first copy to any destination
+  confirmed by name, since writing data somewhere new is outward-facing.
+
+  The item carries its own scoping warning, because "a secure source" spans two very
+  different builds: a filesystem path or a git remote the user already owns is small and
+  credential-free, while a named cloud integration brings an SDK, a credential, a
+  token-refresh path and a support burden for a few hundred kilobytes of numbers. It also
+  asks that "secure" be defined before it is promised in any UI -- at minimum encrypted at
+  rest with a key in SecretStorage, rather than "we put it somewhere else". Cost history
+  is not a credential, but it does reveal spend, cadence and which projects are active.
+
+- Open questions drop from five to four; the answered one is recorded on `NOW-1` as a
+  decision rather than deleted.
+
 ## [0.420.6] - 2026-09-07
 
 ### Added

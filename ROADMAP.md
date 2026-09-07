@@ -172,25 +172,40 @@ Five items, dependency-ordered.
 and no cache-write detail. So we cannot say what a project cost, what a feature cost, or what the
 same work would have cost elsewhere — and none of it can appear in a document anyone else can read.
 **Outcome:** Every request is recorded against a project, with enough token detail to re-price it
-later, in a file that lives with the project rather than in the editor.
+later, in a project-scoped store whose location the user chooses.
 **Why now:** C1, C2, C6, C7, PM2. Nothing else in this horizon can be built without it.
 **Acceptance criteria:**
 - A cost record carries the workspace it belongs to, and cache read *and* write token counts as
   separate fields.
-- Cost history for a project is stored with the project and survives reinstalling the extension.
+- Cost history is project-scoped and survives reinstalling the extension.
+- A setting chooses where it lives: **private to this machine** (default) or **in the repository**.
+  Changing it moves the existing history rather than starting a new one, and says how many records
+  moved.
+- Choosing the repository option warns, once, that spend data will be committed — and the file it
+  writes is named in the warning.
 - Existing records without the new fields still load and are reported as incomplete rather than as
   zero.
 - Retention is bounded and the limit is stated where a user can see it.
 **Touches:** `src/types.ts` (`CostRecord`), `src/core/costTracker.ts`, `src/extension.ts` (storage
-wiring), provider adapters that populate usage.
+wiring), `package.json` (new setting), provider adapters that populate usage.
 **Size:** M
 **Runs where:** Local only.
 **Depends on:** nothing.
 
-> **Decision needed before this ships** — see Open question 2. Putting spend in `project_memory/`
-> makes it diffable, shareable and readable by the producer's report; it also commits your API spend
-> to a repository you may make public. The alternative is a project-scoped file outside git, which
-> keeps it private and makes the report's cost section local-only.
+> **Decided:** a setting, not a fixed choice — proposed as `atlasmind.cost.historyLocation` with
+> `machine-private` (default) and `repository`.
+>
+> **Private is the default deliberately.** In-repo is the more useful option — diffable, survives a
+> clone, and it is what lets the producer's report (`NOW-3`) carry a cost section for someone who
+> never opens VS Code. It is also the more consequential one: it commits a record of your API spend
+> to a repository you may later make public, and it is the first thing AtlasMind would write into
+> `project_memory/` that is about *you* rather than about the project. Deny-by-default is the house
+> rule for exactly this shape of choice, so the useful option is one setting away rather than the
+> starting position.
+>
+> **Consequence to state in the docs, not hide:** with the default left alone, the producer's report
+> renders its cost section as *not shared* rather than as zero. A report that silently omits cost
+> reads as a project with no spend.
 
 ### [NOW-2] Cost per roadmap item
 **Problem:** The roadmap knows what was planned and the cost tracker knows what was spent, and
@@ -429,7 +444,43 @@ path.
 **Runs where:** Local only.
 **Depends on:** nothing.
 
-### [LTR-4] Cross-tool spend visibility — **Contested**
+### [LTR-4] Copy cost history to a destination you nominate
+**Problem:** Wherever cost history lives it lives in one place. Machine-private means it dies with
+the laptop; in-repo means it is only as durable as that clone. Someone accounting for spend over a
+year wants a copy somewhere that is neither.
+**Outcome:** Cost history can be mirrored to a location the user nominates, on a schedule or on
+demand, without the primary store changing.
+**Why now:** Second-line by request, and correctly so — it is a durability and bookkeeping
+convenience, not part of the value claim. `NOW-1`'s setting already solves the question that was
+blocking work; this is the follow-on.
+**Acceptance criteria:**
+- The mirror is a **copy**, never a move: the primary store chosen in `NOW-1` stays authoritative,
+  so a failed or misconfigured mirror can never lose history.
+- Off by default, and the first copy to any destination is confirmed with the destination named in
+  the dialog — this writes data somewhere new, which is outward-facing by definition.
+- A destination that cannot be reached is reported, not retried silently, and never blocks a run.
+- Any credential lives in VS Code SecretStorage, never in a setting or a committed file.
+- What is copied is stated exactly, and is cost records only — no prompts, no code, no file paths.
+**Touches:** `src/core/costTracker.ts`, a new export/mirror module, `package.json` (settings),
+SecretStorage.
+**Size:** M for the local scope below; L if it grows a service integration.
+**Runs where:** Local only, **provided the destination is one the user already owns** — another
+directory, a synced folder, a private git remote, an encrypted archive. Nothing here is hosting *we*
+pay for.
+**Depends on:** NOW-1.
+
+> **Scope this deliberately when it comes up.** "A secure source" spans two very different builds. A
+> filesystem path or a git remote the user already has is a small, credential-free feature. An
+> integration with a named cloud provider brings an SDK, a credential, a token-refresh path and a
+> support burden, for a file that is a few hundred kilobytes of numbers. Start with the first; treat
+> the second as a separate item that has to justify itself.
+>
+> **"Secure" needs a definition before it is promised.** Cost history is not a credential, but it
+> does reveal spend, cadence and which projects are active. If the word appears in the UI it should
+> mean something specific — at minimum encrypted at rest with a key in SecretStorage — rather than
+> "we put it somewhere else".
+
+### [LTR-5] Cross-tool spend visibility — **Contested**
 **Problem:** AtlasMind sees only its own traffic, so it reports a fraction of the developer's real
 AI bill.
 **Outcome:** Read what Claude Code, Cursor and Windsurf write to disk and price it alongside our own.
@@ -470,20 +521,14 @@ not start it before there are users asking for it.
    share the same foundation (NOW-1), so this is a straight swap of NOW-3 and NXT-1 if you prefer the
    number.
 
-2. **Where does cost history live — in the repo, or beside it?** In `project_memory/` it is diffable,
-   survives reinstalls, and the producer's report can carry cost. It also commits your API spend to a
-   repository you may make public, and it is the first thing AtlasMind would write there that is
-   about *you* rather than about the project. Outside git it stays private and the report's cost
-   section becomes local-only. This blocks NOW-1.
-
-3. **Is the Lens live-database feature central to the thesis?** If yes, keep `pg` and `mysql2` and say
+2. **Is the Lens live-database feature central to the thesis?** If yes, keep `pg` and `mysql2` and say
    why. If no, they should be lazily loaded or moved to an optional install — two of seven runtime
    dependencies is a real chunk of install weight for something most beta users will never touch.
 
-4. **What happens to ideation, vision, UI Studio and Buzz?** Each is defensible alone; together they
+3. **What happens to ideation, vision, UI Studio and Buzz?** Each is defensible alone; together they
    blur the producer-console thesis. I need to know which serve it (my read: ideation clearly does —
    it already feeds the roadmap) before I can sequence anything that touches them.
 
-5. **Which beta pool leads — BYOK cost-conscious developers, or solo producers and small studios?**
+4. **Which beta pool leads — BYOK cost-conscious developers, or solo producers and small studios?**
    They want different first-run experiences and would validate different claims. Recruiting both
    equally with twenty people gets ten of each, which may be too few of either to learn from.

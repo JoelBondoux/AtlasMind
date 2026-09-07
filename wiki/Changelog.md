@@ -19,6 +19,27 @@ Older entries below describe the software as it was at the time and are delibera
 
 ---
 
+## v0.420.7 -- Cost history gets a switch, not a verdict
+
+Where cost history lives was the one open decision blocking the roadmap's first item. It becomes a
+setting — `atlasmind.cost.historyLocation`, defaulting to **machine-private**, with **in-repository**
+one switch away.
+
+The default is deliberately the less useful of the two. In-repo is what lets the producer's report
+carry a cost section for someone who never opens VS Code; it is also what commits a record of your
+API spend to a repository you may later make public. Deny-by-default is the house rule for that shape
+of choice. The consequence is written down rather than left to be discovered: with the default
+untouched the report renders cost as *not shared*, never as zero, because a report that quietly omits
+cost reads as a project that spent nothing.
+
+A second-line item joins Later: mirroring cost history to a destination you nominate. A copy and
+never a move, off by default, confirmed by name on first use — and carrying a warning that "a secure
+source" means either a path you already own (small, credential-free) or a cloud integration with an
+SDK and a token-refresh path (not small), and that "secure" needs defining before it appears in any
+UI.
+
+---
+
 ## v0.420.6 -- A roadmap that says what to do first
 
 `ROADMAP.md` arrives at the repository root: three horizons, dependency-ordered, each item carrying

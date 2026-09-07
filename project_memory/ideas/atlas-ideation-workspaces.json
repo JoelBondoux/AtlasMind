@@ -1,6 +1,6 @@
 {
   "version": 1,
-  "activeWorkspaceId": "feedback-the-interesting-thing-is-we-re-talking-via-atlas",
+  "activeWorkspaceId": "web-portal-pm",
   "workspaces": [
     {
       "id": "default",
@@ -11,12 +11,12 @@
       "updatedAt": "2026-08-02T10:10:35.461Z"
     },
     {
-      "id": "feedback-the-interesting-thing-is-we-re-talking-via-atlas",
-      "title": "Feedback: The interesting thing is we're talking via Atlas",
-      "boardFile": "atlas-ideation-board.feedback-the-interesting-thing-is-we-re-talking-via-atlas.json",
-      "summaryFile": "atlas-ideation-board.feedback-the-interesting-thing-is-we-re-talking-via-atlas.md",
-      "createdAt": "2026-08-02T10:10:35.461Z",
-      "updatedAt": "2026-09-04T15:46:24.741Z"
+      "id": "web-portal-pm",
+      "title": "Web Portal PM",
+      "boardFile": "atlas-ideation-board.web-portal-pm.json",
+      "summaryFile": "atlas-ideation-board.web-portal-pm.md",
+      "createdAt": "2026-09-07T20:07:38.702Z",
+      "updatedAt": "2026-09-07T20:07:46.853Z"
     }
   ]
 }
