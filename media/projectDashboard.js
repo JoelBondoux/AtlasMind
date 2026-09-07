@@ -4172,7 +4172,7 @@
             ${badge ? `title="${escapeAttr(badge.title)}"` : ''}
             data-action="page" data-payload="${escapeAttr(id)}"
             class="nav-tab${isActive ? ' active' : ''}">
-            <span class="nav-tab-label">${escapeHtml(label)}</span>
+            <span class="nav-tab-label" data-label="${escapeAttr(label)}">${escapeHtml(label)}</span>
             ${badge ? `<span class="nav-badge nav-badge-${escapeAttr(badge.tone)}" aria-hidden="true">${escapeHtml(String(badge.count))}</span>` : ''}
           </button>`;
       }).join('');
@@ -12044,15 +12044,30 @@
       people: (graph.lanes || []).length,
       completed: graph.completed.length,
     };
+    // Adding an item was reachable only from a card below the fold and from the
+    // far end of the canvas toolbar, behind nine other buttons — so the page you
+    // open to work on the backlog did not visibly offer the one thing you most
+    // often came to do. The control sits in the first row of the page now, where
+    // it is visible the moment the page opens. It stays outside the tablist,
+    // since a button that is not a tab must not be a child of one, and it is
+    // absent on Delivered for the reason the canvas toolbar already omits it
+    // there: nothing is added to a record of what already happened.
     return `
-      <div class="rm-view-bar" role="tablist" aria-label="Roadmap views">
-        ${views.map(([id, label, hint]) => `
-          <button type="button" role="tab" aria-selected="${state.roadmapView === id ? 'true' : 'false'}"
-            class="rm-view-chip${state.roadmapView === id ? ' is-active' : ''}"
-            data-action="roadmap-view" data-payload="${escapeAttr(id)}" title="${escapeAttr(hint)}">
-            <span>${escapeHtml(label)}</span>
-            <span class="rm-view-count">${counts[id]}</span>
-          </button>`).join('')}
+      <div class="rm-view-row">
+        <div class="rm-view-bar" role="tablist" aria-label="Roadmap views">
+          ${views.map(([id, label, hint]) => `
+            <button type="button" role="tab" aria-selected="${state.roadmapView === id ? 'true' : 'false'}"
+              class="rm-view-chip${state.roadmapView === id ? ' is-active' : ''}"
+              data-action="roadmap-view" data-payload="${escapeAttr(id)}" title="${escapeAttr(hint)}">
+              <span>${escapeHtml(label)}</span>
+              <span class="rm-view-count">${counts[id]}</span>
+            </button>`).join('')}
+        </div>
+        ${state.roadmapView === 'completed' ? '' : `
+          <button type="button" class="rm-add-item" data-action="roadmap-add" data-payload="new"
+            title="${escapeAttr('Add an item to the prioritised backlog. Opens the entry form with the caret already in it.')}">
+            <span aria-hidden="true">+</span><span>Add roadmap item</span>
+          </button>`}
       </div>`;
   }
 

@@ -6,6 +6,48 @@ The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/),
 
 ## [Unreleased]
 
+## [0.418.0] - 2026-09-07
+
+### Fixed
+
+- **The dashboard navigation no longer shifts sideways when you change page.**
+  `[aria-selected="true"]` raises the label from weight 600 to 700 and bold text is
+  wider, so the active pill grew and shoved every pill to its right in the same group
+  along with it. Overview showed it worst: it is the landing page *and* the first pill
+  in the first group, so it sat bold and wide on load and shrank the moment you went
+  anywhere else. `.nav-tab-label` now reserves its bold width permanently through a
+  zero-height ghost copy carried in `data-label`, so selection can change weight
+  without changing width.
+- **Nav tabs no longer overlap the edge of their wrapper at narrow widths.**
+  `.nav-group-tabs` had no `flex-wrap`, so a row could only break *between* groups —
+  a four-tab group in a narrow window simply overflowed. Tabs wrap inside their group
+  now, which keeps the cluster readable as one unit, and `.nav-group` gets
+  `min-width: 0` so it can shrink below its content width at all.
+- **The Road to MVP track has room to be read.** It lists every item tagged for the
+  release, so on a real backlog it wraps to several rows; at a 96px column with no
+  column gap and no row gap it read as a wall of 11px text. Columns are wider
+  (132px), the padding inside each is doubled, wrapped rows are separated by a row
+  gap, and the label line-height and width are up. The *column* gap stays zero on
+  purpose — the connector between milestones is drawn across that boundary.
+- **The milestone connector no longer dangles past the end of a wrapped row.** One bar
+  per boundary was drawn reaching out of its own column and into the next one's half,
+  which works in a single row and points at nothing at the end of every other one.
+  Each column draws its own half now, so an interior boundary still joins seamlessly
+  (the column gap is zero) and a boundary at a row's end stops at the edge. The
+  "complete" tint follows both sides of the boundary rather than only the left one.
+
+### Added
+
+- **"Add roadmap item" in the first row of the Roadmap page**, on every view. It was
+  reachable only from a card below the fold and from the far end of the canvas toolbar
+  behind nine other buttons, so the page you open to work on the backlog did not
+  visibly offer the one thing you most often came to do. It is deliberately the only
+  filled control in that row: the view chips choose a way of *looking* at the plan and
+  read as a set, and a fifth outlined pill beside them would have been lost among them
+  again. It sits outside the tablist, since a button that is not a tab must not be a
+  child of one, and it is absent on Delivered for the reason the canvas toolbar
+  already omits it there: nothing is added to a record of what already happened.
+
 ## [0.417.1] - 2026-09-07
 
 ### Changed

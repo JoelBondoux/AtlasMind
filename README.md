@@ -4,7 +4,7 @@
 
 <h1 align="center">AtlasMind</h1>
 
-<p align="center"><sub> · <strong>Current source version: 0.417.1</strong> · </sub></p>
+<p align="center"><sub> · <strong>Current source version: 0.418.0</strong> · </sub></p>
 
 
 <p align="center">
@@ -136,6 +136,32 @@ allow-list, redaction and file-withholding behaviour, retained metadata, provide
 important limits on overrides and compliance claims.
 
 ---
+
+## What's new in 0.418.0
+
+**Three fixes to the Project Dashboard's own furniture.**
+
+*The nav no longer shuffles when you change page.* The selected tab is bolder than the
+others, and bold text is wider — so the active pill grew and nudged the pills to its right
+along by a pixel or two on every navigation. Overview showed it worst, being both the
+landing page and the first pill in the first group. Each label now reserves its bold width
+at all times, so weight can change without anything moving. In the same pass, a group of
+tabs can wrap inside itself: previously the row could only break *between* groups, so in a
+narrow window a four-tab group reached past the wrapper and drew over the edge of the frame.
+
+*Road to MVP has room to be read.* The milestone track holds every item tagged for the
+release, so on a real backlog it wraps to several rows — at 96px a column with no gap in
+either direction, that read as a wall of small text. Columns are wider, the padding inside
+each is doubled, and wrapped rows are separated. The connector between two milestones was
+drawn as a single bar reaching out of its own column into the next one's half, which left a
+line dangling into empty space at the end of every wrapped row; each column now draws only
+its own half.
+
+*Adding a roadmap item is offered where you land.* It was reachable from a card below the
+fold and from the far end of the canvas toolbar behind nine other buttons — so the page you
+open to work on the backlog did not visibly offer the thing you most often came to do. It
+sits in the first row of the Roadmap page now, where it is visible the moment the page
+opens — though not on Delivered, which is a record of what already happened.
 
 ## What's new in 0.417.1
 

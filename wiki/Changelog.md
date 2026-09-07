@@ -19,6 +19,30 @@ Older entries below describe the software as it was at the time and are delibera
 
 ---
 
+## v0.418.0 -- The dashboard's own furniture
+
+Three things about the Project Dashboard that were quietly wrong.
+
+The navigation shifted sideways every time you changed page. The selected tab is drawn
+bolder than the others, bold text is wider, and nothing was holding the width — so the
+active pill grew and nudged its neighbours along. Overview showed it worst, being both the
+page you land on and the first pill in the first group. Every label now reserves its bold
+width at all times. In a narrow window, a group of tabs could also reach past the edge of
+its box, because the row was only allowed to break *between* groups; tabs wrap inside their
+group now.
+
+Road to MVP lists every item tagged for the release, which on a real backlog is a lot of
+them. At the old spacing they arrived as a wall of small text. The columns are wider, the
+padding inside each is doubled, and wrapped rows are separated -- and the connecting line
+between milestones, which used to dangle into empty space at the end of every wrapped row,
+now stops where the row does.
+
+And adding an item to the roadmap is offered where you land. It was previously reachable
+from a card below the fold, or from the far end of the canvas toolbar behind nine other
+buttons.
+
+---
+
 ## v0.417.1 -- A backlog that counts only what is left
 
 The MVP gate is supposed to answer one question: what still has to happen before a first
