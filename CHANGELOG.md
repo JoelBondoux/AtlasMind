@@ -6,6 +6,32 @@ The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/),
 
 ## [Unreleased]
 
+## [0.418.1] - 2026-09-07
+
+### Fixed
+
+- **Auto-align no longer parks unlinked roadmap items where they are easy to miss.**
+  Items with no prerequisites and no dependents get a compact block after the linked
+  components, which is right -- they say nothing about order and carry no arrows to
+  misread. Two things about *where* that block went were wrong. It started from the
+  layout cursor, which carries the **inter-component** separation of two slots: a gap
+  sized for two linked sub-plans whose edges need room to be read, when nothing crosses
+  this boundary at all. And it filled along the **cross** axis first, so the block grew
+  away from the plan before it grew alongside it -- six cards deep before a second
+  column started. On a backlog where most items have no declared dependencies, that is
+  most of the plan, sitting below the fold behind an empty band.
+- One slot separates it now (still a clear break at a 360px pitch against a card that
+  renders around 300px, and half the empty space), and it fills along the reading axis
+  first -- the same near-square grid in slots, turned the way an editor pane opens.
+- **With nothing linked at all the block starts at the margin**, rather than one slot
+  past a plan that does not exist. Both properties are pinned by test.
+
+### Notes
+
+- The roadmap canvas is the only surface with an auto-align pass; the ideation board
+  places cards where they are dropped and re-lays them only inside a lens. Nothing
+  there needed the same change.
+
 ## [0.418.0] - 2026-09-07
 
 ### Fixed

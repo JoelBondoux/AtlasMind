@@ -4,7 +4,7 @@
 
 <h1 align="center">AtlasMind</h1>
 
-<p align="center"><sub> · <strong>Current source version: 0.418.0</strong> · </sub></p>
+<p align="center"><sub> · <strong>Current source version: 0.418.1</strong> · </sub></p>
 
 
 <p align="center">
@@ -136,6 +136,19 @@ allow-list, redaction and file-withholding behaviour, retained metadata, provide
 important limits on overrides and compliance claims.
 
 ---
+
+## What's new in 0.418.1
+
+**Roadmap items with no dependencies are parked where you can see them.** They get a block
+of their own on the canvas, after the linked plan — sensibly, since they say nothing about
+order and carry no arrows. But that block started two slots past the plan, a gap sized for
+two linked sub-plans whose edges need room to be read, and nothing crosses this boundary at
+all. It then grew *downward* before it grew sideways, six cards deep before a second column
+began. On a backlog where most items have no declared dependencies — which is most
+backlogs — that put the majority of the plan below the fold with an empty band above it.
+
+One slot separates the block now, and it fills across the window before it fills down it.
+Same near-square grid, turned the way an editor pane actually opens.
 
 ## What's new in 0.418.0
 

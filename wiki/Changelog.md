@@ -19,6 +19,22 @@ Older entries below describe the software as it was at the time and are delibera
 
 ---
 
+## v0.418.1 -- Unlinked items you can actually find
+
+Roadmap items with no dependencies are parked in a block of their own after the linked plan.
+That is the right idea -- they say nothing about order, and they carry no arrows, so a grid
+cannot be misread as a sequence. Where the block went was the problem.
+
+It began two slots past the plan, a gap sized for two linked sub-plans whose arrows need room
+to be read, when nothing crosses this boundary at all. Then it grew downward before it grew
+sideways: six cards deep before a second column started. On a backlog where most items have
+no declared dependencies -- which is most backlogs -- that put the majority of the plan below
+the fold, behind a band of empty canvas.
+
+One slot separates it now, and it fills across the window before it fills down it.
+
+---
+
 ## v0.418.0 -- The dashboard's own furniture
 
 Three things about the Project Dashboard that were quietly wrong.
