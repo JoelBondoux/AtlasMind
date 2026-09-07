@@ -6,6 +6,36 @@ The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/),
 
 ## [Unreleased]
 
+## [0.411.0] - 2026-09-07
+
+### Added
+
+- **The delivery-stage pills in the header switch the checkout.** A pill naming a
+  branch you are not on is a button; clicking it offers to move this checkout
+  there. The stage you are standing on carries a coloured outline rather than a
+  fill — the strip is read at a glance, and a filled pill among outlined ones
+  reads as an alert instead of "you are here".
+- Five guards make a header pill safe to give that power. **The webview posts the
+  pill's id, never a ref** — resolved against the strip this panel last sent, so
+  a message can name a stage that exists and can never introduce a branch name of
+  its own. **The working-tree pill is refused**, having no branch by design.
+  **The branch must already exist locally**, because a click on a version number
+  must not create `staging` on a machine that never had one. **Uncommitted work
+  is counted and named in the confirmation** rather than discovered afterwards.
+  And the confirmation names the branch *and* the version, since "switch to
+  Production" and "move this checkout to `main`" are the same act at two
+  distances and only one is checkable.
+- Nothing on this path forces, stashes, resets or discards — pinned by a test
+  that matches quoted git arguments rather than prose, because the method's own
+  comment contains the word "stashes" precisely because the code does not.
+
+### Fixed
+
+- **The version strip had no click handling at all.** It lives in the host markup
+  outside `#dashboard-root`, and the delegated listener on the root never saw
+  it — so its existing "+N more" button, which routes to the Delivery page, had
+  silently done nothing. One listener now covers both it and the new pills.
+
 ## [0.410.0] - 2026-09-07
 
 ### Added

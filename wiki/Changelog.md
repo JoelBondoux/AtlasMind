@@ -19,6 +19,39 @@ Older entries below describe the software as it was at the time and are delibera
 
 ---
 
+## v0.411.0 -- The stage pills switch your checkout
+
+The header shows a pill per delivery stage with the version on each. They were labels.
+A pill naming a branch you are not on is now a button: click it and AtlasMind offers to
+move this checkout there. The stage you are standing on carries a coloured outline
+rather than a fill — the strip is read at a glance, and a filled pill among outlined
+ones reads as an alert instead of "you are here".
+
+Giving a header pill the power to move a working tree needs guards, and there are five.
+
+The webview posts **the pill's id, never a branch name**, resolved against the strip the
+panel last sent — so a message can name a stage that exists and can never introduce a ref
+of its own. The **working-tree pill is refused**: it is a reading from disk and has no
+branch by design. The **branch must already exist locally**, because a click on a version
+number must not create a `staging` on a machine that never had one. **Uncommitted work is
+counted and named in the confirmation** rather than discovered afterwards — git carries a
+dirty tree across when it can and refuses when it cannot, and neither is what somebody
+clicking a version number expects. And the confirmation **names the branch as well as the
+stage**, since "switch to Production" and "move this checkout to `main`" are the same act
+described at two distances, and only one of them is checkable.
+
+Nothing on the path forces, stashes, resets or discards. That is pinned by a test which
+matches quoted git arguments rather than bare words — the method's own comment contains
+"stashes" precisely because the code does not, and the first version of the test failed
+on its own prose.
+
+**A quieter fix alongside it.** The version strip lives in the host markup, outside the
+dashboard's root element, so the delegated click handler never saw it. Its "+N more"
+button — the one that opens the Delivery page when there are more stages than fit — had
+silently done nothing since it was added. One listener now covers both.
+
+---
+
 ## v0.410.0 -- Say what an item is when you add it
 
 Adding a roadmap item meant typing a line into a three-row box and then setting

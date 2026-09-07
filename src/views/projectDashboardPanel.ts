@@ -864,6 +864,14 @@ type ProjectDashboardMessage =
   | { type: 'addIdeationEvidence'; payload: string }
   | { type: 'saveRoadmap'; payload: DashboardRoadmapSavePayload }
   /**
+   * Switch the checkout to the branch a version-strip pill stands for.
+   *
+   * The payload is the pill's id, never a branch name: the host resolves it
+   * against the strip it last sent, so the webview can name a stage that exists
+   * and cannot reach a ref that was never on screen.
+   */
+  | { type: 'versionPillCheckout'; payload: string }
+  /**
    * Roadmap-canvas mutations.
    *
    * Every one of these names a node by its durable id and nothing else. The
@@ -4905,6 +4913,9 @@ export class ProjectDashboardPanel {
       case 'saveRoadmap':
         await this.saveRoadmap(message.payload);
         return;
+      case 'versionPillCheckout':
+        await this.checkoutVersionPillBranch(message.payload);
+        return;
       case 'roadmapNodeMove':
         await this.handleRoadmapNodeMove(message.payload);
         break;
@@ -6498,6 +6509,100 @@ export class ProjectDashboardPanel {
         detail: evidence.detail,
       },
     });
+  }
+
+  /**
+   * Switch the checkout to the branch a version-strip pill names.
+   *
+   * Five things are true of this by construction, and each of them is why a
+   * header pill is allowed to move a working tree at all.
+   *
+   * **The webview supplies an id, not a ref.** The pill is resolved against the
+   * strip this panel last sent, so a crafted message can name a stage that
+   * exists and can never introduce a branch name of its own.
+   *
+   * **The working-tree pill is refused.** It has no `ref` by design — it is a
+   * reading from disk rather than from git — and checking out the string
+   * `working tree` would be a confusing failure at the git layer instead of a
+   * clear one here.
+   *
+   * **The branch must already exist locally.** This switches between stages a
+   * pipeline already declares; it never creates a branch as a side effect of a
+   * click on a header, which is how you end up with `staging` on a machine that
+   * never had one.
+   *
+   * **Uncommitted work is named before anything happens, not discovered after.**
+   * `git checkout` carries a dirty tree across when it can and refuses when it
+   * cannot, and neither outcome is what somebody clicking a version number is
+   * expecting. Nothing here ever passes `--force`, stashes, or discards.
+   *
+   * **The confirmation names the branch and the destination version**, because
+   * "switch to Production" and "move this checkout to `main`" are the same act
+   * described at two different distances, and only one of them is checkable.
+   */
+  private async checkoutVersionPillBranch(pillId: string): Promise<void> {
+    const workspaceRoot = vscode.workspace.workspaceFolders?.[0]?.uri.fsPath;
+    if (!workspaceRoot) {
+      return;
+    }
+    const pill = (this.lastSnapshot?.versionStrip.pills ?? []).find(entry => entry.id === pillId);
+    if (!pill || pill.isWorkingTree || pill.isCurrent || !pill.ref) {
+      return;
+    }
+    const branch = pill.ref;
+
+    const exists = await runGit(workspaceRoot, ['rev-parse', '--verify', '--quiet', `refs/heads/${branch}`])
+      .catch(() => '');
+    if (!exists) {
+      void vscode.window.showWarningMessage(
+        `AtlasMind did not switch branch.`,
+        {
+          modal: true,
+          detail: `There is no local branch called ${branch}. This pill comes from the delivery pipeline, `
+            + 'which describes where your project ships rather than what this clone has checked out. '
+            + 'Create or fetch the branch first — AtlasMind will not create one from a click on a version number.',
+        },
+      );
+      return;
+    }
+
+    const status = await runGit(workspaceRoot, ['status', '--porcelain']).catch(() => '');
+    const dirtyCount = status ? status.split(/\r?\n/).filter(line => line.trim().length > 0).length : 0;
+    const version = pill.version ? `v${pill.version}` : 'no readable version';
+    const detail = `Switch this checkout to ${branch} (${pill.label}, ${version}).`
+      + (dirtyCount > 0
+        ? `\n\nYou have ${dirtyCount} uncommitted change${dirtyCount === 1 ? '' : 's'}. Git will carry them across if it can and refuse if it cannot. `
+          + 'AtlasMind never forces, stashes or discards them.'
+        : '\n\nYour working tree is clean.')
+      + '\n\nNothing is committed, pushed or deleted.';
+    const choice = await vscode.window.showWarningMessage(
+      'Switch branch?',
+      { modal: true, detail },
+      `Switch to ${branch}`,
+    );
+    if (choice !== `Switch to ${branch}`) {
+      return;
+    }
+
+    try {
+      // `checkout <branch> --`, never `checkout -- <branch>`. With the
+      // disambiguator first the name is read as a *pathspec*, and the command
+      // silently becomes "restore the file called main from the index" —
+      // discarding uncommitted work on that path instead of switching branch.
+      await runGit(workspaceRoot, ['checkout', branch, '--']);
+    } catch (error) {
+      // Git's own message is the useful one here — "your local changes would be
+      // overwritten by checkout" names the files. Reporting a generic failure
+      // instead would throw away the only actionable part.
+      const message = error instanceof Error ? error.message : String(error);
+      void vscode.window.showWarningMessage(
+        `AtlasMind could not switch to ${branch}.`,
+        { modal: true, detail: message.slice(0, 800) },
+      );
+      return;
+    }
+    await vscode.commands.executeCommand('git.refresh');
+    await this.syncState();
   }
 
   private async saveRoadmap(payload: DashboardRoadmapSavePayload): Promise<void> {
@@ -14191,6 +14296,9 @@ export function isProjectDashboardMessage(message: unknown): message is ProjectD
     || candidate['type'] === 'openBranchChangeStory'
     || candidate['type'] === 'reviewBranchCleanup'
     || candidate['type'] === 'openBranchPullRequest'
+    // A version-strip pill id. Resolved against the strip this panel last sent,
+    // so the branch git is handed never comes from the webview.
+    || candidate['type'] === 'versionPillCheckout'
   ) {
     // Opaque inventory id only. It is resolved against a freshly collected
     // branch list before git receives any arguments or Chat context.
@@ -23635,8 +23743,26 @@ const DASHBOARD_CSS = `
 
   /* The stage you are standing in. An outline rather than a fill: the strip is
      read left-to-right as a pipeline, and a filled pill mid-row breaks it. */
+  /* The stage you are standing on. A coloured outline rather than a fill: the
+     strip is read at a glance and a filled pill among outlined ones reads as an
+     alert rather than as "you are here". */
   .dashboard-version-pill-current {
     border-color: color-mix(in srgb, var(--dash-accent-strong) 70%, var(--dash-border));
+    outline: 2px solid color-mix(in srgb, var(--dash-accent-strong) 80%, transparent);
+    outline-offset: 1px;
+  }
+
+  /* A pill that can move the checkout. It is a button, so it says so on hover
+     and takes focus — the ones that cannot are still plain spans. */
+  button.dashboard-version-pill-switch {
+    cursor: pointer;
+    font: inherit;
+  }
+
+  button.dashboard-version-pill-switch:hover,
+  button.dashboard-version-pill-switch:focus-visible {
+    border-color: color-mix(in srgb, var(--dash-accent-strong) 60%, var(--dash-border));
+    background: color-mix(in srgb, var(--dash-accent-strong) 10%, transparent);
   }
 
   /* The working tree is the only reading taken from disk rather than from git,

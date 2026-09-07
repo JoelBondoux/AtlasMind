@@ -814,6 +814,33 @@
     requestRepositoryRefresh('refresh');
   });
 
+  /**
+   * The version strip lives in the host markup, outside `#dashboard-root`, so
+   * the delegated click handler on the root never saw it — which is why its
+   * existing "+N more" button did nothing. One listener here covers both it and
+   * the stage pills.
+   *
+   * A pill posts its own id and nothing else. The host resolves that against the
+   * strip it drew this page from, so a message can name a stage that exists and
+   * can never supply a branch name of its own.
+   */
+  versionStrip?.addEventListener('click', event => {
+    const trigger = event.target instanceof Element ? event.target.closest('[data-action]') : null;
+    if (!(trigger instanceof HTMLElement)) {
+      return;
+    }
+    const action = trigger.dataset.action;
+    const payload = trigger.dataset.payload || '';
+    if (action === 'page') {
+      state.activePage = payload;
+      render();
+      return;
+    }
+    if (action === 'version-pill-checkout' && payload) {
+      vscode.postMessage({ type: 'versionPillCheckout', payload: payload });
+    }
+  });
+
   // The shortcut is in the tooltip and in `aria-keyshortcuts`, not printed on
   // the button. A `<kbd>` chip beside a one-word label is most of the control's
   // width for something the user reads once, and it was the first thing to
@@ -4346,12 +4373,32 @@
     const channel = pill.channel
       ? `<span class="dashboard-version-pill-channel" title="${escapeAttr('Publishes to ' + pill.channel.distTag)}">${escapeHtml(pill.channel.label)}</span>`
       : '';
+    const body = `<strong>${escapeHtml(pill.label)}</strong>`
+      + `<span class="dashboard-version-pill-muted">${escapeHtml(pill.ref)}</span>`
+      + `${value}${channel}${pill.isDirty ? '<span class="dashboard-version-pill-dirty" aria-label="uncommitted changes">•</span>' : ''}`;
+    // Only a pill that names a branch you are not already on can be switched to.
+    // The working-tree pill has no branch by design, and offering to check out
+    // the branch you are standing on is an action with nothing to do.
+    const switchable = !pill.isWorkingTree && !pill.isCurrent && pill.ref;
+    if (!switchable) {
+      return `
+        <span class="${classes.join(' ')}"${pill.note ? ` title="${escapeAttr(pill.note)}"` : ''}>
+          ${body}
+        </span>
+      `;
+    }
+    // The payload is the pill's id and nothing else. The host resolves it
+    // against the strip it drew this page from, so a crafted message can name a
+    // stage that exists and can never supply a branch name of its own.
+    const title = pill.note
+      ? `${pill.note}\n\nClick to switch to ${pill.ref}.`
+      : `Switch this checkout to ${pill.ref}. You will be asked to confirm, and nothing is committed, pushed or discarded.`;
     return `
-      <span class="${classes.join(' ')}"${pill.note ? ` title="${escapeAttr(pill.note)}"` : ''}>
-        <strong>${escapeHtml(pill.label)}</strong>
-        <span class="dashboard-version-pill-muted">${escapeHtml(pill.ref)}</span>
-        ${value}${channel}${pill.isDirty ? '<span class="dashboard-version-pill-dirty" aria-label="uncommitted changes">•</span>' : ''}
-      </span>
+      <button type="button" class="${classes.join(' ')} dashboard-version-pill-switch"
+        data-action="version-pill-checkout" data-payload="${escapeAttr(pill.id)}"
+        title="${escapeAttr(title)}">
+        ${body}
+      </button>
     `;
   }
 

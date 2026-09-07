@@ -4,7 +4,7 @@
 
 <h1 align="center">AtlasMind</h1>
 
-<p align="center"><sub> · <strong>Current source version: 0.410.0</strong> · </sub></p>
+<p align="center"><sub> · <strong>Current source version: 0.411.0</strong> · </sub></p>
 
 
 <p align="center">
@@ -136,6 +136,20 @@ allow-list, redaction and file-withholding behaviour, retained metadata, provide
 important limits on overrides and compliance claims.
 
 ---
+
+## What's new in 0.411.0
+
+**The delivery-stage pills in the dashboard header now switch your checkout.** A pill
+naming a branch you are not on is a button — click it and AtlasMind offers to move this
+checkout there, naming the branch, the version, and how many uncommitted changes you
+have before anything runs. The stage you are standing on is outlined.
+
+It never creates a branch, never forces, and never stashes or discards. If the branch
+does not exist locally it says so instead of making one.
+
+**And the version strip works at all now.** It sits outside the dashboard's own root
+element, so the click handling never reached it — meaning its "+N more" button had
+quietly done nothing since it was added.
 
 ## What's new in 0.410.0
 
