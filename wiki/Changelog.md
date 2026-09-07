@@ -19,6 +19,28 @@ Older entries below describe the software as it was at the time and are delibera
 
 ---
 
+## v0.427.0 -- A model with no price was costing nothing
+
+The bug behind the price-map roadmap item, and the more consequential half of it. Any model the
+catalog does not price recorded `costUsd: 0` — **indistinguishable from a genuinely free local
+model**, so real spend reported as free and flowed into cost-per-item and the producer report as
+`$0.00`, a figure a reader would take as "this feature was free to build".
+
+The zero stays, because there is nothing honest to put in its place, but it now travels as *unpriced*:
+counted separately, exposed on the item view so a total can be marked as a floor, and rendered beside
+the figure.
+
+The price table also carries its own verification date now, and every figure derived from it says how
+old it is. Stale prices still report — withholding would push somebody towards a worse source — and an
+unreadable date reads as unknown-and-stale rather than current.
+
+A monthly workflow opens one reusable issue when the table is old. It **deliberately does not fetch
+prices**: providers publish pricing as prose with no machine-readable feed, so a scraper would break
+quietly and report *wrong* prices, which is worse than stale ones because a wrong number carries the
+same confidence as a right one.
+
+---
+
 ## v0.426.0 -- Cost history becomes a file you choose the home of
 
 The last outstanding piece of the roadmap's first item. Spend lived in VS Code's global state:

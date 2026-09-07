@@ -128,6 +128,35 @@ describe('estimates are compared only when they exist', () => {
   });
 });
 
+/**
+ * A model the catalog does not price records `costUsd: 0`. That is
+ * indistinguishable from a genuinely free local model, so the zero has to travel
+ * with the fact that it was never priced — otherwise real spend reports as free.
+ */
+describe('unpriced requests are counted, not hidden in a zero', () => {
+  it('counts them per item', () => {
+    const report = buildRoadmapCostReport([
+      record({ roadmapItemId: 'a', costUsd: 5 }),
+      record({ roadmapItemId: 'a', costUsd: 0, unpriced: true }),
+    ]);
+    expect(report.items[0]?.requestCount).toBe(2);
+    expect(report.items[0]?.unpricedRequestCount).toBe(1);
+    expect(report.items[0]?.costUsd).toBe(5);
+  });
+
+  it('surfaces the count on the item view, so a total can be marked as a floor', () => {
+    const report = buildRoadmapCostReport([record({ roadmapItemId: 'a', costUsd: 0, unpriced: true })]);
+    const view = roadmapItemSpendView(report, 'a');
+    expect(view.hasAttributedSpend).toBe(true);
+    expect(view.unpricedRequestCount).toBe(1);
+  });
+
+  it('is zero for an item whose requests were all priced', () => {
+    const report = buildRoadmapCostReport([record({ roadmapItemId: 'a', costUsd: 3 })]);
+    expect(roadmapItemSpendView(report, 'a').unpricedRequestCount).toBe(0);
+  });
+});
+
 describe('attribution coverage', () => {
   it('is undefined when nothing has been spent, rather than 0%', () => {
     expect(attributionCoverage(buildRoadmapCostReport([]))).toBeUndefined();

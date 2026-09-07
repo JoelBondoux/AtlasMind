@@ -312,9 +312,15 @@ export function registerCommands(
       version = (JSON.parse(await fs.readFile(path.join(root, 'package.json'), 'utf8')) as { version?: string }).version;
     } catch { version = undefined; }
 
+    const { modelCatalogFreshness } = await import('./providers/modelCatalogFreshness.js');
+
     const input = buildProducerReportInput({
       projectName: folder.name,
       generatedAt: new Date(),
+      // Every cost figure below is arithmetic against a committed price table, so
+      // the report states how old that table is rather than leaving a reader to
+      // assume the numbers are current.
+      pricingNote: modelCatalogFreshness(new Date()).note,
       ...(version ? { version } : {}),
       ...(roadmapMarkdown !== undefined ? { roadmapMarkdown } : {}),
       ...(atlas.riskOversightManager.getConfig() ? { riskConfig: atlas.riskOversightManager.getConfig()! } : {}),

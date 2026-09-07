@@ -146,6 +146,7 @@ export function deliveryReadiness(config: DeliveryConfig | undefined): ProducerR
 function costLines(
   records: readonly CostRecord[] | undefined,
   items: readonly GatheredRoadmapItem[],
+  pricingNote: string | undefined,
 ): ProducerReportInput['cost'] | undefined {
   if (!records) { return undefined; }
   const report = buildRoadmapCostReport(records);
@@ -156,12 +157,14 @@ function costLines(
     label: labelFor(item.roadmapItemId),
     costUsd: item.costUsd,
     ...(item.explicitRequestCount === 0 ? { inferred: true } : {}),
+    ...(item.unpricedRequestCount > 0 ? { unpricedRequestCount: item.unpricedRequestCount } : {}),
   }));
 
   return {
     lines,
     unattributedCostUsd: report.unattributedCostUsd,
     totalCostUsd: report.totalCostUsd,
+    ...(pricingNote ? { pricingNote } : {}),
   };
 }
 
@@ -174,6 +177,14 @@ export interface GatherInput {
   riskConfig?: RiskOversightConfig;
   deliveryConfig?: DeliveryConfig;
   costRecords?: readonly CostRecord[];
+  /**
+   * How old the prices behind the cost figures are.
+   *
+   * Passed in rather than read here, so this module stays pure and the caller —
+   * which knows the clock — decides. A report generated without it simply omits
+   * the note; it never claims the prices are current.
+   */
+  pricingNote?: string;
 }
 
 /** Assemble everything the renderer needs, preserving every could-not-read as a gap. */
@@ -192,6 +203,6 @@ export function buildProducerReportInput(input: GatherInput): ProducerReportInpu
     ...(items && gates ? { gates: gateProgress(items, gates) } : {}),
     ...(openRisks(input.riskConfig) ? { risks: openRisks(input.riskConfig)! } : {}),
     ...(deliveryReadiness(input.deliveryConfig) ? { delivery: deliveryReadiness(input.deliveryConfig)! } : {}),
-    ...(costLines(input.costRecords, items ?? []) ? { cost: costLines(input.costRecords, items ?? [])! } : {}),
+    ...(costLines(input.costRecords, items ?? [], input.pricingNote) ? { cost: costLines(input.costRecords, items ?? [], input.pricingNote)! } : {}),
   };
 }

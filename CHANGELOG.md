@@ -6,6 +6,50 @@ The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/),
 
 ## [Unreleased]
 
+## [0.427.0] - 2026-09-07
+
+### Fixed
+
+- **An unrecognised model was recording its cost as `$0.00`.** Roadmap item `NXT-0`'s
+  fourth criterion — *a price the map does not cover is reported as unpriced, never
+  guessed* — was already being violated, and this was the more consequential half of the
+  item.
+
+  `estimateCostBreakdown` returned `costUsd: 0` for any model the catalog does not price.
+  That is **indistinguishable from a genuinely free local model**, so real spend reported
+  as free, and flowed into cost-per-roadmap-item and the producer report as `$0.00` — a
+  figure a reader would take as "this feature was free to build".
+
+  The zero remains, because there is nothing honest to put in its place, but it now
+  travels as `unpriced: true`. Attribution counts unpriced requests separately, the item
+  view exposes the count so a total can be marked as a floor, and the report renders it
+  beside the figure. Counted rather than excluded: dropping them would understate the
+  *request* count too, and the honest statement is "£X across N requests, M of which
+  could not be priced".
+
+### Added
+
+- **The price table now carries its own verification date**, and every figure derived
+  from it says how old it is. `MODEL_CATALOG_VERIFIED_AT` and
+  `MODEL_CATALOG_STALE_AFTER_DAYS` live beside the prices; `modelCatalogFreshness` reads
+  them against an injected clock.
+
+  **Stale prices still report** — withholding a figure would push somebody towards a worse
+  source, and a stale number honestly dated beats none. **An unreadable date is treated as
+  unknown-and-stale, never as current**, because the reassuring direction is the one it
+  must not fail in. The producer report's cost section now carries the note.
+
+- **`Model prices — freshness check`, a monthly workflow** that opens one reusable issue
+  when the table is past its threshold.
+
+  **It deliberately does not fetch prices.** Providers publish pricing as prose on
+  marketing pages with no stable machine-readable feed, so a scraper would break quietly
+  and then report *wrong* prices — worse than stale ones, because a wrong number is stated
+  with exactly the same confidence as a right one. The workflow notices the age and asks a
+  person to look. Its instructions say to bump the date **only if the prices were actually
+  checked**: a date that moves without a check converts "these numbers are old" into
+  "these numbers are current".
+
 ## [0.426.0] - 2026-09-07
 
 ### Added

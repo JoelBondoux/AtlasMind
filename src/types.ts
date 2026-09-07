@@ -4857,6 +4857,15 @@ export interface CostRecord {
    * displayed as an assertion is the failure this field exists to prevent.
    */
   roadmapAttribution?: 'session' | 'explicit';
+  /**
+   * Set when no price was known for the model, so `costUsd` is a placeholder.
+   *
+   * `costUsd: 0` on an unrecognised model is indistinguishable from a genuinely
+   * free local model, and a surface that cannot tell them apart reports real
+   * spend as free. Anything totalling cost must count these separately rather
+   * than adding a zero.
+   */
+  unpriced?: true;
   /** Portion of `inputTokens` served from the provider's prompt cache (a cache *read*), when reported. */
   cachedInputTokens?: number;
   /**

@@ -498,6 +498,17 @@ interface CostEstimate {
   budgetCostUsd: number;
   /** USD saved by the prompt-cache discount on cached input tokens (pay-per-token / overflow only). */
   cacheSavingsUsd?: number;
+  /**
+   * Set when no price was known for the model, so `costUsd` is a placeholder
+   * rather than a measurement.
+   *
+   * A model the catalog does not price previously recorded `costUsd: 0`, which
+   * is indistinguishable from a genuinely free local model — real spend
+   * reporting as free, and flowing into cost-per-roadmap-item and the producer
+   * report as `$0.00`. The zero stays (there is nothing better to put there) but
+   * it now travels with the fact that it was never priced.
+   */
+  unpriced?: true;
 }
 
 type ProviderCompletionRequest = {
@@ -2360,6 +2371,7 @@ export class Orchestrator {
       outputTokens,
       ...(cachedInputTokens > 0 ? { cachedInputTokens } : {}),
       ...(cacheWriteTokens !== undefined ? { cacheWriteTokens } : {}),
+      ...(finalCost.unpriced ? { unpriced: true as const } : {}),
       costUsd: costUsd,
       budgetCostUsd: finalCost.budgetCostUsd,
       compressionSavingsUsd: estimatedCompressionSavingsUsd,
@@ -4992,10 +5004,14 @@ export class Orchestrator {
   private estimateCostBreakdown(model: string, inputTokens: number, outputTokens: number, cachedInputTokens = 0): CostEstimate {
     const modelInfo = this.router.getModelInfo(model);
     if (!modelInfo) {
+      // Unknown model: there is no honest price to compute, and inventing one
+      // would be worse than reporting none. The zero is a placeholder, flagged
+      // so no surface can present it as "this was free".
       return {
         billingCategory: 'pay-per-token',
         costUsd: 0,
         budgetCostUsd: 0,
+        unpriced: true,
       };
     }
 
