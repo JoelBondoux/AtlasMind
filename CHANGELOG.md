@@ -6,6 +6,58 @@ The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/),
 
 ## [Unreleased]
 
+## [0.426.0] - 2026-09-07
+
+### Added
+
+- **Cost history is now a project-scoped file, and `atlasmind.cost.historyLocation`
+  chooses where it lives** — the last outstanding piece of roadmap item `NOW-1`.
+
+  Spend was in VS Code `globalState`: machine-wide, capped at 500 records, invisible to
+  anyone else and impossible to diff. Fine for a status bar, useless for saying what a
+  project cost or putting that figure in a document somebody else reads.
+
+  - **`machine-private`** (default) writes under the extension's global storage, keyed by
+    a hash of the workspace path — project-scoped, so two projects never share a history,
+    without putting the path in a filename.
+  - **`repository`** writes `project_memory/operations/cost-history.json`: diffable,
+    survives a clone, readable by the producer report.
+
+  **The default is deliberately the less useful one.** It is the first thing AtlasMind
+  would write into project memory that is about *you* rather than about the project.
+  Moving to `repository` asks first, in a modal that names the file — so it can be looked
+  at, or `.gitignore`d — and an unrecognised setting value resolves to private, because a
+  typo must not be the reason spend starts being committed.
+
+  **Switching moves the existing history and says how many records moved.** Losing months
+  of spend to a settings toggle would make the setting frightening, and a frightening
+  setting is one nobody uses. Declining the confirmation puts the setting back, so the
+  stored value never disagrees with where the data actually is. The old file is deleted
+  only after the new one is written, so an interruption leaves two copies rather than
+  none.
+
+  Retention is 5,000 records — up from 500, because a file can hold a project's history
+  rather than a session's, but bounded, since a committed file that grows forever is one
+  somebody eventually finds in a diff. When the bound bites, the newest are kept and the
+  loss is reported.
+
+- **`costHistoryFileStore` keeps the older-record rule at the boundary.** A history
+  written before `workspaceKey` and `cacheWriteTokens` existed still loads, and **does not
+  acquire the fields it never had**: a defaulted `0` write count would make an
+  unrepriceable record look repriceable, and a defaulted workspace would put another
+  project's spend on this project's roadmap item. Writes go through a temporary file and a
+  rename, because in the repository location this is a file git watches and a half-written
+  JSON document in `git status` is worse than a lost final record. A corrupt file reports
+  as *existing* rather than absent, so a caller does not overwrite it believing there was
+  nothing there.
+
+### Changed
+
+- **`UNREFERENCED_EXPORT_CEILING` lowered from 92 to 91.** Wiring the publication gate
+  made a previously-unread export read, and the dead-field guard ratchets: it fails when
+  the ceiling sits above reality, not only when it is breached. Working exactly as
+  intended.
+
 ## [0.425.0] - 2026-09-07
 
 ### Added

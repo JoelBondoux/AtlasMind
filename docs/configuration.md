@@ -94,7 +94,8 @@ When either mode is set to `auto`, the task profiler infers the appropriate leve
 | `atlasmind.ssotPath` | `string` | `"project_memory"` | Relative path to the SSOT memory folder inside the workspace. Must be a safe relative path (no `..`, no absolute paths). |
 | `atlasmind.producerReport.publishEnabled` | `boolean` | `false` | Allow the producer report to be prepared for GitHub Pages. Deny by default: **a Pages site is readable by anyone with the link even when the repository is private** — access control requires GitHub Enterprise Cloud. With this on and nothing else, the page carries roadmap progress by gate and delivery readiness only. |
 | `atlasmind.producerReport.publishRisks` | `boolean` | `false` | Include the risk register in the published page. Separate from the master switch because it holds commercial, legal and ethical findings with their recorded decisions. |
-| `atlasmind.producerReport.publishCost` | `boolean` | `false` | Include cost against estimate in the published page. Discloses what the project has spent, and on what. |
+| `atlasmind.producerReport.publishCost` | `boolean` | `false` | Include cost against estimate in the published page. Compounds with `atlasmind.cost.historyLocation`: spend committed to the repository *and* published becomes public. |
+| `atlasmind.cost.historyLocation` | `"machine-private"` \| `"repository"` | `"machine-private"` | Where this project's cost history lives. Private keeps it out of the repository; `repository` writes `project_memory/operations/cost-history.json`, making it diffable and readable by the producer report. Changing it **moves** the existing history and reports how many records moved. An unrecognised value resolves to private, so a typo cannot start committing spend. |
 
 ## Sidebar UI
 

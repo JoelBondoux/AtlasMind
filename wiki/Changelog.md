@@ -19,6 +19,28 @@ Older entries below describe the software as it was at the time and are delibera
 
 ---
 
+## v0.426.0 -- Cost history becomes a file you choose the home of
+
+The last outstanding piece of the roadmap's first item. Spend lived in VS Code's global state:
+machine-wide, capped at 500 records, invisible to anyone else and impossible to diff — fine for a
+status bar, useless for saying what a project cost.
+
+`atlasmind.cost.historyLocation` now chooses. **Private to this machine** (the default) keeps it out
+of the repository. **Repository** writes `project_memory/operations/cost-history.json`, so it is
+diffable, survives a clone, and can appear in a producer report somebody else reads.
+
+The default is deliberately the less useful one — it is the first thing AtlasMind would write into
+project memory that is about *you* rather than about the project. Moving asks first, in a dialog that
+names the file so you can look at it or gitignore it; declining puts the setting back, so the stored
+value never disagrees with where the data actually is. **Switching moves the existing history and
+tells you how many records moved**, because losing months of spend to a toggle would make the setting
+frightening, and a frightening setting is one nobody uses.
+
+Older records still load and still do not acquire fields they never had: a defaulted zero cache-write
+count would make an unrepriceable record look repriceable.
+
+---
+
 ## v0.425.0 -- Preparing the page, deliberately
 
 The publication gate shipped two releases ago with nothing calling it. **AtlasMind: Prepare Producer

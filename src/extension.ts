@@ -294,6 +294,93 @@ let atlasStartupState: StartupState = {
   startedAt: 0,
 };
 
+/**
+ * Point cost history at a file, and follow the location setting when it changes.
+ *
+ * The private location lives under the extension's global storage, keyed by a
+ * hash of the workspace path: project-scoped, so two projects never share a
+ * history, without putting the path itself in a filename.
+ *
+ * A change of setting **moves** the existing history rather than starting a new
+ * one — losing months of spend to a settings toggle would make the setting
+ * frightening, and a frightening setting is one nobody uses. Moving into the
+ * repository warns first, naming the file, because that is the point at which
+ * spend starts being committed.
+ */
+async function attachCostHistoryStore(
+  context: vscode.ExtensionContext,
+  costTracker: CostTracker,
+): Promise<void> {
+  const { createHash } = await import('node:crypto');
+  const path = await import('node:path');
+  const { costHistoryPaths, resolveCostHistoryLocation, costHistoryCommitWarning } =
+    await import('./core/costHistoryLocation.js');
+
+  const folder = vscode.workspace.workspaceFolders?.[0];
+  const resolvePath = (location: 'machine-private' | 'repository'): string | undefined => {
+    const segments = costHistoryPaths(location).segments;
+    if (location === 'repository') {
+      if (!folder) { return undefined; }
+      const ssotPath = vscode.workspace.getConfiguration('atlasmind').get<string>('ssotPath', 'project_memory');
+      return path.join(folder.uri.fsPath, ssotPath, ...segments);
+    }
+    const key = folder ? createHash('sha256').update(folder.uri.fsPath.toLowerCase()).digest('hex').slice(0, 16) : 'no-workspace';
+    return path.join(context.globalStorageUri.fsPath, 'cost-history', key, ...segments);
+  };
+
+  const readLocation = (): 'machine-private' | 'repository' =>
+    resolveCostHistoryLocation(vscode.workspace.getConfiguration('atlasmind').get('cost.historyLocation'));
+
+  let current = readLocation();
+  const initialPath = resolvePath(current);
+  if (initialPath) {
+    try {
+      await costTracker.attachHistoryFile(initialPath, current);
+    } catch {
+      // A history that cannot be attached leaves the in-memory tracker working.
+      // Spend still reports for this session; it simply is not durable yet.
+    }
+  }
+
+  context.subscriptions.push(
+    vscode.workspace.onDidChangeConfiguration(async event => {
+      if (!event.affectsConfiguration('atlasmind.cost.historyLocation')) { return; }
+      const next = readLocation();
+      if (next === current) { return; }
+      const target = resolvePath(next);
+      if (!target) { return; }
+
+      if (next === 'repository') {
+        const relative = vscode.workspace.asRelativePath(target);
+        const confirmed = await vscode.window.showWarningMessage(
+          'Store cost history in the repository?',
+          { modal: true, detail: costHistoryCommitWarning(relative) },
+          'Move it there',
+        );
+        if (confirmed !== 'Move it there') {
+          // Put the setting back, so the stored value never disagrees with where
+          // the data actually is.
+          await vscode.workspace.getConfiguration('atlasmind')
+            .update('cost.historyLocation', current, vscode.ConfigurationTarget.Workspace);
+          return;
+        }
+      }
+
+      try {
+        const summary = await costTracker.moveHistoryTo(target, next);
+        current = next;
+        void vscode.window.showInformationMessage(summary);
+      } catch {
+        void vscode.window.showWarningMessage(
+          'Cost history could not be moved. It is still in its previous location.',
+        );
+      }
+    }),
+  );
+
+  context.subscriptions.push({ dispose: () => { void costTracker.flushHistory(); } });
+}
+
 function loadStoredUserAgents(globalState: vscode.Memento): AgentDefinition[] {
   const raw = globalState.get<unknown[]>(USER_AGENTS_STORAGE_KEY, []);
   return raw.filter(isStoredAgentDefinition).map(item => ({ ...item, builtIn: false }));
@@ -1828,6 +1915,7 @@ async function bootstrapAtlasMind(
     const costTracker = new startupModules.CostTracker();
     costTracker.attachStorage(context.globalState);
   costTracker.setWorkspaceKey(vscode.workspace.workspaceFolders?.[0]?.uri.fsPath);
+  void attachCostHistoryStore(context, costTracker);
     const memoryManager = new startupModules.MemoryManager();
     const skillsRefresh = new vscode.EventEmitter<void>();
     const agentsRefresh = new vscode.EventEmitter<void>();
