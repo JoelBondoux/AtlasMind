@@ -6,6 +6,31 @@ The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/),
 
 ## [Unreleased]
 
+## [0.412.0] - 2026-09-07
+
+### Added
+
+- **The Delivered chart takes the same lenses as the dependency canvas** — text
+  search, release gate, and person. "When did the auth work ship", "which of the
+  MVP has landed" and "what did Sam deliver" are questions about history, and
+  they were unanswerable because every lens stopped at the outstanding plan.
+- **The person lens reads a different field once work has landed.** On the plan
+  it is who is *going* to do it; on the record it is who did. `completedBy` wins
+  on the Delivered chart, falling back to the assignment for an item delivered
+  without anybody recorded against it.
+
+### Changed
+
+- Parity here is deliberately about the ways of *looking*, not every control.
+  **Add item, Import, Calculate tree, the suggestion toggle, Auto tree,
+  orientation and snap stay off the Delivered chart** — nothing is added to a
+  record of what already happened, inferring dependencies between delivered
+  items changes nothing, and the chart is columned by month, so a tree layout
+  would fight those columns rather than arrange them. Zoom, fit, pan,
+  click-to-highlight and double-click-to-zoom were already shared and remain so.
+  A test pins both halves, so "parity" cannot quietly grow into an Add button on
+  a record of the past.
+
 ## [0.411.0] - 2026-09-07
 
 ### Added

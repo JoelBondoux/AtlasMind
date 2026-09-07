@@ -19,6 +19,33 @@ Older entries below describe the software as it was at the time and are delibera
 
 ---
 
+## v0.412.0 -- The Delivered chart answers questions too
+
+Every lens on the roadmap stopped at the outstanding plan. So "when did the auth work
+ship", "which of the MVP has actually landed" and "what did Sam deliver" — all questions
+about the record rather than the plan — had no way to be asked on the chart that holds
+the answer. The Delivered view now takes the same search box, gate picker and person
+picker as the dependency canvas.
+
+**Person means something different once work has landed.** On the plan it is who is going
+to do it; on the record it is who did. So the Delivered chart matches on who completed an
+item where that was recorded, falling back to who it was assigned to for anything
+delivered without a name against it.
+
+**Parity here is about the ways of looking, not about every control.** Add item, Import,
+Calculate tree, the suggestion toggle, Auto tree, the orientation buttons and snap-to-grid
+stay off the Delivered chart, and that is a decision rather than an omission. Nothing is
+added to a record of what already happened. Inferring dependencies between things that
+have all shipped changes nothing. And the chart is columned by month — it answers "when
+did this land" — so a tree layout would fight those columns rather than arrange them.
+
+Zoom, fit, panning, click-to-highlight and double-click-to-zoom were already shared and
+still are. A test pins both halves: the lenses that must be there, and the authoring
+controls that must not, so "parity" cannot quietly grow into an Add button on a record of
+the past.
+
+---
+
 ## v0.411.0 -- The stage pills switch your checkout
 
 The header shows a pill per delivery stage with the version on each. They were labels.

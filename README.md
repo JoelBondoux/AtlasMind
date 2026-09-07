@@ -4,7 +4,7 @@
 
 <h1 align="center">AtlasMind</h1>
 
-<p align="center"><sub> · <strong>Current source version: 0.411.0</strong> · </sub></p>
+<p align="center"><sub> · <strong>Current source version: 0.412.0</strong> · </sub></p>
 
 
 <p align="center">
@@ -136,6 +136,21 @@ allow-list, redaction and file-withholding behaviour, retained metadata, provide
 important limits on overrides and compliance claims.
 
 ---
+
+## What's new in 0.412.0
+
+**The Delivered chart takes the same lenses as the dependency canvas** — search, release
+gate and person. "When did the auth work ship", "which of the MVP has landed" and "what
+did Sam deliver" are questions about history, and every lens used to stop at the
+outstanding plan.
+
+On the Delivered chart, Person means who *finished* it where that was recorded, falling
+back to who it was assigned to — on a plan that field means who is going to do it, and on
+a record it means who did.
+
+The authoring controls stay off it on purpose: nothing is added to a record of what
+already happened, and the chart is columned by month, so a tree layout would fight those
+columns rather than arrange them.
 
 ## What's new in 0.411.0
 

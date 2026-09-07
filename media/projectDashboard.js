@@ -11932,9 +11932,15 @@
     const query = String(state.roadmapSearch || '').trim().toLowerCase();
     const gate = String(state.roadmapEmphasisGate || '');
     const person = String(state.roadmapEmphasisPerson || '');
-    if ((!query && !gate && !person) || state.roadmapView === 'completed') {
+    if (!query && !gate && !person) {
       return null;
     }
+    // Delivered work is emphasised the same way. "When did the auth work ship",
+    // "which of the MVP has landed" and "what did Sam deliver" are questions
+    // about history, and they were unanswerable because the lenses stopped at
+    // the outstanding plan. The *authoring* controls stay off there, since
+    // nothing is added to a record of what already happened.
+    const delivered = state.roadmapView === 'completed';
     const all = roadmapCanvasNodes();
     const lenses = [];
     if (query) {
@@ -11944,9 +11950,14 @@
       lenses.push(node => (node.gates || []).indexOf(gate) >= 0);
     }
     if (person) {
+      // Who a piece of work belongs to is a different field once it has landed:
+      // on the plan it is who is *going* to do it, and on the record it is who
+      // did. `completedBy` wins there, falling back to the assignment for an
+      // item delivered without anybody being recorded against it.
+      const personOf = node => (delivered ? (node.completedBy || node.assigneeId) : node.assigneeId);
       // Unassigned is a real answer to "whose is this?", and the most useful
       // one on a plan nobody has divided up yet.
-      lenses.push(node => (person === RM_UNASSIGNED ? !node.assigneeId : node.assigneeId === person));
+      lenses.push(node => (person === RM_UNASSIGNED ? !personOf(node) : personOf(node) === person));
     }
     const matches = all.filter(node => lenses.every(test => test(node)));
     return {
@@ -11979,10 +11990,13 @@
           ${gates.map(gate => `<option value="${escapeAttr(gate.id)}"${gate.id === state.roadmapEmphasisGate ? ' selected' : ''}>${escapeHtml(gate.label)}</option>`).join('')}
         </select>
       </label>`;
+    const delivered = state.roadmapView === 'completed';
     const personSelect = people.length === 0 ? '' : `
       <label class="rm-emphasis-control"><span class="rm-emphasis-label">Person</span>
-        <select data-action="roadmap-emphasis-person" aria-label="Highlight items assigned to one person"
-          title="${escapeAttr('Highlight one person’s items. The rest of the plan stays drawn and dimmed, so an arrow leaving their work still shows who is waiting on it.')}">
+        <select data-action="roadmap-emphasis-person" aria-label="${escapeAttr(delivered ? 'Highlight items delivered by one person' : 'Highlight items assigned to one person')}"
+          title="${escapeAttr(delivered
+            ? 'Highlight what one person delivered — who finished it where that was recorded, otherwise who it was assigned to. The rest of the record stays drawn and dimmed.'
+            : 'Highlight one person’s items. The rest of the plan stays drawn and dimmed, so an arrow leaving their work still shows who is waiting on it.')}">
           <option value=""${state.roadmapEmphasisPerson ? '' : ' selected'}>Anyone</option>
           ${people.map(person => `<option value="${escapeAttr(person.id)}"${person.id === state.roadmapEmphasisPerson ? ' selected' : ''}>${escapeHtml(person.name)}</option>`).join('')}
           <option value="${RM_UNASSIGNED}"${state.roadmapEmphasisPerson === RM_UNASSIGNED ? ' selected' : ''}>Unassigned</option>
@@ -12166,13 +12180,15 @@
             <span class="list-meta">${escapeHtml(`${shownCount} of ${totalCount} items · ${filter.route.routeDays}d of work left · ${filter.route.completedCount} already delivered`)}</span>
           ` : ''}
           ${linking ? `<span class="rm-filter-chip rm-linking" title="${escapeAttr('Click “Needs this” on the item that has to wait, or press Escape to cancel.')}">Linking from “${escapeHtml(String(linking.text).slice(0, 32))}…”<button type="button" class="rm-chip-clear" data-action="roadmap-link-cancel" aria-label="Cancel linking">×</button></span>` : ''}
-          ${state.roadmapView === 'completed' ? '' : `
-            <span class="rm-search">
-              <input id="roadmap-search-input" type="search" placeholder="Search the plan…"
-                value="${escapeAttr(state.roadmapSearch || '')}" aria-label="Search roadmap items"
-                title="${escapeAttr('Highlight items whose text matches. The rest of the plan stays on the canvas, dimmed, so you can still see what a match depends on. A way of looking; nothing is changed.')}" />
-            </span>
-            ${renderRoadmapEmphasisControls(graph, totalCount)}`}
+          <span class="rm-search">
+            <input id="roadmap-search-input" type="search"
+              placeholder="${escapeAttr(state.roadmapView === 'completed' ? 'Search what shipped…' : 'Search the plan…')}"
+              value="${escapeAttr(state.roadmapSearch || '')}" aria-label="Search roadmap items"
+              title="${escapeAttr(state.roadmapView === 'completed'
+                ? 'Highlight delivered items whose text matches. The rest stays on the chart, dimmed, so the work around a match is still readable. A way of looking; nothing is changed.'
+                : 'Highlight items whose text matches. The rest of the plan stays on the canvas, dimmed, so you can still see what a match depends on. A way of looking; nothing is changed.')}" />
+          </span>
+          ${renderRoadmapEmphasisControls(graph, totalCount)}
           ${state.roadmapView === 'completed' ? '' : `
             <button type="button" class="action-link${graph.suggestLinks ? ' is-on' : ''}" data-action="roadmap-suggest-toggle"
               aria-pressed="${graph.suggestLinks ? 'true' : 'false'}"

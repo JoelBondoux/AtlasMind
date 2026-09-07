@@ -908,6 +908,43 @@ describe('reading a dense plan', () => {
     expect(harness.root().querySelector('.rm-edge[data-rm-from="alpha"]')).not.toBeNull();
   });
 
+  it('gives the Delivered chart the same lenses as the plan', () => {
+    const harness = mount();
+    harness.send(snapshot());
+    harness.click('[data-action="roadmap-view"][data-payload="completed"]');
+
+    // "When did the auth work ship" and "what did Sam deliver" are questions
+    // about history, and they were unanswerable because the lenses stopped at
+    // the outstanding plan.
+    expect(harness.root().querySelector('#roadmap-search-input')).not.toBeNull();
+    expect(harness.root().querySelector('[data-action="roadmap-emphasis-gate"]')).not.toBeNull();
+    expect(harness.root().querySelector('[data-action="roadmap-emphasis-person"]')).not.toBeNull();
+
+    const input = harness.root().querySelector('#roadmap-search-input');
+    input.value = 'gamma';
+    input.dispatchEvent(new harness.window.Event('input', { bubbles: true }));
+    expect(harness.root().querySelector('[data-rm-node="gamma"]')?.className).toContain('is-search-match');
+  });
+
+  it('keeps the authoring controls off the Delivered chart', () => {
+    const harness = mount();
+    harness.send(snapshot());
+    harness.click('[data-action="roadmap-view"][data-payload="completed"]');
+
+    // Parity is about the ways of *looking*. Nothing is added to a record of
+    // what already happened, and the chart is columned by month, so a tree
+    // layout would fight the columns rather than arrange them.
+    for (const action of ['roadmap-add', 'roadmap-import', 'roadmap-derive-links', 'roadmap-auto-align', 'roadmap-suggest-toggle']) {
+      expect(
+        harness.root().querySelector(`[data-action="${action}"]`),
+        `${action} must not appear on the Delivered chart`,
+      ).toBeNull();
+    }
+    // The ways of looking that do apply are still there.
+    expect(harness.root().querySelector('[data-action="roadmap-fit"]')).not.toBeNull();
+    expect(harness.root().querySelector('[data-action="roadmap-zoom-in"]')).not.toBeNull();
+  });
+
   it('zooms in on a node when it is double-clicked', () => {
     const harness = mount();
     harness.send(snapshot());

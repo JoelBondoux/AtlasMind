@@ -272,6 +272,19 @@ work and recording when each landed and by whom. One exception: a completed item
 something outstanding still depends on it, because removing it would make the dependent item look like it
 starts from nothing.
 
+**The Delivered chart takes the same lenses as the dependency canvas** — search, release gate and person.
+"When did the auth work ship", "which of the MVP has landed" and "what did Sam deliver" are questions
+about the record rather than the plan, and they had nowhere to be asked. *Person* means something
+different here: on the plan it is who is going to do the work, on the record it is who did, so the chart
+matches on who completed an item where that was recorded and falls back to who it was assigned to.
+
+The authoring controls are deliberately absent from it. Add item, Import, Calculate tree, the suggestion
+toggle, Auto tree, the orientation buttons and snap-to-grid are all off, because nothing is added to a
+record of what already happened, inferring dependencies between things that have all shipped changes
+nothing, and the chart is columned by month — so a tree layout would fight those columns rather than
+arrange them. Zoom, fit, panning, click-to-highlight and double-click-to-zoom work exactly as they do on
+the plan.
+
 The deadlines, positions and links live in `roadmap-graph.json` beside the plan, keyed on a durable id
 each backlog line carries as an invisible HTML comment — so renaming or reordering an item no longer
 loses its history. The ids are written automatically the first time the dashboard loads, so every item
