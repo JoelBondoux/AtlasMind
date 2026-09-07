@@ -717,7 +717,7 @@ describe('panel refresh flows', () => {
 
       await panel.openTestingFixResultInChat();
 
-      const chatCall = mocks.executeCommand.mock.calls.find(call => call[0] === 'atlasmind.openChatPanel');
+      const chatCall = mocks.executeCommand.mock.calls.find(call => call[0] === 'atlasmind.openChat');
       expect(chatCall).toBeDefined();
       expect(chatCall?.[1]).toEqual(expect.objectContaining({
         sendMode: 'new-session',
@@ -897,7 +897,7 @@ describe('panel refresh flows', () => {
       payload: { id: 'shopify-1' },
     });
     expect(mocks.executeCommand).toHaveBeenCalledWith(
-      'atlasmind.openChatPanel',
+      'atlasmind.openChat',
       expect.objectContaining({
         draftPrompt: expect.stringContaining('Unauthorized'),
         sendMode: 'new-session',
@@ -2585,7 +2585,7 @@ describe('panel refresh flows', () => {
 
     await mocks.state.webviewMessageHandler?.({ type: 'openChatMessage', sessionId: 'chat-1', messageId: 'msg-1' });
 
-    expect(mocks.executeCommand).toHaveBeenCalledWith('atlasmind.openChatPanel', {
+    expect(mocks.executeCommand).toHaveBeenCalledWith('atlasmind.openChat', {
       sessionId: 'chat-1',
       messageId: 'msg-1',
     });
@@ -2930,7 +2930,7 @@ describe('panel refresh flows', () => {
     });
 
     expect(mocks.executeCommand).toHaveBeenCalledWith(
-      'atlasmind.openChatPanel',
+      'atlasmind.openChat',
       expect.objectContaining({
         sessionId: expect.any(String),
         sendMode: 'send',
@@ -3657,7 +3657,7 @@ describe('panel refresh flows', () => {
     const planPath = withPlan.nodes.find(node => node.id === 'ship-onboarding-flow')?.planPath;
     expect(planPath).toBeDefined();
     expect(readFileSync(path.join(tempRoot, planPath as string), 'utf-8')).toContain('# Plan: Ship onboarding flow');
-    expect(mocks.executeCommand).toHaveBeenCalledWith('atlasmind.openChatPanel', expect.objectContaining({ sendMode: 'new-session' }));
+    expect(mocks.executeCommand).toHaveBeenCalledWith('atlasmind.openChat', expect.objectContaining({ sendMode: 'new-session' }));
 
     removeTempDir(tempRoot);
   });
@@ -3756,7 +3756,7 @@ describe('panel refresh flows', () => {
     const panel = ProjectDashboardPanel.currentPanel as unknown as { handleMessage(message: unknown): Promise<void> };
     await panel.handleMessage({ type: 'runGapAnalysis' });
 
-    expect(mocks.executeCommand).toHaveBeenCalledWith('atlasmind.openChatPanel', expect.objectContaining({
+    expect(mocks.executeCommand).toHaveBeenCalledWith('atlasmind.openChat', expect.objectContaining({
       sendMode: 'new-session',
       autoSubmit: true,
       draftPrompt: expect.stringContaining('gap analysis'),
@@ -4104,12 +4104,12 @@ describe('panel refresh flows', () => {
     await panel.handleMessage({ type: 'resolveGapItem', payload: 'TWlzc2luZ3NlY3Jl' });
     await panel.handleMessage({ type: 'resolveGapGroup', payload: 'P1' });
 
-    expect(mocks.executeCommand).toHaveBeenCalledWith('atlasmind.openChatPanel', expect.objectContaining({
+    expect(mocks.executeCommand).toHaveBeenCalledWith('atlasmind.openChat', expect.objectContaining({
       sendMode: 'new-session',
       autoSubmit: true,
       draftPrompt: expect.stringContaining('Missing secret redaction checks'),
     }));
-    expect(mocks.executeCommand).toHaveBeenCalledWith('atlasmind.openChatPanel', expect.objectContaining({
+    expect(mocks.executeCommand).toHaveBeenCalledWith('atlasmind.openChat', expect.objectContaining({
       sendMode: 'new-session',
       autoSubmit: true,
       draftPrompt: expect.stringContaining('Resolve the following P1 gap-analysis items'),
@@ -4167,7 +4167,7 @@ describe('panel refresh flows', () => {
       },
     });
 
-    expect(mocks.executeCommand).toHaveBeenCalledWith('atlasmind.openChatPanel', expect.objectContaining({
+    expect(mocks.executeCommand).toHaveBeenCalledWith('atlasmind.openChat', expect.objectContaining({
       draftPrompt: 'What is the sharpest missing risk or blocker that still needs a card?',
       sendMode: 'new-session',
       contextPatch: expect.objectContaining({

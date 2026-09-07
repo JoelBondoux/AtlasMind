@@ -4,7 +4,7 @@
 
 <h1 align="center">AtlasMind</h1>
 
-<p align="center"><sub> · <strong>Current source version: 0.414.1</strong> · </sub></p>
+<p align="center"><sub> · <strong>Current source version: 0.415.0</strong> · </sub></p>
 
 
 <p align="center">
@@ -136,6 +136,18 @@ allow-list, redaction and file-withholding behaviour, retained metadata, provide
 important limits on overrides and compliance claims.
 
 ---
+
+## What's new in 0.415.0
+
+**Prompts handed to chat now open where you keep chat.** Every hand-off — a dashboard
+button, a register finding, a roadmap pill — opened a detached editor tab, so a prompt
+sent from a panel landed in the viewport while your actual chat sat in the sidebar.
+AtlasMind now reveals whichever surface you last used, defaulting to the sidebar.
+*Open Chat Panel* and *Focus Chat View* still do exactly what they say.
+
+**The session drawer starts closed.** It opened by default for anybody who had never
+touched the control, taking space above the transcript you opened chat to read. Your
+choice is remembered either way.
 
 ## What's new in 0.414.1
 

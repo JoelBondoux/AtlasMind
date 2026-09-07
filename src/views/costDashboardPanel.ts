@@ -192,7 +192,7 @@ export class CostDashboardPanel {
           this.panel.webview.html = this.buildHtml(costTracker);
         }
         if (raw.type === 'openChatMessage') {
-          void vscode.commands.executeCommand('atlasmind.openChatPanel', {
+          void vscode.commands.executeCommand('atlasmind.openChat', {
             sessionId: raw.sessionId,
             messageId: raw.messageId,
           });
@@ -827,7 +827,7 @@ export class CostDashboardPanel {
     const todayCostUsd = budget?.todayCostUsd ?? 0;
     const pct = budget ? Math.min(100, (budget.todayCostUsd / budget.limitUsd) * 100) : 0;
     const budgetClass = budget ? (pct >= 100 ? 'warning' : pct >= 80 ? 'warning' : 'ok') : '';
-    const budgetTone = budget ? (pct >= 100 ? 'critical' : pct >= 80 ? 'warn' : 'good') : 'accent';
+    const budgetTone = budget ? (pct >= 100 ? 'critical' : pct >= 80 ? 'warn' : 'good') : 'accent';
     const savingsTone = (value: number): SummaryTone => (value > 0 ? 'good' : 'accent');
 
     const cards: SummaryCard[] = [

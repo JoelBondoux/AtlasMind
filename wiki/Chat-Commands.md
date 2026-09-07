@@ -165,6 +165,13 @@ Press `Ctrl+Shift+P` and type "AtlasMind".
 |---------|-------------|
 | `AtlasMind: Getting Started` | The onboarding walkthrough |
 | `AtlasMind: Open Chat Panel` | The dedicated chat panel (`Ctrl+Alt+I`) |
+
+Buttons that hand work to chat — a dashboard action, a register finding, a roadmap pill — do not use either
+of these. They open whichever surface you last used, defaulting to the sidebar, because they mean "put this
+in front of me" rather than "open a tab". The two commands above name a surface and are how you ask for one
+deliberately.
+
+The session drawer above the transcript starts closed and remembers your choice either way.
 | `AtlasMind: Focus Chat View` | The chat in the sidebar |
 | `AtlasMind: Open Settings Panel` | The full settings workspace |
 | `AtlasMind: Open Chat / Model / Safety / Project Settings` | Straight to one settings page |

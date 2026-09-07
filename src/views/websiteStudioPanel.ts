@@ -685,7 +685,7 @@ export class WebsiteStudioPanel {
         }
         case 'openCommand':
           if (input.payload === 'atlasmind.openChatPanel') {
-            await vscode.commands.executeCommand(input.payload, {
+            await vscode.commands.executeCommand('atlasmind.openChat', {
               draftPrompt: 'Help me turn the current UI Studio brief, screen map, content design, wireframes, UI system, implementation guide, and any website delivery choices into the next safe implementation milestone. Ground the plan in project_memory/domain/website.json and the configured content directory, preserve platform and credential safety boundaries, and propose the smallest reviewable build step for the selected interface profile.',
             });
           } else {
@@ -763,7 +763,7 @@ export class WebsiteStudioPanel {
       return;
     }
 
-    await vscode.commands.executeCommand('atlasmind.openChatPanel', {
+    await vscode.commands.executeCommand('atlasmind.openChat', {
       draftPrompt: composed.prompt,
       sendMode: 'new-session',
     });

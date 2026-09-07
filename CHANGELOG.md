@@ -6,6 +6,28 @@ The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/),
 
 ## [Unreleased]
 
+## [0.415.0] - 2026-09-07
+
+### Fixed
+
+- **A prompt handed to chat now opens where you keep chat.** Every hand-off — a
+  dashboard button, a register finding, a roadmap pill, an MCP error, a run
+  center draft — called `atlasmind.openChatPanel`, which always creates a
+  detached editor tab. So a prompt sent from a panel landed in the viewport while
+  the user's actual chat sat in the sidebar. They mean "put this in front of me",
+  not "open a tab".
+- `revealPreferredChatSurface` already encoded the right rule — reveal the
+  detached panel only if that is what was last used and it is still open,
+  otherwise the sidebar — and only a handful of callers used it. A new
+  `atlasmind.openChat` command exposes it, and the 31 hand-off call sites across
+  six panels now use it. `openChatPanel` and `openChatView` are unchanged: they
+  name a specific surface and remain the deliberate way to ask for one.
+- **The session drawer starts closed.** It was `persistedUiState.narrowSessionDrawerOpen
+  !== false`, which opens it for anybody who has never touched the control —
+  everybody, on a first run. In the sidebar, where chat usually lives, it sits
+  above the transcript and takes room from the thing chat was opened to read. An
+  explicit choice is still remembered in both directions.
+
 ## [0.414.1] - 2026-09-07
 
 ### Fixed

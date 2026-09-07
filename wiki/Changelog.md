@@ -19,6 +19,27 @@ Older entries below describe the software as it was at the time and are delibera
 
 ---
 
+## v0.415.0 -- Chat opens where you keep chat
+
+A prompt handed to chat from a panel opened a detached editor tab. Every hand-off — a
+dashboard button, a register finding, a roadmap pill, an MCP error, a run-center draft —
+called the command that always creates one. So the prompt landed in the viewport while
+the chat the user actually works in sat in the sidebar.
+
+They all mean "put this in front of me", not "open a tab". The rule for that already
+existed: reveal the detached panel only if it was the last surface used and is still
+open, otherwise the sidebar. Only a handful of callers used it. A shared
+`atlasmind.openChat` command now exposes it and the thirty-one hand-off sites across six
+panels go through it. *Open Chat Panel* and *Focus Chat View* are untouched — they name a
+surface, and remain the way to ask for one deliberately.
+
+**The session drawer also starts closed now.** Its default opened it for anybody who had
+never touched the control, which is everybody on a first run, and in the sidebar it sits
+directly above the transcript you opened chat to read. An explicit choice is still
+remembered in both directions.
+
+---
+
 ## v0.414.1 -- The guarantee moved to where every caller passes
 
 v0.414.0 asked before reconciling, on the save you drive from the dashboard. Four other

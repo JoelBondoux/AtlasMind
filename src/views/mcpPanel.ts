@@ -404,7 +404,7 @@ export class McpPanel {
       '3. Which values are secret (so I store them in SecretStorage) vs. plain env vars.',
       'Flag any supply-chain risk and cite the source docs. Keep it to what I can paste into the form.',
     ].join('\n');
-    await vscode.commands.executeCommand('atlasmind.openChatPanel', { draftPrompt: prompt, sendMode: 'new-session' });
+    await vscode.commands.executeCommand('atlasmind.openChat', { draftPrompt: prompt, sendMode: 'new-session' });
   }
 
   /**
@@ -417,7 +417,7 @@ export class McpPanel {
       void vscode.window.showInformationMessage('That MCP server no longer has a current error. Refresh the server list to see its latest state.');
       return;
     }
-    await vscode.commands.executeCommand('atlasmind.openChatPanel', {
+    await vscode.commands.executeCommand('atlasmind.openChat', {
       draftPrompt: buildMcpErrorDiscussionPrompt(state),
       sendMode: 'new-session',
     });
@@ -429,7 +429,7 @@ export class McpPanel {
       void vscode.window.showInformationMessage('There is no current MCP setup error or warning to discuss.');
       return;
     }
-    await vscode.commands.executeCommand('atlasmind.openChatPanel', {
+    await vscode.commands.executeCommand('atlasmind.openChat', {
       draftPrompt: buildMcpPanelStatusDiscussionPrompt(
         this.currentTarget.statusMessage,
         this.currentTarget.statusKind,

@@ -38,6 +38,7 @@ const ALLOWED_IDEATION_COMMANDS = new Set([
   'atlasmind.openProjectRunCenter',
   'atlasmind.openChatView',
   'atlasmind.openChatPanel',
+  'atlasmind.openChat',
   'atlasmind.openVoicePanel',
   'atlasmind.openVisionPanel',
   // Website Studio offers a button back to this board; the return trip did not

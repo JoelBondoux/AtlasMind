@@ -481,7 +481,7 @@ const NATURAL_LANGUAGE_COMMAND_INTENTS: AtlasCommandIntentDefinition[] = [
   },
   {
     pattern: /\b(?:open|show|launch|bring up)\s+(?:the\s+)?(?:atlasmind\s+)?chat\s+panel\b/i,
-    commandId: 'atlasmind.openChatPanel',
+    commandId: 'atlasmind.openChat',
     summary: 'Opened the AtlasMind Chat Panel.',
   },
   {

@@ -378,6 +378,26 @@ export function registerCommands(
     }),
 
     /**
+     * Open chat wherever this user keeps it.
+     *
+     * Every hand-off — a dashboard button, a register finding, a roadmap pill —
+     * means "put this in front of me", not "open a detached editor tab". They all
+     * called `openChatPanel`, which always creates the tab, so a prompt sent from
+     * a panel landed in the viewport while the user's actual chat sat in the
+     * sidebar. `revealPreferredChatSurface` already encoded the right rule and
+     * only a handful of callers used it.
+     *
+     * `openChatPanel` and `openChatView` stay as they are: they name a specific
+     * surface and are the only way to ask for one deliberately.
+     */
+    vscode.commands.registerCommand('atlasmind.openChat', async (target?: string | import('./views/chatPanel.js').ChatPanelTarget) => {
+      const atlas = requireAtlas();
+      if (!atlas) { return; }
+      const { revealPreferredChatSurface } = await import('./views/chatPanel.js');
+      await revealPreferredChatSurface(target);
+    }),
+
+    /**
      * Open a setup walkthrough, **rendered without a model**.
      *
      * The obvious implementation — open chat with `/acp` and submit it — does

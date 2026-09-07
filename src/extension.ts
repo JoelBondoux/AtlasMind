@@ -3416,7 +3416,7 @@ async function bootstrapAtlasMind(
       const sessionId = existing?.id ?? atlas.sessionConversation.createSession(BUZZ_GUIDE_SESSION_TITLE);
       atlas.sessionConversation.selectSession(sessionId);
       atlas.sessionConversation.appendMessage('assistant', body, sessionId);
-      await vscode.commands.executeCommand('atlasmind.openChatPanel', { sessionId });
+      await vscode.commands.executeCommand('atlasmind.openChat', { sessionId });
 
       // The one question the guide cannot answer for itself, asked as chips.
       const { ChatPanel } = await import('./views/chatPanel.js');

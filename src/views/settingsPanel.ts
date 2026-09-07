@@ -1249,7 +1249,7 @@ export class SettingsPanel {
         return;
 
       case 'openChatPanel':
-        await vscode.commands.executeCommand('atlasmind.openChatPanel');
+        await vscode.commands.executeCommand('atlasmind.openChat');
         return;
 
       case 'openAgentPanel':
