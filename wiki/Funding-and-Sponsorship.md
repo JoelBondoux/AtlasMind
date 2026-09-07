@@ -1,8 +1,16 @@
 # Funding and Sponsorship
 
-AtlasMind is fully open source under the MIT licence. **There is no paywall, no feature gating, and no
-commercial-only edition** — and no plan to add one. Sponsorship buys the project time, not you a
-different product.
+**The source code is open source under the MIT licence, permanently.** Clone it, compile it, modify
+it, redistribute it — no fee, no agreement, no conditions beyond MIT's.
+
+AtlasMind follows the [Open Source Maintenance Fee](https://opensourcemaintenancefee.org) model, so
+from **v1.0.0** the official binary release — the `.vsix` on the Marketplace — carries a maintenance
+fee for organizations above a revenue floor. **No fee is payable before v1.0.0**, and most people
+never pay one at all. The detail is [below](#the-open-source-maintenance-fee--from-v100).
+
+**There is still no feature gating and no commercial-only edition.** Every user gets the same
+software, and no amount of money buys a feature, a vote, priority triage or a service level. What
+the fee funds is maintenance; what sponsorship buys is the project's time, not a different product.
 
 If AtlasMind saves you or your team time, you can support it through
 [GitHub Sponsors](https://github.com/sponsors/JoelBondoux).
@@ -31,10 +39,12 @@ nobody notices until it breaks.
 | **Maintenance Fee: Large Organizations** | $60/mo | Organizations with more than 100 employees |
 | **One-off** | Any amount | Pay what it's worth, no ongoing commitment |
 
-The three Maintenance Fee tiers are for organizations with annual gross revenue of at least
-US$10,000 that use AtlasMind's official releases as part of revenue-generating activities, and they
-**do not apply before v1.0.0** — see below. They fund ongoing maintenance: issue triage, releases,
-dependency and security updates. Not a support contract.
+The three Maintenance Fee tiers are **required** from v1.0.0 for organizations with annual gross
+revenue of at least US$10,000 that use AtlasMind's official releases as part of revenue-generating
+activities, under the terms in
+[OSMFEULA.txt](https://github.com/JoelBondoux/AtlasMind/blob/main/OSMFEULA.txt). They **do not apply
+before v1.0.0** — see below. They fund ongoing maintenance: issue triage, releases, dependency and
+security updates. Not a support contract.
 
 **No tier buys anything.** Not a feature, not a vote on priorities, not priority triage, not a logo.
 An earlier version of this page offered exactly those, and they were a paid tier wearing a
@@ -63,18 +73,27 @@ new VS Code and provider APIs, onboarding documentation, and release hygiene you
 > anything today. Everything in this section describes what will be asked from 1.0.0 onwards. Until
 > then the MIT licence is the whole story, and sponsorship — everything above — is voluntary.
 
-From **v1.0.0** AtlasMind intends to participate in the
-[Open Source Maintenance Fee](https://opensourcemaintenancefee.org), **optionally**. The full detail
-is in [MAINTENANCE_FEE.md](https://github.com/JoelBondoux/AtlasMind/blob/main/MAINTENANCE_FEE.md);
-the short version:
+AtlasMind follows the [Open Source Maintenance Fee](https://opensourcemaintenancefee.org) model in
+full. The terms are
+[OSMFEULA.txt](https://github.com/JoelBondoux/AtlasMind/blob/main/OSMFEULA.txt) — the OSMF EULA v1.1
+template, unaltered, with the payment terms attached as a Schedule — and the full detail is in
+[MAINTENANCE_FEE.md](https://github.com/JoelBondoux/AtlasMind/blob/main/MAINTENANCE_FEE.md). The
+short version:
 
 | | |
 |---|---|
 | **In force from** | **v1.0.0** — not before |
-| **Who it's for** | Organizations with annual gross revenue of **US$10,000 or more** that use AtlasMind's official releases as part of revenue-generating activities |
+| **Who pays** | Organizations with annual gross revenue of **US$10,000 or more** that use AtlasMind's official releases as part of revenue-generating activities |
 | **Amount** | **$10/mo** under 20 employees · **$40/mo** 20–100 · **$60/mo** over 100 |
-| **Who it's not for** | Everyone else — individuals, students, hobby projects, non-profits, open source projects. The **$5 Supporter** tier is where they go, and it is voluntary |
-| **Required?** | **No** |
+| **Who doesn't** | Everyone else — individuals, students, hobby projects, non-profits, open source projects, and anyone already paying a separate support agreement. The **$5 Supporter** tier is where they go, and it is voluntary |
+| **Required?** | **Yes**, for those it applies to. That is the model |
+
+**What the fee attaches to.** The **source code is MIT, permanently** — self-compile and you owe
+nothing and enter into no agreement, which Section 4 of the EULA states in its own words. The
+**official binary release** is what the EULA covers: for AtlasMind, the `.vsix` on the Visual Studio
+Marketplace. For a VS Code extension that is how nearly everyone installs it, so this is a genuine
+change rather than a technicality, and `package.json` now declares `SEE LICENSE IN OSMFEULA.txt`
+rather than `MIT` because the package it describes is the binary.
 
 **Why 1.0.0 rather than a date.** OSMF suggests announcing three to six months ahead. A version is
 the better trigger: it arrives when the software is ready rather than when the calendar says so, and
@@ -90,15 +109,14 @@ is exactly the part no one-off contribution funds.
 question of *how much* on the person least equipped to answer it, which is usually why nothing gets
 sent. A named tier is a line item somebody can approve without a meeting.
 
-**Where AtlasMind departs from the model.** The published OSMF makes the fee mandatory for qualifying
-commercial users, enforced by an `OSMFEULA.txt` covering the binary release while the source stays
-open. AtlasMind does not do that. The [LICENSE](https://github.com/JoelBondoux/AtlasMind/blob/main/LICENSE)
-is unmodified MIT, the Marketplace `.vsix` carries no terms of its own, `package.json` still declares
-`"license": "MIT"`, and nothing is withheld from anyone who does not pay.
+**What this costs, stated plainly.** AtlasMind is no longer free for everyone in every form. The
+source is open source by any definition including the OSI's; the published build is open source plus
+a maintenance obligation for organizations above a revenue floor. Both halves of that sentence are
+true, and neither should be dropped when quoting it.
 
-That is a considered choice rather than an oversight. For a VS Code extension the binary release *is*
-how essentially everyone installs it, so a fee-bearing binary would not be a narrow carve-out — it
-would be the product, and MIT would be a technicality for the few who clone and compile.
+The one thing the model does not do is create a lesser version for anyone. There is no build that
+withholds features from non-payers, and there never will be — Section 4 of the EULA guarantees the
+right to compile the identical software yourself.
 
 ---
 

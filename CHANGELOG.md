@@ -6,6 +6,60 @@ The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/),
 
 ## [Unreleased]
 
+## [0.420.0] - 2026-09-07
+
+### Added
+
+- **`OSMFEULA.txt` — AtlasMind now follows the Open Source Maintenance Fee model in
+  full.** Sections 1 to 5 are the OSMF EULA v1.1 template, unaltered, with the Project's
+  payment terms attached as a Schedule. Section 2 of the template defers payment terms to
+  the Project, which is where the v1.0.0 commencement lives -- so gating the fee on a
+  release is inside the model rather than a departure from it.
+
+  The template is deliberately not edited. The value of a standard EULA is that it is the
+  same one every other OSMF project uses and a lawyer may have already read; a
+  project-specific clause makes it a bespoke licence nobody has. Amendments belong in the
+  Schedule.
+
+### Changed
+
+- **`package.json` declares `"license": "SEE LICENSE IN OSMFEULA.txt"`.** Previously
+  `MIT`. The manifest describes the *package* -- the `.vsix` -- and that is the artefact
+  the EULA covers. Verified by `npm run package`: both `OSMFEULA.txt` and `LICENSE` ship
+  inside the VSIX, which matters because a manifest naming a file the package does not
+  contain is a dangling reference on the Marketplace listing.
+
+- **What is licensed how, stated the same way everywhere.** The **source code stays MIT,
+  permanently** -- `LICENSE` is unmodified, and Section 4 of the EULA guarantees the right
+  to compile the identical software with no fee and no agreement. The **official binary
+  release** is what the fee attaches to. For a VS Code extension that is how nearly
+  everyone installs it, so this is a real change and the docs say so rather than
+  presenting it as a technicality.
+
+  From **v1.0.0**, organizations with annual gross revenue of at least US$10,000 using the
+  official releases in revenue-generating activities pay $10/$40/$60 a month by headcount.
+  **Nothing is payable before v1.0.0.** Individuals, students, hobby projects, non-profits,
+  open source projects, anyone below the revenue floor, and anyone already on a separate
+  support agreement are out of scope entirely.
+
+- **Three claims now travel together on every surface that mentions the fee** -- the source
+  is MIT and self-compiling is free; the fee covers the official binary and is required for
+  those in scope; nothing is payable before v1.0.0. Dropping the first reads as a
+  proprietary product, dropping the second oversells how open it is, dropping the third
+  reads as a bill owed today. Recorded in `CLAUDE.md` so it survives the next edit.
+
+- **Claims that stopped being true were rewritten, not quietly deleted.** "There is no paid
+  tier, no feature gate, and no plan to add one" (README), "fully open source... no paywall,
+  no feature gating, and no commercial-only edition" (wiki) and "the extension is free and
+  MIT licensed" (FAQ) each described a project that no longer exists in that exact form. What
+  survives is narrower and still true: no feature gating, no lesser edition, every user gets
+  the same software, and no amount of money buys a feature, a vote, priority triage or a
+  service level.
+
+  This is a MINOR bump rather than a PATCH despite being documentation and one manifest
+  field. A change to what somebody is permitted to do with the software should not arrive
+  in a patch release.
+
 ## [0.419.4] - 2026-09-07
 
 ### Changed

@@ -19,6 +19,33 @@ Older entries below describe the software as it was at the time and are delibera
 
 ---
 
+## v0.420.0 -- The Open Source Maintenance Fee, in full
+
+AtlasMind now follows the [OSMF](https://opensourcemaintenancefee.org) model completely.
+`OSMFEULA.txt` carries the EULA v1.1 template unaltered, with the payment terms attached as a
+Schedule — Section 2 defers those to the project, which is where the v1.0.0 commencement
+legitimately lives. `package.json` declares `SEE LICENSE IN OSMFEULA.txt`, because the manifest
+describes the `.vsix` and that is what the fee attaches to.
+
+**The split is the whole design, and both halves matter.** The source code stays MIT permanently:
+clone the repository, compile AtlasMind, owe nothing, sign nothing — Section 4 guarantees it. The
+official binary release is what the EULA covers. For a VS Code extension that is how nearly everyone
+installs it, so this is a genuine change and not a technicality, and saying otherwise would be
+selling it dishonestly.
+
+From **v1.0.0**, organizations with annual gross revenue of at least US$10,000 using the official
+releases in revenue-generating activities pay $10/$40/$60 a month by headcount. **Nothing is payable
+before v1.0.0.** Individuals, students, hobby projects, non-profits, open source projects and anyone
+below the revenue floor never pay at all.
+
+Several claims elsewhere stopped being true and were rewritten rather than quietly dropped — "no
+paid tier, no feature gate", "fully open source... no paywall", "the extension is free and MIT
+licensed". What survives is narrower and still exactly true: no feature gating, no lesser edition,
+every user gets the same software, and no amount of money buys a feature, a vote, priority triage or
+a service level.
+
+---
+
 ## v0.419.4 -- Tiers that don't sell anything
 
 Five tiers, matching GitHub Sponsors: a voluntary **$5 Supporter** for individuals, students and

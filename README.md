@@ -4,7 +4,7 @@
 
 <h1 align="center">AtlasMind</h1>
 
-<p align="center"><sub> · <strong>Current source version: 0.419.4</strong> · </sub></p>
+<p align="center"><sub> · <strong>Current source version: 0.420.0</strong> · </sub></p>
 
 
 <p align="center">
@@ -136,6 +136,21 @@ allow-list, redaction and file-withholding behaviour, retained metadata, provide
 important limits on overrides and compliance claims.
 
 ---
+
+## What's new in 0.420.0
+
+**AtlasMind now follows the Open Source Maintenance Fee model in full.**
+[OSMFEULA.txt](OSMFEULA.txt) carries the OSMF EULA v1.1 unaltered, with the payment terms
+attached as a Schedule, and `package.json` declares `SEE LICENSE IN OSMFEULA.txt`. From
+**v1.0.0**, organizations with annual gross revenue of US$10,000 or more using the official
+releases in revenue-generating activities pay $10–$60 a month by headcount. **No fee is
+payable before v1.0.0** — during Beta the MIT licence is the only agreement that applies.
+
+The split is worth stating plainly rather than glossing: **the source stays MIT and
+self-compiling stays free**, and the **official `.vsix` is what the EULA covers**. For a VS
+Code extension that is how nearly everyone installs it, so this is a real change and not a
+technicality. Individuals and anyone outside revenue-generating work are never in scope.
+See [MAINTENANCE_FEE.md](MAINTENANCE_FEE.md).
 
 ## What's new in 0.419.4
 
@@ -2404,29 +2419,33 @@ The full service map is in [Architecture](docs/architecture.md).
 
 ---
 
-## Open source, and staying that way
+## Open source, and the Maintenance Fee
 
-AtlasMind is MIT licensed. There is no paid tier, no feature gate, and no plan to add one.
+**The source code is freely available under the [MIT licence](LICENSE)** — clone it, compile it,
+modify it, redistribute it, no fee and no agreement. That does not change and is not going to.
 
-Contributions are welcome — see [CONTRIBUTING.md](CONTRIBUTING.md). If AtlasMind saves you time,
-[sponsorship](wiki/Funding-and-Sponsorship.md) helps keep it going.
+This project participates in the [Open Source Maintenance Fee](https://opensourcemaintenancefee.org).
+**From v1.0.0**, organizations with annual gross revenue of **US$10,000 or more** that use
+AtlasMind's official releases as part of revenue-generating activities pay a monthly fee — **$10**
+under 20 employees, **$40** to 100, **$60** above — through
+[GitHub Sponsors](https://github.com/sponsors/JoelBondoux). The terms are
+[OSMFEULA.txt](OSMFEULA.txt), and they cover the **official binary release**: the `.vsix` on the
+Marketplace. Self-compiled builds are MIT and always will be.
 
-From **v1.0.0**, this project intends to participate in the
-[Open Source Maintenance Fee](https://opensourcemaintenancefee.org), and to participate in it
-**optionally**: organisations with annual gross revenue of USD 10,000 or more using AtlasMind in
-revenue-generating work will be asked for $10–$60 a month by headcount. Not a support contract, not a
-licence fee, and not a requirement — the licence stays unmodified MIT, the build carries no EULA, and
-nothing is withheld from anyone who doesn't pay.
+**No fee is payable before v1.0.0.** AtlasMind is in Beta, and until then the MIT licence is the only
+agreement that applies to any release. Nobody owes anything today. It's published now so it arrives
+as a plan rather than a surprise, and 1.0.0 is the trigger because that's when the configuration and
+memory formats freeze — a Beta that may still move under you hasn't earned it.
 
-**During Beta there is no fee at all.** Nobody is being asked for anything today. It is published
-early so it arrives as a plan rather than a surprise, and 1.0.0 is the trigger because that is when
-the configuration and memory formats freeze — a Beta that may still move under you has not earned the
-ask. Individuals and anyone outside commercial work are never in scope at all; there's a voluntary $5
-Supporter tier for them, and it is not the fee. See [MAINTENANCE_FEE.md](MAINTENANCE_FEE.md), or
-[Funding and sponsorship](wiki/Funding-and-Sponsorship.md) for the wider picture.
+**Nobody outside that scope pays anything, ever.** Individuals, students, hobby projects,
+non-profits, open source projects, and any organization under the revenue floor. There's a voluntary
+$5 Supporter tier for them, and it is not the fee.
 
-No tier buys a feature, a vote, priority triage or a logo. There is no paid tier of AtlasMind, and
-sponsorship that came with privileges would be one however it was worded.
+**No tier buys a feature, a vote, priority triage, a service level or a logo.** Every user gets the
+same software. The fee funds maintenance — issue triage, releases, dependency and security updates —
+not position in the queue.
 
-MIT License — see [LICENSE](LICENSE).
+Contributions are welcome — see [CONTRIBUTING.md](CONTRIBUTING.md). Full detail in
+[MAINTENANCE_FEE.md](MAINTENANCE_FEE.md) and
+[Funding and sponsorship](wiki/Funding-and-Sponsorship.md).
 

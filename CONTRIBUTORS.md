@@ -14,11 +14,12 @@ No public supporters listed yet.
 
 ## Maintenance Fee organizations
 
-Organizations paying the [Open Source Maintenance Fee](MAINTENANCE_FEE.md), which comes into force
-at **v1.0.0**. Listed without their tier, because the tier is a headcount band and publishing it
-would say something about the organization rather than about their support.
+Organizations paying the [Open Source Maintenance Fee](MAINTENANCE_FEE.md), which comes into force at
+**v1.0.0** under the terms in [OSMFEULA.txt](OSMFEULA.txt). Listed without their tier, because the
+tier is a headcount band and publishing it would say something about the organization rather than
+about their support.
 
-No organizations listed yet — the fee does not apply during Beta.
+No organizations listed yet — no fee is payable during Beta.
 
 ## Acknowledgement Policy
 
