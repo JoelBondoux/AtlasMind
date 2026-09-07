@@ -6,6 +6,18 @@ The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/),
 
 ## [Unreleased]
 
+## [0.419.1] - 2026-09-07
+
+### Fixed
+
+- **Five delivered backlog items are ticked again.** They were ticked when each shipped
+  and un-ticked in a later commit: an open Project Dashboard holds the backlog in
+  memory and writes its whole copy back on any edit, so a session that started before
+  those releases restored the state it was opened with. The items are the nav
+  alignment and overflow, the Road to MVP spacing, the roadmap Add item affordance, the
+  unlinked-node placement, and the search-concludes-with-a-fit change -- all shipped in
+  0.418.0 through 0.418.2.
+
 ## [0.419.0] - 2026-09-07
 
 ### Added

@@ -4,7 +4,7 @@
 
 <h1 align="center">AtlasMind</h1>
 
-<p align="center"><sub> · <strong>Current source version: 0.419.0</strong> · </sub></p>
+<p align="center"><sub> · <strong>Current source version: 0.419.1</strong> · </sub></p>
 
 
 <p align="center">
@@ -136,6 +136,13 @@ allow-list, redaction and file-withholding behaviour, retained metadata, provide
 important limits on overrides and compliance claims.
 
 ---
+
+## What's new in 0.419.1
+
+**Five delivered backlog items are ticked again.** They were ticked as each shipped and
+un-ticked in a later commit: an open Project Dashboard holds the backlog in memory and writes
+its whole copy back on any edit, so a session that started before those releases restores the
+state it was opened with.
 
 ## What's new in 0.419.0
 

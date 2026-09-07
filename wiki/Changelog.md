@@ -19,6 +19,15 @@ Older entries below describe the software as it was at the time and are delibera
 
 ---
 
+## v0.419.1 -- Ticks that stayed ticked
+
+Five backlog items delivered across 0.418.0-0.418.2 were ticked as each shipped and found
+un-ticked afterwards. An open Project Dashboard holds the backlog in memory and writes its
+whole copy back whenever you edit it, so a session started before those releases restores the
+state it was opened with. Ticked again.
+
+---
+
 ## v0.419.0 -- Which way the plan continues
 
 The roadmap canvas clips at its frame, so a node outside it is not small -- it is absent, and
