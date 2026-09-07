@@ -19,6 +19,25 @@ Older entries below describe the software as it was at the time and are delibera
 
 ---
 
+## v0.424.0 -- The producer report, actually produced
+
+The previous release shipped the renderer with nothing to call it. **AtlasMind: Generate Producer
+Report** is the half that makes it a feature: roadmap progress by gate, open risks and their recorded
+decisions, delivery readiness and cost against estimate, written into
+`project_memory/operations/` as markdown, a self-contained HTML page, and the JSON model a portal can
+consume.
+
+Each register is read in its own try/catch, so one that cannot be read leaves a *stated gap* rather
+than an empty section — a single wrapper would make one unreadable register look like a project with
+no risks. Only the managed block of the backlog is read, because a checkbox line in the surrounding
+prose is documentation rather than a roadmap item. And only open risks appear: the register keeps
+closed findings deliberately, but a status page listing forty of them buries the three that are live.
+
+Two repository baselines that these additions breached were fixed rather than raised — two helpers
+exported and read by nothing, and a test fixture using a risk status that does not exist.
+
+---
+
 ## v0.423.1 -- The gate before the portal
 
 The safety core of the Pages portal, built before the publisher because it is the part that is

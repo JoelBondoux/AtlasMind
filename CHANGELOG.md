@@ -6,6 +6,47 @@ The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/),
 
 ## [Unreleased]
 
+## [0.424.0] - 2026-09-07
+
+### Added
+
+- **`AtlasMind: Generate Producer Report` — the report can now actually be produced.**
+  0.423.0 shipped the renderer with nothing to call it; this is the half that makes it a
+  feature. Writes markdown, a self-contained HTML page and the JSON model into
+  `project_memory/operations/`.
+
+  **Each register is read in its own try/catch**, so a failure leaves that section
+  `undefined` — a stated gap — rather than empty. One wrapper around all of them would
+  make a single unreadable register look like a project with no risks, which is the exact
+  failure the report's design exists to prevent.
+
+  Written to `operations/` rather than a new `reports/` folder: `SSOT_FOLDERS` is a
+  declared set, and a folder outside it is not something the memory manager or a purge
+  knows about. A status report is an operational artefact, alongside `delivery.json`.
+
+- **`src/core/producerReportGather.ts`** — turns what the registers hold into what the
+  renderer takes, kept apart so the renderer stays ignorant of where facts came from and
+  both can be tested without a workspace.
+
+  - **Only the managed block of the backlog is read.** A `- [ ]` line in the surrounding
+    prose is documentation, not a roadmap item — the same rule the debt scanner applies to
+    markers that do not open a comment.
+  - **Only open risks reach the report.** The register keeps closed findings deliberately,
+    but a status page listing forty of them buries the three that are live.
+  - **A declared gate with no items is reported with a total of zero**, not omitted, so an
+    empty milestone is distinguishable from one that does not exist.
+  - Cost lines are labelled with the item's text, falling back to its id when the item has
+    left the backlog.
+
+### Fixed
+
+- **Two repository baselines my own additions breached, fixed rather than raised.**
+  `gateProgress` and `costLines` were exported and read by nothing — the dead-field
+  detector was right, and they are internal helpers, so they are no longer exported. A
+  test fixture used `'resolved'`, which is not a `RiskStatus` (`open` / `accepted` /
+  `mitigated` / `closed` / `dismissed`), pushing test type errors to 239 against a ceiling
+  of 238. Raising either ceiling would have spent a guard to avoid a two-minute fix.
+
 ## [0.423.1] - 2026-09-07
 
 ### Added

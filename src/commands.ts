@@ -275,7 +275,81 @@ export function registerCommands(
     );
   };
 
+  /**
+   * Write the producer's report into the repository.
+   *
+   * Each register is read in its own try/catch, and a failure leaves that
+   * section `undefined` rather than empty — the report then states the gap
+   * instead of implying there is nothing to report. A single wrapper would make
+   * one unreadable register look like a project with no risks.
+   */
+  const generateProducerReport = async (): Promise<void> => {
+    const atlas = requireAtlas();
+    if (!atlas) { return; }
+    const folder = vscode.workspace.workspaceFolders?.[0];
+    if (!folder) {
+      void vscode.window.showInformationMessage('Open a project folder before generating a producer report.');
+      return;
+    }
+
+    const [{ buildProducerReportInput }, { buildProducerReport }, fs, path] = await Promise.all([
+      import('./core/producerReportGather.js'),
+      import('./core/producerReport.js'),
+      import('node:fs/promises'),
+      import('node:path'),
+    ]);
+
+    const root = folder.uri.fsPath;
+    const ssotPath = vscode.workspace.getConfiguration('atlasmind').get<string>('ssotPath', 'project_memory');
+
+    let roadmapMarkdown: string | undefined;
+    try {
+      roadmapMarkdown = await fs.readFile(path.join(root, ssotPath, 'roadmap', 'improvement-plan.md'), 'utf8');
+    } catch { roadmapMarkdown = undefined; }
+
+    let version: string | undefined;
+    try {
+      version = (JSON.parse(await fs.readFile(path.join(root, 'package.json'), 'utf8')) as { version?: string }).version;
+    } catch { version = undefined; }
+
+    const input = buildProducerReportInput({
+      projectName: folder.name,
+      generatedAt: new Date(),
+      ...(version ? { version } : {}),
+      ...(roadmapMarkdown !== undefined ? { roadmapMarkdown } : {}),
+      ...(atlas.riskOversightManager.getConfig() ? { riskConfig: atlas.riskOversightManager.getConfig()! } : {}),
+      ...(atlas.deliveryManager.getConfig() ? { deliveryConfig: atlas.deliveryManager.getConfig()! } : {}),
+      costRecords: atlas.costTracker.getWorkspaceRecords(),
+    });
+
+    const artifacts = buildProducerReport(input);
+    // `operations/`, not a new `reports/`: SSOT_FOLDERS is a declared set, and a
+    // folder outside it is not something the memory manager or a purge knows
+    // about. A status report is an operational artefact, alongside delivery.json
+    // and project-director.json.
+    const outDir = path.join(root, ssotPath, 'operations');
+    await fs.mkdir(outDir, { recursive: true });
+    const mdPath = path.join(outDir, 'producer-report.md');
+    await Promise.all([
+      fs.writeFile(mdPath, artifacts.markdown, 'utf8'),
+      fs.writeFile(path.join(outDir, 'producer-report.html'), artifacts.html, 'utf8'),
+      // The model, for a portal or an MCP server to consume without a second
+      // gatherer. Written every time, so the three never drift apart.
+      fs.writeFile(path.join(outDir, 'producer-report.json'), artifacts.json, 'utf8'),
+    ]);
+
+    const open = await vscode.window.showInformationMessage(
+      `Producer report written to ${ssotPath}/operations/ (markdown, HTML and JSON).`,
+      'Open report',
+    );
+    if (open === 'Open report') {
+      await vscode.window.showTextDocument(await vscode.workspace.openTextDocument(vscode.Uri.file(mdPath)));
+    }
+  };
+
   context.subscriptions.push(
+    vscode.commands.registerCommand('atlasmind.generateProducerReport', generateProducerReport),
+
     vscode.commands.registerCommand('atlasmind.openGettingStarted', async () => {
       await vscode.commands.executeCommand(
         'workbench.action.openWalkthrough',
