@@ -19,6 +19,29 @@ Older entries below describe the software as it was at the time and are delibera
 
 ---
 
+## v0.429.1 -- Two tests that could not fail
+
+The dead-test-directory item turned out to be worse than the nit it was written as. Agent routing had
+**no real coverage at all**, and two artefacts implying it did.
+
+`test/core/routing.test.ts` held nine real routing cases and had never executed — the runner collects
+`tests/**` and that file sat in `test/`. By the time anyone looked, the API it drove had been removed
+entirely: the coverage was gone and nothing failed, because nothing ran.
+`tests/features/task-routing.test.ts` *did* run, and asserted against a stub defined inside the test
+file, so it could not fail for any reason to do with the product.
+
+Both are gone, and the nine cases are ported against the seam that actually exists — the regex
+fallback the orchestrator uses whenever no model classification is available, which is the path taken
+on every local-model and offline turn. Twelve cases now, including that ordinary prose must infer
+*nothing*: a heuristic matching everything routes everything, which is the same as routing nothing.
+
+Coverage was also measuring a curated subset and calling it the codebase — an allowlist of eight
+directories, quietly omitting five including `src/remote/`, the localhost control server. Now it
+measures everything, honestly: **59.9% of lines**, against a 45 threshold nothing could ever breach.
+Raised to 55/58.
+
+---
+
 ## v0.429.0 -- The saving, made visible — and a flaky test made honest
 
 The counterfactual engine shipped last release with nothing calling it. The producer report's cost

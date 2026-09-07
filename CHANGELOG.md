@@ -6,6 +6,46 @@ The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/),
 
 ## [Unreleased]
 
+## [0.429.1] - 2026-09-07
+
+### Fixed
+
+- **Agent routing had no real test coverage, and two artefacts implying it did** —
+  roadmap item `NXT-6`, which turned out to be worse than the directory nit it was
+  written as.
+
+  `test/core/routing.test.ts` held **nine** real routing cases and had **never
+  executed**: the runner collects `tests/**`, and that file sat in `test/`. By the time
+  anyone looked, the `routeTask` API it drove had been removed entirely — the coverage was
+  gone and nothing failed, because nothing ran.
+
+  `tests/features/task-routing.test.ts` did run, and asserted against a `determineAgent`
+  stub **defined inside the test file**. It could not fail for any reason to do with the
+  product.
+
+  Both are gone, and `tests/core/routingNeeds.test.ts` ports the nine cases against the
+  seam that actually exists: `describeCommonRoutingNeeds`, the regex fallback the
+  orchestrator uses whenever no model classification is available — the path taken on
+  every local-model and offline turn, which makes it the half most worth pinning. Twelve
+  cases, including that ordinary prose must infer *nothing*: a heuristic matching
+  everything routes everything, which is the same as routing nothing.
+
+  It also turned an exported function nothing read into one something does.
+
+- **Coverage measured a curated subset and called it the codebase.** `include` was an
+  allowlist of eight directories, silently omitting five — `src/remote/` (the localhost
+  control server), `src/voice/`, `src/ard/`, `src/utils/` and `src/web/`. The omission was
+  least defensible exactly where it mattered most: a control server listening on localhost
+  is the last thing that should be invisible to the coverage report.
+
+  Now `src/**`, less type-only files, which have no branches and would deflate the figure
+  as dishonestly as omitting real code inflated it. **Measured honestly it is 59.9% of
+  lines and 63% of functions** — so the old 45 threshold was not a floor anybody could
+  fall through, and a threshold nothing can breach is not a guard. Raised to 55/58 with
+  headroom, ratcheted the way the dead-export and type-error ceilings are.
+
+- `UNREFERENCED_EXPORT_CEILING` lowered 91 → 90.
+
 ## [0.429.0] - 2026-09-07
 
 ### Added
