@@ -6,6 +6,48 @@ The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/),
 
 ## [Unreleased]
 
+## [0.420.6] - 2026-09-07
+
+### Added
+
+- **`ROADMAP.md` — strategic sequencing, from a competitive gap analysis.** Three
+  horizons with a dependency-ordered item shape (problem, outcome, gap closed,
+  acceptance criteria, size, dependencies), an *Explicitly not doing* list, and five open
+  decisions. Written against the constraints that actually apply: closed beta, no
+  customers, free product, no hosting budget, no analytics.
+
+  **It does not replace `project_memory/roadmap/improvement-plan.md`,** which stays the
+  live backlog. That file is machine-parsed by the Project Dashboard with durable
+  `<!-- rm:id -->` anchors, `#mvp` gates and drag-order priority; reformatting it into the
+  new item shape would break the parser and destroy every item id. `docs/roadmap.md`
+  (narrative feature prose) is also untouched. `ROADMAP.md` says what to do first; the
+  backlog remains the record of everything outstanding.
+
+  A **What the code says** section leads the document, because reading the code
+  contradicted the analysis in four places:
+
+  - **Counterfactual pricing can only work going forward.** `CostRecord.cachedInputTokens`
+    is the cache *read*; cache **writes are not captured**, so the read/write split the
+    method depends on cannot be reconstructed for past requests.
+  - **Per-project cost attribution is not merely unbuilt, it is uncomputable.** Cost is
+    persisted to VS Code `globalState`, capped at 500 records, with no workspace field --
+    so every project on the machine shares one undifferentiated list.
+  - **Memory does not feed routing.** `modelRouter.ts` reads task profile, struggle state
+    and a decayed execution-outcome EWMA, and never imports `src/memory/`. What exists is
+    *outcome-driven* routing -- real, uncommon, and a different claim. Marketing the
+    memory link would be an unverified statement about our own product.
+  - **A daily spend cap already exists** and already blocks missions through an injected
+    `MissionBudgetStore`, so "no budgets or caps" overstates the gap; the work is
+    extending its scope, not building a second budget system.
+
+  Two things are recorded as deliberate refusals rather than backlog items: a *day-one
+  projected monthly saving* (a repo scan cannot know request volume, and a confident
+  number with no basis is what this codebase refuses everywhere else), and the memory
+  routing claim above.
+
+- **Two roadmap items gained their durable anchors.** Written by the extension itself on
+  dashboard load, as designed -- included here rather than left uncommitted.
+
 ## [0.420.5] - 2026-09-07
 
 ### Fixed

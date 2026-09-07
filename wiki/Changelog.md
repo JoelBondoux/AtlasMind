@@ -19,6 +19,26 @@ Older entries below describe the software as it was at the time and are delibera
 
 ---
 
+## v0.420.6 -- A roadmap that says what to do first
+
+`ROADMAP.md` arrives at the repository root: three horizons, dependency-ordered, each item carrying
+the problem, the outcome, the gap it closes, acceptance criteria and what it depends on — plus an
+*Explicitly not doing* list and five open decisions. Written for a closed beta with no customers, no
+hosting budget and no analytics, so every item runs on the user's own machine.
+
+It does not replace the live backlog in `project_memory/roadmap/improvement-plan.md`, which the
+Project Dashboard parses and which carries durable item ids; reformatting that file would have broken
+it. The new file says what to do first, the backlog stays the record of everything outstanding.
+
+The document opens with **What the code says**, because reading the code disagreed with the analysis
+in four places — cache *writes* are not recorded so past requests cannot be re-priced; cost is stored
+machine-wide with no project field, making per-project attribution uncomputable rather than merely
+missing; the model router reads execution outcomes rather than project memory, so "memory informs
+routing" would be untrue; and a daily spend cap already exists. A day-one *projected* saving is
+recorded as a deliberate refusal: a repo scan cannot know your request volume.
+
+---
+
 ## v0.420.5 -- Baseline refreshed
 
 Post-release housekeeping: the README's published baseline now names **v0.420.4**, the release just

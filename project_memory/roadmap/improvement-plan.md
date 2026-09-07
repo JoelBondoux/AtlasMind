@@ -3,12 +3,12 @@ This file is the developer-facing backlog AtlasMind should absorb into SSOT and 
 > Priority order matters: items nearer the top receive more weight, but AtlasMind should still weigh criticality, security, architecture, delivery risk, and fresh execution evidence before choosing the next task.
 ## Prioritized Backlog
 <!-- atlasmind:roadmap-items:start -->
-- [ ] The Lens surfaces are not all accessible as they need a file selected. #mvp
+- [ ] The Lens surfaces are not all accessible as they need a file selected. #mvp <!-- rm:the-lens-surfaces-are-not-al -->
 - [ ] **Async / ambient background agents** — "works while you're away," triggered by repo events (new issue, failing CI, dependency CVE) rather than chat. Architectural ask: an event bus agents subscribe to. Seeded by the remote-control server and scheduled-agents backlog item. #mvp <!-- rm:async-ambient-background-age -->
 - [ ] **Utilities:** Auth, Payments, Email, Analytics, i18n, Accessibility #mvp #critical <!-- rm:utilities-auth-payments-emai -->
 - [ ] **Semantic codebase index (`@codebase` / embeddings RAG):** Vector index over actual source so agents retrieve relevant code, not just remembered SSOT decisions. Local embedding option (Ollama) keeps it bring-your-own-model and privacy-friendly. Biggest single capability gap; benefits all personas. #mvp #critical <!-- rm:semantic-codebase-index-code -->
 - [ ] Eval / regression harness for agents: pin "golden" tasks and detect when an agent definition or model swap regresses quality (mitigates the risk of the auto-update cadence). <!-- rm:eval-regression-harness-for -->
-- [x] When searching on teh canvas have the search result conclude with zooming in to fit all the active search results onto the one page where possible. #mvp
+- [x] When searching on teh canvas have the search result conclude with zooming in to fit all the active search results onto the one page where possible. #mvp <!-- rm:when-searching-on-teh-canvas -->
 - [x] When auto aligning nodes on the various canvas spaces, disconnected nodes need not be so far away from the connected ones. Currently they are placed so far away it would be easy for a user to not even know they are there. #mvp <!-- rm:when-auto-aligning-nodes-on -->
 - [x] On the ideation and roadmap canvases have a slight highlight on the edge of the canvas if there are nodes off screen in that direction. #mvp <!-- rm:on-the-ideation-and-roadmap -->
 - [ ] On the roadmap and ideation canvases allow for a drag box to select a number of nodes to allow them all to be moved together. #mvp <!-- rm:on-the-roadmap-and-ideation -->
