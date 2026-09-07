@@ -6,6 +6,48 @@ The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/),
 
 ## [Unreleased]
 
+## [0.420.9] - 2026-09-07
+
+### Changed
+
+- **The GitHub Pages portal is in MVP, and Now was re-cut rather than extended to fit
+  it.** It becomes `NOW-4`. The five-item cap held: the price map moved out to `NXT-0`.
+
+  **The dependencies say that move is correct rather than convenient.** Nothing in Now
+  needs a fresh price map -- `NOW-2` reports *actual* spend, already priced by today's
+  code. What needs a versioned, refreshed map is the **savings** claim, `NXT-1`, and
+  `NXT-0` now sits directly in front of it. The cost is stated in the item: until it
+  ships, the first figures a beta user sees are unversioned, which is the status quo
+  rather than a regression, and it is S-sized and parallelisable if that bothers anyone.
+
+  Four of the five Now items are now one chain -- cost data → cost per item → report →
+  portal. That is deliberate: they are the positioning, and the fifth (beta users) is the
+  only way to find out whether it lands.
+
+- **A committed HTML file is not the same as a link.** `NOW-3` produces a report readable
+  by someone who clones the repository; `NOW-4` makes it a URL you can send a client. The
+  distinction is the whole of gap PM1, and it is why the portal is not just a renderer.
+
+### Added
+
+- **A privacy warning designed into `NOW-4` rather than bolted on.** **A GitHub Pages site
+  is public by default even when the repository is private** — access control is a GitHub
+  Enterprise Cloud feature — so for a free or Pro account "publish the producer's report"
+  means publish it to the open internet. The item requires that behaviour be confirmed
+  against current GitHub documentation before shipping rather than trusting the note.
+
+  That matters because of what the report holds. `projectDirectorManager` deliberately
+  avoids hoarding personal data and prefers references it resolves on demand; publishing
+  stakeholder names, assignments and follow-ups to a public URL would undo that in one
+  step. The risk register is commercial, legal and ethical findings with recorded
+  decisions. And with cost history set to `repository` (`NOW-1`), spend becomes public
+  too.
+
+  So publishing is off until switched on, controlled per section, and the two most
+  sensitive sections are off even once it is on. The proposed default is roadmap progress
+  by gate plus delivery readiness — what a client actually asks for — with people and
+  money opt-in. Whether that default is right is the one remaining open question.
+
 ## [0.420.8] - 2026-09-07
 
 ### Changed

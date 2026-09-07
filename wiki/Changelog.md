@@ -19,6 +19,26 @@ Older entries below describe the software as it was at the time and are delibera
 
 ---
 
+## v0.420.9 -- The portal joins MVP, and Now is re-cut to fit it
+
+Publishing the producer's report as a GitHub Pages portal moves into MVP as `NOW-4`. Rather than
+letting Now grow to six items, the price map moved out to `NXT-0` — and the dependencies say that is
+right rather than convenient: nothing in Now needs it, since `NOW-2` reports actual spend that
+today's code already prices, while the *savings* claim does, and `NXT-0` now sits directly in front
+of it.
+
+A committed HTML file is readable by whoever clones the repository. A portal is a link you can send a
+client. That distinction is the whole of the PM pillar's structural gap, which is why the portal is
+not merely a second renderer.
+
+The privacy design is in the item rather than deferred. **A GitHub Pages site is public by default
+even from a private repository** — access control is an Enterprise Cloud feature — and the report can
+carry stakeholder names, a risk register and, if cost history is set to `repository`, your spend.
+Publishing is therefore off until switched on, controlled per section, with people and money off even
+once it is on; the proposed default is roadmap progress by gate plus delivery readiness.
+
+---
+
 ## v0.420.8 -- Four decisions, three new items
 
 Every open roadmap question is answered, and the section becomes a decision record rather than

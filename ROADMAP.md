@@ -165,7 +165,9 @@ See `NOW-2`'s note and **Explicitly not doing** for the honest alternative.
 ## Now
 
 *Make the producer's console demonstrable, and make cost a first-class project artefact.*
-Five items, dependency-ordered.
+Five items, dependency-ordered. Four of the five are one chain — cost data, cost per item, the
+report, the portal — which is deliberate: they are the positioning, and the fifth is the only way to
+find out whether it lands.
 
 ### [NOW-1] Cost records you can attribute and re-price
 **Problem:** Spend is recorded machine-wide in editor state, capped at 500 requests, with no project
@@ -259,23 +261,43 @@ and cost against estimate. It commits to the repo and can be published to GitHub
 > renderer and a portal being a rewrite. It also gives the MCP roadmap server (`NXT-7`) something to
 > serve without a second gatherer.
 
-### [NOW-4] Bundled price map, refreshed by a scheduled Action
-**Problem:** Every cost and saving figure depends on model prices, prices move, and a stale map turns
-the product's central claim into a wrong number stated confidently.
-**Outcome:** A versioned price map is committed to the repo and ships with each release; a scheduled
-GitHub Action opens a pull request when prices move.
-**Why now:** Underpins C2 and C5. The whole cost claim rots without it.
+### [NOW-4] Publish the report as a GitHub Pages portal
+**Problem:** A committed HTML file is readable outside VS Code only by someone who clones the
+repository and opens it. A producer, a client or a technical director needs a **URL you can send
+them**. That last step is the difference between the project manager being visible and being
+theoretically visible.
+**Outcome:** The generated report publishes to GitHub Pages from the host repository, so project
+status is a link.
+**Why now:** PM1 (Critical) — this is the gap, and `NOW-3` alone only half closes it. Moved into MVP
+by decision; see the re-cut note below.
 **Acceptance criteria:**
-- The map is a committed file with a version and a date, and the version is visible wherever a
-  saving is shown.
-- A scheduled workflow opens a PR on change and does nothing when nothing changed.
-- No network call at runtime.
-- A price the map does not cover is reported as unpriced, never guessed.
-**Touches:** new price map data file, `src/core/costTracker.ts` / pricing lookup,
-`.github/workflows/`.
-**Size:** S
-**Runs where:** Local only at runtime; the refresh runs on GitHub's free tier.
-**Depends on:** nothing.
+- Publishing is **off until switched on**, and the switch names what will become readable.
+- **Per-section control over what is published**, with stakeholder details and cost **excluded by
+  default** — see the warning below.
+- A published page states when it was generated; a stale page says so rather than looking current.
+- Publishing is a committed workflow the user can read, not a hidden push.
+- Turning it off removes the published page, and says whether the removal succeeded.
+**Touches:** `producerReport.ts` (from `NOW-3`), a Pages workflow, `package.json` (settings).
+**Size:** M
+**Runs where:** Local only to generate; GitHub Pages to serve, which is free and is the user's own
+repository — not hosting we run.
+**Depends on:** NOW-3.
+
+> **The privacy problem here is bigger than it looks, and it must be designed in, not bolted on.**
+> **A GitHub Pages site is public by default even when the repository is private** — restricting
+> access is a GitHub Enterprise Cloud feature. So for a free or Pro account, "publish the producer's
+> report" means *publish it to the open internet*, and the item must confirm that behaviour against
+> current GitHub documentation before shipping rather than trusting this note.
+>
+> That matters because of what the report contains. `projectDirectorManager` deliberately avoids
+> hoarding personal data and prefers references it resolves on demand — publishing stakeholder names,
+> assignments and follow-ups to a public URL would undo that in one step. The risk register is
+> commercial, legal and ethical findings with recorded decisions. And if cost history is set to
+> `repository` (`NOW-1`), spend becomes public too.
+>
+> Hence: off by default, per-section, and the two most sensitive sections off even once it is on. The
+> useful default is a page showing **roadmap progress by gate and delivery readiness** — which is
+> what a client actually asks for — with people and money opt-in.
 
 ### [NOW-5] Twenty beta users, individually recruited
 **Problem:** Nobody is using AtlasMind, there is no telemetry, and there is no way to get any. Every
@@ -303,6 +325,36 @@ positioning is right at all.
 
 *Close the loop, publish a number, and take the gap nobody has filled.*
 
+### [NXT-0] Bundled price map, refreshed by a scheduled Action
+**Problem:** Every cost and saving figure depends on model prices, prices move, and a stale map turns
+the product's central claim into a wrong number stated confidently.
+**Outcome:** A versioned price map is committed to the repo and ships with each release; a scheduled
+GitHub Action opens a pull request when prices move.
+**Why now:** Underpins C2 and C5. Kept as `NXT-0` rather than renumbered, because it is a
+prerequisite of `NXT-1` and sorts in front of it.
+**Acceptance criteria:**
+- The map is a committed file with a version and a date, and the version is visible wherever a
+  saving is shown.
+- A scheduled workflow opens a PR on change and does nothing when nothing changed.
+- No network call at runtime.
+- A price the map does not cover is reported as unpriced, never guessed.
+**Touches:** new price map data file, `src/core/costTracker.ts` / pricing lookup,
+`.github/workflows/`.
+**Size:** S
+**Runs where:** Local only at runtime; the refresh runs on GitHub's free tier.
+**Depends on:** nothing.
+
+> **Moved out of Now to make room for the portal, and the dependencies say that is correct.** Nothing
+> in Now needs it: `NOW-2` reports *actual* spend, which is already priced by the code today. What
+> needs a fresh, versioned map is the **savings** claim — `NXT-1` — and it now sits directly in front
+> of it.
+>
+> **The cost of the move, stated:** until this ships, cost-per-roadmap-item shows figures from
+> whatever prices are currently hardcoded, with no version stamp and no refresh. That is the status
+> quo rather than a regression, but it means the first numbers a beta user sees are unversioned. If
+> that bothers you, this is S-sized and can be done in parallel by anyone — it is mostly a workflow
+> file.
+
 ### [NXT-1] Counterfactual pricing engine
 **Problem:** The cost dashboard reports what was spent. The claim worth making is what was *avoided*
 — and there is no method behind it and nothing published.
@@ -321,7 +373,7 @@ follows immediately rather than competing.
 **Touches:** new pricing module, `src/core/costTracker.ts`, `src/views/costDashboardPanel.ts`.
 **Size:** M
 **Runs where:** Local only — arithmetic against a bundled table.
-**Depends on:** NOW-1, NOW-4.
+**Depends on:** NOW-1, NXT-0.
 
 ### [NXT-2] Dogfood for three weeks and publish the number
 **Problem:** Every serious competitor has published evidence. AtlasMind has none, about anything.
@@ -628,6 +680,7 @@ Recorded rather than deleted, so a later reader can see what was chosen and what
 | Ideation, vision, UI Studio, Buzz? | **All four stay, and must connect** — to the project manager and to each other | `NXT-9`. They earn their place by connecting rather than by existing; the report names what each contributed, or says it is unconnected |
 | Slack as a Buzz alternative? | **Yes, via a Slack MCP server** | `NXT-10`, sized S because `directorCommsRunner` was already built for it. Alternatives, not a migration |
 | Which beta pool leads? | **Solo producers and small studios**, most of whom will also be BYOK | `NOW-5` recruits there first, so the cost story is tested on the people the console is for rather than on a second audience |
+| Is the GitHub Pages portal in MVP? | **Yes** | It becomes `NOW-4`. To hold the five-item cap, the price map moved to `NXT-0` — nothing in Now needed it, and it sits directly in front of the savings claim that does |
 
 ## Still open
 
@@ -636,9 +689,9 @@ Recorded rather than deleted, so a later reader can see what was chosen and what
    a fraction of the work and with no new supply-chain surface. `NXT-8` is written for the fetch
    because that is what was asked; it is worth thirty seconds' thought before it is built.
 
-2. **Is the GitHub Pages portal in scope for the beta, or after it?** Answered in principle — the
-   backlog now carries *"Explore a GitHub Pages hosted (within the host repo) web portal for AM
-   Project Manager"* at `#mvp`, and `NOW-3` is specified to feed it. What is still open is *when*:
-   `#mvp` implies before launch, which would make it a sixth Now item and break the cap. My read is
-   that `NOW-3` shipping a data file is enough for the beta, and the portal is the first thing after
-   `NXT-2` publishes a number worth putting on a page. Say if you want it sooner.
+2. **What may the portal publish by default?** The portal is in MVP (`NOW-4`) and I have proposed a
+   default of roadmap progress by gate plus delivery readiness, with **people and cost opt-in**,
+   because a GitHub Pages site is public even from a private repository unless you are on Enterprise
+   Cloud. If you intend the portal to carry stakeholder assignments or spend for a client, that needs
+   to be a deliberate choice rather than a default, and it may argue for a private-repo Pages check
+   at publish time. This shapes `NOW-4`'s settings, not whether it ships.
