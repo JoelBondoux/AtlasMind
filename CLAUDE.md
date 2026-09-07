@@ -311,6 +311,7 @@ Defined as `SSOT_FOLDERS` in `src/types.ts`.
 | `README.md` | User-facing overview, commands, config, structure |
 | `CHANGELOG.md` | Version history in Keep a Changelog format |
 | `CONTRIBUTING.md` | Dev setup, conventions, how to add providers/agents/skills |
+| `MAINTENANCE_FEE.md` | Open Source Maintenance Fee participation — tiers, who it applies to, and why it is optional here. If this ever stops matching `LICENSE`, `package.json`'s `"license"`, or the README's Open source section, the departure from the published OSMF model is what has drifted, and it is the whole point |
 | `docs/architecture.md` | System diagram, activation flow, data flow, dependency graph |
 | `docs/model-routing.md` | Routing algorithm, budget/speed modes, provider list |
 | `docs/ssot-memory.md` | SSOT folder details, retrieval, bootstrapping, security |

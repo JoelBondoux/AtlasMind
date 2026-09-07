@@ -44,6 +44,40 @@ hygiene you can depend on.
 
 ---
 
+## The Open Source Maintenance Fee
+
+AtlasMind participates in the [Open Source Maintenance Fee](https://opensourcemaintenancefee.org),
+**optionally**. The full detail is in
+[MAINTENANCE_FEE.md](https://github.com/JoelBondoux/AtlasMind/blob/main/MAINTENANCE_FEE.md); the
+short version:
+
+| | |
+|---|---|
+| **Who it's for** | Organisations with annual gross revenue of **USD 10,000 or more** using AtlasMind in revenue-generating work |
+| **Amount** | **$10/mo** under 20 employees · **$40/mo** 20–100 · **$60/mo** over 100 |
+| **Who it's not for** | Everyone else — individuals, students, hobby projects, non-profits, open source projects |
+| **Required?** | **No** |
+
+The idea it rests on is worth stating plainly: *the source code is free — as in freedom — but the
+maintenance is not.* Keeping up with VS Code, eight providers and their APIs is ongoing work, and it
+is exactly the part no one-off contribution funds.
+
+**Why a fee and not just "sponsor us".** "Support the project if it helps you" puts the awkward
+question of *how much* on the person least equipped to answer it, which is usually why nothing gets
+sent. A named tier is a line item somebody can approve without a meeting.
+
+**Where AtlasMind departs from the model.** The published OSMF makes the fee mandatory for qualifying
+commercial users, enforced by an `OSMFEULA.txt` covering the binary release while the source stays
+open. AtlasMind does not do that. The [LICENSE](https://github.com/JoelBondoux/AtlasMind/blob/main/LICENSE)
+is unmodified MIT, the Marketplace `.vsix` carries no terms of its own, `package.json` still declares
+`"license": "MIT"`, and nothing is withheld from anyone who does not pay.
+
+That is a considered choice rather than an oversight. For a VS Code extension the binary release *is*
+how essentially everyone installs it, so a fee-bearing binary would not be a narrow carve-out — it
+would be the product, and MIT would be a technicality for the few who clone and compile.
+
+---
+
 ## Sponsor
 
 **[GitHub Sponsors: JoelBondoux](https://github.com/sponsors/JoelBondoux)**

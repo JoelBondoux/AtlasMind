@@ -4,7 +4,7 @@
 
 <h1 align="center">AtlasMind</h1>
 
-<p align="center"><sub> · <strong>Current source version: 0.419.1</strong> · </sub></p>
+<p align="center"><sub> · <strong>Current source version: 0.419.2</strong> · </sub></p>
 
 
 <p align="center">
@@ -136,6 +136,15 @@ allow-list, redaction and file-withholding behaviour, retained metadata, provide
 important limits on overrides and compliance claims.
 
 ---
+
+## What's new in 0.419.2
+
+**AtlasMind participates in the Open Source Maintenance Fee — optionally.** Organisations
+with annual gross revenue of USD 10,000 or more that build revenue-generating work on
+AtlasMind are asked for $10–$60 a month, scaled by headcount, to fund the maintenance they
+depend on. The licence does not change: MIT, unmodified, no EULA on the published build,
+nothing withheld from anyone who doesn't pay. The fee names a number so nobody has to invent
+one. See [MAINTENANCE_FEE.md](MAINTENANCE_FEE.md).
 
 ## What's new in 0.419.1
 
@@ -2388,6 +2397,19 @@ AtlasMind is MIT licensed. There is no paid tier, no feature gate, and no plan t
 
 Contributions are welcome — see [CONTRIBUTING.md](CONTRIBUTING.md). If AtlasMind saves you time,
 [sponsorship](wiki/Funding-and-Sponsorship.md) helps keep it going.
+
+This project participates in the [Open Source Maintenance Fee](https://opensourcemaintenancefee.org),
+and participates in it **optionally**. The source code and every published release stay freely
+available under the MIT licence — there is no EULA on the build, nothing is withheld from anyone who
+doesn't pay, and `"license"` in `package.json` still reads `MIT` because that is still what this is.
+
+What the fee does is name a number, so an organisation that wants to fund the maintenance it depends on
+doesn't have to invent one. The model asks organisations with annual gross revenue of **USD 10,000 or
+more** that use AtlasMind as part of revenue-generating work to pay a small monthly fee scaled by
+headcount — $10, $40 or $60. Not a support contract, not a licence fee, and here, not a requirement.
+
+See [MAINTENANCE_FEE.md](MAINTENANCE_FEE.md) for the tiers and the reasoning, or
+[Funding and sponsorship](wiki/Funding-and-Sponsorship.md) for the wider picture.
 
 MIT License — see [LICENSE](LICENSE).
 

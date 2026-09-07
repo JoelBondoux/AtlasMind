@@ -6,6 +6,39 @@ The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/),
 
 ## [Unreleased]
 
+## [0.419.2] - 2026-09-07
+
+### Added
+
+- **AtlasMind participates in the Open Source Maintenance Fee, optionally.**
+  `MAINTENANCE_FEE.md` at the repository root asks organisations with annual gross
+  revenue of USD 10,000 or more that use AtlasMind as part of revenue-generating work
+  for the model's own recommended tiers -- $10/mo under 20 employees, $40/mo to 100,
+  $60/mo above -- through GitHub Sponsors. Individuals, students, hobby projects,
+  non-profits, open source projects and anyone under that threshold are asked for
+  nothing.
+
+  The idea the model rests on is the one worth quoting: the source code is free -- as
+  in freedom -- but the maintenance is not. And the reason for a *fee* rather than a
+  general appeal is that "support us if this helps you" puts the question of *how much*
+  on the person least equipped to answer it, which is usually why nothing is sent. A
+  named tier is a line item somebody can approve.
+
+  **The licence does not change, and that is a departure from the published model.**
+  OSMF makes the fee mandatory for qualifying commercial users, enforced by an
+  `OSMFEULA.txt` covering the binary release while the source stays open, and its setup
+  guide asks JavaScript projects to declare `"license": "SEE LICENSE IN OSMFEULA.txt"`.
+  AtlasMind does neither. `LICENSE` is unmodified MIT with nothing added above or below
+  it, the Marketplace `.vsix` carries no terms of its own, `package.json` still declares
+  `"license": "MIT"` because that is still true, and nothing is withheld from anyone who
+  does not pay. For a VS Code extension the binary release *is* how essentially everyone
+  installs it, so a fee-bearing binary would not be a narrow carve-out -- it would be
+  the product, with MIT left as a technicality for the few who clone and compile.
+
+  `README.md`, `wiki/Funding-and-Sponsorship.md`, `wiki/Home.md` and `wiki/FAQ.md` all
+  say *optional* in the same breath as the fee, because a request that reads as a
+  licence condition in one of four places is worse than no request.
+
 ## [0.419.1] - 2026-09-07
 
 ### Fixed

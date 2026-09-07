@@ -147,3 +147,8 @@ Day to day, `develop` is where work lands and `main` is reserved for release-rea
 
 AtlasMind is open source under the [MIT Licence](https://github.com/JoelBondoux/AtlasMind/blob/main/LICENSE).
 There's no paid tier and no plan to add one.
+
+The project participates in the [Open Source Maintenance Fee](https://opensourcemaintenancefee.org),
+optionally: organisations with annual gross revenue of USD 10,000 or more that build revenue-generating
+work on AtlasMind are asked for $10–$60 a month by headcount. The licence is unmodified MIT and the
+fee is not a condition of it — see [Funding and Sponsorship](Funding-and-Sponsorship.md).

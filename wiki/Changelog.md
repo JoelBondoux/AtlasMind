@@ -19,6 +19,30 @@ Older entries below describe the software as it was at the time and are delibera
 
 ---
 
+## v0.419.2 -- An Open Source Maintenance Fee, optionally
+
+AtlasMind now participates in the [Open Source Maintenance Fee](https://opensourcemaintenancefee.org).
+Organisations with annual gross revenue of USD 10,000 or more that use it in revenue-generating
+work are asked for the model's own tiers -- $10/mo under 20 employees, $40/mo to 100, $60/mo
+above. Everyone else is asked for nothing.
+
+The distinction it rests on is worth quoting: *the source code is free -- as in freedom -- but
+the maintenance is not.* And the reason for a fee rather than a general appeal is that "support
+us if this helps you" puts the question of how much on the person least equipped to answer it,
+which is usually why nothing gets sent.
+
+**The licence does not change.** OSMF as published makes the fee mandatory for qualifying
+commercial users, enforced by an EULA on the binary release. AtlasMind does not do that: the
+LICENSE is unmodified MIT, the `.vsix` carries no terms of its own, `package.json` still says
+`"license": "MIT"`, and nothing is withheld from anyone who doesn't pay. For a VS Code extension
+the binary *is* how everyone installs it, so a fee-bearing binary would be the product rather
+than a carve-out.
+
+See [MAINTENANCE_FEE.md](https://github.com/JoelBondoux/AtlasMind/blob/main/MAINTENANCE_FEE.md)
+and [Funding and Sponsorship](Funding-and-Sponsorship.md).
+
+---
+
 ## v0.419.1 -- Ticks that stayed ticked
 
 Five backlog items delivered across 0.418.0-0.418.2 were ticked as each shipped and found
