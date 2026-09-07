@@ -19,6 +19,27 @@ Older entries below describe the software as it was at the time and are delibera
 
 ---
 
+## v0.417.1 -- A backlog that counts only what is left
+
+The MVP gate is supposed to answer one question: what still has to happen before a first
+usable release. It was answering it wrongly. Three items on it were already delivered, three
+were second copies of another line, and one was not work at all -- a recorded decision not to
+build something, carrying an `#mvp` tag it could never discharge.
+
+A triage against the codebase closed them. The guided GitHub workflow is shipped in full.
+The broken ACP connection to subscribed providers was fixed in 0.406.3, where setup had been
+writing the agent list to the workspace settings scope: the provider then disabled itself in
+every window except the one setup ran in, with no error to explain why. "Not pursuing a
+generic BYO-CLI-agent multiplexer" moved to the decisions folder, where its reasoning can be
+read instead of waiting to be ticked -- along with what it deliberately does not rule out,
+which is using another vendor's agent as a completion source under AtlasMind's own routing,
+memory and cost accounting.
+
+The duplicated lines were folded into whichever twin stated the problem better, and the
+`#mvp` gate travelled with them rather than being dropped.
+
+---
+
 ## v0.417.0 -- Two sidebar views, two questions
 
 Project State and Project Director sat one above the other and showed the same number. Not

@@ -6,6 +6,38 @@ The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/),
 
 ## [Unreleased]
 
+## [0.417.1] - 2026-09-07
+
+### Changed
+
+- **Six lines left the MVP backlog after a triage against the codebase.** Three were
+  already delivered and three were second copies of another item, so the gate that is
+  supposed to say what remains before a first usable release was counting work nobody
+  still had to do.
+- **The guided GitHub workflow is ticked.** Its own plan file
+  (`project_memory/roadmap/guided-github-workflow.md`) records every tier as shipped
+  across v0.181.0-v0.201.0, including the exit criteria for each.
+- **The broken ACP connection to subscribed providers is ticked.** It was root-caused
+  and fixed in 0.406.3: setup wrote `atlasmind.acp.agents` to the *workspace* scope, so
+  the agent existed only in the folder open when setup ran, and
+  `applyModelAvailabilityState` then disabled the whole provider everywhere else -- no
+  error, no prompt, which is exactly the reported symptom. That release also records a
+  live protocol check against `claude-agent-acp` 0.63.0 and `codex-acp` 1.1.7.
+- **"Not pursuing: a generic BYO-CLI-agent multiplexer" is now a decision, not a backlog
+  item**, recorded at `project_memory/decisions/not-a-byo-cli-multiplexer.md` with its
+  reasoning kept and the ACP boundary it does *not* rule out stated explicitly. It is not
+  work, so it could never be ticked, and it carried an `#mvp` gate -- inflating the Road
+  to MVP panel, the roadmap graph and every other surface that counts the gate.
+
+### Fixed
+
+- **Three duplicated backlog lines folded into their better-specified twins**, with the
+  `#mvp` gate moved across rather than dropped: "Reasoning-budget routing" into
+  "Reasoning-budget as a first-class routing axis"; "Prompt-injection defense" into
+  "Prompt-injection & tool-poisoning defense"; "Sandboxed execution + worktree isolation"
+  into "Sandboxed execution for autonomous runs", which is separate from the worktree
+  item that carries the `taskScheduler` write-race evidence.
+
 ## [0.417.0] - 2026-09-07
 
 ### Added

@@ -328,6 +328,10 @@
     {
       "id": "reasoning-budget-as-a-first",
       "normalizedText": "**reasoning-budget as a first-class routing axis** — extend budget + speed routing with a third \"how hard to think\" axis for extended-thinking / test-time-compute models. natural home: taskprofiler. builds on the existing cache-aware, capability-sourced routing work.",
+      "position": {
+        "x": 5575,
+        "y": 459
+      },
       "imported": {
         "kind": "markdown",
         "sourceId": "docs/roadmap.md::reasoning budget as a first class routing axis extend budget speed routing with a third how hard to think axis for extended thinking test time compute models natural home taskprofiler builds on the existing cache aware capability sourced routing work",
@@ -493,6 +497,10 @@
     {
       "id": "reasoning-budget-routing-ext",
       "normalizedText": "**reasoning-budget routing** — extends multi-axis routing (an existing strength) and rides the biggest model-capability trend.",
+      "position": {
+        "x": 1016,
+        "y": 447
+      },
       "imported": {
         "kind": "markdown",
         "sourceId": "docs/roadmap.md::reasoning budget routing extends multi axis routing an existing strength and rides the biggest model capability trend",
@@ -1122,10 +1130,136 @@
       "evidence": "both mention “project” and “roadmap”",
       "createdAt": "2026-09-04T16:03:39.033Z",
       "createdBy": "contact-email-joelbondoux-net-1"
+    },
+    {
+      "from": "the-guided-github-workflow-o",
+      "to": "add-a-way-to-manually-and-au",
+      "origin": "declared",
+      "rule": "explicit-reference",
+      "evidence": "“need a new dashboard page”",
+      "createdAt": "2026-09-07T15:45:06.640Z",
+      "createdBy": "contact-email-joelbondoux-net-1"
+    },
+    {
+      "from": "async-ambient-background-age",
+      "to": "offer-a-capability-you-are-c",
+      "origin": "declared",
+      "rule": "shared-subject-phase",
+      "evidence": "both mention “triggered” and “repo” and “rather”",
+      "createdAt": "2026-09-07T15:45:06.640Z",
+      "createdBy": "contact-email-joelbondoux-net-1"
+    },
+    {
+      "from": "the-guided-github-workflow-o",
+      "to": "the-overview-button-on-the-p",
+      "origin": "declared",
+      "rule": "shared-subject-phase",
+      "evidence": "both mention “project” and “dashboard”",
+      "createdAt": "2026-09-07T15:45:06.640Z",
+      "createdBy": "contact-email-joelbondoux-net-1"
+    },
+    {
+      "from": "semantic-codebase-index-code",
+      "to": "offer-a-capability-you-are-c",
+      "origin": "declared",
+      "rule": "shared-subject-phase",
+      "evidence": "both mention “code” and “remembered” and “local”",
+      "createdAt": "2026-09-07T15:45:06.640Z",
+      "createdBy": "contact-email-joelbondoux-net-1"
+    },
+    {
+      "from": "the-guided-github-workflow-o",
+      "to": "i-think-ctrl-mousescroll-on",
+      "origin": "declared",
+      "rule": "shared-subject-phase",
+      "evidence": "both mention “project” and “dashboard”",
+      "createdAt": "2026-09-07T15:45:06.640Z",
+      "createdBy": "contact-email-joelbondoux-net-1"
+    },
+    {
+      "from": "the-guided-github-workflow-o",
+      "to": "when-clicking-on-the-roadmap",
+      "origin": "declared",
+      "rule": "shared-subject-phase",
+      "evidence": "both mention “project” and “dashboard”",
+      "createdAt": "2026-09-07T15:45:06.640Z",
+      "createdBy": "contact-email-joelbondoux-net-1"
+    },
+    {
+      "from": "pr-native-github-automation",
+      "to": "when-clicking-on-the-roadmap",
+      "origin": "declared",
+      "rule": "shared-subject-phase",
+      "evidence": "both mention “roadmap” and “project”",
+      "createdAt": "2026-09-07T15:45:06.640Z",
+      "createdBy": "contact-email-joelbondoux-net-1"
+    },
+    {
+      "from": "context-window-token-budget",
+      "to": "offer-a-capability-you-are-c",
+      "origin": "declared",
+      "rule": "shared-subject-phase",
+      "evidence": "both mention “context” and “budget”",
+      "createdAt": "2026-09-07T15:45:06.640Z",
+      "createdBy": "contact-email-joelbondoux-net-1"
+    },
+    {
+      "from": "the-guided-github-workflow-o",
+      "to": "offer-a-capability-you-are-c",
+      "origin": "declared",
+      "rule": "shared-subject-phase",
+      "evidence": "both mention “github” and “project” and “enabled”",
+      "createdAt": "2026-09-07T15:47:00.901Z",
+      "createdBy": "contact-email-joelbondoux-net-1"
+    },
+    {
+      "from": "reasoning-budget-as-a-first",
+      "to": "offer-a-capability-you-are-c",
+      "origin": "declared",
+      "rule": "shared-subject-phase",
+      "evidence": "both mention “budget” and “third” and “capability”",
+      "createdAt": "2026-09-07T15:47:00.901Z",
+      "createdBy": "contact-email-joelbondoux-net-1"
+    },
+    {
+      "from": "llm-observability-openteleme",
+      "to": "offer-a-capability-you-are-c",
+      "origin": "declared",
+      "rule": "shared-subject-phase",
+      "evidence": "both mention “runs” and “tool”",
+      "createdAt": "2026-09-07T15:47:00.901Z",
+      "createdBy": "contact-email-joelbondoux-net-1"
+    },
+    {
+      "from": "on-device-frontier-class-mod",
+      "to": "offer-a-capability-you-are-c",
+      "origin": "declared",
+      "rule": "shared-subject-phase",
+      "evidence": "both mention “already” and “local”",
+      "createdAt": "2026-09-07T15:49:50.870Z",
+      "createdBy": "contact-email-joelbondoux-net-1"
+    },
+    {
+      "from": "reasoning-budget-routing-ext",
+      "to": "offer-a-capability-you-are-c",
+      "origin": "declared",
+      "rule": "shared-subject-phase",
+      "evidence": "both mention “capability” and “budget”",
+      "createdAt": "2026-09-07T15:49:50.870Z",
+      "createdBy": "contact-email-joelbondoux-net-1"
+    },
+    {
+      "from": "not-pursuing-becoming-a-gene",
+      "to": "offer-a-capability-you-are-c",
+      "origin": "declared",
+      "rule": "shared-subject-phase",
+      "evidence": "both mention “cost” and “category”",
+      "createdAt": "2026-09-07T15:49:50.870Z",
+      "createdBy": "contact-email-joelbondoux-net-1"
     }
   ],
   "suggestLinks": true,
   "dismissed": [],
   "layoutOrientation": "vertical",
-  "updatedAt": "2026-09-06T11:32:17.755Z"
+  "updatedAt": "2026-09-07T15:49:50.870Z"
 }

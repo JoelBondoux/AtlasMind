@@ -4,7 +4,7 @@
 
 <h1 align="center">AtlasMind</h1>
 
-<p align="center"><sub> · <strong>Current source version: 0.417.0</strong> · </sub></p>
+<p align="center"><sub> · <strong>Current source version: 0.417.1</strong> · </sub></p>
 
 
 <p align="center">
@@ -136,6 +136,21 @@ allow-list, redaction and file-withholding behaviour, retained metadata, provide
 important limits on overrides and compliance claims.
 
 ---
+
+## What's new in 0.417.1
+
+**The MVP backlog was carrying three items that were already done and three that were second
+copies of another line.** A triage against the codebase closed them. The guided GitHub
+workflow is shipped in full — its own plan file records every tier as delivered. The broken
+ACP connection to subscribed providers was root-caused and fixed in 0.406.3: setup wrote the
+agent list to the *workspace* settings scope, so the provider disabled itself in every other
+window with no error to explain it.
+
+"Not pursuing: a generic BYO-CLI-agent multiplexer" left the backlog for
+`project_memory/decisions/`, where a decision can be read rather than waiting to be ticked.
+It had been carrying an `#mvp` gate, which inflated every count that reads the gate. The
+duplicated reasoning-budget, prompt-injection and sandboxed-execution lines were folded into
+their better-specified twins, with the `#mvp` gate moved across rather than dropped.
 
 ## What's new in 0.417.0
 
