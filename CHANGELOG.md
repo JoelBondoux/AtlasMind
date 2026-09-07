@@ -6,6 +6,45 @@ The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/),
 
 ## [Unreleased]
 
+## [0.413.0] - 2026-09-07
+
+### Added
+
+- **`uiSurfaceScan.ts` — which files in a repository are UI, and which adapter
+  would read each one.** The Studio could already *map* a design target onto a
+  source file and could not tell you what there was to map: every mapping began
+  with somebody typing a workspace-relative path from memory, which is fine on a
+  project you wrote last week and useless on the one you have just been handed —
+  the exact case the Studio exists for.
+- **A surface is recognised by a declared rule, never inferred.** Five rules,
+  each naming what it claims and why; the table travels in the report, so the
+  list a person picks from can be argued with. Extension and location decide,
+  with at most a bounded look at the head of a file where the path cannot say —
+  a stylesheet earns a place only if it declares custom properties, and a script
+  under `media/` only if it builds markup, or the rule would claim every reset
+  and polyfill beside them.
+- **What was excluded is counted.** `node_modules`, `.git` and build output are
+  skipped by rule — `out/`, `dist/` and `coverage/` matter most, since they hold
+  *derived* copies of the project's own UI, and a mapping onto one records a
+  source the next build overwrites. A scan that found nothing because it was
+  pointed at a build tree looks identical to a project with no UI unless it says
+  so.
+- Bounded three ways — directories entered, files examined, surfaces returned —
+  with the truncation stated, because a picker showing the first 200 of 4,000
+  while claiming to be the list is worse than one that admits it stopped. Never
+  throws: an unreadable directory is a miss, and under-reporting is the safe
+  direction when a surface it misses can still be reached by typing a path.
+- **The Studio's mapping source field is now backed by what was found.** A
+  `<datalist>` rather than a `<select>`, deliberately: discovery is conservative,
+  so a surface it missed must stay typeable — a menu would make the scan's misses
+  unreachable rather than merely unlisted. Absent scan and empty result read
+  differently, since "this project has no UI" and "nobody looked" are different
+  answers.
+- Verified against this repository rather than asserted: 7 surfaces from 1,456
+  files examined — the two real React components, the one stylesheet carrying
+  tokens, and exactly the four webview scripts — with no false positives, and
+  `media/vendor/highlight.min.js` correctly excluded.
+
 ## [0.412.0] - 2026-09-07
 
 ### Added

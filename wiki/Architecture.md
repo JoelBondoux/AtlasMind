@@ -391,6 +391,19 @@ closed loss finding. Facts (200), findings (40), and exact-name suggestions are 
 The report stores adapter, graph revision, design/source fingerprints, and time, but no source excerpt or
 executable value. The 12 → 13 migration adds only `lastImport: null` to existing mappings.
 
+`uiSurfaceScan.ts` answers the question that came *before* all of that: what is there to map. Mapping
+validates a path it is given, and nothing scanned for one — so every mapping started with somebody typing a
+workspace-relative path from memory, which is fine on a project you wrote last week and useless on the one
+you have just been handed. Five declared rules classify by extension and location, reading a bounded head of
+a file only where the path cannot answer: a stylesheet qualifies only if it declares custom properties, a
+`media/` script only if it builds markup. Every candidate names the rule that claimed it and the table travels
+with the report, so the list is arguable. Dependencies and build output are never entered — `out/`, `dist/`
+and `coverage/` hold derived copies of the project's own UI, so a mapping onto one records a source the next
+build overwrites. Bounded on directories, files and results with the truncation stated; an unreadable
+directory is a miss rather than a failure. The Studio offers the result as a suggestion list rather than a
+menu, so a surface the scan missed stays reachable by typing, and an empty result reads differently from an
+absent scan.
+
 The webview's exact import command carries only mapping id and expected revision. The host resolves and reads
 the already mapped 2 MiB-contained source snapshot, selects the mapping's adapter, and creates the report.
 Copying suggestions edits only the visible form; a separate revisioned Apply action is required. Import never

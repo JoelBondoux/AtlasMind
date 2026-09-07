@@ -19,6 +19,44 @@ Older entries below describe the software as it was at the time and are delibera
 
 ---
 
+## v0.413.0 -- The Studio can find your interface
+
+The UI Studio could map a design target onto a source file, and could not tell you what
+there was to map. Every mapping started with somebody typing a workspace-relative path
+from memory — fine on a project you wrote last week, useless on the one you have just
+been handed, which is precisely the case the Studio is for.
+
+AtlasMind now scans the workspace and offers what it found. Five declared rules decide
+what counts as a UI surface, each candidate records which rule claimed it, and the rule
+table travels with the list — so what you are choosing from can be argued with rather
+than taken on trust.
+
+Extension and location do most of the work, with a bounded look at the head of a file
+only where the path cannot answer. A stylesheet is offered only if it declares custom
+properties, because every project has stylesheets and the ones worth treating as a design
+surface are the ones holding tokens. A script under `media/` is offered only if it builds
+markup, or the rule would claim every helper and polyfill beside it.
+
+Dependencies and build output are never entered. `out/`, `dist/` and `coverage/` matter
+most there: they hold *derived* copies of your own interface, so they look right, and a
+mapping onto one records a source your next build overwrites.
+
+The scan is bounded three ways and says when it stopped — a list showing the first 200 of
+4,000 files while presenting itself as the answer is worse than one that admits it
+truncated. It never throws; an unreadable folder is a miss rather than an error, because
+under-reporting is safe when anything it missed can still be typed by hand.
+
+That is why the field offers a suggestion list rather than a menu. Discovery is
+deliberately conservative, and replacing the input with a dropdown would make its misses
+unreachable instead of merely unlisted. A scan that found nothing and a workspace nobody
+could scan read differently, too.
+
+Checked against AtlasMind's own repository rather than asserted: 7 surfaces out of 1,456
+files examined — two React components, one stylesheet carrying tokens, and exactly the
+four webview scripts — with no false positives.
+
+---
+
 ## v0.412.0 -- The Delivered chart answers questions too
 
 Every lens on the roadmap stopped at the outstanding plan. So "when did the auth work
