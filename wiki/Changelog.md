@@ -19,6 +19,26 @@ Older entries below describe the software as it was at the time and are delibera
 
 ---
 
+## v0.423.1 -- The gate before the portal
+
+The safety core of the Pages portal, built before the publisher because it is the part that is
+expensive to get wrong. Not yet wired: nothing calls it, no setting exists, and no page can be
+published. Settings were deliberately left out — a switch that controls nothing is worse than no
+switch.
+
+The fact it turns on is one most people do not know: **a GitHub Pages site is public even when the
+repository is private.** So publishing the producer's report means publishing to the open internet,
+and that report can carry stakeholder names, a register of commercial, legal and ethical findings,
+and what the project has spent.
+
+Deny by default, per section: on means roadmap gates and delivery readiness, which name neither a
+person nor a sum. Risks and cost need their own switches, and the warning names what they expose
+before it happens. A withheld section keeps its heading and says so, because a page that silently
+omits cost reads as a project that spent nothing. And withholding cost leaves no residual total —
+a page showing "$15 total" with no lines discloses the very number it withheld.
+
+---
+
 ## v0.423.0 -- A status document for people who don't open VS Code
 
 Everything good about the project manager was invisible to the people who most need it — a producer, a

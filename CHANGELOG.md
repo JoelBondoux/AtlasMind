@@ -6,6 +6,44 @@ The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/),
 
 ## [Unreleased]
 
+## [0.423.1] - 2026-09-07
+
+### Added
+
+- **`src/core/producerReportPublication.ts` — the gate deciding what may leave the
+  machine.** The safety core of roadmap item `NOW-4`, built before the publisher rather
+  than alongside it, because this is the part that is expensive to get wrong.
+
+  **Not yet wired.** Nothing calls it, no setting exists, and no page can be published —
+  the Pages workflow, the command and the settings are the remaining half of `NOW-4`.
+  Settings were deliberately *not* added in this commit: a switch that controls nothing
+  is worse than no switch.
+
+  The fact it turns on: **a GitHub Pages site is public even when the repository is
+  private** — access control requires Enterprise Cloud. So on a free or Pro account,
+  publishing the report means publishing to the open internet, and the report can carry
+  stakeholder names, a register of commercial, legal and ethical findings, and what the
+  project has spent. `projectDirectorManager` avoids hoarding personal data and prefers a
+  reference it resolves on demand; publishing that section to a public URL would undo it
+  in one step.
+
+  - **Deny by default, per section.** Off until switched on, and then only roadmap gates
+    and delivery readiness — what a client actually asks for, naming neither a person nor
+    a sum. Risks and cost each need their own switch, and the warning **names what they
+    expose** before it happens.
+  - **Withholding is reported, never silent.** A withheld section becomes `not-assessed`
+    with its entries dropped rather than deleted, so the page keeps the heading and states
+    the omission. A page that silently omits cost reads as a project that spent nothing.
+  - **A private repository gets a different warning, not a quieter one**, because GitHub's
+    default and the user's expressed intent point in opposite directions. **Unknown
+    visibility is treated as public** — the assumption that keeps a secret.
+  - **It never publishes.** It returns a decision; the caller confirms and acts, so a
+    policy change cannot become a publication. The outbound artefact is a narrowed *copy*
+    and the local report keeps everything, since whoever ran it owns the data.
+  - Withholding cost leaves **no residual totals** — asserted by test, because a page
+    showing "$15 total" with no lines discloses exactly the number it was meant to
+    withhold.
+
 ## [0.423.0] - 2026-09-07
 
 ### Added
