@@ -240,11 +240,24 @@ and cost against estimate. It commits to the repo and can be published to GitHub
 - Any section whose data is unavailable says so explicitly rather than being omitted or zeroed.
 - The HTML view is a single self-contained file that opens from disk with no server.
 - Generation is a module, not a page in `projectDashboardPanel.ts`.
+- **The generator emits structured data alongside the rendered document**, so a GitHub Pages portal
+  can consume it later without the report being rebuilt. See the note below.
 **Touches:** new `src/core/producerReport.ts`; reads `roadmapGraphStore`, `riskOversightManager`,
 `projectDirectorManager`, `deliveryManager`, `costTracker`.
 **Size:** M
 **Runs where:** Local only. Publishing is GitHub Pages, which is free.
 **Depends on:** NOW-2 for the cost section only — the other sections can ship first.
+
+> **Build it to feed a portal, because one is planned.** The backlog carries *"Explore a GitHub Pages
+> hosted (within the host repo) web portal for AM Project Manager"*, tagged `#mvp`. That is the same
+> artefact with a different renderer, and it fits the constraints exactly — Pages in the user's own
+> repository is free and is not hosting we run.
+>
+> So separate the three layers now: **gather** (read the managers) → **model** (a plain data object,
+> written out as JSON beside the report) → **render** (markdown, static HTML, and later a portal).
+> Emitting the data object costs almost nothing today and is the difference between a portal being a
+> renderer and a portal being a rewrite. It also gives the MCP roadmap server (`NXT-7`) something to
+> serve without a second gatherer.
 
 ### [NOW-4] Bundled price map, refreshed by a scheduled Action
 **Problem:** Every cost and saving figure depends on model prices, prices move, and a stale map turns
@@ -271,10 +284,14 @@ prioritisation call after this one is currently a guess.
 **Why now:** It is the only feedback instrument available, and it gates whether the producer's-console
 positioning is right at all.
 **Acceptance criteria:**
-- Two pools recruited deliberately: BYOK developers who feel API spend, and solo producers or small
-  studios running agents.
+- **Solo producers and small studios running agents are the lead pool** — recruit there first and
+  weight the numbers that way. Most will also be BYOK, so the cost story still gets tested; it is
+  tested *on the people the console is for* rather than on a second audience.
 - Each user is interviewed at least once, with notes captured as project memory.
 - The interviews explicitly test whether the producer's console lands, not just whether the tool works.
+- Recruit where solo producers already are — indie game-dev communities, Codecks and HacknPlan users
+  who have outgrown them, small agencies — not only in the local-LLM and BYOK channels, which select
+  for the other story.
 **Touches:** nothing in `src/`.
 **Size:** S (effort), ongoing (calendar).
 **Runs where:** Local only.
@@ -292,7 +309,9 @@ positioning is right at all.
 **Outcome:** For each request routed to a local or cheaper model, the identical token counts are
 re-priced at a nominated flagship model from the same price map, and the difference is reported with
 the method stated openly.
-**Why now:** C2, C5. Highest-value item in this horizon; see Open question 1 about promoting it.
+**Why now:** C2, C5. Highest-value item in this horizon. **Deliberately not promoted into Now** — the
+producer's console leads (decision recorded below), and this shares `NOW-1`'s foundation, so it
+follows immediately rather than competing.
 **Acceptance criteria:**
 - Re-pricing preserves the cache read/write split recorded in NOW-1, and refuses to produce a figure
   for records that predate those fields.
@@ -395,6 +414,90 @@ positioning shipped in v0.420.4.
 **Size:** M
 **Runs where:** Local only.
 **Depends on:** NOW-1 for the cost server.
+
+---
+
+### [NXT-8] Fetch the database drivers on first use, not at install
+**Problem:** `pg` and `mysql2` are two of seven runtime dependencies and ship to every user for the
+Lens live-database feature, which most beta users will never open.
+**Outcome:** A clean install carries no database drivers; the first time someone points Lens at a
+live database, AtlasMind fetches them, verifies them, and proceeds.
+**Why now:** X7. Decided: keep the feature, move the cost to the people who use it.
+**Acceptance criteria:**
+- A fresh install contains neither driver, and the Lens surfaces that do not touch a live database
+  work unchanged.
+- The fetch is explicit: it says what it is downloading and why, and does not begin without consent.
+- Downloads are integrity-checked before anything is loaded, following the SHA-256-verified pattern
+  `localTranscriber.ts` already uses for its model and binary.
+- A failed or declined fetch degrades to "live database reads unavailable" with the reason — never a
+  broken Lens page.
+**Touches:** `package.json` (dependencies), `src/core/lensDatabaseReading.ts` and the Lens probe
+path, a new verified-fetch helper.
+**Size:** M
+**Runs where:** Local only; the download comes from the public npm registry, not from us.
+**Depends on:** nothing.
+
+> **Measured before recommending, because the number is smaller than it feels.** The two drivers and
+> their exclusive transitive dependencies total roughly **1.7 MB** — against a 21 MB `node_modules`
+> and a 12 MB packaged `.vsix`. So this removes about 8% of the dependency tree and rather less of
+> the download.
+>
+> It also *adds* something: fetching and executing third-party code at runtime is a supply-chain
+> surface that shipping a pinned dependency does not have. That is why the integrity check above is
+> an acceptance criterion rather than a nicety.
+>
+> **The cheaper 80% is lazy loading** — `require` the driver only when a live-database probe actually
+> runs. That costs nothing, adds no new surface, and removes the drivers from activation entirely; it
+> just does not shrink the download. If install weight is the real goal, do the fetch. If start-up
+> cost and "why does this need a database driver?" are the real goals, lazy loading answers both for
+> a fraction of the work. Worth deciding which problem is being solved before building.
+
+### [NXT-9] Wire the four side surfaces into the project manager, and into each other
+**Problem:** Ideation, vision, UI Studio and Buzz each stand alone. Only ideation has a door into the
+plan. The rest generate value that never reaches the roadmap, the risk register or the report, which
+is what makes them read as scope sprawl rather than as parts of one console.
+**Outcome:** Each of the four has at least one deterministic path into the project manager, and the
+producer's report can see what they produced.
+**Why now:** PM8, and it is the decision recorded below: all four stay, so they have to earn their
+place by connecting rather than by existing.
+**Acceptance criteria:**
+- Each surface has a named, deterministic hand-off into a roadmap item, a risk, a document or a
+  follow-up — following the existing ideation→roadmap path, which already writes through the single
+  roadmap writer rather than a second serializer.
+- Provenance is recorded on the receiving side, using durable ids, so a link survives a rename.
+- The producer's report gains a section naming what each connected surface contributed, or states
+  that a surface is not connected — never silence.
+- No surface writes to the roadmap through a path of its own.
+**Touches:** `src/views/projectIdeationPanel.ts`, the UI Studio panels, vision, the Buzz inbound
+path, `roadmapGraphStore.ts`, `producerReport.ts` (from `NOW-3`).
+**Size:** L — realistically one surface at a time.
+**Runs where:** Local only.
+**Depends on:** NOW-3 for the report half.
+
+### [NXT-10] Slack as an alternative to Buzz for outbound updates
+**Problem:** Buzz is the only way a status update reaches a person where they already are, and Buzz
+is a niche most teams are not on. A producer's console that cannot tell anyone anything is missing
+the last step.
+**Outcome:** A Director follow-up, assignment or status update can be sent to Slack, through the
+same guarded path Buzz uses.
+**Why now:** PM1's other half — the report is the pull; this is the push. Requested as a Buzz
+alternative.
+**Acceptance criteria:**
+- Slack is reached through a connected Slack MCP server, not a bespoke integration with a
+  credential of its own.
+- Sending stays behind the existing deny-by-default outbound gate and the modal confirmation that
+  names the recipient — a Slack post is as outward-facing as a Buzz post.
+- Buzz and Slack are alternatives, not a migration: neither is required and both can be off.
+**Touches:** `src/core/directorCommsRunner.ts`, the dashboard Director page, docs.
+**Size:** S
+**Runs where:** Local only — the user's own Slack workspace and their own MCP server.
+**Depends on:** nothing.
+
+> **Most of this already exists, which is why it is S.** `directorCommsRunner.ts` was written for
+> exactly this: it names Slack in its own header, and matches connector tools on patterns
+> (`post_message`, `chat_post`, `post_to_channel`, `send_dm`) that a Slack MCP server satisfies
+> directly. The work is connecting and documenting a server, and confirming the channel-vs-DM
+> distinction it already models behaves, rather than building an integration.
 
 ---
 
@@ -502,7 +605,7 @@ not start it before there are users asking for it.
 |---|---|
 | **Day-one *projected monthly savings*** | A repo scan cannot know your request volume, and saving is volume × delta. A confident number with no basis contradicts the product's own refusal to guess. Ship *time to first real number* instead: price the first real request the moment it lands, and show the method until then. |
 | **Marketing "memory informs routing"** | The router reads execution outcomes and struggle state, not project memory. Market **outcome-driven routing**, which is true and still rare. |
-| **`pg` and `mysql2` shipped to every user** | Two of seven runtime dependencies are database drivers for the Lens live-database feature. In a free beta trying to reduce install friction, that needs to be either central to the thesis or lazily loaded / split out. **Decision needed — Open question 3.** |
+| **`pg` and `mysql2` shipped to every user** | Decided: the feature stays, the cost moves to the people who use it. Now `NXT-8`, with the measured saving (~1.7 MB) and the supply-chain caveat stated there. |
 | **Anything needing a server** | Team dashboards, shared memory, hosted gateway, centralised billing, SSO. Real gaps; unaffordable, and irrelevant before the first twenty users. Unlocked by revenue. |
 | **Usage telemetry and analytics** | Needs an endpoint. Beta learning comes from NOW-5 instead. |
 | **A second surface (CLI, JetBrains, mobile)** | Right eventual move; wrong before anyone uses the first surface. |
@@ -513,22 +616,29 @@ not start it before there are users asking for it.
 
 ---
 
-## Open questions for Joel
+## Decisions taken
 
-1. **Which claim do you want provable first — the saving, or the producer's console?** I sequenced the
-   producer's console into Now (NOW-2, NOW-3) and counterfactual pricing into Next (NXT-1), following
-   your instruction that the project manager is the lead pillar. The report ranks pricing first. They
-   share the same foundation (NOW-1), so this is a straight swap of NOW-3 and NXT-1 if you prefer the
-   number.
+Recorded rather than deleted, so a later reader can see what was chosen and what it ruled out.
 
-2. **Is the Lens live-database feature central to the thesis?** If yes, keep `pg` and `mysql2` and say
-   why. If no, they should be lazily loaded or moved to an optional install — two of seven runtime
-   dependencies is a real chunk of install weight for something most beta users will never touch.
+| Question | Decision | Consequence |
+|---|---|---|
+| Where does cost history live? | **A setting**, `machine-private` by default, `repository` one switch away | `NOW-1` unblocked. With the default untouched, the producer's report shows cost as *not shared*, never zero |
+| Prove the saving first, or the producer's console? | **The producer's console** | `NOW-2` and `NOW-3` stay in Now; counterfactual pricing (`NXT-1`) follows immediately on the same foundation, not in competition with it |
+| Keep the Lens database drivers? | **Keep the feature, fetch the drivers on first use** | `NXT-8`. Measured saving ~1.7 MB of a 21 MB tree, against a new runtime-download surface — the item argues both sides and asks which problem is being solved |
+| Ideation, vision, UI Studio, Buzz? | **All four stay, and must connect** — to the project manager and to each other | `NXT-9`. They earn their place by connecting rather than by existing; the report names what each contributed, or says it is unconnected |
+| Slack as a Buzz alternative? | **Yes, via a Slack MCP server** | `NXT-10`, sized S because `directorCommsRunner` was already built for it. Alternatives, not a migration |
+| Which beta pool leads? | **Solo producers and small studios**, most of whom will also be BYOK | `NOW-5` recruits there first, so the cost story is tested on the people the console is for rather than on a second audience |
 
-3. **What happens to ideation, vision, UI Studio and Buzz?** Each is defensible alone; together they
-   blur the producer-console thesis. I need to know which serve it (my read: ideation clearly does —
-   it already feeds the roadmap) before I can sequence anything that touches them.
+## Still open
 
-4. **Which beta pool leads — BYOK cost-conscious developers, or solo producers and small studios?**
-   They want different first-run experiences and would validate different claims. Recruiting both
-   equally with twenty people gets ten of each, which may be too few of either to learn from.
+1. **Is install weight or start-up cost the real problem with the database drivers?** They have
+   different answers — a verified runtime fetch for the first, plain lazy loading for the second, at
+   a fraction of the work and with no new supply-chain surface. `NXT-8` is written for the fetch
+   because that is what was asked; it is worth thirty seconds' thought before it is built.
+
+2. **Is the GitHub Pages portal in scope for the beta, or after it?** Answered in principle — the
+   backlog now carries *"Explore a GitHub Pages hosted (within the host repo) web portal for AM
+   Project Manager"* at `#mvp`, and `NOW-3` is specified to feed it. What is still open is *when*:
+   `#mvp` implies before launch, which would make it a sixth Now item and break the cap. My read is
+   that `NOW-3` shipping a data file is enough for the beta, and the portal is the first thing after
+   `NXT-2` publishes a number worth putting on a page. Say if you want it sooner.

@@ -6,6 +6,54 @@ The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/),
 
 ## [Unreleased]
 
+## [0.420.8] - 2026-09-07
+
+### Changed
+
+- **All four open roadmap decisions answered; the questions section becomes a decision
+  record.** Kept as a table rather than deleted, so a later reader sees what was chosen
+  and what it ruled out.
+
+  - **The producer's console is proved first.** `NOW-2` and `NOW-3` stay in Now;
+    counterfactual pricing follows immediately on the same foundation rather than
+    competing with it.
+  - **Solo producers and small studios lead the beta**, most of whom will also be BYOK --
+    so the cost story is tested on the people the console is for, rather than on a second
+    audience. `NOW-5` now says to recruit where they already are, not only in the
+    local-LLM channels, which select for the other story.
+
+### Added
+
+- **`NXT-8` — fetch the database drivers on first use.** The Lens live-database feature
+  stays; its cost moves to the people who use it, with an integrity check following the
+  SHA-256-verified pattern `localTranscriber` already uses.
+
+  **Measured before recommending, and the number is smaller than it feels:** `pg`,
+  `mysql2` and their exclusive dependencies total roughly **1.7 MB** against a 21 MB
+  `node_modules` and a 12 MB `.vsix` -- about 8% of the tree and rather less of the
+  download. It also *adds* a supply-chain surface that a pinned dependency does not have.
+  The item therefore argues both sides: **lazy loading is the cheaper 80%** if start-up
+  cost is the real problem, and only a fetch helps if install weight is. Which problem is
+  being solved is recorded as still open.
+
+- **`NXT-9` — wire ideation, vision, UI Studio and Buzz into the project manager and each
+  other.** All four stay, so they earn their place by connecting rather than by existing:
+  each needs a deterministic hand-off into a roadmap item, risk, document or follow-up,
+  with provenance on durable ids, and the producer's report must name what each
+  contributed or say the surface is unconnected -- never silence.
+
+- **`NXT-10` — Slack as an alternative to Buzz**, sized S because
+  `directorCommsRunner.ts` was already built for it: it names Slack in its own header and
+  matches connector tools on `post_message`, `chat_post`, `post_to_channel` and `send_dm`,
+  which a Slack MCP server satisfies directly. The work is connecting and documenting a
+  server, not building an integration. Buzz and Slack are alternatives, not a migration,
+  and both stay behind the existing deny-by-default outbound gate.
+
+- **Two residual questions**, both cheap now and expensive later: whether the driver
+  problem is install weight or start-up cost, and whether `NOW-3` should generate an
+  artefact a hosted portal could consume -- prompted by the `web-portal-pm` ideation board
+  now in the repository.
+
 ## [0.420.7] - 2026-09-07
 
 ### Changed

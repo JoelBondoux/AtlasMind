@@ -19,6 +19,23 @@ Older entries below describe the software as it was at the time and are delibera
 
 ---
 
+## v0.420.8 -- Four decisions, three new items
+
+Every open roadmap question is answered, and the section becomes a decision record rather than
+disappearing. The producer's console gets proved first, with counterfactual pricing following on the
+same foundation. Solo producers and small studios lead the beta — most of them BYOK anyway, so the
+cost story still gets tested, on the people the console is actually for.
+
+Three items join Next. **Fetch the database drivers on first use** keeps the Lens live-database
+feature and moves its cost to the people who use it — though the item argues both sides, because the
+measured saving is ~1.7 MB against a 21 MB dependency tree and a runtime fetch adds a supply-chain
+surface a pinned dependency does not have. **Wire ideation, vision, UI Studio and Buzz into the
+project manager** — all four stay, so they earn their place by connecting rather than by existing.
+And **Slack as a Buzz alternative**, sized small because `directorCommsRunner` was written for
+exactly this and already matches the tool names a Slack MCP server exposes.
+
+---
+
 ## v0.420.7 -- Cost history gets a switch, not a verdict
 
 Where cost history lives was the one open decision blocking the roadmap's first item. It becomes a
