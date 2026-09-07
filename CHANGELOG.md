@@ -6,6 +6,28 @@ The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/),
 
 ## [Unreleased]
 
+## [0.420.1] - 2026-09-07
+
+### Fixed
+
+- **Six wiki links to `OSMFEULA.txt` and `MAINTENANCE_FEE.md` were 404s.** Both files
+  are new and exist only on `develop`; the links pointed at `blob/main/`, following the
+  convention the wiki already used for `LICENSE` and `CHANGELOG.md` -- which works
+  precisely because those have been on `main` for a long time. Repointed at
+  `blob/develop/`.
+
+  Links to files that *are* on `main` were left alone, so the convention still holds
+  wherever it can.
+
+  **The underlying cause is that `main` is at 0.402.4 while `develop` is at 0.420.1** --
+  the release promotion is around eighteen minor versions overdue. That makes
+  "wait for the next promotion" not a fix but an open-ended outage on a link in a
+  document describing licence terms.
+
+  Once 1.0.0 exists the EULA link should move again, to a **tag** rather than any branch:
+  terms somebody is agreeing to want an immutable reference, and 1.0.0 is when the fee
+  commences anyway.
+
 ## [0.420.0] - 2026-09-07
 
 ### Added

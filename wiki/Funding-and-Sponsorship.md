@@ -42,7 +42,7 @@ nobody notices until it breaks.
 The three Maintenance Fee tiers are **required** from v1.0.0 for organizations with annual gross
 revenue of at least US$10,000 that use AtlasMind's official releases as part of revenue-generating
 activities, under the terms in
-[OSMFEULA.txt](https://github.com/JoelBondoux/AtlasMind/blob/main/OSMFEULA.txt). They **do not apply
+[OSMFEULA.txt](https://github.com/JoelBondoux/AtlasMind/blob/develop/OSMFEULA.txt). They **do not apply
 before v1.0.0** — see below. They fund ongoing maintenance: issue triage, releases, dependency and
 security updates. Not a support contract.
 
@@ -75,9 +75,9 @@ new VS Code and provider APIs, onboarding documentation, and release hygiene you
 
 AtlasMind follows the [Open Source Maintenance Fee](https://opensourcemaintenancefee.org) model in
 full. The terms are
-[OSMFEULA.txt](https://github.com/JoelBondoux/AtlasMind/blob/main/OSMFEULA.txt) — the OSMF EULA v1.1
+[OSMFEULA.txt](https://github.com/JoelBondoux/AtlasMind/blob/develop/OSMFEULA.txt) — the OSMF EULA v1.1
 template, unaltered, with the payment terms attached as a Schedule — and the full detail is in
-[MAINTENANCE_FEE.md](https://github.com/JoelBondoux/AtlasMind/blob/main/MAINTENANCE_FEE.md). The
+[MAINTENANCE_FEE.md](https://github.com/JoelBondoux/AtlasMind/blob/develop/MAINTENANCE_FEE.md). The
 short version:
 
 | | |

@@ -153,7 +153,7 @@ AtlasMind follows the [Open Source Maintenance Fee](https://opensourcemaintenanc
 from **v1.0.0** the official binary release carries a maintenance fee for organizations with annual
 gross revenue of US$10,000 or more that use it in revenue-generating activities — $10–$60 a month by
 headcount, under
-[OSMFEULA.txt](https://github.com/JoelBondoux/AtlasMind/blob/main/OSMFEULA.txt). **No fee is payable
+[OSMFEULA.txt](https://github.com/JoelBondoux/AtlasMind/blob/develop/OSMFEULA.txt). **No fee is payable
 before v1.0.0**, and individuals and anyone outside revenue-generating work never pay one. There is
 no feature gating and no lesser edition: every user gets the same software. See
 [Funding and Sponsorship](Funding-and-Sponsorship.md).

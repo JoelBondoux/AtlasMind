@@ -19,6 +19,22 @@ Older entries below describe the software as it was at the time and are delibera
 
 ---
 
+## v0.420.1 -- Links that resolve
+
+Six wiki links to `OSMFEULA.txt` and `MAINTENANCE_FEE.md` were 404s. Both files are new and live
+only on `develop`, and the links pointed at `blob/main/` — the convention the wiki already uses for
+`LICENSE` and `CHANGELOG.md`, which works only because those have been on `main` for a long time.
+Now pointed at `develop`; links to files that really are on `main` were left as they were.
+
+Behind it: `main` is at 0.402.4 against `develop`'s 0.420.1, so the release promotion is roughly
+eighteen minor versions overdue, and waiting for it was not a fix but an open-ended outage on a link
+to licence terms.
+
+When 1.0.0 exists the EULA link should move once more — to a **tag**, not a branch. Terms somebody
+is agreeing to deserve an immutable reference, and 1.0.0 is when the fee commences anyway.
+
+---
+
 ## v0.420.0 -- The Open Source Maintenance Fee, in full
 
 AtlasMind now follows the [OSMF](https://opensourcemaintenancefee.org) model completely.
@@ -106,7 +122,7 @@ LICENSE is unmodified MIT, the `.vsix` carries no terms of its own, `package.jso
 the binary *is* how everyone installs it, so a fee-bearing binary would be the product rather
 than a carve-out.
 
-See [MAINTENANCE_FEE.md](https://github.com/JoelBondoux/AtlasMind/blob/main/MAINTENANCE_FEE.md)
+See [MAINTENANCE_FEE.md](https://github.com/JoelBondoux/AtlasMind/blob/develop/MAINTENANCE_FEE.md)
 and [Funding and Sponsorship](Funding-and-Sponsorship.md).
 
 ---

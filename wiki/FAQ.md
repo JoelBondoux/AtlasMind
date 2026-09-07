@@ -34,7 +34,7 @@ with. `/cost` shows what you've spent this session.
 [Open Source Maintenance Fee](https://opensourcemaintenancefee.org) model: organizations with annual
 gross revenue of US$10,000 or more that use the official releases in revenue-generating activities
 pay $10–$60 a month by headcount, under
-[OSMFEULA.txt](https://github.com/JoelBondoux/AtlasMind/blob/main/OSMFEULA.txt). **No fee is payable
+[OSMFEULA.txt](https://github.com/JoelBondoux/AtlasMind/blob/develop/OSMFEULA.txt). **No fee is payable
 before v1.0.0** — during Beta the MIT licence is the only agreement that applies to any release.
 
 The fee attaches to the **official binary** (the Marketplace `.vsix`), not to the source: compiling

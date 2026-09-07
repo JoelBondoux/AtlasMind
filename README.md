@@ -4,7 +4,7 @@
 
 <h1 align="center">AtlasMind</h1>
 
-<p align="center"><sub> · <strong>Current source version: 0.420.0</strong> · </sub></p>
+<p align="center"><sub> · <strong>Current source version: 0.420.1</strong> · </sub></p>
 
 
 <p align="center">
@@ -136,6 +136,15 @@ allow-list, redaction and file-withholding behaviour, retained metadata, provide
 important limits on overrides and compliance claims.
 
 ---
+
+## What's new in 0.420.1
+
+**Six wiki links to the new licence documents were 404s.** `OSMFEULA.txt` and
+`MAINTENANCE_FEE.md` exist only on `develop`, and the links pointed at `blob/main/` —
+the convention the wiki uses for `LICENSE` and `CHANGELOG.md`, which works only because
+those have been on `main` for years. Repointed at `develop`. Behind it: `main` is at
+0.402.4 against `develop`'s 0.420.1, so waiting for the next promotion would have meant
+an open-ended outage on a link to licence terms.
 
 ## What's new in 0.420.0
 
