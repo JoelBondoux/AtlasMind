@@ -6,6 +6,30 @@ The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/),
 
 ## [Unreleased]
 
+## [0.419.3] - 2026-09-07
+
+### Changed
+
+- **The maintenance fee does not come into force until v1.0.0, and every surface that
+  mentions it says so.** 0.419.2 announced OSMF participation without a start date,
+  which read as a fee owed today by anyone using AtlasMind commercially. It is not:
+  during Beta the MIT licence is the whole story and nobody is asked for anything.
+
+  **A version is a better trigger than a date.** OSMF's own guidance is to announce
+  three to six months ahead, and a date arrives whether or not the software is ready.
+  1.0.0 arrives when it is, and anybody can check it for themselves rather than
+  trusting a promise. It is also already the release where the configuration and memory
+  formats freeze -- the point at which this becomes something an organisation can build
+  on without being migrated out from under. Asking to fund maintenance is reasonable at
+  exactly that moment and not really before it: a Beta that may still move under you has
+  not earned the ask.
+
+  Two claims now travel together everywhere the fee appears -- **not before 1.0.0** and
+  **optional even then** -- in `README.md`, `MAINTENANCE_FEE.md`,
+  `wiki/Funding-and-Sponsorship.md`, `wiki/Home.md` and `wiki/FAQ.md`. Dropping either
+  on any one surface is the failure mode: a fee read as owed today, or read as a licence
+  condition. `CLAUDE.md` records that pairing so it survives the next edit.
+
 ## [0.419.2] - 2026-09-07
 
 ### Added

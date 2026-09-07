@@ -28,11 +28,12 @@ subscription you already have, or a local model via Ollama or LM Studio. If you'
 set `atlasmind.budgetMode` to `cheap` and `atlasmind.dailyCostLimitUsd` to a number you're comfortable
 with. `/cost` shows what you've spent this session.
 
-One thing to know if you're using it at work: AtlasMind participates in the
-[Open Source Maintenance Fee](https://opensourcemaintenancefee.org), and asks organisations with
-annual gross revenue of USD 10,000 or more that use it in revenue-generating work for $10–$60 a month
-by headcount. **It's optional here** — the licence is unmodified MIT, the build carries no EULA, and
-nothing is withheld from anyone who doesn't pay. Nobody else is asked for anything. See
+One thing to know if you're using it at work — though **not yet**. From v1.0.0, AtlasMind intends to
+participate in the [Open Source Maintenance Fee](https://opensourcemaintenancefee.org), asking
+organisations with annual gross revenue of USD 10,000 or more that use it in revenue-generating work
+for $10–$60 a month by headcount. **While AtlasMind is in Beta there is no fee at all**, and even at
+1.0.0 it stays optional: the licence is unmodified MIT, the build carries no EULA, and nothing is
+withheld from anyone who doesn't pay. Nobody else is asked for anything, ever. See
 [Funding and Sponsorship](Funding-and-Sponsorship.md).
 
 ### Which models can it use?

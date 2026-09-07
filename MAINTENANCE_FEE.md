@@ -1,21 +1,51 @@
 # Maintenance Fee
 
-AtlasMind participates in the [Open Source Maintenance Fee](https://opensourcemaintenancefee.org)
-(OSMF), and participates in it **optionally**.
+> ## Not yet. AtlasMind is in Beta, and during Beta the MIT licence is the whole story.
+>
+> There is **no maintenance fee before v1.0.0**. Nobody is being asked for anything today —
+> not organisations, not commercial users, not anyone. This page describes what will be asked
+> **from 1.0.0 onwards**, published early so it arrives as a plan rather than a surprise.
+>
+> Until then: [LICENSE](LICENSE), unmodified MIT, and nothing else.
 
-**[Pay the maintenance fee → GitHub Sponsors](https://github.com/sponsors/JoelBondoux)**
+AtlasMind intends to participate in the
+[Open Source Maintenance Fee](https://opensourcemaintenancefee.org) (OSMF) from **v1.0.0**, and to
+participate in it **optionally**.
+
+If you'd like to support the project during Beta, that's what
+[sponsorship](wiki/Funding-and-Sponsorship.md) is for, and it is entirely voluntary —
+[GitHub Sponsors](https://github.com/sponsors/JoelBondoux).
 
 ---
 
-## The short version
+## The short version (from v1.0.0)
 
 | | |
 |---|---|
+| **In force from** | **v1.0.0.** Not before. During Beta there is no fee at all |
 | **Who it's for** | Organisations with annual gross revenue of **USD 10,000 or more** using AtlasMind as part of revenue-generating work |
 | **Amount** | **$10/mo** under 20 employees · **$40/mo** 20–100 · **$60/mo** over 100 |
 | **Who it's not for** | Everyone else. Individuals, students, hobby projects, non-profits, open source projects, and anyone under that revenue threshold |
 | **Is it required?** | **No.** See below — this is the one place AtlasMind departs from the published model |
 | **What it buys you** | Nothing you don't already have. It funds the maintenance you already depend on |
+
+---
+
+## Why 1.0.0, and not a date
+
+OSMF's own guidance is to announce a fee three to six months before it comes into force. A version
+is a better trigger than a date for a project at this stage, for two reasons.
+
+A date arrives whether or not the software is ready. A version arrives when it is, and it is a state
+anybody can check for themselves rather than a promise they have to trust.
+
+More importantly, 1.0.0 is already the point where AtlasMind's configuration and memory formats
+freeze — it is when this becomes something an organisation can build on and expect not to be
+migrated out from under them. Asking to fund maintenance is a reasonable thing to do at exactly that
+moment, and not really before it. A Beta that may still move under you has not earned the ask.
+
+There will be a release announcement when it takes effect. Until then this page is a statement of
+intent, and the intent is allowed to change.
 
 ---
 
@@ -37,9 +67,10 @@ sent. A named tier is a line item somebody can approve.
 
 ## What the fee is not
 
-**It is not a condition of using AtlasMind.** The published OSMF model makes the fee mandatory for
-qualifying commercial users, enforced by an `OSMFEULA.txt` covering the *binary release* while the
-source stays open. AtlasMind does not do that, and the departure is deliberate:
+**It is not a condition of using AtlasMind** — not now, and not at 1.0.0 either. The published OSMF
+model makes the fee mandatory for qualifying commercial users, enforced by an `OSMFEULA.txt`
+covering the *binary release* while the source stays open. AtlasMind does not do that, and the
+departure is deliberate:
 
 - **The licence is unmodified MIT.** [LICENSE](LICENSE) is the standard MIT text, with nothing
   added above or below it. Every right it grants is unconditional.
@@ -56,7 +87,7 @@ source stays open. AtlasMind does not do that, and the departure is deliberate:
 If you are a qualifying organisation, read the tiers as the amount you'd owe if it were mandatory
 elsewhere — and then decide.
 
-## The tiers
+## The tiers (from v1.0.0)
 
 Taken from the OSMF's own recommended structure rather than invented here, so they are comparable
 with every other project using the model:
@@ -67,9 +98,12 @@ with every other project using the model:
 | 20–100 employees | $40/month |
 | Over 100 employees | $60/month |
 
-Paid through [GitHub Sponsors](https://github.com/sponsors/JoelBondoux). If a monthly line item is
-harder for you to get approved than a single invoice, a one-off of twelve months is fine — say so
-and it will be recorded as the year's fee.
+Payable through [GitHub Sponsors](https://github.com/sponsors/JoelBondoux) once 1.0.0 ships. If a
+monthly line item is harder for you to get approved than a single invoice, a one-off of twelve
+months is fine — say so and it will be recorded as the year's fee.
+
+Nothing needs doing today. If your organisation wants to get the approval out of the way early,
+sponsor at whatever level suits and it will count.
 
 ## Recognition
 

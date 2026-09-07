@@ -44,19 +44,30 @@ hygiene you can depend on.
 
 ---
 
-## The Open Source Maintenance Fee
+## The Open Source Maintenance Fee — from v1.0.0
 
-AtlasMind participates in the [Open Source Maintenance Fee](https://opensourcemaintenancefee.org),
-**optionally**. The full detail is in
-[MAINTENANCE_FEE.md](https://github.com/JoelBondoux/AtlasMind/blob/main/MAINTENANCE_FEE.md); the
-short version:
+> **Not during Beta.** There is no maintenance fee before v1.0.0 and nobody is being asked for
+> anything today. Everything in this section describes what will be asked from 1.0.0 onwards. Until
+> then the MIT licence is the whole story, and sponsorship — everything above — is voluntary.
+
+From **v1.0.0** AtlasMind intends to participate in the
+[Open Source Maintenance Fee](https://opensourcemaintenancefee.org), **optionally**. The full detail
+is in [MAINTENANCE_FEE.md](https://github.com/JoelBondoux/AtlasMind/blob/main/MAINTENANCE_FEE.md);
+the short version:
 
 | | |
 |---|---|
+| **In force from** | **v1.0.0** — not before |
 | **Who it's for** | Organisations with annual gross revenue of **USD 10,000 or more** using AtlasMind in revenue-generating work |
 | **Amount** | **$10/mo** under 20 employees · **$40/mo** 20–100 · **$60/mo** over 100 |
 | **Who it's not for** | Everyone else — individuals, students, hobby projects, non-profits, open source projects |
 | **Required?** | **No** |
+
+**Why 1.0.0 rather than a date.** OSMF suggests announcing three to six months ahead. A version is
+the better trigger: it arrives when the software is ready rather than when the calendar says so, and
+anybody can check it. It is also the release where AtlasMind's configuration and memory formats
+freeze — the point at which this becomes something you can build on without being migrated out from
+under. A Beta that may still move under you hasn't earned the ask.
 
 The idea it rests on is worth stating plainly: *the source code is free — as in freedom — but the
 maintenance is not.* Keeping up with VS Code, eight providers and their APIs is ongoing work, and it

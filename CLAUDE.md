@@ -311,7 +311,7 @@ Defined as `SSOT_FOLDERS` in `src/types.ts`.
 | `README.md` | User-facing overview, commands, config, structure |
 | `CHANGELOG.md` | Version history in Keep a Changelog format |
 | `CONTRIBUTING.md` | Dev setup, conventions, how to add providers/agents/skills |
-| `MAINTENANCE_FEE.md` | Open Source Maintenance Fee participation — tiers, who it applies to, and why it is optional here. If this ever stops matching `LICENSE`, `package.json`'s `"license"`, or the README's Open source section, the departure from the published OSMF model is what has drifted, and it is the whole point |
+| `MAINTENANCE_FEE.md` | Open Source Maintenance Fee participation — tiers, who it applies to, why it is optional here, and that **it does not come into force until v1.0.0**. Two claims travel together on every surface that mentions the fee (README, `wiki/Funding-and-Sponsorship.md`, `wiki/Home.md`, `wiki/FAQ.md`): *not before 1.0.0*, and *optional even then*. Dropping either one on any one surface is the failure mode — a fee people read as owed today, or as a licence condition. If this ever stops matching `LICENSE` or `package.json`'s `"license"`, the departure from the published OSMF model is what has drifted, and it is the whole point |
 | `docs/architecture.md` | System diagram, activation flow, data flow, dependency graph |
 | `docs/model-routing.md` | Routing algorithm, budget/speed modes, provider list |
 | `docs/ssot-memory.md` | SSOT folder details, retrieval, bootstrapping, security |

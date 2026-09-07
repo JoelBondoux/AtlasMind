@@ -19,6 +19,23 @@ Older entries below describe the software as it was at the time and are delibera
 
 ---
 
+## v0.419.3 -- Not before 1.0.0
+
+The maintenance fee announced in 0.419.2 comes into force at **v1.0.0**, and not before.
+During Beta the MIT licence is the whole story and nobody is asked for anything. The previous
+entry gave no start date, which read as a fee owed today by anyone using AtlasMind at work.
+
+A version is the better trigger. OSMF suggests announcing three to six months ahead, but a date
+arrives whether or not the software is ready; 1.0.0 arrives when it is, and anybody can check it
+rather than trusting a promise. It is also the release where the configuration and memory formats
+freeze -- the point where this becomes something you can build on without being migrated out from
+under. A Beta that may still move under you hasn't earned the ask.
+
+Every surface that mentions the fee now carries both claims together: **not before 1.0.0**, and
+**optional even then**.
+
+---
+
 ## v0.419.2 -- An Open Source Maintenance Fee, optionally
 
 AtlasMind now participates in the [Open Source Maintenance Fee](https://opensourcemaintenancefee.org).
