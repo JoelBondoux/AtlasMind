@@ -4371,6 +4371,19 @@ export interface ToolExecutionArtifact {
   durationMs: number;
   checkpointed: boolean;
   resultPreview: string;
+  /**
+   * The executable a terminal command ran — the basename, and nothing else.
+   *
+   * Deliberately not the command line. An argument list carries paths, tokens,
+   * queries and file contents, and none of that is needed to know *which tool
+   * this project keeps reaching for*, which is the only question anything asks
+   * of this field (`capabilityOffer`). Storing the name alone means the record
+   * cannot leak something the redactor would have had to catch.
+   *
+   * Absent for every tool that is not a terminal command, and for a command
+   * whose executable could not be read.
+   */
+  commandName?: string;
 }
 
 export interface SubTaskExecutionArtifacts {

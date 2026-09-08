@@ -463,6 +463,14 @@
     // project, and restoring a dimmed canvas on open would read as a bug.
     roadmapEmphasisGate: '',
     roadmapEmphasisPerson: '',
+    /**
+     * Emphasise the chain the finish date rests on.
+     *
+     * A lens rather than a filter, like the other two: the items *not* on the
+     * path are the ones with room to slip, and hiding them would remove the
+     * comparison that makes the answer worth having.
+     */
+    roadmapEmphasisCritical: false,
     /** Live drag offsets, so a node follows the pointer before the host has saved. */
     roadmapDragOffsets: {},
     /**
@@ -1747,6 +1755,13 @@
       render();
       return;
     }
+    if (action === 'capability-offer-dismiss') {
+      // Sent host-side rather than hidden locally: a refusal that lived only in
+      // this render would come back on the next one, which is the nag the rule
+      // exists to prevent.
+      vscode.postMessage({ type: 'dismissCapabilityOffer', payload: payload });
+      return;
+    }
     if (action === 'roadmap-emphasis-clear') {
       // Clears every lens at once. Three separate clears is three clicks to get
       // back to a plan you can read, and the state people want is "show me
@@ -1754,6 +1769,7 @@
       state.roadmapSearch = '';
       state.roadmapEmphasisGate = '';
       state.roadmapEmphasisPerson = '';
+      state.roadmapEmphasisCritical = false;
       state.roadmapFitAfterRender = true;
       render();
       return;
@@ -2896,7 +2912,13 @@
       const existingIdx = cfg.contacts.findIndex(c => c.id === id);
       const existing = existingIdx >= 0 ? cfg.contacts[existingIdx] : null;
       const finalLinks = links.length ? links : (existing ? existing.links : []);
-      const contact = { id: id, name: name, kind: 'person', title: val('title').trim() || undefined, org: val('org').trim() || undefined, links: finalLinks, piiStored: finalLinks.some(l => directorIsPiiLink(l.kind)) };
+      // Kind decides how work assigned to them is estimated, so an unrecognised
+      // value falls back to `person` rather than being stored — the roadmap
+      // would read anything it does not know as a person anyway, and storing a
+      // value nothing acts on is how a setting looks broken.
+      const kindRaw = val('kind').trim();
+      const kind = ['person', 'group', 'org', 'agent'].indexOf(kindRaw) >= 0 ? kindRaw : (existing && existing.kind) || 'person';
+      const contact = { id: id, name: name, kind: kind, title: val('title').trim() || undefined, org: val('org').trim() || undefined, links: finalLinks, piiStored: finalLinks.some(l => directorIsPiiLink(l.kind)) };
       if (existing && existing.ref) { contact.ref = existing.ref; }
       if (existingIdx >= 0) { cfg.contacts[existingIdx] = contact; } else { cfg.contacts.push(contact); }
       if (chk('isSelf')) { cfg.selfContactId = id; } else if (cfg.selfContactId === id) { cfg.selfContactId = ''; }
@@ -3115,6 +3137,15 @@
     if (target instanceof HTMLInputElement && target.id === 'branch-scm-chip-toggle') {
       state.branchScmChips = target.checked;
       persistBranchPreferences();
+      render();
+      return;
+    }
+    // Before the select guard below, because this lens is a checkbox — the
+    // other two are pickers and this one is on or off.
+    if (target instanceof HTMLInputElement && target.getAttribute('data-action') === 'roadmap-emphasis-critical') {
+      state.roadmapEmphasisCritical = target.checked === true;
+      state.roadmapFitAfterRender = true;
+      state.roadmapFitScope = 'emphasis';
       render();
       return;
     }
@@ -5891,7 +5922,7 @@
                     <strong>${escapeHtml(commit.subject)}</strong>
                     <span class="tag mono">${escapeHtml(commit.shortHash)}</span>
                   </div>
-                  <div class="list-meta">${escapeHtml(commit.author)} • ${escapeHtml(commit.committedRelative)}</div>
+                  <div class="list-meta">${escapeHtml(commit.author)} • ${escapeHtml(commit.committedRelative)}${renderCommitLinkChips(commit)}</div>
                 </button>`).join('') : '<div class="dashboard-empty">No commit history available.</div>'}
             </div>
           </article>
@@ -5949,6 +5980,7 @@
           action: { command: 'atlasmind.openProjectRunCenter' },
           actionLabel: 'Open Project Run Center',
         })}
+        ${renderCapabilityOffer(rt.capabilityOffer)}
         <div class="runtime-grid">
           <article class="panel-card">
             <p class="section-kicker">Atlas runtime</p>
@@ -12252,7 +12284,11 @@
     const query = String(state.roadmapSearch || '').trim().toLowerCase();
     const gate = String(state.roadmapEmphasisGate || '');
     const person = String(state.roadmapEmphasisPerson || '');
-    if (!query && !gate && !person) {
+    // Never on the delivered record: the critical path is outstanding work by
+    // definition, so the lens would match nothing there and read as broken
+    // rather than as inapplicable.
+    const critical = state.roadmapEmphasisCritical === true && state.roadmapView !== 'completed';
+    if (!query && !gate && !person && !critical) {
       return null;
     }
     // Delivered work is emphasised the same way. "When did the auth work ship",
@@ -12279,6 +12315,10 @@
       // one on a plan nobody has divided up yet.
       lenses.push(node => (person === RM_UNASSIGNED ? !personOf(node) : personOf(node) === person));
     }
+    if (critical) {
+      const onPath = new Set((roadmapGraph().criticalPath || {}).nodeIds || []);
+      lenses.push(node => onPath.has(node.id));
+    }
     const matches = all.filter(node => lenses.every(test => test(node)));
     return {
       matchIds: new Set(matches.map(node => node.id)),
@@ -12287,6 +12327,7 @@
       query,
       gate,
       person,
+      critical,
     };
   }
 
@@ -12322,13 +12363,26 @@
           <option value="${RM_UNASSIGNED}"${state.roadmapEmphasisPerson === RM_UNASSIGNED ? ' selected' : ''}>Unassigned</option>
         </select>
       </label>`;
+    // The one lens that answers a question rather than narrowing to an answer
+    // you already had, so its finding is stated whether or not it is switched
+    // on: what the finish date rests on is worth knowing before you think to
+    // ask. Absent on the delivered record, where the path means nothing, and on
+    // a plan with a circular dependency it says so instead of a number.
+    const path = graph.criticalPath || {};
+    const criticalToggle = delivered || !Array.isArray(path.nodeIds) ? '' : `
+      <label class="rm-emphasis-control rm-emphasis-critical">
+        <input type="checkbox" data-action="roadmap-emphasis-critical"${state.roadmapEmphasisCritical ? ' checked' : ''}
+          aria-label="Highlight the chain of work the finish date depends on" />
+        <span class="rm-emphasis-label">Critical path</span>
+      </label>
+      <span class="list-meta rm-critical-summary" title="${escapeAttr(String(graph.criticalPathSummary || ''))}">${escapeHtml(String(graph.criticalPathSummary || ''))}</span>`;
     // Matches, not nodes drawn. No lens removes anything from the canvas, so
     // `shownCount` is the whole plan and reporting it would read "40 of 40".
     const count = emphasis
       ? `<span class="list-meta rm-emphasis-count">${escapeHtml(`${emphasis.matches} of ${totalCount} match ${roadmapEmphasisLabels(emphasis)}`)}</span>`
         + `<button type="button" class="rm-chip-clear" data-action="roadmap-emphasis-clear" aria-label="Show the whole plan at full strength">×</button>`
       : '';
-    return `${gateSelect}${personSelect}${count}`;
+    return `${gateSelect}${personSelect}${criticalToggle}${count}`;
   }
 
   /** What the active lenses are called, for a message that names them. */
@@ -12345,6 +12399,7 @@
         ? 'unassigned'
         : (roadmapPersonName(emphasis.person) || 'that person'));
     }
+    if (emphasis.critical) { parts.push('the critical path'); }
     return parts.join(' + ');
   }
 
@@ -12513,7 +12568,7 @@
               Route to “${escapeHtml(String(focusNode.text).slice(0, 42))}${String(focusNode.text).length > 42 ? '…' : ''}”
               <button type="button" class="rm-chip-clear" data-action="roadmap-clear-focus" aria-label="Show the whole plan again">×</button>
             </span>
-            <span class="list-meta">${escapeHtml(`${shownCount} of ${totalCount} items · ${filter.route.routeDays}d of work left · ${filter.route.completedCount} already delivered`)}</span>
+            <span class="list-meta">${escapeHtml(`${shownCount} of ${totalCount} items · ${formatRoadmapDays(filter.route.routeDays)} of work left · ${filter.route.completedCount} already delivered`)}</span>
           ` : ''}
           ${linking ? `<span class="rm-filter-chip rm-linking" title="${escapeAttr('Click “Needs this” on the item that has to wait, or press Escape to cancel.')}">Linking from “${escapeHtml(String(linking.text).slice(0, 32))}…”<button type="button" class="rm-chip-clear" data-action="roadmap-link-cancel" aria-label="Cancel linking">×</button></span>` : ''}
           <span class="rm-search">
@@ -12962,9 +13017,75 @@
     return `<span class="rm-chip rm-chip-${escapeAttr(schedule.state)}">${escapeHtml(label)}</span>`;
   }
 
+  /**
+   * One catalogued server this project's own runs say it is reaching for.
+   *
+   * Absent almost always, and that is the intended state — a card that is
+   * permanently present is an advert. What it *adds* and what it *consumes* are
+   * given equal weight and neither is optional: an MCP server publishes its
+   * whole tool list into a budget AtlasMind has watched overflow, so a version
+   * of this that mentioned only the benefit would be selling rather than
+   * observing. Declining is remembered and never raised again.
+   */
+  function renderCapabilityOffer(offer) {
+    if (!offer) {
+      return '';
+    }
+    return `
+      <article class="panel-card">
+        <p class="section-kicker">Noticed in your runs</p>
+        <h3>${escapeHtml(offer.serverName)}</h3>
+        <p class="list-meta">${escapeHtml(`You have run ${offer.signal} in ${offer.runs} separate runs. There is a catalogued MCP server for it.`)}</p>
+        <p><strong>What it adds.</strong> ${escapeHtml(offer.adds)}</p>
+        <p><strong>What it costs.</strong> ${escapeHtml(offer.consumes)}</p>
+        <div class="tag-row">
+          <button type="button" class="action-link primary" data-action="command" data-payload="atlasmind.openMcpServers" title="${escapeAttr('Opens the MCP setup page with this server chosen. Nothing is installed or switched on until you finish there.')}">Set it up</button>
+          <button type="button" class="action-link" data-action="capability-offer-dismiss" data-payload="${escapeAttr(offer.serverId)}" title="${escapeAttr('This server will not be suggested again for this project.')}">Not this one</button>
+        </div>
+      </article>`;
+  }
+
+  /**
+   * What a commit said it was for, when it said anything.
+   *
+   * Read from git trailers the host already parsed — never from the subject
+   * line. A commit that mentions a number is not a commit about that issue, and
+   * inventing the link here would make the chip a guess wearing a record's
+   * clothes. Silent on a commit with no trailers, which is most of them and not
+   * a fault.
+   */
+  function renderCommitLinkChips(commit) {
+    const chips = [];
+    if (commit.roadmapItemId) {
+      chips.push(`<span class="tag" title="${escapeAttr('This commit declared the backlog item it was for, in a Roadmap-Item trailer.')}">${escapeHtml(commit.roadmapItemId)}</span>`);
+    }
+    if (commit.issue) {
+      chips.push(`<span class="tag" title="${escapeAttr('This commit declared its tracker issue, in an Issue trailer.')}">#${escapeHtml(commit.issue)}</span>`);
+    }
+    return chips.length > 0 ? ` • ${chips.join(' ')}` : '';
+  }
+
+  /**
+   * A duration in the largest unit that does not round it away.
+   *
+   * Mirrors `formatRoadmapDuration` in `roadmapGraph.ts`, which the host uses
+   * for the same figures in the schedule reasons. `Xd` was fine while nothing
+   * could be shorter than half a day; an agent-assigned item is a fraction of
+   * one, and "0d" is both wrong and the exact wording that makes somebody stop
+   * trusting the column.
+   */
   function formatRoadmapDays(days) {
     const value = Number(days) || 0;
-    return (Number.isInteger(value) ? String(value) : value.toFixed(1)) + 'd';
+    if (value >= 1) {
+      return (Number.isInteger(value) ? String(value) : value.toFixed(1)) + 'd';
+    }
+    const minutes = value * 1440;
+    if (minutes >= 60) {
+      const hours = minutes / 60;
+      return (Number.isInteger(hours) ? String(hours) : hours.toFixed(1)) + 'h';
+    }
+    // Rounded up, so real work never reads as taking no time at all.
+    return String(Math.max(1, Math.ceil(minutes))) + 'm';
   }
 
   /**
@@ -12987,16 +13108,23 @@
             title="${escapeAttr('Derived from the item unless you set one. Refused rather than corrected if it is not a legal branch name.')}" /></label>
         <label class="rm-field"><span>Deadline</span>
           <input type="date" data-rm-field="deadline" data-rm-node-id="${escapeAttr(node.id)}" value="${escapeAttr(node.deadline || '')}" /></label>
-        <label class="rm-field"><span>Est. days</span>
-          <input type="number" min="0.5" max="365" step="0.5" data-rm-field="estimateDays" data-rm-node-id="${escapeAttr(node.id)}"
+        ${(() => {
+    // The field is in days either way — one stored unit, so a plan mixing
+    // people and agents stays comparable — but the step and floor follow the
+    // scale. A half-day step on an agent item makes every honest value
+    // unenterable, which is the same bug as rounding it away.
+    const agent = node.estimate.scale === 'agent';
+    return `<label class="rm-field"><span>${escapeHtml(agent ? 'Est. days (agent)' : 'Est. days')}</span>
+          <input type="number" min="${agent ? '0.001' : '0.5'}" max="365" step="${agent ? '0.001' : '0.5'}" data-rm-field="estimateDays" data-rm-node-id="${escapeAttr(node.id)}"
             value="${escapeAttr(node.estimate.source === 'declared' ? String(node.estimate.days) : '')}"
-            placeholder="${escapeAttr(String(node.estimate.days) + ' (derived)')}"
-            title="${escapeAttr(node.estimate.rule)}" /></label>
+            placeholder="${escapeAttr(formatRoadmapDays(node.estimate.days) + ' (derived)')}"
+            title="${escapeAttr(node.estimate.rule)}" /></label>`;
+  })()}
         <label class="rm-field"><span>Assigned to</span>
           <select data-rm-field="assigneeId" data-rm-node-id="${escapeAttr(node.id)}"
             title="${escapeAttr('Who is expected to pick this up. Drawn from the Project Director roster — add people there first. This is a plan, not a record of who raised or finished the item.')}">
             <option value=""${node.assigneeId ? '' : ' selected'}>Unassigned</option>
-            ${(graph.people || []).map(person => `<option value="${escapeAttr(person.id)}"${node.assigneeId === person.id ? ' selected' : ''}>${escapeHtml(person.name)}</option>`).join('')}
+            ${(graph.people || []).map(person => `<option value="${escapeAttr(person.id)}"${node.assigneeId === person.id ? ' selected' : ''}>${escapeHtml(person.name + (person.isAgent ? ' (agent)' : ''))}</option>`).join('')}
             ${node.assigneeId && !(graph.people || []).some(person => person.id === node.assigneeId)
               ? `<option value="${escapeAttr(node.assigneeId)}" selected>Not in the roster — keep as is</option>`
               : ''}
@@ -13004,9 +13132,14 @@
         ${(graph.people || []).length === 0
           ? `<p class="rm-provenance">${escapeHtml('No people are on the Project Director roster yet, so there is nobody to assign. Add them on the Director page.')}</p>`
           : ''}
-        <label class="rm-toggle" title="${escapeAttr('Whether this item’s estimate assumes AI-assisted coding. Off grades the same work at ' + formatRoadmapDays(node.estimate.aiAssisted ? node.estimate.alternativeDays : node.estimate.days) + '.')}">
+        ${node.estimate.scale === 'agent'
+    // Withheld rather than shown disabled: the discount grades a person working
+    // with AI help, and on an agent it would be the same fact counted twice. A
+    // toggle that changes nothing is worse than no toggle.
+    ? `<p class="rm-provenance">${escapeHtml('Assigned to an agent, so this is estimated in agent wall-clock rather than working days. The AI-assistance discount does not apply — the agent is the assistance.')}</p>`
+    : `<label class="rm-toggle" title="${escapeAttr('Whether this item’s estimate assumes AI-assisted coding. Off grades the same work at ' + formatRoadmapDays(node.estimate.aiAssisted ? node.estimate.alternativeDays : node.estimate.days) + '.')}">
           <input type="checkbox" data-rm-field="aiAssisted" data-rm-node-id="${escapeAttr(node.id)}" ${node.estimate.aiAssisted ? 'checked' : ''} />
-          <span>AI-assisted estimate</span></label>
+          <span>AI-assisted estimate</span></label>`}
         <p class="rm-provenance">${escapeHtml(describeRoadmapProvenance(node))}</p>
         <div class="rm-node-actions">
           <button type="button" class="action-link" data-action="roadmap-node-save" data-payload="${escapeAttr(node.id)}">Save</button>
@@ -15738,7 +15871,14 @@
           ${edText('Name', 'name', contact.name, 'Jane Doe')}
           ${edText('Title / role', 'title', contact.title, 'VP Product')}
           ${edText('Organisation', 'org', contact.org, '')}
+          ${edSelect('Kind', 'kind', contact.kind || 'person', [
+    { value: 'person', label: 'Person' },
+    { value: 'group', label: 'Team or group' },
+    { value: 'org', label: 'Organisation' },
+    { value: 'agent', label: 'AI agent' },
+  ])}
         </div>
+        <p class="list-meta">${escapeHtml('Kind is not a label. Roadmap work assigned to an AI agent is estimated in minutes rather than working days, because a duration means a different thing when nobody has to pick it up in the morning.')}</p>
         <div id="director-link-rows">
           ${existingLinks.map((link, index) => renderContactLinkRow(link, kinds, index === 0)).join('')}
         </div>

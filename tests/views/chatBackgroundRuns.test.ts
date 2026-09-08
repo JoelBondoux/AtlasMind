@@ -5,6 +5,7 @@ import {
   createDetachedChatHost,
   describeBackgroundRuns,
   describeBackgroundRunsDetail,
+  selectBusyRun,
   shouldDetachOnDispose,
   toBackgroundRunLabel,
 } from '../../src/views/chatBackgroundRuns.ts';
@@ -108,6 +109,65 @@ describe('the registry is the stop that replaces closing the window', () => {
     subscription.dispose();
     runs.add(run('a'));
     expect(listener).not.toHaveBeenCalled();
+  });
+});
+
+describe('which run a reopened chat adopts', () => {
+  function candidate(name: string, sessionId: string, detached = false) {
+    return { sessionId, detached, execution: name };
+  }
+
+  it('prefers a run on the session being shown', () => {
+    // A surface must not report work from a conversation it is not showing.
+    const picked = selectBusyRun([candidate('other', 's2'), candidate('mine', 's1')], 's1');
+    expect(picked?.execution).toBe('mine');
+  });
+
+  it('prefers a live run over a detached one on the same session', () => {
+    // Two runs can share a session: close a chat mid-answer, reopen it, ask
+    // something else. The one just started is the one being watched, and the
+    // detached one is already named in the status bar.
+    const picked = selectBusyRun([candidate('detached', 's1', true), candidate('live', 's1')], 's1');
+    expect(picked?.execution).toBe('live');
+  });
+
+  it('adopts a detached run when that is all there is', () => {
+    // The whole point: a reopened chat gets its stop button back rather than
+    // being told to go and find the status bar.
+    const picked = selectBusyRun([candidate('detached', 's1', true)], 's1');
+    expect(picked?.execution).toBe('detached');
+  });
+
+  it('falls back to another session, live before detached', () => {
+    // Inherited behaviour — `busy` is gated on the session matching, so this
+    // only ever supplies the streaming target.
+    expect(selectBusyRun([candidate('d', 's9', true), candidate('l', 's8')], 's1')?.execution).toBe('l');
+  });
+
+  it('keeps the arrival order when two are equally good', () => {
+    // Strictly-better wins only, so the choice cannot shuffle between two
+    // identical renders.
+    const picked = selectBusyRun([candidate('first', 's1'), candidate('second', 's1')], 's1');
+    expect(picked?.execution).toBe('first');
+  });
+
+  it('behaves exactly as before when nothing is detached', () => {
+    // The rule this replaced was "same session, else the first one". With no
+    // detached candidates the new ordering has to agree with it, or adopting a
+    // background run would have changed what an ordinary two-panel chat does.
+    const all = [candidate('a', 's1'), candidate('b', 's2'), candidate('c', 's3')];
+    for (const session of ['s1', 's2', 's3', 'unknown']) {
+      const expected = all.find(entry => entry.sessionId === session) ?? all[0];
+      expect(selectBusyRun(all, session)?.execution).toBe(expected!.execution);
+    }
+  });
+
+  it('has nothing to adopt when nothing is running', () => {
+    expect(selectBusyRun([], 's1')).toBeUndefined();
+  });
+
+  it('still finds a run when no session is named', () => {
+    expect(selectBusyRun([candidate('only', 's1', true)])?.execution).toBe('only');
   });
 });
 

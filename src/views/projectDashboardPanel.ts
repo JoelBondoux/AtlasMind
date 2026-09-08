@@ -311,6 +311,24 @@ import {
 } from '../core/teamRoles.js';
 import { upsertManagedBlock } from '../utils/managedBlock.js';
 import { classifyLensChangePath } from '../core/lensChangeStory.js';
+import { readCommitLinks } from '../core/commitTrailers.js';
+import { decideCapabilityOffer, type CapabilityOffer } from '../core/capabilityOffer.js';
+import { RECOMMENDED_MCP_SERVERS } from '../constants.js';
+
+/**
+ * Servers this project has declined, by id.
+ *
+ * Workspace state rather than `project_memory/`: the SSOT folder is git-tracked,
+ * and committing "Joel said no to the GitHub server" would put one person's
+ * preference into everybody's checkout as a diff nobody asked for. A refusal is
+ * per project *and* per developer, which is what workspace state means.
+ */
+const REFUSED_CAPABILITY_OFFERS_KEY = 'atlasmind.capabilityOffers.refused';
+
+function readRefusedCapabilityOffers(context: vscode.ExtensionContext | undefined): string[] {
+  const stored = context?.workspaceState.get<unknown>(REFUSED_CAPABILITY_OFFERS_KEY);
+  return Array.isArray(stored) ? stored.filter((id): id is string => typeof id === 'string') : [];
+}
 import { inspectLensDeclarations, lensDeclarationStatusLabel } from '../core/lensDeclarations.js';
 import { reviewWorkspaceChangeStoryForRefs } from './lensChangeStoryCommand.js';
 import {
@@ -452,6 +470,17 @@ import {
   type RoadmapLane,
   type RoadmapNodeRecord,
 } from '../core/roadmapGraph.js';
+import {
+  describeRoadmapCriticalPath,
+  roadmapCriticalPath,
+  ROADMAP_CRITICAL_PATH_RULES,
+  type RoadmapCriticalPath,
+} from '../core/roadmapCriticalPath.js';
+import {
+  agentUtilisationScore,
+  readAgentCapacity,
+  type AgentCapacityReading,
+} from '../core/agentCapacity.js';
 import {
   extractRoadmapNodeAnchor,
   readRoadmapGraphFile,
@@ -951,6 +980,7 @@ type ProjectDashboardMessage =
   | { type: 'roadmapResolve'; payload: string }
   | { type: 'roadmapCompletionCheck'; payload: string }
   | { type: 'roadmapOpenPlan'; payload: string }
+  | { type: 'dismissCapabilityOffer'; payload: string }
   /**
    * Re-flow the canvas, in the named direction.
    *
@@ -1719,7 +1749,24 @@ interface DashboardCommit {
   author: string;
   committedAt: string;
   committedRelative: string;
+  /** The backlog item this commit declared itself for, when it declared one. */
+  roadmapItemId?: string;
+  /** The tracker issue it declared, when it declared one. */
+  issue?: string;
 }
+
+/**
+ * Delimiters for the commit log format.
+ *
+ * ASCII group/unit separators rather than newlines, because a trailer block is
+ * multi-line by definition and splitting records on newlines would cut every
+ * commit that carries one into pieces. Named rather than written as literals in
+ * the format string: a control character pasted into source is unreviewable, and
+ * the two ends have to agree exactly.
+ */
+const COMMIT_RECORD_SEPARATOR = '\u001d';
+const COMMIT_FIELD_SEPARATOR = '\u001f';
+const COMMIT_TRAILER_SEPARATOR = '\u001e';
 
 /** One commit reduced to the two fields the timeline charts need. */
 interface DashboardCommitLogEntry {
@@ -2523,6 +2570,16 @@ interface DashboardRoadmapGraphView {
    * accepting a drag that would evaporate.
    */
   anchored: boolean;
+  /**
+   * The chain of work the finish date rests on, and the slack everywhere else.
+   *
+   * Shipped with the snapshot rather than computed on demand, for the reason
+   * every other view change here is offline: a way of *looking* at a plan must
+   * not be something that can fail.
+   */
+  criticalPath: RoadmapCriticalPath;
+  /** The same thing in a sentence, so no renderer has to restate the numbers. */
+  criticalPathSummary: string;
   /** Precomputed route per node, so filtering to one is instant and offline. */
   routes: Record<string, { nodeIds: string[]; edgeKeys: string[]; order: string[]; routeDays: number; completedCount: number }>;
   /** People who can be recorded as adding or completing work, from the Director roster. */
@@ -2847,6 +2904,19 @@ interface DashboardSnapshot {
   /** Every local and cached remote branch, with safe host-resolved activation. */
   branches: DashboardBranchesSnapshot;
   runtime: {
+    /**
+     * Whether the configured team can work, and how much of it has.
+     *
+     * Carried on the snapshot rather than recomputed by each surface: the
+     * Overview raises it, the Runtime page explains it, and the score reads its
+     * utilisation. Three readings of one fact would eventually disagree.
+     */
+    capacity: AgentCapacityReading;
+    /**
+     * One catalogued MCP server this project's own run history says it is
+     * reaching for, or nothing — which is the ordinary case and not a fault.
+     */
+    capabilityOffer?: CapabilityOffer;
     enabledAgents: number;
     totalAgents: number;
     enabledSkills: number;
@@ -4991,6 +5061,9 @@ export class ProjectDashboardPanel {
         break;
       case 'roadmapOpenPlan':
         await this.handleRoadmapOpenPlan(message.payload);
+        break;
+      case 'dismissCapabilityOffer':
+        await this.handleDismissCapabilityOffer(message.payload);
         break;
       case 'roadmapAutoLayout':
         await this.handleRoadmapAutoLayout(message.payload === 'vertical' ? 'vertical' : 'horizontal');
@@ -11104,6 +11177,31 @@ ${buildCardEvidenceSection(source, derivation)}`;
   }
 
   /** Open the item's filed plan. The path comes from the record, never the page. */
+  /**
+   * Remember that this project does not want a server suggested.
+   *
+   * Validated against the catalogue rather than stored as sent: the payload
+   * comes from a webview, and an unbounded list of arbitrary strings in
+   * workspace state is a place for anything to accumulate. A refusal is final —
+   * nothing removes an id from this list, because an offer that can come back is
+   * a nag with a threshold.
+   */
+  private async handleDismissCapabilityOffer(payload: unknown): Promise<void> {
+    const serverId = typeof payload === 'string' ? payload : '';
+    if (!RECOMMENDED_MCP_SERVERS.some(server => server.id === serverId)) {
+      return;
+    }
+    const context = this.atlas.extensionContext;
+    if (!context) {
+      return;
+    }
+    const refused = readRefusedCapabilityOffers(context);
+    if (!refused.includes(serverId)) {
+      await context.workspaceState.update(REFUSED_CAPABILITY_OFFERS_KEY, [...refused, serverId]);
+    }
+    await this.syncState();
+  }
+
   private async handleRoadmapOpenPlan(payload: string): Promise<void> {
     const resolved = await this.resolveRoadmapPlanItem(payload);
     if (resolved === undefined) {
@@ -14816,6 +14914,7 @@ export function isProjectDashboardMessage(message: unknown): message is ProjectD
     || candidate['type'] === 'roadmapResolve'
     || candidate['type'] === 'roadmapCompletionCheck'
     || candidate['type'] === 'roadmapOpenPlan'
+    || candidate['type'] === 'dismissCapabilityOffer'
     || candidate['type'] === 'raiseRegisterWork'
     || candidate['type'] === 'draftRegisterIssue') {
     return isOpaqueDashboardId(candidate['payload']);
@@ -16203,6 +16302,45 @@ async function collectDashboardSnapshot(
   const enabledSkills = skills.filter(skill => atlas.skillsRegistry.isEnabled(skill.id)).length;
   const sessions = atlas.sessionConversation.listSessions();
   const runs = await atlas.projectRunHistory.listRunsAsync(40);
+  // Roles actually seen, not agent ids: a planner subtask runs as an ephemeral
+  // agent carrying a role and no registry id, so an id join would report a
+  // constantly-busy project's whole team as idle.
+  const agentCapacity = readAgentCapacity({
+    agents: agents.map(agent => ({
+      id: agent.id,
+      name: agent.name,
+      role: agent.role,
+      enabled: atlas.agentRegistry.isEnabled(agent.id),
+    })),
+    providers: providers.map(provider => ({
+      id: provider.id,
+      label: provider.displayName,
+      healthy: atlas.modelRouter.isProviderHealthy(provider.id),
+      enabledModels: provider.models.filter(model => model.enabled !== false).length,
+    })),
+    observedRoles: runs.flatMap(run => run.subTaskArtifacts.map(artifact => artifact.role)),
+    runsObserved: runs.length,
+  });
+  // One entry per run, not one flat list: the offer's threshold counts runs
+  // rather than calls, and flattening here would let one busy afternoon
+  // manufacture a recommendation.
+  const capabilityOffer = decideCapabilityOffer({
+    commandsByRun: runs.map(run => run.subTaskArtifacts
+      .flatMap(artifact => artifact.toolCalls)
+      .map(call => call.commandName)
+      .filter((name): name is string => typeof name === 'string')),
+    catalogue: RECOMMENDED_MCP_SERVERS.map(server => ({
+      id: server.id,
+      name: server.name,
+      description: server.description,
+    })),
+    // Guarded, like every other read here: this runs inside the snapshot build,
+    // and a registry that is not available yet must not take twenty pages down
+    // with it. Absent reads as "nothing configured", which withholds no offer
+    // that should have been made and makes none that should not.
+    configuredServerIds: atlas.mcpServerRegistry?.listServers?.().map(server => server.config.id) ?? [],
+    refusedServerIds: readRefusedCapabilityOffers(atlas.extensionContext),
+  });
   const directorSnapshot = await collectDirectorSnapshot(atlas, workspaceRoot, gitSnapshot.currentBranch, runs);
   const documentsSnapshot = await collectDocumentsSnapshot(atlas, workspaceRoot);
   const riskSnapshot = collectRiskSnapshot(atlas, workspaceRoot);
@@ -16326,6 +16464,7 @@ async function collectDashboardSnapshot(
     outcomeCompleteness,
     risk: riskSnapshot,
     privacy: privacySnapshot,
+    agentCapacity,
     // Practices are excluded from the denominator, matching
     // `testingPolicyCoverage`, which never counts them as gaps: scoring a project
     // down for not producing a file that Exploratory Testing cannot produce would
@@ -16591,6 +16730,8 @@ async function collectDashboardSnapshot(
     },
     branches: enrichedBranchInventory,
     runtime: {
+      capacity: agentCapacity,
+      ...(capabilityOffer.offer === undefined ? {} : { capabilityOffer: capabilityOffer.offer }),
       enabledAgents,
       totalAgents: agents.length,
       enabledSkills,
@@ -17048,6 +17189,21 @@ function collectVitalFiles(
  * `undefined`, because `{ open: 0 }` and "nobody looked" render identically once
  * they reach the feed and only one of them is true.
  */
+/**
+ * The worst finding at one severity, as the feed's rules want it.
+ *
+ * The reading is already ranked by consequence, so the first match is the one
+ * to show. The feed states one thing per rule rather than a list, because a
+ * band that expands to five lines about providers is one people collapse.
+ */
+function pickCapacityFinding(
+  reading: AgentCapacityReading,
+  severity: 'blocked' | 'degraded',
+): { summary: string; detail: string } | undefined {
+  const finding = reading.findings.find(entry => entry.severity === severity);
+  return finding ? { summary: finding.summary, detail: finding.detail } : undefined;
+}
+
 function buildAttentionInput(
   snapshot: Omit<DashboardSnapshot, 'attention'>,
   latestCiConclusion: 'success' | 'failure' | 'pending' | 'none' | undefined,
@@ -17073,6 +17229,17 @@ function buildAttentionInput(
     pipeline: {
       loaded: latestCiConclusion !== undefined,
       latestFailed: latestCiConclusion === 'failure',
+    },
+    // Always supplied: the runtime is read on every snapshot, so unlike the
+    // groups that depend on a network call there is no "could not look" case
+    // here. An empty reading means the team is fine, which is a real answer.
+    capacity: {
+      ...(pickCapacityFinding(snapshot.runtime.capacity, 'blocked') === undefined
+        ? {}
+        : { blocked: pickCapacityFinding(snapshot.runtime.capacity, 'blocked') }),
+      ...(pickCapacityFinding(snapshot.runtime.capacity, 'degraded') === undefined
+        ? {}
+        : { degraded: pickCapacityFinding(snapshot.runtime.capacity, 'degraded') }),
     },
     // Research is supplied only when it is switched on. `researchAttentionInput`
     // owns that decision so no caller can accidentally pass a zeroed group and
@@ -18123,7 +18290,16 @@ async function collectGitSnapshot(workspaceRoot: string | undefined): Promise<Gi
   const [statusOutput, branchOutput, commitOutput, gitUserName] = await Promise.all([
     runGit(workspaceRoot, ['status', '--short', '--branch']),
     runGit(workspaceRoot, ['for-each-ref', '--sort=-committerdate', '--format=%(refname:short)|%(committerdate:iso8601)|%(upstream:short)|%(subject)', 'refs/heads']),
-    runGit(workspaceRoot, ['log', '--date=iso-strict', '--pretty=format:%H|%ad|%an|%s', `-n${MAX_COMMITS}`]),
+    // Trailers come from git's own reader rather than from parsing the body:
+    // `%(trailers)` applies git's rules, so a closing paragraph of prose that
+    // happens to contain a colon is not read as a label. `unfold` joins a
+    // continued value onto one line, which the delimiters below rely on.
+    runGit(workspaceRoot, [
+      'log',
+      '--date=iso-strict',
+      `--pretty=format:%H|%ad|%an|%s%x1f%(trailers:unfold,separator=%x1e)%x1d`,
+      `-n${MAX_COMMITS}`,
+    ]),
     runGit(workspaceRoot, ['config', '--get', 'user.name'])
       .then(value => boundedDiscussionText(value, 180) || undefined)
       .catch(() => undefined),
@@ -18163,12 +18339,22 @@ async function collectGitSnapshot(workspaceRoot: string | undefined): Promise<Gi
       } satisfies DashboardBranch;
     });
 
+  // Records are delimited by \x1d rather than by newline: a trailer block is
+  // multi-line by definition, so splitting on newlines would cut every commit
+  // that carries one into pieces.
   const commits = commitOutput
-    .split(/\r?\n/)
-    .filter(Boolean)
-    .map(line => {
-      const [hash = '', committedAt = '', author = '', ...subjectParts] = line.split('|');
+    .split(COMMIT_RECORD_SEPARATOR)
+    .map(record => record.replace(/^\r?\n/, ''))
+    .filter(record => record.trim().length > 0)
+    .map(record => {
+      const [head = '', trailerBlock = ''] = record.split(COMMIT_FIELD_SEPARATOR);
+      const [hash = '', committedAt = '', author = '', ...subjectParts] = head.split('|');
       const subject = subjectParts.join('|');
+      // Reconstituted as a message so one implementation decides what a link is.
+      // A second parser here would eventually disagree with the one that wrote
+      // the trailer, and the symptom would be a commit that shows as linked in
+      // one place and unlinked in another.
+      const links = readCommitLinks(`${subject}\n\n${trailerBlock.split(COMMIT_TRAILER_SEPARATOR).join('\n')}`);
       return {
         hash,
         shortHash: hash.slice(0, 7),
@@ -18176,6 +18362,8 @@ async function collectGitSnapshot(workspaceRoot: string | undefined): Promise<Gi
         author,
         committedAt,
         committedRelative: formatRelativeDate(committedAt),
+        ...(links['Roadmap-Item'] === undefined ? {} : { roadmapItemId: links['Roadmap-Item'] }),
+        ...(links.Issue === undefined ? {} : { issue: links.Issue }),
       } satisfies DashboardCommit;
     });
 
@@ -21614,6 +21802,15 @@ function emptyRoadmapGraphView(filePath: string): DashboardRoadmapGraphView {
     suggestLinks: true,
     orientation: 'horizontal',
     anchored: true,
+    criticalPath: {
+      state: 'nothing-outstanding',
+      nodeIds: [],
+      slack: [],
+      offPathCount: 0,
+      rules: ROADMAP_CRITICAL_PATH_RULES,
+      note: 'There is nothing on the roadmap yet.',
+    },
+    criticalPathSummary: 'There is nothing on the roadmap yet.',
     routes: {},
     people: [],
     filePath,
@@ -21671,6 +21868,14 @@ function buildRoadmapGraphView(
     );
     const anchored = items.every((item, index) => item.nodeId === resolvedIds[index]);
 
+    // Read before the graph is built, not after: which contacts are agents
+    // decides how their work is estimated, and an estimate produced without
+    // knowing that would have to be thrown away and redone.
+    const director = readProjectDirectorConfig(workspaceRoot);
+    const agentAssigneeIds = (director?.contacts ?? [])
+      .filter(contact => contact.kind === 'agent')
+      .map(contact => contact.id);
+
     const takenBranches: string[] = [];
     const graph = resolveRoadmapGraph({
       items: items.map((item, index) => {
@@ -21693,6 +21898,7 @@ function buildRoadmapGraphView(
       records: reconciled.document.nodes,
       declaredEdges: reconciled.document.edges,
       gateOrder: normalizeGates(gates).map(gate => gate.id),
+      agentAssigneeIds,
       deriveSuggestions: reconciled.document.suggestLinks,
       dismissedEdges: reconciled.document.dismissed,
       orientation: reconciled.document.layoutOrientation,
@@ -21708,7 +21914,6 @@ function buildRoadmapGraphView(
       }
     }
 
-    const director = readProjectDirectorConfig(workspaceRoot);
     const notes = [...graph.notes];
     if (!anchored) {
       notes.push('This roadmap is not wired to the canvas yet. AtlasMind writes a hidden id into each backlog line when the dashboard loads; until that write lands, positions, deadlines and links are shown but not yet durable.');
@@ -21717,8 +21922,19 @@ function buildRoadmapGraphView(
       notes.push(`${reconciled.droppedNodeIds.length} saved node${reconciled.droppedNodeIds.length === 1 ? '' : 's'} no longer match a backlog item and ${reconciled.droppedNodeIds.length === 1 ? 'was' : 'were'} dropped.`);
     }
 
-    const people = (director?.contacts ?? []).map(contact => ({ id: contact.id, name: contact.name }));
+    // `kind` travels so the assignee picker can say which of these is an agent.
+    // Without it the estimate silently changes scale when you pick a name and
+    // nothing on screen says why.
+    const people = (director?.contacts ?? []).map(contact => ({
+      id: contact.id,
+      name: contact.name,
+      ...(contact.kind === 'agent' ? { isAgent: true } : {}),
+    }));
     const byPerson = layoutRoadmapByAssignee(partition.active, people, graph.orientation);
+    // Computed from the whole graph, not from `partition.active`: a delivered
+    // prerequisite contributes no days, and dropping it before the walk would
+    // have left the path unchanged but the reasoning unable to say why.
+    const criticalPath = roadmapCriticalPath(graph);
 
     return {
       active: partition.active,
@@ -21736,6 +21952,8 @@ function buildRoadmapGraphView(
       suggestLinks: reconciled.document.suggestLinks,
       orientation: graph.orientation,
       anchored,
+      criticalPath,
+      criticalPathSummary: describeRoadmapCriticalPath(criticalPath),
       routes,
       people,
       ...(director?.selfContactId === undefined ? {} : { selfContactId: director.selfContactId }),
@@ -22293,6 +22511,16 @@ export function buildScoreBreakdown(input: {
     /** Failures counted from that report. */
     failing: number;
   };
+  /**
+   * How much of the configured team has actually worked.
+   *
+   * Optional, and the component is dropped entirely when there is no run
+   * history to judge by — a project that has never run has not shown its agents
+   * idle, and scoring it down for being new is the failure the whole "unassessed
+   * is not clear" rule exists to prevent. Provider health is deliberately *not*
+   * here; it reaches the attention feed instead.
+   */
+  agentCapacity?: AgentCapacityReading;
 }): DashboardScoreBreakdown {
   const components: DashboardScoreComponent[] = [
     {
@@ -22458,6 +22686,27 @@ export function buildScoreBreakdown(input: {
     tone: !privacyConfigured ? 'warn' : privacyScore >= 10 ? 'good' : privacyScore >= 6 ? 'accent' : 'warn',
     pageTarget: 'privacy',
   });
+
+  // Absent, not zero, when nothing has run: the denominator is derived from the
+  // components present, so a project that has never run is not marked down for
+  // being new. Provider health is deliberately excluded — it goes to the
+  // attention feed, because a score that fell during an outage and recovered by
+  // lunchtime is one people learn to explain away.
+  const utilisation = input.agentCapacity === undefined
+    ? undefined
+    : agentUtilisationScore(input.agentCapacity, 6);
+  if (utilisation && input.agentCapacity) {
+    components.push({
+      id: 'agent-utilisation',
+      label: 'Team in use',
+      score: utilisation.score,
+      maxScore: 6,
+      detail: utilisation.detail
+        + ' Providers being unhealthy is not scored here — that is a fact about now, and it is on the Overview.',
+      tone: utilisation.score >= 5 ? 'good' : utilisation.score >= 3 ? 'accent' : 'warn',
+      pageTarget: 'runtime',
+    });
+  }
 
   const recommendations: DashboardScoreRecommendation[] = [];
 
@@ -28148,6 +28397,25 @@ const DASHBOARD_CSS = `
   }
 
   .rm-emphasis-count {
+    white-space: nowrap;
+  }
+
+  .rm-emphasis-critical {
+    cursor: pointer;
+  }
+
+  .rm-emphasis-critical input {
+    margin: 0;
+  }
+
+  /* The finding, stated whether or not the lens is on: what the finish date
+     rests on is worth knowing before you think to ask. Clamped rather than
+     wrapped, because this sits in a single-line control bar and a two-line
+     answer would push the canvas down every render. */
+  .rm-critical-summary {
+    max-width: 46ch;
+    overflow: hidden;
+    text-overflow: ellipsis;
     white-space: nowrap;
   }
 

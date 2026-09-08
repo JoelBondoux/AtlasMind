@@ -6,6 +6,220 @@ The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/),
 
 ## [Unreleased]
 
+## [0.449.0] - 2026-09-08
+
+### Added
+
+- **AtlasMind offers a capability your own runs show you reaching for.** A project shelling out to
+  `gh` twenty times is telling you something. The risk in acting on it is that "we noticed you use X,
+  install Y" is how a tool becomes a salesman, so every rule in `capabilityOffer` exists to keep the
+  offer rare and honest rather than to make it land.
+
+  **Evidence-triggered, never speculative** — offered only after the same command appears in several
+  *separate runs*. Runs, not calls: ten invocations inside one run is a project doing one thing once,
+  and counting calls would let a single afternoon manufacture a recommendation. **A signal AtlasMind
+  already covers is not a gap**: using git is AtlasMind working, and offering a git server would
+  recommend a second way to do something that already works, through third-party code. **Never framed
+  as a saving** — an MCP server publishes its whole tool list into the same tool budget a turn
+  spends, and AtlasMind has watched that budget overflow and drop skills from a run, so the card
+  gives what it *adds* and what it *consumes* equal weight and neither is optional. **A refusal is
+  final**, per server per project, on any evidence however much stronger; an offer that returns when
+  the count rises is a nag with a threshold. **One at a time**, because a list of suggestions is a
+  marketplace rather than an observation. **An offer is not trust** — nothing installs anything, and
+  the setup path leaves the server switched off.
+
+  Refusals live in workspace state rather than `project_memory/`: the SSOT folder is git-tracked, and
+  committing "somebody said no to the GitHub server" would put one person's preference into
+  everybody's checkout as a diff nobody asked for.
+
+- **Run history records which executable a terminal command ran** (`ToolExecutionArtifact.commandName`),
+  which is the evidence the offer needs and did not previously exist. The **basename only, never the
+  command line**: an argument list carries paths, tokens, queries and file contents, and none of that
+  is needed to know which tool a project keeps reaching for — so the record cannot leak something the
+  redactor would have had to catch.
+
+  `commandSignal` takes a leading quoted token whole, because a Windows path with a space in it is
+  the ordinary case and splitting on whitespace would turn `"C:\Program Files\…\gh.exe"` into the
+  signal `program`, matching nothing and hiding a real one.
+
+## [0.448.0] - 2026-09-08
+
+### Added
+
+- **Commits can say which planned work they were for.** A commit message says what changed in prose.
+  Nothing said *which backlog item or issue it was for*, so any analytic joining code to intent had
+  to guess from wording — and a wrong join is worse than none, because it is counted rather than
+  noticed. `commitTrailers` writes and reads that link using git's own trailer convention, so the
+  answer is readable by `git log`, `git interpret-trailers`, and anything else ever pointed at this
+  history.
+
+  Five rules. **Only a link somebody already declared** — the issue number comes from the branch
+  naming convention the workflow file declares, never from the commit's prose; a bare number
+  elsewhere in a branch name is refused, because taking it would permanently point a commit at
+  somebody else's ticket. **A value is validated, never cleaned**, which inverts the usual boundary
+  rule here for the same underlying reason it usually applies: a pushed commit message cannot be
+  edited, so a nearly-valid value made plausible is unfixable. **Trailers follow git's own rules** —
+  one block at the end, so `%(trailers)` sees them and a `Co-Authored-By` somebody wrote keeps its
+  position rather than being displaced. **Composing is idempotent**, so re-drafting twice does not
+  accumulate three copies of one fact. **Nothing here writes a commit** — it returns text a person
+  still reads and still commits.
+
+  The Source Control drafter adds them, and the dashboard's commit list shows what each commit
+  declared. Verified against real git rather than inferred: a linked commit round-trips both values,
+  an unlinked one yields nothing, and a closing paragraph of prose that merely *looks* trailer-ish
+  (`See also: the notes` followed by a sentence) is read as prose — git's own trailer reader and this
+  parser make the same call.
+
+## [0.447.0] - 2026-09-08
+
+### Added
+
+- **The dashboard says when your models and providers are in trouble.** It already counted them —
+  `4/9 providers healthy` sat in a stat card's subtitle, in the same grey as everything else, on a
+  page whose job is to say what needs a person. A project can be perfectly configured and unable to
+  route a single request, and nothing said so.
+
+  `readAgentCapacity` grades it against a published rule table, and the ranking is by consequence.
+  **Nothing routable is a stop, not a degradation**: a provider with no enabled model cannot be
+  reached at all, and reporting it at the weight of a failed health check buries the difference
+  between "degraded" and "cannot work". It is the **first** rule in the attention feed, above a red
+  pipeline — a failing test is a problem you can work on; no routable model means you cannot work at
+  all. One provider down while others still serve is `soon` rather than `now`, and names which.
+
+- **Agent utilisation is a score component, and provider health deliberately is not.** How much of
+  the team has actually worked is a property of how the project is run; a provider having an outage
+  this morning is not. A score that fell during one and recovered by lunchtime is a number people
+  learn to explain away, so it goes to the attention feed instead — asserted by a test that the
+  component is identical for a healthy and a wholly broken estate.
+
+  Three rules keep it honest. **Unassessed is not idle**: with no run history the component is
+  *absent* rather than zero, and the score's denominator is derived, so a project that has never run
+  is not marked down for being new. **Disabled is a decision, not a gap** — only enabled agents can
+  be idle, or a tidy configuration reads as a problem. **The join is by role, not agent id**, because
+  a planner subtask runs as an ephemeral agent that carries a role and no registry id; matching on id
+  would report a constantly-busy project's whole team as idle.
+
+  A finding is withheld below ten recorded runs. The figure is still computed — it is a true
+  statement about what has been seen — but three runs is not evidence that six agents are surplus,
+  and saying so would have somebody switch off a team they are about to need.
+
+## [0.446.0] - 2026-09-08
+
+### Fixed
+
+- **Work assigned to an agent no longer rounds away to nothing.** `computeRouteDays` accumulated to
+  the nearest **half-day**, which was exact while every estimate was a person's and became a defect
+  the moment an item could be done in twenty minutes: three such items summed to zero, and a plan run
+  entirely by agents reported no work left and a critical path of nothing at all. Route days and the
+  critical path now accumulate to the **minute**. Human estimates are still multiples of half a day
+  and are unaffected, which is asserted rather than assumed.
+
+- **A duration is shown in a unit that does not round it away.** `${days}d` was fine while nothing
+  could be shorter than half a day. `formatRoadmapDuration` drops to hours and then minutes below
+  one, and never renders real work as `0d` — both wrong, and the exact wording that makes somebody
+  stop trusting the column.
+
+### Added
+
+- **A roadmap item assigned to an AI agent is estimated in agent wall-clock, not working days.** The
+  estimate table grades **scope**, and scope does not change with who picks the work up; elapsed time
+  does, by enough that one scale cannot carry both. `MIN_ESTIMATE_DAYS` justified itself as *"a task
+  somebody has to pick up and land costs a session"* — reasoning that only holds for a person, and
+  which forced every agent item to half a day.
+
+  `AGENT_MINUTES_PER_SCOPE_DAY` converts one scale to the other: **a declared prior, not a
+  measurement**, and the rule text says so, because nothing here has watched your agents work. One
+  constant rather than a second table of bases — the scope judgement is already made and does not
+  need making twice, and a reader who disagrees has one number to argue with instead of five. Any
+  item where it matters should carry a declared estimate, which overrides it entirely.
+
+  **The AI-assistance discount is deliberately not applied on the agent scale.** It grades a person
+  working with AI help; applying it to an agent counts the same fact twice, and the number would be
+  defensible from neither direction. The toggle is withheld rather than shown disabled, since a
+  control that changes nothing is worse than none.
+
+- **Contacts have a kind, and it decides how their work is estimated.** `DirectorContact.kind`
+  existed and was hard-coded to `person` at every write; the Director contact form now offers
+  Person / Team / Organisation / **AI agent**, and the roadmap assignee picker marks the agents. The
+  roster is the source of truth — changing the mark re-grades the plan, because you have just said
+  who does the work — with an `agent:` id prefix honoured for assignees that are not roster contacts.
+  An assignee that resolves to nobody falls back to a person's scale, which is a real choice and not
+  a neutral one: the node's existing unresolved-assignment chip is what makes the cause visible where
+  the effect is.
+
+  A declared estimate now rounds to the minute rather than the half-day, or an agent figure entered
+  by hand would be taken to zero or inflated twelvefold; the field's step and floor follow the scale
+  for the same reason.
+
+## [0.445.0] - 2026-09-08
+
+### Added
+
+- **The roadmap answers which chain of work the finish date rests on.** The backlog said what
+  mattered most; the dependency graph said what waited on what. Neither said which chain *decides
+  when the plan lands*, so a roadmap could be correctly prioritised, correctly sequenced, and still
+  have everybody working on the items that were never going to be the constraint.
+
+  `roadmapCriticalPath` derives the longest chain of outstanding work, the days along it, and every
+  other item's slack — how long it can slip before the finish moves. Five rules. **Only outstanding
+  work is on the path**: delivered prerequisites stay on the canvas because they explain how you got
+  here, and counting their days would make a history out of a forecast. **The finish is the longest
+  chain, never the sum** — independent work runs at the same time, and adding estimates up errs
+  pessimistic, which is the direction people stop believing. **Slack is measured against the plan's
+  own finish, never a deadline**, which each card already grades separately; folding one in would
+  make a number that means two things. **A plan with a cycle has no finish date** and is reported as
+  circular rather than given one, the same call `resolveRoadmapGraph` already makes when it names a
+  cycle instead of breaking it. **Nothing outstanding is not a zero-day plan.**
+
+  The forward pass is **not recomputed** — every node already carries `schedule.routeDays`, and a
+  second implementation of that walk would eventually disagree with the number printed on the card
+  beside it. Arithmetic is done in half-days as integers: the whole result turns on `slack === 0`,
+  and comparing accumulated floating-point sums is exactly what would put an item on the path on one
+  machine and not on another.
+
+- **A critical-path lens on the roadmap canvas.** A third emphasis lens beside gate and person,
+  combining with them rather than replacing them. It highlights the chain and leaves everything else
+  **drawn and dimmed**, because the items with slack are the comparison that makes the answer worth
+  having. Absent on the Delivered record, where the path means nothing and a lens matching nothing
+  would read as broken. The finding is stated whether or not the lens is switched on — this is the
+  one lens that answers a question rather than narrowing to an answer you already had.
+
+## [0.444.0] - 2026-09-08
+
+### Added
+
+- **Reopening a chat adopts the run still going in the background.** v0.443.0 let a turn outlive its
+  window but left the reopened chat watching from the outside: the answer appeared only in bursts and
+  the stop button lived in the status bar. It turns out the panel already adopted runs started in
+  another *open* surface — busy state and stop both resolve through one lookup across every live
+  panel — and a detached run was invisible to it for exactly one reason: its panel had left the live
+  set. `ChatPanel.detachedPanels` is that set's counterpart, collected for busy state and stopping,
+  and deliberately **not** for syncing, since a detached panel has nothing to draw to.
+
+  `selectBusyRun` declares the order rather than leaving it incidental. **This session first**,
+  because a surface must not report work from a conversation it is not showing. **Live before
+  detached** within that: two runs can share a session — close a chat mid-answer, reopen it, ask
+  something else — and the one just started is the one being watched, while the other is already
+  named in the status bar. Ties keep arrival order so the choice cannot shuffle between two identical
+  renders. With nothing detached the ordering agrees exactly with the rule it replaced, which is
+  asserted rather than assumed — adopting a background run must not change what an ordinary
+  two-panel chat does.
+
+  The "thinking" line and model chips are read from the surface that owns the run, but **only for the
+  session on screen**: a run on another session must not lend this one its thoughts.
+
+### Fixed
+
+- **A background run's chunks now reach a reopened chat as they arrive.** A detached panel's
+  coalesced tick returned early because the panel was disposed, so the transcript grew and nothing
+  pushed it anywhere. It now pushes to whatever surfaces are open instead of to its own, still
+  coalesced and still passing `reuseProviderList` — enumerating providers touches credential storage,
+  and a per-chunk tick must not do that.
+
+- **Asking something else in a chat reopened onto a background run no longer interleaves two answers
+  into one transcript.** The `sessionConflict` guard that spawns a separate session counted only runs
+  in open panels; it counts detached ones too, which is the case it most needed to catch.
+
 ## [0.443.0] - 2026-09-08
 
 ### Fixed

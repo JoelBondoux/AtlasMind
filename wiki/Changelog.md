@@ -19,6 +19,141 @@ Older entries below describe the software as it was at the time and are delibera
 
 ---
 
+## v0.449.0 -- Noticing what you keep reaching for
+
+If your runs shell out to `gh` again and again, there is probably a GitHub MCP server that would suit
+you. AtlasMind will now say so — once, on the Runtime page, and only when your own run history
+actually shows it.
+
+The hard part of a feature like this is not noticing. It is not becoming a salesman. So:
+
+It waits for the same command across **several separate runs**. Ten uses inside one run is you doing
+one thing once, and counting those would let a single afternoon manufacture a recommendation.
+
+It never suggests something AtlasMind already does. Using git is not evidence that you need a git
+server — you would be adding third-party code to do a job that already works.
+
+It tells you what the thing **costs**, in the same breath as what it adds, and that half is not
+optional. An MCP server publishes its whole tool list into the same budget your turns already spend,
+and AtlasMind has watched that budget overflow and quietly drop skills from a run. So this may cost
+you context rather than save it, and the card says so.
+
+Say "Not this one" and it never comes back for that project — on any evidence, however much
+stronger. An offer that returns when the count goes up is a nag with a threshold.
+
+And it never installs anything. Setting it up leaves the server switched off, because installing an
+MCP server runs somebody else's code.
+
+To make this possible, run history now records **which executable** a terminal command ran — the name
+alone, never the command line, since arguments carry paths, tokens and queries that nothing here
+needs.
+
+---
+
+## v0.448.0 -- Commits that say what they were for
+
+A commit message tells you what changed. It never told you *which piece of planned work it was for* —
+so anything trying to connect your code back to your roadmap or your issues had to guess from the
+wording, and a wrong guess is worse than none because it gets counted rather than noticed.
+
+Commits can now carry that link properly, using git's own trailer convention. Ask AtlasMind to write
+a commit message on a branch named the way your workflow declares (`fix/412-the-thing`) and it adds
+`Issue: 412` at the end. The dashboard's commit list shows what each commit declared.
+
+The link only ever comes from something you already decided — the branch naming convention your
+workflow file declares. Never from the words in the commit. A bare number elsewhere in a branch name
+is refused rather than used, because a commit message cannot be edited once it is pushed and a
+permanent wrong link is not worth the convenience.
+
+Everything else about your message is left alone: your paragraphs are not reflowed, a
+`Co-Authored-By` stays where you put it, and asking twice doesn't leave you with the same line three
+times.
+
+---
+
+## v0.447.0 -- When your providers are in trouble, the dashboard says so
+
+AtlasMind already knew how many of your model providers were healthy. It put the number in a stat
+card's subtitle, in the same grey as everything else, and left it there. You could be perfectly set
+up and unable to route a single request, and the page whose job is to tell you what needs attention
+said nothing.
+
+Now it does — and it ranks by what it costs you. **No enabled model anywhere** is a stop, not a
+degradation: nothing can run. That sits at the very top of the *Needs you* band, above a red
+pipeline, because a failing test is something you can work on and no routable model is not. One
+provider down while others still serve is a smaller note, and it names which.
+
+The score also picks up **how much of your team you actually use** — agents you have enabled whose
+role has never appeared in a run. Three things about that. It is silent on a project with no run
+history, because that has not shown its agents idle, it has shown nothing. Agents you have switched
+off don't count, since that was a decision rather than a gap. And it stays quiet until there are ten
+recorded runs, because three is not evidence that six agents are surplus and you should not be
+talked into switching off a team you are about to need.
+
+Provider health deliberately stays *out* of the score. A number that fell during an outage and
+recovered by lunchtime is one people learn to explain away.
+
+---
+
+## v0.446.0 -- A day is the wrong unit when an agent does the work
+
+If your agents do the coding, a roadmap item can be planned and finished inside an afternoon. The
+roadmap could not say so: every estimate was in working days with a half-day floor, so the smallest
+thing it could describe was four hours of somebody's time.
+
+Worse, the arithmetic behind it rounded to the nearest half-day — so three twenty-minute items added
+up to nothing, and a plan run entirely by agents reported no work left and a critical path of zero.
+
+Now: mark a contact as an **AI agent** on the Director page, assign roadmap work to them, and it is
+estimated in wall-clock minutes instead. The size of the job is judged the same way — that does not
+change with who does it — but what a unit of it *costs* does. Durations show as minutes or hours
+where that is what they are, rather than as `0d`.
+
+Two things worth knowing. The conversion is **a stated assumption, not a measurement** — nothing has
+watched your agents work, so it is one number you can see, disagree with, and override per item. And
+the "AI-assisted estimate" toggle disappears on agent work: it grades a person working with AI help,
+and applying it to an agent would count the same thing twice.
+
+A chain that mixes the two behaves as you would hope: an afternoon of agent work waiting on a
+three-day human task finishes when the human task does.
+
+---
+
+## v0.445.0 -- What the finish date actually rests on
+
+Your backlog could tell you what mattered most. The dependency canvas could tell you what had to
+happen before what. Neither could tell you the thing you most want to know: **which chain of work
+decides when this lands.** A plan can be correctly prioritised, correctly sequenced, and still have
+everyone busy on the items that were never the constraint.
+
+The roadmap now works that out. It names the longest chain of outstanding work and how many days it
+runs to, and a **Critical path** lens highlights it on the canvas. Everything else stays drawn and
+dimmed rather than hidden, because the items with room to slip are the comparison that makes the
+answer useful — if you want to bring the date in, they are not where to look.
+
+Delivered work is never on the path: it explains how you got here, and counting its days would turn
+a forecast into a history. Slack is measured against the plan's own finish, never against an item's
+deadline — that is a separate question each card already answers. And a plan with a circular
+dependency is told it has no finish date rather than handed a number, because it cannot run.
+
+The finding is shown whether or not you switch the lens on. It is worth knowing before you think to
+ask for it.
+
+---
+
+## v0.444.0 -- Reopening the chat picks the work back up
+
+Last release let a chat keep working after you closed its window. This one makes reopening it feel
+like nothing happened: the answer streams in as it arrives rather than appearing in bursts, the stop
+button is back in the chat where you'd look for it, and the "thinking" line and model chips show
+again.
+
+If you ask something else while a background run is still writing, it starts a fresh conversation
+rather than mixing two answers into one transcript — which is the case that would have been most
+confusing and hardest to unpick afterwards.
+
+---
+
 ## v0.443.0 -- Closing the chat no longer stops the work
 
 Clicking another view in the sidebar used to kill whatever the chat was doing. Not closing it —

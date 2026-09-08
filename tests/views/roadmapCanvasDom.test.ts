@@ -163,6 +163,18 @@ const GRAPH = {
     gamma: { nodeIds: ['gamma'], edgeKeys: [], order: [], routeDays: 0, completedCount: 1 },
   },
   people: [{ id: 'contact-1', name: 'Joel' }],
+  criticalPath: {
+    state: 'ok',
+    days: 6,
+    nodeIds: ['beta'],
+    slack: [
+      { nodeId: 'beta', slackDays: 0, earliestFinishDays: 6, latestFinishDays: 6, critical: true },
+      { nodeId: 'alpha', slackDays: 4, earliestFinishDays: 2, latestFinishDays: 6, critical: false },
+    ],
+    offPathCount: 1,
+    rules: [],
+  },
+  criticalPathSummary: '6 days of work along a chain of 1 item. The other 1 outstanding item has room to slip without moving the finish.',
   filePath: 'project_memory/roadmap/improvement-plan.md',
 };
 
@@ -991,6 +1003,60 @@ describe('reading a dense plan', () => {
     // combining them is what reads as a filter that does not work.
     expect(classOf('alpha')).toContain('is-search-match');
     expect(classOf('beta')).toContain('is-search-dim');
+  });
+
+  it('states what the finish date rests on without a lens being switched on', () => {
+    // The one lens that answers a question rather than narrowing to an answer
+    // you already had. What the date depends on is worth knowing before you
+    // think to ask for it.
+    const harness = mount();
+    harness.send(snapshot());
+
+    expect(harness.root().querySelector('.rm-critical-summary')?.textContent)
+      .toContain('6 days of work along a chain of 1 item');
+    expect(harness.root().querySelector('[data-action="roadmap-emphasis-critical"]')).not.toBeNull();
+  });
+
+  it('emphasises the chain and leaves the work with slack drawn and dimmed', () => {
+    const harness = mount();
+    harness.send(snapshot());
+    harness.posted.length = 0;
+
+    const toggle = harness.root().querySelector('[data-action="roadmap-emphasis-critical"]');
+    toggle.checked = true;
+    toggle.dispatchEvent(new harness.window.Event('change', { bubbles: true }));
+
+    const classOf = (id: string) => harness.root().querySelector(`[data-rm-node="${id}"]`)?.className ?? '';
+    expect(classOf('beta')).toContain('is-search-match');
+    // Dimmed rather than hidden: the items *not* on the path are the ones with
+    // room to slip, and removing them takes away the comparison.
+    expect(classOf('alpha')).toContain('is-search-dim');
+    // A way of looking — nothing is sent and nothing is written.
+    expect(harness.posted).toEqual([]);
+  });
+
+  it('offers no critical-path lens on the delivered record', () => {
+    // Delivered work is never on the path, so the lens would match nothing and
+    // read as broken rather than as inapplicable.
+    const harness = mount();
+    harness.send(snapshot());
+    harness.click('[data-action="roadmap-view"][data-payload="completed"]');
+
+    expect(harness.root().querySelector('[data-action="roadmap-emphasis-critical"]')).toBeNull();
+    expect(harness.root().querySelector('.rm-critical-summary')).toBeNull();
+  });
+
+  it('clears the critical-path lens with the others', () => {
+    const harness = mount();
+    harness.send(snapshot());
+    const toggle = harness.root().querySelector('[data-action="roadmap-emphasis-critical"]');
+    toggle.checked = true;
+    toggle.dispatchEvent(new harness.window.Event('change', { bubbles: true }));
+    expect(harness.root().querySelector('[data-rm-node="alpha"]')?.className).toContain('is-search-dim');
+
+    harness.click('[data-action="roadmap-emphasis-clear"]');
+
+    expect(harness.root().querySelector('[data-rm-node="alpha"]')?.className).not.toContain('is-search-dim');
   });
 
   it('keeps every edge on a live repaint while a lens is on', () => {

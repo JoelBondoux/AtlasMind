@@ -87,6 +87,14 @@ Save                  Persisted to the Run Center
 Short follow-ups like *"proceed autonomously"* re-use your last substantial request and go down the same
 path — you don't have to retype it.
 
+**A duration means a different thing depending on who does the work.** Roadmap estimates grade how
+*big* a piece of work is, which does not change with who picks it up — but how long it takes does. A
+person's estimate is effort across working days; an agent's is wall clock in minutes. Mark a contact
+as an AI agent on the Director page and their roadmap work is graded on that scale instead. The
+conversion is a stated assumption rather than a measurement, so you can see it, disagree with it, and
+override it per item; the "AI-assisted" discount is withheld there, because it grades a person
+working with AI help and would otherwise count the same thing twice.
+
 **Why "waves" rather than batches.** Steps with no dependency between them are free to run at the
 same time, and that is not the same as safe: two of them editing the same file is a read-modify-write
 race whose loser disappears without a trace, with both steps reported as finished. Steps that write
@@ -927,6 +935,8 @@ to the browser, so reopening shows the finished answer. A detached run is given 
 than the panel learning to check whether it still has one — a missed check throws "Webview is
 disposed" into the middle of a run, which is the failure being removed. It is announced in the status
 bar and stays stoppable from there, because closing the window is no longer the way to stop a run.
+Reopen the chat and it adopts the run outright — the answer streams in, the stop button works, and
+asking something else starts a new conversation rather than interleaving two answers into one.
 
 The chat panel answers a few turns itself rather than routing them — a roadmap status summary, a
 conversation recall — and until v0.402.6 that matcher swallowed all three hand-offs: each ends with the
@@ -1124,7 +1134,7 @@ never accepted.
 
 | Path | What's in it |
 |---|---|
-| `src/core/` | Orchestration, routing, planning, safety, cost, project services, pure game-engine identity/divergence/build-log interpretation (`gameEngineIdentity.ts`, `gameEngineDivergence.ts`, `gameBuildLog.ts`), and CI inspection, trusted-workflow generation, the route model, routing policy, build ledger, act adapter and local CI setup guidance (`ciManager.ts`, `trustedLocalCiStarter.ts`, `ciRoutes.ts`, `ciRoutingPolicy.ts`, `ciCreditMeter.ts`, `ciBuildLedger.ts`, `ciActRoute.ts`, `nodeVersionDetection.ts`, `localCiSetupPlan.ts`, `localCiInstaller.ts`, `localCiInspectionMemory.ts`), the guarded local CI executor (`localCiRunner.ts`), the confirmed-write echo that shows an issue or pull-request write before the re-read lands (`trackerWriteOutcome.ts`), the roadmap dependency graph with its on-disk overlay (`roadmapGraph.ts`, `roadmapGraphStore.ts`), the declared table saying where each release gate’s evidence lives and how gates rank by urgency (`releaseGateNavigation.ts`), roadmap ingestion from markdown, issues, Projects and spreadsheets with re-runnable reconciliation (`roadmapImport.ts`), the register-to-work hand-off that turns a gap, a debt entry or a risk finding into planned work (`registerHandoff.ts`), and how the project numbers its software across branches — the semver primitives plus the declared scheme, source and branch-to-channel map (`semver.ts`, `versioningPolicy.ts`), how a Windows `bin` shim is resolved to something spawnable without a shell — the module that makes model-generated command arguments unable to become commands (`windowsShimBypass.ts`), and how parallel steps are kept from writing over each other — where each one runs, the git plumbing, getting the work back and the run that ties the three together (`worktreeIsolation.ts`, `worktreeManager.ts`, `worktreeMerge.ts`, `worktreeRun.ts`) |
+| `src/core/` | Orchestration, routing, planning, safety, cost, project services, pure game-engine identity/divergence/build-log interpretation (`gameEngineIdentity.ts`, `gameEngineDivergence.ts`, `gameBuildLog.ts`), and CI inspection, trusted-workflow generation, the route model, routing policy, build ledger, act adapter and local CI setup guidance (`ciManager.ts`, `trustedLocalCiStarter.ts`, `ciRoutes.ts`, `ciRoutingPolicy.ts`, `ciCreditMeter.ts`, `ciBuildLedger.ts`, `ciActRoute.ts`, `nodeVersionDetection.ts`, `localCiSetupPlan.ts`, `localCiInstaller.ts`, `localCiInspectionMemory.ts`), the guarded local CI executor (`localCiRunner.ts`), the confirmed-write echo that shows an issue or pull-request write before the re-read lands (`trackerWriteOutcome.ts`), the roadmap dependency graph with its on-disk overlay (`roadmapGraph.ts`, `roadmapGraphStore.ts`, `roadmapCriticalPath.ts`), whether the configured team can work and how much of it is used (`agentCapacity.ts`), and the git trailers that link a commit to the work it was for (`commitTrailers.ts`), and the evidence-triggered MCP capability offer (`capabilityOffer.ts`), the declared table saying where each release gate’s evidence lives and how gates rank by urgency (`releaseGateNavigation.ts`), roadmap ingestion from markdown, issues, Projects and spreadsheets with re-runnable reconciliation (`roadmapImport.ts`), the register-to-work hand-off that turns a gap, a debt entry or a risk finding into planned work (`registerHandoff.ts`), and how the project numbers its software across branches — the semver primitives plus the declared scheme, source and branch-to-channel map (`semver.ts`, `versioningPolicy.ts`), how a Windows `bin` shim is resolved to something spawnable without a shell — the module that makes model-generated command arguments unable to become commands (`windowsShimBypass.ts`), and how parallel steps are kept from writing over each other — where each one runs, the git plumbing, getting the work back and the run that ties the three together (`worktreeIsolation.ts`, `worktreeManager.ts`, `worktreeMerge.ts`, `worktreeRun.ts`) |
 | `src/runtime/` | The built-in agents and how the runtime is composed |
 | `src/providers/` | Provider adapters, catalogues, health, local model discovery, `modelRole.ts` (what a model is *for*), and the local-GPU support layer that measures VRAM and reads what each runtime has loaded |
 | `src/skills/` | Built-in tools and skill handlers |

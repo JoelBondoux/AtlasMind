@@ -123,6 +123,65 @@ export function describeBackgroundRunsDetail(runs: readonly BackgroundChatRun[])
 }
 
 /**
+ * A run a chat surface could show and stop, and whether its own window is gone.
+ *
+ * Generic over the execution so this file stays free of the panel's internals —
+ * it decides *which* run a surface adopts, not what a run is.
+ */
+export interface BusyRunCandidate<T> {
+  sessionId: string;
+  /** True when the surface that started it has been disposed. */
+  detached: boolean;
+  execution: T;
+}
+
+/**
+ * Which run a chat surface shows as busy, and stops when asked.
+ *
+ * The panel already adopted runs started in *another open* panel — busy state
+ * and the stop button both resolve through one lookup across every live
+ * surface. A detached run was invisible to it for one reason: its panel left
+ * the live set. Feeding those candidates in is the whole of the adoption, so a
+ * reopened chat gets the stop button back rather than being told to use the
+ * status bar.
+ *
+ * The order is declared rather than incidental. **This session first**, because
+ * a surface must not report work from a conversation it is not showing. **Live
+ * before detached** within that, because two runs can share a session — close a
+ * chat mid-answer, reopen it, ask something else — and the one the operator
+ * just started is the one they are watching, while the detached one is already
+ * named in the status bar. Falling back to another session's run at all is
+ * inherited behaviour: `busy` is gated on the session matching, so it only ever
+ * supplies the streaming target, and changing it here would be a different
+ * change wearing this one's clothes.
+ */
+export function selectBusyRun<T>(
+  candidates: ReadonlyArray<BusyRunCandidate<T>>,
+  sessionId?: string,
+): BusyRunCandidate<T> | undefined {
+  const rank = (candidate: BusyRunCandidate<T>): number => {
+    const sameSession = sessionId !== undefined && candidate.sessionId === sessionId;
+    if (sameSession) {
+      return candidate.detached ? 1 : 0;
+    }
+    return candidate.detached ? 3 : 2;
+  };
+
+  let best: BusyRunCandidate<T> | undefined;
+  let bestRank = Number.POSITIVE_INFINITY;
+  for (const candidate of candidates) {
+    const candidateRank = rank(candidate);
+    // Strictly better only, so ties keep the order they arrived in and the
+    // choice cannot shuffle between two identical renders.
+    if (candidateRank < bestRank) {
+      best = candidate;
+      bestRank = candidateRank;
+    }
+  }
+  return best;
+}
+
+/**
  * The runs that outlived their surfaces.
  *
  * A registry rather than a field on the panel, because the panel is the thing

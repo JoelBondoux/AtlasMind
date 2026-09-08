@@ -85,6 +85,19 @@ export interface AttentionInput {
     stale: number;
     unassigned: number;
   };
+  /**
+   * Whether the configured team can work at all.
+   *
+   * Two separate readings rather than one severity, because they call for
+   * different reactions: `blocked` means nothing can run, `degraded` means less
+   * can be routed to. Both are facts about **now** and neither reaches the
+   * score — a number that fell during an outage and recovered by lunchtime is
+   * one people learn to explain away.
+   */
+  capacity?: {
+    blocked?: { summary: string; detail: string };
+    degraded?: { summary: string; detail: string };
+  };
   ssot?: { blocked: number; warned: number };
   director?: { overdue: number };
   documents?: { reviewDue: number; missing: number };
@@ -125,6 +138,19 @@ interface AttentionRule {
 const RULES: readonly AttentionRule[] = [
   // ── now: something is failing, shut, or past due ──────────────────
   {
+    // First, and deliberately above a red pipeline: this is the one condition
+    // under which nothing else on the page can be acted on. A failing test is a
+    // problem you can work on; no routable model means you cannot work at all.
+    id: 'capacity-blocked',
+    urgency: 'now',
+    rule: 'no model can be routed to, or no agent is enabled',
+    pageTarget: 'runtime',
+    evaluate: input => {
+      const blocked = input.capacity?.blocked;
+      return blocked ? { label: blocked.summary, detail: blocked.detail } : undefined;
+    },
+  },
+  {
     id: 'tests-failing',
     urgency: 'now',
     rule: 'any failing test in the project\'s own report',
@@ -145,6 +171,19 @@ const RULES: readonly AttentionRule[] = [
     evaluate: input => (input.pipeline?.loaded && input.pipeline.latestFailed
       ? { label: 'CI is red', detail: 'The most recent run on this branch failed. The Pipeline page classifies why.' }
       : undefined),
+  },
+  {
+    // Below the failures, above everything merely due: routing still works, so
+    // this is a smaller choice to make, and it is still one about whether the
+    // next run behaves.
+    id: 'capacity-degraded',
+    urgency: 'soon',
+    rule: 'at least one provider failed a health check while others still work',
+    pageTarget: 'runtime',
+    evaluate: input => {
+      const degraded = input.capacity?.degraded;
+      return degraded ? { label: degraded.summary, detail: degraded.detail } : undefined;
+    },
   },
   {
     id: 'ssot-blocked',
@@ -446,7 +485,7 @@ export function buildAttentionFeed(input: AttentionInput): AttentionFeed {
     const assessed = [
       input.testing, input.pipeline, input.issues, input.ssot, input.director,
       input.documents, input.risk, input.debt, input.release, input.delivery, input.workflow,
-      input.research,
+      input.research, input.capacity,
     ].filter(group => group !== undefined).length;
     feed.emptyState = assessed >= 4 ? 'clear' : 'unexamined';
   }

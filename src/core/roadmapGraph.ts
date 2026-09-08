@@ -242,6 +242,14 @@ export interface RoadmapEstimate {
   source: 'declared' | 'derived';
   /** The rule that produced a derived estimate. Published on the node. */
   rule: string;
+  /**
+   * Which scale this was graded on, from who the item is assigned to.
+   *
+   * Carried rather than re-derived by each surface: a renderer showing "20m"
+   * needs to know it is not looking at a rounding error, and one offering an
+   * AI-assistance toggle needs to know the toggle would do nothing here.
+   */
+  scale: RoadmapEstimateScale;
   aiAssisted: boolean;
   /** The same work graded with the other assistance setting, for the toggle. */
   alternativeDays: number;
@@ -445,6 +453,106 @@ export const AI_ASSIST_MULTIPLIER = 0.45;
 /** Never below half a day: a task somebody has to pick up and land costs a session. */
 const MIN_ESTIMATE_DAYS = 0.5;
 
+/**
+ * Who is going to do the work, which decides what a duration even means.
+ *
+ * The table above grades **scope** — how big a piece of work this is — and that
+ * does not change with who picks it up. What changes is elapsed time, and by
+ * enough that one scale cannot carry both: a person's estimate is effort spread
+ * across working days, while an agent's is wall clock measured in minutes. Left
+ * on one scale, a plan run entirely by agents reported every item at the
+ * half-day floor and a critical path of several weeks for an afternoon's work.
+ */
+export type RoadmapEstimateScale = 'human' | 'agent';
+
+export const MINUTES_PER_DAY = 24 * 60;
+
+/**
+ * What a day of human scope costs an agent, in wall-clock minutes.
+ *
+ * **A declared prior, not a measurement**, and worth being plain about: nothing
+ * here has watched your agents work. It is one constant rather than a second
+ * table of bases because the *scope* judgement is already made above and does
+ * not need making twice — this converts it, and a reader who disagrees has one
+ * number to argue with instead of five.
+ *
+ * Thirty minutes is drawn from what an AtlasMind run of that size actually takes
+ * end to end: a plan, a handful of subtasks, tool rounds and a verification
+ * pass. Any item where it matters should carry a declared estimate, which
+ * overrides this entirely.
+ */
+export const AGENT_MINUTES_PER_SCOPE_DAY = 30;
+
+/**
+ * Never below this: even a trivial change costs a run — a prompt, a few tool
+ * rounds, a check — which is the agent's equivalent of the session cost the
+ * half-day floor above exists for.
+ */
+const MIN_AGENT_ESTIMATE_MINUTES = 5;
+
+/**
+ * Assignee ids that name one of AtlasMind's own agents rather than a person.
+ *
+ * The prefix is how the scale is known, and it is deliberately carried by the
+ * *assignment* rather than looked up in a roster: an item assigned to an agent
+ * that has since been disabled is still a plan to have an agent do it, exactly
+ * as an item assigned to somebody who has left the Director roster is still
+ * assigned. Looking the id up would silently re-grade the plan when a roster
+ * changed.
+ */
+export const ROADMAP_AGENT_ASSIGNEE_PREFIX = 'agent:';
+
+/**
+ * Which scale an item is estimated on, from who it is assigned to.
+ *
+ * Two sources, and the order is not arbitrary. The **roster** is the source of
+ * truth — a contact marked as an AI agent is one, and changing that mark should
+ * re-grade the plan, because you have just said who does the work. The
+ * **prefix** is for ids that are not in the roster at all.
+ *
+ * An assignee that resolves to nothing falls back to `human`. That is a real
+ * choice and not a neutral one: it means deleting an agent contact silently
+ * lengthens every estimate that named it. The alternative — remembering the
+ * scale on the item — stores a second opinion about who is doing the work that
+ * can disagree with the first. The node already shows an unresolved assignment
+ * as its own chip, so the cause is visible where the effect is.
+ */
+export function roadmapEstimateScaleFor(
+  assigneeId: string | undefined,
+  agentAssigneeIds?: ReadonlySet<string>,
+): RoadmapEstimateScale {
+  if (typeof assigneeId !== 'string' || assigneeId.length === 0) {
+    return 'human';
+  }
+  if (agentAssigneeIds?.has(assigneeId) === true) {
+    return 'agent';
+  }
+  return assigneeId.startsWith(ROADMAP_AGENT_ASSIGNEE_PREFIX) ? 'agent' : 'human';
+}
+
+/**
+ * A duration in the largest unit that does not round it away.
+ *
+ * `${days}d` was fine while nothing could be shorter than half a day. It is not
+ * fine now: an agent-scale item is a fraction of a day, and "0d of work left" is
+ * both wrong and the exact wording that makes somebody stop trusting the
+ * column.
+ */
+export function formatRoadmapDuration(days: number): string {
+  const value = Number.isFinite(days) ? Math.max(0, days) : 0;
+  if (value >= 1) {
+    return `${Number.isInteger(value) ? value : Number(value.toFixed(1))}d`;
+  }
+  const minutes = value * MINUTES_PER_DAY;
+  if (minutes >= 60) {
+    const hours = minutes / 60;
+    return `${Number.isInteger(hours) ? hours : Number(hours.toFixed(1))}h`;
+  }
+  // Rounded up rather than to nearest, so a real piece of work never reads as
+  // taking no time at all.
+  return `${Math.max(1, Math.ceil(minutes))}m`;
+}
+
 const COMPLEXITY_MARKERS = /\b(migration|migrate|rewrite|re-write|protocol|integration|integrate|end-to-end|distributed|concurrency|scheduler|parser|encryption|multi-tenant)\b/i;
 
 /**
@@ -457,6 +565,7 @@ export function estimateRoadmapEffort(
   text: string,
   focus: RoadmapFocus,
   aiAssisted: boolean,
+  scale: RoadmapEstimateScale = 'human',
 ): { days: number; rule: string } {
   const base = ESTIMATE_BASE_DAYS[focus] ?? ESTIMATE_BASE_DAYS.feature;
   const words = String(text ?? '').trim().split(/\s+/).filter(Boolean).length;
@@ -464,9 +573,9 @@ export function estimateRoadmapEffort(
   const sizeLabel = words <= 6 ? 'a one-liner' : words <= 14 ? 'a normal-sized item' : words <= 25 ? 'a broad item' : 'a very broad item';
   const complexity = COMPLEXITY_MARKERS.test(String(text ?? '')) ? 2 : 0;
 
-  const unassisted = base * sizeFactor + complexity;
-  const raw = aiAssisted ? unassisted * AI_ASSIST_MULTIPLIER : unassisted;
-  const days = Math.max(MIN_ESTIMATE_DAYS, Math.round(raw * 2) / 2);
+  // Scope, before anybody has been assigned to it. Both scales grade the same
+  // judgement and differ only in what a unit of it costs.
+  const scopeDays = base * sizeFactor + complexity;
 
   const parts = [
     `${base}d base for ${focus} work`,
@@ -475,6 +584,20 @@ export function estimateRoadmapEffort(
   if (complexity > 0) {
     parts.push(`+${complexity}d for a complexity marker in the text`);
   }
+
+  if (scale === 'agent') {
+    // The AI-assistance discount is deliberately **not** applied. It grades a
+    // person working with AI help; applying it to an agent would discount the
+    // same fact twice, and the number it produced would be defensible from
+    // neither direction.
+    const minutes = Math.max(MIN_AGENT_ESTIMATE_MINUTES, Math.round(scopeDays * AGENT_MINUTES_PER_SCOPE_DAY));
+    parts.push(`×${AGENT_MINUTES_PER_SCOPE_DAY}min per scope-day for an agent (a declared prior, not a measurement)`);
+    parts.push('the AI-assistance discount does not apply — the agent is the assistance');
+    return { days: minutes / MINUTES_PER_DAY, rule: parts.join(', ') };
+  }
+
+  const raw = aiAssisted ? scopeDays * AI_ASSIST_MULTIPLIER : scopeDays;
+  const days = Math.max(MIN_ESTIMATE_DAYS, Math.round(raw * 2) / 2);
   parts.push(aiAssisted
     ? `×${AI_ASSIST_MULTIPLIER} for AI-assisted coding`
     : 'no AI-assistance discount applied');
@@ -485,23 +608,34 @@ export function estimateRoadmapEffort(
 export function resolveRoadmapEstimate(
   text: string,
   focus: RoadmapFocus,
-  record: Pick<RoadmapNodeRecord, 'estimateDays' | 'aiAssisted'> | undefined,
+  record: Pick<RoadmapNodeRecord, 'estimateDays' | 'aiAssisted' | 'assigneeId'> | undefined,
+  agentAssigneeIds?: ReadonlySet<string>,
 ): RoadmapEstimate {
+  const scale = roadmapEstimateScaleFor(record?.assigneeId, agentAssigneeIds);
   const aiAssisted = record?.aiAssisted !== false;
-  const derived = estimateRoadmapEffort(text, focus, aiAssisted);
-  const alternative = estimateRoadmapEffort(text, focus, !aiAssisted);
+  const derived = estimateRoadmapEffort(text, focus, aiAssisted, scale);
+  // On the agent scale the assistance toggle changes nothing, so the
+  // alternative is the same figure. Reporting a different one would offer a
+  // switch that does nothing, which is worse than offering none.
+  const alternative = scale === 'agent'
+    ? derived
+    : estimateRoadmapEffort(text, focus, !aiAssisted, scale);
   const declared = typeof record?.estimateDays === 'number'
     && Number.isFinite(record.estimateDays)
     && record.estimateDays > 0
-    ? Math.round(record.estimateDays * 2) / 2
+    // Rounded to the minute rather than the half-day: a declared agent estimate
+    // is a fraction of a day, and half-day rounding would take it to zero or
+    // inflate it twelvefold.
+    ? Math.round(record.estimateDays * MINUTES_PER_DAY) / MINUTES_PER_DAY
     : undefined;
 
   return declared === undefined
-    ? { days: derived.days, source: 'derived', rule: derived.rule, aiAssisted, alternativeDays: alternative.days }
+    ? { days: derived.days, source: 'derived', rule: derived.rule, scale, aiAssisted, alternativeDays: alternative.days }
     : {
       days: declared,
       source: 'declared',
-      rule: `Set by hand. The table would have graded this ${derived.days}d (${derived.rule}).`,
+      rule: `Set by hand. The table would have graded this ${formatRoadmapDuration(derived.days)} (${derived.rule}).`,
+      scale,
       aiAssisted,
       alternativeDays: alternative.days,
     };
@@ -557,7 +691,7 @@ export function describeRoadmapSchedule(input: {
     return {
       state: 'no-deadline',
       routeDays,
-      reason: `No deadline set. ${routeDays}d of work on this route.`,
+      reason: `No deadline set. ${formatRoadmapDuration(routeDays)} of work on this route.`,
     };
   }
   const daysLeft = daysUntilDeadline(deadline, now);
@@ -575,7 +709,7 @@ export function describeRoadmapSchedule(input: {
       state: 'at-risk',
       daysLeft,
       routeDays,
-      reason: `${routeDays}d of work still ahead on this route, and ${daysLeft}d left.`,
+      reason: `${formatRoadmapDuration(routeDays)} of work still ahead on this route, and ${daysLeft}d left.`,
     };
   }
   if (daysLeft <= 3) {
@@ -583,14 +717,14 @@ export function describeRoadmapSchedule(input: {
       state: 'due-soon',
       daysLeft,
       routeDays,
-      reason: `Due in ${daysLeft} day${daysLeft === 1 ? '' : 's'}; ${routeDays}d of work left.`,
+      reason: `Due in ${daysLeft} day${daysLeft === 1 ? '' : 's'}; ${formatRoadmapDuration(routeDays)} of work left.`,
     };
   }
   return {
     state: 'on-track',
     daysLeft,
     routeDays,
-    reason: `${daysLeft} days left, ${routeDays}d of work on this route.`,
+    reason: `${daysLeft} days left, ${formatRoadmapDuration(routeDays)} of work on this route.`,
   };
 }
 
@@ -826,6 +960,14 @@ export interface RoadmapGraphInput {
   items: readonly RoadmapGraphInputItem[];
   records: readonly RoadmapNodeRecord[];
   declaredEdges: readonly RoadmapEdge[];
+  /**
+   * Assignee ids that name an AI agent rather than a person.
+   *
+   * Supplied by the caller because only it can read the Director roster; the
+   * graph decides what to do with them. An item assigned to one of these is
+   * estimated in agent wall-clock rather than working days.
+   */
+  agentAssigneeIds?: readonly string[];
   /** Declared release gates in declared order, for the `gate-sequence` rule. */
   gateOrder?: readonly string[];
   /** Off when the project has turned auto-derivation off. Suggestions are then empty. */
@@ -928,9 +1070,10 @@ export function resolveRoadmapGraph(input: RoadmapGraphInput): RoadmapGraph {
 
   // Route days need prerequisites resolved first, so estimates are computed in
   // depth order and each node adds its own to the worst of its prerequisites'.
+  const agentAssigneeIds = new Set(input.agentAssigneeIds ?? []);
   const estimates = new Map<string, RoadmapEstimate>();
   for (const item of items) {
-    estimates.set(item.id, resolveRoadmapEstimate(item.text, item.focus, recordById.get(item.id)));
+    estimates.set(item.id, resolveRoadmapEstimate(item.text, item.focus, recordById.get(item.id), agentAssigneeIds));
   }
   const routeDays = computeRouteDays(items, prerequisites, depths, estimates, byId);
 
@@ -1112,6 +1255,12 @@ function reachesWithin(
  *
  * Completed prerequisites contribute nothing: they are drawn because they
  * explain how you got here, not because anybody still has to do them.
+ *
+ * Accumulated to the **minute**, not the half-day. Half-day rounding was
+ * harmless while nothing could be shorter than half a day, and became a bug the
+ * moment an item could be assigned to an agent: a twenty-minute piece of work
+ * rounds to zero, so a plan run entirely by agents reported a route of no work
+ * at all. Human estimates are still multiples of half a day and are unaffected.
  */
 function computeRouteDays(
   items: readonly RoadmapGraphInputItem[],
@@ -1131,7 +1280,7 @@ function computeRouteDays(
       }
       worstPrerequisite = Math.max(worstPrerequisite, routeDays.get(from) ?? 0);
     }
-    routeDays.set(item.id, Math.round((own + worstPrerequisite) * 2) / 2);
+    routeDays.set(item.id, Math.round((own + worstPrerequisite) * MINUTES_PER_DAY) / MINUTES_PER_DAY);
   }
   return routeDays;
 }

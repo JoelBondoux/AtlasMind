@@ -30,6 +30,7 @@ import type { ToolWebhookDispatcher } from './toolWebhookDispatcher.js';
 import { Planner } from './planner.js';
 import { TaskScheduler } from './taskScheduler.js';
 import { startWorktreeRun, type WorktreeRun } from './worktreeRun.js';
+import { commandSignal } from './capabilityOffer.js';
 import type { TaskProfiler } from './taskProfiler.js';
 import { scanMemoryEntry, scanTransientContext } from '../memory/memoryScanner.js';
 import { discoverTools, shouldOfferToolDiscovery, TOOL_DISCOVERY_SKILL_ID } from './toolDiscovery.js';
@@ -3707,11 +3708,20 @@ export class Orchestrator {
       difficulty.elapsedMs = Date.now() - startedAt;
 
       for (const entry of toolResults) {
+        // The executable only, never the arguments: an argument list carries
+        // paths, tokens and queries, and the one question anything asks of this
+        // is which tool the project keeps reaching for.
+        const commandName = commandSignal(
+          typeof entry.toolCall.arguments?.['command'] === 'string'
+            ? entry.toolCall.arguments['command']
+            : '',
+        );
         toolArtifacts.push({
           toolName: entry.toolCall.name,
           durationMs: entry.durationMs,
           checkpointed: entry.checkpointed,
           resultPreview: toTextPreview(entry.result),
+          ...(commandName === undefined ? {} : { commandName }),
         });
       }
 
