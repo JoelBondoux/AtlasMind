@@ -89,7 +89,7 @@ import {
 } from './providers/providerPricingSync.js';
 import { configureCurrencyFormatter, syncExchangeRates } from './core/currencyFormatter.js';
 import { syncLocalModels, isLocalSyncStale, LOCAL_MODEL_SYNC_CACHE_KEY, type LocalModelSyncResult } from './providers/localModelSync.js';
-import { syncLocalModelCatalog } from './providers/localModelCatalogSync.js';
+import { shouldSyncDownloadableCatalogue, syncLocalModelCatalog } from './providers/localModelCatalogSync.js';
 import type { DiscoveredModel } from './providers/adapter.js';
 import type { AgentDefinition, MemoryEntry, ModelInfo, ModelStruggleState, ProviderConfig, ProviderId, SkillDefinition, SkillExecutionContext, SkillScanResult, SpecialistDomain } from './types.js';
 import { ToolApprovalManager } from './core/toolApprovalManager.js';
@@ -4138,19 +4138,41 @@ async function bootstrapAtlasMind(
     await updateProviderStatusBar(coreReady.providerStatusBar, coreReady.providerRegistry, context.secrets, atlasContext!.modelRouter);
   });
   runBackgroundActivationTask('syncExchangeRates', outputChannel, async () => {
-    await syncExchangeRates(context.globalState);
+    // Nothing is fetched on a default installation: `displayCurrency` is USD,
+    // costs are recorded in USD, and no conversion is needed. The outcome is
+    // logged so a startup that *did* reach out says so.
+    const outcome = await syncExchangeRates(context.globalState, {
+      displayCurrency: vscode.workspace.getConfiguration('atlasmind').get<string>('displayCurrency', 'USD'),
+    });
+    if (outcome !== 'not-needed') {
+      outputChannel.appendLine(`[AtlasMind] Exchange rates: ${outcome}.`);
+    }
   });
+  // These two are sequenced rather than run in parallel, because the second
+  // depends on the answer to the first.
+  //
+  // `syncLocalModels` probes localhost only — that is what local-model discovery
+  // *is*, and nothing leaves the machine. `syncLocalModelCatalog` is a different
+  // proposition: it fetches from ollama.com and huggingface.co to enumerate
+  // models the user could *download*. It used to run unconditionally at every
+  // activation behind nothing but a TTL, so a fresh installation with no local
+  // runtime contacted two third parties on startup to build a catalogue of
+  // things it had no way to run. It now only asks once there is something on
+  // this machine to run them with.
   runBackgroundActivationTask('syncLocalModels', outputChannel, async () => {
     const cached = loadLocalModelSync(context.globalState);
-    if (cached && !isLocalSyncStale(cached)) return;
-    const result = await syncLocalModels();
-    if (result.models.length > 0) {
+    const stillFresh = cached !== undefined && !isLocalSyncStale(cached);
+    const result = stillFresh ? cached : await syncLocalModels();
+    if (!stillFresh && result.models.length > 0) {
       saveLocalModelSync(context.globalState, result);
       await atlasContext!.refreshProviderModels(false);
       outputChannel.appendLine(`[localModelSync] Synced ${result.models.length} local model(s) from ${result.reachableEndpoints.join(', ')}.`);
     }
-  });
-  runBackgroundActivationTask('syncLocalModelCatalog', outputChannel, async () => {
+
+    if (!shouldSyncDownloadableCatalogue(result)) {
+      outputChannel.appendLine('[localModelSync] No local model runtime found; skipping the downloadable-model catalogue.');
+      return;
+    }
     await syncLocalModelCatalog(context.globalState, context.extensionPath);
   });
 

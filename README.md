@@ -4,7 +4,7 @@
 
 <h1 align="center">AtlasMind</h1>
 
-<p align="center"><sub> · <strong>Current source version: 0.434.0</strong> · </sub></p>
+<p align="center"><sub> · <strong>Current source version: 0.435.0</strong> · </sub></p>
 
 
 <p align="center">
@@ -175,11 +175,17 @@ important limits on overrides and compliance claims.
 
 ---
 
-## What's new in 0.434.0
+## What's new in 0.435.0
 
 The last Marketplace publication, **v0.420.4**, brought the changes below. Every release is written
 up in full in [CHANGELOG.md](CHANGELOG.md).
 
+- **Starting the editor contacts nobody.** AtlasMind loads when VS Code starts, and two things
+  reached third parties from there that your settings never asked for: an exchange-rate lookup that
+  ran even though costs display in USD by default and needed no conversion, and a downloadable-model
+  catalogue fetched from two sites even on machines with no local model runtime installed. Both are
+  now gated on your own configuration actually needing them. There is no telemetry and never has
+  been.
 - **Model-written skills no longer run beside the extension.** AtlasMind can write a small skill for
   itself mid-task — off by default, and never without you reading the code and approving it. Until now
   that code was evaluated in the extension's own scope: eight ways of reaching the filesystem were

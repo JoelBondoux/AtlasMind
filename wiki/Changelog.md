@@ -19,6 +19,29 @@ Older entries below describe the software as it was at the time and are delibera
 
 ---
 
+## v0.435.0 -- Starting the editor contacts nobody
+
+AtlasMind loads when VS Code starts, so anything in that path runs on every machine, every launch.
+Two things reached third parties from there without your settings asking for it.
+
+**Exchange rates.** Costs are recorded in USD and displayed in USD by default, so no conversion is
+needed and the rate is never used — but the rate was fetched anyway, from `open.er-api.com`, on every
+startup, daily. That is not analytics by intent, and from the other end it makes no difference: an
+unsolicited request tells them an IP and a rough install count either way. Nothing is fetched now
+unless you have actually chosen another currency. Choosing *auto* is resolved to a real currency
+first, rather than being treated as one — otherwise every auto user would have fetched, including
+those whose locale is USD.
+
+**A catalogue of models you could download.** Fetched from ollama.com and huggingface.co behind
+nothing but a cache timer, so a fresh install with no local model runtime contacted two sites on
+startup to list things it had no way to run. It now runs after the localhost check and only when
+something is actually there.
+
+There is no telemetry in AtlasMind and never has been. These were not it — but "we don't collect
+anything" is worth less when the network says otherwise on every launch.
+
+---
+
 ## v0.434.0 -- A model-written skill stops running beside the extension
 
 AtlasMind can write a small skill for itself when a task needs a tool it doesn't have. It is off by

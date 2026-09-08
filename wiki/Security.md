@@ -263,6 +263,25 @@ network.
 Resource discovery gets the same treatment plus HTTPS enforcement, schema validation, depth-bounded
 federation, opt-in finders, and installs that arrive disabled.
 
+### Nothing is contacted just because the editor started
+
+**There is no telemetry in AtlasMind and there never has been.** No usage events, no install pings, no
+filenames, no repository identifiers. That is not a setting you have to find and switch off, because
+there is nothing to switch off.
+
+Two things did reach third parties at startup until v0.435.0, and neither was telemetry — which is
+rather the point, because from the other end an unsolicited request looks the same whatever its
+purpose:
+
+- **Exchange rates**, fetched from `open.er-api.com` on every launch. Costs display in USD by default
+  and need no conversion, so the answer was never used. Now fetched only if you have chosen another
+  currency.
+- **A catalogue of downloadable models**, fetched from ollama.com and huggingface.co behind a cache
+  timer, even on machines with no local model runtime. Now fetched only after a local runtime is found.
+
+Everything else that leaves your machine is something you configured: a model provider you gave a key
+to, an MCP server you enabled, a lens endpoint you declared, a page a tool was asked to fetch.
+
 ---
 
 ## Custom skills

@@ -300,6 +300,26 @@ interface CatalogCache {
  * Falls back to the bundled catalog if both APIs are unreachable.
  * No-ops if the cached copy is still within the 24-hour TTL.
  */
+/**
+ * Whether the downloadable-model catalogue is worth fetching.
+ *
+ * The catalogue lists models the user could install from ollama.com and
+ * huggingface.co. Until v0.435.0 it was fetched at every activation behind
+ * nothing but a TTL, so a fresh installation with no local runtime contacted
+ * two third parties on startup to enumerate things it had no way to run.
+ *
+ * A separate function rather than an `if` at the call site so the rule is
+ * testable on its own. Absent evidence is treated as *no runtime*: the local
+ * probe is cheap and always runs first, so "we did not look" and "there is
+ * nothing there" have the same right answer here, and the safe direction is
+ * not to reach out.
+ */
+export function shouldSyncDownloadableCatalogue(
+  localSync: { reachableEndpoints?: readonly string[] } | undefined,
+): boolean {
+  return (localSync?.reachableEndpoints?.length ?? 0) > 0;
+}
+
 export async function syncLocalModelCatalog(
   globalState: vscode.Memento,
   extensionPath: string,

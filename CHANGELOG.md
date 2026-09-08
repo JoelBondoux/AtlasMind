@@ -6,6 +6,44 @@ The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/),
 
 ## [Unreleased]
 
+## [0.435.0] - 2026-09-08
+
+### Fixed
+
+- **Starting the editor no longer contacts anybody.** AtlasMind activates on
+  `onStartupFinished`, so everything in `activate()` runs on every launch on every machine.
+  Two things reached third parties from there without the user's configuration asking for it.
+
+  `syncExchangeRates` fetched `open.er-api.com` unconditionally. `atlasmind.displayCurrency`
+  defaults to `USD`, costs are recorded in USD, and `getExchangeRate('USD')` returns 1 without
+  consulting the cache — so on a default installation every rate it fetched was dead weight,
+  and it fetched them anyway, daily. Not analytics by intent, but from the other end an
+  unsolicited request is an unsolicited request: `open.er-api.com` learned an IP and a rough
+  install count either way. It now returns `not-needed` and touches nothing unless a
+  non-USD currency is actually configured; `auto` is *resolved* rather than compared, since
+  upper-casing it to `"AUTO"` would have passed the USD check and fetched for every auto user
+  including the ones whose locale is USD.
+
+  `syncLocalModelCatalog` fetched ollama.com and huggingface.co behind nothing but a TTL, to
+  enumerate models the user could download. A fresh installation with no local runtime
+  contacted two third parties on startup to build a catalogue of things it had no way to run.
+  It is now sequenced after the localhost probe and gated on
+  `shouldSyncDownloadableCatalogue`, which treats absent evidence as *no runtime* — the probe
+  is cheap and always runs first, so "we did not look" and "there is nothing there" have the
+  same right answer.
+
+- **The rate sync reports its outcome instead of swallowing it.** `syncExchangeRates` returns
+  `not-needed` / `cached` / `fetched` / `failed`, and the caller logs anything that is not
+  `not-needed`. A currency silently displaying unconverted USD now has a reason somebody can
+  find.
+
+### Documentation
+
+- The previous doc comment called the rate sync "safe to call on every activation" because it
+  skipped the call when the cache was fresh. That was true and beside the point: the first
+  call on a new machine was never cached. Corrected, per the standing rule that "safe" is not
+  a word to use unless something enforces it.
+
 ## [0.434.0] - 2026-09-08
 
 ### Fixed

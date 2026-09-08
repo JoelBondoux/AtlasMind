@@ -147,6 +147,27 @@ Neither surface passes through a common capability decision. That is Phase 4's s
 
 ## 5. Activation-time behaviour
 
+> **Traced and closed in v0.435.0.** The four intervals are: memory self-heal (gated since v0.430.x),
+> follow-up reminders (local notifications, gated), the SSOT snippet refresh (gated three ways, §2),
+> and a 30-minute Copilot model re-query against VS Code's own Language Model API — no external call.
+>
+> The finding was not in the intervals but in the **seven `runBackgroundActivationTask` calls**. Two
+> reached third parties with nothing in the user's configuration asking for it: `syncExchangeRates`
+> (`open.er-api.com`, every launch, for a conversion the default `USD` setting never needs) and
+> `syncLocalModelCatalog` (ollama.com and huggingface.co, behind only a TTL, on machines with no local
+> runtime). Both are now gated; `tests/security/startupNetworkActivity.test.ts` drives the real
+> functions with `fetch` replaced rather than scanning source for `fetch(`, since a source scan passes
+> equally against a call that is made and discarded.
+>
+> `syncLocalModels` probes `localhost:11434` and `localhost:1234` unconditionally and is left alone:
+> nothing leaves the machine, and that probe *is* local-model discovery. The remaining three tasks are
+> local filesystem work or act only on what the user configured.
+>
+> Separately verified for the record: **there is no telemetry anywhere in `src/`**. Every match for
+> telemetry/analytics is prose describing other systems — testing-methodology copy, MCP server
+> descriptions, bootstrap document templates — or the workspace-local privacy-catch log, which is
+> stored on disk and never sent.
+
 `src/extension.ts` registers **five file-system watchers** (1953, 1966, 1979, 1992, 2005, plus 2619)
 and **four intervals** (1618, 2033, 2628, 4054) during activation, alongside `setTimeout` work at
 1590, 1681, 3188, 4436.
