@@ -585,3 +585,111 @@ describe('an attachment preview only loads a source it recognises', () => {
     expect(harness.window.document.getElementById('attachmentList')?.textContent).toContain('shot.png');
   });
 });
+
+describe('the context breakdown', () => {
+  let harness: Harness;
+
+  const meter = (overrides: Record<string, unknown> = {}) => ({
+    estimatedTokens: 800,
+    modelId: 'anthropic/claude-sonnet-5',
+    contextWindow: 4000,
+    contextChars: 3200,
+    charBudget: 2500,
+    turnCount: 4,
+    turnLimit: 6,
+    carriedTurns: 6,
+    budgetSummary: 'About 20% of the model window.',
+    budget: {
+      parts: [
+        {
+          id: 'session-history', label: 'Session history', describes: 'Earlier turns.',
+          chars: 2400, estimatedTokens: 600, sharePercent: 75, itemCount: 6, prunable: true,
+        },
+        {
+          id: 'attachments', label: 'Attachments', describes: 'Files you attached.',
+          chars: 800, estimatedTokens: 200, sharePercent: 25, itemCount: 2, prunable: true,
+        },
+      ],
+      unmeasured: [
+        { id: 'system-prompt', label: 'System prompt', describes: 'Role and guardrails.', chars: 0, estimatedTokens: 0, prunable: false },
+        { id: 'tool-schemas', label: 'Tool definitions', describes: 'Charged whether or not used.', chars: 0, estimatedTokens: 0, prunable: false },
+      ],
+      measuredChars: 3200,
+      measuredTokens: 800,
+      ceiling: { kind: 'model-window', label: "the model's window", tokens: 4000 },
+      usedRatio: 0.2,
+      headroomTokens: 3200,
+      trimOrder: ['session-history', 'attachments'],
+      pressure: 'comfortable',
+      caveat: 'Estimated from character counts, not the provider\'s own tokenizer.',
+      rules: [],
+    },
+    ...overrides,
+  });
+
+  beforeEach(() => {
+    harness = mountChatWebview();
+  });
+
+  const open = (overrides: Record<string, unknown> = {}) => {
+    harness.send(stateWith([USER_TURN], { contextMeter: meter(overrides) }));
+    harness.window.document.getElementById('contextMeterToggle')
+      .dispatchEvent(new harness.window.MouseEvent('click', { bubbles: true }));
+    return harness.window.document.getElementById('contextBreakdown');
+  };
+
+  it('stays closed until asked, so the composer is not permanently taller', () => {
+    harness.send(stateWith([USER_TURN], { contextMeter: meter() }));
+    expect(harness.window.document.getElementById('contextBreakdown').className).toContain('hidden');
+  });
+
+  it('lists each measured part with its size', () => {
+    const panel = open();
+    expect(panel.className).not.toContain('hidden');
+    expect(panel.textContent).toContain('Session history (6)');
+    expect(panel.textContent).toContain('600 tokens');
+    expect(panel.textContent).toContain('Attachments (2)');
+  });
+
+  it('names what it cannot measure instead of leaving it out', () => {
+    // A bar that only counts what it can see reads comfortable while the turn
+    // is full. Unmeasured parts carry no bar, because a zero-width bar would
+    // read as "nothing" — the one thing they do not mean.
+    const panel = open();
+    expect(panel.textContent).toContain('System prompt');
+    expect(panel.textContent).toContain('Tool definitions');
+    expect(panel.textContent).toContain('not measured here');
+    expect(panel.querySelectorAll('.context-part.is-unmeasured .context-part-bar')).toHaveLength(0);
+    expect(panel.querySelectorAll('.context-part:not(.is-unmeasured) .context-part-bar')).toHaveLength(2);
+  });
+
+  it('says what gets dropped first, and that the figures are estimates', () => {
+    const panel = open();
+    expect(panel.textContent).toContain('Dropped first when it fills: Session history.');
+    expect(panel.textContent).toContain('not the provider');
+  });
+
+  it('offers only smaller amounts to carry, and marks the current one', () => {
+    const panel = open();
+    const options = [...panel.querySelectorAll('[data-carry-turns]')]
+      .map(button => button.getAttribute('data-carry-turns'));
+
+    expect(options).toEqual(['6', '3', '1', '0']);
+    expect(options.every(value => Number(value) <= 6)).toBe(true);
+    expect(panel.querySelector('[data-carry-turns="6"]').getAttribute('aria-pressed')).toBe('true');
+  });
+
+  it('asks the host to carry fewer turns rather than deciding itself', () => {
+    const panel = open();
+    panel.querySelector('[data-carry-turns="1"]')
+      .dispatchEvent(new harness.window.MouseEvent('click', { bubbles: true }));
+
+    expect(harness.posted).toContainEqual({ type: 'setCarriedTurns', payload: 1 });
+  });
+
+  it('shows the prune that is in force, not the configured limit', () => {
+    const panel = open({ carriedTurns: 1 });
+    expect(panel.querySelector('[data-carry-turns="1"]').getAttribute('aria-pressed')).toBe('true');
+    expect(panel.querySelector('[data-carry-turns="6"]').getAttribute('aria-pressed')).toBe('false');
+  });
+});

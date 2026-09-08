@@ -21,7 +21,6 @@ This file is the developer-facing backlog AtlasMind should absorb into SSOT and 
 - [x] The Lens surfaces are not all accessible as they need a file selected. #mvp <!-- rm:the-lens-surfaces-are-not-al -->
 - [x] On the roadmap and ideation canvases allow for a drag box to select a number of nodes to allow them all to be moved together. #mvp <!-- rm:on-the-roadmap-and-ideation -->
 - [x] I think CTRL-MouseScroll on the project dashboard should zoom in/out in the same way that chromium browsers work. <!-- rm:i-think-ctrl-mousescroll-on -->
-- [ ] Add a way to manually and automatically sync github sponsors to the contributors md files using some pre-built and manual rulesets. This may need a new dashboard page. #mvp #critical <!-- rm:add-a-way-to-manually-and-au -->
 - [ ] When onboarding a new project an early stage user prompt should be given to write in their own words the outline, outcome or ambition of the project. This can then be parsed by AM to the Ideation board, and then to a roadmap filling out all the associated files as well. #mvp <!-- rm:when-onboarding-a-new-projec -->
 - [x] The number of agents being used (and not used) should impact the project score. The dash, should, however, identify when models and providers are having issues. #mvp <!-- rm:the-number-of-agents-being-u -->
 - [ ] The ui Studio should be able to tell where ui elements can be added and have them selectable so new or existing UI elements can be edited. #mvp <!-- rm:the-ui-studio-should-be-able -->
@@ -36,7 +35,7 @@ This file is the developer-facing backlog AtlasMind should absorb into SSOT and 
 - [ ] Inline / ghost-text completion in the editor (or at minimum an "AI edit at cursor" inline-diff command) — the most obvious gap vs Copilot/Cursor. <!-- rm:inline-ghost-text-completion -->
 - [ ] Scheduled / background autonomous agents — cron-style and background runs that report back (e.g. nightly dependency-update + test routine), building on existing `/ship` routines. #mvp <!-- rm:scheduled-background-autonom -->
 - [ ] Monorepo / multi-root workspace awareness: per-package SSOT scoping and routing. Specified in [project-composition.md](project-composition.md) — AtlasMind is single-root by construction today (123 of 130 `workspaceFolders` reads take `[0]`), and Phase 1 of the [game engine… #mvp <!-- rm:monorepo-multi-root-workspac -->
-- [ ] Context window / token budget visualizer: show what's in context and let users prune it. #mvp <!-- rm:context-window-token-budget -->
+- [x] Context window / token budget visualizer: show what's in context and let users prune it. #mvp <!-- rm:context-window-token-budget -->
 - [x] SAST / dependency-CVE integration wired into the Security and Dependency Manager agents via an advisory feed. #mvp <!-- rm:sast-dependency-cve-integrat -->
 - [ ] Project templates / scaffolds beyond `/bootstrap`: pick a stack, get a working starter with tests and CI wired in (complements the Prefab Architecture Packs above). #mvp <!-- rm:project-templates-scaffolds -->
 - [ ] **Reasoning-budget as a first-class routing axis** — extend budget + speed routing with a third "how hard to think" axis for extended-thinking / test-time-compute models. Natural home: TaskProfiler. Builds on the existing cache-aware, capability-sourced routing work. #mvp <!-- rm:reasoning-budget-as-a-first -->

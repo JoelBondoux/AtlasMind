@@ -19,6 +19,28 @@ Older entries below describe the software as it was at the time and are delibera
 
 ---
 
+## v0.455.0 -- What is in the context, and how to carry less
+
+The chat's meter answered one question: am I near the limit. The question people actually ask when a
+model forgets something -- what is in there, and why did it not know that? -- had no surface at all.
+
+Clicking the meter now opens a breakdown: each part with its size and share, and a line saying what
+gets dropped first when the window fills, which is nearly always the real answer.
+
+What the panel cannot measure is named rather than left out. The system prompt, the tool definitions
+and any images are charged against the same window, but they are assembled at submit time against a
+model the router has not picked yet -- so they are listed without a figure and kept out of every total.
+A bar that counts only what it can see reads comfortable while the turn is full, which is exactly the
+failure a meter exists to prevent. Every figure also says it is estimated from characters rather than
+from the provider's tokenizer.
+
+And one control does something about it: carry all, half, one or none of the earlier turns. It only
+ever asks for fewer -- your configured turn limit stays the ceiling -- it applies to the turn that
+actually runs rather than only to the bar, and it belongs to this conversation rather than becoming a
+setting the next project inherits.
+
+---
+
 ## v0.454.0 -- Does it reach your code?
 
 An advisory can now be handed to an agent, which completes what the last release started: the feed

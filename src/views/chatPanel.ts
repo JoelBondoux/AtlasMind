@@ -53,6 +53,12 @@ import { stripAnsiSequences } from '../utils/terminalOutput.js';
 import { answerConversationRecall, parseConversationRecallRequest } from '../core/conversationRecall.js';
 import { collectPickableModels, resolveModelOverride, type ModelOverride, type PickableModel } from './modelPickerShared.js';
 import { estimateTokens } from '../core/orchestrator.js';
+import {
+  buildContextBudgetReading,
+  describeContextBudget,
+  resolveCarriedTurns,
+} from '../core/contextBudget.js';
+import type { ContextBudgetReading, ContextPartInput } from '../core/contextBudget.js';
 import { redactSecrets } from '../utils/secretRedactor.js';
 
 import {
@@ -246,6 +252,17 @@ interface ChatContextMeter {
   charBudget: number;
   turnCount: number;
   turnLimit: number;
+  /**
+   * The same turn broken into its parts, plus the parts this panel cannot see.
+   *
+   * The bar answers 'am I near the limit'. This answers the question people
+   * actually ask when a model forgets something: what is in there, what goes
+   * first, and what can I do about it.
+   */
+  budget: ContextBudgetReading;
+  budgetSummary: string;
+  /** Turns being carried after any prune, so the control shows its own effect. */
+  carriedTurns: number;
 }
 
 interface ChatPanelState {
@@ -458,6 +475,15 @@ export class ChatPanel {
   private checkpointTaskIds: string[] = [];
   private activeSurface: 'chat' | 'run' = 'chat';
   private composerAttachments: ChatComposerAttachment[] = [];
+
+  /**
+   * How many earlier turns each session should carry, when somebody has pruned.
+   *
+   * Per session and per window, held here rather than written to settings:
+   * carrying less is a decision about the conversation in front of you, and a
+   * setting would make it the default for every project you open next.
+   */
+  private carriedTurnCaps = new Map<string, number>();
   private pendingComposerDraft: string | undefined;
   private pendingComposerMode: ComposerSendMode | undefined;
   private pendingDirectResponse: ChatPanelDirectResponse | undefined;
@@ -953,6 +979,13 @@ export class ChatPanel {
         return;
       case 'clearAttachments':
         this.composerAttachments = [];
+        await this.syncState();
+        return;
+      case 'setCarriedTurns':
+        // Held per session and only for this window: carrying less is a
+        // decision about the conversation in front of you, not a setting the
+        // next project should inherit.
+        this.carriedTurnCaps.set(this.selectedSessionId, message.payload);
         await this.syncState();
         return;
       case 'addDroppedItems':
@@ -1582,7 +1615,13 @@ export class ChatPanel {
     const sessionContext = sessionContextBundle
       ? ''
       : this.atlas.sessionConversation.buildContext({
-          maxTurns: configuration.get<number>('chatSessionTurnLimit', 6),
+          // The prune the panel is showing, applied to the turn that actually
+          // runs. A meter that promised to carry less and did not would be
+          // worse than no control at all.
+          maxTurns: resolveCarriedTurns(
+            configuration.get<number>('chatSessionTurnLimit', 6),
+            this.carriedTurnCaps.get(activeSessionId),
+          ),
           maxChars: configuration.get<number>('chatSessionContextChars', 2500),
           sessionId: activeSessionId,
         });
@@ -3617,8 +3656,11 @@ export class ChatPanel {
     if (typeof this.atlas.sessionConversation?.buildContext !== 'function') {
       return undefined;
     }
+    // The prune, applied here as well as at submit time so the meter shows the
+    // effect of the control rather than what would have been carried without it.
+    const carriedTurns = resolveCarriedTurns(turnLimit, this.carriedTurnCaps.get(this.selectedSessionId));
     const sessionContext = this.atlas.sessionConversation.buildContext({
-      maxTurns: turnLimit,
+      maxTurns: carriedTurns,
       maxChars: sessionContextChars,
       sessionId: this.selectedSessionId,
     });
@@ -3640,6 +3682,28 @@ export class ChatPanel {
       : undefined;
 
     const transcript = this.atlas.sessionConversation.getTranscript(this.selectedSessionId);
+
+    // The breakdown. Three parts are measured here and three are named without
+    // a figure: the system prompt, the tool schemas and any images are assembled
+    // by the Orchestrator at submit time against a model the router has not
+    // chosen yet, so measuring them here would mean guessing at both. Naming
+    // them keeps the total honest — see `unmeasured-is-named`.
+    const parts: ContextPartInput[] = [
+      { id: 'session-history', chars: sessionContext.trim().length, itemCount: carriedTurns },
+      { id: 'attachments', chars: attachmentText.trim().length, itemCount: this.composerAttachments.length },
+      { id: 'system-prompt' },
+      { id: 'tool-schemas' },
+      ...(this.composerAttachments.some(attachment => attachment.imageAttachment !== undefined)
+        ? [{ id: 'images' as const }]
+        : []),
+    ];
+    const budget = buildContextBudgetReading(
+      parts,
+      typeof contextWindow === 'number' && contextWindow > 0
+        ? { kind: 'model-window', label: `${modelId ?? 'the model'}'s window`, tokens: contextWindow }
+        : { kind: 'session-budget', label: 'session budget', chars: sessionContextChars },
+    );
+
     return {
       estimatedTokens: estimateTokens(carried),
       ...(modelId ? { modelId } : {}),
@@ -3648,6 +3712,9 @@ export class ChatPanel {
       charBudget: sessionContextChars,
       turnCount: Math.ceil(transcript.length / 2),
       turnLimit,
+      budget,
+      budgetSummary: describeContextBudget(budget),
+      carriedTurns,
     };
   }
 

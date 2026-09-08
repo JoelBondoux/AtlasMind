@@ -6,6 +6,33 @@ The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/),
 
 ## [Unreleased]
 
+## [0.455.0] - 2026-09-08
+
+### Added
+
+- **The chat's context meter opens into a breakdown, and you can prune what it carries.** The bar
+  answered one question — am I near the limit — so the question people actually ask when a model
+  forgets something had no surface at all: *what is in there, and why did it not know that?*
+
+  Clicking the meter now lists each part with its size and share — session history, attachments, your
+  draft — and says **what gets dropped first** when the window fills, which is nearly always the real
+  answer.
+
+  **What the panel cannot measure is named, not left out.** The system prompt, the tool definitions and
+  any images are charged against the same window, but they are assembled at submit time against a model
+  the router has not chosen yet, so measuring them here would mean guessing at both. They are listed
+  without a figure and kept out of every total: a bar that counts only what it can see reads
+  comfortable while the turn is full, which is exactly the failure a meter is supposed to prevent. And
+  every figure carries the caveat that it is estimated from characters rather than from the provider's
+  own tokenizer — a number that looks exact invites decisions it cannot support.
+
+  **One control changes it**: carry all, half, one or none of the earlier turns. It only ever asks for
+  *fewer* — `atlasmind.chatSessionTurnLimit` stays the ceiling, since a panel that could exceed it
+  would be a setting with no effect — it is held per session rather than written to settings, because
+  carrying less is a decision about the conversation in front of you, and it is applied to the turn
+  that actually runs as well as to the meter. A meter that promised to carry less and did not would be
+  worse than no control at all.
+
 ## [0.454.0] - 2026-09-08
 
 ### Added

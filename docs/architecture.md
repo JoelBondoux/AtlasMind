@@ -2291,6 +2291,16 @@ Pure — no clock, no `fs`, no model; day zero is "now" by construction because 
 
 On the dashboard it is a **fourth roadmap view** beside the canvas, the backlog and Delivered. Bars are placed as percentages of the horizon the host computed, so the chart reflows with the panel and needs no measurement pass — a way of *looking* at a plan must not be something that can fail — and the rules that drew it are printed at its foot.
 
+### ContextBudget (`src/core/contextBudget.ts`)
+
+What the next turn will carry, broken into its parts — and what the reading cannot see. The chat had a meter: one bar, one total, against the model window. It answered 'am I near the limit' and nothing else, so the question people actually ask — *why did it not know that?* — had no surface at all. The answer is almost always that something was trimmed, and nothing said what, in what order, or what could be done about it.
+
+Five rules. **An estimate is an estimate** — roughly four characters to a token, not the provider's tokenizer, and `CONTEXT_ESTIMATE_CAVEAT` travels on the reading itself rather than only in the rule list, because a number that looks exact invites decisions it cannot support. **Unmeasured is named, never zeroed**: the system prompt, the tool schemas and any images are charged against the same window and are assembled by the Orchestrator at submit time against a model the router has not chosen yet — measuring them in the panel would mean guessing at both, so they are listed without a figure and kept out of every total. **Headroom is not room** — the reply comes out of the same window. **The trim order is published**, because which part goes first is the answer to 'why did it not know that?'; the draft is deliberately absent from it, since trimming what somebody just typed would be indefensible. **Pruning changes the next turn, never one that has run.**
+
+`resolveCarriedTurns` is the prune: it clamps a request rather than refusing it, so a stale panel cannot stop a conversation, and it can never *raise* `chatSessionTurnLimit` — a control that could exceed the setting would be a setting with no effect. Zero is a legitimate answer, because carrying nothing is a real way to start again inside one session.
+
+On the panel the meter becomes a disclosure: the same bar, now a button, opening a breakdown that lists each measured part with its share, names the parts it cannot measure, says what is dropped first, repeats the caveat, and offers the one control that changes any of it. The cap is held per session in the panel rather than written to settings — carrying less is a decision about the conversation in front of you, not a default for the next project — and it is applied both to the meter and to the `buildContext` call the turn actually uses, because a meter that promised to carry less and did not would be worse than no control.
+
 ### AdvisoryFeed (`src/core/advisoryFeed.ts`)
 
 What is publicly known to be wrong with this project's code and its dependencies — the feed behind the Security page. That page could say whether a `SECURITY.md` exists and which dependency monitors were configured; it could not say whether any of them had *found* anything, so a repository with eleven open vulnerability alerts and one with none looked identical: four green governance cards either way.
