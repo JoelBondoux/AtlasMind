@@ -4,7 +4,7 @@
 
 <h1 align="center">AtlasMind</h1>
 
-<p align="center"><sub> · <strong>Current source version: 0.441.0</strong> · </sub></p>
+<p align="center"><sub> · <strong>Current source version: 0.442.0</strong> · </sub></p>
 
 
 <p align="center">
@@ -175,7 +175,7 @@ important limits on overrides and compliance claims.
 
 ---
 
-## What's new in 0.441.0
+## What's new in 0.442.0
 
 The last Marketplace publication, **v0.420.4**, brought the changes below. Every release is written
 up in full in [CHANGELOG.md](CHANGELOG.md).
@@ -187,7 +187,9 @@ up in full in [CHANGELOG.md](CHANGELOG.md).
   That is slower, and it is the correct behaviour. Turn on `execution.worktreeIsolation` and the
   parallelism comes back: each writing step gets its own git worktree, and its changes are applied to
   your files as its batch finishes. A step whose changes won't apply cleanly keeps its worktree and
-  tells you where it is, rather than being forced in or thrown away.
+  tells you where it is, rather than being forced in or thrown away. The second time a run queues
+  writers behind each other, AtlasMind offers you the setting — once, never modally, and never when
+  turning it on wouldn't have changed the run you just watched.
 - **Select several items and move them together, on both canvases.** Shift-drag on the roadmap or
   the ideation board draws a selection box; dragging any selected item moves the whole group. Plain
   dragging still pans, because panning is how you read a plan that doesn't fit on screen. On the

@@ -122,6 +122,65 @@ describe('the race is closed whether or not the feature is on', () => {
   });
 });
 
+describe('telling somebody the setting would have helped', () => {
+  function withAdvice(overrides: Partial<Parameters<typeof startWorktreeRun>[0]> = {}) {
+    const advised: number[] = [];
+    const run = startWorktreeRun({
+      runId: 'run',
+      workspaceRoot: ROOT,
+      runGit: fakeGit().run,
+      canRerootSkillContext: true,
+      isolationEnabled: false,
+      onSerialisedWriters: count => advised.push(count),
+      ...overrides,
+    });
+    return { run, advised };
+  }
+
+  it('reports how many writers are queueing behind each other', async () => {
+    const { run, advised } = withAdvice();
+    await run.partitionBatch([writer('a'), writer('b'), writer('c')]);
+    expect(advised).toEqual([3]);
+  });
+
+  it('stays quiet for a single writer, which is not a queue', async () => {
+    const { run, advised } = withAdvice();
+    await run.partitionBatch([writer('a'), reader('r')]);
+    expect(advised).toEqual([]);
+  });
+
+  it('stays quiet when the setting would not have changed anything', async () => {
+    // Offering a switch that would not have altered what somebody just watched
+    // is worse than saying nothing: they try it once and stop believing it.
+    const noGit = withAdvice({ runGit: undefined });
+    await noGit.run.partitionBatch([writer('a'), writer('b')]);
+    expect(noGit.advised).toEqual([]);
+
+    const testers = withAdvice();
+    await testers.run.partitionBatch([tester('t1'), tester('t2')]);
+    expect(testers.advised).toEqual([]);
+
+    const alreadyOn = withAdvice({ isolationEnabled: true });
+    await alreadyOn.run.partitionBatch([writer('a'), writer('b')]);
+    expect(alreadyOn.advised).toEqual([]);
+  });
+
+  it('speaks once per run, however many batches queue writers', async () => {
+    // A run is what somebody waited through; a batch is an implementation
+    // detail, and the same offer four times during one run is noise.
+    const { run, advised } = withAdvice();
+    await run.partitionBatch([writer('a'), writer('b')]);
+    await run.partitionBatch([writer('c'), writer('d')]);
+    await run.partitionBatch([writer('e'), writer('f')]);
+    expect(advised).toEqual([2]);
+  });
+
+  it('does not fail the run when the advice throws', async () => {
+    const { run } = withAdvice({ onSerialisedWriters: () => { throw new Error('no window'); } });
+    await expect(run.partitionBatch([writer('a'), writer('b')])).resolves.toHaveLength(2);
+  });
+});
+
 describe('isolation buys the parallelism back', () => {
   it('runs two writers together, each in its own tree', async () => {
     const git = fakeGit();

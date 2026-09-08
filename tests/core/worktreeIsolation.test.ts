@@ -5,6 +5,7 @@ import {
   describeWorktreeBatch,
   needsRealWorkingTree,
   placeSubTask,
+  serialisedWriterCount,
   planWorktreeBatch,
   writesWorkspace,
 } from '../../src/core/worktreeIsolation.ts';
@@ -89,6 +90,13 @@ describe('turning the feature off must not reintroduce the race', () => {
   it('serialises writers when there is no git repository', () => {
     expect(placeSubTask(WRITER, NO_GIT).placement).toBe('exclusive');
     expect(placeSubTask(WRITER, NO_GIT).rule).toBe('isolation-unavailable');
+  });
+
+  it('blames the missing repository, not the setting, when both are absent', () => {
+    // Placement is the same either way; the explanation is not. "Isolation is
+    // switched off" points at a switch that would not have helped, and somebody
+    // who tries it once and sees no change stops believing the next explanation.
+    expect(placeSubTask(WRITER, { enabled: false, gitAvailable: false }).rule).toBe('isolation-unavailable');
   });
 
   it('isolates a plain writer when it can', () => {
@@ -182,6 +190,26 @@ describe('the plan explains itself, and stays quiet when there is nothing to say
     const description = describeWorktreeBatch(planWorktreeBatch([TESTER], ON));
 
     expect(description).toBe('1 on its own because it runs commands or tests, which need the real working tree');
+  });
+
+  it('counts only the subtasks the setting itself is queueing', () => {
+    // The count exists to decide whether offering somebody the switch is
+    // honest. A subtask that runs commands, or one in a repository that cannot
+    // make worktrees, would be exclusive with the setting on too — counting
+    // those would offer a switch that changes nothing about what they watched.
+    const writers = [{ id: 'a', skills: ['file-edit'] }, { id: 'b', skills: ['file-write'] }];
+
+    expect(serialisedWriterCount(planWorktreeBatch(writers, OFF))).toBe(2);
+    expect(serialisedWriterCount(planWorktreeBatch(writers, NO_GIT))).toBe(0);
+    expect(serialisedWriterCount(planWorktreeBatch(writers, ON))).toBe(0);
+    expect(serialisedWriterCount(planWorktreeBatch([TESTER, TESTER], OFF))).toBe(0);
+    expect(serialisedWriterCount(planWorktreeBatch([READER, READER], OFF))).toBe(0);
+  });
+
+  it('counts a lone writer, leaving "one is not a queue" to the caller', () => {
+    // Reported as it is rather than floored to zero: the count is a fact, and
+    // the threshold is a decision the caller states in its own terms.
+    expect(serialisedWriterCount(planWorktreeBatch([{ id: 'a', skills: ['file-edit'] }], OFF))).toBe(1);
   });
 
   it('publishes a rule for every placement it can produce', () => {

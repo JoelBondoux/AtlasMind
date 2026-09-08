@@ -156,17 +156,20 @@ export function placeSubTask(
   if (!writesWorkspace(task)) {
     return { subTaskId: task.id, placement: 'shared', rule: 'read-only' };
   }
-  // Checked before the setting: a subtask that cannot run in a worktree is
-  // exclusive whether or not isolation is switched on, and reporting it as
-  // "disabled" would suggest turning something on would help.
+  // Both checked before the setting, for the same reason: a subtask that could
+  // not be isolated *anyway* is exclusive whether or not isolation is switched
+  // on, and calling that "disabled" would point somebody at a switch that would
+  // not have changed what they just watched. Ordering is the whole of the rule
+  // here — reversing either of these produces a placement that is right and an
+  // explanation that is wrong, which is the harder failure to notice.
   if (needsRealWorkingTree(task)) {
     return { subTaskId: task.id, placement: 'exclusive', rule: 'needs-working-tree' };
   }
-  if (!options.enabled) {
-    return { subTaskId: task.id, placement: 'exclusive', rule: 'isolation-disabled' };
-  }
   if (!options.gitAvailable) {
     return { subTaskId: task.id, placement: 'exclusive', rule: 'isolation-unavailable' };
+  }
+  if (!options.enabled) {
+    return { subTaskId: task.id, placement: 'exclusive', rule: 'isolation-disabled' };
   }
   return { subTaskId: task.id, placement: 'isolated', rule: 'writes-tracked-files' };
 }
@@ -223,6 +226,23 @@ export function worktreeBatchFromAssignments(
     waves,
     usesWorktrees: assignments.some(entry => entry.placement === 'isolated'),
   };
+}
+
+/**
+ * How many subtasks were serialised *only* because isolation is switched off.
+ *
+ * Keyed on the rule rather than counted from the placements, and that is the
+ * whole point: `needs-working-tree` and `isolation-unavailable` are also
+ * exclusive, and turning the setting on would not move either of them. Offering
+ * somebody a switch that will not change what they just watched is worse than
+ * saying nothing, because they will try it once and stop believing the advice.
+ *
+ * One is not a serialisation. A single writer is not being kept apart from
+ * anything, so isolation would buy it nothing and the count a caller should act
+ * on starts at two.
+ */
+export function serialisedWriterCount(plan: WorktreeBatchPlan): number {
+  return plan.assignments.filter(entry => entry.rule === 'isolation-disabled').length;
 }
 
 /**

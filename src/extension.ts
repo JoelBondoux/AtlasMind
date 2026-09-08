@@ -2430,6 +2430,7 @@ async function bootstrapAtlasMind(
         onQuotaUpdated: (pid, rem, tot) => quotaUpdatedRef(pid, rem, tot),
         onModelOutcomeRecorded: outcomes => persistExecutionOutcomes(context.globalState, outcomes),
         onModelStruggleRecorded: signals => persistModelStruggleSignals(context.globalState, signals),
+        onSerialisedWriters: count => offerWorktreeIsolation(context, count),
         onClassifiedContentForUntrustedModel: ({ matches }) => {
           const kinds = [...new Set(matches.map(m => m.label))].slice(0, 3).join(', ') || 'confidential data';
           void vscode.window.showWarningMessage(
@@ -5039,6 +5040,69 @@ function toDisplayModelName(modelId: string): string {
     .filter(Boolean)
     .map(part => part.charAt(0).toUpperCase() + part.slice(1))
     .join(' ');
+}
+
+const WORKTREE_ADVICE_SUPPRESSED_KEY = 'atlasmind.worktreeIsolation.adviceSuppressed';
+const WORKTREE_SERIALISED_RUNS_KEY = 'atlasmind.worktreeIsolation.serialisedRuns';
+
+/**
+ * Offer worktree isolation to somebody who has now watched it cost them twice.
+ *
+ * **Not on the first run.** The run's own progress line already says why it is
+ * slower than it used to be, and an offer arriving alongside the explanation is
+ * an interruption before anybody has a reason to care. The second time is when
+ * "this is slow again" has become a thing that happens to you rather than a
+ * sentence you read.
+ *
+ * **Never blocking, and never applied to the run in flight.** The placement for
+ * this run is already decided, so the message says the change takes effect next
+ * time rather than implying it will rescue the run you are watching. A modal
+ * here would stop a run to talk about its speed.
+ *
+ * **Counted per project, suppressed per person.** How often this has happened is
+ * a fact about this repository; "stop telling me" is a fact about you, and
+ * keeping it in workspace state would make it something you had to say again in
+ * every project.
+ *
+ * **Written to your own settings, not the workspace's.** A workspace update
+ * lands in `.vscode/settings.json`, which is a tracked file in plenty of
+ * repositories — turning on a personal speed preference should not produce a
+ * diff for somebody to review. It is safe globally because placement re-checks
+ * every run: a project without git simply serialises writers anyway.
+ */
+function offerWorktreeIsolation(context: vscode.ExtensionContext, count: number): void {
+  if (context.globalState.get<boolean>(WORKTREE_ADVICE_SUPPRESSED_KEY) === true) {
+    return;
+  }
+
+  const seen = (context.workspaceState.get<number>(WORKTREE_SERIALISED_RUNS_KEY) ?? 0) + 1;
+  void context.workspaceState.update(WORKTREE_SERIALISED_RUNS_KEY, seen);
+  if (seen < 2) {
+    return;
+  }
+
+  void vscode.window.showInformationMessage(
+    `This run will do ${count} file-changing steps one at a time, so they cannot overwrite each `
+    + 'other. Worktree isolation lets them run together again, each in its own copy of your files.',
+    'Turn it on',
+    'Not now',
+    'Don\'t ask again',
+  ).then(choice => {
+    if (choice === 'Turn it on') {
+      void vscode.workspace.getConfiguration('atlasmind')
+        .update('execution.worktreeIsolation', true, vscode.ConfigurationTarget.Global)
+        .then(
+          () => vscode.window.showInformationMessage(
+            'Worktree isolation is on for your projects. It applies from your next run — this one is already placed.',
+          ),
+          error => vscode.window.showWarningMessage(
+            `Could not save the setting: ${error instanceof Error ? error.message : String(error)}`,
+          ),
+        );
+    } else if (choice === 'Don\'t ask again') {
+      void context.globalState.update(WORKTREE_ADVICE_SUPPRESSED_KEY, true);
+    }
+  });
 }
 
 /**

@@ -6,6 +6,38 @@ The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/),
 
 ## [Unreleased]
 
+## [0.442.0] - 2026-09-08
+
+### Added
+
+- **AtlasMind offers worktree isolation once you have watched it cost you twice.** Serialising
+  writers made every run with more than one file-changing step slower, and the only thing saying so
+  was a progress line. From the *second* run in a workspace that queues writers behind each other, a
+  non-modal message offers the setting.
+
+  **Not on the first run**, because the progress line already explains it and an offer arriving
+  beside the explanation interrupts somebody who has no reason yet to care. **Never when turning it
+  on would not have helped** — `serialisedWriterCount` counts only subtasks placed exclusively *by
+  the setting*, never one that runs commands or one in a repository that cannot make worktrees;
+  offering a switch that would not have changed the run somebody just watched is worse than saying
+  nothing, because they try it once and stop believing the advice. **Once per run**, however many
+  batches queue writers: a run is what somebody waited through, a batch is an implementation detail.
+  **Never modal, and it does not claim to rescue the run in flight**, whose placement is already
+  decided.
+
+  Accepting it writes to your *user* settings rather than the workspace's: a workspace update lands
+  in `.vscode/settings.json`, a tracked file in plenty of repositories, and a personal speed
+  preference should not produce a diff for somebody to review.
+
+### Fixed
+
+- **A writer in a repository that cannot make worktrees was blamed on the setting.** With isolation
+  off *and* no git, `placeSubTask` reported `isolation-disabled` — pointing at a switch that would
+  not have helped. `gitAvailable` is now checked before the setting, alongside `needsRealWorkingTree`
+  and for the same stated reason. All three orderings produce the same placement and different
+  explanations, and a placement that is right with an explanation that is wrong is the harder failure
+  to notice.
+
 ## [0.441.0] - 2026-09-08
 
 ### Fixed

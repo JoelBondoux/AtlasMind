@@ -4,6 +4,7 @@ import { MAX_SCHEDULER_CONCURRENCY } from '../constants.js';
 import {
   describeWorktreeBatch,
   placeSubTask,
+  serialisedWriterCount,
   worktreeBatchFromAssignments,
   type WorktreeAssignment,
   type WorktreeIsolationOptions,
@@ -71,6 +72,19 @@ export interface WorktreeRunOptions {
   isolationEnabled: boolean;
   /** Told how the batch was placed, and where any unmerged work was left. */
   onNotice?: (message: string) => void;
+  /**
+   * Told, once per run, that this run is paying for serialisation the setting
+   * would have removed — with how many subtasks are queueing behind each other.
+   *
+   * Separate from `onNotice` because it is not a line of text: the host decides
+   * whether the operator has seen this often enough to be worth interrupting,
+   * and that decision needs the number rather than a sentence containing it.
+   * Only fires when isolation would genuinely have helped, never for a subtask
+   * that runs commands or one whose repository cannot make worktrees — offering
+   * a switch that would not have changed what somebody just watched is worse
+   * than saying nothing.
+   */
+  onSerialisedWriters?: (count: number) => void;
 }
 
 export interface WorktreeRun {
@@ -116,6 +130,7 @@ export function startWorktreeRun(options: WorktreeRunOptions): WorktreeRun {
   /** Live worktrees only. An entry leaves as soon as its wave is merged. */
   const live = new Map<string, string>();
   let lastDescription = '';
+  let reportedSerialisation = false;
 
   const partitionBatch = async (tasks: SubTask[]): Promise<SubTask[][]> => {
     const assignments: WorktreeAssignment[] = [];
@@ -139,6 +154,19 @@ export function startWorktreeRun(options: WorktreeRunOptions): WorktreeRun {
     if (description && description !== lastDescription) {
       lastDescription = description;
       notify(`Running ${description}.`);
+    }
+
+    // At most once per run, however many batches queue writers. A run is what
+    // somebody waited through; a batch is an implementation detail, and offering
+    // the same switch four times during one run is how an offer becomes noise.
+    const serialised = serialisedWriterCount(batchPlan);
+    if (serialised > 1 && !reportedSerialisation) {
+      reportedSerialisation = true;
+      try {
+        options.onSerialisedWriters?.(serialised);
+      } catch {
+        // Advice is never worth failing a run over.
+      }
     }
 
     const byId = new Map(tasks.map(task => [task.id, task]));

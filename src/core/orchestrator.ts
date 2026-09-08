@@ -605,6 +605,7 @@ export class Orchestrator {
   private readSettingHook?: OrchestratorHooks['readSetting'];
   private resolveWorkflowStageLevelsHook?: OrchestratorHooks['resolveWorkflowStageLevels'];
   private runGitHook?: OrchestratorHooks['runGit'];
+  private onSerialisedWritersHook?: OrchestratorHooks['onSerialisedWriters'];
 
   constructor(
     private agents: AgentRegistry,
@@ -633,6 +634,7 @@ export class Orchestrator {
     this.readSettingHook = hooks?.readSetting;
     this.resolveWorkflowStageLevelsHook = hooks?.resolveWorkflowStageLevels;
     this.runGitHook = hooks?.runGit;
+    this.onSerialisedWritersHook = hooks?.onSerialisedWriters;
     this.classifier = new ClassifierService(router, providers, taskProfiler);
     this.cfg = { ...defaultConfig, ...config };
 
@@ -2718,6 +2720,7 @@ export class Orchestrator {
       canRerootSkillContext: typeof this.skillContext.withResolutionRoot === 'function',
       isolationEnabled: this.readSetting<boolean>('execution.worktreeIsolation', false) === true,
       onNotice: message => onProgress?.({ type: 'notice', message }),
+      ...(this.onSerialisedWritersHook ? { onSerialisedWriters: this.onSerialisedWritersHook } : {}),
     });
   }
 

@@ -19,6 +19,27 @@ Older entries below describe the software as it was at the time and are delibera
 
 ---
 
+## v0.442.0 -- Being told about the speed setting, once
+
+Serialising writers made runs slower, and the only thing saying so was a line in the progress log.
+The second time a run in a project queues writing steps behind each other, AtlasMind now offers you
+the setting that gives the speed back.
+
+The second time, not the first — the first run already explains itself, and an offer arriving
+alongside the explanation interrupts you before you have a reason to care. Once per run, however
+many batches are involved. Never as a dialog you have to dismiss. And never when turning it on
+wouldn't have changed the run you just watched: a step that runs tests, or a project without git,
+would have run alone either way, and being offered a switch that does nothing is how you learn to
+ignore the next suggestion.
+
+Saying yes changes your own settings rather than the project's, so it doesn't leave a change for
+your colleagues to review.
+
+Also fixed: with the setting off *and* no git repository, a step was reported as being queued
+because the setting was off — pointing at a switch that wouldn't have helped.
+
+---
+
 ## v0.441.0 -- Two steps can no longer overwrite each other
 
 When AtlasMind broke a job into steps, it ran up to five of them at once against one copy of your

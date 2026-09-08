@@ -1378,6 +1378,19 @@ export interface OrchestratorHooks {
    */
   runGit?: (args: readonly string[], cwd: string, stdin?: string) => Promise<string>;
 
+  /**
+   * This run is queueing subtasks behind each other only because worktree
+   * isolation is off, and how many.
+   *
+   * Fires at most once per run, and only when turning the setting on would
+   * genuinely have changed the run — never for a subtask that runs commands or
+   * a repository that cannot make worktrees. The host decides whether to
+   * interrupt: the first time this happens the progress line already explains
+   * it, and an offer is worth making once somebody has watched it cost them
+   * something.
+   */
+  onSerialisedWriters?: (count: number) => void;
+
   /** Gate function that determines whether a tool invocation should proceed. */
   toolApprovalGate?: (
     taskId: string,
