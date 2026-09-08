@@ -575,6 +575,54 @@ describe('arranging the canvas', () => {
     }
   });
 
+  it('puts an edge glow out when a drag-pan brings the plan back into the frame', () => {
+    // The wheel pans through `rmApplyViewTransform`, which refreshes the hints;
+    // a drag writes the transform itself and used to leave them saying what was
+    // true before the gesture. Sideways is exactly how a wide plan is read, so
+    // the horizontal strips stayed lit over nodes that were back on screen.
+    const harness = mount();
+    pinFrameSize(harness, 200, 200);
+    harness.send(snapshot());
+    harness.click('[data-action="page"][data-payload="roadmap"]');
+
+    const frame = harness.root().querySelector('[data-rm-frame="true"]');
+    expect(frame.className).toContain('has-off-right');
+
+    const drag = (type: string, init: Record<string, unknown> = {}): void => {
+      frame.dispatchEvent(new harness.window.MouseEvent(type, { bubbles: true, button: 0, ...init }));
+    };
+    // beta sits at x=400 in a 200px frame; pulling the world 300px left brings it
+    // in without pushing alpha (x=80) off the other side.
+    drag('pointerdown', { clientX: 400, clientY: 100 });
+    drag('pointermove', { clientX: 100, clientY: 100 });
+
+    expect(frame.className, 'the right strip must go out once beta is in view').not.toContain('has-off-right');
+    expect(frame.className, 'and the drag must not light the other side').not.toContain('has-off-left');
+  });
+
+  it('measures the real right edge of a card rather than assuming the nominal width', () => {
+    // A card is given `RM_NODE_WIDTH` of *content*; its padding and borders put
+    // another 24px on the far side. Assuming the constant reported the right
+    // edge further left than it is, so the left strip stayed lit over a card
+    // still poking into the frame.
+    const harness = mount();
+    pinFrameSize(harness, 200, 200);
+    Object.defineProperty(harness.window.HTMLElement.prototype, 'offsetWidth', { value: 274, configurable: true });
+    harness.send(snapshot());
+    harness.click('[data-action="page"][data-payload="roadmap"]');
+
+    const frame = harness.root().querySelector('[data-rm-frame="true"]');
+    // alpha sits at x=80. Panned 340px left, its nominal right edge (80 + 250)
+    // is 10px past the frame while its real one (80 + 274) is 14px inside it.
+    // Through the wheel rather than a drag, so this asserts the measurement and
+    // not the refresh the test above covers.
+    frame.dispatchEvent(new harness.window.WheelEvent('wheel', {
+      bubbles: true, cancelable: true, deltaX: 340, deltaY: 0,
+    }));
+
+    expect(frame.className, 'a sliver of the card is still on screen').not.toContain('has-off-left');
+  });
+
   it('does nothing rather than throwing when there is nothing to fit', () => {
     const harness = mount();
     harness.send(snapshot({ active: [], edges: [], suggested: [], routes: {} }));

@@ -3468,11 +3468,17 @@
       for (const el of root.querySelectorAll('[data-rm-node]')) {
         const x = parseFloat(el.style.left) || 0;
         const y = parseFloat(el.style.top) || 0;
+        // Both measured, not assumed. `RM_NODE_WIDTH` is the *content* width the
+        // card is given; its padding and borders put another 24px on the far
+        // side, so the constant reports a card's right edge as further left than
+        // it is and the left strip stayed lit over a card already back in the
+        // frame. Same rule as the height, for the same reason.
+        const width_ = el.offsetWidth || RM_NODE_WIDTH;
         const height_ = el.offsetHeight || RM_NODE_HEIGHT;
         // Wholly past the edge, not merely crossing it: a card half off the
         // right side is one you can see, and pointing at it would mean the
         // strips were lit almost permanently and so worth nothing.
-        if ((x + RM_NODE_WIDTH) * zoom + pan.x < 0) { off.left = true; }
+        if ((x + width_) * zoom + pan.x < 0) { off.left = true; }
         if (x * zoom + pan.x > width) { off.right = true; }
         if ((y + height_) * zoom + pan.y < 0) { off.top = true; }
         if (y * zoom + pan.y > height) { off.bottom = true; }
@@ -3919,6 +3925,16 @@
       if (world instanceof HTMLElement) {
         world.style.transform = 'translate(' + state.roadmapPan.x + 'px, ' + state.roadmapPan.y + 'px) scale(' + state.roadmapZoom + ')';
       }
+      // The edge hints answer "does the plan continue that way", so they have to
+      // be recomputed by whatever moved the view. This path writes the transform
+      // itself rather than going through `rmApplyViewTransform`, and so used to
+      // leave them saying what was true before the drag: a strip lit before you
+      // panned stayed lit after the node it pointed at was back on screen. The
+      // wheel pans through `rmApplyViewTransform`, which is why the vertical
+      // strips looked right and dragging — the way a wide plan is read
+      // sideways — did not. Nothing here changes layout, so the measurements
+      // this reads are already settled and cost no reflow.
+      rmUpdateEdgeHints();
       return;
     }
     if (rmDrag.kind === 'marquee') {

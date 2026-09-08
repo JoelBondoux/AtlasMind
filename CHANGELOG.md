@@ -6,6 +6,23 @@ The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/),
 
 ## [Unreleased]
 
+## [0.449.1] - 2026-09-08
+
+### Fixed
+
+- **The roadmap canvas's edge glow goes out when you drag the plan back into view.** The four strips
+  say *the plan continues that way*, which is only useful if whatever moved the view recomputes them.
+  The wheel did; a drag-pan wrote the world transform itself and left the strips saying what was true
+  before the gesture, so a lit strip stayed lit over a card that was back on screen. That is why the
+  top and bottom strips looked right — a plain wheel scrolls vertically and went through the path that
+  refreshes them — while the horizontal pair, the ones you reach for a drag to move, did not.
+
+  A card's right edge is now measured rather than assumed, too. `RM_NODE_WIDTH` is the *content*
+  width a card is given; its padding and borders put another 24px on the far side, so the constant
+  reported the right edge further left than it is and the left strip stayed lit over a card still
+  poking into the frame. The height was already measured for exactly this reason; the width now
+  follows the same rule.
+
 ## [0.449.0] - 2026-09-08
 
 ### Added

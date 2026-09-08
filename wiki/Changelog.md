@@ -19,6 +19,18 @@ Older entries below describe the software as it was at the time and are delibera
 
 ---
 
+## v0.449.1 -- The edge glow lets go
+
+The roadmap canvas glows along an edge when the plan continues past it. Dragging the plan back into
+view did not put the glow out: the wheel recomputed the strips and a drag did not, which is why the
+top and bottom pair behaved and the left and right pair — the ones you drag to reach — stayed lit
+over cards that were already on screen.
+
+A card's right edge is measured now rather than assumed from the nominal card width, which had the
+left strip lighting over a card still poking into the frame.
+
+---
+
 ## v0.449.0 -- Noticing what you keep reaching for
 
 If your runs shell out to `gh` again and again, there is probably a GitHub MCP server that would suit
