@@ -25,6 +25,13 @@ Start here. If you change nothing else, change these.
 | `atlasmind.toolApprovalMode` | `ask-on-write` | How often you get asked. See the note below — the four modes are not one ladder |
 | `atlasmind.autoVerifyAfterWrite` | `true` | Leave this on. It runs your own checks after every change |
 | `atlasmind.ssotPath` | `project_memory` | Where project memory lives. Change it only if that folder name clashes with something |
+| `atlasmind.producerReport.publishEnabled` | `false` | Lets the producer report be prepared for GitHub Pages. **A Pages site is public even from a private repository** — access control is an Enterprise Cloud feature. On its own this publishes roadmap progress and delivery readiness, nothing else |
+| `atlasmind.producerReport.publishRisks` | `false` | Adds the risk register to the published page — commercial, legal and ethical findings, and the decisions recorded against them |
+| `atlasmind.producerReport.publishCost` | `false` | Adds cost against estimate to the published page. Compounds with the setting below: spend committed to the repository *and* published becomes public |
+| `atlasmind.memory.backgroundSummarizationMode` | `off` | Whether a background timer may refresh memory snippets with a model. **Off by default** — that path reads your project-memory files and would send up to 4,000 characters of one to whichever provider routing picked. `local-only` is checked against the provider that would actually receive the data and never falls back to the cloud; `routed` names each external destination in the output channel |
+| `atlasmind.memory.selfHealingMode` | `report-only` | What background memory maintenance may do to your project files. The default detects and reports but never writes. Anything it computed and withheld is reported, so silence never has two meanings |
+| `atlasmind.cost.comparisonModel` | *(empty)* | Model to re-price your spend against, so cost surfaces can say what the same work would have cost elsewhere. Empty by default: the choice decides what the saving is a saving *against*, and picking one for you would be making the claim on your behalf |
+| `atlasmind.cost.historyLocation` | `machine-private` | Where this project's spend history lives. Private keeps it out of the repository; `repository` makes it diffable and lets the producer report carry cost for someone who never opens VS Code. Changing it moves the existing history and tells you how many records moved |
 
 
 ### The four approval modes are not one ladder

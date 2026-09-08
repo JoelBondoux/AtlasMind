@@ -49,6 +49,15 @@ export interface RoadmapItemCost {
    */
   inferredRequestCount: number;
   explicitRequestCount: number;
+  /**
+   * Requests whose model had no known price.
+   *
+   * Their `costUsd` is a placeholder zero, so a total including them understates
+   * real spend by an unknown amount. Counted rather than excluded: dropping them
+   * would understate the *request* count too, and the honest statement is "this
+   * cost £X across N requests, M of which could not be priced".
+   */
+  unpricedRequestCount: number;
 }
 
 export interface RoadmapCostReport {
@@ -89,9 +98,11 @@ export function buildRoadmapCostReport(records: readonly CostRecord[]): RoadmapC
       outputTokens: 0,
       inferredRequestCount: 0,
       explicitRequestCount: 0,
+      unpricedRequestCount: 0,
     };
     existing.costUsd += record.costUsd;
     existing.requestCount += 1;
+    if (record.unpriced) { existing.unpricedRequestCount += 1; }
     existing.inputTokens += record.inputTokens;
     existing.outputTokens += record.outputTokens;
     // An unknown provenance is counted as inferred rather than explicit: the
@@ -125,6 +136,14 @@ export interface RoadmapItemSpendView {
   requestCount: number;
   /** True when every attributed request was inferred from a session rather than stated. */
   whollyInferred: boolean;
+  /**
+   * Requests counted here whose model had no known price.
+   *
+   * Non-zero means `costUsd` is a floor: real spend is higher by an unknown
+   * amount, and a surface must say so rather than present the figure as
+   * complete.
+   */
+  unpricedRequestCount: number;
   /** Present only when the item carries an estimate. */
   estimateUsd?: number;
   /** Actual minus estimate. Present only when both exist; absent is not zero. */
@@ -156,6 +175,7 @@ export function roadmapItemSpendView(
     costUsd,
     requestCount,
     whollyInferred: requestCount > 0 && (found?.explicitRequestCount ?? 0) === 0,
+    unpricedRequestCount: found?.unpricedRequestCount ?? 0,
     ...(hasEstimate ? { estimateUsd } : {}),
     ...(hasEstimate && requestCount > 0
       ? { varianceUsd: costUsd - estimateUsd, overEstimate: costUsd > estimateUsd }

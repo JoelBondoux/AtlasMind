@@ -117,20 +117,52 @@ export function getExchangeRate(currency: string): number {
   return rateCache?.rates[currency] ?? 1;
 }
 
+/** Why a sync did or did not reach the network. Returned so a caller can log it. */
+export type ExchangeRateSyncOutcome =
+  | 'not-needed'
+  | 'cached'
+  | 'fetched'
+  | 'failed';
+
 /**
- * Fetches fresh exchange rates from open.er-api.com (USD base) and stores them
- * in globalState with a 24-hour TTL. Safe to call on every activation — it
- * skips the network call if the cached data is still fresh.
+ * Fetch USD-base exchange rates into `globalState` with a 24-hour TTL.
  *
- * Call this once from extension.ts `activate()`.
+ * **Does nothing at all when no conversion is needed**, which is the default.
+ * `atlasmind.displayCurrency` defaults to `USD`, costs are recorded in USD, and
+ * `getExchangeRate('USD')` returns 1 without consulting the cache — so on a
+ * default installation every rate this fetched was dead weight. It ran anyway,
+ * unconditionally, from `activate()`: an outbound HTTPS request to a third
+ * party within moments of the editor opening, on every machine, repeating
+ * daily. Nobody asked for it and nothing used the answer.
+ *
+ * That is not analytics by intent, but it is indistinguishable from a beacon
+ * from the other end — `open.er-api.com` learns an IP and a rough install
+ * count either way. The rule this now follows is the plain one: a third party
+ * is contacted when the user's own configuration needs something from it.
+ *
+ * The previous doc comment called this "safe to call on every activation"
+ * because it skipped the call when the cache was fresh. That was true and
+ * beside the point: the first call on a new machine was never cached.
  */
-export async function syncExchangeRates(globalState: CurrencyFormatterState): Promise<void> {
+export async function syncExchangeRates(
+  globalState: CurrencyFormatterState,
+  options?: { displayCurrency?: string },
+): Promise<ExchangeRateSyncOutcome> {
+  // `auto` is resolved rather than compared: it is a *request to detect*, not a
+  // currency, and upper-casing it to "AUTO" would pass the USD check and fetch
+  // for every auto user including the ones whose locale is USD.
+  const requested = (options?.displayCurrency ?? '').trim().toUpperCase();
+  const currency = (requested && requested !== 'AUTO') ? requested : getDisplayCurrency().toUpperCase();
+  if (currency === 'USD') {
+    return 'not-needed';
+  }
+
   const stored = globalState.get<ExchangeRateCache>(EXCHANGE_RATE_STORAGE_KEY);
   const now = Date.now();
 
   if (stored && now - stored.fetchedAt < EXCHANGE_RATE_TTL_MS) {
     rateCache = stored;
-    return;
+    return 'cached';
   }
 
   try {
@@ -148,11 +180,15 @@ export async function syncExchangeRates(globalState: CurrencyFormatterState): Pr
     const fresh: ExchangeRateCache = { rates: data.rates, fetchedAt: now };
     rateCache = fresh;
     await globalState.update(EXCHANGE_RATE_STORAGE_KEY, fresh);
+    return 'fetched';
   } catch {
-    // Use stale cache if available; silently degrade to 1:1 if not
+    // Use stale cache if available; degrade to 1:1 if not. Reported rather than
+    // swallowed: the caller logs the outcome, so a currency silently showing
+    // unconverted USD has a reason somebody can find.
     if (stored) {
       rateCache = stored;
     }
+    return 'failed';
   }
 }
 

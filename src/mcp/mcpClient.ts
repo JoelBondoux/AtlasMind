@@ -14,7 +14,7 @@ import * as os from 'node:os';
 import { existsSync, readdirSync } from 'node:fs';
 import * as vscode from 'vscode';
 import { Client } from '@modelcontextprotocol/sdk/client/index.js';
-import { StdioClientTransport } from '@modelcontextprotocol/sdk/client/stdio.js';
+import { StdioClientTransport, getDefaultEnvironment } from '@modelcontextprotocol/sdk/client/stdio.js';
 import { SSEClientTransport } from '@modelcontextprotocol/sdk/client/sse.js';
 import { StreamableHTTPClientTransport } from '@modelcontextprotocol/sdk/client/streamableHttp.js';
 import type { McpServerConfig, McpConnectionStatus, McpToolInfo } from '../types.js';
@@ -165,9 +165,25 @@ export class McpClient {
       return new StdioClientTransport({
         command: normalizedLaunch.command,
         args: normalizedLaunch.args,
+        // Declared variables layered onto the SDK's *safe* default set, not
+        // onto `process.env`.
+        //
+        // This read `{ ...process.env, ...declared }`, which had a perverse
+        // shape: a server declaring **no** variables got `undefined` and
+        // therefore the SDK's `getDefaultEnvironment()` — a deliberately
+        // filtered list — while a server declaring a single one inherited the
+        // entire extension-host environment. So asking for `GITHUB_TOKEN` also
+        // handed over every other credential the editor was started with:
+        // `ANTHROPIC_API_KEY`, `AWS_*`, npm tokens, whatever is in the user's
+        // shell. The declaration made the server *more* trusted, which is
+        // exactly backwards.
+        //
+        // The full environment was never required: what a server needs to run
+        // is `PATH` and friends, which is what the default set is for, plus the
+        // variables it actually declared.
         env: this.config.env
           ? {
-            ...process.env,
+            ...getDefaultEnvironment(),
             ...Object.fromEntries(
               Object.entries(this.config.env).map(([key, value]) => [key, resolveMcpTemplateValue(value, this.config.name)]),
             ),

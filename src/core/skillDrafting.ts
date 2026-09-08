@@ -1,3 +1,5 @@
+import { Script, createContext, runInContext } from 'node:vm';
+
 import type { SkillDefinition } from '../types.js';
 
 const SKILL_CODE_BLOCK = /```(?:javascript|js)?\s*([\s\S]*?)```/i;
@@ -80,21 +82,63 @@ export interface SkillLoadError {
   error: string;
 }
 
+/** Bounds a generated module's *top level*, which runs the moment it is evaluated. */
+const SKILL_EVALUATION_TIMEOUT_MS = 2_000;
+
 /**
- * Evaluate CommonJS skill source in-process and return the exported SkillDefinition.
- * Used by auto-synthesis to avoid a filesystem round-trip during the agentic loop.
+ * Everything the generated module can see, defined **inside** the context.
+ *
+ * Written as source rather than assigned onto the context object, and that is
+ * the whole trick: a host function placed on a context is reachable as
+ * `require.constructor.constructor`, which is the Function constructor of the
+ * *host* realm and hands back `process`. Objects minted inside the context have
+ * the context's own prototype chain, so the same expression yields nothing.
+ * Measured both ways before choosing.
+ */
+const CONTEXT_PRELUDE = [
+  'var module = { exports: {} };',
+  'var exports = module.exports;',
+  'var require = function (id) {',
+  '  throw new Error("require(\\"" + id + "\\") is not permitted in a generated skill.");',
+  '};',
+].join('\n');
+
+/**
+ * Evaluate CommonJS skill source and return the exported SkillDefinition.
+ *
+ * **This is containment, not a sandbox, and the difference is not pedantry.**
+ * Evaluation happens in a fresh `node:vm` context with no ambient globals, which
+ * closes every route measured against the previous implementation. What it does
+ * not close is the skill's own execution surface: `execute(args, ctx)` receives
+ * a real `SkillExecutionContext`, and any host object handed across the boundary
+ * carries its own realm's `Function` on its prototype chain —
+ * `ctx.readFile.constructor.constructor('return process')()` reaches the host.
+ * That is inherent to giving a skill callbacks at all, so it is stated here,
+ * pinned by a test, and answered by the approval gate rather than by pretending
+ * the boundary is stronger than it is.
+ *
+ * What changed, measured rather than argued. The previous implementation was
+ * `new Function('module','exports','require', source)`, whose body runs in the
+ * extension host's own global scope with a `require` parameter that throws.
+ * Eight routes to `node:fs` were tried against it; **seven reached**, including
+ * `import('node:fs')` (dynamic import is syntax, not the shadowed identifier)
+ * and `process.mainModule.require('node:fs')`. Against this implementation all
+ * eight are refused at evaluation — `import()` throws *"A dynamic import
+ * callback was not specified"* because none is supplied, and `process` is
+ * simply not a name in the context.
+ *
+ * The `timeout` bounds the module's top level, which runs on evaluation. A
+ * generated skill therefore cannot hang the extension host merely by being
+ * loaded — which mattered because evaluation used to happen before anybody had
+ * approved anything.
  */
 export function loadSkillFromSource(source: string): LoadedSkill | SkillLoadError {
   let mod: { exports: Record<string, unknown> };
   try {
-    const factory = new Function('module', 'exports', 'require', source);
-    const fakeModule = { exports: {} as Record<string, unknown> };
-    // Provide a restricted require that blocks dangerous imports.
-    const safeRequire = (id: string): never => {
-      throw new Error(`Skill synthesis: require("${id}") is not permitted in auto-generated skills.`);
-    };
-    factory(fakeModule, fakeModule.exports, safeRequire);
-    mod = fakeModule;
+    const context = createContext({});
+    runInContext(CONTEXT_PRELUDE, context);
+    new Script(source).runInContext(context, { timeout: SKILL_EVALUATION_TIMEOUT_MS });
+    mod = { exports: runInContext('module.exports', context) as Record<string, unknown> };
   } catch (err) {
     return { error: `Skill source evaluation failed: ${err instanceof Error ? err.message : String(err)}` };
   }

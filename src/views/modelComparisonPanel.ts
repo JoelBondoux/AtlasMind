@@ -9,6 +9,8 @@ import {
   type ModelEvalJudgeVerdict,
   type ModelEvalResult,
 } from '../core/modelEvalHarness.js';
+import { dispatchGuardedCompletion } from '../core/modelEgress.js';
+import { isLocalProviderId } from '../core/backgroundMemoryPolicy.js';
 
 interface RunComparisonMessage {
   type: 'run';
@@ -256,12 +258,17 @@ export class ModelComparisonPanel {
     if (!provider) {
       throw new Error(`No provider adapter registered for "${providerId}".`);
     }
-    return provider.complete({
-      model: modelId,
-      temperature: 0.2,
-      maxTokens: 1024,
-      messages: [{ role: 'user', content: body }],
-      signal,
+    return dispatchGuardedCompletion({
+      provider,
+      origins: ['user-prompt'],
+      external: !isLocalProviderId(providerId),
+      request: {
+        model: modelId,
+        temperature: 0.2,
+        maxTokens: 1024,
+        messages: [{ role: 'user', content: body }],
+        signal,
+      },
     });
   }
 
@@ -278,12 +285,19 @@ export class ModelComparisonPanel {
     if (!provider) {
       throw new Error(`No provider adapter registered for judge "${providerId}".`);
     }
-    const completion = await provider.complete({
-      model: judgeModelId,
-      temperature: 0,
-      maxTokens: 1200,
-      messages: [{ role: 'user', content: buildModelJudgePrompt(prompt, entries) }],
-      signal,
+    const completion = await dispatchGuardedCompletion({
+      provider,
+      // The judge prompt embeds the answers other models produced, so it is
+      // generated content rather than something the operator typed.
+      origins: ['generated-instruction'],
+      external: !isLocalProviderId(providerId),
+      request: {
+        model: judgeModelId,
+        temperature: 0,
+        maxTokens: 1200,
+        messages: [{ role: 'user', content: buildModelJudgePrompt(prompt, entries) }],
+        signal,
+      },
     });
     return parseModelJudgeVerdicts(completion.content, entries);
   }

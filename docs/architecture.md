@@ -252,6 +252,12 @@ In-memory map of `SkillDefinition` objects. Also supports:
 
 Utility helpers that build the prompt for Atlas-generated custom skill drafts, normalize suggested skill IDs, and extract JavaScript source from provider responses before scanning/import.
 
+`loadSkillFromSource` evaluates that source, and since v0.434.0 does so in a `node:vm` context with no ambient globals rather than `new Function(...)`, whose body ran in the extension host's own global scope. The change was driven by measurement, not principle: eight routes to `node:fs` were executed against the old implementation and **seven reached**, including `import('node:fs')` (dynamic import is syntax, so shadowing the `require` identifier never touched it) and `process.mainModule.require('node:fs')`. The injected `safeRequire` blocked one spelling of the capability rather than the capability.
+
+`module`, `exports` and `require` are defined **inside** the context as source rather than assigned onto it. That is the load-bearing detail: a host function placed on a context is reachable as `require.constructor.constructor`, which is the host realm's `Function` and returns `process`. Measured both ways before choosing. A `timeout` bounds the module's top level, which runs on evaluation.
+
+**Containment, not a sandbox.** `execute(args, ctx)` receives a real `SkillExecutionContext`, and any host object crossing the boundary carries the host realm's `Function` on its prototype chain, so `ctx.readFile.constructor.constructor('return process')()` reaches out. That is inherent to giving a skill callbacks at all, so it is asserted as a passing test in `tests/security/generatedSkillContainment.test.ts` rather than described away; a second test requires every mention of "sandbox" in the module to be a denial. The control that actually governs this path is `generatedSkillApprovalGate` (`types.ts`, wired in `extension.ts`), which runs **before** evaluation, receives the scan result and the source, and fails closed when no approval surface exists. `skillScanner` remains a name-based lint in front of it — kept because a skill that *tries* is worth refusing whether or not it would have succeeded.
+
 ### ModelRouter (`src/core/modelRouter.ts`)
 
 Maintains a map of `ProviderConfig` objects plus provider health state. `selectModel()` accepts `RoutingConstraints`, an optional model whitelist, and an optional `TaskProfile`. It filters by required capabilities, task-profile gates, and provider health before scoring the remaining models using budget mode, speed mode, capability proxies, and task fit. `getModelInfo()` exposes pricing metadata for orchestration cost accounting.
@@ -288,6 +294,32 @@ The adapter exposes only aggregate live-session counts by launch mode to `extens
 ### SecretRedactor (`src/utils/secretRedactor.ts`)
 
 Pattern-based secret scanner applied to memory context and live evidence before LLM dispatch. Covers Anthropic/OpenAI/GitHub keys, bearer tokens, PEM private keys, database connection strings, and generic key/secret assignments. `redactSecrets()` returns a `RedactionResult` with match count and matched pattern names; `redactSecretsWithWarning()` logs a console warning when any secrets are found. This is separate from `MemoryScanner`, which blocks writes to SSOT — the `SecretRedactor` protects the runtime dispatch boundary.
+
+### RoutineExecutionPolicy (`src/core/routineExecutionPolicy.ts`)
+
+What a routine will run, decided before a shell sees any of it. `routineVariables.ts` answers *may this value be substituted*; this answers the question after it — given those values, what is the exact command list, and is it fit to show somebody before they agree to it?
+
+**The plan carries fully substituted commands, and `RoutineRunner.run` takes the plan** rather than the routine and its values. That is structural rather than careful: a runner that re-substituted could run something other than what a caller displayed, and no discipline at the call sites would make that impossible. A plan built for a different routine is refused by id.
+
+**An unresolved `${placeholder}` refuses rather than blanking.** `routineRunner` substituted `vars[name] ?? ''` and the Run Center passed `vars: {}` unconditionally, so every placeholder in a panel-run routine resolved to nothing — and `npm publish --tag ${channel}` is a different command from `npm publish --tag`. An empty value counts as *absent*, because a blank field and an unsupplied one want the same thing from a command line. Refusals are collected rather than first-wins, so three missing values are one dialog.
+
+**Reach comes from `classifyDeliveryCommandReach`**, reused rather than reimplemented, so the routine confirmation and the Delivery page cannot disagree about whether `git push` leaves the machine.
+
+The rule table (`ROUTINE_EXECUTION_RULES`) travels in the payload so a surface explains the rule that actually refused rather than a copy that has drifted. Nothing here executes, and a `ready` plan is a proposal for a caller to confirm — not permission. Pure + unit-tested.
+
+**Why a preview rather than a stricter validator.** A routine template is an ordinary file under `project_memory/routines/`; `file-write` is graded `workspace-write`/high and refuses only paths *outside* the workspace, and `routines` is a declared `SSOT_FOLDERS` member — so a model permitted to write a file is permitted to write a routine, and `checkRoutineVariables` deliberately validates values and never the template. That cannot be closed by validating harder, because a routine step is a shell command by design. It is closed by showing the commands to a person, the same answer `registerHandoff` gives: you cannot show somebody what is composed after they agree. Extending `atlasmind.allowTerminalWrite` to routines was considered and rejected — that setting gates *a model* choosing to run a command, whereas a routine is a script somebody wrote and invoked, and applying it would refuse every routine at the default.
+
+### ModelEgress (`src/core/modelEgress.ts`)
+
+The single guarded path to a model provider. Every prompt-bearing call in `src/` goes through `dispatchGuardedCompletion`, and `tests/security/modelEgressBoundary.test.ts` fails when one does not. Before this existed there were 21 such call sites across 8 files and exactly one referenced the redactor — a convention every caller had to remember, already forgotten seven times.
+
+**Context is labelled, not inferred.** `ModelContextOrigin` declares eleven kinds and `ORIGIN_POLICY` states what each one costs: whether it is redacted, whether a secret stops and asks, and how many characters may be transmitted. The label is carried on the message (`ChatMessage.origin`) rather than in a parallel array, because the agentic loop grows, reprompts and evicts from the middle of its history in eleven places — two arrays kept in step by hand desynchronise on the first eviction, and a desynchronised origin *mislabels* content rather than failing to label it. The field is never sent to a model. Inferring from `role` is refused outright: `buildMessages()` emits four consecutive `role: 'user'` messages and only the last is what the operator typed.
+
+**Repository-derived context is redacted; user-authored prompts are never silently rewritten.** A secret-shaped value in a prompt somebody typed has two honest outcomes — ask, or refuse — and which one happens depends on whether there is anybody to ask. `Orchestrator.setEgressSecretConfirmer()` supplies a confirmer on the interactive path only; background work has none and therefore refuses, which is the correct outcome rather than an inconvenience. A local destination is never asked about, since nothing left the machine.
+
+**Unlabelled fails closed, two ways.** Under the test runner (or with `ATLASMIND_STRICT_EGRESS=1`) an unlabelled part throws and names the call site. In a shipped extension it is clamped to the most restrictive class instead — redacted, confirmed on secret, 8 000 characters. The default is deliberately not keyed on `NODE_ENV`, which VS Code leaves unset in the extension host, so a `!== 'production'` test would arm the developer tripwire for every user.
+
+`EgressDestination` also declares an optional `streamComplete`, so a streaming caller never has to reach past the boundary to get one — that was the commonest unlabelled path and also the most important, the main chat turn. Clearing produces a **fresh message array per dispatch**, so what a provider was handed is a snapshot of that moment rather than a reference to an array the loop keeps mutating. Audit lines carry origin, provider, model, redaction counts and rule names, and never a matched value or a prompt body.
 
 ### DataPrivacyManager (`src/core/dataPrivacyManager.ts`)
 

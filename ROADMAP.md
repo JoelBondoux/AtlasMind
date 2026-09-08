@@ -371,6 +371,18 @@ prerequisite of `NXT-1` and sorts in front of it.
 **Runs where:** Local only at runtime; the refresh runs on GitHub's free tier.
 **Depends on:** nothing.
 
+> **Delivered with one deliberate deviation: the Action does not fetch prices.** Providers publish
+> pricing as prose on marketing pages with no stable machine-readable feed, so a scraper would break
+> quietly and then report *wrong* prices — worse than stale ones, because a wrong number is stated
+> with exactly the same confidence as a right one. The workflow notices the table is old and asks a
+> person to look, reusing one issue rather than filing a new one monthly.
+>
+> The other half turned out to matter more than the map's freshness. **An unrecognised model was
+> recording `costUsd: 0`** — indistinguishable from a genuinely free local model, so real spend
+> reported as free and flowed into cost-per-item and the producer report as `$0.00`. The zero remains
+> (there is nothing honest to put in its place) but it now travels as `unpriced`, is counted
+> separately, and is rendered beside the figure.
+
 > **Moved out of Now to make room for the portal, and the dependencies say that is correct.** Nothing
 > in Now needs it: `NOW-2` reports *actual* spend, which is already priced by the code today. What
 > needs a fresh, versioned map is the **savings** claim — `NXT-1` — and it now sits directly in front

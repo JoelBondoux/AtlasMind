@@ -583,6 +583,10 @@
         "sourceId": "test:project_memory/index/testing-config.json:performance-is-enabled-with-no-evidence-it-runs",
         "sourceTitle": "Performance is enabled with no evidence it runs",
         "raisedAt": "2026-09-02T23:21:31.502Z"
+      },
+      "position": {
+        "x": 4878,
+        "y": 184
       }
     },
     {
@@ -1214,5 +1218,5 @@
   "suggestLinks": true,
   "dismissed": [],
   "layoutOrientation": "vertical",
-  "updatedAt": "2026-09-07T20:43:29.578Z"
+  "updatedAt": "2026-09-07T21:44:48.117Z"
 }

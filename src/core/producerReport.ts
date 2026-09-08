@@ -70,6 +70,13 @@ export interface ProducerReportCostLine {
   estimateUsd?: number;
   /** True when every attributed request was inferred from a session rather than stated. */
   inferred?: boolean;
+  /**
+   * Requests in this line whose model had no known price.
+   *
+   * Rendered beside the figure, because a total that silently includes
+   * placeholder zeros is a understatement presented as a measurement.
+   */
+  unpricedRequestCount?: number;
 }
 
 /**
@@ -90,6 +97,17 @@ export interface ProducerReportInput {
     lines: readonly ProducerReportCostLine[];
     unattributedCostUsd: number;
     totalCostUsd: number;
+    /** The counterfactual sentence, when a comparison model is nominated. */
+    comparisonNote?: string;
+    /**
+     * How old the prices behind these figures are.
+     *
+     * Carried on the data rather than left to the renderer, because a reader who
+     * cannot tell whether a cost was priced last week or last year cannot judge
+     * it — and a footnote a surface may forget is not the same as a value it has
+     * to decide to hide.
+     */
+    pricingNote?: string;
   };
 }
 
@@ -116,6 +134,15 @@ export interface ProducerReportData {
     lines: readonly ProducerReportCostLine[];
     unattributedCostUsd?: number;
     totalCostUsd?: number;
+    pricingNote?: string;
+    /**
+     * The counterfactual sentence, when a comparison model is nominated.
+     *
+     * Carried as a whole sentence rather than as numbers, so the model name and
+     * the floor caveat cannot be separated from the figure by a renderer that
+     * only wanted the total.
+     */
+    comparisonNote?: string;
   };
 }
 
@@ -141,6 +168,8 @@ export function buildProducerReportData(input: ProducerReportInput): ProducerRep
           lines: input.cost.lines,
           unattributedCostUsd: input.cost.unattributedCostUsd,
           totalCostUsd: input.cost.totalCostUsd,
+          ...(input.cost.pricingNote ? { pricingNote: input.cost.pricingNote } : {}),
+          ...(input.cost.comparisonNote ? { comparisonNote: input.cost.comparisonNote } : {}),
         },
   };
 }
@@ -223,12 +252,24 @@ export function renderProducerReportMarkdown(data: ProducerReportData): string {
     for (const line of data.cost.lines) {
       // An absent estimate is a dash, never `$0.00` — a zero would report every
       // unestimated item as catastrophically over budget.
-      lines.push(`| ${line.label}${line.inferred ? ' *(inferred)*' : ''} | ${money(line.costUsd)} | ${line.estimateUsd === undefined ? '—' : money(line.estimateUsd)} |`);
+      const notes = [
+        line.inferred ? '*(inferred)*' : '',
+        line.unpricedRequestCount ? `*(${line.unpricedRequestCount} unpriced)*` : '',
+      ].filter(Boolean).join(' ');
+      lines.push(`| ${line.label}${notes ? ` ${notes}` : ''} | ${money(line.costUsd)} | ${line.estimateUsd === undefined ? '—' : money(line.estimateUsd)} |`);
     }
     if (data.cost.unattributedCostUsd !== undefined && data.cost.unattributedCostUsd > 0) {
       lines.push('');
       lines.push(`Unattributed spend: **${money(data.cost.unattributedCostUsd)}** of ${money(data.cost.totalCostUsd ?? 0)} total. `
         + 'Reported separately rather than divided across items, because a distributed figure cannot be told from a measured one.');
+    }
+    if (data.cost.comparisonNote) {
+      lines.push('');
+      lines.push(`**Compared with a flagship model.** ${data.cost.comparisonNote}`);
+    }
+    if (data.cost.pricingNote) {
+      lines.push('');
+      lines.push(`_${data.cost.pricingNote}_`);
     }
   }
   lines.push('');
@@ -318,6 +359,12 @@ export function renderProducerReportHtml(data: ProducerReportData): string {
       parts.push(`<p>Unattributed spend: <strong>${esc(money(data.cost.unattributedCostUsd))}</strong> of `
         + `${esc(money(data.cost.totalCostUsd ?? 0))} total. Reported separately rather than divided across items, `
         + 'because a distributed figure cannot be told from a measured one.</p>');
+    }
+    if (data.cost.comparisonNote) {
+      parts.push(`<p><strong>Compared with a flagship model.</strong> ${esc(data.cost.comparisonNote)}</p>`);
+    }
+    if (data.cost.pricingNote) {
+      parts.push(`<p class="gap">${esc(data.cost.pricingNote)}</p>`);
     }
   }
 

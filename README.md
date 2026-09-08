@@ -4,7 +4,7 @@
 
 <h1 align="center">AtlasMind</h1>
 
-<p align="center"><sub> · <strong>Current source version: 0.423.1</strong> · </sub></p>
+<p align="center"><sub> · <strong>Current source version: 0.437.0</strong> · </sub></p>
 
 
 <p align="center">
@@ -175,11 +175,45 @@ important limits on overrides and compliance claims.
 
 ---
 
-## What's new in 0.423.1
+## What's new in 0.437.0
 
 The last Marketplace publication, **v0.420.4**, brought the changes below. Every release is written
 up in full in [CHANGELOG.md](CHANGELOG.md).
 
+- **"Read-only" now holds for the whole job, not just the first step.** Asking AtlasMind to work
+  read-only was enforced properly on the turn you typed — but if that turn became a multi-step project
+  run, each step re-read its own instructions and found no restriction in them. The limit you set now
+  travels with the work and can only narrow, never widen. Separately, an MCP server that asked for one
+  environment variable used to receive every credential the editor was started with; it now gets a
+  filtered set plus what it declared.
+- **Supply chain tightened.** Every CI action is now pinned to an exact commit rather than a movable
+  tag, the project bootstrapper no longer starts a shell for anything, and the Debian install path
+  that piped a download into `sudo` has been removed in favour of the manual instructions. There is a
+  written [dependency review](docs/dependency-security-review.md) and an SBOM command.
+- **Starting the editor contacts nobody.** AtlasMind loads when VS Code starts, and two things
+  reached third parties from there that your settings never asked for: an exchange-rate lookup that
+  ran even though costs display in USD by default and needed no conversion, and a downloadable-model
+  catalogue fetched from two sites even on machines with no local model runtime installed. Both are
+  now gated on your own configuration actually needing them. There is no telemetry and never has
+  been.
+- **Model-written skills no longer run beside the extension.** AtlasMind can write a small skill for
+  itself mid-task — off by default, and never without you reading the code and approving it. Until now
+  that code was evaluated in the extension's own scope: eight ways of reaching the filesystem were
+  tried against it and seven worked. It now evaluates somewhere with none of that in reach, and all
+  eight are refused. It is containment rather than a sandbox, the remaining gap is written down, and a
+  test asserts we never call it the stronger word.
+- **Routines show you the commands before they run, and Autopilot has a ceiling.** `/ship` and the
+  Run Center now list the exact shell commands a routine will run, in order, and say which ones reach
+  outside your machine — a routine file is an ordinary workspace file, so the moment before it runs is
+  the moment worth reading it. A placeholder with no value is refused rather than quietly becoming an
+  empty string. And Autopilot can no longer approve an outward change that cannot be undone — a push,
+  a remote branch delete, or a tool AtlasMind does not recognise.
+- **Nothing reaches a model without saying what it is.** Every prompt-bearing call in AtlasMind now
+  clears its context through one boundary first, which redacts repository-derived text, holds each
+  kind of content to its own size limit, and never silently rewrites what you typed. Direct calls
+  that skipped it: 11 → 0, with an architectural test that fails when a new one appears. If a
+  credential turns up in your own prompt on its way to an external provider, AtlasMind asks — *send
+  redacted* or *send as typed* — and dismissing the dialog sends nothing.
 - **AtlasMind follows the Open Source Maintenance Fee model.** The source code stays MIT permanently,
   and compiling it yourself is free for everyone, always. From **v1.0.0** the official Marketplace
   build carries a maintenance fee for organizations with annual gross revenue of US$10,000 or more
@@ -300,6 +334,12 @@ Everything is in the AtlasMind Settings panel, or under `atlasmind.*` in VS Code
 | `budgetMode` | `balanced` | How much you're willing to spend per task |
 | `speedMode` | `balanced` | Fast answers versus more considered ones |
 | `dailyCostLimitUsd` | `0` | Daily spending cap; `0` means no cap |
+| `memory.backgroundSummarizationMode` | `off` | Whether a background timer may summarise project memory with a model. Off by default — nothing is sent on a timer unless you enable it |
+| `memory.selfHealingMode` | `report-only` | What background memory maintenance may do to your files. The default reports and never writes |
+| `cost.comparisonModel` | *(empty)* | Re-price your spend against this model to see what the same work would have cost. Empty by default — the choice decides what the saving is measured against |
+| `cost.historyLocation` | `machine-private` | Where this project's spend history lives. `repository` makes it diffable and report-readable; changing it moves what's already there |
+| `producerReport.publishEnabled` | `false` | Allow the producer report to be prepared for GitHub Pages. A Pages site is public **even from a private repository** |
+| `producerReport.publishRisks` · `publishCost` | `false` | Add the risk register or cost to the published page. Off separately, because each is a disclosure |
 | `toolApprovalMode` | `ask-on-write` | How often AtlasMind asks before acting |
 | `allowTerminalWrite` | `false` | Whether approved terminal commands may change things |
 | `skillAutoSynthesisEnabled` | `false` | Let a model write a new skill and run it when a tool does not exist. Off; every synthesis is scanned and shown to you first |

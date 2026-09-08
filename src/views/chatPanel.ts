@@ -3226,7 +3226,7 @@ export class ChatPanel {
       args: [...directive.spec.approvalArgsPrefix, directive.commandLine],
     });
 
-    if (this.atlas.toolApprovalManager?.shouldBypass(taskId, policy.category)) {
+    if (this.atlas.toolApprovalManager?.shouldBypass(taskId, policy)) {
       return;
     }
 

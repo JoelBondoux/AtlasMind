@@ -62,7 +62,7 @@ precedence reads as finished rather than as permanently half-done.
 | `/project <goal>` | Break a goal into steps, preview the impact, then run it |
 | `/loop <goal>` | Keep working towards a goal inside limits you set, pausing at checkpoints |
 | `/runs` | Open the Run Center to review recent autonomous runs |
-| `/ship [routine]` | Run your project's default publish routine, or a named one |
+| `/ship [routine]` | Run your project's default publish routine, or a named one. Lists the exact commands and asks first |
 
 ### Thinking and planning
 
@@ -187,6 +187,8 @@ The session drawer above the transcript starts closed and remembers your choice 
 | `AtlasMind: Rebuild and Open UI Preview` | Rebuild the live design draft from wireframes, UI tokens, and Markdown content, then open its index in the built-in browser. No model runs |
 | `AtlasMind: Import Website Client Feedback` | Read a feedback file your client exported from the review overlay and merge it into the review register |
 | `AtlasMind: Set Up Website Stack` | Scaffolds the chosen framework, writes the deploy config and stage branches, and optionally the CI workflow. Shows every command and every file in full before anything runs. Normally reached from **Set up this stack** on the Stack page |
+| `AtlasMind: Generate Producer Report` | Writes project status — roadmap progress by gate, open risks and their recorded decisions, delivery readiness, and cost against estimate — into `project_memory/operations/` as markdown, a self-contained HTML page, and JSON. Deterministic and model-free: the same project state produces the same report. A section that could not be read says so rather than appearing empty |
+| `AtlasMind: Prepare Producer Report for Publication` | Builds a **redacted** copy of the report for GitHub Pages. Off until `atlasmind.producerReport.publishEnabled` is on; checks whether the repository is public or private and says so in the confirmation, because a Pages site is readable by anyone with the link either way. Risks and cost stay out unless switched on individually, and anything withheld is named on the page rather than silently missing |
 | `AtlasMind: Open Cost Dashboard` | Spend over time, budget use, and local-model savings |
 | `AtlasMind: Open Voice Panel` · `Open Vision Panel` | Speech and image analysis |
 | `AtlasMind: Open a Setup Guide` | Starts a walkthrough **in a fresh chat session**, so it never lands mid-conversation and inherits unrelated context |

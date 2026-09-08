@@ -121,6 +121,68 @@ It's handled in layers:
 
 ---
 
+## Autopilot has a ceiling
+
+Autopilot and per-task bypass mean *stop asking me about this*. They do not mean *never ask me again
+about anything*. One category is beyond all of them: something that leaves your machine, changes
+something there, and cannot be undone from here — a `git push`, deleting a remote branch, or any
+external tool AtlasMind cannot identify by name.
+
+Before v0.433.0 there was no such limit, and because Autopilot is offered as an answer to *any*
+approval dialog, one click on a harmless tool bought unattended approval of all three for the rest of
+the session.
+
+It stays one narrow category on purpose. A gate that prompts on every file write is a gate people turn
+off, and a gate that is off protects nothing. Full detail in [Tool Execution](Tool-Execution.md).
+
+---
+
+## Routines are shown to you before they run
+
+A routine is a shell script you wrote, stored as a `.md` file in `project_memory/routines/`. `/ship`
+and the Run Center now list its exact commands — in order, with the ones that reach outside your
+machine called out — and ask before running.
+
+The reason is not tidiness. That folder is inside your workspace, and AtlasMind's file-writing tool
+refuses only paths *outside* it, so anything allowed to write a file is allowed to write a routine. The
+existing guard validates the values substituted into a command and deliberately not the command
+itself, because a routine that could not use a pipe on purpose would not be a routine. That cannot be
+fixed by validating harder — it is fixed by putting the commands in front of you.
+
+A placeholder with no value is refused rather than becoming an empty string, so a routine cannot
+quietly run a different command from the one it describes.
+
+---
+
+## Everything on its way to a model goes through one gate
+
+Every request AtlasMind sends to a model passes through a single boundary that clears its context
+first. Nothing routes around it: an architectural test fails the build if any code reaches a provider
+directly, and the list of exceptions is empty.
+
+**Each piece of context says what it is.** The system prompt, earlier turns of the conversation, a
+file you attached, output from a tool, a memory entry, something a model wrote that is being fed back
+in — these are labelled separately and treated differently. Repository-derived and third-party text is
+redacted and held to a size limit suited to what it is; a tool result gets less room than a prompt,
+because untrusted text should not be able to crowd out your instructions.
+
+The labels are deliberately *not* guessed from the message's role. In an ordinary chat turn AtlasMind
+sends four messages that all look like "user" messages, and only one of them is what you typed. Guessing
+would mean redacting your own words while trusting whatever a tool returned.
+
+**What you typed is never silently rewritten.** If your prompt looks like it contains a credential and
+the request is going to an external provider, AtlasMind stops and asks: *send redacted*, or *send as
+typed*. Dismissing the dialog sends nothing. The dialog names the kind of credential it matched, never
+the value. Nothing asks when the model is running on your own machine, because nothing left it.
+
+Background work — anything running without you present — has no dialog to show, so the same situation
+**refuses** rather than deciding on your behalf.
+
+**A missing label is not a free pass.** Context AtlasMind failed to label is treated as the most
+sensitive class there is: redacted, size-capped hardest, and stopped on a secret.
+
+---
+
 ## Confidential data and which model sees it
 
 If the context AtlasMind is about to send contains payment card data or health information, routing is
@@ -201,6 +263,25 @@ network.
 Resource discovery gets the same treatment plus HTTPS enforcement, schema validation, depth-bounded
 federation, opt-in finders, and installs that arrive disabled.
 
+### Nothing is contacted just because the editor started
+
+**There is no telemetry in AtlasMind and there never has been.** No usage events, no install pings, no
+filenames, no repository identifiers. That is not a setting you have to find and switch off, because
+there is nothing to switch off.
+
+Two things did reach third parties at startup until v0.435.0, and neither was telemetry — which is
+rather the point, because from the other end an unsolicited request looks the same whatever its
+purpose:
+
+- **Exchange rates**, fetched from `open.er-api.com` on every launch. Costs display in USD by default
+  and need no conversion, so the answer was never used. Now fetched only if you have chosen another
+  currency.
+- **A catalogue of downloadable models**, fetched from ollama.com and huggingface.co behind a cache
+  timer, even on machines with no local model runtime. Now fetched only after a local runtime is found.
+
+Everything else that leaves your machine is something you configured: a model provider you gave a key
+to, an MCP server you enabled, a lens endpoint you declared, a page a tool was asked to fetch.
+
 ---
 
 ## Custom skills
@@ -213,6 +294,29 @@ hardcoded secrets **block enablement**. Environment access, direct fetching, raw
 filesystem use are flagged and allowed.
 
 Built-in skills are pre-approved and skip the scan.
+
+### A model-written skill does not run beside the extension
+
+AtlasMind can write a small skill for itself when a task needs a tool it doesn't have. That is **off by
+default**, and even switched on it stops and shows you the generated code before anything runs — with
+the scan results attached, and refusing outright if there is no way to ask you.
+
+Until v0.434.0 the code was then evaluated in the extension's own scope. Eight ways of reaching your
+filesystem were tried against that arrangement and **seven worked**, including `import('node:fs')` and
+`process.mainModule.require('node:fs')` — the block that was supposed to prevent this stopped one
+spelling of it. Evaluation now happens somewhere with none of that in reach, and all eight are refused.
+A skill that hangs on load is cut off rather than freezing the editor.
+
+**This is containment, not a sandbox, and the difference is written down rather than glossed.** When a
+skill actually runs, AtlasMind hands it real functions for reading files and querying memory — and any
+real function carries a route back to the code that owns it. Closing that would mean not giving skills
+callbacks at all, which would mean not having skills. So the honest statement is: a generated skill
+cannot reach past the boundary while being *loaded*, it can while being *run*, and the control for the
+second is that you read the code first and said yes. There is a test asserting that gap still exists,
+so nobody can later describe this as more than it is.
+
+The scanner is a lint, not a barrier — a name-based check that can be worked around by anyone trying.
+It is kept because a skill that *tries* is worth refusing whether or not it would have succeeded.
 
 ### Commands never go through a shell
 

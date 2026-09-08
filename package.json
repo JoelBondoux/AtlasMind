@@ -2,7 +2,7 @@
   "name": "atlasmind",
   "displayName": "AtlasMind",
   "description": "AI project management for VS Code: roadmap, risk, tech debt, compliance, testing and release tracked from your own repository — with a multi-agent AI team, or the AI coding tool you already use.",
-  "version": "0.423.1",
+  "version": "0.437.0",
   "publisher": "JoelBondoux",
   "preview": false,
   "license": "SEE LICENSE IN OSMFEULA.txt",
@@ -187,6 +187,14 @@
       {
         "command": "atlasmind.openGettingStarted",
         "title": "AtlasMind: Getting Started"
+      },
+      {
+        "command": "atlasmind.generateProducerReport",
+        "title": "AtlasMind: Generate Producer Report"
+      },
+      {
+        "command": "atlasmind.publishProducerReport",
+        "title": "AtlasMind: Prepare Producer Report for Publication"
       },
       {
         "command": "atlasmind.openSettings",
@@ -1842,6 +1850,78 @@
           "description": "Amazon Bedrock model IDs AtlasMind should expose as routed models, such as anthropic.claude-3-7-sonnet-20250219-v1:0.",
           "markdownDescription": "Amazon Bedrock model IDs AtlasMind should expose as routed models. Use the full Bedrock model ID, not a friendly alias.\n\nExamples:\n- `[\"anthropic.claude-3-7-sonnet-20250219-v1:0\"]`\n- `[\"anthropic.claude-3-5-haiku-20241022-v1:0\", \"amazon.nova-pro-v1:0\"]`\n\nFor larger organizations, use this as an allow-list so AtlasMind only routes to approved Bedrock models."
         },
+        "atlasmind.memory.backgroundSummarizationMode": {
+          "type": "string",
+          "enum": [
+            "off",
+            "local-only",
+            "routed"
+          ],
+          "default": "off",
+          "enumDescriptions": [
+            "No background model calls. Nothing is sent anywhere on a timer.",
+            "Only a local provider may be used. Never falls back to a cloud or subscription provider.",
+            "Routing may choose any configured provider, including cloud ones."
+          ],
+          "description": "Whether AtlasMind may refresh project-memory snippets in the background using a model. Off by default: this path reads project-memory file content and would otherwise send it wherever routing chose.",
+          "markdownDescription": "Whether AtlasMind may refresh project-memory snippets **in the background** using a model.\n\n- `off` (default) — no background model call is made. Nothing is read for this purpose and nothing is sent.\n- `local-only` — only a provider running on this machine may be used. If routing selects anything else, the refresh is skipped and the reason is written to the AtlasMind output channel. It never falls back to a cloud or subscription provider.\n- `routed` — routing may pick any configured provider, **including cloud ones**. Each external dispatch names the provider in the output channel.\n\nThis path sends up to 4,000 characters of a project-memory file to the model. Off by default because installing an extension is not consent to send repository content anywhere."
+        },
+        "atlasmind.memory.selfHealingMode": {
+          "type": "string",
+          "enum": [
+            "off",
+            "report-only",
+            "ask",
+            "apply"
+          ],
+          "default": "report-only",
+          "enumDescriptions": [
+            "No background scanning and no background writes.",
+            "Detect and report issues without modifying project files.",
+            "Queue a reviewable remediation instead of writing immediately.",
+            "Write remediations automatically."
+          ],
+          "description": "What background memory maintenance may do to project files. Report-only by default: it may detect and report, but not write.",
+          "markdownDescription": "What background memory maintenance may do to **your project files**.\n\n- `off` — no scanning and no writes.\n- `report-only` (default) — detect and report; never modify a project file.\n- `ask` — queue a reviewable remediation rather than writing immediately.\n- `apply` — write automatically, because you explicitly asked for that.\n\nUnder the default, a background timer cannot change a file in your repository. Anything it computed but did not write is reported in the AtlasMind output channel, so \"nothing happened\" and \"something was withheld\" stay distinguishable."
+        },
+        "atlasmind.cost.comparisonModel": {
+          "type": "string",
+          "default": "",
+          "description": "Model id to compare spend against, e.g. anthropic/claude-opus-5. Empty means no comparison is made. AtlasMind will not pick one for you, because the choice decides what the saving is a saving against.",
+          "markdownDescription": "Model id to compare spend against — for example `anthropic/claude-opus-5`.\n\nWhen set, cost surfaces re-price the tokens you actually used at this model's rates and report the difference. **Empty by default:** the choice of comparison decides what a saving figure means, and AtlasMind picking one for you would be making the claim on your behalf.\n\nRequests that cannot be re-priced honestly — no known cache split, or a rate the comparison model does not publish — are excluded from both sides and reported separately, never counted as a zero saving."
+        },
+        "atlasmind.cost.historyLocation": {
+          "type": "string",
+          "enum": [
+            "machine-private",
+            "repository"
+          ],
+          "default": "machine-private",
+          "enumDescriptions": [
+            "Keep cost history on this machine only. Nothing is committed and nothing is shared.",
+            "Store cost history in project memory, committed with the project."
+          ],
+          "description": "Where this project's cost history is stored. Private to this machine by default. Changing it moves the existing history rather than starting a new one.",
+          "markdownDescription": "Where this project's cost history is stored.\n\n- `machine-private` (default) — kept out of the repository. Nothing is committed, and the producer report's cost section stays local.\n- `repository` — written to `project_memory/operations/cost-history.json`, so it is diffable, survives a clone, and can appear in a producer report somebody else reads.\n\nThe default is deliberately the less useful one: this is the first thing AtlasMind writes into project memory that is about *you* rather than about the project. **Changing this moves the existing history** and tells you how many records moved."
+        },
+        "atlasmind.producerReport.publishEnabled": {
+          "type": "boolean",
+          "default": false,
+          "description": "Allow the producer report to be prepared for publication to GitHub Pages. Off by default. A GitHub Pages site is readable by anyone with the link even when the repository is private.",
+          "markdownDescription": "Allow the producer report to be prepared for publication to **GitHub Pages**. Off by default.\n\n**A GitHub Pages site is public even when the repository is private** — restricting access requires GitHub Enterprise Cloud. Turning this on means the published page is readable by anyone with the link.\n\nWith this on, the published page carries **roadmap progress by gate** and **delivery readiness** only. Stakeholders, the risk register and all cost stay out unless you switch them on individually below."
+        },
+        "atlasmind.producerReport.publishRisks": {
+          "type": "boolean",
+          "default": false,
+          "description": "Include the risk register in the published producer report. Off by default: it holds commercial, legal and ethical findings with the decisions recorded against them.",
+          "markdownDescription": "Include the **risk register** in the published producer report.\n\nOff by default, because it holds commercial, legal and ethical findings together with the decisions recorded against them — and the published page is readable by anyone with the link."
+        },
+        "atlasmind.producerReport.publishCost": {
+          "type": "boolean",
+          "default": false,
+          "description": "Include cost against estimate in the published producer report. Off by default: it discloses what the project has spent, and on what.",
+          "markdownDescription": "Include **cost against estimate** in the published producer report.\n\nOff by default, because it discloses what the project has spent and on what. Where cost history is committed to the repository, publishing it makes that spend public as well."
+        },
         "atlasmind.ssotPath": {
           "type": "string",
           "default": "project_memory",
@@ -2775,7 +2855,8 @@
     "publish:pre-release": "npx @vscode/vsce publish --pre-release",
     "publish:release": "npx @vscode/vsce publish",
     "publish:release:ci": "npx @vscode/vsce publish --azure-credential",
-    "tag:release": "node .github/scripts/tag-release.mjs"
+    "tag:release": "node .github/scripts/tag-release.mjs",
+    "sbom": "npm sbom --sbom-format cyclonedx --omit dev --package-lock-only"
   },
   "devDependencies": {
     "@stryker-mutator/core": "^10.0.0",

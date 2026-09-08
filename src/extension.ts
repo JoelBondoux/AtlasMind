@@ -89,7 +89,7 @@ import {
 } from './providers/providerPricingSync.js';
 import { configureCurrencyFormatter, syncExchangeRates } from './core/currencyFormatter.js';
 import { syncLocalModels, isLocalSyncStale, LOCAL_MODEL_SYNC_CACHE_KEY, type LocalModelSyncResult } from './providers/localModelSync.js';
-import { syncLocalModelCatalog } from './providers/localModelCatalogSync.js';
+import { shouldSyncDownloadableCatalogue, syncLocalModelCatalog } from './providers/localModelCatalogSync.js';
 import type { DiscoveredModel } from './providers/adapter.js';
 import type { AgentDefinition, MemoryEntry, ModelInfo, ModelStruggleState, ProviderConfig, ProviderId, SkillDefinition, SkillExecutionContext, SkillScanResult, SpecialistDomain } from './types.js';
 import { ToolApprovalManager } from './core/toolApprovalManager.js';
@@ -293,6 +293,93 @@ let atlasStartupState: StartupState = {
   phase: 'not-started',
   startedAt: 0,
 };
+
+/**
+ * Point cost history at a file, and follow the location setting when it changes.
+ *
+ * The private location lives under the extension's global storage, keyed by a
+ * hash of the workspace path: project-scoped, so two projects never share a
+ * history, without putting the path itself in a filename.
+ *
+ * A change of setting **moves** the existing history rather than starting a new
+ * one — losing months of spend to a settings toggle would make the setting
+ * frightening, and a frightening setting is one nobody uses. Moving into the
+ * repository warns first, naming the file, because that is the point at which
+ * spend starts being committed.
+ */
+async function attachCostHistoryStore(
+  context: vscode.ExtensionContext,
+  costTracker: CostTracker,
+): Promise<void> {
+  const { createHash } = await import('node:crypto');
+  const path = await import('node:path');
+  const { costHistoryPaths, resolveCostHistoryLocation, costHistoryCommitWarning } =
+    await import('./core/costHistoryLocation.js');
+
+  const folder = vscode.workspace.workspaceFolders?.[0];
+  const resolvePath = (location: 'machine-private' | 'repository'): string | undefined => {
+    const segments = costHistoryPaths(location).segments;
+    if (location === 'repository') {
+      if (!folder) { return undefined; }
+      const ssotPath = vscode.workspace.getConfiguration('atlasmind').get<string>('ssotPath', 'project_memory');
+      return path.join(folder.uri.fsPath, ssotPath, ...segments);
+    }
+    const key = folder ? createHash('sha256').update(folder.uri.fsPath.toLowerCase()).digest('hex').slice(0, 16) : 'no-workspace';
+    return path.join(context.globalStorageUri.fsPath, 'cost-history', key, ...segments);
+  };
+
+  const readLocation = (): 'machine-private' | 'repository' =>
+    resolveCostHistoryLocation(vscode.workspace.getConfiguration('atlasmind').get('cost.historyLocation'));
+
+  let current = readLocation();
+  const initialPath = resolvePath(current);
+  if (initialPath) {
+    try {
+      await costTracker.attachHistoryFile(initialPath, current);
+    } catch {
+      // A history that cannot be attached leaves the in-memory tracker working.
+      // Spend still reports for this session; it simply is not durable yet.
+    }
+  }
+
+  context.subscriptions.push(
+    vscode.workspace.onDidChangeConfiguration(async event => {
+      if (!event.affectsConfiguration('atlasmind.cost.historyLocation')) { return; }
+      const next = readLocation();
+      if (next === current) { return; }
+      const target = resolvePath(next);
+      if (!target) { return; }
+
+      if (next === 'repository') {
+        const relative = vscode.workspace.asRelativePath(target);
+        const confirmed = await vscode.window.showWarningMessage(
+          'Store cost history in the repository?',
+          { modal: true, detail: costHistoryCommitWarning(relative) },
+          'Move it there',
+        );
+        if (confirmed !== 'Move it there') {
+          // Put the setting back, so the stored value never disagrees with where
+          // the data actually is.
+          await vscode.workspace.getConfiguration('atlasmind')
+            .update('cost.historyLocation', current, vscode.ConfigurationTarget.Workspace);
+          return;
+        }
+      }
+
+      try {
+        const summary = await costTracker.moveHistoryTo(target, next);
+        current = next;
+        void vscode.window.showInformationMessage(summary);
+      } catch {
+        void vscode.window.showWarningMessage(
+          'Cost history could not be moved. It is still in its previous location.',
+        );
+      }
+    }),
+  );
+
+  context.subscriptions.push({ dispose: () => { void costTracker.flushHistory(); } });
+}
 
 function loadStoredUserAgents(globalState: vscode.Memento): AgentDefinition[] {
   const raw = globalState.get<unknown[]>(USER_AGENTS_STORAGE_KEY, []);
@@ -1694,6 +1781,7 @@ async function bootstrapAtlasMind(
       sessionConversationModule,
       sessionContextManagerModule,
       memoryAgentModule,
+      backgroundMemoryPolicyModule,
       agentAutoUpdaterModule,
       skillAutoAssignerModule,
       runtimeCoreModule,
@@ -1734,6 +1822,7 @@ async function bootstrapAtlasMind(
       import('./chat/sessionConversation.js'),
       import('./memory/sessionContextManager.js'),
       import('./memory/memoryAgent.js'),
+      import('./core/backgroundMemoryPolicy.js'),
       import('./core/agentAutoUpdater.js'),
       import('./core/skillAutoAssigner.js'),
       import('./runtime/core.js'),
@@ -1797,6 +1886,12 @@ async function bootstrapAtlasMind(
       SessionConversation: sessionConversationModule.SessionConversation,
       SessionContextManager: sessionContextManagerModule.SessionContextManager,
       MemoryAgentExecutor: memoryAgentModule.MemoryAgentExecutor,
+      BackgroundFailureNotices: backgroundMemoryPolicyModule.BackgroundFailureNotices,
+      resolveBackgroundSummarizationMode: backgroundMemoryPolicyModule.resolveBackgroundSummarizationMode,
+      resolveMemorySelfHealingMode: backgroundMemoryPolicyModule.resolveMemorySelfHealingMode,
+      backgroundSummarizationRunsAtAll: backgroundMemoryPolicyModule.backgroundSummarizationRunsAtAll,
+      selfHealingMayScan: backgroundMemoryPolicyModule.selfHealingMayScan,
+      selfHealingMayWrite: backgroundMemoryPolicyModule.selfHealingMayWrite,
       AgentAutoUpdater: agentAutoUpdaterModule.AgentAutoUpdater,
       SkillAutoAssigner: skillAutoAssignerModule.SkillAutoAssigner,
       createAtlasRuntime: runtimeCoreModule.createAtlasRuntime,
@@ -1828,6 +1923,7 @@ async function bootstrapAtlasMind(
     const costTracker = new startupModules.CostTracker();
     costTracker.attachStorage(context.globalState);
   costTracker.setWorkspaceKey(vscode.workspace.workspaceFolders?.[0]?.uri.fsPath);
+  void attachCostHistoryStore(context, costTracker);
     const memoryManager = new startupModules.MemoryManager();
     const skillsRefresh = new vscode.EventEmitter<void>();
     const agentsRefresh = new vscode.EventEmitter<void>();
@@ -2215,7 +2311,7 @@ async function bootstrapAtlasMind(
         return { approved: true };
       }
 
-      if (toolApprovalManager.shouldBypass(taskId, policy.category)) {
+      if (toolApprovalManager.shouldBypass(taskId, policy)) {
         return { approved: true };
       }
 
@@ -2452,11 +2548,57 @@ async function bootstrapAtlasMind(
     // request that queued politely is not then reported as a slow model.
     modelRouter.setResidentLocalModels(localModelArbiter.getState().residentModelIds);
     orchestrator.setLocalAdmissionBudgetMs(LOCAL_GPU_ADMISSION_WAIT_MS);
+
+    // A credential in the operator's own prompt is the one case the egress
+    // boundary will not decide alone: it never silently rewrites what somebody
+    // typed, so the choice is theirs. Wired only here, on the interactive path
+    // — background work has nobody to ask, and the boundary's default of
+    // refusing is the right answer there.
+    //
+    // The dialog names the rules that matched, never the value they matched.
+    orchestrator.setEgressSecretConfirmer(async ({ rules, reason }) => {
+      const sendRedacted = 'Send redacted';
+      const sendOriginal = 'Send as typed';
+      const choice = await vscode.window.showWarningMessage(
+        'This prompt looks like it contains a credential.',
+        {
+          modal: true,
+          detail: `${reason}\n\nMatched: ${rules.join(', ')}\n\n`
+            + 'AtlasMind does not rewrite what you typed without asking. '
+            + 'Sending it as typed transmits the credential to the model provider.',
+        },
+        sendRedacted,
+        sendOriginal,
+      );
+      if (choice === sendOriginal) { return 'send-original'; }
+      if (choice === sendRedacted) { return 'send-redacted'; }
+      // Dismissing a modal is not consent.
+      return 'cancel';
+    });
     context.subscriptions.push(
       localModelArbiter.onDidChange(state => {
         modelRouter.setResidentLocalModels(state.residentModelIds);
       }),
     );
+
+    /**
+     * Background memory diagnostics, deduplicated but never discarded.
+     *
+     * Replaces three silent `catch` blocks on this path. A background task that
+     * fails every cycle must not notify every cycle, and must not become
+     * invisible either — so the output channel always receives the line and the
+     * deduper only governs whether it is *raised*.
+     */
+    const backgroundFailureNotices = new startupModules.BackgroundFailureNotices();
+    const backgroundMemoryNotices = {
+      report: (signature: string, message: string): void => {
+        outputChannel.appendLine(`[AtlasMind] background memory: ${message}`);
+        if (backgroundFailureNotices.shouldNotify(signature)) {
+          outputChannel.appendLine('[AtlasMind] background memory: (further identical notices suppressed)');
+        }
+      },
+      clear: (): void => backgroundFailureNotices.clear(),
+    };
 
     // Wire the memory agent executor now that runtime is available.
     // It owns all memory maintenance LLM calls and respects the memory-agent's allowedModels config.
@@ -2466,6 +2608,24 @@ async function bootstrapAtlasMind(
       runtime.taskProfiler,
       memoryManager,
       runtime.agentRegistry,
+      {
+        // Read per call, so switching the setting off takes effect on the next
+        // cycle rather than at the next reload.
+        mode: () => startupModules.resolveBackgroundSummarizationMode(
+          vscode.workspace.getConfiguration('atlasmind').get('memory.backgroundSummarizationMode'),
+        ),
+        reporter: {
+          failure: (signature, message) => backgroundMemoryNotices.report(signature, message),
+          externalDispatch: (providerId) => {
+            // Stated before it happens, because a cloud fallback that nobody is
+            // told about is the specific thing this work exists to end.
+            outputChannel.appendLine(
+              `[AtlasMind] background memory: sending project-memory content to external provider "${providerId}" `
+              + '(atlasmind.memory.backgroundSummarizationMode is "routed").',
+            );
+          },
+        },
+      },
     );
     maintenanceCompleter = (sys: string, user: string) => memoryAgentExecutor.complete(sys, user);
 
@@ -2537,7 +2697,28 @@ async function bootstrapAtlasMind(
     }
 
     // Periodically refresh snippets for stale SSOT entries (max 3 per cycle to avoid cost spikes).
+    //
+    // Gated three ways, because this timer previously did all of the following
+    // merely because the extension activated: read project memory, send up to
+    // 4 000 characters of it to a routed model that could be a cloud provider,
+    // and write the reply back into project files — with every failure
+    // swallowed. See `docs/security-data-flow.md` §2.
+    //
+    // The mode is read inside the tick rather than captured at activation, so
+    // turning the setting off stops the next cycle rather than requiring a
+    // reload.
     const ssotSnippetRefreshHandle = setInterval(() => {
+      const summarizationMode = startupModules.resolveBackgroundSummarizationMode(
+        vscode.workspace.getConfiguration('atlasmind').get('memory.backgroundSummarizationMode'),
+      );
+      const selfHealingMode = startupModules.resolveMemorySelfHealingMode(
+        vscode.workspace.getConfiguration('atlasmind').get('memory.selfHealingMode'),
+      );
+      // Off means no file is read and no model is selected, not a request that
+      // is prepared and discarded.
+      if (!startupModules.backgroundSummarizationRunsAtAll(summarizationMode)) { return; }
+      if (!startupModules.selfHealingMayScan(selfHealingMode)) { return; }
+
       const ssotRoot = sessionContextManager.getSsotRoot();
       if (!ssotRoot) { return; }
       const stale = memoryAgentExecutor.detectStaleEntries();
@@ -2549,14 +2730,30 @@ async function bootstrapAtlasMind(
             const raw = await vscode.workspace.fs.readFile(fileUri);
             const content = Buffer.from(raw).toString('utf8');
             const newSnippet = await memoryAgentExecutor.summarizeSsotEntry(entryPath, content);
-            if (newSnippet) {
-              const entry = memoryManager.listEntries().find(e => e.path === entryPath);
-              if (entry) {
-                memoryManager.upsert({ ...entry, snippet: newSnippet });
-              }
+            if (!newSnippet) { continue; }
+
+            if (!startupModules.selfHealingMayWrite(selfHealingMode)) {
+              // Report-only and ask both stop here. A refreshed snippet that is
+              // computed and not written is reported rather than dropped, so
+              // "nothing happened" and "something was withheld" stay distinct.
+              backgroundMemoryNotices.report(
+                `snippet-withheld:${entryPath}`,
+                `A refreshed snippet for ${entryPath} was not written: memory self-healing is `
+                + `"${selfHealingMode}". Set atlasmind.memory.selfHealingMode to "apply" to write automatically.`,
+              );
+              continue;
             }
-          } catch {
-            // Silent — best-effort refresh only.
+
+            const entry = memoryManager.listEntries().find(e => e.path === entryPath);
+            if (entry) {
+              memoryManager.upsert({ ...entry, snippet: newSnippet });
+            }
+          } catch (error) {
+            backgroundMemoryNotices.report(
+              `snippet-refresh-failed:${entryPath}`,
+              `Background snippet refresh failed for ${entryPath}: `
+              + `${error instanceof Error ? error.message : String(error)}`,
+            );
           }
         }
       })();
@@ -3941,19 +4138,41 @@ async function bootstrapAtlasMind(
     await updateProviderStatusBar(coreReady.providerStatusBar, coreReady.providerRegistry, context.secrets, atlasContext!.modelRouter);
   });
   runBackgroundActivationTask('syncExchangeRates', outputChannel, async () => {
-    await syncExchangeRates(context.globalState);
+    // Nothing is fetched on a default installation: `displayCurrency` is USD,
+    // costs are recorded in USD, and no conversion is needed. The outcome is
+    // logged so a startup that *did* reach out says so.
+    const outcome = await syncExchangeRates(context.globalState, {
+      displayCurrency: vscode.workspace.getConfiguration('atlasmind').get<string>('displayCurrency', 'USD'),
+    });
+    if (outcome !== 'not-needed') {
+      outputChannel.appendLine(`[AtlasMind] Exchange rates: ${outcome}.`);
+    }
   });
+  // These two are sequenced rather than run in parallel, because the second
+  // depends on the answer to the first.
+  //
+  // `syncLocalModels` probes localhost only — that is what local-model discovery
+  // *is*, and nothing leaves the machine. `syncLocalModelCatalog` is a different
+  // proposition: it fetches from ollama.com and huggingface.co to enumerate
+  // models the user could *download*. It used to run unconditionally at every
+  // activation behind nothing but a TTL, so a fresh installation with no local
+  // runtime contacted two third parties on startup to build a catalogue of
+  // things it had no way to run. It now only asks once there is something on
+  // this machine to run them with.
   runBackgroundActivationTask('syncLocalModels', outputChannel, async () => {
     const cached = loadLocalModelSync(context.globalState);
-    if (cached && !isLocalSyncStale(cached)) return;
-    const result = await syncLocalModels();
-    if (result.models.length > 0) {
+    const stillFresh = cached !== undefined && !isLocalSyncStale(cached);
+    const result = stillFresh ? cached : await syncLocalModels();
+    if (!stillFresh && result.models.length > 0) {
       saveLocalModelSync(context.globalState, result);
       await atlasContext!.refreshProviderModels(false);
       outputChannel.appendLine(`[localModelSync] Synced ${result.models.length} local model(s) from ${result.reachableEndpoints.join(', ')}.`);
     }
-  });
-  runBackgroundActivationTask('syncLocalModelCatalog', outputChannel, async () => {
+
+    if (!shouldSyncDownloadableCatalogue(result)) {
+      outputChannel.appendLine('[localModelSync] No local model runtime found; skipping the downloadable-model catalogue.');
+      return;
+    }
     await syncLocalModelCatalog(context.globalState, context.extensionPath);
   });
 

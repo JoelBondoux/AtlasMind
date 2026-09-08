@@ -2015,29 +2015,56 @@ async function createRemoteRepo(
 async function installGitHubCli(reporter?: BootstrapPromptReporter): Promise<boolean> {
   const platform = process.platform;
 
-  type Installer = { label: string; check: string; cmd: string };
+  /**
+   * An installer AtlasMind may run, as a command and an argument vector.
+   *
+   * Argv rather than a command line, and every entry a literal in this file:
+   * nothing here is interpolated, so there is no string for a caller or a model
+   * to influence. `check` is run to see whether the package manager exists —
+   * three of those used to be `cp.exec`, which means a shell, spawned before
+   * anybody had been asked anything.
+   */
+  type Installer = { label: string; check: readonly string[]; cmd: readonly string[] };
   let installers: Installer[];
 
   if (platform === 'win32') {
     installers = [
-      { label: 'winget', check: 'winget --version', cmd: 'winget install --id GitHub.cli --silent --accept-package-agreements --accept-source-agreements' },
-      { label: 'scoop', check: 'scoop --version', cmd: 'scoop install gh' },
-      { label: 'choco', check: 'choco --version', cmd: 'choco install gh -y' },
+      { label: 'winget', check: ['winget', '--version'], cmd: ['winget', 'install', '--id', 'GitHub.cli', '--silent', '--accept-package-agreements', '--accept-source-agreements'] },
+      { label: 'scoop', check: ['scoop', '--version'], cmd: ['scoop', 'install', 'gh'] },
+      { label: 'choco', check: ['choco', '--version'], cmd: ['choco', 'install', 'gh', '-y'] },
     ];
   } else if (platform === 'darwin') {
     installers = [
-      { label: 'brew', check: 'brew --version', cmd: 'brew install gh' },
+      { label: 'brew', check: ['brew', '--version'], cmd: ['brew', 'install', 'gh'] },
     ];
   } else {
+    // Debian/Ubuntu is deliberately absent, and its absence is the decision.
+    //
+    // GitHub's documented apt install is
+    // `curl -fsSL … | sudo dd of=/usr/share/keyrings/… && … | sudo tee … && sudo apt install gh`
+    // — a privileged download-and-pipe. It shipped here as a constant, so it was
+    // never injectable, but `acpInstaller.ts` refuses to ship Rust's
+    // `curl … | sh` on principle and two installers in one product should not
+    // disagree about whether that principle exists. It also could not work:
+    // `sudo` with no TTY prompts for a password nothing can answer.
+    //
+    // apt users get the manual instructions the no-installer path already
+    // shows, which point at cli.github.com — somebody else's documented
+    // commands, quoted rather than run, exactly as the ACP installer does.
+    //
+    // dnf stays: it is a plain command rather than a pipeline. It still needs
+    // `sudo`, which without a TTY fails and falls through to those same manual
+    // instructions — which is what it did before, just now without a shell.
     installers = [
-      { label: 'apt', check: 'apt-get --version', cmd: 'curl -fsSL https://cli.github.com/packages/githubcli-archive-keyring.gpg | sudo dd of=/usr/share/keyrings/githubcli-archive-keyring.gpg && echo "deb [arch=$(dpkg --print-architecture) signed-by=/usr/share/keyrings/githubcli-archive-keyring.gpg] https://cli.github.com/packages stable main" | sudo tee /etc/apt/sources.list.d/github-cli.list > /dev/null && sudo apt update && sudo apt install gh -y' },
-      { label: 'dnf', check: 'dnf --version', cmd: 'sudo dnf install gh -y' },
+      { label: 'dnf', check: ['dnf', '--version'], cmd: ['sudo', 'dnf', 'install', 'gh', '-y'] },
     ];
   }
 
   const available = await Promise.all(
     installers.map(i => new Promise<Installer | null>(resolve => {
-      cp.exec(i.check, err => resolve(err ? null : i));
+      // `execFile`, so no shell is involved in merely asking whether a package
+      // manager exists.
+      cp.execFile(i.check[0]!, [...i.check.slice(1)], err => resolve(err ? null : i));
     })),
   );
   const installer = available.find(i => i !== null) ?? null;
@@ -2065,7 +2092,7 @@ async function installGitHubCli(reporter?: BootstrapPromptReporter): Promise<boo
   reportBootstrapProgress(reporter, `- Installing GitHub CLI via ${installer.label}...`);
 
   const success = await new Promise<boolean>(resolve => {
-    cp.exec(installer.cmd, { timeout: 120_000 }, err => resolve(!err));
+    cp.execFile(installer.cmd[0]!, [...installer.cmd.slice(1)], { timeout: 120_000 }, err => resolve(!err));
   });
 
   if (!success) {
@@ -2181,20 +2208,31 @@ async function ghCliAvailable(cwd: string): Promise<boolean> {
   return (await client.probe()).installed;
 }
 
-async function ensureInitialCommit(cwd: string, reporter?: BootstrapPromptReporter): Promise<void> {
-  const hasCommits = await new Promise<boolean>(resolve => {
-    cp.exec('git log -1 --oneline', { cwd }, err => resolve(!err));
+/** One `git` invocation, no shell. Resolves to whether it succeeded. */
+function runGit(cwd: string, args: readonly string[]): Promise<boolean> {
+  return new Promise<boolean>(resolve => {
+    cp.execFile('git', [...args], { cwd }, err => resolve(!err));
   });
+}
 
-  if (hasCommits) {
+async function ensureInitialCommit(cwd: string, reporter?: BootstrapPromptReporter): Promise<void> {
+  if (await runGit(cwd, ['log', '-1', '--oneline'])) {
     return;
   }
 
   reportBootstrapProgress(reporter, '- No commits found — creating initial commit before push...');
 
-  await new Promise<void>(resolve => {
-    cp.exec('git add -A && git commit -m "chore: initial AtlasMind bootstrap scaffold"', { cwd }, () => resolve());
-  });
+  // Two invocations rather than `git add -A && git commit -m "…"` through a
+  // shell. The `&&` was the only reason a shell was needed, and sequencing two
+  // calls says the same thing without one — the commit is still skipped if the
+  // add fails, which the shell's `&&` was there to guarantee.
+  //
+  // `-A` is deliberate here and only here: this runs once, on a scaffold
+  // AtlasMind has just written into an empty repository, so "everything" is
+  // exactly what belongs in the first commit.
+  if (await runGit(cwd, ['add', '-A'])) {
+    await runGit(cwd, ['commit', '-m', 'chore: initial AtlasMind bootstrap scaffold']);
+  }
 }
 
 async function writeGitHubPlanningArtifacts(workspaceRoot: vscode.Uri, intake: BootstrapProjectIntake): Promise<boolean> {

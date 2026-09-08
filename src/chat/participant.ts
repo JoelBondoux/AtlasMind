@@ -1874,13 +1874,46 @@ async function handleShipCommand(
 
   stream.markdown(`### ${routine.name}\n\n${routine.description}\n\n`);
 
+  const { planRoutineExecution, describeRoutinePlan } = await import('../core/routineExecutionPolicy.js');
+  const plan = planRoutineExecution(routine, vars);
+
+  if (plan.status === 'refused') {
+    stream.markdown(
+      `**Nothing was run.**\n\n${describeRoutinePlan(plan)}\n\n` +
+      'A routine step is a shell command, so every value it substitutes has to be present and has to be text a shell cannot read as syntax.',
+    );
+    atlas.routinesRefresh.fire();
+    return;
+  }
+
+  // Shown before the confirmation, not after it. A routine template is an
+  // ordinary file under `project_memory/routines/`, which means the `file-write`
+  // tool can author one — so the only reliable moment to read what a routine
+  // does is the moment before it runs.
+  stream.markdown(
+    `AtlasMind will run:\n\n\`\`\`\n${describeRoutinePlan(plan)}\n\`\`\`\n\n`,
+  );
+
+  const proceed = await vscode.window.showWarningMessage(
+    `Run the "${routine.name}" routine?`,
+    {
+      modal: true,
+      detail: `${describeRoutinePlan(plan)}\n\nThese run in your workspace shell, in this order.`,
+    },
+    'Run routine',
+  );
+  if (proceed !== 'Run routine') {
+    stream.markdown('**Cancelled.** Nothing was run.');
+    return;
+  }
+
   const lines: string[] = [];
   const { RoutineRunner } = await import('../core/routineRunner.js');
   const runner = new RoutineRunner(atlas.projectRunHistory);
 
   const result = await runner.run(
     routine,
-    vars,
+    plan,
     workspaceRoot,
     (step, index, total) => {
       lines.push(`- ⏳ **Step ${index + 1}/${total}:** ${step.label}`);

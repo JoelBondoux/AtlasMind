@@ -99,19 +99,38 @@ export default defineConfig({
       provider: 'v8',
       reporter: ['text', 'lcov'],
       reportsDirectory: 'coverage',
+      // Every shipped source directory, not a curated subset.
+      //
+      // This was an allowlist of eight directories, which quietly omitted five —
+      // `src/remote/` (the localhost control server), `src/voice/`, `src/ard/`,
+      // `src/utils/` and `src/web/`. A percentage measured over the directories
+      // somebody chose is not a measurement of the codebase, and the omission is
+      // least defensible exactly where it mattered most: a control server
+      // listening on localhost is the last thing that should be invisible to the
+      // coverage report.
+      //
+      // Adding them lowers the number. That is the point — the number was
+      // flattering, and a threshold is only worth having over the whole thing.
       include: [
-        'src/core/**/*.ts',
-        'src/skills/**/*.ts',
-        'src/memory/**/*.ts',
-        'src/providers/**/*.ts',
-        'src/mcp/**/*.ts',
-        'src/bootstrap/**/*.ts',
-        'src/views/**/*.ts',
-        'src/chat/**/*.ts',
+        'src/**/*.ts',
       ],
+      exclude: [
+        // Type-only and generated surfaces have no branches to cover; counting
+        // them would deflate the figure as dishonestly as omitting real code
+        // inflated it.
+        'src/types.ts',
+        'src/**/*.d.ts',
+      ],
+      // Raised from 45 once the include stopped being a curated subset.
+      //
+      // Measured across every source directory the extension ships, coverage is
+      // ~59.9% of lines and ~63% of functions — so the old 45 was not a floor
+      // anybody could fall through, and a threshold nothing can breach is not a
+      // guard. Set with a few points of headroom so ordinary work does not trip
+      // it, and ratcheted the way the dead-export and type-error ceilings are.
       thresholds: {
-        lines: 45,
-        functions: 45,
+        lines: 55,
+        functions: 58,
       },
     },
   },

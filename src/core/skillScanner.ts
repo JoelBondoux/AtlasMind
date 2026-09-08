@@ -63,10 +63,15 @@ export const BUILTIN_SCAN_RULES: SerializedScanRule[] = [
   {
     id: 'no-global-scope-reach',
     severity: 'error',
-    // The synthesised skill runs in the extension host's global scope, so
-    // `globalThis` / `global` / `process` are all in reach whatever the prompt
-    // asked for. Computed member access is the obfuscation that matters:
-    // `globalThis['pro' + 'cess']` defeats every literal rule in this file.
+    // Since v0.434.0 a synthesised skill is evaluated in a `node:vm` context
+    // with no ambient globals, so `globalThis` / `global` / `process` are not
+    // names it can resolve at evaluation time. This rule is kept rather than
+    // retired for two reasons: a skill that *tries* is a skill worth refusing
+    // whether or not it would have succeeded, and containment is not a sandbox
+    // — the `SkillExecutionContext` handed to `execute()` is a host object, and
+    // its prototype chain leads back to the host realm. Computed member access
+    // is the obfuscation that matters: `globalThis['pro' + 'cess']` defeats
+    // every literal rule in this file.
     pattern: '\\b(?:globalThis|global|process)\\s*\\[',
     message: 'Computed access to a global object is forbidden - it bypasses every name-based rule in the scanner.',
     enabled: true,
