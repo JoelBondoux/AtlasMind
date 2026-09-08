@@ -244,7 +244,30 @@ function parsePricePer1k(raw: string): number | undefined {
 }
 
 function stripHtmlTags(html: string): string {
-  return html.replace(/<[^>]+>/g, '');
+  // Script and style *contents* are dropped, not just their tags. Removing tags
+  // alone leaves the body of a `<script>` behind as though it were prose, so a
+  // cell's text could arrive carrying code — and one pass over `<[^>]+>` also
+  // turns a nested `<script<script>>` into a live `<script>` rather than into
+  // nothing. This reads a fetched third-party page, which is exactly the input
+  // that is not ours to trust.
+  let text = html
+    // `[^>]*` rather than `\s*` before the closing bracket: HTML tolerates junk
+    // in an end tag, so `</script foo>` closes the element and a stricter
+    // pattern would walk past it and leave the script body in the text.
+    .replace(/<script\b[\s\S]*?<\/script[^>]*>/gi, ' ')
+    .replace(/<style\b[\s\S]*?<\/style[^>]*>/gi, ' ');
+
+  // Repeated until it stops changing, because a single pass is what leaves the
+  // nested case behind: `<scr<b>ipt>` loses the inner tag and re-forms as a tag
+  // the pass has already gone by. Bounded so a pathological page cannot spin.
+  for (let pass = 0; pass < 8; pass += 1) {
+    const stripped = text.replace(/<[^>]+>/g, '');
+    if (stripped === text) {
+      break;
+    }
+    text = stripped;
+  }
+  return text;
 }
 
 /**

@@ -280,10 +280,6 @@
     {
       "id": "explain-this-codebase-this-f",
       "normalizedText": "\"explain this codebase / this file\" onboarding mode: guided tours generated from ssot for unfamiliar code.",
-      "position": {
-        "x": 661,
-        "y": 741
-      },
       "imported": {
         "kind": "markdown",
         "sourceId": "docs/roadmap.md::explain this codebase this file onboarding mode guided tours generated from ssot for unfamiliar code",
@@ -328,10 +324,6 @@
     {
       "id": "reasoning-budget-as-a-first",
       "normalizedText": "**reasoning-budget as a first-class routing axis** — extend budget + speed routing with a third \"how hard to think\" axis for extended-thinking / test-time-compute models. natural home: taskprofiler. builds on the existing cache-aware, capability-sourced routing work.",
-      "position": {
-        "x": 5575,
-        "y": 459
-      },
       "imported": {
         "kind": "markdown",
         "sourceId": "docs/roadmap.md::reasoning budget as a first class routing axis extend budget speed routing with a third how hard to think axis for extended thinking test time compute models natural home taskprofiler builds on the existing cache aware capability sourced routing work",
@@ -484,43 +476,6 @@
       }
     },
     {
-      "id": "prompt-injection-defense-the",
-      "normalizedText": "**prompt-injection defense** — the security-first positioning is hollow once mcp + autonomy + untrusted content combine.",
-      "imported": {
-        "kind": "markdown",
-        "sourceId": "docs/roadmap.md::prompt injection defense the security first positioning is hollow once mcp autonomy untrusted content combine",
-        "sourceLabel": "docs/**/*roadmap*.md",
-        "importedTitleNormalized": "prompt injection defense the security first positioning is hollow once mcp autonomy untrusted content combine",
-        "importedAt": "2026-08-21T06:17:07.883Z"
-      }
-    },
-    {
-      "id": "reasoning-budget-routing-ext",
-      "normalizedText": "**reasoning-budget routing** — extends multi-axis routing (an existing strength) and rides the biggest model-capability trend.",
-      "position": {
-        "x": 1016,
-        "y": 447
-      },
-      "imported": {
-        "kind": "markdown",
-        "sourceId": "docs/roadmap.md::reasoning budget routing extends multi axis routing an existing strength and rides the biggest model capability trend",
-        "sourceLabel": "docs/**/*roadmap*.md",
-        "importedTitleNormalized": "reasoning budget routing extends multi axis routing an existing strength and rides the biggest model capability trend",
-        "importedAt": "2026-08-21T06:17:07.883Z"
-      }
-    },
-    {
-      "id": "sandboxed-execution-worktree",
-      "normalizedText": "**sandboxed execution + worktree isolation** — the unlock that lets every other autonomy feature ship safely.",
-      "imported": {
-        "kind": "markdown",
-        "sourceId": "docs/roadmap.md::sandboxed execution worktree isolation the unlock that lets every other autonomy feature ship safely",
-        "sourceLabel": "docs/**/*roadmap*.md",
-        "importedTitleNormalized": "sandboxed execution worktree isolation the unlock that lets every other autonomy feature ship safely",
-        "importedAt": "2026-08-21T06:17:07.883Z"
-      }
-    },
-    {
       "id": "promote-worktree-isolation-t",
       "normalizedText": "**promote worktree isolation toward near-term.** atlasmind already runs parallel subtask batches (`taskscheduler.ts`, `promise.all`, cap 5) but on a **single shared working tree** — a latent write-race that is a correctness bug under the safety-first rule. worktree-per-batch isolation…",
       "imported": {
@@ -550,17 +505,6 @@
         "sourceId": "docs/roadmap.md::parallel command center ux net new framing a multi lane view of n concurrent runs worktrees with per lane status and diff approve making parallel fan out legible complements the single run mission control project run center",
         "sourceLabel": "docs/**/*roadmap*.md",
         "importedTitleNormalized": "parallel command center ux net new framing a multi lane view of n concurrent runs worktrees with per lane status and diff approve making parallel fan out legible complements the single run mission control project run center",
-        "importedAt": "2026-08-21T06:17:07.883Z"
-      }
-    },
-    {
-      "id": "not-pursuing-becoming-a-gene",
-      "normalizedText": "**not pursuing:** becoming a generic byo-cli-agent multiplexer — that is supacode's category and undercuts atlasmind's integrated routing / memory / cost / privacy differentiators.",
-      "imported": {
-        "kind": "markdown",
-        "sourceId": "docs/roadmap.md::not pursuing becoming a generic byo cli agent multiplexer that is supacode s category and undercuts atlasmind s integrated routing memory cost privacy differentiators",
-        "sourceLabel": "docs/**/*roadmap*.md",
-        "importedTitleNormalized": "not pursuing becoming a generic byo cli agent multiplexer that is supacode s category and undercuts atlasmind s integrated routing memory cost privacy differentiators",
         "importedAt": "2026-08-21T06:17:07.883Z"
       }
     },
@@ -639,6 +583,10 @@
         "sourceId": "test:project_memory/index/testing-config.json:performance-is-enabled-with-no-evidence-it-runs",
         "sourceTitle": "Performance is enabled with no evidence it runs",
         "raisedAt": "2026-09-02T23:21:31.502Z"
+      },
+      "position": {
+        "x": 4878,
+        "y": 184
       }
     },
     {
@@ -654,15 +602,6 @@
     }
   ],
   "edges": [
-    {
-      "from": "prompt-injection-tool-poison",
-      "to": "prompt-injection-defense-the",
-      "origin": "declared",
-      "rule": "explicit-reference",
-      "evidence": "“once MCP + autonomy + untrusted content combine”",
-      "createdAt": "2026-08-21T11:02:08.574Z",
-      "createdBy": "contact-email-joelbondoux-net-1"
-    },
     {
       "from": "monorepo-multi-root-workspac",
       "to": "game-dev-unity-unreal-godot",
@@ -808,15 +747,6 @@
       "createdBy": "contact-email-joelbondoux-net-1"
     },
     {
-      "from": "not-pursuing-becoming-a-gene",
-      "to": "monorepo-multi-root-workspac",
-      "origin": "declared",
-      "rule": "shared-subject-phase",
-      "evidence": "both mention “routing” and “atlasmind”",
-      "createdAt": "2026-08-21T11:02:08.574Z",
-      "createdBy": "contact-email-joelbondoux-net-1"
-    },
-    {
       "from": "sast-dependency-cve-integrat",
       "to": "async-ambient-background-age",
       "origin": "declared",
@@ -916,15 +846,6 @@
       "createdBy": "contact-email-joelbondoux-net-1"
     },
     {
-      "from": "not-pursuing-becoming-a-gene",
-      "to": "agent-to-agent-interoperabil",
-      "origin": "declared",
-      "rule": "shared-subject-phase",
-      "evidence": "both mention “agent” and “atlasmind”",
-      "createdAt": "2026-08-21T11:02:08.574Z",
-      "createdBy": "contact-email-joelbondoux-net-1"
-    },
-    {
       "from": "pay-down-performance-is-enab",
       "to": "pay-down-property-based-is-e",
       "origin": "declared",
@@ -984,15 +905,6 @@
       "origin": "declared",
       "rule": "shared-subject-phase",
       "evidence": "both mention “ssot” and “model”",
-      "createdAt": "2026-09-02T23:21:49.937Z",
-      "createdBy": "contact-email-joelbondoux-net-1"
-    },
-    {
-      "from": "semantic-codebase-index-code",
-      "to": "reasoning-budget-routing-ext",
-      "origin": "declared",
-      "rule": "shared-subject-phase",
-      "evidence": "both mention “model” and “biggest” and “capability”",
       "createdAt": "2026-09-02T23:21:49.937Z",
       "createdBy": "contact-email-joelbondoux-net-1"
     },
@@ -1065,15 +977,6 @@
       "origin": "declared",
       "rule": "shared-subject-phase",
       "evidence": "both mention “cloud” and “already”",
-      "createdAt": "2026-09-02T23:21:49.937Z",
-      "createdBy": "contact-email-joelbondoux-net-1"
-    },
-    {
-      "from": "not-pursuing-becoming-a-gene",
-      "to": "open-knowledge-format-okf-in",
-      "origin": "declared",
-      "rule": "shared-subject-phase",
-      "evidence": "both mention “agent” and “atlasmind”",
       "createdAt": "2026-09-02T23:21:49.937Z",
       "createdBy": "contact-email-joelbondoux-net-1"
     },
@@ -1240,26 +1143,80 @@
       "createdBy": "contact-email-joelbondoux-net-1"
     },
     {
-      "from": "reasoning-budget-routing-ext",
+      "from": "pr-native-github-automation",
       "to": "offer-a-capability-you-are-c",
       "origin": "declared",
       "rule": "shared-subject-phase",
-      "evidence": "both mention “capability” and “budget”",
-      "createdAt": "2026-09-07T15:49:50.870Z",
+      "evidence": "both mention “github” and “project” and “rather”",
+      "createdAt": "2026-09-07T19:59:06.435Z",
       "createdBy": "contact-email-joelbondoux-net-1"
     },
     {
-      "from": "not-pursuing-becoming-a-gene",
+      "from": "pay-down-performance-is-enab",
       "to": "offer-a-capability-you-are-c",
       "origin": "declared",
       "rule": "shared-subject-phase",
-      "evidence": "both mention “cost” and “category”",
-      "createdAt": "2026-09-07T15:49:50.870Z",
+      "evidence": "both mention “evidence” and “runs” and “enabled”",
+      "createdAt": "2026-09-07T19:59:06.435Z",
+      "createdBy": "contact-email-joelbondoux-net-1"
+    },
+    {
+      "from": "pr-native-github-automation",
+      "to": "either-have-a-built-in-gnatt",
+      "origin": "declared",
+      "rule": "shared-subject-phase",
+      "evidence": "both mention “roadmap” and “github” and “project”",
+      "createdAt": "2026-09-07T20:43:21.894Z",
+      "createdBy": "contact-email-joelbondoux-net-1"
+    },
+    {
+      "from": "the-guided-github-workflow-o",
+      "to": "either-have-a-built-in-gnatt",
+      "origin": "declared",
+      "rule": "shared-subject-phase",
+      "evidence": "both mention “github” and “project”",
+      "createdAt": "2026-09-07T20:43:21.894Z",
+      "createdBy": "contact-email-joelbondoux-net-1"
+    },
+    {
+      "from": "extend-the-test-surface-to-h",
+      "to": "team-management-surface-to-m",
+      "origin": "declared",
+      "rule": "shared-subject-phase",
+      "evidence": "both mention “management” and “surface”",
+      "createdAt": "2026-09-07T20:43:21.894Z",
+      "createdBy": "contact-email-joelbondoux-net-1"
+    },
+    {
+      "from": "extend-the-test-surface-to-h",
+      "to": "offer-a-capability-you-are-c",
+      "origin": "declared",
+      "rule": "shared-subject-phase",
+      "evidence": "both mention “context” and “name”",
+      "createdAt": "2026-09-07T20:43:21.894Z",
+      "createdBy": "contact-email-joelbondoux-net-1"
+    },
+    {
+      "from": "pr-native-github-automation",
+      "to": "explore-a-github-pages-hoste",
+      "origin": "declared",
+      "rule": "shared-subject-phase",
+      "evidence": "both mention “github” and “project”",
+      "createdAt": "2026-09-07T20:43:21.894Z",
+      "createdBy": "contact-email-joelbondoux-net-1"
+    },
+    {
+      "from": "the-guided-github-workflow-o",
+      "to": "explore-a-github-pages-hoste",
+      "origin": "declared",
+      "rule": "shared-subject-phase",
+      "evidence": "both mention “github” and “project”",
+      "createdAt": "2026-09-07T20:43:21.894Z",
       "createdBy": "contact-email-joelbondoux-net-1"
     }
   ],
   "suggestLinks": true,
   "dismissed": [],
   "layoutOrientation": "vertical",
-  "updatedAt": "2026-09-07T16:22:51.224Z"
+  "updatedAt": "2026-09-07T21:44:48.117Z"
 }

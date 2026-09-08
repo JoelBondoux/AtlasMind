@@ -6,6 +6,1977 @@ The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/),
 
 ## [Unreleased]
 
+## [0.449.5] - 2026-09-08
+
+### Security
+
+- **The last two webview values CodeQL named: a content-state maturity label in the Studio inspector,
+  and the vital-file default count on the button that offers to record them.** Both now escape, like
+  everything around them.
+
+  This closes the pass. What the analyser still points at on the dashboard sinks is *numeric* counts
+  interpolated without an escape — the host computes them as numbers and every string field on those
+  paths is escaped — so they are recorded as accepted rather than chased one rescan at a time. The
+  three image-preview sinks in the chat webview are likewise validated by `safeImageSrc` before every
+  assignment, with a test that fails if the guard is removed; CodeQL does not model the helper as a
+  barrier, which is a limit of the tool rather than a hole in the code.
+
+## [0.449.4] - 2026-09-08
+
+### Security
+
+- **Second pass on the CodeQL findings: the ones the first pass moved rather than closed.** A rescan
+  is the only honest way to tell a fix from a belief about a fix, and it found three more unescaped
+  webview values (an ideation card's coordinates, which land in a `style` attribute; an asset
+  inspector's geometry; the vital-file ownership counts), an end-tag pattern that `</script foo>`
+  walks straight past, an escape that still left the backslash, and a comment scrub that was still
+  quadratic.
+
+  The memory self-healer now finds HTML comments by index rather than by pattern. A lazy regex
+  rescans to the end of the file from every `<!--` that never closes, so a file of repeated openers
+  cost quadratic time — in the one function whose whole job is reading files that may be hostile. An
+  unterminated opener now ends the scan rather than being rewritten, because it is not a comment, and
+  rewriting to the end of the file would delete the rest of somebody's notes.
+
+## [0.449.3] - 2026-09-08
+
+### Security
+
+- **Every open CodeQL finding on `develop` addressed — 40 fixed, 8 dismissed with a stated reason.**
+  Taken as a triage rather than a sweep: each finding was read against the code it points at, and the
+  ones that turned out to be real were the ones worth the pass.
+
+  **A webview only loads an image source it recognises.** An attachment's `previewUri` arrives as a
+  string on a host message and went straight to `img.src` in three places. It is now parsed and
+  checked against the three shapes the host actually produces — an inlined `data:image/…`, and the
+  `https:`/`vscode-resource:` forms of `asWebviewUri` — with an unrecognised value rendering the chip
+  and no image, so the attachment stays visible and removable.
+
+  **The CSP nonce comes from the platform CSPRNG.** It was 32 characters drawn from `Math.random()`,
+  which is seeded per process and recoverable from a few samples — and a guessable nonce is the same
+  as no nonce, since it is the one value between a panel's CSP and an injected script running with the
+  page's own privileges. Both webview shells now share one implementation, so the panel with its own
+  shell cannot grow a second, weaker one. Chat session, message and folder ids moved to the same
+  source.
+
+  **Four webview interpolations were missing their escape.** CodeQL pointed at the exact ones: the
+  branch-comparison counts, an ideation template's card count, the responsive inspector's layout
+  constraints and component states, and the asset editor's geometry. Everything around them was
+  already escaped, which is why the finding was worth having.
+
+  **A markdown cell escapes the escape.** Six mirrors escaped `|` without escaping `\`, so a value
+  ending in a backslash turned the escape that followed into a literal backslash and a live pipe —
+  splitting one cell in two and shifting every column after it. Component labels are file paths, so
+  a trailing backslash is the ordinary case on Windows rather than a hostile one. The same fix applies
+  to the YAML string escaper in the bootstrapper, where the consequence is a scalar that ends early
+  and a line that is then read as YAML rather than as data.
+
+  **An "official" badge is decided by host, not by substring.** `url.includes('learn.microsoft.com')`
+  is satisfied by `https://example.invalid/?ref=learn.microsoft.com` and by
+  `https://learn.microsoft.com.example.invalid/`. The badge sits beside a server somebody is about to
+  install, so it is now parsed, matched on hostname and path prefix, and an unparseable URL reads as
+  `community` — the weaker claim, which is the safe direction.
+
+  **Three regexes could be made to backtrack** on input that is not ours: a trailing-separator trim on
+  configured paths, the memory self-healer's injected-comment scrub (which exists to read files that
+  may be hostile), and a version-suffix trim over provider model ids. Each is now a bounded walk or a
+  single pass.
+
+  **Two escapes were wrong rather than merely weak.** `key.replace(/\./g, '\.')` in the docs-integrity
+  test replaced a dot with itself, leaving every one of them a wildcard; and the wiki changelog guard
+  escaped only the dot in a version, where SemVer admits `+` and `-`.
+
+  Dismissed with reasons: five test helpers that extract this project's own `<script>` block to
+  syntax-check it, three test parsers that strip tags from our own source, and one `\$` inside a
+  template literal, where the escape is what stops JavaScript interpolating a GitHub Actions
+  expression. None is a sanitizer, and rewriting them as though they were would add complexity in
+  return for nothing.
+
+## [0.449.2] - 2026-09-08
+
+### Changed
+
+- **Every open Dependabot update taken in one pass, verified together rather than merged one at a
+  time.** `@agentclientprotocol/sdk` 1.4.0, `@noble/secp256k1` 3.2.0, `mysql2` 3.24.3, `zod` 4.5.4,
+  `@types/node` 26.4.1, `@types/pg` 8.23.1, `@typescript-eslint/eslint-plugin` 8.69.0, `eslint`
+  10.10.0, and Vitest with `@vitest/coverage-v8` from 4.1 to **5.0**. Compile, lint, the full 8,814-test
+  suite and `vsce package` all pass on the result.
+
+  Vitest 5 needed one thing done properly rather than waved through. `tests/output-schema-drift.test.ts`
+  pins the Vitest line its JUnit fixture was captured from, precisely because a reporter format change
+  is invisible: the suite still passes, the report is still written, and the Testing dashboard quietly
+  reverts to "no test report to read". The pin fired, so the fixture was **re-captured from a real
+  Vitest 5 run** and the pin moved to `^5.0` — not relaxed.
+
+- **`@types/vscode` is held at the version `engines.vscode` declares**, with a Dependabot ignore rule
+  saying why. The two are not independent: `vsce package` refuses to build when the types are newer
+  than the declared engine, so taking that bump is not a dependency chore — it raises the minimum
+  VS Code an AtlasMind user must be running, and everyone below that floor stops receiving updates.
+  That decision should arrive as its own commit, not as one line in a grouped tooling PR. Patch
+  updates within the declared line still flow, and the same shape as the standing TypeScript 6.x hold.
+
+## [0.449.1] - 2026-09-08
+
+### Fixed
+
+- **The roadmap canvas's edge glow goes out when you drag the plan back into view.** The four strips
+  say *the plan continues that way*, which is only useful if whatever moved the view recomputes them.
+  The wheel did; a drag-pan wrote the world transform itself and left the strips saying what was true
+  before the gesture, so a lit strip stayed lit over a card that was back on screen. That is why the
+  top and bottom strips looked right — a plain wheel scrolls vertically and went through the path that
+  refreshes them — while the horizontal pair, the ones you reach for a drag to move, did not.
+
+  A card's right edge is now measured rather than assumed, too. `RM_NODE_WIDTH` is the *content*
+  width a card is given; its padding and borders put another 24px on the far side, so the constant
+  reported the right edge further left than it is and the left strip stayed lit over a card still
+  poking into the frame. The height was already measured for exactly this reason; the width now
+  follows the same rule.
+
+## [0.449.0] - 2026-09-08
+
+### Added
+
+- **AtlasMind offers a capability your own runs show you reaching for.** A project shelling out to
+  `gh` twenty times is telling you something. The risk in acting on it is that "we noticed you use X,
+  install Y" is how a tool becomes a salesman, so every rule in `capabilityOffer` exists to keep the
+  offer rare and honest rather than to make it land.
+
+  **Evidence-triggered, never speculative** — offered only after the same command appears in several
+  *separate runs*. Runs, not calls: ten invocations inside one run is a project doing one thing once,
+  and counting calls would let a single afternoon manufacture a recommendation. **A signal AtlasMind
+  already covers is not a gap**: using git is AtlasMind working, and offering a git server would
+  recommend a second way to do something that already works, through third-party code. **Never framed
+  as a saving** — an MCP server publishes its whole tool list into the same tool budget a turn
+  spends, and AtlasMind has watched that budget overflow and drop skills from a run, so the card
+  gives what it *adds* and what it *consumes* equal weight and neither is optional. **A refusal is
+  final**, per server per project, on any evidence however much stronger; an offer that returns when
+  the count rises is a nag with a threshold. **One at a time**, because a list of suggestions is a
+  marketplace rather than an observation. **An offer is not trust** — nothing installs anything, and
+  the setup path leaves the server switched off.
+
+  Refusals live in workspace state rather than `project_memory/`: the SSOT folder is git-tracked, and
+  committing "somebody said no to the GitHub server" would put one person's preference into
+  everybody's checkout as a diff nobody asked for.
+
+- **Run history records which executable a terminal command ran** (`ToolExecutionArtifact.commandName`),
+  which is the evidence the offer needs and did not previously exist. The **basename only, never the
+  command line**: an argument list carries paths, tokens, queries and file contents, and none of that
+  is needed to know which tool a project keeps reaching for — so the record cannot leak something the
+  redactor would have had to catch.
+
+  `commandSignal` takes a leading quoted token whole, because a Windows path with a space in it is
+  the ordinary case and splitting on whitespace would turn `"C:\Program Files\…\gh.exe"` into the
+  signal `program`, matching nothing and hiding a real one.
+
+## [0.448.0] - 2026-09-08
+
+### Added
+
+- **Commits can say which planned work they were for.** A commit message says what changed in prose.
+  Nothing said *which backlog item or issue it was for*, so any analytic joining code to intent had
+  to guess from wording — and a wrong join is worse than none, because it is counted rather than
+  noticed. `commitTrailers` writes and reads that link using git's own trailer convention, so the
+  answer is readable by `git log`, `git interpret-trailers`, and anything else ever pointed at this
+  history.
+
+  Five rules. **Only a link somebody already declared** — the issue number comes from the branch
+  naming convention the workflow file declares, never from the commit's prose; a bare number
+  elsewhere in a branch name is refused, because taking it would permanently point a commit at
+  somebody else's ticket. **A value is validated, never cleaned**, which inverts the usual boundary
+  rule here for the same underlying reason it usually applies: a pushed commit message cannot be
+  edited, so a nearly-valid value made plausible is unfixable. **Trailers follow git's own rules** —
+  one block at the end, so `%(trailers)` sees them and a `Co-Authored-By` somebody wrote keeps its
+  position rather than being displaced. **Composing is idempotent**, so re-drafting twice does not
+  accumulate three copies of one fact. **Nothing here writes a commit** — it returns text a person
+  still reads and still commits.
+
+  The Source Control drafter adds them, and the dashboard's commit list shows what each commit
+  declared. Verified against real git rather than inferred: a linked commit round-trips both values,
+  an unlinked one yields nothing, and a closing paragraph of prose that merely *looks* trailer-ish
+  (`See also: the notes` followed by a sentence) is read as prose — git's own trailer reader and this
+  parser make the same call.
+
+## [0.447.0] - 2026-09-08
+
+### Added
+
+- **The dashboard says when your models and providers are in trouble.** It already counted them —
+  `4/9 providers healthy` sat in a stat card's subtitle, in the same grey as everything else, on a
+  page whose job is to say what needs a person. A project can be perfectly configured and unable to
+  route a single request, and nothing said so.
+
+  `readAgentCapacity` grades it against a published rule table, and the ranking is by consequence.
+  **Nothing routable is a stop, not a degradation**: a provider with no enabled model cannot be
+  reached at all, and reporting it at the weight of a failed health check buries the difference
+  between "degraded" and "cannot work". It is the **first** rule in the attention feed, above a red
+  pipeline — a failing test is a problem you can work on; no routable model means you cannot work at
+  all. One provider down while others still serve is `soon` rather than `now`, and names which.
+
+- **Agent utilisation is a score component, and provider health deliberately is not.** How much of
+  the team has actually worked is a property of how the project is run; a provider having an outage
+  this morning is not. A score that fell during one and recovered by lunchtime is a number people
+  learn to explain away, so it goes to the attention feed instead — asserted by a test that the
+  component is identical for a healthy and a wholly broken estate.
+
+  Three rules keep it honest. **Unassessed is not idle**: with no run history the component is
+  *absent* rather than zero, and the score's denominator is derived, so a project that has never run
+  is not marked down for being new. **Disabled is a decision, not a gap** — only enabled agents can
+  be idle, or a tidy configuration reads as a problem. **The join is by role, not agent id**, because
+  a planner subtask runs as an ephemeral agent that carries a role and no registry id; matching on id
+  would report a constantly-busy project's whole team as idle.
+
+  A finding is withheld below ten recorded runs. The figure is still computed — it is a true
+  statement about what has been seen — but three runs is not evidence that six agents are surplus,
+  and saying so would have somebody switch off a team they are about to need.
+
+## [0.446.0] - 2026-09-08
+
+### Fixed
+
+- **Work assigned to an agent no longer rounds away to nothing.** `computeRouteDays` accumulated to
+  the nearest **half-day**, which was exact while every estimate was a person's and became a defect
+  the moment an item could be done in twenty minutes: three such items summed to zero, and a plan run
+  entirely by agents reported no work left and a critical path of nothing at all. Route days and the
+  critical path now accumulate to the **minute**. Human estimates are still multiples of half a day
+  and are unaffected, which is asserted rather than assumed.
+
+- **A duration is shown in a unit that does not round it away.** `${days}d` was fine while nothing
+  could be shorter than half a day. `formatRoadmapDuration` drops to hours and then minutes below
+  one, and never renders real work as `0d` — both wrong, and the exact wording that makes somebody
+  stop trusting the column.
+
+### Added
+
+- **A roadmap item assigned to an AI agent is estimated in agent wall-clock, not working days.** The
+  estimate table grades **scope**, and scope does not change with who picks the work up; elapsed time
+  does, by enough that one scale cannot carry both. `MIN_ESTIMATE_DAYS` justified itself as *"a task
+  somebody has to pick up and land costs a session"* — reasoning that only holds for a person, and
+  which forced every agent item to half a day.
+
+  `AGENT_MINUTES_PER_SCOPE_DAY` converts one scale to the other: **a declared prior, not a
+  measurement**, and the rule text says so, because nothing here has watched your agents work. One
+  constant rather than a second table of bases — the scope judgement is already made and does not
+  need making twice, and a reader who disagrees has one number to argue with instead of five. Any
+  item where it matters should carry a declared estimate, which overrides it entirely.
+
+  **The AI-assistance discount is deliberately not applied on the agent scale.** It grades a person
+  working with AI help; applying it to an agent counts the same fact twice, and the number would be
+  defensible from neither direction. The toggle is withheld rather than shown disabled, since a
+  control that changes nothing is worse than none.
+
+- **Contacts have a kind, and it decides how their work is estimated.** `DirectorContact.kind`
+  existed and was hard-coded to `person` at every write; the Director contact form now offers
+  Person / Team / Organisation / **AI agent**, and the roadmap assignee picker marks the agents. The
+  roster is the source of truth — changing the mark re-grades the plan, because you have just said
+  who does the work — with an `agent:` id prefix honoured for assignees that are not roster contacts.
+  An assignee that resolves to nobody falls back to a person's scale, which is a real choice and not
+  a neutral one: the node's existing unresolved-assignment chip is what makes the cause visible where
+  the effect is.
+
+  A declared estimate now rounds to the minute rather than the half-day, or an agent figure entered
+  by hand would be taken to zero or inflated twelvefold; the field's step and floor follow the scale
+  for the same reason.
+
+## [0.445.0] - 2026-09-08
+
+### Added
+
+- **The roadmap answers which chain of work the finish date rests on.** The backlog said what
+  mattered most; the dependency graph said what waited on what. Neither said which chain *decides
+  when the plan lands*, so a roadmap could be correctly prioritised, correctly sequenced, and still
+  have everybody working on the items that were never going to be the constraint.
+
+  `roadmapCriticalPath` derives the longest chain of outstanding work, the days along it, and every
+  other item's slack — how long it can slip before the finish moves. Five rules. **Only outstanding
+  work is on the path**: delivered prerequisites stay on the canvas because they explain how you got
+  here, and counting their days would make a history out of a forecast. **The finish is the longest
+  chain, never the sum** — independent work runs at the same time, and adding estimates up errs
+  pessimistic, which is the direction people stop believing. **Slack is measured against the plan's
+  own finish, never a deadline**, which each card already grades separately; folding one in would
+  make a number that means two things. **A plan with a cycle has no finish date** and is reported as
+  circular rather than given one, the same call `resolveRoadmapGraph` already makes when it names a
+  cycle instead of breaking it. **Nothing outstanding is not a zero-day plan.**
+
+  The forward pass is **not recomputed** — every node already carries `schedule.routeDays`, and a
+  second implementation of that walk would eventually disagree with the number printed on the card
+  beside it. Arithmetic is done in half-days as integers: the whole result turns on `slack === 0`,
+  and comparing accumulated floating-point sums is exactly what would put an item on the path on one
+  machine and not on another.
+
+- **A critical-path lens on the roadmap canvas.** A third emphasis lens beside gate and person,
+  combining with them rather than replacing them. It highlights the chain and leaves everything else
+  **drawn and dimmed**, because the items with slack are the comparison that makes the answer worth
+  having. Absent on the Delivered record, where the path means nothing and a lens matching nothing
+  would read as broken. The finding is stated whether or not the lens is switched on — this is the
+  one lens that answers a question rather than narrowing to an answer you already had.
+
+## [0.444.0] - 2026-09-08
+
+### Added
+
+- **Reopening a chat adopts the run still going in the background.** v0.443.0 let a turn outlive its
+  window but left the reopened chat watching from the outside: the answer appeared only in bursts and
+  the stop button lived in the status bar. It turns out the panel already adopted runs started in
+  another *open* surface — busy state and stop both resolve through one lookup across every live
+  panel — and a detached run was invisible to it for exactly one reason: its panel had left the live
+  set. `ChatPanel.detachedPanels` is that set's counterpart, collected for busy state and stopping,
+  and deliberately **not** for syncing, since a detached panel has nothing to draw to.
+
+  `selectBusyRun` declares the order rather than leaving it incidental. **This session first**,
+  because a surface must not report work from a conversation it is not showing. **Live before
+  detached** within that: two runs can share a session — close a chat mid-answer, reopen it, ask
+  something else — and the one just started is the one being watched, while the other is already
+  named in the status bar. Ties keep arrival order so the choice cannot shuffle between two identical
+  renders. With nothing detached the ordering agrees exactly with the rule it replaced, which is
+  asserted rather than assumed — adopting a background run must not change what an ordinary
+  two-panel chat does.
+
+  The "thinking" line and model chips are read from the surface that owns the run, but **only for the
+  session on screen**: a run on another session must not lend this one its thoughts.
+
+### Fixed
+
+- **A background run's chunks now reach a reopened chat as they arrive.** A detached panel's
+  coalesced tick returned early because the panel was disposed, so the transcript grew and nothing
+  pushed it anywhere. It now pushes to whatever surfaces are open instead of to its own, still
+  coalesced and still passing `reuseProviderList` — enumerating providers touches credential storage,
+  and a per-chunk tick must not do that.
+
+- **Asking something else in a chat reopened onto a background run no longer interleaves two answers
+  into one transcript.** The `sessionConflict` guard that spawns a separate session counted only runs
+  in open panels; it counts detached ones too, which is the case it most needed to catch.
+
+## [0.443.0] - 2026-09-08
+
+### Fixed
+
+- **Looking away no longer kills a chat.** VS Code disposes a webview *view*'s webview when you
+  click another view, and the sidebar chat was registered with `retainContextWhenHidden: false` — so
+  switching views tore the chat down, `onDidDispose` ran, and the run was aborted mid-answer. The
+  view is now retained, which also keeps your scroll position and half-typed prompt.
+
+### Added
+
+- **A chat turn can finish after its window is gone** (`atlasmind.chat.continueInBackground`, on).
+  `dispose()` aborted the active run, and it could not tell a deliberate close from VS Code
+  discarding a hidden view — so the fix is to make surviving safe rather than to guess which
+  happened. Retaining the sidebar view prevents most disposals; this covers a genuine close.
+
+  **The transcript was never the webview's.** Every streamed chunk is written to the chat session
+  before it is pushed to the browser, so a run with nowhere to draw is still a run whose answer is
+  being recorded, and reopening the chat shows the finished result. When it completes it syncs any
+  chat that has since been reopened.
+
+  **The host is swapped, not guarded.** A detached panel gets an inert `ChatPanelHost` whose
+  `postMessage` accepts everything and delivers nothing. The alternative was guarding 104
+  `postMessage` call sites — 104 chances to miss one, and a missed one throws "Webview is disposed"
+  into the middle of a run and ends it, which is the behaviour being removed. Its `visible` is
+  `false` rather than absent, which the approval path already reads to decide whether a waiting
+  approval needs announcing.
+
+  **It is announced and it stays stoppable.** A run outliving its window is still spending money and
+  may still be editing files, so a status-bar item names what is running and
+  `AtlasMind: Show Chats Running in the Background` reads or stops any of them — closing the window
+  is no longer the way to stop a run, so this is the way that replaces it.
+
+  **A prompt queued behind the running one is dropped, not started.** Finishing work already
+  underway is a smaller step than beginning new work with no window and no entry in the registry.
+  The abort controller and its cancellation source are deliberately not torn down when detaching,
+  since the run holds the token.
+
+## [0.442.0] - 2026-09-08
+
+### Added
+
+- **AtlasMind offers worktree isolation once you have watched it cost you twice.** Serialising
+  writers made every run with more than one file-changing step slower, and the only thing saying so
+  was a progress line. From the *second* run in a workspace that queues writers behind each other, a
+  non-modal message offers the setting.
+
+  **Not on the first run**, because the progress line already explains it and an offer arriving
+  beside the explanation interrupts somebody who has no reason yet to care. **Never when turning it
+  on would not have helped** — `serialisedWriterCount` counts only subtasks placed exclusively *by
+  the setting*, never one that runs commands or one in a repository that cannot make worktrees;
+  offering a switch that would not have changed the run somebody just watched is worse than saying
+  nothing, because they try it once and stop believing the advice. **Once per run**, however many
+  batches queue writers: a run is what somebody waited through, a batch is an implementation detail.
+  **Never modal, and it does not claim to rescue the run in flight**, whose placement is already
+  decided.
+
+  Accepting it writes to your *user* settings rather than the workspace's: a workspace update lands
+  in `.vscode/settings.json`, a tracked file in plenty of repositories, and a personal speed
+  preference should not produce a diff for somebody to review.
+
+### Fixed
+
+- **A writer in a repository that cannot make worktrees was blamed on the setting.** With isolation
+  off *and* no git, `placeSubTask` reported `isolation-disabled` — pointing at a switch that would
+  not have helped. `gitAvailable` is now checked before the setting, alongside `needsRealWorkingTree`
+  and for the same stated reason. All three orderings produce the same placement and different
+  explanations, and a placement that is right with an explanation that is wrong is the harder failure
+  to notice.
+
+## [0.441.0] - 2026-09-08
+
+### Fixed
+
+- **Two subtasks of a project run can no longer overwrite each other's edits.** `taskScheduler` ran
+  up to five subtasks at once against **one** working tree, with no lock, queue or serialisation
+  anywhere in the write path. Two independent subtasks editing the same file was a
+  read-modify-write race whose loser vanished silently: both were reported as completed and one of
+  the two changes was simply not there. Subtasks that write now run one at a time.
+
+  This is slower than before and it is not conditional on the new setting. The race was never the
+  price of not having worktree isolation; it was a defect, and a switch that is off must not
+  reintroduce it. Turning isolation on buys the parallelism back — it is not what makes the run
+  safe.
+
+  Applied to both fan-out paths, `processProject` and `processTaskMultiStep`, because a multi-step
+  chat turn loses writes the same way and fixing one surface would have made the fix depend on which
+  surface started the work.
+
+### Added
+
+- **Worktree isolation, stage four: the wiring, behind `atlasmind.execution.worktreeIsolation`
+  (off).** With it on, a subtask that writes and needs only tracked files gets its own git worktree
+  and keeps its place in the parallel wave. A subtask that runs commands or tests still runs alone
+  in the real working tree, because a fresh worktree has no `node_modules` and no build output, and
+  "the tests failed" would otherwise be a fact about the isolation rather than the code.
+
+  **A tree that could not be made costs parallelism, never separation.** A failed `worktree add`
+  downgrades that subtask to running alone. Leaving it in the parallel wave would be the race
+  arriving under the feature's own name.
+
+  **Work comes back between waves, not at the end of the run.** A later batch may depend on an
+  earlier subtask's edits, so a merge deferred to the end would leave the dependency ordering
+  honoured and meaningless.
+
+  **Nothing holding work is removed.** A worktree whose patch will not apply is kept and named. One
+  stranded by a run that ended early — an abort, a billing stop — is kept if it holds changes and
+  removed if it does not, so an aborted run neither loses edits nor litters `.git` with empty
+  checkouts. A worktree that cannot be read at all counts as holding work, because keeping cannot
+  destroy anything.
+
+  Verified against real git rather than inferred: a probe repository with three worktrees confirms
+  that a newly created file survives the round trip, that a conflicting patch is refused with **no**
+  markers written into the working tree, that its worktree is kept while the merged ones are
+  removed, and that the parent repository's status shows only the merged changes.
+
+- **`SkillExecutionContext.withResolutionRoot`** — how a host points one subtask's file operations
+  at a different directory inside the workspace. Optional, and its absence is a real answer: a host
+  that cannot re-root cannot isolate, which the placement already treats as it treats having no git.
+  The VS Code implementation rebuilds the whole context with a different resolution root, so every
+  path-taking method moves together; one whose `writeFile` went to the worktree while its
+  `applyPatch` went to the main tree would be worse than no isolation at all.
+
+- **`TaskScheduler` gained `partitionBatch` and `afterBatch`.** Everything in a dependency batch is
+  *free* to run at once, which is not the same as safe, and the scheduler had no way to say so.
+  `afterBatch` runs after every chunk including one that threw, since the run that aborted is the one
+  with work somebody needs to recover. With no partitioner supplied, the chunking and the batch
+  totals are exactly what they were — asserted by test, because a total that became an estimate for
+  every run to serve a feature that is off by default would be a worse trade than the feature is
+  worth.
+
+### Changed
+
+- **An absolute path into the workspace is re-rooted for an isolated subtask, not obeyed.** A
+  relative path follows the resolution root for free; an absolute one did not, so a subtask handed an
+  absolute path naming the *main* tree's copy of a file — from a dependency's output, say — would
+  have written straight back into the tree it was isolated from, which is the race arriving by the
+  one route the resolution root does not cover.
+  Re-rooting keeps what the path meant and changes which copy it names. The rule cannot fire for a
+  caller that passes one root as both, since "inside the boundary but outside the resolution root" is
+  empty when they are equal; there is a test for that rather than a promise. A stage-two test
+  asserting that an absolute path passed through untouched has been replaced — it described what the
+  boundary did when nothing had two trees yet.
+
+- **Post-tool verification is skipped for an isolated subtask.** The verifier reads the editor's
+  diagnostics, which describe the workspace copy of a file the subtask never touched. "No problems"
+  about the wrong file is a pass nobody earned.
+
+- **`ProjectProgressUpdate` gained a `notice` kind** for what a run did that you would want to know
+  and that did not fail — how a batch was placed, what came back from a worktree, where work was
+  left. Kept apart from `error`, because a surface that renders the two the same teaches people that
+  red means nothing.
+
+## [0.440.2] - 2026-09-08
+
+### Added
+
+- **Worktree isolation, stage three: getting the work back.** The half that decides whether the
+  feature is worth having — isolation is only useful if an isolated subtask's changes return, and
+  only *safe* if changes that cannot return cleanly are neither lost nor forced.
+
+  **A patch, not a file copy.** `git diff` in the worktree and `git apply` in the main tree, so
+  git's own machinery decides whether the change still fits. Copying changed files over would
+  silently overwrite whatever the main tree had — the write race this feature exists to remove,
+  moved to the end of the run where it is harder to notice.
+
+  **Applied one at a time.** The subtasks ran in parallel; their patches do not. A race at merge
+  time is worse than one during the run, because by then the run reports itself finished.
+
+  **Never `--3way`.** It can leave conflict markers in a file and report success. A subtask's work
+  half-applied into a file nobody has read is worse than the same work sitting in a directory
+  somebody can be told about. `git apply --check` runs first, so a refusal happens before anything
+  is written rather than partway through.
+
+  **New files needed an extra step to survive.** `git diff` shows tracked changes only, so a
+  subtask that *created* a file would have had it dropped without a word — and it would have looked
+  like the model failing to write it. `git add --intent-to-add` registers new paths first.
+
+  A worktree that did not merge is **kept**: removing it would destroy the only copy of work the
+  operator has not seen. The report names its path so the work is findable, and carries no patch
+  body — a patch is workspace content and the report goes to an output channel. It says nothing at
+  all when everything merged, because a line on every run saying "all fine" is the line people stop
+  reading before the run where it says something else.
+
+  The git runner gained optional stdin so the patch can be piped. Writing it to a temp file would
+  put workspace content on disk *outside* the workspace, where none of this project's boundaries
+  reach it and nothing cleans it up after a crash.
+
+## [0.440.1] - 2026-09-08
+
+### Changed
+
+- **Worktree isolation, stage two: the file boundary now separates *where a path resolves* from
+  *what it may reach*.** `assertInsideWorkspace` used the open workspace folder for both — correct
+  while every subtask shares one tree, and exactly what has to come apart for isolation. A subtask
+  in its own worktree must resolve `src/foo.ts` inside that worktree while still being unable to
+  reach outside the workspace.
+
+  `resolveFrom` is now a parameter; `containWithin` is always the workspace folder. A single
+  "root" would have let a caller move the boundary by accident while meaning only to move the
+  resolution.
+
+  **Isolation needs no widening of what a skill may touch**, which was the useful discovery here.
+  Verified by execution before the design was fixed: `git worktree add --detach .git/… HEAD`
+  succeeds, the files check out, and the parent's `git status` stays clean. Because worktrees live
+  *inside* the workspace, an isolated subtask is contained by exactly the same rule as an ordinary
+  one.
+
+  Extracted to `src/core/workspaceBoundary.ts` with `realpath` injected, so the escapes are tested
+  without creating one on disk — a symlink pointing out of the workspace, and a path *through* a
+  symlinked directory to a file that does not exist yet. Behaviour is preserved exactly, down to
+  throwing rather than returning when nothing on the path exists: the containment check would have
+  rejected that too, but by a different rule, and a boundary whose reason changes under refactoring
+  is one nobody can reason about.
+
+  8,633 tests green across the swap, which is the claim that matters for a change to the check
+  every skill read and write passes through.
+
+## [0.440.0] - 2026-09-08
+
+### Added
+
+- **Worktree isolation, stage one: the policy and the git plumbing.** Roadmap item: *"AtlasMind
+  already runs parallel subtask batches but on a single shared working tree — a latent write-race
+  that is a correctness bug."* It is: `chunkArray(batch, 5)` into `Promise.all`, subtasks declare
+  write skills explicitly, and there is **no lock, queue or serialisation anywhere** in the write
+  path. Two independent subtasks editing one file is a read-modify-write race whose loser vanishes
+  silently, with both reported completed.
+
+  **The named remedy does not fit every subtask, and the policy encodes that rather than pretending
+  otherwise.** A git worktree is a checkout of *tracked files* — no `node_modules`, no build
+  output, no untracked state. A subtask carrying `test-run` or `terminal-run` would land somewhere
+  its own tools cannot run, and "the tests failed" would be a fact about the isolation rather than
+  about the code. Installing dependencies per subtask is minutes and gigabytes, five times over,
+  for a batch that may take seconds.
+
+  So `worktreeIsolation.ts` places each subtask as `isolated` (writes, needs only tracked files —
+  gets a worktree, keeps its parallelism), `exclusive` (writes *and* needs the real tree — runs
+  alone), or `shared` (writes nothing — races with nobody, full parallelism). `needs-working-tree`
+  is checked **before** the setting, so a subtask that could never be isolated is not reported as
+  blocked by a switch that would not help it.
+
+  **Serialising writers is not conditional on the feature.** With isolation off every writer
+  becomes `exclusive`: the race is a defect, and a setting that is off must not reintroduce it.
+  Turning isolation on buys back parallelism; it is not what makes a run safe.
+
+- **`worktreeManager.ts`** — the git half, runner injected so neither half spawns git under test.
+  Four rules, each about not damaging a borrowed repository: **only worktrees this run created are
+  removed**, checked against `git worktree list --porcelain` *and* the run's own registry;
+  **detached, never a branch**, since a linked worktree pins its branch and `git branch -d` then
+  refuses — the mess `skills/gitWorktree` exists to clean up; **paths are derived, never
+  accepted**, composed from ids reduced to an identifier charset under `.git/atlasmind-worktrees`
+  (inside `.git`, so a half-finished subtask's files never surface in Quick Open); and **cleanup is
+  best-effort and reported** — a worktree that will not remove is litter, not a reason to fail a
+  run whose work succeeded. A failed *creation* returns `undefined` rather than throwing, so
+  isolation degrades to running exclusively rather than becoming a new way for a run to die.
+
+### Notes
+
+- **Not yet wired into the scheduler, and deliberately without a setting yet.** The policy and the
+  plumbing land first so the decision can be reviewed before anything acts on it; threading a
+  per-execution workspace root through the skill layer is the next stage, and it is the large one —
+  `SkillContext.workspaceRootPath` is single and global today.
+
+  `atlasmind.execution.worktreeIsolation` was written, then removed before commit:
+  `tests/settingsIntegrity.test.ts` asserts the repository **has no setting that nothing reads**,
+  and it was right to fail. A toggle in the settings UI that changes nothing is a promise to the
+  user that the code does not keep — the same defect this session has been finding in comments, in
+  a settings page instead. The option exists on `WorktreeIsolationOptions` and arrives in the UI
+  with the wiring that honours it.
+
+## [0.439.1] - 2026-09-08
+
+### Added
+
+- **Box selection on the ideation board, sharing the selection that already existed.** Completes
+  the roadmap item begun in 0.439.0. Shift-drag on empty board draws a box; dragging any selected
+  card moves the whole group, each from its own origin and each clamped to the board edge.
+
+  The board already had `orderedSelectedCardIds`, but it meant *the two cards I am linking* —
+  numbered badges, a **Link source** and a **Link target**. A box selection could have been a
+  second, parallel list. It is not: one selection with two uses is easier to explain than two
+  selections that both mean "selected", and the badges already number arbitrarily. A pair is what
+  a link is drawn between; any number is what a drag moves.
+
+  **The cost of merging is paid honestly.** With more than two cards selected, "which two am I
+  linking" has no answer — `getOrderedSelectedCards` takes the last two, which is exactly right
+  for a click sequence and arbitrary for a box. Linking now **refuses** and says how many are
+  selected, rather than drawing an edge between whichever two happened to come last. A link
+  nobody chose is worse than a message.
+
+  Not offered on a projected lens, for the same reason card dragging is already refused there:
+  the stored position is not what is on screen, so a rectangle would name the wrong cards.
+
+  The box selects what it **touches**, not what it contains — requiring a card to sit wholly
+  inside means one clipped by the viewport edge cannot be selected without zooming out first,
+  which on a full board is most of them. And the pointer is converted to card space by reading
+  the world element's own bounding rect rather than recomputing the transform from `viewportX/Y`
+  and `zoom`, because a second copy of a transform drifts the first time either half changes.
+
+## [0.439.0] - 2026-09-08
+
+### Added
+
+- **Box-select and move several roadmap items together.** Roadmap item: *"On the roadmap and
+  ideation canvases allow for a drag box to select a number of nodes to allow them all to be
+  moved together."* The roadmap canvas half; the ideation board is a separate decision, noted
+  below.
+
+  Hold **Shift** and drag on empty canvas to draw a selection box; dragging any selected node
+  then moves the whole selection. **Shift** rather than a plain drag on purpose: the other way
+  round is commoner in drawing tools and is the wrong default here, because panning is how you
+  read a plan that does not fit on screen — it is constant, it already works offline, and
+  taking it away to add selection would trade a permanent cost for an occasional one.
+
+  Selection is not persisted. It is a way of looking at the plan for the next few seconds, not a
+  fact about it, and one that survived a reload would be a stored opinion nobody asked to keep.
+
+  Pressing a node **inside** the selection drags the whole selection; pressing one outside clears
+  it first — the alternative moves nodes the operator is no longer looking at.
+
+  Each node snaps from **its own** origin rather than by snapping a shared delta, so nodes
+  selected from different offsets each land on the grid. A shared delta cannot do that unless
+  they started aligned.
+
+- **`roadmapNodesMove`, one message for a group.** N singular moves would be N host reads, N file
+  writes and N refreshes, with the canvas re-rendering under the pointer partway through. The
+  batch is validated **entry by entry** — a validator that checks the first item and trusts the
+  rest is a validator with an offset — through the same predicate the single move uses, so the
+  two cannot come to disagree about what a valid move looks like. Ids are still opaque and still
+  resolved against the roadmap the host re-reads; an id that no longer exists is skipped and the
+  shortfall is reported rather than leaving the canvas quietly disagreeing with the file.
+
+### Changed
+
+- A deferred snapshot now preserves the drag offsets of **every** node that moved, not just the
+  one under the pointer. A group drops together, and keeping only one would have snapped the rest
+  back for a frame — the same bug that exception exists to prevent, only intermittent and so
+  harder to see.
+
+## [0.438.1] - 2026-09-08
+
+### Fixed
+
+- **"Open a code file" in the Lens view now opens a file.** Roadmap item: *"The Lens surfaces
+  are not all accessible as they need a file selected."*
+
+  With no editor open, the Code Explorer shows one row asking you to open a code file. That row
+  was clickable and opened the Atlas Lenses dashboard — which is the right destination for
+  "show me what the lenses do" and the wrong one here, because the dashboard *also* says open a
+  code file. Clicking the thing that told you to open a file took you to a page telling you to
+  open a file, which is why the Lens surfaces read as unreachable rather than as waiting.
+
+  It now opens the file picker. `workbench.action.quickOpen` rather than a bespoke list: it is
+  the picker you already know, it honours your own exclude settings, and it needs no allowlist
+  of what counts as a code file — a judgement this view has no business making, since the
+  outline comes from whichever language service is installed.
+
+  The row still says what it is waiting for. It is guidance first and a button second, and
+  dropping the explanation to make room for the action would have traded one problem for
+  another.
+
+  Nothing else on the surface actually required a file: Contract Wiring, State Lifecycle,
+  Configuration Resolution and Change Story are all workspace-wide and were always reachable
+  from the view's title bar. The dashboard's own "Go to a file" action already used the picker.
+
+## [0.438.0] - 2026-09-08
+
+### Added
+
+- **A commit-message button in the Source Control title bar.** Roadmap item: *"Add an AM logo to
+  the generic Source Control side panel next to the icon 'Create Pull Request' to have AM
+  generate a commit message."* A ✨ action beside the other SCM title actions reads your staged
+  diff and writes a Conventional Commits message into the box. Also available as
+  **AtlasMind: Write a Commit Message**.
+
+  **It writes text and stops.** Nothing is committed or staged; the box is a field you still read
+  and press a button on, which is the gate. An existing message is replaced only after a modal —
+  asked *before* the model call, so a draft you decline costs nothing.
+
+  **A diff is untrusted input**, not a description of a change. It is file content, which on a
+  real project includes vendored code, generated output and text somebody else wrote, so it is
+  fenced as reported content — and the instruction to disregard embedded instructions is in the
+  system prompt as well as in the fence, because a rule stated only inside the fenced block is a
+  rule inside the thing it constrains.
+
+  **Nothing staged refuses rather than inviting an invention.** A model asked to summarise an
+  empty diff produces a confident, plausible message that then sits in the commit box looking
+  exactly like a real one. Truncation of a very large diff is *reported* for the same reason: a
+  message describing half a change reads identically to one describing all of it.
+
+  Every failure says which — no Git extension, no repository, nothing staged, an unreadable diff,
+  an empty reply. "Could not generate a commit message" would leave you re-running it.
+
+### Changed
+
+- **`Orchestrator.draftCommitMessage` is separate from `summarizeText`, and the reason is the
+  origin label.** `summarizeText` declares its user part `session-context`, which is true of prior
+  conversation and false of a git diff. A diff is repository content and travels as
+  `workspace-file`, so the egress boundary redacts it. Reusing the existing helper would have been
+  invisible and wrong in the direction that matters: a diff carrying an API key would have gone
+  out unredacted.
+
+- **`src/views/gitExtensionApi.ts`** now holds the structural subset of the built-in `vscode.git`
+  API, extracted from `chatPanel.ts`. One copy was fine while one surface read the branch name;
+  two structural copies of somebody else's interface drift silently, because nothing type-checks
+  one against the other.
+
+- **A sanitiser that quietly did less than it claimed, caught before it shipped.** The new
+  control-character class was first written as a regex literal containing the characters
+  themselves, and two of them did not survive being written — so it stripped a subset while
+  reading exactly as though it stripped everything. Its test had the identical defect, embedding
+  the same characters and therefore asserting almost nothing while looking thorough. Both now
+  build the characters explicitly — `new RegExp` from `\uXXXX` escapes in the module,
+  `String.fromCharCode` in the test — so nothing depends on an invisible character surviving an
+  editor, a diff and a review. Found because ESLint reported the `no-control-regex` suppression
+  as *unused*, which is only true if the regex has no control characters in it.
+
+  Worth stating plainly: a sanitiser doing less than it says is worse than none, because nothing
+  downstream is looking.
+
+## [0.437.1] - 2026-09-08
+
+### Fixed
+
+- **Deleting your last visible chat session left an old transcript on screen.** Reported as
+  "deleting all sessions leaves the chat history of an old session on the screen and doesn't
+  refresh to a blank chat", and it was two mistakes landing on one symptom.
+
+  The successor session was picked as `this.sessions[0]`. That array includes **archived**
+  sessions while `listSessions()` filters them out — so with one visible conversation and any
+  archived one, deleting the visible one promoted an *archived* session to active. The picker
+  then showed nothing (it lists only unarchived sessions) while the panel rendered the archived
+  transcript, and `chatPanel`'s "is the selection still real?" check could not catch it because
+  `getSession()` finds archived records perfectly well.
+
+  The same array made the clear-in-place shortcut wrong: `this.sessions.length === 1` asked
+  whether this was the only session *including archived ones*, so "empty my only conversation"
+  did not fire when it should have. Index `0` was also insertion order rather than most-recently
+  updated.
+
+  `archiveSession` has always answered this correctly — most recently updated non-archived
+  session, a fresh one when there is none. `deleteSession` now shares that logic, because the
+  two are the same question and answering it twice is how they came to disagree. The old
+  fallback also built a session record, took its id and discarded the record, leaving
+  `activeSessionId` naming a session that did not exist; the successor is now always a session
+  that is actually in the list.
+
+- Seven regression tests in `tests/chat/sessionConversation.test.ts` covering the reported case
+  and the surrounding ones. The panel's own tests mock `SessionConversation` wholesale, which is
+  how this survived: nothing exercised the real deletion logic.
+
+## [0.437.0] - 2026-09-08
+
+### Fixed
+
+- **A read-only turn stayed read-only only for the turn that did no work.** Asking for
+  read-only is enforced structurally — the tool set is filtered before the model sees it, and
+  every call is re-checked — but the envelope is derived from `request.userMessage`, and a
+  subtask's "message" is generated by the planner. It describes the job, not the limits
+  somebody put on it. So *"audit the auth module, read-only, don't change anything"* run
+  through `/project` derived a **permissive** envelope for every subtask, and the restriction
+  applied to precisely the step that only planned. The fallback plan used when planning fails
+  made it starker still: it hardcodes `file-write`, `file-edit` and `terminal-run`.
+
+  Both planning entry points now derive the envelope from the user's own text once and pass it
+  down, and `intersectTurnCapabilities` narrows — **never widens** — when a subtask derives its
+  own. That is the rule `agentHandoff` already applies to skills, for the same reason: if
+  delegating could widen what is permitted, every restriction becomes a suggestion, because
+  the way past it is to ask something else to do the work.
+
+- **An MCP server declaring one environment variable inherited all of them.** The spawned
+  process got `{ ...process.env, ...declared }` — so a server asking for `GITHUB_TOKEN` also
+  received `ANTHROPIC_API_KEY`, every `AWS_*`, npm tokens, and whatever else was in the shell
+  VS Code was launched from. The shape was backwards: a server declaring **no** variables got
+  the SDK's deliberately filtered `getDefaultEnvironment()`, so *declaring a requirement made
+  a server more trusted*. Declared variables are now layered onto that filtered default. The
+  full environment was never required — a server needs `PATH` and what it asked for.
+
+### Documentation
+
+- P2 of the hardening roadmap is closed. `src/remote/` and `src/acp/` were traced and found
+  **sound, with nothing to change**: the remote server binds `127.0.0.1` only, holds a 32-byte
+  token in SecretStorage, compares it with `timingSafeEqual`, times out unauthenticated
+  sockets and can be revoked; ACP's "never `allow_always`" is enforced by three tests, one of
+  them exhaustive over inputs. Recorded because a pass that only reports faults gives no way
+  to tell an examined area from an unexamined one.
+
+## [0.436.1] - 2026-09-08
+
+### Documentation
+
+- `docs/security-hardening-report.md` gains the test tally: **120 security regression tests, 88
+  of them new in this pass**, with what each file covers and which four are architectural
+  rather than behavioural. Also records the two existing tests that were modified — both
+  because a change made their assumption wrong, neither to make a change pass — since a
+  hardening report that does not say what it touched in the suite is asking to be trusted.
+
+## [0.436.0] - 2026-09-08
+
+### Changed
+
+- **The bootstrapper spawns no shell.** It used to spawn four: three capability probes
+  (`winget --version` and friends) that ran *before* any confirmation, the installer command,
+  and `git add -A && git commit -m "…"`. All were module-level constants, so none was
+  injectable — but three ran unprompted, and a shell is only ever one interpolation away from
+  being a hazard. Installers are now argv vectors run through `execFile`, and the git pair is
+  two calls (the `&&` was the only reason a shell was needed; sequencing says the same thing,
+  and the commit is still skipped if the add fails).
+
+- **The Debian `gh` installer is gone rather than argv-ised.** It was
+  `curl -fsSL … | sudo dd of=/usr/share/keyrings/… && … | sudo tee … && sudo apt install gh`
+  — a privileged download-and-pipe. `acpInstaller.ts` refuses to ship Rust's `curl … | sh` on
+  principle, and two installers in one product should not disagree about whether that principle
+  exists. apt users get the manual instructions the no-installer path already showed. It could
+  not have worked anyway: `sudo` with no TTY prompts for a password nothing can answer. dnf
+  stays — a plain command, not a pipeline.
+
+- **Every CI action is pinned to a commit SHA.** Nine references were on mutable tags
+  (`actions/checkout@v7`, `actions/setup-node@v7`, `azure/login@v3`, `actions/checkout@v4`) —
+  across `publish.yml`, `release.yml`, `marketplace-identity.yml` and
+  `model-prices-freshness.yml`. `ci.yml` and `trusted-local-ci.yml` were already pinned, the
+  first with a test of its own and the second by its generator, so the gap was that the
+  existing check covered one workflow out of six.
+  Moving a tag is one API call for whoever has write access to the action's repository, which
+  is how `tj-actions/changed-files` became a credential exfiltrator across thousands of
+  repositories without any of them changing a line. It matters more here than most:
+  `publish.yml` holds a federated credential that can publish to the Marketplace under this
+  publisher's name, and a published version can never be replaced.
+
+### Added
+
+- `tests/security/subprocessShellUse.test.ts` — two files may invoke a shell
+  (`routineRunner`, `promotionRunner`; both run commands a human wrote and confirmed, and the
+  list may only shrink), and **no shell command anywhere may be assembled from a value**. The
+  second is not a ratchet: it is zero, and a new entry is a command injection until proven
+  otherwise.
+
+- `tests/security/supplyChain.test.ts` — every third-party action pinned to a 40-character
+  SHA *and* carrying a readable version comment, since a bare SHA is unreviewable and a pin
+  nobody can review becomes a way of staying old rather than deliberate. Also ratchets the
+  runtime dependency **set** (seven packages, each with the reason it is worth shipping):
+  fails on an undeclared addition and on a declared package that has gone.
+
+- `docs/dependency-security-review.md` and an `npm run sbom` script (CycloneDX, runtime only).
+  The SBOM is deliberately **not committed**: a checked-in one goes stale silently, and a stale
+  SBOM answers a question about a build that no longer exists with the confidence of a
+  generated artifact.
+
+## [0.435.0] - 2026-09-08
+
+### Fixed
+
+- **Starting the editor no longer contacts anybody.** AtlasMind activates on
+  `onStartupFinished`, so everything in `activate()` runs on every launch on every machine.
+  Two things reached third parties from there without the user's configuration asking for it.
+
+  `syncExchangeRates` fetched `open.er-api.com` unconditionally. `atlasmind.displayCurrency`
+  defaults to `USD`, costs are recorded in USD, and `getExchangeRate('USD')` returns 1 without
+  consulting the cache — so on a default installation every rate it fetched was dead weight,
+  and it fetched them anyway, daily. Not analytics by intent, but from the other end an
+  unsolicited request is an unsolicited request: `open.er-api.com` learned an IP and a rough
+  install count either way. It now returns `not-needed` and touches nothing unless a
+  non-USD currency is actually configured; `auto` is *resolved* rather than compared, since
+  upper-casing it to `"AUTO"` would have passed the USD check and fetched for every auto user
+  including the ones whose locale is USD.
+
+  `syncLocalModelCatalog` fetched ollama.com and huggingface.co behind nothing but a TTL, to
+  enumerate models the user could download. A fresh installation with no local runtime
+  contacted two third parties on startup to build a catalogue of things it had no way to run.
+  It is now sequenced after the localhost probe and gated on
+  `shouldSyncDownloadableCatalogue`, which treats absent evidence as *no runtime* — the probe
+  is cheap and always runs first, so "we did not look" and "there is nothing there" have the
+  same right answer.
+
+- **The rate sync reports its outcome instead of swallowing it.** `syncExchangeRates` returns
+  `not-needed` / `cached` / `fetched` / `failed`, and the caller logs anything that is not
+  `not-needed`. A currency silently displaying unconverted USD now has a reason somebody can
+  find.
+
+### Documentation
+
+- The previous doc comment called the rate sync "safe to call on every activation" because it
+  skipped the call when the cache was fresh. That was true and beside the point: the first
+  call on a new machine was never cached. Corrected, per the standing rule that "safe" is not
+  a word to use unless something enforces it.
+
+## [0.434.0] - 2026-09-08
+
+### Fixed
+
+- **A generated skill no longer evaluates in the extension host's global scope.**
+  `loadSkillFromSource` was `new Function('module','exports','require', source)`, whose body
+  runs alongside the extension itself with a `require` parameter that throws. Eight routes to
+  `node:fs` were run against it and **seven reached** — including `import('node:fs')`, since
+  dynamic import is syntax and shadowing the `require` identifier never touched it, and
+  `process.mainModule.require('node:fs')`. Both returned a working `readFileSync`. The
+  injected `safeRequire` blocked one spelling of the capability, not the capability.
+
+  Evaluation now happens in a `node:vm` context with no ambient globals, and
+  `module`/`exports`/`require` are defined **inside** it as source rather than assigned onto
+  it — measured both ways, because a host function placed on a context is reachable as
+  `require.constructor.constructor`, which is the host realm's `Function` and hands back
+  `process`. All eight routes are refused. A timeout bounds the module's top level, which
+  runs the moment it is evaluated.
+
+- **A skill reading `process.env` used to be a warning that ran.** `no-process-env` is a
+  *warning* rule, so an approved skill reading it executed with the real environment; the
+  scanner was the only thing between a generated skill and `process.env.AWS_SECRET`, and it
+  was advisory. The read now fails before the skill exists, which is what makes the warning
+  worth keeping rather than being the whole defence.
+
+### Documentation
+
+- **This is containment, not a sandbox, and the hole is a passing test.** `execute(args, ctx)`
+  receives a real `SkillExecutionContext`; any host object crossing the boundary carries the
+  host realm's `Function` on its prototype chain, so
+  `ctx.readFile.constructor.constructor('return process')()` reaches out. That is inherent to
+  giving a skill callbacks at all. It is asserted directly, so the boundary cannot quietly be
+  described as more than it is — and a further test requires every mention of "sandbox" in
+  `skillDrafting.ts` to be a denial of being one.
+
+- **Two Phase 0 claims corrected.** The recorded finding said synthesis runs before the tool
+  approval gate; that came from a code comment rather than the control flow. A dedicated
+  `generatedSkillApprovalGate` already ran *before* evaluation, receiving the scan result and
+  the source, and failing closed when no approval surface exists — better than the generic
+  gate here, because it can show the code. Work on a second `toolPolicy`-classified gate was
+  reverted rather than shipped, on the reasoning that kept a broker out of P1-3: two gates
+  that can disagree are worse than one that is sufficient. And a `skillScanner.ts` comment
+  saying a skill "runs in the extension host's global scope" became false with this change,
+  so it was corrected rather than left.
+
+## [0.433.0] - 2026-09-08
+
+### Added
+
+- **A ceiling Autopilot cannot buy past.** `NEVER_BYPASSABLE_TOOLS` in `toolPolicy.ts` — one
+  pair, `network`/`high`, checked *first* in `shouldBypass` so no bypass state reaches past
+  it. `shouldBypass` returned `true` for every category once Autopilot was on, and Autopilot
+  is offered as an answer to any approval dialog: one click on a low-risk tool bought
+  unattended approval of `git push`, a remote branch delete, and **any MCP tool AtlasMind
+  could not identify** — an unrecognised tool name classifies `network`/`high` on its name
+  alone.
+
+  Deliberately one pair and not every `high`. A ceiling over ordinary file writes would
+  prompt constantly, and a gate that prompts constantly gets switched off wholesale — the
+  same reasoning that gave `network-read` its own category. The pair covered is the one
+  where all three are true at once: it leaves this machine, it changes something there, and
+  it cannot be taken back. `toolBypassCeiling()` returns the *reason*, so a dialog that
+  reappears after Autopilot was enabled can say why rather than reading as a bug.
+
+- **`routineExecutionPolicy.ts` — what a routine will run, decided before a shell sees it.**
+  Refuses an unresolved `${placeholder}` instead of blanking it, carries the fully
+  substituted commands so a confirmation can show what will actually run, and reports which
+  commands leave the machine (reusing `classifyDeliveryCommandReach` rather than growing a
+  second table).
+
+### Changed
+
+- **`/ship` and the Run Center show the commands and ask first.** Neither did. `/ship`
+  printed a routine's name and description and ran it; the Run Center's Run button posted a
+  routine id from a webview and the host executed it. `promotionRunner` — the other place
+  AtlasMind runs user-authored commands — has an authorization gate with a type-to-confirm,
+  and the contrast was the argument.
+
+  This matters beyond tidiness: a routine template is an ordinary file under
+  `project_memory/routines/`, `file-write` refuses only paths *outside* the workspace, and
+  `routines` is a declared SSOT folder — so a model that may write a file may write a
+  routine, and the value checker deliberately validates values and never the template. That
+  cannot be closed by validating harder, because a routine is a shell script by design. It
+  is closed by putting the commands in front of a person at the one moment they can act.
+
+- **`RoutineRunner.run` takes the plan, not the routine and its values.** Structural rather
+  than careful: a runner that re-substituted could run something other than what was shown,
+  and no discipline at the call sites would make that impossible. A plan built for a
+  different routine is refused by id.
+
+### Fixed
+
+- **An unresolved placeholder no longer becomes an empty string.** `vars[name] ?? ''`, and
+  the Run Center passed `vars: {}` unconditionally — so every placeholder in a panel-run
+  routine resolved to nothing. `npm publish --tag ${channel}` is a different command from
+  `npm publish --tag`, and a missing value should not get to choose which one runs. An empty
+  value counts as absent, since a blank field and an unsupplied one want the same thing from
+  a command line.
+
+- **Two places described a mitigation that was never wired.** `toolPolicy.ts` justified gating
+  `network-read` under `ask-on-write` on the grounds that `ToolApprovalManager.bypassCategory`
+  keeps the cost to "one dialog per task, not per call", and `wiki/Tool-Execution.md` told
+  users to approve the category on the first prompt. `bypassCategory` has no caller anywhere
+  in `src/`: `ToolApprovalDecision` has four values and none is a per-category grant, so it is
+  in fact one dialog per call. Both now say what actually happens and point at
+  `bypass-task`, which the dialog does offer. The method is left in place and its ceiling
+  behaviour is tested, so wiring it into the dialog is a UI change rather than a policy one.
+
+### Documentation
+
+- `docs/security-hardening-roadmap.md` P1-3 rewritten against traced evidence. The original
+  entry was a count — "19 files import `node:child_process`" — and tracing it changed the
+  item: every `src/skills/*` command already goes through the tool gate, and a hard ceiling
+  already existed (`allowTerminalWrite`, correctly ordered before the bypass), so the
+  accurate finding was *exactly one ceiling existed and everything else was bypassable*
+  rather than "no ceilings". Records why a central broker in front of `child_process` was
+  **not** built: it would have caught none of the four findings, and a second approval system
+  beside `toolApprovalGate` is worse than one incomplete gate.
+
+## [0.432.0] - 2026-09-08
+
+### Changed
+
+- **Nothing reaches a model without saying what it is.** Direct provider call sites:
+  **11 → 0**. The orchestrator's remaining eleven — the main chat turn, the tool loop,
+  five internal helpers and agent synthesis — now clear their context through
+  `prepareEgress` first, and `LEGACY_DIRECT_CALLERS` in
+  `tests/security/modelEgressBoundary.test.ts` is empty. The ratchet stays, because the
+  useful thing about it was never the count — and its own guard had to be re-based: it
+  proved the scanner worked by finding a violation, so the suite went red the moment the
+  last one was migrated. It now measures the boundary itself, which is the one file a
+  provider call belongs in.
+
+- **An origin is carried on the message, not beside it.** `ChatMessage` gained an optional
+  `origin`, and the agentic loop labels every message it builds. A parallel array was the
+  obvious design and the wrong one: the loop grows, reprompts and *evicts* from the middle
+  of its history in eleven places to stay inside a context window, and two arrays kept in
+  step by hand desynchronise on the first eviction. A desynchronised origin list mislabels
+  content rather than failing to label it, which is the one failure the boundary cannot
+  detect. The field is never sent to a model.
+
+  The labels are the point. `buildMessages` emits four consecutive `role: 'user'` messages
+  and only the last is what the operator typed — the others are session context, an
+  attachment, and a reading off a live third-party service. Inferring origins from `role`
+  would have collapsed all four into one class and redacted the operator's own words while
+  trusting a tool result.
+
+- **The boundary can stream.** `EgressDestination` gained an optional `streamComplete`, so
+  a streaming caller no longer has to reach past the gate to get one. That was the
+  commonest unlabelled path in the codebase and also the most important — the main chat
+  turn. Clearance runs per attempt rather than once before the retry loop, because each
+  attempt re-scopes its request and clearing the version actually sent is the only
+  arrangement that cannot drift.
+
+### Fixed
+
+- **Each dispatch now gets its own message array.** The agentic loop mutates one array in
+  place across rounds, and every provider call previously received that same reference — so
+  a message appended after a call was sent had retroactively been part of it, as far as
+  anything holding the request could tell. Clearing produces a fresh array per dispatch, so
+  what a provider was handed is now a snapshot of that moment. Found because a test that
+  asserted on the second recorded call had been reading the *final* conversation all along;
+  it now asks which round carried the reprompt, which is what it meant.
+
+- **The developer tripwire was armed for every user.** `strictOrigins` defaulted to
+  `NODE_ENV !== 'production'`, and VS Code does not set `NODE_ENV` in the extension host —
+  so the strict mode documented as development-only was on in shipped builds, where an
+  unlabelled part would throw and fail the turn instead of degrading. It now keys on the
+  test runner and an explicit `ATLASMIND_STRICT_EGRESS=1`. A missed label stops the build
+  for whoever is writing it, and clamps to the most restrictive class for whoever is using
+  it. Both halves are asserted, the second by driving the default with `NODE_ENV` unset
+  rather than by reading the expression.
+
+### Added
+
+- **A credential in your own prompt asks, instead of refusing.** The boundary never
+  silently rewrites what somebody typed, so a secret-shaped value bound off-machine has two
+  honest outcomes: ask, or refuse. Refusing is right for background work with nobody to
+  ask, and wrong for a chat turn. The host now supplies a confirmer on the interactive path
+  only — a modal offering *Send redacted* or *Send as typed*, naming the rules that matched
+  and never the value. Dismissing it is not consent. A local destination is never asked
+  about, because nothing left the machine.
+
+- `tests/security/egressLabelling.test.ts` — fifteen checks covering how a label reaches
+  the policy, as distinct from what the policy does with one: positional read-back, an
+  unlabelled message staying `undefined`, origins surviving a mid-history eviction, four
+  same-role parts getting four treatments, streaming clearing before sending rather than
+  after, and each of the four confirmer answers.
+
+## [0.431.1] - 2026-09-08
+
+### Changed
+
+- **Eight of the nine files that reached a provider directly now go through the egress
+  boundary.** Direct call sites: **19 → 11**, all remaining ones in `orchestrator.ts`.
+  Migrated: `planner`, `classifierService`, `agentAutoUpdater`, `skillAutoAssigner`,
+  `memoryAgent`, `modelComparisonPanel` (×2) and `commands`.
+
+  Each declares what its context actually is rather than letting it travel unlabelled.
+  The planner's user message mixes the operator's goal with retrieved SSOT content and is
+  labelled `project-memory`, because the stricter origin has to govern — a part cannot be
+  half-redacted. The agent updater and skill assigner send text assembled from definitions,
+  so they are `generated-instruction`: redacted, not confirmed, since there is no operator
+  to ask. The comparison panel's judge prompt embeds other models' answers, which is
+  generated content rather than anything typed. Background memory uses the tightest origin
+  there is.
+
+- **`EgressDestination` replaces a bespoke narrow provider type.** `classifierService`
+  declared its own structural `CompletionProvider` requiring `maxTokens` and `temperature`,
+  which made a real adapter unassignable to the guarded dispatcher — the shape of thing
+  that pushes a call site into casting around the gate. The boundary now asks for the two
+  things it needs, somewhere to send and a name for the audit line.
+
+- **A path with no way to ask a human may not answer on its behalf.** The dispatcher's
+  `confirmSecret` callback is optional and its absence **refuses**, so background work
+  cannot send a prompt containing a credential. That is the correct outcome rather than an
+  inconvenience.
+
+### Known remaining
+
+- **`orchestrator.ts` keeps its 11 direct calls, deliberately.** Its messages are the whole
+  conversation in one array — system prompt, session context, the operator's turn, tool
+  results — and labelling them at dispatch would mean inferring origin from `role`. That is
+  exactly what the boundary refuses: `role: 'user'` carries both what somebody typed and a
+  workspace file pasted into a prompt, and those are not the same risk. Labelling belongs
+  where the messages are built, which is a change to the construction sites rather than the
+  dispatch, and gets its own commit. The ratchet holds the count at 11 meanwhile.
+
+## [0.431.0] - 2026-09-08
+
+### Added
+
+- **`src/core/modelEgress.ts` — the one place prompt content is cleared for
+  transmission**, and the architectural test that keeps it that way. Security hardening
+  Phase 1, foundation.
+
+  Context is carried as **origin-tagged parts** rather than pooled into strings: a system
+  instruction we wrote, a file read out of the repository and a tool result from somebody
+  else's server carry different risk, and once concatenated that distinction cannot be
+  recovered. Eleven declared origins, each with a published rule.
+
+  - **Repository-derived context is redacted; user-authored prompts are not.** Silently
+    editing what somebody typed means they believe they sent one thing and sent another.
+    A secret-shaped value in a user prompt bound for an **external** provider stops and
+    asks, and offers a redacted alternative. A local destination does not interrupt —
+    sending your own key to your own hardware is not exfiltration, and prompting for it
+    trains people through the dialog that matters.
+  - **Unknown origins fail closed**: strict mode throws where somebody can fix the call
+    site; production treats the part as the *most* sensitive class rather than the least.
+  - **Images are not described as text-redacted.** They pass through, are marked opaque,
+    and the caller is told so it can surface the destination.
+  - **Logs carry categories, never content** — origin, provider, model, redaction count,
+    rule names. Asserted by a test that the log line contains no fragment of the secret or
+    the prompt body. A log that helps you debug a leak by reproducing it is not a safety
+    feature.
+  - Size limits are per origin: background memory is held far tighter than a user prompt.
+
+- **`tests/security/modelEgressBoundary.test.ts` — the item's real deliverable.** A
+  boundary every caller must *remember* is the arrangement being replaced; it had already
+  been forgotten in seven files out of eight. This fails when production code reaches a
+  provider outside the boundary, and **ratchets**: recorded counts may only fall, and a
+  count set too high fails too, so the debt list cannot drift from reality.
+
+  **It found a call site the Phase 0 hand-grep missed** — `commands.ts:2741` — which is
+  the argument for the test in one line. It also keys on the *receiver* rather than the
+  method name, so wrappers that delegate to a provider are not counted as a boundary: what
+  matters is the last hop. Measured baseline: **19 direct egress points across 8 files**.
+
+  No caller is migrated yet. The boundary and its ratchet land first so migration is
+  visible and cannot regress; migrating a file means lowering its number.
+
+## [0.430.0] - 2026-09-08
+
+### Changed
+
+- **Background memory work no longer runs because AtlasMind was installed.** Security
+  hardening P0-1, P0-2 and P0-3, landed together because they are one code path and
+  closing two of three holes leaves the timer running.
+
+  Two settings, both defaulting to the restrictive value:
+
+  - **`atlasmind.memory.backgroundSummarizationMode`** — `off` (default) | `local-only` |
+    `routed`. Off means **no model request is issued at all**: no file is read for the
+    purpose, no model selected, no provider resolved. A feature that reaches the network
+    before checking whether it is enabled has already done the thing the setting exists to
+    prevent.
+  - **`atlasmind.memory.selfHealingMode`** — `off` | `report-only` (default) | `ask` |
+    `apply`. Under the default a background timer **cannot modify a file in your
+    repository**. A snippet computed and withheld is reported, so "nothing happened" and
+    "something was withheld" stay distinguishable.
+
+  **`local-only` is enforced against the resolved provider**, not requested of the router.
+  The bug it replaces passed `'local'` as a *fallback* argument that read like a
+  constraint — `resolveProviderIdForModel` returns the model's own provider whenever
+  metadata exists, so a cheap cloud model satisfied it. Locality is now checked after
+  resolution, against the provider that would actually receive the bytes, and an
+  unrecognised provider id reads as **not** local because `ProviderId` is an open union
+  and a negative check would let tomorrow's provider through.
+
+  **An unrecognised mode resolves to the restrictive value**, so a typo cannot be the
+  reason project memory reaches a cloud provider. **No prior setting is migrated into a
+  permissive mode** — no old setting ever asked that question, so no old value can answer
+  it.
+
+  **Three silent `catch` blocks are gone.** Every refusal and failure now names a rule and
+  reaches the output channel; a routed call to an external provider is announced *before*
+  it happens. Repeats of an unchanged failure are deduplicated rather than discarded — the
+  previous behaviour was invisibility, and a fix that swings to notifying every cycle
+  would just be turned off.
+
+  `MemoryAgentExecutor` takes the gate as an optional constructor argument that
+  **fails closed**: a construction site not updated to supply one refuses every background
+  model call rather than keeping the old ungated behaviour.
+
+### Fixed
+
+- **The capability index silently truncated its own page list while reporting that it
+  had not.** Found because the two settings above tipped it over its 4,000-character
+  budget: the final `clamp()` cut the pages section mid-way, `omitted.pages` stayed `0`,
+  and `dashboard:debt` was absent with nothing saying so. Since the closing instruction
+  tells the model those ids are the ones that exist, an index that under-reports what it
+  dropped is worse than a shorter one — and half an id looks like a real id.
+
+  Pages are now dropped whole and counted. Fixing the accounting made the loss visible
+  rather than smaller (eleven pages), so the budget is raised to 5,600, where the full
+  list fits with room for a few more. Costs roughly 300 tokens on prompts carrying the
+  index, paid so the ids it calls authoritative actually are.
+
+## [0.429.2] - 2026-09-07
+
+### Added
+
+- **`docs/security-data-flow.md` and `docs/security-hardening-roadmap.md`** — Phase 0 of
+  a security hardening review. **Evidence only; no behaviour changed.**
+
+  Each hypothesis was verified against the source at `284ef096` and carries file and line
+  citations. Findings, in the order they matter:
+
+  - **A timer started at activation sends up to 4,000 characters of raw project memory to
+    a possibly-cloud model, unredacted, unclassified, and writes the result back to
+    project files.** `extension.ts:2628` is ungated; `memoryAgent.ts:84` embeds the file
+    content verbatim; `memoryAgent.ts:53` dispatches it. The `'local'` argument at
+    `memoryAgent.ts:46` reads like a constraint and is a **fallback** —
+    `orchestrator.ts:7325-7337` returns the model's own provider whenever metadata exists.
+    `DataPrivacyManager` is wired to the orchestrator alone at `extension.ts:2612`,
+    sixteen lines above the timer that bypasses it. Three failures on that path are
+    swallowed (`memoryAgent.ts:48-50`, `:63-65`, `extension.ts:2646-2648`).
+  - **No mandatory egress boundary.** 21 prompt-bearing provider calls across 8 files
+    outside the adapters; only `orchestrator.ts` references the redactor at all.
+  - **Two hypotheses were partly wrong, in the code's favour, and are recorded as such.**
+    Skill auto-synthesis is deny-by-default (`orchestrator.ts:3672`) with a comment naming
+    the exact risk, and `safeRequire` (`skillDrafting.ts:93-95`) blocks every import. The
+    residual gap is narrower than "regex scanning as a sandbox": no isolation from ambient
+    host globals once enabled.
+
+  The roadmap classifies P0–P3 with acceptance criteria and the regression test that
+  proves each — a security fix with no failing-first test being a claim rather than a
+  change. **What the pass did not verify is listed explicitly**, including read-only
+  enforcement, Autopilot ceilings, routine preview, and `toolApprovalManager.ts` /
+  `toolPolicy.ts`, which were not read. An audit implying it looked everywhere is the same
+  failure as a test that cannot fail.
+
+## [0.429.1] - 2026-09-07
+
+### Fixed
+
+- **Agent routing had no real test coverage, and two artefacts implying it did** —
+  roadmap item `NXT-6`, which turned out to be worse than the directory nit it was
+  written as.
+
+  `test/core/routing.test.ts` held **nine** real routing cases and had **never
+  executed**: the runner collects `tests/**`, and that file sat in `test/`. By the time
+  anyone looked, the `routeTask` API it drove had been removed entirely — the coverage was
+  gone and nothing failed, because nothing ran.
+
+  `tests/features/task-routing.test.ts` did run, and asserted against a `determineAgent`
+  stub **defined inside the test file**. It could not fail for any reason to do with the
+  product.
+
+  Both are gone, and `tests/core/routingNeeds.test.ts` ports the nine cases against the
+  seam that actually exists: `describeCommonRoutingNeeds`, the regex fallback the
+  orchestrator uses whenever no model classification is available — the path taken on
+  every local-model and offline turn, which makes it the half most worth pinning. Twelve
+  cases, including that ordinary prose must infer *nothing*: a heuristic matching
+  everything routes everything, which is the same as routing nothing.
+
+  It also turned an exported function nothing read into one something does.
+
+- **Coverage measured a curated subset and called it the codebase.** `include` was an
+  allowlist of eight directories, silently omitting five — `src/remote/` (the localhost
+  control server), `src/voice/`, `src/ard/`, `src/utils/` and `src/web/`. The omission was
+  least defensible exactly where it mattered most: a control server listening on localhost
+  is the last thing that should be invisible to the coverage report.
+
+  Now `src/**`, less type-only files, which have no branches and would deflate the figure
+  as dishonestly as omitting real code inflated it. **Measured honestly it is 59.9% of
+  lines and 63% of functions** — so the old 45 threshold was not a floor anybody could
+  fall through, and a threshold nothing can breach is not a guard. Raised to 55/58 with
+  headroom, ratcheted the way the dead-export and type-error ceilings are.
+
+- `UNREFERENCED_EXPORT_CEILING` lowered 91 → 90.
+
+## [0.429.0] - 2026-09-07
+
+### Added
+
+- **The saving is visible.** `NXT-1` shipped an engine nothing called; the producer
+  report's cost section now carries the counterfactual sentence, naming the comparison
+  model and the floor caveat.
+
+  **`atlasmind.cost.comparisonModel` is empty by default and AtlasMind will not fill it
+  in.** The choice of comparison decides what a saving is a saving *against* — it is the
+  substance of the claim, not a default — so nominating a flagship on the user's behalf
+  would be making the claim for them. A nominated model the router does not price says so
+  rather than quietly reporting nothing.
+
+### Fixed
+
+- **The `compareSemver` property test no longer fails at random.** It failed twice during
+  full-suite runs and never once in isolation, which teaches whoever hits it to re-run
+  until green — and a test people re-run is a test that has stopped working. It gates the
+  release version-ahead check, so that mattered.
+
+  The ordering was checked exhaustively over the generator's **entire** domain — every
+  pre-release option, all pairs and all triples — and no antisymmetry or transitivity
+  violation exists, so the intermittent failure could not have been a counterexample. The
+  seed is now pinned and `numRuns` raised: if it fails again it fails every time, and the
+  cause is environmental rather than arithmetic, which is a far better thing to be handed
+  than a coin flip. The reasoning is in the test.
+
+- **Two omissions caught by the repository's own guards, both real.** `comparisonNote` was
+  computed and never passed to the report builder — the feature would have silently done
+  nothing — and the new setting was undocumented. Lint and `docsIntegrity` respectively.
+
+## [0.428.0] - 2026-09-07
+
+### Added
+
+- **`src/core/counterfactualPricing.ts` — what the same work would have cost at another
+  model.** Roadmap item `NXT-1`, and the module that makes AtlasMind's central claim.
+
+  The method, published with the figure: take a request that was actually made, keep its
+  exact token counts — including the split between ordinary input, cache reads and cache
+  writes — price those identical tokens at a nominated comparison model, and report the
+  difference.
+
+  **Almost all of it is about when to refuse.** The arithmetic is four multiplications;
+  the value is in never producing a number that flatters us.
+
+  - **A record that cannot be re-priced is excluded from both sides.** Not a zero saving,
+    not actual-cost against a missing counterfactual — excluded, with the exclusion
+    reported. Leaving it in either total makes the comparison a mixture of measured and
+    assumed.
+  - **A missing rate refuses the record rather than falling back.** Pricing cache reads at
+    the full input rate when the comparison model has no cache-read rate would *raise* the
+    counterfactual and therefore increase the apparent saving. Every fallback available
+    here errs in our favour, which is exactly why there is none.
+  - **A negative saving is reported as negative.** Routing to something dearer than the
+    comparison model is a real outcome; clamping at zero would turn a loss into a wash,
+    the one arithmetic choice that makes the headline a lie rather than an overstatement.
+  - **No records priced means no figure**, not a saving of zero — `$0.00 saved` reads as
+    *this did not help*.
+  - **The comparison model is named in the result**, so no surface can show a saving
+    without saying what it is a saving against.
+  - **The figure is a floor and says so.** Flagships generally emit more output for the
+    same prompt, so re-pricing our output count at their rate understates them.
+    `REPRICING_CAVEAT` travels with every result, and `describeCounterfactual` exists so a
+    renderer that only wanted the number cannot drop the caveat or the model name.
+
+  Rates are supplied by the caller rather than looked up, since only the caller knows the
+  router's cache-read defaults — which keeps this module pure and keeps the defaulting
+  decision where it was already being made.
+
+## [0.427.0] - 2026-09-07
+
+### Fixed
+
+- **An unrecognised model was recording its cost as `$0.00`.** Roadmap item `NXT-0`'s
+  fourth criterion — *a price the map does not cover is reported as unpriced, never
+  guessed* — was already being violated, and this was the more consequential half of the
+  item.
+
+  `estimateCostBreakdown` returned `costUsd: 0` for any model the catalog does not price.
+  That is **indistinguishable from a genuinely free local model**, so real spend reported
+  as free, and flowed into cost-per-roadmap-item and the producer report as `$0.00` — a
+  figure a reader would take as "this feature was free to build".
+
+  The zero remains, because there is nothing honest to put in its place, but it now
+  travels as `unpriced: true`. Attribution counts unpriced requests separately, the item
+  view exposes the count so a total can be marked as a floor, and the report renders it
+  beside the figure. Counted rather than excluded: dropping them would understate the
+  *request* count too, and the honest statement is "£X across N requests, M of which
+  could not be priced".
+
+### Added
+
+- **The price table now carries its own verification date**, and every figure derived
+  from it says how old it is. `MODEL_CATALOG_VERIFIED_AT` and
+  `MODEL_CATALOG_STALE_AFTER_DAYS` live beside the prices; `modelCatalogFreshness` reads
+  them against an injected clock.
+
+  **Stale prices still report** — withholding a figure would push somebody towards a worse
+  source, and a stale number honestly dated beats none. **An unreadable date is treated as
+  unknown-and-stale, never as current**, because the reassuring direction is the one it
+  must not fail in. The producer report's cost section now carries the note.
+
+- **`Model prices — freshness check`, a monthly workflow** that opens one reusable issue
+  when the table is past its threshold.
+
+  **It deliberately does not fetch prices.** Providers publish pricing as prose on
+  marketing pages with no stable machine-readable feed, so a scraper would break quietly
+  and then report *wrong* prices — worse than stale ones, because a wrong number is stated
+  with exactly the same confidence as a right one. The workflow notices the age and asks a
+  person to look. Its instructions say to bump the date **only if the prices were actually
+  checked**: a date that moves without a check converts "these numbers are old" into
+  "these numbers are current".
+
+## [0.426.0] - 2026-09-07
+
+### Added
+
+- **Cost history is now a project-scoped file, and `atlasmind.cost.historyLocation`
+  chooses where it lives** — the last outstanding piece of roadmap item `NOW-1`.
+
+  Spend was in VS Code `globalState`: machine-wide, capped at 500 records, invisible to
+  anyone else and impossible to diff. Fine for a status bar, useless for saying what a
+  project cost or putting that figure in a document somebody else reads.
+
+  - **`machine-private`** (default) writes under the extension's global storage, keyed by
+    a hash of the workspace path — project-scoped, so two projects never share a history,
+    without putting the path in a filename.
+  - **`repository`** writes `project_memory/operations/cost-history.json`: diffable,
+    survives a clone, readable by the producer report.
+
+  **The default is deliberately the less useful one.** It is the first thing AtlasMind
+  would write into project memory that is about *you* rather than about the project.
+  Moving to `repository` asks first, in a modal that names the file — so it can be looked
+  at, or `.gitignore`d — and an unrecognised setting value resolves to private, because a
+  typo must not be the reason spend starts being committed.
+
+  **Switching moves the existing history and says how many records moved.** Losing months
+  of spend to a settings toggle would make the setting frightening, and a frightening
+  setting is one nobody uses. Declining the confirmation puts the setting back, so the
+  stored value never disagrees with where the data actually is. The old file is deleted
+  only after the new one is written, so an interruption leaves two copies rather than
+  none.
+
+  Retention is 5,000 records — up from 500, because a file can hold a project's history
+  rather than a session's, but bounded, since a committed file that grows forever is one
+  somebody eventually finds in a diff. When the bound bites, the newest are kept and the
+  loss is reported.
+
+- **`costHistoryFileStore` keeps the older-record rule at the boundary.** A history
+  written before `workspaceKey` and `cacheWriteTokens` existed still loads, and **does not
+  acquire the fields it never had**: a defaulted `0` write count would make an
+  unrepriceable record look repriceable, and a defaulted workspace would put another
+  project's spend on this project's roadmap item. Writes go through a temporary file and a
+  rename, because in the repository location this is a file git watches and a half-written
+  JSON document in `git status` is worse than a lost final record. A corrupt file reports
+  as *existing* rather than absent, so a caller does not overwrite it believing there was
+  nothing there.
+
+### Changed
+
+- **`UNREFERENCED_EXPORT_CEILING` lowered from 92 to 91.** Wiring the publication gate
+  made a previously-unread export read, and the dead-field guard ratchets: it fails when
+  the ceiling sits above reality, not only when it is breached. Working exactly as
+  intended.
+
+## [0.425.0] - 2026-09-07
+
+### Added
+
+- **`AtlasMind: Prepare Producer Report for Publication`, and the three settings that
+  govern it** — roadmap item `NOW-4`. The gate shipped in 0.423.1 with nothing calling
+  it; this wires it, so the settings now control something real.
+
+  **Two commands rather than one with a flag.** Generating a report for yourself and
+  preparing one for the open internet are different decisions, and a single command with
+  a setting would let the second happen because of a checkbox somebody ticked weeks ago.
+
+  **Repository visibility is read at the moment it matters**, not cached — a repository
+  can be made public between one publication and the next, and the warning is only worth
+  anything if it describes the repository as it is now. An unreadable answer is treated
+  as `unknown`, which the gate treats as public.
+
+  Settings, all `false` by default: `producerReport.publishEnabled`,
+  `publishRisks`, `publishCost`. On its own the master switch publishes roadmap progress
+  by gate and delivery readiness — what a client actually asks for, naming neither a
+  person nor a sum.
+
+  The confirmation is modal and lists the warnings, what will be published and what is
+  withheld, before anything is written. The prepared page goes to
+  `project_memory/operations/producer-site/`.
+
+### Fixed
+
+- **The configuration docs cited a setting that does not exist.** `docsIntegrity` caught
+  `atlasmind.cost.historyLocation` referenced in three places — it is a `ROADMAP.md`
+  proposal from `NOW-1`, never implemented, because the cost-history location work has not
+  been built. Reworded to describe the interaction without naming an id that resolves to
+  nothing. Exactly the drift that test exists to catch, and it caught it on the same day
+  the reference was introduced.
+
+## [0.424.0] - 2026-09-07
+
+### Added
+
+- **`AtlasMind: Generate Producer Report` — the report can now actually be produced.**
+  0.423.0 shipped the renderer with nothing to call it; this is the half that makes it a
+  feature. Writes markdown, a self-contained HTML page and the JSON model into
+  `project_memory/operations/`.
+
+  **Each register is read in its own try/catch**, so a failure leaves that section
+  `undefined` — a stated gap — rather than empty. One wrapper around all of them would
+  make a single unreadable register look like a project with no risks, which is the exact
+  failure the report's design exists to prevent.
+
+  Written to `operations/` rather than a new `reports/` folder: `SSOT_FOLDERS` is a
+  declared set, and a folder outside it is not something the memory manager or a purge
+  knows about. A status report is an operational artefact, alongside `delivery.json`.
+
+- **`src/core/producerReportGather.ts`** — turns what the registers hold into what the
+  renderer takes, kept apart so the renderer stays ignorant of where facts came from and
+  both can be tested without a workspace.
+
+  - **Only the managed block of the backlog is read.** A `- [ ]` line in the surrounding
+    prose is documentation, not a roadmap item — the same rule the debt scanner applies to
+    markers that do not open a comment.
+  - **Only open risks reach the report.** The register keeps closed findings deliberately,
+    but a status page listing forty of them buries the three that are live.
+  - **A declared gate with no items is reported with a total of zero**, not omitted, so an
+    empty milestone is distinguishable from one that does not exist.
+  - Cost lines are labelled with the item's text, falling back to its id when the item has
+    left the backlog.
+
+### Fixed
+
+- **Two repository baselines my own additions breached, fixed rather than raised.**
+  `gateProgress` and `costLines` were exported and read by nothing — the dead-field
+  detector was right, and they are internal helpers, so they are no longer exported. A
+  test fixture used `'resolved'`, which is not a `RiskStatus` (`open` / `accepted` /
+  `mitigated` / `closed` / `dismissed`), pushing test type errors to 239 against a ceiling
+  of 238. Raising either ceiling would have spent a guard to avoid a two-minute fix.
+
+## [0.423.1] - 2026-09-07
+
+### Added
+
+- **`src/core/producerReportPublication.ts` — the gate deciding what may leave the
+  machine.** The safety core of roadmap item `NOW-4`, built before the publisher rather
+  than alongside it, because this is the part that is expensive to get wrong.
+
+  **Not yet wired.** Nothing calls it, no setting exists, and no page can be published —
+  the Pages workflow, the command and the settings are the remaining half of `NOW-4`.
+  Settings were deliberately *not* added in this commit: a switch that controls nothing
+  is worse than no switch.
+
+  The fact it turns on: **a GitHub Pages site is public even when the repository is
+  private** — access control requires Enterprise Cloud. So on a free or Pro account,
+  publishing the report means publishing to the open internet, and the report can carry
+  stakeholder names, a register of commercial, legal and ethical findings, and what the
+  project has spent. `projectDirectorManager` avoids hoarding personal data and prefers a
+  reference it resolves on demand; publishing that section to a public URL would undo it
+  in one step.
+
+  - **Deny by default, per section.** Off until switched on, and then only roadmap gates
+    and delivery readiness — what a client actually asks for, naming neither a person nor
+    a sum. Risks and cost each need their own switch, and the warning **names what they
+    expose** before it happens.
+  - **Withholding is reported, never silent.** A withheld section becomes `not-assessed`
+    with its entries dropped rather than deleted, so the page keeps the heading and states
+    the omission. A page that silently omits cost reads as a project that spent nothing.
+  - **A private repository gets a different warning, not a quieter one**, because GitHub's
+    default and the user's expressed intent point in opposite directions. **Unknown
+    visibility is treated as public** — the assumption that keeps a secret.
+  - **It never publishes.** It returns a decision; the caller confirms and acts, so a
+    policy change cannot become a publication. The outbound artefact is a narrowed *copy*
+    and the local report keeps everything, since whoever ran it owns the data.
+  - Withholding cost leaves **no residual totals** — asserted by test, because a page
+    showing "$15 total" with no lines discloses exactly the number it was meant to
+    withhold.
+
+## [0.423.0] - 2026-09-07
+
+### Added
+
+- **`src/core/producerReport.ts` — the project's status as a document somebody without
+  VS Code can read.** Roadmap item `NOW-3`, and the fix for the project manager's
+  structural problem: everything good about it is invisible to a producer, a client or a
+  technical director, because a panel is the wrong container for an audience that is not
+  in the panel.
+
+  **Three layers, separated on purpose:** *gather* (the caller reads the managers) →
+  *model* (`ProducerReportData`) → *render* (markdown, and a self-contained HTML page).
+  The model is emitted alongside the rendered document so the planned GitHub Pages portal
+  (`NOW-4`) can consume it without this being rebuilt — the difference between a portal
+  being a renderer and a portal being a rewrite. It also gives the MCP roadmap server
+  (`NXT-7`) something to serve without a second gatherer.
+
+  **No model output anywhere in the path.** The same project state produces a
+  byte-identical report, asserted by test. A generated status summary is a claim nobody
+  checked, written into a committed file and attributed to the project — and this is the
+  document most likely to be forwarded to somebody who cannot check it. The clock is
+  injected for the same reason: `new Date()` inside would make every run differ and drown
+  a real change in noise.
+
+  **A section that could not be gathered says so.** Every input is optional; `undefined`
+  means *not assessed* and `[]` means *looked, found none*, and the two render
+  differently. Omitting an unavailable section would let a report about a project with
+  eleven open risks look identical to one whose risk register could not be read, which is
+  the specific way a status document becomes worse than none. A risk with no recorded
+  decision says so rather than reading as handled.
+
+  **Nothing here decides what may be published** — which sections are safe at a public URL
+  is the caller's decision against repository visibility, so a section cannot leak merely
+  by being added to the model.
+
+  The HTML is one file with **no script, link, image or URL of any kind**, because it has
+  to open from an email attachment or a memory stick — wherever the person who needs it
+  actually is. Everything interpolated is escaped, since risk titles and roadmap text can
+  be imported from third-party trackers. An absent estimate renders as a dash, never
+  `$0.00`, and unattributed spend is stated rather than folded into item totals.
+
+## [0.422.0] - 2026-09-07
+
+### Added
+
+- **Spend is attributed to the roadmap item it was incurred against** — roadmap item
+  `NOW-2`, and the join nobody else in the market has: an issue tracker cannot see tokens,
+  a cost tracker cannot see a plan.
+
+  **The id lives on `CostRecord`, not `ProjectRunRecord`.** The roadmap originally
+  mirrored `ideationOrigin` on the run record; directly on the cost record, attribution is
+  a group-by rather than a cost→run→item join, and it covers the many chat turns that
+  never create a run at all — which is most of them.
+
+  **A roadmap hand-off attributes its whole chat session, and says that it did.**
+  Attributing only the first turn would under-report so badly the figure would be useless,
+  since nearly all the work on an item is follow-up turns. But a session left open while
+  you wander elsewhere would then charge unrelated work to the item, so `roadmapAttribution`
+  records `session` (inferred) against `explicit` (stated), the counts are kept apart all
+  the way to the surface, and an *unstated* provenance counts as inferred — the weaker
+  claim. An inference presented as an assertion is the failure this field exists to
+  prevent.
+
+  The session map is in-memory: if the chat panel is disposed, later turns record as
+  unattributed. That is the safe direction to fail — under-reporting an item's cost is
+  visible and recoverable, while charging it work it never did is a wrong number nobody
+  can spot afterwards.
+
+- **`src/core/roadmapCostAttribution.ts`** — pure, unit-tested, with the rules that keep
+  the number honest:
+
+  - **Unattributed spend is reported, never distributed.** Spreading it pro rata would
+    make every item's figure wrong in a way no reader could detect, because a distributed
+    number looks exactly like a measured one. On a project that has just switched
+    attribution on, unattributed *is* most of the money, and that is the honest picture.
+  - **No spend attributed is not zero spend.** An item nobody has worked on and an item
+    whose work predates attribution both show no money; only one was free. Printing
+    `$0.00` would say *this was free*, which is the most misleading thing this feature
+    could display.
+  - **An absent estimate is not an estimate of zero**, or every unestimated item reads as
+    over budget the moment it costs anything. `attributionCoverage` returns `undefined`
+    rather than 0% when nothing has been spent, so a fresh install is not reported as an
+    attribution failure.
+
+  The roadmap item id is charset-validated at the webview boundary rather than passed
+  through, since it reaches a cost record that a dashboard groups on and an arbitrary
+  string would let a crafted target invent a bucket.
+
+## [0.421.0] - 2026-09-07
+
+### Added
+
+- **Cost records can now be attributed to a project and re-priced against another
+  model** — roadmap item `NOW-1`, the foundation the rest of `Now` waits on.
+
+  **`workspaceKey` on every cost record.** Cost history persists to VS Code
+  `globalState`, which is machine-wide, so until now every project's spend landed in one
+  undifferentiated list: "what did this project cost" was not a missing feature but an
+  *uncomputable question*. `CostTracker.setWorkspaceKey()` is called once at activation
+  and `record()` stamps each entry, rather than each call site remembering to — there are
+  several, and one that forgot would produce spend belonging to no project, which reads on
+  the dashboard as a project that cost nothing.
+
+  The key is normalized by `normalizeWorkspaceKey`, now **exported from
+  `projectRunHistory.ts` and shared** rather than copied. Cost records and run records are
+  joined on this string; two normalizers would eventually disagree about a trailing slash
+  or a Windows drive-letter case, the join would match nothing, and every project would
+  report zero — a failure that looks like missing data rather than a broken key. Pinned by
+  test.
+
+  **`cacheWriteTokens`, kept apart from `cachedInputTokens`.** Reads and writes are priced
+  in **opposite** directions — a cache read is cheaper than an ordinary input token, a
+  write is dearer — so the split is load-bearing, not a refinement: two requests with
+  identical `inputTokens` can differ in real cost by a multiple. The value was already in
+  hand and thrown away: the Anthropic adapter parsed `cache_creation_input_tokens`, folded
+  it into the input total, and discarded it one line later. Both the streaming and
+  non-streaming paths now report it.
+
+  Because a sum cannot be taken apart afterwards, **records written before this field are
+  permanently un-repriceable rather than repairable**, which is why this had to land before
+  anything built on it.
+
+- **`src/core/costRepricing.ts`** — decides what may honestly be said about a record,
+  graded against a published rule table. Pure, `vscode`-free, unit-tested.
+
+  **An absent field is unknown, never zero.** Defaulting a missing write count to `0`
+  would price a cache-heavy request as though it wrote nothing, understating the
+  counterfactual in the direction that flatters us. `partial` therefore exists as a third
+  state: the record is real money and belongs in *actual* spend, but may not carry a
+  savings claim. Collapsing it into `unusable` would understate what was spent; collapsing
+  it into `repriceable` would fabricate a saving.
+
+  A genuine zero is accepted — if a provider reports *either* cache field it speaks about
+  caching, so the absent one is a real zero; if it reports neither, that is silence and
+  silence is unknown. `REPRICING_CAVEAT` travels with any derived figure, since a flagship
+  model generally emits more output for the same prompt, making every such number a floor
+  rather than an estimate. A record with no `workspaceKey` is **unattributed, never
+  adopted** by whichever workspace happens to be open — guessing would put another
+  project's spend on this project's roadmap item.
+
+## [0.420.11] - 2026-09-07
+
+### Added
+
+- **Nine backlog items, author-added.** An approval flow for changes moving from ideas to
+  roadmap, documentation, legal and commercial; richer commit content so workflows and
+  analytics can be mapped to it; Gantt / milestone / critical-path tracking or a generated
+  GitHub project tracker; a team-management surface for workload, estimates and rotas; a
+  bug tracker for the PM dashboard; a test-management interface for testing teams; a
+  Kanban board, built in or via GitHub Projects; wider baseline comparison; and an
+  AtlasMind action in the Source Control panel that drafts a commit message.
+
+  Recorded as they were written. Several are producer-console shaped and overlap
+  `ROADMAP.md`'s `NXT-9`; sequencing them against it is a separate pass, not a silent
+  edit.
+
+## [0.420.10] - 2026-09-07
+
+### Changed
+
+- **The portal's publishing default is decided, so `NOW-4` specifies it rather than
+  proposing it.** Public by default: **roadmap progress by gate** and **delivery
+  readiness** — what a client actually asks for. Opt-in, one section at a time:
+  stakeholders, assignments, follow-ups, the risk register, and all cost.
+
+- **Repository visibility is now checked at publish time, and changes the warning.** A
+  GitHub Pages site is public whether or not the repository is, so the two defaults point
+  opposite ways: GitHub's is *publish publicly*, while somebody who made their repository
+  private has already expressed the opposite intent. Where a tool's default contradicts a
+  user's stated one, saying so in those words is the minimum, and it costs a single API
+  call at the moment it matters. Enabling a sensitive section now also states whether the
+  repository is public or private *while asking*, rather than leaving the user to
+  remember.
+
+- **`Now` is fully unblocked.** Every decision it depended on is recorded. The one
+  remaining open question — whether the database-driver problem is install weight or
+  start-up cost — sits against `NXT-8` and blocks nothing.
+
+## [0.420.9] - 2026-09-07
+
+### Changed
+
+- **The GitHub Pages portal is in MVP, and Now was re-cut rather than extended to fit
+  it.** It becomes `NOW-4`. The five-item cap held: the price map moved out to `NXT-0`.
+
+  **The dependencies say that move is correct rather than convenient.** Nothing in Now
+  needs a fresh price map -- `NOW-2` reports *actual* spend, already priced by today's
+  code. What needs a versioned, refreshed map is the **savings** claim, `NXT-1`, and
+  `NXT-0` now sits directly in front of it. The cost is stated in the item: until it
+  ships, the first figures a beta user sees are unversioned, which is the status quo
+  rather than a regression, and it is S-sized and parallelisable if that bothers anyone.
+
+  Four of the five Now items are now one chain -- cost data → cost per item → report →
+  portal. That is deliberate: they are the positioning, and the fifth (beta users) is the
+  only way to find out whether it lands.
+
+- **A committed HTML file is not the same as a link.** `NOW-3` produces a report readable
+  by someone who clones the repository; `NOW-4` makes it a URL you can send a client. The
+  distinction is the whole of gap PM1, and it is why the portal is not just a renderer.
+
+### Added
+
+- **A privacy warning designed into `NOW-4` rather than bolted on.** **A GitHub Pages site
+  is public by default even when the repository is private** — access control is a GitHub
+  Enterprise Cloud feature — so for a free or Pro account "publish the producer's report"
+  means publish it to the open internet. The item requires that behaviour be confirmed
+  against current GitHub documentation before shipping rather than trusting the note.
+
+  That matters because of what the report holds. `projectDirectorManager` deliberately
+  avoids hoarding personal data and prefers references it resolves on demand; publishing
+  stakeholder names, assignments and follow-ups to a public URL would undo that in one
+  step. The risk register is commercial, legal and ethical findings with recorded
+  decisions. And with cost history set to `repository` (`NOW-1`), spend becomes public
+  too.
+
+  So publishing is off until switched on, controlled per section, and the two most
+  sensitive sections are off even once it is on. The proposed default is roadmap progress
+  by gate plus delivery readiness — what a client actually asks for — with people and
+  money opt-in. Whether that default is right is the one remaining open question.
+
+## [0.420.8] - 2026-09-07
+
+### Changed
+
+- **All four open roadmap decisions answered; the questions section becomes a decision
+  record.** Kept as a table rather than deleted, so a later reader sees what was chosen
+  and what it ruled out.
+
+  - **The producer's console is proved first.** `NOW-2` and `NOW-3` stay in Now;
+    counterfactual pricing follows immediately on the same foundation rather than
+    competing with it.
+  - **Solo producers and small studios lead the beta**, most of whom will also be BYOK --
+    so the cost story is tested on the people the console is for, rather than on a second
+    audience. `NOW-5` now says to recruit where they already are, not only in the
+    local-LLM channels, which select for the other story.
+
+### Added
+
+- **`NXT-8` — fetch the database drivers on first use.** The Lens live-database feature
+  stays; its cost moves to the people who use it, with an integrity check following the
+  SHA-256-verified pattern `localTranscriber` already uses.
+
+  **Measured before recommending, and the number is smaller than it feels:** `pg`,
+  `mysql2` and their exclusive dependencies total roughly **1.7 MB** against a 21 MB
+  `node_modules` and a 12 MB `.vsix` -- about 8% of the tree and rather less of the
+  download. It also *adds* a supply-chain surface that a pinned dependency does not have.
+  The item therefore argues both sides: **lazy loading is the cheaper 80%** if start-up
+  cost is the real problem, and only a fetch helps if install weight is. Which problem is
+  being solved is recorded as still open.
+
+- **`NXT-9` — wire ideation, vision, UI Studio and Buzz into the project manager and each
+  other.** All four stay, so they earn their place by connecting rather than by existing:
+  each needs a deterministic hand-off into a roadmap item, risk, document or follow-up,
+  with provenance on durable ids, and the producer's report must name what each
+  contributed or say the surface is unconnected -- never silence.
+
+- **`NXT-10` — Slack as an alternative to Buzz**, sized S because
+  `directorCommsRunner.ts` was already built for it: it names Slack in its own header and
+  matches connector tools on `post_message`, `chat_post`, `post_to_channel` and `send_dm`,
+  which a Slack MCP server satisfies directly. The work is connecting and documenting a
+  server, not building an integration. Buzz and Slack are alternatives, not a migration,
+  and both stay behind the existing deny-by-default outbound gate.
+
+- **Two residual questions**, both cheap now and expensive later: whether the driver
+  problem is install weight or start-up cost, and whether `NOW-3` should generate an
+  artefact a hosted portal could consume -- prompted by the `web-portal-pm` ideation board
+  now in the repository.
+
+## [0.420.7] - 2026-09-07
+
+### Changed
+
+- **Where cost history lives becomes a setting, and `NOW-1` is unblocked.** The roadmap
+  posed it as an either/or -- in the repository (diffable, survives a clone, lets the
+  producer's report carry cost) or private to the machine (spend never committed). It is
+  now proposed as `atlasmind.cost.historyLocation`, defaulting to **machine-private**.
+
+  The default is the *less* useful option on purpose. In-repo is what makes the cost
+  section of the producer's report work for someone who never opens VS Code; it is also
+  what commits a record of your API spend to a repository you may later make public, and
+  the first thing AtlasMind would write into `project_memory/` that is about *you* rather
+  than about the project. Deny-by-default is the house rule for that shape of choice.
+
+  Recorded as a consequence rather than left to be discovered: with the default untouched,
+  the producer's report must render cost as **not shared**, never as zero -- a report
+  silently omitting cost reads as a project that spent nothing. Switching the setting
+  moves the existing history rather than starting a new one.
+
+### Added
+
+- **`LTR-4` — copy cost history to a destination you nominate.** Second-line by request.
+  A mirror, never a move, so the primary store stays authoritative and a misconfigured
+  destination cannot lose history; off by default, with the first copy to any destination
+  confirmed by name, since writing data somewhere new is outward-facing.
+
+  The item carries its own scoping warning, because "a secure source" spans two very
+  different builds: a filesystem path or a git remote the user already owns is small and
+  credential-free, while a named cloud integration brings an SDK, a credential, a
+  token-refresh path and a support burden for a few hundred kilobytes of numbers. It also
+  asks that "secure" be defined before it is promised in any UI -- at minimum encrypted at
+  rest with a key in SecretStorage, rather than "we put it somewhere else". Cost history
+  is not a credential, but it does reveal spend, cadence and which projects are active.
+
+- Open questions drop from five to four; the answered one is recorded on `NOW-1` as a
+  decision rather than deleted.
+
+## [0.420.6] - 2026-09-07
+
+### Added
+
+- **`ROADMAP.md` — strategic sequencing, from a competitive gap analysis.** Three
+  horizons with a dependency-ordered item shape (problem, outcome, gap closed,
+  acceptance criteria, size, dependencies), an *Explicitly not doing* list, and five open
+  decisions. Written against the constraints that actually apply: closed beta, no
+  customers, free product, no hosting budget, no analytics.
+
+  **It does not replace `project_memory/roadmap/improvement-plan.md`,** which stays the
+  live backlog. That file is machine-parsed by the Project Dashboard with durable
+  `<!-- rm:id -->` anchors, `#mvp` gates and drag-order priority; reformatting it into the
+  new item shape would break the parser and destroy every item id. `docs/roadmap.md`
+  (narrative feature prose) is also untouched. `ROADMAP.md` says what to do first; the
+  backlog remains the record of everything outstanding.
+
+  A **What the code says** section leads the document, because reading the code
+  contradicted the analysis in four places:
+
+  - **Counterfactual pricing can only work going forward.** `CostRecord.cachedInputTokens`
+    is the cache *read*; cache **writes are not captured**, so the read/write split the
+    method depends on cannot be reconstructed for past requests.
+  - **Per-project cost attribution is not merely unbuilt, it is uncomputable.** Cost is
+    persisted to VS Code `globalState`, capped at 500 records, with no workspace field --
+    so every project on the machine shares one undifferentiated list.
+  - **Memory does not feed routing.** `modelRouter.ts` reads task profile, struggle state
+    and a decayed execution-outcome EWMA, and never imports `src/memory/`. What exists is
+    *outcome-driven* routing -- real, uncommon, and a different claim. Marketing the
+    memory link would be an unverified statement about our own product.
+  - **A daily spend cap already exists** and already blocks missions through an injected
+    `MissionBudgetStore`, so "no budgets or caps" overstates the gap; the work is
+    extending its scope, not building a second budget system.
+
+  Two things are recorded as deliberate refusals rather than backlog items: a *day-one
+  projected monthly saving* (a repo scan cannot know request volume, and a confident
+  number with no basis is what this codebase refuses everywhere else), and the memory
+  routing claim above.
+
+- **Two roadmap items gained their durable anchors.** Written by the extension itself on
+  dashboard load, as designed -- included here rather than left uncommitted.
+
+## [0.420.5] - 2026-09-07
+
+### Fixed
+
+- **The README's published baseline names v0.420.4, the release just published.** It said
+  v0.402.4, which was true until the tag went up a minute earlier. `docsIntegrity` asserts
+  the stated baseline matches the newest tag, so the repository's own suite is red between
+  tagging and this commit -- by design, and it cannot be folded into the release commit
+  because the tag it must name does not exist yet.
+
+  The section reads *brought the changes below* rather than *landing on top of it*, because
+  those five bullets are now in the published build rather than queued ahead of it.
+
 ## [0.420.4] - 2026-09-07
 
 ### Added

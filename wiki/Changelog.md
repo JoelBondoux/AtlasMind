@@ -19,6 +19,1071 @@ Older entries below describe the software as it was at the time and are delibera
 
 ---
 
+## v0.449.5 -- Closing the pass
+
+The last two values the analyser named are escaped: a content-state label in the Studio inspector and
+the default count on the button that offers to record vital-file owners.
+
+What it still points at is numeric counts written into the dashboard's HTML without an escape. The
+host computes those as numbers, and every string field on the same paths is escaped, so they are
+recorded as accepted rather than chased one rescan at a time. The chat webview's image previews are
+validated before every assignment, with a test that fails if the guard is removed -- CodeQL does not
+model that helper as a barrier, which is a limit of the tool rather than a hole in the code.
+
+---
+
+## v0.449.4 -- The rescan, which is the only proof
+
+A second pass over the CodeQL findings, because rescanning is the only honest way to tell a fix from
+a belief about a fix. It found three more webview values written into HTML without their escape --
+including an ideation card's coordinates, which land inside a `style` attribute -- an end-tag pattern
+that `</script foo>` walks straight past, and a comment scrub that was still quadratic on a file made
+of repeated `<!--`.
+
+That last one lives in the memory self-healer, whose whole job is reading files that may be hostile.
+It now finds comments by index rather than by pattern, and an opener that never closes ends the scan
+instead of being rewritten -- it is not a comment, and rewriting to the end of the file would delete
+the rest of somebody's notes.
+
+---
+
+## v0.449.3 -- The static analyser's list, read line by line
+
+Every open CodeQL finding on `develop` is now addressed: 40 fixed, 8 dismissed with a reason written
+next to them. It was worth doing as a triage rather than a sweep, because roughly half of them were
+real and the other half were the tool misreading a test helper as a sanitiser.
+
+The ones worth knowing about:
+
+An image attachment's preview URL arrived as a string on a message and went straight to an `img` tag.
+It is now checked against the shapes AtlasMind's own host produces; anything else renders the
+attachment without an image rather than handing an unknown URL to the page.
+
+The content-security-policy nonce -- the single value standing between a panel's CSP and an injected
+script -- was built from `Math.random()`, which is guessable from a handful of samples. It now comes
+from the platform's cryptographic generator, and both webview shells share one implementation so the
+weaker one cannot come back.
+
+Four values in webviews were being written into HTML without their escape. Everything around them was
+escaped, which is exactly why an analyser was better placed to find them than a person re-reading the
+file.
+
+Six markdown mirrors escaped the pipe character but not the backslash, so a Windows path ending in a
+backslash could split a table row and shift every column after it.
+
+And an "official" badge beside a recommended MCP server was decided by looking for a trusted host's
+name anywhere in the URL -- which `https://example.invalid/?ref=learn.microsoft.com` satisfies. It now
+parses the URL and matches the host.
+
+---
+
+## v0.449.2 -- Dependencies cleared, in one verified pass
+
+Every open Dependabot update is in: the ACP SDK, noble-secp256k1, mysql2, zod, the type packages,
+eslint, and Vitest from 4.1 to 5.0. Taken together and verified together -- compile, lint, the whole
+test suite and a package build -- rather than merged one pull request at a time.
+
+Vitest 5 tripped the one guard built for exactly this. The Testing dashboard reads pass/fail out of
+the JUnit report the test run writes, so a reporter format change is invisible: everything still
+passes, the report is still written, and the dashboard quietly goes back to saying it has nothing to
+read. A test pins the Vitest line the fixture came from; it fired, and the fixture was re-captured
+from a real Vitest 5 run rather than the pin being relaxed.
+
+One update was deliberately not taken. `@types/vscode` is tied to `engines.vscode` -- packaging
+refuses to build if the types run ahead of it -- so accepting that bump would raise the minimum
+VS Code version AtlasMind requires, and drop everyone below it. That is a product decision and it
+will arrive as one. Dependabot now holds it, with the reason written next to the rule.
+
+---
+
+## v0.449.1 -- The edge glow lets go
+
+The roadmap canvas glows along an edge when the plan continues past it. Dragging the plan back into
+view did not put the glow out: the wheel recomputed the strips and a drag did not, which is why the
+top and bottom pair behaved and the left and right pair — the ones you drag to reach — stayed lit
+over cards that were already on screen.
+
+A card's right edge is measured now rather than assumed from the nominal card width, which had the
+left strip lighting over a card still poking into the frame.
+
+---
+
+## v0.449.0 -- Noticing what you keep reaching for
+
+If your runs shell out to `gh` again and again, there is probably a GitHub MCP server that would suit
+you. AtlasMind will now say so — once, on the Runtime page, and only when your own run history
+actually shows it.
+
+The hard part of a feature like this is not noticing. It is not becoming a salesman. So:
+
+It waits for the same command across **several separate runs**. Ten uses inside one run is you doing
+one thing once, and counting those would let a single afternoon manufacture a recommendation.
+
+It never suggests something AtlasMind already does. Using git is not evidence that you need a git
+server — you would be adding third-party code to do a job that already works.
+
+It tells you what the thing **costs**, in the same breath as what it adds, and that half is not
+optional. An MCP server publishes its whole tool list into the same budget your turns already spend,
+and AtlasMind has watched that budget overflow and quietly drop skills from a run. So this may cost
+you context rather than save it, and the card says so.
+
+Say "Not this one" and it never comes back for that project — on any evidence, however much
+stronger. An offer that returns when the count goes up is a nag with a threshold.
+
+And it never installs anything. Setting it up leaves the server switched off, because installing an
+MCP server runs somebody else's code.
+
+To make this possible, run history now records **which executable** a terminal command ran — the name
+alone, never the command line, since arguments carry paths, tokens and queries that nothing here
+needs.
+
+---
+
+## v0.448.0 -- Commits that say what they were for
+
+A commit message tells you what changed. It never told you *which piece of planned work it was for* —
+so anything trying to connect your code back to your roadmap or your issues had to guess from the
+wording, and a wrong guess is worse than none because it gets counted rather than noticed.
+
+Commits can now carry that link properly, using git's own trailer convention. Ask AtlasMind to write
+a commit message on a branch named the way your workflow declares (`fix/412-the-thing`) and it adds
+`Issue: 412` at the end. The dashboard's commit list shows what each commit declared.
+
+The link only ever comes from something you already decided — the branch naming convention your
+workflow file declares. Never from the words in the commit. A bare number elsewhere in a branch name
+is refused rather than used, because a commit message cannot be edited once it is pushed and a
+permanent wrong link is not worth the convenience.
+
+Everything else about your message is left alone: your paragraphs are not reflowed, a
+`Co-Authored-By` stays where you put it, and asking twice doesn't leave you with the same line three
+times.
+
+---
+
+## v0.447.0 -- When your providers are in trouble, the dashboard says so
+
+AtlasMind already knew how many of your model providers were healthy. It put the number in a stat
+card's subtitle, in the same grey as everything else, and left it there. You could be perfectly set
+up and unable to route a single request, and the page whose job is to tell you what needs attention
+said nothing.
+
+Now it does — and it ranks by what it costs you. **No enabled model anywhere** is a stop, not a
+degradation: nothing can run. That sits at the very top of the *Needs you* band, above a red
+pipeline, because a failing test is something you can work on and no routable model is not. One
+provider down while others still serve is a smaller note, and it names which.
+
+The score also picks up **how much of your team you actually use** — agents you have enabled whose
+role has never appeared in a run. Three things about that. It is silent on a project with no run
+history, because that has not shown its agents idle, it has shown nothing. Agents you have switched
+off don't count, since that was a decision rather than a gap. And it stays quiet until there are ten
+recorded runs, because three is not evidence that six agents are surplus and you should not be
+talked into switching off a team you are about to need.
+
+Provider health deliberately stays *out* of the score. A number that fell during an outage and
+recovered by lunchtime is one people learn to explain away.
+
+---
+
+## v0.446.0 -- A day is the wrong unit when an agent does the work
+
+If your agents do the coding, a roadmap item can be planned and finished inside an afternoon. The
+roadmap could not say so: every estimate was in working days with a half-day floor, so the smallest
+thing it could describe was four hours of somebody's time.
+
+Worse, the arithmetic behind it rounded to the nearest half-day — so three twenty-minute items added
+up to nothing, and a plan run entirely by agents reported no work left and a critical path of zero.
+
+Now: mark a contact as an **AI agent** on the Director page, assign roadmap work to them, and it is
+estimated in wall-clock minutes instead. The size of the job is judged the same way — that does not
+change with who does it — but what a unit of it *costs* does. Durations show as minutes or hours
+where that is what they are, rather than as `0d`.
+
+Two things worth knowing. The conversion is **a stated assumption, not a measurement** — nothing has
+watched your agents work, so it is one number you can see, disagree with, and override per item. And
+the "AI-assisted estimate" toggle disappears on agent work: it grades a person working with AI help,
+and applying it to an agent would count the same thing twice.
+
+A chain that mixes the two behaves as you would hope: an afternoon of agent work waiting on a
+three-day human task finishes when the human task does.
+
+---
+
+## v0.445.0 -- What the finish date actually rests on
+
+Your backlog could tell you what mattered most. The dependency canvas could tell you what had to
+happen before what. Neither could tell you the thing you most want to know: **which chain of work
+decides when this lands.** A plan can be correctly prioritised, correctly sequenced, and still have
+everyone busy on the items that were never the constraint.
+
+The roadmap now works that out. It names the longest chain of outstanding work and how many days it
+runs to, and a **Critical path** lens highlights it on the canvas. Everything else stays drawn and
+dimmed rather than hidden, because the items with room to slip are the comparison that makes the
+answer useful — if you want to bring the date in, they are not where to look.
+
+Delivered work is never on the path: it explains how you got here, and counting its days would turn
+a forecast into a history. Slack is measured against the plan's own finish, never against an item's
+deadline — that is a separate question each card already answers. And a plan with a circular
+dependency is told it has no finish date rather than handed a number, because it cannot run.
+
+The finding is shown whether or not you switch the lens on. It is worth knowing before you think to
+ask for it.
+
+---
+
+## v0.444.0 -- Reopening the chat picks the work back up
+
+Last release let a chat keep working after you closed its window. This one makes reopening it feel
+like nothing happened: the answer streams in as it arrives rather than appearing in bursts, the stop
+button is back in the chat where you'd look for it, and the "thinking" line and model chips show
+again.
+
+If you ask something else while a background run is still writing, it starts a fresh conversation
+rather than mixing two answers into one transcript — which is the case that would have been most
+confusing and hardest to unpick afterwards.
+
+---
+
+## v0.443.0 -- Closing the chat no longer stops the work
+
+Clicking another view in the sidebar used to kill whatever the chat was doing. Not closing it —
+clicking away from it. VS Code throws a hidden view's window away, AtlasMind saw that as the chat
+being closed, and stopped the run halfway through your answer.
+
+The sidebar now keeps its contents when hidden, so that doesn't happen at all — and you keep your
+scroll position and half-typed prompt too. If a chat genuinely does lose its window, it now keeps
+going instead of stopping. Your answer is written to the chat session as it arrives rather than only
+to the window, so reopening the chat shows the finished result.
+
+A chat still running is still spending money and may still be changing your files, so it says so. A
+status-bar item names what's running, and clicking it lets you read or stop any of them. Closing the
+window is no longer how you stop a run — that is. Anything you had queued up behind the running turn
+is dropped rather than started without you.
+
+`chat.continueInBackground` turns it off if you'd rather closing the chat stopped the agent.
+
+---
+
+## v0.442.0 -- Being told about the speed setting, once
+
+Serialising writers made runs slower, and the only thing saying so was a line in the progress log.
+The second time a run in a project queues writing steps behind each other, AtlasMind now offers you
+the setting that gives the speed back.
+
+The second time, not the first — the first run already explains itself, and an offer arriving
+alongside the explanation interrupts you before you have a reason to care. Once per run, however
+many batches are involved. Never as a dialog you have to dismiss. And never when turning it on
+wouldn't have changed the run you just watched: a step that runs tests, or a project without git,
+would have run alone either way, and being offered a switch that does nothing is how you learn to
+ignore the next suggestion.
+
+Saying yes changes your own settings rather than the project's, so it doesn't leave a change for
+your colleagues to review.
+
+Also fixed: with the setting off *and* no git repository, a step was reported as being queued
+because the setting was off — pointing at a switch that wouldn't have helped.
+
+---
+
+## v0.441.0 -- Two steps can no longer overwrite each other
+
+When AtlasMind broke a job into steps, it ran up to five of them at once against one copy of your
+files. Nothing anywhere kept two of them from editing the same file, and when that happened one of
+the two changes simply wasn't there afterwards — with both steps reported as finished. There was no
+error, no warning, and nothing in the run to suggest anything had gone wrong.
+
+Steps that write now run one at a time. That is slower than before, and it is not something you can
+turn off, because the race was never the price of a missing feature — it was a defect.
+
+What you *can* turn on is `execution.worktreeIsolation`, which buys the speed back. Each writing step
+gets its own git worktree, they run together again, and each one's changes are applied to your files
+as its batch finishes rather than at the end of the run — so a later step that depends on an earlier
+one sees its work. A step that runs commands or tests still runs alone in your real working tree,
+because a fresh worktree has no `node_modules` and no build output, and "the tests failed" would be a
+fact about the isolation rather than about your code.
+
+If a step's changes won't apply cleanly, its worktree is kept and AtlasMind tells you where it is.
+Nothing is forced in, and nothing is thrown away. The same holds when a run stops early: a worktree
+holding changes is kept and named, and an empty one is cleared away so an abandoned run doesn't leave
+litter behind.
+
+The whole path was checked against real git rather than reasoned about — including that a refused
+patch leaves no conflict markers anywhere in your files.
+
+---
+
+## v0.440.2 -- Bringing an isolated step's work back
+
+If a step of a run gets its own copy of your files, that only helps if the work comes back — and it
+is only safe if work that *cannot* come back cleanly is neither lost nor forced on you.
+
+Changes return as a patch that git applies, not as files copied over the top. Copying would silently
+overwrite whatever was there, which is the problem this feature exists to remove, moved to the end of
+the run where it is harder to spot. Patches apply one at a time, because a collision at that point
+happens when the run already looks finished.
+
+If a change will not apply, AtlasMind stops rather than forcing it, keeps that step's copy of your
+files, and tells you where it is. It does not use git's "leave conflict markers and carry on" mode:
+half-applied work sitting in a file nobody has read is worse than intact work sitting in a folder you
+have been told about.
+
+One detail worth knowing, because getting it wrong would have looked like something else entirely:
+files a step *creates* need registering before git will show them in a patch. Without that they would
+vanish, and it would look like the model never wrote them.
+
+Still not connected to your runs — that is the last piece.
+
+---
+
+## v0.440.1 -- The file boundary learns the difference between two questions
+
+Every file a skill reads or writes goes through one check. That check was answering two questions
+with one answer: *where does `src/foo.ts` mean* and *what is this allowed to reach*. While every step
+of a run shares one copy of your files those are the same question. They stop being the same the
+moment a step gets its own copy.
+
+They are now separate. Where a path resolves can move; what it may reach cannot, and stays your
+workspace folder.
+
+The useful discovery: because AtlasMind's separate checkouts live *inside* your project's `.git`
+directory, an isolated step is contained by exactly the same rule as an ordinary one — this change
+gives nothing extra access to anything. That was checked by running it rather than by reasoning about
+it.
+
+Nothing you can see changes. It is the plumbing the next piece needs, and it ships with the whole
+suite green, which is the claim that matters for a change to the check every read and write passes
+through.
+
+---
+
+## v0.440.0 -- Groundwork for parallel subtasks that cannot overwrite each other
+
+When AtlasMind breaks a job into steps, independent ones run at the same time — up to five at once.
+They all shared one copy of your files, and nothing stopped two of them editing the same file. When
+that happened, one edit quietly won and the other disappeared, with both steps reported as done.
+
+The fix people usually reach for is a separate checkout per step. It works for some steps and cannot
+work for others: a fresh checkout has your *tracked* files and nothing else — no installed packages,
+no build output. A step that runs your tests would land somewhere they cannot run, and "the tests
+failed" would be about the isolation rather than your code.
+
+So AtlasMind now decides per step. Steps that only read run alongside anything. Steps that edit files
+and need nothing else get their own checkout and keep running in parallel. Steps that edit files
+*and* run commands take a turn on their own — slower, and stated on screen when it happens, rather
+than quietly taking longer.
+
+**The taking-turns part is not optional.** With the new setting switched off, editing steps still take
+turns. The race is a defect, not a preference; switching isolation on buys back speed rather than
+making anything safe.
+
+This release is the decision-making and the git plumbing. Nothing changes about how your runs execute
+yet — connecting it up is the next piece, and the larger one. There is deliberately no setting for it
+until then: AtlasMind's own tests refuse a setting that nothing reads, on the grounds that a switch
+which changes nothing is a promise to you the code does not keep.
+
+---
+
+## v0.439.1 -- The ideation board gets the same selection box
+
+Shift-drag on the ideation board draws a selection box; dragging any selected card moves the whole
+group. That finishes the feature started in 0.439.0.
+
+The board already had a selection, but it meant *the two cards I am linking* — numbered, with one
+marked as the source and one as the target. Rather than adding a second, separate kind of "selected",
+the two now share one list: a pair is what a link is drawn between, any number is what a drag moves.
+
+That has one honest consequence. With more than two cards selected, "which two am I linking" has no
+answer, so **linking refuses** and tells you how many are selected instead of picking two for you.
+A link you did not choose is worse than a message asking you to choose.
+
+The box selects any card it touches rather than only cards wholly inside it — otherwise a card half
+off the edge of your screen could not be selected without zooming out first.
+
+---
+
+## v0.439.0 -- Select several roadmap items and move them together
+
+Hold **Shift** and drag on empty canvas to draw a selection box round a group of roadmap items.
+Drag any one of them and the whole selection moves.
+
+Shift rather than a plain drag, deliberately. Drawing tools usually do it the other way round, but
+here panning is how you read a plan that does not fit on the screen — you do it constantly, and it
+works with no connection at all. Taking that away to add selection would trade something you use
+all the time for something you use occasionally.
+
+The selection is not remembered between sessions. It is a way of looking at the plan for a few
+seconds, not a fact about the plan.
+
+Each item snaps to the grid from where *it* was, so a group picked up from different offsets all
+lands aligned rather than keeping its original raggedness.
+
+The ideation board is not covered yet — its existing selection means "these are the two cards I am
+linking", so a box selection there needs a decision about how the two interact rather than a copy of
+this.
+
+---
+
+## v0.438.1 -- "Open a code file" opens a code file
+
+With nothing open, the Lens view shows a single row asking you to open a code file. Clicking it
+opened the Atlas Lenses dashboard — which also says to open a code file. So the one clickable thing
+on the surface took you to a page repeating the request, and the lenses read as unreachable rather
+than as waiting for you.
+
+It now opens the file picker. The row still explains what it is waiting for; it is guidance first
+and a button second.
+
+Worth saying what was *not* broken: Contract Wiring, State Lifecycle, Configuration Resolution and
+Change Story never needed a file at all, and were always available from the view's title bar.
+
+---
+
+## v0.438.0 -- A commit-message button where you already are
+
+There is now a ✨ button in the Source Control title bar, beside the other actions there. Press it
+and AtlasMind reads your staged changes and writes a commit message into the box. Also on the
+Command Palette as **AtlasMind: Write a Commit Message**.
+
+It writes text and stops — nothing is committed, nothing is staged, and if you have already typed a
+message it asks before replacing it. That question comes *before* the model runs, so saying no costs
+nothing.
+
+Two things it deliberately will not do. With nothing staged it tells you so rather than asking a
+model to describe an empty change — you would get a confident, plausible message sitting in the box
+looking exactly like a real one. And if your diff is too large to send whole, it says the message
+covers only part of it, because a message describing half a change reads identically to one
+describing all of it.
+
+Your diff is treated as somebody else's text throughout: it is file content, which on a real project
+means vendored code, generated output and things you did not write.
+
+---
+
+## v0.437.1 -- Deleting your last chat session actually clears the screen
+
+Reported: deleting all your chat sessions left an old conversation on screen instead of going
+blank. Two mistakes, one symptom.
+
+Choosing which conversation to show next looked at *all* sessions, including archived ones — but
+the session picker only lists unarchived ones. So if you had one visible conversation and anything
+archived, deleting the visible one made an **archived** conversation active: the picker went empty
+while its old transcript stayed on screen, and nothing downstream noticed, because an archived
+session is still a perfectly real session as far as the lookup is concerned.
+
+The same oversight meant "this is my only conversation, just empty it" did not trigger when it
+should have, and the successor was picked by creation order rather than by which you used last.
+
+Archiving a conversation has always got this right. Deleting now shares that logic, because they
+are the same question and asking it twice is how the two answers drifted apart.
+
+---
+
+## v0.437.0 -- "Read-only" holds for the whole job
+
+Telling AtlasMind to work read-only was already enforced properly — the write tools are removed before
+the model ever sees them, and every call is checked again on the way out. But if your request became a
+**multi-step project run**, each step read its own generated instructions to work out what it was
+allowed to do, and those instructions describe the job, not your limits. So "audit this, read-only,
+don't change anything" restricted the step that planned the work and nothing that carried it out.
+
+The limit you set is now derived once from what *you* typed and travels with the work. Where a step
+has its own restriction the two combine, and combining can only ever narrow — the same rule AtlasMind
+already applies when one agent hands work to another, and for the same reason: if delegating could
+widen what is allowed, no restriction means anything, because the way round it is to ask somebody else.
+
+**An MCP server asking for one environment variable used to get all of them.** Declaring, say,
+`GITHUB_TOKEN` also handed that server every other credential the editor was started with. A server
+declaring *nothing* got a safe filtered set — so declaring what you needed made a server more trusted,
+which is backwards. Servers now get the filtered set plus exactly what they declared.
+
+Two areas were examined and needed no changes, which is worth saying: remote control (listens only on
+your own machine, constant-time token check, revocable) and the subscription-agent bridge (its "never
+grant permanently" rule is held up by tests, not a comment).
+
+---
+
+## v0.436.1 -- The security pass, written up
+
+The security hardening report now carries its test tally: **120 security regression tests, 88 of them
+new**, with what each covers and which four are architectural — the kind that scan the source and fail
+on a *shape*, so they keep the rest true after the work stops.
+
+It also records the two existing tests that were changed, and why each change was a correction rather
+than a concession. A hardening report that does not say what it touched in the test suite is asking to
+be taken on trust, which is the opposite of the point.
+
+---
+
+## v0.436.0 -- Nothing starts a shell it does not need, and CI runs what we pinned
+
+**The project bootstrapper no longer starts a shell.** It used to start four: three checks for
+whether a package manager exists — which ran *before* you were asked anything — the installer itself,
+and `git add -A && git commit`. Every one was a fixed string, so none could be tampered with, but a
+shell is one interpolation away from being a problem and none of these needed one.
+
+**The Debian install path is gone rather than rewritten.** Installing the GitHub CLI on Debian and
+Ubuntu meant piping a download straight into `sudo`. AtlasMind refuses to ship that pattern for Rust
+elsewhere, and one product should not hold two opinions about it. Those users now get the manual
+instructions, which they were getting anyway whenever the command failed — and it would have failed,
+because `sudo` with nowhere to type a password does.
+
+**Every CI action is pinned to an exact commit.** Nine were pinned to tags like `v7`, and a tag can be
+moved by whoever controls the action's repository — which is exactly how a popular action started
+stealing credentials from thousands of projects last year, none of whom changed a line. Our publish
+job holds a credential that can put a release on the Marketplace under this publisher's name, and a
+published version can never be taken back.
+
+Each pin also carries a readable version comment. A bare commit hash is unreviewable, and a pin
+nobody can review stops being *deliberate* and starts being *stuck*.
+
+New with it: a written [dependency review](https://github.com/JoelBondoux/AtlasMind/blob/main/docs/dependency-security-review.md),
+an SBOM command, and tests that fail if a shell caller appears, if a shell command is ever built out
+of a value, if an action loses its pin, or if a new package is added to what ships to your machine.
+
+---
+
+## v0.435.0 -- Starting the editor contacts nobody
+
+AtlasMind loads when VS Code starts, so anything in that path runs on every machine, every launch.
+Two things reached third parties from there without your settings asking for it.
+
+**Exchange rates.** Costs are recorded in USD and displayed in USD by default, so no conversion is
+needed and the rate is never used — but the rate was fetched anyway, from `open.er-api.com`, on every
+startup, daily. That is not analytics by intent, and from the other end it makes no difference: an
+unsolicited request tells them an IP and a rough install count either way. Nothing is fetched now
+unless you have actually chosen another currency. Choosing *auto* is resolved to a real currency
+first, rather than being treated as one — otherwise every auto user would have fetched, including
+those whose locale is USD.
+
+**A catalogue of models you could download.** Fetched from ollama.com and huggingface.co behind
+nothing but a cache timer, so a fresh install with no local model runtime contacted two sites on
+startup to list things it had no way to run. It now runs after the localhost check and only when
+something is actually there.
+
+There is no telemetry in AtlasMind and never has been. These were not it — but "we don't collect
+anything" is worth less when the network says otherwise on every launch.
+
+---
+
+## v0.434.0 -- A model-written skill stops running beside the extension
+
+AtlasMind can write a small skill for itself when a task needs a tool it doesn't have. It is off by
+default and always shows you the code first. What it did *after* you approved was evaluate that code in
+the extension's own scope — so eight ways of reaching the filesystem were tried against it and **seven
+worked**, including `import('node:fs')` and `process.mainModule.require('node:fs')`. The guard that was
+meant to prevent exactly this blocked one spelling of it and nothing else.
+
+Evaluation now happens somewhere with none of that in reach and all eight are refused. A skill that
+hangs while loading is cut off instead of freezing the editor. And a skill reading `process.env` — which
+was only ever a *warning*, so an approved one ran with your real environment — now fails before it
+exists.
+
+**It is containment, not a sandbox, and that is stated rather than glossed.** A running skill is handed
+real functions for reading files, and a real function carries a route back to the code that owns it.
+Closing that would mean skills with no callbacks, which would mean no skills. So the gap is written
+down, asserted by a test that passes, and answered by the fact that you read the code before saying
+yes. A second test requires every mention of the word "sandbox" in that module to be a denial of being
+one.
+
+Two things in our own security notes turned out to be wrong and are corrected: a recorded finding said
+this code ran before any approval (it did not — a dedicated gate already showed the source and failed
+closed), and a source comment describing where skills execute became false with this change.
+
+---
+
+## v0.433.0 -- See the commands, and a ceiling Autopilot cannot buy past
+
+**Routines now show their commands first.** `/ship` printed a routine's name and description and then
+ran it; the Run Center's Run button posted a routine id and the host executed it. Both now list the
+exact commands, in order, and say which ones reach outside your machine. `promotionRunner` — the other
+place AtlasMind runs commands you wrote — already gated them with a type-to-confirm, and the contrast
+was the argument.
+
+This is not tidiness. A routine template is an ordinary file under `project_memory/routines/`, the
+file-writing tool refuses only paths *outside* your workspace, and `routines` is a memory folder — so
+anything allowed to write a file is allowed to write a routine, and the existing check deliberately
+validates the *values* substituted into a command and never the command itself. That cannot be fixed
+by validating harder, because a routine is a shell script on purpose. It is fixed by showing it to you.
+
+**A placeholder with no value is now refused.** It used to become an empty string, and the Run Center
+passed no values at all — so every placeholder in a panel-run routine resolved to nothing.
+`npm publish --tag ${channel}` is a different command from `npm publish --tag`, and a missing value
+should not get to pick which one runs.
+
+**Autopilot has a ceiling.** It used to approve everything: one click on a harmless tool bought
+unattended approval of a `git push`, a remote branch delete, and any tool AtlasMind could not
+identify — an unrecognised name grades as an outward write on the name alone. It now cannot approve a
+change that leaves your machine and cannot be taken back. Deliberately one narrow category rather than
+everything risky: a gate that prompts on every file write is a gate people switch off.
+
+---
+
+## v0.432.0 -- Nothing reaches a model without saying what it is
+
+Direct provider calls: **11 → 0**. The orchestrator's remaining eleven — the main chat turn, the tool
+loop, five internal helpers and agent synthesis — now clear their context through the egress boundary
+first, and the list of recorded exceptions is empty. The architectural test that fails when a new
+direct caller appears stays, because the count was never the useful part.
+
+The origin now rides on the message itself. A parallel array was the obvious design and the wrong one:
+the tool loop grows, reprompts and evicts from the middle of its history in eleven places, and two
+lists kept in step by hand come apart on the first eviction — which *mislabels* text rather than
+leaving it unlabelled, the one failure the boundary cannot spot. The field is never sent to a model.
+
+Why the labels matter: an ordinary chat turn sends four consecutive messages that all look like your
+messages, and only the last one is. The other three are the conversation so far, an attachment, and a
+reading off a live service. Reading the origin off the role would have redacted your own words and
+trusted whatever a tool returned.
+
+**A credential in your own prompt now asks instead of failing.** AtlasMind does not silently rewrite
+what you typed, so a secret on its way to an external provider has two honest outcomes — ask, or
+refuse. Refusing is right for background work with nobody present and wrong for a chat turn, so the
+interactive path now offers *Send redacted* or *Send as typed*, names the kind of credential it
+matched but never the value, and treats a dismissed dialog as *no*. A model on your own machine is
+never asked about.
+
+**A fix worth naming.** The strict mode documented as development-only was keyed on `NODE_ENV`, and
+VS Code leaves that unset in the extension host — so the developer tripwire was armed for every user,
+where an unlabelled part would have failed the turn instead of degrading safely. It now keys on the
+test runner. A missing label stops the build for whoever is writing the code and clamps to the most
+restrictive class for whoever is using the product.
+
+---
+
+## v0.431.1 -- Eight of nine, through the gate
+
+Direct provider calls fall from 19 to 11, with every remaining one in the orchestrator. The planner,
+classifier, agent updater, skill assigner, memory agent, model comparison panel and skill drafting
+command all now declare what their context actually is instead of letting it travel unlabelled.
+
+The labels are decisions, not paperwork. The planner's user message mixes the operator's goal with
+retrieved memory, so it takes the stricter of the two origins — a part cannot be half-redacted. The
+agent updater sends text assembled from definitions, so it is *generated*: redacted rather than
+confirmed, because there is no operator to ask. And a path with no way to ask a human may not answer
+on their behalf: the confirmation callback is optional and its absence **refuses**, so background
+work simply cannot send a prompt containing a credential.
+
+The orchestrator's eleven stay for now, on purpose. Its messages are the whole conversation in one
+array, and labelling them at dispatch would mean inferring origin from `role` — exactly what the
+boundary refuses, since `role: 'user'` carries both what somebody typed and a file pasted into a
+prompt. That labelling belongs where the messages are built.
+
+---
+
+## v0.431.0 -- One place where prompt content leaves
+
+The egress boundary, and the test that keeps it one place. Context is now carried as
+**origin-tagged parts** rather than pooled into strings — a system instruction, a repository file
+and a tool result from someone else's server carry different risk, and once concatenated that
+distinction cannot be recovered.
+
+Repository-derived context is redacted. **User-authored prompts are not**: silently editing what
+somebody typed means they believe they sent one thing and sent another, so a secret bound for an
+external provider stops and asks, offering a redacted alternative. A local destination does not
+interrupt, because sending your own key to your own hardware is not exfiltration and prompting for it
+would train people through the dialog that matters.
+
+Unknown origins fail closed — loud in development where somebody can fix the call site, treated as
+the *most* sensitive class in production where they cannot. Images are not described as
+text-redacted; they are marked opaque and the destination surfaced. Logs carry origin, provider,
+model, redaction count and rule names, and a test asserts they contain no fragment of the secret.
+
+The architectural test is the real deliverable, and it earned its keep immediately: it found a direct
+provider call the hand audit had missed.
+
+---
+
+## v0.430.0 -- Installing AtlasMind no longer sends anything anywhere
+
+The first fix from the security audit, and the only finding that was reachable with no user action:
+a timer started at activation sent project-memory content to a routed model and wrote the reply back
+into your files.
+
+Two settings, both defaulting to the restrictive value. **`memory.backgroundSummarizationMode`** is
+`off` — and off means *no request is issued at all*, not one prepared and discarded, because a
+feature that reaches the network before checking whether it is enabled has already done the thing the
+setting exists to prevent. **`memory.selfHealingMode`** is `report-only`, so a background timer cannot
+change a file in your repository.
+
+`local-only` is checked against the provider that would **actually receive the bytes**, not requested
+of the router — the bug it replaces passed `'local'` as a fallback that read like a constraint. An
+unrecognised provider reads as *not* local, and an unrecognised setting value resolves to the
+restrictive mode, so a typo cannot be the reason memory leaves the machine.
+
+Three silent `catch` blocks are gone. A routed call to an external provider is now announced before it
+happens.
+
+Also fixed, found because the new settings tipped it over its budget: the capability index was
+truncating its own page list while reporting `omitted.pages: 0` — eleven pages missing, and nothing
+said so.
+
+---
+
+## v0.429.2 -- A security audit, evidence first
+
+Phase 0 of a security hardening review: two documents, no behaviour changed. Every hypothesis was
+checked against the source with file and line citations rather than taken from the documentation.
+
+The headline finding: **a timer started at activation sends up to 4,000 characters of raw project
+memory to a possibly-cloud model** — unredacted, unclassified — and writes the result back into
+project files. The `'local'` argument on that path reads like a constraint and is actually a
+fallback, and the privacy manager is wired to the orchestrator alone, sixteen lines above the timer
+that bypasses it. Three failures on the same path are swallowed silently.
+
+Two hypotheses turned out **partly wrong in the code's favour** and are recorded that way: skill
+auto-synthesis is deny-by-default with a comment naming the exact risk, and generated code cannot
+import anything. The real gap is narrower than it looked.
+
+What the pass did *not* verify is listed explicitly — an audit implying it looked everywhere is the
+same failure as a test that cannot fail.
+
+---
+
+## v0.429.1 -- Two tests that could not fail
+
+The dead-test-directory item turned out to be worse than the nit it was written as. Agent routing had
+**no real coverage at all**, and two artefacts implying it did.
+
+`test/core/routing.test.ts` held nine real routing cases and had never executed — the runner collects
+`tests/**` and that file sat in `test/`. By the time anyone looked, the API it drove had been removed
+entirely: the coverage was gone and nothing failed, because nothing ran.
+`tests/features/task-routing.test.ts` *did* run, and asserted against a stub defined inside the test
+file, so it could not fail for any reason to do with the product.
+
+Both are gone, and the nine cases are ported against the seam that actually exists — the regex
+fallback the orchestrator uses whenever no model classification is available, which is the path taken
+on every local-model and offline turn. Twelve cases now, including that ordinary prose must infer
+*nothing*: a heuristic matching everything routes everything, which is the same as routing nothing.
+
+Coverage was also measuring a curated subset and calling it the codebase — an allowlist of eight
+directories, quietly omitting five including `src/remote/`, the localhost control server. Now it
+measures everything, honestly: **59.9% of lines**, against a 45 threshold nothing could ever breach.
+Raised to 55/58.
+
+---
+
+## v0.429.0 -- The saving, made visible — and a flaky test made honest
+
+The counterfactual engine shipped last release with nothing calling it. The producer report's cost
+section now carries the sentence, naming the comparison model and the floor caveat.
+
+`atlasmind.cost.comparisonModel` is empty by default and **AtlasMind will not fill it in**. The choice
+decides what a saving is a saving *against* — that is the substance of the claim rather than a
+default, and picking a flagship for you would be making the claim on your behalf.
+
+The `compareSemver` property test also stopped failing at random. It had failed twice in full-suite
+runs and never in isolation, which teaches people to re-run until green — and a test people re-run is
+a test that has stopped working, which matters because it gates the release version-ahead check. The
+ordering was verified exhaustively over the generator's whole domain, so no counterexample exists;
+the seed is now pinned, so if it ever fails again it fails *every* time and the cause is environmental
+rather than arithmetic.
+
+---
+
+## v0.428.0 -- What the same work would have cost elsewhere
+
+The engine behind AtlasMind's central claim. Take a request that was actually made, keep its exact
+token counts — including the split between ordinary input, cache reads and cache writes — price those
+identical tokens at a nominated comparison model, and report the difference.
+
+**Almost all of it is about when to refuse.** The arithmetic is four multiplications; the value is in
+never producing a number that flatters us.
+
+A record that cannot be re-priced is excluded from **both** sides, never counted as a zero saving. A
+missing rate refuses the record rather than falling back, because pricing cache reads at the full
+input rate would raise the counterfactual and *increase* the apparent saving — every fallback
+available here errs the same way, which is why there is none. A negative saving is reported as
+negative, since clamping a loss to zero is the one arithmetic choice that makes a headline a lie
+rather than an overstatement. Nothing priced means no figure at all, because "$0.00 saved" reads as
+*this did not help*.
+
+The comparison model is named in the result, and the floor caveat travels with it — flagships emit
+more output for the same prompt, so re-pricing our output count at their rate understates them.
+
+---
+
+## v0.427.0 -- A model with no price was costing nothing
+
+The bug behind the price-map roadmap item, and the more consequential half of it. Any model the
+catalog does not price recorded `costUsd: 0` — **indistinguishable from a genuinely free local
+model**, so real spend reported as free and flowed into cost-per-item and the producer report as
+`$0.00`, a figure a reader would take as "this feature was free to build".
+
+The zero stays, because there is nothing honest to put in its place, but it now travels as *unpriced*:
+counted separately, exposed on the item view so a total can be marked as a floor, and rendered beside
+the figure.
+
+The price table also carries its own verification date now, and every figure derived from it says how
+old it is. Stale prices still report — withholding would push somebody towards a worse source — and an
+unreadable date reads as unknown-and-stale rather than current.
+
+A monthly workflow opens one reusable issue when the table is old. It **deliberately does not fetch
+prices**: providers publish pricing as prose with no machine-readable feed, so a scraper would break
+quietly and report *wrong* prices, which is worse than stale ones because a wrong number carries the
+same confidence as a right one.
+
+---
+
+## v0.426.0 -- Cost history becomes a file you choose the home of
+
+The last outstanding piece of the roadmap's first item. Spend lived in VS Code's global state:
+machine-wide, capped at 500 records, invisible to anyone else and impossible to diff — fine for a
+status bar, useless for saying what a project cost.
+
+`atlasmind.cost.historyLocation` now chooses. **Private to this machine** (the default) keeps it out
+of the repository. **Repository** writes `project_memory/operations/cost-history.json`, so it is
+diffable, survives a clone, and can appear in a producer report somebody else reads.
+
+The default is deliberately the less useful one — it is the first thing AtlasMind would write into
+project memory that is about *you* rather than about the project. Moving asks first, in a dialog that
+names the file so you can look at it or gitignore it; declining puts the setting back, so the stored
+value never disagrees with where the data actually is. **Switching moves the existing history and
+tells you how many records moved**, because losing months of spend to a toggle would make the setting
+frightening, and a frightening setting is one nobody uses.
+
+Older records still load and still do not acquire fields they never had: a defaulted zero cache-write
+count would make an unrepriceable record look repriceable.
+
+---
+
+## v0.425.0 -- Preparing the page, deliberately
+
+The publication gate shipped two releases ago with nothing calling it. **AtlasMind: Prepare Producer
+Report for Publication** wires it, and the three settings that govern it now control something real:
+`publishEnabled`, `publishRisks`, `publishCost`, all off.
+
+Two commands rather than one with a flag — generating a report for yourself and preparing one for the
+open internet are different decisions, and a single command with a setting would let the second
+happen because of a checkbox ticked weeks ago.
+
+Repository visibility is read at the moment it matters rather than cached, because a repository can
+be made public between one publication and the next and the warning is only worth something if it
+describes the repository as it is now. The confirmation lists the warnings, what will be published
+and what is withheld, before a byte is written.
+
+Also fixed: the configuration docs cited `atlasmind.cost.historyLocation`, a roadmap proposal that was
+never implemented. The docs-integrity test caught it the same day the reference was introduced.
+
+---
+
+## v0.424.0 -- The producer report, actually produced
+
+The previous release shipped the renderer with nothing to call it. **AtlasMind: Generate Producer
+Report** is the half that makes it a feature: roadmap progress by gate, open risks and their recorded
+decisions, delivery readiness and cost against estimate, written into
+`project_memory/operations/` as markdown, a self-contained HTML page, and the JSON model a portal can
+consume.
+
+Each register is read in its own try/catch, so one that cannot be read leaves a *stated gap* rather
+than an empty section — a single wrapper would make one unreadable register look like a project with
+no risks. Only the managed block of the backlog is read, because a checkbox line in the surrounding
+prose is documentation rather than a roadmap item. And only open risks appear: the register keeps
+closed findings deliberately, but a status page listing forty of them buries the three that are live.
+
+Two repository baselines that these additions breached were fixed rather than raised — two helpers
+exported and read by nothing, and a test fixture using a risk status that does not exist.
+
+---
+
+## v0.423.1 -- The gate before the portal
+
+The safety core of the Pages portal, built before the publisher because it is the part that is
+expensive to get wrong. Not yet wired: nothing calls it, no setting exists, and no page can be
+published. Settings were deliberately left out — a switch that controls nothing is worse than no
+switch.
+
+The fact it turns on is one most people do not know: **a GitHub Pages site is public even when the
+repository is private.** So publishing the producer's report means publishing to the open internet,
+and that report can carry stakeholder names, a register of commercial, legal and ethical findings,
+and what the project has spent.
+
+Deny by default, per section: on means roadmap gates and delivery readiness, which name neither a
+person nor a sum. Risks and cost need their own switches, and the warning names what they expose
+before it happens. A withheld section keeps its heading and says so, because a page that silently
+omits cost reads as a project that spent nothing. And withholding cost leaves no residual total —
+a page showing "$15 total" with no lines discloses the very number it withheld.
+
+---
+
+## v0.423.0 -- A status document for people who don't open VS Code
+
+Everything good about the project manager was invisible to the people who most need it — a producer, a
+client, a technical director — because a panel is the wrong container for an audience that isn't in
+the panel. The producer's report is the fix: roadmap progress by gate, open risks and their recorded
+decisions, delivery readiness, and cost against estimate, as markdown and a single self-contained HTML
+page.
+
+Built as gather → model → render, with the model emitted alongside the document so the planned GitHub
+Pages portal can consume it later rather than being a rewrite.
+
+**No model writes any of it.** The same project state produces a byte-identical report, and the clock
+is injected — otherwise every run would differ and drown the real changes. A generated status summary
+is a claim nobody checked, in a committed file, attributed to the project, and this is the document
+most likely to be forwarded to somebody who cannot check it.
+
+**And a section that could not be read says so.** *Not assessed* and *none recorded* render
+differently, because a report about a project with eleven open risks must not look identical to one
+whose risk register could not be read. The HTML carries no script, link, image or URL, so it opens
+from an email attachment or a memory stick.
+
+---
+
+## v0.422.0 -- What did this feature cost?
+
+The join nobody else has. An issue tracker cannot see tokens; a cost tracker cannot see a plan.
+AtlasMind now holds both, and spend is attributed to the roadmap item it was incurred against.
+
+Starting work from a roadmap item attributes **the whole chat session** to it, because nearly all the
+work on an item is follow-up turns and attributing only the first would under-report so badly the
+number would be useless. Since a session left open while you wander elsewhere would then charge
+unrelated work to the item, every attributed record says whether it was *inferred* from the session
+or *stated* outright — and an unstated provenance counts as inferred, the weaker claim.
+
+Three rules keep the figures honest. **Unattributed spend is reported, never distributed** — a number
+spread pro rata is indistinguishable from a measured one once it is on screen. **No spend attributed
+is not zero spend**, because an item nobody has worked on and an item whose work predates attribution
+both show no money and only one of them was free. And **an absent estimate is not an estimate of
+zero**, or every unestimated item would read as over budget the moment it cost anything.
+
+---
+
+## v0.421.0 -- Cost you can attribute, and re-price
+
+The foundation the roadmap's `Now` waits on. Two fields, and a module deciding what may honestly be
+said about them.
+
+**Every cost record now carries the workspace it came from.** History is stored per machine, so until
+now every project's spend was in one undifferentiated list and "what did this project cost" was not a
+missing feature but an uncomputable question. The key is normalized by one shared function, because
+cost records and run records are joined on it and two normalizers would eventually disagree about a
+trailing slash — the join would match nothing and every project would report zero, which looks like
+missing data rather than a broken key.
+
+**Cache writes are recorded separately from cache reads.** They are priced in opposite directions — a
+read is cheaper than an ordinary input token, a write is dearer — so two requests with identical
+input totals can differ in real cost by a multiple. The value was already in hand and discarded: the
+Anthropic adapter parsed it, folded it into the total, and dropped it one line later. Because a sum
+cannot be taken apart afterwards, older records are permanently un-repriceable rather than
+repairable, which is why this had to land first.
+
+**And the rule that keeps the eventual saving claim honest: an absent field is unknown, never zero.**
+A missing write count defaulted to zero would price a cache-heavy request as though it wrote nothing
+— understating the comparison in exactly the direction that flatters us. Such records are graded
+*partial*: real money, counted in actual spend, barred from a savings claim.
+
+---
+
+## v0.420.11 -- Nine items on the backlog
+
+Author-added: an approval flow from ideas through to roadmap, documentation, legal and commercial
+changes; richer commit content for workflow and analytics mapping; Gantt, milestone and critical-path
+tracking; a team-management surface for workload, estimates and rotas; a bug tracker and a
+test-management interface for the PM dashboard; a Kanban board; wider baseline comparison; and a
+commit-message action in the Source Control panel.
+
+---
+
+## v0.420.10 -- What the portal may publish, decided
+
+`NOW-4` now specifies its publishing default rather than proposing one. Public: roadmap progress by
+gate, and delivery readiness — what a client actually asks for. Opt-in, one section at a time:
+stakeholders, assignments, follow-ups, the risk register, and all cost.
+
+It also checks repository visibility at publish time and warns differently for a private repository.
+A Pages site is public whether or not the repo is, so the two defaults point opposite ways: GitHub's
+is *publish publicly*, while somebody who made their repository private has already said the
+opposite. Where a tool's default contradicts a user's expressed intent, saying so out loud is the
+minimum — and it costs one API call at the moment it matters.
+
+Every decision `Now` depended on is recorded. The single remaining question sits against `NXT-8` and
+blocks nothing.
+
+---
+
+## v0.420.9 -- The portal joins MVP, and Now is re-cut to fit it
+
+Publishing the producer's report as a GitHub Pages portal moves into MVP as `NOW-4`. Rather than
+letting Now grow to six items, the price map moved out to `NXT-0` — and the dependencies say that is
+right rather than convenient: nothing in Now needs it, since `NOW-2` reports actual spend that
+today's code already prices, while the *savings* claim does, and `NXT-0` now sits directly in front
+of it.
+
+A committed HTML file is readable by whoever clones the repository. A portal is a link you can send a
+client. That distinction is the whole of the PM pillar's structural gap, which is why the portal is
+not merely a second renderer.
+
+The privacy design is in the item rather than deferred. **A GitHub Pages site is public by default
+even from a private repository** — access control is an Enterprise Cloud feature — and the report can
+carry stakeholder names, a risk register and, if cost history is set to `repository`, your spend.
+Publishing is therefore off until switched on, controlled per section, with people and money off even
+once it is on; the proposed default is roadmap progress by gate plus delivery readiness.
+
+---
+
+## v0.420.8 -- Four decisions, three new items
+
+Every open roadmap question is answered, and the section becomes a decision record rather than
+disappearing. The producer's console gets proved first, with counterfactual pricing following on the
+same foundation. Solo producers and small studios lead the beta — most of them BYOK anyway, so the
+cost story still gets tested, on the people the console is actually for.
+
+Three items join Next. **Fetch the database drivers on first use** keeps the Lens live-database
+feature and moves its cost to the people who use it — though the item argues both sides, because the
+measured saving is ~1.7 MB against a 21 MB dependency tree and a runtime fetch adds a supply-chain
+surface a pinned dependency does not have. **Wire ideation, vision, UI Studio and Buzz into the
+project manager** — all four stay, so they earn their place by connecting rather than by existing.
+And **Slack as a Buzz alternative**, sized small because `directorCommsRunner` was written for
+exactly this and already matches the tool names a Slack MCP server exposes.
+
+---
+
+## v0.420.7 -- Cost history gets a switch, not a verdict
+
+Where cost history lives was the one open decision blocking the roadmap's first item. It becomes a
+setting — `atlasmind.cost.historyLocation`, defaulting to **machine-private**, with **in-repository**
+one switch away.
+
+The default is deliberately the less useful of the two. In-repo is what lets the producer's report
+carry a cost section for someone who never opens VS Code; it is also what commits a record of your
+API spend to a repository you may later make public. Deny-by-default is the house rule for that shape
+of choice. The consequence is written down rather than left to be discovered: with the default
+untouched the report renders cost as *not shared*, never as zero, because a report that quietly omits
+cost reads as a project that spent nothing.
+
+A second-line item joins Later: mirroring cost history to a destination you nominate. A copy and
+never a move, off by default, confirmed by name on first use — and carrying a warning that "a secure
+source" means either a path you already own (small, credential-free) or a cloud integration with an
+SDK and a token-refresh path (not small), and that "secure" needs defining before it appears in any
+UI.
+
+---
+
+## v0.420.6 -- A roadmap that says what to do first
+
+`ROADMAP.md` arrives at the repository root: three horizons, dependency-ordered, each item carrying
+the problem, the outcome, the gap it closes, acceptance criteria and what it depends on — plus an
+*Explicitly not doing* list and five open decisions. Written for a closed beta with no customers, no
+hosting budget and no analytics, so every item runs on the user's own machine.
+
+It does not replace the live backlog in `project_memory/roadmap/improvement-plan.md`, which the
+Project Dashboard parses and which carries durable item ids; reformatting that file would have broken
+it. The new file says what to do first, the backlog stays the record of everything outstanding.
+
+The document opens with **What the code says**, because reading the code disagreed with the analysis
+in four places — cache *writes* are not recorded so past requests cannot be re-priced; cost is stored
+machine-wide with no project field, making per-project attribution uncomputable rather than merely
+missing; the model router reads execution outcomes rather than project memory, so "memory informs
+routing" would be untrue; and a daily spend cap already exists. A day-one *projected* saving is
+recorded as a deliberate refusal: a repo scan cannot know your request volume.
+
+---
+
+## v0.420.5 -- Baseline refreshed
+
+Post-release housekeeping: the README's published baseline now names **v0.420.4**, the release just
+put on the Marketplace, and its "what's new" list reads as shipped rather than queued.
+
+---
+
 ## v0.420.4 -- Bring your own AI tool, properly documented
 
 The previous release *said* AtlasMind's chat is optional. [[Bring Your Own AI Tool]] is the page that

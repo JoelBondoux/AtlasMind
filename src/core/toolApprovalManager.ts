@@ -7,8 +7,10 @@ import type {
   PendingToolApprovalRequest,
   ToolApprovalDecision,
   ToolApprovalState,
+  ToolInvocationPolicy,
   ToolRiskCategory,
 } from '../types.js';
+import { isToolBypassable } from './toolPolicy.js';
 
 export class ToolApprovalManager {
   private state: ToolApprovalState = { autopilot: false };
@@ -108,12 +110,25 @@ export class ToolApprovalManager {
 
   /**
    * Check if approval should be bypassed for a given tool invocation.
-   * Returns true if:
+   *
+   * Returns true if the invocation is bypassable at all **and** one of:
    *   - Autopilot is enabled, OR
    *   - The current task has full bypass, OR
    *   - The current task has bypassed this specific category.
+   *
+   * Takes the whole policy rather than the category alone because the ceiling
+   * is a (category, risk) pair: an MCP read and an unidentified MCP write are
+   * both outward, and only one of them is unrecoverable. The ceiling is checked
+   * **first**, so no bypass state can reach past it — including a bypass that
+   * was granted before the ceiling existed in this session.
    */
-  shouldBypass(taskId: string | undefined, category: ToolRiskCategory): boolean {
+  shouldBypass(taskId: string | undefined, policy: ToolInvocationPolicy): boolean {
+    if (!isToolBypassable(policy)) {
+      return false;
+    }
+
+    const category = policy.category;
+
     if (this.state.autopilot) {
       return true;
     }

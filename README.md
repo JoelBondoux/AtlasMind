@@ -4,7 +4,7 @@
 
 <h1 align="center">AtlasMind</h1>
 
-<p align="center"><sub> · <strong>Current source version: 0.420.4</strong> · </sub></p>
+<p align="center"><sub> · <strong>Current source version: 0.449.5</strong> · </sub></p>
 
 
 <p align="center">
@@ -175,11 +175,110 @@ important limits on overrides and compliance claims.
 
 ---
 
-## What's new in 0.420.4
+## What's new in 0.449.5
 
-The last Marketplace publication, **v0.402.4**, is the baseline — these are the headline changes
-landing on top of it. Every release is written up in full in [CHANGELOG.md](CHANGELOG.md).
+The last Marketplace publication, **v0.420.4**, brought the changes below. Every release is written
+up in full in [CHANGELOG.md](CHANGELOG.md).
 
+- **Security housekeeping, with the findings read rather than waved through.** Every open CodeQL alert
+  on `develop` is addressed: 40 fixed, 8 dismissed with a written reason. The ones worth knowing about
+  — webview image previews now only load a source AtlasMind recognises, the content-security-policy
+  nonce comes from the platform CSPRNG instead of `Math.random()`, four webview values that were
+  missing their HTML escape have it, and an "official" badge on a recommended MCP server is decided by
+  parsing the URL's host rather than by looking for the host's name anywhere in it.
+- **Dependencies are current.** Every open Dependabot update is in, including Vitest 5 — taken in one
+  verified pass rather than merged one PR at a time. `@types/vscode` is deliberately held at the
+  version `engines.vscode` declares, because raising it would raise the minimum VS Code you need.
+- **The roadmap canvas stops glowing at an edge once you have dragged the plan back into view.** The
+  strips that say "the plan continues that way" were only recomputed by the wheel, so panning with a
+  drag — the way you move sideways — left them lit over cards that were already on screen.
+- **AtlasMind notices what you keep reaching for.** If your runs shell out to `gh` again and again,
+  the Runtime page will say once that there's a catalogued MCP server for it — and tell you what it
+  *costs* in the same breath as what it adds, because an MCP server publishes its whole tool list
+  into a budget your turns already spend. Say "Not this one" and it never comes back for that
+  project. Nothing is installed, and setting one up leaves it switched off.
+- **Commits can say which planned work they were for.** A commit message tells you what changed, and
+  never told you which backlog item or issue it belonged to — so anything joining code back to intent
+  had to guess from wording. AtlasMind now writes that link as a proper git trailer, taken from the
+  branch naming convention your workflow declares rather than from the commit's words, and the
+  dashboard's commit list shows it.
+- **The dashboard says when your providers are in trouble.** It already counted them — `4/9 providers
+  healthy` sat in a stat card's subtitle, in the same grey as everything else, on the page whose job
+  is to tell you what needs a person. No enabled model anywhere now leads the *Needs you* band, above
+  a red pipeline: a failing test is something you can work on, and no routable model is not. The
+  score also reflects how much of your configured team actually gets used — silently, until there's
+  enough run history to mean anything.
+- **Roadmap work assigned to an AI agent is estimated in minutes, not working days.** If your agents
+  do the coding, an item can be planned and finished inside an afternoon — and the roadmap couldn't
+  say so, because every estimate was in working days with a half-day floor. Worse, the arithmetic
+  rounded to the nearest half-day, so a plan run entirely by agents reported *no work left at all*.
+  Mark a contact as an AI agent on the Director page and their roadmap work is graded in wall-clock
+  instead. The size of the job is judged the same way; what a unit of it costs is not.
+- **The roadmap now says which chain of work the finish date rests on.** The backlog could tell you
+  what mattered most and the dependency canvas could tell you what waited on what. Neither said
+  *which chain actually decides when this lands* — so a plan could be correctly prioritised,
+  correctly sequenced, and still have everyone working on the items that were never the constraint.
+  The canvas now names the critical path and the days along it, and a lens highlights it while
+  leaving everything else drawn and dimmed, because the items with slack are the comparison that
+  makes the answer worth having.
+- **Closing or hiding a chat no longer stops it.** Clicking another view in the sidebar threw the
+  chat's window away mid-answer — VS Code disposes a hidden view's webview — and that killed the run.
+  The sidebar now keeps its contents when hidden, and a chat that genuinely loses its window keeps
+  going: your answer is written to the session as it arrives, so reopening the chat shows the
+  finished result. A run that outlives its window is still spending money, so a status-bar item names
+  what's running and lets you read or stop any of it — closing the window is no longer how you stop a
+  run, so that is. Reopen the chat and it picks the run back up: the answer streams in, the stop
+  button is back where you'd look for it, and asking something else starts a fresh conversation
+  rather than mixing two answers into one.
+- **Two steps of a job can no longer overwrite each other's edits.** When AtlasMind broke work into
+  steps it ran up to five of them at once against one copy of your files, with nothing keeping two of
+  them from editing the same file — and when that happened, one of the two changes simply wasn't
+  there afterwards, with both steps reported as finished. Steps that write now run one at a time.
+  That is slower, and it is the correct behaviour. Turn on `execution.worktreeIsolation` and the
+  parallelism comes back: each writing step gets its own git worktree, and its changes are applied to
+  your files as its batch finishes. A step whose changes won't apply cleanly keeps its worktree and
+  tells you where it is, rather than being forced in or thrown away. The second time a run queues
+  writers behind each other, AtlasMind offers you the setting — once, never modally, and never when
+  turning it on wouldn't have changed the run you just watched.
+- **Select several items and move them together, on both canvases.** Shift-drag on the roadmap or
+  the ideation board draws a selection box; dragging any selected item moves the whole group. Plain
+  dragging still pans, because panning is how you read a plan that doesn't fit on screen. On the
+  ideation board the box shares the selection that links cards, so selecting more than two now asks
+  you to choose the pair rather than guessing at it.
+- **"Read-only" now holds for the whole job, not just the first step.** Asking AtlasMind to work
+  read-only was enforced properly on the turn you typed — but if that turn became a multi-step project
+  run, each step re-read its own instructions and found no restriction in them. The limit you set now
+  travels with the work and can only narrow, never widen. Separately, an MCP server that asked for one
+  environment variable used to receive every credential the editor was started with; it now gets a
+  filtered set plus what it declared.
+- **Supply chain tightened.** Every CI action is now pinned to an exact commit rather than a movable
+  tag, the project bootstrapper no longer starts a shell for anything, and the Debian install path
+  that piped a download into `sudo` has been removed in favour of the manual instructions. There is a
+  written [dependency review](docs/dependency-security-review.md) and an SBOM command.
+- **Starting the editor contacts nobody.** AtlasMind loads when VS Code starts, and two things
+  reached third parties from there that your settings never asked for: an exchange-rate lookup that
+  ran even though costs display in USD by default and needed no conversion, and a downloadable-model
+  catalogue fetched from two sites even on machines with no local model runtime installed. Both are
+  now gated on your own configuration actually needing them. There is no telemetry and never has
+  been.
+- **Model-written skills no longer run beside the extension.** AtlasMind can write a small skill for
+  itself mid-task — off by default, and never without you reading the code and approving it. Until now
+  that code was evaluated in the extension's own scope: eight ways of reaching the filesystem were
+  tried against it and seven worked. It now evaluates somewhere with none of that in reach, and all
+  eight are refused. It is containment rather than a sandbox, the remaining gap is written down, and a
+  test asserts we never call it the stronger word.
+- **Routines show you the commands before they run, and Autopilot has a ceiling.** `/ship` and the
+  Run Center now list the exact shell commands a routine will run, in order, and say which ones reach
+  outside your machine — a routine file is an ordinary workspace file, so the moment before it runs is
+  the moment worth reading it. A placeholder with no value is refused rather than quietly becoming an
+  empty string. And Autopilot can no longer approve an outward change that cannot be undone — a push,
+  a remote branch delete, or a tool AtlasMind does not recognise.
+- **Nothing reaches a model without saying what it is.** Every prompt-bearing call in AtlasMind now
+  clears its context through one boundary first, which redacts repository-derived text, holds each
+  kind of content to its own size limit, and never silently rewrites what you typed. Direct calls
+  that skipped it: 11 → 0, with an architectural test that fails when a new one appears. If a
+  credential turns up in your own prompt on its way to an external provider, AtlasMind asks — *send
+  redacted* or *send as typed* — and dismissing the dialog sends nothing.
 - **AtlasMind follows the Open Source Maintenance Fee model.** The source code stays MIT permanently,
   and compiling it yourself is free for everyone, always. From **v1.0.0** the official Marketplace
   build carries a maintenance fee for organizations with annual gross revenue of US$10,000 or more
@@ -300,6 +399,12 @@ Everything is in the AtlasMind Settings panel, or under `atlasmind.*` in VS Code
 | `budgetMode` | `balanced` | How much you're willing to spend per task |
 | `speedMode` | `balanced` | Fast answers versus more considered ones |
 | `dailyCostLimitUsd` | `0` | Daily spending cap; `0` means no cap |
+| `memory.backgroundSummarizationMode` | `off` | Whether a background timer may summarise project memory with a model. Off by default — nothing is sent on a timer unless you enable it |
+| `memory.selfHealingMode` | `report-only` | What background memory maintenance may do to your files. The default reports and never writes |
+| `cost.comparisonModel` | *(empty)* | Re-price your spend against this model to see what the same work would have cost. Empty by default — the choice decides what the saving is measured against |
+| `cost.historyLocation` | `machine-private` | Where this project's spend history lives. `repository` makes it diffable and report-readable; changing it moves what's already there |
+| `producerReport.publishEnabled` | `false` | Allow the producer report to be prepared for GitHub Pages. A Pages site is public **even from a private repository** |
+| `producerReport.publishRisks` · `publishCost` | `false` | Add the risk register or cost to the published page. Off separately, because each is a disclosure |
 | `toolApprovalMode` | `ask-on-write` | How often AtlasMind asks before acting |
 | `allowTerminalWrite` | `false` | Whether approved terminal commands may change things |
 | `skillAutoSynthesisEnabled` | `false` | Let a model write a new skill and run it when a tool does not exist. Off; every synthesis is scanned and shown to you first |
@@ -311,8 +416,9 @@ Everything is in the AtlasMind Settings panel, or under `atlasmind.*` in VS Code
 | `ci.localRunner.enabled` | `false` | Permit one confirmed ephemeral runner for an already-queued trusted job; machine-scoped |
 | `ci.localRunner.shutdownPolicy` | `ifStartedByAtlasMind` | Keep Docker open, close it only when AtlasMind opened it, or always close when no other container runs |
 | `testing.resourceShare` | `50` | Sliding scale for local test execution: the percentage of this computer tests may use, across every path AtlasMind runs or composes; the OS always keeps ≥25% (≥2 CPUs / 8 GB); machine-scoped |
+| `execution.worktreeIsolation` | `false` | Give each file-writing step of a job its own git worktree so a batch can write in parallel. Off means writers run one at a time — this setting buys back speed, it is not what makes the run safe |
 
-All 142 settings are documented in the [Configuration reference](wiki/Configuration.md).
+All 154 settings are documented in the [Configuration reference](wiki/Configuration.md).
 
 ---
 
@@ -320,7 +426,7 @@ All 142 settings are documented in the [Configuration reference](wiki/Configurat
 
 | Path | What's in it |
 |---|---|
-| `src/core/` | Orchestration, routing, planning, safety, cost, project composition, opt-in workspace scope, read-only upstream distance, game-engine identity, bounded asset inventory, pure engine-fork interpretation, and hostile-input build-log reading (`projectComposition.ts`, `workspaceScope.ts`, `upstreamDivergence.ts`, `gameEngineIdentity.ts`, `gameAssetInventory.ts`, `gameEngineDivergence.ts`, `gameBuildLog.ts`), UI Studio's graph/edit/live-preview/repository core (`uiDesignGraph.ts`, `uiEditCommands.ts`, `uiPreviewRuntime.ts`, `uiRepositoryMapping.ts`, `uiRepositoryImport.ts`, `uiSurfaceScan.ts`), CI inspection/scaffolding (`ciManager.ts`, `trustedLocalCiStarter.ts`), the CI route model, routing policy, build ledger and act adapter (`ciRoutes.ts`, `ciRoutingPolicy.ts`, `ciCreditMeter.ts`, `ciBuildLedger.ts`, `ciActRoute.ts`), the local CI guide, GitHub CLI installer and remembered machine inspection (`localCiSetupPlan.ts`, `localCiInstaller.ts`, `localCiInspectionMemory.ts`), confirmed-write echo (`trackerWriteOutcome.ts`), the register-to-work hand-off (`registerHandoff.ts`), the personal-vs-project split behind the two sidebar people views (`directorPriority.ts`), the semver primitives and branch-to-channel versioning policy (`semver.ts`, `versioningPolicy.ts`), the shell-free Windows shim bypass shared by the extension host, the CLI and the ACP launcher (`windowsShimBypass.ts`), the roadmap dependency graph and its overlay store (`roadmapGraph.ts`, `roadmapGraphStore.ts`), release-gate destinations and urgency ordering (`releaseGateNavigation.ts`), roadmap ingestion from markdown, issues, Projects and spreadsheets (`roadmapImport.ts`, `roadmapReconcile.ts`) plus the guarded `localCiRunner.ts` executor, the governance-compliance stack — the control catalog, evidence register and readiness grader (`complianceControlCatalog.ts`, `complianceEvidenceRegister.ts`, `complianceReadiness.ts`) the per-methodology standard editions (`testingStandards.ts`), the Compliance page's view builder (`complianceDashboard.ts`), its walkthrough (`complianceSetupPlan.ts`), the shared stack-signal gatherer (`complianceStackSignals.ts`) and the mapping importer (`complianceMarkdownImport.ts`) — and project services |
+| `src/core/` | Orchestration, routing, planning, safety, cost, project composition, opt-in workspace scope, read-only upstream distance, game-engine identity, bounded asset inventory, pure engine-fork interpretation, and hostile-input build-log reading (`projectComposition.ts`, `workspaceScope.ts`, `upstreamDivergence.ts`, `gameEngineIdentity.ts`, `gameAssetInventory.ts`, `gameEngineDivergence.ts`, `gameBuildLog.ts`), UI Studio's graph/edit/live-preview/repository core (`uiDesignGraph.ts`, `uiEditCommands.ts`, `uiPreviewRuntime.ts`, `uiRepositoryMapping.ts`, `uiRepositoryImport.ts`, `uiSurfaceScan.ts`), CI inspection/scaffolding (`ciManager.ts`, `trustedLocalCiStarter.ts`), the CI route model, routing policy, build ledger and act adapter (`ciRoutes.ts`, `ciRoutingPolicy.ts`, `ciCreditMeter.ts`, `ciBuildLedger.ts`, `ciActRoute.ts`), the local CI guide, GitHub CLI installer and remembered machine inspection (`localCiSetupPlan.ts`, `localCiInstaller.ts`, `localCiInspectionMemory.ts`), confirmed-write echo (`trackerWriteOutcome.ts`), the register-to-work hand-off (`registerHandoff.ts`), the personal-vs-project split behind the two sidebar people views (`directorPriority.ts`), the semver primitives and branch-to-channel versioning policy (`semver.ts`, `versioningPolicy.ts`), the shell-free Windows shim bypass shared by the extension host, the CLI and the ACP launcher (`windowsShimBypass.ts`), parallel-write placement, worktree plumbing, merge-back and the run that ties them together (`worktreeIsolation.ts`, `worktreeManager.ts`, `worktreeMerge.ts`, `worktreeRun.ts`), the roadmap dependency graph and its overlay store (`roadmapGraph.ts`, `roadmapGraphStore.ts`, `roadmapCriticalPath.ts`), whether the configured team can work and how much of it is used (`agentCapacity.ts`), and the git trailers that link a commit to the work it was for (`commitTrailers.ts`), and the evidence-triggered MCP capability offer (`capabilityOffer.ts`), release-gate destinations and urgency ordering (`releaseGateNavigation.ts`), roadmap ingestion from markdown, issues, Projects and spreadsheets (`roadmapImport.ts`, `roadmapReconcile.ts`) plus the guarded `localCiRunner.ts` executor, the governance-compliance stack — the control catalog, evidence register and readiness grader (`complianceControlCatalog.ts`, `complianceEvidenceRegister.ts`, `complianceReadiness.ts`) the per-methodology standard editions (`testingStandards.ts`), the Compliance page's view builder (`complianceDashboard.ts`), its walkthrough (`complianceSetupPlan.ts`), the shared stack-signal gatherer (`complianceStackSignals.ts`) and the mapping importer (`complianceMarkdownImport.ts`) — and project services |
 | `src/runtime/` | Built-in agents and runtime composition |
 | `src/providers/` | Model provider adapters, catalogs, health, `modelRole.ts` (what a model is *for*), and the local-GPU support layer — `gpuProbe.ts`, `localFootprint.ts`, `localRuntimeClient.ts` |
 | `src/skills/` | Built-in tools and skill handlers |

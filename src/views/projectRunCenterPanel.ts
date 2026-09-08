@@ -302,6 +302,35 @@ export class ProjectRunCenterPanel {
       return;
     }
 
+    // Planned and confirmed before anything is marked as running. The webview
+    // supplies an id and values, never a command — but a routine template is an
+    // ordinary workspace file that the `file-write` tool can author, so the
+    // commands are put in front of a person at the one moment they can act on
+    // them. `promotionRunner` gates user-authored commands the same way; this
+    // path was the one that did not.
+    const { planRoutineExecution, describeRoutinePlan } = await import('../core/routineExecutionPolicy.js');
+    const plan = planRoutineExecution(routine, vars);
+
+    if (plan.status === 'refused') {
+      this.liveStatus = `Nothing was run. ${describeRoutinePlan(plan)}`;
+      await this.syncState();
+      return;
+    }
+
+    const proceed = await vscode.window.showWarningMessage(
+      `Run the "${routine.name}" routine?`,
+      {
+        modal: true,
+        detail: `${describeRoutinePlan(plan)}\n\nThese run in your workspace shell, in this order.`,
+      },
+      'Run routine',
+    );
+    if (proceed !== 'Run routine') {
+      this.liveStatus = 'Cancelled. Nothing was run.';
+      await this.syncState();
+      return;
+    }
+
     this.routineRunning = true;
     this.liveStatus = `Running routine: ${routine.name}…`;
     await this.syncState();
@@ -312,7 +341,7 @@ export class ProjectRunCenterPanel {
 
       const result = await runner.run(
         routine,
-        vars,
+        plan,
         workspaceRoot,
         async (step, index, total) => {
           this.liveStatus = `[${index + 1}/${total}] ${step.label}…`;
@@ -1071,6 +1100,12 @@ export class ProjectRunCenterPanel {
       case 'synthesizing':
         this.liveStatus = 'Synthesizing project result...';
         await appendLog('info', 'Synthesizing subtask outputs into the final report.');
+        return;
+      case 'notice':
+        // Logged, not made the live status: a notice describes what the run did
+        // rather than what it is doing, and overwriting the status with it would
+        // leave the panel claiming to be in a step that has finished.
+        await appendLog('info', update.message);
         return;
       case 'error':
         this.liveStatus = `Planner error: ${update.message}`;

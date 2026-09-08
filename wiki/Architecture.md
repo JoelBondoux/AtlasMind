@@ -76,7 +76,8 @@ Check the tools       A reasoning-only planner can't leave a step unable to do i
   ↓
 Preview + approval    You see the whole thing before anything happens
   ↓
-Execute in batches    Independent steps run in parallel, each with a temporary specialist
+Execute in waves      Independent steps run in parallel, each with a temporary specialist;
+                      steps that write your files are kept apart from each other
   ↓
 Summarise             One report across every step
   ↓
@@ -85,6 +86,24 @@ Save                  Persisted to the Run Center
 
 Short follow-ups like *"proceed autonomously"* re-use your last substantial request and go down the same
 path — you don't have to retype it.
+
+**A duration means a different thing depending on who does the work.** Roadmap estimates grade how
+*big* a piece of work is, which does not change with who picks it up — but how long it takes does. A
+person's estimate is effort across working days; an agent's is wall clock in minutes. Mark a contact
+as an AI agent on the Director page and their roadmap work is graded on that scale instead. The
+conversion is a stated assumption rather than a measurement, so you can see it, disagree with it, and
+override it per item; the "AI-assisted" discount is withheld there, because it grades a person
+working with AI help and would otherwise count the same thing twice.
+
+**Why "waves" rather than batches.** Steps with no dependency between them are free to run at the
+same time, and that is not the same as safe: two of them editing the same file is a read-modify-write
+race whose loser disappears without a trace, with both steps reported as finished. Steps that write
+therefore run one at a time. Switch on `execution.worktreeIsolation` and they run together again,
+each in its own git worktree, with its changes applied back to your files as its batch finishes — so
+a step that depends on an earlier one still sees that work. A step that runs commands or tests always
+runs alone in the real working tree, because a fresh worktree has no `node_modules` and no build
+output. A step whose changes will not apply cleanly keeps its worktree and you are told where it is;
+nothing is forced in and nothing is discarded.
 
 ---
 
@@ -244,6 +263,10 @@ Perforce boundary as `not-visible` rather than zero.
 
 | Part | What it does |
 |---|---|
+| **Egress boundary** | The one path to a model. Labels each piece of context, redacts what needs it, caps its size, and asks before sending a credential you typed |
+| **Approval gate** | Classifies every tool call, consults your approval mode, and holds a ceiling no bypass can waive |
+| **Routine planner** | Works out the exact commands a routine will run, so they can be shown to you before they are |
+| **Commit message drafter** | Describes your staged diff in the Source Control box. Writes text; never commits |
 | **Provider adapters** | One per model provider, behind a shared contract |
 | **ACP adapter** | Drives a subscription coding agent as a model provider |
 | **MCP registry** | Connects external tool servers and dispatches their tools |
@@ -251,7 +274,14 @@ Perforce boundary as `not-visible` rather than zero.
 | **Voice** | Speech in and out — cloud, your OS, or fully on-device |
 | **Local GPU arbiter** | Decides which local model requests may run, so several at once cannot over-fill one graphics card |
 
-**About that last one.** If you run local models, AtlasMind can ask for several at once from places
+**About the first one.** Before it existed there were 21 places in the code that could call a model
+and only one of them redacted anything first — not because the other twenty leaked, but because
+nothing stopped them. A rule every caller has to remember is not a rule; it had already been forgotten
+seven times. The boundary is now the only way through, and the check that keeps it that way is a test
+that fails when somebody adds a twenty-second caller. See [Security](Security.md) for what it does to
+each kind of context.
+
+**About the last one.** If you run local models, AtlasMind can ask for several at once from places
 that don't know about each other — the subtask scheduler, project bootstrap, background maintenance.
 Ollama and LM Studio each decide what fits without knowing the other exists, and neither leaves
 anything for your desktop; on a 24 GB card with no model loaded at all, Windows and a browser were
@@ -896,6 +926,18 @@ hand-off was written for and previously had nowhere to record. With no branch in
 git-dependent stages are unreachable and the reading says so, so "not started" stays distinguishable
 from "not looked at". Not yet shown on the Roadmap page.
 
+**A chat turn can outlive its window.** Closing the chat used to abort whatever it was doing — fine
+when you meant to close it, and wrong for the thing it also covered: VS Code throws a sidebar view's
+webview away when you click another view, so *looking away* killed the run. The view now keeps its
+contents when hidden, and a chat that genuinely loses its window keeps going. That is safe because
+the transcript was never the window's: every chunk is written to the chat session before it is pushed
+to the browser, so reopening shows the finished answer. A detached run is given an inert host rather
+than the panel learning to check whether it still has one — a missed check throws "Webview is
+disposed" into the middle of a run, which is the failure being removed. It is announced in the status
+bar and stays stoppable from there, because closing the window is no longer the way to stop a run.
+Reopen the chat and it adopts the run outright — the answer streams in, the stop button works, and
+asking something else starts a new conversation rather than interleaving two answers into one.
+
 The chat panel answers a few turns itself rather than routing them — a roadmap status summary, a
 conversation recall — and until v0.402.6 that matcher swallowed all three hand-offs: each ends with the
 sentence saying the model must not tick the item off, so each carried both "roadmap" and "complete",
@@ -1092,7 +1134,7 @@ never accepted.
 
 | Path | What's in it |
 |---|---|
-| `src/core/` | Orchestration, routing, planning, safety, cost, project services, pure game-engine identity/divergence/build-log interpretation (`gameEngineIdentity.ts`, `gameEngineDivergence.ts`, `gameBuildLog.ts`), and CI inspection, trusted-workflow generation, the route model, routing policy, build ledger, act adapter and local CI setup guidance (`ciManager.ts`, `trustedLocalCiStarter.ts`, `ciRoutes.ts`, `ciRoutingPolicy.ts`, `ciCreditMeter.ts`, `ciBuildLedger.ts`, `ciActRoute.ts`, `nodeVersionDetection.ts`, `localCiSetupPlan.ts`, `localCiInstaller.ts`, `localCiInspectionMemory.ts`), the guarded local CI executor (`localCiRunner.ts`), the confirmed-write echo that shows an issue or pull-request write before the re-read lands (`trackerWriteOutcome.ts`), the roadmap dependency graph with its on-disk overlay (`roadmapGraph.ts`, `roadmapGraphStore.ts`), the declared table saying where each release gate’s evidence lives and how gates rank by urgency (`releaseGateNavigation.ts`), roadmap ingestion from markdown, issues, Projects and spreadsheets with re-runnable reconciliation (`roadmapImport.ts`), the register-to-work hand-off that turns a gap, a debt entry or a risk finding into planned work (`registerHandoff.ts`), and how the project numbers its software across branches — the semver primitives plus the declared scheme, source and branch-to-channel map (`semver.ts`, `versioningPolicy.ts`), and how a Windows `bin` shim is resolved to something spawnable without a shell — the module that makes model-generated command arguments unable to become commands (`windowsShimBypass.ts`) |
+| `src/core/` | Orchestration, routing, planning, safety, cost, project services, pure game-engine identity/divergence/build-log interpretation (`gameEngineIdentity.ts`, `gameEngineDivergence.ts`, `gameBuildLog.ts`), and CI inspection, trusted-workflow generation, the route model, routing policy, build ledger, act adapter and local CI setup guidance (`ciManager.ts`, `trustedLocalCiStarter.ts`, `ciRoutes.ts`, `ciRoutingPolicy.ts`, `ciCreditMeter.ts`, `ciBuildLedger.ts`, `ciActRoute.ts`, `nodeVersionDetection.ts`, `localCiSetupPlan.ts`, `localCiInstaller.ts`, `localCiInspectionMemory.ts`), the guarded local CI executor (`localCiRunner.ts`), the confirmed-write echo that shows an issue or pull-request write before the re-read lands (`trackerWriteOutcome.ts`), the roadmap dependency graph with its on-disk overlay (`roadmapGraph.ts`, `roadmapGraphStore.ts`, `roadmapCriticalPath.ts`), whether the configured team can work and how much of it is used (`agentCapacity.ts`), and the git trailers that link a commit to the work it was for (`commitTrailers.ts`), and the evidence-triggered MCP capability offer (`capabilityOffer.ts`), the declared table saying where each release gate’s evidence lives and how gates rank by urgency (`releaseGateNavigation.ts`), roadmap ingestion from markdown, issues, Projects and spreadsheets with re-runnable reconciliation (`roadmapImport.ts`), the register-to-work hand-off that turns a gap, a debt entry or a risk finding into planned work (`registerHandoff.ts`), and how the project numbers its software across branches — the semver primitives plus the declared scheme, source and branch-to-channel map (`semver.ts`, `versioningPolicy.ts`), how a Windows `bin` shim is resolved to something spawnable without a shell — the module that makes model-generated command arguments unable to become commands (`windowsShimBypass.ts`), and how parallel steps are kept from writing over each other — where each one runs, the git plumbing, getting the work back and the run that ties the three together (`worktreeIsolation.ts`, `worktreeManager.ts`, `worktreeMerge.ts`, `worktreeRun.ts`) |
 | `src/runtime/` | The built-in agents and how the runtime is composed |
 | `src/providers/` | Provider adapters, catalogues, health, local model discovery, `modelRole.ts` (what a model is *for*), and the local-GPU support layer that measures VRAM and reads what each runtime has loaded |
 | `src/skills/` | Built-in tools and skill handlers |

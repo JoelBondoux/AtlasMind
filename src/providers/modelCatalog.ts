@@ -12,6 +12,31 @@
 
 import type { ModelCapability, SpecialistDomain } from '../types.js';
 
+/**
+ * When the prices in this file were last checked against published pricing.
+ *
+ * Every cost and saving AtlasMind reports is arithmetic against this table, so a
+ * figure is only as current as this date — and until it existed, nothing told a
+ * reader how old the numbers behind a claim were. Stated wherever a derived
+ * figure is shown, rather than left for somebody to wonder about.
+ *
+ * **Bump this only when the prices were actually verified**, not when the file is
+ * touched for some other reason. A date that moves without a check is worse than
+ * a stale one: it converts "these numbers are old" into "these numbers are
+ * current", which is the wrong direction to be wrong in.
+ */
+export const MODEL_CATALOG_VERIFIED_AT = '2026-09-07';
+
+/**
+ * How long prices are treated as current.
+ *
+ * Model pricing moved several times in 2026 and providers do not announce
+ * changes anywhere machine-readable, so this is a prompt to go and look rather
+ * than an expiry. Past it, surfaces say the prices are old; they do not stop
+ * reporting, because a stale figure honestly dated beats no figure at all.
+ */
+export const MODEL_CATALOG_STALE_AFTER_DAYS = 90;
+
 export interface CatalogEntry {
   pattern: RegExp;
   name: string;

@@ -3,6 +3,11 @@
  * Each LLM provider implements this to normalise request/response shapes.
  */
 
+// Type-only, so it is erased at compile time and creates no import cycle with
+// `core/`. The origin vocabulary belongs with the policy that interprets it,
+// not duplicated here.
+import type { ModelContextOrigin } from '../core/modelEgress.js';
+
 // ── Tool calling ─────────────────────────────────────────────────
 
 export interface ToolDefinition {
@@ -28,6 +33,18 @@ export interface ToolCall {
 export interface ChatMessage {
   role: 'system' | 'user' | 'assistant' | 'tool';
   content: string;
+  /**
+   * What this message's content *is*, for the egress boundary.
+   *
+   * Carried on the message rather than in a parallel array because the agentic
+   * loop grows, evicts and splices its history in eleven places; two arrays
+   * kept in step by hand would desynchronise, and a desynchronised origin list
+   * mislabels content instead of failing to label it — the worse of the two.
+   *
+   * Never sent to a model. Absent means unlabelled, which the boundary
+   * refuses rather than defaulting.
+   */
+  origin?: ModelContextOrigin;
   /** Optional image attachments associated with a user message. */
   images?: TaskImageAttachment[];
   /** Required when role is 'tool' – references the tool call being answered. */
@@ -86,6 +103,21 @@ export interface CompletionResponse {
    * cache usage.
    */
   cachedInputTokens?: number;
+  /**
+   * Portion of `inputTokens` the provider *wrote into* its prompt cache this
+   * request, when it reports it.
+   *
+   * Kept separate from `cachedInputTokens` because the two are priced
+   * differently and in opposite directions — a cache read is cheaper than an
+   * ordinary input token, a cache write is dearer. Re-pricing a request against
+   * a different model needs the split, and folding both into `inputTokens`
+   * (which is what happened before this field existed) loses it irreversibly:
+   * the sum cannot be taken apart afterwards.
+   *
+   * Omitted when the provider does not report it, which is not the same as
+   * zero. Anything deriving a figure from this must treat absent as *unknown*.
+   */
+  cacheWriteTokens?: number;
   finishReason: 'stop' | 'length' | 'error' | 'tool_calls';
   /** Populated when finishReason is 'tool_calls'. */
   toolCalls?: ToolCall[];

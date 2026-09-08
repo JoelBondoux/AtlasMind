@@ -641,7 +641,12 @@ export interface DebtReconcileResult {
 }
 
 function markdownCell(value: string): string {
-  return value.replace(/\|/gu, '\\|').replace(/\r?\n/gu, ' ');
+  // The backslash is escaped first, or it escapes the escape: a value ending in
+  // one turns the `\|` that follows into a literal backslash and a live pipe,
+  // splitting one cell in two and shifting every column after it. These values
+  // are file paths, marker text and scan output, so a trailing backslash is the
+  // ordinary case on Windows rather than a hostile one.
+  return value.replace(/\\/gu, '\\\\').replace(/\|/gu, '\\|').replace(/\r?\n/gu, ' ');
 }
 
 export type DebtScannedPath = string | { componentId?: string; path: string };

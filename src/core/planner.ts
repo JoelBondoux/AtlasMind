@@ -16,6 +16,8 @@ import type { TaskProfiler } from './taskProfiler.js';
 import type { SkillsRegistry } from './skillsRegistry.js';
 import { MAX_SUBTASKS } from '../constants.js';
 import { buildExecutionBatches } from './taskScheduler.js';
+import { dispatchGuardedCompletion } from './modelEgress.js';
+import { isLocalProviderId } from './backgroundMemoryPolicy.js';
 
 type MemoryStore = {
   queryRelevant(query: string, maxResults?: number): Promise<MemoryEntry[]>;
@@ -143,19 +145,27 @@ export class Planner {
 
     let rawResponse: string;
     try {
-      const response = await provider.complete({
-        model,
-        messages: [
-          { role: 'system', content: systemPrompt },
-          {
-            role: 'user',
-            content: memoryContext
-              ? `Goal: ${goal}\n\nRelevant project context (from SSOT memory):\n${memoryContext}`
-              : `Goal: ${goal}`,
-          },
-        ],
-        temperature: 0.3,
-        signal,
+      const response = await dispatchGuardedCompletion({
+        provider,
+        // The user message mixes the operator's goal with retrieved SSOT
+        // content, so it is labelled `project-memory`: the stricter of the two
+        // origins governs, because a part cannot be half-redacted.
+        origins: ['system-prompt', memoryContext ? 'project-memory' : 'user-prompt'],
+        external: !isLocalProviderId(provider.providerId),
+        request: {
+          model,
+          messages: [
+            { role: 'system', content: systemPrompt },
+            {
+              role: 'user',
+              content: memoryContext
+                ? `Goal: ${goal}\n\nRelevant project context (from SSOT memory):\n${memoryContext}`
+                : `Goal: ${goal}`,
+            },
+          ],
+          temperature: 0.3,
+          signal,
+        },
       });
       rawResponse = response.content;
     } catch {

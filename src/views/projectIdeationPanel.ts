@@ -5311,6 +5311,17 @@ const IDEATION_CSS = `${QUICK_REPLY_CSS}
     dominant-baseline: alphabetic;
     transition: opacity 120ms ease, filter 120ms ease;
   }
+  /* The selection box. Pointer-events off so it can never intercept the drag
+     that is drawing it. Cards already show a numbered badge when selected, so
+     the box only has to exist while it is being dragged. */
+  .ideation-marquee {
+    position: absolute;
+    pointer-events: none;
+    border: 1px dashed var(--vscode-focusBorder);
+    background: color-mix(in srgb, var(--vscode-focusBorder) 12%, transparent);
+    z-index: 4;
+  }
+
   .ideation-card {
     position: absolute;
     width: 220px;

@@ -1,8 +1,8 @@
 import { exec } from 'node:child_process';
 import { promisify } from 'node:util';
-import type { ProjectRunRecord, RoutineDefinition, RoutineRunResult, RoutineStep, RoutineStepResult } from '../types.js';
+import type { ProjectRunRecord, RoutineDefinition, RoutineRunResult, RoutineStepResult } from '../types.js';
 import type { ProjectRunHistory } from './projectRunHistory.js';
-import { checkRoutineVariables } from './routineVariables.js';
+import type { RoutineExecutionPlan, RoutinePlannedStep } from './routineExecutionPolicy.js';
 
 const execAsync = promisify(exec);
 const STEP_TIMEOUT_MS = 60_000;
@@ -15,13 +15,13 @@ const STEP_TIMEOUT_MS = 60_000;
 const STEP_OUTPUT_BUFFER_BYTES = 4 * 1024 * 1024;
 
 export type RoutineProgressCallback = (
-  step: RoutineStep,
+  step: RoutinePlannedStep,
   index: number,
   total: number,
 ) => void;
 
 export type RoutineFailureCallback = (
-  step: RoutineStep,
+  step: RoutinePlannedStep,
   result: RoutineStepResult,
 ) => Promise<'retry' | 'skip' | 'abort'>;
 
@@ -29,13 +29,21 @@ export class RoutineRunner {
   constructor(private readonly runHistory: ProjectRunHistory) {}
 
   /**
-   * Executes all steps of the given routine sequentially.
+   * Executes a **planned** routine sequentially.
+   *
+   * Takes the plan rather than the routine and its values, and that is the
+   * point: the commands executed here are the exact strings
+   * `planRoutineExecution` produced, which is what a caller showed the operator
+   * before asking. A runner that re-substituted would be able to run something
+   * other than what was agreed to, and no amount of care at the call sites
+   * would make that impossible.
+   *
    * Calls onProgress before each step and onFailure when a step exits non-zero.
    * Logs the final result to ProjectRunHistory.
    */
   async run(
     routine: RoutineDefinition,
-    vars: Record<string, string>,
+    plan: RoutineExecutionPlan,
     workspaceRoot: string,
     onProgress: RoutineProgressCallback,
     onFailure: RoutineFailureCallback,
@@ -45,14 +53,16 @@ export class RoutineRunner {
     let failedStep: string | undefined;
     let succeeded = true;
 
-    // Checked once, before any step runs, because a routine that has already
-    // pushed two commits before refusing the third is worse than one that
-    // refuses at the door. The values reach a real shell through `exec`; the
-    // template is a reviewed file in the repository, the values are whatever
-    // somebody typed after `/ship`.
-    const variableCheck = checkRoutineVariables(vars);
-    if (!variableCheck.ok) {
-      const reason = variableCheck.refusals.map(refusal => refusal.reason).join(' ');
+    // A plan built for a different routine is a wiring mistake, and the
+    // consequence of letting it through is running one routine's commands
+    // under another's name in the run history.
+    const reason = plan.routineId !== routine.id
+      ? `This plan was built for "${plan.routineId}", not "${routine.id}". Nothing was run.`
+      : plan.status === 'refused'
+        ? plan.refusals.map(refusal => refusal.detail).join(' ')
+        : undefined;
+
+    if (reason !== undefined || plan.status !== 'ready') {
       const result: RoutineRunResult = {
         routineId: routine.id,
         routineName: routine.name,
@@ -66,33 +76,33 @@ export class RoutineRunner {
       return result;
     }
 
-    for (let i = 0; i < routine.steps.length; i++) {
-      const step = routine.steps[i];
-      onProgress(step, i, routine.steps.length);
+    for (let i = 0; i < plan.steps.length; i++) {
+      const step = plan.steps[i];
+      onProgress(step, i, plan.steps.length);
 
-      let stepResult = await this.executeStep(step, vars, workspaceRoot);
+      let stepResult = await this.executeStep(step, workspaceRoot);
       stepResults.push(stepResult);
 
       if (stepResult.exitCode !== 0) {
-        if (step.on_fail === 'abort') {
-          failedStep = step.id;
+        if (step.onFail === 'abort') {
+          failedStep = step.stepId;
           succeeded = false;
           break;
         }
 
-        if (step.on_fail === 'prompt') {
+        if (step.onFail === 'prompt') {
           const decision = await onFailure(step, stepResult);
           if (decision === 'abort') {
-            failedStep = step.id;
+            failedStep = step.stepId;
             succeeded = false;
             break;
           }
           if (decision === 'retry') {
-            stepResult = await this.executeStep(step, vars, workspaceRoot);
+            stepResult = await this.executeStep(step, workspaceRoot);
             // Update the last result in place
             stepResults[stepResults.length - 1] = stepResult;
             if (stepResult.exitCode !== 0) {
-              failedStep = step.id;
+              failedStep = step.stepId;
               succeeded = false;
               break;
             }
@@ -120,11 +130,12 @@ export class RoutineRunner {
   }
 
   private async executeStep(
-    step: RoutineStep,
-    vars: Record<string, string>,
+    step: RoutinePlannedStep,
     workspaceRoot: string,
   ): Promise<RoutineStepResult> {
-    const command = interpolate(step.run, vars);
+    // Taken from the plan, never rebuilt. Substitution happens once, in
+    // `planRoutineExecution`, so the string here is the one that was shown.
+    const command = step.command;
     const stepStart = Date.now();
 
     try {
@@ -135,7 +146,7 @@ export class RoutineRunner {
         maxBuffer: STEP_OUTPUT_BUFFER_BYTES,
       });
       return {
-        stepId: step.id,
+        stepId: step.stepId,
         label: step.label,
         exitCode: 0,
         stdout: stdout.trim(),
@@ -145,7 +156,7 @@ export class RoutineRunner {
     } catch (err: unknown) {
       const e = err as { code?: number; stdout?: string; stderr?: string; message?: string };
       return {
-        stepId: step.id,
+        stepId: step.stepId,
         label: step.label,
         exitCode: typeof e.code === 'number' ? e.code : 1,
         stdout: (e.stdout ?? '').trim(),
@@ -201,9 +212,4 @@ export class RoutineRunner {
       // History persistence is best-effort; don't fail the routine run.
     }
   }
-}
-
-/** Replaces ${varName} tokens in a command string with values from vars. */
-function interpolate(command: string, vars: Record<string, string>): string {
-  return command.replace(/\$\{([^}]+)\}/g, (_, name: string) => vars[name] ?? '');
 }

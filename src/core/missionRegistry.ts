@@ -145,7 +145,9 @@ export function renderMissionsMarkdown(missions: MissionRunRecord[]): string {
       lines.push('| # | Verdict | Confidence | Cost | Files | Next focus |');
       lines.push('|---|---|---|---|---|---|');
       for (const it of m.iterations) {
-        const focus = (it.verdict.nextFocus || '—').replace(/\|/g, '\\|').slice(0, 80);
+        // Backslash first: escaping the pipe alone lets a value ending in one
+        // split the row. See `markdownCell` in `debtRegister`.
+        const focus = (it.verdict.nextFocus || '—').replace(/\\/g, '\\\\').replace(/\|/g, '\\|').slice(0, 80);
         lines.push(
           `| ${it.index} | ${it.verdict.verdict} | ${(it.verdict.confidence * 100).toFixed(0)}% | $${it.costUsd.toFixed(4)} | ${it.changedFiles.length} | ${focus} |`,
         );

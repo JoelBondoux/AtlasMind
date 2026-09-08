@@ -163,6 +163,18 @@ const GRAPH = {
     gamma: { nodeIds: ['gamma'], edgeKeys: [], order: [], routeDays: 0, completedCount: 1 },
   },
   people: [{ id: 'contact-1', name: 'Joel' }],
+  criticalPath: {
+    state: 'ok',
+    days: 6,
+    nodeIds: ['beta'],
+    slack: [
+      { nodeId: 'beta', slackDays: 0, earliestFinishDays: 6, latestFinishDays: 6, critical: true },
+      { nodeId: 'alpha', slackDays: 4, earliestFinishDays: 2, latestFinishDays: 6, critical: false },
+    ],
+    offPathCount: 1,
+    rules: [],
+  },
+  criticalPathSummary: '6 days of work along a chain of 1 item. The other 1 outstanding item has room to slip without moving the finish.',
   filePath: 'project_memory/roadmap/improvement-plan.md',
 };
 
@@ -561,6 +573,54 @@ describe('arranging the canvas', () => {
     for (const side of ['has-off-left', 'has-off-right', 'has-off-top', 'has-off-bottom']) {
       expect(frame.className, `${side} must be off when the frame has no size`).not.toContain(side);
     }
+  });
+
+  it('puts an edge glow out when a drag-pan brings the plan back into the frame', () => {
+    // The wheel pans through `rmApplyViewTransform`, which refreshes the hints;
+    // a drag writes the transform itself and used to leave them saying what was
+    // true before the gesture. Sideways is exactly how a wide plan is read, so
+    // the horizontal strips stayed lit over nodes that were back on screen.
+    const harness = mount();
+    pinFrameSize(harness, 200, 200);
+    harness.send(snapshot());
+    harness.click('[data-action="page"][data-payload="roadmap"]');
+
+    const frame = harness.root().querySelector('[data-rm-frame="true"]');
+    expect(frame.className).toContain('has-off-right');
+
+    const drag = (type: string, init: Record<string, unknown> = {}): void => {
+      frame.dispatchEvent(new harness.window.MouseEvent(type, { bubbles: true, button: 0, ...init }));
+    };
+    // beta sits at x=400 in a 200px frame; pulling the world 300px left brings it
+    // in without pushing alpha (x=80) off the other side.
+    drag('pointerdown', { clientX: 400, clientY: 100 });
+    drag('pointermove', { clientX: 100, clientY: 100 });
+
+    expect(frame.className, 'the right strip must go out once beta is in view').not.toContain('has-off-right');
+    expect(frame.className, 'and the drag must not light the other side').not.toContain('has-off-left');
+  });
+
+  it('measures the real right edge of a card rather than assuming the nominal width', () => {
+    // A card is given `RM_NODE_WIDTH` of *content*; its padding and borders put
+    // another 24px on the far side. Assuming the constant reported the right
+    // edge further left than it is, so the left strip stayed lit over a card
+    // still poking into the frame.
+    const harness = mount();
+    pinFrameSize(harness, 200, 200);
+    Object.defineProperty(harness.window.HTMLElement.prototype, 'offsetWidth', { value: 274, configurable: true });
+    harness.send(snapshot());
+    harness.click('[data-action="page"][data-payload="roadmap"]');
+
+    const frame = harness.root().querySelector('[data-rm-frame="true"]');
+    // alpha sits at x=80. Panned 340px left, its nominal right edge (80 + 250)
+    // is 10px past the frame while its real one (80 + 274) is 14px inside it.
+    // Through the wheel rather than a drag, so this asserts the measurement and
+    // not the refresh the test above covers.
+    frame.dispatchEvent(new harness.window.WheelEvent('wheel', {
+      bubbles: true, cancelable: true, deltaX: 340, deltaY: 0,
+    }));
+
+    expect(frame.className, 'a sliver of the card is still on screen').not.toContain('has-off-left');
   });
 
   it('does nothing rather than throwing when there is nothing to fit', () => {
@@ -991,6 +1051,60 @@ describe('reading a dense plan', () => {
     // combining them is what reads as a filter that does not work.
     expect(classOf('alpha')).toContain('is-search-match');
     expect(classOf('beta')).toContain('is-search-dim');
+  });
+
+  it('states what the finish date rests on without a lens being switched on', () => {
+    // The one lens that answers a question rather than narrowing to an answer
+    // you already had. What the date depends on is worth knowing before you
+    // think to ask for it.
+    const harness = mount();
+    harness.send(snapshot());
+
+    expect(harness.root().querySelector('.rm-critical-summary')?.textContent)
+      .toContain('6 days of work along a chain of 1 item');
+    expect(harness.root().querySelector('[data-action="roadmap-emphasis-critical"]')).not.toBeNull();
+  });
+
+  it('emphasises the chain and leaves the work with slack drawn and dimmed', () => {
+    const harness = mount();
+    harness.send(snapshot());
+    harness.posted.length = 0;
+
+    const toggle = harness.root().querySelector('[data-action="roadmap-emphasis-critical"]');
+    toggle.checked = true;
+    toggle.dispatchEvent(new harness.window.Event('change', { bubbles: true }));
+
+    const classOf = (id: string) => harness.root().querySelector(`[data-rm-node="${id}"]`)?.className ?? '';
+    expect(classOf('beta')).toContain('is-search-match');
+    // Dimmed rather than hidden: the items *not* on the path are the ones with
+    // room to slip, and removing them takes away the comparison.
+    expect(classOf('alpha')).toContain('is-search-dim');
+    // A way of looking — nothing is sent and nothing is written.
+    expect(harness.posted).toEqual([]);
+  });
+
+  it('offers no critical-path lens on the delivered record', () => {
+    // Delivered work is never on the path, so the lens would match nothing and
+    // read as broken rather than as inapplicable.
+    const harness = mount();
+    harness.send(snapshot());
+    harness.click('[data-action="roadmap-view"][data-payload="completed"]');
+
+    expect(harness.root().querySelector('[data-action="roadmap-emphasis-critical"]')).toBeNull();
+    expect(harness.root().querySelector('.rm-critical-summary')).toBeNull();
+  });
+
+  it('clears the critical-path lens with the others', () => {
+    const harness = mount();
+    harness.send(snapshot());
+    const toggle = harness.root().querySelector('[data-action="roadmap-emphasis-critical"]');
+    toggle.checked = true;
+    toggle.dispatchEvent(new harness.window.Event('change', { bubbles: true }));
+    expect(harness.root().querySelector('[data-rm-node="alpha"]')?.className).toContain('is-search-dim');
+
+    harness.click('[data-action="roadmap-emphasis-clear"]');
+
+    expect(harness.root().querySelector('[data-rm-node="alpha"]')?.className).not.toContain('is-search-dim');
   });
 
   it('keeps every edge on a live repaint while a lens is on', () => {

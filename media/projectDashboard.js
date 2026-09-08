@@ -463,8 +463,26 @@
     // project, and restoring a dimmed canvas on open would read as a bug.
     roadmapEmphasisGate: '',
     roadmapEmphasisPerson: '',
+    /**
+     * Emphasise the chain the finish date rests on.
+     *
+     * A lens rather than a filter, like the other two: the items *not* on the
+     * path are the ones with room to slip, and hiding them would remove the
+     * comparison that makes the answer worth having.
+     */
+    roadmapEmphasisCritical: false,
     /** Live drag offsets, so a node follows the pointer before the host has saved. */
     roadmapDragOffsets: {},
+    /**
+     * Node ids currently box-selected, so a drag moves them together.
+     *
+     * A plain array rather than a Set: this object is read by the render path
+     * on every frame and a Set would need converting there anyway. Selection is
+     * deliberately **not** persisted to the host — it is a way of looking at the
+     * plan for the next few seconds, not a fact about it, and a selection that
+     * survived a reload would be a stored opinion nobody asked to keep.
+     */
+    roadmapSelection: [],
     /**
      * Whether a dragged node snaps to the canvas grid.
      *
@@ -944,11 +962,19 @@
   /**
    * Apply one host snapshot.
    *
-   * `preserveOffsetNodeId` names a node that was just dropped, when this
-   * snapshot was deferred during its drag: the snapshot predates the drop, so
-   * that node's local offset is kept until the host answers the move.
+   * `preserveOffsetNodeIds` names the nodes that were just dropped, when this
+   * snapshot was deferred during their drag: the snapshot predates the drop, so
+   * their local offsets are kept until the host answers the move.
+   *
+   * A list rather than a single id since a box-selected group drops together —
+   * preserving only the node under the pointer would have snapped the rest of
+   * the selection back for one frame, which is the same bug this exists to
+   * prevent, only harder to spot because it is intermittent.
    */
-  function applyStateSnapshot(message, preserveOffsetNodeId) {
+  function applyStateSnapshot(message, preserveOffsetNodeIds) {
+      const preserved = Array.isArray(preserveOffsetNodeIds)
+        ? preserveOffsetNodeIds
+        : (preserveOffsetNodeIds ? [preserveOffsetNodeIds] : []);
       state.snapshot = message.payload;
       if (message.payload?.issues?.busy) {
         state.repositoryRefreshBusy = true;
@@ -956,13 +982,17 @@
       // A fresh snapshot is the host's answer about where nodes are. Local drag
       // offsets exist only to cover the round trip, so they are dropped here —
       // keeping them would mean a position that failed to save stayed on screen
-      // looking saved. The node named by `preserveOffsetNodeId` is the
-      // exception: this snapshot was deferred during its drag, so it predates
-      // the drop and the host's answer to it is still on its way. Clearing that
-      // one made a stale refresh yank a just-dropped node back to where it was.
-      state.roadmapDragOffsets = preserveOffsetNodeId && state.roadmapDragOffsets[preserveOffsetNodeId]
-        ? { [preserveOffsetNodeId]: state.roadmapDragOffsets[preserveOffsetNodeId] }
-        : {};
+      // looking saved. The nodes named by `preserveOffsetNodeIds` are the
+      // exception: this snapshot was deferred during their drag, so it predates
+      // the drop and the host's answer is still on its way. Clearing those
+      // made a stale refresh yank a just-dropped node back to where it was.
+      const keptOffsets = {};
+      for (const id of preserved) {
+        if (state.roadmapDragOffsets[id]) {
+          keptOffsets[id] = state.roadmapDragOffsets[id];
+        }
+      }
+      state.roadmapDragOffsets = keptOffsets;
       const roadmapNodeIds = new Set(((message.payload && message.payload.roadmap && message.payload.roadmap.graph
         ? (message.payload.roadmap.graph.active || []).concat(message.payload.roadmap.graph.completed || [])
         : [])).map(node => node.id));
@@ -1725,6 +1755,13 @@
       render();
       return;
     }
+    if (action === 'capability-offer-dismiss') {
+      // Sent host-side rather than hidden locally: a refusal that lived only in
+      // this render would come back on the next one, which is the nag the rule
+      // exists to prevent.
+      vscode.postMessage({ type: 'dismissCapabilityOffer', payload: payload });
+      return;
+    }
     if (action === 'roadmap-emphasis-clear') {
       // Clears every lens at once. Three separate clears is three clicks to get
       // back to a plan you can read, and the state people want is "show me
@@ -1732,6 +1769,7 @@
       state.roadmapSearch = '';
       state.roadmapEmphasisGate = '';
       state.roadmapEmphasisPerson = '';
+      state.roadmapEmphasisCritical = false;
       state.roadmapFitAfterRender = true;
       render();
       return;
@@ -2874,7 +2912,13 @@
       const existingIdx = cfg.contacts.findIndex(c => c.id === id);
       const existing = existingIdx >= 0 ? cfg.contacts[existingIdx] : null;
       const finalLinks = links.length ? links : (existing ? existing.links : []);
-      const contact = { id: id, name: name, kind: 'person', title: val('title').trim() || undefined, org: val('org').trim() || undefined, links: finalLinks, piiStored: finalLinks.some(l => directorIsPiiLink(l.kind)) };
+      // Kind decides how work assigned to them is estimated, so an unrecognised
+      // value falls back to `person` rather than being stored — the roadmap
+      // would read anything it does not know as a person anyway, and storing a
+      // value nothing acts on is how a setting looks broken.
+      const kindRaw = val('kind').trim();
+      const kind = ['person', 'group', 'org', 'agent'].indexOf(kindRaw) >= 0 ? kindRaw : (existing && existing.kind) || 'person';
+      const contact = { id: id, name: name, kind: kind, title: val('title').trim() || undefined, org: val('org').trim() || undefined, links: finalLinks, piiStored: finalLinks.some(l => directorIsPiiLink(l.kind)) };
       if (existing && existing.ref) { contact.ref = existing.ref; }
       if (existingIdx >= 0) { cfg.contacts[existingIdx] = contact; } else { cfg.contacts.push(contact); }
       if (chk('isSelf')) { cfg.selfContactId = id; } else if (cfg.selfContactId === id) { cfg.selfContactId = ''; }
@@ -3093,6 +3137,15 @@
     if (target instanceof HTMLInputElement && target.id === 'branch-scm-chip-toggle') {
       state.branchScmChips = target.checked;
       persistBranchPreferences();
+      render();
+      return;
+    }
+    // Before the select guard below, because this lens is a checkbox — the
+    // other two are pickers and this one is on or off.
+    if (target instanceof HTMLInputElement && target.getAttribute('data-action') === 'roadmap-emphasis-critical') {
+      state.roadmapEmphasisCritical = target.checked === true;
+      state.roadmapFitAfterRender = true;
+      state.roadmapFitScope = 'emphasis';
       render();
       return;
     }
@@ -3415,11 +3468,17 @@
       for (const el of root.querySelectorAll('[data-rm-node]')) {
         const x = parseFloat(el.style.left) || 0;
         const y = parseFloat(el.style.top) || 0;
+        // Both measured, not assumed. `RM_NODE_WIDTH` is the *content* width the
+        // card is given; its padding and borders put another 24px on the far
+        // side, so the constant reports a card's right edge as further left than
+        // it is and the left strip stayed lit over a card already back in the
+        // frame. Same rule as the height, for the same reason.
+        const width_ = el.offsetWidth || RM_NODE_WIDTH;
         const height_ = el.offsetHeight || RM_NODE_HEIGHT;
         // Wholly past the edge, not merely crossing it: a card half off the
         // right side is one you can see, and pointing at it would mean the
         // strips were lit almost permanently and so worth nothing.
-        if ((x + RM_NODE_WIDTH) * zoom + pan.x < 0) { off.left = true; }
+        if ((x + width_) * zoom + pan.x < 0) { off.left = true; }
         if (x * zoom + pan.x > width) { off.right = true; }
         if ((y + height_) * zoom + pan.y < 0) { off.top = true; }
         if (y * zoom + pan.y > height) { off.bottom = true; }
@@ -3606,20 +3665,143 @@
     rmApplyHighlight();
   }
 
-  /** Redraw only the dragged node and its own edges — a full render mid-drag stutters. */
+  /**
+   * Where every node in the current drag has moved to.
+   *
+   * One function so the paint, the drop and the message all describe the same
+   * positions. A single-node drag is the one-element case rather than a
+   * separate path — two paths would eventually disagree about snapping, and the
+   * symptom would be a node landing on the grid alone and off it in a group.
+   */
+  function rmDragPositions() {
+    if (!rmDrag || rmDrag.kind !== 'node') {
+      return [];
+    }
+    const dx = rmDrag.x - rmDrag.originX;
+    const dy = rmDrag.y - rmDrag.originY;
+    return rmDrag.group.map(member => ({
+      nodeId: member.nodeId,
+      // Snapped per node from its *own* origin, not by snapping the group's
+      // delta: nodes selected from different offsets must each land on the
+      // grid, which a shared delta cannot do unless they started aligned.
+      x: Math.max(0, rmSnap(member.originX + dx)),
+      y: Math.max(0, rmSnap(member.originY + dy)),
+    }));
+  }
+
+  /** Redraw only the dragged nodes and their own edges — a full render mid-drag stutters. */
   function rmPaintDrag() {
     if (!rmDrag || !root) {
       return;
     }
-    const nodeEl = root.querySelector('[data-rm-node="' + cssEscape(rmDrag.nodeId) + '"]');
-    if (nodeEl instanceof HTMLElement) {
-      nodeEl.style.left = rmDrag.x + 'px';
-      nodeEl.style.top = rmDrag.y + 'px';
+    const moved = rmDragPositions();
+    const byId = new Map(moved.map(entry => [entry.nodeId, entry]));
+    for (const entry of moved) {
+      const nodeEl = root.querySelector('[data-rm-node="' + cssEscape(entry.nodeId) + '"]');
+      if (nodeEl instanceof HTMLElement) {
+        nodeEl.style.left = entry.x + 'px';
+        nodeEl.style.top = entry.y + 'px';
+      }
     }
-    const nodes = roadmapCanvasNodes().map(node => (
-      node.id === rmDrag.nodeId ? Object.assign({}, node, { position: { x: rmDrag.x, y: rmDrag.y } }) : node
-    ));
+    const nodes = roadmapCanvasNodes().map(node => {
+      const entry = byId.get(node.id);
+      return entry ? Object.assign({}, node, { position: { x: entry.x, y: entry.y } }) : node;
+    });
     rmRedrawEdges(nodes, rmDrag.nodeId);
+  }
+
+  /** The marquee rectangle in world coordinates, from its two pointer corners. */
+  function rmMarqueeRect() {
+    if (!rmDrag || rmDrag.kind !== 'marquee') {
+      return null;
+    }
+    return {
+      left: Math.min(rmDrag.originX, rmDrag.x),
+      top: Math.min(rmDrag.originY, rmDrag.y),
+      right: Math.max(rmDrag.originX, rmDrag.x),
+      bottom: Math.max(rmDrag.originY, rmDrag.y),
+    };
+  }
+
+  /** Draw the selection box while it is being dragged. */
+  function rmPaintMarquee() {
+    const rect = rmMarqueeRect();
+    const world = rmWorldEl();
+    if (!rect || !(world instanceof HTMLElement)) {
+      return;
+    }
+    let box = world.querySelector('.rm-marquee');
+    if (!(box instanceof HTMLElement)) {
+      box = document.createElement('div');
+      box.className = 'rm-marquee';
+      world.appendChild(box);
+    }
+    box.style.left = rect.left + 'px';
+    box.style.top = rect.top + 'px';
+    box.style.width = (rect.right - rect.left) + 'px';
+    box.style.height = (rect.bottom - rect.top) + 'px';
+  }
+
+  function rmRemoveMarquee() {
+    const world = rmWorldEl();
+    const box = world instanceof HTMLElement ? world.querySelector('.rm-marquee') : null;
+    if (box instanceof HTMLElement) {
+      box.remove();
+    }
+  }
+
+  /**
+   * The nodes a marquee covers.
+   *
+   * **Intersection, not containment.** Requiring a node to be wholly inside the
+   * box means a card clipped by the edge of the viewport can never be selected
+   * without zooming out first, which on a large plan is most of them.
+   */
+  function rmNodesInMarquee(rect) {
+    if (!rect || !root) {
+      return [];
+    }
+    const picked = [];
+    for (const node of roadmapCanvasNodes()) {
+      const position = roadmapNodePosition(node);
+      const el = root.querySelector('[data-rm-node="' + cssEscape(node.id) + '"]');
+      const height = el instanceof HTMLElement ? el.offsetHeight : 0;
+      const left = position.x;
+      const top = position.y;
+      const right = left + RM_NODE_WIDTH;
+      const bottom = top + height;
+      if (right >= rect.left && left <= rect.right && bottom >= rect.top && top <= rect.bottom) {
+        picked.push(node.id);
+      }
+    }
+    return picked;
+  }
+
+  /** Repaint selection outlines without a full re-render. */
+  function rmApplySelection() {
+    if (!root) {
+      return;
+    }
+    const selected = new Set(state.roadmapSelection);
+    root.querySelectorAll('[data-rm-node]').forEach(el => {
+      if (el instanceof HTMLElement) {
+        el.classList.toggle('is-selected', selected.has(el.getAttribute('data-rm-node') || ''));
+      }
+    });
+    const count = root.querySelector('[data-rm-selection-count]');
+    if (count instanceof HTMLElement) {
+      count.textContent = state.roadmapSelection.length > 1
+        ? state.roadmapSelection.length + ' selected — drag any one to move them together'
+        : '';
+    }
+  }
+
+  function rmClearSelection() {
+    if (state.roadmapSelection.length === 0) {
+      return;
+    }
+    state.roadmapSelection = [];
+    rmApplySelection();
   }
 
   root?.addEventListener('pointerdown', event => {
@@ -3635,10 +3817,24 @@
         return;
       }
       const nodeId = handle.getAttribute('data-rm-drag') || '';
-      const node = roadmapCanvasNodes().find(entry => entry.id === nodeId);
+      const nodes = roadmapCanvasNodes();
+      const node = nodes.find(entry => entry.id === nodeId);
       if (!node) {
         return;
       }
+
+      // Pressing a node **inside** the selection drags the whole selection;
+      // pressing one outside it clears the selection first. That is what every
+      // canvas editor does, and the alternative — keeping a selection the user
+      // has visibly pressed away from — moves nodes they are no longer looking
+      // at.
+      if (state.roadmapSelection.indexOf(nodeId) < 0) {
+        rmClearSelection();
+      }
+
+      const groupIds = state.roadmapSelection.indexOf(nodeId) >= 0
+        ? state.roadmapSelection.slice()
+        : [nodeId];
       const position = roadmapNodePosition(node);
       rmDrag = {
         kind: 'node',
@@ -3650,6 +3846,18 @@
         originX: position.x,
         originY: position.y,
         moved: false,
+        // Origins captured at press time. Reading them per frame would compound
+        // rounding as the group is dragged, and every node would drift.
+        group: groupIds
+          .map(id => {
+            const member = nodes.find(entry => entry.id === id);
+            if (!member) {
+              return null;
+            }
+            const memberPosition = roadmapNodePosition(member);
+            return { nodeId: id, originX: memberPosition.x, originY: memberPosition.y };
+          })
+          .filter(Boolean),
       };
       handle.setPointerCapture(event.pointerId);
       event.preventDefault();
@@ -3658,6 +3866,37 @@
 
     const frame = event.target.closest('[data-rm-frame="true"]');
     if (frame instanceof HTMLElement && !event.target.closest('.rm-node')) {
+      // Shift starts a selection box; a plain drag still pans.
+      //
+      // The other way round is commoner in drawing tools, and it is the wrong
+      // default here: panning is how you read a plan that does not fit on the
+      // screen, it is the thing people do constantly, and it already works
+      // offline. Taking it away to add selection would trade a permanent cost
+      // for an occasional one.
+      if (event.shiftKey) {
+        const world = rmWorldEl();
+        const bounds = world instanceof HTMLElement ? world.getBoundingClientRect() : null;
+        if (!bounds) {
+          return;
+        }
+        const worldX = (event.clientX - bounds.left) / state.roadmapZoom;
+        const worldY = (event.clientY - bounds.top) / state.roadmapZoom;
+        rmDrag = {
+          kind: 'marquee',
+          startX: event.clientX,
+          startY: event.clientY,
+          originX: worldX,
+          originY: worldY,
+          x: worldX,
+          y: worldY,
+          moved: false,
+        };
+        frame.setPointerCapture(event.pointerId);
+        event.preventDefault();
+        return;
+      }
+
+      rmClearSelection();
       rmDrag = {
         kind: 'pan',
         startX: event.clientX,
@@ -3686,6 +3925,30 @@
       if (world instanceof HTMLElement) {
         world.style.transform = 'translate(' + state.roadmapPan.x + 'px, ' + state.roadmapPan.y + 'px) scale(' + state.roadmapZoom + ')';
       }
+      // The edge hints answer "does the plan continue that way", so they have to
+      // be recomputed by whatever moved the view. This path writes the transform
+      // itself rather than going through `rmApplyViewTransform`, and so used to
+      // leave them saying what was true before the drag: a strip lit before you
+      // panned stayed lit after the node it pointed at was back on screen. The
+      // wheel pans through `rmApplyViewTransform`, which is why the vertical
+      // strips looked right and dragging — the way a wide plan is read
+      // sideways — did not. Nothing here changes layout, so the measurements
+      // this reads are already settled and cost no reflow.
+      rmUpdateEdgeHints();
+      return;
+    }
+    if (rmDrag.kind === 'marquee') {
+      // Unsnapped: the box is a way of pointing at nodes, not a thing that
+      // lands anywhere, and snapping it would make small selections jump.
+      rmDrag.x = rmDrag.originX + dx / state.roadmapZoom;
+      rmDrag.y = rmDrag.originY + dy / state.roadmapZoom;
+      if (!rmPaintScheduled) {
+        rmPaintScheduled = true;
+        window.requestAnimationFrame(() => {
+          rmPaintScheduled = false;
+          rmPaintMarquee();
+        });
+      }
       return;
     }
     // The pointer moves in screen pixels; the world is scaled, so the delta has
@@ -3710,19 +3973,37 @@
       return;
     }
     const finished = rmDrag;
+    const positions = rmDragPositions();
+    const marqueeRect = rmMarqueeRect();
     rmDrag = null;
     if (finished.moved) {
       rmSuppressNextCanvasClick = true;
     }
+
+    if (finished.kind === 'marquee') {
+      rmRemoveMarquee();
+      // A shift-click that never moved is a click, not an empty selection: it
+      // should not wipe what is already selected.
+      if (finished.moved) {
+        state.roadmapSelection = rmNodesInMarquee(marqueeRect);
+        rmApplySelection();
+      }
+      return;
+    }
+
     const movedNode = finished.kind === 'node' && finished.moved;
     if (movedNode) {
-      // Held locally as well as sent, so the node stays where it was dropped
+      // Held locally as well as sent, so the nodes stay where they were dropped
       // through the round trip rather than snapping back for one frame.
-      state.roadmapDragOffsets[finished.nodeId] = { x: finished.x, y: finished.y };
-      vscode.postMessage({
-        type: 'roadmapNodeMove',
-        payload: { nodeId: finished.nodeId, x: finished.x, y: finished.y },
-      });
+      for (const entry of positions) {
+        state.roadmapDragOffsets[entry.nodeId] = { x: entry.x, y: entry.y };
+      }
+      // One message for a group, so the host performs one read, one write and
+      // one refresh rather than N of each with the canvas re-rendering under
+      // the pointer partway through.
+      vscode.postMessage(positions.length > 1
+        ? { type: 'roadmapNodesMove', payload: { moves: positions } }
+        : { type: 'roadmapNodeMove', payload: positions[0] });
     }
     // A snapshot that arrived mid-drag was held so it could not swap the DOM
     // out from under the pointer capture. Applied now — keeping the dropped
@@ -3730,7 +4011,7 @@
     if (pendingStateMessage) {
       const deferred = pendingStateMessage;
       pendingStateMessage = null;
-      applyStateSnapshot(deferred, movedNode ? finished.nodeId : '');
+      applyStateSnapshot(deferred, movedNode ? positions.map(entry => entry.nodeId) : []);
     }
   }
 
@@ -4771,14 +5052,14 @@
             <h3>Ownership of vital files</h3>
             <p class="section-copy">${escapeHtml(report.summary)} A file with nobody assigned falls to the Director — that is derived, so replacing the Director re-points every one of them at once. Recording an owner writes it into the committed roster instead, where it stays until somebody changes it.</p>
           </div>
-          <span class="tag ${report.unownedCount ? 'tag-critical' : report.defaultedCount ? 'tag-warn' : 'tag-good'}">${report.recordedCount} recorded · ${report.defaultedCount} default${report.unownedCount ? ` · ${report.unownedCount} unowned` : ''}</span>
+          <span class="tag ${report.unownedCount ? 'tag-critical' : report.defaultedCount ? 'tag-warn' : 'tag-good'}">${escapeHtml(String(report.recordedCount))} recorded · ${escapeHtml(String(report.defaultedCount))} default${report.unownedCount ? ` · ${escapeHtml(String(report.unownedCount))} unowned` : ''}</span>
         </div>
         ${report.blocker ? `<p class="vital-owner-blocker">⚠ ${escapeHtml(report.blocker)}</p>` : ''}
         ${report.notice ? `<p class="vital-owner-notice">${escapeHtml(report.notice)}</p>` : ''}
         ${(!report.blocker && report.defaultedCount > 0 && owner) ? `
           <div class="vital-owner-actions">
             <button type="button" class="action-link" data-action="record-vital-owners"
-              title="${escapeAttr('Write these defaults into project-director.json as assignments. You will see every one before anything is written.')}">Record ${report.defaultedCount} default${report.defaultedCount === 1 ? '' : 's'} to ${escapeHtml(owner.contactName)}</button>
+              title="${escapeAttr('Write these defaults into project-director.json as assignments. You will see every one before anything is written.')}">Record ${escapeHtml(String(report.defaultedCount))} default${report.defaultedCount === 1 ? '' : 's'} to ${escapeHtml(owner.contactName)}</button>
           </div>` : ''}
         <div class="vital-owner-rules">
           ${(report.rules || []).map(rule => `<p><strong>${escapeHtml(rule.id)}</strong> — ${escapeHtml(rule.describes)}</p>`).join('')}
@@ -5355,13 +5636,13 @@
           <span class="tag mono">base ${escapeHtml(comparison.mergeBase || 'unknown')}</span>
         </div>
         <div class="mini-grid">
-          ${renderMetricPill(`${comparison.leftName} only`, `${comparison.leftOnlyCommits} commits`, { tone: comparison.leftOnlyCommits ? 'accent' : 'good' })}
-          ${renderMetricPill(`${comparison.rightName} only`, `${comparison.rightOnlyCommits} commits`, { tone: comparison.rightOnlyCommits ? 'accent' : 'good' })}
-          ${renderMetricPill('Changed-file overlap', `${comparison.overlappingFiles}`, { tone: comparison.overlappingFiles ? 'warn' : 'good' })}
+          ${renderMetricPill(`${comparison.leftName} only`, `${escapeHtml(String(comparison.leftOnlyCommits))} commits`, { tone: comparison.leftOnlyCommits ? 'accent' : 'good' })}
+          ${renderMetricPill(`${comparison.rightName} only`, `${escapeHtml(String(comparison.rightOnlyCommits))} commits`, { tone: comparison.rightOnlyCommits ? 'accent' : 'good' })}
+          ${renderMetricPill('Changed-file overlap', `${escapeHtml(String(comparison.overlappingFiles))}`, { tone: comparison.overlappingFiles ? 'warn' : 'good' })}
         </div>
         <div class="branch-evidence-grid">
-          <div><h4>${escapeHtml(comparison.leftName)} areas · ${comparison.leftChangedFiles} files</h4><ul>${countList(comparison.leftAreas)}</ul></div>
-          <div><h4>${escapeHtml(comparison.rightName)} areas · ${comparison.rightChangedFiles} files</h4><ul>${countList(comparison.rightAreas)}</ul></div>
+          <div><h4>${escapeHtml(comparison.leftName)} areas · ${escapeHtml(String(comparison.leftChangedFiles))} files</h4><ul>${countList(comparison.leftAreas)}</ul></div>
+          <div><h4>${escapeHtml(comparison.rightName)} areas · ${escapeHtml(String(comparison.rightChangedFiles))} files</h4><ul>${countList(comparison.rightAreas)}</ul></div>
           <div><h4>${escapeHtml(comparison.leftName)} contributors</h4><ul>${contributorList(comparison.leftContributors)}</ul></div>
           <div><h4>${escapeHtml(comparison.rightName)} contributors</h4><ul>${contributorList(comparison.rightContributors)}</ul></div>
         </div>
@@ -5657,7 +5938,7 @@
                     <strong>${escapeHtml(commit.subject)}</strong>
                     <span class="tag mono">${escapeHtml(commit.shortHash)}</span>
                   </div>
-                  <div class="list-meta">${escapeHtml(commit.author)} • ${escapeHtml(commit.committedRelative)}</div>
+                  <div class="list-meta">${escapeHtml(commit.author)} • ${escapeHtml(commit.committedRelative)}${renderCommitLinkChips(commit)}</div>
                 </button>`).join('') : '<div class="dashboard-empty">No commit history available.</div>'}
             </div>
           </article>
@@ -5715,6 +5996,7 @@
           action: { command: 'atlasmind.openProjectRunCenter' },
           actionLabel: 'Open Project Run Center',
         })}
+        ${renderCapabilityOffer(rt.capabilityOffer)}
         <div class="runtime-grid">
           <article class="panel-card">
             <p class="section-kicker">Atlas runtime</p>
@@ -12018,7 +12300,11 @@
     const query = String(state.roadmapSearch || '').trim().toLowerCase();
     const gate = String(state.roadmapEmphasisGate || '');
     const person = String(state.roadmapEmphasisPerson || '');
-    if (!query && !gate && !person) {
+    // Never on the delivered record: the critical path is outstanding work by
+    // definition, so the lens would match nothing there and read as broken
+    // rather than as inapplicable.
+    const critical = state.roadmapEmphasisCritical === true && state.roadmapView !== 'completed';
+    if (!query && !gate && !person && !critical) {
       return null;
     }
     // Delivered work is emphasised the same way. "When did the auth work ship",
@@ -12045,6 +12331,10 @@
       // one on a plan nobody has divided up yet.
       lenses.push(node => (person === RM_UNASSIGNED ? !personOf(node) : personOf(node) === person));
     }
+    if (critical) {
+      const onPath = new Set((roadmapGraph().criticalPath || {}).nodeIds || []);
+      lenses.push(node => onPath.has(node.id));
+    }
     const matches = all.filter(node => lenses.every(test => test(node)));
     return {
       matchIds: new Set(matches.map(node => node.id)),
@@ -12053,6 +12343,7 @@
       query,
       gate,
       person,
+      critical,
     };
   }
 
@@ -12088,13 +12379,26 @@
           <option value="${RM_UNASSIGNED}"${state.roadmapEmphasisPerson === RM_UNASSIGNED ? ' selected' : ''}>Unassigned</option>
         </select>
       </label>`;
+    // The one lens that answers a question rather than narrowing to an answer
+    // you already had, so its finding is stated whether or not it is switched
+    // on: what the finish date rests on is worth knowing before you think to
+    // ask. Absent on the delivered record, where the path means nothing, and on
+    // a plan with a circular dependency it says so instead of a number.
+    const path = graph.criticalPath || {};
+    const criticalToggle = delivered || !Array.isArray(path.nodeIds) ? '' : `
+      <label class="rm-emphasis-control rm-emphasis-critical">
+        <input type="checkbox" data-action="roadmap-emphasis-critical"${state.roadmapEmphasisCritical ? ' checked' : ''}
+          aria-label="Highlight the chain of work the finish date depends on" />
+        <span class="rm-emphasis-label">Critical path</span>
+      </label>
+      <span class="list-meta rm-critical-summary" title="${escapeAttr(String(graph.criticalPathSummary || ''))}">${escapeHtml(String(graph.criticalPathSummary || ''))}</span>`;
     // Matches, not nodes drawn. No lens removes anything from the canvas, so
     // `shownCount` is the whole plan and reporting it would read "40 of 40".
     const count = emphasis
       ? `<span class="list-meta rm-emphasis-count">${escapeHtml(`${emphasis.matches} of ${totalCount} match ${roadmapEmphasisLabels(emphasis)}`)}</span>`
         + `<button type="button" class="rm-chip-clear" data-action="roadmap-emphasis-clear" aria-label="Show the whole plan at full strength">×</button>`
       : '';
-    return `${gateSelect}${personSelect}${count}`;
+    return `${gateSelect}${personSelect}${criticalToggle}${count}`;
   }
 
   /** What the active lenses are called, for a message that names them. */
@@ -12111,6 +12415,7 @@
         ? 'unassigned'
         : (roadmapPersonName(emphasis.person) || 'that person'));
     }
+    if (emphasis.critical) { parts.push('the critical path'); }
     return parts.join(' + ');
   }
 
@@ -12279,7 +12584,7 @@
               Route to “${escapeHtml(String(focusNode.text).slice(0, 42))}${String(focusNode.text).length > 42 ? '…' : ''}”
               <button type="button" class="rm-chip-clear" data-action="roadmap-clear-focus" aria-label="Show the whole plan again">×</button>
             </span>
-            <span class="list-meta">${escapeHtml(`${shownCount} of ${totalCount} items · ${filter.route.routeDays}d of work left · ${filter.route.completedCount} already delivered`)}</span>
+            <span class="list-meta">${escapeHtml(`${shownCount} of ${totalCount} items · ${formatRoadmapDays(filter.route.routeDays)} of work left · ${filter.route.completedCount} already delivered`)}</span>
           ` : ''}
           ${linking ? `<span class="rm-filter-chip rm-linking" title="${escapeAttr('Click “Needs this” on the item that has to wait, or press Escape to cancel.')}">Linking from “${escapeHtml(String(linking.text).slice(0, 32))}…”<button type="button" class="rm-chip-clear" data-action="roadmap-link-cancel" aria-label="Cancel linking">×</button></span>` : ''}
           <span class="rm-search">
@@ -12328,6 +12633,8 @@
           <button type="button" class="action-link" data-action="roadmap-zoom-in" aria-label="Zoom in">+</button>
           <button type="button" class="action-link" data-action="roadmap-fit"
             title="${escapeAttr('Zoom and pan so the whole plan is on screen at once.')}">Fit all</button>
+          <span class="rm-selection-hint" data-rm-selection-count
+            title="${escapeAttr('Hold Shift and drag on empty canvas to draw a selection box. Dragging any selected node moves the whole selection together.')}"></span>
           ${state.roadmapView === 'completed' ? '' : `
             ${renderRoadmapDeriveAction()}
             <button type="button" class="action-link" data-action="roadmap-import"
@@ -12653,6 +12960,7 @@
       // whole mechanism by which the neighbourhood of a match stays readable.
       search && search.matchIds.has(node.id) ? 'is-search-match' : '',
       search && !search.matchIds.has(node.id) ? 'is-search-dim' : '',
+      state.roadmapSelection.indexOf(node.id) >= 0 ? 'is-selected' : '',
     ].filter(Boolean).join(' ');
 
     return `
@@ -12725,9 +13033,75 @@
     return `<span class="rm-chip rm-chip-${escapeAttr(schedule.state)}">${escapeHtml(label)}</span>`;
   }
 
+  /**
+   * One catalogued server this project's own runs say it is reaching for.
+   *
+   * Absent almost always, and that is the intended state — a card that is
+   * permanently present is an advert. What it *adds* and what it *consumes* are
+   * given equal weight and neither is optional: an MCP server publishes its
+   * whole tool list into a budget AtlasMind has watched overflow, so a version
+   * of this that mentioned only the benefit would be selling rather than
+   * observing. Declining is remembered and never raised again.
+   */
+  function renderCapabilityOffer(offer) {
+    if (!offer) {
+      return '';
+    }
+    return `
+      <article class="panel-card">
+        <p class="section-kicker">Noticed in your runs</p>
+        <h3>${escapeHtml(offer.serverName)}</h3>
+        <p class="list-meta">${escapeHtml(`You have run ${offer.signal} in ${offer.runs} separate runs. There is a catalogued MCP server for it.`)}</p>
+        <p><strong>What it adds.</strong> ${escapeHtml(offer.adds)}</p>
+        <p><strong>What it costs.</strong> ${escapeHtml(offer.consumes)}</p>
+        <div class="tag-row">
+          <button type="button" class="action-link primary" data-action="command" data-payload="atlasmind.openMcpServers" title="${escapeAttr('Opens the MCP setup page with this server chosen. Nothing is installed or switched on until you finish there.')}">Set it up</button>
+          <button type="button" class="action-link" data-action="capability-offer-dismiss" data-payload="${escapeAttr(offer.serverId)}" title="${escapeAttr('This server will not be suggested again for this project.')}">Not this one</button>
+        </div>
+      </article>`;
+  }
+
+  /**
+   * What a commit said it was for, when it said anything.
+   *
+   * Read from git trailers the host already parsed — never from the subject
+   * line. A commit that mentions a number is not a commit about that issue, and
+   * inventing the link here would make the chip a guess wearing a record's
+   * clothes. Silent on a commit with no trailers, which is most of them and not
+   * a fault.
+   */
+  function renderCommitLinkChips(commit) {
+    const chips = [];
+    if (commit.roadmapItemId) {
+      chips.push(`<span class="tag" title="${escapeAttr('This commit declared the backlog item it was for, in a Roadmap-Item trailer.')}">${escapeHtml(commit.roadmapItemId)}</span>`);
+    }
+    if (commit.issue) {
+      chips.push(`<span class="tag" title="${escapeAttr('This commit declared its tracker issue, in an Issue trailer.')}">#${escapeHtml(commit.issue)}</span>`);
+    }
+    return chips.length > 0 ? ` • ${chips.join(' ')}` : '';
+  }
+
+  /**
+   * A duration in the largest unit that does not round it away.
+   *
+   * Mirrors `formatRoadmapDuration` in `roadmapGraph.ts`, which the host uses
+   * for the same figures in the schedule reasons. `Xd` was fine while nothing
+   * could be shorter than half a day; an agent-assigned item is a fraction of
+   * one, and "0d" is both wrong and the exact wording that makes somebody stop
+   * trusting the column.
+   */
   function formatRoadmapDays(days) {
     const value = Number(days) || 0;
-    return (Number.isInteger(value) ? String(value) : value.toFixed(1)) + 'd';
+    if (value >= 1) {
+      return (Number.isInteger(value) ? String(value) : value.toFixed(1)) + 'd';
+    }
+    const minutes = value * 1440;
+    if (minutes >= 60) {
+      const hours = minutes / 60;
+      return (Number.isInteger(hours) ? String(hours) : hours.toFixed(1)) + 'h';
+    }
+    // Rounded up, so real work never reads as taking no time at all.
+    return String(Math.max(1, Math.ceil(minutes))) + 'm';
   }
 
   /**
@@ -12750,16 +13124,23 @@
             title="${escapeAttr('Derived from the item unless you set one. Refused rather than corrected if it is not a legal branch name.')}" /></label>
         <label class="rm-field"><span>Deadline</span>
           <input type="date" data-rm-field="deadline" data-rm-node-id="${escapeAttr(node.id)}" value="${escapeAttr(node.deadline || '')}" /></label>
-        <label class="rm-field"><span>Est. days</span>
-          <input type="number" min="0.5" max="365" step="0.5" data-rm-field="estimateDays" data-rm-node-id="${escapeAttr(node.id)}"
+        ${(() => {
+    // The field is in days either way — one stored unit, so a plan mixing
+    // people and agents stays comparable — but the step and floor follow the
+    // scale. A half-day step on an agent item makes every honest value
+    // unenterable, which is the same bug as rounding it away.
+    const agent = node.estimate.scale === 'agent';
+    return `<label class="rm-field"><span>${escapeHtml(agent ? 'Est. days (agent)' : 'Est. days')}</span>
+          <input type="number" min="${agent ? '0.001' : '0.5'}" max="365" step="${agent ? '0.001' : '0.5'}" data-rm-field="estimateDays" data-rm-node-id="${escapeAttr(node.id)}"
             value="${escapeAttr(node.estimate.source === 'declared' ? String(node.estimate.days) : '')}"
-            placeholder="${escapeAttr(String(node.estimate.days) + ' (derived)')}"
-            title="${escapeAttr(node.estimate.rule)}" /></label>
+            placeholder="${escapeAttr(formatRoadmapDays(node.estimate.days) + ' (derived)')}"
+            title="${escapeAttr(node.estimate.rule)}" /></label>`;
+  })()}
         <label class="rm-field"><span>Assigned to</span>
           <select data-rm-field="assigneeId" data-rm-node-id="${escapeAttr(node.id)}"
             title="${escapeAttr('Who is expected to pick this up. Drawn from the Project Director roster — add people there first. This is a plan, not a record of who raised or finished the item.')}">
             <option value=""${node.assigneeId ? '' : ' selected'}>Unassigned</option>
-            ${(graph.people || []).map(person => `<option value="${escapeAttr(person.id)}"${node.assigneeId === person.id ? ' selected' : ''}>${escapeHtml(person.name)}</option>`).join('')}
+            ${(graph.people || []).map(person => `<option value="${escapeAttr(person.id)}"${node.assigneeId === person.id ? ' selected' : ''}>${escapeHtml(person.name + (person.isAgent ? ' (agent)' : ''))}</option>`).join('')}
             ${node.assigneeId && !(graph.people || []).some(person => person.id === node.assigneeId)
               ? `<option value="${escapeAttr(node.assigneeId)}" selected>Not in the roster — keep as is</option>`
               : ''}
@@ -12767,9 +13148,14 @@
         ${(graph.people || []).length === 0
           ? `<p class="rm-provenance">${escapeHtml('No people are on the Project Director roster yet, so there is nobody to assign. Add them on the Director page.')}</p>`
           : ''}
-        <label class="rm-toggle" title="${escapeAttr('Whether this item’s estimate assumes AI-assisted coding. Off grades the same work at ' + formatRoadmapDays(node.estimate.aiAssisted ? node.estimate.alternativeDays : node.estimate.days) + '.')}">
+        ${node.estimate.scale === 'agent'
+    // Withheld rather than shown disabled: the discount grades a person working
+    // with AI help, and on an agent it would be the same fact counted twice. A
+    // toggle that changes nothing is worse than no toggle.
+    ? `<p class="rm-provenance">${escapeHtml('Assigned to an agent, so this is estimated in agent wall-clock rather than working days. The AI-assistance discount does not apply — the agent is the assistance.')}</p>`
+    : `<label class="rm-toggle" title="${escapeAttr('Whether this item’s estimate assumes AI-assisted coding. Off grades the same work at ' + formatRoadmapDays(node.estimate.aiAssisted ? node.estimate.alternativeDays : node.estimate.days) + '.')}">
           <input type="checkbox" data-rm-field="aiAssisted" data-rm-node-id="${escapeAttr(node.id)}" ${node.estimate.aiAssisted ? 'checked' : ''} />
-          <span>AI-assisted estimate</span></label>
+          <span>AI-assisted estimate</span></label>`}
         <p class="rm-provenance">${escapeHtml(describeRoadmapProvenance(node))}</p>
         <div class="rm-node-actions">
           <button type="button" class="action-link" data-action="roadmap-node-save" data-payload="${escapeAttr(node.id)}">Save</button>
@@ -15501,7 +15887,14 @@
           ${edText('Name', 'name', contact.name, 'Jane Doe')}
           ${edText('Title / role', 'title', contact.title, 'VP Product')}
           ${edText('Organisation', 'org', contact.org, '')}
+          ${edSelect('Kind', 'kind', contact.kind || 'person', [
+    { value: 'person', label: 'Person' },
+    { value: 'group', label: 'Team or group' },
+    { value: 'org', label: 'Organisation' },
+    { value: 'agent', label: 'AI agent' },
+  ])}
         </div>
+        <p class="list-meta">${escapeHtml('Kind is not a label. Roadmap work assigned to an AI agent is estimated in minutes rather than working days, because a duration means a different thing when nobody has to pick it up in the morning.')}</p>
         <div id="director-link-rows">
           ${existingLinks.map((link, index) => renderContactLinkRow(link, kinds, index === 0)).join('')}
         </div>

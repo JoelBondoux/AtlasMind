@@ -17,6 +17,8 @@ import type { SpecialistDomain, TaskModality, TaskReasoning } from '../types.js'
 import type { ModelRouter } from './modelRouter.js';
 import type { ProviderRegistry } from '../providers/index.js';
 import type { TaskProfiler } from './taskProfiler.js';
+import { dispatchGuardedCompletion, type EgressDestination } from './modelEgress.js';
+import { isLocalProviderId } from './backgroundMemoryPolicy.js';
 
 // ── Routing-need IDs (mirrors CommonRoutingNeedId in orchestrator) ──────────
 export type RoutingNeedId =
@@ -249,18 +251,17 @@ function parseClassifierResponse(raw: string, hasImageAttachment: boolean): Clas
   }
 }
 
-type CompletionProvider = {
-  complete(request: {
-    model: string;
-    messages: Array<{ role: string; content: string }>;
-    maxTokens: number;
-    temperature: number;
-  }): Promise<{ content: string }>;
-};
-
-function resolveProvider(model: string, router: ModelRouter, providers: ProviderRegistry, fallback: string): CompletionProvider | undefined {
+/**
+ * The shape the egress boundary needs, rather than a bespoke narrow one.
+ *
+ * This was a local structural type requiring `maxTokens` and `temperature`,
+ * which made the real adapter unassignable to the guarded dispatcher and would
+ * have pushed this call site into casting around the gate. Reusing
+ * `EgressDestination` keeps one definition of "somewhere a prompt can go".
+ */
+function resolveProvider(model: string, router: ModelRouter, providers: ProviderRegistry, fallback: string): EgressDestination | undefined {
   const metaProvider = router.getModelInfo(model)?.provider ?? fallback;
-  return providers.get(metaProvider) as CompletionProvider | undefined;
+  return providers.get(metaProvider);
 }
 
 export class ClassifierService {
@@ -307,14 +308,19 @@ export class ClassifierService {
 
     const promptSuffix = hasImageAttachment ? '\n(Note: the user has attached an image.)' : '';
     try {
-      const response = await provider.complete({
-        model,
-        messages: [
-          { role: 'system', content: CLASSIFIER_SYSTEM_PROMPT },
-          { role: 'user', content: `Prompt: ${trimmed.slice(0, 800)}${promptSuffix}` },
-        ],
-        maxTokens: 256,
-        temperature: 0,
+      const response = await dispatchGuardedCompletion({
+        provider,
+        origins: ['system-prompt', 'user-prompt'],
+        external: !isLocalProviderId(resolvedProvider),
+        request: {
+          model,
+          messages: [
+            { role: 'system', content: CLASSIFIER_SYSTEM_PROMPT },
+            { role: 'user', content: `Prompt: ${trimmed.slice(0, 800)}${promptSuffix}` },
+          ],
+          maxTokens: 256,
+          temperature: 0,
+        },
       });
 
       const parsed = parseClassifierResponse(response.content, hasImageAttachment);

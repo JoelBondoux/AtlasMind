@@ -40,7 +40,12 @@ describe('cost-aware CI workflow policy', () => {
     expect(workflow).toContain('os: [ubuntu-latest, windows-latest, macos-latest]');
     expect(workflow.match(/persist-credentials: false/g)).toHaveLength(2);
 
-    const actionReferences = [...workflow.matchAll(/^\s*uses:\s*([^\s]+)$/gm)].map(match => match[1]);
+    // `(\S+)` rather than `([^\s]+)$`: a trailing `# v7` comment is now kept
+    // beside each pin so the SHA is reviewable, and anchoring the *line* end
+    // made the match fail entirely — zero references, which this test's own
+    // length assertion catches, but only because that assertion is here.
+    // The SHA check below is unchanged and still anchors the captured ref.
+    const actionReferences = [...workflow.matchAll(/^\s*uses:\s*(\S+)/gm)].map(match => match[1]);
     expect(actionReferences.length).toBeGreaterThan(0);
     for (const actionReference of actionReferences) {
       expect(actionReference).toMatch(/@[0-9a-f]{40}$/);

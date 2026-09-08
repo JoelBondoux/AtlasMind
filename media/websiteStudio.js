@@ -815,12 +815,12 @@
           <div><dt>Mode</dt><dd>${escapeText(view.layout.mode)} · ${escapeText(sourceLabel(view.provenance.mode))}</dd></div>
           <div><dt>Width</dt><dd>${escapeText(view.layout.widthMode)} · ${escapeText(sourceLabel(view.provenance.widthMode))}</dd></div>
           <div><dt>Height</dt><dd>${escapeText(view.layout.heightMode)} · ${escapeText(sourceLabel(view.provenance.heightMode))}</dd></div>
-          <div><dt>Min width</dt><dd>${view.layout.minWidth ?? 'none'} · ${escapeText(sourceLabel(view.provenance.minWidth))}</dd></div>
-          <div><dt>Max width</dt><dd>${view.layout.maxWidth ?? 'none'} · ${escapeText(sourceLabel(view.provenance.maxWidth))}</dd></div>
-          <div><dt>Min height</dt><dd>${view.layout.minHeight ?? 'none'} · ${escapeText(sourceLabel(view.provenance.minHeight))}</dd></div>
-          <div><dt>Max height</dt><dd>${view.layout.maxHeight ?? 'none'} · ${escapeText(sourceLabel(view.provenance.maxHeight))}</dd></div>
+          <div><dt>Min width</dt><dd>${escapeText(view.layout.minWidth ?? 'none')} · ${escapeText(sourceLabel(view.provenance.minWidth))}</dd></div>
+          <div><dt>Max width</dt><dd>${escapeText(view.layout.maxWidth ?? 'none')} · ${escapeText(sourceLabel(view.provenance.maxWidth))}</dd></div>
+          <div><dt>Min height</dt><dd>${escapeText(view.layout.minHeight ?? 'none')} · ${escapeText(sourceLabel(view.provenance.minHeight))}</dd></div>
+          <div><dt>Max height</dt><dd>${escapeText(view.layout.maxHeight ?? 'none')} · ${escapeText(sourceLabel(view.provenance.maxHeight))}</dd></div>
           <div><dt>Wrap</dt><dd>${escapeText(view.layout.wrap)} · ${escapeText(sourceLabel(view.provenance.wrap))}</dd></div>
-          <div><dt>Order</dt><dd>${view.layout.order} · ${escapeText(sourceLabel(view.provenance.order))}</dd></div>
+          <div><dt>Order</dt><dd>${escapeText(view.layout.order)} · ${escapeText(sourceLabel(view.provenance.order))}</dd></div>
         </dl>
       </div>`;
     const component = responsiveNode(element.id)?.component;
@@ -841,7 +841,7 @@
         </select></label>
         ${selectedDefinition ? `<div class="field-pair">
           <label class="field"><span>Variant</span><select id="componentVariant"${readOnly}><option value="">Base</option>${selectedDefinition.variants.map(variant => `<option value="${escapeAttribute(variant.id)}"${variant.id === component?.variantId ? ' selected' : ''}>${escapeText(variant.label)}</option>`).join('')}</select></label>
-          <label class="field"><span>State</span><select id="componentState"${readOnly}>${selectedDefinition.states.map(candidate => `<option value="${candidate}"${candidate === component?.state ? ' selected' : ''}>${candidate}</option>`).join('')}</select></label>
+          <label class="field"><span>State</span><select id="componentState"${readOnly}>${selectedDefinition.states.map(candidate => `<option value="${escapeAttribute(candidate)}"${candidate === component?.state ? ' selected' : ''}>${escapeText(candidate)}</option>`).join('')}</select></label>
         </div>
         <div class="component-property-overrides">${(component?.properties ?? []).map(property => `<div class="component-property"><label class="field"><span>${escapeText(property.label)} <small>${escapeText(property.source)}</small></span><input data-component-property="${escapeAttribute(property.id)}" data-property-kind="${escapeAttribute(property.kind)}" value="${escapeAttribute(String(property.value))}"${property.kind === 'boolean' ? ' placeholder="true or false"' : ''}${readOnly} /></label>${property.source === 'instance' ? `<label class="component-reset"><input type="checkbox" data-reset-component-property="${escapeAttribute(property.id)}"${readOnly} /> Use inherited value</label>` : ''}</div>`).join('')}</div>` : ''}
         ${parentDefinition ? `<label class="field"><span>Parent slot</span><select id="componentSlot"${readOnly}><option value="">Unassigned</option>${parentDefinition.slots.filter(slot => slot.allowedKinds.length === 0 || slot.allowedKinds.includes(element.kind)).map(slot => `<option value="${escapeAttribute(slot.id)}"${slot.id === responsiveNode(element.id)?.componentSlot ? ' selected' : ''}>${escapeText(slot.label)}</option>`).join('')}</select></label>` : ''}
@@ -871,7 +871,7 @@
       <div class="asset-instance-inspector">
         <div class="responsive-head"><p class="responsive-title">Asset assignment</p><span class="source-chip">stable reference</span></div>
         <label class="field"><span>Asset</span><select id="nodeAsset"${readOnly}><option value="">No asset</option>${state.assets.map(asset => `<option value="${escapeAttribute(asset.id)}"${asset.id === contentStateNode?.assetRef ? ' selected' : ''}>${escapeText(asset.label)} · ${escapeText(asset.kind)}</option>`).join('')}</select></label>
-        ${assignedAsset ? `<p class="responsive-copy">${assignedAsset.width} × ${assignedAsset.height} · ${escapeText(assignedAsset.crop)} · focus ${assignedAsset.focalPoint.x}%, ${assignedAsset.focalPoint.y}% · ${assignedAsset.decorative ? 'decorative' : assignedAsset.altText ? 'alt text provided' : 'alt text missing'}</p>` : ''}
+        ${assignedAsset ? `<p class="responsive-copy">${escapeText(assignedAsset.width)} × ${escapeText(assignedAsset.height)} · ${escapeText(assignedAsset.crop)} · focus ${escapeText(assignedAsset.focalPoint.x)}%, ${escapeText(assignedAsset.focalPoint.y)}% · ${assignedAsset.decorative ? 'decorative' : assignedAsset.altText ? 'alt text provided' : 'alt text missing'}</p>` : ''}
         <div class="responsive-actions"><button type="button" class="secondary" id="applyNodeAsset"${readOnly}>Apply asset</button>${contentStateNode?.assetRef ? `<button type="button" class="danger subtle" id="removeNodeAsset"${readOnly}>Remove</button>` : ''}</div>
       </div>`;
     const presentations = contentStateNode?.contentStatePresentations ?? {};
@@ -881,7 +881,7 @@
         <label class="field"><span>Preview state</span><select id="previewContentState"${readOnly}><option value="default">Default content</option>${['empty', 'loading', 'error', 'success'].filter(candidate => presentations[candidate]).map(candidate => `<option value="${candidate}"${candidate === contentStateNode?.previewContentState ? ' selected' : ''}>${candidate}</option>`).join('')}</select></label>
         ${['empty', 'loading', 'error', 'success'].map(contentState => {
           const presentation = presentations[contentState] ?? { title: '', body: '', actionLabel: '', maturity: 'placeholder' };
-          return `<details class="content-state-row" data-content-state="${contentState}"${contentState === contentStateNode?.previewContentState ? ' open' : ''}><summary><strong>${contentState}</strong><span>${presentations[contentState] ? presentation.maturity : 'not designed'}</span></summary><div class="content-state-fields">
+          return `<details class="content-state-row" data-content-state="${contentState}"${contentState === contentStateNode?.previewContentState ? ' open' : ''}><summary><strong>${contentState}</strong><span>${presentations[contentState] ? escapeText(presentation.maturity) : 'not designed'}</span></summary><div class="content-state-fields">
             <label class="field"><span>Title</span><input class="state-title" value="${escapeAttribute(presentation.title)}"${readOnly} /></label>
             <label class="field"><span>Body</span><textarea class="state-body" rows="3"${readOnly}>${escapeText(presentation.body)}</textarea></label>
             <div class="field-pair"><label class="field"><span>Action label</span><input class="state-action" value="${escapeAttribute(presentation.actionLabel)}"${readOnly} /></label><label class="field"><span>Maturity</span><select class="state-maturity"${readOnly}>${['placeholder', 'draft', 'reviewed', 'approved'].map(candidate => `<option value="${candidate}"${candidate === presentation.maturity ? ' selected' : ''}>${candidate}</option>`).join('')}</select></label></div>
@@ -2602,12 +2602,12 @@
       return;
     }
     editor.innerHTML = state.assets.map(asset => '<details class="component-row asset-row" data-asset-id="' + escapeAttribute(asset.id) + '">'
-      + '<summary><strong>' + escapeText(asset.label) + '</strong><span>' + escapeText(asset.kind) + ' · ' + asset.width + ' × ' + asset.height + ' · ' + escapeText(asset.maturity) + '</span></summary>'
+      + '<summary><strong>' + escapeText(asset.label) + '</strong><span>' + escapeText(asset.kind) + ' · ' + escapeText(asset.width) + ' × ' + escapeText(asset.height) + ' · ' + escapeText(asset.maturity) + '</span></summary>'
       + '<div class="component-fields"><div class="field-pair"><label class="field"><span>Label</span><input class="asset-label" value="' + escapeAttribute(asset.label) + '" /></label>'
       + '<label class="field"><span>Kind</span><select class="asset-kind">' + ['image', 'illustration', 'icon', 'video-poster'].map(kind => '<option value="' + kind + '"' + (kind === asset.kind ? ' selected' : '') + '>' + kind + '</option>').join('') + '</select></label></div>'
       + '<div class="field-pair"><label class="field"><span>Source type</span><select class="asset-source-kind"><option value="workspace"' + (asset.source.kind === 'workspace' ? ' selected' : '') + '>Workspace-relative</option><option value="https"' + (asset.source.kind === 'https' ? ' selected' : '') + '>HTTPS</option></select></label>'
       + '<label class="field"><span>Validated reference</span><input class="asset-reference" value="' + escapeAttribute(asset.source.reference) + '" /></label></div>'
-      + '<div class="geometry-grid"><label><span>Width</span><input class="asset-width" type="number" min="1" max="100000" step="1" value="' + asset.width + '" /></label><label><span>Height</span><input class="asset-height" type="number" min="1" max="100000" step="1" value="' + asset.height + '" /></label><label><span>Focal X %</span><input class="asset-focal-x" type="number" min="0" max="100" step="0.1" value="' + asset.focalPoint.x + '" /></label><label><span>Focal Y %</span><input class="asset-focal-y" type="number" min="0" max="100" step="0.1" value="' + asset.focalPoint.y + '" /></label></div>'
+      + '<div class="geometry-grid"><label><span>Width</span><input class="asset-width" type="number" min="1" max="100000" step="1" value="' + escapeAttribute(asset.width) + '" /></label><label><span>Height</span><input class="asset-height" type="number" min="1" max="100000" step="1" value="' + escapeAttribute(asset.height) + '" /></label><label><span>Focal X %</span><input class="asset-focal-x" type="number" min="0" max="100" step="0.1" value="' + escapeAttribute(asset.focalPoint.x) + '" /></label><label><span>Focal Y %</span><input class="asset-focal-y" type="number" min="0" max="100" step="0.1" value="' + escapeAttribute(asset.focalPoint.y) + '" /></label></div>'
       + '<div class="field-pair"><label class="field"><span>Crop</span><select class="asset-crop">' + ['cover', 'contain', 'none'].map(crop => '<option value="' + crop + '"' + (crop === asset.crop ? ' selected' : '') + '>' + crop + '</option>').join('') + '</select></label><label class="field"><span>Maturity</span><select class="asset-maturity">' + ['placeholder', 'draft', 'reviewed', 'approved'].map(maturity => '<option value="' + maturity + '"' + (maturity === asset.maturity ? ' selected' : '') + '>' + maturity + '</option>').join('') + '</select></label></div>'
       + '<label class="field"><span>Alternative text</span><textarea class="asset-alt" rows="2">' + escapeText(asset.altText) + '</textarea></label>'
       + '<label class="component-reset"><input class="asset-decorative" type="checkbox"' + (asset.decorative ? ' checked' : '') + ' /> Decorative; store empty alternative text</label>'

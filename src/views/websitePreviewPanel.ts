@@ -23,7 +23,7 @@
  */
 
 import * as vscode from 'vscode';
-import { escapeHtml } from './webviewUtils.js';
+import { escapeHtml, webviewNonce } from './webviewUtils.js';
 
 /** Viewport widths the preview can be pinned to, for checking a responsive design. */
 export const PREVIEW_WIDTHS: ReadonlyArray<{ id: string; label: string; width: number | undefined }> = [
@@ -268,11 +268,13 @@ export function getWebsitePreviewHtml(cspSource: string, previewUrl: string, por
 </html>`;
 }
 
+/**
+ * The same nonce this panel's CSP depends on, from the platform CSPRNG.
+ *
+ * See `webviewNonce` in `webviewUtils.ts` for why a `Math.random()` nonce is
+ * equivalent to no nonce. This panel keeps its own shell (it needs a wider
+ * `frame-src`), but it must not keep its own weaker nonce.
+ */
 function getNonce(): string {
-  const chars = 'ABCDEFGHIJKLMNOPQRSTUVWXYZabcdefghijklmnopqrstuvwxyz0123456789';
-  let nonce = '';
-  for (let index = 0; index < 32; index += 1) {
-    nonce += chars.charAt(Math.floor(Math.random() * chars.length));
-  }
-  return nonce;
+  return webviewNonce();
 }

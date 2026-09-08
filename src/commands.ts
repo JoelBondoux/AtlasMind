@@ -275,7 +275,218 @@ export function registerCommands(
     );
   };
 
+  /**
+   * Write the producer's report into the repository.
+   *
+   * Each register is read in its own try/catch, and a failure leaves that
+   * section `undefined` rather than empty — the report then states the gap
+   * instead of implying there is nothing to report. A single wrapper would make
+   * one unreadable register look like a project with no risks.
+   */
+  const generateProducerReport = async (): Promise<void> => {
+    const atlas = requireAtlas();
+    if (!atlas) { return; }
+    const folder = vscode.workspace.workspaceFolders?.[0];
+    if (!folder) {
+      void vscode.window.showInformationMessage('Open a project folder before generating a producer report.');
+      return;
+    }
+
+    const [{ buildProducerReportInput }, { buildProducerReport }, fs, path] = await Promise.all([
+      import('./core/producerReportGather.js'),
+      import('./core/producerReport.js'),
+      import('node:fs/promises'),
+      import('node:path'),
+    ]);
+
+    const root = folder.uri.fsPath;
+    const ssotPath = vscode.workspace.getConfiguration('atlasmind').get<string>('ssotPath', 'project_memory');
+
+    let roadmapMarkdown: string | undefined;
+    try {
+      roadmapMarkdown = await fs.readFile(path.join(root, ssotPath, 'roadmap', 'improvement-plan.md'), 'utf8');
+    } catch { roadmapMarkdown = undefined; }
+
+    let version: string | undefined;
+    try {
+      version = (JSON.parse(await fs.readFile(path.join(root, 'package.json'), 'utf8')) as { version?: string }).version;
+    } catch { version = undefined; }
+
+    const { modelCatalogFreshness } = await import('./providers/modelCatalogFreshness.js');
+
+    // A comparison is only made when one is nominated. AtlasMind choosing a
+    // flagship on the user's behalf would be deciding what their saving is a
+    // saving *against*, which is the substance of the claim rather than a
+    // default.
+    const costRecords = atlas.costTracker.getWorkspaceRecords();
+    let comparisonNote: string | undefined;
+    const comparisonModelId = vscode.workspace.getConfiguration('atlasmind')
+      .get<string>('cost.comparisonModel', '').trim();
+    if (comparisonModelId) {
+      const { describeCounterfactual, summarizeCounterfactual } =
+        await import('./core/counterfactualPricing.js');
+      const info = atlas.modelRouter.getModelInfo(comparisonModelId);
+      comparisonNote = info
+        ? describeCounterfactual(summarizeCounterfactual(costRecords, {
+            modelId: comparisonModelId,
+            displayName: info.name || comparisonModelId,
+            inputPricePer1k: info.inputPricePer1k,
+            outputPricePer1k: info.outputPricePer1k,
+            // The router's own cache-read rate, rather than a rate invented
+            // here. A model with no cache-write price simply refuses records
+            // that used one.
+            cachedInputPricePer1k: atlas.modelRouter.cacheReadPricePer1k(info),
+            ...(info.cachedInputPricePer1k !== undefined
+              ? { cacheWritePricePer1k: info.cachedInputPricePer1k }
+              : {}),
+          }))
+        : `No comparison was made: "${comparisonModelId}" is not a model AtlasMind knows the price of.`;
+    }
+
+    const input = buildProducerReportInput({
+      projectName: folder.name,
+      generatedAt: new Date(),
+      // Every cost figure below is arithmetic against a committed price table, so
+      // the report states how old that table is rather than leaving a reader to
+      // assume the numbers are current.
+      pricingNote: modelCatalogFreshness(new Date()).note,
+      ...(comparisonNote ? { comparisonNote } : {}),
+      ...(version ? { version } : {}),
+      ...(roadmapMarkdown !== undefined ? { roadmapMarkdown } : {}),
+      ...(atlas.riskOversightManager.getConfig() ? { riskConfig: atlas.riskOversightManager.getConfig()! } : {}),
+      ...(atlas.deliveryManager.getConfig() ? { deliveryConfig: atlas.deliveryManager.getConfig()! } : {}),
+      costRecords: atlas.costTracker.getWorkspaceRecords(),
+    });
+
+    const artifacts = buildProducerReport(input);
+    // `operations/`, not a new `reports/`: SSOT_FOLDERS is a declared set, and a
+    // folder outside it is not something the memory manager or a purge knows
+    // about. A status report is an operational artefact, alongside delivery.json
+    // and project-director.json.
+    const outDir = path.join(root, ssotPath, 'operations');
+    await fs.mkdir(outDir, { recursive: true });
+    const mdPath = path.join(outDir, 'producer-report.md');
+    await Promise.all([
+      fs.writeFile(mdPath, artifacts.markdown, 'utf8'),
+      fs.writeFile(path.join(outDir, 'producer-report.html'), artifacts.html, 'utf8'),
+      // The model, for a portal or an MCP server to consume without a second
+      // gatherer. Written every time, so the three never drift apart.
+      fs.writeFile(path.join(outDir, 'producer-report.json'), artifacts.json, 'utf8'),
+    ]);
+
+    const open = await vscode.window.showInformationMessage(
+      `Producer report written to ${ssotPath}/operations/ (markdown, HTML and JSON).`,
+      'Open report',
+    );
+    if (open === 'Open report') {
+      await vscode.window.showTextDocument(await vscode.workspace.openTextDocument(vscode.Uri.file(mdPath)));
+    }
+  };
+
+  /**
+   * Prepare the report for GitHub Pages.
+   *
+   * Deliberately two commands rather than one flag on the first: generating a
+   * report for yourself and preparing one for the open internet are different
+   * decisions, and a single command with a setting would let the second happen
+   * because of a checkbox somebody ticked weeks ago.
+   */
+  const publishProducerReport = async (): Promise<void> => {
+    const atlas = requireAtlas();
+    if (!atlas) { return; }
+    const folder = vscode.workspace.workspaceFolders?.[0];
+    if (!folder) {
+      void vscode.window.showInformationMessage('Open a project folder before publishing a producer report.');
+      return;
+    }
+
+    const config = vscode.workspace.getConfiguration('atlasmind');
+    const [{ decidePublication, buildPublishableReport }, { renderProducerReportHtml, renderProducerReportMarkdown }, fs, path] =
+      await Promise.all([
+        import('./core/producerReportPublication.js'),
+        import('./core/producerReport.js'),
+        import('node:fs/promises'),
+        import('node:path'),
+      ]);
+
+    const root = folder.uri.fsPath;
+    const ssotPath = config.get<string>('ssotPath', 'project_memory');
+    const dataPath = path.join(root, ssotPath, 'operations', 'producer-report.json');
+
+    let data;
+    try {
+      data = JSON.parse(await fs.readFile(dataPath, 'utf8'));
+    } catch {
+      void vscode.window.showWarningMessage(
+        'No producer report to publish yet. Run "AtlasMind: Generate Producer Report" first.',
+      );
+      return;
+    }
+
+    // Asked at the moment it matters rather than cached: a repository can be
+    // made public between one publication and the next, and the warning is only
+    // worth anything if it describes the repository as it is now.
+    let visibility: 'public' | 'private' | 'unknown' = 'unknown';
+    try {
+      const { runGhOrThrow } = await import('./core/ghClient.js');
+      const raw = (await runGhOrThrow(root, ['repo', 'view', '--json', 'visibility', '-q', '.visibility'])).trim().toLowerCase();
+      visibility = raw === 'public' ? 'public' : raw === 'private' || raw === 'internal' ? 'private' : 'unknown';
+    } catch { visibility = 'unknown'; }
+
+    const decision = decidePublication(
+      {
+        enabled: config.get<boolean>('producerReport.publishEnabled', false),
+        sections: {
+          risks: config.get<boolean>('producerReport.publishRisks', false),
+          cost: config.get<boolean>('producerReport.publishCost', false),
+        },
+      },
+      visibility,
+    );
+
+    if (!decision.publish) {
+      void vscode.window.showInformationMessage(
+        `${decision.reason ?? 'Nothing to publish.'} Turn on "atlasmind.producerReport.publishEnabled" to prepare a page.`,
+      );
+      return;
+    }
+
+    const confirmed = await vscode.window.showWarningMessage(
+      `Prepare a public status page for ${folder.name}?`,
+      {
+        modal: true,
+        detail: [
+          ...decision.warnings,
+          '',
+          `Will publish: ${decision.publishedSections.join(', ')}.`,
+          decision.withheldSections.length > 0
+            ? `Withheld: ${decision.withheldSections.join(', ')}.`
+            : 'Nothing withheld.',
+        ].join('\n'),
+      },
+      'Prepare page',
+    );
+    if (confirmed !== 'Prepare page') { return; }
+
+    const publishable = buildPublishableReport(data, decision);
+    const siteDir = path.join(root, ssotPath, 'operations', 'producer-site');
+    await fs.mkdir(siteDir, { recursive: true });
+    await Promise.all([
+      fs.writeFile(path.join(siteDir, 'index.html'), renderProducerReportHtml(publishable.data), 'utf8'),
+      fs.writeFile(path.join(siteDir, 'index.md'), renderProducerReportMarkdown(publishable.data), 'utf8'),
+      fs.writeFile(path.join(siteDir, 'producer-report.json'), `${JSON.stringify(publishable.data, null, 2)}\n`, 'utf8'),
+    ]);
+
+    void vscode.window.showInformationMessage(
+      `Public page prepared in ${ssotPath}/operations/producer-site/. `
+      + 'Point GitHub Pages at that folder, or copy it into your Pages source, to serve it.',
+    );
+  };
+
   context.subscriptions.push(
+    vscode.commands.registerCommand('atlasmind.generateProducerReport', generateProducerReport),
+    vscode.commands.registerCommand('atlasmind.publishProducerReport', publishProducerReport),
+
     vscode.commands.registerCommand('atlasmind.openGettingStarted', async () => {
       await vscode.commands.executeCommand(
         'workbench.action.openWalkthrough',
@@ -361,6 +572,13 @@ export function registerCommands(
 
     vscode.commands.registerCommand('atlasmind.collapseAllSidebarTrees', async () => {
       await collapseAtlasMindSidebarTrees();
+    }),
+
+    vscode.commands.registerCommand('atlasmind.generateCommitMessage', async () => {
+      const atlas = requireAtlas();
+      if (!atlas) { return; }
+      const { generateCommitMessage } = await import('./views/commitMessageCommand.js');
+      await generateCommitMessage(atlas);
     }),
 
     vscode.commands.registerCommand('atlasmind.openPersonalityProfile', async () => {
@@ -2527,20 +2745,29 @@ async function draftSkillWithAtlas(atlas: AtlasMindContext, initialFolderPath?: 
 
   let draftSource: string;
   try {
-    const response = await provider.complete({
-      model,
-      temperature: 0.2,
-      maxTokens: 1600,
-      messages: [
-        {
-          role: 'system',
-          content: 'You write safe, minimal AtlasMind custom skill modules. Return only JavaScript source code for a CommonJS module.',
-        },
-        {
-          role: 'user',
-          content: buildSkillDraftPrompt({ skillId, goal }),
-        },
-      ],
+    const { dispatchGuardedCompletion } = await import('./core/modelEgress.js');
+    const { isLocalProviderId } = await import('./core/backgroundMemoryPolicy.js');
+    const response = await dispatchGuardedCompletion({
+      provider,
+      // The user names a goal, but the prompt around it is assembled by
+      // AtlasMind, so the part carrying the goal is labelled as the operator's.
+      origins: ['system-prompt', 'user-prompt'],
+      external: !isLocalProviderId(providerId),
+      request: {
+        model,
+        temperature: 0.2,
+        maxTokens: 1600,
+        messages: [
+          {
+            role: 'system',
+            content: 'You write safe, minimal AtlasMind custom skill modules. Return only JavaScript source code for a CommonJS module.',
+          },
+          {
+            role: 'user',
+            content: buildSkillDraftPrompt({ skillId, goal }),
+          },
+        ],
+      },
     });
     draftSource = extractGeneratedSkillCode(response.content);
   } catch (err) {

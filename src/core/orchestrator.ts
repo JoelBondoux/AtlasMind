@@ -14,6 +14,9 @@ import type { AgentRegistry } from './agentRegistry.js';
 import { resolveAgentSkillPolicy, type SkillsRegistry } from './skillsRegistry.js';
 import type { ModelRouter } from './modelRouter.js';
 import { estimateCacheablePrefixRatio } from './modelRouter.js';
+import type { EgressSecretConfirmer, ModelContextOrigin } from './modelEgress.js';
+import { dispatchGuardedCompletion, originsFromMessages } from './modelEgress.js';
+import { isLocalProviderId } from './backgroundMemoryPolicy.js';
 import { gradeExecutionQuality } from './executionQuality.js';
 import type { MemoryManager } from '../memory/memoryManager.js';
 import type { CostTracker } from './costTracker.js';
@@ -26,6 +29,8 @@ import { toJsonPreview, toTextPreview } from './toolPreview.js';
 import type { ToolWebhookDispatcher } from './toolWebhookDispatcher.js';
 import { Planner } from './planner.js';
 import { TaskScheduler } from './taskScheduler.js';
+import { startWorktreeRun, type WorktreeRun } from './worktreeRun.js';
+import { commandSignal } from './capabilityOffer.js';
 import type { TaskProfiler } from './taskProfiler.js';
 import { scanMemoryEntry, scanTransientContext } from '../memory/memoryScanner.js';
 import { discoverTools, shouldOfferToolDiscovery, TOOL_DISCOVERY_SKILL_ID } from './toolDiscovery.js';
@@ -468,6 +473,15 @@ interface TaskAttemptContext {
    * it can never call.
    */
   discoverableSkills?: SkillDefinition[];
+  /**
+   * Where this attempt's file operations resolve from, when it is not the
+   * workspace itself.
+   *
+   * Set for a subtask running in its own git worktree. Carried as a path and
+   * turned into a context inside the tool loop, so the derived context lives
+   * exactly as long as the calls that use it.
+   */
+  worktreePath?: string;
 }
 
 interface TaskExecutionAttempt {
@@ -498,6 +512,17 @@ interface CostEstimate {
   budgetCostUsd: number;
   /** USD saved by the prompt-cache discount on cached input tokens (pay-per-token / overflow only). */
   cacheSavingsUsd?: number;
+  /**
+   * Set when no price was known for the model, so `costUsd` is a placeholder
+   * rather than a measurement.
+   *
+   * A model the catalog does not price previously recorded `costUsd: 0`, which
+   * is indistinguishable from a genuinely free local model — real spend
+   * reporting as free, and flowing into cost-per-roadmap-item and the producer
+   * report as `$0.00`. The zero stays (there is nothing better to put there) but
+   * it now travels with the fact that it was never priced.
+   */
+  unpriced?: true;
 }
 
 type ProviderCompletionRequest = {
@@ -573,12 +598,15 @@ export class Orchestrator {
    */
   private readonly warmLocalModels = new Set<string>();
   private localAdmissionBudgetMs: number | undefined;
+  private egressSecretConfirmer: EgressSecretConfirmer | undefined;
   private readonly classifier: ClassifierService;
   private agentAutoUpdater?: AgentAutoUpdater;
   private dataPrivacy?: DataPrivacyManager;
   private onClassifiedContentForUntrustedModel?: OrchestratorHooks['onClassifiedContentForUntrustedModel'];
   private readSettingHook?: OrchestratorHooks['readSetting'];
   private resolveWorkflowStageLevelsHook?: OrchestratorHooks['resolveWorkflowStageLevels'];
+  private runGitHook?: OrchestratorHooks['runGit'];
+  private onSerialisedWritersHook?: OrchestratorHooks['onSerialisedWriters'];
 
   constructor(
     private agents: AgentRegistry,
@@ -606,6 +634,8 @@ export class Orchestrator {
     this.onClassifiedContentForUntrustedModel = hooks?.onClassifiedContentForUntrustedModel;
     this.readSettingHook = hooks?.readSetting;
     this.resolveWorkflowStageLevelsHook = hooks?.resolveWorkflowStageLevels;
+    this.runGitHook = hooks?.runGit;
+    this.onSerialisedWritersHook = hooks?.onSerialisedWriters;
     this.classifier = new ClassifierService(router, providers, taskProfiler);
     this.cfg = { ...defaultConfig, ...config };
 
@@ -976,6 +1006,47 @@ export class Orchestrator {
   }
 
   /**
+   * Describe a staged diff, for the Source Control commit box.
+   *
+   * A method of its own rather than a `summarizeText` call, and the reason is
+   * the origin label: `summarizeText` declares its user part `session-context`,
+   * which is true of prior conversation and false of a git diff. A diff is
+   * repository content — third-party code, generated output, vendored files —
+   * so it travels as `workspace-file`, which is redacted on the way out and
+   * held to that origin's size limit.
+   *
+   * Mislabelling it would have been invisible and wrong in the direction that
+   * matters: a diff carrying an API key would have been sent unredacted.
+   */
+  async draftCommitMessage(systemPrompt: string, diffPrompt: string): Promise<string> {
+    const constraints = this.withRoleModel({ budget: 'balanced', speed: 'fast' }, 'synthesisModelId');
+    const taskProfile = this.taskProfiler.profileTask({ userMessage: diffPrompt, phase: 'synthesis', requiresTools: false });
+    const model = this.router.selectModel(constraints, undefined, taskProfile);
+    const providerId = resolveProviderIdForModel(model, this.router, 'copilot');
+    const provider = this.providers.get(providerId);
+    if (!provider) {
+      throw new Error(`No provider available to draft a commit message (model: ${model}).`);
+    }
+    const response = await dispatchGuardedCompletion({
+      provider,
+      origins: ['system-prompt', 'workspace-file'],
+      external: !isLocalProviderId(providerId),
+      request: {
+        model,
+        messages: [
+          { role: 'system', content: systemPrompt },
+          { role: 'user', content: diffPrompt },
+        ],
+        maxTokens: 700,
+        // Low: a commit message describes what is in front of it. Invention is
+        // the failure mode, not dullness.
+        temperature: 0.2,
+      },
+    });
+    return response.content;
+  }
+
+  /**
    * Direct one-shot completion that bypasses agent selection, memory retrieval,
    * and all orchestration overhead. Used for internal summarization tasks where
    * the caller controls the full prompt.
@@ -990,14 +1061,21 @@ export class Orchestrator {
     if (!provider) {
       throw new Error(`No provider available for summarization (model: ${model}).`);
     }
-    const response = await provider.complete({
-      model,
-      messages: [
-        { role: 'system', content: systemPrompt },
-        { role: 'user', content: userPrompt },
-      ],
-      maxTokens: DEFAULT_CHAT_MAX_TOKENS,
-      temperature: 0.3,
+    const response = await dispatchGuardedCompletion({
+      provider,
+      // Summarisation: the user message is prior conversation, not something
+      // typed for this call.
+      origins: ['system-prompt', 'session-context'],
+      external: !isLocalProviderId(providerId),
+      request: {
+        model,
+        messages: [
+          { role: 'system', content: systemPrompt },
+          { role: 'user', content: userPrompt },
+        ],
+        maxTokens: DEFAULT_CHAT_MAX_TOKENS,
+        temperature: 0.3,
+      },
     });
     return response.content;
   }
@@ -1033,14 +1111,19 @@ export class Orchestrator {
       return '';
     }
     try {
-      const response = await provider.complete({
-        model,
-        messages: [
-          { role: 'system', content: systemPrompt },
-          { role: 'user', content: userPrompt },
-        ],
-        maxTokens: 1024,
-        temperature: 0.2,
+      const response = await dispatchGuardedCompletion({
+        provider,
+        origins: ['system-prompt', 'generated-instruction'],
+        external: !isLocalProviderId(providerId),
+        request: {
+          model,
+          messages: [
+            { role: 'system', content: systemPrompt },
+            { role: 'user', content: userPrompt },
+          ],
+          maxTokens: 1024,
+          temperature: 0.2,
+        },
       });
       // The local echo adapter (no configured endpoint, or the built-in `echo-1`
       // placeholder) just parrots the prompt back. That is not a real completion
@@ -1071,14 +1154,19 @@ export class Orchestrator {
       return '';
     }
     try {
-      const response = await provider.complete({
-        model,
-        messages: [
-          { role: 'system', content: systemPrompt },
-          { role: 'user', content: userPrompt },
-        ],
-        maxTokens: 3000,
-        temperature: 0.4,
+      const response = await dispatchGuardedCompletion({
+        provider,
+        origins: ['system-prompt', 'generated-instruction'],
+        external: !isLocalProviderId(providerId),
+        request: {
+          model,
+          messages: [
+            { role: 'system', content: systemPrompt },
+            { role: 'user', content: userPrompt },
+          ],
+          maxTokens: 3000,
+          temperature: 0.4,
+        },
       });
       // Never let the local echo stub's prompt-parrot leak as generated content;
       // callers fall back to template content on empty.
@@ -1121,16 +1209,21 @@ export class Orchestrator {
     if (!provider) {
       throw new Error('No model provider is configured. Add a provider before generating a website.');
     }
-    const response = await provider.complete({
-      model,
-      messages: [
-        { role: 'system', content: systemPrompt },
-        { role: 'user', content: userPrompt },
-      ],
-      maxTokens: 16_000,
-      // Low but not zero: this is a design task, and the structure is already
-      // pinned by the wireframe and the output contract.
-      temperature: 0.3,
+    const response = await dispatchGuardedCompletion({
+      provider,
+      origins: ['system-prompt', 'generated-instruction'],
+      external: !isLocalProviderId(providerId),
+      request: {
+        model,
+        messages: [
+          { role: 'system', content: systemPrompt },
+          { role: 'user', content: userPrompt },
+        ],
+        maxTokens: 16_000,
+        // Low but not zero: this is a design task, and the structure is already
+        // pinned by the wireframe and the output contract.
+        temperature: 0.3,
+      },
     });
     if (response.content.trimStart().startsWith(LOCAL_ECHO_RESPONSE_PREFIX)) {
       throw new Error('The selected model is the local echo placeholder, which cannot generate a website. Configure a real provider.');
@@ -1206,6 +1299,7 @@ export class Orchestrator {
         ...baseMessages,
         {
           role: 'user',
+          origin: 'system-prompt',
           content: [
             'Your previous attempt produced no response.',
             'Before asking the user for clarification, use the available workspace tools to investigate this request yourself.',
@@ -1326,14 +1420,23 @@ export class Orchestrator {
       return '';
     }
     try {
-      const response = await provider.complete({
-        model,
-        messages: [
-          { role: 'system', content: systemPrompt },
-          { role: 'user', content: userPrompt },
-        ],
-        maxTokens: 200,
-        temperature: 0.4,
+      const response = await dispatchGuardedCompletion({
+        provider,
+        // `userPrompt` splices the operator's message together with tool
+        // output. Mixed parts take the stricter origin: tool results are
+        // redacted, and redacting 800 characters of an internally-composed
+        // prompt costs less than relaying unredacted tool text.
+        origins: ['system-prompt', 'tool-result'],
+        external: !isLocalProviderId(providerId),
+        request: {
+          model,
+          messages: [
+            { role: 'system', content: systemPrompt },
+            { role: 'user', content: userPrompt },
+          ],
+          maxTokens: 200,
+          temperature: 0.4,
+        },
       });
       return response.content.trim();
     } catch {
@@ -1400,7 +1503,14 @@ export class Orchestrator {
   ): Promise<TaskResult> {
     const retrievalContext = (request.context['__preloadedRetrievalCtx'] as RetrievalContextBundle | undefined)
       ?? await this.buildRetrievalContext(request);
-    const turnCapabilities = deriveTurnCapabilityEnvelope(request.userMessage);
+    // Derived from this request's text, then narrowed by anything the caller
+    // was already restricted to. A subtask's text is planner-generated and will
+    // not repeat the user's "don't change anything", so without the
+    // intersection a read-only project run gave every subtask a clean slate.
+    const turnCapabilities = intersectTurnCapabilities(
+      deriveTurnCapabilityEnvelope(request.userMessage),
+      request.context['__inheritedCapabilityEnvelope'] as TurnCapabilityEnvelope | undefined,
+    );
     request.context['__turnCapabilityEnvelope'] = turnCapabilities;
     const eligibleAgentSkills = this.skills.getSkillsForAgent(agent).filter(skill =>
       isToolAllowedByTurnEnvelope(skill.id, {}, turnCapabilities),
@@ -1763,6 +1873,7 @@ export class Orchestrator {
     let aggregateInputTokens = 0;
     let aggregateOutputTokens = 0;
     let aggregateCachedInputTokens = 0;
+    let aggregateCacheWriteTokens = 0;
     let autoDisabledProvider: TaskResult['autoDisabledProvider'];
     const modelAttempts: TaskModelAttempt[] = [];
     // Seeded from earlier turns: an endpoint that has failed hard twice should
@@ -1956,6 +2067,9 @@ export class Orchestrator {
               // model plans around one it can never call.
               discoverableSkills: eligibleAgentSkills,
               allowDelegatedToolExecution: usesDelegatedAcpTools,
+              ...(typeof request.context['__worktreePath'] === 'string'
+                ? { worktreePath: request.context['__worktreePath'] }
+                : {}),
               // Reuse expected → let cache-capable providers write the stable
               // prefix even on tool-less turns (the agentic loop already caches
               // via tools; this covers threaded chat with a substantial prefix).
@@ -1982,6 +2096,7 @@ export class Orchestrator {
           aggregateInputTokens += taskAttempt.completion.inputTokens;
           aggregateOutputTokens += taskAttempt.completion.outputTokens;
           aggregateCachedInputTokens += taskAttempt.completion.cachedInputTokens ?? 0;
+          aggregateCacheWriteTokens += taskAttempt.completion.cacheWriteTokens ?? 0;
           attemptedModels.add(currentModel);
           modelAttempts.push({
             model: currentModel,
@@ -2282,6 +2397,13 @@ export class Orchestrator {
     const inputTokens = aggregateInputTokens || completion.inputTokens;
     const outputTokens = aggregateOutputTokens || completion.outputTokens;
     const cachedInputTokens = aggregateCachedInputTokens || (completion.cachedInputTokens ?? 0);
+    // Kept `undefined` when the provider said nothing, rather than defaulted to
+    // 0 like the read count above. Absent means "not reported", and
+    // `assessRepricing` distinguishes that from a genuine zero to decide whether
+    // this request may carry a counterfactual figure at all.
+    const cacheWriteTokens = aggregateCacheWriteTokens > 0
+      ? aggregateCacheWriteTokens
+      : completion.cacheWriteTokens;
     const estimatedCompressionSavingsUsd = compressionEnabled
       ? Math.max(0, (estimateTokens(String((request.context['sessionContext'] ?? '') + '\n' + (request.context['nativeChatContext'] ?? '') + '\n' + (request.context['attachmentContext'] ?? ''))) - estimateTokens(String(completion.content))) * ((this.router.getModelInfo(modelUsed)?.inputPricePer1k ?? 0) / 1000))
       : 0;
@@ -2339,11 +2461,19 @@ export class Orchestrator {
       ...(finalCost.providerId ? { providerId: finalCost.providerId } : {}),
       ...(finalCost.pricingModel ? { pricingModel: finalCost.pricingModel } : {}),
       billingCategory: finalCost.billingCategory,
+      // Attribution is an inference from the session the work began in, so it
+      // travels with its provenance. A surface showing the cost of a roadmap
+      // item must be able to say it was inferred rather than asserted.
+      ...(typeof request.context['roadmapItemId'] === 'string' && request.context['roadmapItemId']
+        ? { roadmapItemId: request.context['roadmapItemId'], roadmapAttribution: 'session' as const }
+        : {}),
       ...(typeof request.context['chatSessionId'] === 'string' ? { sessionId: request.context['chatSessionId'] } : {}),
       ...(typeof request.context['chatMessageId'] === 'string' ? { messageId: request.context['chatMessageId'] } : {}),
       inputTokens,
       outputTokens,
       ...(cachedInputTokens > 0 ? { cachedInputTokens } : {}),
+      ...(cacheWriteTokens !== undefined ? { cacheWriteTokens } : {}),
+      ...(finalCost.unpriced ? { unpriced: true as const } : {}),
       costUsd: costUsd,
       budgetCostUsd: finalCost.budgetCostUsd,
       compressionSavingsUsd: estimatedCompressionSavingsUsd,
@@ -2441,6 +2571,12 @@ export class Orchestrator {
     const startMs = Date.now();
     const signal = options?.signal;
 
+    // What the goal itself permits, carried into every subtask below. A
+    // subtask's own text is the planner's description of the work and will not
+    // repeat a restriction the user put on the goal, so re-deriving per subtask
+    // silently discarded it.
+    const goalCapabilities = deriveTurnCapabilityEnvelope(goal);
+
     // 1. Plan
     const planner = new Planner(this.router, this.providers, this.taskProfiler, this.memory, this.skills);
     let plan: ProjectPlan;
@@ -2493,48 +2629,59 @@ export class Orchestrator {
       throw new Error(projectBudget.reason ?? 'AtlasMind blocked project execution because the daily cost limit has been reached.');
     }
 
-    // 2. Execute subtasks in parallel batches
+    // 2. Execute subtasks in waves — parallel where nothing can collide, one at
+    //    a time where two subtasks would write the same tree.
     const scheduler = new TaskScheduler();
-    const subTaskResults = await scheduler.execute(
-      plan,
-      async (task, depOutputs) => {
-        if (signal?.aborted) {
-          throw new Error('Project execution cancelled.');
-        }
-        onProgress?.({
-          type: 'subtask-start',
-          subTaskId: task.id,
-          title: task.title,
-          batchSize: 1,
-        });
-        const result = await this.executeSubTask(
-          task,
-          depOutputs,
-          constraints,
-          onProgress,
-          goal,
-          signal,
-          options?.sessionContextBundle,
-          options?.sessionContext,
-        );
-        // Propagate billing abort as a thrown error so the scheduler's
-        // Promise.all immediately rejects and no further batches execute.
-        if (result.billingAbort) {
-          throw new Error(result.error ?? 'Provider billing limit reached — project aborted.');
-        }
-        return result;
-      },
-      {
-        initialResults: options?.resumeFromResults,
-        onProgress: ({ result, completed, total }) => {
-          onProgress?.({ type: 'subtask-done', result, completed, total });
+    const isolation = this.startWorktreeIsolation(plan.id, onProgress);
+    let subTaskResults: SubTaskResult[];
+    try {
+      subTaskResults = await scheduler.execute(
+        plan,
+        async (task, depOutputs) => {
+          if (signal?.aborted) {
+            throw new Error('Project execution cancelled.');
+          }
+          onProgress?.({
+            type: 'subtask-start',
+            subTaskId: task.id,
+            title: task.title,
+            batchSize: 1,
+          });
+          const result = await this.executeSubTask(
+            task,
+            depOutputs,
+            constraints,
+            onProgress,
+            goal,
+            signal,
+            options?.sessionContextBundle,
+            options?.sessionContext,
+            goalCapabilities,
+            isolation.worktreeFor(task.id),
+          );
+          // Propagate billing abort as a thrown error so the scheduler's
+          // Promise.all immediately rejects and no further batches execute.
+          if (result.billingAbort) {
+            throw new Error(result.error ?? 'Provider billing limit reached — project aborted.');
+          }
+          return result;
         },
-        onBatchStart: ({ batchIndex, totalBatches, batchSize, subTaskIds }) => {
-          onProgress?.({ type: 'batch-start', batchIndex, totalBatches, batchSize, subTaskIds });
+        {
+          initialResults: options?.resumeFromResults,
+          onProgress: ({ result, completed, total }) => {
+            onProgress?.({ type: 'subtask-done', result, completed, total });
+          },
+          onBatchStart: ({ batchIndex, totalBatches, batchSize, subTaskIds }) => {
+            onProgress?.({ type: 'batch-start', batchIndex, totalBatches, batchSize, subTaskIds });
+          },
+          beforeBatch: options?.beforeBatch,
+          afterBatch: async ({ subTaskIds }) => { await isolation.afterBatch(subTaskIds); },
+          partitionBatch: isolation.partitionBatch,
         },
-        beforeBatch: options?.beforeBatch,
-      },
-    );
+      );
+    } finally {
+      await isolation.finish();
+    }
 
     // 3. Synthesize
     onProgress?.({ type: 'synthesizing' });
@@ -2555,6 +2702,29 @@ export class Orchestrator {
     };
   }
 
+  /**
+   * Worktree placement for one run, bound to this orchestrator's settings and
+   * host capabilities.
+   *
+   * The decisions live in `worktreeRun` rather than here, because the wiring is
+   * exactly where a correct policy gets routed around and it is worth a test
+   * suite of its own. This supplies the four facts only the orchestrator knows.
+   */
+  private startWorktreeIsolation(
+    runId: string,
+    onProgress?: (update: ProjectProgressUpdate) => void,
+  ): WorktreeRun {
+    return startWorktreeRun({
+      runId,
+      workspaceRoot: this.skillContext.workspaceRootPath,
+      runGit: this.runGitHook,
+      canRerootSkillContext: typeof this.skillContext.withResolutionRoot === 'function',
+      isolationEnabled: this.readSetting<boolean>('execution.worktreeIsolation', false) === true,
+      onNotice: message => onProgress?.({ type: 'notice', message }),
+      ...(this.onSerialisedWritersHook ? { onSerialisedWriters: this.onSerialisedWritersHook } : {}),
+    });
+  }
+
   /** Execute a single subtask with an ephemeral role-based agent. */
   private async executeSubTask(
     task: SubTask,
@@ -2565,6 +2735,22 @@ export class Orchestrator {
     signal?: AbortSignal,
     sessionContextBundle?: import('../types.js').SessionContextBundle,
     sessionContext?: string,
+    /**
+     * What the turn that authorised this run was allowed to do.
+     *
+     * Passed down rather than re-derived, because the only text a subtask has
+     * is the planner's description of the work — which is about the work, not
+     * about the limits the user put on it.
+     */
+    inheritedCapabilities?: TurnCapabilityEnvelope,
+    /**
+     * The worktree this subtask is isolated in, when it has one.
+     *
+     * A path rather than a context: the derived context is built where the
+     * tools are actually run, so nothing in between can hold a live object that
+     * outlives the subtask and leak one run's resolution root into another.
+     */
+    worktreePath?: string,
   ): Promise<SubTaskResult> {
     const startMs = Date.now();
     const userMessage = buildProjectSubTaskMessage(task, depOutputs, projectGoal);
@@ -2615,6 +2801,8 @@ export class Orchestrator {
           projectTddPolicy: buildProjectTddPolicy(task, depOutputs, testingConfigForTask),
           ...(projectGoal ? { sessionContextBundle: projectBundle } : {}),
           ...(subTaskMethodologyId ? { __testingMethodologyHint: buildMethodologySystemPromptHint(subTaskMethodologyId) } : {}),
+          ...(inheritedCapabilities ? { __inheritedCapabilityEnvelope: inheritedCapabilities } : {}),
+          ...(worktreePath ? { __worktreePath: worktreePath } : {}),
         },
         constraints,
         timestamp: new Date().toISOString(),
@@ -2795,6 +2983,13 @@ export class Orchestrator {
   ): Promise<TaskResult & { stepwiseResults: SubTaskResult[] }> {
     const startMs = Date.now();
 
+    // Derived once, from what the user actually asked, and carried into every
+    // subtask. Without it the restriction applied only to the turn that planned
+    // the work and not to the turns that did it — a subtask's text is the
+    // planner's description of the job and never repeats "don't change
+    // anything".
+    const requestCapabilities = deriveTurnCapabilityEnvelope(request.userMessage);
+
     const planner = new Planner(this.router, this.providers, this.taskProfiler, this.memory, this.skills);
     let plan: ProjectPlan;
     try {
@@ -2814,17 +3009,28 @@ export class Orchestrator {
     let _completedCount = 0;
 
     const scheduler = new TaskScheduler();
+    // The same placement as a project run. A multi-step chat turn fans out over
+    // the same working tree and loses writes the same way; scheduling this one
+    // differently would mean the race were fixed depending on which surface
+    // started the work.
+    const isolation = this.startWorktreeIsolation(plan.id, onProgress);
     const subTaskResults = await scheduler.execute(
       plan,
       async (task, depOutputs) => {
         onProgress?.({ type: 'subtask-start', subTaskId: task.id, title: task.title, batchSize: 1 });
-        const result = await this.executeSubTask(task, depOutputs, request.constraints, onProgress);
+        const result = await this.executeSubTask(
+          task, depOutputs, request.constraints, onProgress,
+          '', undefined, undefined, undefined, requestCapabilities,
+          isolation.worktreeFor(task.id),
+        );
         if (result.billingAbort) {
           throw new Error(result.error ?? 'Provider billing limit reached.');
         }
         return result;
       },
       {
+        afterBatch: async ({ subTaskIds }) => { await isolation.afterBatch(subTaskIds); },
+        partitionBatch: isolation.partitionBatch,
         onProgress: ({ result, completed, total: t }) => {
           stepwiseResults.push(result);
           totalCostUsd += result.costUsd;
@@ -2847,7 +3053,9 @@ export class Orchestrator {
           onProgress?.({ type: 'batch-start', batchIndex, totalBatches, batchSize, subTaskIds });
         },
       },
-    );
+      // Runs on the failure path too: a turn that stopped early is exactly the
+      // one with unmerged work somewhere the operator has not been told about.
+    ).finally(() => isolation.finish());
 
     onProgress?.({ type: 'synthesizing' });
     const synthesisResult = await this.synthesize(request.userMessage, subTaskResults, request.constraints);
@@ -2909,7 +3117,13 @@ export class Orchestrator {
       .join('\n\n');
 
     try {
-      const response = await provider.complete({
+      const response = await dispatchGuardedCompletion({
+        provider,
+        // The user part is entirely subtask output — tool results by another
+        // name, and untrusted for the same reason.
+        origins: ['system-prompt', 'tool-result'],
+        external: !isLocalProviderId(providerId),
+        request: {
         model,
         messages: [
           {
@@ -2933,6 +3147,7 @@ export class Orchestrator {
         maxTokens: DEFAULT_CHAT_MAX_TOKENS,
         temperature: 0.3,
         signal,
+        },
       });
       return { content: response.content, inputTokens: response.inputTokens, outputTokens: response.outputTokens };
     } catch {
@@ -2970,6 +3185,18 @@ export class Orchestrator {
     let verificationSummary: string | undefined;
     const startedAt = Date.now();
     const difficulty: DifficultySnapshot = { iterations: 0, failedToolCalls: 0, totalToolCalls: 0, elapsedMs: 0 };
+    /**
+     * Where this attempt's file operations land.
+     *
+     * Derived once, held only for the length of the loop, and never stored on
+     * the orchestrator — two subtasks run concurrently and a field would give
+     * one of them the other's tree. A host that cannot re-root keeps the shared
+     * context, which is safe because placement has already made such a subtask
+     * exclusive: it is alone in the working tree.
+     */
+    const skillContext = context.worktreePath
+      ? this.skillContext.withResolutionRoot?.(context.worktreePath) ?? this.skillContext
+      : this.skillContext;
     const workspaceToolBias = getWorkspaceToolBias(messages, tools);
     const forceWorkspaceToolBackedInvestigation = workspaceToolBias !== 'none';
     let workspaceRepromptCount = 0;
@@ -3092,9 +3319,11 @@ export class Orchestrator {
         ) {
           workspaceRepromptCount += 1;
           onProgress?.('The model answered without using workspace tools, so AtlasMind is re-prompting for direct repository evidence.');
-          messages.push({ role: 'assistant', content: completion.content });
+          messages.push({ role: 'assistant', origin: 'generated-instruction', content: completion.content });
           messages.push({
             role: 'user',
+            // AtlasMind's own instruction, not the operator's.
+            origin: 'system-prompt',
             content: selectWorkspaceToolUseReprompt(workspaceToolBias, workspaceRepromptCount, readonlyExplorationTurns > 0 || lastToolResults.length > 0),
           });
           continue;
@@ -3116,8 +3345,8 @@ export class Orchestrator {
           if (!tddCompletionRepromptDone) {
             tddCompletionRepromptDone = true;
             onProgress?.('AtlasMind detected a TDD-blocked change that was described but not applied — re-prompting to write the failing test and apply the fix.');
-            messages.push({ role: 'assistant', content: completion.content });
-            messages.push({ role: 'user', content: buildTddCompletionReprompt() });
+            messages.push({ role: 'assistant', origin: 'generated-instruction', content: completion.content });
+            messages.push({ role: 'user', origin: 'system-prompt', content: buildTddCompletionReprompt() });
             continue;
           }
           if (!tddBlockedCaveatApplied) {
@@ -3141,8 +3370,8 @@ export class Orchestrator {
         ) {
           completionIntegrityRepromptDone = true;
           onProgress?.('AtlasMind detected an incomplete delivery signal — re-prompting the agent to finish outstanding work or declare explicit blockers.');
-          messages.push({ role: 'assistant', content: completion.content });
-          messages.push({ role: 'user', content: buildCompletionIntegrityReprompt() });
+          messages.push({ role: 'assistant', origin: 'generated-instruction', content: completion.content });
+          messages.push({ role: 'user', origin: 'system-prompt', content: buildCompletionIntegrityReprompt() });
           continue;
         }
         // Verification-contradiction gate: the response claims success while the
@@ -3153,8 +3382,8 @@ export class Orchestrator {
           if (!verificationContradictionRepromptDone) {
             verificationContradictionRepromptDone = true;
             onProgress?.('AtlasMind detected a claim of success that contradicts a failing verification run — re-prompting the agent to reconcile.');
-            messages.push({ role: 'assistant', content: completion.content });
-            messages.push({ role: 'user', content: buildVerificationContradictionReprompt(verificationSummary) });
+            messages.push({ role: 'assistant', origin: 'generated-instruction', content: completion.content });
+            messages.push({ role: 'user', origin: 'system-prompt', content: buildVerificationContradictionReprompt(verificationSummary) });
             continue;
           }
           completion = {
@@ -3227,6 +3456,7 @@ export class Orchestrator {
       // Add the assistant's tool-call message to history
       messages.push({
         role: 'assistant',
+        origin: 'generated-instruction',
         content: completion.content,
         toolCalls: completion.toolCalls,
       });
@@ -3424,7 +3654,7 @@ export class Orchestrator {
 
             const effectiveTimeout = skill.timeoutMs ?? this.cfg.toolExecutionTimeoutMs;
             const result = await withTimeout(
-              skill.execute(toolCall.arguments, this.skillContext),
+              skill.execute(toolCall.arguments, skillContext),
               effectiveTimeout,
               `Tool "${toolCall.name}" timed out after ${effectiveTimeout}ms.`,
             );
@@ -3478,11 +3708,20 @@ export class Orchestrator {
       difficulty.elapsedMs = Date.now() - startedAt;
 
       for (const entry of toolResults) {
+        // The executable only, never the arguments: an argument list carries
+        // paths, tokens and queries, and the one question anything asks of this
+        // is which tool the project keeps reaching for.
+        const commandName = commandSignal(
+          typeof entry.toolCall.arguments?.['command'] === 'string'
+            ? entry.toolCall.arguments['command']
+            : '',
+        );
         toolArtifacts.push({
           toolName: entry.toolCall.name,
           durationMs: entry.durationMs,
           checkpointed: entry.checkpointed,
           resultPreview: toTextPreview(entry.result),
+          ...(commandName === undefined ? {} : { commandName }),
         });
       }
 
@@ -3490,7 +3729,12 @@ export class Orchestrator {
         this.rememberSuccessfulToolResolutions(context.userMessage, toolResults);
       }
 
-      if (this.postToolVerifier) {
+      // Not for an isolated subtask. The verifier reads the editor's own
+      // diagnostics, which describe the workspace copy of a file — and an
+      // isolated subtask edited a different copy, so the answer would be about
+      // a file it never touched. "No problems" about the wrong file is the
+      // worst result available here: a pass nobody earned.
+      if (this.postToolVerifier && !context.worktreePath) {
         const verificationTargets = toolResults
           .filter(result => result.shouldVerify)
           .map(result => ({
@@ -3516,6 +3760,7 @@ export class Orchestrator {
       for (const { toolCall, result } of toolResults) {
         messages.push({
           role: 'tool',
+          origin: 'tool-result',
           // Data Privacy fail-safe: withhold/redact confidential file reads and
           // classified content when the running model is not trusted.
           content: this.redactToolResultForModel(toolCall, result, model),
@@ -3552,7 +3797,7 @@ export class Orchestrator {
       if (!readonlyExplorationNudged && readonlyExplorationTurns >= READONLY_EXPLORATION_NUDGE_AFTER) {
         readonlyExplorationNudged = true;
         onProgress?.('AtlasMind has enough read-only evidence to stop searching and push for a concrete diagnosis or fix next.');
-        messages.push({ role: 'user', content: READONLY_EXPLORATION_REPROMPT });
+        messages.push({ role: 'user', origin: 'system-prompt', content: READONLY_EXPLORATION_REPROMPT });
         continue;
       }
 
@@ -3631,16 +3876,24 @@ export class Orchestrator {
       return cachedFailure;
     }
 
-    // Deny by default. Synthesis ends in `new Function(...)` over source a model
-    // wrote, evaluated in the extension host's own global scope — the single
+    // Deny by default. Synthesis evaluates source a model wrote — the single
     // most consequential thing AtlasMind can do, and it used to be reachable
-    // from any tool name the model happened to invent. Two facts compound:
-    // the model writing that code has just been fed workspace file contents, so
-    // a prompt injection in a dependency's README shares a context window with
-    // the code generator; and synthesis runs *before* the tool approval gate, so
-    // the code executed before anything asked. It is now an explicit setting the
-    // operator turns on, named in the refusal so the capability is discoverable
-    // without being silent.
+    // from any tool name the model happened to invent. The reason that survives
+    // every mitigation below it: the model writing that code has just been fed
+    // workspace file contents, so a prompt injection in a dependency's README
+    // shares a context window with the code generator. It is an explicit setting
+    // the operator turns on, named in the refusal so the capability is
+    // discoverable without being silent.
+    //
+    // Two claims that used to be here were stale and are worth correcting
+    // rather than deleting, because both were cited as evidence elsewhere.
+    // Evaluation is no longer `new Function(...)` in the extension host's global
+    // scope — since v0.434.0 it is a `node:vm` context with no ambient globals
+    // (`skillDrafting.ts` records what that does and does not close). And it is
+    // not true that "the code executed before anything asked": the *tool*
+    // approval gate does run later, but `generatedSkillApprovalGate` runs before
+    // evaluation, receives the scan result and the source, and fails closed when
+    // there is no surface to ask on.
     if (!this.readSetting<boolean>('skillAutoSynthesisEnabled', false)) {
       const error =
         `No skill is registered for tool "${toolName}", and skill auto-synthesis is disabled. ` +
@@ -3674,17 +3927,22 @@ export class Orchestrator {
 
     let source: string;
     try {
-      const response = await synthesisProvider.complete({
-        model: synthesisModel,
-        temperature: 0.2,
-        maxTokens: 1600,
-        messages: [
-          {
-            role: 'system',
-            content: 'You write safe, minimal AtlasMind custom skill modules. Return only JavaScript source code for a CommonJS module.',
-          },
-          { role: 'user', content: synthesisPrompt },
-        ],
+      const response = await dispatchGuardedCompletion({
+        provider: synthesisProvider,
+        origins: ['system-prompt', 'generated-instruction'],
+        external: !isLocalProviderId(synthesisProviderId),
+        request: {
+          model: synthesisModel,
+          temperature: 0.2,
+          maxTokens: 1600,
+          messages: [
+            {
+              role: 'system',
+              content: 'You write safe, minimal AtlasMind custom skill modules. Return only JavaScript source code for a CommonJS module.',
+            },
+            { role: 'user', content: synthesisPrompt },
+          ],
+        },
       });
       source = extractGeneratedSkillCode(response.content);
     } catch (err) {
@@ -3783,6 +4041,20 @@ export class Orchestrator {
   }
 
   /**
+   * How to ask before sending a credential the operator typed off-machine.
+   *
+   * The egress boundary never silently rewrites a user prompt, so a
+   * secret-shaped value in one has exactly two honest outcomes: ask, or refuse.
+   * Absent means refuse — which is right for background work with nobody to
+   * ask, and wrong for a chat turn, where refusing a paste the operator made
+   * deliberately would be a bug wearing safety's clothes. The host supplies
+   * this for the interactive path only.
+   */
+  public setEgressSecretConfirmer(confirm: EgressSecretConfirmer | undefined): void {
+    this.egressSecretConfirmer = confirm;
+  }
+
+  /**
    * Record that a model has answered, so the next attempt is not charged for a
    * model load that has already happened.
    *
@@ -3810,9 +4082,18 @@ export class Orchestrator {
     for (let attempt = 0; attempt <= maxRetries; attempt += 1) {
       const scoped = createProviderAttemptRequest(request, shouldAbortSupersededRequest(provider.providerId));
       try {
-        const execute = onTextChunk && provider.streamComplete
-          ? provider.streamComplete(scoped.request, onTextChunk)
-          : provider.complete(scoped.request);
+        // Cleared per attempt rather than once before the loop: each attempt
+        // re-scopes the request, and clearing the one that is actually sent is
+        // the only version of this that cannot drift. Redaction is string work
+        // on a path that only repeats on a transient failure.
+        const execute = dispatchGuardedCompletion({
+          provider,
+          origins: originsFromMessages(scoped.request.messages),
+          external: !isLocalProviderId(provider.providerId),
+          request: scoped.request,
+          ...(onTextChunk ? { onTextChunk } : {}),
+          ...(this.egressSecretConfirmer ? { confirmSecret: this.egressSecretConfirmer } : {}),
+        });
         const completion = await withTimeout(
           execute,
           timeoutMs,
@@ -3850,7 +4131,14 @@ export class Orchestrator {
       const scoped = createProviderAttemptRequest(request, shouldAbortSupersededRequest(provider.providerId));
       try {
         const completion = await withTimeout(
-          provider.streamComplete!(scoped.request, onTextChunk),
+          dispatchGuardedCompletion({
+            provider,
+            origins: originsFromMessages(scoped.request.messages),
+            external: !isLocalProviderId(provider.providerId),
+            request: scoped.request,
+            onTextChunk,
+            ...(this.egressSecretConfirmer ? { confirmSecret: this.egressSecretConfirmer } : {}),
+          }),
           timeoutMs,
           `Provider timed out after ${timeoutMs}ms.`,
         );
@@ -3922,8 +4210,8 @@ export class Orchestrator {
       const continuationPrompt = buildContinuationPrompt(combinedContent);
       currentMessages = [
         ...currentMessages,
-        { role: 'assistant', content: combinedContent },
-        { role: 'user', content: continuationPrompt },
+        { role: 'assistant', origin: 'generated-instruction', content: combinedContent },
+        { role: 'user', origin: 'system-prompt', content: continuationPrompt },
       ];
 
       const followUp = onTextChunk && provider.streamComplete
@@ -4512,14 +4800,22 @@ export class Orchestrator {
       },
       { role: 'user' as const, content: synthesisPrompt },
     ];
+    // Declared beside the messages so the two cannot fall out of step — a
+    // shorter origins list leaves the remainder unlabelled, which refuses.
+    const synthesisOrigins: readonly ModelContextOrigin[] = ['system-prompt', 'generated-instruction'];
 
     let raw: string;
     try {
-      const response = await synthesisProvider.complete({
-        model: synthesisModel,
-        temperature: 0.3,
-        maxTokens: 600,
-        messages: synthesisMessages,
+      const response = await dispatchGuardedCompletion({
+        provider: synthesisProvider,
+        origins: synthesisOrigins,
+        external: !isLocalProviderId(synthesisProviderId),
+        request: {
+          model: synthesisModel,
+          temperature: 0.3,
+          maxTokens: 600,
+          messages: synthesisMessages,
+        },
       });
       raw = extractAgentJson(response.content);
     } catch (firstErr) {
@@ -4533,11 +4829,16 @@ export class Orchestrator {
       const retryProvider = retryProviderId ? this.providers.get(retryProviderId) : undefined;
       if (retryProvider && retryModel && retryModel !== synthesisModel) {
         try {
-          const retryResponse = await retryProvider.complete({
-            model: retryModel,
-            temperature: 0.3,
-            maxTokens: 600,
-            messages: synthesisMessages,
+          const retryResponse = await dispatchGuardedCompletion({
+            provider: retryProvider,
+            origins: synthesisOrigins,
+            external: !isLocalProviderId(retryProviderId ?? ''),
+            request: {
+              model: retryModel,
+              temperature: 0.3,
+              maxTokens: 600,
+              messages: synthesisMessages,
+            },
           });
           raw = extractAgentJson(retryResponse.content);
         } catch (retryErr) {
@@ -4864,6 +5165,13 @@ export class Orchestrator {
     const messages: ChatMessage[] = [
       {
         role: 'system',
+        // `system-prompt` rather than the stricter `project-memory`, and the
+        // reason is checkable rather than a preference: `memoryLines` and
+        // `liveEvidenceLines` are the only repository-derived parts spliced in
+        // here, and both have already passed `redactSecretsWithWarning` and
+        // `privacyRedact` above. Re-labelling the whole prompt as memory would
+        // apply a 40k cap to AtlasMind's own instructions and truncate them.
+        origin: 'system-prompt',
         content:
           `${enforcedSystemPrompt}\n\n` +
           `Agent role: ${agent.role}\n` +
@@ -4907,6 +5215,7 @@ export class Orchestrator {
     if (supplementalContext.conversationMessage) {
       messages.push({
         role: 'user',
+        origin: 'session-context',
         content: supplementalContext.conversationMessage,
       });
     }
@@ -4914,6 +5223,7 @@ export class Orchestrator {
     if (supplementalContext.untrustedMessage) {
       messages.push({
         role: 'user',
+        origin: 'attachment',
         content: supplementalContext.untrustedMessage,
       });
     }
@@ -4921,12 +5231,19 @@ export class Orchestrator {
     if (lensContextMessage) {
       messages.push({
         role: 'user',
+        // A reading taken off a live third-party service: untrusted text with
+        // an authoritative-looking source, which is the tool-result case.
+        origin: 'tool-result',
         content: lensContextMessage,
       });
     }
 
+    // The four preceding blocks are all `role: 'user'` and none of them is
+    // what the operator typed. This is the one that is — which is why the
+    // boundary refuses to read origins off `role`.
     messages.push({
       role: 'user',
+      origin: 'user-prompt',
       content: userMessage,
       ...(imageAttachments.length > 0 ? { images: imageAttachments } : {}),
     });
@@ -4976,10 +5293,14 @@ export class Orchestrator {
   private estimateCostBreakdown(model: string, inputTokens: number, outputTokens: number, cachedInputTokens = 0): CostEstimate {
     const modelInfo = this.router.getModelInfo(model);
     if (!modelInfo) {
+      // Unknown model: there is no honest price to compute, and inventing one
+      // would be worse than reporting none. The zero is a placeholder, flagged
+      // so no surface can present it as "this was free".
       return {
         billingCategory: 'pay-per-token',
         costUsd: 0,
         budgetCostUsd: 0,
+        unpriced: true,
       };
     }
 
@@ -6081,6 +6402,52 @@ export function deriveTurnCapabilityEnvelope(userMessage: string): TurnCapabilit
     writesAllowed,
     commandsAllowed,
     ...(limits.length > 0 ? { reason: limits.join('; ') } : {}),
+  };
+}
+
+/**
+ * Combine an inherited capability envelope with a locally derived one.
+ *
+ * **Intersection, never union** — the same rule `agentHandoff` applies to
+ * skills, for the same reason: if delegating could widen what is permitted,
+ * every restriction becomes a suggestion, because the way past it is to ask
+ * something else to do the work.
+ *
+ * This exists because a turn's read-only choice did not survive into the work
+ * it authorised. `processTaskWithAgent` derives the envelope from
+ * `request.userMessage`, and a subtask's "message" is
+ * `buildProjectSubTaskMessage(...)` — text the planner generated, which says
+ * "Implement the token refresh" and has no reason to repeat the user's "don't
+ * change anything". So a read-only `/project` run derived a *permissive*
+ * envelope for every one of its subtasks, and the restriction the user asked
+ * for applied to precisely the turn that did no work.
+ *
+ * Absent inheritance leaves the local envelope untouched: an ordinary chat turn
+ * has nothing to inherit, and treating that as a restriction would deny
+ * everything.
+ */
+export function intersectTurnCapabilities(
+  derived: TurnCapabilityEnvelope,
+  inherited: TurnCapabilityEnvelope | undefined,
+): TurnCapabilityEnvelope {
+  if (!inherited) {
+    return derived;
+  }
+
+  const writesAllowed = derived.writesAllowed && inherited.writesAllowed;
+  const commandsAllowed = derived.commandsAllowed && inherited.commandsAllowed;
+
+  // Both reasons are kept and de-duplicated. A subtask restricted by the
+  // user's original turn *and* by its own text should say so once, not twice,
+  // and should not lose the fact that the restriction came from further up.
+  const reasons = [inherited.reason, derived.reason]
+    .filter((reason): reason is string => typeof reason === 'string' && reason.length > 0);
+  const reason = [...new Set(reasons)].join('; ');
+
+  return {
+    writesAllowed,
+    commandsAllowed,
+    ...(reason ? { reason } : {}),
   };
 }
 

@@ -409,7 +409,15 @@ function sanitizeFileName(id: string): string {
   return id.replace(/[^a-zA-Z0-9_-]/g, '_').slice(0, 100);
 }
 
-function normalizeWorkspaceKey(workspaceKey: string | undefined): string | undefined {
+/**
+ * Exported so cost records and run records key on the *same* string.
+ *
+ * `costRepricing` joins spend to runs by workspace, and a second normalizer
+ * would eventually disagree about a trailing slash or a drive-letter case on
+ * Windows — at which point the join silently matches nothing and the roadmap
+ * reports every project as having cost zero. One implementation, pinned by test.
+ */
+export function normalizeWorkspaceKey(workspaceKey: string | undefined): string | undefined {
   const trimmed = workspaceKey?.trim();
   if (!trimmed) {
     return undefined;

@@ -1461,5 +1461,8 @@ function markdownValue(value: string | undefined): string {
 }
 
 function escapeMarkdownCell(value: string): string {
-  return value.replace(/\|/g, '\\|').replace(/\r?\n/g, ' ');
+  // Backslash first, or it escapes the escape: a value ending in one turns the
+  // `\|` that follows into a literal backslash and a live pipe, which splits the
+  // cell and shifts every column after it. See `markdownCell` in `debtRegister`.
+  return value.replace(/\\/g, '\\\\').replace(/\|/g, '\\|').replace(/\r?\n/g, ' ');
 }

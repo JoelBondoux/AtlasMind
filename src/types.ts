@@ -1362,6 +1362,35 @@ export interface OrchestratorHooks {
    */
   resolveWorkflowStageLevels?: () => Promise<Record<string, import('./core/workflowAutomation.js').AutomationLevel> | undefined>;
 
+  /**
+   * Run one git command in the workspace and return its stdout.
+   *
+   * Its own hook rather than `SkillExecutionContext.runCommand`, for two
+   * reasons. It needs stdin, which `git apply -` requires and which no skill
+   * has ever needed — widening the skill surface so the orchestrator could
+   * pipe a patch would hand every model-driven tool a channel it has no use
+   * for. And it is not a tool: nothing here passes through tool approval,
+   * because the commands are constants in `worktreeManager` and
+   * `worktreeMerge`, never composed from a model's output.
+   *
+   * Absent means worktree isolation is unavailable, which the scheduler already
+   * handles by running writers one at a time.
+   */
+  runGit?: (args: readonly string[], cwd: string, stdin?: string) => Promise<string>;
+
+  /**
+   * This run is queueing subtasks behind each other only because worktree
+   * isolation is off, and how many.
+   *
+   * Fires at most once per run, and only when turning the setting on would
+   * genuinely have changed the run — never for a subtask that runs commands or
+   * a repository that cannot make worktrees. The host decides whether to
+   * interrupt: the first time this happens the progress line already explains
+   * it, and an offer is worth making once somebody has watched it cost them
+   * something.
+   */
+  onSerialisedWriters?: (count: number) => void;
+
   /** Gate function that determines whether a tool invocation should proceed. */
   toolApprovalGate?: (
     taskId: string,
@@ -1468,6 +1497,22 @@ export interface OrchestratorConfig {
 export interface SkillExecutionContext {
   /** Absolute filesystem path to the workspace root, or undefined if no workspace is open. */
   workspaceRootPath: string | undefined;
+  /**
+   * The same context with file paths resolving from somewhere else inside the
+   * workspace — how a subtask running in its own git worktree reaches its copy
+   * of a file rather than the one every other subtask is editing.
+   *
+   * Only the *resolution* root moves. The containment boundary stays the
+   * workspace folder, which is why isolation widens nothing: AtlasMind's
+   * worktrees live under `.git/`, so an isolated subtask is contained by exactly
+   * the rule an ordinary one is. See `resolveWithinWorkspace`.
+   *
+   * Optional, and its absence is a real answer rather than a gap: a host that
+   * cannot re-root file access cannot isolate a subtask, and the scheduler runs
+   * writers one at a time instead. Nothing here creates a worktree — the caller
+   * supplies a directory it has already made.
+   */
+  withResolutionRoot?(root: string): SkillExecutionContext;
   /** Search the in-memory SSOT index for relevant entries. */
   queryMemory(query: string, maxResults?: number): Promise<MemoryEntry[]>;
   /** Add or update an entry in the in-memory SSOT index and optionally persist to disk. */
@@ -4326,6 +4371,19 @@ export interface ToolExecutionArtifact {
   durationMs: number;
   checkpointed: boolean;
   resultPreview: string;
+  /**
+   * The executable a terminal command ran — the basename, and nothing else.
+   *
+   * Deliberately not the command line. An argument list carries paths, tokens,
+   * queries and file contents, and none of that is needed to know *which tool
+   * this project keeps reaching for*, which is the only question anything asks
+   * of this field (`capabilityOffer`). Storing the name alone means the record
+   * cannot leak something the redactor would have had to catch.
+   *
+   * Absent for every tool that is not a terminal command, and for a command
+   * whose executable could not be read.
+   */
+  commandName?: string;
 }
 
 export interface SubTaskExecutionArtifacts {
@@ -4522,6 +4580,13 @@ export type ProjectProgressUpdate =
   | { type: 'subtask-done'; result: SubTaskResult; completed: number; total: number }
   | { type: 'subtask-retry'; subTaskId: string; title: string; reason: string }
   | { type: 'synthesizing' }
+  /**
+   * Something the run did that the operator would want to know and that did not
+   * fail — how a batch was placed, what came back from a worktree, where work
+   * was left. Kept apart from `error` because a surface that renders the two the
+   * same teaches people that red means nothing.
+   */
+  | { type: 'notice'; message: string }
   | { type: 'error'; message: string };
 
 // ── Mission Loop (autonomous goal-seeking loop) ─────────────────
@@ -4826,8 +4891,57 @@ export interface CostRecord {
   messageId?: string;
   inputTokens: number;
   outputTokens: number;
-  /** Portion of `inputTokens` served from the provider's prompt cache, when reported. */
+  /**
+   * The workspace this request was made against.
+   *
+   * Cost history is stored per machine, so without this every project's spend
+   * lands in one undifferentiated list and "what did this project cost" has no
+   * answer — not a missing feature but an uncomputable question. Optional
+   * because records written before it existed cannot be back-filled: a record
+   * with no key is *unattributed*, never attributed to the current workspace.
+   */
+  workspaceKey?: string;
+  /**
+   * The roadmap item this spend was incurred against, when it is known.
+   *
+   * Deliberately here rather than on `ProjectRunRecord`: attribution is then a
+   * group-by rather than a cost→run→item join, and it works for the many chat
+   * turns that never create a run at all.
+   *
+   * Absent means unattributed, which is a real and common state — never
+   * "belongs to whatever item is selected".
+   */
+  roadmapItemId?: string;
+  /**
+   * How `roadmapItemId` came to be set.
+   *
+   * `session` is an inference: work began from a roadmap item and every turn in
+   * that chat session inherits it. That is right almost always and wrong when
+   * somebody wanders onto something else without starting a new session, so the
+   * provenance travels with the number and the surface shows it. An inference
+   * displayed as an assertion is the failure this field exists to prevent.
+   */
+  roadmapAttribution?: 'session' | 'explicit';
+  /**
+   * Set when no price was known for the model, so `costUsd` is a placeholder.
+   *
+   * `costUsd: 0` on an unrecognised model is indistinguishable from a genuinely
+   * free local model, and a surface that cannot tell them apart reports real
+   * spend as free. Anything totalling cost must count these separately rather
+   * than adding a zero.
+   */
+  unpriced?: true;
+  /** Portion of `inputTokens` served from the provider's prompt cache (a cache *read*), when reported. */
   cachedInputTokens?: number;
+  /**
+   * Portion of `inputTokens` written *into* the provider's prompt cache (a cache
+   * *write*), when reported.
+   *
+   * Reads and writes are priced differently and in opposite directions, so
+   * re-pricing this request against another model needs both. Absent means the
+   * provider did not report it — never zero. See `costRepricing.ts`.
+   */
+  cacheWriteTokens?: number;
   costUsd: number;
   budgetCostUsd?: number;
   compressionSavingsUsd?: number;

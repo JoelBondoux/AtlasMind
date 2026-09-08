@@ -1,4 +1,5 @@
 import { EnvironmentManager } from './core/environmentManager.js';
+import { resolveWithinWorkspace } from './core/workspaceBoundary.js';
 import * as vscode from 'vscode';
 import * as path from 'path';
 import * as os from 'os';
@@ -89,7 +90,7 @@ import {
 } from './providers/providerPricingSync.js';
 import { configureCurrencyFormatter, syncExchangeRates } from './core/currencyFormatter.js';
 import { syncLocalModels, isLocalSyncStale, LOCAL_MODEL_SYNC_CACHE_KEY, type LocalModelSyncResult } from './providers/localModelSync.js';
-import { syncLocalModelCatalog } from './providers/localModelCatalogSync.js';
+import { shouldSyncDownloadableCatalogue, syncLocalModelCatalog } from './providers/localModelCatalogSync.js';
 import type { DiscoveredModel } from './providers/adapter.js';
 import type { AgentDefinition, MemoryEntry, ModelInfo, ModelStruggleState, ProviderConfig, ProviderId, SkillDefinition, SkillExecutionContext, SkillScanResult, SpecialistDomain } from './types.js';
 import { ToolApprovalManager } from './core/toolApprovalManager.js';
@@ -293,6 +294,93 @@ let atlasStartupState: StartupState = {
   phase: 'not-started',
   startedAt: 0,
 };
+
+/**
+ * Point cost history at a file, and follow the location setting when it changes.
+ *
+ * The private location lives under the extension's global storage, keyed by a
+ * hash of the workspace path: project-scoped, so two projects never share a
+ * history, without putting the path itself in a filename.
+ *
+ * A change of setting **moves** the existing history rather than starting a new
+ * one — losing months of spend to a settings toggle would make the setting
+ * frightening, and a frightening setting is one nobody uses. Moving into the
+ * repository warns first, naming the file, because that is the point at which
+ * spend starts being committed.
+ */
+async function attachCostHistoryStore(
+  context: vscode.ExtensionContext,
+  costTracker: CostTracker,
+): Promise<void> {
+  const { createHash } = await import('node:crypto');
+  const path = await import('node:path');
+  const { costHistoryPaths, resolveCostHistoryLocation, costHistoryCommitWarning } =
+    await import('./core/costHistoryLocation.js');
+
+  const folder = vscode.workspace.workspaceFolders?.[0];
+  const resolvePath = (location: 'machine-private' | 'repository'): string | undefined => {
+    const segments = costHistoryPaths(location).segments;
+    if (location === 'repository') {
+      if (!folder) { return undefined; }
+      const ssotPath = vscode.workspace.getConfiguration('atlasmind').get<string>('ssotPath', 'project_memory');
+      return path.join(folder.uri.fsPath, ssotPath, ...segments);
+    }
+    const key = folder ? createHash('sha256').update(folder.uri.fsPath.toLowerCase()).digest('hex').slice(0, 16) : 'no-workspace';
+    return path.join(context.globalStorageUri.fsPath, 'cost-history', key, ...segments);
+  };
+
+  const readLocation = (): 'machine-private' | 'repository' =>
+    resolveCostHistoryLocation(vscode.workspace.getConfiguration('atlasmind').get('cost.historyLocation'));
+
+  let current = readLocation();
+  const initialPath = resolvePath(current);
+  if (initialPath) {
+    try {
+      await costTracker.attachHistoryFile(initialPath, current);
+    } catch {
+      // A history that cannot be attached leaves the in-memory tracker working.
+      // Spend still reports for this session; it simply is not durable yet.
+    }
+  }
+
+  context.subscriptions.push(
+    vscode.workspace.onDidChangeConfiguration(async event => {
+      if (!event.affectsConfiguration('atlasmind.cost.historyLocation')) { return; }
+      const next = readLocation();
+      if (next === current) { return; }
+      const target = resolvePath(next);
+      if (!target) { return; }
+
+      if (next === 'repository') {
+        const relative = vscode.workspace.asRelativePath(target);
+        const confirmed = await vscode.window.showWarningMessage(
+          'Store cost history in the repository?',
+          { modal: true, detail: costHistoryCommitWarning(relative) },
+          'Move it there',
+        );
+        if (confirmed !== 'Move it there') {
+          // Put the setting back, so the stored value never disagrees with where
+          // the data actually is.
+          await vscode.workspace.getConfiguration('atlasmind')
+            .update('cost.historyLocation', current, vscode.ConfigurationTarget.Workspace);
+          return;
+        }
+      }
+
+      try {
+        const summary = await costTracker.moveHistoryTo(target, next);
+        current = next;
+        void vscode.window.showInformationMessage(summary);
+      } catch {
+        void vscode.window.showWarningMessage(
+          'Cost history could not be moved. It is still in its previous location.',
+        );
+      }
+    }),
+  );
+
+  context.subscriptions.push({ dispose: () => { void costTracker.flushHistory(); } });
+}
 
 function loadStoredUserAgents(globalState: vscode.Memento): AgentDefinition[] {
   const raw = globalState.get<unknown[]>(USER_AGENTS_STORAGE_KEY, []);
@@ -1070,7 +1158,17 @@ function normalizeSsotPath(input: string | undefined): string | undefined {
 }
 
 function normalizeFsPathForComparison(value: string): string {
-  const normalized = path.resolve(value).replace(/[\\/]+$/, '');
+  // Trailing separators are trimmed with an index walk rather than `/[\\/]+$/`.
+  // An anchored `+` backtracks across a long run of separators once per starting
+  // position, so a path ending in thousands of slashes costs quadratic time —
+  // and this runs on paths that arrive from workspace configuration rather than
+  // from a person typing them.
+  const resolved = path.resolve(value);
+  let end = resolved.length;
+  while (end > 0 && (resolved[end - 1] === '/' || resolved[end - 1] === '\\')) {
+    end -= 1;
+  }
+  const normalized = resolved.slice(0, end);
   return process.platform === 'win32'
     ? normalized.toLowerCase()
     : normalized;
@@ -1131,6 +1229,41 @@ function isUriWithinSsotPath(
   return isPathEqualToOrWithin(candidatePath, ssotRootPath);
 }
 
+/** Words that make an HTML comment in a memory file look like an instruction to a model. */
+const SUSPICIOUS_COMMENT_WORDS = /ignore|forget|override|instruction/i;
+
+/**
+ * Replace HTML comments carrying instruction-shaped words, walking the string
+ * by index.
+ *
+ * An unterminated `<!--` ends the scan rather than being rewritten: there is no
+ * comment there, only a string that starts like one, and rewriting to the end of
+ * the file would delete the rest of somebody's notes.
+ */
+function scrubSuspiciousComments(content: string): string {
+  const OPEN = '<!--';
+  const CLOSE = '-->';
+  let out = '';
+  let index = 0;
+  for (;;) {
+    const start = content.indexOf(OPEN, index);
+    if (start === -1) {
+      break;
+    }
+    const end = content.indexOf(CLOSE, start + OPEN.length);
+    if (end === -1) {
+      break;
+    }
+    const comment = content.slice(start, end + CLOSE.length);
+    out += content.slice(index, start);
+    out += SUSPICIOUS_COMMENT_WORDS.test(comment)
+      ? '<!-- removed by AtlasMind memory self-heal -->'
+      : comment;
+    index = end + CLOSE.length;
+  }
+  return index === 0 ? content : out + content.slice(index);
+}
+
 export function applyMemorySelfHealingToContent(content: string): { content: string; changed: boolean; actions: string[] } {
   let next = content;
   const actions: string[] = [];
@@ -1141,7 +1274,13 @@ export function applyMemorySelfHealingToContent(content: string): { content: str
     actions.push('removed hidden Unicode control characters');
   }
 
-  const withoutInjectedComments = next.replace(/<!--[\s\S]*?(?:ignore|forget|override|instruction)[\s\S]*?-->/gi, '<!-- removed by AtlasMind memory self-heal -->');
+  // Comments are found by index rather than by pattern, and each one is then
+  // tested for the keywords. A regex — even a lazy one — rescans to the end of
+  // the file from every `<!--` that never closes, so a memory file of repeated
+  // `<!--` costs quadratic time. This function's whole job is reading files that
+  // may be hostile, so a pattern that degrades on input somebody chose is the
+  // wrong shape for it. Two indexOf walks are linear and say the same thing.
+  const withoutInjectedComments = scrubSuspiciousComments(next);
   if (withoutInjectedComments !== next) {
     next = withoutInjectedComments;
     actions.push('neutralized suspicious HTML comments');
@@ -1694,6 +1833,7 @@ async function bootstrapAtlasMind(
       sessionConversationModule,
       sessionContextManagerModule,
       memoryAgentModule,
+      backgroundMemoryPolicyModule,
       agentAutoUpdaterModule,
       skillAutoAssignerModule,
       runtimeCoreModule,
@@ -1712,7 +1852,8 @@ async function bootstrapAtlasMind(
       ardInstallerModule,
       localModelArbiterModule,
       gpuProbeModule,
-      localRuntimeClientModule
+      localRuntimeClientModule,
+      backgroundChatRunsModule
     ] = await Promise.all([
       import('./chat/participant.js'),
       import('./views/treeViews.js'),
@@ -1734,6 +1875,7 @@ async function bootstrapAtlasMind(
       import('./chat/sessionConversation.js'),
       import('./memory/sessionContextManager.js'),
       import('./memory/memoryAgent.js'),
+      import('./core/backgroundMemoryPolicy.js'),
       import('./core/agentAutoUpdater.js'),
       import('./core/skillAutoAssigner.js'),
       import('./runtime/core.js'),
@@ -1753,11 +1895,15 @@ async function bootstrapAtlasMind(
       import('./core/localModelArbiter.js'),
       import('./providers/gpuProbe.js'),
       import('./providers/localRuntimeClient.js'),
+      import('./views/chatBackgroundRuns.js'),
     ]);
 
     return {
       registerChatParticipant: chatParticipantModule.registerChatParticipant,
       registerTreeViews: treeViewsModule.registerTreeViews,
+      backgroundChatRuns: backgroundChatRunsModule.backgroundChatRuns,
+      describeBackgroundRuns: backgroundChatRunsModule.describeBackgroundRuns,
+      describeBackgroundRunsDetail: backgroundChatRunsModule.describeBackgroundRunsDetail,
       AnthropicAdapter: providersModule.AnthropicAdapter,
       BedrockAdapter: providersModule.BedrockAdapter,
       AcpAdapter: providersModule.AcpAdapter,
@@ -1797,6 +1943,12 @@ async function bootstrapAtlasMind(
       SessionConversation: sessionConversationModule.SessionConversation,
       SessionContextManager: sessionContextManagerModule.SessionContextManager,
       MemoryAgentExecutor: memoryAgentModule.MemoryAgentExecutor,
+      BackgroundFailureNotices: backgroundMemoryPolicyModule.BackgroundFailureNotices,
+      resolveBackgroundSummarizationMode: backgroundMemoryPolicyModule.resolveBackgroundSummarizationMode,
+      resolveMemorySelfHealingMode: backgroundMemoryPolicyModule.resolveMemorySelfHealingMode,
+      backgroundSummarizationRunsAtAll: backgroundMemoryPolicyModule.backgroundSummarizationRunsAtAll,
+      selfHealingMayScan: backgroundMemoryPolicyModule.selfHealingMayScan,
+      selfHealingMayWrite: backgroundMemoryPolicyModule.selfHealingMayWrite,
       AgentAutoUpdater: agentAutoUpdaterModule.AgentAutoUpdater,
       SkillAutoAssigner: skillAutoAssignerModule.SkillAutoAssigner,
       createAtlasRuntime: runtimeCoreModule.createAtlasRuntime,
@@ -1827,6 +1979,8 @@ async function bootstrapAtlasMind(
   const coreReady = await runTimedActivationStep('buildAtlasContext', outputChannel, async () => {
     const costTracker = new startupModules.CostTracker();
     costTracker.attachStorage(context.globalState);
+  costTracker.setWorkspaceKey(vscode.workspace.workspaceFolders?.[0]?.uri.fsPath);
+  void attachCostHistoryStore(context, costTracker);
     const memoryManager = new startupModules.MemoryManager();
     const skillsRefresh = new vscode.EventEmitter<void>();
     const agentsRefresh = new vscode.EventEmitter<void>();
@@ -1985,6 +2139,65 @@ async function bootstrapAtlasMind(
         + 'This changes window visibility, not process permissions. Click to open Models & Providers.';
       acpPrivateDesktopStatusBar.show();
     };
+
+    // ── Chat turns that outlived their window ──────────────────────────────
+    // Closing a chat used to abort it, which was defensible for a deliberate
+    // close and wrong for the case it also covered: VS Code disposes a sidebar
+    // view's webview when you click another view. A run that keeps going is
+    // still spending money and may still be editing files, so it is announced
+    // here and stoppable from here — closing the window is no longer the way to
+    // stop a run, and this is the way that replaces it.
+    const backgroundChatStatusBar = vscode.window.createStatusBarItem(
+      vscode.StatusBarAlignment.Right,
+      52,
+    );
+    backgroundChatStatusBar.command = 'atlasmind.showBackgroundChats';
+    context.subscriptions.push(backgroundChatStatusBar);
+    const refreshBackgroundChatStatusBar = () => {
+      const runs = startupModules.backgroundChatRuns.list();
+      const summary = startupModules.describeBackgroundRuns(runs);
+      if (!summary) {
+        backgroundChatStatusBar.hide();
+        return;
+      }
+      backgroundChatStatusBar.text = `$(sync~spin) ${summary}`;
+      backgroundChatStatusBar.tooltip = startupModules.describeBackgroundRunsDetail(runs);
+      backgroundChatStatusBar.show();
+    };
+    context.subscriptions.push(startupModules.backgroundChatRuns.onDidChange(refreshBackgroundChatStatusBar));
+    refreshBackgroundChatStatusBar();
+    context.subscriptions.push(vscode.commands.registerCommand('atlasmind.showBackgroundChats', async () => {
+      const runs = startupModules.backgroundChatRuns.list();
+      if (runs.length === 0) {
+        void vscode.window.showInformationMessage('No chat turns are running in the background.');
+        return;
+      }
+      const picked = await vscode.window.showQuickPick(
+        [
+          ...runs.map(run => ({
+            label: `$(comment-discussion) ${run.label}`,
+            description: 'Open the chat and read it',
+            detail: 'Its answer is being written to the session as it arrives.',
+            action: { kind: 'open' as const, taskId: run.taskId, sessionId: run.sessionId },
+          })),
+          ...runs.map(run => ({
+            label: `$(stop-circle) Stop: ${run.label}`,
+            description: 'End this run now',
+            detail: 'Whatever it has already written to your files stays written.',
+            action: { kind: 'stop' as const, taskId: run.taskId, sessionId: run.sessionId },
+          })),
+        ],
+        { title: 'Chat turns still running', placeHolder: 'Read one, or stop it' },
+      );
+      if (!picked) {
+        return;
+      }
+      if (picked.action.kind === 'stop') {
+        startupModules.backgroundChatRuns.stop(picked.action.taskId);
+        return;
+      }
+      await vscode.commands.executeCommand('atlasmind.openChat', { sessionId: picked.action.sessionId });
+    }));
 
     // ── Local GPU arbiter ──────────────────────────────────────────────────
     // Two local runtimes can share one graphics card, and neither can see the
@@ -2214,7 +2427,7 @@ async function bootstrapAtlasMind(
         return { approved: true };
       }
 
-      if (toolApprovalManager.shouldBypass(taskId, policy.category)) {
+      if (toolApprovalManager.shouldBypass(taskId, policy)) {
         return { approved: true };
       }
 
@@ -2288,6 +2501,43 @@ async function bootstrapAtlasMind(
           const { resolveWorkflowStageLevelsForRun } = await import('./chat/participant.js');
           return resolveWorkflowStageLevelsForRun();
         },
+        // Worktree isolation's git. Not a tool and not routed through
+        // `runCommand`: every command it runs is a constant in
+        // `worktreeManager` / `worktreeMerge`, and it needs stdin, which `git
+        // apply -` requires and no skill has ever wanted.
+        runGit: async (args, cwd, stdin) => {
+          // `encoding: 'buffer'` is load-bearing twice over. Without it the
+          // streams emit strings and `Buffer.concat` throws on the first call,
+          // which would look exactly like a repository that cannot make
+          // worktrees. And a patch is decoded once at the end rather than per
+          // chunk, so a multi-byte character split across a chunk boundary
+          // survives — a diff of a source file with any non-ASCII text in it.
+          const child = execFile('git', [...args], {
+            cwd,
+            windowsHide: true,
+            encoding: 'buffer',
+            maxBuffer: 64 * 1024 * 1024,
+          });
+          const stdout: Buffer[] = [];
+          const stderr: Buffer[] = [];
+          child.stdout?.on('data', (chunk: Buffer) => stdout.push(chunk));
+          child.stderr?.on('data', (chunk: Buffer) => stderr.push(chunk));
+          if (stdin !== undefined) {
+            child.stdin?.end(stdin);
+          }
+          return new Promise<string>((resolve, reject) => {
+            child.once('error', reject);
+            child.once('close', code => {
+              if (code === 0) {
+                resolve(Buffer.concat(stdout).toString('utf-8'));
+                return;
+              }
+              // stderr, because git says why a patch would not apply there and
+              // that sentence is what reaches the operator.
+              reject(new Error(Buffer.concat(stderr).toString('utf-8').trim() || `git ${args[0]} exited with ${code}.`));
+            });
+          });
+        },
         toolApprovalGate,
         generatedSkillApprovalGate,
         writeCheckpointHook,
@@ -2295,6 +2545,7 @@ async function bootstrapAtlasMind(
         onQuotaUpdated: (pid, rem, tot) => quotaUpdatedRef(pid, rem, tot),
         onModelOutcomeRecorded: outcomes => persistExecutionOutcomes(context.globalState, outcomes),
         onModelStruggleRecorded: signals => persistModelStruggleSignals(context.globalState, signals),
+        onSerialisedWriters: count => offerWorktreeIsolation(context, count),
         onClassifiedContentForUntrustedModel: ({ matches }) => {
           const kinds = [...new Set(matches.map(m => m.label))].slice(0, 3).join(', ') || 'confidential data';
           void vscode.window.showWarningMessage(
@@ -2451,11 +2702,57 @@ async function bootstrapAtlasMind(
     // request that queued politely is not then reported as a slow model.
     modelRouter.setResidentLocalModels(localModelArbiter.getState().residentModelIds);
     orchestrator.setLocalAdmissionBudgetMs(LOCAL_GPU_ADMISSION_WAIT_MS);
+
+    // A credential in the operator's own prompt is the one case the egress
+    // boundary will not decide alone: it never silently rewrites what somebody
+    // typed, so the choice is theirs. Wired only here, on the interactive path
+    // — background work has nobody to ask, and the boundary's default of
+    // refusing is the right answer there.
+    //
+    // The dialog names the rules that matched, never the value they matched.
+    orchestrator.setEgressSecretConfirmer(async ({ rules, reason }) => {
+      const sendRedacted = 'Send redacted';
+      const sendOriginal = 'Send as typed';
+      const choice = await vscode.window.showWarningMessage(
+        'This prompt looks like it contains a credential.',
+        {
+          modal: true,
+          detail: `${reason}\n\nMatched: ${rules.join(', ')}\n\n`
+            + 'AtlasMind does not rewrite what you typed without asking. '
+            + 'Sending it as typed transmits the credential to the model provider.',
+        },
+        sendRedacted,
+        sendOriginal,
+      );
+      if (choice === sendOriginal) { return 'send-original'; }
+      if (choice === sendRedacted) { return 'send-redacted'; }
+      // Dismissing a modal is not consent.
+      return 'cancel';
+    });
     context.subscriptions.push(
       localModelArbiter.onDidChange(state => {
         modelRouter.setResidentLocalModels(state.residentModelIds);
       }),
     );
+
+    /**
+     * Background memory diagnostics, deduplicated but never discarded.
+     *
+     * Replaces three silent `catch` blocks on this path. A background task that
+     * fails every cycle must not notify every cycle, and must not become
+     * invisible either — so the output channel always receives the line and the
+     * deduper only governs whether it is *raised*.
+     */
+    const backgroundFailureNotices = new startupModules.BackgroundFailureNotices();
+    const backgroundMemoryNotices = {
+      report: (signature: string, message: string): void => {
+        outputChannel.appendLine(`[AtlasMind] background memory: ${message}`);
+        if (backgroundFailureNotices.shouldNotify(signature)) {
+          outputChannel.appendLine('[AtlasMind] background memory: (further identical notices suppressed)');
+        }
+      },
+      clear: (): void => backgroundFailureNotices.clear(),
+    };
 
     // Wire the memory agent executor now that runtime is available.
     // It owns all memory maintenance LLM calls and respects the memory-agent's allowedModels config.
@@ -2465,6 +2762,24 @@ async function bootstrapAtlasMind(
       runtime.taskProfiler,
       memoryManager,
       runtime.agentRegistry,
+      {
+        // Read per call, so switching the setting off takes effect on the next
+        // cycle rather than at the next reload.
+        mode: () => startupModules.resolveBackgroundSummarizationMode(
+          vscode.workspace.getConfiguration('atlasmind').get('memory.backgroundSummarizationMode'),
+        ),
+        reporter: {
+          failure: (signature, message) => backgroundMemoryNotices.report(signature, message),
+          externalDispatch: (providerId) => {
+            // Stated before it happens, because a cloud fallback that nobody is
+            // told about is the specific thing this work exists to end.
+            outputChannel.appendLine(
+              `[AtlasMind] background memory: sending project-memory content to external provider "${providerId}" `
+              + '(atlasmind.memory.backgroundSummarizationMode is "routed").',
+            );
+          },
+        },
+      },
     );
     maintenanceCompleter = (sys: string, user: string) => memoryAgentExecutor.complete(sys, user);
 
@@ -2536,7 +2851,28 @@ async function bootstrapAtlasMind(
     }
 
     // Periodically refresh snippets for stale SSOT entries (max 3 per cycle to avoid cost spikes).
+    //
+    // Gated three ways, because this timer previously did all of the following
+    // merely because the extension activated: read project memory, send up to
+    // 4 000 characters of it to a routed model that could be a cloud provider,
+    // and write the reply back into project files — with every failure
+    // swallowed. See `docs/security-data-flow.md` §2.
+    //
+    // The mode is read inside the tick rather than captured at activation, so
+    // turning the setting off stops the next cycle rather than requiring a
+    // reload.
     const ssotSnippetRefreshHandle = setInterval(() => {
+      const summarizationMode = startupModules.resolveBackgroundSummarizationMode(
+        vscode.workspace.getConfiguration('atlasmind').get('memory.backgroundSummarizationMode'),
+      );
+      const selfHealingMode = startupModules.resolveMemorySelfHealingMode(
+        vscode.workspace.getConfiguration('atlasmind').get('memory.selfHealingMode'),
+      );
+      // Off means no file is read and no model is selected, not a request that
+      // is prepared and discarded.
+      if (!startupModules.backgroundSummarizationRunsAtAll(summarizationMode)) { return; }
+      if (!startupModules.selfHealingMayScan(selfHealingMode)) { return; }
+
       const ssotRoot = sessionContextManager.getSsotRoot();
       if (!ssotRoot) { return; }
       const stale = memoryAgentExecutor.detectStaleEntries();
@@ -2548,14 +2884,30 @@ async function bootstrapAtlasMind(
             const raw = await vscode.workspace.fs.readFile(fileUri);
             const content = Buffer.from(raw).toString('utf8');
             const newSnippet = await memoryAgentExecutor.summarizeSsotEntry(entryPath, content);
-            if (newSnippet) {
-              const entry = memoryManager.listEntries().find(e => e.path === entryPath);
-              if (entry) {
-                memoryManager.upsert({ ...entry, snippet: newSnippet });
-              }
+            if (!newSnippet) { continue; }
+
+            if (!startupModules.selfHealingMayWrite(selfHealingMode)) {
+              // Report-only and ask both stop here. A refreshed snippet that is
+              // computed and not written is reported rather than dropped, so
+              // "nothing happened" and "something was withheld" stay distinct.
+              backgroundMemoryNotices.report(
+                `snippet-withheld:${entryPath}`,
+                `A refreshed snippet for ${entryPath} was not written: memory self-healing is `
+                + `"${selfHealingMode}". Set atlasmind.memory.selfHealingMode to "apply" to write automatically.`,
+              );
+              continue;
             }
-          } catch {
-            // Silent — best-effort refresh only.
+
+            const entry = memoryManager.listEntries().find(e => e.path === entryPath);
+            if (entry) {
+              memoryManager.upsert({ ...entry, snippet: newSnippet });
+            }
+          } catch (error) {
+            backgroundMemoryNotices.report(
+              `snippet-refresh-failed:${entryPath}`,
+              `Background snippet refresh failed for ${entryPath}: `
+              + `${error instanceof Error ? error.message : String(error)}`,
+            );
           }
         }
       })();
@@ -3940,19 +4292,41 @@ async function bootstrapAtlasMind(
     await updateProviderStatusBar(coreReady.providerStatusBar, coreReady.providerRegistry, context.secrets, atlasContext!.modelRouter);
   });
   runBackgroundActivationTask('syncExchangeRates', outputChannel, async () => {
-    await syncExchangeRates(context.globalState);
+    // Nothing is fetched on a default installation: `displayCurrency` is USD,
+    // costs are recorded in USD, and no conversion is needed. The outcome is
+    // logged so a startup that *did* reach out says so.
+    const outcome = await syncExchangeRates(context.globalState, {
+      displayCurrency: vscode.workspace.getConfiguration('atlasmind').get<string>('displayCurrency', 'USD'),
+    });
+    if (outcome !== 'not-needed') {
+      outputChannel.appendLine(`[AtlasMind] Exchange rates: ${outcome}.`);
+    }
   });
+  // These two are sequenced rather than run in parallel, because the second
+  // depends on the answer to the first.
+  //
+  // `syncLocalModels` probes localhost only — that is what local-model discovery
+  // *is*, and nothing leaves the machine. `syncLocalModelCatalog` is a different
+  // proposition: it fetches from ollama.com and huggingface.co to enumerate
+  // models the user could *download*. It used to run unconditionally at every
+  // activation behind nothing but a TTL, so a fresh installation with no local
+  // runtime contacted two third parties on startup to build a catalogue of
+  // things it had no way to run. It now only asks once there is something on
+  // this machine to run them with.
   runBackgroundActivationTask('syncLocalModels', outputChannel, async () => {
     const cached = loadLocalModelSync(context.globalState);
-    if (cached && !isLocalSyncStale(cached)) return;
-    const result = await syncLocalModels();
-    if (result.models.length > 0) {
+    const stillFresh = cached !== undefined && !isLocalSyncStale(cached);
+    const result = stillFresh ? cached : await syncLocalModels();
+    if (!stillFresh && result.models.length > 0) {
       saveLocalModelSync(context.globalState, result);
       await atlasContext!.refreshProviderModels(false);
       outputChannel.appendLine(`[localModelSync] Synced ${result.models.length} local model(s) from ${result.reachableEndpoints.join(', ')}.`);
     }
-  });
-  runBackgroundActivationTask('syncLocalModelCatalog', outputChannel, async () => {
+
+    if (!shouldSyncDownloadableCatalogue(result)) {
+      outputChannel.appendLine('[localModelSync] No local model runtime found; skipping the downloadable-model catalogue.');
+      return;
+    }
     await syncLocalModelCatalog(context.globalState, context.extensionPath);
   });
 
@@ -4783,6 +5157,69 @@ function toDisplayModelName(modelId: string): string {
     .join(' ');
 }
 
+const WORKTREE_ADVICE_SUPPRESSED_KEY = 'atlasmind.worktreeIsolation.adviceSuppressed';
+const WORKTREE_SERIALISED_RUNS_KEY = 'atlasmind.worktreeIsolation.serialisedRuns';
+
+/**
+ * Offer worktree isolation to somebody who has now watched it cost them twice.
+ *
+ * **Not on the first run.** The run's own progress line already says why it is
+ * slower than it used to be, and an offer arriving alongside the explanation is
+ * an interruption before anybody has a reason to care. The second time is when
+ * "this is slow again" has become a thing that happens to you rather than a
+ * sentence you read.
+ *
+ * **Never blocking, and never applied to the run in flight.** The placement for
+ * this run is already decided, so the message says the change takes effect next
+ * time rather than implying it will rescue the run you are watching. A modal
+ * here would stop a run to talk about its speed.
+ *
+ * **Counted per project, suppressed per person.** How often this has happened is
+ * a fact about this repository; "stop telling me" is a fact about you, and
+ * keeping it in workspace state would make it something you had to say again in
+ * every project.
+ *
+ * **Written to your own settings, not the workspace's.** A workspace update
+ * lands in `.vscode/settings.json`, which is a tracked file in plenty of
+ * repositories — turning on a personal speed preference should not produce a
+ * diff for somebody to review. It is safe globally because placement re-checks
+ * every run: a project without git simply serialises writers anyway.
+ */
+function offerWorktreeIsolation(context: vscode.ExtensionContext, count: number): void {
+  if (context.globalState.get<boolean>(WORKTREE_ADVICE_SUPPRESSED_KEY) === true) {
+    return;
+  }
+
+  const seen = (context.workspaceState.get<number>(WORKTREE_SERIALISED_RUNS_KEY) ?? 0) + 1;
+  void context.workspaceState.update(WORKTREE_SERIALISED_RUNS_KEY, seen);
+  if (seen < 2) {
+    return;
+  }
+
+  void vscode.window.showInformationMessage(
+    `This run will do ${count} file-changing steps one at a time, so they cannot overwrite each `
+    + 'other. Worktree isolation lets them run together again, each in its own copy of your files.',
+    'Turn it on',
+    'Not now',
+    'Don\'t ask again',
+  ).then(choice => {
+    if (choice === 'Turn it on') {
+      void vscode.workspace.getConfiguration('atlasmind')
+        .update('execution.worktreeIsolation', true, vscode.ConfigurationTarget.Global)
+        .then(
+          () => vscode.window.showInformationMessage(
+            'Worktree isolation is on for your projects. It applies from your next run — this one is already placed.',
+          ),
+          error => vscode.window.showWarningMessage(
+            `Could not save the setting: ${error instanceof Error ? error.message : String(error)}`,
+          ),
+        );
+    } else if (choice === 'Don\'t ask again') {
+      void context.globalState.update(WORKTREE_ADVICE_SUPPRESSED_KEY, true);
+    }
+  });
+}
+
 /**
  * Build the skill execution context backed by VS Code workspace APIs.
  * Injected into the Orchestrator so skills remain testable in isolation.
@@ -4792,10 +5229,29 @@ function buildSkillExecutionContext(
   memoryRefresh: vscode.EventEmitter<void>,
   checkpointManager?: CheckpointManager,
   secrets?: vscode.SecretStorage,
+  /**
+   * Where this context's relative paths resolve from, when it is not the
+   * workspace folder — the git worktree an isolated subtask is running in.
+   *
+   * It moves resolution only. Every boundary check below still contains against
+   * the workspace folder, which is what makes isolation cost no widening: see
+   * `assertInsideWorkspace` and `resolveWithinWorkspace`.
+   */
+  resolutionRoot?: string,
 ): SkillExecutionContext {
-  return {
+  const context: SkillExecutionContext = {
     get workspaceRootPath() {
-      return vscode.workspace.workspaceFolders?.[0]?.uri.fsPath;
+      return resolutionRoot ?? vscode.workspace.workspaceFolders?.[0]?.uri.fsPath;
+    },
+
+    withResolutionRoot(root) {
+      const derived = buildSkillExecutionContext(memoryManager, memoryRefresh, checkpointManager, secrets, root);
+      // Delegation is installed on this context by the Orchestrator once it
+      // exists, so a context derived afterwards would otherwise be the one
+      // agent in the run unable to hand off — for a reason that looks like
+      // policy and is a missing assignment.
+      derived.runAgent = context.runAgent;
+      return derived;
     },
 
     queryMemory(query, maxResults) {
@@ -4819,14 +5275,14 @@ function buildSkillExecutionContext(
     },
 
     async readFile(absolutePath) {
-      const resolvedPath = await assertInsideWorkspace(absolutePath, 'readFile');
+      const resolvedPath = await assertInsideWorkspace(absolutePath, 'readFile', resolutionRoot);
       const uri = vscode.Uri.file(resolvedPath);
       const bytes = await vscode.workspace.fs.readFile(uri);
       return Buffer.from(bytes).toString('utf-8');
     },
 
     async writeFile(absolutePath, content) {
-      const resolvedPath = await assertInsideWorkspace(absolutePath, 'writeFile');
+      const resolvedPath = await assertInsideWorkspace(absolutePath, 'writeFile', resolutionRoot);
       const uri = vscode.Uri.file(resolvedPath);
       await vscode.workspace.fs.writeFile(uri, Buffer.from(content, 'utf-8'));
     },
@@ -4887,7 +5343,7 @@ function buildSkillExecutionContext(
       }
 
       const targetPath = absolutePath?.trim() || workspaceRoot;
-      const resolvedPath = await assertInsideWorkspace(targetPath, 'listDirectory');
+      const resolvedPath = await assertInsideWorkspace(targetPath, 'listDirectory', resolutionRoot);
       const dirEntries = await fs.readdir(resolvedPath, { withFileTypes: true }) as Array<{
         name: string;
         isDirectory(): boolean;
@@ -4909,7 +5365,7 @@ function buildSkillExecutionContext(
       }
 
       const cwdRaw = options?.cwd?.trim() || workspaceRoot;
-      const cwd = await assertInsideWorkspace(cwdRaw, 'runCommand');
+      const cwd = await assertInsideWorkspace(cwdRaw, 'runCommand', resolutionRoot);
 
       // Decide how to start this before starting it, and never through a shell.
       //
@@ -5158,13 +5614,13 @@ function buildSkillExecutionContext(
     },
 
     async deleteFile(absolutePath) {
-      const resolvedPath = await assertInsideWorkspace(absolutePath, 'deleteFile');
+      const resolvedPath = await assertInsideWorkspace(absolutePath, 'deleteFile', resolutionRoot);
       await vscode.workspace.fs.delete(vscode.Uri.file(resolvedPath), { recursive: false, useTrash: false });
     },
 
     async moveFile(sourcePath, destPath) {
-      const resolvedSource = await assertInsideWorkspace(sourcePath, 'moveFile');
-      const resolvedDest = await assertInsideWorkspace(destPath, 'moveFile');
+      const resolvedSource = await assertInsideWorkspace(sourcePath, 'moveFile', resolutionRoot);
+      const resolvedDest = await assertInsideWorkspace(destPath, 'moveFile', resolutionRoot);
       await vscode.workspace.fs.rename(vscode.Uri.file(resolvedSource), vscode.Uri.file(resolvedDest), { overwrite: true });
     },
 
@@ -5187,28 +5643,28 @@ function buildSkillExecutionContext(
     },
 
     async getDocumentSymbols(absolutePath) {
-      const resolvedPath = await assertInsideWorkspace(absolutePath, 'getDocumentSymbols');
+      const resolvedPath = await assertInsideWorkspace(absolutePath, 'getDocumentSymbols', resolutionRoot);
       const uri = vscode.Uri.file(resolvedPath);
       const symbols = await vscode.commands.executeCommand<unknown[]>('vscode.executeDocumentSymbolProvider', uri) ?? [];
       return symbols.map(symbol => serializeDocumentSymbol(symbol)).filter((value): value is { name: string; kind: string; range: string; children?: string[] } => Boolean(value));
     },
 
     async findReferences(absolutePath, line, column) {
-      const resolvedPath = await assertInsideWorkspace(absolutePath, 'findReferences');
+      const resolvedPath = await assertInsideWorkspace(absolutePath, 'findReferences', resolutionRoot);
       const uri = vscode.Uri.file(resolvedPath);
       const locations = await vscode.commands.executeCommand<unknown[]>('vscode.executeReferenceProvider', uri, new vscode.Position(line - 1, column - 1)) ?? [];
       return await serializeLocationsWithContext(locations);
     },
 
     async goToDefinition(absolutePath, line, column) {
-      const resolvedPath = await assertInsideWorkspace(absolutePath, 'goToDefinition');
+      const resolvedPath = await assertInsideWorkspace(absolutePath, 'goToDefinition', resolutionRoot);
       const uri = vscode.Uri.file(resolvedPath);
       const locations = await vscode.commands.executeCommand<unknown[]>('vscode.executeDefinitionProvider', uri, new vscode.Position(line - 1, column - 1)) ?? [];
       return normalizeLocationTargets(locations);
     },
 
     async renameSymbol(absolutePath, line, column, newName) {
-      const resolvedPath = await assertInsideWorkspace(absolutePath, 'renameSymbol');
+      const resolvedPath = await assertInsideWorkspace(absolutePath, 'renameSymbol', resolutionRoot);
       const uri = vscode.Uri.file(resolvedPath);
       const edit = await vscode.commands.executeCommand<vscode.WorkspaceEdit | undefined>(
         'vscode.executeDocumentRenameProvider',
@@ -5281,7 +5737,7 @@ function buildSkillExecutionContext(
     },
 
     async getCodeActions(absolutePath, startLine, startColumn, endLine, endColumn) {
-      const resolvedPath = await assertInsideWorkspace(absolutePath, 'getCodeActions');
+      const resolvedPath = await assertInsideWorkspace(absolutePath, 'getCodeActions', resolutionRoot);
       const uri = vscode.Uri.file(resolvedPath);
       const range = new vscode.Range(startLine - 1, startColumn - 1, endLine - 1, endColumn - 1);
       const actions = await vscode.commands.executeCommand<vscode.CodeAction[] | undefined>('vscode.executeCodeActionProvider', uri, range) ?? [];
@@ -5293,7 +5749,7 @@ function buildSkillExecutionContext(
     },
 
     async applyCodeAction(absolutePath, startLine, startColumn, endLine, endColumn, actionTitle) {
-      const resolvedPath = await assertInsideWorkspace(absolutePath, 'applyCodeAction');
+      const resolvedPath = await assertInsideWorkspace(absolutePath, 'applyCodeAction', resolutionRoot);
       const uri = vscode.Uri.file(resolvedPath);
       const range = new vscode.Range(startLine - 1, startColumn - 1, endLine - 1, endColumn - 1);
       const actions = await vscode.commands.executeCommand<vscode.CodeAction[] | undefined>('vscode.executeCodeActionProvider', uri, range) ?? [];
@@ -5509,6 +5965,7 @@ function buildSkillExecutionContext(
       return { removed: toRemove.length };
     },
   };
+  return context;
 }
 
 function serializeDocumentSymbol(symbol: unknown): { name: string; kind: string; range: string; children?: string[] } | undefined {
@@ -5846,48 +6303,32 @@ async function assertGitRepository(workspaceRoot: string): Promise<void> {
  * Uses realpath resolution so symlinks cannot tunnel reads or writes outside the
  * workspace boundary. Returns the resolved absolute path for use by callers.
  */
-async function assertInsideWorkspace(absolutePath: string, operation: string): Promise<string> {
+async function assertInsideWorkspace(
+  absolutePath: string,
+  operation: string,
+  /**
+   * Where a relative path resolves from, when it is not the workspace itself.
+   *
+   * A subtask running in its own worktree passes the worktree here, so
+   * `src/foo.ts` means the copy it is editing. The *boundary* is unaffected and
+   * stays the workspace folder — worktrees live under `.git/`, so an isolated
+   * subtask is contained by exactly the same rule as an ordinary one. Keeping
+   * the two separate is what stops a caller moving the boundary while meaning
+   * only to move the resolution.
+   */
+  resolveFrom?: string,
+): Promise<string> {
   const workspaceRoot = vscode.workspace.workspaceFolders?.[0]?.uri.fsPath;
   if (!workspaceRoot) {
     throw new Error(`${operation}: no workspace folder is open.`);
   }
 
-  const resolvedRoot = await fs.realpath(path.resolve(workspaceRoot));
-  // Resolve relative to workspaceRoot so models can pass workspace-relative paths.
-  const resolved = await resolveCanonicalPath(path.resolve(workspaceRoot, absolutePath));
-  const relative = path.relative(resolvedRoot, resolved);
-  if (relative.startsWith('..') || path.isAbsolute(relative)) {
-    throw new Error(
-      `${operation} is restricted to the workspace. ` +
-      `"${absolutePath}" resolves outside "${resolvedRoot}".`,
-    );
-  }
-  return resolved;
+  return resolveWithinWorkspace({
+    candidate: absolutePath,
+    resolveFrom: resolveFrom ?? workspaceRoot,
+    containWithin: workspaceRoot,
+    operation,
+    realpath: target => fs.realpath(target),
+  });
 }
 
-async function resolveCanonicalPath(targetPath: string): Promise<string> {
-  const pendingSegments: string[] = [];
-  let current = targetPath;
-
-  for (;;) {
-    try {
-      const canonical = await fs.realpath(current);
-      return pendingSegments.length > 0
-        ? path.join(canonical, ...pendingSegments.reverse())
-        : canonical;
-    } catch (error) {
-      const maybe = error as { code?: string };
-      if (maybe.code !== 'ENOENT') {
-        throw error;
-      }
-
-      const parsed = path.parse(current);
-      if (current === parsed.root) {
-        throw new Error(`Unable to resolve workspace path boundary for "${targetPath}".`);
-      }
-
-      pendingSegments.push(path.basename(current));
-      current = path.dirname(current);
-    }
-  }
-}

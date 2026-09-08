@@ -736,6 +736,9 @@ function renderProjectProgress(update: ProjectProgressUpdate): void {
     case 'synthesizing':
       process.stderr.write('Synthesizing final report...\n');
       break;
+    case 'notice':
+      process.stderr.write(`${update.message}\n`);
+      break;
     case 'error':
       process.stderr.write(`Error: ${update.message}\n`);
       break;

@@ -1,4 +1,4 @@
-import type { ToolApprovalMode, ToolInvocationPolicy } from '../types.js';
+import type { ToolApprovalMode, ToolInvocationPolicy, ToolRiskCategory } from '../types.js';
 import { parseGhInvocation } from '../skills/terminalRun.js';
 
 export function getToolApprovalMode(value: string | undefined): ToolApprovalMode {
@@ -170,6 +170,63 @@ export function classifyToolInvocation(
   }
 }
 
+/**
+ * What no bypass may waive.
+ *
+ * Autopilot and per-task bypass answer *stop asking me about this*, which is a
+ * reasonable thing to want and the reason the modes exist. What they should not
+ * be able to answer is *and never ask me again about anything*, because
+ * `shouldBypass` returned `true` for every category once autopilot was on — and
+ * autopilot is offered as an answer to any approval dialog, so a single click
+ * on a low-risk tool bought unattended approval for the rest of the session.
+ *
+ * The ceiling is deliberately **narrow**: one pair, matching four of the thirty-
+ * two classifications in this file. A ceiling over every `high` would prompt on
+ * ordinary file writes, and the friction that gets a gate switched off wholesale
+ * is a worse outcome than the gate being slightly permissive — the same
+ * reasoning that gave `network-read` its own category.
+ *
+ * The pair it does cover is the one where all three are true at once: it leaves
+ * this machine, it changes something there, and it cannot be taken back. That
+ * is `git push`, deleting a remote branch, and — the case that matters most —
+ * **any external tool AtlasMind could not identify**, since an unrecognised MCP
+ * tool falls here by name and was previously auto-approved under autopilot.
+ *
+ * `terminal-write` is deliberately absent. It has a ceiling already
+ * (`atlasmind.allowTerminalWrite`, default off, checked before any bypass), and
+ * that setting is the product's stated decision about model-run commands;
+ * adding a second per-invocation one would make autopilot useless for the
+ * autonomous runs it exists to serve.
+ */
+export const NEVER_BYPASSABLE_TOOLS: ReadonlyArray<{
+  category: ToolRiskCategory;
+  risk: ToolInvocationPolicy['risk'];
+  reason: string;
+}> = [
+  {
+    category: 'network',
+    risk: 'high',
+    reason: 'It changes something on another machine and cannot be undone from here.',
+  },
+];
+
+/**
+ * Why this invocation cannot be bypassed, or `undefined` if it can.
+ *
+ * Returns the reason rather than a boolean so a surface can say *why* it is
+ * still asking after the operator switched autopilot on — a dialog that
+ * reappears with no explanation reads as a bug in the bypass.
+ */
+export function toolBypassCeiling(policy: ToolInvocationPolicy): string | undefined {
+  return NEVER_BYPASSABLE_TOOLS
+    .find(rule => rule.category === policy.category && rule.risk === policy.risk)
+    ?.reason;
+}
+
+export function isToolBypassable(policy: ToolInvocationPolicy): boolean {
+  return toolBypassCeiling(policy) === undefined;
+}
+
 export function requiresToolApproval(mode: ToolApprovalMode, policy: ToolInvocationPolicy): boolean {
   switch (mode) {
     case 'always-ask':
@@ -182,10 +239,16 @@ export function requiresToolApproval(mode: ToolApprovalMode, policy: ToolInvocat
       // classifies here on its name alone, so under the default mode it ran and
       // shipped whatever it was asked for with no prompt at all.
       //
-      // The dialog volume this used to avoid is handled by the mechanism built
-      // for it rather than by an exemption: `ToolApprovalManager.bypassCategory`
-      // lets the first prompt of a task approve the category for the rest of it.
-      // One dialog per task, not per call — and never zero.
+      // The dialog volume this creates is currently carried by `bypass-task`,
+      // which the approval dialog does offer.
+      //
+      // `ToolApprovalManager.bypassCategory` exists for exactly this and is the
+      // narrower answer — approve *this category* for the rest of the task
+      // rather than everything — but nothing calls it: `ToolApprovalDecision`
+      // has four values and none of them is a per-category grant. An earlier
+      // version of this comment cited it as the mitigation, which described a
+      // wiring that was never built. The method and its ceiling behaviour are
+      // tested, so wiring it up is a UI change rather than a policy one.
       return policy.category !== 'read' && policy.category !== 'git-read';
     case 'ask-on-external':
       return policy.category === 'terminal-read' || policy.category === 'terminal-write' ||

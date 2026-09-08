@@ -39,7 +39,7 @@ const ROOT = path.resolve(path.dirname(fileURLToPath(import.meta.url)), '..');
 const FIXTURE = path.join(ROOT, 'tests', 'fixtures', 'vitest-junit-report.xml');
 
 /** The Vitest line the fixture was captured from. Re-capture when this moves. */
-const CAPTURED_FROM_VITEST = '^4.1';
+const CAPTURED_FROM_VITEST = '^5.0';
 
 const report = () => parseJUnitReport(readFileSync(FIXTURE, 'utf8'));
 

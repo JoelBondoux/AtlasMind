@@ -35,7 +35,17 @@ import {
   toApprovedLoopPrompt,
 } from '../chat/participant.js';
 import { classifyToolInvocation, getToolApprovalMode, requiresToolApproval } from '../core/toolPolicy.js';
+import type { GitApiLike } from './gitExtensionApi.js';
+import { getGitApi } from './gitExtensionApi.js';
 import { decideApprovalAttention } from '../core/approvalAttention.js';
+import {
+  backgroundChatRuns,
+  createDetachedChatHost,
+  selectBusyRun,
+  shouldDetachOnDispose,
+  toBackgroundRunLabel,
+  type BusyRunCandidate,
+} from './chatBackgroundRuns.js';
 import { extractSessionCarryForwardImages, resolvePickedImageAttachments } from '../chat/imageAttachments.js';
 import { buildChatWebviewHtml } from './chatWebviewMarkup.js';
 import { hasAiInstructionSyncFile, scanAiInstructionFiles, syncAiInstructionFiles } from '../utils/aiInstructionSync.js';
@@ -193,6 +203,15 @@ export interface ChatPanelTarget {
    */
   directResponse?: ChatPanelDirectResponse;
   contextPatch?: Record<string, unknown>;
+  /**
+   * The roadmap item this hand-off is work on.
+   *
+   * Distinct from `contextPatch`, which is cleared after one turn. Attribution
+   * has to survive the whole session, because almost all the work on an item is
+   * follow-up turns and attributing only the first would under-report so badly
+   * the figure would be useless.
+   */
+  roadmapItemId?: string;
   preserveFocus?: boolean;
 }
 
@@ -356,32 +375,60 @@ export class ChatPanel {
   public static lastUsedSurface: 'panel' | 'sidebar' | undefined;
   private static readonly viewType = 'atlasmind.chatPanel';
   private static readonly livePanels = new Set<ChatPanel>();
+  /**
+   * Panels whose surface is gone but whose run is still going.
+   *
+   * Kept apart from `livePanels` rather than left in it: these have nothing to
+   * draw to, so `syncAllPanels` must not try. They are collected for busy state
+   * and for stopping, which is the whole of adopting a detached run — the panel
+   * already resolved both through one lookup across every surface, and a
+   * detached run was invisible to it only because its panel had left the set.
+   */
+  private static readonly detachedPanels = new Set<ChatPanel>();
 
-  private static collectActiveExecutions(): ActivePromptExecution[] {
-    return [...ChatPanel.livePanels]
-      .map(panel => panel.activePromptExecution)
-      .filter((execution): execution is ActivePromptExecution => Boolean(execution));
+  private static collectBusyRuns(): Array<BusyRunCandidate<{ panel: ChatPanel; execution: ActivePromptExecution }>> {
+    const candidates: Array<BusyRunCandidate<{ panel: ChatPanel; execution: ActivePromptExecution }>> = [];
+    for (const [panels, detached] of [[ChatPanel.livePanels, false], [ChatPanel.detachedPanels, true]] as const) {
+      for (const panel of panels) {
+        const execution = panel.activePromptExecution;
+        if (execution) {
+          candidates.push({ sessionId: execution.sessionId, detached, execution: { panel, execution } });
+        }
+      }
+    }
+    return candidates;
+  }
+
+  private static findBusyPanel(sessionId?: string): { panel: ChatPanel; execution: ActivePromptExecution } | undefined {
+    return selectBusyRun(ChatPanel.collectBusyRuns(), sessionId)?.execution;
   }
 
   private static findBusyExecution(sessionId?: string): ActivePromptExecution | undefined {
-    const executions = ChatPanel.collectActiveExecutions();
-    if (sessionId) {
-      return executions.find(execution => execution.sessionId === sessionId) ?? executions[0];
-    }
-    return executions[0];
+    return ChatPanel.findBusyPanel(sessionId)?.execution;
   }
 
-  private static async syncAllPanels(): Promise<void> {
+  /**
+   * `reuseProviderList` matters here for the same reason it does on the instance:
+   * enumerating providers touches credential storage, and a streaming tick must
+   * not do that. The two once-per-turn callers pass nothing and get the full
+   * sync they always got.
+   */
+  private static async syncAllPanels(options?: { reuseProviderList?: boolean }): Promise<void> {
     for (const panel of ChatPanel.livePanels) {
       try {
-        await panel.syncState();
+        await panel.syncState(options);
       } catch (error) {
         console.error('[AtlasMind] Failed to sync chat panel state across surfaces.', error);
       }
     }
   }
 
-  private readonly host: ChatPanelHost;
+  /**
+   * Not `readonly`: a run that outlives its surface keeps this panel alive with
+   * nowhere to draw, and the host is swapped for an inert one rather than every
+   * `postMessage` call site learning to check. See `createDetachedChatHost`.
+   */
+  private host: ChatPanelHost;
   private readonly disposables: vscode.Disposable[] = [];
   private selectedSessionId: string;
   private selectedMessageId: string | undefined;
@@ -416,6 +463,23 @@ export class ChatPanel {
   private pendingDirectResponse: ChatPanelDirectResponse | undefined;
   private pendingComposerContextPatch: Record<string, unknown> | undefined;
   /**
+   * Roadmap item a hand-off named, not yet bound to a session.
+   *
+   * `sendMode: 'new-session'` means the session it belongs to does not exist
+   * yet, so the id waits here and binds to whichever session sends the next
+   * request.
+   */
+  private pendingRoadmapItemId: string | undefined;
+  /**
+   * Session → roadmap item, for as long as this panel lives.
+   *
+   * In-memory on purpose. If the panel is disposed the attribution is lost and
+   * later turns record as unattributed — which is the safe direction to fail:
+   * under-reporting what an item cost is recoverable, while charging unrelated
+   * work to it is a wrong number nobody can spot afterwards.
+   */
+  private readonly roadmapItemBySession = new Map<string, string>();
+  /**
    * The composer draft AtlasMind itself composed, held until it is sent.
    *
    * Nothing but AtlasMind writes a composer draft, so a prompt arriving
@@ -449,6 +513,8 @@ export class ChatPanel {
   private streamingModels: string[] = [];
   private readonly onDisposed?: () => void;
   private _isDisposed = false;
+  /** What the in-flight turn was asked to do, for a status bar that may outlive this panel. */
+  private backgroundRunLabel: string | undefined;
 
   public static createOrShow(context: vscode.ExtensionContext, atlas: AtlasMindContext, target?: string | ChatPanelTarget): void {
     const column = vscode.window.activeTextEditor?.viewColumn ?? vscode.ViewColumn.One;
@@ -515,6 +581,7 @@ export class ChatPanel {
     this.pendingComposerMode = initialTarget?.sendMode;
     this.pendingDirectResponse = initialTarget?.directResponse;
     this.pendingComposerContextPatch = initialTarget?.contextPatch;
+    this.pendingRoadmapItemId = initialTarget?.roadmapItemId;
     this.host.webview.html = this.getHtml();
 
     this.host.onDidDispose(() => this.dispose(), null, this.disposables);
@@ -572,16 +639,67 @@ export class ChatPanel {
     }
   }
 
+  /**
+   * The surface is gone. Whether the *work* goes with it is a separate question.
+   *
+   * VS Code disposes a sidebar view when you click another view, so this ran on
+   * "the user looked away" exactly as it ran on "the user closed the chat", and
+   * aborting made those indistinguishable in the worst direction. A run is now
+   * detached instead: `_isDisposed` still stops every push to the webview, and
+   * the transcript keeps being written because it never went through the webview
+   * in the first place (see `renderPendingAssistant`).
+   *
+   * The abort controller and its cancellation source are deliberately **not**
+   * torn down when detaching — the run holds the token, and disposing it here
+   * would cancel the thing this is trying to keep.
+   */
   public dispose(): void {
+    const execution = this.activePromptExecution;
+    const detaching = shouldDetachOnDispose({
+      hasActiveRun: execution !== undefined,
+      continueInBackground: vscode.workspace.getConfiguration('atlasmind')
+        .get<boolean>('chat.continueInBackground', true),
+    });
+
     this._isDisposed = true;
     if (this.coalescedSyncTimer) {
       clearTimeout(this.coalescedSyncTimer);
       this.coalescedSyncTimer = undefined;
     }
+    // Settled either way: nothing can answer an in-chat prompt once the chat is
+    // gone, so a run waiting on one would hang rather than finish.
     this.settleLoopDecision('stop');
-    this.activePromptExecution?.abortController.abort();
-    this.activePromptExecution?.cancellationSource.dispose();
-    this.activePromptExecution = undefined;
+
+    if (detaching && execution) {
+      // Swapped before anything else can post: from here the run has nowhere to
+      // draw and every existing call site is inert without having been touched.
+      this.host = createDetachedChatHost();
+      // A prompt queued behind this one was queued to run *in this chat*.
+      // Finishing work already underway is one thing; starting new work with no
+      // window — and no entry in the registry, since detaching happens once —
+      // would be a run nobody could see or stop.
+      this.pendingPromptSubmission = undefined;
+      // Not live — there is nothing to draw to — but still collected for busy
+      // state and for stopping, so a chat reopened onto this session shows the
+      // answer arriving with a stop button rather than a status-bar item and no
+      // explanation.
+      ChatPanel.detachedPanels.add(this);
+      backgroundChatRuns.add({
+        taskId: execution.taskId,
+        sessionId: execution.sessionId,
+        label: this.backgroundRunLabel ?? 'a chat turn',
+        startedAt: Date.now(),
+        stop: () => {
+          execution.interrupt?.();
+          execution.abortController.abort();
+        },
+      });
+    } else {
+      execution?.abortController.abort();
+      execution?.cancellationSource.dispose();
+      this.activePromptExecution = undefined;
+    }
+
     ChatPanel.livePanels.delete(this);
     this.onDisposed?.();
     for (const disposable of this.disposables) {
@@ -601,6 +719,9 @@ export class ChatPanel {
     this.pendingComposerMode = normalizedTarget.sendMode;
     this.pendingDirectResponse = normalizedTarget.directResponse;
     this.pendingComposerContextPatch = normalizedTarget.contextPatch;
+    if (normalizedTarget.roadmapItemId) {
+      this.pendingRoadmapItemId = normalizedTarget.roadmapItemId;
+    }
     this.activeSurface = 'chat';
     await this.syncState();
     if (normalizedTarget.autoSubmit && normalizedTarget.draftPrompt) {
@@ -1438,8 +1559,11 @@ export class ChatPanel {
     const configuration = vscode.workspace.getConfiguration('atlasmind');
     // If another panel is actively executing on this same session, spawn a separate session
     // so their transcripts stay isolated and neither sees the other's streaming responses.
-    const sessionConflict = effectiveMode === 'send' && ChatPanel.collectActiveExecutions()
-      .some(exec => exec.sessionId === this.selectedSessionId);
+    // A run whose window has closed counts: it is still writing to that
+    // transcript, and asking something else in a chat reopened onto it would
+    // otherwise interleave two answers into one conversation.
+    const sessionConflict = effectiveMode === 'send' && ChatPanel.collectBusyRuns()
+      .some(candidate => candidate.sessionId === this.selectedSessionId);
     // "New Loop" also starts in its own fresh session (like "New Session") so the
     // autonomous run's transcript stays isolated from the current conversation.
     // `/loop` reaches here as `new-loop`, so it gets that isolation too.
@@ -1504,6 +1628,10 @@ export class ChatPanel {
       abortController,
       cancellationSource,
     };
+    // Kept for a status bar that may only learn about this run once the window
+    // it was typed into has gone. Derived here, from the prompt as submitted,
+    // because after `dispose()` there is nothing left to derive it from.
+    this.backgroundRunLabel = toBackgroundRunLabel(prompt);
 
     await ChatPanel.syncAllPanels();
     await this.host.webview.postMessage({
@@ -1801,6 +1929,14 @@ export class ChatPanel {
         await this.host.webview.postMessage({ type: 'status', payload: `Chat request failed: ${message}` });
       }
     } finally {
+      // Unconditional, and before the ownership check below: this run may have
+      // outlived its surface, in which case the registry is the only thing still
+      // claiming it and a status bar would go on announcing finished work.
+      backgroundChatRuns.remove(taskId);
+      // Likewise unconditional: a detached panel exists only for the run that
+      // outlived its surface, so once that run is over it must stop being
+      // collected or a reopened chat would sit there reporting itself busy.
+      ChatPanel.detachedPanels.delete(this);
       let pendingSubmission: PendingPromptSubmission | undefined;
       if (this.activePromptExecution?.taskId === taskId) {
         abortController.signal.removeEventListener('abort', forwardAbort);
@@ -2637,14 +2773,25 @@ export class ChatPanel {
    * ends, on completion, failure and stop alike.
    */
   private scheduleCoalescedSync(): void {
-    if (this._isDisposed) return;
+    // A detached panel has nowhere of its own to draw, and its chunks still
+    // matter: a chat reopened onto the same session should watch the answer
+    // arrive rather than find it complete later. So the tick pushes to whatever
+    // surfaces are open instead of to this one. Coalesced on the same timer,
+    // because the reason for coalescing — a chunk per token — has not changed.
+    const detached = this._isDisposed;
+    if (detached && !ChatPanel.detachedPanels.has(this)) {
+      return;
+    }
     this.coalescedSyncDirty = true;
     if (this.coalescedSyncTimer) return;
     this.coalescedSyncTimer = setTimeout(() => {
       this.coalescedSyncTimer = undefined;
-      if (!this.coalescedSyncDirty || this._isDisposed) return;
+      if (!this.coalescedSyncDirty) return;
+      if (this._isDisposed && !ChatPanel.detachedPanels.has(this)) return;
       this.coalescedSyncDirty = false;
-      void this.syncState({ reuseProviderList: true });
+      void (this._isDisposed
+        ? ChatPanel.syncAllPanels({ reuseProviderList: true })
+        : this.syncState({ reuseProviderList: true }));
     }, COALESCED_SYNC_INTERVAL_MS);
   }
 
@@ -2692,8 +2839,19 @@ export class ChatPanel {
       this.selectedMessageId = undefined;
     }
     const derivedRecoveryNotice = this.recoveryNotice ?? deriveRecoveryNoticeFromTranscript(transcript);
-    const busyExecution = ChatPanel.findBusyExecution(this.selectedSessionId);
+    const busyRun = ChatPanel.findBusyPanel(this.selectedSessionId);
+    const busyExecution = busyRun?.execution;
     const isBusyForSelectedSession = Boolean(busyExecution && busyExecution.sessionId === this.selectedSessionId);
+    // Whose "thinking" line and model chips these are. Normally this panel's,
+    // because it is running its own turn. When it has adopted a run started
+    // somewhere else — another open chat, or one whose window has since closed —
+    // they belong to that surface, and reading our own empty fields would show
+    // an answer arriving with no sign of what was producing it. Only for the
+    // session on screen: a run on another session must not lend this one its
+    // thoughts.
+    const streamingSource = isBusyForSelectedSession && busyRun ? busyRun.panel : this;
+    const streamingThought = streamingSource.streamingThought;
+    const streamingModels = streamingSource.streamingModels;
 
     const storedFontScale = this.atlas.extensionContext?.globalState?.get<number>(FONT_SCALE_STORAGE_KEY);
 
@@ -2704,8 +2862,8 @@ export class ChatPanel {
       ...(this.selectedMessageId ? { selectedMessageId: this.selectedMessageId } : {}),
       busy: isBusyForSelectedSession,
       ...(busyExecution ? { busySessionId: busyExecution.sessionId, busyAssistantMessageId: busyExecution.assistantMessageId } : {}),
-      ...(this.streamingThought ? { streamingThought: this.streamingThought } : {}),
-      ...(this.streamingModels.length > 0 ? { streamingModels: [...this.streamingModels] } : {}),
+      ...(streamingThought ? { streamingThought } : {}),
+      ...(streamingModels.length > 0 ? { streamingModels: [...streamingModels] } : {}),
       ...(this.pendingComposerDraft ? { composerDraft: this.pendingComposerDraft } : {}),
       composerMode: this.pendingComposerMode ?? getStatusDrivenComposerMode(isBusyForSelectedSession),
       slashCommands: ChatPanel.slashCommandCatalogue(),
@@ -3134,6 +3292,18 @@ export class ChatPanel {
       Object.assign(context, this.pendingComposerContextPatch);
       this.pendingComposerContextPatch = undefined;
     }
+    // Bind a pending hand-off to this session on its first request, then keep
+    // attributing the session's later turns to the same item. Unlike the patch
+    // above this is not consumed, because the follow-up turns are where most of
+    // an item's cost actually lands.
+    if (this.pendingRoadmapItemId) {
+      this.roadmapItemBySession.set(activeSessionId, this.pendingRoadmapItemId);
+      this.pendingRoadmapItemId = undefined;
+    }
+    const attributedRoadmapItemId = this.roadmapItemBySession.get(activeSessionId);
+    if (attributedRoadmapItemId) {
+      context['roadmapItemId'] = attributedRoadmapItemId;
+    }
     const operatorAdaptation = forceSteer
       ? undefined
       : await applyOperatorFrustrationAdaptation(prompt, this.atlas, context);
@@ -3184,7 +3354,7 @@ export class ChatPanel {
       args: [...directive.spec.approvalArgsPrefix, directive.commandLine],
     });
 
-    if (this.atlas.toolApprovalManager?.shouldBypass(taskId, policy.category)) {
+    if (this.atlas.toolApprovalManager?.shouldBypass(taskId, policy)) {
       return;
     }
 
@@ -4031,6 +4201,12 @@ function normalizeChatPanelTarget(target?: string | ChatPanelTarget): ChatPanelT
     ...(target.autoSubmit === true ? { autoSubmit: true } : {}),
     ...(directResponse ? { directResponse } : {}),
     ...(isJsonRecord(target.contextPatch) ? { contextPatch: target.contextPatch } : {}),
+    // Constrained to the id charset the roadmap anchors use rather than passed
+    // through: this reaches a cost record that a dashboard groups on, and an
+    // arbitrary string would let a crafted target invent a bucket.
+    ...(typeof target.roadmapItemId === 'string' && /^[A-Za-z0-9][A-Za-z0-9_-]{0,80}$/.test(target.roadmapItemId.trim())
+      ? { roadmapItemId: target.roadmapItemId.trim() }
+      : {}),
     ...(target.preserveFocus === true ? { preserveFocus: true } : {}),
   };
 }
@@ -4137,36 +4313,6 @@ function isJsonRecord(value: unknown): value is Record<string, unknown> {
   return typeof value === 'object' && value !== null && !Array.isArray(value);
 }
 
-/** Structural subset of the built-in `vscode.git` extension API we rely on. */
-interface GitRemoteLike {
-  name: string;
-  fetchUrl?: string;
-  pushUrl?: string;
-}
-interface GitRepositoryLike {
-  rootUri: vscode.Uri;
-  state: {
-    remotes: readonly GitRemoteLike[];
-    /**
-     * The checked-out ref, when there is one.
-     *
-     * Optional because a detached HEAD and a freshly-initialised repository both
-     * legitimately have no branch name — and because the workflow notice that
-     * reads this must degrade to a general message rather than claim you are on
-     * a branch it could not identify.
-     */
-    HEAD?: { name?: string };
-    onDidChange: vscode.Event<void>;
-  };
-}
-interface GitApiLike {
-  repositories: readonly GitRepositoryLike[];
-  onDidOpenRepository: vscode.Event<GitRepositoryLike>;
-}
-interface GitExtensionLike {
-  getAPI(version: number): GitApiLike;
-}
-
 /**
  * The branch the workspace is on, or `undefined`.
  *
@@ -4199,22 +4345,6 @@ async function readCurrentBranch(workspaceRoot: string | undefined): Promise<str
 
 /** Long enough for a warm Git extension, short enough not to be felt. */
 const GIT_BRANCH_READ_TIMEOUT_MS = 750;
-
-/**
- * Returns the built-in `vscode.git` extension API, activating the extension if
- * needed. Returns `undefined` when Git tooling is unavailable (e.g. a web host
- * without the Git extension).
- */
-async function getGitApi(): Promise<GitApiLike | undefined> {
-  const extension = vscode.extensions.getExtension<GitExtensionLike>('vscode.git');
-  if (!extension) {
-    return undefined;
-  }
-  if (!extension.isActive) {
-    await extension.activate();
-  }
-  return extension.exports.getAPI(1);
-}
 
 /**
  * Resolves the connected Git repository name for the active workspace. Returns

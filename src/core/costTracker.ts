@@ -1,6 +1,14 @@
 import * as vscode from 'vscode';
 import type { CostRecord } from '../types.js';
 import { formatCost } from './currencyFormatter.js';
+import { normalizeWorkspaceKey } from './projectRunHistory.js';
+import { recordsForWorkspace, summarizeRepricingCoverage, type RepricingCoverage } from './costRepricing.js';
+import { deleteCostHistoryFile, readCostHistoryFile, writeCostHistoryFile } from './costHistoryFileStore.js';
+import {
+  describeCostHistoryMigration,
+  planCostHistoryMigration,
+  type CostHistoryLocation,
+} from './costHistoryLocation.js';
 
 export interface CostSummary {
   totalCostUsd: number;
@@ -49,6 +57,11 @@ export class CostTracker {
   private dailyTotals: Record<string, number> = {};
   private globalState: vscode.Memento | undefined;
   private budgetAlertLevel: 'none' | 'warning' | 'limit' = 'none';
+  private workspaceKey: string | undefined;
+  /** When set, the file is authoritative and `globalState` is no longer written. */
+  private historyFilePath: string | undefined;
+  private historyLocation: CostHistoryLocation | undefined;
+  private pendingWrite: ReturnType<typeof setTimeout> | undefined;
 
   /** Optionally attach globalState for persistence across sessions. */
   attachStorage(globalState: vscode.Memento): void {
@@ -56,8 +69,129 @@ export class CostTracker {
     this.loadFromStorage();
   }
 
+  /**
+   * The workspace new records belong to.
+   *
+   * Normalized through `projectRunHistory`'s function rather than a copy, so a
+   * cost record and a run record produced on the same machine key identically
+   * — the join between them is what makes cost-per-roadmap-item possible, and
+   * two normalizers would break it silently rather than loudly.
+   */
+  setWorkspaceKey(workspaceKey: string | undefined): void {
+    this.workspaceKey = normalizeWorkspaceKey(workspaceKey);
+  }
+
+  /**
+   * Records for the attached workspace only.
+   *
+   * Storage is machine-wide, so without this every project's spend is in one
+   * list. Records predating `workspaceKey` are excluded rather than assumed to
+   * be this project's — see `recordsForWorkspace`.
+   */
+  getWorkspaceRecords(options?: CostQueryOptions): readonly CostRecord[] {
+    if (!this.workspaceKey) { return []; }
+    return recordsForWorkspace(this.filterRecords(options), this.workspaceKey);
+  }
+
+  /** How much of the history can honestly carry a counterfactual figure. */
+  getRepricingCoverage(options?: CostQueryOptions): RepricingCoverage {
+    return summarizeRepricingCoverage(this.filterRecords(options));
+  }
+
+  /**
+   * Make a file the authoritative history.
+   *
+   * On first attach, a `globalState` history left by an earlier build is adopted
+   * rather than abandoned — months of spend must not vanish because the storage
+   * moved. Adoption happens only when the file does not yet exist, so a real
+   * file is never overwritten by stale editor state.
+   */
+  async attachHistoryFile(
+    filePath: string,
+    location: CostHistoryLocation,
+  ): Promise<{ adoptedFromEditorState: number; unreadableCount: number }> {
+    this.historyFilePath = filePath;
+    this.historyLocation = location;
+
+    const read = await readCostHistoryFile(filePath);
+    if (read.existed) {
+      this.records = read.records;
+      this.dailyTotals = this.buildDailyTotals(this.records);
+      return { adoptedFromEditorState: 0, unreadableCount: read.unreadableCount };
+    }
+
+    const legacy = this.records;
+    if (legacy.length > 0) {
+      await writeCostHistoryFile(filePath, legacy);
+    }
+    return { adoptedFromEditorState: legacy.length, unreadableCount: 0 };
+  }
+
+  /**
+   * Move the history to a new location, reporting what moved.
+   *
+   * The old file is removed only after the new one is written, so an
+   * interruption leaves two copies rather than none.
+   */
+  async moveHistoryTo(
+    filePath: string,
+    location: CostHistoryLocation,
+  ): Promise<string> {
+    const previousPath = this.historyFilePath;
+    const migration = planCostHistoryMigration(
+      this.historyLocation ?? 'machine-private',
+      location,
+      this.records,
+    );
+    await writeCostHistoryFile(filePath, migration.records);
+    if (previousPath && previousPath !== filePath) {
+      await deleteCostHistoryFile(previousPath);
+    }
+    this.records = [...migration.records];
+    this.dailyTotals = this.buildDailyTotals(this.records);
+    this.historyFilePath = filePath;
+    this.historyLocation = location;
+    return describeCostHistoryMigration(migration);
+  }
+
+  /**
+   * Write any pending history now.
+   *
+   * Called on deactivate: the debounce below exists so a busy session does not
+   * rewrite a five-thousand-record file per request, and without a flush the
+   * last few records of every session would be the ones lost.
+   */
+  async flushHistory(): Promise<void> {
+    if (this.pendingWrite) {
+      clearTimeout(this.pendingWrite);
+      this.pendingWrite = undefined;
+    }
+    if (this.historyFilePath) {
+      await writeCostHistoryFile(this.historyFilePath, this.records);
+    }
+  }
+
+  private scheduleHistoryWrite(): void {
+    if (!this.historyFilePath) { return; }
+    if (this.pendingWrite) { clearTimeout(this.pendingWrite); }
+    this.pendingWrite = setTimeout(() => {
+      this.pendingWrite = undefined;
+      const target = this.historyFilePath;
+      if (!target) { return; }
+      // Fire and forget: a failed history write must never fail the request that
+      // produced the record. The next write retries the whole file anyway.
+      void writeCostHistoryFile(target, this.records).catch(() => undefined);
+    }, 2000);
+  }
+
   record(entry: CostRecord): void {
-    this.records.push(entry);
+    // Stamped here rather than at each call site: there are several, and one
+    // that forgot would produce spend attributable to no project, which reads
+    // on the dashboard as a project that cost nothing.
+    const stamped: CostRecord = entry.workspaceKey || !this.workspaceKey
+      ? entry
+      : { ...entry, workspaceKey: this.workspaceKey };
+    this.records.push(stamped);
     const day = localIsoDate(new Date(entry.timestamp));
     this.dailyTotals[day] = (this.dailyTotals[day] ?? 0) + this.getBudgetCostUsd(entry);
     this.persist();
@@ -175,6 +309,13 @@ export class CostTracker {
   }
 
   private persist(): void {
+    // Once a history file is attached it is authoritative, and `globalState`
+    // stops being written. Writing both would leave two histories that diverge,
+    // and the next attach would have to guess which one is real.
+    if (this.historyFilePath) {
+      this.scheduleHistoryWrite();
+      return;
+    }
     if (!this.globalState) { return; }
     const trimmed = this.records.slice(-MAX_PERSISTED_RECORDS);
     void this.globalState.update(STORAGE_KEY, {
