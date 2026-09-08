@@ -19,6 +19,19 @@ Older entries below describe the software as it was at the time and are delibera
 
 ---
 
+## v0.449.5 -- Closing the pass
+
+The last two values the analyser named are escaped: a content-state label in the Studio inspector and
+the default count on the button that offers to record vital-file owners.
+
+What it still points at is numeric counts written into the dashboard's HTML without an escape. The
+host computes those as numbers, and every string field on the same paths is escaped, so they are
+recorded as accepted rather than chased one rescan at a time. The chat webview's image previews are
+validated before every assignment, with a test that fails if the guard is removed -- CodeQL does not
+model that helper as a barrier, which is a limit of the tool rather than a hole in the code.
+
+---
+
 ## v0.449.4 -- The rescan, which is the only proof
 
 A second pass over the CodeQL findings, because rescanning is the only honest way to tell a fix from

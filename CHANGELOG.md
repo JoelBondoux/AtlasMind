@@ -6,6 +6,21 @@ The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/),
 
 ## [Unreleased]
 
+## [0.449.5] - 2026-09-08
+
+### Security
+
+- **The last two webview values CodeQL named: a content-state maturity label in the Studio inspector,
+  and the vital-file default count on the button that offers to record them.** Both now escape, like
+  everything around them.
+
+  This closes the pass. What the analyser still points at on the dashboard sinks is *numeric* counts
+  interpolated without an escape — the host computes them as numbers and every string field on those
+  paths is escaped — so they are recorded as accepted rather than chased one rescan at a time. The
+  three image-preview sinks in the chat webview are likewise validated by `safeImageSrc` before every
+  assignment, with a test that fails if the guard is removed; CodeQL does not model the helper as a
+  barrier, which is a limit of the tool rather than a hole in the code.
+
 ## [0.449.4] - 2026-09-08
 
 ### Security

@@ -5059,7 +5059,7 @@
         ${(!report.blocker && report.defaultedCount > 0 && owner) ? `
           <div class="vital-owner-actions">
             <button type="button" class="action-link" data-action="record-vital-owners"
-              title="${escapeAttr('Write these defaults into project-director.json as assignments. You will see every one before anything is written.')}">Record ${report.defaultedCount} default${report.defaultedCount === 1 ? '' : 's'} to ${escapeHtml(owner.contactName)}</button>
+              title="${escapeAttr('Write these defaults into project-director.json as assignments. You will see every one before anything is written.')}">Record ${escapeHtml(String(report.defaultedCount))} default${report.defaultedCount === 1 ? '' : 's'} to ${escapeHtml(owner.contactName)}</button>
           </div>` : ''}
         <div class="vital-owner-rules">
           ${(report.rules || []).map(rule => `<p><strong>${escapeHtml(rule.id)}</strong> — ${escapeHtml(rule.describes)}</p>`).join('')}
