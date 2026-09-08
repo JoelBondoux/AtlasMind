@@ -6,6 +6,30 @@ The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/),
 
 ## [Unreleased]
 
+## [0.454.0] - 2026-09-08
+
+### Added
+
+- **An advisory can be handed to an agent — as a finding to read, never as a change to make.**
+  Completes the roadmap item the previous release delivered half of: the feed reached the Security
+  page, and now it reaches an agent too.
+
+  **Assess with Atlas** on any advisory opens a chat asking one question: does this reach *your* code?
+  Three answers are offered and all three are first class — reachable, with the smallest correct change
+  that closes it; present but not reachable in how this project uses it, with the reason; or already
+  handled and the alert is stale. A finding that does not reach the code is exactly what dismissal
+  exists for, and the model should be able to say so without feeling it failed the task.
+
+  The advisory's own words are **fenced as reported content**, because an advisory summary is written
+  by whoever published the advisory and a code-scanning message by whoever wrote the query: both are
+  third-party text arriving in a prompt, which is the shape prompt injection takes. The prompt is built
+  host-side from the advisory AtlasMind read — the webview sends `<source>:<reference>` and composes
+  nothing the agent is told.
+
+  Two prohibitions travel with it. **Do not re-grade the severity**: the publisher graded the
+  vulnerability, not this project's exposure to it. And **a named fixed version is not permission to
+  take it** — an upgrade has a blast radius the advisory says nothing about. Propose; do not apply.
+
 ## [0.453.0] - 2026-09-08
 
 ### Added

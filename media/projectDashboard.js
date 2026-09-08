@@ -1838,6 +1838,12 @@
       render();
       return;
     }
+    if (action === 'advisory-work') {
+      // Opaque reference again: the host builds the prompt from the advisory it
+      // read, so the webview supplies nothing the agent is told.
+      vscode.postMessage({ type: 'workOnAdvisory', payload: String(payload || '') });
+      return;
+    }
     if (action === 'advisory-open') {
       // The payload is `<source>:<reference>` and the host resolves it against
       // the advisories it read. A webview that could send a URL could send any.
@@ -14729,6 +14735,9 @@
     // browser goes — the same rule the GitHub deep links follow.
     ? `<button type="button" class="action-link" data-action="advisory-open" data-payload="${escapeAttr(item.source + ':' + item.reference)}">Open</button>`
     : ''}
+        <button type="button" class="action-link atlas-action" data-action="advisory-work"
+          data-payload="${escapeAttr(item.source + ':' + item.reference)}"
+          title="${escapeAttr('Ask Atlas whether this reaches your code. It proposes and explains; it never applies a change.')}">Assess with Atlas</button>
       </li>`;
   }
 

@@ -4,7 +4,7 @@
 
 <h1 align="center">AtlasMind</h1>
 
-<p align="center"><sub> · <strong>Current source version: 0.453.0</strong> · </sub></p>
+<p align="center"><sub> · <strong>Current source version: 0.454.0</strong> · </sub></p>
 
 
 <p align="center">
@@ -175,11 +175,15 @@ important limits on overrides and compliance claims.
 
 ---
 
-## What's new in 0.453.0
+## What's new in 0.454.0
 
 The last Marketplace publication, **v0.449.5**, brought the changes below. Every release is written
 up in full in [CHANGELOG.md](CHANGELOG.md).
 
+- **Assess an advisory with Atlas.** Any Dependabot or code-scanning finding can be handed to an agent
+  to answer the only question that matters: does it reach *your* code? "Present but not reachable here"
+  is a first-class answer, the advisory's own text is fenced as third-party content, and a named fixed
+  version is explicitly not treated as permission to bump it.
 - **The Security page now says what is known to be wrong.** Dependabot alerts and code-scanning
   findings, ranked by severity across both, read when you refresh the repository. Severity is
   GitHub's rather than ours, a dismissal is counted as a decision and never as a fix, and if a source

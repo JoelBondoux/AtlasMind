@@ -108,3 +108,24 @@ describe('advisories are read on the repository refresh, never on render', () =>
     expect(HOST_PANEL).toContain('this.readCiBuildLedger(), this.advisoryState);');
   });
 });
+
+describe('the hand-off to an agent', () => {
+  it('sends the same opaque reference, never the prompt', () => {
+    const item = namedFunction(WEBVIEW_SCRIPT, 'renderAdvisoryItem');
+    expect(item).toContain('data-action="advisory-work"');
+    // The webview names the advisory; it never composes what the agent is told.
+    expect(item).not.toContain('draftPrompt');
+    expect(item).not.toContain('buildAdvisoryWorkPrompt');
+  });
+
+  it('builds the prompt host-side from the advisory that was read', () => {
+    const handler = HOST_PANEL.slice(
+      HOST_PANEL.indexOf('private async handleWorkOnAdvisory('),
+      HOST_PANEL.indexOf('Turn a `gh` failure into the specific thing'),
+    );
+    expect(handler).toContain('buildAdvisoryFeed(this.advisoryState)');
+    expect(handler).toContain('buildAdvisoryWorkPrompt(match)');
+    // A stale reference tells the user rather than opening an empty chat.
+    expect(handler).toContain('no longer in the feed');
+  });
+});

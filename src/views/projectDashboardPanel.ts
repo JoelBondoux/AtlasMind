@@ -487,6 +487,7 @@ import {
 } from '../core/roadmapBoard.js';
 import {
   buildAdvisoryFeed,
+  buildAdvisoryWorkPrompt,
   describeAdvisoryFeed,
   parseCodeScanningAlerts,
   parseDependabotAlerts,
@@ -1142,6 +1143,7 @@ type ProjectDashboardMessage =
   | { type: 'draftIssueFromPullRequest'; payload: { number: number } }
   | { type: 'openGithubLink'; payload: { page: string; id: string } }
   | { type: 'openAdvisory'; payload: string }
+  | { type: 'workOnAdvisory'; payload: string }
   | { type: 'markDeltaSeen' }
   | { type: 'setWorkflowGate'; payload: { key: string; enabled: boolean } }
   | { type: 'setAutomationCeiling'; payload: { level: string } }
@@ -5402,6 +5404,9 @@ export class ProjectDashboardPanel {
       case 'openAdvisory':
         await this.handleOpenAdvisory(message.payload);
         return;
+      case 'workOnAdvisory':
+        await this.handleWorkOnAdvisory(message.payload);
+        return;
       case 'markDeltaSeen':
         // No payload and nothing to validate: it clears a held computation and
         // touches neither settings, secrets, nor the repository.
@@ -8748,6 +8753,27 @@ export class ProjectDashboardPanel {
         ? { state: 'disabled' }
         : { state: 'failed' };
     }
+  }
+
+  /**
+   * Hand an advisory to an agent as a finding to read, never as a change to make.
+   *
+   * The prompt is built host-side from the advisory this panel read, so the
+   * webview supplies neither the text the agent sees nor the severity it is told
+   * about — the same division as the debt register's hand-off, and it matters
+   * more here because the text was published by somebody outside the project.
+   */
+  private async handleWorkOnAdvisory(reference: string): Promise<void> {
+    const feed = buildAdvisoryFeed(this.advisoryState);
+    const match = feed.items.find(item => `${item.source}:${item.reference}` === reference);
+    if (!match) {
+      void vscode.window.showWarningMessage('That advisory is no longer in the feed. Refresh the repository and try again.');
+      return;
+    }
+    await vscode.commands.executeCommand('atlasmind.openChat', {
+      draftPrompt: buildAdvisoryWorkPrompt(match),
+      sendMode: 'new-session',
+    });
   }
 
   /**
@@ -14942,6 +14968,13 @@ export function isProjectDashboardMessage(message: unknown): message is ProjectD
     return typeof payload === 'object' && payload !== null
       && typeof payload['page'] === 'string'
       && typeof payload['id'] === 'string';
+  }
+
+  if (candidate['type'] === 'workOnAdvisory') {
+    // Same shape and the same reason as openAdvisory: the reference is resolved
+    // against what this panel read, so the webview supplies neither the prompt
+    // text nor anything the agent is told about.
+    return typeof candidate['payload'] === 'string' && candidate['payload'].length <= 120;
   }
 
   if (candidate['type'] === 'openAdvisory') {

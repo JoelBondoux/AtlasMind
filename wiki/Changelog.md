@@ -19,6 +19,23 @@ Older entries below describe the software as it was at the time and are delibera
 
 ---
 
+## v0.454.0 -- Does it reach your code?
+
+An advisory can now be handed to an agent, which completes what the last release started: the feed
+reached the Security page, and now it reaches an agent too.
+
+**Assess with Atlas** asks one question -- does this reach your code? -- and offers three answers, all
+of them first class: reachable, with the smallest change that closes it; present but not reachable in
+how this project uses it, with the reason; or already handled and the alert is stale. A finding that
+does not reach the code is exactly what dismissal exists for.
+
+The advisory's own words are fenced as reported content, because they were written by somebody outside
+this project. And two things the agent is told not to do: re-grade the severity, which the publisher
+assigned to the vulnerability rather than to your exposure to it, and treat a named fixed version as
+permission to bump it, since an upgrade has a blast radius the advisory says nothing about.
+
+---
+
 ## v0.453.0 -- What is known to be wrong
 
 The Security page could tell you whether a `SECURITY.md` existed and which dependency monitors were
