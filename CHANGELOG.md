@@ -6,6 +6,35 @@ The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/),
 
 ## [Unreleased]
 
+## [0.439.1] - 2026-09-08
+
+### Added
+
+- **Box selection on the ideation board, sharing the selection that already existed.** Completes
+  the roadmap item begun in 0.439.0. Shift-drag on empty board draws a box; dragging any selected
+  card moves the whole group, each from its own origin and each clamped to the board edge.
+
+  The board already had `orderedSelectedCardIds`, but it meant *the two cards I am linking* —
+  numbered badges, a **Link source** and a **Link target**. A box selection could have been a
+  second, parallel list. It is not: one selection with two uses is easier to explain than two
+  selections that both mean "selected", and the badges already number arbitrarily. A pair is what
+  a link is drawn between; any number is what a drag moves.
+
+  **The cost of merging is paid honestly.** With more than two cards selected, "which two am I
+  linking" has no answer — `getOrderedSelectedCards` takes the last two, which is exactly right
+  for a click sequence and arbitrary for a box. Linking now **refuses** and says how many are
+  selected, rather than drawing an edge between whichever two happened to come last. A link
+  nobody chose is worse than a message.
+
+  Not offered on a projected lens, for the same reason card dragging is already refused there:
+  the stored position is not what is on screen, so a rectangle would name the wrong cards.
+
+  The box selects what it **touches**, not what it contains — requiring a card to sit wholly
+  inside means one clipped by the viewport edge cannot be selected without zooming out first,
+  which on a full board is most of them. And the pointer is converted to card space by reading
+  the world element's own bounding rect rather than recomputing the transform from `viewportX/Y`
+  and `zoom`, because a second copy of a transform drifts the first time either half changes.
+
 ## [0.439.0] - 2026-09-08
 
 ### Added

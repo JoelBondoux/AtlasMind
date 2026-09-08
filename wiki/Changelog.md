@@ -19,6 +19,24 @@ Older entries below describe the software as it was at the time and are delibera
 
 ---
 
+## v0.439.1 -- The ideation board gets the same selection box
+
+Shift-drag on the ideation board draws a selection box; dragging any selected card moves the whole
+group. That finishes the feature started in 0.439.0.
+
+The board already had a selection, but it meant *the two cards I am linking* — numbered, with one
+marked as the source and one as the target. Rather than adding a second, separate kind of "selected",
+the two now share one list: a pair is what a link is drawn between, any number is what a drag moves.
+
+That has one honest consequence. With more than two cards selected, "which two am I linking" has no
+answer, so **linking refuses** and tells you how many are selected instead of picking two for you.
+A link you did not choose is worse than a message asking you to choose.
+
+The box selects any card it touches rather than only cards wholly inside it — otherwise a card half
+off the edge of your screen could not be selected without zooming out first.
+
+---
+
 ## v0.439.0 -- Select several roadmap items and move them together
 
 Hold **Shift** and drag on empty canvas to draw a selection box round a group of roadmap items.
