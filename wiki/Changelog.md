@@ -19,6 +19,33 @@ Older entries below describe the software as it was at the time and are delibera
 
 ---
 
+## v0.440.0 -- Groundwork for parallel subtasks that cannot overwrite each other
+
+When AtlasMind breaks a job into steps, independent ones run at the same time — up to five at once.
+They all shared one copy of your files, and nothing stopped two of them editing the same file. When
+that happened, one edit quietly won and the other disappeared, with both steps reported as done.
+
+The fix people usually reach for is a separate checkout per step. It works for some steps and cannot
+work for others: a fresh checkout has your *tracked* files and nothing else — no installed packages,
+no build output. A step that runs your tests would land somewhere they cannot run, and "the tests
+failed" would be about the isolation rather than your code.
+
+So AtlasMind now decides per step. Steps that only read run alongside anything. Steps that edit files
+and need nothing else get their own checkout and keep running in parallel. Steps that edit files
+*and* run commands take a turn on their own — slower, and stated on screen when it happens, rather
+than quietly taking longer.
+
+**The taking-turns part is not optional.** With the new setting switched off, editing steps still take
+turns. The race is a defect, not a preference; switching isolation on buys back speed rather than
+making anything safe.
+
+This release is the decision-making and the git plumbing. Nothing changes about how your runs execute
+yet — connecting it up is the next piece, and the larger one. There is deliberately no setting for it
+until then: AtlasMind's own tests refuse a setting that nothing reads, on the grounds that a switch
+which changes nothing is a promise to you the code does not keep.
+
+---
+
 ## v0.439.1 -- The ideation board gets the same selection box
 
 Shift-drag on the ideation board draws a selection box; dragging any selected card moves the whole

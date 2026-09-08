@@ -6,6 +6,59 @@ The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/),
 
 ## [Unreleased]
 
+## [0.440.0] - 2026-09-08
+
+### Added
+
+- **Worktree isolation, stage one: the policy and the git plumbing.** Roadmap item: *"AtlasMind
+  already runs parallel subtask batches but on a single shared working tree — a latent write-race
+  that is a correctness bug."* It is: `chunkArray(batch, 5)` into `Promise.all`, subtasks declare
+  write skills explicitly, and there is **no lock, queue or serialisation anywhere** in the write
+  path. Two independent subtasks editing one file is a read-modify-write race whose loser vanishes
+  silently, with both reported completed.
+
+  **The named remedy does not fit every subtask, and the policy encodes that rather than pretending
+  otherwise.** A git worktree is a checkout of *tracked files* — no `node_modules`, no build
+  output, no untracked state. A subtask carrying `test-run` or `terminal-run` would land somewhere
+  its own tools cannot run, and "the tests failed" would be a fact about the isolation rather than
+  about the code. Installing dependencies per subtask is minutes and gigabytes, five times over,
+  for a batch that may take seconds.
+
+  So `worktreeIsolation.ts` places each subtask as `isolated` (writes, needs only tracked files —
+  gets a worktree, keeps its parallelism), `exclusive` (writes *and* needs the real tree — runs
+  alone), or `shared` (writes nothing — races with nobody, full parallelism). `needs-working-tree`
+  is checked **before** the setting, so a subtask that could never be isolated is not reported as
+  blocked by a switch that would not help it.
+
+  **Serialising writers is not conditional on the feature.** With isolation off every writer
+  becomes `exclusive`: the race is a defect, and a setting that is off must not reintroduce it.
+  Turning isolation on buys back parallelism; it is not what makes a run safe.
+
+- **`worktreeManager.ts`** — the git half, runner injected so neither half spawns git under test.
+  Four rules, each about not damaging a borrowed repository: **only worktrees this run created are
+  removed**, checked against `git worktree list --porcelain` *and* the run's own registry;
+  **detached, never a branch**, since a linked worktree pins its branch and `git branch -d` then
+  refuses — the mess `skills/gitWorktree` exists to clean up; **paths are derived, never
+  accepted**, composed from ids reduced to an identifier charset under `.git/atlasmind-worktrees`
+  (inside `.git`, so a half-finished subtask's files never surface in Quick Open); and **cleanup is
+  best-effort and reported** — a worktree that will not remove is litter, not a reason to fail a
+  run whose work succeeded. A failed *creation* returns `undefined` rather than throwing, so
+  isolation degrades to running exclusively rather than becoming a new way for a run to die.
+
+### Notes
+
+- **Not yet wired into the scheduler, and deliberately without a setting yet.** The policy and the
+  plumbing land first so the decision can be reviewed before anything acts on it; threading a
+  per-execution workspace root through the skill layer is the next stage, and it is the large one —
+  `SkillContext.workspaceRootPath` is single and global today.
+
+  `atlasmind.execution.worktreeIsolation` was written, then removed before commit:
+  `tests/settingsIntegrity.test.ts` asserts the repository **has no setting that nothing reads**,
+  and it was right to fail. A toggle in the settings UI that changes nothing is a promise to the
+  user that the code does not keep — the same defect this session has been finding in comments, in
+  a settings page instead. The option exists on `WorktreeIsolationOptions` and arrives in the UI
+  with the wiring that honours it.
+
 ## [0.439.1] - 2026-09-08
 
 ### Added
