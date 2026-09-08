@@ -175,6 +175,33 @@ const GRAPH = {
     rules: [],
   },
   criticalPathSummary: '6 days of work along a chain of 1 item. The other 1 outstanding item has room to slip without moving the finish.',
+  timeline: {
+    state: 'ok',
+    finishDay: 6,
+    horizonDays: 6,
+    bars: [
+      {
+        nodeId: 'beta', text: 'Ship the export', focus: 'feature', gates: ['mvp'],
+        startDay: 2, endDay: 6, latestEndDay: 6, slackDays: 0, critical: true,
+        estimateDays: 4, estimateSource: 'derived', estimateScale: 'human',
+        waiting: true, deadline: '2026-08-22', deadlineDay: 2, scheduleState: 'at-risk',
+      },
+      {
+        nodeId: 'alpha', text: 'Item alpha', focus: 'feature', gates: [],
+        startDay: 0, endDay: 2, latestEndDay: 6, slackDays: 4, critical: false,
+        estimateDays: 2, estimateSource: 'derived', estimateScale: 'human',
+        waiting: false, scheduleState: 'no-deadline',
+      },
+    ],
+    milestones: [
+      { gateId: 'mvp', label: 'MVP', totalCount: 1, completedCount: 0, finishDay: 6, delivered: false, unscheduledCount: 0 },
+    ],
+    outstandingCount: 2,
+    deliveredCount: 1,
+    criticalCount: 1,
+    rules: [{ id: 'duration-not-date', description: 'The axis is days from today.' }],
+  },
+  timelineSummary: '2 items across 6d, 1 on the critical path and 1 with room to slip.',
   filePath: 'project_memory/roadmap/improvement-plan.md',
 };
 
@@ -1304,5 +1331,75 @@ describe('a flat plan offers its own way out', () => {
     const banner = harness.root().querySelector('.rm-banner-actionable');
     expect(banner?.textContent).toContain('Nothing is linked yet');
     expect(banner?.querySelector('[data-action="roadmap-derive-links"]')).not.toBeNull();
+  });
+});
+
+describe('the timeline view', () => {
+  const openTimeline = (graphOverrides: Record<string, unknown> = {}) => {
+    const harness = mount();
+    pinFrameSize(harness, 900, 500);
+    harness.send(snapshot(graphOverrides));
+    harness.click('[data-action="page"][data-payload="roadmap"]');
+    harness.click('[data-action="roadmap-view"][data-payload="timeline"]');
+    return harness;
+  };
+
+  it('draws one row per bar, positioned by the schedule the host computed', () => {
+    const harness = openTimeline();
+    const rows = [...harness.root().querySelectorAll('.rm-tl-row')];
+
+    expect(rows).toHaveLength(2);
+    // beta starts on day 2 of a 6-day horizon and runs to the end.
+    const critical = harness.root().querySelector('.rm-tl-row.is-critical .rm-tl-bar');
+    expect(critical?.getAttribute('style')).toContain('left:33.33');
+    expect(harness.root().querySelectorAll('.rm-tl-bar')).toHaveLength(2);
+  });
+
+  it('draws float as a tail only where there is room', () => {
+    // Float is room before the *plan's* finish moves. The item on the path has
+    // none, so a tail there would say the opposite of what is true.
+    const harness = openTimeline();
+    const floats = [...harness.root().querySelectorAll('.rm-tl-float')];
+    expect(floats).toHaveLength(1);
+    expect(harness.root().querySelector('.rm-tl-row.is-critical .rm-tl-float')).toBeNull();
+  });
+
+  it('marks a deadline the earliest finish is already past', () => {
+    const harness = openTimeline();
+    expect(harness.root().querySelector('.rm-tl-deadline.is-late')).not.toBeNull();
+  });
+
+  it('pins each dated milestone on the axis', () => {
+    const harness = openTimeline();
+    const milestone = harness.root().querySelector('.rm-tl-milestone');
+    expect(milestone?.textContent).toContain('MVP');
+    expect(milestone?.getAttribute('style')).toContain('left:100');
+  });
+
+  it('publishes the rules that drew the chart', () => {
+    // Same habit as the debt register and the critical path: a surface shows
+    // the rules that graded it rather than a copy that drifts.
+    const harness = openTimeline();
+    expect(harness.root().querySelector('.rm-tl-rules')?.textContent).toContain('duration-not-date');
+  });
+
+  it('says why there is no chart rather than drawing an empty axis', () => {
+    // An empty chart with an axis reads as "this plan takes no time".
+    const harness = openTimeline({
+      timeline: {
+        state: 'circular', horizonDays: 0, bars: [], milestones: [],
+        outstandingCount: 2, deliveredCount: 0, criticalCount: 0, rules: [],
+        note: 'This plan has a circular dependency, so it cannot be laid out on a time axis.',
+      },
+    });
+
+    expect(harness.root().querySelector('.rm-tl-row')).toBeNull();
+    expect(harness.root().querySelector('.rm-timeline-card')?.textContent).toContain('circular dependency');
+  });
+
+  it('leaves the canvas alone: no frame, and nothing fitted', () => {
+    const harness = openTimeline();
+    expect(harness.root().querySelector('[data-rm-frame="true"]')).toBeNull();
+    expect(harness.posted.filter(message => message.type === 'roadmapNodeMove')).toEqual([]);
   });
 });

@@ -6,6 +6,39 @@ The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/),
 
 ## [Unreleased]
 
+## [0.451.0] - 2026-09-08
+
+### Added
+
+- **The roadmap has a timeline: the plan against time, with milestones and the critical path on it.**
+  The dependency canvas shows *order* and the backlog shows *priority*. Neither shows **duration**, so
+  nothing on the dashboard could say that four items sit idle for a week waiting on one, or that a
+  release gate lands three days after the deadline it is tagged for. A list cannot show simultaneity
+  and a graph cannot show length.
+
+  Each bar starts when its prerequisites can be finished and ends when it can, with a dashed tail for
+  the room it has before the plan's own finish moves; the chain with no room is drawn at full strength.
+  Each gate is pinned on the axis at the day its last outstanding item lands.
+
+  Seven rules, and two of them decide what the chart may claim. **One schedule, not two** — bars are
+  positioned from the earliest and latest finishes `roadmapCriticalPath` already computed, because a
+  second forward pass would eventually disagree with the number printed on the card beside it, and a
+  Gantt that contradicts its own cards is worse than no Gantt. **A bar is a duration, never a date**:
+  a human estimate is effort spread across working days while an agent's is wall clock, so turning a
+  mixed chain into calendar dates would mean inventing a working calendar nobody declared — printing
+  "12 March" from that would be a commitment made up by a renderer. The only dates on the chart are
+  deadlines you set, and they **grade a bar without ever moving it**, since a plan pulled earlier to
+  meet its deadline is a plan that always meets it.
+
+  Also: float is measured against the plan's finish rather than any deadline; a gate is dated only
+  when *every* member can be scheduled, because a partial maximum reads early and looks identical to a
+  complete one; delivered work is counted rather than drawn; and a plan with a circular dependency has
+  no timeline at all, for the same reason it has no finish. The rules that drew the chart are printed
+  at its foot.
+
+  Positioned as percentages of a horizon the host computed, so it reflows with the panel and needs no
+  measurement pass — a way of *looking* at a plan must not be something that can fail.
+
 ## [0.450.0] - 2026-09-08
 
 ### Added

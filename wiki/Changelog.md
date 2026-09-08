@@ -19,6 +19,25 @@ Older entries below describe the software as it was at the time and are delibera
 
 ---
 
+## v0.451.0 -- The roadmap, against time
+
+A fifth roadmap view: the plan on a timeline. Each bar starts when its prerequisites can be finished
+and ends when it can, with a dashed tail for the room it has before the plan's own finish moves. The
+chain with no room is drawn at full strength, and each release gate is pinned at the day its last
+outstanding item lands.
+
+The canvas already showed order and the backlog already showed priority. Neither showed duration -- so
+nothing said that four items sit idle for a week waiting on one, or that a gate lands after the
+deadline it is tagged for.
+
+The axis is days from today, not dates, and that is a decision rather than a shortcut. A person's
+estimate is effort spread across working days; an agent's is wall clock. Turning a chain of both into
+calendar dates would mean inventing a working calendar -- a five-day week, a holiday list, a working
+day's length -- that nobody declared, and "12 March" produced that way is a commitment made up by a
+chart. The only dates on it are deadlines you set, drawn as markers that grade a bar and never move it.
+
+---
+
 ## v0.450.0 -- Ctrl+wheel zooms the dashboard
 
 A webview does not inherit the window's zoom, so the gesture everybody already knows did nothing on

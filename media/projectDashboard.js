@@ -1839,11 +1839,12 @@
       return;
     }
     if (action === 'roadmap-view') {
-      state.roadmapView = payload === 'list' || payload === 'completed' || payload === 'people'
+      state.roadmapView = payload === 'list' || payload === 'completed' || payload === 'people' || payload === 'timeline'
         ? payload : 'canvas';
       // Switching into or out of a lane layout changes where every node is,
       // so the view arrives fitted rather than wherever the last one was panned.
-      state.roadmapFitAfterRender = state.roadmapView !== 'list';
+      // The list and the timeline have no canvas to fit.
+      state.roadmapFitAfterRender = state.roadmapView !== 'list' && state.roadmapView !== 'timeline';
       // The route filter and a half-drawn link belong to the canvas. Leaving them
       // set while the list is showing means coming back to a view that is
       // mysteriously filtered by something you did several clicks ago.
@@ -4510,7 +4511,8 @@
        * the call as a guard: fitting no longer renders, but a fit that ever
        * did would otherwise re-enter here and fit forever.
        */
-      if (state.roadmapFitAfterRender && !rmDrag && state.activePage === 'roadmap' && state.roadmapView !== 'list') {
+      if (state.roadmapFitAfterRender && !rmDrag && state.activePage === 'roadmap'
+        && state.roadmapView !== 'list' && state.roadmapView !== 'timeline') {
         state.roadmapFitAfterRender = false;
         const scope = state.roadmapFitScope;
         state.roadmapFitScope = 'all';
@@ -11855,6 +11857,13 @@
       value: outstanding.filter(item => item.focus === focus).length,
       tone: FOCUS_TONES[focus],
     }));
+    if (state.roadmapView === 'timeline') {
+      return `
+        ${pageSectionOpen('roadmap')}
+          ${renderRoadmapViewBar(roadmap)}
+          ${renderRoadmapTimeline()}
+        </section>`;
+    }
     if (state.roadmapView !== 'list') {
       return `
         ${pageSectionOpen('roadmap')}
@@ -12541,12 +12550,16 @@
     const graph = roadmapGraph();
     const views = [
       ['canvas', 'Dependency canvas', 'The plan as a graph: what has to happen before what. Drag nodes, draw links, and filter to the route to any one item.'],
+      ['timeline', 'Timeline', 'The same plan against time: when each item can start and finish, how much room it has before the finish moves, and where each gate lands. Measured in days from today — only a deadline you set is a date.'],
       ['list', 'Prioritised backlog', 'The ordered list. Position here is what sets Atlas’s default next-work weighting.'],
       ['people', 'By person', 'The same outstanding work, one band per person, with each band still ordered by what has to happen first. An arrow crossing bands is one person waiting on another.'],
       ['completed', 'Delivered', 'What has shipped, when, and by whom — laid out by month, with the links between pieces of work preserved.'],
     ];
     const counts = {
       canvas: graph.active.length,
+      // Bars, not items: a plan with a cycle draws no timeline, and a count that
+      // said otherwise would invite a click onto an empty chart.
+      timeline: ((graph.timeline || {}).bars || []).length,
       list: roadmap.items.length,
       // Lanes, not items: the number that makes this view worth opening is how
       // many people the plan is spread across, which the item count hides.
@@ -12578,6 +12591,174 @@
             <span aria-hidden="true">+</span><span>Add roadmap item</span>
           </button>`}
       </div>`;
+  }
+
+  /* ── Timeline ──────────────────────────────────────────────────────────────
+   *
+   * The same plan against time. The canvas shows order and the backlog shows
+   * priority; neither shows *duration*, so nothing said that four items sit idle
+   * for a week waiting on one, or that a gate lands after the deadline it is
+   * tagged for.
+   *
+   * Every number here is computed host-side by `roadmapTimeline`, which takes
+   * its schedule from the critical path rather than working one out again. This
+   * function only places what it was handed, so a chart and the sentence above
+   * it cannot hold two opinions about the finish.
+   *
+   * The axis is days from today, and the only dates on it are deadlines somebody
+   * declared — see `duration-not-date` in the rules the payload carries, printed
+   * at the foot of the chart.
+   */
+  function rmTimelineModel() {
+    const timeline = roadmapGraph().timeline;
+    return timeline && typeof timeline === 'object'
+      ? timeline
+      : { state: 'nothing-outstanding', bars: [], milestones: [], horizonDays: 0, rules: [], outstandingCount: 0, deliveredCount: 0, criticalCount: 0 };
+  }
+
+  /** Days as a person says them, matching what the node cards print. */
+  function rmTimelineDays(days) {
+    const value = Number(days) || 0;
+    if (value >= 1) { return (Math.round(value * 10) / 10) + 'd'; }
+    const minutes = Math.max(1, Math.round(value * 1440));
+    return minutes < 60 ? minutes + 'm' : (Math.round(minutes / 6) / 10) + 'h';
+  }
+
+  /**
+   * Axis ticks at a step a person would choose.
+   *
+   * From a fixed ladder rather than `horizon / 6`, which produces ticks at 3.7
+   * days and makes the reader do arithmetic to place a bar.
+   */
+  function rmTimelineTicks(horizonDays) {
+    const ladder = [0.25, 0.5, 1, 2, 5, 10, 20, 30, 60, 90, 180, 365];
+    const step = ladder.find(candidate => horizonDays / candidate <= 8) ?? ladder[ladder.length - 1];
+    const ticks = [];
+    for (let day = 0; day <= horizonDays + 1e-9; day += step) {
+      ticks.push(Math.round(day * 1440) / 1440);
+    }
+    return ticks;
+  }
+
+  function rmTimelinePercent(day, horizonDays) {
+    if (!(horizonDays > 0)) { return 0; }
+    return Math.max(0, Math.min(100, (day / horizonDays) * 100));
+  }
+
+  function renderRoadmapTimeline() {
+    const graph = roadmapGraph();
+    const timeline = rmTimelineModel();
+    const summary = String(graph.timelineSummary || '');
+
+    if (timeline.state !== 'ok' || timeline.bars.length === 0) {
+      // An empty chart with an axis reads as "the plan takes no time". The note
+      // says which of the two true things happened instead.
+      return `
+        <article class="panel-card rm-timeline-card">
+          ${renderRoadmapTimelineHead(timeline, summary)}
+          <div class="rm-banner${timeline.state === 'circular' ? ' rm-banner-bad' : ''}" role="status">
+            ${escapeHtml(String(timeline.note || 'Nothing to lay out on a time axis yet.'))}
+          </div>
+        </article>`;
+    }
+
+    const horizon = Math.max(Number(timeline.horizonDays) || 0, 0.0001);
+    const ticks = rmTimelineTicks(horizon);
+    const gridlines = ticks.map(day => `<span class="rm-tl-gridline" style="left:${rmTimelinePercent(day, horizon)}%"></span>`).join('');
+
+    return `
+      <article class="panel-card rm-timeline-card">
+        ${renderRoadmapTimelineHead(timeline, summary)}
+        ${renderRoadmapTimelineMilestones(timeline, horizon)}
+        <div class="rm-tl-axis" aria-hidden="true">
+          <span class="rm-tl-axis-track">${gridlines}</span>
+          ${ticks.map(day => `<span class="rm-tl-tick" style="left:${rmTimelinePercent(day, horizon)}%">${escapeHtml(day === 0 ? 'today' : '+' + rmTimelineDays(day))}</span>`).join('')}
+        </div>
+        <ol class="rm-tl-rows">
+          ${timeline.bars.map(bar => renderRoadmapTimelineRow(bar, horizon)).join('')}
+        </ol>
+        ${renderRoadmapTimelineRules(timeline)}
+      </article>`;
+  }
+
+  function renderRoadmapTimelineHead(timeline, summary) {
+    return `
+      <div class="row-head rm-toolbar">
+        <div>
+          <p class="section-kicker">Timeline</p>
+          <h3>When the work can happen</h3>
+          ${summary ? `<p class="section-copy">${escapeHtml(summary)}</p>` : ''}
+        </div>
+        <div class="rm-chip-row">
+          <span class="tag" title="${escapeAttr('Delivered work takes no time, so it is counted here rather than drawn. The Delivered view records it.')}">${escapeHtml(String(timeline.deliveredCount || 0))} delivered</span>
+          ${timeline.finishDay === undefined ? '' : `<span class="tag tag-accent" title="${escapeAttr('The longest chain of work that has to happen in order — not the total of every estimate, because independent work runs at the same time.')}">finish in ${escapeHtml(rmTimelineDays(timeline.finishDay))}</span>`}
+        </div>
+      </div>`;
+  }
+
+  function renderRoadmapTimelineMilestones(timeline, horizon) {
+    const milestones = timeline.milestones || [];
+    if (milestones.length === 0) { return ''; }
+    const dated = milestones.filter(entry => entry.finishDay !== undefined);
+    const undated = milestones.filter(entry => entry.finishDay === undefined);
+
+    return `
+      <div class="rm-tl-milestones">
+        <div class="rm-tl-milestone-track">
+          ${dated.map(entry => `
+            <span class="rm-tl-milestone" style="left:${rmTimelinePercent(entry.finishDay, horizon)}%"
+              title="${escapeAttr(`${entry.label}: ${entry.completedCount} of ${entry.totalCount} delivered. The last outstanding item lands in ${rmTimelineDays(entry.finishDay)}.`)}">
+              <span class="rm-tl-milestone-pin" aria-hidden="true"></span>
+              <span class="rm-tl-milestone-label">${escapeHtml(entry.label)}</span>
+            </span>`).join('')}
+        </div>
+        ${undated.length === 0 ? '' : `
+          <p class="rm-tl-milestone-note">${escapeHtml(undated.map(entry => (entry.delivered
+            ? `${entry.label} is delivered`
+            : `${entry.label} has no date${entry.unscheduledCount > 0 ? ` — ${entry.unscheduledCount} item${entry.unscheduledCount === 1 ? '' : 's'} could not be scheduled` : ''}`)).join(' · '))}</p>`}
+      </div>`;
+  }
+
+  function renderRoadmapTimelineRow(bar, horizon) {
+    const left = rmTimelinePercent(bar.startDay, horizon);
+    const width = Math.max(0.6, rmTimelinePercent(bar.endDay, horizon) - left);
+    const floatWidth = Math.max(0, rmTimelinePercent(bar.latestEndDay, horizon) - rmTimelinePercent(bar.endDay, horizon));
+    const person = roadmapPersonName(bar.assigneeId);
+    const deadlineOnAxis = bar.deadlineDay !== undefined && bar.deadlineDay >= 0 && bar.deadlineDay <= horizon;
+    const barTitle = `${bar.text}\n${rmTimelineDays(bar.estimateDays)} of work, starting in ${rmTimelineDays(bar.startDay)} and finishing in ${rmTimelineDays(bar.endDay)}.`
+      + (bar.critical
+        ? '\nOn the critical path: any slip moves the plan\'s finish.'
+        : `\n${rmTimelineDays(bar.slackDays)} of room before the plan\'s finish moves.`);
+
+    return `
+      <li class="rm-tl-row${bar.critical ? ' is-critical' : ''}${bar.waiting ? ' is-waiting' : ''}">
+        <div class="rm-tl-label">
+          <span class="rm-tl-title" title="${escapeAttr(bar.text)}">${escapeHtml(bar.text)}</span>
+          <span class="rm-tl-meta">
+            <span class="tag tag-${escapeAttr(bar.focus === 'security' ? 'critical' : bar.focus === 'feature' ? 'good' : 'muted')}">${escapeHtml(bar.focus)}</span>
+            <span class="rm-tl-estimate" title="${escapeAttr(bar.estimateSource === 'declared' ? 'Estimate set by hand.' : 'Estimate derived from the published table.')}">${escapeHtml(rmTimelineDays(bar.estimateDays))}</span>
+            ${person ? `<span class="rm-tl-person">${escapeHtml(person)}</span>` : ''}
+          </span>
+        </div>
+        <div class="rm-tl-track">
+          <span class="rm-tl-bar" style="left:${left}%;width:${width}%" title="${escapeAttr(barTitle)}"></span>
+          ${floatWidth > 0.2 ? `<span class="rm-tl-float" style="left:${left + width}%;width:${floatWidth}%"
+            title="${escapeAttr(`Room to slip: ${rmTimelineDays(bar.slackDays)} before the plan's own finish moves. This says nothing about this item's deadline.`)}"></span>` : ''}
+          ${deadlineOnAxis ? `<span class="rm-tl-deadline${bar.endDay > bar.deadlineDay ? ' is-late' : ''}"
+            style="left:${rmTimelinePercent(bar.deadlineDay, horizon)}%"
+            title="${escapeAttr(`Deadline ${bar.deadline}${bar.endDay > bar.deadlineDay ? ' — the earliest finish is after it.' : '.'}`)}"></span>` : ''}
+        </div>
+      </li>`;
+  }
+
+  function renderRoadmapTimelineRules(timeline) {
+    const rules = timeline.rules || [];
+    if (rules.length === 0) { return ''; }
+    return `
+      <details class="rm-tl-rules">
+        <summary>How this chart was drawn</summary>
+        ${rules.map(rule => `<p><strong>${escapeHtml(rule.id)}</strong> — ${escapeHtml(rule.description)}</p>`).join('')}
+      </details>`;
   }
 
   function renderRoadmapCanvas() {

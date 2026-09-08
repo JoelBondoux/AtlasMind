@@ -4,7 +4,7 @@ This file is the developer-facing backlog AtlasMind should absorb into SSOT and 
 ## Prioritized Backlog
 <!-- atlasmind:roadmap-items:start -->
 - [ ] **Async / ambient background agents** — "works while you're away," triggered by repo events (new issue, failing CI, dependency CVE) rather than chat. Architectural ask: an event bus agents subscribe to. Seeded by the remote-control server and scheduled-agents backlog item. #mvp <!-- rm:async-ambient-background-age -->
-- [ ] Either have a built in gnatt progress, milestone, critical path, roadmap tracker or feed it into an automatrically created Github project tracker. #mvp <!-- rm:either-have-a-built-in-gnatt -->
+- [x] Either have a built in gnatt progress, milestone, critical path, roadmap tracker or feed it into an automatrically created Github project tracker. #mvp <!-- rm:either-have-a-built-in-gnatt -->
 - [ ] We need a Bug Tracking system for the PM dash. #mvp <!-- rm:we-need-a-bug-tracking-syste -->
 - [ ] Add an approval flow system for changes, ideas -> roadmaps, documentation, legal and commercial changes. #mvp <!-- rm:add-an-approval-flow-system -->
 - [ ] **Utilities:** Auth, Payments, Email, Analytics, i18n, Accessibility #mvp #critical <!-- rm:utilities-auth-payments-emai -->

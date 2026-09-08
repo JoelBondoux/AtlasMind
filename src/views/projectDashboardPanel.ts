@@ -477,6 +477,12 @@ import {
   type RoadmapCriticalPath,
 } from '../core/roadmapCriticalPath.js';
 import {
+  ROADMAP_TIMELINE_RULES,
+  buildRoadmapTimeline,
+  describeRoadmapTimeline,
+} from '../core/roadmapTimeline.js';
+import type { RoadmapTimeline } from '../core/roadmapTimeline.js';
+import {
   agentUtilisationScore,
   readAgentCapacity,
   type AgentCapacityReading,
@@ -2580,6 +2586,15 @@ interface DashboardRoadmapGraphView {
   criticalPath: RoadmapCriticalPath;
   /** The same thing in a sentence, so no renderer has to restate the numbers. */
   criticalPathSummary: string;
+  /**
+   * The same plan on a time axis: bars, float, and where each gate lands.
+   *
+   * Built from `criticalPath` rather than beside it, so the chart and the
+   * sentence above it cannot hold two opinions about the finish.
+   */
+  timeline: RoadmapTimeline;
+  /** The timeline in a sentence, for the same reason `criticalPathSummary` exists. */
+  timelineSummary: string;
   /** Precomputed route per node, so filtering to one is instant and offline. */
   routes: Record<string, { nodeIds: string[]; edgeKeys: string[]; order: string[]; routeDays: number; completedCount: number }>;
   /** People who can be recorded as adding or completing work, from the Director roster. */
@@ -21816,6 +21831,18 @@ function emptyRoadmapGraphView(filePath: string): DashboardRoadmapGraphView {
       note: 'There is nothing on the roadmap yet.',
     },
     criticalPathSummary: 'There is nothing on the roadmap yet.',
+    timeline: {
+      state: 'nothing-outstanding',
+      horizonDays: 0,
+      bars: [],
+      milestones: [],
+      outstandingCount: 0,
+      deliveredCount: 0,
+      criticalCount: 0,
+      rules: ROADMAP_TIMELINE_RULES,
+      note: 'There is nothing on the roadmap yet.',
+    },
+    timelineSummary: 'There is nothing on the roadmap yet.',
     routes: {},
     people: [],
     filePath,
@@ -21940,6 +21967,14 @@ function buildRoadmapGraphView(
     // prerequisite contributes no days, and dropping it before the walk would
     // have left the path unchanged but the reasoning unable to say why.
     const criticalPath = roadmapCriticalPath(graph);
+    // Gate labels are passed in rather than looked up inside: only this layer
+    // knows what the project called `#mvp`, and a module inventing a label
+    // would print a different name from the selector two rows above it.
+    const timeline = buildRoadmapTimeline(
+      graph,
+      criticalPath,
+      new Map(gates.map(gate => [gate.id, gate.label])),
+    );
 
     return {
       active: partition.active,
@@ -21959,6 +21994,8 @@ function buildRoadmapGraphView(
       anchored,
       criticalPath,
       criticalPathSummary: describeRoadmapCriticalPath(criticalPath),
+      timeline,
+      timelineSummary: describeRoadmapTimeline(timeline),
       routes,
       people,
       ...(director?.selfContactId === undefined ? {} : { selfContactId: director.selfContactId }),
@@ -28466,6 +28503,169 @@ const DASHBOARD_CSS = `
     justify-content: space-between;
     gap: 8px 16px;
     margin-bottom: 12px;
+  }
+
+  /* ── Timeline ───────────────────────────────────────────────────────────
+     The plan against time. Bars are positioned as percentages of the horizon
+     the host computed, so the chart reflows with the panel and never needs a
+     measurement pass — a way of *looking* at a plan must not be something that
+     can fail. */
+  .rm-timeline-card { display: block; }
+
+  .rm-tl-axis {
+    position: relative;
+    height: 20px;
+    margin: 4px 0 6px calc(var(--rm-tl-label-width, 240px) + 12px);
+  }
+
+  .rm-tl-axis-track { position: absolute; inset: 0; display: block; }
+
+  .rm-tl-gridline {
+    position: absolute;
+    top: 0;
+    bottom: -4px;
+    width: 1px;
+    background: color-mix(in srgb, var(--vscode-foreground) 12%, transparent);
+  }
+
+  .rm-tl-tick {
+    position: absolute;
+    top: 2px;
+    transform: translateX(-50%);
+    font-size: 10.5px;
+    color: var(--vscode-descriptionForeground);
+    white-space: nowrap;
+  }
+
+  .rm-tl-rows {
+    list-style: none;
+    margin: 0;
+    padding: 0;
+    display: flex;
+    flex-direction: column;
+    gap: 4px;
+  }
+
+  .rm-tl-row {
+    display: grid;
+    grid-template-columns: var(--rm-tl-label-width, 240px) 1fr;
+    gap: 12px;
+    align-items: center;
+    padding: 3px 0;
+    border-radius: 6px;
+  }
+
+  .rm-tl-row:hover { background: color-mix(in srgb, var(--vscode-foreground) 5%, transparent); }
+
+  .rm-tl-label { min-width: 0; }
+
+  .rm-tl-title {
+    display: block;
+    overflow: hidden;
+    text-overflow: ellipsis;
+    white-space: nowrap;
+    font-size: 12px;
+  }
+
+  .rm-tl-meta {
+    display: flex;
+    align-items: center;
+    gap: 6px;
+    font-size: 10.5px;
+    color: var(--vscode-descriptionForeground);
+  }
+
+  .rm-tl-estimate { font-variant-numeric: tabular-nums; }
+
+  .rm-tl-track {
+    position: relative;
+    height: 18px;
+    border-radius: 4px;
+    background: color-mix(in srgb, var(--vscode-foreground) 5%, transparent);
+  }
+
+  .rm-tl-bar {
+    position: absolute;
+    top: 3px;
+    bottom: 3px;
+    border-radius: 3px;
+    background: color-mix(in srgb, var(--dash-accent-strong) 45%, transparent);
+  }
+
+  /* The path is the finding, so it is the one thing on the chart that carries
+     full-strength colour. */
+  .rm-tl-row.is-critical .rm-tl-bar {
+    background: var(--dash-accent-strong);
+  }
+
+  /* Float, drawn as a hollow tail rather than a second solid bar: it is room
+     before the *plan's* finish moves, not work anybody is doing. */
+  .rm-tl-float {
+    position: absolute;
+    top: 6px;
+    bottom: 6px;
+    border-radius: 2px;
+    border: 1px dashed color-mix(in srgb, var(--vscode-foreground) 28%, transparent);
+    border-left: none;
+  }
+
+  .rm-tl-deadline {
+    position: absolute;
+    top: -2px;
+    bottom: -2px;
+    width: 2px;
+    background: color-mix(in srgb, var(--vscode-foreground) 55%, transparent);
+  }
+
+  .rm-tl-deadline.is-late { background: var(--dash-critical, #d13438); }
+
+  .rm-tl-milestones { margin-bottom: 6px; }
+
+  .rm-tl-milestone-track {
+    position: relative;
+    height: 22px;
+    margin-left: calc(var(--rm-tl-label-width, 240px) + 12px);
+  }
+
+  .rm-tl-milestone {
+    position: absolute;
+    transform: translateX(-50%);
+    display: flex;
+    flex-direction: column;
+    align-items: center;
+    font-size: 10.5px;
+    color: var(--vscode-descriptionForeground);
+    white-space: nowrap;
+  }
+
+  .rm-tl-milestone-pin {
+    width: 8px;
+    height: 8px;
+    border-radius: 2px;
+    transform: rotate(45deg);
+    background: var(--dash-accent-strong);
+  }
+
+  .rm-tl-milestone-label { margin-top: 2px; }
+
+  .rm-tl-milestone-note {
+    margin: 4px 0 0;
+    font-size: 11px;
+    color: var(--vscode-descriptionForeground);
+  }
+
+  .rm-tl-rules {
+    margin-top: 12px;
+    font-size: 11px;
+    color: var(--vscode-descriptionForeground);
+  }
+
+  .rm-tl-rules summary { cursor: pointer; }
+  .rm-tl-rules p { margin: 6px 0 0; }
+
+  @media (max-width: 900px) {
+    .rm-tl-row { --rm-tl-label-width: 140px; }
+    .rm-tl-axis, .rm-tl-milestone-track { --rm-tl-label-width: 140px; }
   }
 
   .rm-view-bar {

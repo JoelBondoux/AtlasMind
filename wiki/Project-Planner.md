@@ -214,8 +214,22 @@ where it is, because "dropped", "renamed" and "your glob stopped matching that f
 here. And your own edits are safe — if you have retitled an item and the source has also changed it,
 you get a conflict showing both texts and nothing is written.
 
-**Four views, not three.** **Dependency canvas**, **Prioritised backlog**, **By person** and
-**Delivered**. By person shows the same outstanding work in one band per person, with each band still
+**Five views.** **Dependency canvas**, **Timeline**, **Prioritised backlog**, **By person** and
+**Delivered**.
+
+The **Timeline** answers the one question the other four cannot: *how long*. The canvas shows order and
+the backlog shows priority, but neither shows duration — so nothing said that four items sit idle for a
+week waiting on one, or that a release gate lands after the deadline it is tagged for. Each bar starts
+when its prerequisites can be finished and ends when it can, with a dashed tail showing how far it can
+slip before the plan's own finish moves; the chain with no room is drawn at full strength, and each gate
+is pinned on the axis at the day its last outstanding item lands.
+
+Its axis is **days from today, not dates**, and that is deliberate rather than a limitation. A human
+estimate is effort spread across working days while an agent's is wall clock, so turning a mixed chain
+into calendar dates would mean inventing a working calendar — a five-day week, a holiday list, a working
+day's length — that nobody declared. The only real dates on the chart are deadlines you set yourself,
+drawn as markers that grade a bar and never move it: a plan pulled earlier to meet its deadline would be
+a plan that always meets it. By person shows the same outstanding work in one band per person, with each band still
 ordered by what has to happen first — so an arrow crossing between bands is one person waiting on
 another, which is the question the view exists to answer. Bands are ordered by name rather than by how
 much work is in them, so the picture does not reshuffle whenever somebody finishes something; unassigned
