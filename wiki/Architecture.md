@@ -244,6 +244,7 @@ Perforce boundary as `not-visible` rather than zero.
 
 | Part | What it does |
 |---|---|
+| **Egress boundary** | The one path to a model. Labels each piece of context, redacts what needs it, caps its size, and asks before sending a credential you typed |
 | **Provider adapters** | One per model provider, behind a shared contract |
 | **ACP adapter** | Drives a subscription coding agent as a model provider |
 | **MCP registry** | Connects external tool servers and dispatches their tools |
@@ -251,7 +252,14 @@ Perforce boundary as `not-visible` rather than zero.
 | **Voice** | Speech in and out — cloud, your OS, or fully on-device |
 | **Local GPU arbiter** | Decides which local model requests may run, so several at once cannot over-fill one graphics card |
 
-**About that last one.** If you run local models, AtlasMind can ask for several at once from places
+**About the first one.** Before it existed there were 21 places in the code that could call a model
+and only one of them redacted anything first — not because the other twenty leaked, but because
+nothing stopped them. A rule every caller has to remember is not a rule; it had already been forgotten
+seven times. The boundary is now the only way through, and the check that keeps it that way is a test
+that fails when somebody adds a twenty-second caller. See [Security](Security.md) for what it does to
+each kind of context.
+
+**About the last one.** If you run local models, AtlasMind can ask for several at once from places
 that don't know about each other — the subtask scheduler, project bootstrap, background maintenance.
 Ollama and LM Studio each decide what fits without knowing the other exists, and neither leaves
 anything for your desktop; on a 24 GB card with no model loaded at all, Windows and a browser were

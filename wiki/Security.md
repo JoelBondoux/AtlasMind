@@ -121,6 +121,35 @@ It's handled in layers:
 
 ---
 
+## Everything on its way to a model goes through one gate
+
+Every request AtlasMind sends to a model passes through a single boundary that clears its context
+first. Nothing routes around it: an architectural test fails the build if any code reaches a provider
+directly, and the list of exceptions is empty.
+
+**Each piece of context says what it is.** The system prompt, earlier turns of the conversation, a
+file you attached, output from a tool, a memory entry, something a model wrote that is being fed back
+in — these are labelled separately and treated differently. Repository-derived and third-party text is
+redacted and held to a size limit suited to what it is; a tool result gets less room than a prompt,
+because untrusted text should not be able to crowd out your instructions.
+
+The labels are deliberately *not* guessed from the message's role. In an ordinary chat turn AtlasMind
+sends four messages that all look like "user" messages, and only one of them is what you typed. Guessing
+would mean redacting your own words while trusting whatever a tool returned.
+
+**What you typed is never silently rewritten.** If your prompt looks like it contains a credential and
+the request is going to an external provider, AtlasMind stops and asks: *send redacted*, or *send as
+typed*. Dismissing the dialog sends nothing. The dialog names the kind of credential it matched, never
+the value. Nothing asks when the model is running on your own machine, because nothing left it.
+
+Background work — anything running without you present — has no dialog to show, so the same situation
+**refuses** rather than deciding on your behalf.
+
+**A missing label is not a free pass.** Context AtlasMind failed to label is treated as the most
+sensitive class there is: redacted, size-capped hardest, and stopped on a secret.
+
+---
+
 ## Confidential data and which model sees it
 
 If the context AtlasMind is about to send contains payment card data or health information, routing is

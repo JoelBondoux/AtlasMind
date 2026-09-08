@@ -71,6 +71,18 @@ its cause; repeated identical failures are deduplicated, not discarded.
 
 ### P1-1 · No mandatory model-egress boundary
 
+**Status: closed in v0.432.0.** `src/core/modelEgress.ts` is the dispatcher; all five acceptance
+criteria are met and all three regression tests exist
+(`tests/security/modelEgressBoundary.test.ts`, `tests/security/egressLabelling.test.ts`,
+`tests/core/modelEgress.test.ts`). Direct call sites 21 → 0, `LEGACY_DIRECT_CALLERS` empty.
+
+Two things were learned closing it that the plan did not anticipate. Criterion 4 was *written*
+correctly and *implemented* against `NODE_ENV`, which VS Code leaves unset in the extension host — so
+the fail-closed-in-development rule was live in production and the documented production behaviour
+was unreachable. And the origin could not live in a parallel array as first sketched: the agentic loop
+splices its own history, so the label had to travel on the message or it would eventually describe
+the wrong text.
+
 **Evidence.** 21 prompt-bearing call sites in 8 files; only `orchestrator.ts` references the redactor
 (§1 of the data-flow document).
 

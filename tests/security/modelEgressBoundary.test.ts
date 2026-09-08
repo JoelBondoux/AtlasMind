@@ -35,19 +35,12 @@ const EXEMPT_FILES = new Set([
  * longer calls a provider directly.
  */
 const LEGACY_DIRECT_CALLERS: Readonly<Record<string, number>> = {
-  /**
-   * The main chat and tool-loop path, and the last one left.
-   *
-   * Not migrated with the other eight because its messages are the whole
-   * conversation — system prompt, session context, the operator's turn and tool
-   * results in one array — and the origins would have to be inferred from
-   * `role`. That is exactly what the boundary refuses: `role: 'user'` carries
-   * both what somebody typed and a workspace file pasted into a prompt, and
-   * those are not the same risk. Labelling belongs where the messages are
-   * built, which is a change to this file's construction sites rather than to
-   * its dispatch, and deserves its own commit.
-   */
-  'core/orchestrator.ts': 11,
+  // Empty, and that is the finished state rather than an unwritten one. Every
+  // pre-existing call site now clears its context through `prepareEgress`
+  // first — including `commands.ts`, which the Phase 0 hand-survey missed and
+  // this test found on its first run. The map stays because the ratchet needs
+  // somewhere to record a regression that is deliberately accepted, and an
+  // entry added here is a decision somebody has to defend in review.
 };
 
 /**
@@ -97,11 +90,27 @@ function directCallers(): Map<string, number> {
 }
 
 describe('prompt-bearing provider calls stay behind the egress boundary', () => {
-  it('found something to measure, rather than passing because the scan is broken', () => {
+  it('matches real code, rather than passing because the scan is broken', () => {
     // Without this, a regex that matches nothing would make every assertion
     // below vacuously true — the same failure as a coverage allowlist that
     // silently omits a directory.
-    expect(directCallers().size).toBeGreaterThan(0);
+    //
+    // Measured against the boundary itself, deliberately. The first version of
+    // this guard asserted that violations existed, which meant the suite went
+    // red the moment the last one was migrated: the success condition failing
+    // is not a check, it is a tripwire pointing the wrong way.
+    //
+    // `modelEgress.ts` is now the only file in the repository that should
+    // contain a prompt-bearing provider call — the adapters *implement*
+    // `complete()` rather than calling it on anything — so it is both the
+    // honest anchor and one that cannot be satisfied by something being wrong.
+    const atTheBoundary = countCalls(path.join(SRC, 'core', 'modelEgress.ts'));
+
+    expect(
+      atTheBoundary,
+      'The scanner found no provider call even in `modelEgress.ts`, which '
+      + 'dispatches every one of them. PROMPT_BEARING_CALL has stopped matching.',
+    ).toBeGreaterThan(0);
   });
 
   it('has no direct caller that is not a recorded legacy one', () => {

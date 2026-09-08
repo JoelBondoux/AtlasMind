@@ -19,6 +19,38 @@ Older entries below describe the software as it was at the time and are delibera
 
 ---
 
+## v0.432.0 -- Nothing reaches a model without saying what it is
+
+Direct provider calls: **11 → 0**. The orchestrator's remaining eleven — the main chat turn, the tool
+loop, five internal helpers and agent synthesis — now clear their context through the egress boundary
+first, and the list of recorded exceptions is empty. The architectural test that fails when a new
+direct caller appears stays, because the count was never the useful part.
+
+The origin now rides on the message itself. A parallel array was the obvious design and the wrong one:
+the tool loop grows, reprompts and evicts from the middle of its history in eleven places, and two
+lists kept in step by hand come apart on the first eviction — which *mislabels* text rather than
+leaving it unlabelled, the one failure the boundary cannot spot. The field is never sent to a model.
+
+Why the labels matter: an ordinary chat turn sends four consecutive messages that all look like your
+messages, and only the last one is. The other three are the conversation so far, an attachment, and a
+reading off a live service. Reading the origin off the role would have redacted your own words and
+trusted whatever a tool returned.
+
+**A credential in your own prompt now asks instead of failing.** AtlasMind does not silently rewrite
+what you typed, so a secret on its way to an external provider has two honest outcomes — ask, or
+refuse. Refusing is right for background work with nobody present and wrong for a chat turn, so the
+interactive path now offers *Send redacted* or *Send as typed*, names the kind of credential it
+matched but never the value, and treats a dismissed dialog as *no*. A model on your own machine is
+never asked about.
+
+**A fix worth naming.** The strict mode documented as development-only was keyed on `NODE_ENV`, and
+VS Code leaves that unset in the extension host — so the developer tripwire was armed for every user,
+where an unlabelled part would have failed the turn instead of degrading safely. It now keys on the
+test runner. A missing label stops the build for whoever is writing the code and clamps to the most
+restrictive class for whoever is using the product.
+
+---
+
 ## v0.431.1 -- Eight of nine, through the gate
 
 Direct provider calls fall from 19 to 11, with every remaining one in the orchestrator. The planner,

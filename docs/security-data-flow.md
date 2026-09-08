@@ -15,6 +15,15 @@ looked everywhere is the same failure mode as a test that cannot fail.
 
 ## 1. Prompt-bearing model calls
 
+> **Closed in v0.432.0.** The audit below is the Phase 0 evidence, left as written. All 21 sites now
+> dispatch through `src/core/modelEgress.ts`; the count outside the boundary and the adapters is
+> **zero**, enforced by `tests/security/modelEgressBoundary.test.ts` rather than by review.
+>
+> One line of the table below turned out to be wrong in a way worth recording: the hand-grep that
+> produced it missed `src/core/commands.ts:2741`, which the architectural test found immediately.
+> That is the argument for the test in one sentence — a survey of call sites is only as good as the
+> person doing the survey, and this one was being done carefully.
+
 `provider.complete` / `provider.streamComplete` are called from **21 sites in 8 files outside the
 provider adapters**. There is no common boundary: each caller is individually responsible for what it
 sends.

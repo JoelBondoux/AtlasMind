@@ -17,7 +17,7 @@ import { CostTracker } from '../../src/core/costTracker.ts';
 import { ProviderRegistry } from '../../src/providers/index.ts';
 import { TaskProfiler } from '../../src/core/taskProfiler.ts';
 import type { AgentDefinition, MemoryEntry, ModelCapability, ModelStruggleState, SkillDefinition, SkillExecutionContext } from '../../src/types.ts';
-import type { CompletionRequest, CompletionResponse, ProviderAdapter } from '../../src/providers/adapter.ts';
+import type { ChatMessage, CompletionRequest, CompletionResponse, ProviderAdapter } from '../../src/providers/adapter.ts';
 
 function makeSkillContext(overrides: Partial<SkillExecutionContext> = {}): SkillExecutionContext {
   return {
@@ -1776,7 +1776,7 @@ describe('Orchestrator agentic loop', () => {
       runAgenticLoop(
         provider: ProviderAdapter,
         model: string,
-        messages: Array<{ role: 'system' | 'user'; content: string }>,
+        messages: ChatMessage[],
         tools: Array<{ name: string; description: string; parameters: Record<string, unknown> }>,
         context: {
           taskId: string;
@@ -1797,9 +1797,11 @@ describe('Orchestrator agentic loop', () => {
     const attempt = await runAgenticLoop(
       refusingProvider,
       'local/echo-1',
+      // Labelled because the loop dispatches through the egress boundary, and
+      // an unlabelled part is a hard error under the test runner by design.
       [
-        { role: 'system', content: 'Workspace investigation hint: inspect the repository.' },
-        { role: 'user', content: 'Read src/auth.ts and list its exports.' },
+        { role: 'system', origin: 'system-prompt', content: 'Workspace investigation hint: inspect the repository.' },
+        { role: 'user', origin: 'user-prompt', content: 'Read src/auth.ts and list its exports.' },
       ],
       [{
         name: 'file-read',
@@ -3771,17 +3773,23 @@ describe('Orchestrator agentic loop', () => {
     const firstRequest = (provider.complete as ReturnType<typeof vi.fn>).mock.calls[0]?.[0] as CompletionRequest | undefined;
     expect(firstRequest?.messages[0]?.content).toContain('Execution bias hint:');
 
-    const secondRequest = (provider.complete as ReturnType<typeof vi.fn>).mock.calls[1]?.[0] as CompletionRequest | undefined;
-    const firstReprompt = secondRequest?.messages.find(message =>
-      message.role === 'user'
-      && message.content.includes('This request is action-oriented and should move forward'));
-    expect(firstReprompt).toBeDefined();
+    // Searched by round rather than by index. The loop mutates one `messages`
+    // array in place, and until the egress boundary began handing each dispatch
+    // its own cleared copy, every recorded call aliased that same array — so
+    // any index showed the *final* conversation and the round a reprompt
+    // actually landed in was unobservable. Asking which round first carried it
+    // is the question the test meant either way.
+    const rounds = (provider.complete as ReturnType<typeof vi.fn>).mock.calls
+      .map(call => call[0] as CompletionRequest);
+    const roundCarrying = (needle: string) => rounds.findIndex(round =>
+      round.messages.some(message => message.role === 'user' && message.content.includes(needle)));
 
-    const thirdRequest = (provider.complete as ReturnType<typeof vi.fn>).mock.calls[2]?.[0] as CompletionRequest | undefined;
-    const followThroughReprompt = thirdRequest?.messages.find(message =>
-      message.role === 'user'
-      && message.content.includes('You already have enough workspace evidence to move past investigation.'));
-    expect(followThroughReprompt).toBeDefined();
+    const firstRepromptRound = roundCarrying('This request is action-oriented and should move forward');
+    expect(firstRepromptRound).toBeGreaterThan(-1);
+
+    const followThroughRound = roundCarrying('You already have enough workspace evidence to move past investigation.');
+    expect(followThroughRound).toBeGreaterThan(-1);
+    expect(followThroughRound).toBeGreaterThan(firstRepromptRound);
 
     expect(result.response).toBe('Blocked on the exact runtime adapter boundary until the native OS integration surface is defined.');
   });

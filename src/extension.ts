@@ -2548,6 +2548,33 @@ async function bootstrapAtlasMind(
     // request that queued politely is not then reported as a slow model.
     modelRouter.setResidentLocalModels(localModelArbiter.getState().residentModelIds);
     orchestrator.setLocalAdmissionBudgetMs(LOCAL_GPU_ADMISSION_WAIT_MS);
+
+    // A credential in the operator's own prompt is the one case the egress
+    // boundary will not decide alone: it never silently rewrites what somebody
+    // typed, so the choice is theirs. Wired only here, on the interactive path
+    // — background work has nobody to ask, and the boundary's default of
+    // refusing is the right answer there.
+    //
+    // The dialog names the rules that matched, never the value they matched.
+    orchestrator.setEgressSecretConfirmer(async ({ rules, reason }) => {
+      const sendRedacted = 'Send redacted';
+      const sendOriginal = 'Send as typed';
+      const choice = await vscode.window.showWarningMessage(
+        'This prompt looks like it contains a credential.',
+        {
+          modal: true,
+          detail: `${reason}\n\nMatched: ${rules.join(', ')}\n\n`
+            + 'AtlasMind does not rewrite what you typed without asking. '
+            + 'Sending it as typed transmits the credential to the model provider.',
+        },
+        sendRedacted,
+        sendOriginal,
+      );
+      if (choice === sendOriginal) { return 'send-original'; }
+      if (choice === sendRedacted) { return 'send-redacted'; }
+      // Dismissing a modal is not consent.
+      return 'cancel';
+    });
     context.subscriptions.push(
       localModelArbiter.onDidChange(state => {
         modelRouter.setResidentLocalModels(state.residentModelIds);

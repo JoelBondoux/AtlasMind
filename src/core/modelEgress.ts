@@ -195,10 +195,14 @@ export interface EgressOptions {
   /**
    * Throw on an unlabelled or unknown origin rather than degrading.
    *
-   * True in development and tests, so a new call site that forgets to label its
-   * context fails where somebody can fix it. False in production, where the same
-   * part is treated as the most sensitive class instead — loud where it helps,
-   * safe where it does not.
+   * True under the test runner and when `ATLASMIND_STRICT_EGRESS=1`, so a new
+   * call site that forgets to label its context fails where somebody can fix
+   * it. False in a shipped extension, where the same part is treated as the
+   * most sensitive class instead — loud where it helps, safe where it does not.
+   *
+   * Deliberately not keyed on `NODE_ENV`: VS Code leaves it unset in the
+   * extension host, so a `!== 'production'` test is true for every user and
+   * would arm the tripwire in exactly the place it must not fire.
    */
   strictOrigins: boolean;
   /**
@@ -337,6 +341,14 @@ export class ModelEgressRefused extends Error {
 export interface EgressDestination {
   providerId?: string;
   complete(request: CompletionRequest): Promise<CompletionResponse>;
+  /**
+   * Optional streaming form.
+   *
+   * Declared here so a streaming caller does not have to reach past the
+   * boundary to get one. A path that had to call the provider directly in
+   * order to stream would be an unlabelled path, and the commonest one.
+   */
+  streamComplete?(request: CompletionRequest, onTextChunk: (chunk: string) => void): Promise<CompletionResponse>;
 }
 
 export interface GuardedCompletionInput {
@@ -351,9 +363,17 @@ export interface GuardedCompletionInput {
    * into a prompt, and those are not the same risk. A shorter list than
    * `messages` leaves the remainder unlabelled, which fails closed.
    */
-  origins: readonly ModelContextOrigin[];
+  origins: readonly (ModelContextOrigin | undefined)[];
   /** True when the provider is not on this machine. */
   external: boolean;
+  /**
+   * Stream the response, when the destination can.
+   *
+   * Falls back to a whole-response completion rather than refusing: streaming
+   * is a delivery detail, and failing a turn over it would push callers back
+   * to the direct provider call this replaces.
+   */
+  onTextChunk?: (chunk: string) => void;
   strictOrigins?: boolean;
   /** Receives one content-free audit line per dispatch. */
   onAudit?: (line: string) => void;
@@ -365,9 +385,19 @@ export interface GuardedCompletionInput {
    * prompt containing a credential, which is the correct outcome rather than an
    * inconvenience.
    */
-  confirmSecret?: (details: { origin: ModelContextOrigin; rules: readonly string[]; reason: string })
-    => Promise<'send-original' | 'send-redacted' | 'cancel'>;
+  confirmSecret?: EgressSecretConfirmer;
 }
+
+/**
+ * Asks a human whether a credential in their own prompt may leave the machine.
+ *
+ * Named so a host can hold one without importing the whole input shape, and so
+ * the three answers are stated in one place: send it, send it redacted, or do
+ * not send at all.
+ */
+export type EgressSecretConfirmer = (
+  details: { origin: ModelContextOrigin; rules: readonly string[]; reason: string },
+) => Promise<'send-original' | 'send-redacted' | 'cancel'>;
 
 /**
  * The single guarded path to a provider.
@@ -379,8 +409,15 @@ export interface GuardedCompletionInput {
 export async function dispatchGuardedCompletion(
   input: GuardedCompletionInput,
 ): Promise<CompletionResponse> {
+  // Keyed on signals that exist here. The first version read
+  // `NODE_ENV !== 'production'`, which is true in a *shipped* extension —
+  // VS Code does not set NODE_ENV in the extension host — so the developer
+  // tripwire was armed for real users and the documented production
+  // behaviour below was unreachable. A missed label should degrade to the
+  // most restrictive class for somebody using the product, and stop the
+  // build for somebody writing it.
   const strictOrigins = input.strictOrigins
-    ?? (process.env['NODE_ENV'] !== 'production' || process.env['VITEST'] !== undefined);
+    ?? (process.env['VITEST'] !== undefined || process.env['ATLASMIND_STRICT_EGRESS'] === '1');
 
   const parts: OriginTaggedText[] = input.request.messages.map((message, index) => ({
     // An index past the supplied origins is deliberately not defaulted to
@@ -421,5 +458,23 @@ export async function dispatchGuardedCompletion(
     input.onAudit(describeEgressAudit(prepared.audit, input.provider.providerId ?? 'unknown', input.request.model));
   }
 
-  return input.provider.complete({ ...input.request, messages });
+  const cleanedRequest = { ...input.request, messages };
+  return input.onTextChunk && input.provider.streamComplete
+    ? input.provider.streamComplete(cleanedRequest, input.onTextChunk)
+    : input.provider.complete(cleanedRequest);
+}
+
+/**
+ * Read the origins a message array is carrying.
+ *
+ * Still explicit labelling, not inference: it reads a field somebody set at the
+ * point the message was built, and an unset one stays `undefined` so the
+ * boundary refuses. The alternative — a second array kept in step by hand —
+ * desynchronises the first time a caller evicts a message, and a mislabelled
+ * origin is worse than a missing one.
+ */
+export function originsFromMessages(
+  messages: readonly { origin?: ModelContextOrigin }[],
+): readonly (ModelContextOrigin | undefined)[] {
+  return messages.map(message => message.origin);
 }

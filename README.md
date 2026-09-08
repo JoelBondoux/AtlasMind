@@ -4,7 +4,7 @@
 
 <h1 align="center">AtlasMind</h1>
 
-<p align="center"><sub> · <strong>Current source version: 0.431.1</strong> · </sub></p>
+<p align="center"><sub> · <strong>Current source version: 0.432.0</strong> · </sub></p>
 
 
 <p align="center">
@@ -175,11 +175,17 @@ important limits on overrides and compliance claims.
 
 ---
 
-## What's new in 0.431.1
+## What's new in 0.432.0
 
 The last Marketplace publication, **v0.420.4**, brought the changes below. Every release is written
 up in full in [CHANGELOG.md](CHANGELOG.md).
 
+- **Nothing reaches a model without saying what it is.** Every prompt-bearing call in AtlasMind now
+  clears its context through one boundary first, which redacts repository-derived text, holds each
+  kind of content to its own size limit, and never silently rewrites what you typed. Direct calls
+  that skipped it: 11 → 0, with an architectural test that fails when a new one appears. If a
+  credential turns up in your own prompt on its way to an external provider, AtlasMind asks — *send
+  redacted* or *send as typed* — and dismissing the dialog sends nothing.
 - **AtlasMind follows the Open Source Maintenance Fee model.** The source code stays MIT permanently,
   and compiling it yourself is free for everyone, always. From **v1.0.0** the official Marketplace
   build carries a maintenance fee for organizations with annual gross revenue of US$10,000 or more

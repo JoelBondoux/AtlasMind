@@ -6,6 +6,76 @@ The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/),
 
 ## [Unreleased]
 
+## [0.432.0] - 2026-09-08
+
+### Changed
+
+- **Nothing reaches a model without saying what it is.** Direct provider call sites:
+  **11 → 0**. The orchestrator's remaining eleven — the main chat turn, the tool loop,
+  five internal helpers and agent synthesis — now clear their context through
+  `prepareEgress` first, and `LEGACY_DIRECT_CALLERS` in
+  `tests/security/modelEgressBoundary.test.ts` is empty. The ratchet stays, because the
+  useful thing about it was never the count — and its own guard had to be re-based: it
+  proved the scanner worked by finding a violation, so the suite went red the moment the
+  last one was migrated. It now measures the boundary itself, which is the one file a
+  provider call belongs in.
+
+- **An origin is carried on the message, not beside it.** `ChatMessage` gained an optional
+  `origin`, and the agentic loop labels every message it builds. A parallel array was the
+  obvious design and the wrong one: the loop grows, reprompts and *evicts* from the middle
+  of its history in eleven places to stay inside a context window, and two arrays kept in
+  step by hand desynchronise on the first eviction. A desynchronised origin list mislabels
+  content rather than failing to label it, which is the one failure the boundary cannot
+  detect. The field is never sent to a model.
+
+  The labels are the point. `buildMessages` emits four consecutive `role: 'user'` messages
+  and only the last is what the operator typed — the others are session context, an
+  attachment, and a reading off a live third-party service. Inferring origins from `role`
+  would have collapsed all four into one class and redacted the operator's own words while
+  trusting a tool result.
+
+- **The boundary can stream.** `EgressDestination` gained an optional `streamComplete`, so
+  a streaming caller no longer has to reach past the gate to get one. That was the
+  commonest unlabelled path in the codebase and also the most important — the main chat
+  turn. Clearance runs per attempt rather than once before the retry loop, because each
+  attempt re-scopes its request and clearing the version actually sent is the only
+  arrangement that cannot drift.
+
+### Fixed
+
+- **Each dispatch now gets its own message array.** The agentic loop mutates one array in
+  place across rounds, and every provider call previously received that same reference — so
+  a message appended after a call was sent had retroactively been part of it, as far as
+  anything holding the request could tell. Clearing produces a fresh array per dispatch, so
+  what a provider was handed is now a snapshot of that moment. Found because a test that
+  asserted on the second recorded call had been reading the *final* conversation all along;
+  it now asks which round carried the reprompt, which is what it meant.
+
+- **The developer tripwire was armed for every user.** `strictOrigins` defaulted to
+  `NODE_ENV !== 'production'`, and VS Code does not set `NODE_ENV` in the extension host —
+  so the strict mode documented as development-only was on in shipped builds, where an
+  unlabelled part would throw and fail the turn instead of degrading. It now keys on the
+  test runner and an explicit `ATLASMIND_STRICT_EGRESS=1`. A missed label stops the build
+  for whoever is writing it, and clamps to the most restrictive class for whoever is using
+  it. Both halves are asserted, the second by driving the default with `NODE_ENV` unset
+  rather than by reading the expression.
+
+### Added
+
+- **A credential in your own prompt asks, instead of refusing.** The boundary never
+  silently rewrites what somebody typed, so a secret-shaped value bound off-machine has two
+  honest outcomes: ask, or refuse. Refusing is right for background work with nobody to
+  ask, and wrong for a chat turn. The host now supplies a confirmer on the interactive path
+  only — a modal offering *Send redacted* or *Send as typed*, naming the rules that matched
+  and never the value. Dismissing it is not consent. A local destination is never asked
+  about, because nothing left the machine.
+
+- `tests/security/egressLabelling.test.ts` — fifteen checks covering how a label reaches
+  the policy, as distinct from what the policy does with one: positional read-back, an
+  unlabelled message staying `undefined`, origins surviving a mid-history eviction, four
+  same-role parts getting four treatments, streaming clearing before sending rather than
+  after, and each of the four confirmer answers.
+
 ## [0.431.1] - 2026-09-08
 
 ### Changed
