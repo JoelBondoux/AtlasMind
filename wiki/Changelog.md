@@ -19,6 +19,30 @@ Older entries below describe the software as it was at the time and are delibera
 
 ---
 
+## v0.446.0 -- A day is the wrong unit when an agent does the work
+
+If your agents do the coding, a roadmap item can be planned and finished inside an afternoon. The
+roadmap could not say so: every estimate was in working days with a half-day floor, so the smallest
+thing it could describe was four hours of somebody's time.
+
+Worse, the arithmetic behind it rounded to the nearest half-day — so three twenty-minute items added
+up to nothing, and a plan run entirely by agents reported no work left and a critical path of zero.
+
+Now: mark a contact as an **AI agent** on the Director page, assign roadmap work to them, and it is
+estimated in wall-clock minutes instead. The size of the job is judged the same way — that does not
+change with who does it — but what a unit of it *costs* does. Durations show as minutes or hours
+where that is what they are, rather than as `0d`.
+
+Two things worth knowing. The conversion is **a stated assumption, not a measurement** — nothing has
+watched your agents work, so it is one number you can see, disagree with, and override per item. And
+the "AI-assisted estimate" toggle disappears on agent work: it grades a person working with AI help,
+and applying it to an agent would count the same thing twice.
+
+A chain that mixes the two behaves as you would hope: an afternoon of agent work waiting on a
+three-day human task finishes when the human task does.
+
+---
+
 ## v0.445.0 -- What the finish date actually rests on
 
 Your backlog could tell you what mattered most. The dependency canvas could tell you what had to

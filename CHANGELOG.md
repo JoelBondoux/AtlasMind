@@ -6,6 +6,54 @@ The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/),
 
 ## [Unreleased]
 
+## [0.446.0] - 2026-09-08
+
+### Fixed
+
+- **Work assigned to an agent no longer rounds away to nothing.** `computeRouteDays` accumulated to
+  the nearest **half-day**, which was exact while every estimate was a person's and became a defect
+  the moment an item could be done in twenty minutes: three such items summed to zero, and a plan run
+  entirely by agents reported no work left and a critical path of nothing at all. Route days and the
+  critical path now accumulate to the **minute**. Human estimates are still multiples of half a day
+  and are unaffected, which is asserted rather than assumed.
+
+- **A duration is shown in a unit that does not round it away.** `${days}d` was fine while nothing
+  could be shorter than half a day. `formatRoadmapDuration` drops to hours and then minutes below
+  one, and never renders real work as `0d` — both wrong, and the exact wording that makes somebody
+  stop trusting the column.
+
+### Added
+
+- **A roadmap item assigned to an AI agent is estimated in agent wall-clock, not working days.** The
+  estimate table grades **scope**, and scope does not change with who picks the work up; elapsed time
+  does, by enough that one scale cannot carry both. `MIN_ESTIMATE_DAYS` justified itself as *"a task
+  somebody has to pick up and land costs a session"* — reasoning that only holds for a person, and
+  which forced every agent item to half a day.
+
+  `AGENT_MINUTES_PER_SCOPE_DAY` converts one scale to the other: **a declared prior, not a
+  measurement**, and the rule text says so, because nothing here has watched your agents work. One
+  constant rather than a second table of bases — the scope judgement is already made and does not
+  need making twice, and a reader who disagrees has one number to argue with instead of five. Any
+  item where it matters should carry a declared estimate, which overrides it entirely.
+
+  **The AI-assistance discount is deliberately not applied on the agent scale.** It grades a person
+  working with AI help; applying it to an agent counts the same fact twice, and the number would be
+  defensible from neither direction. The toggle is withheld rather than shown disabled, since a
+  control that changes nothing is worse than none.
+
+- **Contacts have a kind, and it decides how their work is estimated.** `DirectorContact.kind`
+  existed and was hard-coded to `person` at every write; the Director contact form now offers
+  Person / Team / Organisation / **AI agent**, and the roadmap assignee picker marks the agents. The
+  roster is the source of truth — changing the mark re-grades the plan, because you have just said
+  who does the work — with an `agent:` id prefix honoured for assignees that are not roster contacts.
+  An assignee that resolves to nobody falls back to a person's scale, which is a real choice and not
+  a neutral one: the node's existing unresolved-assignment chip is what makes the cause visible where
+  the effect is.
+
+  A declared estimate now rounds to the minute rather than the half-day, or an agent figure entered
+  by hand would be taken to zero or inflated twelvefold; the field's step and floor follow the scale
+  for the same reason.
+
 ## [0.445.0] - 2026-09-08
 
 ### Added

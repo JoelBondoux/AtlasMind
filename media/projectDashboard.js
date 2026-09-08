@@ -2905,7 +2905,13 @@
       const existingIdx = cfg.contacts.findIndex(c => c.id === id);
       const existing = existingIdx >= 0 ? cfg.contacts[existingIdx] : null;
       const finalLinks = links.length ? links : (existing ? existing.links : []);
-      const contact = { id: id, name: name, kind: 'person', title: val('title').trim() || undefined, org: val('org').trim() || undefined, links: finalLinks, piiStored: finalLinks.some(l => directorIsPiiLink(l.kind)) };
+      // Kind decides how work assigned to them is estimated, so an unrecognised
+      // value falls back to `person` rather than being stored — the roadmap
+      // would read anything it does not know as a person anyway, and storing a
+      // value nothing acts on is how a setting looks broken.
+      const kindRaw = val('kind').trim();
+      const kind = ['person', 'group', 'org', 'agent'].indexOf(kindRaw) >= 0 ? kindRaw : (existing && existing.kind) || 'person';
+      const contact = { id: id, name: name, kind: kind, title: val('title').trim() || undefined, org: val('org').trim() || undefined, links: finalLinks, piiStored: finalLinks.some(l => directorIsPiiLink(l.kind)) };
       if (existing && existing.ref) { contact.ref = existing.ref; }
       if (existingIdx >= 0) { cfg.contacts[existingIdx] = contact; } else { cfg.contacts.push(contact); }
       if (chk('isSelf')) { cfg.selfContactId = id; } else if (cfg.selfContactId === id) { cfg.selfContactId = ''; }
@@ -12554,7 +12560,7 @@
               Route to “${escapeHtml(String(focusNode.text).slice(0, 42))}${String(focusNode.text).length > 42 ? '…' : ''}”
               <button type="button" class="rm-chip-clear" data-action="roadmap-clear-focus" aria-label="Show the whole plan again">×</button>
             </span>
-            <span class="list-meta">${escapeHtml(`${shownCount} of ${totalCount} items · ${filter.route.routeDays}d of work left · ${filter.route.completedCount} already delivered`)}</span>
+            <span class="list-meta">${escapeHtml(`${shownCount} of ${totalCount} items · ${formatRoadmapDays(filter.route.routeDays)} of work left · ${filter.route.completedCount} already delivered`)}</span>
           ` : ''}
           ${linking ? `<span class="rm-filter-chip rm-linking" title="${escapeAttr('Click “Needs this” on the item that has to wait, or press Escape to cancel.')}">Linking from “${escapeHtml(String(linking.text).slice(0, 32))}…”<button type="button" class="rm-chip-clear" data-action="roadmap-link-cancel" aria-label="Cancel linking">×</button></span>` : ''}
           <span class="rm-search">
@@ -13003,9 +13009,27 @@
     return `<span class="rm-chip rm-chip-${escapeAttr(schedule.state)}">${escapeHtml(label)}</span>`;
   }
 
+  /**
+   * A duration in the largest unit that does not round it away.
+   *
+   * Mirrors `formatRoadmapDuration` in `roadmapGraph.ts`, which the host uses
+   * for the same figures in the schedule reasons. `Xd` was fine while nothing
+   * could be shorter than half a day; an agent-assigned item is a fraction of
+   * one, and "0d" is both wrong and the exact wording that makes somebody stop
+   * trusting the column.
+   */
   function formatRoadmapDays(days) {
     const value = Number(days) || 0;
-    return (Number.isInteger(value) ? String(value) : value.toFixed(1)) + 'd';
+    if (value >= 1) {
+      return (Number.isInteger(value) ? String(value) : value.toFixed(1)) + 'd';
+    }
+    const minutes = value * 1440;
+    if (minutes >= 60) {
+      const hours = minutes / 60;
+      return (Number.isInteger(hours) ? String(hours) : hours.toFixed(1)) + 'h';
+    }
+    // Rounded up, so real work never reads as taking no time at all.
+    return String(Math.max(1, Math.ceil(minutes))) + 'm';
   }
 
   /**
@@ -13028,16 +13052,23 @@
             title="${escapeAttr('Derived from the item unless you set one. Refused rather than corrected if it is not a legal branch name.')}" /></label>
         <label class="rm-field"><span>Deadline</span>
           <input type="date" data-rm-field="deadline" data-rm-node-id="${escapeAttr(node.id)}" value="${escapeAttr(node.deadline || '')}" /></label>
-        <label class="rm-field"><span>Est. days</span>
-          <input type="number" min="0.5" max="365" step="0.5" data-rm-field="estimateDays" data-rm-node-id="${escapeAttr(node.id)}"
+        ${(() => {
+    // The field is in days either way — one stored unit, so a plan mixing
+    // people and agents stays comparable — but the step and floor follow the
+    // scale. A half-day step on an agent item makes every honest value
+    // unenterable, which is the same bug as rounding it away.
+    const agent = node.estimate.scale === 'agent';
+    return `<label class="rm-field"><span>${escapeHtml(agent ? 'Est. days (agent)' : 'Est. days')}</span>
+          <input type="number" min="${agent ? '0.001' : '0.5'}" max="365" step="${agent ? '0.001' : '0.5'}" data-rm-field="estimateDays" data-rm-node-id="${escapeAttr(node.id)}"
             value="${escapeAttr(node.estimate.source === 'declared' ? String(node.estimate.days) : '')}"
-            placeholder="${escapeAttr(String(node.estimate.days) + ' (derived)')}"
-            title="${escapeAttr(node.estimate.rule)}" /></label>
+            placeholder="${escapeAttr(formatRoadmapDays(node.estimate.days) + ' (derived)')}"
+            title="${escapeAttr(node.estimate.rule)}" /></label>`;
+  })()}
         <label class="rm-field"><span>Assigned to</span>
           <select data-rm-field="assigneeId" data-rm-node-id="${escapeAttr(node.id)}"
             title="${escapeAttr('Who is expected to pick this up. Drawn from the Project Director roster — add people there first. This is a plan, not a record of who raised or finished the item.')}">
             <option value=""${node.assigneeId ? '' : ' selected'}>Unassigned</option>
-            ${(graph.people || []).map(person => `<option value="${escapeAttr(person.id)}"${node.assigneeId === person.id ? ' selected' : ''}>${escapeHtml(person.name)}</option>`).join('')}
+            ${(graph.people || []).map(person => `<option value="${escapeAttr(person.id)}"${node.assigneeId === person.id ? ' selected' : ''}>${escapeHtml(person.name + (person.isAgent ? ' (agent)' : ''))}</option>`).join('')}
             ${node.assigneeId && !(graph.people || []).some(person => person.id === node.assigneeId)
               ? `<option value="${escapeAttr(node.assigneeId)}" selected>Not in the roster — keep as is</option>`
               : ''}
@@ -13045,9 +13076,14 @@
         ${(graph.people || []).length === 0
           ? `<p class="rm-provenance">${escapeHtml('No people are on the Project Director roster yet, so there is nobody to assign. Add them on the Director page.')}</p>`
           : ''}
-        <label class="rm-toggle" title="${escapeAttr('Whether this item’s estimate assumes AI-assisted coding. Off grades the same work at ' + formatRoadmapDays(node.estimate.aiAssisted ? node.estimate.alternativeDays : node.estimate.days) + '.')}">
+        ${node.estimate.scale === 'agent'
+    // Withheld rather than shown disabled: the discount grades a person working
+    // with AI help, and on an agent it would be the same fact counted twice. A
+    // toggle that changes nothing is worse than no toggle.
+    ? `<p class="rm-provenance">${escapeHtml('Assigned to an agent, so this is estimated in agent wall-clock rather than working days. The AI-assistance discount does not apply — the agent is the assistance.')}</p>`
+    : `<label class="rm-toggle" title="${escapeAttr('Whether this item’s estimate assumes AI-assisted coding. Off grades the same work at ' + formatRoadmapDays(node.estimate.aiAssisted ? node.estimate.alternativeDays : node.estimate.days) + '.')}">
           <input type="checkbox" data-rm-field="aiAssisted" data-rm-node-id="${escapeAttr(node.id)}" ${node.estimate.aiAssisted ? 'checked' : ''} />
-          <span>AI-assisted estimate</span></label>
+          <span>AI-assisted estimate</span></label>`}
         <p class="rm-provenance">${escapeHtml(describeRoadmapProvenance(node))}</p>
         <div class="rm-node-actions">
           <button type="button" class="action-link" data-action="roadmap-node-save" data-payload="${escapeAttr(node.id)}">Save</button>
@@ -15779,7 +15815,14 @@
           ${edText('Name', 'name', contact.name, 'Jane Doe')}
           ${edText('Title / role', 'title', contact.title, 'VP Product')}
           ${edText('Organisation', 'org', contact.org, '')}
+          ${edSelect('Kind', 'kind', contact.kind || 'person', [
+    { value: 'person', label: 'Person' },
+    { value: 'group', label: 'Team or group' },
+    { value: 'org', label: 'Organisation' },
+    { value: 'agent', label: 'AI agent' },
+  ])}
         </div>
+        <p class="list-meta">${escapeHtml('Kind is not a label. Roadmap work assigned to an AI agent is estimated in minutes rather than working days, because a duration means a different thing when nobody has to pick it up in the morning.')}</p>
         <div id="director-link-rows">
           ${existingLinks.map((link, index) => renderContactLinkRow(link, kinds, index === 0)).join('')}
         </div>

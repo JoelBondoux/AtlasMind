@@ -1,3 +1,4 @@
+import { MINUTES_PER_DAY, formatRoadmapDuration } from './roadmapGraph.js';
 import type { RoadmapGraph, RoadmapGraphNode } from './roadmapGraph.js';
 
 /**
@@ -107,19 +108,25 @@ export interface RoadmapCriticalPath {
 }
 
 /**
- * Estimates and route days are all multiples of half a day, so the arithmetic
- * is done in half-days as integers.
+ * The arithmetic is done in whole minutes as integers.
  *
  * Not fussiness: the whole result turns on `slack === 0`, and a comparison of
  * accumulated floating-point sums is exactly the kind of thing that puts an
  * item on the path on one machine and not on another.
+ *
+ * Minutes rather than half-days, which is what this used before an item could be
+ * assigned to an agent. Half-days matched the estimate table exactly while every
+ * duration was a person's; an agent-scale item is a fraction of a day, and
+ * rounding one to the nearest half-day takes it to zero — so a plan run by
+ * agents had a critical path of nothing at all. `computeRouteDays` accumulates
+ * to the same grid, so the two still agree exactly.
  */
-function toHalfDays(days: number): number {
-  return Math.round(days * 2);
+function toMinutes(days: number): number {
+  return Math.round(days * MINUTES_PER_DAY);
 }
 
-function fromHalfDays(halfDays: number): number {
-  return halfDays / 2;
+function fromMinutes(minutes: number): number {
+  return minutes / MINUTES_PER_DAY;
 }
 
 /**
@@ -159,9 +166,9 @@ export function roadmapCriticalPath(graph: RoadmapGraph): RoadmapCriticalPath {
 
   const outstandingIds = new Set(outstanding.map(node => node.id));
   const byId = new Map(outstanding.map(node => [node.id, node]));
-  const own = new Map(outstanding.map(node => [node.id, toHalfDays(node.estimate.days)]));
+  const own = new Map(outstanding.map(node => [node.id, toMinutes(node.estimate.days)]));
   // Reused, never recomputed: this is the number already printed on the card.
-  const earliest = new Map(outstanding.map(node => [node.id, toHalfDays(node.schedule.routeDays)]));
+  const earliest = new Map(outstanding.map(node => [node.id, toMinutes(node.schedule.routeDays)]));
 
   const finish = Math.max(...outstanding.map(node => earliest.get(node.id) ?? 0));
 
@@ -194,13 +201,13 @@ export function roadmapCriticalPath(graph: RoadmapGraph): RoadmapCriticalPath {
     // Clamped at zero. A negative figure can only come from a graph that
     // disagrees with itself, and reporting "-1 days of slack" would send
     // somebody looking for a scheduling subtlety that is really a data fault.
-    const slackHalf = Math.max(0, latestFinish - earliestFinish);
+    const slackMinutes = Math.max(0, latestFinish - earliestFinish);
     return {
       nodeId: node.id,
-      slackDays: fromHalfDays(slackHalf),
-      earliestFinishDays: fromHalfDays(earliestFinish),
-      latestFinishDays: fromHalfDays(latestFinish),
-      critical: slackHalf === 0,
+      slackDays: fromMinutes(slackMinutes),
+      earliestFinishDays: fromMinutes(earliestFinish),
+      latestFinishDays: fromMinutes(latestFinish),
+      critical: slackMinutes === 0,
     };
   });
 
@@ -217,7 +224,7 @@ export function roadmapCriticalPath(graph: RoadmapGraph): RoadmapCriticalPath {
 
   return {
     state: 'ok',
-    days: fromHalfDays(finish),
+    days: fromMinutes(finish),
     nodeIds,
     slack,
     offPathCount: slack.length - nodeIds.length,
@@ -249,7 +256,10 @@ export function describeRoadmapCriticalPath(path: RoadmapCriticalPath): string {
     return path.note ?? 'No critical path could be worked out.';
   }
   const items = path.nodeIds.length;
-  const chain = `${path.days} day${path.days === 1 ? '' : 's'} of work along a chain of `
+  // Formatted rather than printed as days: a plan run by agents finishes in
+  // minutes, and "0.02 days of work" is the sort of number that makes somebody
+  // stop reading the line.
+  const chain = `${formatRoadmapDuration(path.days)} of work along a chain of `
     + `${items} item${items === 1 ? '' : 's'}`;
   if (path.offPathCount === 0) {
     // Everything is on the path, which is worth saying plainly: it means the

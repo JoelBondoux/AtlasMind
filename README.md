@@ -4,7 +4,7 @@
 
 <h1 align="center">AtlasMind</h1>
 
-<p align="center"><sub> · <strong>Current source version: 0.445.0</strong> · </sub></p>
+<p align="center"><sub> · <strong>Current source version: 0.446.0</strong> · </sub></p>
 
 
 <p align="center">
@@ -175,11 +175,17 @@ important limits on overrides and compliance claims.
 
 ---
 
-## What's new in 0.445.0
+## What's new in 0.446.0
 
 The last Marketplace publication, **v0.420.4**, brought the changes below. Every release is written
 up in full in [CHANGELOG.md](CHANGELOG.md).
 
+- **Roadmap work assigned to an AI agent is estimated in minutes, not working days.** If your agents
+  do the coding, an item can be planned and finished inside an afternoon — and the roadmap couldn't
+  say so, because every estimate was in working days with a half-day floor. Worse, the arithmetic
+  rounded to the nearest half-day, so a plan run entirely by agents reported *no work left at all*.
+  Mark a contact as an AI agent on the Director page and their roadmap work is graded in wall-clock
+  instead. The size of the job is judged the same way; what a unit of it costs is not.
 - **The roadmap now says which chain of work the finish date rests on.** The backlog could tell you
   what mattered most and the dependency canvas could tell you what waited on what. Neither said
   *which chain actually decides when this lands* — so a plan could be correctly prioritised,

@@ -21696,6 +21696,14 @@ function buildRoadmapGraphView(
     );
     const anchored = items.every((item, index) => item.nodeId === resolvedIds[index]);
 
+    // Read before the graph is built, not after: which contacts are agents
+    // decides how their work is estimated, and an estimate produced without
+    // knowing that would have to be thrown away and redone.
+    const director = readProjectDirectorConfig(workspaceRoot);
+    const agentAssigneeIds = (director?.contacts ?? [])
+      .filter(contact => contact.kind === 'agent')
+      .map(contact => contact.id);
+
     const takenBranches: string[] = [];
     const graph = resolveRoadmapGraph({
       items: items.map((item, index) => {
@@ -21718,6 +21726,7 @@ function buildRoadmapGraphView(
       records: reconciled.document.nodes,
       declaredEdges: reconciled.document.edges,
       gateOrder: normalizeGates(gates).map(gate => gate.id),
+      agentAssigneeIds,
       deriveSuggestions: reconciled.document.suggestLinks,
       dismissedEdges: reconciled.document.dismissed,
       orientation: reconciled.document.layoutOrientation,
@@ -21733,7 +21742,6 @@ function buildRoadmapGraphView(
       }
     }
 
-    const director = readProjectDirectorConfig(workspaceRoot);
     const notes = [...graph.notes];
     if (!anchored) {
       notes.push('This roadmap is not wired to the canvas yet. AtlasMind writes a hidden id into each backlog line when the dashboard loads; until that write lands, positions, deadlines and links are shown but not yet durable.');
@@ -21742,7 +21750,14 @@ function buildRoadmapGraphView(
       notes.push(`${reconciled.droppedNodeIds.length} saved node${reconciled.droppedNodeIds.length === 1 ? '' : 's'} no longer match a backlog item and ${reconciled.droppedNodeIds.length === 1 ? 'was' : 'were'} dropped.`);
     }
 
-    const people = (director?.contacts ?? []).map(contact => ({ id: contact.id, name: contact.name }));
+    // `kind` travels so the assignee picker can say which of these is an agent.
+    // Without it the estimate silently changes scale when you pick a name and
+    // nothing on screen says why.
+    const people = (director?.contacts ?? []).map(contact => ({
+      id: contact.id,
+      name: contact.name,
+      ...(contact.kind === 'agent' ? { isAgent: true } : {}),
+    }));
     const byPerson = layoutRoadmapByAssignee(partition.active, people, graph.orientation);
     // Computed from the whole graph, not from `partition.active`: a delivered
     // prerequisite contributes no days, and dropping it before the walk would

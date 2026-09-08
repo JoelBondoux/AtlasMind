@@ -232,7 +232,9 @@ describe('what it says out loud', () => {
       { id: 'c', days: 1, after: ['a', 'b'] },
     ])));
 
-    expect(summary).toContain('6 days');
+    // Formatted rather than spelled out in days: a plan run by agents finishes
+    // in minutes, and one wording has to serve both.
+    expect(summary).toContain('6d of work');
     expect(summary).toContain('chain of 2 items');
     expect(summary).toMatch(/1 outstanding item has room/);
   });

@@ -87,6 +87,14 @@ Save                  Persisted to the Run Center
 Short follow-ups like *"proceed autonomously"* re-use your last substantial request and go down the same
 path — you don't have to retype it.
 
+**A duration means a different thing depending on who does the work.** Roadmap estimates grade how
+*big* a piece of work is, which does not change with who picks it up — but how long it takes does. A
+person's estimate is effort across working days; an agent's is wall clock in minutes. Mark a contact
+as an AI agent on the Director page and their roadmap work is graded on that scale instead. The
+conversion is a stated assumption rather than a measurement, so you can see it, disagree with it, and
+override it per item; the "AI-assisted" discount is withheld there, because it grades a person
+working with AI help and would otherwise count the same thing twice.
+
 **Why "waves" rather than batches.** Steps with no dependency between them are free to run at the
 same time, and that is not the same as safe: two of them editing the same file is a read-modify-write
 race whose loser disappears without a trace, with both steps reported as finished. Steps that write
