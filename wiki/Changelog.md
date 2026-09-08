@@ -19,6 +19,21 @@ Older entries below describe the software as it was at the time and are delibera
 
 ---
 
+## v0.438.1 -- "Open a code file" opens a code file
+
+With nothing open, the Lens view shows a single row asking you to open a code file. Clicking it
+opened the Atlas Lenses dashboard — which also says to open a code file. So the one clickable thing
+on the surface took you to a page repeating the request, and the lenses read as unreachable rather
+than as waiting for you.
+
+It now opens the file picker. The row still explains what it is waiting for; it is guidance first
+and a button second.
+
+Worth saying what was *not* broken: Contract Wiring, State Lifecycle, Configuration Resolution and
+Change Story never needed a file at all, and were always available from the view's title bar.
+
+---
+
 ## v0.438.0 -- A commit-message button where you already are
 
 There is now a ✨ button in the Source Control title bar, beside the other actions there. Press it

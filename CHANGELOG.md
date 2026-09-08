@@ -6,6 +6,32 @@ The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/),
 
 ## [Unreleased]
 
+## [0.438.1] - 2026-09-08
+
+### Fixed
+
+- **"Open a code file" in the Lens view now opens a file.** Roadmap item: *"The Lens surfaces
+  are not all accessible as they need a file selected."*
+
+  With no editor open, the Code Explorer shows one row asking you to open a code file. That row
+  was clickable and opened the Atlas Lenses dashboard — which is the right destination for
+  "show me what the lenses do" and the wrong one here, because the dashboard *also* says open a
+  code file. Clicking the thing that told you to open a file took you to a page telling you to
+  open a file, which is why the Lens surfaces read as unreachable rather than as waiting.
+
+  It now opens the file picker. `workbench.action.quickOpen` rather than a bespoke list: it is
+  the picker you already know, it honours your own exclude settings, and it needs no allowlist
+  of what counts as a code file — a judgement this view has no business making, since the
+  outline comes from whichever language service is installed.
+
+  The row still says what it is waiting for. It is guidance first and a button second, and
+  dropping the explanation to make room for the action would have traded one problem for
+  another.
+
+  Nothing else on the surface actually required a file: Contract Wiring, State Lifecycle,
+  Configuration Resolution and Change Story are all workspace-wide and were always reachable
+  from the view's title bar. The dashboard's own "Go to a file" action already used the picker.
+
 ## [0.438.0] - 2026-09-08
 
 ### Added
