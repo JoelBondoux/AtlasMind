@@ -19,6 +19,37 @@ Older entries below describe the software as it was at the time and are delibera
 
 ---
 
+## v0.449.0 -- Noticing what you keep reaching for
+
+If your runs shell out to `gh` again and again, there is probably a GitHub MCP server that would suit
+you. AtlasMind will now say so — once, on the Runtime page, and only when your own run history
+actually shows it.
+
+The hard part of a feature like this is not noticing. It is not becoming a salesman. So:
+
+It waits for the same command across **several separate runs**. Ten uses inside one run is you doing
+one thing once, and counting those would let a single afternoon manufacture a recommendation.
+
+It never suggests something AtlasMind already does. Using git is not evidence that you need a git
+server — you would be adding third-party code to do a job that already works.
+
+It tells you what the thing **costs**, in the same breath as what it adds, and that half is not
+optional. An MCP server publishes its whole tool list into the same budget your turns already spend,
+and AtlasMind has watched that budget overflow and quietly drop skills from a run. So this may cost
+you context rather than save it, and the card says so.
+
+Say "Not this one" and it never comes back for that project — on any evidence, however much
+stronger. An offer that returns when the count goes up is a nag with a threshold.
+
+And it never installs anything. Setting it up leaves the server switched off, because installing an
+MCP server runs somebody else's code.
+
+To make this possible, run history now records **which executable** a terminal command ran — the name
+alone, never the command line, since arguments carry paths, tokens and queries that nothing here
+needs.
+
+---
+
 ## v0.448.0 -- Commits that say what they were for
 
 A commit message tells you what changed. It never told you *which piece of planned work it was for* —

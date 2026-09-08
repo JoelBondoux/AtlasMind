@@ -6,6 +6,42 @@ The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/),
 
 ## [Unreleased]
 
+## [0.449.0] - 2026-09-08
+
+### Added
+
+- **AtlasMind offers a capability your own runs show you reaching for.** A project shelling out to
+  `gh` twenty times is telling you something. The risk in acting on it is that "we noticed you use X,
+  install Y" is how a tool becomes a salesman, so every rule in `capabilityOffer` exists to keep the
+  offer rare and honest rather than to make it land.
+
+  **Evidence-triggered, never speculative** — offered only after the same command appears in several
+  *separate runs*. Runs, not calls: ten invocations inside one run is a project doing one thing once,
+  and counting calls would let a single afternoon manufacture a recommendation. **A signal AtlasMind
+  already covers is not a gap**: using git is AtlasMind working, and offering a git server would
+  recommend a second way to do something that already works, through third-party code. **Never framed
+  as a saving** — an MCP server publishes its whole tool list into the same tool budget a turn
+  spends, and AtlasMind has watched that budget overflow and drop skills from a run, so the card
+  gives what it *adds* and what it *consumes* equal weight and neither is optional. **A refusal is
+  final**, per server per project, on any evidence however much stronger; an offer that returns when
+  the count rises is a nag with a threshold. **One at a time**, because a list of suggestions is a
+  marketplace rather than an observation. **An offer is not trust** — nothing installs anything, and
+  the setup path leaves the server switched off.
+
+  Refusals live in workspace state rather than `project_memory/`: the SSOT folder is git-tracked, and
+  committing "somebody said no to the GitHub server" would put one person's preference into
+  everybody's checkout as a diff nobody asked for.
+
+- **Run history records which executable a terminal command ran** (`ToolExecutionArtifact.commandName`),
+  which is the evidence the offer needs and did not previously exist. The **basename only, never the
+  command line**: an argument list carries paths, tokens, queries and file contents, and none of that
+  is needed to know which tool a project keeps reaching for — so the record cannot leak something the
+  redactor would have had to catch.
+
+  `commandSignal` takes a leading quoted token whole, because a Windows path with a space in it is
+  the ordinary case and splitting on whitespace would turn `"C:\Program Files\…\gh.exe"` into the
+  signal `program`, matching nothing and hiding a real one.
+
 ## [0.448.0] - 2026-09-08
 
 ### Added

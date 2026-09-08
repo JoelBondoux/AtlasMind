@@ -1755,6 +1755,13 @@
       render();
       return;
     }
+    if (action === 'capability-offer-dismiss') {
+      // Sent host-side rather than hidden locally: a refusal that lived only in
+      // this render would come back on the next one, which is the nag the rule
+      // exists to prevent.
+      vscode.postMessage({ type: 'dismissCapabilityOffer', payload: payload });
+      return;
+    }
     if (action === 'roadmap-emphasis-clear') {
       // Clears every lens at once. Three separate clears is three clicks to get
       // back to a plan you can read, and the state people want is "show me
@@ -5973,6 +5980,7 @@
           action: { command: 'atlasmind.openProjectRunCenter' },
           actionLabel: 'Open Project Run Center',
         })}
+        ${renderCapabilityOffer(rt.capabilityOffer)}
         <div class="runtime-grid">
           <article class="panel-card">
             <p class="section-kicker">Atlas runtime</p>
@@ -13007,6 +13015,34 @@
           ? Math.abs(schedule.daysLeft) + 'd over'
           : schedule.daysLeft + 'd left';
     return `<span class="rm-chip rm-chip-${escapeAttr(schedule.state)}">${escapeHtml(label)}</span>`;
+  }
+
+  /**
+   * One catalogued server this project's own runs say it is reaching for.
+   *
+   * Absent almost always, and that is the intended state — a card that is
+   * permanently present is an advert. What it *adds* and what it *consumes* are
+   * given equal weight and neither is optional: an MCP server publishes its
+   * whole tool list into a budget AtlasMind has watched overflow, so a version
+   * of this that mentioned only the benefit would be selling rather than
+   * observing. Declining is remembered and never raised again.
+   */
+  function renderCapabilityOffer(offer) {
+    if (!offer) {
+      return '';
+    }
+    return `
+      <article class="panel-card">
+        <p class="section-kicker">Noticed in your runs</p>
+        <h3>${escapeHtml(offer.serverName)}</h3>
+        <p class="list-meta">${escapeHtml(`You have run ${offer.signal} in ${offer.runs} separate runs. There is a catalogued MCP server for it.`)}</p>
+        <p><strong>What it adds.</strong> ${escapeHtml(offer.adds)}</p>
+        <p><strong>What it costs.</strong> ${escapeHtml(offer.consumes)}</p>
+        <div class="tag-row">
+          <button type="button" class="action-link primary" data-action="command" data-payload="atlasmind.openMcpServers" title="${escapeAttr('Opens the MCP setup page with this server chosen. Nothing is installed or switched on until you finish there.')}">Set it up</button>
+          <button type="button" class="action-link" data-action="capability-offer-dismiss" data-payload="${escapeAttr(offer.serverId)}" title="${escapeAttr('This server will not be suggested again for this project.')}">Not this one</button>
+        </div>
+      </article>`;
   }
 
   /**

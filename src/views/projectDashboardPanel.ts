@@ -312,6 +312,23 @@ import {
 import { upsertManagedBlock } from '../utils/managedBlock.js';
 import { classifyLensChangePath } from '../core/lensChangeStory.js';
 import { readCommitLinks } from '../core/commitTrailers.js';
+import { decideCapabilityOffer, type CapabilityOffer } from '../core/capabilityOffer.js';
+import { RECOMMENDED_MCP_SERVERS } from '../constants.js';
+
+/**
+ * Servers this project has declined, by id.
+ *
+ * Workspace state rather than `project_memory/`: the SSOT folder is git-tracked,
+ * and committing "Joel said no to the GitHub server" would put one person's
+ * preference into everybody's checkout as a diff nobody asked for. A refusal is
+ * per project *and* per developer, which is what workspace state means.
+ */
+const REFUSED_CAPABILITY_OFFERS_KEY = 'atlasmind.capabilityOffers.refused';
+
+function readRefusedCapabilityOffers(context: vscode.ExtensionContext | undefined): string[] {
+  const stored = context?.workspaceState.get<unknown>(REFUSED_CAPABILITY_OFFERS_KEY);
+  return Array.isArray(stored) ? stored.filter((id): id is string => typeof id === 'string') : [];
+}
 import { inspectLensDeclarations, lensDeclarationStatusLabel } from '../core/lensDeclarations.js';
 import { reviewWorkspaceChangeStoryForRefs } from './lensChangeStoryCommand.js';
 import {
@@ -963,6 +980,7 @@ type ProjectDashboardMessage =
   | { type: 'roadmapResolve'; payload: string }
   | { type: 'roadmapCompletionCheck'; payload: string }
   | { type: 'roadmapOpenPlan'; payload: string }
+  | { type: 'dismissCapabilityOffer'; payload: string }
   /**
    * Re-flow the canvas, in the named direction.
    *
@@ -2894,6 +2912,11 @@ interface DashboardSnapshot {
      * utilisation. Three readings of one fact would eventually disagree.
      */
     capacity: AgentCapacityReading;
+    /**
+     * One catalogued MCP server this project's own run history says it is
+     * reaching for, or nothing — which is the ordinary case and not a fault.
+     */
+    capabilityOffer?: CapabilityOffer;
     enabledAgents: number;
     totalAgents: number;
     enabledSkills: number;
@@ -5038,6 +5061,9 @@ export class ProjectDashboardPanel {
         break;
       case 'roadmapOpenPlan':
         await this.handleRoadmapOpenPlan(message.payload);
+        break;
+      case 'dismissCapabilityOffer':
+        await this.handleDismissCapabilityOffer(message.payload);
         break;
       case 'roadmapAutoLayout':
         await this.handleRoadmapAutoLayout(message.payload === 'vertical' ? 'vertical' : 'horizontal');
@@ -11151,6 +11177,31 @@ ${buildCardEvidenceSection(source, derivation)}`;
   }
 
   /** Open the item's filed plan. The path comes from the record, never the page. */
+  /**
+   * Remember that this project does not want a server suggested.
+   *
+   * Validated against the catalogue rather than stored as sent: the payload
+   * comes from a webview, and an unbounded list of arbitrary strings in
+   * workspace state is a place for anything to accumulate. A refusal is final —
+   * nothing removes an id from this list, because an offer that can come back is
+   * a nag with a threshold.
+   */
+  private async handleDismissCapabilityOffer(payload: unknown): Promise<void> {
+    const serverId = typeof payload === 'string' ? payload : '';
+    if (!RECOMMENDED_MCP_SERVERS.some(server => server.id === serverId)) {
+      return;
+    }
+    const context = this.atlas.extensionContext;
+    if (!context) {
+      return;
+    }
+    const refused = readRefusedCapabilityOffers(context);
+    if (!refused.includes(serverId)) {
+      await context.workspaceState.update(REFUSED_CAPABILITY_OFFERS_KEY, [...refused, serverId]);
+    }
+    await this.syncState();
+  }
+
   private async handleRoadmapOpenPlan(payload: string): Promise<void> {
     const resolved = await this.resolveRoadmapPlanItem(payload);
     if (resolved === undefined) {
@@ -14863,6 +14914,7 @@ export function isProjectDashboardMessage(message: unknown): message is ProjectD
     || candidate['type'] === 'roadmapResolve'
     || candidate['type'] === 'roadmapCompletionCheck'
     || candidate['type'] === 'roadmapOpenPlan'
+    || candidate['type'] === 'dismissCapabilityOffer'
     || candidate['type'] === 'raiseRegisterWork'
     || candidate['type'] === 'draftRegisterIssue') {
     return isOpaqueDashboardId(candidate['payload']);
@@ -16269,6 +16321,26 @@ async function collectDashboardSnapshot(
     observedRoles: runs.flatMap(run => run.subTaskArtifacts.map(artifact => artifact.role)),
     runsObserved: runs.length,
   });
+  // One entry per run, not one flat list: the offer's threshold counts runs
+  // rather than calls, and flattening here would let one busy afternoon
+  // manufacture a recommendation.
+  const capabilityOffer = decideCapabilityOffer({
+    commandsByRun: runs.map(run => run.subTaskArtifacts
+      .flatMap(artifact => artifact.toolCalls)
+      .map(call => call.commandName)
+      .filter((name): name is string => typeof name === 'string')),
+    catalogue: RECOMMENDED_MCP_SERVERS.map(server => ({
+      id: server.id,
+      name: server.name,
+      description: server.description,
+    })),
+    // Guarded, like every other read here: this runs inside the snapshot build,
+    // and a registry that is not available yet must not take twenty pages down
+    // with it. Absent reads as "nothing configured", which withholds no offer
+    // that should have been made and makes none that should not.
+    configuredServerIds: atlas.mcpServerRegistry?.listServers?.().map(server => server.config.id) ?? [],
+    refusedServerIds: readRefusedCapabilityOffers(atlas.extensionContext),
+  });
   const directorSnapshot = await collectDirectorSnapshot(atlas, workspaceRoot, gitSnapshot.currentBranch, runs);
   const documentsSnapshot = await collectDocumentsSnapshot(atlas, workspaceRoot);
   const riskSnapshot = collectRiskSnapshot(atlas, workspaceRoot);
@@ -16659,6 +16731,7 @@ async function collectDashboardSnapshot(
     branches: enrichedBranchInventory,
     runtime: {
       capacity: agentCapacity,
+      ...(capabilityOffer.offer === undefined ? {} : { capabilityOffer: capabilityOffer.offer }),
       enabledAgents,
       totalAgents: agents.length,
       enabledSkills,
