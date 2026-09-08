@@ -165,6 +165,13 @@ Press `Ctrl+Shift+P` and type "AtlasMind".
 |---------|-------------|
 | `AtlasMind: Getting Started` | The onboarding walkthrough |
 | `AtlasMind: Open Chat Panel` | The dedicated chat panel (`Ctrl+Alt+I`) |
+| `AtlasMind: Show Chats Running in the Background` | Chat turns still going after their window closed — read one, or stop it |
+
+**About that last one.** Closing or hiding a chat no longer stops what it was doing; the answer is
+written to the chat session as it arrives, so reopening the chat shows the finished result. Because a
+run that outlives its window is still spending money and may still be changing files, a status-bar
+item names what is running, and this command is how you read or stop any of it. Turn it off with
+`atlasmind.chat.continueInBackground` if you would rather closing the chat stopped the agent.
 
 Buttons that hand work to chat — a dashboard action, a register finding, a roadmap pill — do not use either
 of these. They open whichever surface you last used, defaulting to the sidebar, because they mean "put this

@@ -117,9 +117,16 @@ Providers**. Azure uses `atlasmind.provider.azure.apiKey`; Bedrock uses
 | `atlasmind.skillAutoSynthesisEnabled` | `false` | Whether a model may write a new skill and have it run when a tool does not exist. Scanned and shown to you first, every time |
 | `atlasmind.cli.addToTerminalPath` | `false` | Whether the `atlasmind` launchers go on the PATH of new integrated terminals |
 | `atlasmind.chat.revealOnApprovalRequest` | `true` | Bring the chat panel forward when something's waiting on you. You get a notification either way |
+| `atlasmind.chat.continueInBackground` | `true` | Let a chat finish after you close or hide its window, instead of stopping it |
 | `atlasmind.maxToolIterations` | `10` | How many tool rounds one turn may take |
 | `atlasmind.maxToolCallsPerTurn` | `8` | How many tools may run at once |
 | `atlasmind.toolExecutionTimeoutMs` | `15000` | Per-tool timeout |
+
+**About that background one.** Closing a chat used to stop whatever it was doing — reasonable when you meant to close it, and not reasonable for the thing it also covered: VS Code throws a sidebar view's webview away when you click another view, so *looking away* used to kill your answer halfway through. The sidebar now keeps its contents when hidden, and a chat that genuinely loses its window keeps going.
+
+Your answer is written to the chat session as it arrives rather than only to the window, so reopening the chat shows the finished result.
+
+A chat still running is still spending money and may still be changing your files, so it says so: a status-bar item names what's running, and clicking it lets you read or stop any of them. Closing the window is no longer how you stop a run — that is. Anything you'd queued up behind the running turn is dropped rather than started without you. Set it to `false` if you'd rather closing the chat stopped the agent.
 
 ### Checking the work
 

@@ -6,6 +6,44 @@ The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/),
 
 ## [Unreleased]
 
+## [0.443.0] - 2026-09-08
+
+### Fixed
+
+- **Looking away no longer kills a chat.** VS Code disposes a webview *view*'s webview when you
+  click another view, and the sidebar chat was registered with `retainContextWhenHidden: false` — so
+  switching views tore the chat down, `onDidDispose` ran, and the run was aborted mid-answer. The
+  view is now retained, which also keeps your scroll position and half-typed prompt.
+
+### Added
+
+- **A chat turn can finish after its window is gone** (`atlasmind.chat.continueInBackground`, on).
+  `dispose()` aborted the active run, and it could not tell a deliberate close from VS Code
+  discarding a hidden view — so the fix is to make surviving safe rather than to guess which
+  happened. Retaining the sidebar view prevents most disposals; this covers a genuine close.
+
+  **The transcript was never the webview's.** Every streamed chunk is written to the chat session
+  before it is pushed to the browser, so a run with nowhere to draw is still a run whose answer is
+  being recorded, and reopening the chat shows the finished result. When it completes it syncs any
+  chat that has since been reopened.
+
+  **The host is swapped, not guarded.** A detached panel gets an inert `ChatPanelHost` whose
+  `postMessage` accepts everything and delivers nothing. The alternative was guarding 104
+  `postMessage` call sites — 104 chances to miss one, and a missed one throws "Webview is disposed"
+  into the middle of a run and ends it, which is the behaviour being removed. Its `visible` is
+  `false` rather than absent, which the approval path already reads to decide whether a waiting
+  approval needs announcing.
+
+  **It is announced and it stays stoppable.** A run outliving its window is still spending money and
+  may still be editing files, so a status-bar item names what is running and
+  `AtlasMind: Show Chats Running in the Background` reads or stops any of them — closing the window
+  is no longer the way to stop a run, so this is the way that replaces it.
+
+  **A prompt queued behind the running one is dropped, not started.** Finishing work already
+  underway is a smaller step than beginning new work with no window and no entry in the registry.
+  The abort controller and its cancellation source are deliberately not torn down when detaching,
+  since the run holds the token.
+
 ## [0.442.0] - 2026-09-08
 
 ### Added

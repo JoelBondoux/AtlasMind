@@ -38,6 +38,12 @@ import { classifyToolInvocation, getToolApprovalMode, requiresToolApproval } fro
 import type { GitApiLike } from './gitExtensionApi.js';
 import { getGitApi } from './gitExtensionApi.js';
 import { decideApprovalAttention } from '../core/approvalAttention.js';
+import {
+  backgroundChatRuns,
+  createDetachedChatHost,
+  shouldDetachOnDispose,
+  toBackgroundRunLabel,
+} from './chatBackgroundRuns.js';
 import { extractSessionCarryForwardImages, resolvePickedImageAttachments } from '../chat/imageAttachments.js';
 import { buildChatWebviewHtml } from './chatWebviewMarkup.js';
 import { hasAiInstructionSyncFile, scanAiInstructionFiles, syncAiInstructionFiles } from '../utils/aiInstructionSync.js';
@@ -392,7 +398,12 @@ export class ChatPanel {
     }
   }
 
-  private readonly host: ChatPanelHost;
+  /**
+   * Not `readonly`: a run that outlives its surface keeps this panel alive with
+   * nowhere to draw, and the host is swapped for an inert one rather than every
+   * `postMessage` call site learning to check. See `createDetachedChatHost`.
+   */
+  private host: ChatPanelHost;
   private readonly disposables: vscode.Disposable[] = [];
   private selectedSessionId: string;
   private selectedMessageId: string | undefined;
@@ -477,6 +488,8 @@ export class ChatPanel {
   private streamingModels: string[] = [];
   private readonly onDisposed?: () => void;
   private _isDisposed = false;
+  /** What the in-flight turn was asked to do, for a status bar that may outlive this panel. */
+  private backgroundRunLabel: string | undefined;
 
   public static createOrShow(context: vscode.ExtensionContext, atlas: AtlasMindContext, target?: string | ChatPanelTarget): void {
     const column = vscode.window.activeTextEditor?.viewColumn ?? vscode.ViewColumn.One;
@@ -601,16 +614,62 @@ export class ChatPanel {
     }
   }
 
+  /**
+   * The surface is gone. Whether the *work* goes with it is a separate question.
+   *
+   * VS Code disposes a sidebar view when you click another view, so this ran on
+   * "the user looked away" exactly as it ran on "the user closed the chat", and
+   * aborting made those indistinguishable in the worst direction. A run is now
+   * detached instead: `_isDisposed` still stops every push to the webview, and
+   * the transcript keeps being written because it never went through the webview
+   * in the first place (see `renderPendingAssistant`).
+   *
+   * The abort controller and its cancellation source are deliberately **not**
+   * torn down when detaching — the run holds the token, and disposing it here
+   * would cancel the thing this is trying to keep.
+   */
   public dispose(): void {
+    const execution = this.activePromptExecution;
+    const detaching = shouldDetachOnDispose({
+      hasActiveRun: execution !== undefined,
+      continueInBackground: vscode.workspace.getConfiguration('atlasmind')
+        .get<boolean>('chat.continueInBackground', true),
+    });
+
     this._isDisposed = true;
     if (this.coalescedSyncTimer) {
       clearTimeout(this.coalescedSyncTimer);
       this.coalescedSyncTimer = undefined;
     }
+    // Settled either way: nothing can answer an in-chat prompt once the chat is
+    // gone, so a run waiting on one would hang rather than finish.
     this.settleLoopDecision('stop');
-    this.activePromptExecution?.abortController.abort();
-    this.activePromptExecution?.cancellationSource.dispose();
-    this.activePromptExecution = undefined;
+
+    if (detaching && execution) {
+      // Swapped before anything else can post: from here the run has nowhere to
+      // draw and every existing call site is inert without having been touched.
+      this.host = createDetachedChatHost();
+      // A prompt queued behind this one was queued to run *in this chat*.
+      // Finishing work already underway is one thing; starting new work with no
+      // window — and no entry in the registry, since detaching happens once —
+      // would be a run nobody could see or stop.
+      this.pendingPromptSubmission = undefined;
+      backgroundChatRuns.add({
+        taskId: execution.taskId,
+        sessionId: execution.sessionId,
+        label: this.backgroundRunLabel ?? 'a chat turn',
+        startedAt: Date.now(),
+        stop: () => {
+          execution.interrupt?.();
+          execution.abortController.abort();
+        },
+      });
+    } else {
+      execution?.abortController.abort();
+      execution?.cancellationSource.dispose();
+      this.activePromptExecution = undefined;
+    }
+
     ChatPanel.livePanels.delete(this);
     this.onDisposed?.();
     for (const disposable of this.disposables) {
@@ -1536,6 +1595,10 @@ export class ChatPanel {
       abortController,
       cancellationSource,
     };
+    // Kept for a status bar that may only learn about this run once the window
+    // it was typed into has gone. Derived here, from the prompt as submitted,
+    // because after `dispose()` there is nothing left to derive it from.
+    this.backgroundRunLabel = toBackgroundRunLabel(prompt);
 
     await ChatPanel.syncAllPanels();
     await this.host.webview.postMessage({
@@ -1833,6 +1896,10 @@ export class ChatPanel {
         await this.host.webview.postMessage({ type: 'status', payload: `Chat request failed: ${message}` });
       }
     } finally {
+      // Unconditional, and before the ownership check below: this run may have
+      // outlived its surface, in which case the registry is the only thing still
+      // claiming it and a status bar would go on announcing finished work.
+      backgroundChatRuns.remove(taskId);
       let pendingSubmission: PendingPromptSubmission | undefined;
       if (this.activePromptExecution?.taskId === taskId) {
         abortController.signal.removeEventListener('abort', forwardAbort);

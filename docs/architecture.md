@@ -359,6 +359,18 @@ What is sent to describe a staged diff, and what is allowed back. Pure; the call
 
 `src/views/gitExtensionApi.ts` holds the structural subset of the built-in `vscode.git` API, declared once. It lived inside `chatPanel.ts`, which was fine while one surface read the branch name and stopped being fine at the second caller — two structural copies of somebody else's interface drift silently, because nothing type-checks one against the other.
 
+### ChatBackgroundRuns (`src/views/chatBackgroundRuns.ts`)
+
+A chat turn that outlived the window it was typed into. `ChatPanel.dispose()` aborted whatever was running, which is defensible for a deliberate close and indefensible for the case it also covered: **VS Code disposes a webview *view*'s webview when you click another view**, so looking away killed the run — and the sidebar chat was registered `retainContextWhenHidden: false`. The two are indistinguishable from inside `dispose()`, so the answer is to make surviving safe rather than to guess which happened. Retaining the view removes most disposals (and keeps scroll position and a half-typed prompt); detaching covers a genuine close.
+
+What makes it safe is that **the transcript was never the webview's** — every streamed chunk is written to `sessionConversation` *before* it is pushed to the browser, which `renderPendingAssistant` already said about itself — so a run with nowhere to draw is still a run whose answer is being recorded, and reopening the chat shows the finished result. When it completes, `syncAllPanels` updates any chat since reopened.
+
+**The host is swapped, not guarded.** A detached panel's `host` becomes an inert `ChatPanelHost` whose `postMessage` accepts everything and delivers nothing. Guarding the 104 `postMessage` call sites instead would be 104 chances to miss one, and a missed one throws "Webview is disposed" into the middle of a run and ends it — the behaviour being removed. `visible` is `false` rather than absent, which is load-bearing: the approval path reads it to decide whether a waiting tool approval needs announcing, and a detached run is exactly when nobody is looking.
+
+Three rules. **A detached run is announced, never silent** — it is still spending money and may still be editing files, so a status-bar item names it and `describeBackgroundRuns` owns the wording so no surface can restate it more comfortably. **It stays stoppable**: the registry holds the abort, because closing the window is no longer the way to stop a run and there must still be one. **Detaching is not the default answer to a disposal** — `shouldDetachOnDispose` refuses a surface with nothing running, so an empty run cannot reach the registry and leave a status bar claiming work that does not exist, and `atlasmind.chat.continueInBackground: false` gives the old behaviour exactly.
+
+A prompt *queued* behind the running one is dropped rather than started: finishing work already underway is a smaller step than beginning new work with no window and no registry entry. The abort controller and its cancellation source are deliberately **not** torn down when detaching, since the run holds the token and disposing it would cancel the thing being kept. Pure apart from the registry + unit-tested.
+
 ### RoutineExecutionPolicy (`src/core/routineExecutionPolicy.ts`)
 
 What a routine will run, decided before a shell sees any of it. `routineVariables.ts` answers *may this value be substituted*; this answers the question after it — given those values, what is the exact command list, and is it fit to show somebody before they agree to it?

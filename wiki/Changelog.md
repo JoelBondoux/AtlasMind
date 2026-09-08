@@ -19,6 +19,26 @@ Older entries below describe the software as it was at the time and are delibera
 
 ---
 
+## v0.443.0 -- Closing the chat no longer stops the work
+
+Clicking another view in the sidebar used to kill whatever the chat was doing. Not closing it —
+clicking away from it. VS Code throws a hidden view's window away, AtlasMind saw that as the chat
+being closed, and stopped the run halfway through your answer.
+
+The sidebar now keeps its contents when hidden, so that doesn't happen at all — and you keep your
+scroll position and half-typed prompt too. If a chat genuinely does lose its window, it now keeps
+going instead of stopping. Your answer is written to the chat session as it arrives rather than only
+to the window, so reopening the chat shows the finished result.
+
+A chat still running is still spending money and may still be changing your files, so it says so. A
+status-bar item names what's running, and clicking it lets you read or stop any of them. Closing the
+window is no longer how you stop a run — that is. Anything you had queued up behind the running turn
+is dropped rather than started without you.
+
+`chat.continueInBackground` turns it off if you'd rather closing the chat stopped the agent.
+
+---
+
 ## v0.442.0 -- Being told about the speed setting, once
 
 Serialising writers made runs slower, and the only thing saying so was a line in the progress log.

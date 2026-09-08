@@ -4,7 +4,7 @@
 
 <h1 align="center">AtlasMind</h1>
 
-<p align="center"><sub> · <strong>Current source version: 0.442.0</strong> · </sub></p>
+<p align="center"><sub> · <strong>Current source version: 0.443.0</strong> · </sub></p>
 
 
 <p align="center">
@@ -175,11 +175,18 @@ important limits on overrides and compliance claims.
 
 ---
 
-## What's new in 0.442.0
+## What's new in 0.443.0
 
 The last Marketplace publication, **v0.420.4**, brought the changes below. Every release is written
 up in full in [CHANGELOG.md](CHANGELOG.md).
 
+- **Closing or hiding a chat no longer stops it.** Clicking another view in the sidebar threw the
+  chat's window away mid-answer — VS Code disposes a hidden view's webview — and that killed the run.
+  The sidebar now keeps its contents when hidden, and a chat that genuinely loses its window keeps
+  going: your answer is written to the session as it arrives, so reopening the chat shows the
+  finished result. A run that outlives its window is still spending money, so a status-bar item names
+  what's running and lets you read or stop any of it — closing the window is no longer how you stop a
+  run, so that is.
 - **Two steps of a job can no longer overwrite each other's edits.** When AtlasMind broke work into
   steps it ran up to five of them at once against one copy of your files, with nothing keeping two of
   them from editing the same file — and when that happened, one of the two changes simply wasn't
@@ -368,7 +375,7 @@ Everything is in the AtlasMind Settings panel, or under `atlasmind.*` in VS Code
 | `testing.resourceShare` | `50` | Sliding scale for local test execution: the percentage of this computer tests may use, across every path AtlasMind runs or composes; the OS always keeps ≥25% (≥2 CPUs / 8 GB); machine-scoped |
 | `execution.worktreeIsolation` | `false` | Give each file-writing step of a job its own git worktree so a batch can write in parallel. Off means writers run one at a time — this setting buys back speed, it is not what makes the run safe |
 
-All 153 settings are documented in the [Configuration reference](wiki/Configuration.md).
+All 154 settings are documented in the [Configuration reference](wiki/Configuration.md).
 
 ---
 

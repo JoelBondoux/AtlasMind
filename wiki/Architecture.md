@@ -918,6 +918,16 @@ hand-off was written for and previously had nowhere to record. With no branch in
 git-dependent stages are unreachable and the reading says so, so "not started" stays distinguishable
 from "not looked at". Not yet shown on the Roadmap page.
 
+**A chat turn can outlive its window.** Closing the chat used to abort whatever it was doing — fine
+when you meant to close it, and wrong for the thing it also covered: VS Code throws a sidebar view's
+webview away when you click another view, so *looking away* killed the run. The view now keeps its
+contents when hidden, and a chat that genuinely loses its window keeps going. That is safe because
+the transcript was never the window's: every chunk is written to the chat session before it is pushed
+to the browser, so reopening shows the finished answer. A detached run is given an inert host rather
+than the panel learning to check whether it still has one — a missed check throws "Webview is
+disposed" into the middle of a run, which is the failure being removed. It is announced in the status
+bar and stays stoppable from there, because closing the window is no longer the way to stop a run.
+
 The chat panel answers a few turns itself rather than routing them — a roadmap status summary, a
 conversation recall — and until v0.402.6 that matcher swallowed all three hand-offs: each ends with the
 sentence saying the model must not tick the item off, so each carried both "roadmap" and "complete",

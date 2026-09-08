@@ -1801,7 +1801,8 @@ async function bootstrapAtlasMind(
       ardInstallerModule,
       localModelArbiterModule,
       gpuProbeModule,
-      localRuntimeClientModule
+      localRuntimeClientModule,
+      backgroundChatRunsModule
     ] = await Promise.all([
       import('./chat/participant.js'),
       import('./views/treeViews.js'),
@@ -1843,11 +1844,15 @@ async function bootstrapAtlasMind(
       import('./core/localModelArbiter.js'),
       import('./providers/gpuProbe.js'),
       import('./providers/localRuntimeClient.js'),
+      import('./views/chatBackgroundRuns.js'),
     ]);
 
     return {
       registerChatParticipant: chatParticipantModule.registerChatParticipant,
       registerTreeViews: treeViewsModule.registerTreeViews,
+      backgroundChatRuns: backgroundChatRunsModule.backgroundChatRuns,
+      describeBackgroundRuns: backgroundChatRunsModule.describeBackgroundRuns,
+      describeBackgroundRunsDetail: backgroundChatRunsModule.describeBackgroundRunsDetail,
       AnthropicAdapter: providersModule.AnthropicAdapter,
       BedrockAdapter: providersModule.BedrockAdapter,
       AcpAdapter: providersModule.AcpAdapter,
@@ -2083,6 +2088,65 @@ async function bootstrapAtlasMind(
         + 'This changes window visibility, not process permissions. Click to open Models & Providers.';
       acpPrivateDesktopStatusBar.show();
     };
+
+    // ── Chat turns that outlived their window ──────────────────────────────
+    // Closing a chat used to abort it, which was defensible for a deliberate
+    // close and wrong for the case it also covered: VS Code disposes a sidebar
+    // view's webview when you click another view. A run that keeps going is
+    // still spending money and may still be editing files, so it is announced
+    // here and stoppable from here — closing the window is no longer the way to
+    // stop a run, and this is the way that replaces it.
+    const backgroundChatStatusBar = vscode.window.createStatusBarItem(
+      vscode.StatusBarAlignment.Right,
+      52,
+    );
+    backgroundChatStatusBar.command = 'atlasmind.showBackgroundChats';
+    context.subscriptions.push(backgroundChatStatusBar);
+    const refreshBackgroundChatStatusBar = () => {
+      const runs = startupModules.backgroundChatRuns.list();
+      const summary = startupModules.describeBackgroundRuns(runs);
+      if (!summary) {
+        backgroundChatStatusBar.hide();
+        return;
+      }
+      backgroundChatStatusBar.text = `$(sync~spin) ${summary}`;
+      backgroundChatStatusBar.tooltip = startupModules.describeBackgroundRunsDetail(runs);
+      backgroundChatStatusBar.show();
+    };
+    context.subscriptions.push(startupModules.backgroundChatRuns.onDidChange(refreshBackgroundChatStatusBar));
+    refreshBackgroundChatStatusBar();
+    context.subscriptions.push(vscode.commands.registerCommand('atlasmind.showBackgroundChats', async () => {
+      const runs = startupModules.backgroundChatRuns.list();
+      if (runs.length === 0) {
+        void vscode.window.showInformationMessage('No chat turns are running in the background.');
+        return;
+      }
+      const picked = await vscode.window.showQuickPick(
+        [
+          ...runs.map(run => ({
+            label: `$(comment-discussion) ${run.label}`,
+            description: 'Open the chat and read it',
+            detail: 'Its answer is being written to the session as it arrives.',
+            action: { kind: 'open' as const, taskId: run.taskId, sessionId: run.sessionId },
+          })),
+          ...runs.map(run => ({
+            label: `$(stop-circle) Stop: ${run.label}`,
+            description: 'End this run now',
+            detail: 'Whatever it has already written to your files stays written.',
+            action: { kind: 'stop' as const, taskId: run.taskId, sessionId: run.sessionId },
+          })),
+        ],
+        { title: 'Chat turns still running', placeHolder: 'Read one, or stop it' },
+      );
+      if (!picked) {
+        return;
+      }
+      if (picked.action.kind === 'stop') {
+        startupModules.backgroundChatRuns.stop(picked.action.taskId);
+        return;
+      }
+      await vscode.commands.executeCommand('atlasmind.openChat', { sessionId: picked.action.sessionId });
+    }));
 
     // ── Local GPU arbiter ──────────────────────────────────────────────────
     // Two local runtimes can share one graphics card, and neither can see the
