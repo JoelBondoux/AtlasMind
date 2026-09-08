@@ -6,6 +6,35 @@ The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/),
 
 ## [Unreleased]
 
+## [0.453.0] - 2026-09-08
+
+### Added
+
+- **The Security page says what is publicly known to be wrong with your project.** It could already
+  say whether a `SECURITY.md` exists and which dependency monitors were configured. It could not say
+  whether any of them had *found* anything — so a repository with eleven open vulnerability alerts and
+  one with none looked identical: four green governance cards either way.
+
+  Dependabot's dependency alerts and code scanning's findings are now read on the repository refresh —
+  never on render, because they are rate-limited API calls and this page re-renders on every keystroke
+  elsewhere in the panel — and shown as one list ranked by severity across both sources.
+
+  **Severity is the publisher's, never re-graded here**: an advisory with none stays *unknown* rather
+  than defaulting to something reassuring, and a code-scanning rule's `warning`/`error` lint grade is
+  not mistaken for a risk grade. **A dismissal is a decision, not a fix** — dismissed alerts are
+  counted apart and never folded into anything that reads as resolved, or a project can dismiss its way
+  to a clean board. **Unassessed is not clean**: a source nobody read says so, and zero open is claimed
+  only where something actually looked. And **a security feature that is switched off is reported as
+  switched off** — GitHub answers 403 or 404 when these are disabled, and showing that as an empty list
+  would make the riskiest configuration look like the safest one.
+
+  The card's Open button sends `<source>:<reference>` and never a URL; the host resolves it against
+  the advisories it actually read. A surface that could name a URL could name any, and `openExternal`
+  hands it to the browser without asking.
+
+  The roadmap item this comes from also asks for the feed to reach the Security and Dependency Manager
+  *agents*. That half is not done, and the item stays open.
+
 ## [0.452.0] - 2026-09-08
 
 ### Added

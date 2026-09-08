@@ -19,6 +19,23 @@ Older entries below describe the software as it was at the time and are delibera
 
 ---
 
+## v0.453.0 -- What is known to be wrong
+
+The Security page could tell you whether a `SECURITY.md` existed and which dependency monitors were
+configured. It could not tell you whether any of them had found anything, so eleven open vulnerability
+alerts and none looked the same: four green cards either way.
+
+Dependabot alerts and code-scanning findings are now read when you refresh the repository -- never on
+render, because they are rate-limited calls -- and listed together, ranked by severity across both,
+because severity is what decides what you look at first.
+
+Severity is the publisher's and is never re-graded here. A dismissal is counted as a decision and
+never as a fix, or a project can dismiss its way to a clean board. A source nobody read says so. And a
+security feature that is switched off is reported as switched off, rather than as an empty list --
+otherwise the riskiest configuration would look like the safest one.
+
+---
+
 ## v0.452.0 -- A board, and only where the evidence puts it
 
 A sixth roadmap view: the plan by state -- waiting, ready, in progress, in review, delivered.

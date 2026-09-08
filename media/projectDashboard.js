@@ -1838,6 +1838,12 @@
       render();
       return;
     }
+    if (action === 'advisory-open') {
+      // The payload is `<source>:<reference>` and the host resolves it against
+      // the advisories it read. A webview that could send a URL could send any.
+      vscode.postMessage({ type: 'openAdvisory', payload: String(payload || '') });
+      return;
+    }
     if (action === 'roadmap-view') {
       state.roadmapView = payload === 'list' || payload === 'completed' || payload === 'people'
         || payload === 'timeline' || payload === 'board'
@@ -14528,6 +14534,7 @@
           action: { command: 'atlasmind.openSettingsSafety' },
           actionLabel: 'Open safety settings',
         })}
+        ${renderSecurityAdvisories(sec)}
         <div class="security-grid">
           <article class="panel-card">
             <p class="section-kicker">Execution policy</p>
@@ -14647,6 +14654,92 @@
         </div>
       `;
     }).join('');
+  }
+
+  /* ── Advisories ────────────────────────────────────────────────────────────
+   *
+   * What is publicly known to be wrong with this project's code and its
+   * dependencies. The page could already say whether a `SECURITY.md` exists and
+   * which monitors are configured; it could not say whether any of them had
+   * *found* anything, so eleven open vulnerability alerts and none looked the
+   * same — four green cards either way.
+   *
+   * Everything on this card is decided host-side by `advisoryFeed`, including
+   * the state where nothing was read. That state is why the card renders at all
+   * when the list is empty: "no vulnerabilities" and "nobody checked" are the
+   * two things this surface must never confuse.
+   */
+  const ADVISORY_SEVERITY_TONE = {
+    critical: 'critical', high: 'critical', medium: 'warn', low: 'muted', unknown: 'muted',
+  };
+
+  function renderSecurityAdvisories(sec) {
+    const feed = sec && sec.advisories && typeof sec.advisories === 'object' ? sec.advisories : null;
+    if (!feed) { return ''; }
+    const counts = feed.counts || {};
+    const items = feed.items || [];
+
+    return `
+      <article class="panel-card advisory-card">
+        <div class="row-head">
+          <div>
+            <p class="section-kicker">Advisories</p>
+            <h3>What is known to be wrong</h3>
+            <p class="section-copy">${escapeHtml(String(sec.advisorySummary || ''))}</p>
+          </div>
+          <div class="rm-chip-row">
+            ${['critical', 'high', 'medium', 'low', 'unknown'].map(level => (Number(counts[level]) > 0
+    ? `<span class="tag tag-${escapeAttr(ADVISORY_SEVERITY_TONE[level] || 'muted')}">${escapeHtml(String(counts[level]))} ${escapeHtml(level)}</span>`
+    : '')).join('')}
+            ${feed.dismissedCount > 0
+    // Shown beside the open counts rather than folded into them: a dismissal
+    // is a decision somebody made, not a fix somebody shipped.
+    ? `<span class="tag" title="${escapeAttr('Alerts somebody dismissed. A decision, not a fix — and never counted as one.')}">${escapeHtml(String(feed.dismissedCount))} dismissed</span>`
+    : ''}
+          </div>
+        </div>
+        ${feed.note ? `<div class="rm-banner${feed.state === 'not-assessed' ? ' rm-banner-bad' : ''}" role="status">${escapeHtml(String(feed.note))}</div>` : ''}
+        ${items.length === 0
+    ? ''
+    : `<ul class="advisory-list">${items.map(item => renderAdvisoryItem(item)).join('')}</ul>`}
+        ${feed.notShownCount > 0
+    ? `<p class="list-meta">${escapeHtml(String(feed.notShownCount))} more not shown.</p>`
+    : ''}
+        ${renderAdvisoryRules(feed)}
+      </article>`;
+  }
+
+  function renderAdvisoryItem(item) {
+    const tone = ADVISORY_SEVERITY_TONE[item.severity] || 'muted';
+    return `
+      <li class="advisory-item">
+        <span class="tag tag-${escapeAttr(tone)}">${escapeHtml(String(item.severity))}</span>
+        <div class="advisory-body">
+          <p class="advisory-title">${escapeHtml(item.title)}</p>
+          <p class="advisory-meta">
+            <span class="advisory-subject">${escapeHtml(item.subject)}</span>
+            ${item.location ? `<span class="advisory-location">${escapeHtml(item.location)}</span>` : ''}
+            ${item.fixedIn ? `<span class="advisory-fix">fixed in ${escapeHtml(item.fixedIn)}</span>` : ''}
+            <span class="advisory-source">${escapeHtml(item.source === 'dependency' ? 'dependency' : 'code scanning')} #${escapeHtml(String(item.reference))}</span>
+          </p>
+        </div>
+        ${item.url
+    // An opaque reference, never the URL. The host resolves it against the
+    // advisories it actually read, so a crafted feed cannot choose where the
+    // browser goes — the same rule the GitHub deep links follow.
+    ? `<button type="button" class="action-link" data-action="advisory-open" data-payload="${escapeAttr(item.source + ':' + item.reference)}">Open</button>`
+    : ''}
+      </li>`;
+  }
+
+  function renderAdvisoryRules(feed) {
+    const rules = feed.rules || [];
+    if (rules.length === 0) { return ''; }
+    return `
+      <details class="rm-tl-rules">
+        <summary>How this feed was read</summary>
+        ${rules.map(rule => `<p><strong>${escapeHtml(rule.id)}</strong> — ${escapeHtml(rule.description)}</p>`).join('')}
+      </details>`;
   }
 
   function renderPrivacyActivity(activity) {

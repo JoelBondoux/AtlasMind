@@ -485,6 +485,13 @@ import {
   buildRoadmapBoard,
   describeRoadmapBoard,
 } from '../core/roadmapBoard.js';
+import {
+  buildAdvisoryFeed,
+  describeAdvisoryFeed,
+  parseCodeScanningAlerts,
+  parseDependabotAlerts,
+} from '../core/advisoryFeed.js';
+import type { AdvisoryFeed, AdvisoryFeedInput, AdvisoryItem as AdvisoryItemLike } from '../core/advisoryFeed.js';
 import type { RoadmapBoard } from '../core/roadmapBoard.js';
 import type { RoadmapTimeline } from '../core/roadmapTimeline.js';
 import {
@@ -1134,6 +1141,7 @@ type ProjectDashboardMessage =
   | { type: 'draftIssueFromRoadmap'; payload: { itemId: string } }
   | { type: 'draftIssueFromPullRequest'; payload: { number: number } }
   | { type: 'openGithubLink'; payload: { page: string; id: string } }
+  | { type: 'openAdvisory'; payload: string }
   | { type: 'markDeltaSeen' }
   | { type: 'setWorkflowGate'; payload: { key: string; enabled: boolean } }
   | { type: 'setAutomationCeiling'; payload: { level: string } }
@@ -2997,6 +3005,15 @@ interface DashboardSnapshot {
     issueTemplateCount: number;
     changelogPresent: boolean;
     governanceProviders: string[];
+    /**
+     * What is publicly known to be wrong with the code and its dependencies.
+     *
+     * Read on the repository refresh, like issues and pull requests, and never
+     * on render: these are rate-limited API calls. Always present, because
+     * `unassessed-is-not-clean` needs somewhere to say nobody looked.
+     */
+    advisories: AdvisoryFeed;
+    advisorySummary: string;
   };
   delivery: {
     packageVersion: string;
@@ -4505,6 +4522,14 @@ export class ProjectDashboardPanel {
   private releaseState: { records: readonly MetricReleaseInput[]; loadedAt: string } | { failure: string } | undefined;
 
   /**
+   * Security advisories, read on the repository refresh.
+   *
+   * Undefined until something has actually looked. That is not the same as an
+   * empty feed, and the difference is the point: `unassessed-is-not-clean`.
+   */
+  private advisoryState: AdvisoryFeedInput | undefined;
+
+  /**
    * The committed workflow file.
    *
    * Held rather than re-read on every render because it is a file read on the
@@ -5374,6 +5399,9 @@ export class ProjectDashboardPanel {
       case 'openGithubLink':
         await this.handleOpenGithubLink(message.payload);
         return;
+      case 'openAdvisory':
+        await this.handleOpenAdvisory(message.payload);
+        return;
       case 'markDeltaSeen':
         // No payload and nothing to validate: it clears a held computation and
         // touches neither settings, secrets, nor the repository.
@@ -5775,7 +5803,7 @@ export class ProjectDashboardPanel {
   private async syncState(): Promise<void> {
     try {
       await this.refreshTrustedWorkflowReview();
-      const snapshot = await collectDashboardSnapshot(this.atlas, this.ideationAttachments, this.issuesState, this.pullRequestsState, this.ciState, this.releaseState, this.workflowConfig, this.auditLedger, { register: this.debtManager.get(), scanning: this.debtScanning }, this.reviewCommentsState, this.taxonomyState, this.pullRequestsNotice, this.localCiRunnerSnapshot(), this.ciRouting, this.ciCreditState, this.readCiBuildLedger());
+      const snapshot = await collectDashboardSnapshot(this.atlas, this.ideationAttachments, this.issuesState, this.pullRequestsState, this.ciState, this.releaseState, this.workflowConfig, this.auditLedger, { register: this.debtManager.get(), scanning: this.debtScanning }, this.reviewCommentsState, this.taxonomyState, this.pullRequestsNotice, this.localCiRunnerSnapshot(), this.ciRouting, this.ciCreditState, this.readCiBuildLedger(), this.advisoryState);
       // Only keep polling while something is actually running. The schedule
       // itself decides when to stop, so this cannot become a permanent timer.
       this.scheduleCiBuildPoll(snapshot.delivery.builds.hasRunning);
@@ -7127,6 +7155,29 @@ export class ProjectDashboardPanel {
       } catch (error) {
         this.releaseState = { failure: ghFailureOf(error).detail };
       }
+
+      // Security advisories: Dependabot's dependency alerts and code scanning's
+      // findings. Read here, on the explicit repository refresh, and never on
+      // render — these are rate-limited API calls, and the Security page is one
+      // of nine that re-render on every keystroke elsewhere in the panel.
+      //
+      // Each half is classified rather than merely caught, because the failures
+      // are not equivalent: a 403 or 404 from these endpoints is what GitHub
+      // returns when the feature is switched **off**, which is a finding about
+      // the repository rather than a fault in the read. Reporting that as an
+      // empty list would make the riskiest configuration look like the safest.
+      this.advisoryState = {
+        dependency: await this.readAdvisories(
+          workspaceRoot,
+          `repos/${slug}/dependabot/alerts?state=all&per_page=100`,
+          parseDependabotAlerts,
+        ),
+        codeScanning: await this.readAdvisories(
+          workspaceRoot,
+          `repos/${slug}/code-scanning/alerts?state=all&per_page=100`,
+          parseCodeScanningAlerts,
+        ),
+      };
     } catch (error) {
       this.issuesState = { ...this.classifyIssueFailure(error), issues: [], busy: false };
     } finally {
@@ -8673,6 +8724,33 @@ export class ProjectDashboardPanel {
   }
 
   /**
+   * One advisory endpoint, read and classified.
+   *
+   * The classification is the point. GitHub answers **403** when a security
+   * feature is not enabled for the repository (or the token cannot see it) and
+   * **404** when the endpoint is not available for that plan — neither is a
+   * fault in the read, and both are facts about the repository worth stating.
+   * Anything else is a genuine failure, which is reported as such rather than
+   * being folded into "nothing found": a feed that cannot distinguish those
+   * three is a feed that can call an unread repository clean.
+   */
+  private async readAdvisories(
+    workspaceRoot: string,
+    endpoint: string,
+    parse: (raw: string) => { open: AdvisoryItemLike[]; dismissed: number },
+  ): Promise<{ state: 'ready' | 'disabled' | 'failed'; alerts?: { open: AdvisoryItemLike[]; dismissed: number } }> {
+    try {
+      const raw = await runGh(workspaceRoot, ['api', endpoint]);
+      return { state: 'ready', alerts: parse(raw) };
+    } catch (error) {
+      const detail = error instanceof Error ? error.message : String(error);
+      return /\b(403|404)\b|not enabled|disabled|Advanced Security/i.test(detail)
+        ? { state: 'disabled' }
+        : { state: 'failed' };
+    }
+  }
+
+  /**
    * Turn a `gh` failure into the specific thing that is wrong, and its fix.
    *
    * The diagnosis comes from `ghClient` rather than being re-derived from the
@@ -9901,6 +9979,24 @@ ${buildCardEvidenceSection(source, derivation)}`;
       return;
     }
     await vscode.env.openExternal(vscode.Uri.parse(url));
+  }
+
+  /**
+   * Open the advisory a card is about.
+   *
+   * The webview sends `<source>:<reference>` and nothing else. The URL is looked
+   * up in the advisories this panel read — which came from GitHub's API and were
+   * already refused unless `https` — so a crafted message can name an advisory
+   * that does not exist and can never choose where the browser goes. Same rule
+   * as `handleOpenGithubLink`: a surface that could name a URL could name any.
+   */
+  private async handleOpenAdvisory(reference: string): Promise<void> {
+    const feed = buildAdvisoryFeed(this.advisoryState);
+    const match = feed.items.find(item => `${item.source}:${item.reference}` === reference);
+    if (match?.url === undefined) {
+      return;
+    }
+    await vscode.env.openExternal(vscode.Uri.parse(match.url));
   }
 
   private async handleSetWorkflowGate(payload: { key: string; enabled: boolean }): Promise<void> {
@@ -14848,6 +14944,13 @@ export function isProjectDashboardMessage(message: unknown): message is ProjectD
       && typeof payload['id'] === 'string';
   }
 
+  if (candidate['type'] === 'openAdvisory') {
+    // Shape only, and deliberately not a URL. The reference is resolved against
+    // the advisories this panel actually read, so a message naming one that is
+    // not there opens nothing.
+    return typeof candidate['payload'] === 'string' && candidate['payload'].length <= 120;
+  }
+
   if (candidate['type'] === 'markDeltaSeen') {
     return true;
   }
@@ -16224,6 +16327,10 @@ async function collectDashboardSnapshot(
   credit: CiCreditReading = { state: 'unknown', reason: 'the hosted allowance has not been checked yet.' },
   // Per-developer build history, read from workspaceState by the panel.
   localBuilds: readonly CiBuildRecord[] = [],
+  // Security advisories, held by the panel because they are network reads. Left
+  // trailing and optional so the existing call sites are unaffected, and absent
+  // means nobody looked — which the feed reports rather than calling it clean.
+  advisories?: AdvisoryFeedInput,
 ): Promise<DashboardSnapshot> {
   const firstWorkspaceFolder = vscode.workspace.workspaceFolders?.[0];
   const declaredComposition = workflowConfigManager?.getConfig()?.composition;
@@ -16389,6 +16496,10 @@ async function collectDashboardSnapshot(
   const warnedEntries = [...scanResults.values()].filter(result => result.status === 'warned').length;
   const blockedEntries = [...scanResults.values()].filter(result => result.status === 'blocked').length;
   const governanceProviders = detectGovernanceProviders(workspaceRoot);
+  // Built whatever the panel handed over: with no argument the feed reports
+  // that nothing was read, which is the state that must never be confused with
+  // a clean repository.
+  const advisoryFeed = buildAdvisoryFeed(advisories);
   const toolApprovalMode = configuration.get<string>('toolApprovalMode', 'ask-on-write');
   const allowTerminalWrite = configuration.get<boolean>('allowTerminalWrite', false);
   const autoVerifyAfterWrite = configuration.get<boolean>('autoVerifyAfterWrite', false);
@@ -16962,6 +17073,8 @@ async function collectDashboardSnapshot(
       issueTemplateCount,
       changelogPresent,
       governanceProviders,
+      advisories: advisoryFeed,
+      advisorySummary: describeAdvisoryFeed(advisoryFeed),
     },
     delivery: {
       packageVersion: packageSnapshot.version,
@@ -28717,6 +28830,53 @@ const DASHBOARD_CSS = `
   /* ── Board ──────────────────────────────────────────────────────────────
      Read-only by design: dragging a card between columns would write a state
      nothing evidenced, and the next refresh would move it back. */
+  /* ── Advisories ─────────────────────────────────────────────────────────
+     Full width above the governance grid: what is known to be wrong outranks
+     what is configured, and a card in the grid would sit beside four green
+     ones as though it were the same kind of fact. */
+  .advisory-card { grid-column: 1 / -1; }
+
+  .advisory-list {
+    list-style: none;
+    margin: 8px 0 0;
+    padding: 0;
+    display: flex;
+    flex-direction: column;
+    gap: 6px;
+  }
+
+  .advisory-item {
+    display: flex;
+    align-items: flex-start;
+    gap: 8px;
+    padding: 6px 8px;
+    border: 1px solid var(--dash-border);
+    border-radius: 6px;
+    background: color-mix(in srgb, var(--dash-panel-strong) 55%, transparent);
+  }
+
+  .advisory-body { flex: 1; min-width: 0; }
+
+  .advisory-title {
+    margin: 0;
+    font-size: 12px;
+  }
+
+  .advisory-meta {
+    margin: 2px 0 0;
+    display: flex;
+    flex-wrap: wrap;
+    gap: 8px;
+    font-size: 10.5px;
+    color: var(--vscode-descriptionForeground);
+  }
+
+  .advisory-subject, .advisory-location {
+    font-family: var(--vscode-editor-font-family, monospace);
+  }
+
+  .advisory-fix { color: var(--dash-good, var(--vscode-charts-green)); }
+
   .rm-board-card { display: block; }
 
   .rm-board-columns {
