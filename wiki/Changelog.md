@@ -19,6 +19,27 @@ Older entries below describe the software as it was at the time and are delibera
 
 ---
 
+## v0.438.0 -- A commit-message button where you already are
+
+There is now a ✨ button in the Source Control title bar, beside the other actions there. Press it
+and AtlasMind reads your staged changes and writes a commit message into the box. Also on the
+Command Palette as **AtlasMind: Write a Commit Message**.
+
+It writes text and stops — nothing is committed, nothing is staged, and if you have already typed a
+message it asks before replacing it. That question comes *before* the model runs, so saying no costs
+nothing.
+
+Two things it deliberately will not do. With nothing staged it tells you so rather than asking a
+model to describe an empty change — you would get a confident, plausible message sitting in the box
+looking exactly like a real one. And if your diff is too large to send whole, it says the message
+covers only part of it, because a message describing half a change reads identically to one
+describing all of it.
+
+Your diff is treated as somebody else's text throughout: it is file content, which on a real project
+means vendored code, generated output and things you did not write.
+
+---
+
 ## v0.437.1 -- Deleting your last chat session actually clears the screen
 
 Reported: deleting all your chat sessions left an old conversation on screen instead of going

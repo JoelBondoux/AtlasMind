@@ -991,6 +991,47 @@ export class Orchestrator {
   }
 
   /**
+   * Describe a staged diff, for the Source Control commit box.
+   *
+   * A method of its own rather than a `summarizeText` call, and the reason is
+   * the origin label: `summarizeText` declares its user part `session-context`,
+   * which is true of prior conversation and false of a git diff. A diff is
+   * repository content — third-party code, generated output, vendored files —
+   * so it travels as `workspace-file`, which is redacted on the way out and
+   * held to that origin's size limit.
+   *
+   * Mislabelling it would have been invisible and wrong in the direction that
+   * matters: a diff carrying an API key would have been sent unredacted.
+   */
+  async draftCommitMessage(systemPrompt: string, diffPrompt: string): Promise<string> {
+    const constraints = this.withRoleModel({ budget: 'balanced', speed: 'fast' }, 'synthesisModelId');
+    const taskProfile = this.taskProfiler.profileTask({ userMessage: diffPrompt, phase: 'synthesis', requiresTools: false });
+    const model = this.router.selectModel(constraints, undefined, taskProfile);
+    const providerId = resolveProviderIdForModel(model, this.router, 'copilot');
+    const provider = this.providers.get(providerId);
+    if (!provider) {
+      throw new Error(`No provider available to draft a commit message (model: ${model}).`);
+    }
+    const response = await dispatchGuardedCompletion({
+      provider,
+      origins: ['system-prompt', 'workspace-file'],
+      external: !isLocalProviderId(providerId),
+      request: {
+        model,
+        messages: [
+          { role: 'system', content: systemPrompt },
+          { role: 'user', content: diffPrompt },
+        ],
+        maxTokens: 700,
+        // Low: a commit message describes what is in front of it. Invention is
+        // the failure mode, not dullness.
+        temperature: 0.2,
+      },
+    });
+    return response.content;
+  }
+
+  /**
    * Direct one-shot completion that bypasses agent selection, memory retrieval,
    * and all orchestration overhead. Used for internal summarization tasks where
    * the caller controls the full prompt.

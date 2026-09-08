@@ -2,7 +2,7 @@
   "name": "atlasmind",
   "displayName": "AtlasMind",
   "description": "AI project management for VS Code: roadmap, risk, tech debt, compliance, testing and release tracked from your own repository — with a multi-agent AI team, or the AI coding tool you already use.",
-  "version": "0.437.1",
+  "version": "0.438.0",
   "publisher": "JoelBondoux",
   "preview": false,
   "license": "SEE LICENSE IN OSMFEULA.txt",
@@ -238,6 +238,11 @@
         "command": "atlasmind.collapseAllSidebarTrees",
         "title": "AtlasMind: Collapse All Sidebar Trees",
         "icon": "$(collapse-all)"
+      },
+      {
+        "command": "atlasmind.generateCommitMessage",
+        "title": "AtlasMind: Write a Commit Message",
+        "icon": "$(sparkle)"
       },
       {
         "command": "atlasmind.openPersonalityProfile",
@@ -736,6 +741,13 @@
       }
     ],
     "menus": {
+      "scm/title": [
+        {
+          "command": "atlasmind.generateCommitMessage",
+          "when": "scmProvider == git",
+          "group": "navigation@-1"
+        }
+      ],
       "view/container/title": [
         {
           "command": "atlasmind.collapseAllSidebarTrees",

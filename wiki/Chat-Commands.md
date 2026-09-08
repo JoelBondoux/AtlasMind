@@ -203,6 +203,7 @@ The session drawer above the transcript starts closed and remembers your choice 
 | `AtlasMind: Resource Discovery` | Find, add and export agentic resources |
 | `AtlasMind: Manage Agents` | Create and configure agents |
 | `AtlasMind: Compare Models on a Prompt` | Run one prompt across your models and compare, with an optional scoring judge |
+| `AtlasMind: Write a Commit Message` | Describe your staged changes in the Source Control box. Also a ✨ button in the Source Control title bar |
 | `AtlasMind: Dismiss Provider Notifications` | Clear the auto-paused badge without re-enabling anything |
 | `AtlasMind: Choose ACP Console Window Behaviour` | Windows only — ordinary launching, or the private desktop |
 

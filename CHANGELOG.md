@@ -6,6 +6,61 @@ The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/),
 
 ## [Unreleased]
 
+## [0.438.0] - 2026-09-08
+
+### Added
+
+- **A commit-message button in the Source Control title bar.** Roadmap item: *"Add an AM logo to
+  the generic Source Control side panel next to the icon 'Create Pull Request' to have AM
+  generate a commit message."* A ✨ action beside the other SCM title actions reads your staged
+  diff and writes a Conventional Commits message into the box. Also available as
+  **AtlasMind: Write a Commit Message**.
+
+  **It writes text and stops.** Nothing is committed or staged; the box is a field you still read
+  and press a button on, which is the gate. An existing message is replaced only after a modal —
+  asked *before* the model call, so a draft you decline costs nothing.
+
+  **A diff is untrusted input**, not a description of a change. It is file content, which on a
+  real project includes vendored code, generated output and text somebody else wrote, so it is
+  fenced as reported content — and the instruction to disregard embedded instructions is in the
+  system prompt as well as in the fence, because a rule stated only inside the fenced block is a
+  rule inside the thing it constrains.
+
+  **Nothing staged refuses rather than inviting an invention.** A model asked to summarise an
+  empty diff produces a confident, plausible message that then sits in the commit box looking
+  exactly like a real one. Truncation of a very large diff is *reported* for the same reason: a
+  message describing half a change reads identically to one describing all of it.
+
+  Every failure says which — no Git extension, no repository, nothing staged, an unreadable diff,
+  an empty reply. "Could not generate a commit message" would leave you re-running it.
+
+### Changed
+
+- **`Orchestrator.draftCommitMessage` is separate from `summarizeText`, and the reason is the
+  origin label.** `summarizeText` declares its user part `session-context`, which is true of prior
+  conversation and false of a git diff. A diff is repository content and travels as
+  `workspace-file`, so the egress boundary redacts it. Reusing the existing helper would have been
+  invisible and wrong in the direction that matters: a diff carrying an API key would have gone
+  out unredacted.
+
+- **`src/views/gitExtensionApi.ts`** now holds the structural subset of the built-in `vscode.git`
+  API, extracted from `chatPanel.ts`. One copy was fine while one surface read the branch name;
+  two structural copies of somebody else's interface drift silently, because nothing type-checks
+  one against the other.
+
+- **A sanitiser that quietly did less than it claimed, caught before it shipped.** The new
+  control-character class was first written as a regex literal containing the characters
+  themselves, and two of them did not survive being written — so it stripped a subset while
+  reading exactly as though it stripped everything. Its test had the identical defect, embedding
+  the same characters and therefore asserting almost nothing while looking thorough. Both now
+  build the characters explicitly — `new RegExp` from `\uXXXX` escapes in the module,
+  `String.fromCharCode` in the test — so nothing depends on an invisible character surviving an
+  editor, a diff and a review. Found because ESLint reported the `no-control-regex` suppression
+  as *unused*, which is only true if the regex has no control characters in it.
+
+  Worth stating plainly: a sanitiser doing less than it says is worse than none, because nothing
+  downstream is looking.
+
 ## [0.437.1] - 2026-09-08
 
 ### Fixed

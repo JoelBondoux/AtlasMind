@@ -247,6 +247,7 @@ Perforce boundary as `not-visible` rather than zero.
 | **Egress boundary** | The one path to a model. Labels each piece of context, redacts what needs it, caps its size, and asks before sending a credential you typed |
 | **Approval gate** | Classifies every tool call, consults your approval mode, and holds a ceiling no bypass can waive |
 | **Routine planner** | Works out the exact commands a routine will run, so they can be shown to you before they are |
+| **Commit message drafter** | Describes your staged diff in the Source Control box. Writes text; never commits |
 | **Provider adapters** | One per model provider, behind a shared contract |
 | **ACP adapter** | Drives a subscription coding agent as a model provider |
 | **MCP registry** | Connects external tool servers and dispatches their tools |

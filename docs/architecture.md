@@ -295,6 +295,22 @@ The adapter exposes only aggregate live-session counts by launch mode to `extens
 
 Pattern-based secret scanner applied to memory context and live evidence before LLM dispatch. Covers Anthropic/OpenAI/GitHub keys, bearer tokens, PEM private keys, database connection strings, and generic key/secret assignments. `redactSecrets()` returns a `RedactionResult` with match count and matched pattern names; `redactSecretsWithWarning()` logs a console warning when any secrets are found. This is separate from `MemoryScanner`, which blocks writes to SSOT — the `SecretRedactor` protects the runtime dispatch boundary.
 
+### CommitMessageDraft (`src/core/commitMessageDraft.ts`)
+
+What is sent to describe a staged diff, and what is allowed back. Pure; the caller (`src/views/commitMessageCommand.ts`) reads git, calls the model and writes the Source Control box, which is what lets the decisions be tested without any of the three.
+
+**A diff is untrusted input**, not a description of a change: it is file content, which on a real project includes vendored code, generated output and text somebody else wrote. It is fenced as reported content, and the instruction to disregard embedded instructions is in `COMMIT_MESSAGE_SYSTEM_PROMPT` as well as in the fence — a rule stated only inside the fenced block is a rule inside the thing it constrains.
+
+**Nothing staged refuses.** A model asked to summarise an empty diff produces a confident, plausible message that then sits in the commit box looking exactly like a real one. `MAX_DIFF_CHARS` truncation is *reported* to the operator for the same reason: a message describing half a change reads identically to one describing all of it.
+
+**The reply is cleaned, not validated.** Control characters are stripped and the length clamped, but a message that ignores Conventional Commits is passed through — rejecting it would leave the operator with nothing rather than something imperfect they can edit. An empty reply refuses rather than clearing the box.
+
+`Orchestrator.draftCommitMessage` exists separately from `summarizeText` because of the origin label: `summarizeText` declares its user part `session-context`, true of prior conversation and false of a diff. A diff travels as `workspace-file`, so the egress boundary redacts it. Mislabelling would have been invisible and wrong in the direction that matters — a diff carrying an API key would have been sent unredacted.
+
+**Nothing commits.** The command writes into the Source Control input box, which is a text field the operator still reads and presses a button on; that is the gate. An existing message is replaced only after a modal, asked *before* the model call so a declined draft costs nothing.
+
+`src/views/gitExtensionApi.ts` holds the structural subset of the built-in `vscode.git` API, declared once. It lived inside `chatPanel.ts`, which was fine while one surface read the branch name and stopped being fine at the second caller — two structural copies of somebody else's interface drift silently, because nothing type-checks one against the other.
+
 ### RoutineExecutionPolicy (`src/core/routineExecutionPolicy.ts`)
 
 What a routine will run, decided before a shell sees any of it. `routineVariables.ts` answers *may this value be substituted*; this answers the question after it — given those values, what is the exact command list, and is it fit to show somebody before they agree to it?

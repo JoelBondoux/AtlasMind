@@ -16,7 +16,7 @@ This file is the developer-facing backlog AtlasMind should absorb into SSOT and 
 - [ ] Add a built-in or utilise Git-Hub projects Kanban board. #mvp <!-- rm:add-a-built-in-or-utilise-gi -->
 - [ ] expand baseline comparrison features. #mvp <!-- rm:expand-baseline-comparrison -->
 - [ ] Add an AM logo to the generic Source Control side panel next to the icon "Create Pull Request" to have AM generate a commit message. <!-- rm:add-an-am-logo-to-the-generi -->
-- [ ] Sometimes when deleting all sessions in AM chat window, the chat history of an old session stays on the screen and doesn't refresh to a blank chat. #mvp #critical <!-- rm:sometimes-when-deleting-all -->
+- [x] Sometimes when deleting all sessions in AM chat window, the chat history of an old session stays on the screen and doesn't refresh to a blank chat. #mvp #critical <!-- rm:sometimes-when-deleting-all -->
 - [ ] Explore a github pages hosted (within the host repo) web portal for AM Project Manager. #mvp <!-- rm:explore-a-github-pages-hoste -->
 - [ ] The Lens surfaces are not all accessible as they need a file selected. #mvp <!-- rm:the-lens-surfaces-are-not-al -->
 - [ ] On the roadmap and ideation canvases allow for a drag box to select a number of nodes to allow them all to be moved together. #mvp <!-- rm:on-the-roadmap-and-ideation -->

@@ -574,6 +574,13 @@ export function registerCommands(
       await collapseAtlasMindSidebarTrees();
     }),
 
+    vscode.commands.registerCommand('atlasmind.generateCommitMessage', async () => {
+      const atlas = requireAtlas();
+      if (!atlas) { return; }
+      const { generateCommitMessage } = await import('./views/commitMessageCommand.js');
+      await generateCommitMessage(atlas);
+    }),
+
     vscode.commands.registerCommand('atlasmind.openPersonalityProfile', async () => {
       const atlas = requireAtlas();
       if (!atlas) { return; }

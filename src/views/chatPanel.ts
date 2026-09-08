@@ -35,6 +35,8 @@ import {
   toApprovedLoopPrompt,
 } from '../chat/participant.js';
 import { classifyToolInvocation, getToolApprovalMode, requiresToolApproval } from '../core/toolPolicy.js';
+import type { GitApiLike } from './gitExtensionApi.js';
+import { getGitApi } from './gitExtensionApi.js';
 import { decideApprovalAttention } from '../core/approvalAttention.js';
 import { extractSessionCarryForwardImages, resolvePickedImageAttachments } from '../chat/imageAttachments.js';
 import { buildChatWebviewHtml } from './chatWebviewMarkup.js';
@@ -4185,36 +4187,6 @@ function isJsonRecord(value: unknown): value is Record<string, unknown> {
   return typeof value === 'object' && value !== null && !Array.isArray(value);
 }
 
-/** Structural subset of the built-in `vscode.git` extension API we rely on. */
-interface GitRemoteLike {
-  name: string;
-  fetchUrl?: string;
-  pushUrl?: string;
-}
-interface GitRepositoryLike {
-  rootUri: vscode.Uri;
-  state: {
-    remotes: readonly GitRemoteLike[];
-    /**
-     * The checked-out ref, when there is one.
-     *
-     * Optional because a detached HEAD and a freshly-initialised repository both
-     * legitimately have no branch name — and because the workflow notice that
-     * reads this must degrade to a general message rather than claim you are on
-     * a branch it could not identify.
-     */
-    HEAD?: { name?: string };
-    onDidChange: vscode.Event<void>;
-  };
-}
-interface GitApiLike {
-  repositories: readonly GitRepositoryLike[];
-  onDidOpenRepository: vscode.Event<GitRepositoryLike>;
-}
-interface GitExtensionLike {
-  getAPI(version: number): GitApiLike;
-}
-
 /**
  * The branch the workspace is on, or `undefined`.
  *
@@ -4247,22 +4219,6 @@ async function readCurrentBranch(workspaceRoot: string | undefined): Promise<str
 
 /** Long enough for a warm Git extension, short enough not to be felt. */
 const GIT_BRANCH_READ_TIMEOUT_MS = 750;
-
-/**
- * Returns the built-in `vscode.git` extension API, activating the extension if
- * needed. Returns `undefined` when Git tooling is unavailable (e.g. a web host
- * without the Git extension).
- */
-async function getGitApi(): Promise<GitApiLike | undefined> {
-  const extension = vscode.extensions.getExtension<GitExtensionLike>('vscode.git');
-  if (!extension) {
-    return undefined;
-  }
-  if (!extension.isActive) {
-    await extension.activate();
-  }
-  return extension.exports.getAPI(1);
-}
 
 /**
  * Resolves the connected Git repository name for the active workspace. Returns
