@@ -4,7 +4,7 @@
 
 <h1 align="center">AtlasMind</h1>
 
-<p align="center"><sub> · <strong>Current source version: 0.438.1</strong> · </sub></p>
+<p align="center"><sub> · <strong>Current source version: 0.439.0</strong> · </sub></p>
 
 
 <p align="center">
@@ -175,11 +175,15 @@ important limits on overrides and compliance claims.
 
 ---
 
-## What's new in 0.438.1
+## What's new in 0.439.0
 
 The last Marketplace publication, **v0.420.4**, brought the changes below. Every release is written
 up in full in [CHANGELOG.md](CHANGELOG.md).
 
+- **Select several roadmap items and move them together.** Shift-drag on empty canvas draws a
+  selection box; dragging any selected item moves the whole group, each snapping to the grid from
+  where it was. Plain dragging still pans, because panning is how you read a plan that doesn't fit
+  on screen.
 - **"Read-only" now holds for the whole job, not just the first step.** Asking AtlasMind to work
   read-only was enforced properly on the turn you typed — but if that turn became a multi-step project
   run, each step re-read its own instructions and found no restriction in them. The limit you set now

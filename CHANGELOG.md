@@ -6,6 +6,46 @@ The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/),
 
 ## [Unreleased]
 
+## [0.439.0] - 2026-09-08
+
+### Added
+
+- **Box-select and move several roadmap items together.** Roadmap item: *"On the roadmap and
+  ideation canvases allow for a drag box to select a number of nodes to allow them all to be
+  moved together."* The roadmap canvas half; the ideation board is a separate decision, noted
+  below.
+
+  Hold **Shift** and drag on empty canvas to draw a selection box; dragging any selected node
+  then moves the whole selection. **Shift** rather than a plain drag on purpose: the other way
+  round is commoner in drawing tools and is the wrong default here, because panning is how you
+  read a plan that does not fit on screen — it is constant, it already works offline, and
+  taking it away to add selection would trade a permanent cost for an occasional one.
+
+  Selection is not persisted. It is a way of looking at the plan for the next few seconds, not a
+  fact about it, and one that survived a reload would be a stored opinion nobody asked to keep.
+
+  Pressing a node **inside** the selection drags the whole selection; pressing one outside clears
+  it first — the alternative moves nodes the operator is no longer looking at.
+
+  Each node snaps from **its own** origin rather than by snapping a shared delta, so nodes
+  selected from different offsets each land on the grid. A shared delta cannot do that unless
+  they started aligned.
+
+- **`roadmapNodesMove`, one message for a group.** N singular moves would be N host reads, N file
+  writes and N refreshes, with the canvas re-rendering under the pointer partway through. The
+  batch is validated **entry by entry** — a validator that checks the first item and trusts the
+  rest is a validator with an offset — through the same predicate the single move uses, so the
+  two cannot come to disagree about what a valid move looks like. Ids are still opaque and still
+  resolved against the roadmap the host re-reads; an id that no longer exists is skipped and the
+  shortfall is reported rather than leaving the canvas quietly disagreeing with the file.
+
+### Changed
+
+- A deferred snapshot now preserves the drag offsets of **every** node that moved, not just the
+  one under the pointer. A group drops together, and keeping only one would have snapped the rest
+  back for a frame — the same bug that exception exists to prevent, only intermittent and so
+  harder to see.
+
 ## [0.438.1] - 2026-09-08
 
 ### Fixed

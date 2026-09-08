@@ -19,6 +19,28 @@ Older entries below describe the software as it was at the time and are delibera
 
 ---
 
+## v0.439.0 -- Select several roadmap items and move them together
+
+Hold **Shift** and drag on empty canvas to draw a selection box round a group of roadmap items.
+Drag any one of them and the whole selection moves.
+
+Shift rather than a plain drag, deliberately. Drawing tools usually do it the other way round, but
+here panning is how you read a plan that does not fit on the screen — you do it constantly, and it
+works with no connection at all. Taking that away to add selection would trade something you use
+all the time for something you use occasionally.
+
+The selection is not remembered between sessions. It is a way of looking at the plan for a few
+seconds, not a fact about the plan.
+
+Each item snaps to the grid from where *it* was, so a group picked up from different offsets all
+lands aligned rather than keeping its original raggedness.
+
+The ideation board is not covered yet — its existing selection means "these are the two cards I am
+linking", so a box selection there needs a decision about how the two interact rather than a copy of
+this.
+
+---
+
 ## v0.438.1 -- "Open a code file" opens a code file
 
 With nothing open, the Lens view shows a single row asking you to open a code file. Clicking it

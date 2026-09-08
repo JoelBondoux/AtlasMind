@@ -41,6 +41,22 @@ function namedFunction(name: string): string {
   return source.slice(start, next === -1 ? undefined : next);
 }
 
+/**
+ * The same, scoped to the whole script.
+ *
+ * The canvas *rendering* lives in one banner-delimited block; the pointer
+ * handlers that drive it sit earlier in the file, so the drag functions are not
+ * reachable through `canvasSource()`. Kept as a separate helper rather than
+ * widening that one, because the render-block scoping is load-bearing for the
+ * escaping assertions above.
+ */
+function scriptFunction(name: string): string {
+  const start = WEBVIEW_SCRIPT.indexOf(`function ${name}(`);
+  expect(start, `${name} is missing from the webview script`).toBeGreaterThan(-1);
+  const next = WEBVIEW_SCRIPT.indexOf('\n  function ', start + 1);
+  return WEBVIEW_SCRIPT.slice(start, next === -1 ? undefined : next);
+}
+
 describe('everything drawn on the canvas is escaped', () => {
   const ESCAPED_FIELDS = [
     'node.text',
@@ -82,12 +98,34 @@ describe('everything drawn on the canvas is escaped', () => {
 });
 
 describe('the canvas addresses nodes by id and never by content', () => {
-  it('sends only an opaque node id with a move', () => {
+  it('sends only opaque node ids and coordinates with a move', () => {
     // The webview may name a node the host already published. It may not supply
     // the node's text, its position rules, or anything else the host would then
     // write to a tracked file on its word.
-    const move = WEBVIEW_SCRIPT.slice(WEBVIEW_SCRIPT.indexOf("type: 'roadmapNodeMove'"));
-    expect(move.slice(0, 200)).toContain('nodeId: finished.nodeId');
+    //
+    // Asserted against the *producer* of both messages rather than the literal
+    // payload: a single drag posts `roadmapNodeMove` and a box-selected group
+    // posts `roadmapNodesMove`, and both take their entries from
+    // `rmDragPositions`. Checking that one function is what actually pins the
+    // property, and it no longer breaks when the call site is rearranged.
+    const positions = scriptFunction('rmDragPositions');
+    expect(positions).toContain('nodeId: member.nodeId');
+    expect(positions).toMatch(/x:\s*Math\.max\(0, rmSnap\(member\.originX \+ dx\)\)/);
+    // Nothing else may ride along — no text, no label, no anything the host
+    // would then write to a tracked file on the webview's word.
+    expect(positions).not.toMatch(/\btext\b/);
+    expect(positions).not.toMatch(/\blabel\b/);
+
+    expect(WEBVIEW_SCRIPT).toContain("type: 'roadmapNodeMove'");
+    expect(WEBVIEW_SCRIPT).toContain("type: 'roadmapNodesMove'");
+  });
+
+  it('posts one message for a group rather than one per node', () => {
+    // N singular moves would be N host reads, N writes and N refreshes, with
+    // the canvas re-rendering under the pointer partway through.
+    const end = scriptFunction('rmEndDrag');
+    expect(end).toContain("type: 'roadmapNodesMove'");
+    expect(end).toContain('positions.length > 1');
   });
 
   it('sends both ends of a link as ids parsed from a delimited payload', () => {
@@ -184,7 +222,12 @@ describe('canvas state is dropped when it stops referring to anything', () => {
       WEBVIEW_SCRIPT.indexOf("if (message.type === 'state')") + 900,
     );
     expect(listener).toContain('pendingStateMessage = message;');
-    expect(WEBVIEW_SCRIPT).toContain("applyStateSnapshot(deferred, movedNode ? finished.nodeId : '');");
+    // The deferred snapshot is applied on drop, preserving the offsets of
+    // *every* node that moved — a group drops together, and preserving only
+    // the one under the pointer snapped the rest back for a frame.
+    expect(WEBVIEW_SCRIPT).toContain(
+      'applyStateSnapshot(deferred, movedNode ? positions.map(entry => entry.nodeId) : []);',
+    );
   });
 
   it('clears local drag offsets on every snapshot, except a node whose drop is still in flight', () => {
@@ -194,10 +237,14 @@ describe('canvas state is dropped when it stops referring to anything', () => {
     // during its drag: the snapshot predates the drop, and the host's answer
     // to the drop is still on its way — clearing that one yanked a
     // just-dropped node back to where it was.
-    expect(stateHandler).toContain(
-      'state.roadmapDragOffsets = preserveOffsetNodeId && state.roadmapDragOffsets[preserveOffsetNodeId]',
-    );
-    expect(stateHandler).toContain(': {};');
+    //
+    // Plural since v0.439.0: a box-selected group drops together, so the
+    // exception is a list rather than a single id.
+    expect(stateHandler).toContain('const keptOffsets = {};');
+    expect(stateHandler).toContain('for (const id of preserved)');
+    expect(stateHandler).toContain('state.roadmapDragOffsets = keptOffsets;');
+    // The default is still to clear: an offset survives only by being named.
+    expect(stateHandler).toContain('if (state.roadmapDragOffsets[id])');
   });
 
   it('clears a filter, a half-drawn link and an open editor pointing at a gone node', () => {
