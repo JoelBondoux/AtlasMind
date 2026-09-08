@@ -19,6 +19,25 @@ Older entries below describe the software as it was at the time and are delibera
 
 ---
 
+## v0.437.1 -- Deleting your last chat session actually clears the screen
+
+Reported: deleting all your chat sessions left an old conversation on screen instead of going
+blank. Two mistakes, one symptom.
+
+Choosing which conversation to show next looked at *all* sessions, including archived ones — but
+the session picker only lists unarchived ones. So if you had one visible conversation and anything
+archived, deleting the visible one made an **archived** conversation active: the picker went empty
+while its old transcript stayed on screen, and nothing downstream noticed, because an archived
+session is still a perfectly real session as far as the lookup is concerned.
+
+The same oversight meant "this is my only conversation, just empty it" did not trigger when it
+should have, and the successor was picked by creation order rather than by which you used last.
+
+Archiving a conversation has always got this right. Deleting now shares that logic, because they
+are the same question and asking it twice is how the two answers drifted apart.
+
+---
+
 ## v0.437.0 -- "Read-only" holds for the whole job
 
 Telling AtlasMind to work read-only was already enforced properly — the write tools are removed before

@@ -6,6 +6,37 @@ The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/),
 
 ## [Unreleased]
 
+## [0.437.1] - 2026-09-08
+
+### Fixed
+
+- **Deleting your last visible chat session left an old transcript on screen.** Reported as
+  "deleting all sessions leaves the chat history of an old session on the screen and doesn't
+  refresh to a blank chat", and it was two mistakes landing on one symptom.
+
+  The successor session was picked as `this.sessions[0]`. That array includes **archived**
+  sessions while `listSessions()` filters them out — so with one visible conversation and any
+  archived one, deleting the visible one promoted an *archived* session to active. The picker
+  then showed nothing (it lists only unarchived sessions) while the panel rendered the archived
+  transcript, and `chatPanel`'s "is the selection still real?" check could not catch it because
+  `getSession()` finds archived records perfectly well.
+
+  The same array made the clear-in-place shortcut wrong: `this.sessions.length === 1` asked
+  whether this was the only session *including archived ones*, so "empty my only conversation"
+  did not fire when it should have. Index `0` was also insertion order rather than most-recently
+  updated.
+
+  `archiveSession` has always answered this correctly — most recently updated non-archived
+  session, a fresh one when there is none. `deleteSession` now shares that logic, because the
+  two are the same question and answering it twice is how they came to disagree. The old
+  fallback also built a session record, took its id and discarded the record, leaving
+  `activeSessionId` naming a session that did not exist; the successor is now always a session
+  that is actually in the list.
+
+- Seven regression tests in `tests/chat/sessionConversation.test.ts` covering the reported case
+  and the surrounding ones. The panel's own tests mock `SessionConversation` wholesale, which is
+  how this survived: nothing exercised the real deletion logic.
+
 ## [0.437.0] - 2026-09-08
 
 ### Fixed
