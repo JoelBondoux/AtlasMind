@@ -19,6 +19,18 @@ Older entries below describe the software as it was at the time and are delibera
 
 ---
 
+## v0.436.1 -- The security pass, written up
+
+The security hardening report now carries its test tally: **120 security regression tests, 88 of them
+new**, with what each covers and which four are architectural — the kind that scan the source and fail
+on a *shape*, so they keep the rest true after the work stops.
+
+It also records the two existing tests that were changed, and why each change was a correction rather
+than a concession. A hardening report that does not say what it touched in the test suite is asking to
+be taken on trust, which is the opposite of the point.
+
+---
+
 ## v0.436.0 -- Nothing starts a shell it does not need, and CI runs what we pinned
 
 **The project bootstrapper no longer starts a shell.** It used to start four: three checks for

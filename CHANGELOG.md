@@ -6,6 +6,16 @@ The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/),
 
 ## [Unreleased]
 
+## [0.436.1] - 2026-09-08
+
+### Documentation
+
+- `docs/security-hardening-report.md` gains the test tally: **120 security regression tests, 88
+  of them new in this pass**, with what each file covers and which four are architectural
+  rather than behavioural. Also records the two existing tests that were modified — both
+  because a change made their assumption wrong, neither to make a change pass — since a
+  hardening report that does not say what it touched in the suite is asking to be trusted.
+
 ## [0.436.0] - 2026-09-08
 
 ### Changed

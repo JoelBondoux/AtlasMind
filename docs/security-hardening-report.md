@@ -146,7 +146,36 @@ two are inspection, stated as inspection.
 
 ---
 
-## 7. Still open
+## 7. Test tally
+
+**120 security regression tests**, of which 88 are new in this pass.
+
+| File | Tests | Subject |
+|---|---|---|
+| `tests/core/modelEgress.test.ts` | 23 | Origin policy: redaction, limits, confirmation, audit content |
+| `tests/security/routineExecutionPolicy.test.ts` | 18 | Placeholders, preview, reach, refusal rules |
+| `tests/security/egressLabelling.test.ts` | 15 | How a label reaches the policy; streaming; the confirmer's four answers |
+| `tests/security/toolBypassCeiling.test.ts` | 15 | Every bypass route, every approval mode, ceiling breadth |
+| `tests/security/generatedSkillContainment.test.ts` | 14 | Eight executed escapes, timeout, the residual, the "sandbox" word |
+| `tests/core/routineVariables.test.ts` | 9 | Structural value refusal (pre-existing) |
+| `tests/security/startupNetworkActivity.test.ts` | 9 | Nothing contacted unprompted at activation |
+| `tests/security/subprocessShellUse.test.ts` | 7 | Shell-caller ratchet; zero assembled commands |
+| `tests/security/modelEgressBoundary.test.ts` | 5 | Architectural ratchet, allowlist empty |
+| `tests/security/supplyChain.test.ts` | 5 | Action pinning, dependency set |
+
+Four of these are **architectural** rather than behavioural — they scan `src/` and fail on a shape
+rather than an outcome. Those are the ones that keep the rest true after this pass ends, because a
+boundary every caller must remember is the arrangement being replaced.
+
+Two existing tests were modified, both because a change made their assumption wrong rather than to
+make a change pass: `ciWorkflowPolicy` anchored an action reference to end-of-line (loosened, SHA
+assertion unchanged) and an `orchestrator.tools` fixture read `process.env` at a module top level,
+which containment now refuses. Neither assertion was weakened; the second surfaced a real behaviour
+change worth its own test.
+
+---
+
+## 8. Still open
 
 - Three `cp.execFile` capability probes in `bootstrapper.ts` run before the install confirmation.
   Constants, no shell, no interpolation — but they run unprompted.
