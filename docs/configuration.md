@@ -132,6 +132,7 @@ When either mode is set to `auto`, the task profiler infers the appropriate leve
 | `atlasmind.projectEstimatedFilesPerSubtask` | `number` | `2` | Heuristic multiplier to estimate changed files from the planned subtask count. |
 | `atlasmind.projectChangedFileReferenceLimit` | `number` | `5` | Maximum number of changed files surfaced as clickable references after a `/project` run. |
 | `atlasmind.projectRunReportFolder` | `string` | `"project_memory/operations"` | Relative folder for persisted `/project` run summary JSON reports. |
+| `atlasmind.execution.worktreeIsolation` | `boolean` | `false` | Give each file-writing subtask its own git worktree so a batch can write in parallel. **This does not decide whether the write race is prevented** — it always is. With this off, subtasks that write run one at a time; turning it on buys the parallelism back for subtasks that need only tracked files. A subtask that runs commands or tests still runs alone in the real working tree, because a fresh worktree has no `node_modules` or build output. Worktrees live under `.git/atlasmind-worktrees`, each subtask's changes are applied back as its batch finishes, and one whose changes will not apply cleanly is kept and named rather than discarded. Requires git and a host that can re-root a subtask's file access; without either, writers are serialised instead. |
 
 ## Project Governance Bootstrap
 

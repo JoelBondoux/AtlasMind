@@ -63,7 +63,7 @@ export const WORKTREE_RULES: ReadonlyArray<{ id: WorktreeRuleId; description: st
   },
   {
     id: 'isolation-unavailable',
-    description: 'No git repository to make a worktree from. Writers run one at a time instead.',
+    description: 'No worktree could be made for it — no git repository, a host that cannot re-root a subtask\'s file access, or git refused. Writers run one at a time instead.',
   },
   {
     id: 'isolation-disabled',
@@ -187,7 +187,22 @@ export function planWorktreeBatch(
   tasks: ReadonlyArray<Pick<SubTask, 'id' | 'skills'>>,
   options: WorktreeIsolationOptions,
 ): WorktreeBatchPlan {
-  const assignments = tasks.map(task => placeSubTask(task, options));
+  return worktreeBatchFromAssignments(tasks.map(task => placeSubTask(task, options)));
+}
+
+/**
+ * The same plan, from assignments a caller has already adjusted.
+ *
+ * Placement is decided before a worktree exists and the creation can still
+ * fail — a full disk, a path git will not take. A caller that has downgraded
+ * such a subtask to `exclusive` re-derives the waves through here rather than
+ * moving it by hand, so there is one definition of what the waves are and a
+ * downgrade cannot leave a subtask in a parallel wave with no tree of its own,
+ * which is the race wearing the feature's name.
+ */
+export function worktreeBatchFromAssignments(
+  assignments: ReadonlyArray<WorktreeAssignment>,
+): WorktreeBatchPlan {
   const parallel = assignments
     .filter(entry => entry.placement !== 'exclusive')
     .map(entry => entry.subTaskId);
@@ -204,7 +219,7 @@ export function planWorktreeBatch(
   }
 
   return {
-    assignments,
+    assignments: [...assignments],
     waves,
     usesWorktrees: assignments.some(entry => entry.placement === 'isolated'),
   };
@@ -232,10 +247,22 @@ export function describeWorktreeBatch(plan: WorktreeBatchPlan): string {
   if (exclusive > 0) {
     // Named, because a run that suddenly takes longer with no explanation reads
     // as AtlasMind being slow rather than as AtlasMind refusing to race.
-    const reason = plan.assignments.some(entry => entry.rule === 'needs-working-tree')
-      ? 'they run commands or tests, which need the real working tree'
-      : 'two subtasks must not write the same tree at once';
-    parts.push(`${exclusive} one at a time because ${reason}`);
+    //
+    // Singular is a different sentence, not the plural with a number swapped in:
+    // one subtask is not being serialised against anything, and "1 one at a time
+    // because two subtasks must not write the same tree" describes a batch that
+    // does not exist. It is set apart from the parallel work, which is the true
+    // and smaller claim.
+    const needsRealTree = plan.assignments.some(entry => entry.rule === 'needs-working-tree');
+    if (exclusive === 1) {
+      parts.push(needsRealTree
+        ? '1 on its own because it runs commands or tests, which need the real working tree'
+        : '1 on its own, since nothing else may write while it does');
+    } else {
+      parts.push(`${exclusive} one at a time because ${needsRealTree
+        ? 'they run commands or tests, which need the real working tree'
+        : 'two subtasks must not write the same tree at once'}`);
+    }
   }
   return parts.join('; ');
 }

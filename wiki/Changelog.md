@@ -19,6 +19,33 @@ Older entries below describe the software as it was at the time and are delibera
 
 ---
 
+## v0.441.0 -- Two steps can no longer overwrite each other
+
+When AtlasMind broke a job into steps, it ran up to five of them at once against one copy of your
+files. Nothing anywhere kept two of them from editing the same file, and when that happened one of
+the two changes simply wasn't there afterwards — with both steps reported as finished. There was no
+error, no warning, and nothing in the run to suggest anything had gone wrong.
+
+Steps that write now run one at a time. That is slower than before, and it is not something you can
+turn off, because the race was never the price of a missing feature — it was a defect.
+
+What you *can* turn on is `execution.worktreeIsolation`, which buys the speed back. Each writing step
+gets its own git worktree, they run together again, and each one's changes are applied to your files
+as its batch finishes rather than at the end of the run — so a later step that depends on an earlier
+one sees its work. A step that runs commands or tests still runs alone in your real working tree,
+because a fresh worktree has no `node_modules` and no build output, and "the tests failed" would be a
+fact about the isolation rather than about your code.
+
+If a step's changes won't apply cleanly, its worktree is kept and AtlasMind tells you where it is.
+Nothing is forced in, and nothing is thrown away. The same holds when a run stops early: a worktree
+holding changes is kept and named, and an empty one is cleared away so an abandoned run doesn't leave
+litter behind.
+
+The whole path was checked against real git rather than reasoned about — including that a refused
+patch leaves no conflict markers anywhere in your files.
+
+---
+
 ## v0.440.2 -- Bringing an isolated step's work back
 
 If a step of a run gets its own copy of your files, that only helps if the work comes back — and it

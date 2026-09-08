@@ -47,9 +47,70 @@ describe('a relative path resolves from where the subtask is running', () => {
     await expect(ask('src/foo.ts', WORKTREE)).resolves.toBe(path.join(WORKTREE, 'src', 'foo.ts'));
   });
 
-  it('leaves an absolute path alone', async () => {
+  it('leaves an absolute path alone when there is only one tree', async () => {
     const absolute = path.join(WORKSPACE, 'docs', 'readme.md');
-    await expect(ask(absolute, WORKTREE)).resolves.toBe(absolute);
+    await expect(ask(absolute)).resolves.toBe(absolute);
+  });
+});
+
+describe('an absolute path into the workspace names the isolated copy', () => {
+  /*
+   * A relative path follows the resolution root for free. An absolute one does
+   * not, and a subtask handed `<workspace>/src/a.ts` in a dependency's output
+   * would write straight back into the tree it was isolated from — the race,
+   * arriving by the one route the resolution root does not cover.
+   *
+   * These replace an earlier assertion that an absolute path passed through
+   * untouched. That described what the boundary did when nothing had two trees
+   * yet; it is a hole now that something does.
+   */
+
+  it('re-roots a path that names the main tree', async () => {
+    await expect(ask(path.join(WORKSPACE, 'src', 'a.ts'), WORKTREE))
+      .resolves.toBe(path.join(WORKTREE, 'src', 'a.ts'));
+  });
+
+  it('leaves a path already inside the worktree where it is', async () => {
+    const inside = path.join(WORKTREE, 'src', 'a.ts');
+    await expect(ask(inside, WORKTREE)).resolves.toBe(inside);
+  });
+
+  it('re-roots a relative path that climbs out of the worktree', async () => {
+    // `../../../src/a.ts` from the worktree lands in the main tree, which is
+    // the same escape spelled differently.
+    await expect(ask(path.join('..', '..', '..', 'src', 'a.ts'), WORKTREE))
+      .resolves.toBe(path.join(WORKTREE, 'src', 'a.ts'));
+  });
+
+  it('sends another subtask\'s worktree nowhere useful rather than through', async () => {
+    // Position is preserved, so a path naming a sibling worktree is re-rooted
+    // under this one and simply does not exist. Reaching into another
+    // subtask's tree fails instead of succeeding.
+    const sibling = path.join(WORKSPACE, '.git', 'atlasmind-worktrees', 'run-1-other', 'src', 'a.ts');
+    await expect(ask(sibling, WORKTREE)).resolves.toBe(
+      path.join(WORKTREE, '.git', 'atlasmind-worktrees', 'run-1-other', 'src', 'a.ts'),
+    );
+  });
+
+  it('leaves a path outside the workspace exactly as it came', async () => {
+    // So the refusal names the path the caller asked for rather than one this
+    // rule invented on the way past.
+    await expect(ask(path.resolve('/etc/passwd'), WORKTREE))
+      .rejects.toThrow(/"[^"]*passwd" resolves outside/);
+  });
+
+  it('cannot fire at all when one root is used as both', async () => {
+    // The property that makes this safe to have added: with a single root,
+    // "inside the boundary but outside the resolution root" is empty, so
+    // ordinary resolution is untouched by construction rather than by care.
+    const candidates = [
+      path.join(WORKSPACE, 'src', 'a.ts'),
+      path.join(WORKSPACE, '.git', 'atlasmind-worktrees', 'run-1-edit', 'src', 'a.ts'),
+      WORKSPACE,
+    ];
+    for (const candidate of candidates) {
+      await expect(ask(candidate)).resolves.toBe(candidate);
+    }
   });
 });
 

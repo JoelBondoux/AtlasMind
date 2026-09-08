@@ -167,6 +167,23 @@ describe('the plan explains itself, and stays quiet when there is nothing to say
     expect(description).toMatch(/must not write the same tree at once/);
   });
 
+  it('does not describe a single subtask as being serialised', () => {
+    // One subtask is not being kept apart from anything. "1 one at a time
+    // because two subtasks must not write the same tree" describes a batch that
+    // does not exist, and a surface that overstates its smallest case is one
+    // people learn to discount on the cases that matter.
+    const description = describeWorktreeBatch(planWorktreeBatch([{ id: 'a', skills: ['file-edit'] }], OFF));
+
+    expect(description).toBe('1 on its own, since nothing else may write while it does');
+    expect(description).not.toMatch(/one at a time/);
+  });
+
+  it('says a single command-running subtask needs the real tree', () => {
+    const description = describeWorktreeBatch(planWorktreeBatch([TESTER], ON));
+
+    expect(description).toBe('1 on its own because it runs commands or tests, which need the real working tree');
+  });
+
   it('publishes a rule for every placement it can produce', () => {
     const declared = new Set(WORKTREE_RULES.map(rule => rule.id));
     const produced = [

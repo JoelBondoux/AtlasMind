@@ -29,6 +29,7 @@ import { toJsonPreview, toTextPreview } from './toolPreview.js';
 import type { ToolWebhookDispatcher } from './toolWebhookDispatcher.js';
 import { Planner } from './planner.js';
 import { TaskScheduler } from './taskScheduler.js';
+import { startWorktreeRun, type WorktreeRun } from './worktreeRun.js';
 import type { TaskProfiler } from './taskProfiler.js';
 import { scanMemoryEntry, scanTransientContext } from '../memory/memoryScanner.js';
 import { discoverTools, shouldOfferToolDiscovery, TOOL_DISCOVERY_SKILL_ID } from './toolDiscovery.js';
@@ -471,6 +472,15 @@ interface TaskAttemptContext {
    * it can never call.
    */
   discoverableSkills?: SkillDefinition[];
+  /**
+   * Where this attempt's file operations resolve from, when it is not the
+   * workspace itself.
+   *
+   * Set for a subtask running in its own git worktree. Carried as a path and
+   * turned into a context inside the tool loop, so the derived context lives
+   * exactly as long as the calls that use it.
+   */
+  worktreePath?: string;
 }
 
 interface TaskExecutionAttempt {
@@ -594,6 +604,7 @@ export class Orchestrator {
   private onClassifiedContentForUntrustedModel?: OrchestratorHooks['onClassifiedContentForUntrustedModel'];
   private readSettingHook?: OrchestratorHooks['readSetting'];
   private resolveWorkflowStageLevelsHook?: OrchestratorHooks['resolveWorkflowStageLevels'];
+  private runGitHook?: OrchestratorHooks['runGit'];
 
   constructor(
     private agents: AgentRegistry,
@@ -621,6 +632,7 @@ export class Orchestrator {
     this.onClassifiedContentForUntrustedModel = hooks?.onClassifiedContentForUntrustedModel;
     this.readSettingHook = hooks?.readSetting;
     this.resolveWorkflowStageLevelsHook = hooks?.resolveWorkflowStageLevels;
+    this.runGitHook = hooks?.runGit;
     this.classifier = new ClassifierService(router, providers, taskProfiler);
     this.cfg = { ...defaultConfig, ...config };
 
@@ -2052,6 +2064,9 @@ export class Orchestrator {
               // model plans around one it can never call.
               discoverableSkills: eligibleAgentSkills,
               allowDelegatedToolExecution: usesDelegatedAcpTools,
+              ...(typeof request.context['__worktreePath'] === 'string'
+                ? { worktreePath: request.context['__worktreePath'] }
+                : {}),
               // Reuse expected → let cache-capable providers write the stable
               // prefix even on tool-less turns (the agentic loop already caches
               // via tools; this covers threaded chat with a substantial prefix).
@@ -2611,49 +2626,59 @@ export class Orchestrator {
       throw new Error(projectBudget.reason ?? 'AtlasMind blocked project execution because the daily cost limit has been reached.');
     }
 
-    // 2. Execute subtasks in parallel batches
+    // 2. Execute subtasks in waves — parallel where nothing can collide, one at
+    //    a time where two subtasks would write the same tree.
     const scheduler = new TaskScheduler();
-    const subTaskResults = await scheduler.execute(
-      plan,
-      async (task, depOutputs) => {
-        if (signal?.aborted) {
-          throw new Error('Project execution cancelled.');
-        }
-        onProgress?.({
-          type: 'subtask-start',
-          subTaskId: task.id,
-          title: task.title,
-          batchSize: 1,
-        });
-        const result = await this.executeSubTask(
-          task,
-          depOutputs,
-          constraints,
-          onProgress,
-          goal,
-          signal,
-          options?.sessionContextBundle,
-          options?.sessionContext,
-          goalCapabilities,
-        );
-        // Propagate billing abort as a thrown error so the scheduler's
-        // Promise.all immediately rejects and no further batches execute.
-        if (result.billingAbort) {
-          throw new Error(result.error ?? 'Provider billing limit reached — project aborted.');
-        }
-        return result;
-      },
-      {
-        initialResults: options?.resumeFromResults,
-        onProgress: ({ result, completed, total }) => {
-          onProgress?.({ type: 'subtask-done', result, completed, total });
+    const isolation = this.startWorktreeIsolation(plan.id, onProgress);
+    let subTaskResults: SubTaskResult[];
+    try {
+      subTaskResults = await scheduler.execute(
+        plan,
+        async (task, depOutputs) => {
+          if (signal?.aborted) {
+            throw new Error('Project execution cancelled.');
+          }
+          onProgress?.({
+            type: 'subtask-start',
+            subTaskId: task.id,
+            title: task.title,
+            batchSize: 1,
+          });
+          const result = await this.executeSubTask(
+            task,
+            depOutputs,
+            constraints,
+            onProgress,
+            goal,
+            signal,
+            options?.sessionContextBundle,
+            options?.sessionContext,
+            goalCapabilities,
+            isolation.worktreeFor(task.id),
+          );
+          // Propagate billing abort as a thrown error so the scheduler's
+          // Promise.all immediately rejects and no further batches execute.
+          if (result.billingAbort) {
+            throw new Error(result.error ?? 'Provider billing limit reached — project aborted.');
+          }
+          return result;
         },
-        onBatchStart: ({ batchIndex, totalBatches, batchSize, subTaskIds }) => {
-          onProgress?.({ type: 'batch-start', batchIndex, totalBatches, batchSize, subTaskIds });
+        {
+          initialResults: options?.resumeFromResults,
+          onProgress: ({ result, completed, total }) => {
+            onProgress?.({ type: 'subtask-done', result, completed, total });
+          },
+          onBatchStart: ({ batchIndex, totalBatches, batchSize, subTaskIds }) => {
+            onProgress?.({ type: 'batch-start', batchIndex, totalBatches, batchSize, subTaskIds });
+          },
+          beforeBatch: options?.beforeBatch,
+          afterBatch: async ({ subTaskIds }) => { await isolation.afterBatch(subTaskIds); },
+          partitionBatch: isolation.partitionBatch,
         },
-        beforeBatch: options?.beforeBatch,
-      },
-    );
+      );
+    } finally {
+      await isolation.finish();
+    }
 
     // 3. Synthesize
     onProgress?.({ type: 'synthesizing' });
@@ -2674,6 +2699,28 @@ export class Orchestrator {
     };
   }
 
+  /**
+   * Worktree placement for one run, bound to this orchestrator's settings and
+   * host capabilities.
+   *
+   * The decisions live in `worktreeRun` rather than here, because the wiring is
+   * exactly where a correct policy gets routed around and it is worth a test
+   * suite of its own. This supplies the four facts only the orchestrator knows.
+   */
+  private startWorktreeIsolation(
+    runId: string,
+    onProgress?: (update: ProjectProgressUpdate) => void,
+  ): WorktreeRun {
+    return startWorktreeRun({
+      runId,
+      workspaceRoot: this.skillContext.workspaceRootPath,
+      runGit: this.runGitHook,
+      canRerootSkillContext: typeof this.skillContext.withResolutionRoot === 'function',
+      isolationEnabled: this.readSetting<boolean>('execution.worktreeIsolation', false) === true,
+      onNotice: message => onProgress?.({ type: 'notice', message }),
+    });
+  }
+
   /** Execute a single subtask with an ephemeral role-based agent. */
   private async executeSubTask(
     task: SubTask,
@@ -2692,6 +2739,14 @@ export class Orchestrator {
      * about the limits the user put on it.
      */
     inheritedCapabilities?: TurnCapabilityEnvelope,
+    /**
+     * The worktree this subtask is isolated in, when it has one.
+     *
+     * A path rather than a context: the derived context is built where the
+     * tools are actually run, so nothing in between can hold a live object that
+     * outlives the subtask and leak one run's resolution root into another.
+     */
+    worktreePath?: string,
   ): Promise<SubTaskResult> {
     const startMs = Date.now();
     const userMessage = buildProjectSubTaskMessage(task, depOutputs, projectGoal);
@@ -2743,6 +2798,7 @@ export class Orchestrator {
           ...(projectGoal ? { sessionContextBundle: projectBundle } : {}),
           ...(subTaskMethodologyId ? { __testingMethodologyHint: buildMethodologySystemPromptHint(subTaskMethodologyId) } : {}),
           ...(inheritedCapabilities ? { __inheritedCapabilityEnvelope: inheritedCapabilities } : {}),
+          ...(worktreePath ? { __worktreePath: worktreePath } : {}),
         },
         constraints,
         timestamp: new Date().toISOString(),
@@ -2949,6 +3005,11 @@ export class Orchestrator {
     let _completedCount = 0;
 
     const scheduler = new TaskScheduler();
+    // The same placement as a project run. A multi-step chat turn fans out over
+    // the same working tree and loses writes the same way; scheduling this one
+    // differently would mean the race were fixed depending on which surface
+    // started the work.
+    const isolation = this.startWorktreeIsolation(plan.id, onProgress);
     const subTaskResults = await scheduler.execute(
       plan,
       async (task, depOutputs) => {
@@ -2956,6 +3017,7 @@ export class Orchestrator {
         const result = await this.executeSubTask(
           task, depOutputs, request.constraints, onProgress,
           '', undefined, undefined, undefined, requestCapabilities,
+          isolation.worktreeFor(task.id),
         );
         if (result.billingAbort) {
           throw new Error(result.error ?? 'Provider billing limit reached.');
@@ -2963,6 +3025,8 @@ export class Orchestrator {
         return result;
       },
       {
+        afterBatch: async ({ subTaskIds }) => { await isolation.afterBatch(subTaskIds); },
+        partitionBatch: isolation.partitionBatch,
         onProgress: ({ result, completed, total: t }) => {
           stepwiseResults.push(result);
           totalCostUsd += result.costUsd;
@@ -2985,7 +3049,9 @@ export class Orchestrator {
           onProgress?.({ type: 'batch-start', batchIndex, totalBatches, batchSize, subTaskIds });
         },
       },
-    );
+      // Runs on the failure path too: a turn that stopped early is exactly the
+      // one with unmerged work somewhere the operator has not been told about.
+    ).finally(() => isolation.finish());
 
     onProgress?.({ type: 'synthesizing' });
     const synthesisResult = await this.synthesize(request.userMessage, subTaskResults, request.constraints);
@@ -3115,6 +3181,18 @@ export class Orchestrator {
     let verificationSummary: string | undefined;
     const startedAt = Date.now();
     const difficulty: DifficultySnapshot = { iterations: 0, failedToolCalls: 0, totalToolCalls: 0, elapsedMs: 0 };
+    /**
+     * Where this attempt's file operations land.
+     *
+     * Derived once, held only for the length of the loop, and never stored on
+     * the orchestrator — two subtasks run concurrently and a field would give
+     * one of them the other's tree. A host that cannot re-root keeps the shared
+     * context, which is safe because placement has already made such a subtask
+     * exclusive: it is alone in the working tree.
+     */
+    const skillContext = context.worktreePath
+      ? this.skillContext.withResolutionRoot?.(context.worktreePath) ?? this.skillContext
+      : this.skillContext;
     const workspaceToolBias = getWorkspaceToolBias(messages, tools);
     const forceWorkspaceToolBackedInvestigation = workspaceToolBias !== 'none';
     let workspaceRepromptCount = 0;
@@ -3572,7 +3650,7 @@ export class Orchestrator {
 
             const effectiveTimeout = skill.timeoutMs ?? this.cfg.toolExecutionTimeoutMs;
             const result = await withTimeout(
-              skill.execute(toolCall.arguments, this.skillContext),
+              skill.execute(toolCall.arguments, skillContext),
               effectiveTimeout,
               `Tool "${toolCall.name}" timed out after ${effectiveTimeout}ms.`,
             );
@@ -3638,7 +3716,12 @@ export class Orchestrator {
         this.rememberSuccessfulToolResolutions(context.userMessage, toolResults);
       }
 
-      if (this.postToolVerifier) {
+      // Not for an isolated subtask. The verifier reads the editor's own
+      // diagnostics, which describe the workspace copy of a file — and an
+      // isolated subtask edited a different copy, so the answer would be about
+      // a file it never touched. "No problems" about the wrong file is the
+      // worst result available here: a pass nobody earned.
+      if (this.postToolVerifier && !context.worktreePath) {
         const verificationTargets = toolResults
           .filter(result => result.shouldVerify)
           .map(result => ({

@@ -1358,6 +1358,11 @@ export async function runProjectCommand(
       case 'synthesizing':
         stream.progress('Synthesizing results...');
         break;
+      case 'notice':
+        // Italic rather than the error's bold cross: this is the run telling
+        // you how it placed its work or where it left some, not a failure.
+        stream.markdown(`_${update.message}_\n\n`);
+        break;
       case 'error':
         stream.markdown(`\u274c **Planning error:** ${update.message}`);
         break;

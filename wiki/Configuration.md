@@ -160,6 +160,20 @@ Providers**. Azure uses `atlasmind.provider.azure.apiKey`; Bedrock uses
 | `atlasmind.projectChangedFileReferenceLimit` | `5` | Clickable file links in the summary |
 | `atlasmind.projectRunReportFolder` | `project_memory/operations` | Where run reports go |
 | `atlasmind.autoStartProposedProjectRuns` | `true` | Let a proposed run start on its own — **only while Autopilot is on**. Otherwise you always get the decision card |
+| `atlasmind.execution.worktreeIsolation` | `false` | Give each writing step its own git worktree so a batch can write in parallel |
+
+**About that last one.** It does not decide whether two steps can overwrite each other's edits —
+they can't, either way. With it off, steps that write run one at a time, which is slower and
+correct. Turning it on gives each writing step its own copy of your files so they can run together
+again, and applies each one's changes back as its batch finishes.
+
+A step that runs commands or tests still runs alone in your real working tree: a fresh worktree is a
+checkout of tracked files, with no `node_modules` and no build output, so "the tests failed" would be
+a fact about the isolation rather than your code.
+
+Worktrees live under `.git/atlasmind-worktrees` and are cleared away as each batch finishes. If a
+step's changes won't apply cleanly, its worktree is kept and AtlasMind tells you where — nothing is
+forced in and nothing is thrown away. Needs git; without it, writers are serialised instead.
 
 ### The autonomous loop
 

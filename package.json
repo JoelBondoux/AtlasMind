@@ -2,7 +2,7 @@
   "name": "atlasmind",
   "displayName": "AtlasMind",
   "description": "AI project management for VS Code: roadmap, risk, tech debt, compliance, testing and release tracked from your own repository — with a multi-agent AI team, or the AI coding tool you already use.",
-  "version": "0.440.2",
+  "version": "0.441.0",
   "publisher": "JoelBondoux",
   "preview": false,
   "license": "SEE LICENSE IN OSMFEULA.txt",
@@ -2031,6 +2031,12 @@
           "default": true,
           "description": "Enable AtlasMind's prompt-context compaction path to reduce token volume and estimated spend.",
           "markdownDescription": "Enable AtlasMind's prompt-context compaction path. When this is on, AtlasMind trims carry-forward session context and summarizes retrieved memory/live evidence to stay within the current model budget. Turn it off if you want the rawer, less compact prompt path for debugging or comparison.\n\nExamples:\n- Keep the default efficiency path: `true`\n- Compare or debug without compaction: `false`"
+        },
+        "atlasmind.execution.worktreeIsolation": {
+          "type": "boolean",
+          "default": false,
+          "description": "Give each file-writing subtask its own git worktree so a batch can write in parallel without two subtasks editing the same file.",
+          "markdownDescription": "Give each file-writing subtask its own git worktree, so a batch can write in parallel without two subtasks editing the same copy of a file.\n\nThis does **not** decide whether AtlasMind protects you from that race — it always does. With this off, subtasks that write run one at a time, which is slower and correct. Turning it on buys the parallelism back for subtasks that need only tracked files.\n\nA subtask that runs commands or tests still runs alone in the real working tree, because a fresh worktree has no `node_modules` and no build output. Worktrees live under `.git/atlasmind-worktrees`, each subtask's changes are applied back to your working tree as its batch finishes, and one whose changes will not apply cleanly is kept and named rather than discarded.\n\nExamples:\n- Serialize writers, the safe default: `false`\n- Run writers in parallel in their own worktrees: `true`"
         },
         "atlasmind.projectApprovalFileThreshold": {
           "type": "number",

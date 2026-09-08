@@ -2386,6 +2386,43 @@ async function bootstrapAtlasMind(
           const { resolveWorkflowStageLevelsForRun } = await import('./chat/participant.js');
           return resolveWorkflowStageLevelsForRun();
         },
+        // Worktree isolation's git. Not a tool and not routed through
+        // `runCommand`: every command it runs is a constant in
+        // `worktreeManager` / `worktreeMerge`, and it needs stdin, which `git
+        // apply -` requires and no skill has ever wanted.
+        runGit: async (args, cwd, stdin) => {
+          // `encoding: 'buffer'` is load-bearing twice over. Without it the
+          // streams emit strings and `Buffer.concat` throws on the first call,
+          // which would look exactly like a repository that cannot make
+          // worktrees. And a patch is decoded once at the end rather than per
+          // chunk, so a multi-byte character split across a chunk boundary
+          // survives — a diff of a source file with any non-ASCII text in it.
+          const child = execFile('git', [...args], {
+            cwd,
+            windowsHide: true,
+            encoding: 'buffer',
+            maxBuffer: 64 * 1024 * 1024,
+          });
+          const stdout: Buffer[] = [];
+          const stderr: Buffer[] = [];
+          child.stdout?.on('data', (chunk: Buffer) => stdout.push(chunk));
+          child.stderr?.on('data', (chunk: Buffer) => stderr.push(chunk));
+          if (stdin !== undefined) {
+            child.stdin?.end(stdin);
+          }
+          return new Promise<string>((resolve, reject) => {
+            child.once('error', reject);
+            child.once('close', code => {
+              if (code === 0) {
+                resolve(Buffer.concat(stdout).toString('utf-8'));
+                return;
+              }
+              // stderr, because git says why a patch would not apply there and
+              // that sentence is what reaches the operator.
+              reject(new Error(Buffer.concat(stderr).toString('utf-8').trim() || `git ${args[0]} exited with ${code}.`));
+            });
+          });
+        },
         toolApprovalGate,
         generatedSkillApprovalGate,
         writeCheckpointHook,
@@ -5013,10 +5050,29 @@ function buildSkillExecutionContext(
   memoryRefresh: vscode.EventEmitter<void>,
   checkpointManager?: CheckpointManager,
   secrets?: vscode.SecretStorage,
+  /**
+   * Where this context's relative paths resolve from, when it is not the
+   * workspace folder — the git worktree an isolated subtask is running in.
+   *
+   * It moves resolution only. Every boundary check below still contains against
+   * the workspace folder, which is what makes isolation cost no widening: see
+   * `assertInsideWorkspace` and `resolveWithinWorkspace`.
+   */
+  resolutionRoot?: string,
 ): SkillExecutionContext {
-  return {
+  const context: SkillExecutionContext = {
     get workspaceRootPath() {
-      return vscode.workspace.workspaceFolders?.[0]?.uri.fsPath;
+      return resolutionRoot ?? vscode.workspace.workspaceFolders?.[0]?.uri.fsPath;
+    },
+
+    withResolutionRoot(root) {
+      const derived = buildSkillExecutionContext(memoryManager, memoryRefresh, checkpointManager, secrets, root);
+      // Delegation is installed on this context by the Orchestrator once it
+      // exists, so a context derived afterwards would otherwise be the one
+      // agent in the run unable to hand off — for a reason that looks like
+      // policy and is a missing assignment.
+      derived.runAgent = context.runAgent;
+      return derived;
     },
 
     queryMemory(query, maxResults) {
@@ -5040,14 +5096,14 @@ function buildSkillExecutionContext(
     },
 
     async readFile(absolutePath) {
-      const resolvedPath = await assertInsideWorkspace(absolutePath, 'readFile');
+      const resolvedPath = await assertInsideWorkspace(absolutePath, 'readFile', resolutionRoot);
       const uri = vscode.Uri.file(resolvedPath);
       const bytes = await vscode.workspace.fs.readFile(uri);
       return Buffer.from(bytes).toString('utf-8');
     },
 
     async writeFile(absolutePath, content) {
-      const resolvedPath = await assertInsideWorkspace(absolutePath, 'writeFile');
+      const resolvedPath = await assertInsideWorkspace(absolutePath, 'writeFile', resolutionRoot);
       const uri = vscode.Uri.file(resolvedPath);
       await vscode.workspace.fs.writeFile(uri, Buffer.from(content, 'utf-8'));
     },
@@ -5108,7 +5164,7 @@ function buildSkillExecutionContext(
       }
 
       const targetPath = absolutePath?.trim() || workspaceRoot;
-      const resolvedPath = await assertInsideWorkspace(targetPath, 'listDirectory');
+      const resolvedPath = await assertInsideWorkspace(targetPath, 'listDirectory', resolutionRoot);
       const dirEntries = await fs.readdir(resolvedPath, { withFileTypes: true }) as Array<{
         name: string;
         isDirectory(): boolean;
@@ -5130,7 +5186,7 @@ function buildSkillExecutionContext(
       }
 
       const cwdRaw = options?.cwd?.trim() || workspaceRoot;
-      const cwd = await assertInsideWorkspace(cwdRaw, 'runCommand');
+      const cwd = await assertInsideWorkspace(cwdRaw, 'runCommand', resolutionRoot);
 
       // Decide how to start this before starting it, and never through a shell.
       //
@@ -5379,13 +5435,13 @@ function buildSkillExecutionContext(
     },
 
     async deleteFile(absolutePath) {
-      const resolvedPath = await assertInsideWorkspace(absolutePath, 'deleteFile');
+      const resolvedPath = await assertInsideWorkspace(absolutePath, 'deleteFile', resolutionRoot);
       await vscode.workspace.fs.delete(vscode.Uri.file(resolvedPath), { recursive: false, useTrash: false });
     },
 
     async moveFile(sourcePath, destPath) {
-      const resolvedSource = await assertInsideWorkspace(sourcePath, 'moveFile');
-      const resolvedDest = await assertInsideWorkspace(destPath, 'moveFile');
+      const resolvedSource = await assertInsideWorkspace(sourcePath, 'moveFile', resolutionRoot);
+      const resolvedDest = await assertInsideWorkspace(destPath, 'moveFile', resolutionRoot);
       await vscode.workspace.fs.rename(vscode.Uri.file(resolvedSource), vscode.Uri.file(resolvedDest), { overwrite: true });
     },
 
@@ -5408,28 +5464,28 @@ function buildSkillExecutionContext(
     },
 
     async getDocumentSymbols(absolutePath) {
-      const resolvedPath = await assertInsideWorkspace(absolutePath, 'getDocumentSymbols');
+      const resolvedPath = await assertInsideWorkspace(absolutePath, 'getDocumentSymbols', resolutionRoot);
       const uri = vscode.Uri.file(resolvedPath);
       const symbols = await vscode.commands.executeCommand<unknown[]>('vscode.executeDocumentSymbolProvider', uri) ?? [];
       return symbols.map(symbol => serializeDocumentSymbol(symbol)).filter((value): value is { name: string; kind: string; range: string; children?: string[] } => Boolean(value));
     },
 
     async findReferences(absolutePath, line, column) {
-      const resolvedPath = await assertInsideWorkspace(absolutePath, 'findReferences');
+      const resolvedPath = await assertInsideWorkspace(absolutePath, 'findReferences', resolutionRoot);
       const uri = vscode.Uri.file(resolvedPath);
       const locations = await vscode.commands.executeCommand<unknown[]>('vscode.executeReferenceProvider', uri, new vscode.Position(line - 1, column - 1)) ?? [];
       return await serializeLocationsWithContext(locations);
     },
 
     async goToDefinition(absolutePath, line, column) {
-      const resolvedPath = await assertInsideWorkspace(absolutePath, 'goToDefinition');
+      const resolvedPath = await assertInsideWorkspace(absolutePath, 'goToDefinition', resolutionRoot);
       const uri = vscode.Uri.file(resolvedPath);
       const locations = await vscode.commands.executeCommand<unknown[]>('vscode.executeDefinitionProvider', uri, new vscode.Position(line - 1, column - 1)) ?? [];
       return normalizeLocationTargets(locations);
     },
 
     async renameSymbol(absolutePath, line, column, newName) {
-      const resolvedPath = await assertInsideWorkspace(absolutePath, 'renameSymbol');
+      const resolvedPath = await assertInsideWorkspace(absolutePath, 'renameSymbol', resolutionRoot);
       const uri = vscode.Uri.file(resolvedPath);
       const edit = await vscode.commands.executeCommand<vscode.WorkspaceEdit | undefined>(
         'vscode.executeDocumentRenameProvider',
@@ -5502,7 +5558,7 @@ function buildSkillExecutionContext(
     },
 
     async getCodeActions(absolutePath, startLine, startColumn, endLine, endColumn) {
-      const resolvedPath = await assertInsideWorkspace(absolutePath, 'getCodeActions');
+      const resolvedPath = await assertInsideWorkspace(absolutePath, 'getCodeActions', resolutionRoot);
       const uri = vscode.Uri.file(resolvedPath);
       const range = new vscode.Range(startLine - 1, startColumn - 1, endLine - 1, endColumn - 1);
       const actions = await vscode.commands.executeCommand<vscode.CodeAction[] | undefined>('vscode.executeCodeActionProvider', uri, range) ?? [];
@@ -5514,7 +5570,7 @@ function buildSkillExecutionContext(
     },
 
     async applyCodeAction(absolutePath, startLine, startColumn, endLine, endColumn, actionTitle) {
-      const resolvedPath = await assertInsideWorkspace(absolutePath, 'applyCodeAction');
+      const resolvedPath = await assertInsideWorkspace(absolutePath, 'applyCodeAction', resolutionRoot);
       const uri = vscode.Uri.file(resolvedPath);
       const range = new vscode.Range(startLine - 1, startColumn - 1, endLine - 1, endColumn - 1);
       const actions = await vscode.commands.executeCommand<vscode.CodeAction[] | undefined>('vscode.executeCodeActionProvider', uri, range) ?? [];
@@ -5730,6 +5786,7 @@ function buildSkillExecutionContext(
       return { removed: toRemove.length };
     },
   };
+  return context;
 }
 
 function serializeDocumentSymbol(symbol: unknown): { name: string; kind: string; range: string; children?: string[] } | undefined {

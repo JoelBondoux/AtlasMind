@@ -20,11 +20,25 @@ import * as path from 'node:path';
  * a single "root" parameter would have let a caller move the boundary by
  * accident while meaning only to move the resolution.
  *
+ * **An absolute path into the containment root is re-rooted, not obeyed.** A
+ * relative path follows `resolveFrom` for free; an absolute one does not, and a
+ * subtask handed `<workspace>/src/a.ts` in a dependency's output would write
+ * straight back into the tree it was isolated from — the race, arriving by the
+ * one route the resolution root does not cover. Re-rooting preserves what the
+ * path meant (*the file called `src/a.ts`*) and moves which copy it names. The
+ * rule **cannot fire for any caller that passes one root as both**, since
+ * "inside `containWithin` but outside `resolveFrom`" is empty when they are
+ * equal, so nothing about ordinary resolution changes; there is a test for that
+ * rather than a promise. A path outside the workspace is left exactly as it
+ * came, so the refusal below is the one that speaks.
+ *
  * **Symlinks are resolved before the comparison**, not after, so a link inside
  * the workspace cannot tunnel a read or a write to a target outside it. That
  * behaviour is inherited unchanged — it is the reason the check is async and
  * the reason `realpath` is injected rather than imported, so a test can exercise
- * the escape without creating one on disk.
+ * the escape without creating one on disk. Re-rooting happens *before*
+ * canonicalisation and is purely lexical: it changes which path is checked, and
+ * never whether it is checked.
  */
 
 export interface WorkspaceBoundaryRequest {
@@ -62,7 +76,12 @@ export async function resolveWithinWorkspace(request: WorkspaceBoundaryRequest):
   const { candidate, resolveFrom, containWithin, operation, realpath } = request;
 
   const resolvedBoundary = await realpath(path.resolve(containWithin));
-  const resolved = await canonicalise(path.resolve(resolveFrom, candidate), realpath);
+  const requested = rerootIntoResolutionRoot(
+    path.resolve(resolveFrom, candidate),
+    path.resolve(resolveFrom),
+    path.resolve(containWithin),
+  );
+  const resolved = await canonicalise(requested, realpath);
 
   const relative = path.relative(resolvedBoundary, resolved);
   if (relative.startsWith('..') || path.isAbsolute(relative)) {
@@ -72,6 +91,38 @@ export async function resolveWithinWorkspace(request: WorkspaceBoundaryRequest):
     );
   }
   return resolved;
+}
+
+/**
+ * Move a path that names the containment root's copy of a file onto the
+ * resolution root's copy of the same file.
+ *
+ * Lexical and total: it either returns its input or returns a path at the same
+ * position under a different root, and the containment check still runs on the
+ * result either way.
+ */
+function rerootIntoResolutionRoot(target: string, resolutionRoot: string, boundary: string): string {
+  if (resolutionRoot === boundary) {
+    // The ordinary case, and the reason this is safe to add: with one root
+    // there is no second copy to name, so there is nothing to move.
+    return target;
+  }
+  if (isWithin(target, resolutionRoot)) {
+    return target;
+  }
+  if (!isWithin(target, boundary)) {
+    // Outside the workspace. Left alone so the refusal names the workspace and
+    // the path the caller actually asked for, rather than one this function
+    // invented on the way past.
+    return target;
+  }
+  return path.join(resolutionRoot, path.relative(boundary, target));
+}
+
+/** Whether `target` is `root` or sits underneath it. Lexical, like `path.relative`. */
+function isWithin(target: string, root: string): boolean {
+  const relative = path.relative(root, target);
+  return relative === '' || (!relative.startsWith('..') && !path.isAbsolute(relative));
 }
 
 /**

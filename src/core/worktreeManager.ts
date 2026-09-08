@@ -132,16 +132,31 @@ export class WorktreeManager {
   }
 
   /**
-   * Remove every worktree this run created.
+   * Remove the worktrees this run created.
    *
    * Checked against git's own registry first, so a path that git no longer
    * knows about is skipped rather than deleted from disk — this class does not
    * recursively remove directories, and a stale registration is `git worktree
    * prune`'s job.
+   *
+   * `only` narrows the sweep to named subtasks, and it is not a convenience: a
+   * batch merges and tidies as it finishes while the next batch's worktrees may
+   * already exist, so an unscoped sweep would remove a tree a subtask is about
+   * to be run in.
+   *
+   * `keep` holds subtasks whose work did not come back — a patch that would not
+   * apply, a merge that failed. Those are dropped from the registry without
+   * being touched: the directory is the only copy of work nobody has seen, so it
+   * stops being this run's to remove and becomes the operator's to look at.
+   * Forgetting them is what stops a later sweep taking them anyway.
    */
-  public async cleanup(): Promise<WorktreeCleanupReport> {
+  public async cleanup(options?: { only?: ReadonlySet<string>; keep?: ReadonlySet<string> }): Promise<WorktreeCleanupReport> {
     const report: WorktreeCleanupReport = { removed: [], failed: [] };
-    if (this.created.size === 0) {
+    for (const subTaskId of options?.keep ?? []) {
+      this.created.delete(subTaskId);
+    }
+    const scope = [...this.created.keys()].filter(id => options?.only?.has(id) ?? true);
+    if (scope.length === 0) {
       return report;
     }
 
@@ -156,14 +171,15 @@ export class WorktreeManager {
     } catch (error) {
       // Without the registry there is no way to tell one of ours from one of
       // theirs, and guessing is how a cleanup removes somebody's work.
-      for (const worktreePath of this.created.values()) {
-        report.failed.push({ path: worktreePath, reason: describe(error) });
+      for (const subTaskId of scope) {
+        report.failed.push({ path: this.created.get(subTaskId)!, reason: describe(error) });
+        this.created.delete(subTaskId);
       }
-      this.created.clear();
       return report;
     }
 
-    for (const [subTaskId, worktreePath] of [...this.created.entries()]) {
+    for (const subTaskId of scope) {
+      const worktreePath = this.created.get(subTaskId)!;
       if (!registered.has(normalizeWorktreePath(worktreePath))) {
         // Already gone, or never registered. Not an error and not ours to delete.
         this.created.delete(subTaskId);

@@ -6,6 +6,89 @@ The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/),
 
 ## [Unreleased]
 
+## [0.441.0] - 2026-09-08
+
+### Fixed
+
+- **Two subtasks of a project run can no longer overwrite each other's edits.** `taskScheduler` ran
+  up to five subtasks at once against **one** working tree, with no lock, queue or serialisation
+  anywhere in the write path. Two independent subtasks editing the same file was a
+  read-modify-write race whose loser vanished silently: both were reported as completed and one of
+  the two changes was simply not there. Subtasks that write now run one at a time.
+
+  This is slower than before and it is not conditional on the new setting. The race was never the
+  price of not having worktree isolation; it was a defect, and a switch that is off must not
+  reintroduce it. Turning isolation on buys the parallelism back — it is not what makes the run
+  safe.
+
+  Applied to both fan-out paths, `processProject` and `processTaskMultiStep`, because a multi-step
+  chat turn loses writes the same way and fixing one surface would have made the fix depend on which
+  surface started the work.
+
+### Added
+
+- **Worktree isolation, stage four: the wiring, behind `atlasmind.execution.worktreeIsolation`
+  (off).** With it on, a subtask that writes and needs only tracked files gets its own git worktree
+  and keeps its place in the parallel wave. A subtask that runs commands or tests still runs alone
+  in the real working tree, because a fresh worktree has no `node_modules` and no build output, and
+  "the tests failed" would otherwise be a fact about the isolation rather than the code.
+
+  **A tree that could not be made costs parallelism, never separation.** A failed `worktree add`
+  downgrades that subtask to running alone. Leaving it in the parallel wave would be the race
+  arriving under the feature's own name.
+
+  **Work comes back between waves, not at the end of the run.** A later batch may depend on an
+  earlier subtask's edits, so a merge deferred to the end would leave the dependency ordering
+  honoured and meaningless.
+
+  **Nothing holding work is removed.** A worktree whose patch will not apply is kept and named. One
+  stranded by a run that ended early — an abort, a billing stop — is kept if it holds changes and
+  removed if it does not, so an aborted run neither loses edits nor litters `.git` with empty
+  checkouts. A worktree that cannot be read at all counts as holding work, because keeping cannot
+  destroy anything.
+
+  Verified against real git rather than inferred: a probe repository with three worktrees confirms
+  that a newly created file survives the round trip, that a conflicting patch is refused with **no**
+  markers written into the working tree, that its worktree is kept while the merged ones are
+  removed, and that the parent repository's status shows only the merged changes.
+
+- **`SkillExecutionContext.withResolutionRoot`** — how a host points one subtask's file operations
+  at a different directory inside the workspace. Optional, and its absence is a real answer: a host
+  that cannot re-root cannot isolate, which the placement already treats as it treats having no git.
+  The VS Code implementation rebuilds the whole context with a different resolution root, so every
+  path-taking method moves together; one whose `writeFile` went to the worktree while its
+  `applyPatch` went to the main tree would be worse than no isolation at all.
+
+- **`TaskScheduler` gained `partitionBatch` and `afterBatch`.** Everything in a dependency batch is
+  *free* to run at once, which is not the same as safe, and the scheduler had no way to say so.
+  `afterBatch` runs after every chunk including one that threw, since the run that aborted is the one
+  with work somebody needs to recover. With no partitioner supplied, the chunking and the batch
+  totals are exactly what they were — asserted by test, because a total that became an estimate for
+  every run to serve a feature that is off by default would be a worse trade than the feature is
+  worth.
+
+### Changed
+
+- **An absolute path into the workspace is re-rooted for an isolated subtask, not obeyed.** A
+  relative path follows the resolution root for free; an absolute one did not, so a subtask handed an
+  absolute path naming the *main* tree's copy of a file — from a dependency's output, say — would
+  have written straight back into the tree it was isolated from, which is the race arriving by the
+  one route the resolution root does not cover.
+  Re-rooting keeps what the path meant and changes which copy it names. The rule cannot fire for a
+  caller that passes one root as both, since "inside the boundary but outside the resolution root" is
+  empty when they are equal; there is a test for that rather than a promise. A stage-two test
+  asserting that an absolute path passed through untouched has been replaced — it described what the
+  boundary did when nothing had two trees yet.
+
+- **Post-tool verification is skipped for an isolated subtask.** The verifier reads the editor's
+  diagnostics, which describe the workspace copy of a file the subtask never touched. "No problems"
+  about the wrong file is a pass nobody earned.
+
+- **`ProjectProgressUpdate` gained a `notice` kind** for what a run did that you would want to know
+  and that did not fail — how a batch was placed, what came back from a worktree, where work was
+  left. Kept apart from `error`, because a surface that renders the two the same teaches people that
+  red means nothing.
+
 ## [0.440.2] - 2026-09-08
 
 ### Added
