@@ -14481,6 +14481,11 @@ ${buildCardEvidenceSection(source, derivation)}`;
               <p id="dashboard-provenance" class="dashboard-provenance"></p>
             </div>
             <div class="dashboard-actions" role="group" aria-label="Dashboard actions">
+              <!-- Shown only while the page is zoomed, the way a browser shows
+                   its own zoom indicator. A permanent "100%" would be one more
+                   thing to read on a row that already carries three controls. -->
+              <button id="dashboard-zoom-reset" class="dashboard-zoom-reset" type="button" hidden
+                title="Dashboard zoom. Click to return to 100%.">100%</button>
               <button id="dashboard-score-chip" class="dashboard-score-chip" type="button" hidden
                 title="Composite score across operational discipline and outcome completeness. Opens the breakdown."></button>
               <!-- A split button. The label refreshes once; the caret opens the
@@ -24249,6 +24254,33 @@ const DASHBOARD_CSS = `
 
   .dashboard-score-chip:hover {
     border-color: var(--dash-accent-strong);
+  }
+
+  /* The page-zoom indicator. Quieter than the score chip beside it: it reports
+     a viewing preference, not a fact about the project. */
+  .dashboard-zoom-reset {
+    display: inline-flex;
+    align-items: center;
+    padding: 4px 10px;
+    border-radius: 999px;
+    border: 1px dashed var(--dash-border);
+    background: transparent;
+    color: var(--dash-muted, var(--vscode-descriptionForeground));
+    font-family: inherit;
+    font-size: 11px;
+    font-variant-numeric: tabular-nums;
+    cursor: pointer;
+  }
+
+  /* Same reason as the score chip: the flex above would beat [hidden]. */
+  .dashboard-zoom-reset[hidden] {
+    display: none;
+  }
+
+  .dashboard-zoom-reset:hover {
+    border-style: solid;
+    border-color: var(--dash-accent-strong);
+    color: var(--vscode-foreground);
   }
 
   .score-chip-figure {

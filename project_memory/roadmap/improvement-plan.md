@@ -20,7 +20,7 @@ This file is the developer-facing backlog AtlasMind should absorb into SSOT and 
 - [ ] Explore a github pages hosted (within the host repo) web portal for AM Project Manager. #mvp <!-- rm:explore-a-github-pages-hoste -->
 - [x] The Lens surfaces are not all accessible as they need a file selected. #mvp <!-- rm:the-lens-surfaces-are-not-al -->
 - [x] On the roadmap and ideation canvases allow for a drag box to select a number of nodes to allow them all to be moved together. #mvp <!-- rm:on-the-roadmap-and-ideation -->
-- [ ] I think CTRL-MouseScroll on the project dashboard should zoom in/out in the same way that chromium browsers work. <!-- rm:i-think-ctrl-mousescroll-on -->
+- [x] I think CTRL-MouseScroll on the project dashboard should zoom in/out in the same way that chromium browsers work. <!-- rm:i-think-ctrl-mousescroll-on -->
 - [ ] Add a way to manually and automatically sync github sponsors to the contributors md files using some pre-built and manual rulesets. This may need a new dashboard page. #mvp #critical <!-- rm:add-a-way-to-manually-and-au -->
 - [ ] When onboarding a new project an early stage user prompt should be given to write in their own words the outline, outcome or ambition of the project. This can then be parsed by AM to the Ideation board, and then to a roadmap filling out all the associated files as well. #mvp <!-- rm:when-onboarding-a-new-projec -->
 - [x] The number of agents being used (and not used) should impact the project score. The dash, should, however, identify when models and providers are having issues. #mvp <!-- rm:the-number-of-agents-being-u -->

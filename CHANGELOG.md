@@ -6,6 +6,34 @@ The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/),
 
 ## [Unreleased]
 
+## [0.450.0] - 2026-09-08
+
+### Added
+
+- **Ctrl (or ⌘) with the wheel zooms the Project Dashboard, the way it zooms a browser.** A webview
+  does not inherit the window's zoom, so the gesture everybody already knows did nothing on the
+  densest surface in AtlasMind — nine stat cards, a nav strip and a table on one screen, with no way
+  to fit more in or make the type bigger.
+
+  Chromium's own ladder (50 → 200%), clamped at both ends because below 50% the labels stop being
+  readable and above 200% a stat card no longer fits the panel — offering either would be offering a
+  broken view. Steps rather than a continuous scale, because that is what the gesture does everywhere
+  else and a notch landing on 113% reads as a bug. A quiet indicator appears in the action row only
+  while zoomed, like a browser's own, and clicking it returns to 100%.
+
+  **A canvas that already zooms on Ctrl+wheel keeps the gesture** — zooming the page *and* the plan
+  from one notch would be two answers to one question, and the canvas is the one the pointer is over.
+  The level is remembered **per viewer** in webview state, never sent to the host and never written to
+  the project: it is how you like to read the panel, not a fact about the work.
+
+### Fixed
+
+- **Canvas dragging stays under the cursor while the page is zoomed.** Pointer deltas arrive in
+  viewport pixels while a node's position is stored in layout pixels, and those are the same unit only
+  at 100%. Both canvases on the dashboard — the roadmap graph and the pipeline graph — now convert
+  through one helper, so a node dragged at 150% lands where it was dropped rather than half again as
+  far.
+
 ## [0.449.6] - 2026-09-08
 
 ### Documentation

@@ -893,6 +893,115 @@
     }
   });
 
+  /* ── Page zoom ─────────────────────────────────────────────────────────────
+   *
+   * Ctrl (or ⌘) with the wheel zooms the dashboard the way a browser does. The
+   * panel is dense by nature — nine stat cards, a nav strip and a table on one
+   * screen — and a webview does not inherit the window zoom, so the usual
+   * gesture did nothing here and there was no other way to fit more on screen or
+   * make the type bigger.
+   *
+   * Chromium's own ladder, clamped at both ends: below 50% the labels stop being
+   * readable and above 200% a stat card no longer fits the panel, so offering
+   * either would be offering a broken view. Steps rather than a continuous scale
+   * because that is what the gesture does everywhere else, and a percentage that
+   * lands on 113% reads as a bug.
+   *
+   * Per viewer, not per project: this is how *you* like to read the panel, so it
+   * lives in webview state rather than in the workspace file. It is deliberately
+   * not sent to the host — a zoom level is nobody else's business.
+   */
+  const PAGE_ZOOM_STEPS = [50, 67, 75, 80, 90, 100, 110, 125, 150, 175, 200];
+  const DEFAULT_PAGE_ZOOM = 100;
+
+  function nearestPageZoomStep(value) {
+    const percent = Number(value);
+    if (!Number.isFinite(percent)) { return DEFAULT_PAGE_ZOOM; }
+    return PAGE_ZOOM_STEPS.reduce(
+      (best, step) => (Math.abs(step - percent) < Math.abs(best - percent) ? step : best),
+      DEFAULT_PAGE_ZOOM,
+    );
+  }
+
+  let pageZoomPercent = nearestPageZoomStep(persistedWebviewState.pageZoom ?? DEFAULT_PAGE_ZOOM);
+
+  /**
+   * Viewport pixels per layout pixel.
+   *
+   * Every canvas in this panel converts pointer movement into world
+   * coordinates, and those two units stop being the same the moment the page is
+   * zoomed: a pointer delta arrives in viewport pixels while a node's `left` is
+   * in layout pixels. Dividing by this is what keeps a dragged node under the
+   * cursor at 150%.
+   */
+  function pageZoomFactor() {
+    return pageZoomPercent / 100;
+  }
+
+  /** A viewport-space distance in the layout-space units the canvases store. */
+  function toLayoutPx(value) {
+    return value / pageZoomFactor();
+  }
+
+  function applyPageZoom() {
+    const shell = document.querySelector('.dashboard-shell');
+    if (shell instanceof HTMLElement) {
+      // The attribute is what CSS and the tests read; the style is what the
+      // browser acts on. Both, because a zoom nothing can observe is a zoom
+      // nobody can assert.
+      shell.dataset.pageZoom = String(pageZoomPercent);
+      shell.style.zoom = String(pageZoomFactor());
+    }
+    const reset = document.getElementById('dashboard-zoom-reset');
+    if (reset instanceof HTMLElement) {
+      // Shown only while zoomed, like a browser's own indicator: a permanent
+      // "100%" chip in the action row would be one more thing to read on a
+      // toolbar that already carries three.
+      reset.hidden = pageZoomPercent === DEFAULT_PAGE_ZOOM;
+      reset.textContent = pageZoomPercent + '%';
+      reset.title = 'Dashboard zoom is ' + pageZoomPercent + '%. Click to return to 100%.';
+    }
+  }
+
+  function setPageZoom(percent, announceChange) {
+    const next = nearestPageZoomStep(percent);
+    if (next === pageZoomPercent) { return; }
+    pageZoomPercent = next;
+    applyPageZoom();
+    vscode.setState({ ...(vscode.getState() || {}), pageZoom: pageZoomPercent });
+    if (announceChange) {
+      announce('Dashboard zoom ' + pageZoomPercent + '%.');
+    }
+  }
+
+  function stepPageZoom(direction) {
+    const index = PAGE_ZOOM_STEPS.indexOf(pageZoomPercent);
+    const from = index === -1 ? PAGE_ZOOM_STEPS.indexOf(DEFAULT_PAGE_ZOOM) : index;
+    const next = PAGE_ZOOM_STEPS[Math.min(PAGE_ZOOM_STEPS.length - 1, Math.max(0, from + direction))];
+    setPageZoom(next, true);
+  }
+
+  window.addEventListener('wheel', event => {
+    if (!event.ctrlKey && !event.metaKey) {
+      return;
+    }
+    // A canvas that already zooms on Ctrl+wheel keeps the gesture. Zooming the
+    // page *and* the plan from one wheel notch would be two answers to one
+    // question, and the canvas is the one the pointer is over.
+    const target = event.target instanceof HTMLElement ? event.target : null;
+    if (target?.closest('[data-rm-frame="true"]')) {
+      return;
+    }
+    event.preventDefault();
+    stepPageZoom(event.deltaY < 0 ? 1 : -1);
+  }, { passive: false });
+
+  document.getElementById('dashboard-zoom-reset')?.addEventListener('click', () => {
+    setPageZoom(DEFAULT_PAGE_ZOOM, true);
+  });
+
+  applyPageZoom();
+
   // WAI-ARIA tabs keyboard support. The container declared role="tablist" but
   // had no keydown listener at all, so reaching the last tab took 14 Tab
   // presses and arrow keys did nothing.
@@ -3879,8 +3988,10 @@
         if (!bounds) {
           return;
         }
-        const worldX = (event.clientX - bounds.left) / state.roadmapZoom;
-        const worldY = (event.clientY - bounds.top) / state.roadmapZoom;
+        // Two conversions, not one: out of viewport pixels into layout pixels
+        // (page zoom), then out of layout pixels into world units (canvas zoom).
+        const worldX = toLayoutPx(event.clientX - bounds.left) / state.roadmapZoom;
+        const worldY = toLayoutPx(event.clientY - bounds.top) / state.roadmapZoom;
         rmDrag = {
           kind: 'marquee',
           startX: event.clientX,
@@ -3913,11 +4024,16 @@
     if (!rmDrag) {
       return;
     }
-    const dx = event.clientX - rmDrag.startX;
-    const dy = event.clientY - rmDrag.startY;
-    if (!rmDrag.moved && Math.abs(dx) < 3 && Math.abs(dy) < 3) {
+    // Viewport pixels on the way in — the 3px threshold is about how far a hand
+    // moved, so it stays in that unit — and layout pixels for everything that
+    // lands in the world, which is what page zoom changes.
+    const viewportDx = event.clientX - rmDrag.startX;
+    const viewportDy = event.clientY - rmDrag.startY;
+    if (!rmDrag.moved && Math.abs(viewportDx) < 3 && Math.abs(viewportDy) < 3) {
       return;
     }
+    const dx = toLayoutPx(viewportDx);
+    const dy = toLayoutPx(viewportDy);
     rmDrag.moved = true;
     if (rmDrag.kind === 'pan') {
       state.roadmapPan = { x: rmDrag.originX + dx, y: rmDrag.originY + dy };
@@ -4053,8 +4169,8 @@
       const rect = frame.getBoundingClientRect();
       rmZoomAt(
         state.roadmapZoom + (event.deltaY < 0 ? 0.1 : -0.1),
-        event.clientX - rect.left,
-        event.clientY - rect.top,
+        toLayoutPx(event.clientX - rect.left),
+        toLayoutPx(event.clientY - rect.top),
       );
       return;
     }
@@ -4064,8 +4180,10 @@
     // single-axis wheel into a horizontal pan, the way every editor canvas
     // does; a trackpad's own horizontal delta is honoured either way.
     const swapAxes = event.shiftKey && event.deltaX === 0;
-    const dx = swapAxes ? event.deltaY : event.deltaX;
-    const dy = swapAxes ? 0 : event.deltaY;
+    // Wheel deltas are viewport pixels; the pan they move is stored in layout
+    // pixels, so a zoomed page would pan further than the wheel was turned.
+    const dx = toLayoutPx(swapAxes ? event.deltaY : event.deltaX);
+    const dy = toLayoutPx(swapAxes ? 0 : event.deltaY);
     state.roadmapPan = { x: state.roadmapPan.x - dx, y: state.roadmapPan.y - dy };
     rmApplyViewTransform();
   }, { passive: false });
@@ -17238,7 +17356,13 @@
       node.addEventListener('pointermove', event => {
         if (!drag || drag.id !== event.pointerId) { return; }
         if (Math.abs(event.clientX - drag.x) > 3 || Math.abs(event.clientY - drag.y) > 3) { drag.moved = true; }
-        moveNode(node, drag.left + event.clientX - drag.x, drag.top + event.clientY - drag.y);
+        // `offsetLeft` is layout pixels and the pointer delta is viewport
+        // pixels; they are the same thing only while the page is at 100%.
+        moveNode(
+          node,
+          drag.left + toLayoutPx(event.clientX - drag.x),
+          drag.top + toLayoutPx(event.clientY - drag.y),
+        );
       });
       const finish = event => {
         if (!drag || drag.id !== event.pointerId) { return; }

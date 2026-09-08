@@ -19,6 +19,24 @@ Older entries below describe the software as it was at the time and are delibera
 
 ---
 
+## v0.450.0 -- Ctrl+wheel zooms the dashboard
+
+A webview does not inherit the window's zoom, so the gesture everybody already knows did nothing on
+the densest page in AtlasMind. It works now, on Chromium's own ladder from 50% to 200% -- clamped at
+both ends, because below 50% the labels stop being readable and above 200% a stat card no longer fits
+the panel.
+
+A quiet indicator appears in the action row only while you are zoomed, the way a browser shows its
+own, and clicking it returns to 100%. The level is remembered per viewer: it is how you like to read
+the panel, not a fact about the project, so it never reaches the workspace file.
+
+The roadmap canvas keeps Ctrl+wheel for zooming the plan -- whichever the pointer is over wins. And
+dragging a node now lands where you dropped it at any page zoom, which it would not have: a pointer
+delta is measured in viewport pixels while a node's position is stored in layout pixels, and those
+are the same unit only at 100%.
+
+---
+
 ## v0.449.6 -- Baseline refreshed
 
 The README's "last Marketplace publication" line names v0.449.5, which is what the Marketplace now

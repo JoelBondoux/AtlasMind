@@ -4,7 +4,7 @@
 
 <h1 align="center">AtlasMind</h1>
 
-<p align="center"><sub> · <strong>Current source version: 0.449.6</strong> · </sub></p>
+<p align="center"><sub> · <strong>Current source version: 0.450.0</strong> · </sub></p>
 
 
 <p align="center">
@@ -175,11 +175,16 @@ important limits on overrides and compliance claims.
 
 ---
 
-## What's new in 0.449.6
+## What's new in 0.450.0
 
 The last Marketplace publication, **v0.449.5**, brought the changes below. Every release is written
 up in full in [CHANGELOG.md](CHANGELOG.md).
 
+- **Ctrl+wheel zooms the Project Dashboard.** The gesture you already use in a browser now works on
+  the densest page in AtlasMind, on Chromium's own zoom ladder, with a quiet indicator that appears
+  only while zoomed and clicks back to 100%. The roadmap canvas keeps Ctrl+wheel for zooming the plan
+  — whichever the pointer is over wins — and dragging a node still lands where you dropped it at any
+  page zoom.
 - **Security housekeeping, with the findings read rather than waved through.** Every open CodeQL alert
   on `develop` is addressed: 40 fixed, 8 dismissed with a written reason. The ones worth knowing about
   — webview image previews now only load a source AtlasMind recognises, the content-security-policy
