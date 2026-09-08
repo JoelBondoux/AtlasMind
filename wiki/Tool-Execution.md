@@ -25,9 +25,11 @@ AtlasMind work for a while.
 
 **A remote read is not a free read.** An MCP tool named `get_customer_data` grades as `network-read`:
 it changes nothing, and it sends whatever it was asked for to a third party. Until v0.405.0
-`ask-on-write` let that through on the first half of that sentence alone. It now asks. To keep that
-from becoming a wall of dialogs, approve the *category* on the first prompt of a task — one dialog per
-task rather than one per call.
+`ask-on-write` let that through on the first half of that sentence alone. It now asks.
+
+If that becomes a wall of dialogs during a long task, use **Bypass approvals** on the first prompt —
+it covers the rest of that task. A narrower per-category grant exists in the approval manager but is
+not yet offered in the dialog; this page previously described it as though it were, which was wrong.
 
 ### What an approval looks like
 
@@ -44,6 +46,22 @@ displayed properly, it says **"unserializable arguments"** rather than showing a
 
 Autopilot can also be toggled directly with **AtlasMind: Toggle Autopilot**, and puts an indicator in
 your status bar so you always know it's on.
+
+### What Autopilot cannot buy
+
+Autopilot and per-task bypass answer *stop asking me about this*. They do not answer *and never ask me
+again about anything*. One category is beyond all of them: an operation that **leaves your machine,
+changes something there, and cannot be undone from here**. In practice that is `git push`, deleting a
+branch on the remote, and — the case that matters most — **any external tool AtlasMind cannot
+identify**, because an unrecognised MCP tool name grades as an outward write on the name alone.
+
+Until v0.433.0 there was no such ceiling: Autopilot approved every category, and Autopilot is offered
+as an answer to *any* approval dialog, so a single click on a harmless tool bought unattended approval
+of all three for the rest of the session.
+
+The ceiling is deliberately one narrow category rather than everything risky. A gate that prompts on
+every ordinary file write is a gate people switch off, and a gate switched off protects nothing. If a
+prompt reappears after you enabled Autopilot, it tells you why.
 
 ---
 

@@ -19,6 +19,33 @@ Older entries below describe the software as it was at the time and are delibera
 
 ---
 
+## v0.433.0 -- See the commands, and a ceiling Autopilot cannot buy past
+
+**Routines now show their commands first.** `/ship` printed a routine's name and description and then
+ran it; the Run Center's Run button posted a routine id and the host executed it. Both now list the
+exact commands, in order, and say which ones reach outside your machine. `promotionRunner` — the other
+place AtlasMind runs commands you wrote — already gated them with a type-to-confirm, and the contrast
+was the argument.
+
+This is not tidiness. A routine template is an ordinary file under `project_memory/routines/`, the
+file-writing tool refuses only paths *outside* your workspace, and `routines` is a memory folder — so
+anything allowed to write a file is allowed to write a routine, and the existing check deliberately
+validates the *values* substituted into a command and never the command itself. That cannot be fixed
+by validating harder, because a routine is a shell script on purpose. It is fixed by showing it to you.
+
+**A placeholder with no value is now refused.** It used to become an empty string, and the Run Center
+passed no values at all — so every placeholder in a panel-run routine resolved to nothing.
+`npm publish --tag ${channel}` is a different command from `npm publish --tag`, and a missing value
+should not get to pick which one runs.
+
+**Autopilot has a ceiling.** It used to approve everything: one click on a harmless tool bought
+unattended approval of a `git push`, a remote branch delete, and any tool AtlasMind could not
+identify — an unrecognised name grades as an outward write on the name alone. It now cannot approve a
+change that leaves your machine and cannot be taken back. Deliberately one narrow category rather than
+everything risky: a gate that prompts on every file write is a gate people switch off.
+
+---
+
 ## v0.432.0 -- Nothing reaches a model without saying what it is
 
 Direct provider calls: **11 → 0**. The orchestrator's remaining eleven — the main chat turn, the tool

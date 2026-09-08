@@ -121,6 +121,39 @@ It's handled in layers:
 
 ---
 
+## Autopilot has a ceiling
+
+Autopilot and per-task bypass mean *stop asking me about this*. They do not mean *never ask me again
+about anything*. One category is beyond all of them: something that leaves your machine, changes
+something there, and cannot be undone from here — a `git push`, deleting a remote branch, or any
+external tool AtlasMind cannot identify by name.
+
+Before v0.433.0 there was no such limit, and because Autopilot is offered as an answer to *any*
+approval dialog, one click on a harmless tool bought unattended approval of all three for the rest of
+the session.
+
+It stays one narrow category on purpose. A gate that prompts on every file write is a gate people turn
+off, and a gate that is off protects nothing. Full detail in [Tool Execution](Tool-Execution.md).
+
+---
+
+## Routines are shown to you before they run
+
+A routine is a shell script you wrote, stored as a `.md` file in `project_memory/routines/`. `/ship`
+and the Run Center now list its exact commands — in order, with the ones that reach outside your
+machine called out — and ask before running.
+
+The reason is not tidiness. That folder is inside your workspace, and AtlasMind's file-writing tool
+refuses only paths *outside* it, so anything allowed to write a file is allowed to write a routine. The
+existing guard validates the values substituted into a command and deliberately not the command
+itself, because a routine that could not use a pipe on purpose would not be a routine. That cannot be
+fixed by validating harder — it is fixed by putting the commands in front of you.
+
+A placeholder with no value is refused rather than becoming an empty string, so a routine cannot
+quietly run a different command from the one it describes.
+
+---
+
 ## Everything on its way to a model goes through one gate
 
 Every request AtlasMind sends to a model passes through a single boundary that clears its context

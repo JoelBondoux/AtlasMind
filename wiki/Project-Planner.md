@@ -394,6 +394,25 @@ delete the record (without touching your files).
 **History is per-workspace** — a run created in one repository doesn't show up in another. If you have
 older runs from before this was true, they're adopted into the active workspace rather than disappearing.
 
+### Routines show their commands before running
+
+A routine is a `.md` file in `project_memory/routines/` whose steps are shell commands — that is the
+point of the feature, and it is not changing. What changed in v0.433.0 is that `/ship` and the Run
+Center's **Run** button now list the exact commands, in order, and say which ones reach outside your
+machine, before asking whether to run them.
+
+The reason is worth knowing. A routine file is an ordinary workspace file: AtlasMind's file-writing
+tool refuses paths *outside* your workspace, and `routines` is one of the memory folders inside it. So
+anything allowed to write a file is allowed to write a routine, and the check that guards routines
+deliberately validates the *values* substituted into a command rather than the command itself —
+because a routine that could not use a pipe on purpose would be useless. That gap cannot be closed by
+validating harder. It is closed by showing you the commands at the moment you can still say no.
+
+**A placeholder with no value is refused, not blanked.** A step reading `npm publish --tag ${channel}`
+with no `channel` used to run as `npm publish --tag`. It now stops and names what is missing — and an
+empty value counts as missing, since a blank field and an unsupplied one want the same thing from a
+command line.
+
 ### Very large drafts get staged
 
 If a reviewed draft is too big for one run, the Run Center can break it into stages: AtlasMind executes

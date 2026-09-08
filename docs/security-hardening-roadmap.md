@@ -124,11 +124,90 @@ as a lint and never described as a sandbox.
 
 ### P1-3 · No central capability broker for subprocesses and writes
 
-**Evidence.** 19 files import `node:child_process`; `fetch` in 14+.
+**Status: partly closed in v0.433.0** — the hard-ceiling half and the worst uncovered path. The
+broker itself is **not** built, deliberately: see *What a broker would and would not have fixed*.
 
-**Acceptance criteria.** One broker receiving trigger, category, risk, exact resource, command plus
-argument vector, background flag and recoverability — checked before approval, with hard ceilings
-that Autopilot cannot convert into permissions.
+**Original evidence.** 19 files import `node:child_process`; `fetch` in 14+.
+
+**That evidence was a count, not a trace, and tracing it changed the item.** Twenty files import
+`child_process`; six of them never spawn anything. Every `src/skills/*` command goes through the
+`SkillContext.runCommand` capability and therefore through `toolApprovalGate`
+(`orchestrator.ts:3473`) — the tool surface is already brokered. The uncovered paths are the ones
+that are not tools:
+
+| Path | Reaches a shell | Gate |
+|---|---|---|
+| `skills/*` via `runCommand` | yes | `toolApprovalGate` — classified, mode-checked, bypassable |
+| `promotionRunner.ts` | yes | own authorization gate with type-to-confirm |
+| `routineRunner.ts` | **yes — `promisify(exec)`** | **none, before v0.433.0** |
+| `bootstrapper.ts` (×4 `cp.exec`) | yes | one confirmation for the install; three probes unconfirmed |
+| `mcpRuntime` / `acp` / `localCiRunner` / `presenceManager` / voice / `gpuProbe` | yes | own confirmations or fixed constants |
+
+**Corrections to the hypothesis, in the code's favour.** A hard ceiling *does* exist:
+`extension.ts:2303` refuses `terminal-write` when `atlasmind.allowTerminalWrite` is false, and it is
+checked **before** the bypass, so Autopilot cannot convert it. And `requiresToolApproval`
+(`toolPolicy.ts:173-197`) returns `true` for `network` under every one of the four modes, so no mode
+setting waives an outward write either. The accurate finding was therefore narrower and sharper than
+"no ceilings": *exactly one ceiling existed, and everything else was bypassable.*
+
+**What was actually wrong.**
+
+1. `ToolApprovalManager.shouldBypass` returned `true` for **every** category once Autopilot was on,
+   and Autopilot is offered as an answer to any approval dialog — so one click on a low-risk tool
+   bought unattended approval of `git push`, a remote branch delete, and any MCP tool AtlasMind could
+   not identify (which classifies `network`/`high` on its name alone).
+2. `RoutineRunner` ran `promisify(exec)` — a real shell — with **no gate at all**, no preview, and
+   three entry points: `/ship`, the Run Center's Run button, and the promotion path.
+3. An unresolved `${placeholder}` became an empty string (`vars[name] ?? ''`), and the Run Center
+   passed `vars: {}` unconditionally — so every placeholder in a panel-run routine resolved to
+   nothing and the command that ran was not the command the routine describes.
+4. A routine template is trusted as "a reviewed file in the repository". Nothing in code guarantees
+   that: `file-write` is graded `workspace-write`/high and refuses only paths *outside* the
+   workspace, and `project_memory/routines/` is inside it and a declared `SSOT_FOLDERS` member.
+
+**What shipped.** `NEVER_BYPASSABLE_TOOLS` in `toolPolicy.ts` — one pair, `network`/`high`, checked
+first in `shouldBypass` so no bypass state reaches past it. `routineExecutionPolicy.ts` plans a
+routine before it runs: refuses an unresolved placeholder rather than blanking it, carries the fully
+substituted commands so the confirmation shows what will actually run, and reports which commands
+leave the machine. `RoutineRunner.run` now takes the **plan**, not the routine and its values, so a
+caller cannot show one command and run another.
+
+**Deliberately not done: extending `allowTerminalWrite` to routines.** That setting gates *a model*
+deciding to run a command. A routine is a script somebody wrote and explicitly invoked — a different
+authorization — and applying that ceiling would refuse every routine at the default setting. The gate
+a human-authored script deserves is *see it first*, which is what it now gets.
+
+**Deliberately not done: a ceiling over every `high`.** It would prompt on ordinary file writes, and
+a gate that prompts constantly gets switched off wholesale. The ceiling covers the one pair where all
+three are true at once: it leaves this machine, it changes something there, and it cannot be taken
+back.
+
+**What a broker would and would not have fixed.** A single broker in front of `child_process` would
+have caught none of the four findings above: (1) and (3) are policy defects inside gates that already
+existed, (2) is a missing confirmation rather than a missing chokepoint, and (4) is a provenance
+question a chokepoint cannot answer. Building one now would add a second approval system beside
+`toolApprovalGate`, and two gates that can disagree is worse than one that is incomplete. The
+remaining brokerage work is the *unconfirmed* subprocess sites, which belongs with Phase 8's
+subprocess consolidation rather than here.
+
+**Regression tests.** `tests/security/toolBypassCeiling.test.ts` (15) walks every bypass route —
+autopilot, whole-task, per-category, all three at once, and all four approval modes — against the
+declared ceiling, and asserts it stays under a fifth of the (category, risk) space so autopilot
+remains worth having. `tests/security/routineExecutionPolicy.test.ts` (18) covers the placeholder,
+preview and reach rules.
+
+**A documentation finding, fixed in passing.** `ToolApprovalManager.bypassCategory` has **no caller in
+`src/`** — `ToolApprovalDecision` has four values and none is a per-category grant. Both
+`toolPolicy.ts:241-245` and `wiki/Tool-Execution.md` cited it as the mitigation that keeps
+`network-read` gating from becoming a wall of dialogs, so the reasoning for a live policy decision
+rested on wiring that was never built, and the wiki told users to use an affordance that is not in the
+dialog. Both corrected to describe `bypass-task`, which does exist. This is requirement 10's failure
+mode found in the small: the claim was plausible, adjacent to real code, and false.
+
+**Still open.** The three unconfirmed `cp.exec` capability probes in `bootstrapper.ts`, and the
+inconsistency that its Linux `gh` installer is a `curl … | sudo dd … && sudo apt install` chain while
+`acpInstaller.ts` refuses to ship `curl | sh` on principle. Both are constants, so neither is
+injectable; they are a consistency finding, not a reachable one.
 
 ---
 

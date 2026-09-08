@@ -6,6 +6,80 @@ The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/),
 
 ## [Unreleased]
 
+## [0.433.0] - 2026-09-08
+
+### Added
+
+- **A ceiling Autopilot cannot buy past.** `NEVER_BYPASSABLE_TOOLS` in `toolPolicy.ts` — one
+  pair, `network`/`high`, checked *first* in `shouldBypass` so no bypass state reaches past
+  it. `shouldBypass` returned `true` for every category once Autopilot was on, and Autopilot
+  is offered as an answer to any approval dialog: one click on a low-risk tool bought
+  unattended approval of `git push`, a remote branch delete, and **any MCP tool AtlasMind
+  could not identify** — an unrecognised tool name classifies `network`/`high` on its name
+  alone.
+
+  Deliberately one pair and not every `high`. A ceiling over ordinary file writes would
+  prompt constantly, and a gate that prompts constantly gets switched off wholesale — the
+  same reasoning that gave `network-read` its own category. The pair covered is the one
+  where all three are true at once: it leaves this machine, it changes something there, and
+  it cannot be taken back. `toolBypassCeiling()` returns the *reason*, so a dialog that
+  reappears after Autopilot was enabled can say why rather than reading as a bug.
+
+- **`routineExecutionPolicy.ts` — what a routine will run, decided before a shell sees it.**
+  Refuses an unresolved `${placeholder}` instead of blanking it, carries the fully
+  substituted commands so a confirmation can show what will actually run, and reports which
+  commands leave the machine (reusing `classifyDeliveryCommandReach` rather than growing a
+  second table).
+
+### Changed
+
+- **`/ship` and the Run Center show the commands and ask first.** Neither did. `/ship`
+  printed a routine's name and description and ran it; the Run Center's Run button posted a
+  routine id from a webview and the host executed it. `promotionRunner` — the other place
+  AtlasMind runs user-authored commands — has an authorization gate with a type-to-confirm,
+  and the contrast was the argument.
+
+  This matters beyond tidiness: a routine template is an ordinary file under
+  `project_memory/routines/`, `file-write` refuses only paths *outside* the workspace, and
+  `routines` is a declared SSOT folder — so a model that may write a file may write a
+  routine, and the value checker deliberately validates values and never the template. That
+  cannot be closed by validating harder, because a routine is a shell script by design. It
+  is closed by putting the commands in front of a person at the one moment they can act.
+
+- **`RoutineRunner.run` takes the plan, not the routine and its values.** Structural rather
+  than careful: a runner that re-substituted could run something other than what was shown,
+  and no discipline at the call sites would make that impossible. A plan built for a
+  different routine is refused by id.
+
+### Fixed
+
+- **An unresolved placeholder no longer becomes an empty string.** `vars[name] ?? ''`, and
+  the Run Center passed `vars: {}` unconditionally — so every placeholder in a panel-run
+  routine resolved to nothing. `npm publish --tag ${channel}` is a different command from
+  `npm publish --tag`, and a missing value should not get to choose which one runs. An empty
+  value counts as absent, since a blank field and an unsupplied one want the same thing from
+  a command line.
+
+- **Two places described a mitigation that was never wired.** `toolPolicy.ts` justified gating
+  `network-read` under `ask-on-write` on the grounds that `ToolApprovalManager.bypassCategory`
+  keeps the cost to "one dialog per task, not per call", and `wiki/Tool-Execution.md` told
+  users to approve the category on the first prompt. `bypassCategory` has no caller anywhere
+  in `src/`: `ToolApprovalDecision` has four values and none is a per-category grant, so it is
+  in fact one dialog per call. Both now say what actually happens and point at
+  `bypass-task`, which the dialog does offer. The method is left in place and its ceiling
+  behaviour is tested, so wiring it into the dialog is a UI change rather than a policy one.
+
+### Documentation
+
+- `docs/security-hardening-roadmap.md` P1-3 rewritten against traced evidence. The original
+  entry was a count — "19 files import `node:child_process`" — and tracing it changed the
+  item: every `src/skills/*` command already goes through the tool gate, and a hard ceiling
+  already existed (`allowTerminalWrite`, correctly ordered before the bypass), so the
+  accurate finding was *exactly one ceiling existed and everything else was bypassable*
+  rather than "no ceilings". Records why a central broker in front of `child_process` was
+  **not** built: it would have caught none of the four findings, and a second approval system
+  beside `toolApprovalGate` is worse than one incomplete gate.
+
 ## [0.432.0] - 2026-09-08
 
 ### Changed

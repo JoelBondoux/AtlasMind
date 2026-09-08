@@ -289,6 +289,20 @@ The adapter exposes only aggregate live-session counts by launch mode to `extens
 
 Pattern-based secret scanner applied to memory context and live evidence before LLM dispatch. Covers Anthropic/OpenAI/GitHub keys, bearer tokens, PEM private keys, database connection strings, and generic key/secret assignments. `redactSecrets()` returns a `RedactionResult` with match count and matched pattern names; `redactSecretsWithWarning()` logs a console warning when any secrets are found. This is separate from `MemoryScanner`, which blocks writes to SSOT — the `SecretRedactor` protects the runtime dispatch boundary.
 
+### RoutineExecutionPolicy (`src/core/routineExecutionPolicy.ts`)
+
+What a routine will run, decided before a shell sees any of it. `routineVariables.ts` answers *may this value be substituted*; this answers the question after it — given those values, what is the exact command list, and is it fit to show somebody before they agree to it?
+
+**The plan carries fully substituted commands, and `RoutineRunner.run` takes the plan** rather than the routine and its values. That is structural rather than careful: a runner that re-substituted could run something other than what a caller displayed, and no discipline at the call sites would make that impossible. A plan built for a different routine is refused by id.
+
+**An unresolved `${placeholder}` refuses rather than blanking.** `routineRunner` substituted `vars[name] ?? ''` and the Run Center passed `vars: {}` unconditionally, so every placeholder in a panel-run routine resolved to nothing — and `npm publish --tag ${channel}` is a different command from `npm publish --tag`. An empty value counts as *absent*, because a blank field and an unsupplied one want the same thing from a command line. Refusals are collected rather than first-wins, so three missing values are one dialog.
+
+**Reach comes from `classifyDeliveryCommandReach`**, reused rather than reimplemented, so the routine confirmation and the Delivery page cannot disagree about whether `git push` leaves the machine.
+
+The rule table (`ROUTINE_EXECUTION_RULES`) travels in the payload so a surface explains the rule that actually refused rather than a copy that has drifted. Nothing here executes, and a `ready` plan is a proposal for a caller to confirm — not permission. Pure + unit-tested.
+
+**Why a preview rather than a stricter validator.** A routine template is an ordinary file under `project_memory/routines/`; `file-write` is graded `workspace-write`/high and refuses only paths *outside* the workspace, and `routines` is a declared `SSOT_FOLDERS` member — so a model permitted to write a file is permitted to write a routine, and `checkRoutineVariables` deliberately validates values and never the template. That cannot be closed by validating harder, because a routine step is a shell command by design. It is closed by showing the commands to a person, the same answer `registerHandoff` gives: you cannot show somebody what is composed after they agree. Extending `atlasmind.allowTerminalWrite` to routines was considered and rejected — that setting gates *a model* choosing to run a command, whereas a routine is a script somebody wrote and invoked, and applying it would refuse every routine at the default.
+
 ### ModelEgress (`src/core/modelEgress.ts`)
 
 The single guarded path to a model provider. Every prompt-bearing call in `src/` goes through `dispatchGuardedCompletion`, and `tests/security/modelEgressBoundary.test.ts` fails when one does not. Before this existed there were 21 such call sites across 8 files and exactly one referenced the redactor — a convention every caller had to remember, already forgotten seven times.

@@ -4,7 +4,7 @@
 
 <h1 align="center">AtlasMind</h1>
 
-<p align="center"><sub> · <strong>Current source version: 0.432.0</strong> · </sub></p>
+<p align="center"><sub> · <strong>Current source version: 0.433.0</strong> · </sub></p>
 
 
 <p align="center">
@@ -175,11 +175,17 @@ important limits on overrides and compliance claims.
 
 ---
 
-## What's new in 0.432.0
+## What's new in 0.433.0
 
 The last Marketplace publication, **v0.420.4**, brought the changes below. Every release is written
 up in full in [CHANGELOG.md](CHANGELOG.md).
 
+- **Routines show you the commands before they run, and Autopilot has a ceiling.** `/ship` and the
+  Run Center now list the exact shell commands a routine will run, in order, and say which ones reach
+  outside your machine — a routine file is an ordinary workspace file, so the moment before it runs is
+  the moment worth reading it. A placeholder with no value is refused rather than quietly becoming an
+  empty string. And Autopilot can no longer approve an outward change that cannot be undone — a push,
+  a remote branch delete, or a tool AtlasMind does not recognise.
 - **Nothing reaches a model without saying what it is.** Every prompt-bearing call in AtlasMind now
   clears its context through one boundary first, which redacts repository-derived text, holds each
   kind of content to its own size limit, and never silently rewrites what you typed. Direct calls

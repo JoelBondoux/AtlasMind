@@ -2311,7 +2311,7 @@ async function bootstrapAtlasMind(
         return { approved: true };
       }
 
-      if (toolApprovalManager.shouldBypass(taskId, policy.category)) {
+      if (toolApprovalManager.shouldBypass(taskId, policy)) {
         return { approved: true };
       }
 

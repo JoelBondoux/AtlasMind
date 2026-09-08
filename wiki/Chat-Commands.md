@@ -62,7 +62,7 @@ precedence reads as finished rather than as permanently half-done.
 | `/project <goal>` | Break a goal into steps, preview the impact, then run it |
 | `/loop <goal>` | Keep working towards a goal inside limits you set, pausing at checkpoints |
 | `/runs` | Open the Run Center to review recent autonomous runs |
-| `/ship [routine]` | Run your project's default publish routine, or a named one |
+| `/ship [routine]` | Run your project's default publish routine, or a named one. Lists the exact commands and asks first |
 
 ### Thinking and planning
 
