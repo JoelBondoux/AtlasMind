@@ -19,6 +19,30 @@ Older entries below describe the software as it was at the time and are delibera
 
 ---
 
+## v0.447.0 -- When your providers are in trouble, the dashboard says so
+
+AtlasMind already knew how many of your model providers were healthy. It put the number in a stat
+card's subtitle, in the same grey as everything else, and left it there. You could be perfectly set
+up and unable to route a single request, and the page whose job is to tell you what needs attention
+said nothing.
+
+Now it does — and it ranks by what it costs you. **No enabled model anywhere** is a stop, not a
+degradation: nothing can run. That sits at the very top of the *Needs you* band, above a red
+pipeline, because a failing test is something you can work on and no routable model is not. One
+provider down while others still serve is a smaller note, and it names which.
+
+The score also picks up **how much of your team you actually use** — agents you have enabled whose
+role has never appeared in a run. Three things about that. It is silent on a project with no run
+history, because that has not shown its agents idle, it has shown nothing. Agents you have switched
+off don't count, since that was a decision rather than a gap. And it stays quiet until there are ten
+recorded runs, because three is not evidence that six agents are surplus and you should not be
+talked into switching off a team you are about to need.
+
+Provider health deliberately stays *out* of the score. A number that fell during an outage and
+recovered by lunchtime is one people learn to explain away.
+
+---
+
 ## v0.446.0 -- A day is the wrong unit when an agent does the work
 
 If your agents do the coding, a roadmap item can be planned and finished inside an afternoon. The

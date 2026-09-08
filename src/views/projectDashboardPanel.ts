@@ -459,6 +459,11 @@ import {
   type RoadmapCriticalPath,
 } from '../core/roadmapCriticalPath.js';
 import {
+  agentUtilisationScore,
+  readAgentCapacity,
+  type AgentCapacityReading,
+} from '../core/agentCapacity.js';
+import {
   extractRoadmapNodeAnchor,
   readRoadmapGraphFile,
   renderRoadmapNodeAnchor,
@@ -2863,6 +2868,14 @@ interface DashboardSnapshot {
   /** Every local and cached remote branch, with safe host-resolved activation. */
   branches: DashboardBranchesSnapshot;
   runtime: {
+    /**
+     * Whether the configured team can work, and how much of it has.
+     *
+     * Carried on the snapshot rather than recomputed by each surface: the
+     * Overview raises it, the Runtime page explains it, and the score reads its
+     * utilisation. Three readings of one fact would eventually disagree.
+     */
+    capacity: AgentCapacityReading;
     enabledAgents: number;
     totalAgents: number;
     enabledSkills: number;
@@ -16219,6 +16232,25 @@ async function collectDashboardSnapshot(
   const enabledSkills = skills.filter(skill => atlas.skillsRegistry.isEnabled(skill.id)).length;
   const sessions = atlas.sessionConversation.listSessions();
   const runs = await atlas.projectRunHistory.listRunsAsync(40);
+  // Roles actually seen, not agent ids: a planner subtask runs as an ephemeral
+  // agent carrying a role and no registry id, so an id join would report a
+  // constantly-busy project's whole team as idle.
+  const agentCapacity = readAgentCapacity({
+    agents: agents.map(agent => ({
+      id: agent.id,
+      name: agent.name,
+      role: agent.role,
+      enabled: atlas.agentRegistry.isEnabled(agent.id),
+    })),
+    providers: providers.map(provider => ({
+      id: provider.id,
+      label: provider.displayName,
+      healthy: atlas.modelRouter.isProviderHealthy(provider.id),
+      enabledModels: provider.models.filter(model => model.enabled !== false).length,
+    })),
+    observedRoles: runs.flatMap(run => run.subTaskArtifacts.map(artifact => artifact.role)),
+    runsObserved: runs.length,
+  });
   const directorSnapshot = await collectDirectorSnapshot(atlas, workspaceRoot, gitSnapshot.currentBranch, runs);
   const documentsSnapshot = await collectDocumentsSnapshot(atlas, workspaceRoot);
   const riskSnapshot = collectRiskSnapshot(atlas, workspaceRoot);
@@ -16342,6 +16374,7 @@ async function collectDashboardSnapshot(
     outcomeCompleteness,
     risk: riskSnapshot,
     privacy: privacySnapshot,
+    agentCapacity,
     // Practices are excluded from the denominator, matching
     // `testingPolicyCoverage`, which never counts them as gaps: scoring a project
     // down for not producing a file that Exploratory Testing cannot produce would
@@ -16607,6 +16640,7 @@ async function collectDashboardSnapshot(
     },
     branches: enrichedBranchInventory,
     runtime: {
+      capacity: agentCapacity,
       enabledAgents,
       totalAgents: agents.length,
       enabledSkills,
@@ -17064,6 +17098,21 @@ function collectVitalFiles(
  * `undefined`, because `{ open: 0 }` and "nobody looked" render identically once
  * they reach the feed and only one of them is true.
  */
+/**
+ * The worst finding at one severity, as the feed's rules want it.
+ *
+ * The reading is already ranked by consequence, so the first match is the one
+ * to show. The feed states one thing per rule rather than a list, because a
+ * band that expands to five lines about providers is one people collapse.
+ */
+function pickCapacityFinding(
+  reading: AgentCapacityReading,
+  severity: 'blocked' | 'degraded',
+): { summary: string; detail: string } | undefined {
+  const finding = reading.findings.find(entry => entry.severity === severity);
+  return finding ? { summary: finding.summary, detail: finding.detail } : undefined;
+}
+
 function buildAttentionInput(
   snapshot: Omit<DashboardSnapshot, 'attention'>,
   latestCiConclusion: 'success' | 'failure' | 'pending' | 'none' | undefined,
@@ -17089,6 +17138,17 @@ function buildAttentionInput(
     pipeline: {
       loaded: latestCiConclusion !== undefined,
       latestFailed: latestCiConclusion === 'failure',
+    },
+    // Always supplied: the runtime is read on every snapshot, so unlike the
+    // groups that depend on a network call there is no "could not look" case
+    // here. An empty reading means the team is fine, which is a real answer.
+    capacity: {
+      ...(pickCapacityFinding(snapshot.runtime.capacity, 'blocked') === undefined
+        ? {}
+        : { blocked: pickCapacityFinding(snapshot.runtime.capacity, 'blocked') }),
+      ...(pickCapacityFinding(snapshot.runtime.capacity, 'degraded') === undefined
+        ? {}
+        : { degraded: pickCapacityFinding(snapshot.runtime.capacity, 'degraded') }),
     },
     // Research is supplied only when it is switched on. `researchAttentionInput`
     // owns that decision so no caller can accidentally pass a zeroed group and
@@ -22339,6 +22399,16 @@ export function buildScoreBreakdown(input: {
     /** Failures counted from that report. */
     failing: number;
   };
+  /**
+   * How much of the configured team has actually worked.
+   *
+   * Optional, and the component is dropped entirely when there is no run
+   * history to judge by — a project that has never run has not shown its agents
+   * idle, and scoring it down for being new is the failure the whole "unassessed
+   * is not clear" rule exists to prevent. Provider health is deliberately *not*
+   * here; it reaches the attention feed instead.
+   */
+  agentCapacity?: AgentCapacityReading;
 }): DashboardScoreBreakdown {
   const components: DashboardScoreComponent[] = [
     {
@@ -22504,6 +22574,27 @@ export function buildScoreBreakdown(input: {
     tone: !privacyConfigured ? 'warn' : privacyScore >= 10 ? 'good' : privacyScore >= 6 ? 'accent' : 'warn',
     pageTarget: 'privacy',
   });
+
+  // Absent, not zero, when nothing has run: the denominator is derived from the
+  // components present, so a project that has never run is not marked down for
+  // being new. Provider health is deliberately excluded — it goes to the
+  // attention feed, because a score that fell during an outage and recovered by
+  // lunchtime is one people learn to explain away.
+  const utilisation = input.agentCapacity === undefined
+    ? undefined
+    : agentUtilisationScore(input.agentCapacity, 6);
+  if (utilisation && input.agentCapacity) {
+    components.push({
+      id: 'agent-utilisation',
+      label: 'Team in use',
+      score: utilisation.score,
+      maxScore: 6,
+      detail: utilisation.detail
+        + ' Providers being unhealthy is not scored here — that is a fact about now, and it is on the Overview.',
+      tone: utilisation.score >= 5 ? 'good' : utilisation.score >= 3 ? 'accent' : 'warn',
+      pageTarget: 'runtime',
+    });
+  }
 
   const recommendations: DashboardScoreRecommendation[] = [];
 

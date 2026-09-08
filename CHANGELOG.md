@@ -6,6 +6,39 @@ The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/),
 
 ## [Unreleased]
 
+## [0.447.0] - 2026-09-08
+
+### Added
+
+- **The dashboard says when your models and providers are in trouble.** It already counted them —
+  `4/9 providers healthy` sat in a stat card's subtitle, in the same grey as everything else, on a
+  page whose job is to say what needs a person. A project can be perfectly configured and unable to
+  route a single request, and nothing said so.
+
+  `readAgentCapacity` grades it against a published rule table, and the ranking is by consequence.
+  **Nothing routable is a stop, not a degradation**: a provider with no enabled model cannot be
+  reached at all, and reporting it at the weight of a failed health check buries the difference
+  between "degraded" and "cannot work". It is the **first** rule in the attention feed, above a red
+  pipeline — a failing test is a problem you can work on; no routable model means you cannot work at
+  all. One provider down while others still serve is `soon` rather than `now`, and names which.
+
+- **Agent utilisation is a score component, and provider health deliberately is not.** How much of
+  the team has actually worked is a property of how the project is run; a provider having an outage
+  this morning is not. A score that fell during one and recovered by lunchtime is a number people
+  learn to explain away, so it goes to the attention feed instead — asserted by a test that the
+  component is identical for a healthy and a wholly broken estate.
+
+  Three rules keep it honest. **Unassessed is not idle**: with no run history the component is
+  *absent* rather than zero, and the score's denominator is derived, so a project that has never run
+  is not marked down for being new. **Disabled is a decision, not a gap** — only enabled agents can
+  be idle, or a tidy configuration reads as a problem. **The join is by role, not agent id**, because
+  a planner subtask runs as an ephemeral agent that carries a role and no registry id; matching on id
+  would report a constantly-busy project's whole team as idle.
+
+  A finding is withheld below ten recorded runs. The figure is still computed — it is a true
+  statement about what has been seen — but three runs is not evidence that six agents are surplus,
+  and saying so would have somebody switch off a team they are about to need.
+
 ## [0.446.0] - 2026-09-08
 
 ### Fixed
