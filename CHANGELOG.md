@@ -6,6 +6,36 @@ The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/),
 
 ## [Unreleased]
 
+## [0.440.1] - 2026-09-08
+
+### Changed
+
+- **Worktree isolation, stage two: the file boundary now separates *where a path resolves* from
+  *what it may reach*.** `assertInsideWorkspace` used the open workspace folder for both — correct
+  while every subtask shares one tree, and exactly what has to come apart for isolation. A subtask
+  in its own worktree must resolve `src/foo.ts` inside that worktree while still being unable to
+  reach outside the workspace.
+
+  `resolveFrom` is now a parameter; `containWithin` is always the workspace folder. A single
+  "root" would have let a caller move the boundary by accident while meaning only to move the
+  resolution.
+
+  **Isolation needs no widening of what a skill may touch**, which was the useful discovery here.
+  Verified by execution before the design was fixed: `git worktree add --detach .git/… HEAD`
+  succeeds, the files check out, and the parent's `git status` stays clean. Because worktrees live
+  *inside* the workspace, an isolated subtask is contained by exactly the same rule as an ordinary
+  one.
+
+  Extracted to `src/core/workspaceBoundary.ts` with `realpath` injected, so the escapes are tested
+  without creating one on disk — a symlink pointing out of the workspace, and a path *through* a
+  symlinked directory to a file that does not exist yet. Behaviour is preserved exactly, down to
+  throwing rather than returning when nothing on the path exists: the containment check would have
+  rejected that too, but by a different rule, and a boundary whose reason changes under refactoring
+  is one nobody can reason about.
+
+  8,633 tests green across the swap, which is the claim that matters for a change to the check
+  every skill read and write passes through.
+
 ## [0.440.0] - 2026-09-08
 
 ### Added

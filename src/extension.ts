@@ -1,4 +1,5 @@
 import { EnvironmentManager } from './core/environmentManager.js';
+import { resolveWithinWorkspace } from './core/workspaceBoundary.js';
 import * as vscode from 'vscode';
 import * as path from 'path';
 import * as os from 'os';
@@ -6066,48 +6067,32 @@ async function assertGitRepository(workspaceRoot: string): Promise<void> {
  * Uses realpath resolution so symlinks cannot tunnel reads or writes outside the
  * workspace boundary. Returns the resolved absolute path for use by callers.
  */
-async function assertInsideWorkspace(absolutePath: string, operation: string): Promise<string> {
+async function assertInsideWorkspace(
+  absolutePath: string,
+  operation: string,
+  /**
+   * Where a relative path resolves from, when it is not the workspace itself.
+   *
+   * A subtask running in its own worktree passes the worktree here, so
+   * `src/foo.ts` means the copy it is editing. The *boundary* is unaffected and
+   * stays the workspace folder — worktrees live under `.git/`, so an isolated
+   * subtask is contained by exactly the same rule as an ordinary one. Keeping
+   * the two separate is what stops a caller moving the boundary while meaning
+   * only to move the resolution.
+   */
+  resolveFrom?: string,
+): Promise<string> {
   const workspaceRoot = vscode.workspace.workspaceFolders?.[0]?.uri.fsPath;
   if (!workspaceRoot) {
     throw new Error(`${operation}: no workspace folder is open.`);
   }
 
-  const resolvedRoot = await fs.realpath(path.resolve(workspaceRoot));
-  // Resolve relative to workspaceRoot so models can pass workspace-relative paths.
-  const resolved = await resolveCanonicalPath(path.resolve(workspaceRoot, absolutePath));
-  const relative = path.relative(resolvedRoot, resolved);
-  if (relative.startsWith('..') || path.isAbsolute(relative)) {
-    throw new Error(
-      `${operation} is restricted to the workspace. ` +
-      `"${absolutePath}" resolves outside "${resolvedRoot}".`,
-    );
-  }
-  return resolved;
+  return resolveWithinWorkspace({
+    candidate: absolutePath,
+    resolveFrom: resolveFrom ?? workspaceRoot,
+    containWithin: workspaceRoot,
+    operation,
+    realpath: target => fs.realpath(target),
+  });
 }
 
-async function resolveCanonicalPath(targetPath: string): Promise<string> {
-  const pendingSegments: string[] = [];
-  let current = targetPath;
-
-  for (;;) {
-    try {
-      const canonical = await fs.realpath(current);
-      return pendingSegments.length > 0
-        ? path.join(canonical, ...pendingSegments.reverse())
-        : canonical;
-    } catch (error) {
-      const maybe = error as { code?: string };
-      if (maybe.code !== 'ENOENT') {
-        throw error;
-      }
-
-      const parsed = path.parse(current);
-      if (current === parsed.root) {
-        throw new Error(`Unable to resolve workspace path boundary for "${targetPath}".`);
-      }
-
-      pendingSegments.push(path.basename(current));
-      current = path.dirname(current);
-    }
-  }
-}

@@ -19,6 +19,27 @@ Older entries below describe the software as it was at the time and are delibera
 
 ---
 
+## v0.440.1 -- The file boundary learns the difference between two questions
+
+Every file a skill reads or writes goes through one check. That check was answering two questions
+with one answer: *where does `src/foo.ts` mean* and *what is this allowed to reach*. While every step
+of a run shares one copy of your files those are the same question. They stop being the same the
+moment a step gets its own copy.
+
+They are now separate. Where a path resolves can move; what it may reach cannot, and stays your
+workspace folder.
+
+The useful discovery: because AtlasMind's separate checkouts live *inside* your project's `.git`
+directory, an isolated step is contained by exactly the same rule as an ordinary one — this change
+gives nothing extra access to anything. That was checked by running it rather than by reasoning about
+it.
+
+Nothing you can see changes. It is the plumbing the next piece needs, and it ships with the whole
+suite green, which is the claim that matters for a change to the check every read and write passes
+through.
+
+---
+
 ## v0.440.0 -- Groundwork for parallel subtasks that cannot overwrite each other
 
 When AtlasMind breaks a job into steps, independent ones run at the same time — up to five at once.
