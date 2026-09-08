@@ -4,7 +4,7 @@
 
 <h1 align="center">AtlasMind</h1>
 
-<p align="center"><sub> · <strong>Current source version: 0.449.1</strong> · </sub></p>
+<p align="center"><sub> · <strong>Current source version: 0.449.2</strong> · </sub></p>
 
 
 <p align="center">
@@ -175,11 +175,14 @@ important limits on overrides and compliance claims.
 
 ---
 
-## What's new in 0.449.1
+## What's new in 0.449.2
 
 The last Marketplace publication, **v0.420.4**, brought the changes below. Every release is written
 up in full in [CHANGELOG.md](CHANGELOG.md).
 
+- **Dependencies are current.** Every open Dependabot update is in, including Vitest 5 — taken in one
+  verified pass rather than merged one PR at a time. `@types/vscode` is deliberately held at the
+  version `engines.vscode` declares, because raising it would raise the minimum VS Code you need.
 - **The roadmap canvas stops glowing at an edge once you have dragged the plan back into view.** The
   strips that say "the plan continues that way" were only recomputed by the wheel, so panning with a
   drag — the way you move sideways — left them lit over cards that were already on screen.

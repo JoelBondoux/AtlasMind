@@ -19,6 +19,25 @@ Older entries below describe the software as it was at the time and are delibera
 
 ---
 
+## v0.449.2 -- Dependencies cleared, in one verified pass
+
+Every open Dependabot update is in: the ACP SDK, noble-secp256k1, mysql2, zod, the type packages,
+eslint, and Vitest from 4.1 to 5.0. Taken together and verified together -- compile, lint, the whole
+test suite and a package build -- rather than merged one pull request at a time.
+
+Vitest 5 tripped the one guard built for exactly this. The Testing dashboard reads pass/fail out of
+the JUnit report the test run writes, so a reporter format change is invisible: everything still
+passes, the report is still written, and the dashboard quietly goes back to saying it has nothing to
+read. A test pins the Vitest line the fixture came from; it fired, and the fixture was re-captured
+from a real Vitest 5 run rather than the pin being relaxed.
+
+One update was deliberately not taken. `@types/vscode` is tied to `engines.vscode` -- packaging
+refuses to build if the types run ahead of it -- so accepting that bump would raise the minimum
+VS Code version AtlasMind requires, and drop everyone below it. That is a product decision and it
+will arrive as one. Dependabot now holds it, with the reason written next to the rule.
+
+---
+
 ## v0.449.1 -- The edge glow lets go
 
 The roadmap canvas glows along an edge when the plan continues past it. Dragging the plan back into

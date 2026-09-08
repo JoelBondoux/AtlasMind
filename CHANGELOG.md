@@ -6,6 +6,29 @@ The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/),
 
 ## [Unreleased]
 
+## [0.449.2] - 2026-09-08
+
+### Changed
+
+- **Every open Dependabot update taken in one pass, verified together rather than merged one at a
+  time.** `@agentclientprotocol/sdk` 1.4.0, `@noble/secp256k1` 3.2.0, `mysql2` 3.24.3, `zod` 4.5.4,
+  `@types/node` 26.4.1, `@types/pg` 8.23.1, `@typescript-eslint/eslint-plugin` 8.69.0, `eslint`
+  10.10.0, and Vitest with `@vitest/coverage-v8` from 4.1 to **5.0**. Compile, lint, the full 8,814-test
+  suite and `vsce package` all pass on the result.
+
+  Vitest 5 needed one thing done properly rather than waved through. `tests/output-schema-drift.test.ts`
+  pins the Vitest line its JUnit fixture was captured from, precisely because a reporter format change
+  is invisible: the suite still passes, the report is still written, and the Testing dashboard quietly
+  reverts to "no test report to read". The pin fired, so the fixture was **re-captured from a real
+  Vitest 5 run** and the pin moved to `^5.0` — not relaxed.
+
+- **`@types/vscode` is held at the version `engines.vscode` declares**, with a Dependabot ignore rule
+  saying why. The two are not independent: `vsce package` refuses to build when the types are newer
+  than the declared engine, so taking that bump is not a dependency chore — it raises the minimum
+  VS Code an AtlasMind user must be running, and everyone below that floor stops receiving updates.
+  That decision should arrive as its own commit, not as one line in a grouped tooling PR. Patch
+  updates within the declared line still flow, and the same shape as the standing TypeScript 6.x hold.
+
 ## [0.449.1] - 2026-09-08
 
 ### Fixed
