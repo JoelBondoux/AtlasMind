@@ -8,6 +8,7 @@ import {
   describeCommitDraftRefusal,
 } from '../core/commitMessageDraft.js';
 import { findRepositoryFor, getGitApi } from './gitExtensionApi.js';
+import { composeCommitTrailers, issueFromBranchName } from '../core/commitTrailers.js';
 
 /**
  * Write a commit message into the Source Control box.
@@ -97,7 +98,18 @@ export async function generateCommitMessage(atlas: AtlasMindContext): Promise<vo
         return;
       }
 
-      repository.inputBox!.value = message;
+      // The links a commit can carry, taken from what the branch already
+      // declares rather than from anything the model wrote. A model asked to
+      // guess which backlog item a diff belongs to would guess, and the guess
+      // would be durable: nobody re-reads a pushed commit message.
+      const branch = repository.state?.HEAD?.name ?? '';
+      const issue = issueFromBranchName(branch);
+      const linked = composeCommitTrailers({
+        message,
+        trailers: issue === undefined ? {} : { Issue: issue },
+      });
+
+      repository.inputBox!.value = linked.message;
 
       if (request.truncated) {
         // Said rather than left to be discovered: a message describing half a

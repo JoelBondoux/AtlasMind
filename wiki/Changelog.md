@@ -19,6 +19,27 @@ Older entries below describe the software as it was at the time and are delibera
 
 ---
 
+## v0.448.0 -- Commits that say what they were for
+
+A commit message tells you what changed. It never told you *which piece of planned work it was for* —
+so anything trying to connect your code back to your roadmap or your issues had to guess from the
+wording, and a wrong guess is worse than none because it gets counted rather than noticed.
+
+Commits can now carry that link properly, using git's own trailer convention. Ask AtlasMind to write
+a commit message on a branch named the way your workflow declares (`fix/412-the-thing`) and it adds
+`Issue: 412` at the end. The dashboard's commit list shows what each commit declared.
+
+The link only ever comes from something you already decided — the branch naming convention your
+workflow file declares. Never from the words in the commit. A bare number elsewhere in a branch name
+is refused rather than used, because a commit message cannot be edited once it is pushed and a
+permanent wrong link is not worth the convenience.
+
+Everything else about your message is left alone: your paragraphs are not reflowed, a
+`Co-Authored-By` stays where you put it, and asking twice doesn't leave you with the same line three
+times.
+
+---
+
 ## v0.447.0 -- When your providers are in trouble, the dashboard says so
 
 AtlasMind already knew how many of your model providers were healthy. It put the number in a stat

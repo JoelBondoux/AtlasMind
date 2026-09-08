@@ -8,7 +8,7 @@ This file is the developer-facing backlog AtlasMind should absorb into SSOT and 
 - [ ] We need a Bug Tracking system for the PM dash. #mvp <!-- rm:we-need-a-bug-tracking-syste -->
 - [ ] Add an approval flow system for changes, ideas -> roadmaps, documentation, legal and commercial changes. #mvp <!-- rm:add-an-approval-flow-system -->
 - [ ] **Utilities:** Auth, Payments, Email, Analytics, i18n, Accessibility #mvp #critical <!-- rm:utilities-auth-payments-emai -->
-- [ ] Create more smart content in commits so workflows and analytics can be mapped to them. #mvp <!-- rm:create-more-smart-content-in -->
+- [x] Create more smart content in commits so workflows and analytics can be mapped to them. #mvp <!-- rm:create-more-smart-content-in -->
 - [ ] **Semantic codebase index (`@codebase` / embeddings RAG):** Vector index over actual source so agents retrieve relevant code, not just remembered SSOT decisions. Local embedding option (Ollama) keeps it bring-your-own-model and privacy-friendly. Biggest single capability gap; benefits all personas. #mvp #critical <!-- rm:semantic-codebase-index-code -->
 - [ ] Eval / regression harness for agents: pin "golden" tasks and detect when an agent definition or model swap regresses quality (mitigates the risk of the auto-update cadence). <!-- rm:eval-regression-harness-for -->
 - [ ] Team management surface to manage workload, estimated work times, rotas, and integrate with common rota management applications. <!-- rm:team-management-surface-to-m -->

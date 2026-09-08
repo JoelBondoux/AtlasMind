@@ -311,6 +311,7 @@ import {
 } from '../core/teamRoles.js';
 import { upsertManagedBlock } from '../utils/managedBlock.js';
 import { classifyLensChangePath } from '../core/lensChangeStory.js';
+import { readCommitLinks } from '../core/commitTrailers.js';
 import { inspectLensDeclarations, lensDeclarationStatusLabel } from '../core/lensDeclarations.js';
 import { reviewWorkspaceChangeStoryForRefs } from './lensChangeStoryCommand.js';
 import {
@@ -1730,7 +1731,24 @@ interface DashboardCommit {
   author: string;
   committedAt: string;
   committedRelative: string;
+  /** The backlog item this commit declared itself for, when it declared one. */
+  roadmapItemId?: string;
+  /** The tracker issue it declared, when it declared one. */
+  issue?: string;
 }
+
+/**
+ * Delimiters for the commit log format.
+ *
+ * ASCII group/unit separators rather than newlines, because a trailer block is
+ * multi-line by definition and splitting records on newlines would cut every
+ * commit that carries one into pieces. Named rather than written as literals in
+ * the format string: a control character pasted into source is unreviewable, and
+ * the two ends have to agree exactly.
+ */
+const COMMIT_RECORD_SEPARATOR = '\u001d';
+const COMMIT_FIELD_SEPARATOR = '\u001f';
+const COMMIT_TRAILER_SEPARATOR = '\u001e';
 
 /** One commit reduced to the two fields the timeline charts need. */
 interface DashboardCommitLogEntry {
@@ -18199,7 +18217,16 @@ async function collectGitSnapshot(workspaceRoot: string | undefined): Promise<Gi
   const [statusOutput, branchOutput, commitOutput, gitUserName] = await Promise.all([
     runGit(workspaceRoot, ['status', '--short', '--branch']),
     runGit(workspaceRoot, ['for-each-ref', '--sort=-committerdate', '--format=%(refname:short)|%(committerdate:iso8601)|%(upstream:short)|%(subject)', 'refs/heads']),
-    runGit(workspaceRoot, ['log', '--date=iso-strict', '--pretty=format:%H|%ad|%an|%s', `-n${MAX_COMMITS}`]),
+    // Trailers come from git's own reader rather than from parsing the body:
+    // `%(trailers)` applies git's rules, so a closing paragraph of prose that
+    // happens to contain a colon is not read as a label. `unfold` joins a
+    // continued value onto one line, which the delimiters below rely on.
+    runGit(workspaceRoot, [
+      'log',
+      '--date=iso-strict',
+      `--pretty=format:%H|%ad|%an|%s%x1f%(trailers:unfold,separator=%x1e)%x1d`,
+      `-n${MAX_COMMITS}`,
+    ]),
     runGit(workspaceRoot, ['config', '--get', 'user.name'])
       .then(value => boundedDiscussionText(value, 180) || undefined)
       .catch(() => undefined),
@@ -18239,12 +18266,22 @@ async function collectGitSnapshot(workspaceRoot: string | undefined): Promise<Gi
       } satisfies DashboardBranch;
     });
 
+  // Records are delimited by \x1d rather than by newline: a trailer block is
+  // multi-line by definition, so splitting on newlines would cut every commit
+  // that carries one into pieces.
   const commits = commitOutput
-    .split(/\r?\n/)
-    .filter(Boolean)
-    .map(line => {
-      const [hash = '', committedAt = '', author = '', ...subjectParts] = line.split('|');
+    .split(COMMIT_RECORD_SEPARATOR)
+    .map(record => record.replace(/^\r?\n/, ''))
+    .filter(record => record.trim().length > 0)
+    .map(record => {
+      const [head = '', trailerBlock = ''] = record.split(COMMIT_FIELD_SEPARATOR);
+      const [hash = '', committedAt = '', author = '', ...subjectParts] = head.split('|');
       const subject = subjectParts.join('|');
+      // Reconstituted as a message so one implementation decides what a link is.
+      // A second parser here would eventually disagree with the one that wrote
+      // the trailer, and the symptom would be a commit that shows as linked in
+      // one place and unlinked in another.
+      const links = readCommitLinks(`${subject}\n\n${trailerBlock.split(COMMIT_TRAILER_SEPARATOR).join('\n')}`);
       return {
         hash,
         shortHash: hash.slice(0, 7),
@@ -18252,6 +18289,8 @@ async function collectGitSnapshot(workspaceRoot: string | undefined): Promise<Gi
         author,
         committedAt,
         committedRelative: formatRelativeDate(committedAt),
+        ...(links['Roadmap-Item'] === undefined ? {} : { roadmapItemId: links['Roadmap-Item'] }),
+        ...(links.Issue === undefined ? {} : { issue: links.Issue }),
       } satisfies DashboardCommit;
     });
 

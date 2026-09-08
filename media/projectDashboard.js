@@ -5915,7 +5915,7 @@
                     <strong>${escapeHtml(commit.subject)}</strong>
                     <span class="tag mono">${escapeHtml(commit.shortHash)}</span>
                   </div>
-                  <div class="list-meta">${escapeHtml(commit.author)} • ${escapeHtml(commit.committedRelative)}</div>
+                  <div class="list-meta">${escapeHtml(commit.author)} • ${escapeHtml(commit.committedRelative)}${renderCommitLinkChips(commit)}</div>
                 </button>`).join('') : '<div class="dashboard-empty">No commit history available.</div>'}
             </div>
           </article>
@@ -13007,6 +13007,26 @@
           ? Math.abs(schedule.daysLeft) + 'd over'
           : schedule.daysLeft + 'd left';
     return `<span class="rm-chip rm-chip-${escapeAttr(schedule.state)}">${escapeHtml(label)}</span>`;
+  }
+
+  /**
+   * What a commit said it was for, when it said anything.
+   *
+   * Read from git trailers the host already parsed — never from the subject
+   * line. A commit that mentions a number is not a commit about that issue, and
+   * inventing the link here would make the chip a guess wearing a record's
+   * clothes. Silent on a commit with no trailers, which is most of them and not
+   * a fault.
+   */
+  function renderCommitLinkChips(commit) {
+    const chips = [];
+    if (commit.roadmapItemId) {
+      chips.push(`<span class="tag" title="${escapeAttr('This commit declared the backlog item it was for, in a Roadmap-Item trailer.')}">${escapeHtml(commit.roadmapItemId)}</span>`);
+    }
+    if (commit.issue) {
+      chips.push(`<span class="tag" title="${escapeAttr('This commit declared its tracker issue, in an Issue trailer.')}">#${escapeHtml(commit.issue)}</span>`);
+    }
+    return chips.length > 0 ? ` • ${chips.join(' ')}` : '';
   }
 
   /**

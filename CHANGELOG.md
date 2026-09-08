@@ -6,6 +6,34 @@ The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/),
 
 ## [Unreleased]
 
+## [0.448.0] - 2026-09-08
+
+### Added
+
+- **Commits can say which planned work they were for.** A commit message says what changed in prose.
+  Nothing said *which backlog item or issue it was for*, so any analytic joining code to intent had
+  to guess from wording — and a wrong join is worse than none, because it is counted rather than
+  noticed. `commitTrailers` writes and reads that link using git's own trailer convention, so the
+  answer is readable by `git log`, `git interpret-trailers`, and anything else ever pointed at this
+  history.
+
+  Five rules. **Only a link somebody already declared** — the issue number comes from the branch
+  naming convention the workflow file declares, never from the commit's prose; a bare number
+  elsewhere in a branch name is refused, because taking it would permanently point a commit at
+  somebody else's ticket. **A value is validated, never cleaned**, which inverts the usual boundary
+  rule here for the same underlying reason it usually applies: a pushed commit message cannot be
+  edited, so a nearly-valid value made plausible is unfixable. **Trailers follow git's own rules** —
+  one block at the end, so `%(trailers)` sees them and a `Co-Authored-By` somebody wrote keeps its
+  position rather than being displaced. **Composing is idempotent**, so re-drafting twice does not
+  accumulate three copies of one fact. **Nothing here writes a commit** — it returns text a person
+  still reads and still commits.
+
+  The Source Control drafter adds them, and the dashboard's commit list shows what each commit
+  declared. Verified against real git rather than inferred: a linked commit round-trips both values,
+  an unlinked one yields nothing, and a closing paragraph of prose that merely *looks* trailer-ish
+  (`See also: the notes` followed by a sentence) is read as prose — git's own trailer reader and this
+  parser make the same call.
+
 ## [0.447.0] - 2026-09-08
 
 ### Added
