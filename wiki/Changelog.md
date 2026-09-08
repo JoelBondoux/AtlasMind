@@ -19,6 +19,21 @@ Older entries below describe the software as it was at the time and are delibera
 
 ---
 
+## v0.449.4 -- The rescan, which is the only proof
+
+A second pass over the CodeQL findings, because rescanning is the only honest way to tell a fix from
+a belief about a fix. It found three more webview values written into HTML without their escape --
+including an ideation card's coordinates, which land inside a `style` attribute -- an end-tag pattern
+that `</script foo>` walks straight past, and a comment scrub that was still quadratic on a file made
+of repeated `<!--`.
+
+That last one lives in the memory self-healer, whose whole job is reading files that may be hostile.
+It now finds comments by index rather than by pattern, and an opener that never closes ends the scan
+instead of being rewritten -- it is not a comment, and rewriting to the end of the file would delete
+the rest of somebody's notes.
+
+---
+
 ## v0.449.3 -- The static analyser's list, read line by line
 
 Every open CodeQL finding on `develop` is now addressed: 40 fixed, 8 dismissed with a reason written

@@ -251,8 +251,11 @@ function stripHtmlTags(html: string): string {
   // nothing. This reads a fetched third-party page, which is exactly the input
   // that is not ours to trust.
   let text = html
-    .replace(/<script\b[\s\S]*?<\/script\s*>/gi, ' ')
-    .replace(/<style\b[\s\S]*?<\/style\s*>/gi, ' ');
+    // `[^>]*` rather than `\s*` before the closing bracket: HTML tolerates junk
+    // in an end tag, so `</script foo>` closes the element and a stricter
+    // pattern would walk past it and leave the script body in the text.
+    .replace(/<script\b[\s\S]*?<\/script[^>]*>/gi, ' ')
+    .replace(/<style\b[\s\S]*?<\/style[^>]*>/gi, ' ');
 
   // Repeated until it stops changing, because a single pass is what leaves the
   // nested case behind: `<scr<b>ipt>` loses the inner tag and re-forms as a tag

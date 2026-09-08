@@ -2506,7 +2506,7 @@
         '<div class="ideation-card-actions"><span class="tag">' + escapeHtml(card.author) + '</span><span class="tag">' + escapeHtml(card.kind) + '</span></div>';
     const mutedClass = selectionState.active && !selectionState.relatedCardIds.has(card.id) ? 'muted' : '';
     return '' +
-      '<article class="ideation-card ideation-card-' + escapeAttr(card.color) + ' ideation-card-' + lod + ' ' + mutedClass + ' ' + (state.selectedCardId === card.id ? 'selected' : '') + ' ' + (focusCardId === card.id ? 'focused' : '') + ' ' + (selectionOrder === 0 ? 'selection-source' : '') + ' ' + (selectionOrder === 1 ? 'selection-target' : '') + '" tabindex="0" role="button" data-action="ideation-select-card" data-payload="' + escapeAttr(card.id) + '" data-card-id="' + escapeAttr(card.id) + '" style="left: ' + (BOARD_WORLD_ORIGIN_X + card.x) + 'px; top: ' + (BOARD_WORLD_ORIGIN_Y + card.y) + 'px;">' +
+      '<article class="ideation-card ideation-card-' + escapeAttr(card.color) + ' ideation-card-' + lod + ' ' + mutedClass + ' ' + (state.selectedCardId === card.id ? 'selected' : '') + ' ' + (focusCardId === card.id ? 'focused' : '') + ' ' + (selectionOrder === 0 ? 'selection-source' : '') + ' ' + (selectionOrder === 1 ? 'selection-target' : '') + '" tabindex="0" role="button" data-action="ideation-select-card" data-payload="' + escapeAttr(card.id) + '" data-card-id="' + escapeAttr(card.id) + '" style="left: ' + (BOARD_WORLD_ORIGIN_X + (Number(card.x) || 0)) + 'px; top: ' + (BOARD_WORLD_ORIGIN_Y + (Number(card.y) || 0)) + 'px;">' +
         '<div class="ideation-card-shell">' +
           '<div class="ideation-card-head" data-drag-card-id="' + escapeAttr(card.id) + '">' +
             '<span class="tag">' + escapeHtml(card.kind) + '</span>' +

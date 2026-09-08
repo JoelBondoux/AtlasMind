@@ -5052,7 +5052,7 @@
             <h3>Ownership of vital files</h3>
             <p class="section-copy">${escapeHtml(report.summary)} A file with nobody assigned falls to the Director — that is derived, so replacing the Director re-points every one of them at once. Recording an owner writes it into the committed roster instead, where it stays until somebody changes it.</p>
           </div>
-          <span class="tag ${report.unownedCount ? 'tag-critical' : report.defaultedCount ? 'tag-warn' : 'tag-good'}">${report.recordedCount} recorded · ${report.defaultedCount} default${report.unownedCount ? ` · ${report.unownedCount} unowned` : ''}</span>
+          <span class="tag ${report.unownedCount ? 'tag-critical' : report.defaultedCount ? 'tag-warn' : 'tag-good'}">${escapeHtml(String(report.recordedCount))} recorded · ${escapeHtml(String(report.defaultedCount))} default${report.unownedCount ? ` · ${escapeHtml(String(report.unownedCount))} unowned` : ''}</span>
         </div>
         ${report.blocker ? `<p class="vital-owner-blocker">⚠ ${escapeHtml(report.blocker)}</p>` : ''}
         ${report.notice ? `<p class="vital-owner-notice">${escapeHtml(report.notice)}</p>` : ''}

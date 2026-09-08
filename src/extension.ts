@@ -1229,6 +1229,41 @@ function isUriWithinSsotPath(
   return isPathEqualToOrWithin(candidatePath, ssotRootPath);
 }
 
+/** Words that make an HTML comment in a memory file look like an instruction to a model. */
+const SUSPICIOUS_COMMENT_WORDS = /ignore|forget|override|instruction/i;
+
+/**
+ * Replace HTML comments carrying instruction-shaped words, walking the string
+ * by index.
+ *
+ * An unterminated `<!--` ends the scan rather than being rewritten: there is no
+ * comment there, only a string that starts like one, and rewriting to the end of
+ * the file would delete the rest of somebody's notes.
+ */
+function scrubSuspiciousComments(content: string): string {
+  const OPEN = '<!--';
+  const CLOSE = '-->';
+  let out = '';
+  let index = 0;
+  for (;;) {
+    const start = content.indexOf(OPEN, index);
+    if (start === -1) {
+      break;
+    }
+    const end = content.indexOf(CLOSE, start + OPEN.length);
+    if (end === -1) {
+      break;
+    }
+    const comment = content.slice(start, end + CLOSE.length);
+    out += content.slice(index, start);
+    out += SUSPICIOUS_COMMENT_WORDS.test(comment)
+      ? '<!-- removed by AtlasMind memory self-heal -->'
+      : comment;
+    index = end + CLOSE.length;
+  }
+  return index === 0 ? content : out + content.slice(index);
+}
+
 export function applyMemorySelfHealingToContent(content: string): { content: string; changed: boolean; actions: string[] } {
   let next = content;
   const actions: string[] = [];
@@ -1239,17 +1274,13 @@ export function applyMemorySelfHealingToContent(content: string): { content: str
     actions.push('removed hidden Unicode control characters');
   }
 
-  // Each comment is matched once, then tested — rather than one pattern with a
-  // wildcard run on both sides of the keyword, which backtracks across every
-  // `<!--` in the file for every starting position. This function's whole job is
-  // reading memory files that may be hostile, so a pattern that degrades on
-  // input somebody chose is the wrong shape for it.
-  const withoutInjectedComments = next.replace(
-    /<!--[\s\S]*?-->/g,
-    comment => (/ignore|forget|override|instruction/i.test(comment)
-      ? '<!-- removed by AtlasMind memory self-heal -->'
-      : comment),
-  );
+  // Comments are found by index rather than by pattern, and each one is then
+  // tested for the keywords. A regex — even a lazy one — rescans to the end of
+  // the file from every `<!--` that never closes, so a memory file of repeated
+  // `<!--` costs quadratic time. This function's whole job is reading files that
+  // may be hostile, so a pattern that degrades on input somebody chose is the
+  // wrong shape for it. Two indexOf walks are linear and say the same thing.
+  const withoutInjectedComments = scrubSuspiciousComments(next);
   if (withoutInjectedComments !== next) {
     next = withoutInjectedComments;
     actions.push('neutralized suspicious HTML comments');

@@ -257,11 +257,11 @@ describe('a document naming a setting names one the manifest declares', () => {
           continue;
         }
         // A document may say a setting was removed. That is the fix, not the bug.
-        // `'\.'` is just `'.'` in a non-raw string, so this replaced the dot with
-        // itself and left every one of them a wildcard in the regex below —
-        // meaning `atlasmind.a.b` also matched a document saying `atlasmindXaXb`
-        // was removed. Two backslashes are what reaches the pattern as a literal.
-        if (new RegExp(`\`${key.replace(/\./g, '\\.')}\`[^.]{0,120}(removed|no longer|does not exist)`).test(body)) {
+        // Every metacharacter, not just the dot. This escaped `'\.'`, which is
+        // plain `'.'` in a non-raw string — so it replaced the dot with itself
+        // and left each one a wildcard, and `atlasmind.a.b` matched a document
+        // saying `atlasmindXaXb` was removed.
+        if (new RegExp(`\`${key.replace(/[.*+?^${}()|[\]\\]/g, '\\$&')}\`[^.]{0,120}(removed|no longer|does not exist)`).test(body)) {
           continue;
         }
         // A section heading may name a group that is a prefix of real keys.

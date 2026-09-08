@@ -6,6 +6,23 @@ The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/),
 
 ## [Unreleased]
 
+## [0.449.4] - 2026-09-08
+
+### Security
+
+- **Second pass on the CodeQL findings: the ones the first pass moved rather than closed.** A rescan
+  is the only honest way to tell a fix from a belief about a fix, and it found three more unescaped
+  webview values (an ideation card's coordinates, which land in a `style` attribute; an asset
+  inspector's geometry; the vital-file ownership counts), an end-tag pattern that `</script foo>`
+  walks straight past, an escape that still left the backslash, and a comment scrub that was still
+  quadratic.
+
+  The memory self-healer now finds HTML comments by index rather than by pattern. A lazy regex
+  rescans to the end of the file from every `<!--` that never closes, so a file of repeated openers
+  cost quadratic time — in the one function whose whole job is reading files that may be hostile. An
+  unterminated opener now ends the scan rather than being rewritten, because it is not a comment, and
+  rewriting to the end of the file would delete the rest of somebody's notes.
+
 ## [0.449.3] - 2026-09-08
 
 ### Security

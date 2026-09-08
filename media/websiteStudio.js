@@ -871,7 +871,7 @@
       <div class="asset-instance-inspector">
         <div class="responsive-head"><p class="responsive-title">Asset assignment</p><span class="source-chip">stable reference</span></div>
         <label class="field"><span>Asset</span><select id="nodeAsset"${readOnly}><option value="">No asset</option>${state.assets.map(asset => `<option value="${escapeAttribute(asset.id)}"${asset.id === contentStateNode?.assetRef ? ' selected' : ''}>${escapeText(asset.label)} · ${escapeText(asset.kind)}</option>`).join('')}</select></label>
-        ${assignedAsset ? `<p class="responsive-copy">${assignedAsset.width} × ${assignedAsset.height} · ${escapeText(assignedAsset.crop)} · focus ${assignedAsset.focalPoint.x}%, ${assignedAsset.focalPoint.y}% · ${assignedAsset.decorative ? 'decorative' : assignedAsset.altText ? 'alt text provided' : 'alt text missing'}</p>` : ''}
+        ${assignedAsset ? `<p class="responsive-copy">${escapeText(assignedAsset.width)} × ${escapeText(assignedAsset.height)} · ${escapeText(assignedAsset.crop)} · focus ${escapeText(assignedAsset.focalPoint.x)}%, ${escapeText(assignedAsset.focalPoint.y)}% · ${assignedAsset.decorative ? 'decorative' : assignedAsset.altText ? 'alt text provided' : 'alt text missing'}</p>` : ''}
         <div class="responsive-actions"><button type="button" class="secondary" id="applyNodeAsset"${readOnly}>Apply asset</button>${contentStateNode?.assetRef ? `<button type="button" class="danger subtle" id="removeNodeAsset"${readOnly}>Remove</button>` : ''}</div>
       </div>`;
     const presentations = contentStateNode?.contentStatePresentations ?? {};
