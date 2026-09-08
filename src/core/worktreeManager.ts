@@ -37,8 +37,16 @@ import { normalizeWorktreePath, parseWorktreeList } from '../skills/gitWorktree.
  * to reclaim the registration later.
  */
 
-/** Runs a command and returns its stdout, or throws. Injected so tests spawn nothing. */
-export type WorktreeGitRunner = (args: readonly string[], cwd: string) => Promise<string>;
+/**
+ * Runs a git command and returns its stdout, or throws. Injected so tests spawn
+ * nothing.
+ *
+ * `stdin` exists for `git apply -`. Piping the patch rather than writing it to
+ * a temp file is deliberate: a patch is workspace content, and a temp file
+ * would put workspace content on disk *outside* the workspace, where none of
+ * this project's boundaries reach it and nothing cleans it up after a crash.
+ */
+export type WorktreeGitRunner = (args: readonly string[], cwd: string, stdin?: string) => Promise<string>;
 
 export interface WorktreeHandle {
   subTaskId: string;

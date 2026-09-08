@@ -6,6 +6,41 @@ The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/),
 
 ## [Unreleased]
 
+## [0.440.2] - 2026-09-08
+
+### Added
+
+- **Worktree isolation, stage three: getting the work back.** The half that decides whether the
+  feature is worth having — isolation is only useful if an isolated subtask's changes return, and
+  only *safe* if changes that cannot return cleanly are neither lost nor forced.
+
+  **A patch, not a file copy.** `git diff` in the worktree and `git apply` in the main tree, so
+  git's own machinery decides whether the change still fits. Copying changed files over would
+  silently overwrite whatever the main tree had — the write race this feature exists to remove,
+  moved to the end of the run where it is harder to notice.
+
+  **Applied one at a time.** The subtasks ran in parallel; their patches do not. A race at merge
+  time is worse than one during the run, because by then the run reports itself finished.
+
+  **Never `--3way`.** It can leave conflict markers in a file and report success. A subtask's work
+  half-applied into a file nobody has read is worse than the same work sitting in a directory
+  somebody can be told about. `git apply --check` runs first, so a refusal happens before anything
+  is written rather than partway through.
+
+  **New files needed an extra step to survive.** `git diff` shows tracked changes only, so a
+  subtask that *created* a file would have had it dropped without a word — and it would have looked
+  like the model failing to write it. `git add --intent-to-add` registers new paths first.
+
+  A worktree that did not merge is **kept**: removing it would destroy the only copy of work the
+  operator has not seen. The report names its path so the work is findable, and carries no patch
+  body — a patch is workspace content and the report goes to an output channel. It says nothing at
+  all when everything merged, because a line on every run saying "all fine" is the line people stop
+  reading before the run where it says something else.
+
+  The git runner gained optional stdin so the patch can be piped. Writing it to a temp file would
+  put workspace content on disk *outside* the workspace, where none of this project's boundaries
+  reach it and nothing cleans it up after a crash.
+
 ## [0.440.1] - 2026-09-08
 
 ### Changed

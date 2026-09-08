@@ -19,6 +19,29 @@ Older entries below describe the software as it was at the time and are delibera
 
 ---
 
+## v0.440.2 -- Bringing an isolated step's work back
+
+If a step of a run gets its own copy of your files, that only helps if the work comes back — and it
+is only safe if work that *cannot* come back cleanly is neither lost nor forced on you.
+
+Changes return as a patch that git applies, not as files copied over the top. Copying would silently
+overwrite whatever was there, which is the problem this feature exists to remove, moved to the end of
+the run where it is harder to spot. Patches apply one at a time, because a collision at that point
+happens when the run already looks finished.
+
+If a change will not apply, AtlasMind stops rather than forcing it, keeps that step's copy of your
+files, and tells you where it is. It does not use git's "leave conflict markers and carry on" mode:
+half-applied work sitting in a file nobody has read is worse than intact work sitting in a folder you
+have been told about.
+
+One detail worth knowing, because getting it wrong would have looked like something else entirely:
+files a step *creates* need registering before git will show them in a patch. Without that they would
+vanish, and it would look like the model never wrote them.
+
+Still not connected to your runs — that is the last piece.
+
+---
+
 ## v0.440.1 -- The file boundary learns the difference between two questions
 
 Every file a skill reads or writes goes through one check. That check was answering two questions
