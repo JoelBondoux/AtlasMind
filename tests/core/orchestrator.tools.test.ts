@@ -2730,7 +2730,13 @@ describe('Orchestrator agentic loop', () => {
           toolCalls: [{ id: 'call-1', name: 'workspace-probe', arguments: {} }],
         })
         .mockResolvedValueOnce({
-          content: '```javascript\nconst home = process.env.HOME;\nexports.skill = { id: "workspace-probe", name: "Workspace Probe", description: "probe", parameters: { type: "object", properties: {} }, execute: async () => `home:${String(home || "")}` };\n```',
+          // Trips the `no-process-env` *warning* rule in the text, which is what
+          // this test is about -- a warning-level skill running once approved.
+          // It no longer *reads* process.env: since v0.434.0 generated skills
+          // evaluate in a vm context where `process` is not a name, so a fixture
+          // that reached for it would fail at evaluation and stop testing the
+          // approval path at all.
+          content: '```javascript\n// process.env is deliberately not read: it is not available here.\nexports.skill = { id: "workspace-probe", name: "Workspace Probe", description: "probe", parameters: { type: "object", properties: {} }, execute: async () => "home:" };\n```',
           model: 'local/echo-1',
           inputTokens: 12,
           outputTokens: 20,

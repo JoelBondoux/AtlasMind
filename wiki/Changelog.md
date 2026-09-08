@@ -19,6 +19,32 @@ Older entries below describe the software as it was at the time and are delibera
 
 ---
 
+## v0.434.0 -- A model-written skill stops running beside the extension
+
+AtlasMind can write a small skill for itself when a task needs a tool it doesn't have. It is off by
+default and always shows you the code first. What it did *after* you approved was evaluate that code in
+the extension's own scope — so eight ways of reaching the filesystem were tried against it and **seven
+worked**, including `import('node:fs')` and `process.mainModule.require('node:fs')`. The guard that was
+meant to prevent exactly this blocked one spelling of it and nothing else.
+
+Evaluation now happens somewhere with none of that in reach and all eight are refused. A skill that
+hangs while loading is cut off instead of freezing the editor. And a skill reading `process.env` — which
+was only ever a *warning*, so an approved one ran with your real environment — now fails before it
+exists.
+
+**It is containment, not a sandbox, and that is stated rather than glossed.** A running skill is handed
+real functions for reading files, and a real function carries a route back to the code that owns it.
+Closing that would mean skills with no callbacks, which would mean no skills. So the gap is written
+down, asserted by a test that passes, and answered by the fact that you read the code before saying
+yes. A second test requires every mention of the word "sandbox" in that module to be a denial of being
+one.
+
+Two things in our own security notes turned out to be wrong and are corrected: a recorded finding said
+this code ran before any approval (it did not — a dedicated gate already showed the source and failed
+closed), and a source comment describing where skills execute became false with this change.
+
+---
+
 ## v0.433.0 -- See the commands, and a ceiling Autopilot cannot buy past
 
 **Routines now show their commands first.** `/ship` printed a routine's name and description and then

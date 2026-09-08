@@ -276,6 +276,29 @@ filesystem use are flagged and allowed.
 
 Built-in skills are pre-approved and skip the scan.
 
+### A model-written skill does not run beside the extension
+
+AtlasMind can write a small skill for itself when a task needs a tool it doesn't have. That is **off by
+default**, and even switched on it stops and shows you the generated code before anything runs — with
+the scan results attached, and refusing outright if there is no way to ask you.
+
+Until v0.434.0 the code was then evaluated in the extension's own scope. Eight ways of reaching your
+filesystem were tried against that arrangement and **seven worked**, including `import('node:fs')` and
+`process.mainModule.require('node:fs')` — the block that was supposed to prevent this stopped one
+spelling of it. Evaluation now happens somewhere with none of that in reach, and all eight are refused.
+A skill that hangs on load is cut off rather than freezing the editor.
+
+**This is containment, not a sandbox, and the difference is written down rather than glossed.** When a
+skill actually runs, AtlasMind hands it real functions for reading files and querying memory — and any
+real function carries a route back to the code that owns it. Closing that would mean not giving skills
+callbacks at all, which would mean not having skills. So the honest statement is: a generated skill
+cannot reach past the boundary while being *loaded*, it can while being *run*, and the control for the
+second is that you read the code first and said yes. There is a test asserting that gap still exists,
+so nobody can later describe this as more than it is.
+
+The scanner is a lint, not a barrier — a name-based check that can be worked around by anyone trying.
+It is kept because a skill that *tries* is worth refusing whether or not it would have succeeded.
+
 ### Commands never go through a shell
 
 A tool call that runs a command passes its arguments as an array, and AtlasMind spawns with `shell: false`

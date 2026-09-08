@@ -6,6 +6,51 @@ The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/),
 
 ## [Unreleased]
 
+## [0.434.0] - 2026-09-08
+
+### Fixed
+
+- **A generated skill no longer evaluates in the extension host's global scope.**
+  `loadSkillFromSource` was `new Function('module','exports','require', source)`, whose body
+  runs alongside the extension itself with a `require` parameter that throws. Eight routes to
+  `node:fs` were run against it and **seven reached** — including `import('node:fs')`, since
+  dynamic import is syntax and shadowing the `require` identifier never touched it, and
+  `process.mainModule.require('node:fs')`. Both returned a working `readFileSync`. The
+  injected `safeRequire` blocked one spelling of the capability, not the capability.
+
+  Evaluation now happens in a `node:vm` context with no ambient globals, and
+  `module`/`exports`/`require` are defined **inside** it as source rather than assigned onto
+  it — measured both ways, because a host function placed on a context is reachable as
+  `require.constructor.constructor`, which is the host realm's `Function` and hands back
+  `process`. All eight routes are refused. A timeout bounds the module's top level, which
+  runs the moment it is evaluated.
+
+- **A skill reading `process.env` used to be a warning that ran.** `no-process-env` is a
+  *warning* rule, so an approved skill reading it executed with the real environment; the
+  scanner was the only thing between a generated skill and `process.env.AWS_SECRET`, and it
+  was advisory. The read now fails before the skill exists, which is what makes the warning
+  worth keeping rather than being the whole defence.
+
+### Documentation
+
+- **This is containment, not a sandbox, and the hole is a passing test.** `execute(args, ctx)`
+  receives a real `SkillExecutionContext`; any host object crossing the boundary carries the
+  host realm's `Function` on its prototype chain, so
+  `ctx.readFile.constructor.constructor('return process')()` reaches out. That is inherent to
+  giving a skill callbacks at all. It is asserted directly, so the boundary cannot quietly be
+  described as more than it is — and a further test requires every mention of "sandbox" in
+  `skillDrafting.ts` to be a denial of being one.
+
+- **Two Phase 0 claims corrected.** The recorded finding said synthesis runs before the tool
+  approval gate; that came from a code comment rather than the control flow. A dedicated
+  `generatedSkillApprovalGate` already ran *before* evaluation, receiving the scan result and
+  the source, and failing closed when no approval surface exists — better than the generic
+  gate here, because it can show the code. Work on a second `toolPolicy`-classified gate was
+  reverted rather than shipped, on the reasoning that kept a broker out of P1-3: two gates
+  that can disagree are worse than one that is sufficient. And a `skillScanner.ts` comment
+  saying a skill "runs in the extension host's global scope" became false with this change,
+  so it was corrected rather than left.
+
 ## [0.433.0] - 2026-09-08
 
 ### Added

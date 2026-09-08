@@ -4,7 +4,7 @@
 
 <h1 align="center">AtlasMind</h1>
 
-<p align="center"><sub> · <strong>Current source version: 0.433.0</strong> · </sub></p>
+<p align="center"><sub> · <strong>Current source version: 0.434.0</strong> · </sub></p>
 
 
 <p align="center">
@@ -175,11 +175,17 @@ important limits on overrides and compliance claims.
 
 ---
 
-## What's new in 0.433.0
+## What's new in 0.434.0
 
 The last Marketplace publication, **v0.420.4**, brought the changes below. Every release is written
 up in full in [CHANGELOG.md](CHANGELOG.md).
 
+- **Model-written skills no longer run beside the extension.** AtlasMind can write a small skill for
+  itself mid-task — off by default, and never without you reading the code and approving it. Until now
+  that code was evaluated in the extension's own scope: eight ways of reaching the filesystem were
+  tried against it and seven worked. It now evaluates somewhere with none of that in reach, and all
+  eight are refused. It is containment rather than a sandbox, the remaining gap is written down, and a
+  test asserts we never call it the stronger word.
 - **Routines show you the commands before they run, and Autopilot has a ceiling.** `/ship` and the
   Run Center now list the exact shell commands a routine will run, in order, and say which ones reach
   outside your machine — a routine file is an ordinary workspace file, so the moment before it runs is

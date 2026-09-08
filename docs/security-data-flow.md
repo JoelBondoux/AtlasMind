@@ -100,6 +100,17 @@ comment *"Silent — best-effort refresh only."* Requirement 9 is violated in th
 
 ## 3. Dynamic code execution — hypothesis partly wrong, in the code's favour
 
+> **Closed in v0.434.0, and two things below were wrong.** The residual described here as narrow was
+> wider than stated: eight routes to `node:fs` were run against `new Function`, and **seven reached** —
+> `safeRequire` blocked one spelling of the capability, not the capability. Evaluation now happens in a
+> `node:vm` context with no ambient globals and all eight are refused
+> (`tests/security/generatedSkillContainment.test.ts`).
+>
+> The other error is in this document's own framing: the claim that *synthesis runs before the tool
+> approval gate* came from a code comment rather than the control flow. A dedicated
+> `generatedSkillApprovalGate` already ran before evaluation, receiving the source and failing closed.
+> Both corrections are recorded in P1-2 of the roadmap.
+
 The brief suggests regex scanning is being treated as a sandbox. **Two real mitigations exist and
 should be credited.**
 

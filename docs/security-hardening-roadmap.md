@@ -122,6 +122,53 @@ door". Two things still want fixing: generated code reaches ambient host globals
 **Acceptance criteria.** Synthesis is brokered before execution, not after; the scanner is documented
 as a lint and never described as a sandbox.
 
+**Status: closed in v0.434.0**, and the phase was smaller than this entry implied because one of its
+two criteria was already met.
+
+**Correction: "synthesis runs before the tool approval gate" was wrong.** The Phase 0 note cited a
+code comment rather than the control flow. There is a dedicated `generatedSkillApprovalGate`
+(`types.ts:1373`, wired at `extension.ts:2346`, called at `orchestrator.ts:3800-3813`) that runs
+*before* `loadSkillFromSource`, receives the scan result **and the source**, and fails closed with a
+named reason when no approval surface exists. It is strictly better than the generic tool gate for
+this purpose, because it can show the code. Work had begun on a second, `toolPolicy`-classified gate
+before this was checked; it was reverted rather than shipped, on the same reasoning that kept a
+capability broker out of P1-3 — two gates that can disagree are worse than one that is sufficient.
+
+**What was actually wrong: the evaluation itself.** `loadSkillFromSource` was
+`new Function('module','exports','require', source)`, whose body runs in the extension host's own
+global scope. Eight routes to `node:fs` were run against it. **Seven reached**, including
+`import('node:fs')` — dynamic import is syntax, so shadowing the `require` identifier never touched
+it — and `process.mainModule.require('node:fs')`, both returning a working `readFileSync`. The
+injected `safeRequire` blocked exactly one spelling of the capability it was there to remove.
+
+Evaluation now happens in a `node:vm` context with no ambient globals, and `module`/`exports`/`require`
+are defined **inside** it as source rather than assigned onto it — measured both ways, because a host
+function placed on a context is reachable as `require.constructor.constructor`, which is the host
+realm's `Function` and hands back `process`. All eight routes are refused; `import()` throws *"A
+dynamic import callback was not specified"* because none is supplied. A `timeout` bounds the module's
+top level, which runs on evaluation.
+
+**The hole that remains, stated because it cannot be closed here.** `execute(args, ctx)` receives a
+real `SkillExecutionContext`, and any host object crossing the boundary carries the host realm's
+`Function` on its prototype chain — `ctx.readFile.constructor.constructor('return process')()`
+reaches out. That is inherent to giving a skill callbacks at all. It is **asserted as a passing test**
+so the boundary cannot quietly be described as more than it is; if it is ever closed, that test fails
+and can be deleted with good news.
+
+**Regression tests.** `tests/security/generatedSkillContainment.test.ts` — the eight routes as
+executed escapes rather than arguments about them, a runaway top level answering with a timeout
+instead of hanging the host, an ordinary skill still loading (a boundary that refuses everything is
+disablement wearing a boundary's clothes, and the other tests would pass against it), the residual
+callback route, and a check that every mention of "sandbox" in `skillDrafting.ts` is a denial of being
+one.
+
+**The scanner is a lint, and now says so accurately.** `skillScanner.ts` already carried rules for
+`import(`, indirect `require`, the constructor escape and computed global access, with comments
+naming its own bypasses. One of those comments said the skill "runs in the extension host's global
+scope", which this change made false; corrected rather than left, since a plausible false comment
+adjacent to real code is the failure mode this pass keeps finding. The rules are kept rather than
+retired: a skill that *tries* is worth refusing whether or not it would have succeeded.
+
 ### P1-3 · No central capability broker for subprocesses and writes
 
 **Status: partly closed in v0.433.0** — the hard-ceiling half and the worst uncovered path. The

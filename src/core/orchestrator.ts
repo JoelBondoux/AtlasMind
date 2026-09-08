@@ -3706,16 +3706,24 @@ export class Orchestrator {
       return cachedFailure;
     }
 
-    // Deny by default. Synthesis ends in `new Function(...)` over source a model
-    // wrote, evaluated in the extension host's own global scope — the single
+    // Deny by default. Synthesis evaluates source a model wrote — the single
     // most consequential thing AtlasMind can do, and it used to be reachable
-    // from any tool name the model happened to invent. Two facts compound:
-    // the model writing that code has just been fed workspace file contents, so
-    // a prompt injection in a dependency's README shares a context window with
-    // the code generator; and synthesis runs *before* the tool approval gate, so
-    // the code executed before anything asked. It is now an explicit setting the
-    // operator turns on, named in the refusal so the capability is discoverable
-    // without being silent.
+    // from any tool name the model happened to invent. The reason that survives
+    // every mitigation below it: the model writing that code has just been fed
+    // workspace file contents, so a prompt injection in a dependency's README
+    // shares a context window with the code generator. It is an explicit setting
+    // the operator turns on, named in the refusal so the capability is
+    // discoverable without being silent.
+    //
+    // Two claims that used to be here were stale and are worth correcting
+    // rather than deleting, because both were cited as evidence elsewhere.
+    // Evaluation is no longer `new Function(...)` in the extension host's global
+    // scope — since v0.434.0 it is a `node:vm` context with no ambient globals
+    // (`skillDrafting.ts` records what that does and does not close). And it is
+    // not true that "the code executed before anything asked": the *tool*
+    // approval gate does run later, but `generatedSkillApprovalGate` runs before
+    // evaluation, receives the scan result and the source, and fails closed when
+    // there is no surface to ask on.
     if (!this.readSetting<boolean>('skillAutoSynthesisEnabled', false)) {
       const error =
         `No skill is registered for tool "${toolName}", and skill auto-synthesis is disabled. ` +
