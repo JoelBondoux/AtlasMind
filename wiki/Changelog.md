@@ -19,6 +19,29 @@ Older entries below describe the software as it was at the time and are delibera
 
 ---
 
+## v0.456.0 -- The last mile of the producer report
+
+AtlasMind could build the producer report and decide what may leave the machine. Then it said: point
+GitHub Pages at that folder. That instruction cannot be followed -- Pages serves from a repository
+root, from `/docs`, or from an uploaded artifact, never from an arbitrary path -- so the page was being
+written somewhere no host could serve it.
+
+`/portal` walks the whole distance, and leads with the fact everything else depends on: **a GitHub
+Pages site is public even when the repository is private**, because access control for Pages is an
+Enterprise Cloud feature. If the repository's visibility cannot be read, it assumes public, which is
+the assumption that keeps a secret.
+
+Nothing in the guide enables Pages and nothing in it publishes. Turning Pages on is the decision that
+makes your report public, so that step has no button -- only GitHub's documentation. The steps whose
+commands write files name them rather than offering to run them.
+
+A new command writes the deploy workflow, create-only, behind a dialog naming exactly which folder it
+uploads. The workflow is a constant in AtlasMind's source rather than something generated, uploads the
+prepared folder rather than the repository, and runs on manual dispatch only -- a push trigger would
+turn one decision into a standing one.
+
+---
+
 ## v0.455.0 -- What is in the context, and how to carry less
 
 The chat's meter answered one question: am I near the limit. The question people actually ask when a

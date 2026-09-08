@@ -2,7 +2,7 @@
   "name": "atlasmind",
   "displayName": "AtlasMind",
   "description": "AI project management for VS Code: roadmap, risk, tech debt, compliance, testing and release tracked from your own repository — with a multi-agent AI team, or the AI coding tool you already use.",
-  "version": "0.455.0",
+  "version": "0.456.0",
   "publisher": "JoelBondoux",
   "preview": false,
   "license": "SEE LICENSE IN OSMFEULA.txt",
@@ -145,6 +145,10 @@
             "description": "ACP agents: a step-by-step setup walkthrough for subscription-backed agent capacity"
           },
           {
+            "name": "portal",
+            "description": "Producer portal: host the producer report as a page somebody without VS Code can read"
+          },
+          {
             "name": "lens",
             "description": "Atlas Lenses: what to put in the repository declaration files, with a worked example for each"
           },
@@ -195,6 +199,10 @@
       {
         "command": "atlasmind.publishProducerReport",
         "title": "AtlasMind: Prepare Producer Report for Publication"
+      },
+      {
+        "command": "atlasmind.addProducerPortalWorkflow",
+        "title": "AtlasMind: Add Producer Portal Deploy Workflow"
       },
       {
         "command": "atlasmind.openSettings",

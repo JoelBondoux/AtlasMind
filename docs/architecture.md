@@ -2291,6 +2291,16 @@ Pure — no clock, no `fs`, no model; day zero is "now" by construction because 
 
 On the dashboard it is a **fourth roadmap view** beside the canvas, the backlog and Delivered. Bars are placed as percentages of the horizon the host computed, so the chart reflows with the panel and needs no measurement pass — a way of *looking* at a plan must not be something that can fail — and the rules that drew it are printed at its foot.
 
+### ProducerPortalPlan (`src/core/producerPortalPlan.ts`)
+
+How the producer report actually becomes a page somebody outside VS Code can open — the `/portal` walkthrough. `producerReport` built the page and `producerReportPublication` decided what could leave the machine; between them and a hosted site sat one sentence, *"Point GitHub Pages at that folder"*, which cannot be followed. Pages serves from a repository root, from `/docs`, or from an uploaded artifact — never from an arbitrary path — so the report was written where no host could serve it and the last step was left as an exercise.
+
+Five rules. **A Pages site is public even when the repository is private** (access control for Pages is Enterprise Cloud), so it is the first line of the plan rather than a footnote, and an unreadable visibility is treated as public — the assumption that keeps a secret. **Nothing here enables Pages and nothing here publishes**: turning Pages on is the decision that makes the report public, so it has no action at all, only the GitHub documentation link. **The workflow runs on demand, never on push** — a push trigger would turn one decision into a standing one, republishing whatever the report happened to say on every commit, including a section somebody switched on to look at once. **The workflow file is a constant here, never generated**: it is executable content with permission to publish, and a model-written one would be an unreviewed deployment. **A step whose state could not be read is blocked with the reason, never done.**
+
+Three steps name a command rather than offering a button, because those commands *write files* and `isOpeningAction` exists precisely so a setup guide can never be the thing that runs one. `understand-public` is `optional` and can never be `done` — a guide cannot check that somebody read something — so it is deliberately absent from the required set, which would otherwise leave the portal permanently unfinished. `prove-published` is in the walkthrough but not in `isProducerPortalReady`, the same split the ACP guide makes: a portal can be correctly configured and never have been run.
+
+`atlasmind.addProducerPortalWorkflow` writes the file **create-only**, behind a modal that names the folder it uploads and repeats the public-page warning. Pure and unit-tested; the collector that gathers its state lives in the chat participant with the other guides.
+
 ### ContextBudget (`src/core/contextBudget.ts`)
 
 What the next turn will carry, broken into its parts — and what the reading cannot see. The chat had a meter: one bar, one total, against the model window. It answered 'am I near the limit' and nothing else, so the question people actually ask — *why did it not know that?* — had no surface at all. The answer is almost always that something was trimmed, and nothing said what, in what order, or what could be done about it.

@@ -6,6 +6,35 @@ The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/),
 
 ## [Unreleased]
 
+## [0.456.0] - 2026-09-08
+
+### Added
+
+- **`/portal` — the last mile of the producer report, which was previously an exercise for the
+  reader.** AtlasMind could build the report and decide what may leave the machine, then said: *point
+  GitHub Pages at that folder.* That instruction cannot be followed. Pages serves from a repository
+  root, from `/docs`, or from an uploaded artifact — never from an arbitrary path — so the page was
+  written where no host could serve it.
+
+  The guide walks the whole distance: generate the report, allow publication, prepare the narrowed
+  copy, add a deploy workflow, turn Pages on, and prove a page actually came up. It leads with the fact
+  everything else depends on — **a GitHub Pages site is public even when the repository is private**,
+  because access control for Pages is an Enterprise Cloud feature — and treats an unreadable visibility
+  as public, which is the assumption that keeps a secret.
+
+  **Nothing in it enables Pages and nothing in it publishes.** Turning Pages on is the decision that
+  makes the report public, so that step has no button at all — only GitHub's own documentation. The
+  three steps whose commands write files name them rather than offering to run them, because a setup
+  guide that could install things is not a guide.
+
+  The new `AtlasMind: Add Producer Portal Deploy Workflow` command writes
+  `.github/workflows/producer-portal.yml` **create-only**, behind a dialog naming the folder it uploads.
+  The workflow is a constant in the source rather than generated — executable content with permission
+  to publish is not something a model should write — it uploads the prepared folder rather than the
+  repository, asks for the minimum permissions a Pages deploy needs, and runs on **manual dispatch
+  only**: a push trigger would turn one decision into a standing one, republishing whatever the report
+  happened to say on every commit.
+
 ## [0.455.0] - 2026-09-08
 
 ### Added

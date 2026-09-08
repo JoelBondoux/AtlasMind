@@ -38,9 +38,10 @@ Two nice touches: a mistyped command gets **corrected rather than answered** (`/
 | `/lens` | What to put in the Lens declaration files, with a worked example for each |
 | `/compliance` | What evidences each declared governance regime. `/compliance <regime>` for one regime's readout; `/compliance next` for the control most worth a decision and what would settle it. Records nothing — a status needs a named person and a date. |
 | `/localci` | Guided setup for running this repository's GitHub CI job on your own computer |
+| `/portal` | Guided setup for hosting the producer report as a GitHub Pages site. Leads with the fact that a Pages site is public even when the repository is private, and never enables Pages for you |
 | `/sync-instructions` | Reconcile every AI tool's instruction file — yours and AtlasMind's — into one agreed set |
 
-All four setup guides work the same way: each step is reported as done, to do, blocked or optional based
+All five setup guides work the same way: each step is reported as done, to do, blocked or optional based
 on what's actually configured, and **none of them will switch anything on for you**. `/acp` finishes by
 proving a real answer comes back; `/buzz` finishes by proving a real message arrives; `/localci` finishes
 by proving one CI job has actually run. Subscribed isn't the same as receiving, and installed isn't the
@@ -196,6 +197,7 @@ The session drawer above the transcript starts closed and remembers your choice 
 | `AtlasMind: Set Up Website Stack` | Scaffolds the chosen framework, writes the deploy config and stage branches, and optionally the CI workflow. Shows every command and every file in full before anything runs. Normally reached from **Set up this stack** on the Stack page |
 | `AtlasMind: Generate Producer Report` | Writes project status — roadmap progress by gate, open risks and their recorded decisions, delivery readiness, and cost against estimate — into `project_memory/operations/` as markdown, a self-contained HTML page, and JSON. Deterministic and model-free: the same project state produces the same report. A section that could not be read says so rather than appearing empty |
 | `AtlasMind: Prepare Producer Report for Publication` | Builds a **redacted** copy of the report for GitHub Pages. Off until `atlasmind.producerReport.publishEnabled` is on; checks whether the repository is public or private and says so in the confirmation, because a Pages site is readable by anyone with the link either way. Risks and cost stay out unless switched on individually, and anything withheld is named on the page rather than silently missing |
+| `AtlasMind: Add Producer Portal Deploy Workflow` | Writes a `producer-portal.yml` workflow into **your** repository's workflows folder, which uploads the prepared page to GitHub Pages. Create-only — an existing file is left alone — behind a dialog naming the folder it uploads. The workflow is a constant in AtlasMind's source rather than generated, and runs on **manual dispatch only**, so adding it publishes nothing. Walked by `/portal` |
 | `AtlasMind: Open Cost Dashboard` | Spend over time, budget use, and local-model savings |
 | `AtlasMind: Open Voice Panel` · `Open Vision Panel` | Speech and image analysis |
 | `AtlasMind: Open a Setup Guide` | Starts a walkthrough **in a fresh chat session**, so it never lands mid-conversation and inherits unrelated context |

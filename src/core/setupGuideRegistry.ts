@@ -26,6 +26,7 @@ import { ACP_SETUP_GUIDE } from './acpSetupPlan.js';
 import { LOCAL_CI_SETUP_GUIDE } from './localCiSetupPlan.js';
 import { LENS_SETUP_GUIDE } from './lensDeclarationPlan.js';
 import { COMPLIANCE_SETUP_GUIDE } from './complianceSetupPlan.js';
+import { PRODUCER_PORTAL_SETUP_GUIDE } from './producerPortalPlan.js';
 
 /** The Buzz guide, described in the shared shape. */
 export const BUZZ_SETUP_GUIDE: SetupGuideSummary = {
@@ -62,6 +63,10 @@ export const SETUP_GUIDES: readonly SetupGuideSummary[] = [
   // feature does not exist, which is the failure `buildSetupIndex` already
   // refuses for a guide whose state could not be gathered.
   COMPLIANCE_SETUP_GUIDE,
+  // After compliance, because it is the only guide whose finishing move makes
+  // something public. Somebody still deciding whether AtlasMind is worth
+  // configuring should not meet it first.
+  PRODUCER_PORTAL_SETUP_GUIDE,
 ];
 
 export function findSetupGuide(id: string): SetupGuideSummary | undefined {

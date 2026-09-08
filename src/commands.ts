@@ -483,9 +483,68 @@ export function registerCommands(
     );
   };
 
+  /**
+   * Write the Pages deploy workflow, once, after saying what it means.
+   *
+   * GitHub Pages cannot serve an arbitrary folder, so the prepared site needs a
+   * workflow to upload it. Three properties matter and all three are visible in
+   * the code rather than only in the dialog: the YAML is a **constant** in
+   * `producerPortalPlan` (executable content with permission to publish is not
+   * something a model should be writing), the write is **create-only** (an
+   * existing file is somebody's, possibly edited, and is never overwritten),
+   * and the workflow runs on **manual dispatch only** — adding it publishes
+   * nothing, and each publication stays an act.
+   */
+  const addProducerPortalWorkflow = async (): Promise<void> => {
+    const folder = vscode.workspace.workspaceFolders?.[0];
+    if (!folder) {
+      void vscode.window.showInformationMessage('Open a project folder first.');
+      return;
+    }
+    const [{ producerPortalWorkflow, PRODUCER_PORTAL_WORKFLOW_PATH }, fs, path] = await Promise.all([
+      import('./core/producerPortalPlan.js'),
+      import('node:fs/promises'),
+      import('node:path'),
+    ]);
+    const root = folder.uri.fsPath;
+    const config = vscode.workspace.getConfiguration('atlasmind');
+    const sitePath = `${config.get<string>('ssotPath', 'project_memory')}/operations/producer-site`;
+    const target = path.join(root, PRODUCER_PORTAL_WORKFLOW_PATH);
+
+    try {
+      await fs.stat(target);
+      void vscode.window.showInformationMessage(
+        `${PRODUCER_PORTAL_WORKFLOW_PATH} already exists and was left alone. Delete it first if you want a fresh copy.`,
+      );
+      return;
+    } catch { /* absent, which is the case this command is for. */ }
+
+    const confirmed = await vscode.window.showWarningMessage(
+      `Add ${PRODUCER_PORTAL_WORKFLOW_PATH}?`,
+      {
+        modal: true,
+        detail: [
+          'It uploads the prepared report folder to GitHub Pages when you run it manually. It has no push trigger, so adding it publishes nothing.',
+          '',
+          `Uploads: ${sitePath}`,
+          '',
+          'A GitHub Pages site is public even when the repository is private, unless you are on Enterprise Cloud. Turning Pages on stays your decision, on GitHub.',
+        ].join('\n'),
+      },
+      'Write the workflow',
+    );
+    if (confirmed !== 'Write the workflow') { return; }
+
+    await fs.mkdir(path.dirname(target), { recursive: true });
+    await fs.writeFile(target, producerPortalWorkflow(sitePath), 'utf8');
+    const document = await vscode.workspace.openTextDocument(vscode.Uri.file(target));
+    await vscode.window.showTextDocument(document, { preview: false });
+  };
+
   context.subscriptions.push(
     vscode.commands.registerCommand('atlasmind.generateProducerReport', generateProducerReport),
     vscode.commands.registerCommand('atlasmind.publishProducerReport', publishProducerReport),
+    vscode.commands.registerCommand('atlasmind.addProducerPortalWorkflow', addProducerPortalWorkflow),
 
     vscode.commands.registerCommand('atlasmind.openGettingStarted', async () => {
       await vscode.commands.executeCommand(
