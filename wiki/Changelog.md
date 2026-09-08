@@ -19,6 +19,28 @@ Older entries below describe the software as it was at the time and are delibera
 
 ---
 
+## v0.445.0 -- What the finish date actually rests on
+
+Your backlog could tell you what mattered most. The dependency canvas could tell you what had to
+happen before what. Neither could tell you the thing you most want to know: **which chain of work
+decides when this lands.** A plan can be correctly prioritised, correctly sequenced, and still have
+everyone busy on the items that were never the constraint.
+
+The roadmap now works that out. It names the longest chain of outstanding work and how many days it
+runs to, and a **Critical path** lens highlights it on the canvas. Everything else stays drawn and
+dimmed rather than hidden, because the items with room to slip are the comparison that makes the
+answer useful — if you want to bring the date in, they are not where to look.
+
+Delivered work is never on the path: it explains how you got here, and counting its days would turn
+a forecast into a history. Slack is measured against the plan's own finish, never against an item's
+deadline — that is a separate question each card already answers. And a plan with a circular
+dependency is told it has no finish date rather than handed a number, because it cannot run.
+
+The finding is shown whether or not you switch the lens on. It is worth knowing before you think to
+ask for it.
+
+---
+
 ## v0.444.0 -- Reopening the chat picks the work back up
 
 Last release let a chat keep working after you closed its window. This one makes reopening it feel

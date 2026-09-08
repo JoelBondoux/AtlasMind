@@ -453,6 +453,12 @@ import {
   type RoadmapNodeRecord,
 } from '../core/roadmapGraph.js';
 import {
+  describeRoadmapCriticalPath,
+  roadmapCriticalPath,
+  ROADMAP_CRITICAL_PATH_RULES,
+  type RoadmapCriticalPath,
+} from '../core/roadmapCriticalPath.js';
+import {
   extractRoadmapNodeAnchor,
   readRoadmapGraphFile,
   renderRoadmapNodeAnchor,
@@ -2523,6 +2529,16 @@ interface DashboardRoadmapGraphView {
    * accepting a drag that would evaporate.
    */
   anchored: boolean;
+  /**
+   * The chain of work the finish date rests on, and the slack everywhere else.
+   *
+   * Shipped with the snapshot rather than computed on demand, for the reason
+   * every other view change here is offline: a way of *looking* at a plan must
+   * not be something that can fail.
+   */
+  criticalPath: RoadmapCriticalPath;
+  /** The same thing in a sentence, so no renderer has to restate the numbers. */
+  criticalPathSummary: string;
   /** Precomputed route per node, so filtering to one is instant and offline. */
   routes: Record<string, { nodeIds: string[]; edgeKeys: string[]; order: string[]; routeDays: number; completedCount: number }>;
   /** People who can be recorded as adding or completing work, from the Director roster. */
@@ -21614,6 +21630,15 @@ function emptyRoadmapGraphView(filePath: string): DashboardRoadmapGraphView {
     suggestLinks: true,
     orientation: 'horizontal',
     anchored: true,
+    criticalPath: {
+      state: 'nothing-outstanding',
+      nodeIds: [],
+      slack: [],
+      offPathCount: 0,
+      rules: ROADMAP_CRITICAL_PATH_RULES,
+      note: 'There is nothing on the roadmap yet.',
+    },
+    criticalPathSummary: 'There is nothing on the roadmap yet.',
     routes: {},
     people: [],
     filePath,
@@ -21719,6 +21744,10 @@ function buildRoadmapGraphView(
 
     const people = (director?.contacts ?? []).map(contact => ({ id: contact.id, name: contact.name }));
     const byPerson = layoutRoadmapByAssignee(partition.active, people, graph.orientation);
+    // Computed from the whole graph, not from `partition.active`: a delivered
+    // prerequisite contributes no days, and dropping it before the walk would
+    // have left the path unchanged but the reasoning unable to say why.
+    const criticalPath = roadmapCriticalPath(graph);
 
     return {
       active: partition.active,
@@ -21736,6 +21765,8 @@ function buildRoadmapGraphView(
       suggestLinks: reconciled.document.suggestLinks,
       orientation: graph.orientation,
       anchored,
+      criticalPath,
+      criticalPathSummary: describeRoadmapCriticalPath(criticalPath),
       routes,
       people,
       ...(director?.selfContactId === undefined ? {} : { selfContactId: director.selfContactId }),
@@ -28148,6 +28179,25 @@ const DASHBOARD_CSS = `
   }
 
   .rm-emphasis-count {
+    white-space: nowrap;
+  }
+
+  .rm-emphasis-critical {
+    cursor: pointer;
+  }
+
+  .rm-emphasis-critical input {
+    margin: 0;
+  }
+
+  /* The finding, stated whether or not the lens is on: what the finish date
+     rests on is worth knowing before you think to ask. Clamped rather than
+     wrapped, because this sits in a single-line control bar and a two-line
+     answer would push the canvas down every render. */
+  .rm-critical-summary {
+    max-width: 46ch;
+    overflow: hidden;
+    text-overflow: ellipsis;
     white-space: nowrap;
   }
 

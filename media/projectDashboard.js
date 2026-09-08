@@ -463,6 +463,14 @@
     // project, and restoring a dimmed canvas on open would read as a bug.
     roadmapEmphasisGate: '',
     roadmapEmphasisPerson: '',
+    /**
+     * Emphasise the chain the finish date rests on.
+     *
+     * A lens rather than a filter, like the other two: the items *not* on the
+     * path are the ones with room to slip, and hiding them would remove the
+     * comparison that makes the answer worth having.
+     */
+    roadmapEmphasisCritical: false,
     /** Live drag offsets, so a node follows the pointer before the host has saved. */
     roadmapDragOffsets: {},
     /**
@@ -1754,6 +1762,7 @@
       state.roadmapSearch = '';
       state.roadmapEmphasisGate = '';
       state.roadmapEmphasisPerson = '';
+      state.roadmapEmphasisCritical = false;
       state.roadmapFitAfterRender = true;
       render();
       return;
@@ -3115,6 +3124,15 @@
     if (target instanceof HTMLInputElement && target.id === 'branch-scm-chip-toggle') {
       state.branchScmChips = target.checked;
       persistBranchPreferences();
+      render();
+      return;
+    }
+    // Before the select guard below, because this lens is a checkbox — the
+    // other two are pickers and this one is on or off.
+    if (target instanceof HTMLInputElement && target.getAttribute('data-action') === 'roadmap-emphasis-critical') {
+      state.roadmapEmphasisCritical = target.checked === true;
+      state.roadmapFitAfterRender = true;
+      state.roadmapFitScope = 'emphasis';
       render();
       return;
     }
@@ -12252,7 +12270,11 @@
     const query = String(state.roadmapSearch || '').trim().toLowerCase();
     const gate = String(state.roadmapEmphasisGate || '');
     const person = String(state.roadmapEmphasisPerson || '');
-    if (!query && !gate && !person) {
+    // Never on the delivered record: the critical path is outstanding work by
+    // definition, so the lens would match nothing there and read as broken
+    // rather than as inapplicable.
+    const critical = state.roadmapEmphasisCritical === true && state.roadmapView !== 'completed';
+    if (!query && !gate && !person && !critical) {
       return null;
     }
     // Delivered work is emphasised the same way. "When did the auth work ship",
@@ -12279,6 +12301,10 @@
       // one on a plan nobody has divided up yet.
       lenses.push(node => (person === RM_UNASSIGNED ? !personOf(node) : personOf(node) === person));
     }
+    if (critical) {
+      const onPath = new Set((roadmapGraph().criticalPath || {}).nodeIds || []);
+      lenses.push(node => onPath.has(node.id));
+    }
     const matches = all.filter(node => lenses.every(test => test(node)));
     return {
       matchIds: new Set(matches.map(node => node.id)),
@@ -12287,6 +12313,7 @@
       query,
       gate,
       person,
+      critical,
     };
   }
 
@@ -12322,13 +12349,26 @@
           <option value="${RM_UNASSIGNED}"${state.roadmapEmphasisPerson === RM_UNASSIGNED ? ' selected' : ''}>Unassigned</option>
         </select>
       </label>`;
+    // The one lens that answers a question rather than narrowing to an answer
+    // you already had, so its finding is stated whether or not it is switched
+    // on: what the finish date rests on is worth knowing before you think to
+    // ask. Absent on the delivered record, where the path means nothing, and on
+    // a plan with a circular dependency it says so instead of a number.
+    const path = graph.criticalPath || {};
+    const criticalToggle = delivered || !Array.isArray(path.nodeIds) ? '' : `
+      <label class="rm-emphasis-control rm-emphasis-critical">
+        <input type="checkbox" data-action="roadmap-emphasis-critical"${state.roadmapEmphasisCritical ? ' checked' : ''}
+          aria-label="Highlight the chain of work the finish date depends on" />
+        <span class="rm-emphasis-label">Critical path</span>
+      </label>
+      <span class="list-meta rm-critical-summary" title="${escapeAttr(String(graph.criticalPathSummary || ''))}">${escapeHtml(String(graph.criticalPathSummary || ''))}</span>`;
     // Matches, not nodes drawn. No lens removes anything from the canvas, so
     // `shownCount` is the whole plan and reporting it would read "40 of 40".
     const count = emphasis
       ? `<span class="list-meta rm-emphasis-count">${escapeHtml(`${emphasis.matches} of ${totalCount} match ${roadmapEmphasisLabels(emphasis)}`)}</span>`
         + `<button type="button" class="rm-chip-clear" data-action="roadmap-emphasis-clear" aria-label="Show the whole plan at full strength">×</button>`
       : '';
-    return `${gateSelect}${personSelect}${count}`;
+    return `${gateSelect}${personSelect}${criticalToggle}${count}`;
   }
 
   /** What the active lenses are called, for a message that names them. */
@@ -12345,6 +12385,7 @@
         ? 'unassigned'
         : (roadmapPersonName(emphasis.person) || 'that person'));
     }
+    if (emphasis.critical) { parts.push('the critical path'); }
     return parts.join(' + ');
   }
 

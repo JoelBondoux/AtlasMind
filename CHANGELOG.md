@@ -6,6 +6,39 @@ The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/),
 
 ## [Unreleased]
 
+## [0.445.0] - 2026-09-08
+
+### Added
+
+- **The roadmap answers which chain of work the finish date rests on.** The backlog said what
+  mattered most; the dependency graph said what waited on what. Neither said which chain *decides
+  when the plan lands*, so a roadmap could be correctly prioritised, correctly sequenced, and still
+  have everybody working on the items that were never going to be the constraint.
+
+  `roadmapCriticalPath` derives the longest chain of outstanding work, the days along it, and every
+  other item's slack — how long it can slip before the finish moves. Five rules. **Only outstanding
+  work is on the path**: delivered prerequisites stay on the canvas because they explain how you got
+  here, and counting their days would make a history out of a forecast. **The finish is the longest
+  chain, never the sum** — independent work runs at the same time, and adding estimates up errs
+  pessimistic, which is the direction people stop believing. **Slack is measured against the plan's
+  own finish, never a deadline**, which each card already grades separately; folding one in would
+  make a number that means two things. **A plan with a cycle has no finish date** and is reported as
+  circular rather than given one, the same call `resolveRoadmapGraph` already makes when it names a
+  cycle instead of breaking it. **Nothing outstanding is not a zero-day plan.**
+
+  The forward pass is **not recomputed** — every node already carries `schedule.routeDays`, and a
+  second implementation of that walk would eventually disagree with the number printed on the card
+  beside it. Arithmetic is done in half-days as integers: the whole result turns on `slack === 0`,
+  and comparing accumulated floating-point sums is exactly what would put an item on the path on one
+  machine and not on another.
+
+- **A critical-path lens on the roadmap canvas.** A third emphasis lens beside gate and person,
+  combining with them rather than replacing them. It highlights the chain and leaves everything else
+  **drawn and dimmed**, because the items with slack are the comparison that makes the answer worth
+  having. Absent on the Delivered record, where the path means nothing and a lens matching nothing
+  would read as broken. The finding is stated whether or not the lens is switched on — this is the
+  one lens that answers a question rather than narrowing to an answer you already had.
+
 ## [0.444.0] - 2026-09-08
 
 ### Added

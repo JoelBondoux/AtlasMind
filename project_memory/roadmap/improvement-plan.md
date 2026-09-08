@@ -15,10 +15,10 @@ This file is the developer-facing backlog AtlasMind should absorb into SSOT and 
 - [ ] Extend the test surface to have a test management interface for testing teams. Create test cases, have discreet context for tests assets that are name associated to testers #mvp <!-- rm:extend-the-test-surface-to-h -->
 - [ ] Add a built-in or utilise Git-Hub projects Kanban board. #mvp <!-- rm:add-a-built-in-or-utilise-gi -->
 - [ ] expand baseline comparrison features. #mvp <!-- rm:expand-baseline-comparrison -->
-- [ ] Add an AM logo to the generic Source Control side panel next to the icon "Create Pull Request" to have AM generate a commit message. <!-- rm:add-an-am-logo-to-the-generi -->
+- [x] Add an AM logo to the generic Source Control side panel next to the icon "Create Pull Request" to have AM generate a commit message. <!-- rm:add-an-am-logo-to-the-generi -->
 - [x] Sometimes when deleting all sessions in AM chat window, the chat history of an old session stays on the screen and doesn't refresh to a blank chat. #mvp #critical <!-- rm:sometimes-when-deleting-all -->
 - [ ] Explore a github pages hosted (within the host repo) web portal for AM Project Manager. #mvp <!-- rm:explore-a-github-pages-hoste -->
-- [ ] The Lens surfaces are not all accessible as they need a file selected. #mvp <!-- rm:the-lens-surfaces-are-not-al -->
+- [x] The Lens surfaces are not all accessible as they need a file selected. #mvp <!-- rm:the-lens-surfaces-are-not-al -->
 - [x] On the roadmap and ideation canvases allow for a drag box to select a number of nodes to allow them all to be moved together. #mvp <!-- rm:on-the-roadmap-and-ideation -->
 - [ ] I think CTRL-MouseScroll on the project dashboard should zoom in/out in the same way that chromium browsers work. <!-- rm:i-think-ctrl-mousescroll-on -->
 - [ ] Add a way to manually and automatically sync github sponsors to the contributors md files using some pre-built and manual rulesets. This may need a new dashboard page. #mvp #critical <!-- rm:add-a-way-to-manually-and-au -->
