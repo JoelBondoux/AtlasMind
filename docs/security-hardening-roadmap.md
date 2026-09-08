@@ -65,6 +65,21 @@ its cause; repeated identical failures are deduplicated, not discarded.
 
 **Regression test.** Force each failure mode and assert an output-channel line naming the cause.
 
+**Status: closed.** `BackgroundFailureNotices` (`backgroundMemoryPolicy.ts`) deduplicates an
+unchanged failure without hiding it, and is wired into the SSOT timer and the memory agent.
+
+**A later sweep found one more and changed nothing else.** `syncExchangeRates` returned `void` and
+degraded silently on a failed fetch; it now returns
+`not-needed` / `cached` / `fetched` / `failed` and the caller logs anything that is not
+`not-needed`, so a currency displaying unconverted USD has a findable reason (v0.435.0).
+
+Beyond that, `src/` contains **five** genuinely empty `catch` blocks and none is on a
+security-relevant path: four are browser-side audio-node teardown in `voicePanel.ts`
+(disconnecting an already-disconnected node), and the fifth is not a catch at all — it is this
+document's sibling comment in `backgroundMemoryPolicy.ts` *describing* the `catch {}` that was
+removed, matched by a regex reading prose as code. That is the third time this pass a scan has
+flagged its own documentation; see the note on stale and self-matching text in the final report.
+
 ---
 
 ## P1 — Requires a setting, a prompt, or an unusual path
@@ -289,3 +304,28 @@ time and should not be deferred behind the refactor it guards. P2 is a second ev
 implementation.
 
 **Nothing in this document has been implemented.** Phase 0 is evidence only, per the brief.
+
+---
+
+## Status, as of v0.436.0
+
+The line above was true when written and is now false — left in place because this pass found five
+stale-but-plausible claims sitting beside correct code, two of which had been cited as evidence for
+other decisions, and deleting the trail would be the same mistake in a smaller font. It is superseded
+by this section and by [`security-hardening-report.md`](security-hardening-report.md).
+
+| Item | Status |
+|---|---|
+| P0-1 · Background SSOT summarisation | Closed — gated three ways, mode read inside the tick |
+| P0-2 · Timer writes to project memory | Closed — same path |
+| P0-3 · Swallowed failures | Closed — `BackgroundFailureNotices`; one further case found and fixed in v0.435.0 |
+| P1-1 · No model-egress boundary | Closed v0.432.0 — direct callers 21 → 0 |
+| P1-2 · Model-generated JS in the host | Closed v0.434.0 — evaluation contained; residual stated and asserted |
+| P1-3 · No capability broker | **Partly closed** v0.433.0 — the ceiling and the worst path. The broker was deliberately not built |
+| P2 · Verify before building | **Unstarted.** Read-only enforcement, `src/mcp/`, `src/acp/`, `src/remote/` authority paths |
+| P3 · Documentation consistency | Closed alongside each change, in the same commit |
+
+Two items outside the original document were added by tracing rather than by plan: **startup network
+activity** (two third parties contacted unprompted on every launch, v0.435.0) and **supply chain**
+(nine CI actions on mutable tags, v0.436.0). Neither was in the brief; both were found by asking what
+runs without being asked.

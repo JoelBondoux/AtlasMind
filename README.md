@@ -4,7 +4,7 @@
 
 <h1 align="center">AtlasMind</h1>
 
-<p align="center"><sub> · <strong>Current source version: 0.435.0</strong> · </sub></p>
+<p align="center"><sub> · <strong>Current source version: 0.436.0</strong> · </sub></p>
 
 
 <p align="center">
@@ -175,11 +175,15 @@ important limits on overrides and compliance claims.
 
 ---
 
-## What's new in 0.435.0
+## What's new in 0.436.0
 
 The last Marketplace publication, **v0.420.4**, brought the changes below. Every release is written
 up in full in [CHANGELOG.md](CHANGELOG.md).
 
+- **Supply chain tightened.** Every CI action is now pinned to an exact commit rather than a movable
+  tag, the project bootstrapper no longer starts a shell for anything, and the Debian install path
+  that piped a download into `sudo` has been removed in favour of the manual instructions. There is a
+  written [dependency review](docs/dependency-security-review.md) and an SBOM command.
 - **Starting the editor contacts nobody.** AtlasMind loads when VS Code starts, and two things
   reached third parties from there that your settings never asked for: an exchange-rate lookup that
   ran even though costs display in USD by default and needed no conversion, and a downloadable-model

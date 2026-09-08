@@ -24,7 +24,7 @@ jobs:
     steps:
       - name: Checkout
         # v7
-        uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1
+        uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7
         with:
           # Full history: a credential that was committed and then removed is
           # still a credential that leaked, and a shallow clone cannot see it.
@@ -35,7 +35,7 @@ jobs:
         # v3. The v2 line runs on the Node 20 Actions runtime, which GitHub
         # removes from hosted runners on 16 September 2026; v3 is the same
         # action on Node 24 with no input, output or behaviour change.
-        uses: gitleaks/gitleaks-action@e0c47f4f8be36e29cdc102c57e68cb5cbf0e8d1e
+        uses: gitleaks/gitleaks-action@e0c47f4f8be36e29cdc102c57e68cb5cbf0e8d1e # v3.0.0
         env:
           GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
 
@@ -51,13 +51,13 @@ jobs:
     steps:
       - name: Checkout
         # v7
-        uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1
+        uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7
         with:
           persist-credentials: false
 
       - name: Setup Node
         # v7
-        uses: actions/setup-node@820762786026740c76f36085b0efc47a31fe5020
+        uses: actions/setup-node@820762786026740c76f36085b0efc47a31fe5020 # v7
         with:
           node-version: 24
           cache: npm
@@ -86,7 +86,7 @@ jobs:
       - name: Upload test report
         if: always()
         # v7
-        uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a
+        uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a # v7.0.1
         with:
           name: test-report-${{ matrix.os }}
           path: test-results/
@@ -100,7 +100,7 @@ jobs:
       - name: Upload coverage artifact
         if: matrix.os == 'ubuntu-latest'
         # v7
-        uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a
+        uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a # v7.0.1
         with:
           name: coverage-report
           path: coverage/
@@ -117,7 +117,7 @@ jobs:
       - name: Upload VSIX artifact
         if: matrix.os == 'ubuntu-latest'
         # v7
-        uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a
+        uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a # v7.0.1
         with:
           name: atlasmind-vsix-${{ github.sha }}
           path: '*.vsix'

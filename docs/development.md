@@ -992,7 +992,10 @@ npm run package    # Produces a .vsix file
 npm run package:vsix    # Packages with the checked-in @vscode/vsce dependency
 npm run publish:release    # Publishes the current build (does not tag)
 npm run tag:release    # Re-run the git tag step on its own if it failed after publish
+npm run sbom           # CycloneDX SBOM of runtime dependencies, to stdout
 ```
+
+`sbom` emits CycloneDX 1.5 for runtime dependencies only (`--omit dev`), resolved from the lockfile. It writes to stdout and **nothing commits its output**: a checked-in SBOM goes stale silently, and a stale one answers a question about a build that no longer exists with the confidence of a generated artifact. Generate it against the tag you are actually asking about. The reasoning, and the rest of the supply-chain position, is in [`dependency-security-review.md`](dependency-security-review.md).
 
 `publish:release` runs `vsce publish` and nothing else, authenticating with whatever credential `vsce login` stored in the OS keychain — it is the emergency path for publishing from a developer machine. **CI uses `publish:release:ci` instead** (`vsce publish --azure-credential`), which authenticates as the managed identity `vscode-marketplace-publisher` through workload identity federation; there is no Marketplace secret in the repository. The two are kept separate because adding `--azure-credential` to the local script would break publishing from a machine that has no Azure sign-in. Tagging is `npm run tag:release`, which creates and pushes a `v<version>` annotated git tag (`.github/scripts/tag-release.mjs`, cross-platform and idempotent — it skips if the tag already exists). The two are deliberately **not** chained: the tag push triggers `publish.yml`, so chaining them made one release attempt two publishes, the second failing on "version already exists". Normal flow is `tag:release` locally, then CI publishes from the tag.
 

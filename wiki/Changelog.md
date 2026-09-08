@@ -19,6 +19,34 @@ Older entries below describe the software as it was at the time and are delibera
 
 ---
 
+## v0.436.0 -- Nothing starts a shell it does not need, and CI runs what we pinned
+
+**The project bootstrapper no longer starts a shell.** It used to start four: three checks for
+whether a package manager exists — which ran *before* you were asked anything — the installer itself,
+and `git add -A && git commit`. Every one was a fixed string, so none could be tampered with, but a
+shell is one interpolation away from being a problem and none of these needed one.
+
+**The Debian install path is gone rather than rewritten.** Installing the GitHub CLI on Debian and
+Ubuntu meant piping a download straight into `sudo`. AtlasMind refuses to ship that pattern for Rust
+elsewhere, and one product should not hold two opinions about it. Those users now get the manual
+instructions, which they were getting anyway whenever the command failed — and it would have failed,
+because `sudo` with nowhere to type a password does.
+
+**Every CI action is pinned to an exact commit.** Nine were pinned to tags like `v7`, and a tag can be
+moved by whoever controls the action's repository — which is exactly how a popular action started
+stealing credentials from thousands of projects last year, none of whom changed a line. Our publish
+job holds a credential that can put a release on the Marketplace under this publisher's name, and a
+published version can never be taken back.
+
+Each pin also carries a readable version comment. A bare commit hash is unreviewable, and a pin
+nobody can review stops being *deliberate* and starts being *stuck*.
+
+New with it: a written [dependency review](https://github.com/JoelBondoux/AtlasMind/blob/main/docs/dependency-security-review.md),
+an SBOM command, and tests that fail if a shell caller appears, if a shell command is ever built out
+of a value, if an action loses its pin, or if a new package is added to what ships to your machine.
+
+---
+
 ## v0.435.0 -- Starting the editor contacts nobody
 
 AtlasMind loads when VS Code starts, so anything in that path runs on every machine, every launch.

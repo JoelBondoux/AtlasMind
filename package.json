@@ -2,7 +2,7 @@
   "name": "atlasmind",
   "displayName": "AtlasMind",
   "description": "AI project management for VS Code: roadmap, risk, tech debt, compliance, testing and release tracked from your own repository — with a multi-agent AI team, or the AI coding tool you already use.",
-  "version": "0.435.0",
+  "version": "0.436.0",
   "publisher": "JoelBondoux",
   "preview": false,
   "license": "SEE LICENSE IN OSMFEULA.txt",
@@ -2855,7 +2855,8 @@
     "publish:pre-release": "npx @vscode/vsce publish --pre-release",
     "publish:release": "npx @vscode/vsce publish",
     "publish:release:ci": "npx @vscode/vsce publish --azure-credential",
-    "tag:release": "node .github/scripts/tag-release.mjs"
+    "tag:release": "node .github/scripts/tag-release.mjs",
+    "sbom": "npm sbom --sbom-format cyclonedx --omit dev --package-lock-only"
   },
   "devDependencies": {
     "@stryker-mutator/core": "^10.0.0",

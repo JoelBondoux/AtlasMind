@@ -6,6 +6,57 @@ The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/),
 
 ## [Unreleased]
 
+## [0.436.0] - 2026-09-08
+
+### Changed
+
+- **The bootstrapper spawns no shell.** It used to spawn four: three capability probes
+  (`winget --version` and friends) that ran *before* any confirmation, the installer command,
+  and `git add -A && git commit -m "…"`. All were module-level constants, so none was
+  injectable — but three ran unprompted, and a shell is only ever one interpolation away from
+  being a hazard. Installers are now argv vectors run through `execFile`, and the git pair is
+  two calls (the `&&` was the only reason a shell was needed; sequencing says the same thing,
+  and the commit is still skipped if the add fails).
+
+- **The Debian `gh` installer is gone rather than argv-ised.** It was
+  `curl -fsSL … | sudo dd of=/usr/share/keyrings/… && … | sudo tee … && sudo apt install gh`
+  — a privileged download-and-pipe. `acpInstaller.ts` refuses to ship Rust's `curl … | sh` on
+  principle, and two installers in one product should not disagree about whether that principle
+  exists. apt users get the manual instructions the no-installer path already showed. It could
+  not have worked anyway: `sudo` with no TTY prompts for a password nothing can answer. dnf
+  stays — a plain command, not a pipeline.
+
+- **Every CI action is pinned to a commit SHA.** Nine references were on mutable tags
+  (`actions/checkout@v7`, `actions/setup-node@v7`, `azure/login@v3`, `actions/checkout@v4`) —
+  across `publish.yml`, `release.yml`, `marketplace-identity.yml` and
+  `model-prices-freshness.yml`. `ci.yml` and `trusted-local-ci.yml` were already pinned, the
+  first with a test of its own and the second by its generator, so the gap was that the
+  existing check covered one workflow out of six.
+  Moving a tag is one API call for whoever has write access to the action's repository, which
+  is how `tj-actions/changed-files` became a credential exfiltrator across thousands of
+  repositories without any of them changing a line. It matters more here than most:
+  `publish.yml` holds a federated credential that can publish to the Marketplace under this
+  publisher's name, and a published version can never be replaced.
+
+### Added
+
+- `tests/security/subprocessShellUse.test.ts` — two files may invoke a shell
+  (`routineRunner`, `promotionRunner`; both run commands a human wrote and confirmed, and the
+  list may only shrink), and **no shell command anywhere may be assembled from a value**. The
+  second is not a ratchet: it is zero, and a new entry is a command injection until proven
+  otherwise.
+
+- `tests/security/supplyChain.test.ts` — every third-party action pinned to a 40-character
+  SHA *and* carrying a readable version comment, since a bare SHA is unreviewable and a pin
+  nobody can review becomes a way of staying old rather than deliberate. Also ratchets the
+  runtime dependency **set** (seven packages, each with the reason it is worth shipping):
+  fails on an undeclared addition and on a declared package that has gone.
+
+- `docs/dependency-security-review.md` and an `npm run sbom` script (CycloneDX, runtime only).
+  The SBOM is deliberately **not committed**: a checked-in one goes stale silently, and a stale
+  SBOM answers a question about a build that no longer exists with the confidence of a
+  generated artifact.
+
 ## [0.435.0] - 2026-09-08
 
 ### Fixed
