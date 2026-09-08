@@ -4,7 +4,7 @@
 
 <h1 align="center">AtlasMind</h1>
 
-<p align="center"><sub> · <strong>Current source version: 0.449.5</strong> · </sub></p>
+<p align="center"><sub> · <strong>Current source version: 0.449.6</strong> · </sub></p>
 
 
 <p align="center">
@@ -175,9 +175,9 @@ important limits on overrides and compliance claims.
 
 ---
 
-## What's new in 0.449.5
+## What's new in 0.449.6
 
-The last Marketplace publication, **v0.420.4**, brought the changes below. Every release is written
+The last Marketplace publication, **v0.449.5**, brought the changes below. Every release is written
 up in full in [CHANGELOG.md](CHANGELOG.md).
 
 - **Security housekeeping, with the findings read rather than waved through.** Every open CodeQL alert

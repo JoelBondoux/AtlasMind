@@ -19,6 +19,13 @@ Older entries below describe the software as it was at the time and are delibera
 
 ---
 
+## v0.449.6 -- Baseline refreshed
+
+The README's "last Marketplace publication" line names v0.449.5, which is what the Marketplace now
+serves.
+
+---
+
 ## v0.449.5 -- Closing the pass
 
 The last two values the analyser named are escaped: a content-state label in the Studio inspector and

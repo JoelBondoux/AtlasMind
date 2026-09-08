@@ -6,6 +6,16 @@ The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/),
 
 ## [Unreleased]
 
+## [0.449.6] - 2026-09-08
+
+### Documentation
+
+- **README's published baseline now names v0.449.5**, the version the Marketplace publish just
+  accepted. It said v0.420.4, which was true until a few minutes ago. `docsIntegrity` compares the
+  stated baseline against the newest tag, so the suite is red between tagging and this commit — by
+  design, since the tag this line must name does not exist when the release commit is written, and a
+  README claiming a version that never shipped would be the worse failure.
+
 ## [0.449.5] - 2026-09-08
 
 ### Security
