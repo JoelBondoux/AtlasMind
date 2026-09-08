@@ -162,7 +162,14 @@ function nameSegments(raw: string): Set<string> {
   for (const token of raw.split(/[^a-z0-9]+/)) {
     if (token.length < 2) { continue; }
     segments.add(token);
-    const withoutVersion = token.replace(/\d+$/, '');
+    // Trailing digits are trimmed by walking back from the end rather than with
+    // `/\d+$/`, whose anchored `+` retries from every position in a long digit
+    // run. Model ids arrive from provider catalogs, so the input is not ours.
+    let end = token.length;
+    while (end > 0 && token.charCodeAt(end - 1) >= 48 && token.charCodeAt(end - 1) <= 57) {
+      end -= 1;
+    }
+    const withoutVersion = token.slice(0, end);
     if (withoutVersion.length >= 2) {
       segments.add(withoutVersion);
     }

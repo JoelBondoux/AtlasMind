@@ -4025,7 +4025,10 @@ function shortDiscoverType(type: string): string {
 }
 
 function escapeTableCell(text: string): string {
-  return text.replace(/\|/g, '\\|').replace(/\n/g, ' ');
+  // Backslash first, or it escapes the escape: a value ending in one turns the
+  // `\|` that follows into a literal backslash and a live pipe, which splits the
+  // cell and shifts every column after it. See `markdownCell` in `debtRegister`.
+  return text.replace(/\\/g, '\\\\').replace(/\|/g, '\\|').replace(/\n/g, ' ');
 }
 
 async function handleCostCommand(

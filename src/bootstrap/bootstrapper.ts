@@ -3007,7 +3007,10 @@ function escapeCsvCell(value: string): string {
 }
 
 function escapeYamlString(value: string): string {
-  return value.replace(/"/g, '\\"').replace(/\r?\n/g, ' ');
+  // The backslash goes first, or it escapes the escape: a value ending in one
+  // closes the quoted scalar a character early, and everything after it is read
+  // as YAML rather than as data.
+  return value.replace(/\\/g, '\\\\').replace(/"/g, '\\"').replace(/\r?\n/g, ' ');
 }
 
 function reportBootstrapProgress(reporter: BootstrapPromptReporter, markdown: string): void {

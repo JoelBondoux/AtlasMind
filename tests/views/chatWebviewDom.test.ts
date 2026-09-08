@@ -542,3 +542,46 @@ describe('the model pin button', () => {
     expect(harness.window.document.getElementById('modelPinLabel')?.textContent).toBe('Auto');
   });
 });
+
+describe('an attachment preview only loads a source it recognises', () => {
+  let harness: Harness;
+
+  beforeEach(() => {
+    harness = mountChatWebview();
+  });
+
+  const attachment = (previewUri: string) => ({
+    id: 'a1', label: 'shot.png', kind: 'image', source: 'workspace/shot.png', previewUri,
+  });
+
+  const composerImages = () =>
+    [...harness.window.document.querySelectorAll('#attachmentList img')].map(node => node.getAttribute('src'));
+
+  it('renders the image for a host-issued preview', () => {
+    // The two shapes the host actually produces: an inlined data URI, and the
+    // https form `asWebviewUri` returns.
+    harness.send(stateWith([USER_TURN], {
+      attachments: [attachment('data:image/png;base64,iVBORw0KGgo=')],
+    }));
+    expect(composerImages()).toEqual(['data:image/png;base64,iVBORw0KGgo=']);
+
+    harness.send(stateWith([USER_TURN], {
+      attachments: [attachment('https://file+.vscode-resource.vscode-cdn.net/shot.png')],
+    }));
+    expect(composerImages()).toEqual(['https://file+.vscode-resource.vscode-cdn.net/shot.png']);
+  });
+
+  it('renders no image at all for a scheme it does not recognise', () => {
+    // `previewUri` arrives as a string on a host message and went straight to
+    // `img.src`. The chip still renders, so the attachment is visible and still
+    // removable — what does not happen is a URL of somebody else's choosing
+    // being handed to the DOM.
+    harness.send(stateWith([USER_TURN], {
+      attachments: [attachment('javascript:alert(1)')],
+    }));
+
+    expect(harness.errors).toEqual([]);
+    expect(composerImages()).toEqual([]);
+    expect(harness.window.document.getElementById('attachmentList')?.textContent).toContain('shot.png');
+  });
+});

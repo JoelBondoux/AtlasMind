@@ -4,7 +4,7 @@
 
 <h1 align="center">AtlasMind</h1>
 
-<p align="center"><sub> · <strong>Current source version: 0.449.2</strong> · </sub></p>
+<p align="center"><sub> · <strong>Current source version: 0.449.3</strong> · </sub></p>
 
 
 <p align="center">
@@ -175,11 +175,17 @@ important limits on overrides and compliance claims.
 
 ---
 
-## What's new in 0.449.2
+## What's new in 0.449.3
 
 The last Marketplace publication, **v0.420.4**, brought the changes below. Every release is written
 up in full in [CHANGELOG.md](CHANGELOG.md).
 
+- **Security housekeeping, with the findings read rather than waved through.** Every open CodeQL alert
+  on `develop` is addressed: 40 fixed, 8 dismissed with a written reason. The ones worth knowing about
+  — webview image previews now only load a source AtlasMind recognises, the content-security-policy
+  nonce comes from the platform CSPRNG instead of `Math.random()`, four webview values that were
+  missing their HTML escape have it, and an "official" badge on a recommended MCP server is decided by
+  parsing the URL's host rather than by looking for the host's name anywhere in it.
 - **Dependencies are current.** Every open Dependabot update is in, including Vitest 5 — taken in one
   verified pass rather than merged one PR at a time. `@types/vscode` is deliberately held at the
   version `engines.vscode` declares, because raising it would raise the minimum VS Code you need.

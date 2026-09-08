@@ -371,11 +371,29 @@ export function escapeHtml(text: string): string {
     .replace(/'/g, '&#39;');
 }
 
+/**
+ * A content-security-policy nonce.
+ *
+ * `Math.random()` is seeded per process and its output is recoverable from a
+ * few samples, so a nonce built from it is guessable — and a guessable nonce is
+ * the same as no nonce at all: it is the one value standing between the panel's
+ * CSP and an injected `<script>` running with the page's own privileges. Every
+ * other guard in these webviews (escaping, no inline handlers, message
+ * validation) assumes this value cannot be predicted.
+ *
+ * `crypto.getRandomValues` is the platform CSPRNG, and it is the *web* one on
+ * purpose: this module is bundled into the web extension as well as the desktop
+ * host, so `node:crypto` would not resolve there. Hex rather than a hand-rolled
+ * alphabet loop, because a nonce only has to be unguessable and unique, and a
+ * base-62 alphabet indexed by a float is where a modulo bias would live.
+ */
 function getNonce(): string {
-  const chars = 'ABCDEFGHIJKLMNOPQRSTUVWXYZabcdefghijklmnopqrstuvwxyz0123456789';
-  let nonce = '';
-  for (let index = 0; index < 32; index += 1) {
-    nonce += chars.charAt(Math.floor(Math.random() * chars.length));
-  }
-  return nonce;
+  return webviewNonce();
+}
+
+/** Exported so the one panel with its own shell cannot grow a second, weaker one. */
+export function webviewNonce(): string {
+  const bytes = new Uint8Array(16);
+  globalThis.crypto.getRandomValues(bytes);
+  return Array.from(bytes, byte => byte.toString(16).padStart(2, '0')).join('');
 }

@@ -1158,7 +1158,17 @@ function normalizeSsotPath(input: string | undefined): string | undefined {
 }
 
 function normalizeFsPathForComparison(value: string): string {
-  const normalized = path.resolve(value).replace(/[\\/]+$/, '');
+  // Trailing separators are trimmed with an index walk rather than `/[\\/]+$/`.
+  // An anchored `+` backtracks across a long run of separators once per starting
+  // position, so a path ending in thousands of slashes costs quadratic time —
+  // and this runs on paths that arrive from workspace configuration rather than
+  // from a person typing them.
+  const resolved = path.resolve(value);
+  let end = resolved.length;
+  while (end > 0 && (resolved[end - 1] === '/' || resolved[end - 1] === '\\')) {
+    end -= 1;
+  }
+  const normalized = resolved.slice(0, end);
   return process.platform === 'win32'
     ? normalized.toLowerCase()
     : normalized;
@@ -1229,7 +1239,17 @@ export function applyMemorySelfHealingToContent(content: string): { content: str
     actions.push('removed hidden Unicode control characters');
   }
 
-  const withoutInjectedComments = next.replace(/<!--[\s\S]*?(?:ignore|forget|override|instruction)[\s\S]*?-->/gi, '<!-- removed by AtlasMind memory self-heal -->');
+  // Each comment is matched once, then tested — rather than one pattern with a
+  // wildcard run on both sides of the keyword, which backtracks across every
+  // `<!--` in the file for every starting position. This function's whole job is
+  // reading memory files that may be hostile, so a pattern that degrades on
+  // input somebody chose is the wrong shape for it.
+  const withoutInjectedComments = next.replace(
+    /<!--[\s\S]*?-->/g,
+    comment => (/ignore|forget|override|instruction/i.test(comment)
+      ? '<!-- removed by AtlasMind memory self-heal -->'
+      : comment),
+  );
   if (withoutInjectedComments !== next) {
     next = withoutInjectedComments;
     actions.push('neutralized suspicious HTML comments');

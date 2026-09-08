@@ -6,6 +6,60 @@ The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/),
 
 ## [Unreleased]
 
+## [0.449.3] - 2026-09-08
+
+### Security
+
+- **Every open CodeQL finding on `develop` addressed — 40 fixed, 8 dismissed with a stated reason.**
+  Taken as a triage rather than a sweep: each finding was read against the code it points at, and the
+  ones that turned out to be real were the ones worth the pass.
+
+  **A webview only loads an image source it recognises.** An attachment's `previewUri` arrives as a
+  string on a host message and went straight to `img.src` in three places. It is now parsed and
+  checked against the three shapes the host actually produces — an inlined `data:image/…`, and the
+  `https:`/`vscode-resource:` forms of `asWebviewUri` — with an unrecognised value rendering the chip
+  and no image, so the attachment stays visible and removable.
+
+  **The CSP nonce comes from the platform CSPRNG.** It was 32 characters drawn from `Math.random()`,
+  which is seeded per process and recoverable from a few samples — and a guessable nonce is the same
+  as no nonce, since it is the one value between a panel's CSP and an injected script running with the
+  page's own privileges. Both webview shells now share one implementation, so the panel with its own
+  shell cannot grow a second, weaker one. Chat session, message and folder ids moved to the same
+  source.
+
+  **Four webview interpolations were missing their escape.** CodeQL pointed at the exact ones: the
+  branch-comparison counts, an ideation template's card count, the responsive inspector's layout
+  constraints and component states, and the asset editor's geometry. Everything around them was
+  already escaped, which is why the finding was worth having.
+
+  **A markdown cell escapes the escape.** Six mirrors escaped `|` without escaping `\`, so a value
+  ending in a backslash turned the escape that followed into a literal backslash and a live pipe —
+  splitting one cell in two and shifting every column after it. Component labels are file paths, so
+  a trailing backslash is the ordinary case on Windows rather than a hostile one. The same fix applies
+  to the YAML string escaper in the bootstrapper, where the consequence is a scalar that ends early
+  and a line that is then read as YAML rather than as data.
+
+  **An "official" badge is decided by host, not by substring.** `url.includes('learn.microsoft.com')`
+  is satisfied by `https://example.invalid/?ref=learn.microsoft.com` and by
+  `https://learn.microsoft.com.example.invalid/`. The badge sits beside a server somebody is about to
+  install, so it is now parsed, matched on hostname and path prefix, and an unparseable URL reads as
+  `community` — the weaker claim, which is the safe direction.
+
+  **Three regexes could be made to backtrack** on input that is not ours: a trailing-separator trim on
+  configured paths, the memory self-healer's injected-comment scrub (which exists to read files that
+  may be hostile), and a version-suffix trim over provider model ids. Each is now a bounded walk or a
+  single pass.
+
+  **Two escapes were wrong rather than merely weak.** `key.replace(/\./g, '\.')` in the docs-integrity
+  test replaced a dot with itself, leaving every one of them a wildcard; and the wiki changelog guard
+  escaped only the dot in a version, where SemVer admits `+` and `-`.
+
+  Dismissed with reasons: five test helpers that extract this project's own `<script>` block to
+  syntax-check it, three test parsers that strip tags from our own source, and one `\$` inside a
+  template literal, where the escape is what stops JavaScript interpolating a GitHub Actions
+  expression. None is a sanitizer, and rewriting them as though they were would add complexity in
+  return for nothing.
+
 ## [0.449.2] - 2026-09-08
 
 ### Changed

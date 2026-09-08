@@ -501,5 +501,8 @@ function clampText(value: unknown, max: number): string {
 
 /** Keep a comment from breaking the markdown mirror's structure. */
 function escapeCell(text: string): string {
-  return text.replace(/\|/g, '\\|').replace(/\r?\n/g, ' ');
+  // Backslash first, or it escapes the escape: a comment ending in one turns the
+  // `\|` that follows into a literal backslash and a live pipe, which splits the
+  // cell and shifts every column after it. See `markdownCell` in `debtRegister`.
+  return text.replace(/\\/g, '\\\\').replace(/\|/g, '\\|').replace(/\r?\n/g, ' ');
 }

@@ -879,7 +879,7 @@
             '<button type="button" class="ideation-template-card" data-action="ideation-seed-template" data-payload="' + escapeAttr(template.id) + '">' +
               '<strong>' + escapeHtml(template.label) + '</strong>' +
               '<span class="section-copy">' + escapeHtml(template.whenToUse) + '</span>' +
-              '<span class="ideation-template-meta">' + template.cardCount + ' cards' +
+              '<span class="ideation-template-meta">' + escapeHtml(String(template.cardCount)) + ' cards' +
                 (template.suggestedBecause ? ' · ' + escapeHtml(template.suggestedBecause) : '') +
               '</span>' +
             '</button>').join('') +

@@ -122,27 +122,65 @@ const DOCKER_RUNTIME_INSTALLS: Partial<Record<SupportedRuntimePlatform, Recommen
 
 const MCP_REGISTRY_URL = 'https://registry.modelcontextprotocol.io/';
 
-function inferRecommendedMcpServerProvenance(server: Omit<RecommendedMcpServer, 'provenance' | 'category'>): RecommendedMcpServerProvenance {
-	const installUrl = server.installUrl.toLowerCase();
-	const docsUrl = server.docsUrl.toLowerCase();
-	const combined = `${installUrl} ${docsUrl}`;
+/**
+ * What makes a recommendation "official", stated as host plus path rather than
+ * as a substring of the URL.
+ *
+ * `combined.includes('learn.microsoft.com')` is satisfied by
+ * `https://evil.example/?q=learn.microsoft.com`, and by
+ * `https://learn.microsoft.com.example.net/…` — a host can appear anywhere in a
+ * URL, and arbitrary hosts may come before or after it. The badge this decides
+ * is a trust signal shown next to a server somebody is about to install, so a
+ * check a lookalike URL can pass is the wrong check even while every entry in
+ * this catalog is one we wrote.
+ */
+const OFFICIAL_MCP_SOURCES: ReadonlyArray<{ host: string; pathPrefix?: string }> = [
+	{ host: 'learn.microsoft.com' },
+	{ host: 'modelcontextprotocol.io' },
+	{ host: 'github.com', pathPrefix: '/modelcontextprotocol/servers' },
+	{ host: 'github.com', pathPrefix: '/github/github-mcp-server' },
+	{ host: 'github.com', pathPrefix: '/block/buzz' },
+	{ host: 'npmjs.com', pathPrefix: '/package/@azure/mcp' },
+];
 
-	if (combined.includes('servers-archived')) {
+/** The archived tree the MCP project moved retired reference servers into. */
+const ARCHIVED_MCP_SOURCE = { host: 'github.com', pathPrefix: '/modelcontextprotocol/servers-archived' } as const;
+
+/** `true` when `url` is on `host` itself or a subdomain of it, under `pathPrefix`. */
+function urlMatchesSource(url: string, source: { host: string; pathPrefix?: string }): boolean {
+	let parsed: URL;
+	try {
+		parsed = new URL(url);
+	} catch {
+		// An unparseable URL claims nothing. Community is the weaker label, and
+		// the weaker label is the safe direction for a badge that says "trust this".
+		return false;
+	}
+	const host = parsed.hostname.toLowerCase();
+	if (host !== source.host && !host.endsWith(`.${source.host}`)) {
+		return false;
+	}
+	if (!source.pathPrefix) {
+		return true;
+	}
+	const path = parsed.pathname.toLowerCase();
+	const prefix = source.pathPrefix.toLowerCase();
+	return path === prefix || path.startsWith(`${prefix}/`);
+}
+
+/** Exported so the lookalike-URL cases can be tested; the catalog below is the only caller. */
+export function inferRecommendedMcpServerProvenance(server: Omit<RecommendedMcpServer, 'provenance' | 'category'>): RecommendedMcpServerProvenance {
+	const urls = [server.installUrl, server.docsUrl];
+
+	if (urls.some(url => urlMatchesSource(url, ARCHIVED_MCP_SOURCE))) {
 		return 'archived';
 	}
 
-	if (installUrl === MCP_REGISTRY_URL || docsUrl === MCP_REGISTRY_URL) {
+	if (urls.some(url => url.toLowerCase() === MCP_REGISTRY_URL)) {
 		return 'registry';
 	}
 
-	if (
-		combined.includes('learn.microsoft.com')
-		|| combined.includes('modelcontextprotocol.io')
-		|| combined.includes('github.com/modelcontextprotocol/servers')
-		|| combined.includes('github.com/github/github-mcp-server')
-		|| combined.includes('github.com/block/buzz')
-		|| combined.includes('npmjs.com/package/@azure/mcp')
-	) {
+	if (urls.some(url => OFFICIAL_MCP_SOURCES.some(source => urlMatchesSource(url, source)))) {
 		return 'official';
 	}
 

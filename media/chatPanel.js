@@ -828,6 +828,43 @@
     }
   }
 
+  /**
+   * The only image sources an attachment preview may carry.
+   *
+   * `previewUri` reaches this script as a string on a host message, and every
+   * legitimate value is one of three things: a `data:image/…` preview the host
+   * inlined, an `https:` URL from `asWebviewUri`, or the older
+   * `vscode-(webview-)resource:` form of the same. Assigning the string straight
+   * to `img.src` trusts whatever arrives instead, which is the one place in this
+   * file where a scheme like `javascript:` would be handed to the DOM rather
+   * than to `textContent`.
+   *
+   * An unrecognised value yields no image rather than a broken one: the chip
+   * still renders with its label, so the attachment is still visible and still
+   * removable. Validated here, at the point of use, because the same string
+   * reaches three sinks and a check at only one of them is a check that a later
+   * caller walks past.
+   */
+  const SAFE_IMAGE_SCHEMES = ['https:', 'vscode-resource:', 'vscode-webview-resource:'];
+
+  function safeImageSrc(value) {
+    if (typeof value !== 'string' || value.length === 0) {
+      return '';
+    }
+    if (/^data:image\/(?:png|jpeg|jpg|gif|webp|bmp|svg\+xml);base64,[A-Za-z0-9+/=\s]*$/i.test(value)) {
+      return value;
+    }
+    try {
+      // Resolved against the document so a relative path stays relative, and
+      // parsed rather than string-matched: 'https:' anywhere in a
+      // 'javascript:' URL would satisfy a substring test.
+      const parsed = new URL(value, window.location.href);
+      return SAFE_IMAGE_SCHEMES.includes(parsed.protocol) ? value : '';
+    } catch (error) {
+      return '';
+    }
+  }
+
   function renderAttachments(attachments) {
     var hasAttachments = Array.isArray(attachments) && attachments.length > 0;
     attachmentsSection.classList.toggle('hidden', !hasAttachments);
@@ -840,18 +877,19 @@
       const chip = document.createElement('div');
       chip.className = 'chip attachment-chip';
 
-      if (attachment.kind === 'image' && attachment.previewUri) {
+      const chipPreviewSrc = attachment.kind === 'image' ? safeImageSrc(attachment.previewUri) : '';
+      if (chipPreviewSrc) {
         const previewButton = document.createElement('button');
         previewButton.type = 'button';
         previewButton.className = 'attachment-preview-btn';
         previewButton.title = 'Open image preview';
         previewButton.addEventListener('click', function () {
-          openImageLightbox(attachment.previewUri, attachment.label);
+          openImageLightbox(chipPreviewSrc, attachment.label);
         });
 
         const image = document.createElement('img');
         image.className = 'attachment-thumb';
-        image.src = attachment.previewUri;
+        image.src = chipPreviewSrc;
         image.alt = attachment.label || 'Attached image';
         previewButton.appendChild(image);
 
@@ -896,18 +934,19 @@
     gallery.className = 'message-attachment-gallery';
 
     entry.meta.promptAttachments.forEach(function (attachment) {
-      if (attachment.kind === 'image' && attachment.previewUri) {
+      const galleryPreviewSrc = attachment.kind === 'image' ? safeImageSrc(attachment.previewUri) : '';
+      if (galleryPreviewSrc) {
         const button = document.createElement('button');
         button.type = 'button';
         button.className = 'message-attachment-card';
         button.title = 'Open attached screenshot';
         button.addEventListener('click', function () {
-          openImageLightbox(attachment.previewUri, attachment.label);
+          openImageLightbox(galleryPreviewSrc, attachment.label);
         });
 
         const image = document.createElement('img');
         image.className = 'message-attachment-thumb';
-        image.src = attachment.previewUri;
+        image.src = galleryPreviewSrc;
         image.alt = attachment.label || 'Attached image';
         button.appendChild(image);
 
@@ -933,7 +972,14 @@
       return;
     }
 
-    imageLightboxImage.src = src;
+    // Checked again rather than trusted from the caller: this is a sink, and
+    // the two callers above are not the only way somebody could reach it later.
+    const safeSrc = safeImageSrc(src);
+    if (!safeSrc) {
+      return;
+    }
+
+    imageLightboxImage.src = safeSrc;
     imageLightboxImage.alt = label || 'Expanded image preview';
     if (imageLightboxCaption) {
       imageLightboxCaption.textContent = label || 'Attached image';

@@ -5636,13 +5636,13 @@
           <span class="tag mono">base ${escapeHtml(comparison.mergeBase || 'unknown')}</span>
         </div>
         <div class="mini-grid">
-          ${renderMetricPill(`${comparison.leftName} only`, `${comparison.leftOnlyCommits} commits`, { tone: comparison.leftOnlyCommits ? 'accent' : 'good' })}
-          ${renderMetricPill(`${comparison.rightName} only`, `${comparison.rightOnlyCommits} commits`, { tone: comparison.rightOnlyCommits ? 'accent' : 'good' })}
-          ${renderMetricPill('Changed-file overlap', `${comparison.overlappingFiles}`, { tone: comparison.overlappingFiles ? 'warn' : 'good' })}
+          ${renderMetricPill(`${comparison.leftName} only`, `${escapeHtml(String(comparison.leftOnlyCommits))} commits`, { tone: comparison.leftOnlyCommits ? 'accent' : 'good' })}
+          ${renderMetricPill(`${comparison.rightName} only`, `${escapeHtml(String(comparison.rightOnlyCommits))} commits`, { tone: comparison.rightOnlyCommits ? 'accent' : 'good' })}
+          ${renderMetricPill('Changed-file overlap', `${escapeHtml(String(comparison.overlappingFiles))}`, { tone: comparison.overlappingFiles ? 'warn' : 'good' })}
         </div>
         <div class="branch-evidence-grid">
-          <div><h4>${escapeHtml(comparison.leftName)} areas · ${comparison.leftChangedFiles} files</h4><ul>${countList(comparison.leftAreas)}</ul></div>
-          <div><h4>${escapeHtml(comparison.rightName)} areas · ${comparison.rightChangedFiles} files</h4><ul>${countList(comparison.rightAreas)}</ul></div>
+          <div><h4>${escapeHtml(comparison.leftName)} areas · ${escapeHtml(String(comparison.leftChangedFiles))} files</h4><ul>${countList(comparison.leftAreas)}</ul></div>
+          <div><h4>${escapeHtml(comparison.rightName)} areas · ${escapeHtml(String(comparison.rightChangedFiles))} files</h4><ul>${countList(comparison.rightAreas)}</ul></div>
           <div><h4>${escapeHtml(comparison.leftName)} contributors</h4><ul>${contributorList(comparison.leftContributors)}</ul></div>
           <div><h4>${escapeHtml(comparison.rightName)} contributors</h4><ul>${contributorList(comparison.rightContributors)}</ul></div>
         </div>

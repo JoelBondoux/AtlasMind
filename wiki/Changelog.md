@@ -19,6 +19,36 @@ Older entries below describe the software as it was at the time and are delibera
 
 ---
 
+## v0.449.3 -- The static analyser's list, read line by line
+
+Every open CodeQL finding on `develop` is now addressed: 40 fixed, 8 dismissed with a reason written
+next to them. It was worth doing as a triage rather than a sweep, because roughly half of them were
+real and the other half were the tool misreading a test helper as a sanitiser.
+
+The ones worth knowing about:
+
+An image attachment's preview URL arrived as a string on a message and went straight to an `img` tag.
+It is now checked against the shapes AtlasMind's own host produces; anything else renders the
+attachment without an image rather than handing an unknown URL to the page.
+
+The content-security-policy nonce -- the single value standing between a panel's CSP and an injected
+script -- was built from `Math.random()`, which is guessable from a handful of samples. It now comes
+from the platform's cryptographic generator, and both webview shells share one implementation so the
+weaker one cannot come back.
+
+Four values in webviews were being written into HTML without their escape. Everything around them was
+escaped, which is exactly why an analyser was better placed to find them than a person re-reading the
+file.
+
+Six markdown mirrors escaped the pipe character but not the backslash, so a Windows path ending in a
+backslash could split a table row and shift every column after it.
+
+And an "official" badge beside a recommended MCP server was decided by looking for a trusted host's
+name anywhere in the URL -- which `https://example.invalid/?ref=learn.microsoft.com` satisfies. It now
+parses the URL and matches the host.
+
+---
+
 ## v0.449.2 -- Dependencies cleared, in one verified pass
 
 Every open Dependabot update is in: the ACP SDK, noble-secp256k1, mysql2, zod, the type packages,
