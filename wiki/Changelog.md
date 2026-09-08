@@ -19,6 +19,30 @@ Older entries below describe the software as it was at the time and are delibera
 
 ---
 
+## v0.437.0 -- "Read-only" holds for the whole job
+
+Telling AtlasMind to work read-only was already enforced properly — the write tools are removed before
+the model ever sees them, and every call is checked again on the way out. But if your request became a
+**multi-step project run**, each step read its own generated instructions to work out what it was
+allowed to do, and those instructions describe the job, not your limits. So "audit this, read-only,
+don't change anything" restricted the step that planned the work and nothing that carried it out.
+
+The limit you set is now derived once from what *you* typed and travels with the work. Where a step
+has its own restriction the two combine, and combining can only ever narrow — the same rule AtlasMind
+already applies when one agent hands work to another, and for the same reason: if delegating could
+widen what is allowed, no restriction means anything, because the way round it is to ask somebody else.
+
+**An MCP server asking for one environment variable used to get all of them.** Declaring, say,
+`GITHUB_TOKEN` also handed that server every other credential the editor was started with. A server
+declaring *nothing* got a safe filtered set — so declaring what you needed made a server more trusted,
+which is backwards. Servers now get the filtered set plus exactly what they declared.
+
+Two areas were examined and needed no changes, which is worth saying: remote control (listens only on
+your own machine, constant-time token check, revocable) and the subscription-agent bridge (its "never
+grant permanently" rule is held up by tests, not a comment).
+
+---
+
 ## v0.436.1 -- The security pass, written up
 
 The security hardening report now carries its test tally: **120 security regression tests, 88 of them

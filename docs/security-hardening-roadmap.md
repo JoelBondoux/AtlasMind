@@ -278,6 +278,43 @@ injectable; they are a consistency finding, not a reachable one.
 These are **unverified hypotheses**, and the next Phase 0 pass should settle them before any code is
 written. Listing them as work items now would be the same mistake as trusting the documentation.
 
+> **Settled in v0.437.0.** Two real findings, two areas verified sound with nothing to change.
+>
+> **Read-only enforcement — structured, and escapable.** The hypothesis ("establish whether any
+> structured state exists or whether it is prompt text only") resolves in the code's favour on its own
+> terms: `TurnCapabilityEnvelope` is real structured state, the tool set is filtered before the model
+> sees it (`orchestrator.ts:1453`) *and* every call is re-checked (`:3328`). Tool-set widening on
+> escalation re-selects from the already-filtered set, so it cannot regain a write tool.
+>
+> The escape was elsewhere. The envelope is derived from `request.userMessage`, and a subtask's
+> message is `buildProjectSubTaskMessage(...)` — planner-generated text describing the work, which has
+> no reason to repeat the user's "don't change anything". Both planning entry points now derive once
+> from the user's own text and pass it down; `intersectTurnCapabilities` narrows and never widens.
+> `isToolAllowedByTurnEnvelope` remains **fail-open on an absent envelope**, deliberately: most turns
+> carry no restriction and failing closed would deny every tool on every ordinary turn. The safety
+> therefore rests on every path *supplying* one, which is asserted against the source.
+>
+> **MCP process environment — a real leak.** `{ ...process.env, ...declared }`, so a server declaring
+> one variable inherited every credential the editor was started with, while a server declaring none
+> got the SDK's filtered default. Declaring a requirement made a server more trusted. Fixed to layer
+> declared variables onto `getDefaultEnvironment()`.
+>
+> **`src/remote/` — sound, nothing changed.** Binds `127.0.0.1` in both transport modes, 32-byte token
+> in SecretStorage, `timingSafeEqual` with a length pre-check, 10-second auth timeout, an interactive
+> per-workspace approval before it will start, and revocation that rotates the secret and drops every
+> session. A remote client drives a real `ChatPanel`, so tool approvals surface as modals on the host
+> machine — the machine's owner stays the one who answers them.
+>
+> **`src/acp/` — sound, nothing changed.** The "never selects `allow_always`" claim is enforced by
+> three tests, one exhaustive over inputs, rather than asserted in a comment.
+>
+> **`src/mcp/` authority** beyond the environment leak was covered in v0.433.0: an unidentified MCP
+> tool grades `network`/`high` on its name alone and is now un-bypassable, and every MCP dispatch goes
+> through `toolApprovalGate` like any other tool.
+>
+> Recorded in full because a pass that reports only faults leaves no way to tell an examined area from
+> an unexamined one.
+
 - **Read-only enforcement (req 5).** Not traced at all. Establish whether any structured state exists
   or whether it is prompt text only.
 - **Autopilot and hard ceilings (req 6).** `toolApprovalManager.ts` and `toolPolicy.ts` were not read.
@@ -322,7 +359,7 @@ by this section and by [`security-hardening-report.md`](security-hardening-repor
 | P1-1 · No model-egress boundary | Closed v0.432.0 — direct callers 21 → 0 |
 | P1-2 · Model-generated JS in the host | Closed v0.434.0 — evaluation contained; residual stated and asserted |
 | P1-3 · No capability broker | **Partly closed** v0.433.0 — the ceiling and the worst path. The broker was deliberately not built |
-| P2 · Verify before building | **Unstarted.** Read-only enforcement, `src/mcp/`, `src/acp/`, `src/remote/` authority paths |
+| P2 · Verify before building | **Closed v0.437.0.** Two findings, two areas verified sound — see below |
 | P3 · Documentation consistency | Closed alongside each change, in the same commit |
 
 Two items outside the original document were added by tracing rather than by plan: **startup network

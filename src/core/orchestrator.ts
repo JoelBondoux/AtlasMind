@@ -1447,7 +1447,14 @@ export class Orchestrator {
   ): Promise<TaskResult> {
     const retrievalContext = (request.context['__preloadedRetrievalCtx'] as RetrievalContextBundle | undefined)
       ?? await this.buildRetrievalContext(request);
-    const turnCapabilities = deriveTurnCapabilityEnvelope(request.userMessage);
+    // Derived from this request's text, then narrowed by anything the caller
+    // was already restricted to. A subtask's text is planner-generated and will
+    // not repeat the user's "don't change anything", so without the
+    // intersection a read-only project run gave every subtask a clean slate.
+    const turnCapabilities = intersectTurnCapabilities(
+      deriveTurnCapabilityEnvelope(request.userMessage),
+      request.context['__inheritedCapabilityEnvelope'] as TurnCapabilityEnvelope | undefined,
+    );
     request.context['__turnCapabilityEnvelope'] = turnCapabilities;
     const eligibleAgentSkills = this.skills.getSkillsForAgent(agent).filter(skill =>
       isToolAllowedByTurnEnvelope(skill.id, {}, turnCapabilities),
@@ -2505,6 +2512,12 @@ export class Orchestrator {
     const startMs = Date.now();
     const signal = options?.signal;
 
+    // What the goal itself permits, carried into every subtask below. A
+    // subtask's own text is the planner's description of the work and will not
+    // repeat a restriction the user put on the goal, so re-deriving per subtask
+    // silently discarded it.
+    const goalCapabilities = deriveTurnCapabilityEnvelope(goal);
+
     // 1. Plan
     const planner = new Planner(this.router, this.providers, this.taskProfiler, this.memory, this.skills);
     let plan: ProjectPlan;
@@ -2580,6 +2593,7 @@ export class Orchestrator {
           signal,
           options?.sessionContextBundle,
           options?.sessionContext,
+          goalCapabilities,
         );
         // Propagate billing abort as a thrown error so the scheduler's
         // Promise.all immediately rejects and no further batches execute.
@@ -2629,6 +2643,14 @@ export class Orchestrator {
     signal?: AbortSignal,
     sessionContextBundle?: import('../types.js').SessionContextBundle,
     sessionContext?: string,
+    /**
+     * What the turn that authorised this run was allowed to do.
+     *
+     * Passed down rather than re-derived, because the only text a subtask has
+     * is the planner's description of the work — which is about the work, not
+     * about the limits the user put on it.
+     */
+    inheritedCapabilities?: TurnCapabilityEnvelope,
   ): Promise<SubTaskResult> {
     const startMs = Date.now();
     const userMessage = buildProjectSubTaskMessage(task, depOutputs, projectGoal);
@@ -2679,6 +2701,7 @@ export class Orchestrator {
           projectTddPolicy: buildProjectTddPolicy(task, depOutputs, testingConfigForTask),
           ...(projectGoal ? { sessionContextBundle: projectBundle } : {}),
           ...(subTaskMethodologyId ? { __testingMethodologyHint: buildMethodologySystemPromptHint(subTaskMethodologyId) } : {}),
+          ...(inheritedCapabilities ? { __inheritedCapabilityEnvelope: inheritedCapabilities } : {}),
         },
         constraints,
         timestamp: new Date().toISOString(),
@@ -2859,6 +2882,13 @@ export class Orchestrator {
   ): Promise<TaskResult & { stepwiseResults: SubTaskResult[] }> {
     const startMs = Date.now();
 
+    // Derived once, from what the user actually asked, and carried into every
+    // subtask. Without it the restriction applied only to the turn that planned
+    // the work and not to the turns that did it — a subtask's text is the
+    // planner's description of the job and never repeats "don't change
+    // anything".
+    const requestCapabilities = deriveTurnCapabilityEnvelope(request.userMessage);
+
     const planner = new Planner(this.router, this.providers, this.taskProfiler, this.memory, this.skills);
     let plan: ProjectPlan;
     try {
@@ -2882,7 +2912,10 @@ export class Orchestrator {
       plan,
       async (task, depOutputs) => {
         onProgress?.({ type: 'subtask-start', subTaskId: task.id, title: task.title, batchSize: 1 });
-        const result = await this.executeSubTask(task, depOutputs, request.constraints, onProgress);
+        const result = await this.executeSubTask(
+          task, depOutputs, request.constraints, onProgress,
+          '', undefined, undefined, undefined, requestCapabilities,
+        );
         if (result.billingAbort) {
           throw new Error(result.error ?? 'Provider billing limit reached.');
         }
@@ -6232,6 +6265,52 @@ export function deriveTurnCapabilityEnvelope(userMessage: string): TurnCapabilit
     writesAllowed,
     commandsAllowed,
     ...(limits.length > 0 ? { reason: limits.join('; ') } : {}),
+  };
+}
+
+/**
+ * Combine an inherited capability envelope with a locally derived one.
+ *
+ * **Intersection, never union** — the same rule `agentHandoff` applies to
+ * skills, for the same reason: if delegating could widen what is permitted,
+ * every restriction becomes a suggestion, because the way past it is to ask
+ * something else to do the work.
+ *
+ * This exists because a turn's read-only choice did not survive into the work
+ * it authorised. `processTaskWithAgent` derives the envelope from
+ * `request.userMessage`, and a subtask's "message" is
+ * `buildProjectSubTaskMessage(...)` — text the planner generated, which says
+ * "Implement the token refresh" and has no reason to repeat the user's "don't
+ * change anything". So a read-only `/project` run derived a *permissive*
+ * envelope for every one of its subtasks, and the restriction the user asked
+ * for applied to precisely the turn that did no work.
+ *
+ * Absent inheritance leaves the local envelope untouched: an ordinary chat turn
+ * has nothing to inherit, and treating that as a restriction would deny
+ * everything.
+ */
+export function intersectTurnCapabilities(
+  derived: TurnCapabilityEnvelope,
+  inherited: TurnCapabilityEnvelope | undefined,
+): TurnCapabilityEnvelope {
+  if (!inherited) {
+    return derived;
+  }
+
+  const writesAllowed = derived.writesAllowed && inherited.writesAllowed;
+  const commandsAllowed = derived.commandsAllowed && inherited.commandsAllowed;
+
+  // Both reasons are kept and de-duplicated. A subtask restricted by the
+  // user's original turn *and* by its own text should say so once, not twice,
+  // and should not lose the fact that the restriction came from further up.
+  const reasons = [inherited.reason, derived.reason]
+    .filter((reason): reason is string => typeof reason === 'string' && reason.length > 0);
+  const reason = [...new Set(reasons)].join('; ');
+
+  return {
+    writesAllowed,
+    commandsAllowed,
+    ...(reason ? { reason } : {}),
   };
 }
 

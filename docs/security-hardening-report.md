@@ -175,7 +175,41 @@ change worth its own test.
 
 ---
 
-## 8. Still open
+## 8. P2 — the second evidence pass
+
+Added after the report was first written, because P2 was the largest unexamined area and leaving it
+listed as "unstarted" beside a report claiming completeness would have been the same failure the
+report itself is about.
+
+Two findings, two areas verified sound.
+
+**A read-only turn did not stay read-only.** Enforcement is genuinely structural — the tool set is
+filtered before the model sees it and every call is re-checked — but the envelope is derived from the
+request's text, and a subtask's text is written by the planner. It describes the job, not the limits.
+So a read-only `/project` run gave every subtask a clean slate, and the restriction bound only the
+step that did no work. Fixed by deriving once from the user's own words and intersecting downward,
+the rule `agentHandoff` already applies to skills.
+
+**An MCP server declaring one environment variable inherited all of them.** `{ ...process.env,
+...declared }` — so requesting `GITHUB_TOKEN` also delivered every provider key and cloud credential
+in the editor's environment. A server declaring *nothing* got the SDK's filtered default, which makes
+the shape exactly backwards: declaring a requirement made a server more trusted.
+
+**`src/remote/` and `src/acp/`: nothing to change.** Recorded as findings in their own right. The
+remote server binds `127.0.0.1`, keeps a 32-byte token in SecretStorage, compares with
+`timingSafeEqual`, times out unauthenticated sockets, requires per-workspace approval and can be
+revoked. ACP's "never `allow_always`" is enforced by three tests, one exhaustive — a claim of that
+strength held up by a test rather than a comment, which is what §6 of this report asks for
+throughout.
+
+One deliberate fail-open is documented rather than changed: `isToolAllowedByTurnEnvelope` permits
+everything when no envelope is present. Most turns carry no restriction, and failing closed would
+deny every tool on every ordinary turn. The safety rests on every path supplying an envelope, which
+is now asserted against the source.
+
+---
+
+## 9. Still open
 
 - Three `cp.execFile` capability probes in `bootstrapper.ts` run before the install confirmation.
   Constants, no shell, no interpolation — but they run unprompted.

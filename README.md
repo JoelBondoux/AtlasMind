@@ -4,7 +4,7 @@
 
 <h1 align="center">AtlasMind</h1>
 
-<p align="center"><sub> · <strong>Current source version: 0.436.1</strong> · </sub></p>
+<p align="center"><sub> · <strong>Current source version: 0.437.0</strong> · </sub></p>
 
 
 <p align="center">
@@ -175,11 +175,17 @@ important limits on overrides and compliance claims.
 
 ---
 
-## What's new in 0.436.1
+## What's new in 0.437.0
 
 The last Marketplace publication, **v0.420.4**, brought the changes below. Every release is written
 up in full in [CHANGELOG.md](CHANGELOG.md).
 
+- **"Read-only" now holds for the whole job, not just the first step.** Asking AtlasMind to work
+  read-only was enforced properly on the turn you typed — but if that turn became a multi-step project
+  run, each step re-read its own instructions and found no restriction in them. The limit you set now
+  travels with the work and can only narrow, never widen. Separately, an MCP server that asked for one
+  environment variable used to receive every credential the editor was started with; it now gets a
+  filtered set plus what it declared.
 - **Supply chain tightened.** Every CI action is now pinned to an exact commit rather than a movable
   tag, the project bootstrapper no longer starts a shell for anything, and the Debian install path
   that piped a download into `sudo` has been removed in favour of the manual instructions. There is a

@@ -54,6 +54,11 @@ vi.mock('@modelcontextprotocol/sdk/client/stdio.js', () => ({
       lastStdioTransportOptions = options;
     }
   },
+  // A small, recognisable stand-in for the SDK's safe-to-inherit set. Real
+  // values are not needed and would be misleading: what the assertions care
+  // about is that declared variables land on *this* rather than on the whole
+  // of `process.env`, which is what the client used to spread in.
+  getDefaultEnvironment: () => ({ PATH: '/usr/bin' }),
 }));
 
 vi.mock('@modelcontextprotocol/sdk/client/sse.js', () => ({

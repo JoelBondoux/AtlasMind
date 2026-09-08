@@ -181,6 +181,18 @@ immediately before execution.
 A model that hallucinates a write tool, or is talked into one by injected text, gets a denial. The tool
 isn't there to call.
 
+**It holds for the whole job, not just the first step.** Until v0.437.0 it did not. A multi-step
+project run breaks your request into steps, and each step worked out its own permissions from the
+*generated* description of that step — which describes the work, not the limits you put on it. So
+"audit this, read-only" restricted the step that planned the work and none of the steps that carried
+it out. The limit is now taken once from what you typed and travels with the work. Where a step has a
+restriction of its own the two combine, and combining can only narrow.
+
+**One thing worth knowing:** a turn with no restriction at all permits everything, which is what makes
+ordinary use possible. The protection therefore depends on every path working out your limits rather
+than skipping the question — which is exactly what went wrong above, and is now checked by a test that
+fails if any step is started without them.
+
 It applies to subscription agents too: on a restricted turn, delegated tools are switched off, because an
 external agent must not be able to substitute its own file writer for a capability you withheld.
 
