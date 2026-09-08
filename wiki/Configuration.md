@@ -117,9 +117,16 @@ Providers**. Azure uses `atlasmind.provider.azure.apiKey`; Bedrock uses
 | `atlasmind.skillAutoSynthesisEnabled` | `false` | Whether a model may write a new skill and have it run when a tool does not exist. Scanned and shown to you first, every time |
 | `atlasmind.cli.addToTerminalPath` | `false` | Whether the `atlasmind` launchers go on the PATH of new integrated terminals |
 | `atlasmind.chat.revealOnApprovalRequest` | `true` | Bring the chat panel forward when something's waiting on you. You get a notification either way |
+| `atlasmind.chat.continueInBackground` | `true` | Let a chat finish after you close or hide its window, instead of stopping it |
 | `atlasmind.maxToolIterations` | `10` | How many tool rounds one turn may take |
 | `atlasmind.maxToolCallsPerTurn` | `8` | How many tools may run at once |
 | `atlasmind.toolExecutionTimeoutMs` | `15000` | Per-tool timeout |
+
+**About that background one.** Closing a chat used to stop whatever it was doing — reasonable when you meant to close it, and not reasonable for the thing it also covered: VS Code throws a sidebar view's webview away when you click another view, so *looking away* used to kill your answer halfway through. The sidebar now keeps its contents when hidden, and a chat that genuinely loses its window keeps going.
+
+Your answer is written to the chat session as it arrives rather than only to the window, so reopening the chat shows the finished result.
+
+A chat still running is still spending money and may still be changing your files, so it says so: a status-bar item names what's running, and clicking it lets you read or stop any of them. Closing the window is no longer how you stop a run — that is. Anything you'd queued up behind the running turn is dropped rather than started without you. Set it to `false` if you'd rather closing the chat stopped the agent.
 
 ### Checking the work
 
@@ -160,6 +167,20 @@ Providers**. Azure uses `atlasmind.provider.azure.apiKey`; Bedrock uses
 | `atlasmind.projectChangedFileReferenceLimit` | `5` | Clickable file links in the summary |
 | `atlasmind.projectRunReportFolder` | `project_memory/operations` | Where run reports go |
 | `atlasmind.autoStartProposedProjectRuns` | `true` | Let a proposed run start on its own — **only while Autopilot is on**. Otherwise you always get the decision card |
+| `atlasmind.execution.worktreeIsolation` | `false` | Give each writing step its own git worktree so a batch can write in parallel |
+
+**About that last one.** It does not decide whether two steps can overwrite each other's edits —
+they can't, either way. With it off, steps that write run one at a time, which is slower and
+correct. Turning it on gives each writing step its own copy of your files so they can run together
+again, and applies each one's changes back as its batch finishes.
+
+A step that runs commands or tests still runs alone in your real working tree: a fresh worktree is a
+checkout of tracked files, with no `node_modules` and no build output, so "the tests failed" would be
+a fact about the isolation rather than your code.
+
+Worktrees live under `.git/atlasmind-worktrees` and are cleared away as each batch finishes. If a
+step's changes won't apply cleanly, its worktree is kept and AtlasMind tells you where — nothing is
+forced in and nothing is thrown away. Needs git; without it, writers are serialised instead.
 
 ### The autonomous loop
 

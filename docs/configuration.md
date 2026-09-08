@@ -132,6 +132,7 @@ When either mode is set to `auto`, the task profiler infers the appropriate leve
 | `atlasmind.projectEstimatedFilesPerSubtask` | `number` | `2` | Heuristic multiplier to estimate changed files from the planned subtask count. |
 | `atlasmind.projectChangedFileReferenceLimit` | `number` | `5` | Maximum number of changed files surfaced as clickable references after a `/project` run. |
 | `atlasmind.projectRunReportFolder` | `string` | `"project_memory/operations"` | Relative folder for persisted `/project` run summary JSON reports. |
+| `atlasmind.execution.worktreeIsolation` | `boolean` | `false` | Give each file-writing subtask its own git worktree so a batch can write in parallel. **This does not decide whether the write race is prevented** — it always is. With this off, subtasks that write run one at a time; turning it on buys the parallelism back for subtasks that need only tracked files. A subtask that runs commands or tests still runs alone in the real working tree, because a fresh worktree has no `node_modules` or build output. Worktrees live under `.git/atlasmind-worktrees`, each subtask's changes are applied back as its batch finishes, and one whose changes will not apply cleanly is kept and named rather than discarded. Requires git and a host that can re-root a subtask's file access; without either, writers are serialised instead. |
 
 ## Project Governance Bootstrap
 
@@ -178,6 +179,13 @@ Disabling a server also disconnects it — a gate that reports itself closed whi
 | Setting | Type | Default | Description |
 |---|---|---:|---|
 | `atlasmind.chat.revealOnApprovalRequest` | `boolean` | `true` | Bring the AtlasMind chat panel forward when a tool approval is waiting. |
+| `atlasmind.chat.continueInBackground` | `boolean` | `true` | Let a chat turn finish after its window is closed or hidden, rather than stopping it. |
+
+Closing a chat used to abort whatever it was doing, which is defensible for a deliberate close and wrong for the case it also covered: **VS Code disposes a sidebar view's webview when you click another view**, so looking away tore the chat down mid-answer. Those two are indistinguishable from inside the disposal, so surviving is made safe rather than guessed at. The sidebar view is also registered with `retainContextWhenHidden`, so hiding it no longer disposes anything in the first place — detaching is the fallback for a genuine close.
+
+The transcript was never the webview's: every streamed chunk is written to the chat session before it is pushed to the browser, so a run with nowhere to draw is still a run whose answer is being recorded, and reopening the chat shows the finished result.
+
+A turn that outlives its window is still spending money and may still be editing files. A **status-bar item** names what is running and the `AtlasMind: Show Chats Running in the Background` command reads or stops any of them — closing the window is no longer the way to stop a run, so that is the way that replaces it. A prompt *queued* behind the running one is dropped rather than started, since finishing work already underway is a smaller step than beginning new work with no window. Turn the setting off to get the old behaviour exactly.
 
 An approval **blocks the run until it is answered**, and the approval bar lives in the AtlasMind chat panel — which you may not be looking at, since VS Code has its own chat and you may be in an editor or another window entirely. Without an announcement the run simply appears to hang.
 

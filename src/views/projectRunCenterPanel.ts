@@ -1101,6 +1101,12 @@ export class ProjectRunCenterPanel {
         this.liveStatus = 'Synthesizing project result...';
         await appendLog('info', 'Synthesizing subtask outputs into the final report.');
         return;
+      case 'notice':
+        // Logged, not made the live status: a notice describes what the run did
+        // rather than what it is doing, and overwriting the status with it would
+        // leave the panel claiming to be in a step that has finished.
+        await appendLog('info', update.message);
+        return;
       case 'error':
         this.liveStatus = `Planner error: ${update.message}`;
         await appendLog('error', update.message);

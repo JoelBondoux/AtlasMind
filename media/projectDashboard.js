@@ -466,6 +466,16 @@
     /** Live drag offsets, so a node follows the pointer before the host has saved. */
     roadmapDragOffsets: {},
     /**
+     * Node ids currently box-selected, so a drag moves them together.
+     *
+     * A plain array rather than a Set: this object is read by the render path
+     * on every frame and a Set would need converting there anyway. Selection is
+     * deliberately **not** persisted to the host — it is a way of looking at the
+     * plan for the next few seconds, not a fact about it, and a selection that
+     * survived a reload would be a stored opinion nobody asked to keep.
+     */
+    roadmapSelection: [],
+    /**
      * Whether a dragged node snaps to the canvas grid.
      *
      * A viewing preference, not a property of the plan — it changes where *your*
@@ -944,11 +954,19 @@
   /**
    * Apply one host snapshot.
    *
-   * `preserveOffsetNodeId` names a node that was just dropped, when this
-   * snapshot was deferred during its drag: the snapshot predates the drop, so
-   * that node's local offset is kept until the host answers the move.
+   * `preserveOffsetNodeIds` names the nodes that were just dropped, when this
+   * snapshot was deferred during their drag: the snapshot predates the drop, so
+   * their local offsets are kept until the host answers the move.
+   *
+   * A list rather than a single id since a box-selected group drops together —
+   * preserving only the node under the pointer would have snapped the rest of
+   * the selection back for one frame, which is the same bug this exists to
+   * prevent, only harder to spot because it is intermittent.
    */
-  function applyStateSnapshot(message, preserveOffsetNodeId) {
+  function applyStateSnapshot(message, preserveOffsetNodeIds) {
+      const preserved = Array.isArray(preserveOffsetNodeIds)
+        ? preserveOffsetNodeIds
+        : (preserveOffsetNodeIds ? [preserveOffsetNodeIds] : []);
       state.snapshot = message.payload;
       if (message.payload?.issues?.busy) {
         state.repositoryRefreshBusy = true;
@@ -956,13 +974,17 @@
       // A fresh snapshot is the host's answer about where nodes are. Local drag
       // offsets exist only to cover the round trip, so they are dropped here —
       // keeping them would mean a position that failed to save stayed on screen
-      // looking saved. The node named by `preserveOffsetNodeId` is the
-      // exception: this snapshot was deferred during its drag, so it predates
-      // the drop and the host's answer to it is still on its way. Clearing that
-      // one made a stale refresh yank a just-dropped node back to where it was.
-      state.roadmapDragOffsets = preserveOffsetNodeId && state.roadmapDragOffsets[preserveOffsetNodeId]
-        ? { [preserveOffsetNodeId]: state.roadmapDragOffsets[preserveOffsetNodeId] }
-        : {};
+      // looking saved. The nodes named by `preserveOffsetNodeIds` are the
+      // exception: this snapshot was deferred during their drag, so it predates
+      // the drop and the host's answer is still on its way. Clearing those
+      // made a stale refresh yank a just-dropped node back to where it was.
+      const keptOffsets = {};
+      for (const id of preserved) {
+        if (state.roadmapDragOffsets[id]) {
+          keptOffsets[id] = state.roadmapDragOffsets[id];
+        }
+      }
+      state.roadmapDragOffsets = keptOffsets;
       const roadmapNodeIds = new Set(((message.payload && message.payload.roadmap && message.payload.roadmap.graph
         ? (message.payload.roadmap.graph.active || []).concat(message.payload.roadmap.graph.completed || [])
         : [])).map(node => node.id));
@@ -3606,20 +3628,143 @@
     rmApplyHighlight();
   }
 
-  /** Redraw only the dragged node and its own edges — a full render mid-drag stutters. */
+  /**
+   * Where every node in the current drag has moved to.
+   *
+   * One function so the paint, the drop and the message all describe the same
+   * positions. A single-node drag is the one-element case rather than a
+   * separate path — two paths would eventually disagree about snapping, and the
+   * symptom would be a node landing on the grid alone and off it in a group.
+   */
+  function rmDragPositions() {
+    if (!rmDrag || rmDrag.kind !== 'node') {
+      return [];
+    }
+    const dx = rmDrag.x - rmDrag.originX;
+    const dy = rmDrag.y - rmDrag.originY;
+    return rmDrag.group.map(member => ({
+      nodeId: member.nodeId,
+      // Snapped per node from its *own* origin, not by snapping the group's
+      // delta: nodes selected from different offsets must each land on the
+      // grid, which a shared delta cannot do unless they started aligned.
+      x: Math.max(0, rmSnap(member.originX + dx)),
+      y: Math.max(0, rmSnap(member.originY + dy)),
+    }));
+  }
+
+  /** Redraw only the dragged nodes and their own edges — a full render mid-drag stutters. */
   function rmPaintDrag() {
     if (!rmDrag || !root) {
       return;
     }
-    const nodeEl = root.querySelector('[data-rm-node="' + cssEscape(rmDrag.nodeId) + '"]');
-    if (nodeEl instanceof HTMLElement) {
-      nodeEl.style.left = rmDrag.x + 'px';
-      nodeEl.style.top = rmDrag.y + 'px';
+    const moved = rmDragPositions();
+    const byId = new Map(moved.map(entry => [entry.nodeId, entry]));
+    for (const entry of moved) {
+      const nodeEl = root.querySelector('[data-rm-node="' + cssEscape(entry.nodeId) + '"]');
+      if (nodeEl instanceof HTMLElement) {
+        nodeEl.style.left = entry.x + 'px';
+        nodeEl.style.top = entry.y + 'px';
+      }
     }
-    const nodes = roadmapCanvasNodes().map(node => (
-      node.id === rmDrag.nodeId ? Object.assign({}, node, { position: { x: rmDrag.x, y: rmDrag.y } }) : node
-    ));
+    const nodes = roadmapCanvasNodes().map(node => {
+      const entry = byId.get(node.id);
+      return entry ? Object.assign({}, node, { position: { x: entry.x, y: entry.y } }) : node;
+    });
     rmRedrawEdges(nodes, rmDrag.nodeId);
+  }
+
+  /** The marquee rectangle in world coordinates, from its two pointer corners. */
+  function rmMarqueeRect() {
+    if (!rmDrag || rmDrag.kind !== 'marquee') {
+      return null;
+    }
+    return {
+      left: Math.min(rmDrag.originX, rmDrag.x),
+      top: Math.min(rmDrag.originY, rmDrag.y),
+      right: Math.max(rmDrag.originX, rmDrag.x),
+      bottom: Math.max(rmDrag.originY, rmDrag.y),
+    };
+  }
+
+  /** Draw the selection box while it is being dragged. */
+  function rmPaintMarquee() {
+    const rect = rmMarqueeRect();
+    const world = rmWorldEl();
+    if (!rect || !(world instanceof HTMLElement)) {
+      return;
+    }
+    let box = world.querySelector('.rm-marquee');
+    if (!(box instanceof HTMLElement)) {
+      box = document.createElement('div');
+      box.className = 'rm-marquee';
+      world.appendChild(box);
+    }
+    box.style.left = rect.left + 'px';
+    box.style.top = rect.top + 'px';
+    box.style.width = (rect.right - rect.left) + 'px';
+    box.style.height = (rect.bottom - rect.top) + 'px';
+  }
+
+  function rmRemoveMarquee() {
+    const world = rmWorldEl();
+    const box = world instanceof HTMLElement ? world.querySelector('.rm-marquee') : null;
+    if (box instanceof HTMLElement) {
+      box.remove();
+    }
+  }
+
+  /**
+   * The nodes a marquee covers.
+   *
+   * **Intersection, not containment.** Requiring a node to be wholly inside the
+   * box means a card clipped by the edge of the viewport can never be selected
+   * without zooming out first, which on a large plan is most of them.
+   */
+  function rmNodesInMarquee(rect) {
+    if (!rect || !root) {
+      return [];
+    }
+    const picked = [];
+    for (const node of roadmapCanvasNodes()) {
+      const position = roadmapNodePosition(node);
+      const el = root.querySelector('[data-rm-node="' + cssEscape(node.id) + '"]');
+      const height = el instanceof HTMLElement ? el.offsetHeight : 0;
+      const left = position.x;
+      const top = position.y;
+      const right = left + RM_NODE_WIDTH;
+      const bottom = top + height;
+      if (right >= rect.left && left <= rect.right && bottom >= rect.top && top <= rect.bottom) {
+        picked.push(node.id);
+      }
+    }
+    return picked;
+  }
+
+  /** Repaint selection outlines without a full re-render. */
+  function rmApplySelection() {
+    if (!root) {
+      return;
+    }
+    const selected = new Set(state.roadmapSelection);
+    root.querySelectorAll('[data-rm-node]').forEach(el => {
+      if (el instanceof HTMLElement) {
+        el.classList.toggle('is-selected', selected.has(el.getAttribute('data-rm-node') || ''));
+      }
+    });
+    const count = root.querySelector('[data-rm-selection-count]');
+    if (count instanceof HTMLElement) {
+      count.textContent = state.roadmapSelection.length > 1
+        ? state.roadmapSelection.length + ' selected — drag any one to move them together'
+        : '';
+    }
+  }
+
+  function rmClearSelection() {
+    if (state.roadmapSelection.length === 0) {
+      return;
+    }
+    state.roadmapSelection = [];
+    rmApplySelection();
   }
 
   root?.addEventListener('pointerdown', event => {
@@ -3635,10 +3780,24 @@
         return;
       }
       const nodeId = handle.getAttribute('data-rm-drag') || '';
-      const node = roadmapCanvasNodes().find(entry => entry.id === nodeId);
+      const nodes = roadmapCanvasNodes();
+      const node = nodes.find(entry => entry.id === nodeId);
       if (!node) {
         return;
       }
+
+      // Pressing a node **inside** the selection drags the whole selection;
+      // pressing one outside it clears the selection first. That is what every
+      // canvas editor does, and the alternative — keeping a selection the user
+      // has visibly pressed away from — moves nodes they are no longer looking
+      // at.
+      if (state.roadmapSelection.indexOf(nodeId) < 0) {
+        rmClearSelection();
+      }
+
+      const groupIds = state.roadmapSelection.indexOf(nodeId) >= 0
+        ? state.roadmapSelection.slice()
+        : [nodeId];
       const position = roadmapNodePosition(node);
       rmDrag = {
         kind: 'node',
@@ -3650,6 +3809,18 @@
         originX: position.x,
         originY: position.y,
         moved: false,
+        // Origins captured at press time. Reading them per frame would compound
+        // rounding as the group is dragged, and every node would drift.
+        group: groupIds
+          .map(id => {
+            const member = nodes.find(entry => entry.id === id);
+            if (!member) {
+              return null;
+            }
+            const memberPosition = roadmapNodePosition(member);
+            return { nodeId: id, originX: memberPosition.x, originY: memberPosition.y };
+          })
+          .filter(Boolean),
       };
       handle.setPointerCapture(event.pointerId);
       event.preventDefault();
@@ -3658,6 +3829,37 @@
 
     const frame = event.target.closest('[data-rm-frame="true"]');
     if (frame instanceof HTMLElement && !event.target.closest('.rm-node')) {
+      // Shift starts a selection box; a plain drag still pans.
+      //
+      // The other way round is commoner in drawing tools, and it is the wrong
+      // default here: panning is how you read a plan that does not fit on the
+      // screen, it is the thing people do constantly, and it already works
+      // offline. Taking it away to add selection would trade a permanent cost
+      // for an occasional one.
+      if (event.shiftKey) {
+        const world = rmWorldEl();
+        const bounds = world instanceof HTMLElement ? world.getBoundingClientRect() : null;
+        if (!bounds) {
+          return;
+        }
+        const worldX = (event.clientX - bounds.left) / state.roadmapZoom;
+        const worldY = (event.clientY - bounds.top) / state.roadmapZoom;
+        rmDrag = {
+          kind: 'marquee',
+          startX: event.clientX,
+          startY: event.clientY,
+          originX: worldX,
+          originY: worldY,
+          x: worldX,
+          y: worldY,
+          moved: false,
+        };
+        frame.setPointerCapture(event.pointerId);
+        event.preventDefault();
+        return;
+      }
+
+      rmClearSelection();
       rmDrag = {
         kind: 'pan',
         startX: event.clientX,
@@ -3688,6 +3890,20 @@
       }
       return;
     }
+    if (rmDrag.kind === 'marquee') {
+      // Unsnapped: the box is a way of pointing at nodes, not a thing that
+      // lands anywhere, and snapping it would make small selections jump.
+      rmDrag.x = rmDrag.originX + dx / state.roadmapZoom;
+      rmDrag.y = rmDrag.originY + dy / state.roadmapZoom;
+      if (!rmPaintScheduled) {
+        rmPaintScheduled = true;
+        window.requestAnimationFrame(() => {
+          rmPaintScheduled = false;
+          rmPaintMarquee();
+        });
+      }
+      return;
+    }
     // The pointer moves in screen pixels; the world is scaled, so the delta has
     // to be divided by the zoom or a node lags behind the cursor when zoomed out.
     // Snapping is applied here rather than on drop, so the node visibly lands on
@@ -3710,19 +3926,37 @@
       return;
     }
     const finished = rmDrag;
+    const positions = rmDragPositions();
+    const marqueeRect = rmMarqueeRect();
     rmDrag = null;
     if (finished.moved) {
       rmSuppressNextCanvasClick = true;
     }
+
+    if (finished.kind === 'marquee') {
+      rmRemoveMarquee();
+      // A shift-click that never moved is a click, not an empty selection: it
+      // should not wipe what is already selected.
+      if (finished.moved) {
+        state.roadmapSelection = rmNodesInMarquee(marqueeRect);
+        rmApplySelection();
+      }
+      return;
+    }
+
     const movedNode = finished.kind === 'node' && finished.moved;
     if (movedNode) {
-      // Held locally as well as sent, so the node stays where it was dropped
+      // Held locally as well as sent, so the nodes stay where they were dropped
       // through the round trip rather than snapping back for one frame.
-      state.roadmapDragOffsets[finished.nodeId] = { x: finished.x, y: finished.y };
-      vscode.postMessage({
-        type: 'roadmapNodeMove',
-        payload: { nodeId: finished.nodeId, x: finished.x, y: finished.y },
-      });
+      for (const entry of positions) {
+        state.roadmapDragOffsets[entry.nodeId] = { x: entry.x, y: entry.y };
+      }
+      // One message for a group, so the host performs one read, one write and
+      // one refresh rather than N of each with the canvas re-rendering under
+      // the pointer partway through.
+      vscode.postMessage(positions.length > 1
+        ? { type: 'roadmapNodesMove', payload: { moves: positions } }
+        : { type: 'roadmapNodeMove', payload: positions[0] });
     }
     // A snapshot that arrived mid-drag was held so it could not swap the DOM
     // out from under the pointer capture. Applied now — keeping the dropped
@@ -3730,7 +3964,7 @@
     if (pendingStateMessage) {
       const deferred = pendingStateMessage;
       pendingStateMessage = null;
-      applyStateSnapshot(deferred, movedNode ? finished.nodeId : '');
+      applyStateSnapshot(deferred, movedNode ? positions.map(entry => entry.nodeId) : []);
     }
   }
 
@@ -12328,6 +12562,8 @@
           <button type="button" class="action-link" data-action="roadmap-zoom-in" aria-label="Zoom in">+</button>
           <button type="button" class="action-link" data-action="roadmap-fit"
             title="${escapeAttr('Zoom and pan so the whole plan is on screen at once.')}">Fit all</button>
+          <span class="rm-selection-hint" data-rm-selection-count
+            title="${escapeAttr('Hold Shift and drag on empty canvas to draw a selection box. Dragging any selected node moves the whole selection together.')}"></span>
           ${state.roadmapView === 'completed' ? '' : `
             ${renderRoadmapDeriveAction()}
             <button type="button" class="action-link" data-action="roadmap-import"
@@ -12653,6 +12889,7 @@
       // whole mechanism by which the neighbourhood of a match stays readable.
       search && search.matchIds.has(node.id) ? 'is-search-match' : '',
       search && !search.matchIds.has(node.id) ? 'is-search-dim' : '',
+      state.roadmapSelection.indexOf(node.id) >= 0 ? 'is-selected' : '',
     ].filter(Boolean).join(' ');
 
     return `

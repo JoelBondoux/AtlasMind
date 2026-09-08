@@ -96,19 +96,52 @@ export class LensTreeItem extends vscode.TreeItem {
  * nowhere to go, and this view's empty states are exactly when somebody most
  * needs to be told what the other seven lenses are.
  */
+/**
+ * A row that explains why the tree is not showing an outline.
+ *
+ * Every one of these is clickable, and what it does has to be the thing it just
+ * asked for. It used to open the Atlas Lenses dashboard whatever it said —
+ * which is right for "here is what the lenses can do" and wrong for "open a
+ * code file", because the dashboard *also* says open a code file. Clicking the
+ * row that told you to open a file took you to a page telling you to open a
+ * file, which is why the Lens surfaces read as unreachable rather than merely
+ * waiting.
+ */
 class LensMessageTreeItem extends vscode.TreeItem {
-  constructor(label: string, description: string, icon = 'info') {
+  constructor(
+    label: string,
+    description: string,
+    icon = 'info',
+    /** What clicking it does, and what the tooltip promises. */
+    action: { command: string; title: string; hint: string } = {
+      command: 'atlasmind.lens.openDashboard',
+      title: 'Open Atlas Lenses',
+      hint: 'Open **Atlas Lenses** to see every lens, what it reads, and what it can tell you.',
+    },
+  ) {
     super(label, vscode.TreeItemCollapsibleState.None);
     this.description = description;
     this.iconPath = new vscode.ThemeIcon(icon);
     this.contextValue = 'lens-message';
-    this.tooltip = new vscode.MarkdownString(`${description}\n\nOpen **Atlas Lenses** to see every lens, what it reads, and what it can tell you.`);
-    this.command = {
-      command: 'atlasmind.lens.openDashboard',
-      title: 'Open Atlas Lenses',
-    };
+    this.tooltip = new vscode.MarkdownString(`${description}\n\n${action.hint}`);
+    this.command = { command: action.command, title: action.title };
   }
 }
+
+/**
+ * Clicking "Open a code file" opens the file picker.
+ *
+ * `workbench.action.quickOpen` rather than a bespoke list: it is the picker the
+ * operator already knows, it honours their own exclude settings, and it needs
+ * no allowlist of what counts as a code file — a judgement this view has no
+ * business making, since the outline comes from whatever language service is
+ * installed.
+ */
+const OPEN_A_FILE_ACTION = {
+  command: 'workbench.action.quickOpen',
+  title: 'Open a file',
+  hint: 'Click to open the file picker. Lens follows whichever editor is active, so the outline appears as soon as one is.',
+} as const;
 
 /**
  * Native, active-file outline for AtlasMind Lens.
@@ -200,7 +233,12 @@ export class LensTreeProvider implements vscode.TreeDataProvider<LensTreeItem | 
 
     const editor = vscode.window.activeTextEditor;
     if (!editor) {
-      return [new LensMessageTreeItem('Open a code file', 'Lens follows the active editor.', 'file-code')];
+      return [new LensMessageTreeItem(
+        'Open a code file',
+        'Lens follows the active editor.',
+        'file-code',
+        OPEN_A_FILE_ACTION,
+      )];
     }
     const workspaceFolder = vscode.workspace.getWorkspaceFolder(editor.document.uri);
     if (!workspaceFolder) {

@@ -371,23 +371,74 @@ export class SessionConversation {
     return true;
   }
 
+  /**
+   * Delete a session and leave a *visible* one active.
+   *
+   * The successor was `this.sessions[0]`, which is wrong twice over, and both
+   * mistakes land on the same symptom: deleting your last visible conversation
+   * left an old transcript on screen with an empty session list.
+   *
+   * `this.sessions` includes **archived** sessions; `listSessions()` filters
+   * them out. So with one visible session and any archived one, deleting the
+   * visible one promoted an *archived* session to active — a session the
+   * picker does not list, whose history the panel then rendered, and which
+   * `chatPanel`'s "is the selection still real?" check could not catch because
+   * `getSession()` finds archived records perfectly well.
+   *
+   * The count was wrong for the same reason: `this.sessions.length === 1` asked
+   * whether this was the only session *including archived ones*, so the
+   * clear-in-place shortcut for "your last conversation" did not fire when it
+   * should have.
+   *
+   * `archiveSession` has always done this correctly — most recently updated
+   * non-archived session, a fresh one when there is none. This now matches it,
+   * because the two are the same question and answering it twice is how they
+   * came to disagree.
+   */
   deleteSession(sessionId: string): void {
+    if (!this.sessions.some(session => session.id === sessionId)) {
+      return;
+    }
+
+    // Only when it is genuinely the last record. Clearing in place keeps the
+    // session's id and folder, which is the right outcome for "empty my only
+    // conversation" and avoids churning a new record for no reason.
     if (this.sessions.length === 1) {
       this.clearSession(sessionId);
       return;
     }
 
     this.sessions = this.sessions.filter(session => session.id !== sessionId);
-    if (this.activeSessionId === sessionId) {
-      this.activeSessionId = this.sessions[0]?.id ?? createSessionRecord().id;
+
+    // Re-pointed when the active session is gone *or* is one the picker will
+    // not show. The second case is the bug: an archived session is still
+    // found by `getSession`, so nothing downstream noticed.
+    const active = this.sessions.find(session => session.id === this.activeSessionId);
+    if (!active || active.archivedAt) {
+      this.activeSessionId = this.adoptMostRecentVisibleSession();
     }
-    if (this.sessions.length === 0) {
-      const fallback = createSessionRecord();
-      this.sessions = [fallback];
-      this.activeSessionId = fallback.id;
-    }
+
     this.persist();
     this.onDidChangeEmitter.fire();
+  }
+
+  /**
+   * The session to show next: most recently updated and not archived, or a new
+   * blank one. Never returns an id that is not in `this.sessions` — the
+   * previous code's `createSessionRecord().id` built a record, took its id and
+   * discarded the record, leaving `activeSessionId` pointing at nothing.
+   */
+  private adoptMostRecentVisibleSession(): string {
+    const next = this.sessions
+      .filter(session => !session.archivedAt)
+      .sort((left, right) => right.updatedAt.localeCompare(left.updatedAt))[0];
+    if (next) {
+      return next.id;
+    }
+
+    const fallback = createSessionRecord();
+    this.sessions.unshift(fallback);
+    return fallback.id;
   }
 
   archiveSession(sessionId: string): boolean {

@@ -1,4 +1,5 @@
 import { EnvironmentManager } from './core/environmentManager.js';
+import { resolveWithinWorkspace } from './core/workspaceBoundary.js';
 import * as vscode from 'vscode';
 import * as path from 'path';
 import * as os from 'os';
@@ -1800,7 +1801,8 @@ async function bootstrapAtlasMind(
       ardInstallerModule,
       localModelArbiterModule,
       gpuProbeModule,
-      localRuntimeClientModule
+      localRuntimeClientModule,
+      backgroundChatRunsModule
     ] = await Promise.all([
       import('./chat/participant.js'),
       import('./views/treeViews.js'),
@@ -1842,11 +1844,15 @@ async function bootstrapAtlasMind(
       import('./core/localModelArbiter.js'),
       import('./providers/gpuProbe.js'),
       import('./providers/localRuntimeClient.js'),
+      import('./views/chatBackgroundRuns.js'),
     ]);
 
     return {
       registerChatParticipant: chatParticipantModule.registerChatParticipant,
       registerTreeViews: treeViewsModule.registerTreeViews,
+      backgroundChatRuns: backgroundChatRunsModule.backgroundChatRuns,
+      describeBackgroundRuns: backgroundChatRunsModule.describeBackgroundRuns,
+      describeBackgroundRunsDetail: backgroundChatRunsModule.describeBackgroundRunsDetail,
       AnthropicAdapter: providersModule.AnthropicAdapter,
       BedrockAdapter: providersModule.BedrockAdapter,
       AcpAdapter: providersModule.AcpAdapter,
@@ -2082,6 +2088,65 @@ async function bootstrapAtlasMind(
         + 'This changes window visibility, not process permissions. Click to open Models & Providers.';
       acpPrivateDesktopStatusBar.show();
     };
+
+    // ── Chat turns that outlived their window ──────────────────────────────
+    // Closing a chat used to abort it, which was defensible for a deliberate
+    // close and wrong for the case it also covered: VS Code disposes a sidebar
+    // view's webview when you click another view. A run that keeps going is
+    // still spending money and may still be editing files, so it is announced
+    // here and stoppable from here — closing the window is no longer the way to
+    // stop a run, and this is the way that replaces it.
+    const backgroundChatStatusBar = vscode.window.createStatusBarItem(
+      vscode.StatusBarAlignment.Right,
+      52,
+    );
+    backgroundChatStatusBar.command = 'atlasmind.showBackgroundChats';
+    context.subscriptions.push(backgroundChatStatusBar);
+    const refreshBackgroundChatStatusBar = () => {
+      const runs = startupModules.backgroundChatRuns.list();
+      const summary = startupModules.describeBackgroundRuns(runs);
+      if (!summary) {
+        backgroundChatStatusBar.hide();
+        return;
+      }
+      backgroundChatStatusBar.text = `$(sync~spin) ${summary}`;
+      backgroundChatStatusBar.tooltip = startupModules.describeBackgroundRunsDetail(runs);
+      backgroundChatStatusBar.show();
+    };
+    context.subscriptions.push(startupModules.backgroundChatRuns.onDidChange(refreshBackgroundChatStatusBar));
+    refreshBackgroundChatStatusBar();
+    context.subscriptions.push(vscode.commands.registerCommand('atlasmind.showBackgroundChats', async () => {
+      const runs = startupModules.backgroundChatRuns.list();
+      if (runs.length === 0) {
+        void vscode.window.showInformationMessage('No chat turns are running in the background.');
+        return;
+      }
+      const picked = await vscode.window.showQuickPick(
+        [
+          ...runs.map(run => ({
+            label: `$(comment-discussion) ${run.label}`,
+            description: 'Open the chat and read it',
+            detail: 'Its answer is being written to the session as it arrives.',
+            action: { kind: 'open' as const, taskId: run.taskId, sessionId: run.sessionId },
+          })),
+          ...runs.map(run => ({
+            label: `$(stop-circle) Stop: ${run.label}`,
+            description: 'End this run now',
+            detail: 'Whatever it has already written to your files stays written.',
+            action: { kind: 'stop' as const, taskId: run.taskId, sessionId: run.sessionId },
+          })),
+        ],
+        { title: 'Chat turns still running', placeHolder: 'Read one, or stop it' },
+      );
+      if (!picked) {
+        return;
+      }
+      if (picked.action.kind === 'stop') {
+        startupModules.backgroundChatRuns.stop(picked.action.taskId);
+        return;
+      }
+      await vscode.commands.executeCommand('atlasmind.openChat', { sessionId: picked.action.sessionId });
+    }));
 
     // ── Local GPU arbiter ──────────────────────────────────────────────────
     // Two local runtimes can share one graphics card, and neither can see the
@@ -2385,6 +2450,43 @@ async function bootstrapAtlasMind(
           const { resolveWorkflowStageLevelsForRun } = await import('./chat/participant.js');
           return resolveWorkflowStageLevelsForRun();
         },
+        // Worktree isolation's git. Not a tool and not routed through
+        // `runCommand`: every command it runs is a constant in
+        // `worktreeManager` / `worktreeMerge`, and it needs stdin, which `git
+        // apply -` requires and no skill has ever wanted.
+        runGit: async (args, cwd, stdin) => {
+          // `encoding: 'buffer'` is load-bearing twice over. Without it the
+          // streams emit strings and `Buffer.concat` throws on the first call,
+          // which would look exactly like a repository that cannot make
+          // worktrees. And a patch is decoded once at the end rather than per
+          // chunk, so a multi-byte character split across a chunk boundary
+          // survives — a diff of a source file with any non-ASCII text in it.
+          const child = execFile('git', [...args], {
+            cwd,
+            windowsHide: true,
+            encoding: 'buffer',
+            maxBuffer: 64 * 1024 * 1024,
+          });
+          const stdout: Buffer[] = [];
+          const stderr: Buffer[] = [];
+          child.stdout?.on('data', (chunk: Buffer) => stdout.push(chunk));
+          child.stderr?.on('data', (chunk: Buffer) => stderr.push(chunk));
+          if (stdin !== undefined) {
+            child.stdin?.end(stdin);
+          }
+          return new Promise<string>((resolve, reject) => {
+            child.once('error', reject);
+            child.once('close', code => {
+              if (code === 0) {
+                resolve(Buffer.concat(stdout).toString('utf-8'));
+                return;
+              }
+              // stderr, because git says why a patch would not apply there and
+              // that sentence is what reaches the operator.
+              reject(new Error(Buffer.concat(stderr).toString('utf-8').trim() || `git ${args[0]} exited with ${code}.`));
+            });
+          });
+        },
         toolApprovalGate,
         generatedSkillApprovalGate,
         writeCheckpointHook,
@@ -2392,6 +2494,7 @@ async function bootstrapAtlasMind(
         onQuotaUpdated: (pid, rem, tot) => quotaUpdatedRef(pid, rem, tot),
         onModelOutcomeRecorded: outcomes => persistExecutionOutcomes(context.globalState, outcomes),
         onModelStruggleRecorded: signals => persistModelStruggleSignals(context.globalState, signals),
+        onSerialisedWriters: count => offerWorktreeIsolation(context, count),
         onClassifiedContentForUntrustedModel: ({ matches }) => {
           const kinds = [...new Set(matches.map(m => m.label))].slice(0, 3).join(', ') || 'confidential data';
           void vscode.window.showWarningMessage(
@@ -5003,6 +5106,69 @@ function toDisplayModelName(modelId: string): string {
     .join(' ');
 }
 
+const WORKTREE_ADVICE_SUPPRESSED_KEY = 'atlasmind.worktreeIsolation.adviceSuppressed';
+const WORKTREE_SERIALISED_RUNS_KEY = 'atlasmind.worktreeIsolation.serialisedRuns';
+
+/**
+ * Offer worktree isolation to somebody who has now watched it cost them twice.
+ *
+ * **Not on the first run.** The run's own progress line already says why it is
+ * slower than it used to be, and an offer arriving alongside the explanation is
+ * an interruption before anybody has a reason to care. The second time is when
+ * "this is slow again" has become a thing that happens to you rather than a
+ * sentence you read.
+ *
+ * **Never blocking, and never applied to the run in flight.** The placement for
+ * this run is already decided, so the message says the change takes effect next
+ * time rather than implying it will rescue the run you are watching. A modal
+ * here would stop a run to talk about its speed.
+ *
+ * **Counted per project, suppressed per person.** How often this has happened is
+ * a fact about this repository; "stop telling me" is a fact about you, and
+ * keeping it in workspace state would make it something you had to say again in
+ * every project.
+ *
+ * **Written to your own settings, not the workspace's.** A workspace update
+ * lands in `.vscode/settings.json`, which is a tracked file in plenty of
+ * repositories — turning on a personal speed preference should not produce a
+ * diff for somebody to review. It is safe globally because placement re-checks
+ * every run: a project without git simply serialises writers anyway.
+ */
+function offerWorktreeIsolation(context: vscode.ExtensionContext, count: number): void {
+  if (context.globalState.get<boolean>(WORKTREE_ADVICE_SUPPRESSED_KEY) === true) {
+    return;
+  }
+
+  const seen = (context.workspaceState.get<number>(WORKTREE_SERIALISED_RUNS_KEY) ?? 0) + 1;
+  void context.workspaceState.update(WORKTREE_SERIALISED_RUNS_KEY, seen);
+  if (seen < 2) {
+    return;
+  }
+
+  void vscode.window.showInformationMessage(
+    `This run will do ${count} file-changing steps one at a time, so they cannot overwrite each `
+    + 'other. Worktree isolation lets them run together again, each in its own copy of your files.',
+    'Turn it on',
+    'Not now',
+    'Don\'t ask again',
+  ).then(choice => {
+    if (choice === 'Turn it on') {
+      void vscode.workspace.getConfiguration('atlasmind')
+        .update('execution.worktreeIsolation', true, vscode.ConfigurationTarget.Global)
+        .then(
+          () => vscode.window.showInformationMessage(
+            'Worktree isolation is on for your projects. It applies from your next run — this one is already placed.',
+          ),
+          error => vscode.window.showWarningMessage(
+            `Could not save the setting: ${error instanceof Error ? error.message : String(error)}`,
+          ),
+        );
+    } else if (choice === 'Don\'t ask again') {
+      void context.globalState.update(WORKTREE_ADVICE_SUPPRESSED_KEY, true);
+    }
+  });
+}
+
 /**
  * Build the skill execution context backed by VS Code workspace APIs.
  * Injected into the Orchestrator so skills remain testable in isolation.
@@ -5012,10 +5178,29 @@ function buildSkillExecutionContext(
   memoryRefresh: vscode.EventEmitter<void>,
   checkpointManager?: CheckpointManager,
   secrets?: vscode.SecretStorage,
+  /**
+   * Where this context's relative paths resolve from, when it is not the
+   * workspace folder — the git worktree an isolated subtask is running in.
+   *
+   * It moves resolution only. Every boundary check below still contains against
+   * the workspace folder, which is what makes isolation cost no widening: see
+   * `assertInsideWorkspace` and `resolveWithinWorkspace`.
+   */
+  resolutionRoot?: string,
 ): SkillExecutionContext {
-  return {
+  const context: SkillExecutionContext = {
     get workspaceRootPath() {
-      return vscode.workspace.workspaceFolders?.[0]?.uri.fsPath;
+      return resolutionRoot ?? vscode.workspace.workspaceFolders?.[0]?.uri.fsPath;
+    },
+
+    withResolutionRoot(root) {
+      const derived = buildSkillExecutionContext(memoryManager, memoryRefresh, checkpointManager, secrets, root);
+      // Delegation is installed on this context by the Orchestrator once it
+      // exists, so a context derived afterwards would otherwise be the one
+      // agent in the run unable to hand off — for a reason that looks like
+      // policy and is a missing assignment.
+      derived.runAgent = context.runAgent;
+      return derived;
     },
 
     queryMemory(query, maxResults) {
@@ -5039,14 +5224,14 @@ function buildSkillExecutionContext(
     },
 
     async readFile(absolutePath) {
-      const resolvedPath = await assertInsideWorkspace(absolutePath, 'readFile');
+      const resolvedPath = await assertInsideWorkspace(absolutePath, 'readFile', resolutionRoot);
       const uri = vscode.Uri.file(resolvedPath);
       const bytes = await vscode.workspace.fs.readFile(uri);
       return Buffer.from(bytes).toString('utf-8');
     },
 
     async writeFile(absolutePath, content) {
-      const resolvedPath = await assertInsideWorkspace(absolutePath, 'writeFile');
+      const resolvedPath = await assertInsideWorkspace(absolutePath, 'writeFile', resolutionRoot);
       const uri = vscode.Uri.file(resolvedPath);
       await vscode.workspace.fs.writeFile(uri, Buffer.from(content, 'utf-8'));
     },
@@ -5107,7 +5292,7 @@ function buildSkillExecutionContext(
       }
 
       const targetPath = absolutePath?.trim() || workspaceRoot;
-      const resolvedPath = await assertInsideWorkspace(targetPath, 'listDirectory');
+      const resolvedPath = await assertInsideWorkspace(targetPath, 'listDirectory', resolutionRoot);
       const dirEntries = await fs.readdir(resolvedPath, { withFileTypes: true }) as Array<{
         name: string;
         isDirectory(): boolean;
@@ -5129,7 +5314,7 @@ function buildSkillExecutionContext(
       }
 
       const cwdRaw = options?.cwd?.trim() || workspaceRoot;
-      const cwd = await assertInsideWorkspace(cwdRaw, 'runCommand');
+      const cwd = await assertInsideWorkspace(cwdRaw, 'runCommand', resolutionRoot);
 
       // Decide how to start this before starting it, and never through a shell.
       //
@@ -5378,13 +5563,13 @@ function buildSkillExecutionContext(
     },
 
     async deleteFile(absolutePath) {
-      const resolvedPath = await assertInsideWorkspace(absolutePath, 'deleteFile');
+      const resolvedPath = await assertInsideWorkspace(absolutePath, 'deleteFile', resolutionRoot);
       await vscode.workspace.fs.delete(vscode.Uri.file(resolvedPath), { recursive: false, useTrash: false });
     },
 
     async moveFile(sourcePath, destPath) {
-      const resolvedSource = await assertInsideWorkspace(sourcePath, 'moveFile');
-      const resolvedDest = await assertInsideWorkspace(destPath, 'moveFile');
+      const resolvedSource = await assertInsideWorkspace(sourcePath, 'moveFile', resolutionRoot);
+      const resolvedDest = await assertInsideWorkspace(destPath, 'moveFile', resolutionRoot);
       await vscode.workspace.fs.rename(vscode.Uri.file(resolvedSource), vscode.Uri.file(resolvedDest), { overwrite: true });
     },
 
@@ -5407,28 +5592,28 @@ function buildSkillExecutionContext(
     },
 
     async getDocumentSymbols(absolutePath) {
-      const resolvedPath = await assertInsideWorkspace(absolutePath, 'getDocumentSymbols');
+      const resolvedPath = await assertInsideWorkspace(absolutePath, 'getDocumentSymbols', resolutionRoot);
       const uri = vscode.Uri.file(resolvedPath);
       const symbols = await vscode.commands.executeCommand<unknown[]>('vscode.executeDocumentSymbolProvider', uri) ?? [];
       return symbols.map(symbol => serializeDocumentSymbol(symbol)).filter((value): value is { name: string; kind: string; range: string; children?: string[] } => Boolean(value));
     },
 
     async findReferences(absolutePath, line, column) {
-      const resolvedPath = await assertInsideWorkspace(absolutePath, 'findReferences');
+      const resolvedPath = await assertInsideWorkspace(absolutePath, 'findReferences', resolutionRoot);
       const uri = vscode.Uri.file(resolvedPath);
       const locations = await vscode.commands.executeCommand<unknown[]>('vscode.executeReferenceProvider', uri, new vscode.Position(line - 1, column - 1)) ?? [];
       return await serializeLocationsWithContext(locations);
     },
 
     async goToDefinition(absolutePath, line, column) {
-      const resolvedPath = await assertInsideWorkspace(absolutePath, 'goToDefinition');
+      const resolvedPath = await assertInsideWorkspace(absolutePath, 'goToDefinition', resolutionRoot);
       const uri = vscode.Uri.file(resolvedPath);
       const locations = await vscode.commands.executeCommand<unknown[]>('vscode.executeDefinitionProvider', uri, new vscode.Position(line - 1, column - 1)) ?? [];
       return normalizeLocationTargets(locations);
     },
 
     async renameSymbol(absolutePath, line, column, newName) {
-      const resolvedPath = await assertInsideWorkspace(absolutePath, 'renameSymbol');
+      const resolvedPath = await assertInsideWorkspace(absolutePath, 'renameSymbol', resolutionRoot);
       const uri = vscode.Uri.file(resolvedPath);
       const edit = await vscode.commands.executeCommand<vscode.WorkspaceEdit | undefined>(
         'vscode.executeDocumentRenameProvider',
@@ -5501,7 +5686,7 @@ function buildSkillExecutionContext(
     },
 
     async getCodeActions(absolutePath, startLine, startColumn, endLine, endColumn) {
-      const resolvedPath = await assertInsideWorkspace(absolutePath, 'getCodeActions');
+      const resolvedPath = await assertInsideWorkspace(absolutePath, 'getCodeActions', resolutionRoot);
       const uri = vscode.Uri.file(resolvedPath);
       const range = new vscode.Range(startLine - 1, startColumn - 1, endLine - 1, endColumn - 1);
       const actions = await vscode.commands.executeCommand<vscode.CodeAction[] | undefined>('vscode.executeCodeActionProvider', uri, range) ?? [];
@@ -5513,7 +5698,7 @@ function buildSkillExecutionContext(
     },
 
     async applyCodeAction(absolutePath, startLine, startColumn, endLine, endColumn, actionTitle) {
-      const resolvedPath = await assertInsideWorkspace(absolutePath, 'applyCodeAction');
+      const resolvedPath = await assertInsideWorkspace(absolutePath, 'applyCodeAction', resolutionRoot);
       const uri = vscode.Uri.file(resolvedPath);
       const range = new vscode.Range(startLine - 1, startColumn - 1, endLine - 1, endColumn - 1);
       const actions = await vscode.commands.executeCommand<vscode.CodeAction[] | undefined>('vscode.executeCodeActionProvider', uri, range) ?? [];
@@ -5729,6 +5914,7 @@ function buildSkillExecutionContext(
       return { removed: toRemove.length };
     },
   };
+  return context;
 }
 
 function serializeDocumentSymbol(symbol: unknown): { name: string; kind: string; range: string; children?: string[] } | undefined {
@@ -6066,48 +6252,32 @@ async function assertGitRepository(workspaceRoot: string): Promise<void> {
  * Uses realpath resolution so symlinks cannot tunnel reads or writes outside the
  * workspace boundary. Returns the resolved absolute path for use by callers.
  */
-async function assertInsideWorkspace(absolutePath: string, operation: string): Promise<string> {
+async function assertInsideWorkspace(
+  absolutePath: string,
+  operation: string,
+  /**
+   * Where a relative path resolves from, when it is not the workspace itself.
+   *
+   * A subtask running in its own worktree passes the worktree here, so
+   * `src/foo.ts` means the copy it is editing. The *boundary* is unaffected and
+   * stays the workspace folder — worktrees live under `.git/`, so an isolated
+   * subtask is contained by exactly the same rule as an ordinary one. Keeping
+   * the two separate is what stops a caller moving the boundary while meaning
+   * only to move the resolution.
+   */
+  resolveFrom?: string,
+): Promise<string> {
   const workspaceRoot = vscode.workspace.workspaceFolders?.[0]?.uri.fsPath;
   if (!workspaceRoot) {
     throw new Error(`${operation}: no workspace folder is open.`);
   }
 
-  const resolvedRoot = await fs.realpath(path.resolve(workspaceRoot));
-  // Resolve relative to workspaceRoot so models can pass workspace-relative paths.
-  const resolved = await resolveCanonicalPath(path.resolve(workspaceRoot, absolutePath));
-  const relative = path.relative(resolvedRoot, resolved);
-  if (relative.startsWith('..') || path.isAbsolute(relative)) {
-    throw new Error(
-      `${operation} is restricted to the workspace. ` +
-      `"${absolutePath}" resolves outside "${resolvedRoot}".`,
-    );
-  }
-  return resolved;
+  return resolveWithinWorkspace({
+    candidate: absolutePath,
+    resolveFrom: resolveFrom ?? workspaceRoot,
+    containWithin: workspaceRoot,
+    operation,
+    realpath: target => fs.realpath(target),
+  });
 }
 
-async function resolveCanonicalPath(targetPath: string): Promise<string> {
-  const pendingSegments: string[] = [];
-  let current = targetPath;
-
-  for (;;) {
-    try {
-      const canonical = await fs.realpath(current);
-      return pendingSegments.length > 0
-        ? path.join(canonical, ...pendingSegments.reverse())
-        : canonical;
-    } catch (error) {
-      const maybe = error as { code?: string };
-      if (maybe.code !== 'ENOENT') {
-        throw error;
-      }
-
-      const parsed = path.parse(current);
-      if (current === parsed.root) {
-        throw new Error(`Unable to resolve workspace path boundary for "${targetPath}".`);
-      }
-
-      pendingSegments.push(path.basename(current));
-      current = path.dirname(current);
-    }
-  }
-}

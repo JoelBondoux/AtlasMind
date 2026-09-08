@@ -497,6 +497,13 @@
     if (!card) {
       return;
     }
+    // Pressing a card inside the selection drags the whole selection; pressing
+    // one outside it drags only that card. The selection itself is left alone
+    // here — the click handler owns what a press means for selection, and
+    // changing it in two places is how the two come to disagree.
+    const inSelection = state.orderedSelectedCardIds.length > 1
+      && state.orderedSelectedCardIds.indexOf(cardId) >= 0;
+    const groupIds = inSelection ? state.orderedSelectedCardIds.slice() : [cardId];
     state.drag = {
       kind: 'card',
       cardId,
@@ -506,6 +513,14 @@
       originX: card.x,
       originY: card.y,
       moved: false,
+      // Origins captured once, at press. Reading them per frame would compound
+      // rounding across a drag and every card would drift.
+      group: groupIds
+        .map(id => {
+          const member = findIdeationCard(id);
+          return member ? { cardId: id, originX: member.x, originY: member.y } : null;
+        })
+        .filter(Boolean),
     };
     if (handle instanceof HTMLElement) {
       handle.setPointerCapture?.(event.pointerId);
@@ -524,6 +539,31 @@
     if (target?.closest('[data-card-id], [data-link-id], button, input, textarea, select, label')) {
       return;
     }
+
+    // Shift draws a selection box; a plain drag still pans. Same reasoning as
+    // the roadmap canvas: panning is how you read a board bigger than the
+    // window, and it is the gesture people make constantly.
+    if (event.shiftKey && !isProjectedLens(state.boardLens)) {
+      const origin = boardPointToCardSpace(event.clientX, event.clientY);
+      if (!origin) {
+        return;
+      }
+      state.drag = {
+        kind: 'marquee',
+        pointerId: event.pointerId,
+        startX: event.clientX,
+        startY: event.clientY,
+        originX: origin.x,
+        originY: origin.y,
+        x: origin.x,
+        y: origin.y,
+        moved: false,
+      };
+      stage.setPointerCapture?.(event.pointerId);
+      event.preventDefault();
+      return;
+    }
+
     state.drag = {
       kind: 'canvas',
       pointerId: event.pointerId,
@@ -543,17 +583,35 @@
     if (!state.drag.moved && (Math.abs(event.clientX - state.drag.startX) >= CANVAS_CLICK_TOLERANCE || Math.abs(event.clientY - state.drag.startY) >= CANVAS_CLICK_TOLERANCE)) {
       state.drag.moved = true;
     }
-    if (state.drag.kind === 'card') {
-      const card = findIdeationCard(state.drag.cardId);
-      const cardElement = root?.querySelector('[data-card-id="' + cssEscape(state.drag.cardId) + '"]');
-      if (!card || !(cardElement instanceof HTMLElement)) {
-        return;
+    if (state.drag.kind === 'marquee') {
+      const point = boardPointToCardSpace(event.clientX, event.clientY);
+      if (point) {
+        state.drag.x = point.x;
+        state.drag.y = point.y;
+        paintBoardMarquee();
       }
-      card.x = clampNumber(state.drag.originX + (event.clientX - state.drag.startX), MIN_CARD_X, MAX_CARD_X);
-      card.y = clampNumber(state.drag.originY + (event.clientY - state.drag.startY), MIN_CARD_Y, MAX_CARD_Y);
-      card.updatedAt = new Date().toISOString();
-      cardElement.style.left = BOARD_WORLD_ORIGIN_X + card.x + 'px';
-      cardElement.style.top = BOARD_WORLD_ORIGIN_Y + card.y + 'px';
+      return;
+    }
+    if (state.drag.kind === 'card') {
+      const dx = event.clientX - state.drag.startX;
+      const dy = event.clientY - state.drag.startY;
+      const stamp = new Date().toISOString();
+      // Every member of the group, from its own captured origin. A single drag
+      // is the one-element case rather than a separate path: two paths would
+      // eventually disagree about clamping, and a card would stop at the board
+      // edge alone but not in a group.
+      for (const member of (state.drag.group || [])) {
+        const card = findIdeationCard(member.cardId);
+        const cardElement = root?.querySelector('[data-card-id="' + cssEscape(member.cardId) + '"]');
+        if (!card || !(cardElement instanceof HTMLElement)) {
+          continue;
+        }
+        card.x = clampNumber(member.originX + dx, MIN_CARD_X, MAX_CARD_X);
+        card.y = clampNumber(member.originY + dy, MIN_CARD_Y, MAX_CARD_Y);
+        card.updatedAt = stamp;
+        cardElement.style.left = BOARD_WORLD_ORIGIN_X + card.x + 'px';
+        cardElement.style.top = BOARD_WORLD_ORIGIN_Y + card.y + 'px';
+      }
       updateConnectionPositions();
       updateViewportIndicators();
       return;
@@ -569,6 +627,16 @@
       return;
     }
     const drag = state.drag;
+    if (drag.kind === 'marquee') {
+      removeBoardMarquee();
+      state.drag = undefined;
+      // A shift-click that never moved is a click, not an empty box: it must
+      // not wipe a selection somebody just built.
+      if (drag.moved) {
+        selectCardsInBox(drag);
+      }
+      return;
+    }
     if (state.drag.kind === 'canvas') {
       applyViewportTransform();
       updateViewportIndicators();
@@ -2898,6 +2966,96 @@
     render();
   }
 
+  /**
+   * A client point in card coordinates.
+   *
+   * Measured off the world element's own bounding rect, which already accounts
+   * for its translate and scale — deriving it from `viewportX/Y` and `zoom`
+   * would be a second copy of the transform, and the two would drift the first
+   * time either changed.
+   */
+  function boardPointToCardSpace(clientX, clientY) {
+    const world = document.getElementById('ideationBoardWorld');
+    if (!(world instanceof HTMLElement)) {
+      return null;
+    }
+    const rect = world.getBoundingClientRect();
+    const zoom = state.zoom || 1;
+    return {
+      x: ((clientX - rect.left) / zoom) - BOARD_WORLD_ORIGIN_X,
+      y: ((clientY - rect.top) / zoom) - BOARD_WORLD_ORIGIN_Y,
+    };
+  }
+
+  function boardMarqueeRect(drag) {
+    return {
+      left: Math.min(drag.originX, drag.x),
+      top: Math.min(drag.originY, drag.y),
+      right: Math.max(drag.originX, drag.x),
+      bottom: Math.max(drag.originY, drag.y),
+    };
+  }
+
+  function paintBoardMarquee() {
+    const world = document.getElementById('ideationBoardWorld');
+    if (!state.drag || state.drag.kind !== 'marquee' || !(world instanceof HTMLElement)) {
+      return;
+    }
+    const rect = boardMarqueeRect(state.drag);
+    let box = world.querySelector('.ideation-marquee');
+    if (!(box instanceof HTMLElement)) {
+      box = document.createElement('div');
+      box.className = 'ideation-marquee';
+      world.appendChild(box);
+    }
+    box.style.left = (BOARD_WORLD_ORIGIN_X + rect.left) + 'px';
+    box.style.top = (BOARD_WORLD_ORIGIN_Y + rect.top) + 'px';
+    box.style.width = (rect.right - rect.left) + 'px';
+    box.style.height = (rect.bottom - rect.top) + 'px';
+  }
+
+  function removeBoardMarquee() {
+    const box = document.querySelector('.ideation-marquee');
+    if (box instanceof HTMLElement) {
+      box.remove();
+    }
+  }
+
+  /**
+   * Select every card the box touches.
+   *
+   * **Intersection, not containment** — requiring a card to sit wholly inside
+   * the box means one clipped by the edge of the viewport cannot be selected
+   * without zooming out first, which on a full board is most of them.
+   *
+   * The result goes into `orderedSelectedCardIds`, the same list a click builds.
+   * One selection with two uses is easier to explain than two selections: a
+   * pair of cards is what a link is drawn between, and any number of them is
+   * what a drag moves.
+   */
+  function selectCardsInBox(drag) {
+    const snapshot = state.snapshot;
+    if (!snapshot) {
+      return;
+    }
+    const rect = boardMarqueeRect(drag);
+    const picked = snapshot.cards
+      .filter(card => (card.x + CARD_WIDTH) >= rect.left && card.x <= rect.right
+        && (card.y + CARD_HEIGHT) >= rect.top && card.y <= rect.bottom)
+      .map(card => card.id);
+
+    state.allowEmptySelection = picked.length === 0;
+    state.orderedSelectedCardIds = picked;
+    state.selectedCardId = picked[0] || '';
+    state.selectedLinkId = '';
+    state.editingCardId = '';
+    state.linkStartCardId = '';
+    state.ideationStatus = picked.length > 1
+      ? picked.length + ' cards selected. Drag any one of them to move them together.'
+      : '';
+    render();
+  }
+
   function clearCanvasSelection() {
     state.allowEmptySelection = true;
     state.selectedCardId = '';
@@ -3154,6 +3312,19 @@
   function createLinkFromSelection(relationOverride) {
     const snapshot = state.snapshot;
     const orderedPair = getOrderedSelectedCards(snapshot);
+    // More than two selected has no answer to "which two am I linking".
+    //
+    // Clicking builds a pair; a selection box builds any number, and both live
+    // in the same list. `getOrderedSelectedCards` takes the last two, which is
+    // exactly right for a click sequence and arbitrary for a box — so this
+    // refuses instead of drawing an edge between whichever two happened to come
+    // last. A link nobody chose is worse than a message.
+    if (snapshot && state.orderedSelectedCardIds.length > 2) {
+      state.ideationStatus = 'Linking needs exactly two cards. '
+        + state.orderedSelectedCardIds.length + ' are selected — click one card, then the card it points to.';
+      render();
+      return;
+    }
     if (!snapshot || orderedPair.length < 2) {
       state.ideationStatus = 'Select two cards in sequence before creating a link.';
       render();

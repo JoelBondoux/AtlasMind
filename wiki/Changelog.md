@@ -19,6 +19,240 @@ Older entries below describe the software as it was at the time and are delibera
 
 ---
 
+## v0.443.0 -- Closing the chat no longer stops the work
+
+Clicking another view in the sidebar used to kill whatever the chat was doing. Not closing it —
+clicking away from it. VS Code throws a hidden view's window away, AtlasMind saw that as the chat
+being closed, and stopped the run halfway through your answer.
+
+The sidebar now keeps its contents when hidden, so that doesn't happen at all — and you keep your
+scroll position and half-typed prompt too. If a chat genuinely does lose its window, it now keeps
+going instead of stopping. Your answer is written to the chat session as it arrives rather than only
+to the window, so reopening the chat shows the finished result.
+
+A chat still running is still spending money and may still be changing your files, so it says so. A
+status-bar item names what's running, and clicking it lets you read or stop any of them. Closing the
+window is no longer how you stop a run — that is. Anything you had queued up behind the running turn
+is dropped rather than started without you.
+
+`chat.continueInBackground` turns it off if you'd rather closing the chat stopped the agent.
+
+---
+
+## v0.442.0 -- Being told about the speed setting, once
+
+Serialising writers made runs slower, and the only thing saying so was a line in the progress log.
+The second time a run in a project queues writing steps behind each other, AtlasMind now offers you
+the setting that gives the speed back.
+
+The second time, not the first — the first run already explains itself, and an offer arriving
+alongside the explanation interrupts you before you have a reason to care. Once per run, however
+many batches are involved. Never as a dialog you have to dismiss. And never when turning it on
+wouldn't have changed the run you just watched: a step that runs tests, or a project without git,
+would have run alone either way, and being offered a switch that does nothing is how you learn to
+ignore the next suggestion.
+
+Saying yes changes your own settings rather than the project's, so it doesn't leave a change for
+your colleagues to review.
+
+Also fixed: with the setting off *and* no git repository, a step was reported as being queued
+because the setting was off — pointing at a switch that wouldn't have helped.
+
+---
+
+## v0.441.0 -- Two steps can no longer overwrite each other
+
+When AtlasMind broke a job into steps, it ran up to five of them at once against one copy of your
+files. Nothing anywhere kept two of them from editing the same file, and when that happened one of
+the two changes simply wasn't there afterwards — with both steps reported as finished. There was no
+error, no warning, and nothing in the run to suggest anything had gone wrong.
+
+Steps that write now run one at a time. That is slower than before, and it is not something you can
+turn off, because the race was never the price of a missing feature — it was a defect.
+
+What you *can* turn on is `execution.worktreeIsolation`, which buys the speed back. Each writing step
+gets its own git worktree, they run together again, and each one's changes are applied to your files
+as its batch finishes rather than at the end of the run — so a later step that depends on an earlier
+one sees its work. A step that runs commands or tests still runs alone in your real working tree,
+because a fresh worktree has no `node_modules` and no build output, and "the tests failed" would be a
+fact about the isolation rather than about your code.
+
+If a step's changes won't apply cleanly, its worktree is kept and AtlasMind tells you where it is.
+Nothing is forced in, and nothing is thrown away. The same holds when a run stops early: a worktree
+holding changes is kept and named, and an empty one is cleared away so an abandoned run doesn't leave
+litter behind.
+
+The whole path was checked against real git rather than reasoned about — including that a refused
+patch leaves no conflict markers anywhere in your files.
+
+---
+
+## v0.440.2 -- Bringing an isolated step's work back
+
+If a step of a run gets its own copy of your files, that only helps if the work comes back — and it
+is only safe if work that *cannot* come back cleanly is neither lost nor forced on you.
+
+Changes return as a patch that git applies, not as files copied over the top. Copying would silently
+overwrite whatever was there, which is the problem this feature exists to remove, moved to the end of
+the run where it is harder to spot. Patches apply one at a time, because a collision at that point
+happens when the run already looks finished.
+
+If a change will not apply, AtlasMind stops rather than forcing it, keeps that step's copy of your
+files, and tells you where it is. It does not use git's "leave conflict markers and carry on" mode:
+half-applied work sitting in a file nobody has read is worse than intact work sitting in a folder you
+have been told about.
+
+One detail worth knowing, because getting it wrong would have looked like something else entirely:
+files a step *creates* need registering before git will show them in a patch. Without that they would
+vanish, and it would look like the model never wrote them.
+
+Still not connected to your runs — that is the last piece.
+
+---
+
+## v0.440.1 -- The file boundary learns the difference between two questions
+
+Every file a skill reads or writes goes through one check. That check was answering two questions
+with one answer: *where does `src/foo.ts` mean* and *what is this allowed to reach*. While every step
+of a run shares one copy of your files those are the same question. They stop being the same the
+moment a step gets its own copy.
+
+They are now separate. Where a path resolves can move; what it may reach cannot, and stays your
+workspace folder.
+
+The useful discovery: because AtlasMind's separate checkouts live *inside* your project's `.git`
+directory, an isolated step is contained by exactly the same rule as an ordinary one — this change
+gives nothing extra access to anything. That was checked by running it rather than by reasoning about
+it.
+
+Nothing you can see changes. It is the plumbing the next piece needs, and it ships with the whole
+suite green, which is the claim that matters for a change to the check every read and write passes
+through.
+
+---
+
+## v0.440.0 -- Groundwork for parallel subtasks that cannot overwrite each other
+
+When AtlasMind breaks a job into steps, independent ones run at the same time — up to five at once.
+They all shared one copy of your files, and nothing stopped two of them editing the same file. When
+that happened, one edit quietly won and the other disappeared, with both steps reported as done.
+
+The fix people usually reach for is a separate checkout per step. It works for some steps and cannot
+work for others: a fresh checkout has your *tracked* files and nothing else — no installed packages,
+no build output. A step that runs your tests would land somewhere they cannot run, and "the tests
+failed" would be about the isolation rather than your code.
+
+So AtlasMind now decides per step. Steps that only read run alongside anything. Steps that edit files
+and need nothing else get their own checkout and keep running in parallel. Steps that edit files
+*and* run commands take a turn on their own — slower, and stated on screen when it happens, rather
+than quietly taking longer.
+
+**The taking-turns part is not optional.** With the new setting switched off, editing steps still take
+turns. The race is a defect, not a preference; switching isolation on buys back speed rather than
+making anything safe.
+
+This release is the decision-making and the git plumbing. Nothing changes about how your runs execute
+yet — connecting it up is the next piece, and the larger one. There is deliberately no setting for it
+until then: AtlasMind's own tests refuse a setting that nothing reads, on the grounds that a switch
+which changes nothing is a promise to you the code does not keep.
+
+---
+
+## v0.439.1 -- The ideation board gets the same selection box
+
+Shift-drag on the ideation board draws a selection box; dragging any selected card moves the whole
+group. That finishes the feature started in 0.439.0.
+
+The board already had a selection, but it meant *the two cards I am linking* — numbered, with one
+marked as the source and one as the target. Rather than adding a second, separate kind of "selected",
+the two now share one list: a pair is what a link is drawn between, any number is what a drag moves.
+
+That has one honest consequence. With more than two cards selected, "which two am I linking" has no
+answer, so **linking refuses** and tells you how many are selected instead of picking two for you.
+A link you did not choose is worse than a message asking you to choose.
+
+The box selects any card it touches rather than only cards wholly inside it — otherwise a card half
+off the edge of your screen could not be selected without zooming out first.
+
+---
+
+## v0.439.0 -- Select several roadmap items and move them together
+
+Hold **Shift** and drag on empty canvas to draw a selection box round a group of roadmap items.
+Drag any one of them and the whole selection moves.
+
+Shift rather than a plain drag, deliberately. Drawing tools usually do it the other way round, but
+here panning is how you read a plan that does not fit on the screen — you do it constantly, and it
+works with no connection at all. Taking that away to add selection would trade something you use
+all the time for something you use occasionally.
+
+The selection is not remembered between sessions. It is a way of looking at the plan for a few
+seconds, not a fact about the plan.
+
+Each item snaps to the grid from where *it* was, so a group picked up from different offsets all
+lands aligned rather than keeping its original raggedness.
+
+The ideation board is not covered yet — its existing selection means "these are the two cards I am
+linking", so a box selection there needs a decision about how the two interact rather than a copy of
+this.
+
+---
+
+## v0.438.1 -- "Open a code file" opens a code file
+
+With nothing open, the Lens view shows a single row asking you to open a code file. Clicking it
+opened the Atlas Lenses dashboard — which also says to open a code file. So the one clickable thing
+on the surface took you to a page repeating the request, and the lenses read as unreachable rather
+than as waiting for you.
+
+It now opens the file picker. The row still explains what it is waiting for; it is guidance first
+and a button second.
+
+Worth saying what was *not* broken: Contract Wiring, State Lifecycle, Configuration Resolution and
+Change Story never needed a file at all, and were always available from the view's title bar.
+
+---
+
+## v0.438.0 -- A commit-message button where you already are
+
+There is now a ✨ button in the Source Control title bar, beside the other actions there. Press it
+and AtlasMind reads your staged changes and writes a commit message into the box. Also on the
+Command Palette as **AtlasMind: Write a Commit Message**.
+
+It writes text and stops — nothing is committed, nothing is staged, and if you have already typed a
+message it asks before replacing it. That question comes *before* the model runs, so saying no costs
+nothing.
+
+Two things it deliberately will not do. With nothing staged it tells you so rather than asking a
+model to describe an empty change — you would get a confident, plausible message sitting in the box
+looking exactly like a real one. And if your diff is too large to send whole, it says the message
+covers only part of it, because a message describing half a change reads identically to one
+describing all of it.
+
+Your diff is treated as somebody else's text throughout: it is file content, which on a real project
+means vendored code, generated output and things you did not write.
+
+---
+
+## v0.437.1 -- Deleting your last chat session actually clears the screen
+
+Reported: deleting all your chat sessions left an old conversation on screen instead of going
+blank. Two mistakes, one symptom.
+
+Choosing which conversation to show next looked at *all* sessions, including archived ones — but
+the session picker only lists unarchived ones. So if you had one visible conversation and anything
+archived, deleting the visible one made an **archived** conversation active: the picker went empty
+while its old transcript stayed on screen, and nothing downstream noticed, because an archived
+session is still a perfectly real session as far as the lookup is concerned.
+
+The same oversight meant "this is my only conversation, just empty it" did not trigger when it
+should have, and the successor was picked by creation order rather than by which you used last.
+
+Archiving a conversation has always got this right. Deleting now shares that logic, because they
+are the same question and asking it twice is how the two answers drifted apart.
+
+---
+
 ## v0.437.0 -- "Read-only" holds for the whole job
 
 Telling AtlasMind to work read-only was already enforced properly — the write tools are removed before

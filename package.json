@@ -2,7 +2,7 @@
   "name": "atlasmind",
   "displayName": "AtlasMind",
   "description": "AI project management for VS Code: roadmap, risk, tech debt, compliance, testing and release tracked from your own repository — with a multi-agent AI team, or the AI coding tool you already use.",
-  "version": "0.437.0",
+  "version": "0.443.0",
   "publisher": "JoelBondoux",
   "preview": false,
   "license": "SEE LICENSE IN OSMFEULA.txt",
@@ -240,6 +240,11 @@
         "icon": "$(collapse-all)"
       },
       {
+        "command": "atlasmind.generateCommitMessage",
+        "title": "AtlasMind: Write a Commit Message",
+        "icon": "$(sparkle)"
+      },
+      {
         "command": "atlasmind.openPersonalityProfile",
         "title": "AtlasMind: Open Personality Profile",
         "icon": "$(account)"
@@ -248,6 +253,11 @@
         "command": "atlasmind.openChatPanel",
         "title": "AtlasMind: Open Chat Panel",
         "icon": "$(comment-discussion)"
+      },
+      {
+        "command": "atlasmind.showBackgroundChats",
+        "title": "AtlasMind: Show Chats Running in the Background",
+        "icon": "$(sync)"
       },
       {
         "command": "atlasmind.lens.openDashboard",
@@ -736,6 +746,13 @@
       }
     ],
     "menus": {
+      "scm/title": [
+        {
+          "command": "atlasmind.generateCommitMessage",
+          "when": "scmProvider == git",
+          "group": "navigation@-1"
+        }
+      ],
       "view/container/title": [
         {
           "command": "atlasmind.collapseAllSidebarTrees",
@@ -1503,6 +1520,12 @@
           "description": "Allow ARD Agent Finders that use http:// or localhost (e.g. the ARD conformance demo registry). When false, discovery requires HTTPS and rejects private/loopback addresses to prevent SSRF.",
           "markdownDescription": "Allow ARD Agent Finders that use `http://` or `localhost` — for example the [ARD conformance demo](https://github.com/ards-project/ard-spec) registry.\n\nWhen `false` (default), discovery requires HTTPS and rejects private / loopback / link-local addresses to prevent SSRF. This setting only relaxes the check for finders **you** explicitly marked insecure; followed referral URLs are always screened."
         },
+        "atlasmind.chat.continueInBackground": {
+          "type": "boolean",
+          "default": true,
+          "description": "Let a chat turn finish after its window is closed or hidden, instead of stopping it. Its answer is written to the chat session either way, and a status-bar item shows what is still running.",
+          "markdownDescription": "Let a chat turn finish after its window is closed or hidden, instead of stopping it.\n\nThis exists because closing was never the only thing that stopped a run: VS Code disposes a sidebar view's webview when you click another view, so *looking away* used to tear a chat down mid-answer. The answer is written to the chat session as it arrives, so reopening the chat shows the finished result.\n\nA turn that outlives its window is still spending money and may still be editing your files. A **status-bar item** shows what is running, and clicking it lets you read or stop any of them — closing the window is no longer the way to stop a run, so this is the way that replaces it.\n\nTurn it off if you rely on closing the chat to stop the agent.\n\nExamples:\n- Keep working after the window closes: `true`\n- Closing the chat stops the run, as before: `false`"
+        },
         "atlasmind.chat.revealOnApprovalRequest": {
           "type": "boolean",
           "default": true,
@@ -2019,6 +2042,12 @@
           "default": true,
           "description": "Enable AtlasMind's prompt-context compaction path to reduce token volume and estimated spend.",
           "markdownDescription": "Enable AtlasMind's prompt-context compaction path. When this is on, AtlasMind trims carry-forward session context and summarizes retrieved memory/live evidence to stay within the current model budget. Turn it off if you want the rawer, less compact prompt path for debugging or comparison.\n\nExamples:\n- Keep the default efficiency path: `true`\n- Compare or debug without compaction: `false`"
+        },
+        "atlasmind.execution.worktreeIsolation": {
+          "type": "boolean",
+          "default": false,
+          "description": "Give each file-writing subtask its own git worktree so a batch can write in parallel without two subtasks editing the same file.",
+          "markdownDescription": "Give each file-writing subtask its own git worktree, so a batch can write in parallel without two subtasks editing the same copy of a file.\n\nThis does **not** decide whether AtlasMind protects you from that race — it always does. With this off, subtasks that write run one at a time, which is slower and correct. Turning it on buys the parallelism back for subtasks that need only tracked files.\n\nA subtask that runs commands or tests still runs alone in the real working tree, because a fresh worktree has no `node_modules` and no build output. Worktrees live under `.git/atlasmind-worktrees`, each subtask's changes are applied back to your working tree as its batch finishes, and one whose changes will not apply cleanly is kept and named rather than discarded.\n\nExamples:\n- Serialize writers, the safe default: `false`\n- Run writers in parallel in their own worktrees: `true`"
         },
         "atlasmind.projectApprovalFileThreshold": {
           "type": "number",

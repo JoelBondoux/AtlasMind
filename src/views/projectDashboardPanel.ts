@@ -681,6 +681,29 @@ const EXPECTED_SSOT_DIRECTORIES = [
   'roadmap',
   'skills',
 ];
+/**
+ * How many nodes one box-selected drag may reposition.
+ *
+ * Generous — a plan large enough to want a group move is exactly the plan that
+ * has more than a handful of items — but stated, because a handler that acts on
+ * an array from a webview should say how long an array it will act on.
+ */
+const MAX_ROADMAP_GROUP_MOVE = 400;
+
+/**
+ * The bounds a canvas position is held to.
+ *
+ * Shared by the single-node and group paths rather than repeated: two clamps
+ * would eventually disagree, and the symptom would be a node draggable
+ * somewhere on its own but not as part of a selection.
+ */
+function clampRoadmapPosition(x: number, y: number): { x: number; y: number } {
+  return {
+    x: Math.max(0, Math.min(40000, Math.round(x))),
+    y: Math.max(0, Math.min(40000, Math.round(y))),
+  };
+}
+
 const ROADMAP_ITEMS_START = '<!-- atlasmind:roadmap-items:start -->';
 const ROADMAP_ITEMS_END = '<!-- atlasmind:roadmap-items:end -->';
 
@@ -884,6 +907,21 @@ type ProjectDashboardMessage =
    * node that exists and nothing more.
    */
   | { type: 'roadmapNodeMove'; payload: { nodeId: string; x: number; y: number } }
+  /**
+   * A box-selection dragged as one group.
+   *
+   * Plural rather than the webview sending N singular moves, because each of
+   * those re-reads the roadmap, rewrites the file and triggers a refresh —
+   * dragging twenty selected nodes would be twenty writes and twenty
+   * reconciliations, with the canvas re-rendering under the pointer partway
+   * through. One message is one write.
+   *
+   * Still ids and numbers only, and each id is still validated against the
+   * roadmap the host re-reads; an unknown one is dropped rather than failing
+   * the batch, since a group that silently moved nineteen of twenty nodes is
+   * worse than one that moves the nineteen it could resolve and says so.
+   */
+  | { type: 'roadmapNodesMove'; payload: { moves: Array<{ nodeId: string; x: number; y: number }> } }
   | {
     type: 'roadmapNodeUpdate';
     payload: {
@@ -4920,6 +4958,9 @@ export class ProjectDashboardPanel {
         return;
       case 'roadmapNodeMove':
         await this.handleRoadmapNodeMove(message.payload);
+        break;
+      case 'roadmapNodesMove':
+        await this.handleRoadmapNodesMove(message.payload);
         break;
       case 'roadmapNodeUpdate':
         await this.handleRoadmapNodeUpdate(message.payload);
@@ -10861,10 +10902,7 @@ ${buildCardEvidenceSection(source, derivation)}`;
     if (!Number.isFinite(payload.x) || !Number.isFinite(payload.y)) {
       return;
     }
-    const position = {
-      x: Math.max(0, Math.min(40000, Math.round(payload.x))),
-      y: Math.max(0, Math.min(40000, Math.round(payload.y))),
-    };
+    const position = clampRoadmapPosition(payload.x, payload.y);
     await this.commitRoadmapGraph(
       context.workspaceRoot,
       context.ssotPath,
@@ -10872,6 +10910,64 @@ ${buildCardEvidenceSection(source, derivation)}`;
         record.position = position;
       }),
     );
+  }
+
+  /**
+   * Move a box-selected group in one write.
+   *
+   * Shares `clampRoadmapPosition` with the single-node path rather than
+   * repeating the arithmetic: two clamps would eventually disagree about the
+   * bounds, and the symptom would be a node that can be dragged somewhere
+   * individually but not as part of a group.
+   *
+   * Bounded before anything is read. The cap is not about this webview, which
+   * only ever sends what it has selected — it is that a message handler taking
+   * an array should say how long an array it will act on.
+   */
+  private async handleRoadmapNodesMove(payload: { moves: Array<{ nodeId: string; x: number; y: number }> }): Promise<void> {
+    const requested = Array.isArray(payload?.moves) ? payload.moves.slice(0, MAX_ROADMAP_GROUP_MOVE) : [];
+    if (requested.length === 0) {
+      return;
+    }
+
+    const context = await this.openRoadmapGraphForWrite();
+    if (context === undefined) {
+      await this.reportStaleRoadmapAction();
+      return;
+    }
+
+    let document = context.document;
+    let applied = 0;
+    for (const move of requested) {
+      const text = context.nodeText.get(move.nodeId);
+      if (text === undefined || !Number.isFinite(move.x) || !Number.isFinite(move.y)) {
+        continue;
+      }
+      const position = clampRoadmapPosition(move.x, move.y);
+      document = ProjectDashboardPanel.upsertRoadmapNode(document, move.nodeId, text, record => {
+        record.position = position;
+      });
+      applied += 1;
+    }
+
+    if (applied === 0) {
+      // Every id was stale. The webview is holding all of them at their dropped
+      // spots on local offsets, so this has to snap back visibly rather than
+      // look saved.
+      await this.reportStaleRoadmapAction();
+      return;
+    }
+
+    await this.commitRoadmapGraph(context.workspaceRoot, context.ssotPath, document);
+
+    if (applied < requested.length) {
+      // Said, not swallowed: a group drag that quietly moved most of itself
+      // leaves the canvas disagreeing with the file, and the next refresh is
+      // where somebody notices.
+      void vscode.window.showWarningMessage(
+        `Moved ${applied} of ${requested.length} selected items. The rest are no longer on the roadmap — refresh to see the current plan.`,
+      );
+    }
   }
 
   /**
@@ -14326,6 +14422,20 @@ function isOpaqueDashboardId(value: unknown): boolean {
   return typeof value === 'string' && value.trim().length > 0 && value.length <= 600;
 }
 
+/**
+ * One `{ nodeId, x, y }`, however it arrived.
+ *
+ * Shared by the single move and every entry of a group move, so the two cannot
+ * come to disagree about what a valid move looks like — which would mean a
+ * position rejected on its own and accepted inside a batch.
+ */
+function isRoadmapNodeMovePayload(value: Record<string, unknown> | undefined): boolean {
+  return typeof value === 'object' && value !== null
+    && isOpaqueDashboardId(value['nodeId'])
+    && typeof value['x'] === 'number' && Number.isFinite(value['x'])
+    && typeof value['y'] === 'number' && Number.isFinite(value['y']);
+}
+
 export function isProjectDashboardMessage(message: unknown): message is ProjectDashboardMessage {
   if (typeof message !== 'object' || message === null) {
     return false;
@@ -14713,10 +14823,18 @@ export function isProjectDashboardMessage(message: unknown): message is ProjectD
 
   if (candidate['type'] === 'roadmapNodeMove') {
     const payload = candidate['payload'] as Record<string, unknown> | undefined;
-    return typeof payload === 'object' && payload !== null
-      && isOpaqueDashboardId(payload['nodeId'])
-      && typeof payload['x'] === 'number' && Number.isFinite(payload['x'])
-      && typeof payload['y'] === 'number' && Number.isFinite(payload['y']);
+    return isRoadmapNodeMovePayload(payload);
+  }
+
+  if (candidate['type'] === 'roadmapNodesMove') {
+    const payload = candidate['payload'] as Record<string, unknown> | undefined;
+    if (typeof payload !== 'object' || payload === null || !Array.isArray(payload['moves'])) {
+      return false;
+    }
+    // Every entry, not a sample: a batch validator that checks the first item
+    // and trusts the rest is a validator with an offset.
+    const moves = payload['moves'] as unknown[];
+    return moves.length > 0 && moves.every(move => isRoadmapNodeMovePayload(move as Record<string, unknown>));
   }
 
   if (candidate['type'] === 'roadmapNodeUpdate') {
@@ -28430,6 +28548,27 @@ const DASHBOARD_CSS = `
   .rm-node-editing { cursor: default; user-select: text; }
 
   .rm-node.is-focused { outline: 2px solid var(--dash-accent-strong); outline-offset: 1px; }
+
+  /* Box-selected. An outline rather than a filled background, for the reason
+     urgency uses a left border: several saturated cards read as an alarm, and a
+     selection is not one. Dashed so it cannot be confused with is-focused,
+     which is a different statement about a single node. */
+  .rm-node.is-selected { outline: 2px dashed var(--dash-accent-strong); outline-offset: 2px; }
+
+  /* The rubber band itself. Pointer-events off so it can never intercept the
+     drag that is drawing it. */
+  .rm-marquee {
+    position: absolute;
+    pointer-events: none;
+    border: 1px dashed var(--dash-accent-strong);
+    background: color-mix(in srgb, var(--dash-accent-strong) 12%, transparent);
+    z-index: 5;
+  }
+
+  /* Empty until something is selected, so it costs nothing when it has nothing
+     to say — the same rule the Overview's attention band follows. */
+  .rm-selection-hint { font-size: 11px; opacity: 0.75; align-self: center; }
+
   .rm-node.is-done { opacity: 0.82; }
   .rm-node.is-cycle { border-color: var(--dash-critical, #d13438); }
 

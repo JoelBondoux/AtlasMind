@@ -263,7 +263,14 @@ export function registerTreeViews(
     vscode.window.registerWebviewViewProvider(
       ChatViewProvider.viewType,
       chatViewProvider,
-      { webviewOptions: { retainContextWhenHidden: false } },
+      // Retained, which costs the transcript's DOM while the view is hidden and
+      // buys back the thing that made a sidebar chat unusable: VS Code disposes
+      // a view's webview when you click another view, so clicking away used to
+      // tear the chat down mid-answer. A detached run now survives that
+      // (`chatBackgroundRuns`), but surviving a disposal is a fallback — not
+      // being disposed for looking at something else is the fix, and it also
+      // keeps your scroll position and half-typed prompt.
+      { webviewOptions: { retainContextWhenHidden: true } },
     ),
     // Serves the right-hand side of the "apply this code block" diff. Registered
     // once for the process; every chat surface shares the one scheme.

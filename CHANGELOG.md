@@ -6,6 +6,458 @@ The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/),
 
 ## [Unreleased]
 
+## [0.443.0] - 2026-09-08
+
+### Fixed
+
+- **Looking away no longer kills a chat.** VS Code disposes a webview *view*'s webview when you
+  click another view, and the sidebar chat was registered with `retainContextWhenHidden: false` — so
+  switching views tore the chat down, `onDidDispose` ran, and the run was aborted mid-answer. The
+  view is now retained, which also keeps your scroll position and half-typed prompt.
+
+### Added
+
+- **A chat turn can finish after its window is gone** (`atlasmind.chat.continueInBackground`, on).
+  `dispose()` aborted the active run, and it could not tell a deliberate close from VS Code
+  discarding a hidden view — so the fix is to make surviving safe rather than to guess which
+  happened. Retaining the sidebar view prevents most disposals; this covers a genuine close.
+
+  **The transcript was never the webview's.** Every streamed chunk is written to the chat session
+  before it is pushed to the browser, so a run with nowhere to draw is still a run whose answer is
+  being recorded, and reopening the chat shows the finished result. When it completes it syncs any
+  chat that has since been reopened.
+
+  **The host is swapped, not guarded.** A detached panel gets an inert `ChatPanelHost` whose
+  `postMessage` accepts everything and delivers nothing. The alternative was guarding 104
+  `postMessage` call sites — 104 chances to miss one, and a missed one throws "Webview is disposed"
+  into the middle of a run and ends it, which is the behaviour being removed. Its `visible` is
+  `false` rather than absent, which the approval path already reads to decide whether a waiting
+  approval needs announcing.
+
+  **It is announced and it stays stoppable.** A run outliving its window is still spending money and
+  may still be editing files, so a status-bar item names what is running and
+  `AtlasMind: Show Chats Running in the Background` reads or stops any of them — closing the window
+  is no longer the way to stop a run, so this is the way that replaces it.
+
+  **A prompt queued behind the running one is dropped, not started.** Finishing work already
+  underway is a smaller step than beginning new work with no window and no entry in the registry.
+  The abort controller and its cancellation source are deliberately not torn down when detaching,
+  since the run holds the token.
+
+## [0.442.0] - 2026-09-08
+
+### Added
+
+- **AtlasMind offers worktree isolation once you have watched it cost you twice.** Serialising
+  writers made every run with more than one file-changing step slower, and the only thing saying so
+  was a progress line. From the *second* run in a workspace that queues writers behind each other, a
+  non-modal message offers the setting.
+
+  **Not on the first run**, because the progress line already explains it and an offer arriving
+  beside the explanation interrupts somebody who has no reason yet to care. **Never when turning it
+  on would not have helped** — `serialisedWriterCount` counts only subtasks placed exclusively *by
+  the setting*, never one that runs commands or one in a repository that cannot make worktrees;
+  offering a switch that would not have changed the run somebody just watched is worse than saying
+  nothing, because they try it once and stop believing the advice. **Once per run**, however many
+  batches queue writers: a run is what somebody waited through, a batch is an implementation detail.
+  **Never modal, and it does not claim to rescue the run in flight**, whose placement is already
+  decided.
+
+  Accepting it writes to your *user* settings rather than the workspace's: a workspace update lands
+  in `.vscode/settings.json`, a tracked file in plenty of repositories, and a personal speed
+  preference should not produce a diff for somebody to review.
+
+### Fixed
+
+- **A writer in a repository that cannot make worktrees was blamed on the setting.** With isolation
+  off *and* no git, `placeSubTask` reported `isolation-disabled` — pointing at a switch that would
+  not have helped. `gitAvailable` is now checked before the setting, alongside `needsRealWorkingTree`
+  and for the same stated reason. All three orderings produce the same placement and different
+  explanations, and a placement that is right with an explanation that is wrong is the harder failure
+  to notice.
+
+## [0.441.0] - 2026-09-08
+
+### Fixed
+
+- **Two subtasks of a project run can no longer overwrite each other's edits.** `taskScheduler` ran
+  up to five subtasks at once against **one** working tree, with no lock, queue or serialisation
+  anywhere in the write path. Two independent subtasks editing the same file was a
+  read-modify-write race whose loser vanished silently: both were reported as completed and one of
+  the two changes was simply not there. Subtasks that write now run one at a time.
+
+  This is slower than before and it is not conditional on the new setting. The race was never the
+  price of not having worktree isolation; it was a defect, and a switch that is off must not
+  reintroduce it. Turning isolation on buys the parallelism back — it is not what makes the run
+  safe.
+
+  Applied to both fan-out paths, `processProject` and `processTaskMultiStep`, because a multi-step
+  chat turn loses writes the same way and fixing one surface would have made the fix depend on which
+  surface started the work.
+
+### Added
+
+- **Worktree isolation, stage four: the wiring, behind `atlasmind.execution.worktreeIsolation`
+  (off).** With it on, a subtask that writes and needs only tracked files gets its own git worktree
+  and keeps its place in the parallel wave. A subtask that runs commands or tests still runs alone
+  in the real working tree, because a fresh worktree has no `node_modules` and no build output, and
+  "the tests failed" would otherwise be a fact about the isolation rather than the code.
+
+  **A tree that could not be made costs parallelism, never separation.** A failed `worktree add`
+  downgrades that subtask to running alone. Leaving it in the parallel wave would be the race
+  arriving under the feature's own name.
+
+  **Work comes back between waves, not at the end of the run.** A later batch may depend on an
+  earlier subtask's edits, so a merge deferred to the end would leave the dependency ordering
+  honoured and meaningless.
+
+  **Nothing holding work is removed.** A worktree whose patch will not apply is kept and named. One
+  stranded by a run that ended early — an abort, a billing stop — is kept if it holds changes and
+  removed if it does not, so an aborted run neither loses edits nor litters `.git` with empty
+  checkouts. A worktree that cannot be read at all counts as holding work, because keeping cannot
+  destroy anything.
+
+  Verified against real git rather than inferred: a probe repository with three worktrees confirms
+  that a newly created file survives the round trip, that a conflicting patch is refused with **no**
+  markers written into the working tree, that its worktree is kept while the merged ones are
+  removed, and that the parent repository's status shows only the merged changes.
+
+- **`SkillExecutionContext.withResolutionRoot`** — how a host points one subtask's file operations
+  at a different directory inside the workspace. Optional, and its absence is a real answer: a host
+  that cannot re-root cannot isolate, which the placement already treats as it treats having no git.
+  The VS Code implementation rebuilds the whole context with a different resolution root, so every
+  path-taking method moves together; one whose `writeFile` went to the worktree while its
+  `applyPatch` went to the main tree would be worse than no isolation at all.
+
+- **`TaskScheduler` gained `partitionBatch` and `afterBatch`.** Everything in a dependency batch is
+  *free* to run at once, which is not the same as safe, and the scheduler had no way to say so.
+  `afterBatch` runs after every chunk including one that threw, since the run that aborted is the one
+  with work somebody needs to recover. With no partitioner supplied, the chunking and the batch
+  totals are exactly what they were — asserted by test, because a total that became an estimate for
+  every run to serve a feature that is off by default would be a worse trade than the feature is
+  worth.
+
+### Changed
+
+- **An absolute path into the workspace is re-rooted for an isolated subtask, not obeyed.** A
+  relative path follows the resolution root for free; an absolute one did not, so a subtask handed an
+  absolute path naming the *main* tree's copy of a file — from a dependency's output, say — would
+  have written straight back into the tree it was isolated from, which is the race arriving by the
+  one route the resolution root does not cover.
+  Re-rooting keeps what the path meant and changes which copy it names. The rule cannot fire for a
+  caller that passes one root as both, since "inside the boundary but outside the resolution root" is
+  empty when they are equal; there is a test for that rather than a promise. A stage-two test
+  asserting that an absolute path passed through untouched has been replaced — it described what the
+  boundary did when nothing had two trees yet.
+
+- **Post-tool verification is skipped for an isolated subtask.** The verifier reads the editor's
+  diagnostics, which describe the workspace copy of a file the subtask never touched. "No problems"
+  about the wrong file is a pass nobody earned.
+
+- **`ProjectProgressUpdate` gained a `notice` kind** for what a run did that you would want to know
+  and that did not fail — how a batch was placed, what came back from a worktree, where work was
+  left. Kept apart from `error`, because a surface that renders the two the same teaches people that
+  red means nothing.
+
+## [0.440.2] - 2026-09-08
+
+### Added
+
+- **Worktree isolation, stage three: getting the work back.** The half that decides whether the
+  feature is worth having — isolation is only useful if an isolated subtask's changes return, and
+  only *safe* if changes that cannot return cleanly are neither lost nor forced.
+
+  **A patch, not a file copy.** `git diff` in the worktree and `git apply` in the main tree, so
+  git's own machinery decides whether the change still fits. Copying changed files over would
+  silently overwrite whatever the main tree had — the write race this feature exists to remove,
+  moved to the end of the run where it is harder to notice.
+
+  **Applied one at a time.** The subtasks ran in parallel; their patches do not. A race at merge
+  time is worse than one during the run, because by then the run reports itself finished.
+
+  **Never `--3way`.** It can leave conflict markers in a file and report success. A subtask's work
+  half-applied into a file nobody has read is worse than the same work sitting in a directory
+  somebody can be told about. `git apply --check` runs first, so a refusal happens before anything
+  is written rather than partway through.
+
+  **New files needed an extra step to survive.** `git diff` shows tracked changes only, so a
+  subtask that *created* a file would have had it dropped without a word — and it would have looked
+  like the model failing to write it. `git add --intent-to-add` registers new paths first.
+
+  A worktree that did not merge is **kept**: removing it would destroy the only copy of work the
+  operator has not seen. The report names its path so the work is findable, and carries no patch
+  body — a patch is workspace content and the report goes to an output channel. It says nothing at
+  all when everything merged, because a line on every run saying "all fine" is the line people stop
+  reading before the run where it says something else.
+
+  The git runner gained optional stdin so the patch can be piped. Writing it to a temp file would
+  put workspace content on disk *outside* the workspace, where none of this project's boundaries
+  reach it and nothing cleans it up after a crash.
+
+## [0.440.1] - 2026-09-08
+
+### Changed
+
+- **Worktree isolation, stage two: the file boundary now separates *where a path resolves* from
+  *what it may reach*.** `assertInsideWorkspace` used the open workspace folder for both — correct
+  while every subtask shares one tree, and exactly what has to come apart for isolation. A subtask
+  in its own worktree must resolve `src/foo.ts` inside that worktree while still being unable to
+  reach outside the workspace.
+
+  `resolveFrom` is now a parameter; `containWithin` is always the workspace folder. A single
+  "root" would have let a caller move the boundary by accident while meaning only to move the
+  resolution.
+
+  **Isolation needs no widening of what a skill may touch**, which was the useful discovery here.
+  Verified by execution before the design was fixed: `git worktree add --detach .git/… HEAD`
+  succeeds, the files check out, and the parent's `git status` stays clean. Because worktrees live
+  *inside* the workspace, an isolated subtask is contained by exactly the same rule as an ordinary
+  one.
+
+  Extracted to `src/core/workspaceBoundary.ts` with `realpath` injected, so the escapes are tested
+  without creating one on disk — a symlink pointing out of the workspace, and a path *through* a
+  symlinked directory to a file that does not exist yet. Behaviour is preserved exactly, down to
+  throwing rather than returning when nothing on the path exists: the containment check would have
+  rejected that too, but by a different rule, and a boundary whose reason changes under refactoring
+  is one nobody can reason about.
+
+  8,633 tests green across the swap, which is the claim that matters for a change to the check
+  every skill read and write passes through.
+
+## [0.440.0] - 2026-09-08
+
+### Added
+
+- **Worktree isolation, stage one: the policy and the git plumbing.** Roadmap item: *"AtlasMind
+  already runs parallel subtask batches but on a single shared working tree — a latent write-race
+  that is a correctness bug."* It is: `chunkArray(batch, 5)` into `Promise.all`, subtasks declare
+  write skills explicitly, and there is **no lock, queue or serialisation anywhere** in the write
+  path. Two independent subtasks editing one file is a read-modify-write race whose loser vanishes
+  silently, with both reported completed.
+
+  **The named remedy does not fit every subtask, and the policy encodes that rather than pretending
+  otherwise.** A git worktree is a checkout of *tracked files* — no `node_modules`, no build
+  output, no untracked state. A subtask carrying `test-run` or `terminal-run` would land somewhere
+  its own tools cannot run, and "the tests failed" would be a fact about the isolation rather than
+  about the code. Installing dependencies per subtask is minutes and gigabytes, five times over,
+  for a batch that may take seconds.
+
+  So `worktreeIsolation.ts` places each subtask as `isolated` (writes, needs only tracked files —
+  gets a worktree, keeps its parallelism), `exclusive` (writes *and* needs the real tree — runs
+  alone), or `shared` (writes nothing — races with nobody, full parallelism). `needs-working-tree`
+  is checked **before** the setting, so a subtask that could never be isolated is not reported as
+  blocked by a switch that would not help it.
+
+  **Serialising writers is not conditional on the feature.** With isolation off every writer
+  becomes `exclusive`: the race is a defect, and a setting that is off must not reintroduce it.
+  Turning isolation on buys back parallelism; it is not what makes a run safe.
+
+- **`worktreeManager.ts`** — the git half, runner injected so neither half spawns git under test.
+  Four rules, each about not damaging a borrowed repository: **only worktrees this run created are
+  removed**, checked against `git worktree list --porcelain` *and* the run's own registry;
+  **detached, never a branch**, since a linked worktree pins its branch and `git branch -d` then
+  refuses — the mess `skills/gitWorktree` exists to clean up; **paths are derived, never
+  accepted**, composed from ids reduced to an identifier charset under `.git/atlasmind-worktrees`
+  (inside `.git`, so a half-finished subtask's files never surface in Quick Open); and **cleanup is
+  best-effort and reported** — a worktree that will not remove is litter, not a reason to fail a
+  run whose work succeeded. A failed *creation* returns `undefined` rather than throwing, so
+  isolation degrades to running exclusively rather than becoming a new way for a run to die.
+
+### Notes
+
+- **Not yet wired into the scheduler, and deliberately without a setting yet.** The policy and the
+  plumbing land first so the decision can be reviewed before anything acts on it; threading a
+  per-execution workspace root through the skill layer is the next stage, and it is the large one —
+  `SkillContext.workspaceRootPath` is single and global today.
+
+  `atlasmind.execution.worktreeIsolation` was written, then removed before commit:
+  `tests/settingsIntegrity.test.ts` asserts the repository **has no setting that nothing reads**,
+  and it was right to fail. A toggle in the settings UI that changes nothing is a promise to the
+  user that the code does not keep — the same defect this session has been finding in comments, in
+  a settings page instead. The option exists on `WorktreeIsolationOptions` and arrives in the UI
+  with the wiring that honours it.
+
+## [0.439.1] - 2026-09-08
+
+### Added
+
+- **Box selection on the ideation board, sharing the selection that already existed.** Completes
+  the roadmap item begun in 0.439.0. Shift-drag on empty board draws a box; dragging any selected
+  card moves the whole group, each from its own origin and each clamped to the board edge.
+
+  The board already had `orderedSelectedCardIds`, but it meant *the two cards I am linking* —
+  numbered badges, a **Link source** and a **Link target**. A box selection could have been a
+  second, parallel list. It is not: one selection with two uses is easier to explain than two
+  selections that both mean "selected", and the badges already number arbitrarily. A pair is what
+  a link is drawn between; any number is what a drag moves.
+
+  **The cost of merging is paid honestly.** With more than two cards selected, "which two am I
+  linking" has no answer — `getOrderedSelectedCards` takes the last two, which is exactly right
+  for a click sequence and arbitrary for a box. Linking now **refuses** and says how many are
+  selected, rather than drawing an edge between whichever two happened to come last. A link
+  nobody chose is worse than a message.
+
+  Not offered on a projected lens, for the same reason card dragging is already refused there:
+  the stored position is not what is on screen, so a rectangle would name the wrong cards.
+
+  The box selects what it **touches**, not what it contains — requiring a card to sit wholly
+  inside means one clipped by the viewport edge cannot be selected without zooming out first,
+  which on a full board is most of them. And the pointer is converted to card space by reading
+  the world element's own bounding rect rather than recomputing the transform from `viewportX/Y`
+  and `zoom`, because a second copy of a transform drifts the first time either half changes.
+
+## [0.439.0] - 2026-09-08
+
+### Added
+
+- **Box-select and move several roadmap items together.** Roadmap item: *"On the roadmap and
+  ideation canvases allow for a drag box to select a number of nodes to allow them all to be
+  moved together."* The roadmap canvas half; the ideation board is a separate decision, noted
+  below.
+
+  Hold **Shift** and drag on empty canvas to draw a selection box; dragging any selected node
+  then moves the whole selection. **Shift** rather than a plain drag on purpose: the other way
+  round is commoner in drawing tools and is the wrong default here, because panning is how you
+  read a plan that does not fit on screen — it is constant, it already works offline, and
+  taking it away to add selection would trade a permanent cost for an occasional one.
+
+  Selection is not persisted. It is a way of looking at the plan for the next few seconds, not a
+  fact about it, and one that survived a reload would be a stored opinion nobody asked to keep.
+
+  Pressing a node **inside** the selection drags the whole selection; pressing one outside clears
+  it first — the alternative moves nodes the operator is no longer looking at.
+
+  Each node snaps from **its own** origin rather than by snapping a shared delta, so nodes
+  selected from different offsets each land on the grid. A shared delta cannot do that unless
+  they started aligned.
+
+- **`roadmapNodesMove`, one message for a group.** N singular moves would be N host reads, N file
+  writes and N refreshes, with the canvas re-rendering under the pointer partway through. The
+  batch is validated **entry by entry** — a validator that checks the first item and trusts the
+  rest is a validator with an offset — through the same predicate the single move uses, so the
+  two cannot come to disagree about what a valid move looks like. Ids are still opaque and still
+  resolved against the roadmap the host re-reads; an id that no longer exists is skipped and the
+  shortfall is reported rather than leaving the canvas quietly disagreeing with the file.
+
+### Changed
+
+- A deferred snapshot now preserves the drag offsets of **every** node that moved, not just the
+  one under the pointer. A group drops together, and keeping only one would have snapped the rest
+  back for a frame — the same bug that exception exists to prevent, only intermittent and so
+  harder to see.
+
+## [0.438.1] - 2026-09-08
+
+### Fixed
+
+- **"Open a code file" in the Lens view now opens a file.** Roadmap item: *"The Lens surfaces
+  are not all accessible as they need a file selected."*
+
+  With no editor open, the Code Explorer shows one row asking you to open a code file. That row
+  was clickable and opened the Atlas Lenses dashboard — which is the right destination for
+  "show me what the lenses do" and the wrong one here, because the dashboard *also* says open a
+  code file. Clicking the thing that told you to open a file took you to a page telling you to
+  open a file, which is why the Lens surfaces read as unreachable rather than as waiting.
+
+  It now opens the file picker. `workbench.action.quickOpen` rather than a bespoke list: it is
+  the picker you already know, it honours your own exclude settings, and it needs no allowlist
+  of what counts as a code file — a judgement this view has no business making, since the
+  outline comes from whichever language service is installed.
+
+  The row still says what it is waiting for. It is guidance first and a button second, and
+  dropping the explanation to make room for the action would have traded one problem for
+  another.
+
+  Nothing else on the surface actually required a file: Contract Wiring, State Lifecycle,
+  Configuration Resolution and Change Story are all workspace-wide and were always reachable
+  from the view's title bar. The dashboard's own "Go to a file" action already used the picker.
+
+## [0.438.0] - 2026-09-08
+
+### Added
+
+- **A commit-message button in the Source Control title bar.** Roadmap item: *"Add an AM logo to
+  the generic Source Control side panel next to the icon 'Create Pull Request' to have AM
+  generate a commit message."* A ✨ action beside the other SCM title actions reads your staged
+  diff and writes a Conventional Commits message into the box. Also available as
+  **AtlasMind: Write a Commit Message**.
+
+  **It writes text and stops.** Nothing is committed or staged; the box is a field you still read
+  and press a button on, which is the gate. An existing message is replaced only after a modal —
+  asked *before* the model call, so a draft you decline costs nothing.
+
+  **A diff is untrusted input**, not a description of a change. It is file content, which on a
+  real project includes vendored code, generated output and text somebody else wrote, so it is
+  fenced as reported content — and the instruction to disregard embedded instructions is in the
+  system prompt as well as in the fence, because a rule stated only inside the fenced block is a
+  rule inside the thing it constrains.
+
+  **Nothing staged refuses rather than inviting an invention.** A model asked to summarise an
+  empty diff produces a confident, plausible message that then sits in the commit box looking
+  exactly like a real one. Truncation of a very large diff is *reported* for the same reason: a
+  message describing half a change reads identically to one describing all of it.
+
+  Every failure says which — no Git extension, no repository, nothing staged, an unreadable diff,
+  an empty reply. "Could not generate a commit message" would leave you re-running it.
+
+### Changed
+
+- **`Orchestrator.draftCommitMessage` is separate from `summarizeText`, and the reason is the
+  origin label.** `summarizeText` declares its user part `session-context`, which is true of prior
+  conversation and false of a git diff. A diff is repository content and travels as
+  `workspace-file`, so the egress boundary redacts it. Reusing the existing helper would have been
+  invisible and wrong in the direction that matters: a diff carrying an API key would have gone
+  out unredacted.
+
+- **`src/views/gitExtensionApi.ts`** now holds the structural subset of the built-in `vscode.git`
+  API, extracted from `chatPanel.ts`. One copy was fine while one surface read the branch name;
+  two structural copies of somebody else's interface drift silently, because nothing type-checks
+  one against the other.
+
+- **A sanitiser that quietly did less than it claimed, caught before it shipped.** The new
+  control-character class was first written as a regex literal containing the characters
+  themselves, and two of them did not survive being written — so it stripped a subset while
+  reading exactly as though it stripped everything. Its test had the identical defect, embedding
+  the same characters and therefore asserting almost nothing while looking thorough. Both now
+  build the characters explicitly — `new RegExp` from `\uXXXX` escapes in the module,
+  `String.fromCharCode` in the test — so nothing depends on an invisible character surviving an
+  editor, a diff and a review. Found because ESLint reported the `no-control-regex` suppression
+  as *unused*, which is only true if the regex has no control characters in it.
+
+  Worth stating plainly: a sanitiser doing less than it says is worse than none, because nothing
+  downstream is looking.
+
+## [0.437.1] - 2026-09-08
+
+### Fixed
+
+- **Deleting your last visible chat session left an old transcript on screen.** Reported as
+  "deleting all sessions leaves the chat history of an old session on the screen and doesn't
+  refresh to a blank chat", and it was two mistakes landing on one symptom.
+
+  The successor session was picked as `this.sessions[0]`. That array includes **archived**
+  sessions while `listSessions()` filters them out — so with one visible conversation and any
+  archived one, deleting the visible one promoted an *archived* session to active. The picker
+  then showed nothing (it lists only unarchived sessions) while the panel rendered the archived
+  transcript, and `chatPanel`'s "is the selection still real?" check could not catch it because
+  `getSession()` finds archived records perfectly well.
+
+  The same array made the clear-in-place shortcut wrong: `this.sessions.length === 1` asked
+  whether this was the only session *including archived ones*, so "empty my only conversation"
+  did not fire when it should have. Index `0` was also insertion order rather than most-recently
+  updated.
+
+  `archiveSession` has always answered this correctly — most recently updated non-archived
+  session, a fresh one when there is none. `deleteSession` now shares that logic, because the
+  two are the same question and answering it twice is how they came to disagree. The old
+  fallback also built a session record, took its id and discarded the record, leaving
+  `activeSessionId` naming a session that did not exist; the successor is now always a session
+  that is actually in the list.
+
+- Seven regression tests in `tests/chat/sessionConversation.test.ts` covering the reported case
+  and the surrounding ones. The panel's own tests mock `SessionConversation` wholesale, which is
+  how this survived: nothing exercised the real deletion logic.
+
 ## [0.437.0] - 2026-09-08
 
 ### Fixed

@@ -1362,6 +1362,35 @@ export interface OrchestratorHooks {
    */
   resolveWorkflowStageLevels?: () => Promise<Record<string, import('./core/workflowAutomation.js').AutomationLevel> | undefined>;
 
+  /**
+   * Run one git command in the workspace and return its stdout.
+   *
+   * Its own hook rather than `SkillExecutionContext.runCommand`, for two
+   * reasons. It needs stdin, which `git apply -` requires and which no skill
+   * has ever needed — widening the skill surface so the orchestrator could
+   * pipe a patch would hand every model-driven tool a channel it has no use
+   * for. And it is not a tool: nothing here passes through tool approval,
+   * because the commands are constants in `worktreeManager` and
+   * `worktreeMerge`, never composed from a model's output.
+   *
+   * Absent means worktree isolation is unavailable, which the scheduler already
+   * handles by running writers one at a time.
+   */
+  runGit?: (args: readonly string[], cwd: string, stdin?: string) => Promise<string>;
+
+  /**
+   * This run is queueing subtasks behind each other only because worktree
+   * isolation is off, and how many.
+   *
+   * Fires at most once per run, and only when turning the setting on would
+   * genuinely have changed the run — never for a subtask that runs commands or
+   * a repository that cannot make worktrees. The host decides whether to
+   * interrupt: the first time this happens the progress line already explains
+   * it, and an offer is worth making once somebody has watched it cost them
+   * something.
+   */
+  onSerialisedWriters?: (count: number) => void;
+
   /** Gate function that determines whether a tool invocation should proceed. */
   toolApprovalGate?: (
     taskId: string,
@@ -1468,6 +1497,22 @@ export interface OrchestratorConfig {
 export interface SkillExecutionContext {
   /** Absolute filesystem path to the workspace root, or undefined if no workspace is open. */
   workspaceRootPath: string | undefined;
+  /**
+   * The same context with file paths resolving from somewhere else inside the
+   * workspace — how a subtask running in its own git worktree reaches its copy
+   * of a file rather than the one every other subtask is editing.
+   *
+   * Only the *resolution* root moves. The containment boundary stays the
+   * workspace folder, which is why isolation widens nothing: AtlasMind's
+   * worktrees live under `.git/`, so an isolated subtask is contained by exactly
+   * the rule an ordinary one is. See `resolveWithinWorkspace`.
+   *
+   * Optional, and its absence is a real answer rather than a gap: a host that
+   * cannot re-root file access cannot isolate a subtask, and the scheduler runs
+   * writers one at a time instead. Nothing here creates a worktree — the caller
+   * supplies a directory it has already made.
+   */
+  withResolutionRoot?(root: string): SkillExecutionContext;
   /** Search the in-memory SSOT index for relevant entries. */
   queryMemory(query: string, maxResults?: number): Promise<MemoryEntry[]>;
   /** Add or update an entry in the in-memory SSOT index and optionally persist to disk. */
@@ -4522,6 +4567,13 @@ export type ProjectProgressUpdate =
   | { type: 'subtask-done'; result: SubTaskResult; completed: number; total: number }
   | { type: 'subtask-retry'; subTaskId: string; title: string; reason: string }
   | { type: 'synthesizing' }
+  /**
+   * Something the run did that the operator would want to know and that did not
+   * fail — how a batch was placed, what came back from a worktree, where work
+   * was left. Kept apart from `error` because a surface that renders the two the
+   * same teaches people that red means nothing.
+   */
+  | { type: 'notice'; message: string }
   | { type: 'error'; message: string };
 
 // ── Mission Loop (autonomous goal-seeking loop) ─────────────────

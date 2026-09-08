@@ -237,3 +237,117 @@ describe('truncateAfter', () => {
     expect(conversation.getTranscript()).toHaveLength(6);
   });
 });
+
+/**
+ * Deleting a conversation leaves a *visible* one active.
+ *
+ * The reported symptom was "deleting all sessions leaves an old session's
+ * history on screen and never goes blank". The cause was that the successor
+ * was picked from `this.sessions`, which includes archived sessions, while the
+ * picker lists only unarchived ones — so an archived session became active,
+ * the list went empty, and the panel rendered the archived transcript.
+ */
+describe('deleteSession', () => {
+  it('never promotes an archived session to active', () => {
+    // The reported case: one visible conversation, one archived, delete the
+    // visible one.
+    const conversation = new SessionConversation();
+    const visible = conversation.getActiveSessionId();
+    conversation.recordTurn('current work', 'ok');
+
+    const old = conversation.createSession('Old thread');
+    conversation.recordTurn('something from last week', 'ok');
+    conversation.archiveSession(old);
+    conversation.selectSession(visible);
+
+    conversation.deleteSession(visible);
+
+    const active = conversation.getActiveSessionId();
+    expect(active, 'the archived session was promoted to active').not.toBe(old);
+    expect(conversation.getSession(active)?.archivedAt).toBeUndefined();
+  });
+
+  it('leaves the picker showing the session that is active', () => {
+    // The staleness the user actually saw: an active session the list does not
+    // contain, so the panel had a transcript and no way to reach it.
+    const conversation = new SessionConversation();
+    const visible = conversation.getActiveSessionId();
+    const old = conversation.createSession('Old thread');
+    conversation.archiveSession(old);
+    conversation.selectSession(visible);
+
+    conversation.deleteSession(visible);
+
+    const listed = conversation.listSessions().map(session => session.id);
+    expect(listed).toContain(conversation.getActiveSessionId());
+  });
+
+  it('starts a blank conversation when every survivor is archived', () => {
+    const conversation = new SessionConversation();
+    const visible = conversation.getActiveSessionId();
+    const old = conversation.createSession('Old thread');
+    conversation.recordTurn('last week', 'ok');
+    conversation.archiveSession(old);
+    conversation.selectSession(visible);
+    conversation.recordTurn('this week', 'ok');
+
+    conversation.deleteSession(visible);
+
+    expect(conversation.getTranscript(), 'the new conversation is not blank').toHaveLength(0);
+    expect(conversation.listSessions()).toHaveLength(1);
+  });
+
+  it('points at a session that exists', () => {
+    // The old fallback built a record, took its id and threw the record away,
+    // leaving `activeSessionId` naming nothing.
+    const conversation = new SessionConversation();
+    const first = conversation.getActiveSessionId();
+    conversation.createSession('Second');
+    conversation.selectSession(first);
+
+    conversation.deleteSession(first);
+
+    expect(conversation.getSession(conversation.getActiveSessionId())).toBeDefined();
+  });
+
+  it('prefers the most recently updated survivor', () => {
+    // `archiveSession` has always sorted by `updatedAt`; delete took index 0 of
+    // an insertion-ordered array. The two are the same question.
+    const conversation = new SessionConversation();
+    const doomed = conversation.getActiveSessionId();
+    const older = conversation.createSession('Older');
+    conversation.recordTurn('older work', 'ok');
+    const newer = conversation.createSession('Newer');
+    conversation.recordTurn('newer work', 'ok');
+    conversation.selectSession(doomed);
+
+    conversation.deleteSession(doomed);
+
+    expect(conversation.getActiveSessionId()).toBe(newer);
+    expect(conversation.getSession(older)).toBeDefined();
+  });
+
+  it('clears in place when it is the only session there is', () => {
+    // Unchanged behaviour, and deliberately so: keeping the id and folder is
+    // the right outcome for "empty my only conversation".
+    const conversation = new SessionConversation();
+    const only = conversation.getActiveSessionId();
+    conversation.recordTurn('hello', 'world');
+
+    conversation.deleteSession(only);
+
+    expect(conversation.getActiveSessionId()).toBe(only);
+    expect(conversation.getTranscript()).toHaveLength(0);
+  });
+
+  it('ignores a session that is not there', () => {
+    const conversation = new SessionConversation();
+    const active = conversation.getActiveSessionId();
+    conversation.recordTurn('hello', 'world');
+
+    conversation.deleteSession('does-not-exist');
+
+    expect(conversation.getActiveSessionId()).toBe(active);
+    expect(conversation.getTranscript()).toHaveLength(2);
+  });
+});

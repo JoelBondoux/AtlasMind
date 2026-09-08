@@ -367,4 +367,48 @@ describe('AtlasMind Lens outline tree', () => {
     expect(showTests).toHaveBeenCalledWith(graph);
     expect(revealPreferredChatSurface).not.toHaveBeenCalled();
   });
+
+  /**
+   * With no editor open, the view is one row telling you to open a file. That
+   * row is clickable, and what it does has to be the thing it just asked for.
+   *
+   * It used to open the Atlas Lenses dashboard — right for "show me what the
+   * lenses do", wrong here, because the dashboard *also* says open a code file.
+   * Clicking the row that told you to open a file took you to a page telling
+   * you to open a file, which is why the Lens surfaces read as unreachable
+   * rather than as waiting.
+   */
+  describe('with no active editor', () => {
+    async function rootsWithNoEditor(): Promise<Array<{ label: unknown; command?: { command: string } }>> {
+      const vscode = await import('vscode') as unknown as { window: { activeTextEditor?: unknown } };
+      const previous = vscode.window.activeTextEditor;
+      vscode.window.activeTextEditor = undefined;
+      try {
+        return await new LensTreeProvider().getChildren() as never;
+      } finally {
+        vscode.window.activeTextEditor = previous;
+      }
+    }
+
+    it('offers the file picker rather than a page that repeats the request', async () => {
+      const roots = await rootsWithNoEditor();
+
+      expect(roots).toHaveLength(1);
+      expect(roots[0]?.label).toBe('Open a code file');
+      expect(
+        roots[0]?.command?.command,
+        'Clicking "Open a code file" must open a file, not a page that asks again.',
+      ).toBe('workbench.action.quickOpen');
+    });
+
+    it('still says what it is waiting for', async () => {
+      // The row is guidance first and a button second: removing the
+      // explanation to make room for an action would trade one problem for
+      // another.
+      const roots = await rootsWithNoEditor() as unknown as Array<{ description: string; tooltip: { value: string } }>;
+
+      expect(roots[0]?.description).toBe('Lens follows the active editor.');
+      expect(roots[0]?.tooltip.value).toMatch(/file picker/i);
+    });
+  });
 });

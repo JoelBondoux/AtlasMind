@@ -37,6 +37,30 @@ export interface SchedulerExecutionOptions {
   onProgress?: (progress: SchedulerProgress) => void;
   onBatchStart?: (batch: SchedulerBatchStart) => void;
   beforeBatch?: (batch: SchedulerBatchStart) => Promise<void>;
+  /**
+   * Runs after every chunk, whether or not the work in it succeeded.
+   *
+   * Its own hook rather than something the caller does around `execute`,
+   * because what happens between two chunks is sometimes load-bearing: an
+   * isolated subtask's changes have to reach the working tree before the chunk
+   * that depends on them starts, and by the end of the run that is far too
+   * late.
+   */
+  afterBatch?: (batch: SchedulerBatchStart) => Promise<void>;
+  /**
+   * Split one dependency batch into the groups it should run as, in order.
+   *
+   * Everything in a batch is *free* to run at once — that is what a batch means
+   * — but free is not the same as safe, and the scheduler has never had a way to
+   * say so. Two subtasks writing the same file is a read-modify-write race
+   * whose loser vanishes silently. The caller decides how to split; the default
+   * is the fan-out cap and nothing else, exactly as before.
+   *
+   * Async because deciding may require doing: the placement AtlasMind uses
+   * creates a worktree per isolated subtask, and one that cannot be created has
+   * to be placed differently rather than optimistically.
+   */
+  partitionBatch?: (tasks: SubTask[]) => Promise<SubTask[][]> | SubTask[][];
   initialResults?: SubTaskResult[];
 }
 
@@ -61,66 +85,101 @@ export class TaskScheduler {
     }
 
     const batches = buildExecutionBatches(plan.subTasks, precompletedIds);
-    const executionChunks = batches.flatMap(batch => chunkArray(batch, MAX_SCHEDULER_CONCURRENCY));
     const total = plan.subTasks.length;
 
-    for (const [index, chunk] of executionChunks.entries()) {
-      const batchInfo = {
-        batchIndex: index + 1,
-        totalBatches: executionChunks.length,
-        batchSize: chunk.length,
-        subTaskIds: chunk.map(task => task.id),
-      };
-      options?.onBatchStart?.(batchInfo);
-      if (options?.beforeBatch) {
-        await options.beforeBatch(batchInfo);
-      }
+    // Without a partitioner every chunk is known before the run starts, so the
+    // total is exact — as it always was. With one, a batch is split only when it
+    // is about to run, because deciding how may require creating something
+    // first; the total is then a lower bound that grows rather than a number
+    // taken on trust.
+    const partitionBatch = options?.partitionBatch;
+    const eagerChunks = partitionBatch
+      ? undefined
+      : batches.map(batch => chunkArray(batch, MAX_SCHEDULER_CONCURRENCY));
+    const exactTotal = eagerChunks?.reduce((sum, chunks) => sum + chunks.length, 0);
 
-      const chunkResults = await Promise.all(
-        chunk.map(async (task) => {
-          // If any direct dependency failed, skip this task immediately rather
-          // than running it with missing context and wasting model quota.
-          const blockedBy = task.dependsOn.find(depId => failedIds.has(depId));
-          if (blockedBy) {
-            const skipped: SubTaskResult = {
-              subTaskId: task.id,
-              title: task.title,
-              status: 'failed',
-              output: '',
-              costUsd: 0,
-              durationMs: 0,
-              error: `Skipped — dependency "${blockedBy}" did not complete successfully.`,
-            };
-            return { task, result: skipped };
-          }
+    let chunkNumber = 0;
+    let emittedChunks = 0;
 
-          // Collect dependency outputs to pass as context
-          const depOutputs: Record<string, string> = {};
-          for (const depId of task.dependsOn) {
-            const depOutput = outputs.get(depId);
-            if (depOutput !== undefined) {
-              depOutputs[depId] = depOutput;
-            }
-          }
-          const result = await executor(task, depOutputs);
-          return { task, result };
-        }),
-      );
+    for (const [batchIndex, batch] of batches.entries()) {
+      const chunks = eagerChunks
+        ? eagerChunks[batchIndex] ?? []
+        : await partitionBatch!(batch);
+      emittedChunks += chunks.length;
+      const remainingBatches = batches.length - batchIndex - 1;
 
-      for (const { task, result } of chunkResults) {
-        results.set(task.id, result);
-        if (result.status === 'completed') {
-          outputs.set(task.id, result.output);
-        } else {
-          // Propagate failure so all downstream dependents are also skipped.
-          failedIds.add(task.id);
+      for (const chunk of chunks) {
+        if (chunk.length === 0) {
+          continue;
         }
-        options?.onProgress?.({
-          completedId: task.id,
-          total,
-          completed: results.size,
-          result,
-        });
+        chunkNumber += 1;
+        const batchInfo = {
+          batchIndex: chunkNumber,
+          totalBatches: exactTotal ?? (emittedChunks + remainingBatches),
+          batchSize: chunk.length,
+          subTaskIds: chunk.map(task => task.id),
+        };
+        options?.onBatchStart?.(batchInfo);
+        if (options?.beforeBatch) {
+          await options.beforeBatch(batchInfo);
+        }
+
+        try {
+          const chunkResults = await Promise.all(
+            chunk.map(async (task) => {
+              // If any direct dependency failed, skip this task immediately rather
+              // than running it with missing context and wasting model quota.
+              const blockedBy = task.dependsOn.find(depId => failedIds.has(depId));
+              if (blockedBy) {
+                const skipped: SubTaskResult = {
+                  subTaskId: task.id,
+                  title: task.title,
+                  status: 'failed',
+                  output: '',
+                  costUsd: 0,
+                  durationMs: 0,
+                  error: `Skipped — dependency "${blockedBy}" did not complete successfully.`,
+                };
+                return { task, result: skipped };
+              }
+
+              // Collect dependency outputs to pass as context
+              const depOutputs: Record<string, string> = {};
+              for (const depId of task.dependsOn) {
+                const depOutput = outputs.get(depId);
+                if (depOutput !== undefined) {
+                  depOutputs[depId] = depOutput;
+                }
+              }
+              const result = await executor(task, depOutputs);
+              return { task, result };
+            }),
+          );
+
+          for (const { task, result } of chunkResults) {
+            results.set(task.id, result);
+            if (result.status === 'completed') {
+              outputs.set(task.id, result.output);
+            } else {
+              // Propagate failure so all downstream dependents are also skipped.
+              failedIds.add(task.id);
+            }
+            options?.onProgress?.({
+              completedId: task.id,
+              total,
+              completed: results.size,
+              result,
+            });
+          }
+        } finally {
+          // In `finally` because the chunk that throws is the one whose
+          // aftermath matters most: an abort leaves an isolated subtask's work
+          // somewhere only this hook knows about, and skipping it on the way
+          // out would strand exactly the run somebody needs to recover.
+          if (options?.afterBatch) {
+            await options.afterBatch(batchInfo);
+          }
+        }
       }
     }
 
@@ -179,7 +238,14 @@ export function buildExecutionBatches(tasks: SubTask[], precompletedIds: Set<str
   return batches;
 }
 
-function chunkArray<T>(arr: T[], size: number): T[][] {
+/**
+ * Split a list into runs of at most `size`.
+ *
+ * Exported because a caller supplying `partitionBatch` still has to respect the
+ * fan-out cap, and a second implementation of "at most five" would eventually
+ * be a different number.
+ */
+export function chunkArray<T>(arr: T[], size: number): T[][] {
   const chunks: T[][] = [];
   for (let i = 0; i < arr.length; i += size) {
     chunks.push(arr.slice(i, i + size));
