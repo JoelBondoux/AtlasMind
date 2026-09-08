@@ -6,6 +6,33 @@ The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/),
 
 ## [Unreleased]
 
+## [0.452.0] - 2026-09-08
+
+### Added
+
+- **The roadmap has a board: what is waiting, ready, started, in review and delivered.** The backlog
+  says what an item *is*, the canvas what it waits on, and the timeline how long it takes. None of them
+  said **what state it is in** — the question a stand-up asks — so the answer lived in somebody's head
+  or in a second tracker kept by hand beside this one.
+
+  **A card only moves on evidence.** A branch that exists, or an open pull request. An item nobody has
+  started reads as *Ready*, never as in progress because it is near the top of the list or has
+  somebody's name on it — a board that guesses is quietly wrong at exactly the moment somebody relies
+  on it. **Delivered comes from the backlog line being ticked, never from a merged pull request**:
+  work merges without finishing an item, and items finish with no pull request at all.
+
+  An item can be started *and* waiting, so the waiting count travels on the card in every column — the
+  column is the most advanced state there is evidence for, and hiding the work would be the bigger lie.
+  How the branch matched is carried too, because a branch the item declares is a fact while a name
+  derived from its text matching a real branch is a naming convention holding.
+
+  **If AtlasMind could not read your branches or pull requests, the board says so** rather than showing
+  a project where nothing has been started. Silence earned by not looking is the one thing that would
+  make this view worse than no view.
+
+  Read-only by design: dragging a card between columns would write a state nothing evidenced, and the
+  next refresh would move it back. The board reports where the work is; the work is moved by doing it.
+
 ## [0.451.0] - 2026-09-08
 
 ### Added

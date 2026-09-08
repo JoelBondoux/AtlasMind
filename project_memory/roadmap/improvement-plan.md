@@ -13,7 +13,7 @@ This file is the developer-facing backlog AtlasMind should absorb into SSOT and 
 - [ ] Eval / regression harness for agents: pin "golden" tasks and detect when an agent definition or model swap regresses quality (mitigates the risk of the auto-update cadence). <!-- rm:eval-regression-harness-for -->
 - [ ] Team management surface to manage workload, estimated work times, rotas, and integrate with common rota management applications. <!-- rm:team-management-surface-to-m -->
 - [ ] Extend the test surface to have a test management interface for testing teams. Create test cases, have discreet context for tests assets that are name associated to testers #mvp <!-- rm:extend-the-test-surface-to-h -->
-- [ ] Add a built-in or utilise Git-Hub projects Kanban board. #mvp <!-- rm:add-a-built-in-or-utilise-gi -->
+- [x] Add a built-in or utilise Git-Hub projects Kanban board. #mvp <!-- rm:add-a-built-in-or-utilise-gi -->
 - [ ] expand baseline comparrison features. #mvp <!-- rm:expand-baseline-comparrison -->
 - [x] Add an AM logo to the generic Source Control side panel next to the icon "Create Pull Request" to have AM generate a commit message. <!-- rm:add-an-am-logo-to-the-generi -->
 - [x] Sometimes when deleting all sessions in AM chat window, the chat history of an old session stays on the screen and doesn't refresh to a blank chat. #mvp #critical <!-- rm:sometimes-when-deleting-all -->

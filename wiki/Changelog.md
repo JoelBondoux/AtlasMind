@@ -19,6 +19,27 @@ Older entries below describe the software as it was at the time and are delibera
 
 ---
 
+## v0.452.0 -- A board, and only where the evidence puts it
+
+A sixth roadmap view: the plan by state -- waiting, ready, in progress, in review, delivered.
+
+The rule the whole thing rests on is that a card only moves on **evidence**: a branch that exists, or
+an open pull request. An item nobody has started reads as Ready, never as in progress because it is
+near the top of the list or has somebody's name on it. A board that guesses is quietly wrong at exactly
+the moment somebody relies on it.
+
+Delivered means the backlog line is ticked, and a merged pull request does not tick it -- work merges
+without finishing an item, and items finish with no pull request at all.
+
+An item can be started and still waiting on something, so the waiting count travels on the card in
+every column. And if AtlasMind could not read your branches or your pull requests, the board says so
+rather than showing a project where nothing has been started.
+
+It is read-only on purpose. Dragging a card between columns would write a state nothing evidenced, and
+the next refresh would move it back.
+
+---
+
 ## v0.451.0 -- The roadmap, against time
 
 A fifth roadmap view: the plan on a timeline. Each bar starts when its prerequisites can be finished

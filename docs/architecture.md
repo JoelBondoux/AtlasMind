@@ -2291,6 +2291,16 @@ Pure — no clock, no `fs`, no model; day zero is "now" by construction because 
 
 On the dashboard it is a **fourth roadmap view** beside the canvas, the backlog and Delivered. Bars are placed as percentages of the horizon the host computed, so the chart reflows with the panel and needs no measurement pass — a way of *looking* at a plan must not be something that can fail — and the rules that drew it are printed at its foot.
 
+### RoadmapBoard (`src/core/roadmapBoard.ts`)
+
+The plan as a board — waiting, ready, started, in review, delivered. The backlog says what an item *is*, the canvas what it waits on, the timeline how long it takes; none of them says **what state it is in**, which is what a stand-up asks, so the answer lived in somebody's head or in a second tracker kept by hand beside this one.
+
+Five rules. **A status is evidenced, never guessed** — only a branch that exists or an open pull request moves a card out of Ready, so an item nobody has picked up reads as Ready rather than as in progress because it is near the top or assigned to someone; a board that guesses is quietly wrong at the moment somebody relies on it. **Delivered comes from the roadmap, never from a merged pull request**: work merges without finishing an item and items finish with no pull request at all, so only the backlog line ticks the box — one place to look, one place to argue with. **Blocked is a badge as well as a column** — the column is the most advanced state there is evidence for, and the waiting count travels on the card wherever it sits, because an item can be started *and* waiting and hiding the work would be the bigger lie. **How the evidence matched is carried**, since a branch the item declares is a fact while a branch name derived from its text matching a real branch is a naming convention holding — very likely the same work, and worth saying rather than presenting as identical. **Unassessed is not empty**: with no branches and no pull requests gathered the board says so instead of reporting a whole project as not started, which is the failure mode that would make it worse than nothing.
+
+Takes the nodes rather than a graph — edges say nothing about state — and the evidence is passed in, because only the caller knows what it managed to collect. It is built twice on purpose: `buildRoadmapGraphView` ships an unassessed board so every surface always has one, and `collectDashboardSnapshot` rebuilds it once the branch inventory and pull requests are known. Pure and unit-tested.
+
+The view is **read-only by design**. Dragging a card between columns would write a state nothing evidenced, and the next refresh would move it back: the board reports where the work is, and the work is moved by doing it.
+
 ### RoadmapGraphStore (`src/core/roadmapGraphStore.ts`)
 
 Where the graph lives on disk: `project_memory/roadmap/roadmap-graph.json` plus a `roadmap-graph.md` mirror, `fs`-only and unit-tested. The backlog itself stays exactly where it was — `improvement-plan.md` is still the one file that says what the work *is*; this holds only what a markdown checkbox cannot: deadlines, branch overrides, estimates, canvas positions, who added or completed each item, and the links.

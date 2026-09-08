@@ -481,6 +481,11 @@ import {
   buildRoadmapTimeline,
   describeRoadmapTimeline,
 } from '../core/roadmapTimeline.js';
+import {
+  buildRoadmapBoard,
+  describeRoadmapBoard,
+} from '../core/roadmapBoard.js';
+import type { RoadmapBoard } from '../core/roadmapBoard.js';
 import type { RoadmapTimeline } from '../core/roadmapTimeline.js';
 import {
   agentUtilisationScore,
@@ -2595,6 +2600,17 @@ interface DashboardRoadmapGraphView {
   timeline: RoadmapTimeline;
   /** The timeline in a sentence, for the same reason `criticalPathSummary` exists. */
   timelineSummary: string;
+  /**
+   * The same plan as a board: what is waiting, ready, started or in review.
+   *
+   * Filled in by `collectDashboardSnapshot`, not here: the state of an item is
+   * evidenced by branches and pull requests, and this builder has neither. It
+   * ships with an unassessed board so a surface always has one to render, and
+   * `unassessed-is-not-empty` is what stops that reading as "nothing started".
+   */
+  board: RoadmapBoard;
+  /** The board in a sentence. */
+  boardSummary: string;
   /** Precomputed route per node, so filtering to one is instant and offline. */
   routes: Record<string, { nodeIds: string[]; edgeKeys: string[]; order: string[]; routeDays: number; completedCount: number }>;
   /** People who can be recorded as adding or completing work, from the Director roster. */
@@ -16656,6 +16672,37 @@ async function collectDashboardSnapshot(
     ...(dashboardIssues.viewerLogin ? { viewerLogin: dashboardIssues.viewerLogin } : {}),
     ...(gitSnapshot.gitUserName ? { gitUserName: gitSnapshot.gitUserName } : {}),
   });
+  // The board is rebuilt here rather than inside `buildRoadmapGraphView`,
+  // because the state of an item is evidenced by branches and pull requests and
+  // that builder has neither. Both are passed only when they were actually
+  // gathered: `undefined` means nobody looked, which the board reports rather
+  // than treating as "nothing has been started".
+  const roadmapBoard = buildRoadmapBoard(
+    [...roadmapWithIdeation.graph.active, ...roadmapWithIdeation.graph.completed],
+    {
+      branchNames: branchInventory.items.map(item => item.name),
+      ...(pullRequests === undefined
+        ? {}
+        : {
+          openPullRequests: pullRequests
+            .filter(pull => pull.state === 'open')
+            .map(pull => ({
+              number: pull.number,
+              headRefName: pull.headRefName,
+              isDraft: pull.isDraft,
+              url: pull.url,
+            })),
+        }),
+    },
+  );
+  const roadmapWithBoard: DashboardRoadmapSnapshot = {
+    ...roadmapWithIdeation,
+    graph: {
+      ...roadmapWithIdeation.graph,
+      board: roadmapBoard,
+      boardSummary: describeRoadmapBoard(roadmapBoard),
+    },
+  };
   const enrichedBranchInventory: DashboardBranchesSnapshot = {
     ...branchInventory,
     items: branchInventory.items.map(item => ({
@@ -16803,7 +16850,7 @@ async function collectDashboardSnapshot(
       blockedEntries,
       delta: ssotDelta,
     },
-    roadmap: roadmapWithIdeation,
+    roadmap: roadmapWithBoard,
     taxonomy: {
       loaded: taxonomy !== undefined,
       labels: taxonomy?.labels ?? [],
@@ -21843,6 +21890,8 @@ function emptyRoadmapGraphView(filePath: string): DashboardRoadmapGraphView {
       note: 'There is nothing on the roadmap yet.',
     },
     timelineSummary: 'There is nothing on the roadmap yet.',
+    board: buildRoadmapBoard([]),
+    boardSummary: 'There is nothing on the roadmap yet.',
     routes: {},
     people: [],
     filePath,
@@ -21975,6 +22024,7 @@ function buildRoadmapGraphView(
       criticalPath,
       new Map(gates.map(gate => [gate.id, gate.label])),
     );
+    const unassessedBoard = buildRoadmapBoard(graph.nodes);
 
     return {
       active: partition.active,
@@ -21996,6 +22046,10 @@ function buildRoadmapGraphView(
       criticalPathSummary: describeRoadmapCriticalPath(criticalPath),
       timeline,
       timelineSummary: describeRoadmapTimeline(timeline),
+      // No evidence here by construction — see the field's note. The snapshot
+      // assembly rebuilds it once branches and pull requests are known.
+      board: unassessedBoard,
+      boardSummary: describeRoadmapBoard(unassessedBoard),
       routes,
       people,
       ...(director?.selfContactId === undefined ? {} : { selfContactId: director.selfContactId }),
@@ -28659,6 +28713,87 @@ const DASHBOARD_CSS = `
     font-size: 11px;
     color: var(--vscode-descriptionForeground);
   }
+
+  /* ── Board ──────────────────────────────────────────────────────────────
+     Read-only by design: dragging a card between columns would write a state
+     nothing evidenced, and the next refresh would move it back. */
+  .rm-board-card { display: block; }
+
+  .rm-board-columns {
+    display: grid;
+    grid-template-columns: repeat(auto-fit, minmax(190px, 1fr));
+    gap: 10px;
+    align-items: start;
+  }
+
+  .rm-board-column {
+    border: 1px solid var(--dash-border);
+    border-radius: 8px;
+    padding: 8px;
+    background: color-mix(in srgb, var(--dash-panel-strong) 55%, transparent);
+  }
+
+  .rm-board-column-head {
+    display: flex;
+    align-items: center;
+    justify-content: space-between;
+    gap: 8px;
+    margin-bottom: 6px;
+    font-size: 11.5px;
+    text-transform: uppercase;
+    letter-spacing: 0.04em;
+    color: var(--vscode-descriptionForeground);
+  }
+
+  .rm-board-empty {
+    margin: 0;
+    font-size: 11px;
+    font-style: italic;
+    color: var(--vscode-descriptionForeground);
+  }
+
+  .rm-board-cards {
+    list-style: none;
+    margin: 0;
+    padding: 0;
+    display: flex;
+    flex-direction: column;
+    gap: 6px;
+  }
+
+  .rm-board-cardlet {
+    border: 1px solid var(--dash-border);
+    border-left: 3px solid color-mix(in srgb, var(--vscode-foreground) 30%, transparent);
+    border-radius: 6px;
+    padding: 6px 8px;
+    background: var(--vscode-editorWidget-background, var(--vscode-editor-background));
+  }
+
+  .rm-board-cardlet-text {
+    margin: 0 0 4px;
+    font-size: 12px;
+    display: -webkit-box;
+    -webkit-line-clamp: 3;
+    -webkit-box-orient: vertical;
+    overflow: hidden;
+  }
+
+  .rm-board-cardlet-meta {
+    display: flex;
+    flex-wrap: wrap;
+    align-items: center;
+    gap: 4px;
+    font-size: 10.5px;
+    color: var(--vscode-descriptionForeground);
+  }
+
+  .rm-board-branch, .rm-board-person {
+    font-family: var(--vscode-editor-font-family, monospace);
+    font-size: 10px;
+    opacity: 0.85;
+  }
+
+  .rm-board-person { font-family: inherit; }
 
   .rm-tl-rules summary { cursor: pointer; }
   .rm-tl-rules p { margin: 6px 0 0; }

@@ -354,10 +354,10 @@ describe('the by-person view', () => {
   });
 
   it('fits the canvas when the view changes, because every node moves', () => {
-    // Both views without a canvas are excluded: the backlog list and the
-    // timeline. Fitting either would measure a frame that is not on the page.
+    // Every view without a canvas is excluded — the backlog list, the timeline
+    // and the board. Fitting one would measure a frame that is not on the page.
     expect(WEBVIEW_SCRIPT).toContain(
-      "state.roadmapFitAfterRender = state.roadmapView !== 'list' && state.roadmapView !== 'timeline';",
+      "state.roadmapFitAfterRender = state.roadmapView !== 'list' && state.roadmapView !== 'timeline'\n        && state.roadmapView !== 'board';",
     );
   });
 

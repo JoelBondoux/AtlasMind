@@ -1839,12 +1839,14 @@
       return;
     }
     if (action === 'roadmap-view') {
-      state.roadmapView = payload === 'list' || payload === 'completed' || payload === 'people' || payload === 'timeline'
+      state.roadmapView = payload === 'list' || payload === 'completed' || payload === 'people'
+        || payload === 'timeline' || payload === 'board'
         ? payload : 'canvas';
       // Switching into or out of a lane layout changes where every node is,
       // so the view arrives fitted rather than wherever the last one was panned.
       // The list and the timeline have no canvas to fit.
-      state.roadmapFitAfterRender = state.roadmapView !== 'list' && state.roadmapView !== 'timeline';
+      state.roadmapFitAfterRender = state.roadmapView !== 'list' && state.roadmapView !== 'timeline'
+        && state.roadmapView !== 'board';
       // The route filter and a half-drawn link belong to the canvas. Leaving them
       // set while the list is showing means coming back to a view that is
       // mysteriously filtered by something you did several clicks ago.
@@ -4512,7 +4514,7 @@
        * did would otherwise re-enter here and fit forever.
        */
       if (state.roadmapFitAfterRender && !rmDrag && state.activePage === 'roadmap'
-        && state.roadmapView !== 'list' && state.roadmapView !== 'timeline') {
+        && state.roadmapView !== 'list' && state.roadmapView !== 'timeline' && state.roadmapView !== 'board') {
         state.roadmapFitAfterRender = false;
         const scope = state.roadmapFitScope;
         state.roadmapFitScope = 'all';
@@ -11864,6 +11866,13 @@
           ${renderRoadmapTimeline()}
         </section>`;
     }
+    if (state.roadmapView === 'board') {
+      return `
+        ${pageSectionOpen('roadmap')}
+          ${renderRoadmapViewBar(roadmap)}
+          ${renderRoadmapBoard()}
+        </section>`;
+    }
     if (state.roadmapView !== 'list') {
       return `
         ${pageSectionOpen('roadmap')}
@@ -12551,6 +12560,7 @@
     const views = [
       ['canvas', 'Dependency canvas', 'The plan as a graph: what has to happen before what. Drag nodes, draw links, and filter to the route to any one item.'],
       ['timeline', 'Timeline', 'The same plan against time: when each item can start and finish, how much room it has before the finish moves, and where each gate lands. Measured in days from today — only a deadline you set is a date.'],
+      ['board', 'Board', 'The same plan by state: waiting, ready, started, in review, delivered. A card only moves on evidence — a branch that exists or an open pull request — so an item nobody has picked up reads as Ready.'],
       ['list', 'Prioritised backlog', 'The ordered list. Position here is what sets Atlas’s default next-work weighting.'],
       ['people', 'By person', 'The same outstanding work, one band per person, with each band still ordered by what has to happen first. An arrow crossing bands is one person waiting on another.'],
       ['completed', 'Delivered', 'What has shipped, when, and by whom — laid out by month, with the links between pieces of work preserved.'],
@@ -12560,6 +12570,9 @@
       // Bars, not items: a plan with a cycle draws no timeline, and a count that
       // said otherwise would invite a click onto an empty chart.
       timeline: ((graph.timeline || {}).bars || []).length,
+      // Cards, not columns: the number that makes this view worth opening is
+      // how much work it is tracking.
+      board: ((graph.board || {}).columns || []).reduce((total, column) => total + (column.cards || []).length, 0),
       list: roadmap.items.length,
       // Lanes, not items: the number that makes this view worth opening is how
       // many people the plan is spread across, which the item count hides.
@@ -12757,6 +12770,102 @@
     return `
       <details class="rm-tl-rules">
         <summary>How this chart was drawn</summary>
+        ${rules.map(rule => `<p><strong>${escapeHtml(rule.id)}</strong> — ${escapeHtml(rule.description)}</p>`).join('')}
+      </details>`;
+  }
+
+  /* ── Board ─────────────────────────────────────────────────────────────────
+   *
+   * The plan by state. Every card is placed host-side by `roadmapBoard`, whose
+   * first rule is the one this view rests on: a card only moves on **evidence**
+   * — a branch that exists, or an open pull request — so an item nobody has
+   * picked up reads as Ready rather than as in progress because it looks
+   * important.
+   *
+   * Read-only on purpose. Dragging a card between columns would mean writing a
+   * state nothing evidenced, and the next refresh would move it back: the board
+   * reports where the work is, and the work is moved by doing it.
+   */
+  function rmBoardModel() {
+    const board = roadmapGraph().board;
+    return board && typeof board === 'object' && Array.isArray(board.columns)
+      ? board
+      : { columns: [], rules: [], branchEvidence: 'not-assessed', pullRequestEvidence: 'not-assessed' };
+  }
+
+  function renderRoadmapBoard() {
+    const graph = roadmapGraph();
+    const board = rmBoardModel();
+    const summary = String(graph.boardSummary || '');
+    const columns = board.columns || [];
+
+    return `
+      <article class="panel-card rm-board-card">
+        <div class="row-head rm-toolbar">
+          <div>
+            <p class="section-kicker">Board</p>
+            <h3>Where the work actually is</h3>
+            ${summary ? `<p class="section-copy">${escapeHtml(summary)}</p>` : ''}
+          </div>
+          <div class="rm-chip-row">
+            <span class="tag${board.branchEvidence === 'gathered' ? '' : ' tag-warn'}">branches ${escapeHtml(board.branchEvidence === 'gathered' ? 'read' : 'not read')}</span>
+            <span class="tag${board.pullRequestEvidence === 'gathered' ? '' : ' tag-warn'}">pull requests ${escapeHtml(board.pullRequestEvidence === 'gathered' ? 'read' : 'not read')}</span>
+          </div>
+        </div>
+        ${board.note ? `<div class="rm-banner" role="status">${escapeHtml(String(board.note))}</div>` : ''}
+        <div class="rm-board-columns">
+          ${columns.map(column => renderRoadmapBoardColumn(column)).join('')}
+        </div>
+        ${renderRoadmapBoardRules(board)}
+      </article>`;
+  }
+
+  function renderRoadmapBoardColumn(column) {
+    const cards = column.cards || [];
+    return `
+      <section class="rm-board-column" aria-label="${escapeAttr(column.label)}">
+        <header class="rm-board-column-head" title="${escapeAttr(String(column.description || ''))}">
+          <span class="rm-board-column-name">${escapeHtml(column.label)}</span>
+          <span class="rm-view-count">${escapeHtml(String(cards.length))}</span>
+        </header>
+        ${cards.length === 0
+    // Said rather than left blank: an empty column is a fact about the plan,
+    // and a bare gap reads as something that failed to load.
+    ? '<p class="rm-board-empty">Nothing here.</p>'
+    : `<ul class="rm-board-cards">${cards.map(card => renderRoadmapBoardCard(card)).join('')}</ul>`}
+      </section>`;
+  }
+
+  function renderRoadmapBoardCard(card) {
+    const person = roadmapPersonName(card.assigneeId);
+    return `
+      <li class="rm-board-cardlet rm-focus-${escapeAttr(card.focus)}">
+        <p class="rm-board-cardlet-text" title="${escapeAttr(card.text)}">${escapeHtml(card.text)}</p>
+        <div class="rm-board-cardlet-meta">
+          ${card.waitingOnCount > 0
+    // Carried in every column, not only Blocked: an item can be started and
+    // still waiting, and dropping either half misreports one of them.
+    ? `<span class="tag tag-warn" title="${escapeAttr('Outstanding prerequisites this item is still waiting on.')}">waiting on ${escapeHtml(String(card.waitingOnCount))}</span>`
+    : ''}
+          ${card.pullRequestNumber === undefined
+    ? ''
+    : `<span class="tag tag-accent">#${escapeHtml(String(card.pullRequestNumber))}${card.pullRequestIsDraft ? ' draft' : ''}</span>`}
+          ${card.branch && card.branchMatch
+    ? `<span class="rm-board-branch" title="${escapeAttr(card.branchMatch === 'declared'
+      ? `Matched the branch this item declares: ${card.branch}`
+      : `Matched a branch named by convention from the item's text: ${card.branch}. A weaker claim than a branch the item declares.`)}">${escapeHtml(card.branch)}${card.branchMatch === 'derived' ? ' ~' : ''}</span>`
+    : ''}
+          ${person ? `<span class="rm-board-person">${escapeHtml(person)}</span>` : ''}
+        </div>
+      </li>`;
+  }
+
+  function renderRoadmapBoardRules(board) {
+    const rules = board.rules || [];
+    if (rules.length === 0) { return ''; }
+    return `
+      <details class="rm-tl-rules">
+        <summary>How these cards were placed</summary>
         ${rules.map(rule => `<p><strong>${escapeHtml(rule.id)}</strong> — ${escapeHtml(rule.description)}</p>`).join('')}
       </details>`;
   }

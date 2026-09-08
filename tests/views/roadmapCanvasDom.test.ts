@@ -202,6 +202,33 @@ const GRAPH = {
     rules: [{ id: 'duration-not-date', description: 'The axis is days from today.' }],
   },
   timelineSummary: '2 items across 6d, 1 on the critical path and 1 with room to slip.',
+  board: {
+    columns: [
+      { id: 'blocked', label: 'Blocked', description: 'Waiting on work that has not landed.', cards: [] },
+      {
+        id: 'ready', label: 'Ready', description: 'Nothing is in the way and nobody has started.',
+        cards: [{
+          nodeId: 'alpha', itemId: 'roadmap-1', text: 'Item alpha', focus: 'feature', gates: [],
+          column: 'ready', waitingOnCount: 0, estimateDays: 2, priorityScore: 10,
+        }],
+      },
+      {
+        id: 'in-progress', label: 'In progress', description: 'A branch for this item exists.',
+        cards: [{
+          nodeId: 'beta', itemId: 'roadmap-2', text: 'Ship the export', focus: 'feature', gates: ['mvp'],
+          column: 'in-progress', waitingOnCount: 1, branch: 'feat/beta', branchMatch: 'derived',
+          estimateDays: 4, priorityScore: 9,
+        }],
+      },
+      { id: 'in-review', label: 'In review', description: 'An open pull request.', cards: [] },
+      { id: 'delivered', label: 'Delivered', description: 'The backlog line is ticked.', cards: [] },
+    ],
+    branchEvidence: 'gathered',
+    pullRequestEvidence: 'not-assessed',
+    note: 'No pull requests were read, so an item with a branch reads as in progress even if it is already with a reviewer.',
+    rules: [{ id: 'evidenced-never-guessed', description: 'Only a branch that exists or an open pull request moves an item out of Ready.' }],
+  },
+  boardSummary: '1 of 2 outstanding items have work started, 0 waiting on something else.',
   filePath: 'project_memory/roadmap/improvement-plan.md',
 };
 
@@ -1401,5 +1428,58 @@ describe('the timeline view', () => {
     const harness = openTimeline();
     expect(harness.root().querySelector('[data-rm-frame="true"]')).toBeNull();
     expect(harness.posted.filter(message => message.type === 'roadmapNodeMove')).toEqual([]);
+  });
+});
+
+describe('the board view', () => {
+  const openBoard = (graphOverrides: Record<string, unknown> = {}) => {
+    const harness = mount();
+    pinFrameSize(harness, 900, 500);
+    harness.send(snapshot(graphOverrides));
+    harness.click('[data-action="page"][data-payload="roadmap"]');
+    harness.click('[data-action="roadmap-view"][data-payload="board"]');
+    return harness;
+  };
+
+  it('draws every column, including the empty ones', () => {
+    // An empty column is a fact about the plan. A bare gap where a column
+    // should be reads as something that failed to load.
+    const harness = openBoard();
+    const columns = [...harness.root().querySelectorAll('.rm-board-column')];
+
+    expect(columns).toHaveLength(5);
+    expect(columns.map(column => column.getAttribute('aria-label')))
+      .toEqual(['Blocked', 'Ready', 'In progress', 'In review', 'Delivered']);
+    expect(harness.root().querySelectorAll('.rm-board-empty')).toHaveLength(3);
+  });
+
+  it('carries the waiting count on a card that is started and still blocked', () => {
+    const harness = openBoard();
+    const started = harness.root().querySelector('.rm-board-column[aria-label="In progress"] .rm-board-cardlet');
+    expect(started?.textContent).toContain('Ship the export');
+    expect(started?.textContent).toContain('waiting on 1');
+  });
+
+  it('says which evidence was not read rather than showing a clean board', () => {
+    const harness = openBoard();
+    const head = harness.root().querySelector('.rm-board-card .rm-chip-row');
+    expect(head?.textContent).toContain('branches read');
+    expect(head?.textContent).toContain('pull requests not read');
+    expect(harness.root().querySelector('.rm-board-card .rm-banner')?.textContent).toContain('No pull requests were read');
+  });
+
+  it('publishes the rules that placed the cards', () => {
+    const harness = openBoard();
+    expect(harness.root().querySelector('.rm-board-card .rm-tl-rules')?.textContent)
+      .toContain('evidenced-never-guessed');
+  });
+
+  it('offers no way to drag a card between columns', () => {
+    // Moving a card would write a state nothing evidenced, and the next refresh
+    // would move it back. The board reports where the work is.
+    const harness = openBoard();
+    const card = harness.root().querySelector('.rm-board-cardlet');
+    expect(card?.getAttribute('draggable')).toBeNull();
+    expect(harness.root().querySelector('.rm-board-card [data-action]')).toBeNull();
   });
 });
