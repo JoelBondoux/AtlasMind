@@ -927,6 +927,8 @@ to the browser, so reopening shows the finished answer. A detached run is given 
 than the panel learning to check whether it still has one — a missed check throws "Webview is
 disposed" into the middle of a run, which is the failure being removed. It is announced in the status
 bar and stays stoppable from there, because closing the window is no longer the way to stop a run.
+Reopen the chat and it adopts the run outright — the answer streams in, the stop button works, and
+asking something else starts a new conversation rather than interleaving two answers into one.
 
 The chat panel answers a few turns itself rather than routing them — a roadmap status summary, a
 conversation recall — and until v0.402.6 that matcher swallowed all three hand-offs: each ends with the

@@ -4,7 +4,7 @@
 
 <h1 align="center">AtlasMind</h1>
 
-<p align="center"><sub> · <strong>Current source version: 0.443.0</strong> · </sub></p>
+<p align="center"><sub> · <strong>Current source version: 0.444.0</strong> · </sub></p>
 
 
 <p align="center">
@@ -175,7 +175,7 @@ important limits on overrides and compliance claims.
 
 ---
 
-## What's new in 0.443.0
+## What's new in 0.444.0
 
 The last Marketplace publication, **v0.420.4**, brought the changes below. Every release is written
 up in full in [CHANGELOG.md](CHANGELOG.md).
@@ -186,7 +186,9 @@ up in full in [CHANGELOG.md](CHANGELOG.md).
   going: your answer is written to the session as it arrives, so reopening the chat shows the
   finished result. A run that outlives its window is still spending money, so a status-bar item names
   what's running and lets you read or stop any of it — closing the window is no longer how you stop a
-  run, so that is.
+  run, so that is. Reopen the chat and it picks the run back up: the answer streams in, the stop
+  button is back where you'd look for it, and asking something else starts a fresh conversation
+  rather than mixing two answers into one.
 - **Two steps of a job can no longer overwrite each other's edits.** When AtlasMind broke work into
   steps it ran up to five of them at once against one copy of your files, with nothing keeping two of
   them from editing the same file — and when that happened, one of the two changes simply wasn't

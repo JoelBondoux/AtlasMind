@@ -6,6 +6,42 @@ The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/),
 
 ## [Unreleased]
 
+## [0.444.0] - 2026-09-08
+
+### Added
+
+- **Reopening a chat adopts the run still going in the background.** v0.443.0 let a turn outlive its
+  window but left the reopened chat watching from the outside: the answer appeared only in bursts and
+  the stop button lived in the status bar. It turns out the panel already adopted runs started in
+  another *open* surface — busy state and stop both resolve through one lookup across every live
+  panel — and a detached run was invisible to it for exactly one reason: its panel had left the live
+  set. `ChatPanel.detachedPanels` is that set's counterpart, collected for busy state and stopping,
+  and deliberately **not** for syncing, since a detached panel has nothing to draw to.
+
+  `selectBusyRun` declares the order rather than leaving it incidental. **This session first**,
+  because a surface must not report work from a conversation it is not showing. **Live before
+  detached** within that: two runs can share a session — close a chat mid-answer, reopen it, ask
+  something else — and the one just started is the one being watched, while the other is already
+  named in the status bar. Ties keep arrival order so the choice cannot shuffle between two identical
+  renders. With nothing detached the ordering agrees exactly with the rule it replaced, which is
+  asserted rather than assumed — adopting a background run must not change what an ordinary
+  two-panel chat does.
+
+  The "thinking" line and model chips are read from the surface that owns the run, but **only for the
+  session on screen**: a run on another session must not lend this one its thoughts.
+
+### Fixed
+
+- **A background run's chunks now reach a reopened chat as they arrive.** A detached panel's
+  coalesced tick returned early because the panel was disposed, so the transcript grew and nothing
+  pushed it anywhere. It now pushes to whatever surfaces are open instead of to its own, still
+  coalesced and still passing `reuseProviderList` — enumerating providers touches credential storage,
+  and a per-chunk tick must not do that.
+
+- **Asking something else in a chat reopened onto a background run no longer interleaves two answers
+  into one transcript.** The `sessionConflict` guard that spawns a separate session counted only runs
+  in open panels; it counts detached ones too, which is the case it most needed to catch.
+
 ## [0.443.0] - 2026-09-08
 
 ### Fixed

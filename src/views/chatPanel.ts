@@ -41,8 +41,10 @@ import { decideApprovalAttention } from '../core/approvalAttention.js';
 import {
   backgroundChatRuns,
   createDetachedChatHost,
+  selectBusyRun,
   shouldDetachOnDispose,
   toBackgroundRunLabel,
+  type BusyRunCandidate,
 } from './chatBackgroundRuns.js';
 import { extractSessionCarryForwardImages, resolvePickedImageAttachments } from '../chat/imageAttachments.js';
 import { buildChatWebviewHtml } from './chatWebviewMarkup.js';
@@ -373,25 +375,48 @@ export class ChatPanel {
   public static lastUsedSurface: 'panel' | 'sidebar' | undefined;
   private static readonly viewType = 'atlasmind.chatPanel';
   private static readonly livePanels = new Set<ChatPanel>();
+  /**
+   * Panels whose surface is gone but whose run is still going.
+   *
+   * Kept apart from `livePanels` rather than left in it: these have nothing to
+   * draw to, so `syncAllPanels` must not try. They are collected for busy state
+   * and for stopping, which is the whole of adopting a detached run — the panel
+   * already resolved both through one lookup across every surface, and a
+   * detached run was invisible to it only because its panel had left the set.
+   */
+  private static readonly detachedPanels = new Set<ChatPanel>();
 
-  private static collectActiveExecutions(): ActivePromptExecution[] {
-    return [...ChatPanel.livePanels]
-      .map(panel => panel.activePromptExecution)
-      .filter((execution): execution is ActivePromptExecution => Boolean(execution));
+  private static collectBusyRuns(): Array<BusyRunCandidate<{ panel: ChatPanel; execution: ActivePromptExecution }>> {
+    const candidates: Array<BusyRunCandidate<{ panel: ChatPanel; execution: ActivePromptExecution }>> = [];
+    for (const [panels, detached] of [[ChatPanel.livePanels, false], [ChatPanel.detachedPanels, true]] as const) {
+      for (const panel of panels) {
+        const execution = panel.activePromptExecution;
+        if (execution) {
+          candidates.push({ sessionId: execution.sessionId, detached, execution: { panel, execution } });
+        }
+      }
+    }
+    return candidates;
+  }
+
+  private static findBusyPanel(sessionId?: string): { panel: ChatPanel; execution: ActivePromptExecution } | undefined {
+    return selectBusyRun(ChatPanel.collectBusyRuns(), sessionId)?.execution;
   }
 
   private static findBusyExecution(sessionId?: string): ActivePromptExecution | undefined {
-    const executions = ChatPanel.collectActiveExecutions();
-    if (sessionId) {
-      return executions.find(execution => execution.sessionId === sessionId) ?? executions[0];
-    }
-    return executions[0];
+    return ChatPanel.findBusyPanel(sessionId)?.execution;
   }
 
-  private static async syncAllPanels(): Promise<void> {
+  /**
+   * `reuseProviderList` matters here for the same reason it does on the instance:
+   * enumerating providers touches credential storage, and a streaming tick must
+   * not do that. The two once-per-turn callers pass nothing and get the full
+   * sync they always got.
+   */
+  private static async syncAllPanels(options?: { reuseProviderList?: boolean }): Promise<void> {
     for (const panel of ChatPanel.livePanels) {
       try {
-        await panel.syncState();
+        await panel.syncState(options);
       } catch (error) {
         console.error('[AtlasMind] Failed to sync chat panel state across surfaces.', error);
       }
@@ -654,6 +679,11 @@ export class ChatPanel {
       // window — and no entry in the registry, since detaching happens once —
       // would be a run nobody could see or stop.
       this.pendingPromptSubmission = undefined;
+      // Not live — there is nothing to draw to — but still collected for busy
+      // state and for stopping, so a chat reopened onto this session shows the
+      // answer arriving with a stop button rather than a status-bar item and no
+      // explanation.
+      ChatPanel.detachedPanels.add(this);
       backgroundChatRuns.add({
         taskId: execution.taskId,
         sessionId: execution.sessionId,
@@ -1529,8 +1559,11 @@ export class ChatPanel {
     const configuration = vscode.workspace.getConfiguration('atlasmind');
     // If another panel is actively executing on this same session, spawn a separate session
     // so their transcripts stay isolated and neither sees the other's streaming responses.
-    const sessionConflict = effectiveMode === 'send' && ChatPanel.collectActiveExecutions()
-      .some(exec => exec.sessionId === this.selectedSessionId);
+    // A run whose window has closed counts: it is still writing to that
+    // transcript, and asking something else in a chat reopened onto it would
+    // otherwise interleave two answers into one conversation.
+    const sessionConflict = effectiveMode === 'send' && ChatPanel.collectBusyRuns()
+      .some(candidate => candidate.sessionId === this.selectedSessionId);
     // "New Loop" also starts in its own fresh session (like "New Session") so the
     // autonomous run's transcript stays isolated from the current conversation.
     // `/loop` reaches here as `new-loop`, so it gets that isolation too.
@@ -1900,6 +1933,10 @@ export class ChatPanel {
       // outlived its surface, in which case the registry is the only thing still
       // claiming it and a status bar would go on announcing finished work.
       backgroundChatRuns.remove(taskId);
+      // Likewise unconditional: a detached panel exists only for the run that
+      // outlived its surface, so once that run is over it must stop being
+      // collected or a reopened chat would sit there reporting itself busy.
+      ChatPanel.detachedPanels.delete(this);
       let pendingSubmission: PendingPromptSubmission | undefined;
       if (this.activePromptExecution?.taskId === taskId) {
         abortController.signal.removeEventListener('abort', forwardAbort);
@@ -2736,14 +2773,25 @@ export class ChatPanel {
    * ends, on completion, failure and stop alike.
    */
   private scheduleCoalescedSync(): void {
-    if (this._isDisposed) return;
+    // A detached panel has nowhere of its own to draw, and its chunks still
+    // matter: a chat reopened onto the same session should watch the answer
+    // arrive rather than find it complete later. So the tick pushes to whatever
+    // surfaces are open instead of to this one. Coalesced on the same timer,
+    // because the reason for coalescing — a chunk per token — has not changed.
+    const detached = this._isDisposed;
+    if (detached && !ChatPanel.detachedPanels.has(this)) {
+      return;
+    }
     this.coalescedSyncDirty = true;
     if (this.coalescedSyncTimer) return;
     this.coalescedSyncTimer = setTimeout(() => {
       this.coalescedSyncTimer = undefined;
-      if (!this.coalescedSyncDirty || this._isDisposed) return;
+      if (!this.coalescedSyncDirty) return;
+      if (this._isDisposed && !ChatPanel.detachedPanels.has(this)) return;
       this.coalescedSyncDirty = false;
-      void this.syncState({ reuseProviderList: true });
+      void (this._isDisposed
+        ? ChatPanel.syncAllPanels({ reuseProviderList: true })
+        : this.syncState({ reuseProviderList: true }));
     }, COALESCED_SYNC_INTERVAL_MS);
   }
 
@@ -2791,8 +2839,19 @@ export class ChatPanel {
       this.selectedMessageId = undefined;
     }
     const derivedRecoveryNotice = this.recoveryNotice ?? deriveRecoveryNoticeFromTranscript(transcript);
-    const busyExecution = ChatPanel.findBusyExecution(this.selectedSessionId);
+    const busyRun = ChatPanel.findBusyPanel(this.selectedSessionId);
+    const busyExecution = busyRun?.execution;
     const isBusyForSelectedSession = Boolean(busyExecution && busyExecution.sessionId === this.selectedSessionId);
+    // Whose "thinking" line and model chips these are. Normally this panel's,
+    // because it is running its own turn. When it has adopted a run started
+    // somewhere else — another open chat, or one whose window has since closed —
+    // they belong to that surface, and reading our own empty fields would show
+    // an answer arriving with no sign of what was producing it. Only for the
+    // session on screen: a run on another session must not lend this one its
+    // thoughts.
+    const streamingSource = isBusyForSelectedSession && busyRun ? busyRun.panel : this;
+    const streamingThought = streamingSource.streamingThought;
+    const streamingModels = streamingSource.streamingModels;
 
     const storedFontScale = this.atlas.extensionContext?.globalState?.get<number>(FONT_SCALE_STORAGE_KEY);
 
@@ -2803,8 +2862,8 @@ export class ChatPanel {
       ...(this.selectedMessageId ? { selectedMessageId: this.selectedMessageId } : {}),
       busy: isBusyForSelectedSession,
       ...(busyExecution ? { busySessionId: busyExecution.sessionId, busyAssistantMessageId: busyExecution.assistantMessageId } : {}),
-      ...(this.streamingThought ? { streamingThought: this.streamingThought } : {}),
-      ...(this.streamingModels.length > 0 ? { streamingModels: [...this.streamingModels] } : {}),
+      ...(streamingThought ? { streamingThought } : {}),
+      ...(streamingModels.length > 0 ? { streamingModels: [...streamingModels] } : {}),
       ...(this.pendingComposerDraft ? { composerDraft: this.pendingComposerDraft } : {}),
       composerMode: this.pendingComposerMode ?? getStatusDrivenComposerMode(isBusyForSelectedSession),
       slashCommands: ChatPanel.slashCommandCatalogue(),

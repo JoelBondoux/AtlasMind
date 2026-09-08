@@ -19,6 +19,19 @@ Older entries below describe the software as it was at the time and are delibera
 
 ---
 
+## v0.444.0 -- Reopening the chat picks the work back up
+
+Last release let a chat keep working after you closed its window. This one makes reopening it feel
+like nothing happened: the answer streams in as it arrives rather than appearing in bursts, the stop
+button is back in the chat where you'd look for it, and the "thinking" line and model chips show
+again.
+
+If you ask something else while a background run is still writing, it starts a fresh conversation
+rather than mixing two answers into one transcript — which is the case that would have been most
+confusing and hardest to unpick afterwards.
+
+---
+
 ## v0.443.0 -- Closing the chat no longer stops the work
 
 Clicking another view in the sidebar used to kill whatever the chat was doing. Not closing it —

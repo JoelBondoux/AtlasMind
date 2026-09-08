@@ -128,6 +128,8 @@ Your answer is written to the chat session as it arrives rather than only to the
 
 A chat still running is still spending money and may still be changing your files, so it says so: a status-bar item names what's running, and clicking it lets you read or stop any of them. Closing the window is no longer how you stop a run — that is. Anything you'd queued up behind the running turn is dropped rather than started without you. Set it to `false` if you'd rather closing the chat stopped the agent.
 
+Reopen the chat and it picks the run back up properly: you watch the answer arrive, the stop button works, and if you ask something else it starts a fresh conversation rather than mixing two answers into one.
+
 ### Checking the work
 
 | Setting | Default | What it does |
