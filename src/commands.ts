@@ -1749,6 +1749,25 @@ export function registerCommands(
       });
     }),
 
+    // Read declared absence out of a calendar the team's rota app exported.
+    // Nothing is fetched: a calendar feed URL is a credential, so the person
+    // downloads the file and picks it here.
+    vscode.commands.registerCommand('atlasmind.importRota', async () => {
+      const root = vscode.workspace.workspaceFolders?.[0]?.uri.fsPath;
+      if (!root) {
+        void vscode.window.showWarningMessage('Open a workspace folder before importing a rota.');
+        return;
+      }
+      const [{ importRotaFromCalendar }, director] = await Promise.all([
+        import('./views/rotaImportCommand.js'),
+        import('./core/projectDirectorManager.js'),
+      ]);
+      await importRotaFromCalendar({
+        config: () => director.readProjectDirectorConfig(root),
+        save: async config => { await director.writeProjectDirectorConfig(root, config); },
+      });
+    }),
+
     vscode.commands.registerCommand('atlasmind.buildAndPublishPortal', async () => {
       const { buildAndPublishPortal } = await import('./views/portalPublishCommand.js');
       await buildAndPublishPortal();

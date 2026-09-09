@@ -186,6 +186,7 @@ The session drawer above the transcript starts closed and remembers your choice 
 | `AtlasMind: Open Project Dashboard` | Repo health, roadmap, issues, branches, delivery and more; internal callers may supply a validated page and exact-record focus |
 | `AtlasMind: Open Project Director` | Stakeholders, team, assignments, and the shared personal Follow-ups attention list |
 | `AtlasMind: Open Project Ideation` | The thinking board |
+| `AtlasMind: Import Rota from a Calendar File` | Reads declared absence out of an `.ics` your rota app exported — Deputy, When I Work, Google Calendar or anything else. Only events naming an absence are imported: a rota feed is mostly the shifts somebody is *working*, and recording those as time off would mark them away on exactly the days they are rostered on, so a file of shifts is refused with that reason and everything left alone is counted. Nothing is fetched — a calendar feed URL is a password, so you download the file and pick it. Also on the Workload card |
 | `AtlasMind: Open Project Run Center` | Review, approve, pause and resume runs |
 | `AtlasMind: Open Mission Control` | Define and watch autonomous loop runs |
 | `AtlasMind: Open UI Studio` | Visual UI planning, content design, wireframes, design system, and implementation handoff; website profiles also include delivery tooling |

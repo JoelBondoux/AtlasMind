@@ -18189,8 +18189,12 @@
         : ''}
         <div class="row-head" style="margin-top:12px">
           <p class="card-kicker">Declared absence</p>
-          <button type="button" class="action-link" data-action="workload-absence-add" data-payload="">${state.workloadAbsenceOpen ? 'Close the form' : 'Record absence'}</button>
+          <span>
+            <button type="button" class="action-link" data-action="workload-absence-add" data-payload="">${state.workloadAbsenceOpen ? 'Close the form' : 'Record absence'}</button>
+            <button type="button" class="action-link" data-action="command" data-payload="atlasmind.importRota">Import from a calendar</button>
+          </span>
         </div>
+        <p class="stat-detail">Deputy, When I Work, Google Calendar and anything else that exports an <code>.ics</code> file. Only events naming an absence are imported — a rota feed is mostly the shifts somebody is working, and recording those as time off would mark them away on exactly the days they are rostered on. Download the file yourself: a calendar feed URL is a password, and this never asks for one.</p>
         ${absenceForm}
         <div class="stack-list">${rotaRows}</div>
         <details class="policy-rule-table">

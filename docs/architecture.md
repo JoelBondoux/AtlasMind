@@ -1863,6 +1863,24 @@ The Ollama adapter uses the published `POST /api/embed` (array `input`, `embeddi
 
 The store lives in **extension storage, not `project_memory/`**: unlike every other register here the index is derived rather than decided, per developer rather than shared, and thousands of float vectors changing on every edit is the worst diff imaginable.
 
+### RotaImport (`src/core/rotaImport.ts`)
+
+Declared absence, read out of a calendar somebody else's rota app produced. `teamWorkload` refuses to infer absence, which leaves the entries to be typed by hand — the step nobody does, and the point at which the reading quietly stops being accurate. The rota already exists in whatever the team actually uses.
+
+Every one of those tools exports the same thing, so this reads **iCalendar rather than a vendor API**: one published format, pinned at `ICALENDAR_SPEC_VERIFIED_AT`, instead of a stack of integrations that each break on their own schedule. `ROTA_SOURCES` names Deputy, When I Work and Google Calendar with the export step read from each vendor's own documentation, and carries a `verified` flag, because a confident wrong instruction sends somebody looking for a menu item that is not there and they conclude the feature is broken.
+
+**A rota says when you are *working*, and that is the opposite of an absence.** This is the rule the module turns on, and getting it wrong inverts the answer rather than degrading it: importing a shift feed wholesale would mark somebody away on exactly the days they are rostered on, and the workload reading would then show a full week as free. Only an event whose summary matches `ABSENCE_TERMS` becomes an entry — a deliberately short, literal vocabulary, since a term nobody's calendar uses costs nothing while a term matching a working shift costs somebody a week they are on the rota for — and everything else is **counted and reported**, because "12 events, 2 imported, 10 left alone" is arguable and "2 imported" is not. A file that is entirely shifts is refused with that reason rather than importing nothing quietly.
+
+**`DTEND` is non-inclusive for a `DATE` value**, which RFC 5545 states and illustrates with its own example: 28 June to 8 July inclusive is written `DTEND;VALUE=DATE:20070709`. A reader taking it literally adds a phantom day to every absence it imports, and the error is invisible — one day long, in the right week, on a record nobody re-reads.
+
+**A date that cannot be read without guessing is refused, never converted.** A `DATE`, a floating date-time and a date-time with a `TZID` each name a calendar day directly, so the literal `YYYYMMDD` is right for all three; a `Z` date-time is the only form whose day depends on a zone, and it is read at UTC with the conversion stated. `20260231` matches the shape and is not a day, so it is refused rather than rolled into March, which would move an absence to a week nobody named.
+
+**The person is chosen, never matched out of the file.** Feeds carry `ATTENDEE` addresses and the module reads neither them nor `ORGANIZER` (asserted by test): matching one to a roster contact would attach a colleague's calendar to the wrong person, and it would read as a fact afterwards.
+
+**Nothing is fetched, and no field could hold a feed URL.** Google's own documentation calls a calendar's iCal address a *secret address* and says not to share it — anyone holding one can read the whole calendar — and `rota` lives in `project-director.json`, which is committed. The person downloads the file; `rotaImportCommand.ts` picks the contact first, then the file, and shows the entries themselves rather than a count, because a dialog cannot show somebody what is composed after they agree.
+
+The file is untrusted third-party text: content lines are unfolded per §3.1 (without which a folded `SUMMARY` is cut at 75 octets and the term that would have matched is in the half thrown away), summaries are control-stripped and clamped, events are capped with the remainder stated, and nothing throws. Merging is **additive by deterministic id** — absence somebody typed is kept, since it is a statement rather than a cache of somebody else's calendar, and re-importing an amended feed updates in place rather than duplicating. Pure + unit-tested.
+
 ### TeamWorkload (`src/core/teamWorkload.ts`)
 
 What each person has been asked to do, against what they said they could. The Director module knows who owns what; the roadmap knows what each item is estimated to cost. Nothing joined the two, so the question every delivery conversation opens with had no answer here and the two halves sat one page apart.

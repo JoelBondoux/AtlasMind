@@ -808,6 +808,7 @@ const ALLOWED_DASHBOARD_COMMANDS = new Set([
   'atlasmind.updateProjectMemory',
   'atlasmind.bootstrapProject',
   'atlasmind.importProject',
+  'atlasmind.importRota',
   'atlasmind.openMcpServers',
   'atlasmind.lens.setupDeclarations',
   'workbench.view.scm',

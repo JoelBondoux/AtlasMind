@@ -19,6 +19,38 @@ Older entries below describe the software as it was at the time and are delibera
 
 ---
 
+## v0.467.0 -- Absence, read from the rota you already keep
+
+The workload reading refuses to infer absence, which leaves it to be typed by hand -- the step nobody
+does, and the point at which the reading quietly stops being accurate. The rota already exists
+somewhere else.
+
+Every rota tool exports the same thing, so this reads **iCalendar** rather than a vendor API: one
+published format instead of a stack of integrations that each break on their own schedule. Deputy,
+When I Work and Google Calendar are listed with the export step read from each vendor's own
+documentation; anything else that writes an `.ics` works whether or not it is named.
+
+**A rota says when you are *working*, which is the opposite of an absence.** This is the rule the
+whole feature turns on, and getting it wrong inverts the answer rather than degrading it: importing a
+shift feed wholesale would mark somebody away on exactly the days they are rostered on, and the
+workload card would then show a full week as free. Only events naming a declared absence are
+imported, everything else is **counted and reported** rather than silently dropped, and a file that is
+entirely shifts is refused with that reason.
+
+`DTEND` is read as **non-inclusive**, which RFC 5545 states and illustrates -- a reader taking it
+literally adds a phantom day to every absence, and the error is invisible. A date that cannot be read
+without guessing a timezone is refused rather than converted.
+
+**The person is chosen before the file is opened and never matched out of it**, because attaching a
+colleague's calendar to the wrong person reads as a fact afterwards. And **nothing is fetched**:
+Google's own documentation calls a calendar's iCal address a secret, anyone holding one can read the
+whole calendar, and `project-director.json` is committed -- so you download the file and pick it.
+
+The confirmation lists every entry rather than a count. Absence you typed by hand is kept, and
+re-importing an amended calendar updates in place.
+
+---
+
 ## v0.466.0 -- What each person is carrying
 
 The Director page knew who owned what. The roadmap knew what each item was estimated to cost. Nothing

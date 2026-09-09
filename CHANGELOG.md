@@ -6,6 +6,52 @@ The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/),
 
 ## [Unreleased]
 
+## [0.467.0] - 2026-09-09
+
+### Added
+
+- **Import declared absence from the rota app the team already uses.** The workload reading refuses to
+  infer absence, which leaves it to be typed by hand — the step nobody does, and the point at which
+  the reading quietly stops being accurate. The rota already exists somewhere else.
+
+  Every one of those tools exports the same thing, so this reads **iCalendar** rather than a vendor
+  API: one published format (RFC 5545, pinned at `ICALENDAR_SPEC_VERIFIED_AT`) instead of a stack of
+  integrations that each break on their own schedule. Deputy, When I Work and Google Calendar are
+  listed with the export step read from each vendor's own documentation, and anything else that writes
+  an `.ics` works whether or not it is named.
+
+  **A rota says when you are *working*, which is the opposite of an absence** — the rule the whole
+  feature turns on, and getting it wrong is not a small error. Importing a shift feed wholesale would
+  mark somebody away on exactly the days they are rostered on, and the workload card would then show a
+  full week as free. So only events naming a declared absence term are imported, and **everything else
+  is counted and reported** rather than silently dropped: "12 events, 2 imported, 10 left alone because
+  they do not name an absence" is arguable, and "2 imported" is not. A file that is entirely shifts is
+  **refused**, with that reason.
+
+  **`DTEND` is non-inclusive for a `DATE` value**, which RFC 5545 states and illustrates — 28 June to
+  8 July inclusive is written `DTEND;VALUE=DATE:20070709`. A reader taking it literally adds a phantom
+  day to every absence, and the error is invisible: one day long, in the right week, on a record nobody
+  re-reads.
+
+  **A date that cannot be read without guessing a timezone is refused, never converted.** `20260231`
+  matches the shape and is not a day; rolling it into March would move an absence to a week nobody
+  named. A UTC time is read at its UTC date and the conversion is stated.
+
+  **The person is chosen before the file is opened, and never matched out of it.** Feeds carry
+  attendee addresses, and matching one to a roster contact would attach a colleague's calendar to the
+  wrong person — a mistake that reads as a fact afterwards.
+
+  **Nothing is fetched, and there is no field that could hold a feed URL.** Google's own documentation
+  calls a calendar's iCal address a *secret* and says not to share it: anyone holding one can read the
+  whole calendar. `project-director.json` is committed, so the person downloads the file and picks it.
+
+  The confirmation lists **the entries themselves**, not a count, and importing is additive: absence
+  somebody typed by hand is kept, and re-importing an amended calendar updates in place rather than
+  duplicating.
+
+  New command: **AtlasMind: Import Rota from a Calendar File** (`atlasmind.importRota`), also on the
+  Workload card.
+
 ## [0.466.0] - 2026-09-09
 
 ### Added
