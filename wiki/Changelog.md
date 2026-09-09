@@ -19,6 +19,43 @@ Older entries below describe the software as it was at the time and are delibera
 
 ---
 
+## v0.457.0 -- Somewhere to write a bug down
+
+AtlasMind kept a register for what somebody found in the plan, in the code, in the world and in the
+business. It kept none for the thing every project accumulates first and fastest. The Issues tab reads
+GitHub issues, which answers a different question: an issue is a public, filed artefact needing a
+repository, a remote and a working `gh`, while a bug is something you saw thirty seconds ago and will
+lose if there is nowhere to put it. Making a network round trip the price of recording one is how the
+observation gets lost -- so the new **Defects** page keeps them in a local committed file, and filing
+an issue stays a separate, deliberate act.
+
+**Severity is never asked for.** Asked *how bad is it?*, people answer about their own frustration.
+Asked what it does -- loses work, exposes something, does not work at all, works badly, looks wrong --
+and how many people meet it, they answer about the defect. A published eight-rule table grades those
+two answers, every entry names the rule that graded it, and the grade is recomputed every time the
+file is read, so a severity typed into the committed JSON by hand does not survive. A grade made today
+still compares with one made in six months, which is the only thing that makes a register worth
+sorting.
+
+Data loss and a security exposure are blockers whatever their reach: the one person it happened to
+lost exactly as much as if it had happened to everybody. How reliably a defect reproduces is recorded
+separately and does **not** change its severity -- the usual instinct is to downgrade an intermittent
+bug, and it is exactly backwards. *Could not reproduce* is a real state, never quietly read as fixed.
+
+**Fixed is not verified.** A fix nobody checked is a claim, so the two counts stay apart and the
+Overview raises unverified fixes rather than counting them as done. A defect that came back is the
+same defect reopened, with the recurrence recorded on the entry -- two rows would make a bug that has
+recurred four times look like four bugs each fixed once, which is precisely how a chronic defect
+hides. Nothing is deleted: *verified*, *won't fix*, *duplicate* and *not reproducible* record four
+different decisions, and only one of them is an accomplishment.
+
+Nothing here gates anything. An open blocker appears on the *Needs you* band as a statement; the
+Release page still owns release gates. Handing a defect to an agent fences the report as untrusted
+third-party text -- a bug report can be pasted from a support ticket or an app-store review -- makes
+*cannot reproduce* a first-class answer, and forbids the agent marking anything fixed or verified.
+
+---
+
 ## v0.456.0 -- The last mile of the producer report
 
 AtlasMind could build the producer report and decide what may leave the machine. Then it said: point

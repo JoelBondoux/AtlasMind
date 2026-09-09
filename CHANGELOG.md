@@ -6,6 +6,62 @@ The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/),
 
 ## [Unreleased]
 
+## [0.457.0] - 2026-09-09
+
+### Added
+
+- **A defect register — somewhere to write a bug down.** The dashboard kept a register for what
+  somebody found in the plan, in the code, in the world and in the business, and none for the thing
+  every project accumulates first and fastest. The Issues tab reads GitHub issues, which answers a
+  different question: an issue is a public, filed artefact needing a repository, a remote and a working
+  `gh`, while a bug is something you saw thirty seconds ago and will lose if there is nowhere to put
+  it. Making a network round trip the price of recording one is how the observation gets lost, so this
+  register is a local committed file and filing an issue stays a separate, deliberate act.
+
+  **Severity is never asked for.** Somebody asked *how bad is it?* answers about their own
+  frustration; asked what it does — loses work, exposes something, does not work at all, works badly,
+  looks wrong — and how many people meet it, they answer about the defect. The grade comes from a
+  published eight-rule table, every entry names the rule that produced it, and it is **recomputed on
+  every read**, so a severity hand-edited into the committed file does not survive. A grade made today
+  is comparable with one made in six months, which is the only thing that makes the register worth
+  sorting.
+
+  **Data loss and a security exposure are blockers whatever their reach**, because the one person it
+  happened to lost exactly as much as if it had happened to everybody.
+
+  **How reliably a defect reproduces is a separate fact and does not move its severity.** The classic
+  mistake is to downgrade an intermittent bug, which is exactly backwards — *sometimes* says how
+  confident we are that we can see it, not how bad it is when it happens. *Could not reproduce* is a
+  first-class state and is never quietly read as fixed.
+
+  **`fixed` is not `verified`.** A fix nobody checked is a claim, the two counts stay apart, and the
+  Overview raises unverified fixes rather than counting them as done. **A defect that came back is the
+  same defect, reopened** — recurrence lives on the entry, because two rows would make a bug that has
+  recurred four times look like four bugs each fixed once, which is precisely the shape that hides a
+  chronic defect. And nothing is ever deleted: *verified*, *won't fix*, *duplicate* and *not
+  reproducible* record four different decisions, and only one of them is an accomplishment.
+
+  Nothing here gates anything. An open blocker appears on the *Needs you* band as a statement; the
+  Release page still owns release gates. And the register is the one attention group with no
+  "never assessed" item, deliberately — every other register can be scanned or asked on demand, while
+  recording a defect means finding one, so an item saying "no defects recorded" would nag a project
+  that has genuinely found none, with no action that could ever satisfy it. An unused register instead
+  supplies no group at all, which keeps the Overview reading *unexamined* rather than reassuring.
+
+- **Agents are told to record what they find broken.** Every code-writing role prompt now carries the
+  defect-reporting rule alongside the existing debt-marker rule. The two are stated separately because
+  confusing them is exactly what puts a real bug in the debt register and a deliberate trade-off in
+  the defect one. An agent that notices a bug while doing something else and mentions it in a sentence
+  of chat has left no record — after which an empty register reads as an absence of defects rather
+  than an absence of recording.
+
+- **"Investigate this defect" hands one to an agent, fenced.** A bug report can be pasted from a
+  support ticket, an app-store review or a colleague's message, so it is treated as untrusted
+  third-party text exactly as an issue body is. The prompt makes *cannot reproduce* a first-class
+  answer — an agent that must find something will find something, and a fabricated root cause recorded
+  against a real defect is worse than an unresolved entry — and forbids it marking anything fixed or
+  verified, because verification is a person checking.
+
 ## [0.456.0] - 2026-09-08
 
 ### Added

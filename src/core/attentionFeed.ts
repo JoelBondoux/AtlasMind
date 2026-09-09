@@ -103,6 +103,22 @@ export interface AttentionInput {
   documents?: { reviewDue: number; missing: number };
   risk?: { assessed: boolean; open: number };
   debt?: { scanned: boolean; open: number; high: number };
+  /**
+   * Recorded defects — and **only once something has been recorded**.
+   *
+   * The one group with no `unassessed` rule, deliberately. Every other register
+   * here can be *assessed*: a scan can be run, an advisor can be asked, a report
+   * can be read, so "never looked" is a real state somebody can clear. A defect
+   * register cannot be — recording a defect means finding one, and an item
+   * saying "no defects recorded" would nag a project that genuinely has none
+   * found, permanently and with no action that would satisfy it.
+   *
+   * So an empty register supplies no group at all. That keeps rule 5 intact from
+   * the other direction: it is not counted toward the groups that let the page
+   * claim `clear`, so an unused register makes the Overview read `unexamined`
+   * rather than silently reassuring.
+   */
+  defects?: { openBlockers: number; awaitingVerification: number };
   release?: { blockedGates: number };
   delivery?: { blockedPaths: number };
   workflow?: { nextStepBlocked: boolean; nextStepTitle?: string };
@@ -170,6 +186,22 @@ const RULES: readonly AttentionRule[] = [
     pageTarget: 'pipeline',
     evaluate: input => (input.pipeline?.loaded && input.pipeline.latestFailed
       ? { label: 'CI is red', detail: 'The most recent run on this branch failed. The Pipeline page classifies why.' }
+      : undefined),
+  },
+  {
+    // Below CI: a red pipeline stops the whole team, a blocker defect is loose
+    // in something already shipped. Both are `now`; the ordering between them
+    // is the declared editorial call, not a count.
+    id: 'defect-blockers',
+    urgency: 'now',
+    rule: 'any open defect graded blocker by the register\'s rule table',
+    pageTarget: 'defects',
+    evaluate: input => (input.defects && input.defects.openBlockers > 0
+      ? {
+        label: `${input.defects.openBlockers} blocker defect${input.defects.openBlockers === 1 ? '' : 's'} open`,
+        detail: 'Graded blocker because it loses work, exposes something, or breaks a path most people take — never because somebody called it urgent.',
+        count: input.defects.openBlockers,
+      }
       : undefined),
   },
   {
@@ -263,6 +295,19 @@ const RULES: readonly AttentionRule[] = [
         label: `${input.debt.high} high-severity debt`,
         detail: 'Graded by the register\'s published rule table, so the grade is comparable with last month\'s.',
         count: input.debt.high,
+      }
+      : undefined),
+  },
+  {
+    id: 'defects-awaiting-verification',
+    urgency: 'soon',
+    rule: 'any defect marked fixed that nobody has verified',
+    pageTarget: 'defects',
+    evaluate: input => (input.defects && input.defects.awaitingVerification > 0
+      ? {
+        label: `${input.defects.awaitingVerification} fix${input.defects.awaitingVerification === 1 ? '' : 'es'} unverified`,
+        detail: 'A fix nobody checked is a claim. These are not counted as done, and a release should not assume they are.',
+        count: input.defects.awaitingVerification,
       }
       : undefined),
   },
@@ -485,7 +530,9 @@ export function buildAttentionFeed(input: AttentionInput): AttentionFeed {
     const assessed = [
       input.testing, input.pipeline, input.issues, input.ssot, input.director,
       input.documents, input.risk, input.debt, input.release, input.delivery, input.workflow,
-      input.research, input.capacity,
+      // `defects` is supplied only once something has been recorded, so an
+      // unused register cannot help the page claim it is clear.
+      input.research, input.capacity, input.defects,
     ].filter(group => group !== undefined).length;
     feed.emptyState = assessed >= 4 ? 'clear' : 'unexamined';
   }

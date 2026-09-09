@@ -102,6 +102,7 @@ export const CAPABILITY_PAGES: readonly CapabilityPage[] = [
   { surface: 'dashboard', id: 'pipeline', title: 'Dashboard — Pipeline', answers: 'CI workflows and their current state' },
   { surface: 'dashboard', id: 'testing', title: 'Dashboard — Testing', answers: 'per-policy coverage, failing tests, what is untested and how bad that is' },
   { surface: 'dashboard', id: 'debt', title: 'Dashboard — Tech Debt', answers: 'deferred work found in the code, how old it is, the rule that graded it' },
+  { surface: 'dashboard', id: 'defects', title: 'Dashboard — Defects', answers: 'bugs recorded locally: what is broken, how badly, whether it reproduces, and which fixes nobody has verified' },
   { surface: 'dashboard', id: 'security', title: 'Dashboard — Security', answers: 'dependency and code security findings' },
   { surface: 'dashboard', id: 'privacy', title: 'Dashboard — Privacy', answers: 'what data leaves the machine and what was redacted' },
   { surface: 'dashboard', id: 'risk', title: 'Dashboard — Risk', answers: 'ethical, legal and commercial findings raised by the oversight advisors' },

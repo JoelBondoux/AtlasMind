@@ -4,7 +4,7 @@
 
 <h1 align="center">AtlasMind</h1>
 
-<p align="center"><sub> · <strong>Current source version: 0.456.0</strong> · </sub></p>
+<p align="center"><sub> · <strong>Current source version: 0.457.0</strong> · </sub></p>
 
 
 <p align="center">
@@ -32,9 +32,9 @@ Most AI coding tools give you an assistant in a chat box. That solves *writing c
 tell you what to build next, what's blocking it, who owns it, what you deferred three weeks ago and
 why, whether your tests actually cover what you claim, or whether you're fit to release.
 
-That's the job AtlasMind does. A **23-page project dashboard** built entirely from your own
+That's the job AtlasMind does. A **24-page project dashboard** built entirely from your own
 repository: roadmap and dependency graph, issues and pull requests, people and follow-ups, risk,
-compliance, technical debt, testing evidence, documents, delivery and release readiness. Nothing is
+compliance, technical debt, defects, testing evidence, documents, delivery and release readiness. Nothing is
 a form you fill in twice — it reads git, GitHub, your files and your project memory, then grades
 what it finds against rules it **publishes on the card**, so you can see the reasoning and disagree
 with it.
@@ -175,11 +175,17 @@ important limits on overrides and compliance claims.
 
 ---
 
-## What's new in 0.456.0
+## What's new in 0.457.0
 
 The last Marketplace publication, **v0.449.5**, brought the changes below. Every release is written
 up in full in [CHANGELOG.md](CHANGELOG.md).
 
+- **Somewhere to write a bug down.** A new Defects page keeps bugs in a local committed file, so
+  recording one costs a keystroke rather than a remote, a `gh` and a network. Severity is never asked
+  for — you say what it does and how many people meet it, and a published rule table grades it, so a
+  grade made today still compares with one made in six months. Data loss and security exposures are
+  blockers whatever their reach; an intermittent bug is not a smaller one; and *fixed* is kept apart
+  from *verified*, because a fix nobody checked is a claim. Nothing is deleted and nothing is gated.
 - **`/portal` hosts the producer report as an actual page.** The report could be built and narrowed;
   what was missing was the last mile, because GitHub Pages cannot serve an arbitrary folder. The guide
   walks it — including the fact that a Pages site is public even when the repository is private — and
@@ -364,8 +370,8 @@ Highlights from the last few releases. Everything here is already in the publish
 
 | | |
 |---|---|
-| **A 23-page project dashboard** | Overview, project score, gap analysis, workflow, roadmap, issues, pull requests, people & follow-ups, branches, repository, pipeline, testing, tech debt, security, privacy, risk, compliance, release, delivery, documents, project memory, runtime and ideation. Built from your repository, not from data you re-enter. |
-| **Registers that don't forget** | Tech debt, risk, compliance and research findings *transition* rather than vanish — resolved stays distinct from obsolete, accepted from dismissed — each graded by a published rule table so two people reading the same project get the same answer in March and in July. |
+| **A 24-page project dashboard** | Overview, project score, gap analysis, workflow, roadmap, issues, pull requests, people & follow-ups, branches, repository, pipeline, testing, tech debt, defects, security, privacy, risk, compliance, release, delivery, documents, project memory, runtime and ideation. Built from your repository, not from data you re-enter. |
+| **Registers that don't forget** | Defects, tech debt, risk, compliance and research findings *transition* rather than vanish — resolved stays distinct from obsolete, accepted from dismissed — each graded by a published rule table so two people reading the same project get the same answer in March and in July. |
 | **A roadmap that knows what blocks what** | A dependency graph beside the prioritised backlog: readable tree layout, release gates, owners, estimates, routes to any item, and honest "not assessed" instead of a confident zero. |
 | **A team of specialists** | 27 built-in agents — debugger, frontend, backend, reviewer, security, testing, docs, performance, DevOps, dependencies, SEO, UX, release and CI, plus ethics, legal, commercial and market oversight. Add your own. Optional: bring your own AI tool instead. |
 | **50 built-in skills** | File edits, the full local git lifecycle (branches, worktrees, fetch/pull, merge, stash), terminal, Docker, test runners, code navigation, debugging, web fetch, and more. Extend with your own or connect MCP servers. |
@@ -460,7 +466,7 @@ All 154 settings are documented in the [Configuration reference](wiki/Configurat
 
 | Path | What's in it |
 |---|---|
-| `src/core/` | Orchestration, routing, planning, safety, cost, project composition, opt-in workspace scope, read-only upstream distance, game-engine identity, bounded asset inventory, pure engine-fork interpretation, and hostile-input build-log reading (`projectComposition.ts`, `workspaceScope.ts`, `upstreamDivergence.ts`, `gameEngineIdentity.ts`, `gameAssetInventory.ts`, `gameEngineDivergence.ts`, `gameBuildLog.ts`), UI Studio's graph/edit/live-preview/repository core (`uiDesignGraph.ts`, `uiEditCommands.ts`, `uiPreviewRuntime.ts`, `uiRepositoryMapping.ts`, `uiRepositoryImport.ts`, `uiSurfaceScan.ts`), CI inspection/scaffolding (`ciManager.ts`, `trustedLocalCiStarter.ts`), the CI route model, routing policy, build ledger and act adapter (`ciRoutes.ts`, `ciRoutingPolicy.ts`, `ciCreditMeter.ts`, `ciBuildLedger.ts`, `ciActRoute.ts`), the local CI guide, GitHub CLI installer and remembered machine inspection (`localCiSetupPlan.ts`, `localCiInstaller.ts`, `localCiInspectionMemory.ts`), confirmed-write echo (`trackerWriteOutcome.ts`), the register-to-work hand-off (`registerHandoff.ts`), the personal-vs-project split behind the two sidebar people views (`directorPriority.ts`), the semver primitives and branch-to-channel versioning policy (`semver.ts`, `versioningPolicy.ts`), the shell-free Windows shim bypass shared by the extension host, the CLI and the ACP launcher (`windowsShimBypass.ts`), parallel-write placement, worktree plumbing, merge-back and the run that ties them together (`worktreeIsolation.ts`, `worktreeManager.ts`, `worktreeMerge.ts`, `worktreeRun.ts`), the live security advisory feed and the per-turn context breakdown and the producer-portal hosting guide (`advisoryFeed.ts`, `contextBudget.ts`, `producerPortalPlan.ts`), the roadmap dependency graph, its overlay store, the chain the finish rests on and the plan against time (`roadmapGraph.ts`, `roadmapGraphStore.ts`, `roadmapCriticalPath.ts`, `roadmapTimeline.ts`, `roadmapBoard.ts`), whether the configured team can work and how much of it is used (`agentCapacity.ts`), and the git trailers that link a commit to the work it was for (`commitTrailers.ts`), and the evidence-triggered MCP capability offer (`capabilityOffer.ts`), release-gate destinations and urgency ordering (`releaseGateNavigation.ts`), roadmap ingestion from markdown, issues, Projects and spreadsheets (`roadmapImport.ts`, `roadmapReconcile.ts`) plus the guarded `localCiRunner.ts` executor, the governance-compliance stack — the control catalog, evidence register and readiness grader (`complianceControlCatalog.ts`, `complianceEvidenceRegister.ts`, `complianceReadiness.ts`) the per-methodology standard editions (`testingStandards.ts`), the Compliance page's view builder (`complianceDashboard.ts`), its walkthrough (`complianceSetupPlan.ts`), the shared stack-signal gatherer (`complianceStackSignals.ts`) and the mapping importer (`complianceMarkdownImport.ts`) — and project services |
+| `src/core/` | Orchestration, routing, planning, safety, cost, project composition, opt-in workspace scope, read-only upstream distance, game-engine identity, bounded asset inventory, pure engine-fork interpretation, and hostile-input build-log reading (`projectComposition.ts`, `workspaceScope.ts`, `upstreamDivergence.ts`, `gameEngineIdentity.ts`, `gameAssetInventory.ts`, `gameEngineDivergence.ts`, `gameBuildLog.ts`), UI Studio's graph/edit/live-preview/repository core (`uiDesignGraph.ts`, `uiEditCommands.ts`, `uiPreviewRuntime.ts`, `uiRepositoryMapping.ts`, `uiRepositoryImport.ts`, `uiSurfaceScan.ts`), CI inspection/scaffolding (`ciManager.ts`, `trustedLocalCiStarter.ts`), the CI route model, routing policy, build ledger and act adapter (`ciRoutes.ts`, `ciRoutingPolicy.ts`, `ciCreditMeter.ts`, `ciBuildLedger.ts`, `ciActRoute.ts`), the local CI guide, GitHub CLI installer and remembered machine inspection (`localCiSetupPlan.ts`, `localCiInstaller.ts`, `localCiInspectionMemory.ts`), confirmed-write echo (`trackerWriteOutcome.ts`), the register-to-work hand-off (`registerHandoff.ts`), the personal-vs-project split behind the two sidebar people views (`directorPriority.ts`), the semver primitives and branch-to-channel versioning policy (`semver.ts`, `versioningPolicy.ts`), the shell-free Windows shim bypass shared by the extension host, the CLI and the ACP launcher (`windowsShimBypass.ts`), parallel-write placement, worktree plumbing, merge-back and the run that ties them together (`worktreeIsolation.ts`, `worktreeManager.ts`, `worktreeMerge.ts`, `worktreeRun.ts`), the live security advisory feed and the per-turn context breakdown and the producer-portal hosting guide (`advisoryFeed.ts`, `contextBudget.ts`, `producerPortalPlan.ts`), the defect register — what is broken, graded by a published table rather than asked for (`defectRegister.ts`), the roadmap dependency graph, its overlay store, the chain the finish rests on and the plan against time (`roadmapGraph.ts`, `roadmapGraphStore.ts`, `roadmapCriticalPath.ts`, `roadmapTimeline.ts`, `roadmapBoard.ts`), whether the configured team can work and how much of it is used (`agentCapacity.ts`), and the git trailers that link a commit to the work it was for (`commitTrailers.ts`), and the evidence-triggered MCP capability offer (`capabilityOffer.ts`), release-gate destinations and urgency ordering (`releaseGateNavigation.ts`), roadmap ingestion from markdown, issues, Projects and spreadsheets (`roadmapImport.ts`, `roadmapReconcile.ts`) plus the guarded `localCiRunner.ts` executor, the governance-compliance stack — the control catalog, evidence register and readiness grader (`complianceControlCatalog.ts`, `complianceEvidenceRegister.ts`, `complianceReadiness.ts`) the per-methodology standard editions (`testingStandards.ts`), the Compliance page's view builder (`complianceDashboard.ts`), its walkthrough (`complianceSetupPlan.ts`), the shared stack-signal gatherer (`complianceStackSignals.ts`) and the mapping importer (`complianceMarkdownImport.ts`) — and project services |
 | `src/runtime/` | Built-in agents and runtime composition |
 | `src/providers/` | Model provider adapters, catalogs, health, `modelRole.ts` (what a model is *for*), and the local-GPU support layer — `gpuProbe.ts`, `localFootprint.ts`, `localRuntimeClient.ts` |
 | `src/skills/` | Built-in tools and skill handlers |

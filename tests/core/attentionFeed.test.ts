@@ -267,3 +267,62 @@ describe('research is the one group whose absence means "switched off"', () => {
     expect(feed.emptyState).toBe('clear');
   });
 });
+
+describe('recorded defects', () => {
+  it('raises an open blocker now, above everything merely due', () => {
+    const feed = buildAttentionFeed({
+      ...healthy,
+      defects: { openBlockers: 2, awaitingVerification: 0 },
+    });
+    const item = feed.items.find(entry => entry.id === 'defect-blockers')!;
+    expect(item.urgency).toBe('now');
+    expect(item.count).toBe(2);
+    // The grade came from the rule table, and the item says so — a severity
+    // somebody asserted would not be comparable with last month's.
+    expect(item.detail).toContain('never because somebody called it urgent');
+  });
+
+  it('raises a fix nobody checked, because a claim is not a verification', () => {
+    const feed = buildAttentionFeed({
+      ...healthy,
+      defects: { openBlockers: 0, awaitingVerification: 3 },
+    });
+    const item = feed.items.find(entry => entry.id === 'defects-awaiting-verification')!;
+    expect(item.urgency).toBe('soon');
+    expect(item.detail).toContain('A fix nobody checked is a claim');
+  });
+
+  it('says nothing when the register is used and everything in it is settled', () => {
+    const feed = buildAttentionFeed({
+      ...healthy,
+      defects: { openBlockers: 0, awaitingVerification: 0 },
+    });
+    expect(feed.totalCount).toBe(0);
+    expect(feed.emptyState).toBe('clear');
+  });
+
+  it('has no unassessed rule at all, because recording a defect means finding one', () => {
+    // Every other register can be assessed on demand, so "never looked" is a
+    // state somebody can clear. This one cannot be, and an item that no action
+    // could satisfy would nag forever.
+    const feed = buildAttentionFeed({ ...healthy });
+    expect(feed.items.some(entry => entry.id.startsWith('defect'))).toBe(false);
+  });
+
+  it('does not let an unused register help the page claim it is clear', () => {
+    // An absent group must never be counted as an assessment.
+    const barelyAssessed = buildAttentionFeed({
+      testing: { failing: 0, hasReport: true, uncovered: 0 },
+      pipeline: { latestFailed: false, loaded: true },
+      issues: { loaded: true, stale: 0, unassigned: 0 },
+    });
+    expect(barelyAssessed.emptyState).toBe('unexamined');
+    const withDefects = buildAttentionFeed({
+      testing: { failing: 0, hasReport: true, uncovered: 0 },
+      pipeline: { latestFailed: false, loaded: true },
+      issues: { loaded: true, stale: 0, unassigned: 0 },
+      defects: { openBlockers: 0, awaitingVerification: 0 },
+    });
+    expect(withDefects.emptyState).toBe('clear');
+  });
+});

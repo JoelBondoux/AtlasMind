@@ -241,6 +241,25 @@ import {
   type DebtStatus,
 } from '../core/debtRegister.js';
 import {
+  DEFECT_SSOT_PATH,
+  DEFECT_RULES,
+  DefectRegisterManager,
+  addDefect,
+  buildDefectWorkPrompt,
+  deriveDefectMetrics,
+  markDefectDuplicate,
+  readDefectRegister,
+  regradeDefect,
+  setDefectStatus,
+  sortDefectEntries,
+  type DefectEntry,
+  type DefectImpact,
+  type DefectMetrics,
+  type DefectReach,
+  type DefectReproducibility,
+  type DefectStatus,
+} from '../core/defectRegister.js';
+import {
   WORKFLOW_HISTORY_SSOT_PATH,
   WorkflowAuditLedger,
   beginWorkflowRun,
@@ -1133,6 +1152,29 @@ type ProjectDashboardMessage =
   | { type: 'setDebtStatus'; payload: { id: string; status: string; note?: string } }
   | { type: 'openDebtEvidence'; payload: { id: string } }
   | { type: 'workOnDebt'; payload: { id: string } }
+  // The reporter supplies what the defect *does* and how many people meet it.
+  // There is deliberately no severity field: it is derived host-side from the
+  // declared rule table, so no message can carry a grade the table would not
+  // produce.
+  | {
+    type: 'reportDefect';
+    payload: {
+      title: string;
+      impact: string;
+      reach: string;
+      reproducibility?: string;
+      detail?: string;
+      area?: string;
+      stepsToReproduce?: string;
+      expected?: string;
+      actual?: string;
+      environment?: string;
+    };
+  }
+  | { type: 'setDefectStatus'; payload: { id: string; status: string; note?: string } }
+  | { type: 'regradeDefect'; payload: { id: string; impact: string; reach: string } }
+  | { type: 'markDefectDuplicate'; payload: { id: string; duplicateOfId: string } }
+  | { type: 'workOnDefect'; payload: { id: string } }
   | { type: 'loadReviewComments'; payload: { number: number } }
   | { type: 'createLabel'; payload: { name: string; color?: string; description?: string } }
   | { type: 'deleteLabel'; payload: { name: string } }
@@ -1314,7 +1356,7 @@ interface DashboardStat {
  */
 const DASHBOARD_PAGE_IDS = [
   'overview', 'score', 'gapAnalysis', 'workflow', 'roadmap', 'issues', 'pullRequests', 'director',
-  'branches', 'repo', 'pipeline', 'testing', 'debt', 'security', 'privacy', 'risk', 'compliance', 'release', 'delivery', 'documents',
+  'branches', 'repo', 'pipeline', 'testing', 'debt', 'defects', 'security', 'privacy', 'risk', 'compliance', 'release', 'delivery', 'documents',
   'ssot', 'runtime', 'ideation',
 ] as const;
 
@@ -3110,6 +3152,29 @@ interface DashboardSnapshot {
     rules: Array<{ id: string; domain: string; severity: string; describes: string }>;
     scanning: boolean;
   };
+  /**
+   * What is broken, as opposed to what was deferred.
+   *
+   * Sits beside `debt` rather than inside it because the two answer different
+   * questions: debt is a decision somebody made on purpose, a defect is
+   * something that does not work. Read from disk on every collection, so this
+   * and the writes the panel makes cannot disagree about the file.
+   */
+  defects: {
+    path: string;
+    entries: DefectEntry[];
+    metrics: DefectMetrics;
+    /** The declared rules, so a grade can be checked against them on screen. */
+    rules: Array<{ id: string; severity: string; describes: string }>;
+    /**
+     * False until somebody has written a defect down.
+     *
+     * The page needs it because an empty register means nobody recorded one,
+     * not that there are none — and a confident zero is exactly the reading
+     * this dashboard keeps refusing to produce.
+     */
+    recorded: boolean;
+  };
   /** Human ownership for actionable records across the dashboard. */
   workAssignments: DashboardWorkAssignmentsSnapshot;
   /**
@@ -4605,6 +4670,23 @@ export class ProjectDashboardPanel {
     return this.debtManagerInstance;
   }
 
+  private defectManagerInstance: DefectRegisterManager | undefined;
+
+  /**
+   * The defect register, for writes only — the snapshot reads the file itself.
+   *
+   * Every write reloads first, because `defects.json` is committed and a
+   * teammate's entry arriving through a pull must not be overwritten by a
+   * status change made against a register this panel read an hour ago.
+   */
+  private get defectManager(): DefectRegisterManager {
+    this.defectManagerInstance ??= new DefectRegisterManager(
+      vscode.workspace.workspaceFolders?.[0]?.uri.fsPath,
+    );
+    this.defectManagerInstance.reload();
+    return this.defectManagerInstance;
+  }
+
   private get auditLedger(): WorkflowAuditLedger {
     this.auditLedgerInstance ??= new WorkflowAuditLedger(
       vscode.workspace.workspaceFolders?.[0]?.uri.fsPath,
@@ -5379,6 +5461,21 @@ export class ProjectDashboardPanel {
         return;
       case 'workOnDebt':
         await this.handleWorkOnDebt(message.payload);
+        return;
+      case 'reportDefect':
+        await this.handleReportDefect(message.payload);
+        return;
+      case 'setDefectStatus':
+        await this.handleSetDefectStatus(message.payload);
+        return;
+      case 'regradeDefect':
+        await this.handleRegradeDefect(message.payload);
+        return;
+      case 'markDefectDuplicate':
+        await this.handleMarkDefectDuplicate(message.payload);
+        return;
+      case 'workOnDefect':
+        await this.handleWorkOnDefect(message.payload);
         return;
       case 'loadReviewComments':
         await this.handleLoadReviewComments(message.payload.number);
@@ -10330,6 +10427,177 @@ ${buildCardEvidenceSection(source, derivation)}`;
     });
   }
 
+  // ── Defects ────────────────────────────────────────────────────
+  //
+  // Every enum arriving from the webview is re-coerced against the declared
+  // vocabulary here rather than trusted. The browser can *name* a value; it can
+  // never define one, and in particular it can never supply a severity — that
+  // comes from the rule table, so no message exists by which a grade the table
+  // would not produce could enter the register.
+
+  private static coerceDefectImpact(value: string): DefectImpact | undefined {
+    const impacts: DefectImpact[] = ['data-loss', 'security', 'broken', 'degraded', 'cosmetic'];
+    return impacts.find(impact => impact === value);
+  }
+
+  private static coerceDefectReach(value: string): DefectReach | undefined {
+    const reaches: DefectReach[] = ['everyone', 'many', 'few', 'one'];
+    return reaches.find(reach => reach === value);
+  }
+
+  /**
+   * Record a defect.
+   *
+   * No confirmation: this writes a local tracked file, changes nothing outside
+   * the repository, and nothing here files an issue or notifies anybody.
+   * Putting a dialog in front of writing a bug down is how bugs stop getting
+   * written down, which costs far more than the occasional stray entry — and
+   * an entry can be transitioned, never being deleted either way.
+   */
+  private async handleReportDefect(payload: {
+    title: string;
+    impact: string;
+    reach: string;
+    reproducibility?: string;
+    detail?: string;
+    area?: string;
+    stepsToReproduce?: string;
+    expected?: string;
+    actual?: string;
+    environment?: string;
+  }): Promise<void> {
+    const impact = ProjectDashboardPanel.coerceDefectImpact(payload.impact);
+    const reach = ProjectDashboardPanel.coerceDefectReach(payload.reach);
+    if (!impact || !reach) {
+      void vscode.window.showWarningMessage('That defect could not be graded — say what it does and how many people meet it.');
+      return;
+    }
+    const reproducibilities: DefectReproducibility[] = ['always', 'sometimes', 'once', 'not-reproduced'];
+    const reproducibility = reproducibilities.find(value => value === payload.reproducibility);
+    try {
+      await this.defectManager.save(addDefect(
+        this.defectManager.get(),
+        {
+          title: payload.title,
+          impact,
+          reach,
+          ...(reproducibility === undefined ? {} : { reproducibility }),
+          ...(payload.detail === undefined ? {} : { detail: payload.detail }),
+          ...(payload.area === undefined ? {} : { area: payload.area }),
+          ...(payload.stepsToReproduce === undefined ? {} : { stepsToReproduce: payload.stepsToReproduce }),
+          ...(payload.expected === undefined ? {} : { expected: payload.expected }),
+          ...(payload.actual === undefined ? {} : { actual: payload.actual }),
+          ...(payload.environment === undefined ? {} : { environment: payload.environment }),
+        },
+        new Date().toISOString(),
+      ));
+    } catch (error) {
+      const detail = error instanceof Error ? error.message : String(error);
+      void vscode.window.showWarningMessage(`Could not record the defect: ${detail.slice(0, 300)}`);
+    }
+    await this.syncState();
+  }
+
+  /** Transition a defect. Same reasoning as the debt register: no dialog. */
+  private async handleSetDefectStatus(payload: { id: string; status: string; note?: string }): Promise<void> {
+    const statuses: DefectStatus[] = [
+      'open', 'confirmed', 'in-progress', 'fixed', 'verified', 'wont-fix', 'duplicate', 'not-reproducible',
+    ];
+    const status = statuses.find(candidate => candidate === payload.status);
+    // `duplicate` is deliberately unreachable here: it needs a target, and one
+    // recorded without a target is a dead cross-reference the reader cannot
+    // tell from a live one.
+    if (!status || status === 'duplicate') {
+      return;
+    }
+    const register = this.defectManager.get();
+    if (!register.entries.some(entry => entry.id === payload.id)) {
+      void vscode.window.showWarningMessage('That defect is no longer in the register.');
+      return;
+    }
+    try {
+      await this.defectManager.save(setDefectStatus(
+        register,
+        payload.id,
+        status,
+        new Date().toISOString(),
+        payload.note,
+      ));
+    } catch (error) {
+      const detail = error instanceof Error ? error.message : String(error);
+      void vscode.window.showWarningMessage(`Could not update the register: ${detail.slice(0, 300)}`);
+    }
+    await this.syncState();
+  }
+
+  /** Correct what a defect does or how many people meet it, and re-grade it. */
+  private async handleRegradeDefect(payload: { id: string; impact: string; reach: string }): Promise<void> {
+    const impact = ProjectDashboardPanel.coerceDefectImpact(payload.impact);
+    const reach = ProjectDashboardPanel.coerceDefectReach(payload.reach);
+    if (!impact || !reach) {
+      return;
+    }
+    try {
+      await this.defectManager.save(regradeDefect(
+        this.defectManager.get(),
+        payload.id,
+        impact,
+        reach,
+        new Date().toISOString(),
+      ));
+    } catch (error) {
+      const detail = error instanceof Error ? error.message : String(error);
+      void vscode.window.showWarningMessage(`Could not re-grade the defect: ${detail.slice(0, 300)}`);
+    }
+    await this.syncState();
+  }
+
+  /**
+   * Mark one defect a duplicate of another.
+   *
+   * The register refuses a target it does not hold, so an unresolvable pair
+   * leaves it unchanged; that is reported rather than passing silently, because
+   * a button that appears to work and does nothing is worse than a refusal.
+   */
+  private async handleMarkDefectDuplicate(payload: { id: string; duplicateOfId?: unknown }): Promise<void> {
+    const duplicateOfId = typeof payload.duplicateOfId === 'string' ? payload.duplicateOfId : '';
+    if (!duplicateOfId) {
+      return;
+    }
+    const register = this.defectManager.get();
+    const updated = markDefectDuplicate(register, payload.id, duplicateOfId, new Date().toISOString());
+    if (updated === register) {
+      void vscode.window.showWarningMessage('That defect could not be linked — the entry it would duplicate is not in the register.');
+      return;
+    }
+    try {
+      await this.defectManager.save(updated);
+    } catch (error) {
+      const detail = error instanceof Error ? error.message : String(error);
+      void vscode.window.showWarningMessage(`Could not link the defects: ${detail.slice(0, 300)}`);
+    }
+    await this.syncState();
+  }
+
+  /**
+   * Hand a defect to an agent.
+   *
+   * The prompt is rebuilt host-side from the register by id, so the webview can
+   * name a defect and never supply the text an agent reads — the same rule the
+   * rest of this panel's hand-offs follow.
+   */
+  private async handleWorkOnDefect(payload: { id: string }): Promise<void> {
+    const entry = this.defectManager.get().entries.find(candidate => candidate.id === payload.id);
+    if (!entry) {
+      void vscode.window.showWarningMessage('That defect is no longer in the register.');
+      return;
+    }
+    await vscode.commands.executeCommand('atlasmind.openChat', {
+      draftPrompt: buildDefectWorkPrompt(entry),
+      sendMode: 'new-session',
+    });
+  }
+
   /**
    * Create `workflow.json` from a profile.
    *
@@ -14889,6 +15157,27 @@ export function isProjectDashboardMessage(message: unknown): message is ProjectD
     return typeof payload === 'object' && payload !== null && typeof payload['id'] === 'string';
   }
 
+  // A defect id is resolved against the register, so shape is all that is
+  // checked here — an unrecognised one finds no entry rather than something
+  // adjacent. Enums are re-coerced host-side against the declared vocabulary
+  // for the same reason: the browser can name a value, never define one.
+  if (candidate['type'] === 'setDefectStatus' || candidate['type'] === 'workOnDefect'
+    || candidate['type'] === 'regradeDefect' || candidate['type'] === 'markDefectDuplicate') {
+    const payload = candidate['payload'] as Record<string, unknown> | undefined;
+    return typeof payload === 'object' && payload !== null && typeof payload['id'] === 'string';
+  }
+
+  // The one defect message that carries prose. Only the title is required —
+  // a defect with no title cannot be found again, which makes recording it
+  // worse than not recording it. Everything else is clamped host-side.
+  if (candidate['type'] === 'reportDefect') {
+    const payload = candidate['payload'] as Record<string, unknown> | undefined;
+    return typeof payload === 'object' && payload !== null
+      && typeof payload['title'] === 'string' && payload['title'].trim().length > 0
+      && typeof payload['impact'] === 'string'
+      && typeof payload['reach'] === 'string';
+  }
+
   // A pull-request number and an index into the fetched list. Both are looked
   // up host-side, so an out-of-range value resolves to nothing rather than to
   // something adjacent.
@@ -17032,6 +17321,25 @@ async function collectDashboardSnapshot(
       ].map(rule => ({ ...rule })),
       scanning: debt?.scanning ?? false,
     },
+    defects: (() => {
+      // Read here rather than carried in on a parameter: the register is one
+      // small JSON file, and reading it on the same pass that renders it means
+      // the page and the panel's own writes cannot disagree about what is on
+      // disk. `readDefectRegister` never throws — a corrupt file yields an
+      // empty register and the page says so.
+      const register = workspaceRoot ? readDefectRegister(workspaceRoot) : { version: 1 as const, entries: [] };
+      return {
+        path: DEFECT_SSOT_PATH,
+        entries: sortDefectEntries(register.entries),
+        metrics: deriveDefectMetrics(register, Date.now()),
+        rules: DEFECT_RULES.map(rule => ({
+          id: rule.id,
+          severity: rule.severity,
+          describes: rule.describes,
+        })),
+        recorded: register.entries.length > 0,
+      };
+    })(),
     release: buildReleaseSnapshot({
       packageVersion: packageSnapshot.version,
       ...(changelog === undefined ? {} : { changelog }),
@@ -17487,6 +17795,18 @@ function buildAttentionInput(
       open: snapshot.debt.metrics.open,
       high: snapshot.debt.metrics.bySeverity.find(bucket => bucket.key === 'high')?.value ?? 0,
     },
+    // Supplied only once something has been recorded. Unlike every other
+    // register here, a defect register cannot be *assessed* — recording a
+    // defect means finding one — so an empty one raises nothing and, by being
+    // absent, does not count toward the groups that let the page claim `clear`.
+    ...(snapshot.defects.recorded
+      ? {
+        defects: {
+          openBlockers: snapshot.defects.metrics.blockers,
+          awaitingVerification: snapshot.defects.metrics.awaitingVerification,
+        },
+      }
+      : {}),
     // `blockedBy` is the release plan's own list of gates that are not passing,
     // and it already treats `unknown` as not-a-pass. Recounting it here would be
     // a second opinion on a question the Release page has already answered.

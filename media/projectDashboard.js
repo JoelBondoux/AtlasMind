@@ -207,6 +207,11 @@
         // Stage 7. Under "The code" rather than "The work": deferred work is
         // a property of the codebase, not an item on the backlog.
         ['debt', 'Tech Debt'],
+        // Beside Tech Debt rather than inside it, and beside Issues rather
+        // than replacing them: debt is a decision somebody made on purpose, a
+        // defect is something that does not work, and a GitHub issue is a
+        // public artefact that needs a remote before it can exist at all.
+        ['defects', 'Defects'],
       ],
     },
     {
@@ -337,7 +342,8 @@
     repo: [['debt', 'What the code defers'], ['testing', 'What covers it']],
     pipeline: [['pullRequests', 'The change a run is verifying'], ['testing', 'Which policy a failing test belongs to'], ['release', 'Whether the release gate is satisfied']],
     testing: [['pipeline', 'Whether the suite actually ran'], ['debt', 'Coverage somebody deferred'], ['gapAnalysis', 'How a gap scores']],
-    debt: [['issues', 'File a deferred item as work'], ['roadmap', 'Schedule it against a milestone']],
+    debt: [['issues', 'File a deferred item as work'], ['roadmap', 'Schedule it against a milestone'], ['defects', 'What is broken rather than deferred']],
+    defects: [['issues', 'File one publicly, deliberately'], ['debt', 'What was deferred on purpose'], ['release', 'What an open blocker means for shipping']],
     security: [['risk', 'What has been raised and accepted'], ['testing', 'Whether a control is evidenced']],
     privacy: [['security', 'The boundaries behind these settings'], ['risk', 'What a decision here exposes']],
     risk: [['security', 'The controls a finding leans on'], ['debt', 'What was knowingly deferred']],
@@ -612,6 +618,18 @@
     releaseGateSort: typeof persistedWebviewState.releaseGateSort === 'string'
       ? persistedWebviewState.releaseGateSort : 'urgency',
     debtSearch: '',
+    defectSearch: '',
+    /**
+     * Which slice of the defect register is on screen.
+     *
+     * Opens on `open` rather than on everything, because the register keeps
+     * closed entries forever by design and a first view dominated by things
+     * somebody already dealt with buries the ones nobody has.
+     */
+    defectStatusFilter: 'open',
+    defectDraftOpen: false,
+    /** Which entry's transition controls are expanded, if any. */
+    defectExpandedId: '',
     /**
      * Everything-that-ran: how the list is ordered, what it shows, and whether
      * it is one stream or grouped by where it ran.
@@ -2598,6 +2616,89 @@
       vscode.postMessage({ type: 'scanDebt' });
       return;
     }
+    if (action === 'set-defect-status-filter') {
+      state.defectStatusFilter = payload || 'open';
+      render();
+      return;
+    }
+    if (action === 'defect-new') {
+      state.defectDraftOpen = !state.defectDraftOpen;
+      render();
+      return;
+    }
+    if (action === 'defect-expand') {
+      state.defectExpandedId = state.defectExpandedId === payload ? '' : payload;
+      render();
+      return;
+    }
+    if (action === 'defect-record') {
+      // Read at submit time from the composer rather than mirrored into state
+      // on every keystroke: the same idiom the issue composer uses, and the
+      // reason a long repro does not re-render the page as it is typed.
+      const composer = document.getElementById('defect-composer');
+      const read = field => {
+        const el = composer ? composer.querySelector('[data-defect-field="' + field + '"]') : null;
+        return el ? String(el.value || '').trim() : '';
+      };
+      const title = read('title');
+      if (!title) { return; }
+      state.defectDraftOpen = false;
+      // No severity travels. It is derived host-side from the declared rule
+      // table, so this message can describe a defect and never grade one.
+      vscode.postMessage({
+        type: 'reportDefect',
+        payload: {
+          title: title,
+          impact: read('impact') || 'broken',
+          reach: read('reach') || 'few',
+          reproducibility: read('reproducibility') || 'always',
+          detail: read('detail'),
+          area: read('area'),
+          stepsToReproduce: read('steps'),
+          expected: read('expected'),
+          actual: read('actual'),
+          environment: read('environment'),
+        },
+      });
+      render();
+      return;
+    }
+    if (action === 'set-defect-status') {
+      // `status id` — a status never contains a space and an id cannot, so one
+      // split on the first space is unambiguous.
+      const cut = payload.indexOf(' ');
+      if (cut > 0) {
+        vscode.postMessage({
+          type: 'setDefectStatus',
+          payload: { status: payload.slice(0, cut), id: payload.slice(cut + 1) },
+        });
+      }
+      return;
+    }
+    if (action === 'regrade-defect') {
+      const row = document.querySelector('[data-defect-grade="' + payload + '"]');
+      const read = field => {
+        const el = row ? row.querySelector('[data-defect-field="' + field + '"]') : null;
+        return el ? String(el.value || '') : '';
+      };
+      const impact = read('impact');
+      const reach = read('reach');
+      if (!impact || !reach) { return; }
+      vscode.postMessage({ type: 'regradeDefect', payload: { id: payload, impact: impact, reach: reach } });
+      return;
+    }
+    if (action === 'defect-duplicate') {
+      const row = document.querySelector('[data-defect-grade="' + payload + '"]');
+      const el = row ? row.querySelector('[data-defect-field="duplicate-of"]') : null;
+      const target = el ? String(el.value || '') : '';
+      if (!target) { return; }
+      vscode.postMessage({ type: 'markDefectDuplicate', payload: { id: payload, duplicateOfId: target } });
+      return;
+    }
+    if (action === 'work-on-defect') {
+      vscode.postMessage({ type: 'workOnDefect', payload: { id: payload } });
+      return;
+    }
     if (action === 'reconcile-testing') {
       // No payload: the host derives the proposal from the same snapshot this
       // page rendered, so the webview cannot choose what a reconciliation
@@ -3191,6 +3292,10 @@
     }
     if (target instanceof HTMLInputElement && target.id === 'debt-search-input') {
       state.debtSearch = target.value;
+      render();
+    }
+    if (target instanceof HTMLInputElement && target.id === 'defect-search-input') {
+      state.defectSearch = target.value;
       render();
     }
     if (target instanceof HTMLInputElement && target.id === 'roadmap-search-input') {
@@ -4425,6 +4530,7 @@
         ${renderRepo(snapshot)}
         ${renderTesting(snapshot)}
         ${renderDebt(snapshot)}
+        ${renderDefects(snapshot)}
         ${renderSecurity(snapshot)}
         ${renderPrivacy(snapshot)}
         ${renderRisk(snapshot)}
@@ -8449,6 +8555,282 @@
             ? 'Nothing matches that. ' + allOpen.length + ' open entr' + (allOpen.length === 1 ? 'y' : 'ies') + ' in total.'
             : 'Nothing open. Every entry has been resolved, accepted, or gone obsolete.'}</div>`}</div>
         ${openEntries.length > 200 ? `<p class="stat-detail">Showing 200 of ${openEntries.length}. The rest are in <code>${escapeHtml(debt.path || '')}</code>.</p>` : ''}
+      </article>
+    </section>`;
+  }
+
+  // ── Defects ────────────────────────────────────────────────────────────
+  // What is broken, as opposed to what was deferred. The register is local and
+  // committed, so writing a bug down costs a keystroke rather than a network
+  // round trip — which is the whole reason the observation survives.
+
+  const DEFECT_SEVERITY_TONE = {
+    blocker: 'tag-critical', major: 'tag-warn', minor: '', trivial: '',
+  };
+  const DEFECT_STATUS_TONE = {
+    open: 'tag-warn', confirmed: 'tag-warn', 'in-progress': '',
+    fixed: '', verified: 'tag-good', 'wont-fix': '', duplicate: '', 'not-reproducible': '',
+  };
+  const DEFECT_IMPACTS = [
+    ['data-loss', 'loses or corrupts work'],
+    ['security', 'exposes something it should not'],
+    ['broken', 'does not work at all'],
+    ['degraded', 'works badly, or only with a workaround'],
+    ['cosmetic', 'looks wrong, works right'],
+  ];
+  const DEFECT_REACHES = [
+    ['everyone', 'everyone hits it'],
+    ['many', 'many people hit it'],
+    ['few', 'few people hit it'],
+    ['one', 'one person hit it'],
+  ];
+  const DEFECT_REPRODUCIBILITIES = [
+    ['always', 'every time'],
+    ['sometimes', 'intermittently'],
+    ['once', 'seen once'],
+    ['not-reproduced', 'could not reproduce it'],
+  ];
+  const DEFECT_OPEN_STATUSES = ['open', 'confirmed', 'in-progress'];
+
+  function defectOptions(pairs, selected) {
+    return pairs.map(pair => `<option value="${escapeAttr(pair[0])}"${pair[0] === selected ? ' selected' : ''}>${escapeHtml(pair[1])}</option>`).join('');
+  }
+
+  function renderDefectComposer() {
+    if (!state.defectDraftOpen) {
+      return '';
+    }
+    // Two questions, not a severity picker. Somebody asked "how bad is it?"
+    // answers about their own frustration; asked what it does and how many
+    // people meet it, they answer about the defect — and the grade follows
+    // from a declared table so it stays comparable months later.
+    return `
+      <article class="panel-card" id="defect-composer">
+        <p class="card-kicker">Write it down</p>
+        <p class="section-copy">Severity is not asked for. It is derived from these two answers by the published rules below, so a grade made today can be compared with one made in six months.</p>
+        <input class="ideation-input" data-defect-field="title" type="text" maxlength="200"
+          placeholder="What is broken? One line." />
+        <div class="mini-grid">
+          <label class="stat-detail">What it does
+            <select class="ideation-input" data-defect-field="impact">${defectOptions(DEFECT_IMPACTS, 'broken')}</select>
+          </label>
+          <label class="stat-detail">Who meets it
+            <select class="ideation-input" data-defect-field="reach">${defectOptions(DEFECT_REACHES, 'few')}</select>
+          </label>
+          <label class="stat-detail">Reproduces
+            <select class="ideation-input" data-defect-field="reproducibility">${defectOptions(DEFECT_REPRODUCIBILITIES, 'always')}</select>
+          </label>
+        </div>
+        <input class="ideation-input" data-defect-field="area" type="text" maxlength="60"
+          placeholder="Area — a surface, component or feature (optional)" />
+        <textarea class="ideation-input" data-defect-field="detail" rows="2"
+          placeholder="What happened (optional)"></textarea>
+        <textarea class="ideation-input" data-defect-field="steps" rows="3"
+          placeholder="Steps to reproduce, one per line (optional)"></textarea>
+        <div class="mini-grid">
+          <input class="ideation-input" data-defect-field="expected" type="text" maxlength="240" placeholder="Expected (optional)" />
+          <input class="ideation-input" data-defect-field="actual" type="text" maxlength="240" placeholder="Actual (optional)" />
+        </div>
+        <input class="ideation-input" data-defect-field="environment" type="text" maxlength="240"
+          placeholder="Environment — OS, browser, version (optional)" />
+        <div class="tag-row">
+          <button type="button" class="action-link" data-action="defect-record">Record defect</button>
+          <button type="button" class="action-link" data-action="defect-new">Cancel</button>
+        </div>
+      </article>`;
+  }
+
+  function renderDefectRow(entry, allEntries) {
+    const expanded = state.defectExpandedId === entry.id;
+    // Only entries that could plausibly be the original are offered as a
+    // duplicate target, and never the entry itself.
+    const duplicateTargets = allEntries.filter(other => other.id !== entry.id).slice(0, 60);
+    const transitions = ['confirmed', 'in-progress', 'fixed', 'verified', 'not-reproducible', 'wont-fix', 'open']
+      .filter(status => status !== entry.status);
+    return `
+      <div class="recent-item" data-defect-grade="${escapeAttr(entry.id)}">
+        <div class="row-head">
+          <button type="button" class="action-link" data-action="defect-expand" data-payload="${escapeAttr(entry.id)}"
+            aria-expanded="${expanded ? 'true' : 'false'}">${escapeHtml(entry.title)}</button>
+          <span>
+            <span class="tag ${DEFECT_SEVERITY_TONE[entry.severity] || ''}">${escapeHtml(entry.severity)}</span>
+            <span class="tag ${DEFECT_STATUS_TONE[entry.status] || ''}">${escapeHtml(entry.status)}</span>
+          </span>
+        </div>
+        <div class="list-meta">${entry.area ? `<strong>${escapeHtml(entry.area)}</strong> · ` : ''}${escapeHtml(entry.impact)} · ${escapeHtml(entry.reach)} · reproduces ${escapeHtml(entry.reproducibility)} · since ${escapeHtml((entry.reportedAt || '').slice(0, 10))} · graded by <code>${escapeHtml(entry.rule)}</code></div>
+        ${entry.reopenCount > 0
+          ? `<div class="list-meta wf-unknown">Came back ${entry.reopenCount} time${entry.reopenCount === 1 ? '' : 's'} after being closed — a fix here has already looked finished once.</div>`
+          : ''}
+        ${entry.duplicateOfId ? `<div class="list-meta">Duplicate of <code>${escapeHtml(entry.duplicateOfId)}</code></div>` : ''}
+        ${expanded ? `
+          ${entry.detail ? `<p class="section-copy">${escapeHtml(entry.detail)}</p>` : ''}
+          ${entry.stepsToReproduce ? `<p class="stat-detail"><strong>Steps:</strong> ${escapeHtml(entry.stepsToReproduce)}</p>` : ''}
+          ${entry.expected || entry.actual ? `<p class="stat-detail"><strong>Expected:</strong> ${escapeHtml(entry.expected || '—')} · <strong>actual:</strong> ${escapeHtml(entry.actual || '—')}</p>` : ''}
+          ${entry.environment ? `<p class="stat-detail"><strong>Environment:</strong> ${escapeHtml(entry.environment)}</p>` : ''}
+          <div class="tag-row">
+            ${transitions.map(status => `<button type="button" class="action-link" data-action="set-defect-status" data-payload="${escapeAttr(status + ' ' + entry.id)}">${escapeHtml(status === 'open' ? 'reopen' : status)}</button>`).join('')}
+          </div>
+          <div class="mini-grid">
+            <label class="stat-detail">What it does
+              <select class="ideation-input" data-defect-field="impact">${defectOptions(DEFECT_IMPACTS, entry.impact)}</select>
+            </label>
+            <label class="stat-detail">Who meets it
+              <select class="ideation-input" data-defect-field="reach">${defectOptions(DEFECT_REACHES, entry.reach)}</select>
+            </label>
+          </div>
+          <div class="tag-row">
+            <button type="button" class="action-link" data-action="regrade-defect" data-payload="${escapeAttr(entry.id)}">Re-grade</button>
+            ${duplicateTargets.length > 0 ? `
+              <select class="ideation-input" data-defect-field="duplicate-of">
+                <option value="">Duplicate of…</option>
+                ${duplicateTargets.map(other => `<option value="${escapeAttr(other.id)}">${escapeHtml(other.title)}</option>`).join('')}
+              </select>
+              <button type="button" class="action-link" data-action="defect-duplicate" data-payload="${escapeAttr(entry.id)}">Link</button>` : ''}
+            ${renderAtlasDiscussAction('work-on-defect', entry.id, 'Ask AtlasMind to investigate this defect', { intent: 'discuss', title: 'Ask AtlasMind to reproduce this defect and propose the smallest correct fix' })}
+          </div>` : ''}
+      </div>`;
+  }
+
+  function renderDefects(snapshot) {
+    const defects = snapshot.defects || { entries: [], metrics: {}, rules: [], recorded: false };
+    const metrics = defects.metrics || {};
+    const entries = defects.entries || [];
+
+    const help = renderWorkflowHelp('defects.rules', {
+      label: 'how severity is decided',
+      why: 'Somebody asked "how bad is this?" answers about their own frustration. Asked what it does and how many people meet it, they answer about the defect. Severity is derived from those two answers by a published table, so a grade made today is comparable with one made in six months — and it is recomputed on every read, so a hand-edited severity in the committed file does not survive.',
+      how: (defects.rules || []).map(rule => ({ text: rule.id + ' → ' + rule.severity + '. ' + rule.describes })).concat([
+        { text: 'How reliably a defect reproduces does not change its severity. "Sometimes" says how confident we are that we can see it, not how bad it is when it happens — the classic mistake is to downgrade an intermittent bug, which is exactly backwards.' },
+        { text: 'Fixed is not verified. A fix nobody checked is a claim, and the count that matters before a release is the verified one.' },
+        { text: 'A defect that came back is the same defect, reopened. Two rows would make a bug that recurred four times look like four bugs each fixed once.' },
+      ]),
+      commonMistakes: [
+        'Reading an empty register as "no bugs". It means nobody wrote one down.',
+        'Treating a fixed entry as done. Somebody still has to check it.',
+        'Deleting an entry. Nothing here deletes — entries transition, and the record is the point.',
+      ],
+    });
+
+    const intro = renderPageIntro({
+      kicker: 'The code',
+      title: 'What is broken',
+      summary: defects.recorded
+        ? (metrics.open || 0) + ' open, ' + (metrics.awaitingVerification || 0) + ' fixed but not yet verified, ' + (metrics.verified || 0) + ' verified.'
+        : 'Nothing recorded yet. A bug you noticed thirty seconds ago is lost unless there is somewhere to put it that costs a keystroke rather than a network round trip.',
+      chips: (metrics.bySeverity || []).map(slice => ({
+        label: slice.value + ' ' + slice.label,
+        tone: slice.key === 'blocker' ? 'critical' : slice.key === 'major' ? 'warn' : 'neutral',
+      })),
+    });
+
+    if (!defects.recorded && !state.defectDraftOpen) {
+      return pageSectionOpen('defects') + intro + `
+        <div class="dashboard-empty"><div>
+          <strong>No defects recorded</strong>
+          <p class="section-copy">This register is a local file in the repository, so writing a bug down needs no remote, no <code>gh</code> and no network. Filing an issue is a separate, deliberate act — this is the place the observation survives until somebody decides what to do with it.</p>
+          <p class="section-copy">An empty register means nobody wrote a defect down. It does not mean there are none.</p>
+          <button type="button" class="action-link" data-action="defect-new">Record a defect</button>
+        </div></div>
+      </section>`;
+    }
+
+    const needle = (state.defectSearch || '').trim().toLowerCase();
+    const filter = state.defectStatusFilter || 'open';
+    const inFilter = entry => {
+      if (filter === 'all') { return true; }
+      if (filter === 'open') { return DEFECT_OPEN_STATUSES.indexOf(entry.status) !== -1; }
+      if (filter === 'awaiting') { return entry.status === 'fixed'; }
+      return entry.status === filter;
+    };
+    const scoped = entries.filter(inFilter);
+    const visible = scoped.filter(entry => !needle
+      || (entry.title || '').toLowerCase().includes(needle)
+      || (entry.area || '').toLowerCase().includes(needle)
+      || (entry.detail || '').toLowerCase().includes(needle));
+
+    const filters = [
+      ['open', 'Open'],
+      ['awaiting', 'Awaiting verification'],
+      ['verified', 'Verified'],
+      ['all', 'Everything'],
+    ];
+
+    return pageSectionOpen('defects') + intro + renderDefectComposer() + `
+      <div class="panel-grid">
+        <article class="panel-card">
+          <p class="card-kicker">Where it stands${help.button}</p>
+          ${help.panel}
+          <div class="mini-grid">
+            ${renderMetricPill('Open', String(metrics.open || 0), { tone: (metrics.blockers || 0) > 0 ? 'critical' : undefined })}
+            ${renderMetricPill('Blockers', String(metrics.blockers || 0), { tone: (metrics.blockers || 0) > 0 ? 'critical' : undefined })}
+            ${renderMetricPill('Awaiting check', String(metrics.awaitingVerification || 0))}
+            ${renderMetricPill('Verified', String(metrics.verified || 0), { tone: 'good' })}
+            ${renderMetricPill('Median age', metrics.medianAgeDays === undefined ? '—' : metrics.medianAgeDays + 'd')}
+          </div>
+          ${renderDistributionBar('defect-severity', (metrics.bySeverity || []).map(slice => ({
+            key: slice.key,
+            label: slice.label,
+            value: slice.value,
+            tone: slice.key === 'blocker' ? 'critical' : slice.key === 'major' ? 'warn' : 'accent',
+          })), {
+            title: 'Open by severity',
+            caption: 'Derived from what it does and who meets it, so this month compares with last',
+            emptyLabel: 'Nothing open.',
+          })}
+          ${renderDonutChart('defect-area', metrics.byArea || [], { emptyLabel: 'Nothing open.' })}
+          <button type="button" class="action-link" data-action="defect-new">${state.defectDraftOpen ? 'Close the form' : 'Record a defect'}</button>
+        </article>
+        <article class="panel-card">
+          <p class="card-kicker">How confident we are</p>
+          ${renderDistributionBar('defect-repro', (metrics.byReproducibility || []).map(slice => ({
+            key: slice.key,
+            label: slice.label,
+            value: slice.value,
+            tone: slice.key === 'not-reproduced' ? 'warn' : 'accent',
+          })), {
+            title: 'Open by reproducibility',
+            caption: 'Confidence, never severity — an intermittent defect is not a smaller one',
+            emptyLabel: 'Nothing open.',
+          })}
+          ${renderDistributionBar('defect-age', metrics.ageDistribution || [], {
+            title: 'Open by age',
+            caption: 'Age is its own fact; a grade that drifted with it could not be compared',
+            emptyLabel: 'Nothing open.',
+          })}
+          ${metrics.oldest
+            ? `<p class="stat-detail">Oldest open: <strong>${escapeHtml(metrics.oldest.title)}</strong>, since ${escapeHtml((metrics.oldest.reportedAt || '').slice(0, 10))}.</p>`
+            : ''}
+          ${metrics.stale
+            ? `<p class="stat-detail wf-unknown">${metrics.stale} open defect${metrics.stale === 1 ? ' has' : 's have'} had nothing recorded against ${metrics.stale === 1 ? 'it' : 'them'} for a month. That is reported here rather than escalating the grade — a severity that drifted with age would stop being comparable.</p>`
+            : ''}
+          ${metrics.reopened
+            ? `<p class="stat-detail wf-unknown">${metrics.reopened} defect${metrics.reopened === 1 ? ' has' : 's have'} come back after being closed. Recurrence lives on the entry, so a chronic defect cannot hide as several separate ones.</p>`
+            : ''}
+          ${metrics.notReproducible || metrics.wontFix || metrics.duplicates
+            ? `<p class="stat-detail">Closed without a fix: ${metrics.notReproducible || 0} not reproducible, ${metrics.wontFix || 0} won't fix, ${metrics.duplicates || 0} duplicate. Kept apart, because they record different decisions and only one of them is an accomplishment.</p>`
+            : ''}
+        </article>
+      </div>
+      <article class="panel-card">
+        <div class="row-head">
+          <p class="card-kicker">The register</p>
+          <span class="list-meta">${visible.length === scoped.length ? scoped.length : visible.length + ' of ' + scoped.length}</span>
+        </div>
+        <input id="defect-search-input" class="ideation-input" type="search"
+          placeholder="Search by what it says, where it is, or what happened"
+          value="${escapeAttr(state.defectSearch || '')}" />
+        <div class="segmented" role="group" aria-label="Filter the register">${filters.map(entry => `
+          <button type="button" data-action="set-defect-status-filter" data-payload="${escapeAttr(entry[0])}"
+            class="${filter === entry[0] ? 'active' : ''}"
+            aria-pressed="${filter === entry[0] ? 'true' : 'false'}">${escapeHtml(entry[1])}</button>`).join('')}</div>
+        <div class="stack-list">${visible.slice(0, 200).map(entry => renderDefectRow(entry, entries)).join('') || `<div class="dashboard-empty">${
+          needle
+            ? 'Nothing matches that.'
+            : filter === 'open'
+              ? 'Nothing open. That is a statement about this register, not about the software.'
+              : 'Nothing in this view.'}</div>`}</div>
+        ${visible.length > 200 ? `<p class="stat-detail">Showing 200 of ${visible.length}. The rest are in <code>${escapeHtml(defects.path || '')}</code>.</p>` : ''}
+        <p class="stat-detail">Nothing here is ever deleted, and nothing here blocks a release. The register records what was found and what was decided; the Release page owns gates.</p>
       </article>
     </section>`;
   }
