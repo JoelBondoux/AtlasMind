@@ -41,6 +41,9 @@ import type {
   WebsiteAutomationStatus,
   WebsiteHostingEnvironment,
   WebsitePagePlan,
+  UiDesignScreen,
+  UiEmitManifest,
+  UiEmitTargetId,
   WebsitePlatformStatus,
   WebsiteWorkspaceConfig,
   WebsiteWorkStatus,
@@ -95,6 +98,24 @@ import {
   resolveScreenBrand,
 } from '../core/brandPresets.js';
 import { onWebsitePreviewSelection, selectWebsitePreviewTarget } from './websitePreviewHost.js';
+import {
+  UI_EMIT_MANIFEST_DIR,
+  UI_EMIT_RULES,
+  UI_EMIT_TARGETS,
+  assessSurfaceOwnership,
+  collectSurfaceCopy,
+  isUiEmitTargetId,
+  planContentPatch,
+  planSurfaceEmit,
+  planSurfaceLaunch,
+  sanitizeUiEmitManifest,
+  suggestUiEmitTarget,
+  uiEmitManifestPath,
+  uiEmitTarget,
+  type SurfaceOwnership,
+  type UiLaunchPlan,
+} from '../core/uiSurfaceEmit.js';
+import { spawn } from 'node:child_process';
 
 /**
  * The views. Not steps: three earlier layouts numbered these one to eight and
@@ -184,7 +205,10 @@ export type WebsiteStudioMessage =
   | { type: 'setDefaultBrand'; payload: { presetId: string } }
   | { type: 'applyBrandToScreens'; payload: { presetId: string; screenIds: string[] } }
   | { type: 'removeBrand'; payload: { presetId: string } }
-  | { type: 'extractBrandFromStylesheet'; payload: { path: string } };
+  | { type: 'extractBrandFromStylesheet'; payload: { path: string } }
+  | { type: 'emitSurface'; payload: { screenId: string; targetId: UiEmitTargetId; outputRoot?: string; discardEngineLayout?: boolean } }
+  | { type: 'pushSurfaceContent'; payload: { screenId: string; targetId: UiEmitTargetId } }
+  | { type: 'launchSurface'; payload: { screenId: string; targetId: UiEmitTargetId } };
 
 /**
  * Validate everything arriving from the webview.
@@ -208,6 +232,26 @@ export function isWebsiteStudioMessage(input: unknown): input is WebsiteStudioMe
     case 'planStackSetup':
     case 'compareDelivery':
       return true;
+    case 'emitSurface': {
+      // A target from the declared table, a screen id, and at most a folder and
+      // a flag. The folder is validated again by the planner; the flag only
+      // *asks* for the destructive path, which the host still confirms by name.
+      const payload = asPayload(message['payload']);
+      return payload !== undefined
+        && Object.keys(payload).every(key => key === 'screenId' || key === 'targetId' || key === 'outputRoot' || key === 'discardEngineLayout')
+        && isBoundedIdentifier(payload['screenId'])
+        && isUiEmitTargetId(payload['targetId'])
+        && (payload['outputRoot'] === undefined || (typeof payload['outputRoot'] === 'string' && payload['outputRoot'].length <= 160))
+        && (payload['discardEngineLayout'] === undefined || typeof payload['discardEngineLayout'] === 'boolean');
+    }
+    case 'pushSurfaceContent':
+    case 'launchSurface': {
+      const payload = asPayload(message['payload']);
+      return payload !== undefined
+        && Object.keys(payload).length === 2
+        && isBoundedIdentifier(payload['screenId'])
+        && isUiEmitTargetId(payload['targetId']);
+    }
     case 'pickUpSurface':
     case 'extractBrandFromStylesheet': {
       // A path, checked for shape only. The host re-scans and refuses any path
@@ -311,6 +355,38 @@ export function isWebsiteStudioMessage(input: unknown): input is WebsiteStudioMe
     default:
       return false;
   }
+}
+
+/** One emit on record, as the Handoff view shows it. */
+export interface EmittedSurfaceView {
+  manifest: UiEmitManifest;
+  ownership: SurfaceOwnership;
+  pageTitle: string;
+  launch: UiLaunchPlan;
+}
+
+const WORKSPACE_TEXT_MAX_BYTES = 2 * 1024 * 1024;
+
+/** A bounded read of a workspace-relative path that must stay inside the workspace. */
+function readWorkspaceText(root: string, relativePath: string): string | undefined {
+  const base = path.resolve(root);
+  const absolute = path.resolve(base, ...relativePath.split('/'));
+  if (absolute !== base && !absolute.startsWith(base + path.sep)) {
+    return undefined;
+  }
+  try {
+    if (nodeFs.statSync(absolute).size > WORKSPACE_TEXT_MAX_BYTES) {
+      return undefined;
+    }
+    return nodeFs.readFileSync(absolute, 'utf8');
+  } catch {
+    return undefined;
+  }
+}
+
+function excerpt(text: string): string {
+  const flat = text.replace(/\s+/g, ' ').trim();
+  return flat.length > 160 ? `${flat.slice(0, 157)}…` : flat;
 }
 
 function asPayload(value: unknown): Record<string, unknown> | undefined {
@@ -444,9 +520,289 @@ export class WebsiteStudioPanel {
         ),
         ...(this.deliveryDriftSummary ? { deliveryDriftSummary: this.deliveryDriftSummary } : {}),
         ...(uiSurfaces ? { uiSurfaces } : {}),
+        emittedSurfaces: this.collectEmittedSurfaces(),
         scriptContent: this.readScript(),
       },
     );
+  }
+
+  // ── Emitted surfaces ──────────────────────────────────────────
+
+  /** The prior emit for a screen and target, and the current text of every file it names. */
+  private emitStateFor(screenId: string, targetId: UiEmitTargetId): { manifest?: UiEmitManifest; files: Map<string, string | undefined> } {
+    const files = new Map<string, string | undefined>();
+    const root = this.workspaceRoot;
+    if (!root) {
+      return { files };
+    }
+    const manifest = this.readEmitManifest(uiEmitManifestPath(screenId, targetId));
+    for (const file of manifest?.files ?? []) {
+      files.set(file.path, readWorkspaceText(root, file.path));
+    }
+    return { ...(manifest ? { manifest } : {}), files };
+  }
+
+  private readEmitManifest(relativePath: string): UiEmitManifest | undefined {
+    const text = this.workspaceRoot ? readWorkspaceText(this.workspaceRoot, relativePath) : undefined;
+    if (!text) {
+      return undefined;
+    }
+    try {
+      return sanitizeUiEmitManifest(JSON.parse(text));
+    } catch {
+      return undefined;
+    }
+  }
+
+  /**
+   * Every emit on record, with ownership computed from the files as they are
+   * now — not from the manifest's memory of them. Bounded, and a manifest that
+   * does not read is skipped rather than shown as something it is not.
+   */
+  private collectEmittedSurfaces(): EmittedSurfaceView[] {
+    const root = this.workspaceRoot;
+    if (!root) {
+      return [];
+    }
+    let names: string[];
+    try {
+      names = nodeFs.readdirSync(path.join(root, UI_EMIT_MANIFEST_DIR)).filter(name => name.endsWith('.json')).sort().slice(0, 60);
+    } catch {
+      return [];
+    }
+    const views: EmittedSurfaceView[] = [];
+    for (const name of names) {
+      const manifest = this.readEmitManifest(`${UI_EMIT_MANIFEST_DIR}/${name}`);
+      if (!manifest) {
+        continue;
+      }
+      const files = new Map<string, string | undefined>();
+      for (const file of manifest.files) {
+        files.set(file.path, readWorkspaceText(root, file.path));
+      }
+      views.push({
+        manifest,
+        ownership: assessSurfaceOwnership(manifest, files),
+        pageTitle: this.config.pages.find(page => page.id === manifest.pageId)?.title ?? manifest.pageId,
+        launch: planSurfaceLaunch(manifest, root),
+      });
+    }
+    return views;
+  }
+
+  private surfaceFor(screenId: string): { screen: UiDesignScreen; page: WebsitePagePlan } {
+    const screen = this.editSession.graph.screens.find(candidate => candidate.id === screenId);
+    const page = screen ? this.config.pages.find(candidate => candidate.id === screen.pageId) : undefined;
+    if (!screen || !page) {
+      throw new Error('That surface is not in the workspace.');
+    }
+    return { screen, page };
+  }
+
+  private surfaceCopyInput(screen: UiDesignScreen, page: WebsitePagePlan) {
+    const content = this.contentManager.read([page]).get(page.id);
+    return {
+      graph: this.editSession.graph,
+      screen,
+      page,
+      pages: this.config.pages,
+      ...(content && !content.missing ? { contentBody: content.body } : {}),
+    };
+  }
+
+  /**
+   * Emit a surface for an engine.
+   *
+   * The plan decides; this shows it and writes it. A layout the engine now owns
+   * is refused unless the message asked to discard it, and that path is its own
+   * confirmation naming every file that changed since the emit — the one act
+   * here that destroys somebody's work, so it is never the default.
+   */
+  private async handleEmitSurface(payload: { screenId: string; targetId: UiEmitTargetId; outputRoot?: string; discardEngineLayout?: boolean }): Promise<void> {
+    this.refuseIfReadOnly();
+    const root = this.workspaceRoot;
+    if (!root) {
+      throw new Error('Open a workspace folder to emit a surface.');
+    }
+    const { screen, page } = this.surfaceFor(payload.screenId);
+    const target = uiEmitTarget(payload.targetId);
+    let existing = this.emitStateFor(screen.id, target.id);
+    const base = {
+      ...this.surfaceCopyInput(screen, page),
+      targetId: target.id,
+      siteName: this.config.intake.projectName || page.title,
+      emittedAt: new Date().toISOString(),
+      ...(payload.outputRoot ? { outputRoot: payload.outputRoot } : {}),
+    };
+    let result = planSurfaceEmit({ ...base, existing });
+    if (!result.ok && result.refusal === 'layout-owned-by-engine' && payload.discardEngineLayout && existing.manifest) {
+      const changed = existing.manifest.files
+        .filter(file => !file.shared)
+        .map(file => file.path);
+      const confirmed = await vscode.window.showWarningMessage(
+        `Discard ${target.engineLabel}'s layout for ${page.title}?`,
+        {
+          modal: true,
+          detail: `${result.ownership?.layout.detail ?? ''}\n\nThese files will be overwritten with a fresh emit, and every edit made in ${target.engineLabel} since ${existing.manifest.emittedAt.slice(0, 10)} is lost:\n${changed.map(file => `  ${file}`).join('\n')}\n\nThe token file is left alone. This cannot be undone from here.`,
+        },
+        'Overwrite the layout',
+      );
+      if (confirmed !== 'Overwrite the layout') {
+        return;
+      }
+      existing = { files: new Map() };
+      result = planSurfaceEmit({ ...base, existing: undefined });
+    }
+    if (!result.ok) {
+      throw new Error(result.reason);
+    }
+    const { plan } = result;
+    const lines = plan.files.map(file => {
+      const marker = file.shared ? 'IF ABSENT' : existing.files.get(file.path) !== undefined || payload.discardEngineLayout ? 'OVERWRITE' : 'WRITE';
+      return `[${marker}] ${file.path}`;
+    });
+    lines.push(`[WRITE] ${plan.manifestPath}`);
+    const answer = await vscode.window.showWarningMessage(
+      `Emit ${page.title} for ${target.label}?`,
+      {
+        modal: true,
+        detail: `${plan.disclosure}\n\n${lines.join('\n')}\n\nWorth knowing:\n${plan.caveats.map(caveat => `  • ${caveat}`).join('\n')}`,
+      },
+      'Emit',
+      'Show files first',
+    );
+    if (answer === 'Show files first') {
+      for (const file of plan.files) {
+        const document = await vscode.workspace.openTextDocument({ content: `# ${file.path}\n\n${file.contents}`, language: 'plaintext' });
+        await vscode.window.showTextDocument(document, { preview: false });
+      }
+      return;
+    }
+    if (answer !== 'Emit') {
+      return;
+    }
+    for (const file of plan.files) {
+      const absolute = path.join(root, ...file.path.split('/'));
+      if (file.shared && nodeFs.existsSync(absolute)) {
+        continue;
+      }
+      nodeFs.mkdirSync(path.dirname(absolute), { recursive: true });
+      nodeFs.writeFileSync(absolute, file.contents, 'utf8');
+    }
+    const manifestAbsolute = path.join(root, ...plan.manifestPath.split('/'));
+    nodeFs.mkdirSync(path.dirname(manifestAbsolute), { recursive: true });
+    nodeFs.writeFileSync(manifestAbsolute, `${JSON.stringify(plan.manifest, null, 2)}\n`, 'utf8');
+    this.render('handoff');
+    await this.panel.webview.postMessage({
+      type: 'notice', tone: 'success',
+      message: `Emitted ${page.title} for ${target.label}. ${target.engineLabel} owns the layout from here; the words still update from Studio.`,
+    });
+  }
+
+  /**
+   * Bring the engine file's words up to Studio's, region by region. The plan
+   * is shown as patches — each region before and after — with every refusal
+   * beside them, so what is agreed to is what changes.
+   */
+  private async handlePushSurfaceContent(screenId: string, targetId: UiEmitTargetId): Promise<void> {
+    this.refuseIfReadOnly();
+    const root = this.workspaceRoot;
+    if (!root) {
+      throw new Error('Open a workspace folder to update an emitted surface.');
+    }
+    const { screen, page } = this.surfaceFor(screenId);
+    const target = uiEmitTarget(targetId);
+    const existing = this.emitStateFor(screen.id, target.id);
+    if (!existing.manifest) {
+      throw new Error(`${page.title} has not been emitted for ${target.label}.`);
+    }
+    const plan = planContentPatch({
+      manifest: existing.manifest,
+      files: existing.files,
+      copy: collectSurfaceCopy(this.surfaceCopyInput(screen, page)),
+      now: new Date().toISOString(),
+    });
+    const refusalLines = plan.refusals.map(refusal => `  ✗ ${refusal.reason}${refusal.current ? `\n      now: ${excerpt(refusal.current)}` : ''}`);
+    const unanchoredLines = plan.unanchored.map(nodeId => `  · ${nodeId} was drawn after the emit and has no region; add it in ${target.engineLabel}.`);
+    if (plan.patches.length === 0) {
+      await this.panel.webview.postMessage({
+        type: 'notice', tone: plan.refusals.length > 0 ? 'error' : 'success',
+        message: `Nothing to push for ${page.title}: ${plan.summary}.${plan.refusals.length > 0 ? ` ${plan.refusals.map(refusal => refusal.reason).join(' ')}` : ''}`,
+      });
+      return;
+    }
+    const patchLines = plan.patches.map(patch => `  ${patch.nodeId} in ${patch.filePath}\n      was: ${excerpt(patch.before)}\n      now: ${excerpt(patch.after)}`);
+    const confirmed = await vscode.window.showWarningMessage(
+      `Update ${plan.patches.length} region${plan.patches.length === 1 ? '' : 's'} in ${target.engineLabel}'s files?`,
+      {
+        modal: true,
+        detail: `${plan.summary}.\n\n${patchLines.join('\n')}${refusalLines.length > 0 ? `\n\nRefused, and left as they are:\n${refusalLines.join('\n')}` : ''}${unanchoredLines.length > 0 ? `\n\nNot inserted:\n${unanchoredLines.join('\n')}` : ''}\n\nOnly the regions above change. Nothing else in the files is touched.`,
+      },
+      'Update',
+    );
+    if (confirmed !== 'Update') {
+      return;
+    }
+    for (const file of plan.files) {
+      nodeFs.writeFileSync(path.join(root, ...file.path.split('/')), file.contents, 'utf8');
+    }
+    nodeFs.writeFileSync(path.join(root, ...uiEmitManifestPath(screen.id, target.id).split('/')), `${JSON.stringify(plan.manifest, null, 2)}\n`, 'utf8');
+    this.render('handoff');
+    await this.panel.webview.postMessage({
+      type: 'notice', tone: plan.refusals.length > 0 ? 'error' : 'success',
+      message: `Updated ${plan.patches.length} region${plan.patches.length === 1 ? '' : 's'} for ${page.title}.${plan.refusals.length > 0 ? ` ${plan.refusals.length} refused: ${plan.refusals.map(refusal => refusal.reason).join(' ')}` : ''}`,
+    });
+  }
+
+  /**
+   * See the emitted surface in its engine. The argv is the target's constant
+   * with the workspace root and scene filled in, run without a shell after a
+   * confirmation that shows it; a target whose executable is not on PATH by
+   * convention gets the command to copy rather than a failed spawn.
+   */
+  private async handleLaunchSurface(screenId: string, targetId: UiEmitTargetId): Promise<void> {
+    const root = this.workspaceRoot;
+    if (!root) {
+      throw new Error('Open a workspace folder to launch an emitted surface.');
+    }
+    const manifest = this.readEmitManifest(uiEmitManifestPath(screenId, targetId));
+    if (!manifest) {
+      throw new Error('That surface has not been emitted.');
+    }
+    const launch = planSurfaceLaunch(manifest, root);
+    if (launch.kind === 'open-file' && launch.filePath) {
+      await vscode.env.openExternal(vscode.Uri.file(path.join(root, ...launch.filePath.split('/'))));
+      return;
+    }
+    if (launch.kind !== 'command' || !launch.command) {
+      void vscode.window.showInformationMessage(launch.reason);
+      return;
+    }
+    const argv = [launch.command, ...(launch.args ?? [])];
+    if (launch.manualOnly) {
+      const copy = await vscode.window.showInformationMessage(`${launch.reason}\n\n${argv.join(' ')}`, { modal: true }, 'Copy command');
+      if (copy === 'Copy command') {
+        await vscode.env.clipboard.writeText(argv.join(' '));
+      }
+      return;
+    }
+    const confirmed = await vscode.window.showWarningMessage(
+      `Run ${launch.command}?`,
+      { modal: true, detail: `${argv.join(' ')}\n\nRuns directly, with no shell, from ${root}. ${launch.reason}` },
+      'Run',
+    );
+    if (confirmed !== 'Run') {
+      return;
+    }
+    await new Promise<void>((resolve, reject) => {
+      const child = spawn(launch.command!, launch.args ?? [], { cwd: root, detached: true, stdio: 'ignore' });
+      child.once('error', error => reject(new Error(`${launch.command} could not be started (${error.message}). Run it yourself: ${argv.join(' ')}`)));
+      child.once('spawn', () => {
+        child.unref();
+        resolve();
+      });
+    });
+    await this.panel.webview.postMessage({ type: 'notice', tone: 'success', message: `Started ${argv.join(' ')}.` });
   }
 
   private refuseIfReadOnly(): void {
@@ -1013,6 +1369,15 @@ export class WebsiteStudioPanel {
         case 'extractBrandFromStylesheet':
           await this.handleExtractBrand(input.payload.path);
           return;
+        case 'emitSurface':
+          await this.handleEmitSurface(input.payload);
+          return;
+        case 'pushSurfaceContent':
+          await this.handlePushSurfaceContent(input.payload.screenId, input.payload.targetId);
+          return;
+        case 'launchSurface':
+          await this.handleLaunchSurface(input.payload.screenId, input.payload.targetId);
+          return;
       }
     } catch (error) {
       const detail = error instanceof Error ? error.message : String(error);
@@ -1265,6 +1630,8 @@ export interface WebsiteStudioHtmlOptions {
    * different answers, and only one of them is worth acting on.
    */
   uiSurfaces?: UiSurfaceScanReport;
+  /** Every emit recorded under project_memory, with who owns what right now. */
+  emittedSurfaces?: readonly EmittedSurfaceView[];
   /** The canvas script, read from `media/websiteStudio.js`. */
   scriptContent?: string;
   /** Fallback when the script could not be read inline. */
@@ -2101,6 +2468,7 @@ function renderStackPage(
     return `
       <section class="studio-page${activePage === 'handoff' ? ' active' : ''}" data-page="handoff">
         ${pageIntro('Implementation handoff', 'Keep the visual guide connected to the real project without assuming HTML. Record the technologies and source locations an agent or developer should inspect before continuing the interface.')}
+        ${renderEmitCard(config, options)}
         ${guide}
         <div class="callout">
           <strong>Design intent, not code generation.</strong>
@@ -2111,6 +2479,7 @@ function renderStackPage(
   return `
     <section class="studio-page${activePage === 'handoff' ? ' active' : ''}" data-page="handoff">
       ${pageIntro('Implementation handoff', 'Keep the visual guide connected to the real project. Record where the implementation lives, map design facts onto source, and see where the two have drifted apart.')}
+      ${renderEmitCard(config, options)}
       ${guide}
       <div class="callout">
         <strong>Design intent, not code generation.</strong>
@@ -2202,6 +2571,76 @@ function renderUiSurfaceChoices(report: UiSurfaceScanReport | undefined): { list
     list: `<datalist id="uiSurfaceChoices">${options}</datalist>`,
     hint: `${report.surfaces.length} UI surface(s) found in this workspace${report.truncated ? ' (list truncated — the scan hit a cap)' : ''}. Start typing to pick one, or enter any path.`,
   };
+}
+
+/**
+ * Emit a surface into its engine, and see who owns what afterwards.
+ *
+ * One row per drawn surface: the target (defaulting to what the implementation
+ * guide declares), the folder, and Emit. Below, every emit on record with the
+ * ownership statement computed from the files as they are now — "Layout: owned
+ * by Unity since the emit on … · Content: editable here" — and the three acts
+ * that remain: push the words, launch it, or discard the engine's layout and
+ * emit again, which is the one destructive act and is labelled as such.
+ */
+function renderEmitCard(config: WebsiteWorkspaceConfig, options: WebsiteStudioHtmlOptions): string {
+  const suggested = suggestUiEmitTarget(config.surfaceKind, config.implementation.targetTechnologies);
+  const drawn = config.designGraph.screens
+    .filter(screen => screen.nodes.length > 0)
+    .map(screen => ({ screen, page: config.pages.find(page => page.id === screen.pageId) }))
+    .filter((entry): entry is { screen: typeof entry.screen; page: WebsitePagePlan } => entry.page !== undefined);
+  const rows = drawn.length === 0
+    ? '<p class="token-help">Draw a surface on the Design view first; there is nothing to emit yet.</p>'
+    : drawn.map(({ screen, page }) => `
+      <div class="emit-row" data-emit-row data-emit-screen="${escapeHtml(screen.id)}">
+        <strong>${escapeHtml(page.title)}</strong>
+        <select data-emit-target aria-label="Target for ${escapeHtml(page.title)}">${UI_EMIT_TARGETS.map(target =>
+          `<option value="${target.id}" data-root="${escapeHtml(target.defaultOutputRoot)}"${target.id === suggested ? ' selected' : ''}>${escapeHtml(target.label)}</option>`).join('')}</select>
+        <input data-emit-root aria-label="Output folder" value="${escapeHtml(uiEmitTarget(suggested).defaultOutputRoot)}" />
+        <button type="button" data-emit-surface${options.readOnly ? ' disabled' : ''}>Emit</button>
+      </div>`).join('');
+  const emitted = (options.emittedSurfaces ?? []).map(view => {
+    const target = uiEmitTarget(view.manifest.targetId);
+    const engineOwned = view.ownership.layout.status === 'engine-owned';
+    const launchLabel = view.launch.kind === 'open-file'
+      ? 'Open in browser'
+      : view.launch.kind === 'command'
+        ? view.launch.manualOnly ? 'Show launch command' : `Launch in ${target.engineLabel}`
+        : '';
+    const reasons = view.ownership.content.reasons.length > 0
+      ? `<ul class="emit-reasons">${view.ownership.content.reasons.map(reason => `<li><code>${escapeHtml(reason.nodeId)}</code> — ${escapeHtml(reason.reason)}</li>`).join('')}</ul>`
+      : '';
+    return `
+      <div class="emit-surface${engineOwned ? ' engine-owned' : ''}" data-emit-manifest="${escapeHtml(view.manifest.screenId)}--${view.manifest.targetId}">
+        <div class="emit-surface-facts">
+          <strong>${escapeHtml(view.pageTitle)}</strong> <span class="tag">${escapeHtml(target.label)}</span>
+          <small>${escapeHtml(view.ownership.statement)}</small>
+          <small>${escapeHtml(view.ownership.layout.detail)}${view.manifest.contentUpdatedAt ? ` Words last pushed ${escapeHtml(view.manifest.contentUpdatedAt.slice(0, 10))}.` : ''}</small>
+          ${reasons}
+        </div>
+        <div class="brand-actions">
+          <button type="button" data-push-content data-screen="${escapeHtml(view.manifest.screenId)}" data-target="${view.manifest.targetId}"${options.readOnly || view.ownership.content.editable === 0 ? ' disabled' : ''} title="Bring the engine file's words up to Studio's, region by region. Nothing else in the file changes.">Push content</button>
+          ${launchLabel ? `<button type="button" class="secondary" data-launch-surface data-screen="${escapeHtml(view.manifest.screenId)}" data-target="${view.manifest.targetId}">${launchLabel}</button>` : ''}
+          <button type="button" class="secondary${engineOwned ? ' danger' : ''}" data-reemit-surface data-screen="${escapeHtml(view.manifest.screenId)}" data-target="${view.manifest.targetId}" data-discard="${engineOwned ? 'true' : 'false'}"${options.readOnly ? ' disabled' : ''}>${engineOwned ? `Discard ${escapeHtml(target.engineLabel)}'s layout and emit again` : 'Emit again'}</button>
+        </div>
+      </div>`;
+  }).join('');
+  return `
+    <article class="panel-card emit-card">
+      <div class="card-heading">
+        <div>
+          <p class="eyebrow">Into the engine</p>
+          <h2>Emit a surface</h2>
+          <p>Write the drawing once for the engine that will own it. After that the engine owns the layout, and the words stay editable here: they go across region by region, and a region somebody edited in the engine is refused rather than overwritten.</p>
+        </div>
+      </div>
+      <div class="emit-rows">${rows}</div>
+      ${emitted ? `<div class="emit-surfaces">${emitted}</div>` : '<p class="token-help">Nothing has been emitted yet.</p>'}
+      <details class="rail-rules"><summary>How emits behave</summary><ul>${UI_EMIT_RULES.map(rule =>
+        `<li><code>${escapeHtml(rule.id)}</code> — ${escapeHtml(rule.describes)}</li>`).join('')}</ul>
+        <p>Targets: ${UI_EMIT_TARGETS.map(target => `<strong>${escapeHtml(target.label)}</strong> — ${escapeHtml(target.verifiedAgainst)}`).join('; ')}.</p>
+      </details>
+    </article>`;
 }
 
 function renderImplementationGuide(config: WebsiteWorkspaceConfig, uiSurfaces?: UiSurfaceScanReport): string {

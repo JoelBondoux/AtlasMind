@@ -6,6 +6,52 @@ The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/),
 
 ## [Unreleased]
 
+## [0.473.0] - 2026-09-09
+
+### Added
+
+- **Emit a surface into its engine, and keep the words editable from here.** UI Studio can now write
+  a drawn surface for the engine that will own it: **Web** (HTML + CSS), **Unity UI Toolkit** (UXML +
+  USS) and **Godot 4** (a Control scene and a Theme), with a shared token file per target projected
+  from the brand presets. **Unreal UMG, SwiftUI and Compose get a handoff specification, not source**
+  — their syntax was not checked against a compiler, and a plausible wrong file costs more than a
+  document somebody reads. The emit is on the Handoff view: one row per drawn surface, the target
+  defaulting to what the implementation guide declares, and a confirmation that lists every file
+  with WRITE, OVERWRITE or IF ABSENT beside it, with "Show files first" opening each one unwritten.
+- **Divergence, not regeneration.** A surface is emitted once. From then on the engine owns the
+  layout: every emit records a manifest under `project_memory/domain/ui-emit/`, and a second emit
+  over files that changed since is refused with the statement *Layout: owned by Unity since the emit
+  on 2026-09-09 · Content: editable here (4 of 5 regions)*. Discarding the engine's layout is a
+  separate, red button behind a modal that names every file whose edits will be lost.
+- **Content is data with a stable anchor, and it patches by anchor.** Every node's words are
+  emitted inside a region keyed by the node id — an element name in HTML and UXML, a scene node name
+  in Godot, a comment marker in a specification — so **Push content** finds each region in the file
+  as it is now and replaces only that. A missing anchor is refused by name (the engine edit that
+  removed it made a decision); a region somebody edited in the engine is refused and *shown*, before
+  and after; a node removed in Studio is reported, never deleted from the engine file; a node drawn
+  after the emit is reported, never inserted into a layout that is no longer ours. Adding a nav link
+  in Studio adds a line inside the nav's region and nothing else. Godot's editor and Unity's UI
+  Builder re-serialise their own files and drop comments, which is why the anchors are structural;
+  the Godot fingerprint covers only node names and `text` values, so the editor reordering
+  properties on save is not read as a hand edit.
+- **Launch it in its engine.** Godot runs `godot --path <workspace> <scene>` through `spawn` with an
+  argument vector after a modal that shows the argv; Web opens the page in the default browser;
+  Unity's editor is not on PATH by convention, so its argv is shown with a Copy button rather than
+  run. Every argv is a constant in `uiSurfaceEmit.ts` (walked by test for shell metacharacters).
+- `UiEmitTargetId`, `UiEmitAnchor` and `UiEmitManifest` in `types.ts`; `src/core/uiSurfaceEmit.ts`
+  (pure, `fs`-free, 27 tests including a property test that round-trips arbitrary copy through
+  every source grammar); `tests/views/uiEmitSurface.test.ts` pins the message shapes, the
+  no-shell launch and the card.
+
+### Security
+
+- The browser posts a screen id, a target from the declared table and a folder; the folder is
+  validated again by the planner (inside the workspace, never `project_memory/` or `.git/`), and the
+  destructive re-emit can only be *asked for* by a message — the host confirms it by name. Committed
+  manifests are read as untrusted: a file path with traversal drops the manifest, an anchor naming a
+  file the manifest does not list is dropped. Every file read stays inside the workspace and is
+  capped at 2 MB.
+
 ## [0.472.0] - 2026-09-09
 
 ### Changed

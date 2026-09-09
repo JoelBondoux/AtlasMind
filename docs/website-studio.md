@@ -235,6 +235,42 @@ not become one. The user's own sentence is deliberately *not* fenced — it is t
 fencing it would be theatre that also breaks the feature. Every prompt ends by saying the answer is a
 proposal and that nothing should be written to `website.json`.
 
+## Emitting a surface into its engine
+
+The Handoff view's **Emit** card writes a drawn surface for the engine that will own it. Three targets
+produce source: **Web** (an HTML page, a stylesheet and a shared `atlas-tokens.css`), **Unity UI
+Toolkit** (UXML, USS and a shared `AtlasTokens.uss`) and **Godot 4** (a Control scene and a shared
+`atlas_theme.tres`). **Unreal UMG, SwiftUI and Compose produce a handoff specification** — a Markdown
+document with the tokens, every node's rect and layout mode, and anchored copy — because their syntax
+was not checked against a compiler, and a plausible wrong file costs more than a document somebody
+reads. The target defaults to what the implementation guide's target technologies declare; the output
+folder defaults per target and must stay inside the workspace.
+
+The rule is **divergence, not regeneration**:
+
+- **The layout is emitted once, and the engine owns it from then on.** Every emit records a manifest
+  under `project_memory/domain/ui-emit/`. A second emit over files that changed since is refused, and
+  the card states the ownership from the files as they are: *Layout: owned by Unity since the emit on
+  2026-09-09 · Content: editable here (4 of 5 regions; 1 blocked)*. **Discard <engine>'s layout and
+  emit again** is a separate red button behind a modal that names every file whose edits are lost.
+- **The words stay editable here.** Every node's copy — title, body, action, nav items — is emitted
+  inside a region anchored by the node id: `data-atlas-copy` on a `<div>`, `name="atlas_copy_<id>"` on a
+  `VisualElement`, `[node name="atlas_copy_<id>…"]` blocks in a scene, a comment marker in a
+  specification. **Push content** finds each region in the file *as it is now* and replaces only that.
+  A missing anchor is refused by name (the engine edit that removed it made a decision). A region
+  somebody edited in the engine is refused and shown, before and after. A node removed in Studio is
+  reported, never deleted from the engine file; a node drawn after the emit is reported, never inserted.
+  Adding a nav link in Studio adds one line inside the nav's region.
+- **Engines re-serialise their own files.** Unity's UI Builder rewrites a UXML on save and Godot's
+  editor rewrites a `.tscn`, and both drop comments — so the anchors are element and node names, and
+  the Godot fingerprint covers node names and `text` values only, so reordered properties are not read
+  as a hand edit.
+- **Launch** opens a web page in the default browser, runs Godot as `godot --path <workspace> <scene>`
+  through `spawn` with no shell after a modal that shows the argv, and shows Unity's
+  `Unity -projectPath <workspace>` to copy, since the editor is not on PATH by convention.
+
+Nothing in `uiSurfaceEmit.ts` writes or runs; the module imports neither `fs` nor `child_process`.
+
 ## Full preview: the design feedback loop
 
 **Full Preview lives on the Design view, beside the canvas it previews**, not on an output page. Save the current design, then choose

@@ -904,6 +904,18 @@ for websites, Brief) replace the eight numbered steps, whose ids survive as rena
 the same one every other surface keeps: a pick-up posts one path and the host re-scans and refuses any
 file the scan did not itself classify; brand actions post ids only.
 
+From the Handoff view a drawn surface can be **emitted** (`src/core/uiSurfaceEmit.ts`, 0.473.0) for
+Web, Unity UI Toolkit or Godot 4 — or as a handoff specification for Unreal UMG, SwiftUI and
+Compose, whose syntax was not verified. The rule is **divergence, not regeneration**: the layout
+is emitted once, a manifest under `project_memory/domain/ui-emit/` records what was written, and a
+second emit over changed files is refused with *Layout: owned by Unity since the emit on …*. The
+words stay Studio's because every node's copy is emitted inside a region anchored by its id
+(element names in HTML and UXML, scene node names in Godot — structural, since both editors
+re-serialise their files and drop comments), and **Push content** patches those regions by anchor
+in the file as it is now, refusing a missing anchor by name and showing a hand-edited region rather
+than overwriting it. Launch plans are constant argvs filled with the workspace root and scene, run
+through `spawn` with no shell after a modal that shows them.
+
 AtlasMind can also take **the project in your own words** (`src/core/projectBrief.ts`, the brief
 composer on an empty ideation board). Everything else it starts from is *detected* — the archetype
 from manifests, the starter frames from the archetype — and none of it can know what the project is

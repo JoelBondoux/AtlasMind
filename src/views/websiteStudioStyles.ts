@@ -66,6 +66,15 @@ export const WEBSITE_STUDIO_CSS = `  /* Palette, page frame and hero come from t
   .brand-apply-list small { opacity:.7; }
   .brand-actions { display:flex; gap:8px; flex-wrap:wrap; margin-top:8px; }
   .preview-block { margin:16px 0; }
+  .emit-rows { display:grid; gap:8px; margin:10px 0; }
+  .emit-row { display:grid; grid-template-columns:minmax(120px,1fr) minmax(180px,1.4fr) minmax(160px,1.2fr) auto; gap:8px; align-items:center; }
+  .emit-row strong { overflow:hidden; text-overflow:ellipsis; white-space:nowrap; }
+  .emit-surfaces { display:grid; gap:10px; margin:12px 0; }
+  .emit-surface { display:grid; gap:8px; padding:10px; border:1px solid var(--studio-border); border-radius:8px; }
+  .emit-surface.engine-owned { border-left:3px solid var(--studio-accent); }
+  .emit-surface-facts { display:grid; gap:3px; }
+  .emit-surface-facts small { opacity:.75; }
+  .emit-reasons { margin:4px 0 0; padding-left:16px; font-size:11px; opacity:.85; }
   .delivery-automations { margin-top:24px; }
   .nav-button { display:flex; align-items:center; gap:10px; text-align:left; background:transparent; color:var(--vscode-foreground); border:1px solid transparent; }
   .nav-button:hover { background:var(--vscode-list-hoverBackground); }
@@ -191,6 +200,7 @@ export const WEBSITE_STUDIO_CSS = `  /* Palette, page frame and hero come from t
     body { padding-left:14px; padding-right:14px; }
     .studio-hero, .save-bar { align-items:flex-start; flex-direction:column; }
     .two-column, .wireframe-grid, .platform-grid, .automation-grid, .brand-grid { grid-template-columns:1fr; }
+    .emit-row { grid-template-columns:1fr; }
     .status-grid, .color-grid, .field-pair { grid-template-columns:repeat(2,minmax(0,1fr)); }
     .token-row { grid-template-columns:1fr 1fr; }
     .token-create-row { grid-template-columns:1fr 1fr; }

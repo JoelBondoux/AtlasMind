@@ -426,7 +426,16 @@ Delivery comparison, or n8n controls. Every incoming message is checked by `isWe
 the main payload passes through `sanitizeWebsiteWorkspace()` before persistence. The rail's actions are
 the boundary that matters: a pick-up posts one path and the host re-runs `scanWorkspaceUiSurfaces()` and
 refuses any path the fresh scan did not classify (and any stylesheet, which belongs to the Brands view);
-brand actions post ids only, and the host resolves presets and screens from the saved workspace.
+brand actions post ids only, and the host resolves presets and screens from the saved workspace. The
+Handoff view's Emit card (`renderEmitCard`) posts a screen id, a target id from `UI_EMIT_TARGETS` and a
+folder; `handleEmitSurface` plans through `uiSurfaceEmit.ts`, shows every file (WRITE / OVERWRITE / IF
+ABSENT) with "Show files first" opening them unwritten, writes shared token files only when absent, and
+records the manifest under `project_memory/domain/ui-emit/`. A message may only *ask* for the destructive
+re-emit (`discardEngineLayout`); the host confirms it in a modal naming the files whose engine edits are
+lost. `handlePushSurfaceContent` shows each region before and after beside every refusal and writes only
+the files the plan names; `handleLaunchSurface` opens a web page externally, shows Unity's argv to copy,
+and runs Godot through `spawn` with an argument vector and no shell after a modal that shows the argv.
+Manifests are read as untrusted (`sanitizeUiEmitManifest`) through a bounded, workspace-contained read.
 
 Format v14 adds brand presets (`brands`, `defaultBrandId`, and `brandRef` on a screen). The migration folds a *changed* legacy design system into the first preset and adds an empty list for one still at its defaults; on every sanitize the graph's role tokens are re-pointed at the default preset by alias and the legacy `designSystem` fields are projected from it, so the two cannot disagree. Format v13 adds bounded adapter evidence/capability/loss reports; v12 added revisioned repository mappings and host-created verification fingerprints; v11 added validated asset metadata and stable node assignments; v10 added bounded sample-data collections and explicit node bindings; v9 added optional node-owned content-state presentations; v8 added reusable component definitions and explicit instances; v7 added typed
 tokens and v6 introduced screens/nodes. `uiDesignGraph.ts` is the only compatibility converter and system-definition sanitizer: when a graph is
@@ -562,8 +571,9 @@ Stack setup adds four rules of its own, and each is pinned by a test rather than
 Tests live in `tests/core/website*.test.ts`, `tests/core/uiDesignGraph.test.ts`,
 `tests/core/uiEditCommands.test.ts`, and `tests/core/uiPreviewRuntime.test.ts` (including property tests for the graph/wireframe sanitizers and preview
 path resolution, exact selection payload/revision checks, loopback token isolation, plus exhaustive walks for the setup planner and CI templates), with panel coverage in
-`tests/views/websiteStudioPanel.test.ts` / `tests/views/websitePreviewPanel.test.ts`, and the shell's rail,
-views and brand actions in `tests/views/uiStudioShellSurface.test.ts`. The three executable
+`tests/views/websiteStudioPanel.test.ts` / `tests/views/websitePreviewPanel.test.ts`, the shell's rail,
+views and brand actions in `tests/views/uiStudioShellSurface.test.ts`, the emitters and patch-by-anchor
+write-back in `tests/core/uiSurfaceEmit.test.ts`, and the Emit card in `tests/views/uiEmitSurface.test.ts`. The three executable
 cross-target foundation scenarios are declared in `tests/fixtures/uiStudioReferenceProjects.ts` and run by
 `tests/core/uiStudioReferenceProjects.test.ts`; keep migration, reopening, edit/history, selection, full
 preview, and graph-neutrality coverage aligned when the shared graph contract changes.

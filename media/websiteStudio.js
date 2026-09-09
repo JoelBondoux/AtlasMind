@@ -2117,6 +2117,36 @@
     vscode.postMessage({ type: 'extractBrandFromStylesheet', payload: { path } });
   });
 
+  // ── Emitted surfaces ───────────────────────────────────────────
+  // The browser names a screen, a target and a folder; the host plans,
+  // confirms and writes. A discard is only ever asked for, never done here.
+
+  qsa('[data-emit-target]').forEach(select => select.addEventListener('change', () => {
+    const row = select.closest('[data-emit-row]');
+    const root = row ? qs('[data-emit-root]', row) : undefined;
+    const option = select.selectedOptions[0];
+    if (root && option?.dataset.root) { root.value = option.dataset.root; }
+  }));
+  qsa('[data-emit-surface]').forEach(button => button.addEventListener('click', () => {
+    const row = button.closest('[data-emit-row]');
+    if (!row || state.readOnly) { return; }
+    vscode.postMessage({
+      type: 'emitSurface',
+      payload: { screenId: row.dataset.emitScreen, targetId: value('[data-emit-target]', row), outputRoot: value('[data-emit-root]', row) },
+    });
+  }));
+  qsa('[data-push-content]').forEach(button => button.addEventListener('click', () =>
+    vscode.postMessage({ type: 'pushSurfaceContent', payload: { screenId: button.dataset.screen, targetId: button.dataset.target } })));
+  qsa('[data-launch-surface]').forEach(button => button.addEventListener('click', () =>
+    vscode.postMessage({ type: 'launchSurface', payload: { screenId: button.dataset.screen, targetId: button.dataset.target } })));
+  qsa('[data-reemit-surface]').forEach(button => button.addEventListener('click', () => {
+    if (state.readOnly) { return; }
+    vscode.postMessage({
+      type: 'emitSurface',
+      payload: { screenId: button.dataset.screen, targetId: button.dataset.target, discardEngineLayout: button.dataset.discard === 'true' },
+    });
+  }));
+
   qsa('.environment-hostingMode').forEach(select => select.addEventListener('change', () => {
     const card = select.closest('[data-environment-id]');
     if (!card) { return; }

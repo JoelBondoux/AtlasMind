@@ -19,6 +19,30 @@ Older entries below describe the software as it was at the time and are delibera
 
 ---
 
+## v0.473.0 -- Into the engine
+
+A drawn surface can now be **emitted** for the engine that will own it: Web (HTML + CSS), Unity
+UI Toolkit (UXML + USS) and Godot 4 (Control scene + Theme), each with a shared token file from
+the brand presets. Unreal UMG, SwiftUI and Compose get a **handoff specification, not source** --
+their syntax was not verified, and a plausible wrong file costs more than a document somebody reads.
+
+**Divergence, not regeneration.** The layout is emitted once and then belongs to the engine. A
+second emit over changed files is refused, and the card states it: *Layout: owned by Unity since the
+emit on ... · Content: editable here*. Discarding the engine's work is a separate red button that
+names every file whose edits are lost.
+
+**Content is anchored data, patched by anchor.** Every node's words sit in a region keyed by its
+id -- an element name, a scene node name, a marker in a spec. **Push content** finds each region in
+the file as it is now and replaces only that. A missing anchor is refused by name; a region edited
+in the engine is refused and shown; a node removed in Studio is reported, never deleted; a node
+drawn after the emit is reported, never inserted. Adding a nav link adds one line in the nav's
+region and nothing else.
+
+**Launch** runs Godot through `spawn` with a constant argv and no shell, after a modal that shows
+it; Web opens in the browser; Unity's command is shown to copy, since its editor is not on PATH.
+
+---
+
 ## v0.472.0 -- The UI Studio shell
 
 Three layouts in a row numbered the Studio's pages one to eight and promised a waterfall the work

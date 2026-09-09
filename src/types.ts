@@ -2561,6 +2561,58 @@ export interface WebsiteWorkspaceConfig {
   stack?: WebsiteStackChoice;
 }
 
+// ── UI Studio: emitted surfaces ──────────────────────────────────
+
+/**
+ * Where a designed surface can be emitted to. `web`, `unity-uitoolkit` and
+ * `godot-control` produce source the engine loads; the other three produce a
+ * handoff specification, because their syntax was not verified and a plausible
+ * wrong source file costs more than a document somebody reads.
+ */
+export type UiEmitTargetId =
+  | 'web'
+  | 'unity-uitoolkit'
+  | 'godot-control'
+  | 'unreal-umg'
+  | 'swiftui'
+  | 'compose';
+
+/**
+ * One node's copy region in an emitted file, keyed by the node id so a later
+ * content update can find it by anchor rather than by position.
+ *
+ * Two fingerprints, deliberately separate: `regionFingerprint` is the region
+ * text as last written by AtlasMind, so a hand edit inside it is detectable;
+ * `copyFingerprint` is the Studio copy it was rendered from, so a change in
+ * Studio is detectable. Neither implies the other.
+ */
+export interface UiEmitAnchor {
+  nodeId: string;
+  filePath: string;
+  regionFingerprint: string;
+  copyFingerprint: string;
+  /** Target-owned rendering facts the region needs again (parent path, indent). */
+  context?: Record<string, string>;
+}
+
+/**
+ * What one emit wrote and what it recorded about it. Committed beside the
+ * workspace (`project_memory/domain/ui-emit/`), because it is the record of who
+ * owns the layout from now on, and a teammate needs to see that too.
+ */
+export interface UiEmitManifest {
+  version: 1;
+  targetId: UiEmitTargetId;
+  screenId: string;
+  pageId: string;
+  emittedAt: string;
+  /** Set on every content patch after the emit; never on the emit itself. */
+  contentUpdatedAt?: string;
+  graphRevision: number;
+  files: Array<{ path: string; fingerprint: string; shared: boolean }>;
+  anchors: UiEmitAnchor[];
+}
+
 // ── Delivery / Deployment Stages ─────────────────────────────────
 
 /**
