@@ -41,7 +41,15 @@
      * Storing the resolved value instead would freeze a first-time user on
      * Frame forever after their first card.
      */
-    mode: '',
+    // The drawer under the canvas, and the disclosures inside the rail. Held
+    // here rather than in native <details>, because render() replaces the
+    // markup wholesale and an open disclosure would snap shut on every update.
+    drawerOpen: false,
+    drawerTab: 'latest',
+    inspectorMore: false,
+    constraintsOpen: false,
+    shortcutsOpen: false,
+    readinessOpen: false,
     boardLens: 'default',
     relationFilter: 'all',
     linkPathMode: 'angular',
@@ -102,6 +110,8 @@
     }
     if (message.type === 'ideationResponseChunk') {
       state.ideationResponse += typeof message.payload === 'string' ? message.payload : '';
+      state.drawerOpen = true;
+      state.drawerTab = 'latest';
       render();
       return;
     }
@@ -126,8 +136,34 @@
       vscode.postMessage({ type: 'openFile', payload });
       return;
     }
-    if (action === 'ideation-mode') {
-      state.mode = payload;
+    if (action === 'ideation-drawer-toggle') {
+      state.drawerOpen = !state.drawerOpen;
+      render();
+      return;
+    }
+    if (action === 'ideation-drawer-tab') {
+      state.drawerTab = payload || 'latest';
+      state.drawerOpen = true;
+      render();
+      return;
+    }
+    if (action === 'ideation-inspector-more') {
+      state.inspectorMore = !state.inspectorMore;
+      render();
+      return;
+    }
+    if (action === 'ideation-constraints-toggle') {
+      state.constraintsOpen = !state.constraintsOpen;
+      render();
+      return;
+    }
+    if (action === 'ideation-shortcuts-toggle') {
+      state.shortcutsOpen = !state.shortcutsOpen;
+      render();
+      return;
+    }
+    if (action === 'ideation-readiness-toggle') {
+      state.readinessOpen = !state.readinessOpen;
       render();
       return;
     }
@@ -372,10 +408,6 @@
     }
     if (target.id === 'ideationBodyInput') {
       updateSelectedCardField('body', target.value);
-      return;
-    }
-    if (target.id === 'ideationPrompt') {
-      renderPromptInferencePreview();
       return;
     }
     if (target.id === 'ideationTypeInput') {
@@ -727,37 +759,29 @@
       }
       const selectedCard = resolveSelectedCard(snapshot);
       const selectedLink = resolveSelectedLink(snapshot);
-      // The board is the point of this panel, and it used to sit below a hero
-      // panel, a four-card process guide and a very tall composer — three
-      // screens of chrome before the whiteboard. It now leads, with the stat
-      // trio reduced to a compact strip in front of it and the staged-workflow
-      // guide moved to the end, collapsed unless the board is still empty.
       const activeCardCount = snapshot.cards.filter(card => !card.archivedAt).length;
       const boardIsEmpty = activeCardCount === 0;
-      const mode = resolveMode(snapshot, boardIsEmpty);
 
-      // The board still leads — it is the point of this panel, and three
-      // versions of this layout have been spent learning that. What changed is
-      // everything *below* it: five sections used to be on screen at once while
-      // a four-card guide explained the order they were meant to be used in.
-      // A guide that has to explain the layout is the definition of an
-      // unintuitive layout, so the guide became the navigation and only the
-      // stage you picked is rendered.
+      // Two panes and a drawer. Three versions of this layout were spent
+      // rearranging chrome above and below a single column, and the thing that
+      // actually made the page confusing survived all three: the inspector
+      // lived under a canvas that filled the first screen, so every click on a
+      // card meant scrolling away from the board to edit it. The rail beside
+      // the canvas now shows whatever the selection is about — the composer
+      // when nothing is selected, the card or link when one is — and the four
+      // "stages" that used to explain the order are gone, because there is no
+      // order: you are either looking at the board or at the thing you clicked.
       root.innerHTML = '' +
         '<div class="ideation-workspace ' + (state.canvasFullscreen ? 'ideation-workspace-canvas-focus' : '') + '">' +
-          '<section class="ideation-stat-strip"' + tooltipAttrs('Ideation is a staged workflow: frame the problem, let Atlas scaffold the board, shape the board with cards and links, then decide what to validate or send into execution.') + '>' +
-            renderStat('Active cards', String(activeCardCount), 'Active cards on the board. Archived cards are hidden but preserved.', activeCardCount > 0 ? 'good' : 'accent') +
-            renderStat('Runs', String(snapshot.runs.length), 'Auditable ideation evolutions captured so far.', 'accent') +
-            renderStat('Queued media', String(snapshot.promptAttachments.length), 'Files, images, and links waiting for the next Atlas pass.', snapshot.promptAttachments.length > 0 ? 'good' : 'accent') +
-          '</section>' +
+          renderHeader(snapshot) +
           '<section class="ideation-main-grid">' +
             renderBoard(snapshot) +
+            '<aside class="ideation-rail" aria-label="Selection and prompt">' +
+              renderRail(snapshot, boardIsEmpty, selectedCard, selectedLink) +
+            '</aside>' +
           '</section>' +
-          '<section class="ideation-mode-section">' +
-            renderModeBar(snapshot, mode, boardIsEmpty) +
-          '</section>' +
-          '<section class="ideation-stage-section">' +
-            renderStage(snapshot, mode, boardIsEmpty, selectedCard, selectedLink) +
+          '<section class="ideation-drawer-section">' +
+            renderDrawer(snapshot) +
           '</section>' +
         '</div>';
       wireDropzones();
@@ -770,106 +794,89 @@
     }
   }
 
-  /** The four stages, in the order the work actually happens. */
-  const IDEATION_MODES = [
-    {
-      id: 'frame',
-      label: '1. Frame',
-      blurb: 'Describe the problem, set constraints, attach what you already have.',
-    },
-    {
-      id: 'scaffold',
-      label: '2. Scaffold',
-      blurb: 'Let Atlas turn the frame into cards and relationships, then read what it proposed.',
-    },
-    {
-      id: 'shape',
-      label: '3. Shape',
-      blurb: 'Edit cards, connect them, and challenge what the board is claiming.',
-    },
-    {
-      id: 'decide',
-      label: '4. Decide',
-      blurb: 'Read what the board can and cannot defend, then raise the work.',
-    },
-  ];
-
   /**
-   * Which stage to show.
+   * One line above the board: which workspace, when it changed, and the files.
    *
-   * Derived when the user has not picked one, because the useful default differs:
-   * an empty board opens on Frame, where the only thing to do is describe the
-   * problem, and a populated one opens on Shape, where the cards are. Storing
-   * the resolved value in `state.mode` would freeze a first-time user on Frame
-   * the moment their board stopped being empty.
+   * These lived inside the composer, which meant the switcher for *which board
+   * you are on* was three panels down inside a form about prompting. They are
+   * board-level facts and sit at board level.
    */
-  function resolveMode(snapshot, boardIsEmpty) {
-    if (IDEATION_MODES.some(entry => entry.id === state.mode)) {
-      return state.mode;
-    }
-    return boardIsEmpty ? 'frame' : 'shape';
-  }
-
-  /**
-   * The stage bar — which is the old four-card process guide, made load-bearing.
-   *
-   * It used to describe an order the interface did not impose, and it had been
-   * moved twice on the theory that placement was the problem. It was not: a
-   * guide explaining a layout is a symptom of the layout. Every card is now a
-   * button that changes what is on screen, and the status dot still reports
-   * where the board actually is rather than where you happen to be looking.
-   */
-  function renderModeBar(snapshot, mode, boardIsEmpty) {
-    const status = deriveModeStatus(snapshot, boardIsEmpty);
+  function renderHeader(snapshot) {
+    const workspaces = snapshot.workspaces || [];
+    const activeWorkspace = workspaces.find(item => item.id === snapshot.activeWorkspaceId) || workspaces[0];
     return '' +
-      '<nav class="ideation-mode-bar" aria-label="Ideation stage">' +
-        IDEATION_MODES.map(entry => {
-          const state_ = status[entry.id];
-          return '<button type="button" class="ideation-mode-button ideation-mode-' + state_.tone +
-            (entry.id === mode ? ' is-active' : '') + '" data-action="ideation-mode" data-payload="' + escapeAttr(entry.id) + '"' +
-            ' aria-current="' + (entry.id === mode ? 'step' : 'false') + '"' + tooltipAttrs(entry.blurb) + '>' +
-              '<span class="ideation-mode-label">' + escapeHtml(entry.label) + '</span>' +
-              '<span class="tag ' + state_.tag + '">' + escapeHtml(state_.label) + '</span>' +
-            '</button>';
-        }).join('') +
-      '</nav>' +
-      '<p class="section-copy ideation-mode-blurb">' +
-        escapeHtml((IDEATION_MODES.find(entry => entry.id === mode) || IDEATION_MODES[0]).blurb) +
-      '</p>';
+      '<header class="ideation-header">' +
+        '<div class="ideation-header-workspace">' +
+          '<label class="ideation-header-label" for="ideationWorkspaceSelect">Board</label>' +
+          '<select id="ideationWorkspaceSelect" class="ideation-lens-select" title="Switch to another ideation board without losing this one.">' +
+            workspaces.map(item => '<option value="' + escapeAttr(item.id) + '"' + (item.id === snapshot.activeWorkspaceId ? ' selected' : '') + '>' + escapeHtml(item.title + ' (' + item.activeCardCount + ')') + '</option>').join('') +
+          '</select>' +
+          '<button type="button" class="action-link" data-action="ideation-create-workspace" title="Start a new, empty board and keep this one.">New board</button>' +
+          '<button type="button" class="action-link danger" data-action="ideation-delete-workspace" ' + (workspaces.length <= 1 ? 'disabled' : '') + ' title="Delete this board. The last one is protected.">Delete</button>' +
+        '</div>' +
+        '<div class="ideation-header-meta">' +
+          '<span class="list-meta">Updated ' + escapeHtml(activeWorkspace?.updatedRelative || snapshot.updatedRelative) + '</span>' +
+          '<button type="button" class="action-link" data-action="file" data-payload="' + escapeAttr(snapshot.boardPath) + '">Board JSON</button>' +
+          '<button type="button" class="action-link" data-action="file" data-payload="' + escapeAttr(snapshot.summaryPath) + '">Summary</button>' +
+          // Website Studio takes a website idea from here into a brief, sitemap
+          // and wireframes. It used to be a button in the header of "latest
+          // pass", which is not where anybody looks for another panel.
+          '<button type="button" class="action-link" data-action="command" data-payload="atlasmind.openWebsiteStudio" title="Take a website idea from this board into a brief, sitemap and wireframes.">Website Studio</button>' +
+          '<button type="button" class="action-link" data-action="ideation-toggle-canvas-focus" title="' + (state.canvasFullscreen ? 'Leave the full-screen board (F or Esc)' : 'Fill the window with the board (F)') + '">' + (state.canvasFullscreen ? 'Exit full screen' : 'Full screen') + '</button>' +
+        '</div>' +
+      '</header>';
   }
 
   /**
-   * Where the *board* is, which is not the same as which tab is open.
+   * The rail follows the selection.
    *
-   * Reported from what exists rather than from what has been clicked, so the bar
-   * stays an honest description of the board even while you are reading a stage
-   * you have not reached yet.
+   * A link → its editor. A card → the inspector. Nothing → the prompt, and on
+   * an empty board the brief and the starter frames above it, because those
+   * are the only things there are to do. One place, one thing at a time, and
+   * never a tab to pick first.
    */
-  function deriveModeStatus(snapshot, boardIsEmpty) {
-    const hasRuns = snapshot.runs.length > 0;
-    const hasLinks = snapshot.connections.length > 0;
-    const readiness = snapshot.readiness;
-    const canDecide = Boolean(readiness) && readiness.state !== 'unexamined';
-    return {
-      frame: getProcessStageStatus(boardIsEmpty && !hasRuns ? 'active' : 'done'),
-      scaffold: getProcessStageStatus(hasRuns ? 'done' : (boardIsEmpty ? 'pending' : 'active')),
-      shape: getProcessStageStatus(hasLinks ? 'done' : (boardIsEmpty ? 'pending' : 'active')),
-      decide: getProcessStageStatus(canDecide ? 'active' : 'pending'),
-    };
+  function renderRail(snapshot, boardIsEmpty, selectedCard, selectedLink) {
+    if (selectedLink) {
+      return renderLinkEditor(snapshot, selectedLink);
+    }
+    if (selectedCard) {
+      return renderInspector(snapshot, selectedCard);
+    }
+    return (boardIsEmpty ? renderProjectBrief(snapshot) + renderStarterFrames(snapshot) : '') + renderComposer(snapshot, boardIsEmpty);
   }
 
-  /** Only the stage that was asked for. That is the whole change. */
-  function renderStage(snapshot, mode, boardIsEmpty, selectedCard, selectedLink) {
-    if (mode === 'frame') {
-      return (boardIsEmpty ? renderProjectBrief(snapshot) + renderStarterFrames(snapshot) : '') + renderComposer(snapshot);
-    }
-    if (mode === 'scaffold') {
-      return renderComposer(snapshot) + renderFeedback(snapshot);
-    }
-    if (mode === 'decide') {
-      return renderReadiness(snapshot) + renderInspector(snapshot, selectedCard, selectedLink) + renderAnalytics(snapshot);
-    }
-    return renderInspector(snapshot, selectedCard, selectedLink) + renderAnalytics(snapshot);
+  /**
+   * Everything Atlas said, and everything about the board as a whole, in one
+   * drawer under the canvas. Closed by default; opens itself when a response
+   * arrives, because the answer to what you just asked must not land in a
+   * closed drawer.
+   */
+  function renderDrawer(snapshot) {
+    const tabs = [
+      ['latest', 'Latest pass'],
+      ['history', 'History'],
+      ['analytics', 'Analytics'],
+    ];
+    const tab = tabs.some(entry => entry[0] === state.drawerTab) ? state.drawerTab : 'latest';
+    const hasResponse = Boolean(state.ideationResponse || snapshot.lastAtlasResponse);
+    return '' +
+      '<article class="ideation-panel ideation-drawer' + (state.drawerOpen ? ' is-open' : '') + '">' +
+        '<div class="ideation-drawer-bar">' +
+          '<button type="button" class="ideation-drawer-toggle" data-action="ideation-drawer-toggle" aria-expanded="' + (state.drawerOpen ? 'true' : 'false') + '">' +
+            '<span class="section-kicker">Atlas</span>' +
+            '<strong>' + (state.ideationBusy ? 'Thinking…' : hasResponse ? 'Latest pass' : 'Nothing yet') + '</strong>' +
+            '<span class="ideation-drawer-caret" aria-hidden="true">' + (state.drawerOpen ? '▾' : '▸') + '</span>' +
+          '</button>' +
+          '<div class="segmented" role="tablist" aria-label="Atlas drawer">' +
+            tabs.map(entry => '<button type="button" role="tab" data-action="ideation-drawer-tab" data-payload="' + entry[0] + '" class="' + (state.drawerOpen && tab === entry[0] ? 'active' : '') + '" aria-selected="' + (state.drawerOpen && tab === entry[0] ? 'true' : 'false') + '">' + escapeHtml(entry[1]) + '</button>').join('') +
+          '</div>' +
+        '</div>' +
+        (state.drawerOpen
+          ? '<div class="ideation-drawer-body">' +
+              (tab === 'latest' ? renderLatestPass(snapshot) : tab === 'history' ? renderHistory(snapshot) : renderAnalytics(snapshot)) +
+            '</div>'
+          : '') +
+      '</article>';
   }
 
   /**
@@ -961,174 +968,135 @@
    * declared rule that produced it, so a verdict can be argued with rather than
    * only trusted or ignored.
    */
+  /**
+   * What the board can and cannot defend, opened from the exit section.
+   *
+   * A reading, never a gate — nothing here blocks raising work, since a board
+   * can always be edited and a gate would cost more than it protects.
+   */
   function renderReadiness(snapshot) {
     const readiness = snapshot.readiness;
-    if (!readiness) {
+    if (!readiness || readiness.observations.length === 0) {
       return '';
     }
     const toneTag = { blocking: 'tag-bad', weak: 'tag-warn', good: 'tag-good', unassessed: '' };
     return '' +
-      '<article class="ideation-panel ideation-readiness-panel">' +
-        '<div class="row-head">' +
-          '<div>' +
-            '<p class="section-kicker">Before you raise it</p>' +
-            '<h3>What this board can defend</h3>' +
-          '</div>' +
-          '<span class="tag ' + (readiness.state === 'argued' ? 'tag-good' : readiness.state === 'unexamined' ? '' : 'tag-warn') + '"' +
-            tooltipAttrs('A reading, not a gate. Nothing here blocks raising work — a board can always be edited, so a gate would cost more than it protects.') + '>' +
-            escapeHtml(readiness.summary) + '</span>' +
-        '</div>' +
-        (readiness.observations.length === 0
-          ? '<p class="section-copy">Nothing to report.</p>'
-          : '<ul class="ideation-readiness-list">' +
-            readiness.observations.map(observation =>
-              '<li class="ideation-readiness-item ideation-readiness-' + escapeAttr(observation.tone) + '">' +
-                '<div class="row-head">' +
-                  '<strong>' + escapeHtml(observation.label) + '</strong>' +
-                  '<span class="tag ' + (toneTag[observation.tone] || '') + '">' + escapeHtml(observation.tone) + '</span>' +
-                '</div>' +
-                '<p class="section-copy">' + escapeHtml(observation.detail) + '</p>' +
-                '<p class="ideation-readiness-rule">Rule: ' + escapeHtml(observation.rule) + '</p>' +
-              '</li>').join('') +
-            '</ul>') +
-      '</article>';
+      '<ul class="ideation-readiness-list">' +
+        readiness.observations.map(observation =>
+          '<li class="ideation-readiness-item ideation-readiness-' + escapeAttr(observation.tone) + '">' +
+            '<div class="row-head">' +
+              '<strong>' + escapeHtml(observation.label) + '</strong>' +
+              '<span class="tag ' + (toneTag[observation.tone] || '') + '">' + escapeHtml(observation.tone) + '</span>' +
+            '</div>' +
+            '<p class="section-copy">' + escapeHtml(observation.detail) + '</p>' +
+            '<p class="ideation-readiness-rule">Rule: ' + escapeHtml(observation.rule) + '</p>' +
+          '</li>').join('') +
+      '</ul>';
   }
 
-  function renderComposer(snapshot) {
+  /**
+   * The prompt, and only the prompt.
+   *
+   * This panel used to do five jobs — workspace switching, prompting, an
+   * inference preview, constraints and a status card with file links — and was
+   * the "very tall composer" its own comments complained about. The switcher
+   * and the files went to the header; the preview went; constraints are behind
+   * a disclosure that says how many are set. What is left is a textarea, a drop
+   * target and a button.
+   */
+  function renderComposer(snapshot, boardIsEmpty) {
     const promptValue = getPromptValue();
     const constraints = snapshot.constraints || {};
-    const primaryActionLabel = snapshot.cards.length === 0 ? 'Create Ideation Board' : 'Create or Evolve Board';
-    const activeWorkspace = (snapshot.workspaces || []).find(item => item.id === snapshot.activeWorkspaceId) || snapshot.workspaces?.[0];
+    const setConstraints = ['budget', 'timeline', 'teamSize', 'riskTolerance', 'technicalStack'].filter(key => (constraints[key] || '').trim()).length;
+    const primaryActionLabel = boardIsEmpty ? 'Create the board' : 'Run Atlas';
+    const voiceButton = state.voiceActive
+      ? '<button type="button" class="action-link" data-action="ideation-stop-voice">Stop voice</button>'
+      : '<button type="button" class="action-link" data-action="ideation-start-voice"' + (state.voiceSupported ? '' : ' disabled') + ' title="Dictate the prompt.">Voice</button>';
     return '' +
-      '<article class="ideation-panel ideation-composer-panel"' + tooltipAttrs('Stage 1 and Stage 2 happen here: describe the problem, add constraints, and let Atlas scaffold or evolve the board.') + '>' +
+      '<article class="ideation-panel ideation-composer-panel">' +
         '<div class="row-head">' +
           '<div>' +
-            '<p class="section-kicker">Atlas loop</p>' +
-            '<h3>Prompt and attach context</h3>' +
+            '<p class="section-kicker">' + (boardIsEmpty ? 'Or describe it' : 'Ask Atlas') + '</p>' +
+            '<h3>' + (boardIsEmpty ? 'What should the board pressure-test?' : 'What next?') + '</h3>' +
           '</div>' +
-          '<span class="tag ' + (state.ideationBusy ? 'tag-warn' : 'tag-good') + '"' + tooltipAttrs(state.ideationBusy ? 'Atlas is currently synthesizing the next board update.' : 'The ideation panel is ready for another facilitation pass.') + '>' + (state.ideationBusy ? 'Atlas thinking' : 'Ready') + '</span>' +
+          '<span class="tag ' + (state.ideationBusy ? 'tag-warn' : '') + '">' + (state.ideationBusy ? 'Thinking' : 'Ready') + '</span>' +
         '</div>' +
-        '<div class="ideation-composer-shell">' +
-          '<div class="panel-card"' + tooltipAttrs('Each ideation workspace keeps its own board, summary, and Atlas history. Create a fresh thread when a line of thinking diverges instead of overwriting the current board.') + '>' +
-            '<div class="row-head"><div><p class="section-kicker">Ideation workspace</p><h4>Switch or start clean</h4></div><span class="tag">' + escapeHtml(activeWorkspace?.updatedRelative || snapshot.updatedRelative) + '</span></div>' +
-            '<div class="ideation-workspace-switcher">' +
-              '<label class="constraint-span" for="ideationWorkspaceSelect"><span class="section-kicker">Active thread</span>' +
-                '<select id="ideationWorkspaceSelect" class="ideation-lens-select" title="Switch to another ideation workspace without losing the current board.">' +
-                  (snapshot.workspaces || []).map(item => '<option value="' + escapeAttr(item.id) + '"' + (item.id === snapshot.activeWorkspaceId ? ' selected' : '') + '>' + escapeHtml(item.title + ' (' + item.activeCardCount + ' active cards)') + '</option>').join('') +
-                '</select>' +
-              '</label>' +
-              '<div class="ideation-chip-row">' +
-                '<button type="button" class="dashboard-button dashboard-button-ghost" data-action="ideation-create-workspace"' + tooltipAttrs('Create a brand new ideation workspace with an empty board while keeping the current one intact.') + '>New Ideation</button>' +
-                '<button type="button" class="dashboard-button dashboard-button-ghost" data-action="ideation-delete-workspace" ' + ((snapshot.workspaces || []).length <= 1 ? 'disabled' : '') + tooltipAttrs('Delete the active ideation workspace when it is no longer useful. The last remaining workspace is protected.') + '>Delete Active</button>' +
-              '</div>' +
-            '</div>' +
-            '<div class="stat-detail">' + escapeHtml(activeWorkspace ? `${activeWorkspace.title} stores ${activeWorkspace.cardCount} total cards in ${activeWorkspace.boardPath}.` : 'The active ideation workspace is ready.') + '</div>' +
-          '</div>' +
-          '<label class="section-kicker" for="ideationPrompt"' + tooltipAttrs('Write the problem, concept, comparison, or question you want Atlas to turn into board structure. This is the main entry point for a new ideation pass.', true) + '>What should Atlas pressure-test next?</label>' +
-          '<textarea id="ideationPrompt" class="ideation-prompt" placeholder="Example: pressure-test this concept for small design agencies and suggest the fastest validation experiment" title="Write the next ideation prompt here. Atlas will scaffold cards, suggest relationships, and evolve the board from this text.">' + escapeHtml(promptValue) + '</textarea>' +
-          '<div class="ideation-action-callout"' + tooltipAttrs('This callout explains what the primary action does so new users understand that running the prompt creates or reshapes the board rather than sending a normal chat message.') + '>' +
-            '<strong>' + escapeHtml(primaryActionLabel) + '</strong>' +
-            '<p class="section-copy">Write the next ideation prompt here, then run it to have Atlas create the first board structure or reshape the current one. Press Ctrl/Cmd+Enter to submit immediately.</p>' +
-          '</div>' +
-          '<div id="ideationPromptInference" class="panel-card"' + tooltipAttrs('This preview shows the card types and board facets Atlas is likely to scaffold before it answers. Use it to sanity-check whether the prompt is framing the right problem.') + '>' + renderPromptInferencePreviewMarkup(promptValue, snapshot) + '</div>' +
-          '<div id="ideationPromptDropzone" class="ideation-dropzone" tabindex="0"' + tooltipAttrs('Drop files, links, screenshots, or other artifacts here to queue them for the next ideation pass. Supporting evidence makes the board less speculative.', true) + '>Drop files, images, or links here, or paste an image with Ctrl+V to queue it for the next Atlas pass.</div>' +
-          '<div class="ideation-chip-row">' +
-            (snapshot.promptAttachments.length > 0
-              ? snapshot.promptAttachments.map(attachment => '<span class="attachment-pill"' + tooltipAttrs('Queued attachment: ' + attachment.label + ' (' + attachment.kind + '). Atlas will include it in the next ideation pass.') + '>' + escapeHtml(attachment.label + ' [' + attachment.kind + ']') + '</span>').join('')
-              : '<span class="muted">No queued ideation attachments.</span>') +
-          '</div>' +
-          '<div class="ideation-composer-actions">' +
-            '<div class="ideation-chip-row">' +
-              '<button type="button" class="dashboard-button dashboard-button-solid" data-action="ideation-run" ' + (state.ideationBusy ? 'disabled' : '') + tooltipAttrs('Run the next ideation pass. Atlas will scaffold cards, update existing cards, and suggest relationships based on the prompt and attachments.') + '>' + escapeHtml(primaryActionLabel) + '</button>' +
-              '<button type="button" class="dashboard-button dashboard-button-ghost" data-action="ideation-seed-validation" ' + (state.selectedCardId ? '' : 'disabled') + tooltipAttrs('Draft a validation-oriented follow-up prompt for the currently selected card so the board moves from ideas into tests.') + '>Generate Validation</button>' +
-              '<button type="button" class="dashboard-button dashboard-button-ghost" data-action="ideation-start-voice" ' + (state.voiceActive ? 'disabled' : '') + tooltipAttrs('Start dictating the ideation prompt by voice. Useful when capturing rapid thoughts or reviewing evidence hands-free.') + '>Start Voice</button>' +
-              '<button type="button" class="dashboard-button dashboard-button-ghost" data-action="ideation-stop-voice" ' + (!state.voiceActive ? 'disabled' : '') + tooltipAttrs('Stop voice capture and keep the dictated text in the ideation prompt field.') + '>Stop Voice</button>' +
-            '</div>' +
-            '<button type="button" class="dashboard-button dashboard-button-ghost" data-action="ideation-clear-attachments" ' + (snapshot.promptAttachments.length === 0 ? 'disabled' : '') + tooltipAttrs('Remove all queued evidence from the next ideation pass without deleting any cards already on the board.') + '>Clear Attachments</button>' +
-          '</div>' +
-          '<div class="panel-card"' + tooltipAttrs('These inputs pressure-test the idea against real-world boundaries. They do not create cards directly, but they influence Atlas facilitation and board evolution.') + '>' +
-            '<div class="row-head"><div><p class="section-kicker">Constraint injection</p><h4>Pressure-test inputs</h4></div></div>' +
-            '<div class="ideation-constraint-grid">' +
-              '<label' + tooltipAttrs('Optional budget boundary. Helps Atlas avoid suggesting experiments or delivery approaches that are unrealistically expensive.', true) + '><span class="section-kicker">Budget</span><input id="ideationConstraintBudget" type="text" value="' + escapeAttr(constraints.budget || '') + '" placeholder="£10k validation budget" /></label>' +
-              '<label' + tooltipAttrs('Optional time boundary. Use it to force Atlas to think in near-term signal windows instead of abstract long-term plans.', true) + '><span class="section-kicker">Timeline</span><input id="ideationConstraintTimeline" type="text" value="' + escapeAttr(constraints.timeline || '') + '" placeholder="6 weeks to signal" /></label>' +
-              '<label' + tooltipAttrs('Optional team boundary. Helps Atlas keep suggestions aligned with the actual delivery and research capacity available.', true) + '><span class="section-kicker">Team size</span><input id="ideationConstraintTeamSize" type="text" value="' + escapeAttr(constraints.teamSize || '') + '" placeholder="2 product + 1 engineer" /></label>' +
-              '<label' + tooltipAttrs('Optional appetite for uncertainty. Atlas can frame more conservative or more aggressive validation paths based on this.', true) + '><span class="section-kicker">Risk tolerance</span><input id="ideationConstraintRiskTolerance" type="text" value="' + escapeAttr(constraints.riskTolerance || '') + '" placeholder="Low / medium / high" /></label>' +
-              '<label class="constraint-span"' + tooltipAttrs('Optional implementation context. Useful when the idea depends on specific technical boundaries, platforms, or integration surfaces.', true) + '><span class="section-kicker">Technical stack</span><input id="ideationConstraintTechnicalStack" type="text" value="' + escapeAttr(constraints.technicalStack || '') + '" placeholder="TypeScript, VS Code extension host, local MCP" /></label>' +
-            '</div>' +
-          '</div>' +
-          '<div class="panel-card"' + tooltipAttrs('This shows the project-memory and SSOT context Atlas is already weaving into the next ideation pass so the board stays grounded in the current repo state.') + '>' +
-            '<p class="section-kicker">Context weaving</p>' +
-            '<div class="stat-detail">' + escapeHtml(snapshot.projectMetadataSummary || 'AtlasMind will pull SSOT context into the next run packet when project metadata is available.') + '</div>' +
-            (snapshot.contextPackets.length > 0 ? '<div class="ideation-chip-row"><span class="tag tag-good">Latest packet</span><span class="stat-detail">' + escapeHtml(snapshot.contextPackets[snapshot.contextPackets.length - 1].constraintsSummary || 'No explicit constraints') + '</span></div>' : '') +
-          '</div>' +
-          '<div class="panel-card"' + tooltipAttrs('Use these links to inspect the persisted ideation board files or jump into related project settings. The board is durable, not ephemeral.') + '>' +
-            '<div class="ideation-status-row">' +
-              '<strong>Status</strong>' +
-              '<span class="tag">Updated ' + escapeHtml(snapshot.updatedRelative) + '</span>' +
-            '</div>' +
-            '<div class="stat-detail">' + escapeHtml(state.ideationStatus) + '</div>' +
-            '<div class="ideation-chip-row">' +
-              '<button type="button" class="action-link" data-action="file" data-payload="' + escapeAttr(snapshot.boardPath) + '"' + tooltipAttrs('Open the persisted JSON source of the ideation board. Useful for auditing or inspecting the durable board state.') + '>Open board JSON</button>' +
-              '<button type="button" class="action-link" data-action="file" data-payload="' + escapeAttr(snapshot.summaryPath) + '"' + tooltipAttrs('Open the markdown summary of the ideation board. Useful for quick review or sharing outside the canvas.') + '>Open board summary</button>' +
-              '<button type="button" class="action-link" data-action="command" data-payload="atlasmind.openSettingsProject"' + tooltipAttrs('Open project settings that influence ideation context, SSOT location, and project-run behavior.') + '>Project settings</button>' +
-            '</div>' +
-          '</div>' +
+        '<textarea id="ideationPrompt" class="ideation-prompt" placeholder="' + escapeAttr(boardIsEmpty
+          ? 'Pressure-test this concept for small design agencies and suggest the fastest validation experiment'
+          : 'Challenge the riskiest assumption on the board, or add what is missing') + '">' + escapeHtml(promptValue) + '</textarea>' +
+        '<div id="ideationPromptDropzone" class="ideation-dropzone" tabindex="0">Drop files, images or links here, or paste an image, to send them with the prompt.</div>' +
+        (snapshot.promptAttachments.length > 0
+          ? '<div class="ideation-chip-row">' +
+              snapshot.promptAttachments.map(attachment => '<span class="attachment-pill">' + escapeHtml(attachment.label + ' [' + attachment.kind + ']') + '</span>').join('') +
+              '<button type="button" class="action-link" data-action="ideation-clear-attachments">Clear</button>' +
+            '</div>'
+          : '') +
+        '<div class="ideation-composer-actions">' +
+          '<button type="button" class="dashboard-button dashboard-button-solid" data-action="ideation-run" ' + (state.ideationBusy ? 'disabled' : '') + ' title="Ctrl/Cmd+Enter">' + escapeHtml(primaryActionLabel) + '</button>' +
+          voiceButton +
+          '<button type="button" class="action-link" data-action="ideation-constraints-toggle" aria-expanded="' + (state.constraintsOpen ? 'true' : 'false') + '">Constraints' + (setConstraints > 0 ? ' (' + setConstraints + ' set)' : '') + '</button>' +
         '</div>' +
+        (state.constraintsOpen
+          ? '<div class="ideation-constraint-grid">' +
+              '<label><span class="section-kicker">Budget</span><input id="ideationConstraintBudget" type="text" value="' + escapeAttr(constraints.budget || '') + '" placeholder="£10k validation budget" /></label>' +
+              '<label><span class="section-kicker">Timeline</span><input id="ideationConstraintTimeline" type="text" value="' + escapeAttr(constraints.timeline || '') + '" placeholder="6 weeks to signal" /></label>' +
+              '<label><span class="section-kicker">Team size</span><input id="ideationConstraintTeamSize" type="text" value="' + escapeAttr(constraints.teamSize || '') + '" placeholder="2 product + 1 engineer" /></label>' +
+              '<label><span class="section-kicker">Risk tolerance</span><input id="ideationConstraintRiskTolerance" type="text" value="' + escapeAttr(constraints.riskTolerance || '') + '" placeholder="Low / medium / high" /></label>' +
+              '<label class="constraint-span"><span class="section-kicker">Technical stack</span><input id="ideationConstraintTechnicalStack" type="text" value="' + escapeAttr(constraints.technicalStack || '') + '" placeholder="TypeScript, VS Code extension host, local MCP" /></label>' +
+              '<p class="stat-detail constraint-span">Boundaries Atlas reasons within. They shape what it proposes and create no cards themselves.</p>' +
+            '</div>'
+          : '') +
+        (state.ideationStatus ? '<p class="stat-detail ideation-status-line">' + escapeHtml(state.ideationStatus) + '</p>' : '') +
       '</article>';
   }
 
   function renderBoard(snapshot) {
-    const selectedLink = getSelectedLink();
     const boardView = getBoardView(snapshot);
     const viewCards = boardView.cards;
     const visibleConnections = boardView.connections;
     const lod = getBoardLod();
     const zoomPercent = Math.round(state.zoom * 100);
     const orderedPair = getOrderedSelectedCards(snapshot);
+    // Drawing controls only. Everything about *a* card — duplicate, delete,
+    // focus, send it somewhere — lives in the rail beside the card it is about,
+    // and the fifteen-button row this replaced put "Send to Project Run" next
+    // to "Zoom in".
     return '' +
-      '<article class="ideation-panel ideation-canvas-panel"' + tooltipAttrs('Stage 3 happens here: inspect, connect, rearrange, and challenge the evolving board until the idea is concrete enough to validate or execute.') + '>' +
-        '<div class="row-head">' +
-          '<div>' +
-            '<p class="section-kicker">Canvas</p>' +
-            '<h3>Shared whiteboard</h3>' +
+      '<article class="ideation-panel ideation-canvas-panel">' +
+        '<div class="ideation-toolbar">' +
+          '<div class="ideation-chip-row">' +
+            '<button type="button" class="action-link" data-action="ideation-add-card" title="A — add a card">Add card</button>' +
+            '<button type="button" class="action-link" data-action="ideation-link-toggle" ' + (orderedPair.length === 2 ? '' : 'disabled') + ' title="L — link the two selected cards, first to second">Link pair</button>' +
           '</div>' +
           '<div class="ideation-chip-row">' +
-            '<select id="ideationBoardLens" class="ideation-lens-select" title="Switch between workflow views that can both filter the board and temporarily rearrange cards for easier review.">' +
-              renderLensOption('default', 'Default view') +
-              renderLensOption('workflow-map', 'Workflow Map') +
-              renderLensOption('focus-network', 'Focus Network') +
-              renderLensOption('user-journey', 'User Journey view') +
-              renderLensOption('risks-first', 'Risks First view') +
-              renderLensOption('experiments-only', 'Experiments Only view') +
-              renderLensOption('feasibility', 'Feasibility view') +
-              renderLensOption('delivery-readiness', 'Delivery Readiness') +
+            '<select id="ideationBoardLens" class="ideation-lens-select" title="Filter or re-arrange the board for one reading.">' +
+              renderLensOption('default', 'All cards') +
+              renderLensOption('workflow-map', 'Workflow map') +
+              renderLensOption('focus-network', 'Selected card’s network') +
+              renderLensOption('user-journey', 'User journey') +
+              renderLensOption('risks-first', 'Risks first') +
+              renderLensOption('experiments-only', 'Experiments only') +
+              renderLensOption('feasibility', 'Feasibility') +
+              renderLensOption('delivery-readiness', 'Delivery readiness') +
               renderLensOption('archived', 'Archived') +
             '</select>' +
-            '<select id="ideationRelationFilter" class="ideation-lens-select" title="Show all relationships or isolate a single relation type so overlapping links are easier to inspect.">' +
+            '<select id="ideationRelationFilter" class="ideation-lens-select" title="Show one kind of link at a time.">' +
               renderRelationFilterOption('all', 'All links') +
-              renderRelationFilterOption('supports', 'Supports only') +
-              renderRelationFilterOption('causal', 'Causal only') +
-              renderRelationFilterOption('dependency', 'Dependency only') +
-              renderRelationFilterOption('contradiction', 'Contradiction only') +
-              renderRelationFilterOption('opportunity', 'Opportunity only') +
-              renderRelationFilterOption('directional', 'Directional only') +
-              renderRelationFilterOption('bidirectional', 'Bi-directional only') +
+              renderRelationFilterOption('supports', 'Supports') +
+              renderRelationFilterOption('causal', 'Causal') +
+              renderRelationFilterOption('dependency', 'Dependency') +
+              renderRelationFilterOption('contradiction', 'Contradiction') +
+              renderRelationFilterOption('opportunity', 'Opportunity') +
+              renderRelationFilterOption('directional', 'Directional') +
+              renderRelationFilterOption('bidirectional', 'Bi-directional') +
             '</select>' +
-            '<button type="button" class="action-link" data-action="ideation-add-card"' + tooltipAttrs('Add a manual card to the board when you want to capture a thought directly instead of asking Atlas to generate it.') + '>Add Card</button>' +
-            '<button type="button" class="action-link" data-action="ideation-duplicate-card" ' + (state.selectedCardId ? '' : 'disabled') + tooltipAttrs('Duplicate the selected card when you want to branch an idea into a variant, test, or alternative framing.') + '>Duplicate</button>' +
-            '<button type="button" class="action-link" data-action="ideation-link-toggle" ' + (orderedPair.length === 2 ? '' : 'disabled') + tooltipAttrs('Link the last two clicked cards in click order. Use keyboard shortcuts like L, S, D, C, O, or X to choose the relation type directly.') + '>Link Pair</button>' +
-            '<button type="button" class="action-link" data-action="ideation-toggle-link-layout"' + tooltipAttrs('Toggle relationship rendering between angular routing and spline routing so dense boards can be read more clearly.') + '>' + (state.linkPathMode === 'angular' ? 'Angular Links' : 'Spline Links') + '</button>' +
-            '<button type="button" class="action-link" data-action="ideation-set-focus" ' + (state.selectedCardId ? '' : 'disabled') + tooltipAttrs('Mark the selected card as the current center of attention. Atlas uses focus when proposing follow-up cards and relationships.') + '>Set Focus</button>' +
-            '<button type="button" class="action-link" data-action="ideation-promote-card" ' + (state.selectedCardId ? '' : 'disabled') + tooltipAttrs('Stage 4: send the selected card into Project Run Center when the idea is concrete enough to plan or execute.') + '>Send to Project Run</button>' +
-            '<button type="button" class="action-link" data-action="ideation-clear-card-pair" ' + (orderedPair.length > 1 ? '' : 'disabled') + tooltipAttrs('Reduce the ordered card pair back to just the primary selected card.') + '>Clear Pair</button>' +
-            '<button type="button" class="action-link" data-action="ideation-delete-link" ' + (selectedLink ? '' : 'disabled') + tooltipAttrs('Delete the currently selected relationship line from the board.') + '>Delete Link</button>' +
-            '<button type="button" class="action-link" data-action="ideation-zoom-out" aria-label="Zoom out" title="Zoom the board out to inspect more of the canvas at once.">-</button>' +
-            '<button type="button" class="action-link" data-action="ideation-fit-board" aria-label="Fit board" title="Fit the visible board into the current viewport.">' + zoomPercent + '%</button>' +
-            '<button type="button" class="action-link" data-action="ideation-zoom-in" aria-label="Zoom in" title="Zoom the board in for tighter card editing and link inspection.">+</button>' +
-            '<button type="button" class="action-link" data-action="ideation-toggle-canvas-focus" aria-label="' + (state.canvasFullscreen ? 'Return to normal board view' : 'Expand canvas view') + '" title="' + escapeAttr(state.canvasFullscreen ? 'Exit the immersive full-viewport board view.' : 'Expand the canvas into an immersive full-viewport board view.') + '"><span class="action-icon" aria-hidden="true">' + (state.canvasFullscreen ? '⤡' : '⤢') + '</span>' + (state.canvasFullscreen ? 'Return to Normal View' : 'Expand to Full View') + '</button>' +
-            '<button type="button" class="action-link" data-action="ideation-delete-card" ' + (state.selectedCardId ? '' : 'disabled') + tooltipAttrs('Delete the selected card and its direct links from the board.') + '>Delete</button>' +
+            '<button type="button" class="action-link" data-action="ideation-zoom-out" aria-label="Zoom out" title="Ctrl/Cmd −">−</button>' +
+            '<button type="button" class="action-link" data-action="ideation-fit-board" aria-label="Fit board" title="Ctrl/Cmd 0 — fit the board">' + zoomPercent + '%</button>' +
+            '<button type="button" class="action-link" data-action="ideation-zoom-in" aria-label="Zoom in" title="Ctrl/Cmd +">+</button>' +
+            '<button type="button" class="action-link" data-action="ideation-shortcuts-toggle" aria-expanded="' + (state.shortcutsOpen ? 'true' : 'false') + '" aria-label="Keyboard shortcuts" title="Keyboard shortcuts">?</button>' +
           '</div>' +
         '</div>' +
+        (state.shortcutsOpen ? renderShortcuts() : '') +
         '<div class="ideation-board-frame">' +
           '<div class="ideation-board-overlay-bar">' +
             '<div class="ideation-board-view-summary">' + escapeHtml(boardView.summary) + '</div>' +
@@ -1140,17 +1108,49 @@
           '<div class="ideation-edge-glow ideation-edge-glow-left" data-edge="left"></div>' +
           '<div id="ideationBoardStage" class="ideation-board-stage ideation-board-stage-' + lod + (isProjectedLens(state.boardLens) ? ' ideation-board-projected' : '') + '" tabindex="0">' +
             '<div id="ideationBoardWorld" class="ideation-board-world" style="transform: translate(calc(-50% + ' + state.viewportX + 'px), calc(-50% + ' + state.viewportY + 'px)) scale(' + state.zoom + ');">' +
-              renderBoardLanes() +
               '<svg class="ideation-connections" viewBox="0 0 ' + BOARD_WORLD_WIDTH + ' ' + BOARD_WORLD_HEIGHT + '" preserveAspectRatio="none" aria-hidden="true">' + renderIdeationConnections({ cards: viewCards, connections: visibleConnections }, lod) + '</svg>' +
               (viewCards.length > 0
                 ? viewCards.map(card => renderIdeationCard(card, snapshot.focusCardId, lod)).join('')
-                : '<div class="ideation-empty-state"><div><strong>Start with one sharp note</strong><p class="section-copy">Select a card twice to edit it inline. Drag empty canvas space to pan, or drop and paste media to create attachment cards instantly.</p></div></div>') +
+                // Neutral on purpose. The rail says how to begin; a second
+                // "start here" on the canvas was one of two competing starts.
+                : '<div class="ideation-empty-state"><div><strong>Nothing on the board yet</strong></div></div>') +
             '</div>' +
           '</div>' +
         '</div>' +
-        '<div class="ideation-shortcut-strip">' + renderCanvasShortcutStrip(snapshot) + '</div>' +
-        '<div class="ideation-hint">Drag cards by the header. The Views menu can temporarily re-layout the workflow so you can inspect readiness, risks, experiments, or the selected card network more clearly. Click a card to fade unrelated cards and links, making its direct network easier to review. Click cards in sequence to build an ordered pair, then press L to link them from first click to second click. Use S for supports, D for dependency, C for causal, O for opportunity, and X for contradiction. Arrowheads indicate flow toward the receiving card; bidirectional links show markers at both ends. Use the relation filter and the legend to isolate or decode each line family. Press Enter or E to edit the selected card, A to add a card, Delete to remove the selected card or link, hold Ctrl/Cmd and use the mouse wheel to zoom, use Ctrl/Cmd + or Ctrl/Cmd - to step zoom, Ctrl/Cmd 0 to fit the active board, press F to expand, and Escape to collapse or clear a pair. Drop files, images, or links onto the board to create a media card, or target the selected card before you drop.</div>' +
       '</article>';
+  }
+
+  /**
+   * The keyboard, on request.
+   *
+   * This was a 180-word paragraph under the board plus a strip of chips
+   * repeating it. A shortcut list is reference material: read once, looked up
+   * occasionally, and in the way the rest of the time.
+   */
+  function renderShortcuts() {
+    const rows = [
+      ['Click', 'select a card; click two to make an ordered pair'],
+      ['L', 'link the pair, first to second, with an inferred relation'],
+      ['S / D / C / O / X', 'link as supports, dependency, causal, opportunity, contradiction'],
+      ['Enter or E', 'edit the selected card inline'],
+      ['A', 'add a card'],
+      ['Delete', 'remove the selected card or link'],
+      ['Esc', 'clear the pair, or leave full screen'],
+      ['F', 'full screen'],
+      ['Ctrl/Cmd + wheel, + / −, 0', 'zoom, step zoom, fit'],
+      ['Drag empty space', 'pan'],
+      ['Drop or paste', 'a file, image or link becomes a card — onto the selected card to attach it there'],
+    ];
+    return '' +
+      '<div class="ideation-shortcuts" role="note">' +
+        '<div class="ideation-shortcut-grid">' +
+          rows.map(row => '<div class="ideation-shortcut-row"><kbd>' + escapeHtml(row[0]) + '</kbd><span class="stat-detail">' + escapeHtml(row[1]) + '</span></div>').join('') +
+        '</div>' +
+        '<div class="ideation-chip-row">' +
+          '<span class="stat-detail">Link routing:</span>' +
+          '<button type="button" class="action-link" data-action="ideation-toggle-link-layout">' + (state.linkPathMode === 'angular' ? 'angular — switch to spline' : 'spline — switch to angular') + '</button>' +
+        '</div>' +
+      '</div>';
   }
 
   function renderRelationLegend() {
@@ -1169,26 +1169,6 @@
             '<span>' + escapeHtml(item.relation) + '</span>' +
           '</span>'
         ).join('') +
-      '</div>';
-  }
-
-  function renderBoardLanes() {
-    const lanes = [
-      { label: 'Inputs', left: 420, width: 360 },
-      { label: 'Context', left: 860, width: 360 },
-      { label: 'Decision', left: 1300, width: 360 },
-      { label: 'Constraints', left: 1740, width: 360 },
-      { label: 'Actions / Risks', left: 2180, width: 420 },
-      { label: 'Outputs', left: 2700, width: 320 },
-    ];
-    return '' +
-      '<div class="ideation-board-lanes" aria-hidden="true">' +
-        lanes.map(lane => '' +
-          '<div class="ideation-board-lane" style="left:' + lane.left + 'px;width:' + lane.width + 'px">' +
-            '<span class="ideation-board-lane-label">' + escapeHtml(lane.label) + '</span>' +
-          '</div>'
-        ).join('') +
-        '<div class="ideation-board-flow-arrow">Direction of travel</div>' +
       '</div>';
   }
 
@@ -1227,119 +1207,157 @@
     }
   }
 
-  function renderInspector(snapshot, selectedCard, selectedLink) {
-    if (selectedLink) {
-      const fromCard = snapshot.cards.find(card => card.id === selectedLink.fromCardId);
-      const toCard = snapshot.cards.find(card => card.id === selectedLink.toCardId);
-      return '' +
-        '<article class="panel-card ideation-inspector">' +
-          '<div class="row-head">' +
-            '<div>' +
-              '<p class="section-kicker">Inspector</p>' +
-              '<h3>Edit link</h3>' +
-            '</div>' +
-            '<div class="ideation-inspector-actions"><button type="button" class="action-link" data-action="ideation-delete-link">Delete link</button></div>' +
-          '</div>' +
-          '<div class="ideation-chip-row">' +
-            '<span class="tag">' + escapeHtml(fromCard?.title || selectedLink.fromCardId) + '</span>' +
-            '<span class="tag">to</span>' +
-            '<span class="tag">' + escapeHtml(toCard?.title || selectedLink.toCardId) + '</span>' +
-          '</div>' +
-          '<label class="section-kicker" for="ideationLinkRelationInput">Relation</label>' +
-          '<select id="ideationLinkRelationInput">' +
-            ['supports', 'causal', 'dependency', 'contradiction', 'opportunity'].map(relation => '<option value="' + relation + '" ' + (selectedLink.relation === relation ? 'selected' : '') + '>' + escapeHtml(relation) + '</option>').join('') +
-          '</select>' +
-          '<label class="section-kicker" for="ideationLinkLabelInput">Relationship label</label>' +
-          '<input id="ideationLinkLabelInput" type="text" value="' + escapeAttr(selectedLink.label) + '" />' +
-          '<label class="section-kicker" for="ideationLinkStyleInput">Line style</label>' +
-          '<select id="ideationLinkStyleInput">' +
-            ['dotted', 'solid'].map(style => '<option value="' + style + '" ' + (selectedLink.style === style ? 'selected' : '') + '>' + escapeHtml(style) + '</option>').join('') +
-          '</select>' +
-          '<label class="section-kicker" for="ideationLinkDirectionInput">Arrow direction</label>' +
-          '<select id="ideationLinkDirectionInput">' +
-            [
-              { value: 'none', label: 'No arrow' },
-              { value: 'forward', label: 'From source to target' },
-              { value: 'reverse', label: 'From target to source' },
-              { value: 'both', label: 'Both directions' },
-            ].map(option => '<option value="' + option.value + '" ' + (selectedLink.direction === option.value ? 'selected' : '') + '>' + escapeHtml(option.label) + '</option>').join('') +
-          '</select>' +
-        '</article>';
-    }
+  /** The link editor, in the rail, when a link is selected. */
+  function renderLinkEditor(snapshot, selectedLink) {
+    const fromCard = snapshot.cards.find(card => card.id === selectedLink.fromCardId);
+    const toCard = snapshot.cards.find(card => card.id === selectedLink.toCardId);
     return '' +
-      '<article class="panel-card ideation-inspector">' +
+      '<article class="ideation-panel ideation-inspector">' +
         '<div class="row-head">' +
           '<div>' +
-            '<p class="section-kicker">Inspector</p>' +
-            '<h3>' + (selectedCard ? escapeHtml(selectedCard.title) : 'Select a card') + '</h3>' +
+            '<p class="section-kicker">Link</p>' +
+            '<h3>' + escapeHtml(fromCard?.title || selectedLink.fromCardId) + ' → ' + escapeHtml(toCard?.title || selectedLink.toCardId) + '</h3>' +
           '</div>' +
-          (selectedCard
-            ? '<div class="ideation-inspector-actions">' +
-                '<button type="button" class="action-link" data-action="ideation-edit-card" data-payload="' + escapeAttr(selectedCard.id) + '">Inline edit</button>' +
+          '<button type="button" class="action-link danger" data-action="ideation-delete-link">Delete link</button>' +
+        '</div>' +
+        '<label class="section-kicker" for="ideationLinkRelationInput">Relation</label>' +
+        '<select id="ideationLinkRelationInput">' +
+          ['supports', 'causal', 'dependency', 'contradiction', 'opportunity'].map(relation => '<option value="' + relation + '" ' + (selectedLink.relation === relation ? 'selected' : '') + '>' + escapeHtml(relation) + '</option>').join('') +
+        '</select>' +
+        '<label class="section-kicker" for="ideationLinkLabelInput">Label</label>' +
+        '<input id="ideationLinkLabelInput" type="text" value="' + escapeAttr(selectedLink.label) + '" />' +
+        '<label class="section-kicker" for="ideationLinkStyleInput">Line</label>' +
+        '<select id="ideationLinkStyleInput">' +
+          ['dotted', 'solid'].map(style => '<option value="' + style + '" ' + (selectedLink.style === style ? 'selected' : '') + '>' + escapeHtml(style) + '</option>').join('') +
+        '</select>' +
+        '<label class="section-kicker" for="ideationLinkDirectionInput">Arrow</label>' +
+        '<select id="ideationLinkDirectionInput">' +
+          [
+            { value: 'none', label: 'No arrow' },
+            { value: 'forward', label: 'From source to target' },
+            { value: 'reverse', label: 'From target to source' },
+            { value: 'both', label: 'Both directions' },
+          ].map(option => '<option value="' + option.value + '" ' + (selectedLink.direction === option.value ? 'selected' : '') + '>' + escapeHtml(option.label) + '</option>').join('') +
+        '</select>' +
+      '</article>';
+  }
+
+  /**
+   * The card, in the rail, beside the board it is on.
+   *
+   * Essentials first — title, notes, kind and what the kind commits to — then
+   * the one way off the board, then everything else behind *More*. Fourteen
+   * sections used to render for every card, every time; confidence sliders and
+   * genealogy are things somebody wants occasionally, not on every click.
+   */
+  function renderInspector(snapshot, selectedCard) {
+    const orderedPair = getOrderedSelectedCards(snapshot);
+    const partner = orderedPair.length === 2 ? snapshot.cards.find(card => card.id === orderedPair[1]) : undefined;
+    return '' +
+      '<article class="ideation-panel ideation-inspector">' +
+        '<div class="row-head">' +
+          '<div>' +
+            '<p class="section-kicker">' + escapeHtml(selectedCard.kind) + (snapshot.focusCardId === selectedCard.id ? ' · focus' : '') + '</p>' +
+            '<h3>' + escapeHtml(selectedCard.title) + '</h3>' +
+          '</div>' +
+          '<div class="ideation-inspector-actions">' +
+            '<button type="button" class="action-link" data-action="ideation-edit-card" data-payload="' + escapeAttr(selectedCard.id) + '" title="Enter — edit on the board">Edit on board</button>' +
+            '<button type="button" class="action-link" data-action="ideation-duplicate-card">Duplicate</button>' +
+            (snapshot.focusCardId === selectedCard.id ? '' : '<button type="button" class="action-link" data-action="ideation-set-focus" title="Atlas builds on the focused card first.">Focus</button>') +
+            (selectedCard.archivedAt
+              ? '<button type="button" class="action-link" data-action="ideation-unarchive-card">Restore</button>'
+              : '<button type="button" class="action-link" data-action="ideation-archive-card">Archive</button>') +
+            '<button type="button" class="action-link danger" data-action="ideation-delete-card" title="Delete">Delete</button>' +
+          '</div>' +
+        '</div>' +
+        (partner
+          ? '<div class="ideation-pair-row"><span class="stat-detail">Paired with <strong>' + escapeHtml(partner.title) + '</strong></span>' +
+              '<button type="button" class="action-link" data-action="ideation-link-toggle" title="L">Link them</button>' +
+              '<button type="button" class="action-link" data-action="ideation-clear-card-pair" title="Esc">Clear pair</button></div>'
+          : '') +
+        '<label class="section-kicker" for="ideationTitleInput">Title</label>' +
+        '<input id="ideationTitleInput" type="text" value="' + escapeAttr(selectedCard.title) + '" />' +
+        '<label class="section-kicker" for="ideationBodyInput">Notes</label>' +
+        '<textarea id="ideationBodyInput">' + escapeHtml(selectedCard.body) + '</textarea>' +
+        '<label class="section-kicker" for="ideationTypeInput">Kind</label>' +
+        '<select id="ideationTypeInput">' +
+          ['idea', 'problem', 'experiment', 'user-insight', 'risk', 'requirement', 'evidence', 'atlas-response', 'attachment']
+            .map(kind => '<option value="' + kind + '" ' + (selectedCard.kind === kind ? 'selected' : '') + '>' + escapeHtml(kind) + '</option>').join('') +
+        '</select>' +
+        '<p class="ideation-kind-consequence">' + escapeHtml(describeKindConsequence(selectedCard.kind)) + '</p>' +
+        renderValidationWarnings(selectedCard) +
+        renderExit(snapshot, selectedCard) +
+        '<button type="button" class="action-link ideation-more-toggle" data-action="ideation-inspector-more" aria-expanded="' + (state.inspectorMore ? 'true' : 'false') + '">' + (state.inspectorMore ? 'Less' : 'More — colour, scores, tags, memory, history') + '</button>' +
+        (state.inspectorMore
+          ? '<div class="ideation-inspector-more">' +
+              '<div class="ideation-chip-row">' +
                 (['idea', 'problem', 'experiment', 'risk'].includes(selectedCard.kind)
-                  ? '<button type="button" class="action-link" data-action="ideation-generate-validation">Validation Brief</button>'
+                  ? '<button type="button" class="action-link" data-action="ideation-generate-validation" title="Ask Atlas for a validation brief card for this.">Validation brief</button>' +
+                    '<button type="button" class="action-link" data-action="ideation-seed-validation" title="Put a validation prompt for this card into the composer.">Draft validation prompt</button>'
                   : '') +
                 (selectedCard.kind === 'experiment'
                   ? '<button type="button" class="action-link" data-action="ideation-generate-checkpoint">Checkpoint</button>'
                   : '') +
                 (selectedCard.media.length > 0
-                  ? '<button type="button" class="action-link" data-action="ideation-extract-evidence">Extract Evidence</button>'
+                  ? '<button type="button" class="action-link" data-action="ideation-extract-evidence">Extract evidence</button>'
                   : '') +
-                (selectedCard.archivedAt
-                  ? '<button type="button" class="action-link" data-action="ideation-unarchive-card">Restore</button>'
-                  : '<button type="button" class="action-link" data-action="ideation-archive-card">Archive</button>') +
-              '</div>'
-            : '') +
-        '</div>' +
-        (selectedCard
-          ? '' +
-            '<label class="section-kicker" for="ideationTitleInput">Title</label>' +
-            '<input id="ideationTitleInput" type="text" value="' + escapeAttr(selectedCard.title) + '" />' +
-            '<label class="section-kicker" for="ideationBodyInput">Notes</label>' +
-            '<textarea id="ideationBodyInput">' + escapeHtml(selectedCard.body) + '</textarea>' +
-            '<label class="section-kicker" for="ideationTypeInput">Type</label>' +
-            '<select id="ideationTypeInput">' +
-              ['idea', 'problem', 'experiment', 'user-insight', 'risk', 'requirement', 'evidence', 'atlas-response', 'attachment']
-                .map(kind => '<option value="' + kind + '" ' + (selectedCard.kind === kind ? 'selected' : '') + '>' + escapeHtml(kind) + '</option>').join('') +
-            '</select>' +
-            '<p class="ideation-kind-consequence">' + escapeHtml(describeKindConsequence(selectedCard.kind)) + '</p>' +
-            '<div class="ideation-validation-block">' + renderCardTemplate(selectedCard) + renderValidationWarnings(selectedCard) + '</div>' +
-            '<label class="section-kicker" for="ideationColorInput">Color</label>' +
-            '<select id="ideationColorInput">' +
-              ['sun', 'sea', 'mint', 'rose', 'sand', 'storm']
-                .map(color => '<option value="' + color + '" ' + (selectedCard.color === color ? 'selected' : '') + '>' + escapeHtml(color) + '</option>').join('') +
-            '</select>' +
-            '<div class="ideation-score-grid">' +
-              renderScoreField('Confidence', 'ideationConfidenceInput', selectedCard.confidence) +
-              renderScoreField('Evidence', 'ideationEvidenceStrengthInput', selectedCard.evidenceStrength) +
-              renderScoreField('Risk', 'ideationRiskScoreInput', selectedCard.riskScore) +
-              renderScoreField('Validate Cost', 'ideationCostToValidateInput', selectedCard.costToValidate) +
-            '</div>' +
-            '<label class="section-kicker" for="ideationTagsInput">Tags</label>' +
-            '<input id="ideationTagsInput" type="text" value="' + escapeAttr((selectedCard.tags || []).join(', ')) + '" placeholder="analytics, transcript, hypothesis" />' +
-            renderWorkHandoff(selectedCard) +
-            '<div class="panel-card ideation-sync-card"><p class="section-kicker">Project memory sync</p>' + renderSyncTargets(selectedCard.syncTargets || []) + '</div>' +
-            '<div class="ideation-chip-row">' +
-              '<span class="tag">' + escapeHtml(selectedCard.author) + '</span>' +
-              '<span class="tag">' + escapeHtml(selectedCard.kind) + '</span>' +
-              '<span class="tag">rev ' + escapeHtml(String(selectedCard.revision || 1)) + '</span>' +
-              (snapshot.focusCardId === selectedCard.id ? '<span class="tag tag-good">focus</span>' : '') +
-            '</div>' +
-            '<div class="panel-card"><p class="section-kicker">Idea genealogy</p>' + renderGenealogy(snapshot, selectedCard) + '</div>' +
-            '<div class="ideation-chip-row">' +
-              (selectedCard.media.length > 0
-                ? selectedCard.media.map(media => '<span class="file-pill">' + escapeHtml(media.label) + '</span>').join('')
-                : '<span class="muted">No media attached to this card.</span>') +
-            '</div>' +
-            '<div class="panel-card ideation-sync-card">' +
-              '<p class="section-kicker">Execution handoff</p>' +
-              '<p class="section-copy">Send this card straight into Project Run Center to generate a runnable plan, then feed the run learnings back into ideation when execution finishes.</p>' +
+              '</div>' +
+              '<label class="section-kicker" for="ideationColorInput">Colour</label>' +
+              '<select id="ideationColorInput">' +
+                ['sun', 'sea', 'mint', 'rose', 'sand', 'storm']
+                  .map(color => '<option value="' + color + '" ' + (selectedCard.color === color ? 'selected' : '') + '>' + escapeHtml(color) + '</option>').join('') +
+              '</select>' +
+              '<div class="ideation-score-grid">' +
+                renderScoreField('Confidence', 'ideationConfidenceInput', selectedCard.confidence) +
+                renderScoreField('Evidence', 'ideationEvidenceStrengthInput', selectedCard.evidenceStrength) +
+                renderScoreField('Risk', 'ideationRiskScoreInput', selectedCard.riskScore) +
+                renderScoreField('Validate cost', 'ideationCostToValidateInput', selectedCard.costToValidate) +
+              '</div>' +
+              '<label class="section-kicker" for="ideationTagsInput">Tags</label>' +
+              '<input id="ideationTagsInput" type="text" value="' + escapeAttr((selectedCard.tags || []).join(', ')) + '" placeholder="analytics, transcript, hypothesis" />' +
+              renderCardTemplate(selectedCard) +
+              '<div class="panel-card ideation-sync-card"><p class="section-kicker">Project memory sync</p>' + renderSyncTargets(selectedCard.syncTargets || []) + '</div>' +
+              '<div class="panel-card"><p class="section-kicker">Idea genealogy</p>' + renderGenealogy(snapshot, selectedCard) + '</div>' +
               '<div class="ideation-chip-row">' +
-                '<button type="button" class="action-link" data-action="ideation-promote-card">Send to Project Run</button>' +
+                '<span class="tag">' + escapeHtml(selectedCard.author) + '</span>' +
+                '<span class="tag">rev ' + escapeHtml(String(selectedCard.revision || 1)) + '</span>' +
+                (selectedCard.media.length > 0
+                  ? selectedCard.media.map(media => '<span class="file-pill">' + escapeHtml(media.label) + '</span>').join('')
+                  : '') +
               '</div>' +
             '</div>'
-          : '<div class="dashboard-empty"><div><strong>No card selected</strong><p class="section-copy">Select a card from the board to inspect it here.</p></div></div>') +
+          : '') +
       '</article>';
+  }
+
+  /**
+   * The one way off the board.
+   *
+   * There were three: "Send to Project Run" in the canvas toolbar, the same
+   * again in the inspector, and "Add to roadmap" in a third card — with the
+   * difference between them never stated. This is the one place, it says what
+   * each destination is for, and the board's readiness reading sits inside it,
+   * because "before you raise it" belongs where you raise it.
+   */
+  function renderExit(snapshot, card) {
+    const readiness = snapshot.readiness;
+    const readinessLine = readiness
+      ? '<div class="ideation-readiness-line">' +
+          '<span class="tag ' + (readiness.state === 'argued' ? 'tag-good' : readiness.state === 'unexamined' ? '' : 'tag-warn') + '">' + escapeHtml(readiness.summary) + '</span>' +
+          (readiness.observations.length > 0
+            ? '<button type="button" class="action-link" data-action="ideation-readiness-toggle" aria-expanded="' + (state.readinessOpen ? 'true' : 'false') + '">' + (state.readinessOpen ? 'Hide' : 'Why') + '</button>'
+            : '') +
+        '</div>' +
+        (state.readinessOpen ? renderReadiness(snapshot) : '')
+      : '';
+    return '' +
+      '<div class="ideation-exit">' +
+        renderWorkHandoff(card) +
+        readinessLine +
+        (DERIVABLE_KINDS.indexOf(card.kind) === -1
+          ? ''
+          : '<p class="stat-detail">Or <button type="button" class="action-link inline" data-action="ideation-promote-card">send it to Project Run</button> to plan and execute it now, without a roadmap entry. Learnings come back to this board when the run finishes.</p>') +
+      '</div>';
   }
 
   /**
@@ -1360,56 +1378,50 @@
       '</div>';
   }
 
-  function renderFeedback(snapshot) {
+  /** The drawer's first tab: what Atlas said last, and what it offered next. */
+  function renderLatestPass(snapshot) {
+    const response = state.ideationResponse || snapshot.lastAtlasResponse;
     return '' +
-      '<article class="panel-card"' + tooltipAttrs('This is the reflection and next-step area. Review what Atlas concluded, adopt the next prompts or next cards, then decide whether the board is ready for another loop or for execution.') + '>' +
-        '<div class="row-head">' +
-          '<div>' +
-            '<p class="section-kicker">Atlas feedback</p>' +
-            '<h3>Latest facilitation pass</h3>' +
-          '</div>' +
+      '<div class="row-head">' +
+        '<p class="section-kicker">Latest pass</p>' +
+        '<button type="button" class="action-link" data-action="ideation-speak-response" ' + (response ? '' : 'disabled') + '>Read aloud</button>' +
+      '</div>' +
+      '<div class="ideation-response-box">' + escapeHtml(response || 'Atlas has not run on this board yet.').replace(/\n/g, '<br/>') + '</div>' +
+      renderQuickReplies() +
+      (snapshot.nextPrompts.length > 0
+        ? '<p class="section-kicker">Next prompts</p>' +
           '<div class="ideation-chip-row">' +
-            '<button type="button" class="action-link" data-action="ideation-speak-response" ' + (state.ideationResponse || snapshot.lastAtlasResponse ? '' : 'disabled') + tooltipAttrs('Read the latest Atlas facilitation response aloud so you can review it without staring at the panel.') + '>Narrate</button>' +
-            '<button type="button" class="action-link" data-action="command" data-payload="atlasmind.openVoicePanel"' + tooltipAttrs('Open the Voice panel for richer speech workflows related to this ideation session.') + '>Voice panel</button>' +
-            '<button type="button" class="action-link" data-action="command" data-payload="atlasmind.openVisionPanel"' + tooltipAttrs('Open the Vision panel if you need richer visual artifact analysis outside the ideation board itself.') + '>Vision panel</button>' +
-            '<button type="button" class="action-link" data-action="command" data-payload="atlasmind.openWebsiteStudio"' + tooltipAttrs('Open Website Studio to take a website idea from client brief to sitemap, wireframes, UI system, platform choice and automations.') + '>Website studio</button>' +
-          '</div>' +
-        '</div>' +
-        '<div class="ideation-response-box">' + escapeHtml(state.ideationResponse || snapshot.lastAtlasResponse || 'Atlas feedback will appear here after you run the ideation loop.').replace(/\n/g, '<br/>') + '</div>' +
-        renderQuickReplies() +
-        '<div class="panel-card">' +
-          '<p class="section-kicker">Next prompts</p>' +
-          '<div class="ideation-chip-row">' +
-            (snapshot.nextPrompts.length > 0
-              ? snapshot.nextPrompts.map(prompt => '<button type="button" class="ideation-chip" data-action="ideation-prompt-chip" data-payload="' + escapeAttr(prompt) + '"' + tooltipAttrs('Click to copy this suggested follow-up prompt back into the composer for the next ideation pass.') + '>' + escapeHtml(prompt) + '</button>').join('')
-              : '<span class="muted">Atlas will queue prompts here after the first pass.</span>') +
-          '</div>' +
-        '</div>' +
-        '<div class="panel-card">' +
-          '<p class="section-kicker">Next cards</p>' +
-          (Array.isArray(snapshot.nextCards) && snapshot.nextCards.length > 0
-            ? '<div class="ideation-analytics-suggestion-grid">' + snapshot.nextCards.map((card, index) =>
-                '<button type="button" class="ideation-analytics-suggestion" data-action="ideation-insert-next-card" data-payload="' + escapeAttr(String(index)) + '"' + tooltipAttrs('Insert this suggested missing card directly into the canvas and link it into the current board.') + '>' +
-                  '<span class="tag">' + escapeHtml(card.kind) + '</span>' +
-                  '<strong>' + escapeHtml(card.title) + '</strong>' +
-                  '<span class="section-copy">' + escapeHtml(card.rationale) + '</span>' +
-                '</button>'
-              ).join('') + '</div>'
-            : '<span class="muted">Atlas will suggest missing card types here when the latest facilitation pass leaves obvious gaps.</span>') +
-        '</div>' +
-        '<div class="panel-card">' +
-          '<p class="section-kicker">Evolution log</p>' +
+            snapshot.nextPrompts.map(prompt => '<button type="button" class="ideation-chip" data-action="ideation-prompt-chip" data-payload="' + escapeAttr(prompt) + '" title="Put this in the composer">' + escapeHtml(prompt) + '</button>').join('') +
+          '</div>'
+        : '') +
+      (Array.isArray(snapshot.nextCards) && snapshot.nextCards.length > 0
+        ? '<p class="section-kicker">Cards Atlas thinks are missing</p>' +
+          '<div class="ideation-analytics-suggestion-grid">' + snapshot.nextCards.map((card, index) =>
+            '<button type="button" class="ideation-analytics-suggestion" data-action="ideation-insert-next-card" data-payload="' + escapeAttr(String(index)) + '" title="Add this card and link it in">' +
+              '<span class="tag">' + escapeHtml(card.kind) + '</span>' +
+              '<strong>' + escapeHtml(card.title) + '</strong>' +
+              '<span class="section-copy">' + escapeHtml(card.rationale) + '</span>' +
+            '</button>').join('') + '</div>'
+        : '');
+  }
+
+  /** The drawer's second tab: every pass, and the conversation behind them. */
+  function renderHistory(snapshot) {
+    return '' +
+      '<div class="ideation-drawer-columns">' +
+        '<div>' +
+          '<p class="section-kicker">Passes</p>' +
           '<div class="ideation-history-list">' +
             (snapshot.runs.length > 0
-              ? snapshot.runs.slice(-5).reverse().map(run => '<div class="panel-card"><div class="row-head"><strong>' + escapeHtml(run.deltaSummary) + '</strong><span class="list-meta">' + escapeHtml(relativeLabel(run.createdAt)) + '</span></div><div class="stat-detail">' + escapeHtml(run.prompt) + '</div></div>').join('')
-              : '<div class="dashboard-empty"><div><strong>No evolution runs yet</strong><p class="section-copy">Each Atlas ideation pass will store a context packet and delta summary here.</p></div></div>') +
+              ? snapshot.runs.slice(-8).reverse().map(run => '<div class="panel-card"><div class="row-head"><strong>' + escapeHtml(run.deltaSummary) + '</strong><span class="list-meta">' + escapeHtml(relativeLabel(run.createdAt)) + '</span></div><div class="stat-detail">' + escapeHtml(run.prompt) + '</div></div>').join('')
+              : '<p class="stat-detail">No passes yet.</p>') +
           '</div>' +
         '</div>' +
-        '<div class="panel-card">' +
+        '<div>' +
           '<p class="section-kicker">Conversation</p>' +
           '<div class="ideation-history-list">' +
             (snapshot.history.length > 0
-              ? snapshot.history.slice(-6).reverse().map(entry => '' +
+              ? snapshot.history.slice(-8).reverse().map(entry => '' +
                 '<div class="panel-card">' +
                   '<div class="row-head">' +
                     '<strong>' + escapeHtml(entry.role === 'atlas' ? 'Atlas' : 'You') + '</strong>' +
@@ -1417,15 +1429,10 @@
                   '</div>' +
                   '<div class="stat-detail">' + escapeHtml(entry.content) + '</div>' +
                 '</div>').join('')
-              : '<div class="dashboard-empty"><div><strong>No ideation turns yet</strong><p class="section-copy">The conversation history appears here after the first Atlas pass.</p></div></div>') +
+              : '<p class="stat-detail">Nothing said yet.</p>') +
           '</div>' +
         '</div>' +
-      '</article>';
-  }
-
-  function renderStat(label, value, detail, tone) {
-    var dot = tone ? '<span class="pill-dot tone-' + escapeAttr(tone) + '"></span>' : '';
-    return '<article class="ideation-stat"><p class="card-kicker">' + dot + escapeHtml(label) + '</p><strong>' + escapeHtml(value) + '</strong><div class="stat-detail">' + escapeHtml(detail) + '</div></article>';
+      '</div>';
   }
 
   function renderAnalytics(snapshot) {
@@ -1442,15 +1449,10 @@
     }
 
     return '' +
-      '<article class="panel-card ideation-analytics-panel"' + tooltipAttrs('Use meta-thinking to spot bias, missing evidence, stale threads, and risky confidence gaps before sending the idea into execution.') + '>' +
+      '<div class="ideation-analytics-panel">' +
         '<div class="row-head">' +
-          '<div>' +
-            '<p class="section-kicker">Meta-thinking</p>' +
-            '<h3>Board analytics</h3>' +
-          '</div>' +
-          '<div class="ideation-chip-row">' +
-            '<button type="button" class="action-link dashboard-button-solid" data-action="ideation-run-deep-analysis" ' + (state.ideationBusy ? 'disabled' : '') + tooltipAttrs('Run a deeper review of the board to surface bias, blind spots, stale cards, and missing action paths.') + '>Deep Analysis</button>' +
-          '</div>' +
+          '<p class="section-kicker">Board analytics</p>' +
+          '<button type="button" class="action-link dashboard-button-solid" data-action="ideation-run-deep-analysis" ' + (state.ideationBusy ? 'disabled' : '') + ' title="Ask Atlas for a deeper review: bias, blind spots, stale cards, missing action paths.">Deep analysis</button>' +
         '</div>' +
         '<div class="ideation-analytics-grid">' +
           '<div class="panel-card">' +
@@ -1495,7 +1497,7 @@
               : '<span class="muted">No scored cards yet.</span>') +
           '</div>' +
         '</div>' +
-      '</article>';
+      '</div>';
   }
 
   function renderAnalyticsIssue(issue) {
@@ -1830,95 +1832,11 @@
     return '<option value="' + value + '" ' + (state.relationFilter === value ? 'selected' : '') + '>' + escapeHtml(label) + '</option>';
   }
 
-  function renderPromptInferencePreview() {
-    const container = document.getElementById('ideationPromptInference');
-    if (!(container instanceof HTMLElement) || !state.snapshot) {
-      return;
-    }
-    container.innerHTML = renderPromptInferencePreviewMarkup(getPromptValue(), state.snapshot);
-  }
-
-  function renderPromptInferencePreviewMarkup(prompt, snapshot) {
-    const inference = inferPromptPreview(prompt, snapshot);
-    return '' +
-      '<div class="row-head">' +
-        '<div>' +
-          '<p class="section-kicker">Prompt inference</p>' +
-          '<h4>Likely scaffold before Atlas answers</h4>' +
-        '</div>' +
-      '</div>' +
-      (inference.items.length > 0
-        ? '<div class="ideation-chip-row">' + inference.items.map(item => '<span class="tag"' + tooltipAttrs('Atlas is likely to scaffold this board facet from the current prompt before it adds deeper facilitation output.') + '>' + escapeHtml(item) + '</span>').join('') + '</div>'
-        : '<div class="stat-detail">Type a sharper prompt and Atlas will preview which board facets it is likely to scaffold, update, or reconnect.</div>') +
-      (inference.detail ? '<div class="stat-detail" style="margin-top:8px">' + escapeHtml(inference.detail) + '</div>' : '');
-  }
-
-  function getProcessStageStatus(kind) {
-    if (kind === 'done') {
-      return { label: 'Done', tag: 'tag-good', tone: 'done' };
-    }
-    if (kind === 'active') {
-      return { label: 'Now', tag: 'tag-warn', tone: 'active' };
-    }
-    return { label: 'Later', tag: '', tone: 'pending' };
-  }
-
   function tooltipAttrs(text, focusable) {
     if (!text) {
       return '';
     }
     return ' data-tooltip="' + escapeAttr(text) + '" title="' + escapeAttr(text) + '"' + (focusable ? ' tabindex="0"' : '');
-  }
-
-  function inferPromptPreview(prompt, snapshot) {
-    const trimmed = (prompt || '').trim();
-    if (!trimmed) {
-      return { items: [], detail: '' };
-    }
-    const items = [];
-    const urls = extractPromptUrls(trimmed);
-    if (urls.length > 0) {
-      items.push('Reference evidence from ' + shortPromptUrl(urls[0]) + (urls.length > 1 ? ' +' + (urls.length - 1) : ''));
-    }
-    if (/(benefit|analysis|trade-?off|compare|comparison|evaluate|assessment|worth|why)/i.test(trimmed)) {
-      items.push('Decision framing');
-    }
-    if (/(memory|ssot|context|knowledge|project_memory|memory system)/i.test(trimmed)) {
-      items.push('Current memory-system context');
-      items.push('Code considerations');
-      items.push('Operator workflow impact');
-      items.push('Teams and process impact');
-    } else {
-      if (/(code|implementation|architecture|technical|integration|system|repo|extension)/i.test(trimmed)) {
-        items.push('Code considerations');
-      }
-      if (/(ui|ux|workflow|panel|webview|experience|operator)/i.test(trimmed)) {
-        items.push('Operator workflow impact');
-      }
-      if (/(team|process|owner|ownership|release|product|design|engineering|support|operations)/i.test(trimmed)) {
-        items.push('Teams and process impact');
-      }
-    }
-    return {
-      items: [...new Set(items)].slice(0, 6),
-      detail: snapshot.cards.length > 0
-        ? 'Existing cards with matching titles or intent will be updated or archived where possible instead of always creating duplicates.'
-        : 'The first pass will seed board structure from the prompt before Atlas adds deeper facilitation cards.',
-    };
-  }
-
-  function extractPromptUrls(prompt) {
-    return Array.from(prompt.matchAll(/https?:\/\/[^\s)\]]+/gi)).map(match => match[0]);
-  }
-
-  function shortPromptUrl(url) {
-    try {
-      const parsed = new URL(url);
-      const pathBits = parsed.pathname.replace(/\/$/, '').split('/').filter(Boolean).slice(-2).join('/');
-      return pathBits ? parsed.hostname + '/' + pathBits : parsed.hostname;
-    } catch {
-      return clampText(url, 48);
-    }
   }
 
   function renderScoreField(label, id, value) {
@@ -3433,30 +3351,6 @@
       return [];
     }
     return state.orderedSelectedCardIds.filter(id => snapshot.cards.some(card => card.id === id)).slice(-2);
-  }
-
-  function renderCanvasShortcutStrip(snapshot) {
-    const orderedPair = getOrderedSelectedCards(snapshot);
-    const pairSummary = orderedPair.length === 2
-      ? orderedPair.map((cardId, index) => {
-          const card = snapshot.cards.find(entry => entry.id === cardId);
-          return '<span class="tag">' + escapeHtml((index + 1) + '. ' + (card?.title || cardId)) + '</span>';
-        }).join('')
-      : '<span class="tag">Click two cards to create an ordered pair</span>';
-    return '' +
-      '<div class="ideation-chip-row">' +
-        '<span class="tag tag-good">Shortcuts</span>' +
-        '<span class="tag">L inferred</span>' +
-        '<span class="tag">S supports</span>' +
-        '<span class="tag">D dependency</span>' +
-        '<span class="tag">C causal</span>' +
-        '<span class="tag">O opportunity</span>' +
-        '<span class="tag">X contradiction</span>' +
-        '<span class="tag">Enter edit</span>' +
-        '<span class="tag">A add</span>' +
-        '<span class="tag">Del remove</span>' +
-      '</div>' +
-      '<div class="ideation-chip-row">' + pairSummary + '</div>';
   }
 
   function focusInlineEditor() {

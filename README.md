@@ -4,7 +4,7 @@
 
 <h1 align="center">AtlasMind</h1>
 
-<p align="center"><sub> · <strong>Current source version: 0.469.0</strong> · </sub></p>
+<p align="center"><sub> · <strong>Current source version: 0.470.0</strong> · </sub></p>
 
 
 <p align="center">
@@ -175,10 +175,18 @@ important limits on overrides and compliance claims.
 
 ---
 
-## What's new in 0.469.0
+## What's new in 0.470.0
 
 The last Marketplace publication, **v0.449.5**, brought the changes below. Every release is written
 up in full in [CHANGELOG.md](CHANGELOG.md).
+
+- **The Ideation page, rebuilt as two panes.** The inspector used to sit under a canvas that filled
+  the screen, so editing a card meant scrolling away from the board — and four "stages" explained an
+  order the page did not have. Now a rail beside the canvas follows what you click: a card shows its
+  inspector, a link its editor, nothing shows the prompt. The toolbar only draws; there is one way off
+  the board, with the readiness reading inside it; and everything Atlas says lives in one drawer that
+  opens itself when it speaks. The stat tiles, board lanes, stage bar and the 180-word shortcut
+  paragraph are gone.
 
 - **Tell AtlasMind what the project is for, and watch it stay honest about it.** A brief composer on
   the empty ideation board takes a couple of sentences in your own words and reads them into cards.

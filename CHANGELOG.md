@@ -6,6 +6,51 @@ The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/),
 
 ## [Unreleased]
 
+## [0.470.0] - 2026-09-09
+
+### Changed
+
+- **The Ideation page is two panes and a drawer, and nothing else.** It had been redesigned three
+  times — the comments in the code say so — and every time the fix was rearranging chrome above and
+  below a single column. The fault all three left in place: the inspector sat *under* a canvas that
+  filled the first screen, so every click on a card meant scrolling away from the board to edit it.
+  And the four "stages" (Frame, Scaffold, Shape, Decide) were four tools wearing a fake sequence —
+  two of the tabs rendered the same panels as their neighbours, and the status dots marked a stage
+  "done" the moment one run existed.
+
+  **A rail beside the canvas follows the selection.** A link → its editor. A card → the inspector.
+  Nothing → the prompt, and on an empty board the brief and the starter frames above it. You are
+  never "in" a stage; you are looking at the board or at the thing you clicked.
+
+  **The canvas toolbar draws and nothing else** — add, link, views, zoom, and a `?` that opens the
+  keyboard shortcuts on request. It was fifteen controls in one row, with *Send to Project Run* next
+  to *Zoom in*. Duplicate, focus, archive and delete moved into the inspector beside the card they
+  are about.
+
+  **One way off the board.** *Send to Project Run* was in the toolbar, again in the inspector, and
+  *Add to roadmap* in a third card, with the difference never stated. There is one exit section now,
+  it says what each destination is for, and the board's readiness reading sits inside it — "before
+  you raise it" belongs where you raise it.
+
+  **One drawer under the canvas** holds everything Atlas said: latest pass, history, analytics. It is
+  closed by default and opens itself when a response arrives, because the answer to what you just
+  asked must not land in a closed drawer.
+
+  **One start.** The canvas empty-state said *"Start with one sharp note"* while the panel below said
+  *"Start here"*, and the brief added yesterday made a third. The rail is the only start now: the
+  brief, then frames, then the prompt.
+
+  **Removed outright:** the three stat tiles (none was a decision), the board lanes and *Direction of
+  travel* arrow (structure nothing used), the 180-word shortcut paragraph and the chip strip
+  repeating it, the prompt-inference preview, the context-weaving card, the stage bar and its status
+  dots, and the Voice / Vision / Website Studio buttons in the header of *latest pass* (Website Studio
+  is one link in the page header instead). The inspector shows title, notes, kind and the exit first;
+  colour, scores, tags, memory sync and genealogy are behind *More*.
+
+  Every disclosure — the drawer, *More*, *Constraints*, shortcuts, *Why* on readiness — is held in
+  module state rather than a native `<details>`, because `render()` replaces the markup wholesale and
+  an open disclosure would snap shut on every update.
+
 ## [0.469.0] - 2026-09-09
 
 ### Added

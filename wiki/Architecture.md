@@ -876,6 +876,15 @@ is the only one that can speak about the whole project; nothing expires, and rem
 in a dialog saying the reading cannot be recovered. A baseline captured against another repository is
 **reported as not comparable here, never deleted**.
 
+The **Ideation page** is two panes and a drawer (`src/views/projectIdeationPanel.ts`,
+`media/projectIdeation.js`). The canvas sits beside a rail that follows what you click — a card shows
+its inspector, a link its editor, nothing shows the prompt, and an empty board shows the brief and
+the starter frames. There is no stage bar: three earlier layouts rearranged chrome above and below a
+single column, and every one of them left the inspector under a canvas that filled the first screen,
+so editing a card meant scrolling away from the board. The toolbar only draws; per-card actions live
+beside the card; there is **one way off the board**, with the readiness reading inside it; and
+everything Atlas has said lives in one drawer under the canvas that opens itself when it speaks.
+
 AtlasMind can also take **the project in your own words** (`src/core/projectBrief.ts`, the brief
 composer on an empty ideation board). Everything else it starts from is *detected* — the archetype
 from manifests, the starter frames from the archetype — and none of it can know what the project is

@@ -4869,11 +4869,6 @@ const IDEATION_CSS = `${QUICK_REPLY_CSS}
     font-size: 11px;
     color: var(--vscode-descriptionForeground);
   }
-  .ideation-stat .card-kicker {
-    display: inline-flex;
-    align-items: center;
-    gap: 7px;
-  }
   .pill-dot {
     width: 9px;
     height: 9px;
@@ -4895,7 +4890,6 @@ const IDEATION_CSS = `${QUICK_REPLY_CSS}
   .section-copy,
   .stat-detail,
   .muted,
-  .ideation-hint,
   .list-meta {
     color: var(--vscode-descriptionForeground);
     line-height: 1.5;
@@ -4904,7 +4898,6 @@ const IDEATION_CSS = `${QUICK_REPLY_CSS}
   .action-link,
   .ideation-card,
   .ideation-chip,
-  .ideation-stat,
   .media-pill,
   .attachment-pill,
   .file-pill {
@@ -4970,65 +4963,220 @@ const IDEATION_CSS = `${QUICK_REPLY_CSS}
     flex-direction: column;
     gap: 18px;
   }
+  /* Two panes. The canvas fills what is left after the rail, and the rail
+     shows whatever the selection is about — so editing a card never means
+     scrolling away from the board it is on, which was the fault every earlier
+     rearrangement of this page left in place. */
   .ideation-main-grid {
     display: grid;
+    grid-template-columns: minmax(0, 1fr) 380px;
     gap: 18px;
+    align-items: start;
   }
-  /* Replaces the hero grid (whose rules are gone with its markup): three
-     compact stats in a single row, so the board starts within the first screen
-     instead of below an explainer panel. */
-  .ideation-stat-strip {
-    display: grid;
-    grid-template-columns: repeat(auto-fit, minmax(160px, 1fr));
+  .ideation-rail {
+    display: flex;
+    flex-direction: column;
+    gap: 14px;
+    min-width: 0;
+    position: sticky;
+    top: 12px;
+    max-height: calc(100vh - 24px);
+    overflow-y: auto;
+  }
+  .ideation-rail .ideation-panel {
+    padding: 16px;
+  }
+  .ideation-rail .ideation-template-grid {
+    grid-template-columns: 1fr;
+  }
+  .ideation-rail .ideation-constraint-grid {
+    grid-template-columns: 1fr;
+  }
+  .ideation-rail .ideation-score-grid {
+    grid-template-columns: repeat(2, minmax(0, 1fr));
+  }
+  .ideation-rail .ideation-prompt {
+    min-height: 96px;
+  }
+  .ideation-brief-input {
+    width: 100%;
+    box-sizing: border-box;
+    min-height: 120px;
+    padding: 12px 14px;
+    font: inherit;
+    border-radius: 16px;
+    border: 1px solid var(--vscode-input-border, var(--vscode-widget-border, #444));
+    background: var(--vscode-input-background);
+    color: var(--vscode-input-foreground);
+    resize: vertical;
+  }
+  /* One line above the board: the workspace, when it changed, the files. */
+  .ideation-header {
+    display: flex;
+    align-items: center;
+    justify-content: space-between;
     gap: 12px;
+    flex-wrap: wrap;
   }
-  /* The stage bar. This *is* the old four-card process guide: it used to
-     describe an order the layout did not impose, and was moved twice on the
-     theory that placement was the problem. Every card is a control now, and
-     only the stage you pick is rendered below it. */
-  .ideation-mode-bar {
-    display: grid;
-    grid-template-columns: repeat(auto-fit, minmax(170px, 1fr));
-    gap: 8px;
+  .ideation-header-workspace,
+  .ideation-header-meta {
+    display: flex;
+    align-items: center;
+    gap: 10px;
+    flex-wrap: wrap;
   }
-  .ideation-mode-button {
+  .ideation-header-label {
+    font-size: 11px;
+    text-transform: uppercase;
+    letter-spacing: 0.09em;
+    color: var(--vscode-descriptionForeground);
+  }
+  .ideation-header .ideation-lens-select {
+    min-width: 220px;
+  }
+  .ideation-toolbar {
     display: flex;
     align-items: center;
     justify-content: space-between;
     gap: 10px;
-    padding: 10px 12px;
-    text-align: left;
-    cursor: pointer;
+    flex-wrap: wrap;
+  }
+  .ideation-shortcuts {
+    display: flex;
+    flex-direction: column;
+    gap: 10px;
+    padding: 12px 14px;
+    border-radius: 16px;
+    border: 1px solid var(--vscode-widget-border, #444);
+    background: color-mix(in srgb, var(--vscode-editorWidget-background, var(--vscode-sideBar-background)) 90%, transparent);
+  }
+  .ideation-shortcut-grid {
+    display: grid;
+    grid-template-columns: repeat(auto-fit, minmax(260px, 1fr));
+    gap: 6px 18px;
+  }
+  .ideation-shortcut-row {
+    display: grid;
+    grid-template-columns: max-content minmax(0, 1fr);
+    gap: 10px;
+    align-items: baseline;
+  }
+  .ideation-shortcut-row kbd {
     font: inherit;
+    font-size: 12px;
+    padding: 2px 7px;
+    border-radius: 6px;
+    border: 1px solid var(--vscode-widget-border, #444);
+    background: var(--vscode-editor-background);
+    white-space: nowrap;
+  }
+  .ideation-pair-row {
+    display: flex;
+    align-items: center;
+    gap: 10px;
+    flex-wrap: wrap;
+    padding: 8px 12px;
+    border-radius: 12px;
+    background: color-mix(in srgb, var(--vscode-focusBorder, #4ea8de) 10%, transparent);
+  }
+  /* The one way off the board, with the readiness reading inside it. */
+  .ideation-exit {
+    display: flex;
+    flex-direction: column;
+    gap: 10px;
+    margin-top: 6px;
+    padding-top: 12px;
+    border-top: 1px solid var(--vscode-widget-border, #444);
+  }
+  .ideation-readiness-line {
+    display: flex;
+    align-items: center;
+    gap: 10px;
+    flex-wrap: wrap;
+  }
+  .action-link.inline {
+    display: inline;
+    padding: 0;
+    font: inherit;
+    text-decoration: underline;
+  }
+  .ideation-more-toggle {
+    align-self: flex-start;
+    margin-top: 6px;
+  }
+  .ideation-inspector-more {
+    display: flex;
+    flex-direction: column;
+    gap: 10px;
+  }
+  .ideation-status-line {
+    margin-top: 4px;
+  }
+  /* The drawer under the canvas. Closed by default; the bar is always there. */
+  .ideation-drawer {
+    padding: 0;
+    overflow: hidden;
+  }
+  .ideation-drawer-bar {
+    display: flex;
+    align-items: center;
+    justify-content: space-between;
+    gap: 12px;
+    flex-wrap: wrap;
+    padding: 10px 16px;
+  }
+  .ideation-drawer-toggle {
+    display: flex;
+    align-items: center;
+    gap: 10px;
+    padding: 6px 0;
+    font: inherit;
+    color: var(--vscode-foreground);
+    background: none;
+    border: none;
+    cursor: pointer;
+  }
+  .ideation-drawer-toggle .section-kicker {
+    margin: 0;
+  }
+  .ideation-drawer-caret {
     color: var(--vscode-descriptionForeground);
-    background: var(--vscode-editorWidget-background);
-    border: 1px solid var(--vscode-panel-border);
-    border-radius: 8px;
-    transition: border-color 120ms ease, color 120ms ease, background 120ms ease;
   }
-  .ideation-mode-button:hover {
-    color: var(--vscode-foreground);
-    border-color: var(--vscode-focusBorder);
+  .ideation-drawer-body {
+    display: flex;
+    flex-direction: column;
+    gap: 12px;
+    padding: 4px 16px 16px;
+    border-top: 1px solid var(--vscode-widget-border, #444);
   }
-  /* A left border rather than a filled background: four saturated buttons read
-     as an alarm state even when three of them just say "later". */
-  .ideation-mode-button.is-active {
+  .ideation-drawer-columns {
+    display: grid;
+    grid-template-columns: repeat(auto-fit, minmax(320px, 1fr));
+    gap: 16px;
+  }
+  .segmented {
+    display: inline-flex;
+    gap: 4px;
+    padding: 3px;
+    border-radius: 999px;
+    border: 1px solid var(--vscode-widget-border, #444);
+  }
+  .segmented button {
+    font: inherit;
+    font-size: 13px;
+    padding: 5px 12px;
+    border-radius: 999px;
+    border: none;
+    background: transparent;
+    color: var(--vscode-descriptionForeground);
+    cursor: pointer;
+  }
+  .segmented button.active {
     color: var(--vscode-foreground);
-    border-left: 3px solid var(--vscode-focusBorder);
     background: var(--vscode-list-activeSelectionBackground);
   }
-  .ideation-mode-button:focus-visible {
-    outline: 1px solid var(--vscode-focusBorder);
-    outline-offset: 2px;
-  }
-  .ideation-mode-label { font-weight: 600; }
-  .ideation-mode-blurb {
-    margin: 8px 2px 0;
-    font-size: 12px;
-  }
-  .ideation-stage-section {
-    display: grid;
-    gap: 18px;
+  .action-link.danger {
+    color: var(--vscode-errorForeground, #d05f5f);
   }
   /* Starter frames, offered on an empty board only. */
   .ideation-template-grid {
@@ -5092,9 +5240,6 @@ const IDEATION_CSS = `${QUICK_REPLY_CSS}
     font-size: 11px;
     color: var(--vscode-descriptionForeground);
   }
-  .ideation-main-grid {
-    grid-template-columns: minmax(0, 1fr);
-  }
   .ideation-composer-panel,
   .ideation-canvas-panel {
     width: 100%;
@@ -5102,7 +5247,6 @@ const IDEATION_CSS = `${QUICK_REPLY_CSS}
   }
   .ideation-panel,
   .panel-card,
-  .ideation-stat,
   .dashboard-empty {
     padding: 18px;
     border-radius: 22px;
@@ -5142,11 +5286,6 @@ const IDEATION_CSS = `${QUICK_REPLY_CSS}
     visibility: visible;
     transform: translateY(0);
   }
-  .ideation-stat strong {
-    display: block;
-    font-size: 22px;
-    margin-bottom: 6px;
-  }
   .ideation-composer-shell {
     display: flex;
     flex-direction: column;
@@ -5163,12 +5302,6 @@ const IDEATION_CSS = `${QUICK_REPLY_CSS}
   .ideation-score-grid {
     grid-template-columns: repeat(2, minmax(0, 1fr));
   }
-  .ideation-workspace-switcher {
-    display: grid;
-    grid-template-columns: minmax(0, 1fr) auto;
-    gap: 12px;
-    align-items: end;
-  }
   .constraint-span {
     grid-column: 1 / -1;
   }
@@ -5181,7 +5314,6 @@ const IDEATION_CSS = `${QUICK_REPLY_CSS}
     color: var(--vscode-input-foreground);
   }
   .ideation-score-field,
-  .ideation-workspace-switcher label,
   .ideation-constraint-grid label {
     display: flex;
     flex-direction: column;
@@ -5378,49 +5510,6 @@ const IDEATION_CSS = `${QUICK_REPLY_CSS}
     height: 3800px;
     transform: translate(-50%, -50%);
     transform-origin: center center;
-  }
-  .ideation-board-lanes {
-    position: absolute;
-    inset: 0;
-    pointer-events: none;
-    z-index: 0;
-  }
-  .ideation-board-lane {
-    position: absolute;
-    top: 90px;
-    bottom: 90px;
-    border-radius: 28px;
-    border: 1px dashed color-mix(in srgb, var(--vscode-widget-border, #444) 60%, transparent);
-    background: linear-gradient(180deg, color-mix(in srgb, var(--vscode-editor-background) 94%, transparent), color-mix(in srgb, #0f2738 10%, transparent));
-    opacity: 0.36;
-  }
-  .ideation-board-lane-label {
-    position: absolute;
-    top: 14px;
-    left: 16px;
-    padding: 4px 10px;
-    border-radius: 999px;
-    font-size: 12px;
-    font-weight: 600;
-    color: var(--vscode-descriptionForeground);
-    border: 1px solid color-mix(in srgb, var(--vscode-widget-border, #444) 70%, transparent);
-    background: color-mix(in srgb, var(--vscode-editor-background) 90%, transparent);
-  }
-  .ideation-board-flow-arrow {
-    position: absolute;
-    top: 24px;
-    right: 132px;
-    padding: 4px 10px;
-    border-radius: 999px;
-    font-size: 12px;
-    color: var(--vscode-descriptionForeground);
-    border: 1px solid color-mix(in srgb, #52b788 42%, var(--vscode-widget-border, #444));
-    background: color-mix(in srgb, var(--vscode-editor-background) 90%, transparent);
-  }
-  .ideation-board-flow-arrow::after {
-    content: '->';
-    margin-left: 8px;
-    color: color-mix(in srgb, #52b788 72%, var(--tint-away) 18%);
   }
   .ideation-connections {
     position: absolute;
@@ -5731,15 +5820,6 @@ const IDEATION_CSS = `${QUICK_REPLY_CSS}
     flex-wrap: wrap;
     gap: 10px;
   }
-  .ideation-shortcut-strip {
-    display: flex;
-    flex-direction: column;
-    gap: 8px;
-    padding: 12px 14px;
-    border-radius: 16px;
-    border: 1px solid var(--vscode-widget-border, #444);
-    background: color-mix(in srgb, var(--vscode-editorWidget-background, var(--vscode-sideBar-background)) 90%, transparent);
-  }
   .ideation-history-list {
     flex-direction: column;
   }
@@ -5792,18 +5872,6 @@ const IDEATION_CSS = `${QUICK_REPLY_CSS}
   .ideation-composer-actions .ideation-chip-row {
     flex: 1;
   }
-  .ideation-action-callout {
-    display: flex;
-    flex-direction: column;
-    gap: 8px;
-    padding: 14px 16px;
-    border-radius: 18px;
-    border: 1px solid color-mix(in srgb, var(--vscode-button-background) 35%, var(--vscode-widget-border, #444));
-    background: linear-gradient(135deg, color-mix(in srgb, var(--vscode-button-background) 12%, transparent), color-mix(in srgb, var(--vscode-editorWidget-background, var(--vscode-sideBar-background)) 92%, transparent));
-  }
-  .ideation-action-callout strong {
-    font-size: 14px;
-  }
   .ideation-edge-glow {
     position: absolute;
     pointer-events: none;
@@ -5842,15 +5910,12 @@ const IDEATION_CSS = `${QUICK_REPLY_CSS}
     left: 0;
     background: linear-gradient(90deg, color-mix(in srgb, var(--vscode-button-background) 40%, transparent), transparent);
   }
-  /* Canvas focus mode hides everything that is not the board. The process
-     guide was missing from this list, so it stayed on screen in what is meant
-     to be a full-screen canvas; the composer now has its own section wrapper
-     that has to be hidden alongside the panel itself. */
+  /* Canvas focus mode hides everything that is not the board: the header,
+     the rail and the drawer. */
   body.canvas-focus-mode .ideation-topbar,
-  body.canvas-focus-mode .ideation-stat-strip,
-  body.canvas-focus-mode .ideation-composer-panel,
-  body.canvas-focus-mode .ideation-mode-section,
-  body.canvas-focus-mode .ideation-stage-section {
+  body.canvas-focus-mode .ideation-header,
+  body.canvas-focus-mode .ideation-rail,
+  body.canvas-focus-mode .ideation-drawer-section {
     display: none;
   }
   body.canvas-focus-mode .ideation-shell-page {
@@ -5885,13 +5950,16 @@ const IDEATION_CSS = `${QUICK_REPLY_CSS}
     min-height: 0;
     height: 100%;
   }
-  @media (max-width: 1180px) {
+  @media (max-width: 1100px) {
     .ideation-main-grid,
-    .ideation-mode-bar,
-    .ideation-workspace-switcher,
     .ideation-constraint-grid,
     .ideation-score-grid {
       grid-template-columns: 1fr;
+    }
+    .ideation-rail {
+      position: static;
+      max-height: none;
+      overflow: visible;
     }
   }
     .ideation-analytics-panel {

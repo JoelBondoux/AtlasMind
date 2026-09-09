@@ -19,6 +19,32 @@ Older entries below describe the software as it was at the time and are delibera
 
 ---
 
+## v0.470.0 -- The Ideation page, as two panes
+
+The page had been redesigned three times, and every time the fix was rearranging chrome above and
+below a single column. The fault all three left in place: the inspector sat *under* a canvas that
+filled the first screen, so every click on a card meant scrolling away from the board to edit it. And
+the four "stages" were four tools wearing a fake sequence -- two of the tabs rendered the same
+panels as their neighbours.
+
+**A rail beside the canvas follows the selection.** A link shows its editor, a card its inspector,
+nothing the prompt -- and an empty board the brief and the starter frames. You are never "in" a
+stage.
+
+**The toolbar draws and nothing else.** It was fifteen controls in one row with *Send to Project Run*
+next to *Zoom in*. Per-card actions moved beside the card. **There is one way off the board**, it
+says what each destination is for, and the readiness reading sits inside it.
+
+**One drawer** under the canvas holds everything Atlas said -- latest pass, history, analytics --
+closed by default and opening itself when a response arrives.
+
+Gone outright: the three stat tiles, the board lanes and flow arrow, the 180-word shortcut paragraph
+and the chip strip repeating it, the inference preview, the stage bar and its status dots. The
+inspector shows the essentials and the exit first; scores, colour, tags and genealogy sit behind
+*More*.
+
+---
+
 ## v0.469.0 -- The project in your own words
 
 Every starting point AtlasMind had was *detected*: the archetype from manifests, the starter frames
