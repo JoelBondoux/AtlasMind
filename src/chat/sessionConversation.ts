@@ -1,4 +1,21 @@
+import { randomBytes } from 'node:crypto';
+
 import * as vscode from 'vscode';
+
+/**
+ * A record id: the timestamp says when, the suffix keeps two records made in
+ * the same millisecond apart.
+ *
+ * From the platform CSPRNG rather than `Math.random()`. These ids are local to
+ * one workspace and grant nothing on their own, so this is not a session token
+ * in the web sense — but they *are* how a chat session, a message and a folder
+ * are addressed by every message crossing the webview boundary, and a
+ * predictable id is the ingredient a confused-deputy bug needs to become a
+ * usable one. The CSPRNG costs nothing here and removes the question.
+ */
+function recordId(prefix: string): string {
+  return `${prefix}-${Date.now()}-${randomBytes(4).toString('hex')}`;
+}
 
 const STORAGE_KEY = 'atlasmind.chatSessions';
 const MAX_STORED_SESSIONS = 30;
@@ -605,7 +622,7 @@ export class SessionConversation {
     }
 
     const entry: SessionTranscriptEntry = {
-      id: `msg-${Date.now()}-${Math.random().toString(36).slice(2, 8)}`,
+      id: recordId('msg'),
       role,
       content,
       timestamp: new Date().toISOString(),
@@ -913,7 +930,7 @@ export class SessionConversation {
 function createSessionRecord(title?: string): SessionConversationRecord {
   const timestamp = new Date().toISOString();
   return {
-    id: `chat-${Date.now()}-${Math.random().toString(36).slice(2, 8)}`,
+    id: recordId('chat'),
     title: title && title.length > 0 ? title : DEFAULT_SESSION_TITLE,
     createdAt: timestamp,
     updatedAt: timestamp,
@@ -925,7 +942,7 @@ function createSessionRecord(title?: string): SessionConversationRecord {
 function createSessionFolderRecord(name: string): SessionFolderRecord {
   const timestamp = new Date().toISOString();
   return {
-    id: `folder-${Date.now()}-${Math.random().toString(36).slice(2, 8)}`,
+    id: recordId('folder'),
     name,
     createdAt: timestamp,
     updatedAt: timestamp,

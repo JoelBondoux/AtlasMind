@@ -3,25 +3,24 @@ This file is the developer-facing backlog AtlasMind should absorb into SSOT and 
 > Priority order matters: items nearer the top receive more weight, but AtlasMind should still weigh criticality, security, architecture, delivery risk, and fresh execution evidence before choosing the next task.
 ## Prioritized Backlog
 <!-- atlasmind:roadmap-items:start -->
-- [ ] **Async / ambient background agents** — "works while you're away," triggered by repo events (new issue, failing CI, dependency CVE) rather than chat. Architectural ask: an event bus agents subscribe to. Seeded by the remote-control server and scheduled-agents backlog item. #mvp <!-- rm:async-ambient-background-age -->
-- [ ] Either have a built in gnatt progress, milestone, critical path, roadmap tracker or feed it into an automatrically created Github project tracker. #mvp <!-- rm:either-have-a-built-in-gnatt -->
-- [ ] We need a Bug Tracking system for the PM dash. #mvp <!-- rm:we-need-a-bug-tracking-syste -->
-- [ ] Add an approval flow system for changes, ideas -> roadmaps, documentation, legal and commercial changes. #mvp <!-- rm:add-an-approval-flow-system -->
-- [ ] **Utilities:** Auth, Payments, Email, Analytics, i18n, Accessibility #mvp #critical <!-- rm:utilities-auth-payments-emai -->
+- [x] **Async / ambient background agents** — "works while you're away," triggered by repo events (new issue, failing CI, dependency CVE) rather than chat. Architectural ask: an event bus agents subscribe to. Seeded by the remote-control server and scheduled-agents backlog item. #mvp <!-- rm:async-ambient-background-age -->
+- [x] Either have a built in gnatt progress, milestone, critical path, roadmap tracker or feed it into an automatrically created Github project tracker. #mvp <!-- rm:either-have-a-built-in-gnatt -->
+- [x] We need a Bug Tracking system for the PM dash. #mvp <!-- rm:we-need-a-bug-tracking-syste -->
+- [x] Add an approval flow system for changes, ideas -> roadmaps, documentation, legal and commercial changes. #mvp <!-- rm:add-an-approval-flow-system -->
+- [x] **Utilities:** Auth, Payments, Email, Analytics, i18n, Accessibility #mvp #critical <!-- rm:utilities-auth-payments-emai -->
 - [x] Create more smart content in commits so workflows and analytics can be mapped to them. #mvp <!-- rm:create-more-smart-content-in -->
 - [ ] **Semantic codebase index (`@codebase` / embeddings RAG):** Vector index over actual source so agents retrieve relevant code, not just remembered SSOT decisions. Local embedding option (Ollama) keeps it bring-your-own-model and privacy-friendly. Biggest single capability gap; benefits all personas. #mvp #critical <!-- rm:semantic-codebase-index-code -->
 - [ ] Eval / regression harness for agents: pin "golden" tasks and detect when an agent definition or model swap regresses quality (mitigates the risk of the auto-update cadence). <!-- rm:eval-regression-harness-for -->
 - [ ] Team management surface to manage workload, estimated work times, rotas, and integrate with common rota management applications. <!-- rm:team-management-surface-to-m -->
-- [ ] Extend the test surface to have a test management interface for testing teams. Create test cases, have discreet context for tests assets that are name associated to testers #mvp <!-- rm:extend-the-test-surface-to-h -->
-- [ ] Add a built-in or utilise Git-Hub projects Kanban board. #mvp <!-- rm:add-a-built-in-or-utilise-gi -->
+- [x] Extend the test surface to have a test management interface for testing teams. Create test cases, have discreet context for tests assets that are name associated to testers #mvp <!-- rm:extend-the-test-surface-to-h -->
+- [x] Add a built-in or utilise Git-Hub projects Kanban board. #mvp <!-- rm:add-a-built-in-or-utilise-gi -->
 - [ ] expand baseline comparrison features. #mvp <!-- rm:expand-baseline-comparrison -->
 - [x] Add an AM logo to the generic Source Control side panel next to the icon "Create Pull Request" to have AM generate a commit message. <!-- rm:add-an-am-logo-to-the-generi -->
 - [x] Sometimes when deleting all sessions in AM chat window, the chat history of an old session stays on the screen and doesn't refresh to a blank chat. #mvp #critical <!-- rm:sometimes-when-deleting-all -->
-- [ ] Explore a github pages hosted (within the host repo) web portal for AM Project Manager. #mvp <!-- rm:explore-a-github-pages-hoste -->
+- [x] Explore a github pages hosted (within the host repo) web portal for AM Project Manager. #mvp <!-- rm:explore-a-github-pages-hoste -->
 - [x] The Lens surfaces are not all accessible as they need a file selected. #mvp <!-- rm:the-lens-surfaces-are-not-al -->
 - [x] On the roadmap and ideation canvases allow for a drag box to select a number of nodes to allow them all to be moved together. #mvp <!-- rm:on-the-roadmap-and-ideation -->
-- [ ] I think CTRL-MouseScroll on the project dashboard should zoom in/out in the same way that chromium browsers work. <!-- rm:i-think-ctrl-mousescroll-on -->
-- [ ] Add a way to manually and automatically sync github sponsors to the contributors md files using some pre-built and manual rulesets. This may need a new dashboard page. #mvp #critical <!-- rm:add-a-way-to-manually-and-au -->
+- [x] I think CTRL-MouseScroll on the project dashboard should zoom in/out in the same way that chromium browsers work. <!-- rm:i-think-ctrl-mousescroll-on -->
 - [ ] When onboarding a new project an early stage user prompt should be given to write in their own words the outline, outcome or ambition of the project. This can then be parsed by AM to the Ideation board, and then to a roadmap filling out all the associated files as well. #mvp <!-- rm:when-onboarding-a-new-projec -->
 - [x] The number of agents being used (and not used) should impact the project score. The dash, should, however, identify when models and providers are having issues. #mvp <!-- rm:the-number-of-agents-being-u -->
 - [ ] The ui Studio should be able to tell where ui elements can be added and have them selectable so new or existing UI elements can be edited. #mvp <!-- rm:the-ui-studio-should-be-able -->
@@ -36,8 +35,8 @@ This file is the developer-facing backlog AtlasMind should absorb into SSOT and 
 - [ ] Inline / ghost-text completion in the editor (or at minimum an "AI edit at cursor" inline-diff command) — the most obvious gap vs Copilot/Cursor. <!-- rm:inline-ghost-text-completion -->
 - [ ] Scheduled / background autonomous agents — cron-style and background runs that report back (e.g. nightly dependency-update + test routine), building on existing `/ship` routines. #mvp <!-- rm:scheduled-background-autonom -->
 - [ ] Monorepo / multi-root workspace awareness: per-package SSOT scoping and routing. Specified in [project-composition.md](project-composition.md) — AtlasMind is single-root by construction today (123 of 130 `workspaceFolders` reads take `[0]`), and Phase 1 of the [game engine… #mvp <!-- rm:monorepo-multi-root-workspac -->
-- [ ] Context window / token budget visualizer: show what's in context and let users prune it. #mvp <!-- rm:context-window-token-budget -->
-- [ ] SAST / dependency-CVE integration wired into the Security and Dependency Manager agents via an advisory feed. #mvp <!-- rm:sast-dependency-cve-integrat -->
+- [x] Context window / token budget visualizer: show what's in context and let users prune it. #mvp <!-- rm:context-window-token-budget -->
+- [x] SAST / dependency-CVE integration wired into the Security and Dependency Manager agents via an advisory feed. #mvp <!-- rm:sast-dependency-cve-integrat -->
 - [ ] Project templates / scaffolds beyond `/bootstrap`: pick a stack, get a working starter with tests and CI wired in (complements the Prefab Architecture Packs above). #mvp <!-- rm:project-templates-scaffolds -->
 - [ ] **Reasoning-budget as a first-class routing axis** — extend budget + speed routing with a third "how hard to think" axis for extended-thinking / test-time-compute models. Natural home: TaskProfiler. Builds on the existing cache-aware, capability-sourced routing work. #mvp <!-- rm:reasoning-budget-as-a-first -->
 - [ ] **LLM observability (OpenTelemetry GenAI semantic conventions)** — emit standardized traces/spans for agent runs, token usage, and tool calls so dashboards plug into the ecosystem instead of a bespoke format. #mvp <!-- rm:llm-observability-openteleme -->

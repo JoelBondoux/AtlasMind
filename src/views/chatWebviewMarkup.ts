@@ -200,8 +200,16 @@ export function buildChatWebviewHtml(opts: { scriptUri: string; cspSource: strin
                 reader is told about a suggestion without losing the caret.
               -->
               <div id="contextMeter" class="context-meter hidden" role="status" aria-live="off">
-                <div class="context-meter-track"><div id="contextMeterFill" class="context-meter-fill"></div></div>
-                <span id="contextMeterLabel" class="context-meter-label"></span>
+                <button id="contextMeterToggle" class="context-meter-toggle" type="button"
+                  aria-expanded="false" aria-controls="contextBreakdown"
+                  title="What this turn is carrying, and what goes first when it fills.">
+                  <div class="context-meter-track"><div id="contextMeterFill" class="context-meter-fill"></div></div>
+                  <span id="contextMeterLabel" class="context-meter-label"></span>
+                </button>
+                <!-- The breakdown the bar cannot give: which parts, what this
+                     reading cannot see, what is dropped first, and the one
+                     control that changes any of it. Filled by the script. -->
+                <div id="contextBreakdown" class="context-breakdown hidden" role="group" aria-label="What this turn carries"></div>
               </div>
               <div class="composer-typeahead-anchor">
                 <div id="composerTypeahead" class="composer-typeahead hidden" role="listbox" aria-label="Suggestions"></div>
@@ -2362,6 +2370,82 @@ ${QUICK_REPLY_CSS}
         }
         .context-meter.warn .context-meter-label { color: var(--vscode-editorWarning-foreground, #c27803); }
         .context-meter-label { flex: 0 0 auto; font-variant-numeric: tabular-nums; white-space: nowrap; }
+
+        /* The meter is now a control. It stays visually a bar — the breakdown
+           is a disclosure, not a second toolbar. */
+        .context-meter { flex-direction: column; align-items: stretch; }
+        .context-meter-toggle {
+          display: flex;
+          align-items: center;
+          gap: 8px;
+          width: 100%;
+          padding: 0;
+          border: none;
+          background: none;
+          color: inherit;
+          font: inherit;
+          cursor: pointer;
+          text-align: left;
+        }
+        .context-meter-toggle:hover .context-meter-label { color: var(--vscode-foreground); }
+
+        .context-breakdown {
+          margin-top: 6px;
+          padding: 8px;
+          border: 1px solid var(--vscode-panel-border, color-mix(in srgb, var(--vscode-descriptionForeground) 30%, transparent));
+          border-radius: 6px;
+          background: var(--vscode-editorWidget-background, var(--vscode-editor-background));
+        }
+        .context-breakdown.hidden { display: none; }
+        .context-breakdown-summary { margin: 0 0 6px; }
+        .context-part {
+          display: grid;
+          grid-template-columns: 1fr auto;
+          gap: 2px 8px;
+          padding: 3px 0;
+        }
+        .context-part-name { white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
+        .context-part-size { font-variant-numeric: tabular-nums; white-space: nowrap; }
+        .context-part-bar {
+          grid-column: 1 / -1;
+          height: 3px;
+          border-radius: 2px;
+          background: color-mix(in srgb, var(--vscode-descriptionForeground) 18%, transparent);
+          overflow: hidden;
+        }
+        .context-part-bar span {
+          display: block;
+          height: 100%;
+          background: color-mix(in srgb, var(--vscode-textLink-foreground, #3794ff) 60%, transparent);
+        }
+        /* Unmeasured parts carry no bar at all: a zero-width bar would read as
+           "nothing", which is the one thing they do not mean. */
+        .context-part.is-unmeasured .context-part-size { font-style: italic; }
+        .context-breakdown-note {
+          margin: 6px 0 0;
+          padding-top: 6px;
+          border-top: 1px solid color-mix(in srgb, var(--vscode-descriptionForeground) 20%, transparent);
+        }
+        .context-prune {
+          display: flex;
+          align-items: center;
+          gap: 6px;
+          margin-top: 8px;
+          flex-wrap: wrap;
+        }
+        .context-prune button {
+          font: inherit;
+          padding: 1px 8px;
+          border-radius: 999px;
+          border: 1px solid var(--vscode-panel-border, color-mix(in srgb, var(--vscode-descriptionForeground) 30%, transparent));
+          background: none;
+          color: inherit;
+          cursor: pointer;
+        }
+        .context-prune button[aria-pressed="true"] {
+          border-color: var(--vscode-focusBorder);
+          color: var(--vscode-foreground);
+        }
 
         .session-rename-input {
           width: 100%;

@@ -828,6 +828,43 @@
     }
   }
 
+  /**
+   * The only image sources an attachment preview may carry.
+   *
+   * `previewUri` reaches this script as a string on a host message, and every
+   * legitimate value is one of three things: a `data:image/…` preview the host
+   * inlined, an `https:` URL from `asWebviewUri`, or the older
+   * `vscode-(webview-)resource:` form of the same. Assigning the string straight
+   * to `img.src` trusts whatever arrives instead, which is the one place in this
+   * file where a scheme like `javascript:` would be handed to the DOM rather
+   * than to `textContent`.
+   *
+   * An unrecognised value yields no image rather than a broken one: the chip
+   * still renders with its label, so the attachment is still visible and still
+   * removable. Validated here, at the point of use, because the same string
+   * reaches three sinks and a check at only one of them is a check that a later
+   * caller walks past.
+   */
+  const SAFE_IMAGE_SCHEMES = ['https:', 'vscode-resource:', 'vscode-webview-resource:'];
+
+  function safeImageSrc(value) {
+    if (typeof value !== 'string' || value.length === 0) {
+      return '';
+    }
+    if (/^data:image\/(?:png|jpeg|jpg|gif|webp|bmp|svg\+xml);base64,[A-Za-z0-9+/=\s]*$/i.test(value)) {
+      return value;
+    }
+    try {
+      // Resolved against the document so a relative path stays relative, and
+      // parsed rather than string-matched: 'https:' anywhere in a
+      // 'javascript:' URL would satisfy a substring test.
+      const parsed = new URL(value, window.location.href);
+      return SAFE_IMAGE_SCHEMES.includes(parsed.protocol) ? value : '';
+    } catch (error) {
+      return '';
+    }
+  }
+
   function renderAttachments(attachments) {
     var hasAttachments = Array.isArray(attachments) && attachments.length > 0;
     attachmentsSection.classList.toggle('hidden', !hasAttachments);
@@ -840,18 +877,19 @@
       const chip = document.createElement('div');
       chip.className = 'chip attachment-chip';
 
-      if (attachment.kind === 'image' && attachment.previewUri) {
+      const chipPreviewSrc = attachment.kind === 'image' ? safeImageSrc(attachment.previewUri) : '';
+      if (chipPreviewSrc) {
         const previewButton = document.createElement('button');
         previewButton.type = 'button';
         previewButton.className = 'attachment-preview-btn';
         previewButton.title = 'Open image preview';
         previewButton.addEventListener('click', function () {
-          openImageLightbox(attachment.previewUri, attachment.label);
+          openImageLightbox(chipPreviewSrc, attachment.label);
         });
 
         const image = document.createElement('img');
         image.className = 'attachment-thumb';
-        image.src = attachment.previewUri;
+        image.src = chipPreviewSrc;
         image.alt = attachment.label || 'Attached image';
         previewButton.appendChild(image);
 
@@ -896,18 +934,19 @@
     gallery.className = 'message-attachment-gallery';
 
     entry.meta.promptAttachments.forEach(function (attachment) {
-      if (attachment.kind === 'image' && attachment.previewUri) {
+      const galleryPreviewSrc = attachment.kind === 'image' ? safeImageSrc(attachment.previewUri) : '';
+      if (galleryPreviewSrc) {
         const button = document.createElement('button');
         button.type = 'button';
         button.className = 'message-attachment-card';
         button.title = 'Open attached screenshot';
         button.addEventListener('click', function () {
-          openImageLightbox(attachment.previewUri, attachment.label);
+          openImageLightbox(galleryPreviewSrc, attachment.label);
         });
 
         const image = document.createElement('img');
         image.className = 'message-attachment-thumb';
-        image.src = attachment.previewUri;
+        image.src = galleryPreviewSrc;
         image.alt = attachment.label || 'Attached image';
         button.appendChild(image);
 
@@ -933,7 +972,14 @@
       return;
     }
 
-    imageLightboxImage.src = src;
+    // Checked again rather than trusted from the caller: this is a sink, and
+    // the two callers above are not the only way somebody could reach it later.
+    const safeSrc = safeImageSrc(src);
+    if (!safeSrc) {
+      return;
+    }
+
+    imageLightboxImage.src = safeSrc;
     imageLightboxImage.alt = label || 'Expanded image preview';
     if (imageLightboxCaption) {
       imageLightboxCaption.textContent = label || 'Attached image';
@@ -4433,6 +4479,9 @@
   var contextMeter = document.getElementById('contextMeter');
   var contextMeterFill = document.getElementById('contextMeterFill');
   var contextMeterLabel = document.getElementById('contextMeterLabel');
+  var contextMeterToggle = document.getElementById('contextMeterToggle');
+  var contextBreakdown = document.getElementById('contextBreakdown');
+  var contextBreakdownOpen = false;
 
   function formatMeterCount(value) {
     return value >= 1000 ? (Math.round(value / 100) / 10) + 'k' : String(value);
@@ -4470,6 +4519,151 @@
       ? 'Estimated context for the next message, against ' + meter.modelId + "'s window. Older turns are dropped first."
       : 'Estimated context for the next message, against your session budget (atlasmind.chatSessionTurnLimit / chatSessionContextChars).';
     contextMeter.classList.remove('hidden');
+    renderContextBreakdown(meter);
+  }
+
+  // ---- Context breakdown -------------------------------------------------
+  //
+  // The bar answers "am I near the limit". This answers the question people
+  // actually ask when a model forgets something: what is in there, what goes
+  // first, and what can I do about it.
+  //
+  // Everything here is decided host-side by `contextBudget`, including the
+  // parts this reading *cannot* see. Those are drawn without a bar on purpose:
+  // a zero-width bar would read as "nothing", which is the one thing an
+  // unmeasured part does not mean.
+  function formatPartSize(tokens) {
+    return tokens >= 1000 ? (Math.round(tokens / 100) / 10) + 'k tokens' : tokens + ' tokens';
+  }
+
+  /** One row: name, size, and a bar — except where there is nothing to measure. */
+  function appendContextPart(parent, part, measured) {
+    var row = document.createElement('div');
+    row.className = measured ? 'context-part' : 'context-part is-unmeasured';
+    row.title = part.describes || '';
+
+    var name = document.createElement('span');
+    name.className = 'context-part-name';
+    name.textContent = typeof part.itemCount === 'number'
+      ? part.label + ' (' + part.itemCount + ')'
+      : part.label;
+    row.appendChild(name);
+
+    var size = document.createElement('span');
+    size.className = 'context-part-size';
+    size.textContent = measured ? formatPartSize(part.estimatedTokens) : 'not measured here';
+    row.appendChild(size);
+
+    if (measured) {
+      var bar = document.createElement('span');
+      bar.className = 'context-part-bar';
+      var fill = document.createElement('span');
+      fill.style.width = (typeof part.sharePercent === 'number' ? part.sharePercent : 0).toFixed(1) + '%';
+      bar.appendChild(fill);
+      row.appendChild(bar);
+    }
+
+    parent.appendChild(row);
+  }
+
+  function appendContextNote(parent, text) {
+    if (!text) { return; }
+    var note = document.createElement('p');
+    note.className = 'context-breakdown-note';
+    note.textContent = text;
+    parent.appendChild(note);
+  }
+
+  function renderContextBreakdown(meter) {
+    var budget = meter && meter.budget;
+    if (!contextBreakdown) { return; }
+    if (!budget || !contextBreakdownOpen) {
+      contextBreakdown.classList.add('hidden');
+      return;
+    }
+
+    // Built as nodes rather than markup, like everything else in this file:
+    // there is no escaper here because nothing is ever interpolated into HTML.
+    contextBreakdown.textContent = '';
+
+    var summary = document.createElement('p');
+    summary.className = 'context-breakdown-summary';
+    summary.textContent = meter.budgetSummary || '';
+    contextBreakdown.appendChild(summary);
+
+    (budget.parts || []).forEach(function (part) {
+      appendContextPart(contextBreakdown, part, true);
+    });
+    (budget.unmeasured || []).forEach(function (part) {
+      appendContextPart(contextBreakdown, part, false);
+    });
+
+    var first = (budget.trimOrder || [])[0];
+    if (first) {
+      var named = (budget.parts || []).concat(budget.unmeasured || []).filter(function (part) {
+        return part.id === first;
+      })[0];
+      appendContextNote(contextBreakdown, 'Dropped first when it fills: ' + (named ? named.label : first) + '.');
+    }
+    appendContextNote(contextBreakdown, budget.caveat || '');
+
+    appendContextPrune(contextBreakdown, meter);
+    contextBreakdown.classList.remove('hidden');
+  }
+
+  /**
+   * The one control that changes what is carried.
+   *
+   * It only ever asks for *fewer* turns — the setting is the operator's ceiling,
+   * and a panel that could exceed it would be a setting with no effect — and it
+   * changes the next message rather than any that have already run.
+   */
+  function appendContextPrune(parent, meter) {
+    var limit = typeof meter.turnLimit === 'number' ? meter.turnLimit : 6;
+    var carried = typeof meter.carriedTurns === 'number' ? meter.carriedTurns : limit;
+    var options = [limit, Math.floor(limit / 2), 1, 0].filter(function (value, index, all) {
+      return value >= 0 && value <= limit && all.indexOf(value) === index;
+    });
+
+    var row = document.createElement('div');
+    row.className = 'context-prune';
+    var lead = document.createElement('span');
+    lead.textContent = 'Carry:';
+    row.appendChild(lead);
+
+    options.forEach(function (value) {
+      var button = document.createElement('button');
+      button.type = 'button';
+      button.setAttribute('data-carry-turns', String(value));
+      button.setAttribute('aria-pressed', value === carried ? 'true' : 'false');
+      button.textContent = value === limit ? 'all ' + limit : value === 0 ? 'none' : String(value);
+      row.appendChild(button);
+    });
+
+    var trail = document.createElement('span');
+    trail.textContent = 'earlier turns';
+    row.appendChild(trail);
+    parent.appendChild(row);
+  }
+
+  if (contextMeterToggle) {
+    contextMeterToggle.addEventListener('click', function () {
+      contextBreakdownOpen = !contextBreakdownOpen;
+      contextMeterToggle.setAttribute('aria-expanded', contextBreakdownOpen ? 'true' : 'false');
+      renderContextMeter();
+    });
+  }
+
+  if (contextBreakdown) {
+    contextBreakdown.addEventListener('click', function (event) {
+      var button = event.target instanceof HTMLElement ? event.target.closest('[data-carry-turns]') : null;
+      if (!button) { return; }
+      var value = Number(button.getAttribute('data-carry-turns'));
+      if (!Number.isFinite(value)) { return; }
+      // The host clamps this against the configured limit; the panel is asking,
+      // not deciding.
+      vscode.postMessage({ type: 'setCarriedTurns', payload: value });
+    });
   }
 
   // ---- Model pin ---------------------------------------------------------

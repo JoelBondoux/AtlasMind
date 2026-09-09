@@ -175,6 +175,60 @@ const GRAPH = {
     rules: [],
   },
   criticalPathSummary: '6 days of work along a chain of 1 item. The other 1 outstanding item has room to slip without moving the finish.',
+  timeline: {
+    state: 'ok',
+    finishDay: 6,
+    horizonDays: 6,
+    bars: [
+      {
+        nodeId: 'beta', text: 'Ship the export', focus: 'feature', gates: ['mvp'],
+        startDay: 2, endDay: 6, latestEndDay: 6, slackDays: 0, critical: true,
+        estimateDays: 4, estimateSource: 'derived', estimateScale: 'human',
+        waiting: true, deadline: '2026-08-22', deadlineDay: 2, scheduleState: 'at-risk',
+      },
+      {
+        nodeId: 'alpha', text: 'Item alpha', focus: 'feature', gates: [],
+        startDay: 0, endDay: 2, latestEndDay: 6, slackDays: 4, critical: false,
+        estimateDays: 2, estimateSource: 'derived', estimateScale: 'human',
+        waiting: false, scheduleState: 'no-deadline',
+      },
+    ],
+    milestones: [
+      { gateId: 'mvp', label: 'MVP', totalCount: 1, completedCount: 0, finishDay: 6, delivered: false, unscheduledCount: 0 },
+    ],
+    outstandingCount: 2,
+    deliveredCount: 1,
+    criticalCount: 1,
+    rules: [{ id: 'duration-not-date', description: 'The axis is days from today.' }],
+  },
+  timelineSummary: '2 items across 6d, 1 on the critical path and 1 with room to slip.',
+  board: {
+    columns: [
+      { id: 'blocked', label: 'Blocked', description: 'Waiting on work that has not landed.', cards: [] },
+      {
+        id: 'ready', label: 'Ready', description: 'Nothing is in the way and nobody has started.',
+        cards: [{
+          nodeId: 'alpha', itemId: 'roadmap-1', text: 'Item alpha', focus: 'feature', gates: [],
+          column: 'ready', waitingOnCount: 0, estimateDays: 2, priorityScore: 10,
+        }],
+      },
+      {
+        id: 'in-progress', label: 'In progress', description: 'A branch for this item exists.',
+        cards: [{
+          nodeId: 'beta', itemId: 'roadmap-2', text: 'Ship the export', focus: 'feature', gates: ['mvp'],
+          column: 'in-progress', waitingOnCount: 1, branch: 'feat/beta', branchMatch: 'derived',
+          estimateDays: 4, priorityScore: 9,
+        }],
+      },
+      { id: 'in-review', label: 'In review', description: 'An open pull request.', cards: [] },
+      { id: 'delivered', label: 'Delivered', description: 'The backlog line is ticked.', cards: [] },
+    ],
+    branchEvidence: 'gathered',
+    pullRequestEvidence: 'not-assessed',
+    note: 'No pull requests were read, so an item with a branch reads as in progress even if it is already with a reviewer.',
+    rules: [{ id: 'evidenced-never-guessed', description: 'Only a branch that exists or an open pull request moves an item out of Ready.' }],
+  },
+  boardSummary: '1 of 2 outstanding items have work started, 0 waiting on something else.',
   filePath: 'project_memory/roadmap/improvement-plan.md',
 };
 
@@ -573,6 +627,54 @@ describe('arranging the canvas', () => {
     for (const side of ['has-off-left', 'has-off-right', 'has-off-top', 'has-off-bottom']) {
       expect(frame.className, `${side} must be off when the frame has no size`).not.toContain(side);
     }
+  });
+
+  it('puts an edge glow out when a drag-pan brings the plan back into the frame', () => {
+    // The wheel pans through `rmApplyViewTransform`, which refreshes the hints;
+    // a drag writes the transform itself and used to leave them saying what was
+    // true before the gesture. Sideways is exactly how a wide plan is read, so
+    // the horizontal strips stayed lit over nodes that were back on screen.
+    const harness = mount();
+    pinFrameSize(harness, 200, 200);
+    harness.send(snapshot());
+    harness.click('[data-action="page"][data-payload="roadmap"]');
+
+    const frame = harness.root().querySelector('[data-rm-frame="true"]');
+    expect(frame.className).toContain('has-off-right');
+
+    const drag = (type: string, init: Record<string, unknown> = {}): void => {
+      frame.dispatchEvent(new harness.window.MouseEvent(type, { bubbles: true, button: 0, ...init }));
+    };
+    // beta sits at x=400 in a 200px frame; pulling the world 300px left brings it
+    // in without pushing alpha (x=80) off the other side.
+    drag('pointerdown', { clientX: 400, clientY: 100 });
+    drag('pointermove', { clientX: 100, clientY: 100 });
+
+    expect(frame.className, 'the right strip must go out once beta is in view').not.toContain('has-off-right');
+    expect(frame.className, 'and the drag must not light the other side').not.toContain('has-off-left');
+  });
+
+  it('measures the real right edge of a card rather than assuming the nominal width', () => {
+    // A card is given `RM_NODE_WIDTH` of *content*; its padding and borders put
+    // another 24px on the far side. Assuming the constant reported the right
+    // edge further left than it is, so the left strip stayed lit over a card
+    // still poking into the frame.
+    const harness = mount();
+    pinFrameSize(harness, 200, 200);
+    Object.defineProperty(harness.window.HTMLElement.prototype, 'offsetWidth', { value: 274, configurable: true });
+    harness.send(snapshot());
+    harness.click('[data-action="page"][data-payload="roadmap"]');
+
+    const frame = harness.root().querySelector('[data-rm-frame="true"]');
+    // alpha sits at x=80. Panned 340px left, its nominal right edge (80 + 250)
+    // is 10px past the frame while its real one (80 + 274) is 14px inside it.
+    // Through the wheel rather than a drag, so this asserts the measurement and
+    // not the refresh the test above covers.
+    frame.dispatchEvent(new harness.window.WheelEvent('wheel', {
+      bubbles: true, cancelable: true, deltaX: 340, deltaY: 0,
+    }));
+
+    expect(frame.className, 'a sliver of the card is still on screen').not.toContain('has-off-left');
   });
 
   it('does nothing rather than throwing when there is nothing to fit', () => {
@@ -1256,5 +1358,128 @@ describe('a flat plan offers its own way out', () => {
     const banner = harness.root().querySelector('.rm-banner-actionable');
     expect(banner?.textContent).toContain('Nothing is linked yet');
     expect(banner?.querySelector('[data-action="roadmap-derive-links"]')).not.toBeNull();
+  });
+});
+
+describe('the timeline view', () => {
+  const openTimeline = (graphOverrides: Record<string, unknown> = {}) => {
+    const harness = mount();
+    pinFrameSize(harness, 900, 500);
+    harness.send(snapshot(graphOverrides));
+    harness.click('[data-action="page"][data-payload="roadmap"]');
+    harness.click('[data-action="roadmap-view"][data-payload="timeline"]');
+    return harness;
+  };
+
+  it('draws one row per bar, positioned by the schedule the host computed', () => {
+    const harness = openTimeline();
+    const rows = [...harness.root().querySelectorAll('.rm-tl-row')];
+
+    expect(rows).toHaveLength(2);
+    // beta starts on day 2 of a 6-day horizon and runs to the end.
+    const critical = harness.root().querySelector('.rm-tl-row.is-critical .rm-tl-bar');
+    expect(critical?.getAttribute('style')).toContain('left:33.33');
+    expect(harness.root().querySelectorAll('.rm-tl-bar')).toHaveLength(2);
+  });
+
+  it('draws float as a tail only where there is room', () => {
+    // Float is room before the *plan's* finish moves. The item on the path has
+    // none, so a tail there would say the opposite of what is true.
+    const harness = openTimeline();
+    const floats = [...harness.root().querySelectorAll('.rm-tl-float')];
+    expect(floats).toHaveLength(1);
+    expect(harness.root().querySelector('.rm-tl-row.is-critical .rm-tl-float')).toBeNull();
+  });
+
+  it('marks a deadline the earliest finish is already past', () => {
+    const harness = openTimeline();
+    expect(harness.root().querySelector('.rm-tl-deadline.is-late')).not.toBeNull();
+  });
+
+  it('pins each dated milestone on the axis', () => {
+    const harness = openTimeline();
+    const milestone = harness.root().querySelector('.rm-tl-milestone');
+    expect(milestone?.textContent).toContain('MVP');
+    expect(milestone?.getAttribute('style')).toContain('left:100');
+  });
+
+  it('publishes the rules that drew the chart', () => {
+    // Same habit as the debt register and the critical path: a surface shows
+    // the rules that graded it rather than a copy that drifts.
+    const harness = openTimeline();
+    expect(harness.root().querySelector('.rm-tl-rules')?.textContent).toContain('duration-not-date');
+  });
+
+  it('says why there is no chart rather than drawing an empty axis', () => {
+    // An empty chart with an axis reads as "this plan takes no time".
+    const harness = openTimeline({
+      timeline: {
+        state: 'circular', horizonDays: 0, bars: [], milestones: [],
+        outstandingCount: 2, deliveredCount: 0, criticalCount: 0, rules: [],
+        note: 'This plan has a circular dependency, so it cannot be laid out on a time axis.',
+      },
+    });
+
+    expect(harness.root().querySelector('.rm-tl-row')).toBeNull();
+    expect(harness.root().querySelector('.rm-timeline-card')?.textContent).toContain('circular dependency');
+  });
+
+  it('leaves the canvas alone: no frame, and nothing fitted', () => {
+    const harness = openTimeline();
+    expect(harness.root().querySelector('[data-rm-frame="true"]')).toBeNull();
+    expect(harness.posted.filter(message => message.type === 'roadmapNodeMove')).toEqual([]);
+  });
+});
+
+describe('the board view', () => {
+  const openBoard = (graphOverrides: Record<string, unknown> = {}) => {
+    const harness = mount();
+    pinFrameSize(harness, 900, 500);
+    harness.send(snapshot(graphOverrides));
+    harness.click('[data-action="page"][data-payload="roadmap"]');
+    harness.click('[data-action="roadmap-view"][data-payload="board"]');
+    return harness;
+  };
+
+  it('draws every column, including the empty ones', () => {
+    // An empty column is a fact about the plan. A bare gap where a column
+    // should be reads as something that failed to load.
+    const harness = openBoard();
+    const columns = [...harness.root().querySelectorAll('.rm-board-column')];
+
+    expect(columns).toHaveLength(5);
+    expect(columns.map(column => column.getAttribute('aria-label')))
+      .toEqual(['Blocked', 'Ready', 'In progress', 'In review', 'Delivered']);
+    expect(harness.root().querySelectorAll('.rm-board-empty')).toHaveLength(3);
+  });
+
+  it('carries the waiting count on a card that is started and still blocked', () => {
+    const harness = openBoard();
+    const started = harness.root().querySelector('.rm-board-column[aria-label="In progress"] .rm-board-cardlet');
+    expect(started?.textContent).toContain('Ship the export');
+    expect(started?.textContent).toContain('waiting on 1');
+  });
+
+  it('says which evidence was not read rather than showing a clean board', () => {
+    const harness = openBoard();
+    const head = harness.root().querySelector('.rm-board-card .rm-chip-row');
+    expect(head?.textContent).toContain('branches read');
+    expect(head?.textContent).toContain('pull requests not read');
+    expect(harness.root().querySelector('.rm-board-card .rm-banner')?.textContent).toContain('No pull requests were read');
+  });
+
+  it('publishes the rules that placed the cards', () => {
+    const harness = openBoard();
+    expect(harness.root().querySelector('.rm-board-card .rm-tl-rules')?.textContent)
+      .toContain('evidenced-never-guessed');
+  });
+
+  it('offers no way to drag a card between columns', () => {
+    // Moving a card would write a state nothing evidenced, and the next refresh
+    // would move it back. The board reports where the work is.
+    const harness = openBoard();
+    const card = harness.root().querySelector('.rm-board-cardlet');
+    expect(card?.getAttribute('draggable')).toBeNull();
+    expect(harness.root().querySelector('.rm-board-card [data-action]')).toBeNull();
   });
 });

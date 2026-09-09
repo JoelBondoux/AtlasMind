@@ -1158,7 +1158,17 @@ function normalizeSsotPath(input: string | undefined): string | undefined {
 }
 
 function normalizeFsPathForComparison(value: string): string {
-  const normalized = path.resolve(value).replace(/[\\/]+$/, '');
+  // Trailing separators are trimmed with an index walk rather than `/[\\/]+$/`.
+  // An anchored `+` backtracks across a long run of separators once per starting
+  // position, so a path ending in thousands of slashes costs quadratic time —
+  // and this runs on paths that arrive from workspace configuration rather than
+  // from a person typing them.
+  const resolved = path.resolve(value);
+  let end = resolved.length;
+  while (end > 0 && (resolved[end - 1] === '/' || resolved[end - 1] === '\\')) {
+    end -= 1;
+  }
+  const normalized = resolved.slice(0, end);
   return process.platform === 'win32'
     ? normalized.toLowerCase()
     : normalized;
@@ -1219,6 +1229,41 @@ function isUriWithinSsotPath(
   return isPathEqualToOrWithin(candidatePath, ssotRootPath);
 }
 
+/** Words that make an HTML comment in a memory file look like an instruction to a model. */
+const SUSPICIOUS_COMMENT_WORDS = /ignore|forget|override|instruction/i;
+
+/**
+ * Replace HTML comments carrying instruction-shaped words, walking the string
+ * by index.
+ *
+ * An unterminated `<!--` ends the scan rather than being rewritten: there is no
+ * comment there, only a string that starts like one, and rewriting to the end of
+ * the file would delete the rest of somebody's notes.
+ */
+function scrubSuspiciousComments(content: string): string {
+  const OPEN = '<!--';
+  const CLOSE = '-->';
+  let out = '';
+  let index = 0;
+  for (;;) {
+    const start = content.indexOf(OPEN, index);
+    if (start === -1) {
+      break;
+    }
+    const end = content.indexOf(CLOSE, start + OPEN.length);
+    if (end === -1) {
+      break;
+    }
+    const comment = content.slice(start, end + CLOSE.length);
+    out += content.slice(index, start);
+    out += SUSPICIOUS_COMMENT_WORDS.test(comment)
+      ? '<!-- removed by AtlasMind memory self-heal -->'
+      : comment;
+    index = end + CLOSE.length;
+  }
+  return index === 0 ? content : out + content.slice(index);
+}
+
 export function applyMemorySelfHealingToContent(content: string): { content: string; changed: boolean; actions: string[] } {
   let next = content;
   const actions: string[] = [];
@@ -1229,7 +1274,13 @@ export function applyMemorySelfHealingToContent(content: string): { content: str
     actions.push('removed hidden Unicode control characters');
   }
 
-  const withoutInjectedComments = next.replace(/<!--[\s\S]*?(?:ignore|forget|override|instruction)[\s\S]*?-->/gi, '<!-- removed by AtlasMind memory self-heal -->');
+  // Comments are found by index rather than by pattern, and each one is then
+  // tested for the keywords. A regex — even a lazy one — rescans to the end of
+  // the file from every `<!--` that never closes, so a memory file of repeated
+  // `<!--` costs quadratic time. This function's whole job is reading files that
+  // may be hostile, so a pattern that degrades on input somebody chose is the
+  // wrong shape for it. Two indexOf walks are linear and say the same thing.
+  const withoutInjectedComments = scrubSuspiciousComments(next);
   if (withoutInjectedComments !== next) {
     next = withoutInjectedComments;
     actions.push('neutralized suspicious HTML comments');
@@ -1794,6 +1845,7 @@ async function bootstrapAtlasMind(
       riskOversightManagerModule,
       researchRegisterModule,
       followUpSchedulerModule,
+      ambientTriggersModule,
       missionRegistryModule,
       dataPrivacyModule,
       ardClientModule,
@@ -1836,6 +1888,7 @@ async function bootstrapAtlasMind(
       import('./core/riskOversightManager.js'),
       import('./core/researchRegister.js'),
       import('./core/followUpScheduler.js'),
+      import('./core/ambientTriggers.js'),
       import('./core/missionRegistry.js'),
       import('./core/dataPrivacyManager.js'),
       import('./ard/ardClient.js'),
@@ -1912,6 +1965,9 @@ async function bootstrapAtlasMind(
       RiskOversightManager: riskOversightManagerModule.RiskOversightManager,
       ResearchRegisterManager: researchRegisterModule.ResearchRegisterManager,
       FollowUpScheduler: followUpSchedulerModule.FollowUpScheduler,
+      AmbientTriggerService: ambientTriggersModule.AmbientTriggerService,
+      buildAmbientHandoffPrompt: ambientTriggersModule.buildAmbientHandoffPrompt,
+      AMBIENT_EVENT_KINDS: ambientTriggersModule.AMBIENT_EVENT_KINDS,
       MissionRegistry: missionRegistryModule.MissionRegistry,
       DataPrivacyManager: dataPrivacyModule.DataPrivacyManager,
       readDataPrivacyConfig: dataPrivacyModule.readDataPrivacyConfig,
@@ -2050,6 +2106,99 @@ async function bootstrapAtlasMind(
       }
     }, PROJECT_DIRECTOR_REMINDER_INTERVAL_MS);
     context.subscriptions.push({ dispose: () => { followUpScheduler.dispose(); clearInterval(followUpReminderTimer); } });
+
+    // Ambient triggers: repository events waking AtlasMind up while you are
+    // working on something else. Deny-by-default twice over (a master switch
+    // and a per-event subscription, both off), never further than proposing
+    // because nobody is watching, and it executes nothing — the service hands
+    // back a plan and the notification below is as far as it goes on its own.
+    //
+    // What can be observed here is deliberately narrow. The three registers are
+    // local files and are always readable; CI, advisories, review requests and
+    // release gates need the network, so they are reported as **not observed**
+    // rather than as quiet. That is the module's fifth rule doing real work: a
+    // source nobody could read looks exactly like one with nothing to say.
+    const AMBIENT_SEEN_KEY = 'atlasmind.ambient.seen';
+    const ambientService = new startupModules.AmbientTriggerService({
+      observe: async () => {
+        const subjects: Partial<Record<string, string[]>> = {};
+        if (workspaceRootPath) {
+          try {
+            const [defects, approvals, testCases] = await Promise.all([
+              import('./core/defectRegister.js'),
+              import('./core/changeApprovals.js'),
+              import('./core/testCaseRegister.js'),
+            ]);
+            subjects['blocker-defect'] = defects
+              .openBlockers(defects.readDefectRegister(workspaceRootPath))
+              .map(entry => entry.id);
+            const selfContactId = projectDirectorManager.getConfig()?.selfContactId;
+            if (selfContactId) {
+              subjects['approval-awaiting-you'] = approvals
+                .approvalsAwaiting(approvals.readApprovalRegister(workspaceRootPath), selfContactId)
+                .map(request => request.id);
+            }
+            const register = testCases.readTestCaseRegister(workspaceRootPath);
+            subjects['test-case-failed'] = testCases.runnableCases(register)
+              .filter(entry => testCases.testCaseStanding(entry, register.executions).state === 'fail')
+              .map(entry => entry.id);
+          } catch {
+            // A read that failed leaves its kind absent, which is reported as
+            // not-observed. Reporting an empty list instead would be the one
+            // wrong answer available here.
+          }
+        }
+        return { subjects, observedAt: new Date().toISOString() };
+      },
+      getGates: () => {
+        const ambient = vscode.workspace.getConfiguration('atlasmind.ambient');
+        return {
+          masterEnabled: ambient.get<boolean>('enabled', false),
+          // Ambient work is capped at `propose` by the module regardless; this
+          // is the operator's own ceiling, and the lower of the two wins.
+          masterCeiling: 'propose',
+          monthlySpendCapUsd: ambient.get<number>('monthlySpendCapUsd', 0),
+          maxPerEvaluation: ambient.get<number>('maxPerCheck', 3),
+        };
+      },
+      getSubscriptions: () => {
+        const enabled = new Set(
+          vscode.workspace.getConfiguration('atlasmind.ambient').get<string[]>('events', []),
+        );
+        return startupModules.AMBIENT_EVENT_KINDS.map(kind => ({ kind, enabled: enabled.has(kind) }));
+      },
+      getSeen: () => context.workspaceState.get<string[]>(AMBIENT_SEEN_KEY) ?? [],
+      setSeen: seen => { void context.workspaceState.update(AMBIENT_SEEN_KEY, seen); },
+      present: plan => {
+        if (!plan.summary || plan.actions.length === 0) {
+          return;
+        }
+        const first = plan.actions[0]!;
+        // One notification, one action, and the action opens a draft rather
+        // than running anything. "Works while you're away" ends here: what
+        // happens next is a person's decision under the ordinary approval
+        // regime.
+        void vscode.window.showInformationMessage(plan.summary, 'Look at it with Atlas')
+          .then(choice => {
+            if (choice === 'Look at it with Atlas') {
+              void vscode.commands.executeCommand('atlasmind.openChat', {
+                draftPrompt: startupModules.buildAmbientHandoffPrompt(first),
+                sendMode: 'new-session',
+              });
+            }
+          });
+      },
+    });
+    const ambientIntervalMinutes = Math.max(
+      5,
+      vscode.workspace.getConfiguration('atlasmind.ambient').get<number>('checkIntervalMinutes', 30),
+    );
+    // The timer runs regardless of the master gate, and the service tracks what
+    // it saw either way: a gate that is off must still remember, or switching it
+    // on would raise every standing condition at once — which is exactly the
+    // experience that gets a feature like this switched off again.
+    ambientService.start(ambientIntervalMinutes * 60_000);
+    context.subscriptions.push({ dispose: () => ambientService.dispose() });
     const missionRegistry = new startupModules.MissionRegistry(workspaceRootPath);
     const projectRunHistory = new startupModules.ProjectRunHistory(context.workspaceState, {
       workspaceKey: workspaceRootPath,

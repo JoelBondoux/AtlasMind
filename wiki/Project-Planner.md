@@ -214,8 +214,37 @@ where it is, because "dropped", "renamed" and "your glob stopped matching that f
 here. And your own edits are safe — if you have retitled an item and the source has also changed it,
 you get a conflict showing both texts and nothing is written.
 
-**Four views, not three.** **Dependency canvas**, **Prioritised backlog**, **By person** and
-**Delivered**. By person shows the same outstanding work in one band per person, with each band still
+**Six views.** **Dependency canvas**, **Timeline**, **Board**, **Prioritised backlog**, **By person**
+and **Delivered**.
+
+The **Board** answers what a stand-up asks: what is waiting, what is ready to pick up, what somebody
+has actually started, what is with a reviewer, and what has shipped. A card only moves on **evidence**
+— a branch that exists, or an open pull request — so an item nobody has started reads as Ready rather
+than as in progress because it is near the top of the list or has somebody's name on it. Delivered
+comes from the backlog line being ticked and never from a merged pull request: work merges without
+finishing an item, and items finish with no pull request at all.
+
+An item can be started *and* still waiting, so the waiting count travels on the card in every column.
+And if AtlasMind could not read your branches or your pull requests, the board says so rather than
+showing a project where nothing has been started — silence earned by not looking is the one thing that
+would make the view worse than no view.
+
+It is read-only on purpose: dragging a card between columns would write a state nothing evidenced, and
+the next refresh would move it back.
+
+The **Timeline** answers the one question the other four cannot: *how long*. The canvas shows order and
+the backlog shows priority, but neither shows duration — so nothing said that four items sit idle for a
+week waiting on one, or that a release gate lands after the deadline it is tagged for. Each bar starts
+when its prerequisites can be finished and ends when it can, with a dashed tail showing how far it can
+slip before the plan's own finish moves; the chain with no room is drawn at full strength, and each gate
+is pinned on the axis at the day its last outstanding item lands.
+
+Its axis is **days from today, not dates**, and that is deliberate rather than a limitation. A human
+estimate is effort spread across working days while an agent's is wall clock, so turning a mixed chain
+into calendar dates would mean inventing a working calendar — a five-day week, a holiday list, a working
+day's length — that nobody declared. The only real dates on the chart are deadlines you set yourself,
+drawn as markers that grade a bar and never move it: a plan pulled earlier to meet its deadline would be
+a plan that always meets it. By person shows the same outstanding work in one band per person, with each band still
 ordered by what has to happen first — so an arrow crossing between bands is one person waiting on
 another, which is the question the view exists to answer. Bands are ordered by name rather than by how
 much work is in them, so the picture does not reshuffle whenever somebody finishes something; unassigned

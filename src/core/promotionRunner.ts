@@ -771,7 +771,12 @@ export function syncNpmLockfileVersion(raw: string, targetVersion: string): stri
 
 /** Add a compact current-version heading to an existing wiki changelog. */
 export function insertWikiChangelogEntry(raw: string, version: string): string {
-  const escapedVersion = version.replace(/\./g, '\\.');
+  // Every metacharacter, not only the dot. A version is a string from
+  // `package.json`, and SemVer admits `+` and `-` in build and pre-release
+  // identifiers — both of which mean something to a regex. Escaping one of
+  // them makes the check pass for a version that is merely similar, and this
+  // check is the guard against writing the heading twice.
+  const escapedVersion = version.replace(/[.*+?^${}()|[\]\\]/g, '\\$&');
   if (new RegExp(`^## v${escapedVersion}(?:\\s|$)`, 'm').test(raw)) {
     return raw;
   }

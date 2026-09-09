@@ -191,6 +191,9 @@
         // Issues had a page and pull requests had a single card, despite being
         // the stage where a change stops being private. Parity.
         ['pullRequests', 'Pull Requests'],
+        // Between the change and the people: an approval is a decision a
+        // named person made about a change, so it belongs beside both.
+        ['approvals', 'Approvals'],
         ['director', 'Director'],
       ],
     },
@@ -207,6 +210,11 @@
         // Stage 7. Under "The code" rather than "The work": deferred work is
         // a property of the codebase, not an item on the backlog.
         ['debt', 'Tech Debt'],
+        // Beside Tech Debt rather than inside it, and beside Issues rather
+        // than replacing them: debt is a decision somebody made on purpose, a
+        // defect is something that does not work, and a GitHub issue is a
+        // public artefact that needs a remote before it can exist at all.
+        ['defects', 'Defects'],
       ],
     },
     {
@@ -331,13 +339,15 @@
     workflow: [['pullRequests', 'What is in flight right now'], ['pipeline', 'Whether the checks passed'], ['release', 'Whether this can ship']],
     roadmap: [['issues', 'What is filed against this'], ['ideation', 'Where these items came from']],
     issues: [['pullRequests', 'What is being done about them'], ['roadmap', 'How they map to planned work'], ['director', 'Who owns them']],
+    approvals: [['director', 'Who holds which role'], ['roadmap', 'What a decision commits us to'], ['documents', 'The documents under review']],
     pullRequests: [['pipeline', 'Why a check is failing'], ['issues', 'The issue a change closes'], ['release', 'What merging unblocks']],
     director: [['issues', 'The work these people own'], ['pullRequests', 'What is waiting on a review']],
     branches: [['pullRequests', 'Which branches have a pull request'], ['delivery', 'Which branch represents each stage']],
     repo: [['debt', 'What the code defers'], ['testing', 'What covers it']],
     pipeline: [['pullRequests', 'The change a run is verifying'], ['testing', 'Which policy a failing test belongs to'], ['release', 'Whether the release gate is satisfied']],
     testing: [['pipeline', 'Whether the suite actually ran'], ['debt', 'Coverage somebody deferred'], ['gapAnalysis', 'How a gap scores']],
-    debt: [['issues', 'File a deferred item as work'], ['roadmap', 'Schedule it against a milestone']],
+    debt: [['issues', 'File a deferred item as work'], ['roadmap', 'Schedule it against a milestone'], ['defects', 'What is broken rather than deferred']],
+    defects: [['issues', 'File one publicly, deliberately'], ['debt', 'What was deferred on purpose'], ['release', 'What an open blocker means for shipping']],
     security: [['risk', 'What has been raised and accepted'], ['testing', 'Whether a control is evidenced']],
     privacy: [['security', 'The boundaries behind these settings'], ['risk', 'What a decision here exposes']],
     risk: [['security', 'The controls a finding leans on'], ['debt', 'What was knowingly deferred']],
@@ -612,6 +622,28 @@
     releaseGateSort: typeof persistedWebviewState.releaseGateSort === 'string'
       ? persistedWebviewState.releaseGateSort : 'urgency',
     debtSearch: '',
+    defectSearch: '',
+    /** Which composer is open on the Testing page: '', 'case' or 'asset'. */
+    /** Which utility pack is expanded on the Gap Analysis page, if any. */
+    utilityExpanded: '',
+    testCaseDraft: '',
+    testCaseFilter: 'live',
+    testCaseExpandedId: '',
+    approvalDraftOpen: false,
+    /** Opens on what is still waiting, since decided requests are kept forever. */
+    approvalFilter: 'pending',
+    approvalExpandedId: '',
+    /**
+     * Which slice of the defect register is on screen.
+     *
+     * Opens on `open` rather than on everything, because the register keeps
+     * closed entries forever by design and a first view dominated by things
+     * somebody already dealt with buries the ones nobody has.
+     */
+    defectStatusFilter: 'open',
+    defectDraftOpen: false,
+    /** Which entry's transition controls are expanded, if any. */
+    defectExpandedId: '',
     /**
      * Everything-that-ran: how the list is ordered, what it shows, and whether
      * it is one stream or grouped by where it ran.
@@ -892,6 +924,115 @@
       requestRepositoryRefresh('refresh');
     }
   });
+
+  /* ── Page zoom ─────────────────────────────────────────────────────────────
+   *
+   * Ctrl (or ⌘) with the wheel zooms the dashboard the way a browser does. The
+   * panel is dense by nature — nine stat cards, a nav strip and a table on one
+   * screen — and a webview does not inherit the window zoom, so the usual
+   * gesture did nothing here and there was no other way to fit more on screen or
+   * make the type bigger.
+   *
+   * Chromium's own ladder, clamped at both ends: below 50% the labels stop being
+   * readable and above 200% a stat card no longer fits the panel, so offering
+   * either would be offering a broken view. Steps rather than a continuous scale
+   * because that is what the gesture does everywhere else, and a percentage that
+   * lands on 113% reads as a bug.
+   *
+   * Per viewer, not per project: this is how *you* like to read the panel, so it
+   * lives in webview state rather than in the workspace file. It is deliberately
+   * not sent to the host — a zoom level is nobody else's business.
+   */
+  const PAGE_ZOOM_STEPS = [50, 67, 75, 80, 90, 100, 110, 125, 150, 175, 200];
+  const DEFAULT_PAGE_ZOOM = 100;
+
+  function nearestPageZoomStep(value) {
+    const percent = Number(value);
+    if (!Number.isFinite(percent)) { return DEFAULT_PAGE_ZOOM; }
+    return PAGE_ZOOM_STEPS.reduce(
+      (best, step) => (Math.abs(step - percent) < Math.abs(best - percent) ? step : best),
+      DEFAULT_PAGE_ZOOM,
+    );
+  }
+
+  let pageZoomPercent = nearestPageZoomStep(persistedWebviewState.pageZoom ?? DEFAULT_PAGE_ZOOM);
+
+  /**
+   * Viewport pixels per layout pixel.
+   *
+   * Every canvas in this panel converts pointer movement into world
+   * coordinates, and those two units stop being the same the moment the page is
+   * zoomed: a pointer delta arrives in viewport pixels while a node's `left` is
+   * in layout pixels. Dividing by this is what keeps a dragged node under the
+   * cursor at 150%.
+   */
+  function pageZoomFactor() {
+    return pageZoomPercent / 100;
+  }
+
+  /** A viewport-space distance in the layout-space units the canvases store. */
+  function toLayoutPx(value) {
+    return value / pageZoomFactor();
+  }
+
+  function applyPageZoom() {
+    const shell = document.querySelector('.dashboard-shell');
+    if (shell instanceof HTMLElement) {
+      // The attribute is what CSS and the tests read; the style is what the
+      // browser acts on. Both, because a zoom nothing can observe is a zoom
+      // nobody can assert.
+      shell.dataset.pageZoom = String(pageZoomPercent);
+      shell.style.zoom = String(pageZoomFactor());
+    }
+    const reset = document.getElementById('dashboard-zoom-reset');
+    if (reset instanceof HTMLElement) {
+      // Shown only while zoomed, like a browser's own indicator: a permanent
+      // "100%" chip in the action row would be one more thing to read on a
+      // toolbar that already carries three.
+      reset.hidden = pageZoomPercent === DEFAULT_PAGE_ZOOM;
+      reset.textContent = pageZoomPercent + '%';
+      reset.title = 'Dashboard zoom is ' + pageZoomPercent + '%. Click to return to 100%.';
+    }
+  }
+
+  function setPageZoom(percent, announceChange) {
+    const next = nearestPageZoomStep(percent);
+    if (next === pageZoomPercent) { return; }
+    pageZoomPercent = next;
+    applyPageZoom();
+    vscode.setState({ ...(vscode.getState() || {}), pageZoom: pageZoomPercent });
+    if (announceChange) {
+      announce('Dashboard zoom ' + pageZoomPercent + '%.');
+    }
+  }
+
+  function stepPageZoom(direction) {
+    const index = PAGE_ZOOM_STEPS.indexOf(pageZoomPercent);
+    const from = index === -1 ? PAGE_ZOOM_STEPS.indexOf(DEFAULT_PAGE_ZOOM) : index;
+    const next = PAGE_ZOOM_STEPS[Math.min(PAGE_ZOOM_STEPS.length - 1, Math.max(0, from + direction))];
+    setPageZoom(next, true);
+  }
+
+  window.addEventListener('wheel', event => {
+    if (!event.ctrlKey && !event.metaKey) {
+      return;
+    }
+    // A canvas that already zooms on Ctrl+wheel keeps the gesture. Zooming the
+    // page *and* the plan from one wheel notch would be two answers to one
+    // question, and the canvas is the one the pointer is over.
+    const target = event.target instanceof HTMLElement ? event.target : null;
+    if (target?.closest('[data-rm-frame="true"]')) {
+      return;
+    }
+    event.preventDefault();
+    stepPageZoom(event.deltaY < 0 ? 1 : -1);
+  }, { passive: false });
+
+  document.getElementById('dashboard-zoom-reset')?.addEventListener('click', () => {
+    setPageZoom(DEFAULT_PAGE_ZOOM, true);
+  });
+
+  applyPageZoom();
 
   // WAI-ARIA tabs keyboard support. The container declared role="tablist" but
   // had no keydown listener at all, so reaching the last tab took 14 Tab
@@ -1729,12 +1870,27 @@
       render();
       return;
     }
+    if (action === 'advisory-work') {
+      // Opaque reference again: the host builds the prompt from the advisory it
+      // read, so the webview supplies nothing the agent is told.
+      vscode.postMessage({ type: 'workOnAdvisory', payload: String(payload || '') });
+      return;
+    }
+    if (action === 'advisory-open') {
+      // The payload is `<source>:<reference>` and the host resolves it against
+      // the advisories it read. A webview that could send a URL could send any.
+      vscode.postMessage({ type: 'openAdvisory', payload: String(payload || '') });
+      return;
+    }
     if (action === 'roadmap-view') {
       state.roadmapView = payload === 'list' || payload === 'completed' || payload === 'people'
+        || payload === 'timeline' || payload === 'board'
         ? payload : 'canvas';
       // Switching into or out of a lane layout changes where every node is,
       // so the view arrives fitted rather than wherever the last one was panned.
-      state.roadmapFitAfterRender = state.roadmapView !== 'list';
+      // The list and the timeline have no canvas to fit.
+      state.roadmapFitAfterRender = state.roadmapView !== 'list' && state.roadmapView !== 'timeline'
+        && state.roadmapView !== 'board';
       // The route filter and a half-drawn link belong to the canvas. Leaving them
       // set while the list is showing means coming back to a view that is
       // mysteriously filtered by something you did several clicks ago.
@@ -2474,6 +2630,261 @@
       vscode.postMessage({ type: 'scanDebt' });
       return;
     }
+    if (action === 'utility-expand') {
+      state.utilityExpanded = state.utilityExpanded === payload ? '' : payload;
+      render();
+      return;
+    }
+    if (action === 'discuss-utility') {
+      // Only the capability id travels. The host rebuilds the prompt from its
+      // own declared pack, so this can name a decision and never supply the
+      // text an agent reads or a command it might run.
+      vscode.postMessage({ type: 'discussUtilityPack', payload: { capability: payload } });
+      return;
+    }
+    if (action === 'set-test-case-filter') {
+      state.testCaseFilter = payload || 'live';
+      render();
+      return;
+    }
+    if (action === 'test-case-expand') {
+      state.testCaseExpandedId = state.testCaseExpandedId === payload ? '' : payload;
+      render();
+      return;
+    }
+    if (action === 'test-case-new') {
+      state.testCaseDraft = state.testCaseDraft === 'case' ? '' : 'case';
+      render();
+      return;
+    }
+    if (action === 'test-asset-new') {
+      state.testCaseDraft = state.testCaseDraft === 'asset' ? '' : 'asset';
+      render();
+      return;
+    }
+    if (action === 'test-case-save') {
+      const composer = document.getElementById('test-case-composer');
+      const read = field => {
+        const el = composer ? composer.querySelector('[data-test-field="' + field + '"]') : null;
+        return el ? String(el.value || '').trim() : '';
+      };
+      const title = read('title');
+      if (!title) { return; }
+      state.testCaseDraft = '';
+      // No priority travels. It is derived host-side from what breaks and how
+      // often the path is taken, so this message describes a case and never
+      // grades one.
+      vscode.postMessage({
+        type: 'addTestCase',
+        payload: {
+          title: title,
+          consequence: read('consequence') || 'core-journey',
+          frequency: read('frequency') || 'common',
+          execution: read('execution') || 'manual',
+          objective: read('objective'),
+          expected: read('expected'),
+          ownerContactId: read('owner'),
+          policyId: read('policy'),
+        },
+      });
+      render();
+      return;
+    }
+    if (action === 'test-asset-save') {
+      const composer = document.getElementById('test-asset-composer');
+      const read = field => {
+        const el = composer ? composer.querySelector('[data-test-field="' + field + '"]') : null;
+        return el ? String(el.value || '').trim() : '';
+      };
+      const label = read('asset-label');
+      if (!label) { return; }
+      state.testCaseDraft = '';
+      // The host refuses anything credential-shaped and says so. Nothing is
+      // filtered here: a browser-side scrub would report success while leaving
+      // the value in whatever it was pasted from.
+      vscode.postMessage({
+        type: 'addTestAsset',
+        payload: {
+          label: label,
+          kind: read('asset-kind') || 'account',
+          ownerContactId: read('asset-owner'),
+          location: read('asset-location'),
+          secretRef: read('asset-secret'),
+        },
+      });
+      render();
+      return;
+    }
+    if (action === 'set-test-case-status') {
+      const cut = payload.indexOf(' ');
+      if (cut > 0) {
+        vscode.postMessage({
+          type: 'setTestCaseStatus',
+          payload: { status: payload.slice(0, cut), id: payload.slice(cut + 1) },
+        });
+      }
+      return;
+    }
+    if (action === 'record-test-result') {
+      const cut = payload.indexOf(' ');
+      if (cut > 0) {
+        vscode.postMessage({
+          type: 'recordTestResult',
+          payload: { result: payload.slice(0, cut), id: payload.slice(cut + 1) },
+        });
+      }
+      return;
+    }
+    if (action === 'draft-test-case') {
+      vscode.postMessage({ type: 'draftTestCase', payload: { id: payload } });
+      return;
+    }
+    if (action === 'set-approval-filter') {
+      state.approvalFilter = payload || 'pending';
+      render();
+      return;
+    }
+    if (action === 'approval-new') {
+      state.approvalDraftOpen = !state.approvalDraftOpen;
+      render();
+      return;
+    }
+    if (action === 'approval-expand') {
+      state.approvalExpandedId = state.approvalExpandedId === payload ? '' : payload;
+      render();
+      return;
+    }
+    if (action === 'approval-raise') {
+      const composer = document.getElementById('approval-composer');
+      const read = field => {
+        const el = composer ? composer.querySelector('[data-approval-field="' + field + '"]') : null;
+        return el ? String(el.value || '').trim() : '';
+      };
+      const title = read('title');
+      const subjectId = read('subject');
+      if (!title || !subjectId) { return; }
+      state.approvalDraftOpen = false;
+      // The subject travels as the opaque option id the host published on this
+      // render. A path or an item id chosen here would be the browser telling
+      // the host what to read.
+      vscode.postMessage({
+        type: 'raiseApproval',
+        payload: {
+          category: read('category') || 'code',
+          title: title,
+          subjectId: subjectId,
+          rationale: read('rationale'),
+        },
+      });
+      render();
+      return;
+    }
+    if (action === 'decide-approval') {
+      // `decision id` — a decision never contains a space and an id cannot.
+      const cut = payload.indexOf(' ');
+      if (cut > 0) {
+        vscode.postMessage({
+          type: 'decideApproval',
+          payload: { decision: payload.slice(0, cut), id: payload.slice(cut + 1) },
+        });
+      }
+      return;
+    }
+    if (action === 'withdraw-approval') {
+      vscode.postMessage({ type: 'withdrawApproval', payload: { id: payload } });
+      return;
+    }
+    if (action === 'recheck-approval') {
+      vscode.postMessage({ type: 'recheckApproval', payload: { id: payload } });
+      return;
+    }
+    if (action === 'review-approval') {
+      vscode.postMessage({ type: 'reviewApproval', payload: { id: payload } });
+      return;
+    }
+    if (action === 'set-defect-status-filter') {
+      state.defectStatusFilter = payload || 'open';
+      render();
+      return;
+    }
+    if (action === 'defect-new') {
+      state.defectDraftOpen = !state.defectDraftOpen;
+      render();
+      return;
+    }
+    if (action === 'defect-expand') {
+      state.defectExpandedId = state.defectExpandedId === payload ? '' : payload;
+      render();
+      return;
+    }
+    if (action === 'defect-record') {
+      // Read at submit time from the composer rather than mirrored into state
+      // on every keystroke: the same idiom the issue composer uses, and the
+      // reason a long repro does not re-render the page as it is typed.
+      const composer = document.getElementById('defect-composer');
+      const read = field => {
+        const el = composer ? composer.querySelector('[data-defect-field="' + field + '"]') : null;
+        return el ? String(el.value || '').trim() : '';
+      };
+      const title = read('title');
+      if (!title) { return; }
+      state.defectDraftOpen = false;
+      // No severity travels. It is derived host-side from the declared rule
+      // table, so this message can describe a defect and never grade one.
+      vscode.postMessage({
+        type: 'reportDefect',
+        payload: {
+          title: title,
+          impact: read('impact') || 'broken',
+          reach: read('reach') || 'few',
+          reproducibility: read('reproducibility') || 'always',
+          detail: read('detail'),
+          area: read('area'),
+          stepsToReproduce: read('steps'),
+          expected: read('expected'),
+          actual: read('actual'),
+          environment: read('environment'),
+        },
+      });
+      render();
+      return;
+    }
+    if (action === 'set-defect-status') {
+      // `status id` — a status never contains a space and an id cannot, so one
+      // split on the first space is unambiguous.
+      const cut = payload.indexOf(' ');
+      if (cut > 0) {
+        vscode.postMessage({
+          type: 'setDefectStatus',
+          payload: { status: payload.slice(0, cut), id: payload.slice(cut + 1) },
+        });
+      }
+      return;
+    }
+    if (action === 'regrade-defect') {
+      const row = document.querySelector('[data-defect-grade="' + payload + '"]');
+      const read = field => {
+        const el = row ? row.querySelector('[data-defect-field="' + field + '"]') : null;
+        return el ? String(el.value || '') : '';
+      };
+      const impact = read('impact');
+      const reach = read('reach');
+      if (!impact || !reach) { return; }
+      vscode.postMessage({ type: 'regradeDefect', payload: { id: payload, impact: impact, reach: reach } });
+      return;
+    }
+    if (action === 'defect-duplicate') {
+      const row = document.querySelector('[data-defect-grade="' + payload + '"]');
+      const el = row ? row.querySelector('[data-defect-field="duplicate-of"]') : null;
+      const target = el ? String(el.value || '') : '';
+      if (!target) { return; }
+      vscode.postMessage({ type: 'markDefectDuplicate', payload: { id: payload, duplicateOfId: target } });
+      return;
+    }
+    if (action === 'work-on-defect') {
+      vscode.postMessage({ type: 'workOnDefect', payload: { id: payload } });
+      return;
+    }
     if (action === 'reconcile-testing') {
       // No payload: the host derives the proposal from the same snapshot this
       // page rendered, so the webview cannot choose what a reconciliation
@@ -3069,6 +3480,10 @@
       state.debtSearch = target.value;
       render();
     }
+    if (target instanceof HTMLInputElement && target.id === 'defect-search-input') {
+      state.defectSearch = target.value;
+      render();
+    }
     if (target instanceof HTMLInputElement && target.id === 'roadmap-search-input') {
       state.roadmapSearch = target.value;
       // Re-fit on every narrowing, so the result is always in view — a filter
@@ -3468,11 +3883,17 @@
       for (const el of root.querySelectorAll('[data-rm-node]')) {
         const x = parseFloat(el.style.left) || 0;
         const y = parseFloat(el.style.top) || 0;
+        // Both measured, not assumed. `RM_NODE_WIDTH` is the *content* width the
+        // card is given; its padding and borders put another 24px on the far
+        // side, so the constant reports a card's right edge as further left than
+        // it is and the left strip stayed lit over a card already back in the
+        // frame. Same rule as the height, for the same reason.
+        const width_ = el.offsetWidth || RM_NODE_WIDTH;
         const height_ = el.offsetHeight || RM_NODE_HEIGHT;
         // Wholly past the edge, not merely crossing it: a card half off the
         // right side is one you can see, and pointing at it would mean the
         // strips were lit almost permanently and so worth nothing.
-        if ((x + RM_NODE_WIDTH) * zoom + pan.x < 0) { off.left = true; }
+        if ((x + width_) * zoom + pan.x < 0) { off.left = true; }
         if (x * zoom + pan.x > width) { off.right = true; }
         if ((y + height_) * zoom + pan.y < 0) { off.top = true; }
         if (y * zoom + pan.y > height) { off.bottom = true; }
@@ -3873,8 +4294,10 @@
         if (!bounds) {
           return;
         }
-        const worldX = (event.clientX - bounds.left) / state.roadmapZoom;
-        const worldY = (event.clientY - bounds.top) / state.roadmapZoom;
+        // Two conversions, not one: out of viewport pixels into layout pixels
+        // (page zoom), then out of layout pixels into world units (canvas zoom).
+        const worldX = toLayoutPx(event.clientX - bounds.left) / state.roadmapZoom;
+        const worldY = toLayoutPx(event.clientY - bounds.top) / state.roadmapZoom;
         rmDrag = {
           kind: 'marquee',
           startX: event.clientX,
@@ -3907,11 +4330,16 @@
     if (!rmDrag) {
       return;
     }
-    const dx = event.clientX - rmDrag.startX;
-    const dy = event.clientY - rmDrag.startY;
-    if (!rmDrag.moved && Math.abs(dx) < 3 && Math.abs(dy) < 3) {
+    // Viewport pixels on the way in — the 3px threshold is about how far a hand
+    // moved, so it stays in that unit — and layout pixels for everything that
+    // lands in the world, which is what page zoom changes.
+    const viewportDx = event.clientX - rmDrag.startX;
+    const viewportDy = event.clientY - rmDrag.startY;
+    if (!rmDrag.moved && Math.abs(viewportDx) < 3 && Math.abs(viewportDy) < 3) {
       return;
     }
+    const dx = toLayoutPx(viewportDx);
+    const dy = toLayoutPx(viewportDy);
     rmDrag.moved = true;
     if (rmDrag.kind === 'pan') {
       state.roadmapPan = { x: rmDrag.originX + dx, y: rmDrag.originY + dy };
@@ -3919,6 +4347,16 @@
       if (world instanceof HTMLElement) {
         world.style.transform = 'translate(' + state.roadmapPan.x + 'px, ' + state.roadmapPan.y + 'px) scale(' + state.roadmapZoom + ')';
       }
+      // The edge hints answer "does the plan continue that way", so they have to
+      // be recomputed by whatever moved the view. This path writes the transform
+      // itself rather than going through `rmApplyViewTransform`, and so used to
+      // leave them saying what was true before the drag: a strip lit before you
+      // panned stayed lit after the node it pointed at was back on screen. The
+      // wheel pans through `rmApplyViewTransform`, which is why the vertical
+      // strips looked right and dragging — the way a wide plan is read
+      // sideways — did not. Nothing here changes layout, so the measurements
+      // this reads are already settled and cost no reflow.
+      rmUpdateEdgeHints();
       return;
     }
     if (rmDrag.kind === 'marquee') {
@@ -4037,8 +4475,8 @@
       const rect = frame.getBoundingClientRect();
       rmZoomAt(
         state.roadmapZoom + (event.deltaY < 0 ? 0.1 : -0.1),
-        event.clientX - rect.left,
-        event.clientY - rect.top,
+        toLayoutPx(event.clientX - rect.left),
+        toLayoutPx(event.clientY - rect.top),
       );
       return;
     }
@@ -4048,8 +4486,10 @@
     // single-axis wheel into a horizontal pan, the way every editor canvas
     // does; a trackpad's own horizontal delta is honoured either way.
     const swapAxes = event.shiftKey && event.deltaX === 0;
-    const dx = swapAxes ? event.deltaY : event.deltaX;
-    const dy = swapAxes ? 0 : event.deltaY;
+    // Wheel deltas are viewport pixels; the pan they move is stored in layout
+    // pixels, so a zoomed page would pan further than the wheel was turned.
+    const dx = toLayoutPx(swapAxes ? event.deltaY : event.deltaX);
+    const dy = toLayoutPx(swapAxes ? 0 : event.deltaY);
     state.roadmapPan = { x: state.roadmapPan.x - dx, y: state.roadmapPan.y - dy };
     rmApplyViewTransform();
   }, { passive: false });
@@ -4269,6 +4709,7 @@
         ${renderRoadmap(snapshot)}
         ${renderIssues(snapshot)}
         ${renderPullRequests(snapshot)}
+        ${renderApprovals(snapshot)}
         ${renderPipeline(snapshot)}
         ${renderDirector(snapshot)}
         ${renderRuntime(snapshot)}
@@ -4276,6 +4717,7 @@
         ${renderRepo(snapshot)}
         ${renderTesting(snapshot)}
         ${renderDebt(snapshot)}
+        ${renderDefects(snapshot)}
         ${renderSecurity(snapshot)}
         ${renderPrivacy(snapshot)}
         ${renderRisk(snapshot)}
@@ -4376,7 +4818,8 @@
        * the call as a guard: fitting no longer renders, but a fit that ever
        * did would otherwise re-enter here and fit forever.
        */
-      if (state.roadmapFitAfterRender && !rmDrag && state.activePage === 'roadmap' && state.roadmapView !== 'list') {
+      if (state.roadmapFitAfterRender && !rmDrag && state.activePage === 'roadmap'
+        && state.roadmapView !== 'list' && state.roadmapView !== 'timeline' && state.roadmapView !== 'board') {
         state.roadmapFitAfterRender = false;
         const scope = state.roadmapFitScope;
         state.roadmapFitScope = 'all';
@@ -5036,14 +5479,14 @@
             <h3>Ownership of vital files</h3>
             <p class="section-copy">${escapeHtml(report.summary)} A file with nobody assigned falls to the Director — that is derived, so replacing the Director re-points every one of them at once. Recording an owner writes it into the committed roster instead, where it stays until somebody changes it.</p>
           </div>
-          <span class="tag ${report.unownedCount ? 'tag-critical' : report.defaultedCount ? 'tag-warn' : 'tag-good'}">${report.recordedCount} recorded · ${report.defaultedCount} default${report.unownedCount ? ` · ${report.unownedCount} unowned` : ''}</span>
+          <span class="tag ${report.unownedCount ? 'tag-critical' : report.defaultedCount ? 'tag-warn' : 'tag-good'}">${escapeHtml(String(report.recordedCount))} recorded · ${escapeHtml(String(report.defaultedCount))} default${report.unownedCount ? ` · ${escapeHtml(String(report.unownedCount))} unowned` : ''}</span>
         </div>
         ${report.blocker ? `<p class="vital-owner-blocker">⚠ ${escapeHtml(report.blocker)}</p>` : ''}
         ${report.notice ? `<p class="vital-owner-notice">${escapeHtml(report.notice)}</p>` : ''}
         ${(!report.blocker && report.defaultedCount > 0 && owner) ? `
           <div class="vital-owner-actions">
             <button type="button" class="action-link" data-action="record-vital-owners"
-              title="${escapeAttr('Write these defaults into project-director.json as assignments. You will see every one before anything is written.')}">Record ${report.defaultedCount} default${report.defaultedCount === 1 ? '' : 's'} to ${escapeHtml(owner.contactName)}</button>
+              title="${escapeAttr('Write these defaults into project-director.json as assignments. You will see every one before anything is written.')}">Record ${escapeHtml(String(report.defaultedCount))} default${report.defaultedCount === 1 ? '' : 's'} to ${escapeHtml(owner.contactName)}</button>
           </div>` : ''}
         <div class="vital-owner-rules">
           ${(report.rules || []).map(rule => `<p><strong>${escapeHtml(rule.id)}</strong> — ${escapeHtml(rule.describes)}</p>`).join('')}
@@ -5143,8 +5586,119 @@
             </div>
           </article>
         </div>
+
+        ${renderUtilityPacks(snapshot)}
       </section>
     `;
+  }
+
+  // ── The six cross-cutting utilities ────────────────────────────────────
+  // Auth, payments, email, analytics, i18n, accessibility. On this page rather
+  // than a page of their own because the question they answer is this page's
+  // question — what is this project missing — and because a catalogue nobody
+  // navigates to is a catalogue nobody reads.
+
+  const UTILITY_STATUS_TONE = {
+    present: 'tag-good', absent: '', ambiguous: 'tag-warn', unassessed: 'tag-warn',
+  };
+  const UTILITY_STATUS_LABEL = {
+    present: 'decided', absent: 'not decided', ambiguous: 'two answers', unassessed: 'not assessed',
+  };
+
+  function renderUtilityCandidate(candidate) {
+    return `
+      <div class="recent-item static">
+        <div class="row-head">
+          <strong>${escapeHtml(candidate.label)}</strong>
+          <span>
+            ${candidate.present ? '<span class="tag tag-good">in this project</span>' : ''}
+            ${candidate.selfHostable ? '<span class="tag">self-hostable</span>' : ''}
+          </span>
+        </div>
+        <div class="list-meta">${escapeHtml(candidate.summary)}</div>
+        <div class="list-meta"><strong>Leaves the machine:</strong> ${escapeHtml(candidate.leavesTheMachine)}</div>
+        <div class="list-meta">${candidate.install
+          ? 'Published install: <code>' + escapeHtml(candidate.install) + '</code>'
+          : 'AtlasMind has not verified an install line for this one — follow the current instructions in its documentation.'} · <code>${escapeHtml(candidate.docs)}</code></div>
+      </div>`;
+  }
+
+  function renderUtilityPack(pack) {
+    const expanded = state.utilityExpanded === pack.capability;
+    return `
+      <div class="recent-item">
+        <div class="row-head">
+          <button type="button" class="action-link" data-action="utility-expand" data-payload="${escapeAttr(pack.capability)}"
+            aria-expanded="${expanded ? 'true' : 'false'}">${escapeHtml(pack.label)}</button>
+          <span>
+            ${pack.installable ? '' : '<span class="tag">not a library</span>'}
+            <span class="tag ${UTILITY_STATUS_TONE[pack.status] || ''}">${escapeHtml(UTILITY_STATUS_LABEL[pack.status] || pack.status)}</span>
+          </span>
+        </div>
+        <div class="list-meta">${escapeHtml(pack.note)}</div>
+        ${expanded ? `
+          <p class="section-copy">${escapeHtml(pack.premise)}</p>
+          <p class="stat-detail"><strong>${escapeHtml(pack.question)}</strong> ${escapeHtml(pack.why)}</p>
+          <div class="stack-list">${pack.options.map(option => `
+            <div class="recent-item static">
+              <div class="row-head"><strong>${escapeHtml(option.label)}</strong></div>
+              <div class="list-meta">${escapeHtml(option.consequence)}</div>
+            </div>`).join('')}</div>
+          <p class="card-kicker">Candidates</p>
+          <div class="stack-list">${pack.candidates.map(candidate => renderUtilityCandidate(candidate)).join('')}</div>
+          <p class="card-kicker">What has to be true afterwards</p>
+          <div class="stack-list">${pack.gates.map(gate => `
+            <div class="recent-item static">
+              <div class="row-head"><strong>${escapeHtml(gate.statement)}</strong></div>
+              <div class="list-meta">${escapeHtml(gate.why)}</div>
+            </div>`).join('')}</div>
+          <div class="tag-row">
+            ${renderAtlasDiscussAction('discuss-utility', pack.capability, 'Work through this decision with AtlasMind', { intent: 'discuss', title: 'Ask AtlasMind which answer fits this repository. It installs nothing and runs nothing.' })}
+          </div>` : ''}
+      </div>`;
+  }
+
+  function renderUtilityPacks(snapshot) {
+    const utilities = snapshot.utilities;
+    if (!utilities || !Array.isArray(utilities.packs) || utilities.packs.length === 0) {
+      return '';
+    }
+    const undecided = utilities.packs.filter(pack => pack.status === 'absent' && pack.installable).length;
+    const ambiguous = utilities.packs.filter(pack => pack.status === 'ambiguous').length;
+
+    const help = renderWorkflowHelp('utilities.packs', {
+      label: 'why these are decisions rather than packages',
+      why: 'Nobody starts a project called "payments". You reach the point where money has to change hands and pick a library, then discover the decision afterwards — and whether you or your vendor is the merchant of record is a tax question you cannot undo by swapping an SDK. Each of these leads with the question and treats the libraries as answers to it.',
+      how: [
+        { text: 'Every install line here is a constant in AtlasMind’s source, read from the vendor’s own documentation on ' + (utilities.verifiedAt || 'the recorded date') + '. Nothing runs one, and where a line was not verified none is shown rather than one being invented.' },
+        { text: 'What leaves your machine is stated for every candidate, including the ones where it is nothing. "Add analytics" means "start sending your users’ behaviour to a third party", and a list that omitted that would be selling.' },
+        { text: 'Two candidates answering opposite sides of one decision is reported rather than added to. Two auth libraries is a security problem, not a redundancy — two session models, two logout paths, and one of them forgotten.' },
+        { text: 'Accessibility cannot be installed. Automated tooling catches roughly 30–40% of WCAG barriers, so the pack lists tools and then states the part a person has to do.' },
+      ],
+      commonMistakes: [
+        'Reading "not decided" as a gap. Plenty of projects need no payments and no translations.',
+        'Treating a green automated accessibility score as a compliance position.',
+      ],
+    });
+
+    return `
+      <article class="panel-card">
+        <div class="row-head">
+          <div><p class="card-kicker">Cross-cutting utilities${help.button}</p><h3>${
+            utilities.assessed
+              ? escapeHtml(String(undecided)) + ' not decided about' + (ambiguous ? ', ' + escapeHtml(String(ambiguous)) + ' answered twice' : '')
+              : 'Not assessed'
+          }</h3></div>
+          <span class="list-meta">vendor facts read ${escapeHtml(utilities.verifiedAt || 'unknown')}</span>
+        </div>
+        ${help.panel}
+        <p class="section-copy">Six things nearly every product needs and none of them is really a package: authentication, payments, transactional email, analytics, internationalisation and accessibility. Each opens with the decision that comes first, what each answer commits you to, and what leaves your machine either way.</p>
+        ${utilities.assessed
+          ? ''
+          : '<p class="stat-detail wf-unknown">No manifest could be read, so nothing was assessed. That is not the same as this project using none of them.</p>'}
+        <div class="stack-list">${utilities.packs.map(pack => renderUtilityPack(pack)).join('')}</div>
+        <p class="stat-detail">AtlasMind installs nothing here and runs no command. These are records of what each vendor publishes, with the date they were read.</p>
+      </article>`;
   }
 
   function renderIdeation(snapshot) {
@@ -5620,13 +6174,13 @@
           <span class="tag mono">base ${escapeHtml(comparison.mergeBase || 'unknown')}</span>
         </div>
         <div class="mini-grid">
-          ${renderMetricPill(`${comparison.leftName} only`, `${comparison.leftOnlyCommits} commits`, { tone: comparison.leftOnlyCommits ? 'accent' : 'good' })}
-          ${renderMetricPill(`${comparison.rightName} only`, `${comparison.rightOnlyCommits} commits`, { tone: comparison.rightOnlyCommits ? 'accent' : 'good' })}
-          ${renderMetricPill('Changed-file overlap', `${comparison.overlappingFiles}`, { tone: comparison.overlappingFiles ? 'warn' : 'good' })}
+          ${renderMetricPill(`${comparison.leftName} only`, `${escapeHtml(String(comparison.leftOnlyCommits))} commits`, { tone: comparison.leftOnlyCommits ? 'accent' : 'good' })}
+          ${renderMetricPill(`${comparison.rightName} only`, `${escapeHtml(String(comparison.rightOnlyCommits))} commits`, { tone: comparison.rightOnlyCommits ? 'accent' : 'good' })}
+          ${renderMetricPill('Changed-file overlap', `${escapeHtml(String(comparison.overlappingFiles))}`, { tone: comparison.overlappingFiles ? 'warn' : 'good' })}
         </div>
         <div class="branch-evidence-grid">
-          <div><h4>${escapeHtml(comparison.leftName)} areas · ${comparison.leftChangedFiles} files</h4><ul>${countList(comparison.leftAreas)}</ul></div>
-          <div><h4>${escapeHtml(comparison.rightName)} areas · ${comparison.rightChangedFiles} files</h4><ul>${countList(comparison.rightAreas)}</ul></div>
+          <div><h4>${escapeHtml(comparison.leftName)} areas · ${escapeHtml(String(comparison.leftChangedFiles))} files</h4><ul>${countList(comparison.leftAreas)}</ul></div>
+          <div><h4>${escapeHtml(comparison.rightName)} areas · ${escapeHtml(String(comparison.rightChangedFiles))} files</h4><ul>${countList(comparison.rightAreas)}</ul></div>
           <div><h4>${escapeHtml(comparison.leftName)} contributors</h4><ul>${contributorList(comparison.leftContributors)}</ul></div>
           <div><h4>${escapeHtml(comparison.rightName)} contributors</h4><ul>${contributorList(comparison.rightContributors)}</ul></div>
         </div>
@@ -6373,9 +6927,248 @@
 
         ${renderPolicyCoverage(testing)}
 
+        ${renderTestCases(snapshot)}
+
         ${renderMethodologyStrategy(testing)}
       </section>
     `;
+  }
+
+  // ── Test cases ─────────────────────────────────────────────────────────
+  // The other half of testing: the cases somebody wrote down, who owns them,
+  // when one was last actually carried out, and what a tester needs in front
+  // of them. Everything above this card is derived from files.
+
+  const TEST_STATE_TONE = {
+    'not-run': 'tag-warn', pass: 'tag-good', fail: 'tag-critical',
+    blocked: 'tag-warn', skipped: '', stale: 'tag-warn',
+  };
+  const TEST_STATE_LABEL = {
+    'not-run': 'never run', pass: 'passed', fail: 'failed',
+    blocked: 'blocked', skipped: 'skipped', stale: 'result predates the case',
+  };
+  const TEST_PRIORITY_TONE = {
+    critical: 'tag-critical', high: 'tag-warn', normal: '', low: '',
+  };
+  const TEST_CONSEQUENCES = [
+    ['data-or-security', 'can lose data or expose something'],
+    ['core-journey', 'a journey that has to work'],
+    ['supporting', 'supporting behaviour'],
+    ['cosmetic', 'appearance only'],
+  ];
+  const TEST_FREQUENCIES = [
+    ['every-use', 'every use'],
+    ['common', 'commonly'],
+    ['occasional', 'occasionally'],
+    ['rare', 'rarely'],
+  ];
+  const TEST_ASSET_KINDS = [
+    ['data', 'data set'],
+    ['account', 'account'],
+    ['device', 'device'],
+    ['environment', 'environment'],
+    ['fixture', 'fixture'],
+  ];
+
+  function testCaseOptions(pairs, selected) {
+    return pairs.map(pair => `<option value="${escapeAttr(pair[0])}"${pair[0] === selected ? ' selected' : ''}>${escapeHtml(pair[1])}</option>`).join('');
+  }
+
+  function renderTestCaseComposer(cases) {
+    if (state.testCaseDraft === 'case') {
+      return `
+        <div id="test-case-composer" class="panel-card">
+          <p class="card-kicker">Write a case down</p>
+          <p class="section-copy">Priority is not asked for. It comes from what breaks if this is wrong and how often the path is taken, by the published rules below — so a grade made today still compares with one made in six months.</p>
+          <input class="ideation-input" data-test-field="title" type="text" maxlength="200" placeholder="What is being checked? One line." />
+          <textarea class="ideation-input" data-test-field="objective" rows="2" placeholder="What does a tester need to know before they start? (optional)"></textarea>
+          <input class="ideation-input" data-test-field="expected" type="text" maxlength="240" placeholder="Expected result (optional)" />
+          <div class="mini-grid">
+            <label class="stat-detail">If this is wrong
+              <select class="ideation-input" data-test-field="consequence">${testCaseOptions(TEST_CONSEQUENCES, 'core-journey')}</select>
+            </label>
+            <label class="stat-detail">The path is taken
+              <select class="ideation-input" data-test-field="frequency">${testCaseOptions(TEST_FREQUENCIES, 'common')}</select>
+            </label>
+            <label class="stat-detail">Carried out
+              <select class="ideation-input" data-test-field="execution">${testCaseOptions([['manual', 'by a person'], ['automated', 'by the suite']], 'manual')}</select>
+            </label>
+            <label class="stat-detail">Owner
+              <select class="ideation-input" data-test-field="owner"><option value="">Unassigned</option>${(cases.owners || []).map(owner => `<option value="${escapeAttr(owner.id)}">${escapeHtml(owner.label)}</option>`).join('')}</select>
+            </label>
+          </div>
+          ${(cases.policies || []).length > 0 ? `
+            <label class="stat-detail">Evidence for
+              <select class="ideation-input" data-test-field="policy"><option value="">No particular methodology</option>${cases.policies.map(policy => `<option value="${escapeAttr(policy.id)}">${escapeHtml(policy.label)}</option>`).join('')}</select>
+            </label>` : ''}
+          <div class="tag-row">
+            <button type="button" class="action-link" data-action="test-case-save">Write it down</button>
+            <button type="button" class="action-link" data-action="test-case-new">Cancel</button>
+          </div>
+        </div>`;
+    }
+    if (state.testCaseDraft === 'asset') {
+      return `
+        <div id="test-asset-composer" class="panel-card">
+          <p class="card-kicker">Record what a tester needs</p>
+          <p class="section-copy"><strong>Never paste a password, key or token here.</strong> This file is committed and shared with the tester who owns the asset. Store the value in VS Code SecretStorage and put its <em>name</em> in the reference field — anything that looks like a credential is refused outright rather than quietly stripped.</p>
+          <input class="ideation-input" data-test-field="asset-label" type="text" maxlength="200" placeholder="What is it? A staging account, a test phone, a data set." />
+          <div class="mini-grid">
+            <label class="stat-detail">Kind
+              <select class="ideation-input" data-test-field="asset-kind">${testCaseOptions(TEST_ASSET_KINDS, 'account')}</select>
+            </label>
+            <label class="stat-detail">Owner
+              <select class="ideation-input" data-test-field="asset-owner"><option value="">Unassigned</option>${(cases.owners || []).map(owner => `<option value="${escapeAttr(owner.id)}">${escapeHtml(owner.label)}</option>`).join('')}</select>
+            </label>
+          </div>
+          <input class="ideation-input" data-test-field="asset-location" type="text" maxlength="240" placeholder="Where it is — a URL, a path, a device name" />
+          <input class="ideation-input" data-test-field="asset-secret" type="text" maxlength="120" placeholder="The name of the secret, if there is one — not the secret" />
+          <div class="tag-row">
+            <button type="button" class="action-link" data-action="test-asset-save">Record it</button>
+            <button type="button" class="action-link" data-action="test-asset-new">Cancel</button>
+          </div>
+        </div>`;
+    }
+    return '';
+  }
+
+  function renderTestCaseRow(entry) {
+    const expanded = state.testCaseExpandedId === entry.id;
+    return `
+      <div class="recent-item">
+        <div class="row-head">
+          <button type="button" class="action-link" data-action="test-case-expand" data-payload="${escapeAttr(entry.id)}"
+            aria-expanded="${expanded ? 'true' : 'false'}">${escapeHtml(entry.title)}</button>
+          <span>
+            <span class="tag ${TEST_PRIORITY_TONE[entry.priority] || ''}">${escapeHtml(entry.priority)}</span>
+            <span class="tag ${TEST_STATE_TONE[entry.state] || ''}">${escapeHtml(TEST_STATE_LABEL[entry.state] || entry.state)}</span>
+            ${entry.status !== 'active' ? `<span class="tag">${escapeHtml(entry.status)}</span>` : ''}
+            ${entry.execution === 'automated' ? '<span class="tag">automated</span>' : ''}
+          </span>
+        </div>
+        <div class="list-meta">rev ${entry.revision} · ${entry.stepCount} step${entry.stepCount === 1 ? '' : 's'} · owner ${entry.ownerLabel ? escapeHtml(entry.ownerLabel) : '<strong>unassigned</strong>'}${entry.lastRunAt ? ' · last run ' + escapeHtml(entry.lastRunAt.slice(0, 10)) + (entry.lastRunBy ? ' by ' + escapeHtml(entry.lastRunBy) : '') : ''} · graded by <code>${escapeHtml(entry.priorityRule)}</code></div>
+        ${entry.staleResult
+          ? '<div class="list-meta wf-unknown">The last result was recorded against an earlier revision of this case, so it describes a different test. Not a failure, and not a pass.</div>'
+          : ''}
+        ${entry.assetLabels.length > 0
+          ? `<div class="list-meta">Needs: ${entry.assetLabels.map(label => escapeHtml(label)).join(', ')}</div>`
+          : ''}
+        ${expanded ? `
+          ${entry.objective ? `<p class="section-copy">${escapeHtml(entry.objective)}</p>` : ''}
+          <div class="tag-row">
+            ${entry.execution === 'manual' && entry.status === 'active' ? `
+              <button type="button" class="action-link" data-action="record-test-result" data-payload="${escapeAttr('pass ' + entry.id)}">Passed</button>
+              <button type="button" class="action-link" data-action="record-test-result" data-payload="${escapeAttr('fail ' + entry.id)}">Failed</button>
+              <button type="button" class="action-link" data-action="record-test-result" data-payload="${escapeAttr('blocked ' + entry.id)}">Blocked</button>` : ''}
+            ${entry.status !== 'active' ? `<button type="button" class="action-link" data-action="set-test-case-status" data-payload="${escapeAttr('active ' + entry.id)}">Put it in the run set</button>` : ''}
+            ${entry.status === 'active' ? `<button type="button" class="action-link" data-action="set-test-case-status" data-payload="${escapeAttr('deprecated ' + entry.id)}">Retire it</button>` : ''}
+            ${renderAtlasDiscussAction('draft-test-case', entry.id, 'Ask AtlasMind to draft the steps', { intent: 'discuss', title: 'Ask AtlasMind to write steps somebody could follow. It cannot say whether the case passes.' })}
+          </div>` : ''}
+      </div>`;
+  }
+
+  function renderTestCases(snapshot) {
+    const cases = snapshot.testCases || { cases: [], assets: [], metrics: {}, rules: [], policies: [], owners: [], recorded: false };
+    const metrics = cases.metrics || {};
+    const entries = cases.cases || [];
+
+    const help = renderWorkflowHelp('testcases.rules', {
+      label: 'how a case is graded, and what a result means',
+      why: 'Everything else on this page is derived from files, which is the half a machine can read. Exploratory testing, an accessibility pass with a screen reader, a device matrix — none of it leaves a file to grade, and it is still testing somebody has to do and own.',
+      how: (cases.rules || []).map(rule => ({ text: rule.id + ' → ' + rule.priority + '. ' + rule.describes })).concat([
+        { text: 'A case that was not run is never run, never passed. There is no default result and no way to seed one.' },
+        { text: 'A result belongs to a revision of its case. Editing the steps bumps the revision, and an older result reads as stale rather than continuing to count — a pass against steps somebody has since rewritten is a pass for a test nobody ran.' },
+        { text: 'An automated case is never given a result here. Its result comes from the test report the project writes; recording a manual pass for it would be asserting what a machine should measure.' },
+        { text: 'A test asset names where a credential lives and never holds one. This file is committed and shared with the tester who owns the asset.' },
+      ]),
+      commonMistakes: [
+        'Reading an empty register as "nothing to test". It means nobody wrote a case down.',
+        'Deleting a case. Retiring it keeps the record and the results recorded against it.',
+      ],
+    });
+
+    if (!cases.recorded && !state.testCaseDraft) {
+      return `
+        <article class="panel-card">
+          <div class="row-head">
+            <div><p class="card-kicker">Test cases${help.button}</p><h3>Nothing written down yet</h3></div>
+          </div>
+          ${help.panel}
+          <p class="section-copy">Everything above this card is read from files. This is the other half — the cases a person carries out, who owns each one, when it was last actually run, and what a tester needs in front of them to do it.</p>
+          <p class="section-copy">An empty register means nobody wrote a case down. It does not mean there is nothing to test.</p>
+          <div class="tag-row">
+            <button type="button" class="action-link" data-action="test-case-new">Write a case down</button>
+            <button type="button" class="action-link" data-action="test-asset-new">Record what a tester needs</button>
+          </div>
+        </article>`;
+    }
+
+    const filter = state.testCaseFilter || 'live';
+    const visible = entries.filter(entry => {
+      if (filter === 'all') { return true; }
+      if (filter === 'live') { return entry.status === 'active' && entry.execution === 'manual'; }
+      if (filter === 'attention') { return entry.state === 'fail' || entry.state === 'stale' || entry.state === 'not-run'; }
+      if (filter === 'mine') { return entry.ownerLabel === undefined; }
+      return true;
+    });
+    const filters = [
+      ['live', 'In the run set'],
+      ['attention', 'Needs running'],
+      ['mine', 'Unassigned'],
+      ['all', 'Everything'],
+    ];
+
+    return `
+      <article class="panel-card">
+        <div class="row-head">
+          <div><p class="card-kicker">Test cases${help.button}</p><h3>${escapeHtml(String(metrics.neverRun || 0))} never run · ${escapeHtml(String(metrics.staleResults || 0))} predating their case</h3></div>
+          <span class="list-meta">${escapeHtml(String((metrics.manual || 0)))} manual · ${escapeHtml(String(metrics.automated || 0))} automated</span>
+        </div>
+        ${help.panel}
+        <div class="mini-grid">
+          ${renderMetricPill('Passing', String(metrics.passing || 0), { tone: 'good' })}
+          ${renderMetricPill('Failing', String(metrics.failing || 0), { tone: (metrics.failing || 0) > 0 ? 'critical' : undefined })}
+          ${renderMetricPill('Never run', String(metrics.neverRun || 0), { tone: (metrics.neverRun || 0) > 0 ? 'warn' : undefined })}
+          ${renderMetricPill('Blocked', String(metrics.blocked || 0))}
+          ${renderMetricPill('Unowned', String(metrics.unownedCases || 0), { tone: (metrics.unownedCases || 0) > 0 ? 'warn' : undefined })}
+        </div>
+        ${renderDistributionBar('test-case-state', (metrics.byState || []).map(slice => ({
+          key: slice.key,
+          label: TEST_STATE_LABEL[slice.key] || slice.label,
+          value: slice.value,
+          tone: slice.key === 'fail' ? 'critical' : slice.key === 'pass' ? 'accent' : 'warn',
+        })), {
+          title: 'Cases in the run set, by what is known',
+          caption: 'Never run is not a failure and is certainly not a pass',
+          emptyLabel: 'Nothing in the run set.',
+        })}
+        ${metrics.staleResults
+          ? `<p class="stat-detail wf-unknown">${metrics.staleResults} result${metrics.staleResults === 1 ? '' : 's'} predate an edit to the case ${metrics.staleResults === 1 ? 'it belongs' : 'they belong'} to. Nothing else on this page can see that — every other surface still reads them as green.</p>`
+          : ''}
+        ${metrics.ageing
+          ? `<p class="stat-detail">${metrics.ageing} case${metrics.ageing === 1 ? ' was' : 's were'} last run over 90 days ago. Reported as age rather than as a downgrade — a result that changed on its own could not be compared with last quarter's.</p>`
+          : ''}
+        ${metrics.unownedCases
+          ? `<p class="stat-detail wf-unknown">${metrics.unownedCases} case${metrics.unownedCases === 1 ? ' has' : 's have'} no owner. A case nobody owns is a case nobody runs.</p>`
+          : ''}
+        ${renderTestCaseComposer(cases)}
+        <div class="segmented" role="group" aria-label="Filter the test cases">${filters.map(entry => `
+          <button type="button" data-action="set-test-case-filter" data-payload="${escapeAttr(entry[0])}"
+            class="${filter === entry[0] ? 'active' : ''}"
+            aria-pressed="${filter === entry[0] ? 'true' : 'false'}">${escapeHtml(entry[1])}</button>`).join('')}</div>
+        <div class="stack-list">${visible.slice(0, 200).map(entry => renderTestCaseRow(entry)).join('') || '<div class="dashboard-empty">Nothing in this view.</div>'}</div>
+        <div class="tag-row">
+          <button type="button" class="action-link" data-action="test-case-new">${state.testCaseDraft === 'case' ? 'Close the form' : 'Write a case down'}</button>
+          <button type="button" class="action-link" data-action="test-asset-new">${state.testCaseDraft === 'asset' ? 'Close the form' : 'Record what a tester needs'}</button>
+        </div>
+        ${(cases.assets || []).length > 0 ? `
+          <div class="row-head"><p class="card-kicker">What testers need</p><span class="list-meta">${cases.assets.length}${metrics.unassignedAssetCount ? ' · ' + metrics.unassignedAssetCount + ' unassigned' : ''}</span></div>
+          <div class="stack-list">${cases.assets.map(asset => `
+            <div class="recent-item static">
+              <div class="row-head"><strong>${escapeHtml(asset.label)}</strong><span class="tag">${escapeHtml(asset.kind)}</span></div>
+              <div class="list-meta">${asset.ownerLabel ? 'owned by ' + escapeHtml(asset.ownerLabel) : '<strong>unassigned</strong> — nobody is accountable for this, which is not the same as everybody being able to use it'}${asset.location ? ' · ' + escapeHtml(asset.location) : ''}${asset.secretRef ? ' · credential stored elsewhere as <code>' + escapeHtml(asset.secretRef) + '</code>' : ''}</div>
+            </div>`).join('')}</div>` : ''}
+      </article>`;
   }
 
   function policyChips(testing) {
@@ -8299,6 +9092,501 @@
             ? 'Nothing matches that. ' + allOpen.length + ' open entr' + (allOpen.length === 1 ? 'y' : 'ies') + ' in total.'
             : 'Nothing open. Every entry has been resolved, accepted, or gone obsolete.'}</div>`}</div>
         ${openEntries.length > 200 ? `<p class="stat-detail">Showing 200 of ${openEntries.length}. The rest are in <code>${escapeHtml(debt.path || '')}</code>.</p>` : ''}
+      </article>
+    </section>`;
+  }
+
+  // ── Approvals ──────────────────────────────────────────────────────────
+  // Who agreed to what, and to which version of it. A record, never a gate:
+  // nothing on this dashboard refuses because something is unapproved.
+
+  const APPROVAL_STATUS_TONE = {
+    pending: 'tag-warn', approved: 'tag-good', rejected: '', withdrawn: '', superseded: '',
+  };
+  const APPROVAL_CURRENCY_LABEL = {
+    stale: 'no longer describes what is there',
+    unresolvable: 'the thing it approved cannot be found',
+  };
+
+  function renderApprovalComposer(approvals) {
+    if (!state.approvalDraftOpen) {
+      return '';
+    }
+    const subjects = approvals.subjects || [];
+    if (subjects.length === 0) {
+      return `
+        <article class="panel-card" id="approval-composer">
+          <p class="card-kicker">Ask for a decision</p>
+          <p class="section-copy">There is nothing to raise a request about yet. A request is always <em>about</em> something AtlasMind can read back later — an outstanding roadmap item or a tracked document — because that is what lets it notice when the thing changes after somebody approved it.</p>
+        </article>`;
+    }
+    return `
+      <article class="panel-card" id="approval-composer">
+        <p class="card-kicker">Ask for a decision</p>
+        <p class="section-copy">The request is recorded against the subject's content as it stands now. If that content changes afterwards the approval goes <strong>stale</strong> rather than carrying over.</p>
+        <input class="ideation-input" data-approval-field="title" type="text" maxlength="200"
+          placeholder="What needs a decision? One line." />
+        <div class="mini-grid">
+          <label class="stat-detail">Kind of change
+            <select class="ideation-input" data-approval-field="category">${(approvals.categories || []).map(category => `<option value="${escapeAttr(category)}">${escapeHtml(category)}</option>`).join('')}</select>
+          </label>
+          <label class="stat-detail">About
+            <select class="ideation-input" data-approval-field="subject">${subjects.map(subject => `<option value="${escapeAttr(subject.id)}">${escapeHtml(subject.kind)}: ${escapeHtml(subject.label)}</option>`).join('')}</select>
+          </label>
+        </div>
+        <textarea class="ideation-input" data-approval-field="rationale" rows="3"
+          placeholder="Why does this need a decision, and what does agreeing commit us to? (optional)"></textarea>
+        <div class="tag-row">
+          <button type="button" class="action-link" data-action="approval-raise">Raise the request</button>
+          <button type="button" class="action-link" data-action="approval-new">Cancel</button>
+        </div>
+      </article>`;
+  }
+
+  function renderApprovalRow(request) {
+    const expanded = state.approvalExpandedId === request.id;
+    const currencyNote = APPROVAL_CURRENCY_LABEL[request.currency];
+    return `
+      <div class="recent-item">
+        <div class="row-head">
+          <button type="button" class="action-link" data-action="approval-expand" data-payload="${escapeAttr(request.id)}"
+            aria-expanded="${expanded ? 'true' : 'false'}">${escapeHtml(request.title)}</button>
+          <span>
+            <span class="tag">${escapeHtml(request.category)}</span>
+            <span class="tag ${APPROVAL_STATUS_TONE[request.status] || ''}">${escapeHtml(request.statusLabel)}</span>
+            ${currencyNote ? '<span class="tag tag-warn">stale</span>' : ''}
+          </span>
+        </div>
+        <div class="list-meta">About ${escapeHtml(request.subjectKind)} <strong>${escapeHtml(request.subjectLabel)}</strong> · raised ${escapeHtml((request.requestedAt || '').slice(0, 10))}${request.waitingDays === undefined ? '' : ' · waiting ' + request.waitingDays + 'd'}${request.approverLabel ? ' · with ' + escapeHtml(request.approverLabel) : ''}</div>
+        ${request.unresolvedReason
+          ? `<div class="list-meta wf-unknown">${escapeHtml(request.unresolvedReason)}</div>`
+          : ''}
+        ${currencyNote
+          ? `<div class="list-meta wf-unknown">This approval ${escapeHtml(currencyNote)}. The decision is not revoked and has not been edited — it simply no longer applies to what is there now.</div>`
+          : ''}
+        ${request.selfApproved
+          ? '<div class="list-meta">Self-approved: the person who asked is the person who agreed.</div>'
+          : ''}
+        ${expanded ? `
+          ${request.rationale ? `<p class="section-copy">${escapeHtml(request.rationale)}</p>` : ''}
+          ${request.approverRule ? `<p class="stat-detail">Routed by the rule <code>${escapeHtml(request.approverRule)}</code>.</p>` : ''}
+          ${request.decidedAt
+            ? `<p class="stat-detail">Decided ${escapeHtml(request.decidedAt.slice(0, 10))}${request.decidedByLabel ? ' by ' + escapeHtml(request.decidedByLabel) : ''}${request.decisionNote ? ' — ' + escapeHtml(request.decisionNote) : ''}.</p>`
+            : ''}
+          <div class="tag-row">
+            ${request.status === 'pending' ? `
+              <button type="button" class="action-link" data-action="decide-approval" data-payload="${escapeAttr('approved ' + request.id)}">Approve</button>
+              <button type="button" class="action-link" data-action="decide-approval" data-payload="${escapeAttr('rejected ' + request.id)}">Reject</button>
+              <button type="button" class="action-link" data-action="withdraw-approval" data-payload="${escapeAttr(request.id)}">Withdraw</button>` : ''}
+            ${request.currency === 'stale'
+              ? `<button type="button" class="action-link" data-action="recheck-approval" data-payload="${escapeAttr(request.id)}">Stop reporting this change</button>`
+              : ''}
+            ${renderAtlasDiscussAction('review-approval', request.id, 'Ask AtlasMind to help you decide', { intent: 'discuss', title: 'Ask AtlasMind what would have to be true for this to be the right call. It cannot decide for you.' })}
+          </div>` : ''}
+      </div>`;
+  }
+
+  function renderApprovals(snapshot) {
+    const approvals = snapshot.approvals || { requests: [], metrics: {}, rules: [], categories: [], subjects: [], recorded: false, rosterKnown: false };
+    const metrics = approvals.metrics || {};
+    const requests = approvals.requests || [];
+
+    const help = renderWorkflowHelp('approvals.rules', {
+      label: 'how a request is routed',
+      why: 'An approval is a record that a named person agreed to something, not a permission. Nothing here grants a capability, unlocks a branch or blocks a release — a gate AtlasMind cannot enforce is one people learn to route around. What it can do is remember, accurately, who agreed and to which version.',
+      how: (approvals.rules || []).map(rule => ({ text: rule.category + ' → ' + rule.roleId + '. ' + rule.describes })).concat([
+        { text: 'Pending is not approved. There is no auto-approval and deliberately no timeout that grants one: "nobody objected in five days" is how an approval process comes to certify things nobody read.' },
+        { text: 'An approval names what was approved. When the content changes afterwards it goes stale rather than carrying over, because an approval that applies to text nobody signed is worse than none.' },
+        { text: 'Nobody is substituted. If the role a category routes to is unheld, the request has no approver and says so — a reassigned approver reads later as somebody having agreed.' },
+        { text: 'Self-approval is permitted and always stated. Refusing it would make this useless on a solo project; hiding it would let a formality look like a review.' },
+      ]),
+      commonMistakes: [
+        'Reading an empty register as "nothing needs approval". It means nobody raised a request.',
+        'Treating a stale approval as still valid. It was given for text that no longer exists.',
+      ],
+    });
+
+    const intro = renderPageIntro({
+      kicker: 'The work',
+      title: 'Who agreed, and to what',
+      summary: approvals.recorded
+        ? (metrics.pending || 0) + ' pending, ' + (metrics.approved || 0) + ' approved, ' + requests.filter(request => request.currency === 'stale').length + ' no longer describing what is there.'
+        : 'Nothing recorded yet. An approval is a record that a named person agreed to a change — worth having precisely because it outlives the conversation that produced it.',
+      chips: (metrics.byCategory || []).map(slice => ({
+        label: slice.value + ' ' + slice.label,
+        tone: slice.key === 'legal' || slice.key === 'commercial' ? 'warn' : 'neutral',
+      })),
+    });
+
+    if (!approvals.recorded && !state.approvalDraftOpen) {
+      return pageSectionOpen('approvals') + intro + `
+        <div class="dashboard-empty"><div>
+          <strong>No approvals recorded</strong>
+          <p class="section-copy">A request is raised about something AtlasMind can read back later — an outstanding roadmap item or a tracked document. That is what lets it notice when the thing changes after somebody approved it, which is the one part of an approval process that is usually invisible.</p>
+          <p class="section-copy">Nothing here blocks a commit or a release. It records a decision; the Release page owns gates.</p>
+          <button type="button" class="action-link" data-action="approval-new">Ask for a decision</button>
+        </div></div>
+      </section>`;
+    }
+
+    const filter = state.approvalFilter || 'pending';
+    const visible = requests.filter(request => {
+      if (filter === 'all') { return true; }
+      if (filter === 'pending') { return request.status === 'pending'; }
+      if (filter === 'mine') { return request.status === 'pending' && request.mine; }
+      if (filter === 'stale') { return request.currency === 'stale' || request.currency === 'unresolvable'; }
+      return request.status === filter;
+    });
+
+    const filters = [
+      ['pending', 'Pending'],
+      ['mine', 'Waiting on me'],
+      ['stale', 'No longer current'],
+      ['all', 'Everything'],
+    ];
+
+    return pageSectionOpen('approvals') + intro + renderApprovalComposer(approvals) + `
+      <div class="panel-grid">
+        <article class="panel-card">
+          <p class="card-kicker">Where it stands${help.button}</p>
+          ${help.panel}
+          <div class="mini-grid">
+            ${renderMetricPill('Pending', String(metrics.pending || 0), { tone: (metrics.pending || 0) > 0 ? 'warn' : undefined })}
+            ${renderMetricPill('Waiting on you', String(requests.filter(request => request.status === 'pending' && request.mine).length))}
+            ${renderMetricPill('Approved', String(metrics.approved || 0), { tone: 'good' })}
+            ${renderMetricPill('Median wait', metrics.medianWaitDays === undefined ? '—' : metrics.medianWaitDays + 'd')}
+          </div>
+          ${renderDistributionBar('approval-status', (metrics.byStatus || []).map(slice => ({
+            key: slice.key,
+            label: slice.label,
+            value: slice.value,
+            tone: slice.key === 'pending' ? 'warn' : slice.key === 'approved' ? 'accent' : 'accent',
+          })), {
+            title: 'Every request by status',
+            caption: 'Rejected, withdrawn and superseded are kept apart — three different things happened',
+            emptyLabel: 'Nothing recorded.',
+          })}
+          <button type="button" class="action-link" data-action="approval-new">${state.approvalDraftOpen ? 'Close the form' : 'Ask for a decision'}</button>
+        </article>
+        <article class="panel-card">
+          <p class="card-kicker">What is not right</p>
+          ${metrics.unrouted
+            ? `<p class="stat-detail wf-unknown">${metrics.unrouted} pending request${metrics.unrouted === 1 ? ' has' : 's have'} no approver, because nobody on the roster holds the role the category routes to. These will wait forever. AtlasMind will not reassign them — a substituted approver reads later as somebody having agreed.</p>`
+            : ''}
+          ${requests.filter(request => request.currency === 'stale').length
+            ? `<p class="stat-detail wf-unknown">${requests.filter(request => request.currency === 'stale').length} approval${requests.filter(request => request.currency === 'stale').length === 1 ? '' : 's'} no longer describe what is there. The content changed after the decision, so the approval does not carry over.</p>`
+            : ''}
+          ${requests.filter(request => request.currency === 'unresolvable').length
+            ? `<p class="stat-detail wf-unknown">${requests.filter(request => request.currency === 'unresolvable').length} approval${requests.filter(request => request.currency === 'unresolvable').length === 1 ? ' is' : 's are'} about something that can no longer be found — a deleted document, or an item that left the roadmap. Reported as unknown rather than as still current.</p>`
+            : ''}
+          ${metrics.waiting
+            ? `<p class="stat-detail">${metrics.waiting} request${metrics.waiting === 1 ? ' has' : 's have'} been waiting over a week.</p>`
+            : ''}
+          ${metrics.selfApproved
+            ? `<p class="stat-detail">${metrics.selfApproved} approval${metrics.selfApproved === 1 ? ' was' : 's were'} self-approved. That is permitted and it is always stated — on a solo project it is the only thing that can happen.</p>`
+            : ''}
+          ${!approvals.rosterKnown
+            ? '<p class="stat-detail wf-unknown">Nobody is on the team roster, so nothing can be routed. Add people and their roles on the Director page.</p>'
+            : ''}
+          ${!metrics.unrouted && !metrics.waiting && !requests.filter(request => request.currency !== 'current' && request.currency !== 'not-approved').length && approvals.rosterKnown
+            ? '<p class="stat-detail">Nothing is stuck, stale, or unroutable.</p>'
+            : ''}
+        </article>
+      </div>
+      <article class="panel-card">
+        <div class="row-head">
+          <p class="card-kicker">The register</p>
+          <span class="list-meta">${visible.length === requests.length ? requests.length : visible.length + ' of ' + requests.length}</span>
+        </div>
+        <div class="segmented" role="group" aria-label="Filter the register">${filters.map(entry => `
+          <button type="button" data-action="set-approval-filter" data-payload="${escapeAttr(entry[0])}"
+            class="${filter === entry[0] ? 'active' : ''}"
+            aria-pressed="${filter === entry[0] ? 'true' : 'false'}">${escapeHtml(entry[1])}</button>`).join('')}</div>
+        <div class="stack-list">${visible.slice(0, 200).map(request => renderApprovalRow(request)).join('') || `<div class="dashboard-empty">${
+          filter === 'pending'
+            ? 'Nothing waiting.'
+            : filter === 'mine'
+              ? 'Nothing is waiting on you.'
+              : filter === 'stale'
+                ? 'Every approval still describes the content it was given for.'
+                : 'Nothing in this view.'}</div>`}</div>
+        <p class="stat-detail">Nothing here is deleted, and nothing here blocks a release. An approval is a record that a named person agreed — not a permission, and not a gate.</p>
+      </article>
+    </section>`;
+  }
+
+  // ── Defects ────────────────────────────────────────────────────────────
+  // What is broken, as opposed to what was deferred. The register is local and
+  // committed, so writing a bug down costs a keystroke rather than a network
+  // round trip — which is the whole reason the observation survives.
+
+  const DEFECT_SEVERITY_TONE = {
+    blocker: 'tag-critical', major: 'tag-warn', minor: '', trivial: '',
+  };
+  const DEFECT_STATUS_TONE = {
+    open: 'tag-warn', confirmed: 'tag-warn', 'in-progress': '',
+    fixed: '', verified: 'tag-good', 'wont-fix': '', duplicate: '', 'not-reproducible': '',
+  };
+  const DEFECT_IMPACTS = [
+    ['data-loss', 'loses or corrupts work'],
+    ['security', 'exposes something it should not'],
+    ['broken', 'does not work at all'],
+    ['degraded', 'works badly, or only with a workaround'],
+    ['cosmetic', 'looks wrong, works right'],
+  ];
+  const DEFECT_REACHES = [
+    ['everyone', 'everyone hits it'],
+    ['many', 'many people hit it'],
+    ['few', 'few people hit it'],
+    ['one', 'one person hit it'],
+  ];
+  const DEFECT_REPRODUCIBILITIES = [
+    ['always', 'every time'],
+    ['sometimes', 'intermittently'],
+    ['once', 'seen once'],
+    ['not-reproduced', 'could not reproduce it'],
+  ];
+  const DEFECT_OPEN_STATUSES = ['open', 'confirmed', 'in-progress'];
+
+  function defectOptions(pairs, selected) {
+    return pairs.map(pair => `<option value="${escapeAttr(pair[0])}"${pair[0] === selected ? ' selected' : ''}>${escapeHtml(pair[1])}</option>`).join('');
+  }
+
+  function renderDefectComposer() {
+    if (!state.defectDraftOpen) {
+      return '';
+    }
+    // Two questions, not a severity picker. Somebody asked "how bad is it?"
+    // answers about their own frustration; asked what it does and how many
+    // people meet it, they answer about the defect — and the grade follows
+    // from a declared table so it stays comparable months later.
+    return `
+      <article class="panel-card" id="defect-composer">
+        <p class="card-kicker">Write it down</p>
+        <p class="section-copy">Severity is not asked for. It is derived from these two answers by the published rules below, so a grade made today can be compared with one made in six months.</p>
+        <input class="ideation-input" data-defect-field="title" type="text" maxlength="200"
+          placeholder="What is broken? One line." />
+        <div class="mini-grid">
+          <label class="stat-detail">What it does
+            <select class="ideation-input" data-defect-field="impact">${defectOptions(DEFECT_IMPACTS, 'broken')}</select>
+          </label>
+          <label class="stat-detail">Who meets it
+            <select class="ideation-input" data-defect-field="reach">${defectOptions(DEFECT_REACHES, 'few')}</select>
+          </label>
+          <label class="stat-detail">Reproduces
+            <select class="ideation-input" data-defect-field="reproducibility">${defectOptions(DEFECT_REPRODUCIBILITIES, 'always')}</select>
+          </label>
+        </div>
+        <input class="ideation-input" data-defect-field="area" type="text" maxlength="60"
+          placeholder="Area — a surface, component or feature (optional)" />
+        <textarea class="ideation-input" data-defect-field="detail" rows="2"
+          placeholder="What happened (optional)"></textarea>
+        <textarea class="ideation-input" data-defect-field="steps" rows="3"
+          placeholder="Steps to reproduce, one per line (optional)"></textarea>
+        <div class="mini-grid">
+          <input class="ideation-input" data-defect-field="expected" type="text" maxlength="240" placeholder="Expected (optional)" />
+          <input class="ideation-input" data-defect-field="actual" type="text" maxlength="240" placeholder="Actual (optional)" />
+        </div>
+        <input class="ideation-input" data-defect-field="environment" type="text" maxlength="240"
+          placeholder="Environment — OS, browser, version (optional)" />
+        <div class="tag-row">
+          <button type="button" class="action-link" data-action="defect-record">Record defect</button>
+          <button type="button" class="action-link" data-action="defect-new">Cancel</button>
+        </div>
+      </article>`;
+  }
+
+  function renderDefectRow(entry, allEntries) {
+    const expanded = state.defectExpandedId === entry.id;
+    // Only entries that could plausibly be the original are offered as a
+    // duplicate target, and never the entry itself.
+    const duplicateTargets = allEntries.filter(other => other.id !== entry.id).slice(0, 60);
+    const transitions = ['confirmed', 'in-progress', 'fixed', 'verified', 'not-reproducible', 'wont-fix', 'open']
+      .filter(status => status !== entry.status);
+    return `
+      <div class="recent-item" data-defect-grade="${escapeAttr(entry.id)}">
+        <div class="row-head">
+          <button type="button" class="action-link" data-action="defect-expand" data-payload="${escapeAttr(entry.id)}"
+            aria-expanded="${expanded ? 'true' : 'false'}">${escapeHtml(entry.title)}</button>
+          <span>
+            <span class="tag ${DEFECT_SEVERITY_TONE[entry.severity] || ''}">${escapeHtml(entry.severity)}</span>
+            <span class="tag ${DEFECT_STATUS_TONE[entry.status] || ''}">${escapeHtml(entry.status)}</span>
+          </span>
+        </div>
+        <div class="list-meta">${entry.area ? `<strong>${escapeHtml(entry.area)}</strong> · ` : ''}${escapeHtml(entry.impact)} · ${escapeHtml(entry.reach)} · reproduces ${escapeHtml(entry.reproducibility)} · since ${escapeHtml((entry.reportedAt || '').slice(0, 10))} · graded by <code>${escapeHtml(entry.rule)}</code></div>
+        ${entry.reopenCount > 0
+          ? `<div class="list-meta wf-unknown">Came back ${entry.reopenCount} time${entry.reopenCount === 1 ? '' : 's'} after being closed — a fix here has already looked finished once.</div>`
+          : ''}
+        ${entry.duplicateOfId ? `<div class="list-meta">Duplicate of <code>${escapeHtml(entry.duplicateOfId)}</code></div>` : ''}
+        ${expanded ? `
+          ${entry.detail ? `<p class="section-copy">${escapeHtml(entry.detail)}</p>` : ''}
+          ${entry.stepsToReproduce ? `<p class="stat-detail"><strong>Steps:</strong> ${escapeHtml(entry.stepsToReproduce)}</p>` : ''}
+          ${entry.expected || entry.actual ? `<p class="stat-detail"><strong>Expected:</strong> ${escapeHtml(entry.expected || '—')} · <strong>actual:</strong> ${escapeHtml(entry.actual || '—')}</p>` : ''}
+          ${entry.environment ? `<p class="stat-detail"><strong>Environment:</strong> ${escapeHtml(entry.environment)}</p>` : ''}
+          <div class="tag-row">
+            ${transitions.map(status => `<button type="button" class="action-link" data-action="set-defect-status" data-payload="${escapeAttr(status + ' ' + entry.id)}">${escapeHtml(status === 'open' ? 'reopen' : status)}</button>`).join('')}
+          </div>
+          <div class="mini-grid">
+            <label class="stat-detail">What it does
+              <select class="ideation-input" data-defect-field="impact">${defectOptions(DEFECT_IMPACTS, entry.impact)}</select>
+            </label>
+            <label class="stat-detail">Who meets it
+              <select class="ideation-input" data-defect-field="reach">${defectOptions(DEFECT_REACHES, entry.reach)}</select>
+            </label>
+          </div>
+          <div class="tag-row">
+            <button type="button" class="action-link" data-action="regrade-defect" data-payload="${escapeAttr(entry.id)}">Re-grade</button>
+            ${duplicateTargets.length > 0 ? `
+              <select class="ideation-input" data-defect-field="duplicate-of">
+                <option value="">Duplicate of…</option>
+                ${duplicateTargets.map(other => `<option value="${escapeAttr(other.id)}">${escapeHtml(other.title)}</option>`).join('')}
+              </select>
+              <button type="button" class="action-link" data-action="defect-duplicate" data-payload="${escapeAttr(entry.id)}">Link</button>` : ''}
+            ${renderAtlasDiscussAction('work-on-defect', entry.id, 'Ask AtlasMind to investigate this defect', { intent: 'discuss', title: 'Ask AtlasMind to reproduce this defect and propose the smallest correct fix' })}
+          </div>` : ''}
+      </div>`;
+  }
+
+  function renderDefects(snapshot) {
+    const defects = snapshot.defects || { entries: [], metrics: {}, rules: [], recorded: false };
+    const metrics = defects.metrics || {};
+    const entries = defects.entries || [];
+
+    const help = renderWorkflowHelp('defects.rules', {
+      label: 'how severity is decided',
+      why: 'Somebody asked "how bad is this?" answers about their own frustration. Asked what it does and how many people meet it, they answer about the defect. Severity is derived from those two answers by a published table, so a grade made today is comparable with one made in six months — and it is recomputed on every read, so a hand-edited severity in the committed file does not survive.',
+      how: (defects.rules || []).map(rule => ({ text: rule.id + ' → ' + rule.severity + '. ' + rule.describes })).concat([
+        { text: 'How reliably a defect reproduces does not change its severity. "Sometimes" says how confident we are that we can see it, not how bad it is when it happens — the classic mistake is to downgrade an intermittent bug, which is exactly backwards.' },
+        { text: 'Fixed is not verified. A fix nobody checked is a claim, and the count that matters before a release is the verified one.' },
+        { text: 'A defect that came back is the same defect, reopened. Two rows would make a bug that recurred four times look like four bugs each fixed once.' },
+      ]),
+      commonMistakes: [
+        'Reading an empty register as "no bugs". It means nobody wrote one down.',
+        'Treating a fixed entry as done. Somebody still has to check it.',
+        'Deleting an entry. Nothing here deletes — entries transition, and the record is the point.',
+      ],
+    });
+
+    const intro = renderPageIntro({
+      kicker: 'The code',
+      title: 'What is broken',
+      summary: defects.recorded
+        ? (metrics.open || 0) + ' open, ' + (metrics.awaitingVerification || 0) + ' fixed but not yet verified, ' + (metrics.verified || 0) + ' verified.'
+        : 'Nothing recorded yet. A bug you noticed thirty seconds ago is lost unless there is somewhere to put it that costs a keystroke rather than a network round trip.',
+      chips: (metrics.bySeverity || []).map(slice => ({
+        label: slice.value + ' ' + slice.label,
+        tone: slice.key === 'blocker' ? 'critical' : slice.key === 'major' ? 'warn' : 'neutral',
+      })),
+    });
+
+    if (!defects.recorded && !state.defectDraftOpen) {
+      return pageSectionOpen('defects') + intro + `
+        <div class="dashboard-empty"><div>
+          <strong>No defects recorded</strong>
+          <p class="section-copy">This register is a local file in the repository, so writing a bug down needs no remote, no <code>gh</code> and no network. Filing an issue is a separate, deliberate act — this is the place the observation survives until somebody decides what to do with it.</p>
+          <p class="section-copy">An empty register means nobody wrote a defect down. It does not mean there are none.</p>
+          <button type="button" class="action-link" data-action="defect-new">Record a defect</button>
+        </div></div>
+      </section>`;
+    }
+
+    const needle = (state.defectSearch || '').trim().toLowerCase();
+    const filter = state.defectStatusFilter || 'open';
+    const inFilter = entry => {
+      if (filter === 'all') { return true; }
+      if (filter === 'open') { return DEFECT_OPEN_STATUSES.indexOf(entry.status) !== -1; }
+      if (filter === 'awaiting') { return entry.status === 'fixed'; }
+      return entry.status === filter;
+    };
+    const scoped = entries.filter(inFilter);
+    const visible = scoped.filter(entry => !needle
+      || (entry.title || '').toLowerCase().includes(needle)
+      || (entry.area || '').toLowerCase().includes(needle)
+      || (entry.detail || '').toLowerCase().includes(needle));
+
+    const filters = [
+      ['open', 'Open'],
+      ['awaiting', 'Awaiting verification'],
+      ['verified', 'Verified'],
+      ['all', 'Everything'],
+    ];
+
+    return pageSectionOpen('defects') + intro + renderDefectComposer() + `
+      <div class="panel-grid">
+        <article class="panel-card">
+          <p class="card-kicker">Where it stands${help.button}</p>
+          ${help.panel}
+          <div class="mini-grid">
+            ${renderMetricPill('Open', String(metrics.open || 0), { tone: (metrics.blockers || 0) > 0 ? 'critical' : undefined })}
+            ${renderMetricPill('Blockers', String(metrics.blockers || 0), { tone: (metrics.blockers || 0) > 0 ? 'critical' : undefined })}
+            ${renderMetricPill('Awaiting check', String(metrics.awaitingVerification || 0))}
+            ${renderMetricPill('Verified', String(metrics.verified || 0), { tone: 'good' })}
+            ${renderMetricPill('Median age', metrics.medianAgeDays === undefined ? '—' : metrics.medianAgeDays + 'd')}
+          </div>
+          ${renderDistributionBar('defect-severity', (metrics.bySeverity || []).map(slice => ({
+            key: slice.key,
+            label: slice.label,
+            value: slice.value,
+            tone: slice.key === 'blocker' ? 'critical' : slice.key === 'major' ? 'warn' : 'accent',
+          })), {
+            title: 'Open by severity',
+            caption: 'Derived from what it does and who meets it, so this month compares with last',
+            emptyLabel: 'Nothing open.',
+          })}
+          ${renderDonutChart('defect-area', metrics.byArea || [], { emptyLabel: 'Nothing open.' })}
+          <button type="button" class="action-link" data-action="defect-new">${state.defectDraftOpen ? 'Close the form' : 'Record a defect'}</button>
+        </article>
+        <article class="panel-card">
+          <p class="card-kicker">How confident we are</p>
+          ${renderDistributionBar('defect-repro', (metrics.byReproducibility || []).map(slice => ({
+            key: slice.key,
+            label: slice.label,
+            value: slice.value,
+            tone: slice.key === 'not-reproduced' ? 'warn' : 'accent',
+          })), {
+            title: 'Open by reproducibility',
+            caption: 'Confidence, never severity — an intermittent defect is not a smaller one',
+            emptyLabel: 'Nothing open.',
+          })}
+          ${renderDistributionBar('defect-age', metrics.ageDistribution || [], {
+            title: 'Open by age',
+            caption: 'Age is its own fact; a grade that drifted with it could not be compared',
+            emptyLabel: 'Nothing open.',
+          })}
+          ${metrics.oldest
+            ? `<p class="stat-detail">Oldest open: <strong>${escapeHtml(metrics.oldest.title)}</strong>, since ${escapeHtml((metrics.oldest.reportedAt || '').slice(0, 10))}.</p>`
+            : ''}
+          ${metrics.stale
+            ? `<p class="stat-detail wf-unknown">${metrics.stale} open defect${metrics.stale === 1 ? ' has' : 's have'} had nothing recorded against ${metrics.stale === 1 ? 'it' : 'them'} for a month. That is reported here rather than escalating the grade — a severity that drifted with age would stop being comparable.</p>`
+            : ''}
+          ${metrics.reopened
+            ? `<p class="stat-detail wf-unknown">${metrics.reopened} defect${metrics.reopened === 1 ? ' has' : 's have'} come back after being closed. Recurrence lives on the entry, so a chronic defect cannot hide as several separate ones.</p>`
+            : ''}
+          ${metrics.notReproducible || metrics.wontFix || metrics.duplicates
+            ? `<p class="stat-detail">Closed without a fix: ${metrics.notReproducible || 0} not reproducible, ${metrics.wontFix || 0} won't fix, ${metrics.duplicates || 0} duplicate. Kept apart, because they record different decisions and only one of them is an accomplishment.</p>`
+            : ''}
+        </article>
+      </div>
+      <article class="panel-card">
+        <div class="row-head">
+          <p class="card-kicker">The register</p>
+          <span class="list-meta">${visible.length === scoped.length ? scoped.length : visible.length + ' of ' + scoped.length}</span>
+        </div>
+        <input id="defect-search-input" class="ideation-input" type="search"
+          placeholder="Search by what it says, where it is, or what happened"
+          value="${escapeAttr(state.defectSearch || '')}" />
+        <div class="segmented" role="group" aria-label="Filter the register">${filters.map(entry => `
+          <button type="button" data-action="set-defect-status-filter" data-payload="${escapeAttr(entry[0])}"
+            class="${filter === entry[0] ? 'active' : ''}"
+            aria-pressed="${filter === entry[0] ? 'true' : 'false'}">${escapeHtml(entry[1])}</button>`).join('')}</div>
+        <div class="stack-list">${visible.slice(0, 200).map(entry => renderDefectRow(entry, entries)).join('') || `<div class="dashboard-empty">${
+          needle
+            ? 'Nothing matches that.'
+            : filter === 'open'
+              ? 'Nothing open. That is a statement about this register, not about the software.'
+              : 'Nothing in this view.'}</div>`}</div>
+        ${visible.length > 200 ? `<p class="stat-detail">Showing 200 of ${visible.length}. The rest are in <code>${escapeHtml(defects.path || '')}</code>.</p>` : ''}
+        <p class="stat-detail">Nothing here is ever deleted, and nothing here blocks a release. The register records what was found and what was decided; the Release page owns gates.</p>
       </article>
     </section>`;
   }
@@ -11721,6 +13009,20 @@
       value: outstanding.filter(item => item.focus === focus).length,
       tone: FOCUS_TONES[focus],
     }));
+    if (state.roadmapView === 'timeline') {
+      return `
+        ${pageSectionOpen('roadmap')}
+          ${renderRoadmapViewBar(roadmap)}
+          ${renderRoadmapTimeline()}
+        </section>`;
+    }
+    if (state.roadmapView === 'board') {
+      return `
+        ${pageSectionOpen('roadmap')}
+          ${renderRoadmapViewBar(roadmap)}
+          ${renderRoadmapBoard()}
+        </section>`;
+    }
     if (state.roadmapView !== 'list') {
       return `
         ${pageSectionOpen('roadmap')}
@@ -12407,12 +13709,20 @@
     const graph = roadmapGraph();
     const views = [
       ['canvas', 'Dependency canvas', 'The plan as a graph: what has to happen before what. Drag nodes, draw links, and filter to the route to any one item.'],
+      ['timeline', 'Timeline', 'The same plan against time: when each item can start and finish, how much room it has before the finish moves, and where each gate lands. Measured in days from today — only a deadline you set is a date.'],
+      ['board', 'Board', 'The same plan by state: waiting, ready, started, in review, delivered. A card only moves on evidence — a branch that exists or an open pull request — so an item nobody has picked up reads as Ready.'],
       ['list', 'Prioritised backlog', 'The ordered list. Position here is what sets Atlas’s default next-work weighting.'],
       ['people', 'By person', 'The same outstanding work, one band per person, with each band still ordered by what has to happen first. An arrow crossing bands is one person waiting on another.'],
       ['completed', 'Delivered', 'What has shipped, when, and by whom — laid out by month, with the links between pieces of work preserved.'],
     ];
     const counts = {
       canvas: graph.active.length,
+      // Bars, not items: a plan with a cycle draws no timeline, and a count that
+      // said otherwise would invite a click onto an empty chart.
+      timeline: ((graph.timeline || {}).bars || []).length,
+      // Cards, not columns: the number that makes this view worth opening is
+      // how much work it is tracking.
+      board: ((graph.board || {}).columns || []).reduce((total, column) => total + (column.cards || []).length, 0),
       list: roadmap.items.length,
       // Lanes, not items: the number that makes this view worth opening is how
       // many people the plan is spread across, which the item count hides.
@@ -12444,6 +13754,270 @@
             <span aria-hidden="true">+</span><span>Add roadmap item</span>
           </button>`}
       </div>`;
+  }
+
+  /* ── Timeline ──────────────────────────────────────────────────────────────
+   *
+   * The same plan against time. The canvas shows order and the backlog shows
+   * priority; neither shows *duration*, so nothing said that four items sit idle
+   * for a week waiting on one, or that a gate lands after the deadline it is
+   * tagged for.
+   *
+   * Every number here is computed host-side by `roadmapTimeline`, which takes
+   * its schedule from the critical path rather than working one out again. This
+   * function only places what it was handed, so a chart and the sentence above
+   * it cannot hold two opinions about the finish.
+   *
+   * The axis is days from today, and the only dates on it are deadlines somebody
+   * declared — see `duration-not-date` in the rules the payload carries, printed
+   * at the foot of the chart.
+   */
+  function rmTimelineModel() {
+    const timeline = roadmapGraph().timeline;
+    return timeline && typeof timeline === 'object'
+      ? timeline
+      : { state: 'nothing-outstanding', bars: [], milestones: [], horizonDays: 0, rules: [], outstandingCount: 0, deliveredCount: 0, criticalCount: 0 };
+  }
+
+  /** Days as a person says them, matching what the node cards print. */
+  function rmTimelineDays(days) {
+    const value = Number(days) || 0;
+    if (value >= 1) { return (Math.round(value * 10) / 10) + 'd'; }
+    const minutes = Math.max(1, Math.round(value * 1440));
+    return minutes < 60 ? minutes + 'm' : (Math.round(minutes / 6) / 10) + 'h';
+  }
+
+  /**
+   * Axis ticks at a step a person would choose.
+   *
+   * From a fixed ladder rather than `horizon / 6`, which produces ticks at 3.7
+   * days and makes the reader do arithmetic to place a bar.
+   */
+  function rmTimelineTicks(horizonDays) {
+    const ladder = [0.25, 0.5, 1, 2, 5, 10, 20, 30, 60, 90, 180, 365];
+    const step = ladder.find(candidate => horizonDays / candidate <= 8) ?? ladder[ladder.length - 1];
+    const ticks = [];
+    for (let day = 0; day <= horizonDays + 1e-9; day += step) {
+      ticks.push(Math.round(day * 1440) / 1440);
+    }
+    return ticks;
+  }
+
+  function rmTimelinePercent(day, horizonDays) {
+    if (!(horizonDays > 0)) { return 0; }
+    return Math.max(0, Math.min(100, (day / horizonDays) * 100));
+  }
+
+  function renderRoadmapTimeline() {
+    const graph = roadmapGraph();
+    const timeline = rmTimelineModel();
+    const summary = String(graph.timelineSummary || '');
+
+    if (timeline.state !== 'ok' || timeline.bars.length === 0) {
+      // An empty chart with an axis reads as "the plan takes no time". The note
+      // says which of the two true things happened instead.
+      return `
+        <article class="panel-card rm-timeline-card">
+          ${renderRoadmapTimelineHead(timeline, summary)}
+          <div class="rm-banner${timeline.state === 'circular' ? ' rm-banner-bad' : ''}" role="status">
+            ${escapeHtml(String(timeline.note || 'Nothing to lay out on a time axis yet.'))}
+          </div>
+        </article>`;
+    }
+
+    const horizon = Math.max(Number(timeline.horizonDays) || 0, 0.0001);
+    const ticks = rmTimelineTicks(horizon);
+    const gridlines = ticks.map(day => `<span class="rm-tl-gridline" style="left:${rmTimelinePercent(day, horizon)}%"></span>`).join('');
+
+    return `
+      <article class="panel-card rm-timeline-card">
+        ${renderRoadmapTimelineHead(timeline, summary)}
+        ${renderRoadmapTimelineMilestones(timeline, horizon)}
+        <div class="rm-tl-axis" aria-hidden="true">
+          <span class="rm-tl-axis-track">${gridlines}</span>
+          ${ticks.map(day => `<span class="rm-tl-tick" style="left:${rmTimelinePercent(day, horizon)}%">${escapeHtml(day === 0 ? 'today' : '+' + rmTimelineDays(day))}</span>`).join('')}
+        </div>
+        <ol class="rm-tl-rows">
+          ${timeline.bars.map(bar => renderRoadmapTimelineRow(bar, horizon)).join('')}
+        </ol>
+        ${renderRoadmapTimelineRules(timeline)}
+      </article>`;
+  }
+
+  function renderRoadmapTimelineHead(timeline, summary) {
+    return `
+      <div class="row-head rm-toolbar">
+        <div>
+          <p class="section-kicker">Timeline</p>
+          <h3>When the work can happen</h3>
+          ${summary ? `<p class="section-copy">${escapeHtml(summary)}</p>` : ''}
+        </div>
+        <div class="rm-chip-row">
+          <span class="tag" title="${escapeAttr('Delivered work takes no time, so it is counted here rather than drawn. The Delivered view records it.')}">${escapeHtml(String(timeline.deliveredCount || 0))} delivered</span>
+          ${timeline.finishDay === undefined ? '' : `<span class="tag tag-accent" title="${escapeAttr('The longest chain of work that has to happen in order — not the total of every estimate, because independent work runs at the same time.')}">finish in ${escapeHtml(rmTimelineDays(timeline.finishDay))}</span>`}
+        </div>
+      </div>`;
+  }
+
+  function renderRoadmapTimelineMilestones(timeline, horizon) {
+    const milestones = timeline.milestones || [];
+    if (milestones.length === 0) { return ''; }
+    const dated = milestones.filter(entry => entry.finishDay !== undefined);
+    const undated = milestones.filter(entry => entry.finishDay === undefined);
+
+    return `
+      <div class="rm-tl-milestones">
+        <div class="rm-tl-milestone-track">
+          ${dated.map(entry => `
+            <span class="rm-tl-milestone" style="left:${rmTimelinePercent(entry.finishDay, horizon)}%"
+              title="${escapeAttr(`${entry.label}: ${entry.completedCount} of ${entry.totalCount} delivered. The last outstanding item lands in ${rmTimelineDays(entry.finishDay)}.`)}">
+              <span class="rm-tl-milestone-pin" aria-hidden="true"></span>
+              <span class="rm-tl-milestone-label">${escapeHtml(entry.label)}</span>
+            </span>`).join('')}
+        </div>
+        ${undated.length === 0 ? '' : `
+          <p class="rm-tl-milestone-note">${escapeHtml(undated.map(entry => (entry.delivered
+            ? `${entry.label} is delivered`
+            : `${entry.label} has no date${entry.unscheduledCount > 0 ? ` — ${entry.unscheduledCount} item${entry.unscheduledCount === 1 ? '' : 's'} could not be scheduled` : ''}`)).join(' · '))}</p>`}
+      </div>`;
+  }
+
+  function renderRoadmapTimelineRow(bar, horizon) {
+    const left = rmTimelinePercent(bar.startDay, horizon);
+    const width = Math.max(0.6, rmTimelinePercent(bar.endDay, horizon) - left);
+    const floatWidth = Math.max(0, rmTimelinePercent(bar.latestEndDay, horizon) - rmTimelinePercent(bar.endDay, horizon));
+    const person = roadmapPersonName(bar.assigneeId);
+    const deadlineOnAxis = bar.deadlineDay !== undefined && bar.deadlineDay >= 0 && bar.deadlineDay <= horizon;
+    const barTitle = `${bar.text}\n${rmTimelineDays(bar.estimateDays)} of work, starting in ${rmTimelineDays(bar.startDay)} and finishing in ${rmTimelineDays(bar.endDay)}.`
+      + (bar.critical
+        ? '\nOn the critical path: any slip moves the plan\'s finish.'
+        : `\n${rmTimelineDays(bar.slackDays)} of room before the plan\'s finish moves.`);
+
+    return `
+      <li class="rm-tl-row${bar.critical ? ' is-critical' : ''}${bar.waiting ? ' is-waiting' : ''}">
+        <div class="rm-tl-label">
+          <span class="rm-tl-title" title="${escapeAttr(bar.text)}">${escapeHtml(bar.text)}</span>
+          <span class="rm-tl-meta">
+            <span class="tag tag-${escapeAttr(bar.focus === 'security' ? 'critical' : bar.focus === 'feature' ? 'good' : 'muted')}">${escapeHtml(bar.focus)}</span>
+            <span class="rm-tl-estimate" title="${escapeAttr(bar.estimateSource === 'declared' ? 'Estimate set by hand.' : 'Estimate derived from the published table.')}">${escapeHtml(rmTimelineDays(bar.estimateDays))}</span>
+            ${person ? `<span class="rm-tl-person">${escapeHtml(person)}</span>` : ''}
+          </span>
+        </div>
+        <div class="rm-tl-track">
+          <span class="rm-tl-bar" style="left:${left}%;width:${width}%" title="${escapeAttr(barTitle)}"></span>
+          ${floatWidth > 0.2 ? `<span class="rm-tl-float" style="left:${left + width}%;width:${floatWidth}%"
+            title="${escapeAttr(`Room to slip: ${rmTimelineDays(bar.slackDays)} before the plan's own finish moves. This says nothing about this item's deadline.`)}"></span>` : ''}
+          ${deadlineOnAxis ? `<span class="rm-tl-deadline${bar.endDay > bar.deadlineDay ? ' is-late' : ''}"
+            style="left:${rmTimelinePercent(bar.deadlineDay, horizon)}%"
+            title="${escapeAttr(`Deadline ${bar.deadline}${bar.endDay > bar.deadlineDay ? ' — the earliest finish is after it.' : '.'}`)}"></span>` : ''}
+        </div>
+      </li>`;
+  }
+
+  function renderRoadmapTimelineRules(timeline) {
+    const rules = timeline.rules || [];
+    if (rules.length === 0) { return ''; }
+    return `
+      <details class="rm-tl-rules">
+        <summary>How this chart was drawn</summary>
+        ${rules.map(rule => `<p><strong>${escapeHtml(rule.id)}</strong> — ${escapeHtml(rule.description)}</p>`).join('')}
+      </details>`;
+  }
+
+  /* ── Board ─────────────────────────────────────────────────────────────────
+   *
+   * The plan by state. Every card is placed host-side by `roadmapBoard`, whose
+   * first rule is the one this view rests on: a card only moves on **evidence**
+   * — a branch that exists, or an open pull request — so an item nobody has
+   * picked up reads as Ready rather than as in progress because it looks
+   * important.
+   *
+   * Read-only on purpose. Dragging a card between columns would mean writing a
+   * state nothing evidenced, and the next refresh would move it back: the board
+   * reports where the work is, and the work is moved by doing it.
+   */
+  function rmBoardModel() {
+    const board = roadmapGraph().board;
+    return board && typeof board === 'object' && Array.isArray(board.columns)
+      ? board
+      : { columns: [], rules: [], branchEvidence: 'not-assessed', pullRequestEvidence: 'not-assessed' };
+  }
+
+  function renderRoadmapBoard() {
+    const graph = roadmapGraph();
+    const board = rmBoardModel();
+    const summary = String(graph.boardSummary || '');
+    const columns = board.columns || [];
+
+    return `
+      <article class="panel-card rm-board-card">
+        <div class="row-head rm-toolbar">
+          <div>
+            <p class="section-kicker">Board</p>
+            <h3>Where the work actually is</h3>
+            ${summary ? `<p class="section-copy">${escapeHtml(summary)}</p>` : ''}
+          </div>
+          <div class="rm-chip-row">
+            <span class="tag${board.branchEvidence === 'gathered' ? '' : ' tag-warn'}">branches ${escapeHtml(board.branchEvidence === 'gathered' ? 'read' : 'not read')}</span>
+            <span class="tag${board.pullRequestEvidence === 'gathered' ? '' : ' tag-warn'}">pull requests ${escapeHtml(board.pullRequestEvidence === 'gathered' ? 'read' : 'not read')}</span>
+          </div>
+        </div>
+        ${board.note ? `<div class="rm-banner" role="status">${escapeHtml(String(board.note))}</div>` : ''}
+        <div class="rm-board-columns">
+          ${columns.map(column => renderRoadmapBoardColumn(column)).join('')}
+        </div>
+        ${renderRoadmapBoardRules(board)}
+      </article>`;
+  }
+
+  function renderRoadmapBoardColumn(column) {
+    const cards = column.cards || [];
+    return `
+      <section class="rm-board-column" aria-label="${escapeAttr(column.label)}">
+        <header class="rm-board-column-head" title="${escapeAttr(String(column.description || ''))}">
+          <span class="rm-board-column-name">${escapeHtml(column.label)}</span>
+          <span class="rm-view-count">${escapeHtml(String(cards.length))}</span>
+        </header>
+        ${cards.length === 0
+    // Said rather than left blank: an empty column is a fact about the plan,
+    // and a bare gap reads as something that failed to load.
+    ? '<p class="rm-board-empty">Nothing here.</p>'
+    : `<ul class="rm-board-cards">${cards.map(card => renderRoadmapBoardCard(card)).join('')}</ul>`}
+      </section>`;
+  }
+
+  function renderRoadmapBoardCard(card) {
+    const person = roadmapPersonName(card.assigneeId);
+    return `
+      <li class="rm-board-cardlet rm-focus-${escapeAttr(card.focus)}">
+        <p class="rm-board-cardlet-text" title="${escapeAttr(card.text)}">${escapeHtml(card.text)}</p>
+        <div class="rm-board-cardlet-meta">
+          ${card.waitingOnCount > 0
+    // Carried in every column, not only Blocked: an item can be started and
+    // still waiting, and dropping either half misreports one of them.
+    ? `<span class="tag tag-warn" title="${escapeAttr('Outstanding prerequisites this item is still waiting on.')}">waiting on ${escapeHtml(String(card.waitingOnCount))}</span>`
+    : ''}
+          ${card.pullRequestNumber === undefined
+    ? ''
+    : `<span class="tag tag-accent">#${escapeHtml(String(card.pullRequestNumber))}${card.pullRequestIsDraft ? ' draft' : ''}</span>`}
+          ${card.branch && card.branchMatch
+    ? `<span class="rm-board-branch" title="${escapeAttr(card.branchMatch === 'declared'
+      ? `Matched the branch this item declares: ${card.branch}`
+      : `Matched a branch named by convention from the item's text: ${card.branch}. A weaker claim than a branch the item declares.`)}">${escapeHtml(card.branch)}${card.branchMatch === 'derived' ? ' ~' : ''}</span>`
+    : ''}
+          ${person ? `<span class="rm-board-person">${escapeHtml(person)}</span>` : ''}
+        </div>
+      </li>`;
+  }
+
+  function renderRoadmapBoardRules(board) {
+    const rules = board.rules || [];
+    if (rules.length === 0) { return ''; }
+    return `
+      <details class="rm-tl-rules">
+        <summary>How these cards were placed</summary>
+        ${rules.map(rule => `<p><strong>${escapeHtml(rule.id)}</strong> — ${escapeHtml(rule.description)}</p>`).join('')}
+      </details>`;
   }
 
   function renderRoadmapCanvas() {
@@ -14104,6 +15678,7 @@
           action: { command: 'atlasmind.openSettingsSafety' },
           actionLabel: 'Open safety settings',
         })}
+        ${renderSecurityAdvisories(sec)}
         <div class="security-grid">
           <article class="panel-card">
             <p class="section-kicker">Execution policy</p>
@@ -14223,6 +15798,95 @@
         </div>
       `;
     }).join('');
+  }
+
+  /* ── Advisories ────────────────────────────────────────────────────────────
+   *
+   * What is publicly known to be wrong with this project's code and its
+   * dependencies. The page could already say whether a `SECURITY.md` exists and
+   * which monitors are configured; it could not say whether any of them had
+   * *found* anything, so eleven open vulnerability alerts and none looked the
+   * same — four green cards either way.
+   *
+   * Everything on this card is decided host-side by `advisoryFeed`, including
+   * the state where nothing was read. That state is why the card renders at all
+   * when the list is empty: "no vulnerabilities" and "nobody checked" are the
+   * two things this surface must never confuse.
+   */
+  const ADVISORY_SEVERITY_TONE = {
+    critical: 'critical', high: 'critical', medium: 'warn', low: 'muted', unknown: 'muted',
+  };
+
+  function renderSecurityAdvisories(sec) {
+    const feed = sec && sec.advisories && typeof sec.advisories === 'object' ? sec.advisories : null;
+    if (!feed) { return ''; }
+    const counts = feed.counts || {};
+    const items = feed.items || [];
+
+    return `
+      <article class="panel-card advisory-card">
+        <div class="row-head">
+          <div>
+            <p class="section-kicker">Advisories</p>
+            <h3>What is known to be wrong</h3>
+            <p class="section-copy">${escapeHtml(String(sec.advisorySummary || ''))}</p>
+          </div>
+          <div class="rm-chip-row">
+            ${['critical', 'high', 'medium', 'low', 'unknown'].map(level => (Number(counts[level]) > 0
+    ? `<span class="tag tag-${escapeAttr(ADVISORY_SEVERITY_TONE[level] || 'muted')}">${escapeHtml(String(counts[level]))} ${escapeHtml(level)}</span>`
+    : '')).join('')}
+            ${feed.dismissedCount > 0
+    // Shown beside the open counts rather than folded into them: a dismissal
+    // is a decision somebody made, not a fix somebody shipped.
+    ? `<span class="tag" title="${escapeAttr('Alerts somebody dismissed. A decision, not a fix — and never counted as one.')}">${escapeHtml(String(feed.dismissedCount))} dismissed</span>`
+    : ''}
+          </div>
+        </div>
+        ${feed.note ? `<div class="rm-banner${feed.state === 'not-assessed' ? ' rm-banner-bad' : ''}" role="status">${escapeHtml(String(feed.note))}</div>` : ''}
+        ${items.length === 0
+    ? ''
+    : `<ul class="advisory-list">${items.map(item => renderAdvisoryItem(item)).join('')}</ul>`}
+        ${feed.notShownCount > 0
+    ? `<p class="list-meta">${escapeHtml(String(feed.notShownCount))} more not shown.</p>`
+    : ''}
+        ${renderAdvisoryRules(feed)}
+      </article>`;
+  }
+
+  function renderAdvisoryItem(item) {
+    const tone = ADVISORY_SEVERITY_TONE[item.severity] || 'muted';
+    return `
+      <li class="advisory-item">
+        <span class="tag tag-${escapeAttr(tone)}">${escapeHtml(String(item.severity))}</span>
+        <div class="advisory-body">
+          <p class="advisory-title">${escapeHtml(item.title)}</p>
+          <p class="advisory-meta">
+            <span class="advisory-subject">${escapeHtml(item.subject)}</span>
+            ${item.location ? `<span class="advisory-location">${escapeHtml(item.location)}</span>` : ''}
+            ${item.fixedIn ? `<span class="advisory-fix">fixed in ${escapeHtml(item.fixedIn)}</span>` : ''}
+            <span class="advisory-source">${escapeHtml(item.source === 'dependency' ? 'dependency' : 'code scanning')} #${escapeHtml(String(item.reference))}</span>
+          </p>
+        </div>
+        ${item.url
+    // An opaque reference, never the URL. The host resolves it against the
+    // advisories it actually read, so a crafted feed cannot choose where the
+    // browser goes — the same rule the GitHub deep links follow.
+    ? `<button type="button" class="action-link" data-action="advisory-open" data-payload="${escapeAttr(item.source + ':' + item.reference)}">Open</button>`
+    : ''}
+        <button type="button" class="action-link atlas-action" data-action="advisory-work"
+          data-payload="${escapeAttr(item.source + ':' + item.reference)}"
+          title="${escapeAttr('Ask Atlas whether this reaches your code. It proposes and explains; it never applies a change.')}">Assess with Atlas</button>
+      </li>`;
+  }
+
+  function renderAdvisoryRules(feed) {
+    const rules = feed.rules || [];
+    if (rules.length === 0) { return ''; }
+    return `
+      <details class="rm-tl-rules">
+        <summary>How this feed was read</summary>
+        ${rules.map(rule => `<p><strong>${escapeHtml(rule.id)}</strong> — ${escapeHtml(rule.description)}</p>`).join('')}
+      </details>`;
   }
 
   function renderPrivacyActivity(activity) {
@@ -17222,7 +18886,13 @@
       node.addEventListener('pointermove', event => {
         if (!drag || drag.id !== event.pointerId) { return; }
         if (Math.abs(event.clientX - drag.x) > 3 || Math.abs(event.clientY - drag.y) > 3) { drag.moved = true; }
-        moveNode(node, drag.left + event.clientX - drag.x, drag.top + event.clientY - drag.y);
+        // `offsetLeft` is layout pixels and the pointer delta is viewport
+        // pixels; they are the same thing only while the page is at 100%.
+        moveNode(
+          node,
+          drag.left + toLayoutPx(event.clientX - drag.x),
+          drag.top + toLayoutPx(event.clientY - drag.y),
+        );
       });
       const finish = event => {
         if (!drag || drag.id !== event.pointerId) { return; }

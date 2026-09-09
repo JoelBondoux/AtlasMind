@@ -875,6 +875,7 @@ export async function runDeterministicSlashCommand(
     case 'buzz': await handleBuzzCommand(argument, stream, atlas, token); return true;
     case 'acp': await handleAcpCommand(argument, stream, atlas); return true;
     case 'lens': await handleLensCommand(stream); return true;
+    case 'portal': await handlePortalCommand(argument, stream); return true;
     case 'compliance': await handleComplianceCommand(argument, stream); return true;
     case 'localci': await handleLocalCiCommand(stream, atlas); return true;
     case 'setup': await handleSetupCommand(argument, stream, atlas, token); return true;
@@ -2455,6 +2456,142 @@ async function handleAcpCommand(
 }
 
 /**
+ * Gather the producer-portal state from disk and, where it is cheap, GitHub.
+ *
+ * Derived rather than asked for, like every other setup guide here. Two facts
+ * come from `gh` — repository visibility and whether Pages is on — and both
+ * degrade to `undefined` rather than to a comfortable default: a guide that
+ * quietly ticked "Pages is off, nothing is public" without checking would be
+ * reassuring about the one thing worth being careful about.
+ */
+async function collectProducerPortalSteps(): Promise<import('../core/setupWalkthrough.js').SetupStep[]> {
+  const [{ buildProducerPortalSteps, PRODUCER_PORTAL_WORKFLOW_PATH }, fs, path] = await Promise.all([
+    import('../core/producerPortalPlan.js'),
+    import('node:fs/promises'),
+    import('node:path'),
+  ]);
+
+  const folder = vscode.workspace.workspaceFolders?.[0];
+  const config = vscode.workspace.getConfiguration('atlasmind');
+  const ssotPath = config.get<string>('ssotPath', 'project_memory');
+  const sitePath = `${ssotPath}/operations/producer-site`;
+
+  if (!folder || folder.uri.scheme !== 'file') {
+    // No workspace on disk: every file check is unknown rather than false, and
+    // the plan renders each as blocked with its reason.
+    return buildProducerPortalSteps({
+      publishEnabled: config.get<boolean>('producerReport.publishEnabled', false),
+      sitePath,
+      visibility: 'unknown',
+    });
+  }
+
+  const root = folder.uri.fsPath;
+  const exists = async (relative: string): Promise<boolean | undefined> => {
+    try {
+      await fs.stat(path.join(root, relative));
+      return true;
+    } catch (error) {
+      // Missing is a real answer; anything else (a permission problem, a broken
+      // symlink) is not, and must not be reported as "not there yet".
+      return (error as { code?: string }).code === 'ENOENT' ? false : undefined;
+    }
+  };
+
+  const [reportGenerated, sitePrepared, workflowPresent] = await Promise.all([
+    exists(`${ssotPath}/operations/producer-report.json`),
+    exists(`${sitePath}/index.html`),
+    exists(PRODUCER_PORTAL_WORKFLOW_PATH),
+  ]);
+
+  let visibility: 'public' | 'private' | 'unknown' = 'unknown';
+  let pagesEnabled: boolean | undefined;
+  let pagesUrl: string | undefined;
+  try {
+    const { runGhOrThrow } = await import('../core/ghClient.js');
+    const raw = (await runGhOrThrow(root, ['repo', 'view', '--json', 'visibility', '-q', '.visibility'])).trim().toLowerCase();
+    visibility = raw === 'public' ? 'public' : raw === 'private' || raw === 'internal' ? 'private' : 'unknown';
+    try {
+      const pages = JSON.parse(await runGhOrThrow(root, ['api', 'repos/{owner}/{repo}/pages'])) as { html_url?: unknown };
+      pagesEnabled = true;
+      if (typeof pages.html_url === 'string' && /^https:\/\//.test(pages.html_url)) {
+        pagesUrl = pages.html_url;
+      }
+    } catch (error) {
+      // 404 is GitHub saying Pages is not configured, which is a real answer.
+      // Anything else leaves it unknown rather than claiming it is off.
+      pagesEnabled = /\b404\b|not found/i.test(error instanceof Error ? error.message : String(error))
+        ? false
+        : undefined;
+    }
+  } catch {
+    visibility = 'unknown';
+  }
+
+  return buildProducerPortalSteps({
+    publishEnabled: config.get<boolean>('producerReport.publishEnabled', false),
+    ...(reportGenerated === undefined ? {} : { reportGenerated }),
+    ...(sitePrepared === undefined ? {} : { sitePrepared }),
+    sitePath,
+    ...(workflowPresent === undefined ? {} : { workflowPresent }),
+    visibility,
+    ...(pagesEnabled === undefined ? {} : { pagesEnabled }),
+    ...(pagesUrl === undefined ? {} : { pagesUrl }),
+  });
+}
+
+async function handlePortalCommand(
+  prompt: string,
+  stream: vscode.ChatResponseStream,
+): Promise<void> {
+  const trimmed = (prompt ?? '').trim();
+  const showAll = /^all$/i.test(trimmed);
+  const [{ PRODUCER_PORTAL_SETUP_GUIDE }, walkthrough] = await Promise.all([
+    import('../core/producerPortalPlan.js'),
+    import('../core/setupWalkthrough.js'),
+  ]);
+
+  const steps = await collectProducerPortalSteps();
+  const next = walkthrough.nextSetupStep(steps, PRODUCER_PORTAL_SETUP_GUIDE.stepIds);
+
+  if (!next && !showAll) {
+    stream.markdown([
+      '### Producer portal — done',
+      '',
+      'The report is generated, publication is allowed, the page is prepared, the workflow is in place and Pages is on. Run the workflow when you want to publish; nothing here publishes on its own.',
+      '',
+      'Ask **`/portal all`** for the full checklist.',
+    ].join('\n'));
+    return;
+  }
+
+  if (!showAll && next) {
+    const position = walkthrough.setupStepPosition(steps, PRODUCER_PORTAL_SETUP_GUIDE.stepIds, next.id);
+    stream.markdown(walkthrough.renderSetupStepMarkdown('Producer portal', next, position, "GitHub's Pages documentation"));
+    if (next.action && walkthrough.isOpeningAction(next.action.command)) {
+      stream.button({
+        command: next.action.command,
+        title: next.action.title,
+        ...(next.action.args ? { arguments: next.action.args } : {}),
+      });
+    }
+    stream.markdown(`\n\n_Step ${position.index} of ${position.total}. Say **\`/portal\`** again once done, or **\`/portal all\`** to see everything._`);
+    return;
+  }
+
+  const MARK: Record<string, string> = { done: '✅', todo: '⬜', blocked: '⏸️', optional: '◽' };
+  const lines = ['### Producer portal — full checklist', ''];
+  for (const step of steps) {
+    lines.push(`${MARK[step.status] ?? '⬜'} **${escapeMd(step.title)}** — ${escapeMd(step.detail)}`);
+  }
+  lines.push(
+    '',
+    'A GitHub Pages site is **public even when the repository is private** — access control for Pages is an Enterprise Cloud feature. AtlasMind never turns Pages on and never publishes: it prepares a narrowed copy of the report and writes a workflow that runs only when you run it.',
+  );
+  stream.markdown(lines.join('\n'));
+}
+
+/**
  * Inspect the workspace's Lens declarations and derive the guide's steps.
  *
  * No model and no configuration — just four files on disk — so this returns the
@@ -2965,6 +3102,11 @@ async function handleSetupCommand(
     return;
   }
 
+  if (requested?.id === 'portal') {
+    await handlePortalCommand('', stream);
+    return;
+  }
+
   const plans: Array<{ guideId: string; steps: import('../core/setupWalkthrough.js').SetupStep[] }> = [];
   plans.push({ guideId: 'acp', steps: await collectAcpSetupSteps(atlas).catch(() => []) });
   plans.push({ guideId: 'buzz', steps: await collectBuzzSetupSteps(atlas).catch(() => []) });
@@ -2976,6 +3118,10 @@ async function handleSetupCommand(
   // where it has not, the row reads "not checked yet", which is true. Either
   // way `/localci` does the real probe.
   plans.push({ guideId: 'localci', steps: await collectLocalCiSetupSteps({ probe: false }, atlas).catch(() => []) });
+  // Two `gh` calls for one row, and both are cheap and cached by `gh` itself.
+  // A failure leaves the row at zero rather than dropping it, which is the
+  // index's own rule: a missing row reads as 'this feature does not exist'.
+  plans.push({ guideId: 'portal', steps: await collectProducerPortalSteps().catch(() => []) });
 
   stream.markdown(walkthrough.renderSetupIndexMarkdown(buildSetupIndex(plans)));
   if (trimmed && !requested) {
@@ -4025,7 +4171,10 @@ function shortDiscoverType(type: string): string {
 }
 
 function escapeTableCell(text: string): string {
-  return text.replace(/\|/g, '\\|').replace(/\n/g, ' ');
+  // Backslash first, or it escapes the escape: a value ending in one turns the
+  // `\|` that follows into a literal backslash and a live pipe, which splits the
+  // cell and shifts every column after it. See `markdownCell` in `debtRegister`.
+  return text.replace(/\\/g, '\\\\').replace(/\|/g, '\\|').replace(/\n/g, ' ');
 }
 
 async function handleCostCommand(

@@ -34,6 +34,20 @@ updates:
       # rather than assuming a release has done it.
       - dependency-name: "typescript"
         update-types: ["version-update:semver-major"]
+      # @types/vscode is held at the version `engines.vscode` declares.
+      #
+      # These two are not independent: `vsce package` refuses to build when
+      # `@types/vscode` is newer than `engines.vscode`, so taking a bump here
+      # is not a dependency chore — it raises the minimum VS Code an AtlasMind
+      # user must be running, and every user below that floor stops receiving
+      # updates. That is a product decision, and it should arrive as one rather
+      # than as a line in a grouped tooling PR.
+      #
+      # Raise `engines.vscode` deliberately when there is a reason to, and bump
+      # this to match in the same commit. Patch updates within the declared
+      # line still flow.
+      - dependency-name: "@types/vscode"
+        update-types: ["version-update:semver-major", "version-update:semver-minor"]
     commit-message:
       prefix: "security"
       include: scope

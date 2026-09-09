@@ -222,6 +222,18 @@ AtlasMind's dashboards are webviews, which is a classic place to get this wrong.
 - Every message from a panel is validated before it can change a setting, touch a secret or invoke a
   command
 
+The Security page also shows **what is publicly known to be wrong** with the project -- Dependabot's
+dependency alerts and code scanning's findings, read on the repository refresh and never on render.
+Severity is the publisher's and is never re-graded locally. A dismissed alert is counted apart and
+never as a fix. A source nobody read says so, and a security feature that is **switched off** is
+reported as switched off rather than as an empty list -- otherwise the riskiest configuration would
+look like the safest.
+
+The card's Open button follows the panel rule below in its sharpest form: it sends
+`<source>:<reference>`, never a URL, and the host resolves that against the advisories it actually
+read. A surface that could name a URL could name any, and `openExternal` hands it to the browser
+without asking.
+
 The important structural rule: **a panel supplies data, never a command.** The dashboard can trigger a
 promotion and attest a check; it can never supply the command string that runs. What executes comes from
 your persisted configuration, read on the extension side.

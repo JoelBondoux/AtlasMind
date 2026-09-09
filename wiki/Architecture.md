@@ -820,6 +820,92 @@ on every run and a link written there would not survive the next scan. Each regi
 *outstanding* means for itself — an accepted risk is a closed decision, accepted debt is work somebody
 agreed to carry.
 
+AtlasMind also holds the six **cross-cutting utilities** — authentication, payments, transactional
+email, analytics, internationalisation and accessibility (`src/core/utilityPacks.ts`, rendered on
+Dashboard → **Gap Analysis**). Unlike the other architecture packs these are not project templates:
+nobody starts a project called “payments”. Each opens with **the decision that comes first** and
+treats libraries as answers to it — merchant of record versus payment processor, cookieless versus
+identified analytics, who owns the sending domain, who translates. **Every install line is a constant
+read from the vendor's own documentation on a pinned date and nothing runs one**; where a line was not
+verified none is shown, because a plausible wrong package name installs somebody else's code. **What
+leaves your machine is stated for every candidate.** **A capability already present is reported, never
+proposed again**, and two candidates answering opposite sides of one decision are reported as two
+answers — a security problem rather than a redundancy. **Accessibility is never offered as
+installable**: automated tooling catches roughly 30–40% of WCAG barriers, so the pack lists tools and
+then states the human half. Gates are statements about the world rather than files that exist, and
+with no manifest readable every pack reads *not assessed* rather than absent.
+
+AtlasMind can also be woken by **repository events** rather than only by somebody typing
+(`src/core/ambientTriggers.ts`). A failed CI run, a new advisory, a review waiting on you, a blocker
+defect: all of them happen while you are looking elsewhere. A VS Code extension does not run when the
+editor is closed, so this is *ambient* rather than *background* — it works while you are in the editor
+and not looking at AtlasMind. **An event is a change, not a state**: a red pipeline fires once rather
+than on every check, and a condition that clears is forgotten so the same one returning later fires
+again. **Deny by default, twice** — a master switch and a per-event subscription, both off. **An
+ambient response never exceeds `propose`**, whatever a workflow stage permits, because nobody is
+watching; a security advisory and a blocked release are capped at reporting by declaration. **A missed
+window is not a backlog**, **a source that could not be read is reported as not observed rather than as
+quiet**, and **spend defaults to nothing** while reporting is never capped. Nothing runs unattended:
+the service returns a plan, and the notification offers a draft.
+
+A sixth register (`src/core/testCaseRegister.ts`, rendered as a card on Dashboard → **Testing**)
+holds the manual half of testing. Everything else AtlasMind knows about tests is derived from files,
+which is the half a machine can answer; exploratory testing, an accessibility pass with a screen
+reader and a device matrix leave nothing for a scanner to grade. **Priority is derived, not asked
+for** — what breaks if this is wrong, and how often the path is taken — by a published table, and
+recomputed on read so a hand-edited grade does not survive. **A case that was not run is never run,
+not passed**, and an unrecognised stored result reads as blocked rather than as a pass. **A result
+belongs to a revision**: editing the steps bumps it, and an earlier result reads as stale rather than
+staying green — a pass against steps somebody has since rewritten is a pass for a test nobody ran.
+**An automated case is never given a manual result**, because its result comes from the test report;
+the refusal is returned and shown rather than swallowed. **A test asset names where a credential
+lives and never holds one** — anything credential-shaped refuses the whole asset, on write and on
+read, since a silently scrubbed record reports success while the secret stays where it was pasted
+from — and an unowned asset is unassigned rather than shared. Nothing here grades a methodology:
+file-derived coverage still owns that, and a manual case is additional evidence rather than a
+substitute.
+
+A fifth register (`src/core/changeApprovals.ts`, Dashboard → **Approvals**) records who agreed to a
+change and to which version of it. AtlasMind already had approvals in two senses and neither is this
+one: a tool approval is a *permission* answered in seconds, a release gate is a *condition* evaluated
+from evidence. **An approval here is neither** — it grants no capability, unlocks no branch and blocks
+no release, because a gate AtlasMind cannot enforce is one people learn to route around. **Pending is
+never read as approved**: there is no auto-approval and deliberately no timeout that grants one, and an
+unrecognised status in the committed file reads as pending rather than as consent. **An approval names
+what was approved** — a fingerprint of the subject's content, never the content itself, since the file
+is committed and mirroring a legal draft into it would publish the thing under review. When that
+content changes the approval goes **stale** rather than carrying over; the decision is neither revoked
+nor edited, it simply stops describing what is there. A subject that can no longer be found reads as
+**unknown**, never as still current. **Nobody is substituted**: a declared table routes each category
+to a role — code to a reviewer, documentation to a maintainer, roadmap, legal and commercial to the
+Director — and where the role is unheld the request has no approver and says so, because a
+reassigned approver reads later as somebody having agreed. **Self-approval is permitted and always
+stated**, since refusing it would make the register useless on a solo project and hiding it would let a
+formality look like a review. Rejected, withdrawn and superseded are kept apart. Subjects come from a
+host-derived allowlist of outstanding roadmap items and tracked documents, addressed by opaque id, so
+nothing the webview sends can name a file.
+
+A fourth register (`src/core/defectRegister.ts`, Dashboard → **Defects**) records what is *broken*, as
+opposed to what was deferred. It is a local committed file rather than a GitHub issue, because an issue
+needs a repository, a remote and a working `gh` while a bug is something somebody saw thirty seconds ago
+and will lose if writing it down costs a network round trip; filing an issue stays a separate,
+confirmed act. **Severity is never asked for** — the reporter says what the defect does (loses work,
+exposes something, does not work at all, works badly, looks wrong) and how many people meet it, and an
+eight-rule published table grades those two facts. The grade is **recomputed on every read**, so a
+severity hand-edited into the committed file does not survive; data loss and a security exposure are
+blockers whatever their reach, because the one person it happened to lost exactly as much as if it had
+happened to everybody. **How reliably a defect reproduces is a separate fact and does not move its
+severity** — *sometimes* says how confident we are that we can see it, not how bad it is when it
+happens — and *could not reproduce* is never quietly read as fixed. **`fixed` is kept apart from
+`verified`**, because a fix nobody checked is a claim, and **a defect that came back is the same defect,
+reopened**: recurrence lives on the entry, since two rows would make a bug that recurred four times look
+like four bugs each fixed once. Nothing is deleted — *verified*, *won't fix*, *duplicate* and *not
+reproducible* record four different decisions — and nothing is gated: an open blocker reaches the
+*Needs you* band as a statement, while release gates stay with the Release page. It is the one attention
+group with no "never assessed" item, because recording a defect means finding one and an item no action
+could satisfy would nag forever; an unused register instead supplies no group at all, so the Overview
+still reads *unexamined* rather than clear.
+
 The Roadmap page holds two different facts about the same backlog, and keeps them apart. The
 **prioritised backlog** is an ordered list, and its order is the only thing that sets Atlas's default
 next-work weighting. The **dependency canvas** answers a question a list cannot: which item cannot start
@@ -1134,7 +1220,7 @@ never accepted.
 
 | Path | What's in it |
 |---|---|
-| `src/core/` | Orchestration, routing, planning, safety, cost, project services, pure game-engine identity/divergence/build-log interpretation (`gameEngineIdentity.ts`, `gameEngineDivergence.ts`, `gameBuildLog.ts`), and CI inspection, trusted-workflow generation, the route model, routing policy, build ledger, act adapter and local CI setup guidance (`ciManager.ts`, `trustedLocalCiStarter.ts`, `ciRoutes.ts`, `ciRoutingPolicy.ts`, `ciCreditMeter.ts`, `ciBuildLedger.ts`, `ciActRoute.ts`, `nodeVersionDetection.ts`, `localCiSetupPlan.ts`, `localCiInstaller.ts`, `localCiInspectionMemory.ts`), the guarded local CI executor (`localCiRunner.ts`), the confirmed-write echo that shows an issue or pull-request write before the re-read lands (`trackerWriteOutcome.ts`), the roadmap dependency graph with its on-disk overlay (`roadmapGraph.ts`, `roadmapGraphStore.ts`, `roadmapCriticalPath.ts`), whether the configured team can work and how much of it is used (`agentCapacity.ts`), and the git trailers that link a commit to the work it was for (`commitTrailers.ts`), and the evidence-triggered MCP capability offer (`capabilityOffer.ts`), the declared table saying where each release gate’s evidence lives and how gates rank by urgency (`releaseGateNavigation.ts`), roadmap ingestion from markdown, issues, Projects and spreadsheets with re-runnable reconciliation (`roadmapImport.ts`), the register-to-work hand-off that turns a gap, a debt entry or a risk finding into planned work (`registerHandoff.ts`), and how the project numbers its software across branches — the semver primitives plus the declared scheme, source and branch-to-channel map (`semver.ts`, `versioningPolicy.ts`), how a Windows `bin` shim is resolved to something spawnable without a shell — the module that makes model-generated command arguments unable to become commands (`windowsShimBypass.ts`), and how parallel steps are kept from writing over each other — where each one runs, the git plumbing, getting the work back and the run that ties the three together (`worktreeIsolation.ts`, `worktreeManager.ts`, `worktreeMerge.ts`, `worktreeRun.ts`) |
+| `src/core/` | Orchestration, routing, planning, safety, cost, project services, pure game-engine identity/divergence/build-log interpretation (`gameEngineIdentity.ts`, `gameEngineDivergence.ts`, `gameBuildLog.ts`), and CI inspection, trusted-workflow generation, the route model, routing policy, build ledger, act adapter and local CI setup guidance (`ciManager.ts`, `trustedLocalCiStarter.ts`, `ciRoutes.ts`, `ciRoutingPolicy.ts`, `ciCreditMeter.ts`, `ciBuildLedger.ts`, `ciActRoute.ts`, `nodeVersionDetection.ts`, `localCiSetupPlan.ts`, `localCiInstaller.ts`, `localCiInspectionMemory.ts`), the guarded local CI executor (`localCiRunner.ts`), the confirmed-write echo that shows an issue or pull-request write before the re-read lands (`trackerWriteOutcome.ts`), the live security advisory feed and the per-turn context breakdown and the producer-portal hosting guide (`advisoryFeed.ts`, `contextBudget.ts`, `producerPortalPlan.ts`), the defect register — what is broken, graded by a published table rather than asked for (`defectRegister.ts`), the approval register — who agreed, to which version, and what goes stale when it changes (`changeApprovals.ts`), the test-case register — the manual half of testing, its owners and the assets it needs (`testCaseRegister.ts`), the ambient event bus — what may wake AtlasMind up, how far it may go, and why it stayed quiet (`ambientTriggers.ts`), the six cross-cutting utility decisions with their date-pinned vendor facts (`utilityPacks.ts`), the roadmap dependency graph with its on-disk overlay, the chain the finish rests on and the plan against time (`roadmapGraph.ts`, `roadmapGraphStore.ts`, `roadmapCriticalPath.ts`, `roadmapTimeline.ts`, `roadmapBoard.ts`), whether the configured team can work and how much of it is used (`agentCapacity.ts`), and the git trailers that link a commit to the work it was for (`commitTrailers.ts`), and the evidence-triggered MCP capability offer (`capabilityOffer.ts`), the declared table saying where each release gate’s evidence lives and how gates rank by urgency (`releaseGateNavigation.ts`), roadmap ingestion from markdown, issues, Projects and spreadsheets with re-runnable reconciliation (`roadmapImport.ts`), the register-to-work hand-off that turns a gap, a debt entry or a risk finding into planned work (`registerHandoff.ts`), and how the project numbers its software across branches — the semver primitives plus the declared scheme, source and branch-to-channel map (`semver.ts`, `versioningPolicy.ts`), how a Windows `bin` shim is resolved to something spawnable without a shell — the module that makes model-generated command arguments unable to become commands (`windowsShimBypass.ts`), and how parallel steps are kept from writing over each other — where each one runs, the git plumbing, getting the work back and the run that ties the three together (`worktreeIsolation.ts`, `worktreeManager.ts`, `worktreeMerge.ts`, `worktreeRun.ts`) |
 | `src/runtime/` | The built-in agents and how the runtime is composed |
 | `src/providers/` | Provider adapters, catalogues, health, local model discovery, `modelRole.ts` (what a model is *for*), and the local-GPU support layer that measures VRAM and reads what each runtime has loaded |
 | `src/skills/` | Built-in tools and skill handlers |

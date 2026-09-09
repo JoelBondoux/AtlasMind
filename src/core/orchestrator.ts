@@ -1,6 +1,7 @@
 import type { AgentDefinition, BudgetMode, ProjectTestingConfig, DataPrivacyMatch, MemoryEntry, ModelCapability, ModelStruggleKind, OrchestratorConfig, OrchestratorHooks, PricingModel, ProjectPlan, ProjectProgressUpdate, ProjectResult, ProviderId, RoutingConstraints, SkillDefinition, SkillExecutionContext, SubTask, SubTaskExecutionArtifacts, SubTaskResult, SubTaskStatus, TaskModelAttempt, TaskProfile, TaskRequest, TaskResult, TestingMethodologyId, ToolExecutionArtifact } from '../types.js';
 import type { AgentAutoUpdater } from './agentAutoUpdater.js';
 import { buildDebtMarkerGuidance, parseCustomDebtMarkers } from './debtRegister.js';
+import { buildDefectReportingGuidance } from './defectRegister.js';
 import {
   evaluateHandoff,
   buildHandoffPrompt,
@@ -8335,9 +8336,18 @@ function debtMarkerGuidance(customMarkers: unknown): string {
 
 function buildRolePrompt(role: string, customDebtMarkers: unknown): string {
   const basePrompt = ROLE_PROMPTS[role] ?? ROLE_PROMPTS['general-assistant']!;
+  // The debt guidance covers what an agent *defers*; this covers what it
+  // *finds broken and was not asked to fix*. Both exist for the same reason —
+  // an observation mentioned in a sentence of chat is lost, after which an
+  // empty register reads as an absence of the thing rather than an absence of
+  // recording — and they are stated separately because confusing the two is
+  // exactly what puts a real bug in the debt register and a deliberate
+  // trade-off in the defect one.
   return `${basePrompt} ${AUTONOMOUS_PROJECT_DELIVERY_PROMPT}
 
-${debtMarkerGuidance(customDebtMarkers)}`;
+${debtMarkerGuidance(customDebtMarkers)}
+
+${buildDefectReportingGuidance()}`;
 }
 
 function buildProjectSubTaskMessage(task: SubTask, depOutputs: Record<string, string>, projectGoal: string): string {
