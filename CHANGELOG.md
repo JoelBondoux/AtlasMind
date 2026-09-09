@@ -6,6 +6,53 @@ The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/),
 
 ## [Unreleased]
 
+## [0.468.0] - 2026-09-09
+
+### Added
+
+- **Baselines you can name, so "what changed" can be asked about more than one moment.** The
+  *What moved* card answers one question carefully — five rules about the ways a delta can lie — but it
+  held exactly one baseline, advanced on every render. The only span available was the one nobody
+  chose. *What has changed since the release? Since this branch started? Since the audit?* could not
+  be asked at all.
+
+  Capture a baseline on the Workflow page, name it, and compare against it whenever you like.
+
+  **The comparison is the existing one, unchanged.** A second implementation would eventually disagree
+  with the first, and the symptom would be two cards on one dashboard reporting different numbers for
+  the same fortnight. Every rule already enforced — no baseline is a first look, unknown to known is
+  not zero to n, a changed repository discards the comparison — holds here by construction.
+
+  **A named baseline is captured deliberately, never on a render.** The "last looked" watermark
+  advances by itself because it *means* last looked; a named one means the moment somebody chose, and
+  moving it silently would erase the span it was created to measure. Nothing in the module writes on
+  read, asserted by comparing the register before and after every read path.
+
+  **The age is always stated.** Eleven changes against a six-week-old baseline is six weeks of work,
+  and rendered without its age it looks like this morning. The sentence carrying the span is composed
+  in the module so no surface can show the changes without it, and a baseline over a month old says so
+  in its own line.
+
+  **Past the cap a capture is refused and names what to remove — the oldest is never evicted.**
+  Evicting by age deletes precisely the most valuable one, since the furthest-back baseline is the only
+  one that can answer a question about the whole project. **Nothing expires, nothing is cleaned up**,
+  and removing one is confirmed in a dialog that says the reading cannot be recovered from anywhere
+  else.
+
+  **A baseline that no longer applies is kept and reported, never removed.** Opening a different
+  repository does not make somebody's baseline wrong — it makes it inapplicable *here*, and it says
+  which, rather than reporting no changes, because "nothing moved" would be a different and more
+  reassuring claim.
+
+  Baselines are per-developer, in editor storage, for the same reason the watermark is: they hold
+  counts read from one machine at one moment, and a shared one would mean "when did *anybody* last
+  look".
+
+### Fixed
+
+- Removed an `eslint-disable` directive in `rotaImport.ts` that reported as unused — the escapes it
+  covered are Unicode escapes, which the rule does not flag.
+
 ## [0.467.0] - 2026-09-09
 
 ### Added

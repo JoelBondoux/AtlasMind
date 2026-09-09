@@ -1863,6 +1863,24 @@ The Ollama adapter uses the published `POST /api/embed` (array `input`, `embeddi
 
 The store lives in **extension storage, not `project_memory/`**: unlike every other register here the index is derived rather than decided, per developer rather than shared, and thousands of float vectors changing on every edit is the worst diff imaginable.
 
+### BaselineRegister (`src/core/baselineRegister.ts`)
+
+Baselines you can name, so *what changed* can be asked about more than one moment. `observedDelta` answers "what changed since I last looked", and answers it carefully — but it holds exactly one baseline, advanced on every render, so the only span available is the one nobody chose. The questions people actually ask are *what has changed since the release*, *since this branch started*, *since the audit*, and none of them could be asked.
+
+This adds named baselines and nothing else. **The comparison is `compareObservedState`, unchanged**: a second implementation would eventually disagree with the first, and the symptom would be two cards on one dashboard reporting different numbers for the same fortnight. Every rule that module enforces holds here by construction rather than by being restated, and a test asserts no field vocabulary of its own appears.
+
+**A named baseline is captured deliberately, never on a render.** The watermark advances by itself because it means *last looked*; a named one means the moment somebody chose, and moving it silently would erase the span it was created to measure. Nothing here writes on read — asserted behaviourally, by comparing the register before and after every read path, rather than by searching the source for words the rule table itself contains.
+
+**The age is always stated.** `describeBaselineSpan` composes the sentence in the module so no surface can render the changes without it, and `staleness` grades it against a declared window: eleven changes over six weeks is six weeks of work, and printed without its age it reads as this morning.
+
+**Past the cap, capture is refused and names what to remove — the oldest is never evicted.** Evicting by age deletes precisely the most valuable baseline, since the furthest-back one is the only thing that can answer a question about the whole project. A refusal is an inconvenience; a silent eviction is a lost record that cannot be reconstructed from anywhere, because the reading it holds was taken at a moment that has passed. There is no expiry, no cleanup pass and no eviction anywhere, which makes the removal dialog the whole safeguard — so it names the span rather than asking "are you sure?".
+
+**A baseline that no longer applies is kept and reported, never removed.** Opening a different repository does not make somebody's baseline wrong; it makes it inapplicable here, which `compareObservedState` already reports as `different-repository`. The span sentence says which, rather than saying nothing moved — a different and more reassuring claim.
+
+A label is untrusted text: somebody types it, it is rendered, and an id is derived from it, so it is clamped, control-stripped, and the id carries a collision suffix rather than trusting the label to be unique. A stored entry without a readable snapshot is dropped rather than kept, because a baseline that cannot be compared against is worse than an absent one — it offers a span and then reports a first look.
+
+Storage is the caller's and is per-developer, in `workspaceState`: `OBSERVED_SNAPSHOT_NOTE` explains why a baseline must not be committed, and naming one does not change the reason — the counts inside were read from `gh` at one machine's moment, and two people capturing "1.0" a day apart would conflict over an observation neither of them decided. On the Workflow page the rules render through the page's own disclosure helper rather than a native `<details>`, which would reopen closed on every render. Pure, clock-injected + unit-tested.
+
 ### RotaImport (`src/core/rotaImport.ts`)
 
 Declared absence, read out of a calendar somebody else's rota app produced. `teamWorkload` refuses to infer absence, which leaves the entries to be typed by hand — the step nobody does, and the point at which the reading quietly stops being accurate. The rota already exists in whatever the team actually uses.

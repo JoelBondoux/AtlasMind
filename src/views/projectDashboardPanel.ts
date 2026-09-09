@@ -146,6 +146,17 @@ import {
   type ObservedSnapshot,
 } from '../core/observedDelta.js';
 import {
+  BASELINE_RULES,
+  captureBaseline,
+  compareAgainstBaseline,
+  orderedBaselines,
+  removeBaseline,
+  sanitizeBaselineRegister,
+  MAX_NAMED_BASELINES,
+  type BaselineRegister,
+  type BaselineStaleness,
+} from '../core/baselineRegister.js';
+import {
   buildAttentionFeed,
   type AttentionFeed,
   type AttentionInput,
@@ -1356,6 +1367,9 @@ type ProjectDashboardMessage =
   | { type: 'rollbackStage'; payload: { stageId: string; confirmText: string } }
   | { type: 'testHealthUrl'; payload: { url: string } }
   | { type: 'testDataPrivacy'; payload: { kind: 'text' | 'path'; value: string } }
+  | { type: 'captureBaseline'; payload: { label: string; reason?: string } }
+  | { type: 'removeBaseline'; payload: string }
+  | { type: 'selectBaseline'; payload: string }
   | { type: 'saveDirectorConfig'; payload: import('../types.js').ProjectDirectorConfig }
   | { type: 'seedDirectorFromRepo' }
   | { type: 'saveDocumentsConfig'; payload: import('../types.js').DocumentsConfig }
@@ -2596,6 +2610,36 @@ interface DashboardGuidedWorkflowSnapshot {
     scope?: ObservedScope;
     changes: Array<{ label: string; kind: string; summary: string; before?: string; after?: string }>;
     droppedByCap: number;
+  };
+  /**
+   * Baselines somebody named, and the comparison against the chosen one.
+   *
+   * The `delta` above is always *since you last looked* — the span nobody
+   * chose. This is how the same comparison is asked about a moment somebody
+   * did choose, using the same rules rather than a second implementation.
+   */
+  baselines: {
+    entries: Array<{
+      id: string;
+      label: string;
+      reason?: string;
+      takenAt: string;
+      ageDays: number;
+      staleness: BaselineStaleness;
+    }>;
+    /** The chosen baseline's id, when one is chosen. */
+    selectedId?: string;
+    /** The comparison against it. Absent when nothing is chosen. */
+    comparison?: {
+      span: string;
+      status: ObservedDelta['status'];
+      staleness: BaselineStaleness;
+      changes: Array<{ label: string; kind: string; summary: string }>;
+      droppedByCap: number;
+    };
+    /** How many more may be captured before a capture is refused. */
+    remaining: number;
+    rules: Array<{ id: string; describes: string }>;
   };
   /** The next actionable step, or absent when the workflow is complete. */
   next?: { stageId: WorkflowStageId; stepId: string; stageName: string; stepTitle: string };
@@ -6046,6 +6090,15 @@ export class ProjectDashboardPanel {
         return;
       case 'resolveAndRunPromotion':
         await this.handleResolveAndRunPromotion(message.payload);
+        return;
+      case 'captureBaseline':
+        await this.handleCaptureBaseline(message.payload);
+        return;
+      case 'removeBaseline':
+        await this.handleRemoveBaseline(message.payload);
+        return;
+      case 'selectBaseline':
+        await this.handleSelectBaseline(message.payload);
         return;
       case 'saveDirectorConfig':
         await this.handleSaveDirectorConfig(message.payload);
@@ -13851,6 +13904,99 @@ ${buildCardEvidenceSection(source, derivation)}`;
     }
   }
 
+  /**
+   * Capture the current reading under a name.
+   *
+   * The reading comes from the snapshot already on screen rather than being
+   * re-gathered, so the baseline is the numbers somebody was looking at when
+   * they pressed the button — re-reading would capture a moment they never saw.
+   */
+  private async handleCaptureBaseline(payload: { label: string; reason?: string }): Promise<void> {
+    const observed = this.lastSnapshot?.guidedWorkflow.observed;
+    if (!observed) {
+      void vscode.window.showWarningMessage('There is no reading to capture yet. Refresh the dashboard first.');
+      return;
+    }
+    const state = this.atlas.extensionContext?.workspaceState;
+    const register = readBaselineRegister(this.atlas);
+    const result = captureBaseline({
+      register,
+      label: payload.label,
+      ...(payload.reason === undefined ? {} : { reason: payload.reason }),
+      current: observed,
+      ...(this.lastSnapshot?.guidedWorkflow.delta.scope === undefined
+        ? {}
+        : { scope: this.lastSnapshot.guidedWorkflow.delta.scope }),
+      now: new Date().toISOString(),
+    });
+    if (result.refusal) {
+      // The refusal names what to change. "Could not capture" teaches nothing.
+      void vscode.window.showWarningMessage(result.detail ?? 'That baseline could not be captured.');
+      return;
+    }
+    try {
+      await state?.update(NAMED_BASELINE_STATE_KEY, result.register);
+      // Selected on capture, because somebody who just named a span wants to
+      // look at it. Nothing else moves.
+      await state?.update(SELECTED_BASELINE_STATE_KEY, result.captured?.id ?? '');
+    } catch {
+      void vscode.window.showWarningMessage('That baseline could not be stored.');
+      return;
+    }
+    await this.syncState();
+  }
+
+  /**
+   * Remove one baseline, behind a confirmation.
+   *
+   * Nothing expires and nothing is evicted, so this is the only way a baseline
+   * leaves — which makes the dialog the whole safeguard. It names the span that
+   * is about to be lost rather than asking "are you sure?".
+   */
+  private async handleRemoveBaseline(id: string): Promise<void> {
+    const register = readBaselineRegister(this.atlas);
+    const baseline = register.baselines.find(entry => entry.id === id);
+    if (!baseline) {
+      return;
+    }
+    const confirmed = await vscode.window.showWarningMessage(
+      `Remove the baseline "${baseline.label}"?`,
+      {
+        modal: true,
+        detail: `It was captured on ${baseline.takenAt.slice(0, 10)}. Removing it means nothing can be compared against that moment again — the reading it holds cannot be recovered from anywhere else.`,
+      },
+      'Remove it',
+    );
+    if (confirmed !== 'Remove it') {
+      return;
+    }
+    const state = this.atlas.extensionContext?.workspaceState;
+    try {
+      await state?.update(NAMED_BASELINE_STATE_KEY, removeBaseline(register, id));
+      if (readSelectedBaselineId(this.atlas) === id) {
+        await state?.update(SELECTED_BASELINE_STATE_KEY, '');
+      }
+    } catch {
+      void vscode.window.showWarningMessage('That baseline could not be removed.');
+      return;
+    }
+    await this.syncState();
+  }
+
+  /** Choose which baseline the comparison is against. An empty id chooses none. */
+  private async handleSelectBaseline(id: string): Promise<void> {
+    const register = readBaselineRegister(this.atlas);
+    // Resolved against the register, so an id that names nothing selects
+    // nothing rather than leaving a dangling selection on the page.
+    const resolved = register.baselines.some(entry => entry.id === id) ? id : '';
+    try {
+      await this.atlas.extensionContext?.workspaceState.update(SELECTED_BASELINE_STATE_KEY, resolved);
+    } catch {
+      return;
+    }
+    await this.syncState();
+  }
+
   private async handleSaveDirectorConfig(payload: unknown): Promise<void> {
     const clean = sanitizeProjectDirectorConfig(payload);
     if (!clean) {
@@ -16729,6 +16875,21 @@ export function isProjectDashboardMessage(message: unknown): message is ProjectD
     return typeof p === 'object' && p !== null && p['version'] === 1 && Array.isArray(p['stages']) && Array.isArray(p['paths']);
   }
 
+  if (candidate['type'] === 'captureBaseline') {
+    // The label is a person's free text and is checked for shape only; the
+    // register clamps and control-strips it, and refuses an empty one with a
+    // reason rather than inventing a name.
+    const p = candidate['payload'] as Record<string, unknown> | undefined;
+    return typeof p === 'object' && p !== null && typeof p['label'] === 'string'
+      && (p['reason'] === undefined || typeof p['reason'] === 'string');
+  }
+
+  if (candidate['type'] === 'removeBaseline' || candidate['type'] === 'selectBaseline') {
+    // An opaque id, resolved host-side against the stored register: a crafted
+    // message can name a baseline that exists and can never supply one.
+    return typeof candidate['payload'] === 'string';
+  }
+
   if (candidate['type'] === 'saveDirectorConfig') {
     const p = candidate['payload'] as Record<string, unknown> | undefined;
     return typeof p === 'object' && p !== null && p['version'] === 1
@@ -17000,7 +17161,7 @@ function buildGuidedWorkflowSnapshot(input: {
   commitSeries: DashboardSeriesPoint[];
   // The delta is not built here: it needs per-developer editor storage, and
   // this function is pure over its input. `withObservedDelta` attaches it.
-}): Omit<DashboardGuidedWorkflowSnapshot, 'delta'> {
+}): Omit<DashboardGuidedWorkflowSnapshot, 'delta' | 'baselines'> {
   const now = Date.now();
   // Deliberately a normal `get()`, unlike the safety settings below it.
   // `profile` and `archetype` are *declarations* about the project, not
@@ -21624,6 +21785,16 @@ const CI_BUILD_LEDGER_STATE_KEY = 'atlasmind.ciBuildLedger';
  * review's `reviewedAt` above.
  */
 const OBSERVED_BASELINE_STATE_KEY = 'atlasmind.workflow.observedBaseline';
+/**
+ * Named baselines, and which one is being compared against.
+ *
+ * Editor storage rather than the committed SSOT folder, for the reason
+ * `OBSERVED_SNAPSHOT_NOTE` gives: these hold counts read from one machine at one
+ * moment, and a shared one would mean "when did anybody last look" and conflict
+ * between two people on the same day.
+ */
+const NAMED_BASELINE_STATE_KEY = 'atlasmind.workflow.namedBaselines';
+const SELECTED_BASELINE_STATE_KEY = 'atlasmind.workflow.selectedBaseline';
 
 /**
  * The delta, computed once and then held.
@@ -21694,7 +21865,7 @@ function resolveObservedDelta(
 function withObservedDelta(
   atlas: AtlasMindContext,
   workspaceRoot: string | undefined,
-  snapshot: Omit<DashboardGuidedWorkflowSnapshot, 'delta'>,
+  snapshot: Omit<DashboardGuidedWorkflowSnapshot, 'delta' | 'baselines'>,
   scope?: ObservedScope,
 ): DashboardGuidedWorkflowSnapshot {
   const now = new Date().toISOString();
@@ -21715,7 +21886,83 @@ function withObservedDelta(
       })),
       droppedByCap: delta.droppedByCap,
     },
+    baselines: buildBaselineView(atlas, snapshot.observed, now, scope),
   };
+}
+
+/**
+ * The named baselines, and the comparison against whichever one is chosen.
+ *
+ * Read-only: unlike `resolveObservedDelta`, which advances its watermark as a
+ * side effect of being read, nothing here writes. A named baseline means *the
+ * moment somebody chose*, and moving it on a render would erase the span it was
+ * created to measure.
+ */
+function buildBaselineView(
+  atlas: AtlasMindContext,
+  observed: WorkflowObservedState,
+  now: string,
+  scope: ObservedScope | undefined,
+): DashboardGuidedWorkflowSnapshot['baselines'] {
+  const register = readBaselineRegister(atlas);
+  const ordered = orderedBaselines(register);
+  const selectedId = readSelectedBaselineId(atlas);
+  const selected = ordered.find(entry => entry.id === selectedId);
+  const comparisons = ordered.map(entry => compareAgainstBaseline({
+    baseline: entry,
+    current: observed,
+    ...(scope === undefined ? {} : { scope }),
+    now,
+  }));
+  const chosen = selected
+    ? comparisons.find(comparison => comparison.baseline.id === selected.id)
+    : undefined;
+  return {
+    entries: comparisons.map(comparison => ({
+      id: comparison.baseline.id,
+      label: comparison.baseline.label,
+      ...(comparison.baseline.reason === undefined ? {} : { reason: comparison.baseline.reason }),
+      takenAt: comparison.baseline.takenAt,
+      ageDays: comparison.ageDays,
+      staleness: comparison.staleness,
+    })),
+    ...(chosen === undefined ? {} : {
+      selectedId: chosen.baseline.id,
+      comparison: {
+        // Composed in the module, so no renderer can show the changes without
+        // the age that makes them mean something.
+        span: chosen.span,
+        status: chosen.delta.status,
+        staleness: chosen.staleness,
+        changes: chosen.delta.changes.map(change => ({
+          label: change.label,
+          kind: change.kind,
+          summary: change.summary,
+        })),
+        droppedByCap: chosen.delta.droppedByCap,
+      },
+    }),
+    remaining: Math.max(0, MAX_NAMED_BASELINES - register.baselines.length),
+    rules: BASELINE_RULES.map(rule => ({ id: rule.id, describes: rule.describes })),
+  };
+}
+
+/** The stored register, sanitized. Never throws: storage is a convenience. */
+function readBaselineRegister(atlas: AtlasMindContext): BaselineRegister {
+  try {
+    return sanitizeBaselineRegister(atlas.extensionContext?.workspaceState.get(NAMED_BASELINE_STATE_KEY));
+  } catch {
+    return { version: 1, baselines: [] };
+  }
+}
+
+function readSelectedBaselineId(atlas: AtlasMindContext): string | undefined {
+  try {
+    const value = atlas.extensionContext?.workspaceState.get<string>(SELECTED_BASELINE_STATE_KEY);
+    return typeof value === 'string' && value ? value : undefined;
+  } catch {
+    return undefined;
+  }
 }
 
 /**

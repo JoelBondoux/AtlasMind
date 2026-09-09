@@ -736,6 +736,8 @@
     directorNewAssignment: false,
     directorSeedConfirm: false,
     directorComposeKey: '',
+    // The named-baseline capture form on the Workflow page.
+    baselineCaptureOpen: false,
     // Team workload editors: the absence form, and which person's declared
     // allocation is open for editing.
     workloadAbsenceOpen: false,
@@ -3357,6 +3359,27 @@
       postDirectorConfig(cfg);
       return;
     }
+    if (action === 'baseline-capture-open') { state.baselineCaptureOpen = !state.baselineCaptureOpen; render(); return; }
+    if (action === 'baseline-capture') {
+      const form = document.getElementById('baseline-capture-form');
+      if (!form) { return; }
+      const val = f => { const el = form.querySelector('[data-field="' + f + '"]'); return el ? el.value.trim() : ''; };
+      const label = val('label');
+      // Refused here as well as in the host: the register names a baseline
+      // rather than inventing one, and posting an empty label would only
+      // produce a warning the person could have been spared.
+      if (!label) { return; }
+      const reason = val('reason');
+      state.baselineCaptureOpen = false;
+      vscode.postMessage({ type: 'captureBaseline', payload: reason ? { label: label, reason: reason } : { label: label } });
+      return;
+    }
+    if (action === 'baseline-remove') {
+      // An opaque id and nothing else. The host re-reads the register and
+      // confirms, naming the span that is about to be lost.
+      vscode.postMessage({ type: 'removeBaseline', payload: payload });
+      return;
+    }
     if (action === 'director-contact-add') { state.directorEditContactId = 'new'; state.directorConfirmRemoveContactId = ''; render(); return; }
     if (action === 'director-contact-edit') { state.directorEditContactId = payload; state.directorConfirmRemoveContactId = ''; render(); return; }
     if (action === 'director-contact-cancel') { state.directorEditContactId = ''; render(); return; }
@@ -3597,6 +3620,17 @@
       state.rollbackText = target.value;
       return;
     }
+  });
+
+  root?.addEventListener('change', event => {
+    const target = event.target instanceof HTMLSelectElement ? event.target : null;
+    if (!target || !target.classList.contains('baseline-select')) {
+      return;
+    }
+    // The id is opaque and resolved host-side against the stored register, so
+    // an empty or unknown value selects nothing rather than leaving a dangling
+    // choice on the page.
+    vscode.postMessage({ type: 'selectBaseline', payload: target.value });
   });
 
   root?.addEventListener('change', event => {
@@ -12710,6 +12744,71 @@
             : `<p class="stat-detail">The comparison covers open issues, stale issues, CI, the version, protected branches, dependency updates, test evidence and eleven other readings. Your own branch and whether your tree is dirty are deliberately excluded — you already know what you just did.</p>`}
       </article>`;
 
+    // Baselines somebody named — the same comparison, asked about a moment they
+    // chose rather than the one that advances by itself. Rendered under the
+    // delta because it answers the same question over a different span, and a
+    // second card elsewhere would invite the two to disagree.
+    const baselines = wf.baselines || { entries: [], remaining: 0, rules: [] };
+    const STALENESS_TAG = { fresh: 'tag-good', recent: '', old: 'tag-warn' };
+    const baselineOptions = baselines.entries.map(entry => `
+      <option value="${escapeAttr(entry.id)}" ${entry.id === baselines.selectedId ? 'selected' : ''}>${escapeHtml(entry.label)} (${escapeHtml(String(entry.ageDays))}d)</option>`).join('');
+    const baselineHelp = renderWorkflowHelp('workflow.baselines', {
+      label: 'how baselines behave',
+      why: 'A delta is only as honest as the moment it is measured from. These rules are about not losing that moment, and not letting an old one pass for a recent one.',
+      how: (baselines.rules || []).map(rule => ({ text: rule.describes })),
+      commonMistakes: [
+        'Reading a comparison without its age. Eleven changes over six weeks is not eleven changes today, which is why the span is always printed with them.',
+        'Expecting a baseline to be captured for you. Nothing captures one automatically — a baseline that moved on its own would erase the span it was made to measure.',
+      ],
+    });
+    const chosen = baselines.comparison;
+    const chosenEntry = baselines.entries.find(entry => entry.id === baselines.selectedId);
+    const baselineCard = `
+      <article class="panel-card">
+        <div class="row-head">
+          <p class="card-kicker">Compare against a baseline</p>
+          <button type="button" class="action-link" data-action="baseline-capture-open" data-payload="">${state.baselineCaptureOpen ? 'Close' : 'Capture one now'}</button>
+        </div>
+        <p class="stat-detail">The card above always answers <em>since you last looked</em>. A named baseline answers the same question about a moment you chose — the release, the start of a branch, before a migration.</p>
+        ${state.baselineCaptureOpen ? `
+          <div class="stage-edit-grid" id="baseline-capture-form">
+            ${edText('Name it', 'label', '', 'Before the migration')}
+            ${edText('Why (optional)', 'reason', '', 'So we can see what the rewrite actually moved')}
+          </div>
+          <div class="tag-row">
+            <button type="button" class="action-link primary" data-action="baseline-capture" data-payload="">Capture</button>
+            <span class="list-meta">${escapeHtml(String(baselines.remaining))} more can be stored. Nothing is ever deleted to make room.</span>
+          </div>` : ''}
+        ${baselines.entries.length ? `
+          <div class="row-head">
+            <label class="stage-edit-field" style="flex:1">
+              <span>Baseline</span>
+              <select class="baseline-select">
+                <option value="" ${baselines.selectedId ? '' : 'selected'}>None chosen</option>
+                ${baselineOptions}
+              </select>
+            </label>
+            ${chosenEntry ? `<button type="button" class="action-link danger" data-action="baseline-remove" data-payload="${escapeAttr(chosenEntry.id)}">Remove</button>` : ''}
+          </div>
+          ${chosenEntry && chosenEntry.reason ? `<p class="stat-detail">${escapeHtml(chosenEntry.reason)}</p>` : ''}
+          ${chosen ? `
+            <p class="section-copy"><strong>${escapeHtml(chosen.span)}</strong></p>
+            ${chosen.staleness === 'old' ? '<p class="stat-detail">This baseline is over a month old, so what follows describes a long span rather than recent activity.</p>' : ''}
+            ${chosen.status === 'changed' ? `<div class="stack-list">${chosen.changes.map(change => `
+              <div class="row-head">
+                <span>
+                  <strong>${escapeHtml(change.label)}</strong>
+                  <span class="section-copy">${escapeHtml(change.summary)}</span>
+                </span>
+                <span class="tag ${DELTA_TAG[change.kind] || ''}">${escapeHtml(DELTA_WORD[change.kind] || change.kind)}</span>
+              </div>`).join('')}</div>` : ''}
+            ${chosen.droppedByCap > 0 ? `<p class="stat-detail">${escapeHtml(String(chosen.droppedByCap))} more moved than are listed.</p>` : ''}` : ''}
+          <div class="tag-row">${baselines.entries.map(entry => `<span class="tag ${escapeAttr(STALENESS_TAG[entry.staleness] || '')}">${escapeHtml(entry.label)}</span>`).join(' ')}</div>`
+        : '<div class="dashboard-empty">No baselines yet. Capture one at a moment worth comparing against — nothing is captured automatically, because a baseline that moved on its own would erase the span it was made to measure.</div>'}
+        ${baselineHelp.button}
+        ${baselineHelp.panel}
+      </article>`;
+
     // The gates, as controls rather than a read-out. Turning one *off* is
     // immediate — more restrictive is always safe, and a dialog in front of
     // somebody reaching for the brake teaches them to dismiss dialogs. Turning
@@ -12978,6 +13077,7 @@
       ${strip}
       <div class="panel-grid">
         ${deltaCard}
+      ${baselineCard}
         ${healthCard}
         ${configCard}
         ${auditCard}

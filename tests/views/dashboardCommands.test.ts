@@ -243,8 +243,9 @@ describe('the delta baseline is per-developer', () => {
 
   it('keeps the delta out of the pure builder', () => {
     // `buildGuidedWorkflowSnapshot` is pure over its input; editor storage is
-    // not an input.
-    expect(PANEL).toContain("}): Omit<DashboardGuidedWorkflowSnapshot, 'delta'> {");
+    // not an input. Named baselines are omitted for the same reason, so both
+    // storage-backed fields are attached afterwards rather than built here.
+    expect(PANEL).toContain("}): Omit<DashboardGuidedWorkflowSnapshot, 'delta' | 'baselines'> {");
   });
 });
 

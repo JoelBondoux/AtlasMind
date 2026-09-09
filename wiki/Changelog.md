@@ -19,6 +19,36 @@ Older entries below describe the software as it was at the time and are delibera
 
 ---
 
+## v0.468.0 -- Baselines you can name
+
+*What moved* answers one question carefully, and answered it about exactly one span: since you last
+looked. That watermark advances on every render, which is what makes it mean "last looked" -- and it
+means the questions people actually ask could not be asked at all. What has changed since the
+release? Since this branch started? Since the audit?
+
+Capture a baseline, name it, and compare against it whenever you like.
+
+**The comparison is the existing one, unchanged.** A second implementation would eventually disagree
+with the first, and the symptom would be two cards on one dashboard reporting different numbers for
+the same fortnight.
+
+**A named baseline is captured deliberately, never on a render** -- one that moved by itself would
+erase the span it was made to measure. **The age is always stated**, because eleven changes against a
+six-week-old baseline is six weeks of work and reads as this morning without it; one over a month old
+says so in its own line.
+
+**Past the cap a capture is refused and names what to remove; the oldest is never evicted.** Evicting
+by age deletes precisely the most valuable one, since the furthest-back baseline is the only thing
+that can answer a question about the whole project. Nothing expires and nothing is cleaned up, so the
+removal dialog is the whole safeguard -- and it names the span rather than asking "are you sure?",
+because the reading it holds was taken at a moment that has passed and cannot be reconstructed.
+
+A baseline captured against a different repository is **reported as not comparable here, never
+deleted**: opening a folder is not a reason to lose a record, and "nothing moved" would be a different
+and far more reassuring claim.
+
+---
+
 ## v0.467.0 -- Absence, read from the rota you already keep
 
 The workload reading refuses to infer absence, which leaves it to be typed by hand -- the step nobody
