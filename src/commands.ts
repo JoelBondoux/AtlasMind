@@ -1734,6 +1734,21 @@ export function registerCommands(
     // One press: gather, narrow, prepare and publish. Every refusal and the
     // single confirmation live in `portalPublishPlan`, so the words somebody
     // agrees to are the words the module composed.
+    // Replay an agent's golden cases on request. The same cases gate the
+    // unattended rewrite; this is how somebody sees the result and decides
+    // whether to accept it as the new baseline.
+    vscode.commands.registerCommand('atlasmind.runAgentEvals', async () => {
+      const atlas = requireAtlas();
+      if (!atlas) { return; }
+      const { runAgentEvalSuite } = await import('./views/agentEvalRunner.js');
+      await runAgentEvalSuite({
+        agents: atlas.agentRegistry,
+        router: atlas.modelRouter,
+        providers: atlas.providerRegistry,
+        workspaceRoot: () => vscode.workspace.workspaceFolders?.[0]?.uri.fsPath,
+      });
+    }),
+
     vscode.commands.registerCommand('atlasmind.buildAndPublishPortal', async () => {
       const { buildAndPublishPortal } = await import('./views/portalPublishCommand.js');
       await buildAndPublishPortal();

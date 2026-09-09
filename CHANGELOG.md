@@ -6,6 +6,53 @@ The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/),
 
 ## [Unreleased]
 
+## [0.465.0] - 2026-09-09
+
+### Added
+
+- **Golden cases for agents, and a gate on the rewrite that would break them.** AtlasMind can rewrite
+  an agent's system prompt on a cadence — daily, weekly or monthly — and register the result. That is a
+  prompt edit, deployed automatically, with **no equivalent of a failing build**, which is exactly the
+  failure this project's own Prompt Regression protocol describes: *a wording change that fixes one
+  case and breaks nine is invisible without a replay set.* The cadence was the risk. This is the replay
+  set.
+
+  Pin cases in `project_memory/agents/eval-cases.json` — a prompt, at least one check, and **the reason
+  the case exists**. All three are required: a case with no checks passes trivially and adds a green
+  tick that means nothing, and a case with no stated reason is deleted by the next person tidying the
+  file, taking the regression it was quietly catching with it.
+
+  **A case is graded by a declared check wherever possible.** Did it mention the thing, did it avoid
+  the thing, did it match, did it refuse — all decided by reading the text. A judge check exists for
+  what genuinely cannot be, and every result says whether one was involved, because "it did the thing"
+  and "a judge liked it" are different findings. A judge check with **no verdict fails rather than
+  passes**: a suite must not go green by not asking.
+
+  **An errored case is not a failed case.** A provider outage is not a quality regression, and counting
+  one as the other would block every rewrite during a bad afternoon — after which nobody believes the
+  gate. Errored cases are set aside and named.
+
+  **A regression is a case that passed and now fails**, never a score that moved. **No baseline is a
+  first run, not a pass** — reporting "no regressions" on the first run is a confident zero delivered
+  at the exact moment somebody decides whether to trust it. And **an unrun case is not a passing case**:
+  coverage travels with every verdict, so "eight of twelve ran" cannot read as twelve.
+
+- **The auto-updater now holds a rewrite that regresses.** The gate runs *before* the new definition is
+  registered, and replays against the **candidate** prompt rather than the live one — running the agent
+  as currently registered would answer a different question and always pass.
+
+  **An update that could not be verified is held, not shipped.** The cadence is unattended, and "we did
+  not check" resolving to "ship it" is how an unattended rewrite becomes an unattended regression. A
+  verifier that throws counts as unverified for the same reason. An agent with **no declared cases** is
+  not held — freezing every agent on day one is how a gate gets switched off — but the decision says
+  plainly that nothing verified it. Why a rewrite was held is kept, because an update that silently
+  stops happening is indistinguishable from one that never came due.
+
+- **AtlasMind: Replay Agent Golden Cases** runs the suite on request and shows the verdict — what
+  regressed, what now passes, what errored and was set aside, and what did not run. Recording it as the
+  new baseline is a separate confirmation, because a baseline is what every later regression is
+  measured against and overwriting one is how a real regression becomes the new normal.
+
 ## [0.464.1] - 2026-09-09
 
 ### Changed

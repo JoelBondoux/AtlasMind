@@ -19,6 +19,39 @@ Older entries below describe the software as it was at the time and are delibera
 
 ---
 
+## v0.465.0 -- Golden cases, and a gate on the rewrite
+
+AtlasMind can rewrite an agent's system prompt on a cadence -- daily, weekly, monthly -- and register
+the result. That is a prompt edit, deployed automatically, with **no equivalent of a failing build**.
+A wording change that fixes one case and breaks nine is invisible without a replay set. The cadence
+was the risk; this is the replay set.
+
+Pin cases in `project_memory/agents/eval-cases.json`: a prompt, at least one check, and **the reason
+the case exists**. All three are required -- a case with no checks passes trivially and adds a green
+tick that means nothing, and one with no stated reason gets deleted by the next person tidying up,
+taking the regression it was catching with it.
+
+Checks are decided by reading the text wherever possible: did it mention the thing, avoid the thing,
+match, refuse. A judge check exists for what genuinely cannot be, and every result says whether one
+was involved -- "it did the thing" and "a judge liked it" are different findings. A judge check nobody
+answered **fails**, because a suite must not go green by not asking.
+
+**A rewrite that regresses a case is held rather than shipped.** So is one that could not be checked
+at all: the cadence runs while nobody is watching, and "we did not check" resolving to "ship it" is
+how an unattended rewrite becomes an unattended regression. An agent nobody has written cases for is
+not held -- freezing everything on day one is how a gate gets switched off -- but you are told plainly
+that nothing verified it.
+
+An **errored** case is set aside rather than counted as a failure, so a provider outage does not look
+like a broken prompt. A **first run** is a baseline rather than a pass. And every verdict says how
+many of the declared cases actually ran, so "eight of twelve" never reads as twelve.
+
+`AtlasMind: Replay Agent Golden Cases` runs the suite on demand. Recording the result as the new
+baseline is a separate confirmation, because a baseline is what every later regression is measured
+against.
+
+---
+
 ## v0.464.1 -- Recorded the promotion
 
 Housekeeping. The delivery register still named 0.461.0 as the last promotion to the Integration
