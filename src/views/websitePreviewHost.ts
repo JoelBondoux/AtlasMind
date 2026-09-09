@@ -36,6 +36,7 @@ import {
   renderWireframePreview,
   WIREFRAME_INDEX_PATH,
 } from '../core/websiteWireframePreview.js';
+import { applyBrandPresets, resolveScreenBrand } from '../core/brandPresets.js';
 import { WebsitePreviewServer } from '../core/websitePreviewServer.js';
 import { injectUiPreviewRuntime, type UiPreviewSelectionEvent } from '../core/uiPreviewRuntime.js';
 import { UI_DESIGN_GRAPH_MAX_REVISION } from '../core/uiDesignGraph.js';
@@ -256,6 +257,17 @@ async function writeWireframePreviews(
 
     for (const page of config.pages) {
       const responsiveScreen = config.designGraph.screens.find(screen => screen.pageId === page.id);
+      // The screen's own brand, where it names one. The role tokens in the graph
+      // follow the default preset; re-pointing them here is what makes a
+      // per-surface brand real in the preview rather than only recorded.
+      const screenBrand = resolveScreenBrand({
+        brands: config.brands,
+        ...(config.defaultBrandId ? { defaultBrandId: config.defaultBrandId } : {}),
+        ...(responsiveScreen?.brandRef ? { brandRef: responsiveScreen.brandRef } : {}),
+      });
+      const screenTokens = screenBrand.source === 'screen' && screenBrand.preset
+        ? applyBrandPresets(config.designGraph.tokens, config.brands, screenBrand.preset.id)
+        : config.designGraph.tokens;
       await writeFile(
         path.join(root, previewPathFor(page)),
         injectUiPreviewRuntime(
@@ -264,7 +276,7 @@ async function writeWireframePreviews(
             designSystem: config.designSystem,
             siblings: config.pages,
             content: contents.get(page.id),
-            tokens: config.designGraph.tokens,
+            tokens: screenTokens,
             components: config.designGraph.components,
             contentCollections: config.designGraph.contentCollections,
             assets: config.designGraph.assets,

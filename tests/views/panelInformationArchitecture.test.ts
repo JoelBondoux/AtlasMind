@@ -417,23 +417,37 @@ describe('ideation workspace order', () => {
   });
 });
 
-describe('website studio step order', () => {
+describe('ui studio shell', () => {
   const source = read('websiteStudioPanel.ts');
-  const steps = [...source.matchAll(/navButton\('([a-z-]+)', '(\d)'/g)].map(m => ({ id: m[1]!, n: m[2]! }));
 
-  it('defines the shared UI system before the pages that apply it', () => {
-    // Each wireframe card tracks a per-page "UI design" stage, which cannot be
-    // done consistently before the shared typography/colour/component
-    // decisions exist. The numbered steps promise a linear workflow, so the
-    // order has to actually be one.
-    // `platforms` became `stack` when the page grew the framework half: the
-    // framework and the hosting platform are one decision, and the pairing
-    // determines the build command and output directory together.
-    expect(steps.map(s => s.id)).toEqual(['brief', 'sitemap', 'content', 'ui-system', 'wireframes', 'preview', 'stack', 'automations']);
+  it('has no numbered steps', () => {
+    // Three earlier layouts numbered the pages one to eight and promised a
+    // waterfall the work does not have: nobody finishes the brief before
+    // drawing, and the preview is not a stage after the canvas it previews.
+    // The rail says *what* you are designing and the strip says *which
+    // aspect*; neither is ordered.
+    expect(source).not.toMatch(/navButton\(/);
+    expect(source).not.toMatch(/data-page-target="[a-z-]+">\s*<span>\d/);
   });
 
-  it('numbers the steps consecutively from 1', () => {
-    expect(steps.map(s => s.n)).toEqual(['1', '2', '3', '4', '5', '6', '7', '8']);
+  it('lands on the canvas, and lists the views with design first', () => {
+    // The strip's order is the order of attention, not of work: the surface
+    // itself, then its structure, its brand, its words, and only then where it
+    // goes. The brief is last because it is read once and drawn against daily.
+    const strip = source.slice(source.indexOf('function renderViewStrip('), source.indexOf('function renderBrandCards('));
+    const ids = [...strip.matchAll(/\['([a-z-]+)', /g)].map(m => m[1]!);
+    expect(ids).toEqual(['design', 'structure', 'brands', 'content', 'handoff', 'brief']);
+    expect(source).toMatch(/activePage: WebsiteStudioPage = 'design'/);
+  });
+
+  it('puts the surfaces rail before the views, not a metric strip above them', () => {
+    // Six metric tiles summarised a project nobody had asked about yet; the
+    // rail is the navigation, since a surface is the thing you pick.
+    const shell = source.slice(source.indexOf('<header class="studio-hero">'), source.indexOf('<footer class="save-bar">'));
+    expect(shell).not.toContain('metric-strip');
+    expect(shell.indexOf('surfaces-rail')).toBeGreaterThan(-1);
+    expect(shell.indexOf('surfaces-rail')).toBeLessThan(shell.indexOf('<main>'));
+    expect(shell.indexOf('renderViewStrip(')).toBeLessThan(shell.indexOf('renderWireframesPage('));
   });
 });
 

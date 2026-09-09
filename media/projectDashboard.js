@@ -2448,6 +2448,43 @@
       vscode.postMessage({ type: 'reopenIssue', payload: { number: Number(payload) || 0 } });
       return;
     }
+    if (action === 'website-framework') {
+      // An id from the catalog; the host checks it against the catalog again.
+      vscode.postMessage({ type: 'selectWebsiteFramework', payload: { frameworkId: payload } });
+      return;
+    }
+    if (action === 'website-stack-setup') {
+      vscode.postMessage({ type: 'planWebsiteStackSetup' });
+      announce('Working out what setting this stack up would involve…');
+      return;
+    }
+    if (action === 'website-automation-add') {
+      const list = document.getElementById('website-automations');
+      if (!list) { return; }
+      const empty = document.getElementById('website-automations-empty');
+      if (empty) { empty.remove(); }
+      list.insertAdjacentHTML('beforeend', websiteAutomationCard({
+        id: `automation-${Date.now().toString(36)}`, name: 'New automation', event: '', outcome: '', status: 'idea', dataNotes: '',
+      }));
+      announce('New n8n workflow added. Add references only, then save website delivery.');
+      return;
+    }
+    if (action === 'website-automation-remove') {
+      if (target.dataset.confirm !== 'true') {
+        target.dataset.confirm = 'true';
+        target.textContent = 'Confirm remove';
+        return;
+      }
+      const card = target.closest('[data-wd-automation]');
+      if (card) { card.remove(); }
+      announce('Automation removed from the draft. Save website delivery to persist.');
+      return;
+    }
+    if (action === 'website-delivery-save') {
+      vscode.postMessage({ type: 'saveWebsiteDelivery', payload: collectWebsiteDelivery() });
+      announce('Saving website delivery…');
+      return;
+    }
     if (action === 'documents-seed') {
       vscode.postMessage({ type: 'seedDocumentsFromRepo' });
       return;
@@ -17059,6 +17096,7 @@
         ${renderDeliveryStageComparison(set)}
         ${renderVitalFileOwnership()}
         ${renderStagePipeline(snapshot)}
+        ${renderWebsiteDelivery(snapshot)}
         <div class="delivery-grid">
           <article class="panel-card">
             <p class="section-kicker">Dependencies</p>
@@ -17397,6 +17435,220 @@
         </div>
       </article>`;
   }
+
+  // ── Website delivery (stack, hosting, automations) ───────────────
+  //
+  // The website plan's delivery half, moved here from UI Studio because
+  // choosing a host and mapping automations is a delivery decision, not a
+  // design one. Everything shown is computed by the host from the saved plan;
+  // this renders it and, on Save, posts the three arrays it owns and nothing
+  // else. Environment policies are rebuilt by the host on save, so a message
+  // cannot make Staging public or strip the Production guard.
+  const WEBSITE_PLATFORM_STATUS = [['not-planned', 'Not planned'], ['planned', 'Planned'], ['configured', 'Configured'], ['live', 'Live'], ['blocked', 'Blocked']];
+  const WEBSITE_AUTOMATION_STATUS = [['idea', 'Idea'], ['mapped', 'Mapped'], ['configured', 'Configured'], ['verified', 'Verified'], ['paused', 'Paused']];
+  const WEBSITE_DEVELOP_MODES = [['local', 'Local (default)'], ['hosted', 'Hosted fallback (password protected)']];
+
+  function wdField(label, className, value, placeholder) {
+    return `<label class="wd-field"><span>${escapeHtml(label)}</span><input class="${escapeAttr(className)}" value="${escapeAttr(value || '')}" placeholder="${escapeAttr(placeholder || '')}" /></label>`;
+  }
+  function wdTextarea(label, className, value, placeholder) {
+    return `<label class="wd-field"><span>${escapeHtml(label)}</span><textarea class="${escapeAttr(className)}" rows="3" placeholder="${escapeAttr(placeholder || '')}">${escapeHtml(value || '')}</textarea></label>`;
+  }
+  function wdSelect(label, className, options, value) {
+    return `<label class="wd-field"><span>${escapeHtml(label)}</span><select class="${escapeAttr(className)}">${options.map(([id, text]) =>
+      `<option value="${escapeAttr(id)}"${id === value ? ' selected' : ''}>${escapeHtml(text)}</option>`).join('')}</select></label>`;
+  }
+
+  function websiteAutomationCard(automation) {
+    return `
+      <article class="wd-card" data-wd-automation="${escapeAttr(automation.id)}">
+        <div class="wd-card-head"><p class="section-kicker">n8n workflow</p><button type="button" class="action-link danger" data-action="website-automation-remove">Remove</button></div>
+        ${wdField('Workflow name', 'automation-name', automation.name, 'Contact form routing')}
+        ${wdField('Event / trigger', 'automation-event', automation.event, 'Validated contact form submission')}
+        ${wdTextarea('Expected outcome', 'automation-outcome', automation.outcome, 'Create or update CRM lead and notify the account owner.')}
+        ${wdSelect('Status', 'automation-status', WEBSITE_AUTOMATION_STATUS, automation.status)}
+        <div class="wd-pair">
+          ${wdField('n8n workflow ID', 'automation-workflowId', automation.n8nWorkflowId, 'Opaque workflow ID')}
+          ${wdField('n8n instance URL', 'automation-instanceUrl', automation.instanceUrl, 'https://n8n.example.com/')}
+        </div>
+        ${wdField('Credential reference', 'automation-credentialReference', automation.credentialReference, 'env:N8N_CONTACT_WEBHOOK_URL')}
+        ${wdTextarea('Data and privacy notes', 'automation-dataNotes', automation.dataNotes, 'Fields transferred, retention, consent, minimization, and error handling.')}
+      </article>`;
+  }
+
+  function websiteEnvironmentCard(environment) {
+    const readiness = environment.readiness || { status: 'blocked', issues: [] };
+    const label = readiness.status === 'needs-setup' ? 'Needs setup' : readiness.status === 'ready' ? 'Ready' : 'Blocked';
+    const urlPlaceholder = environment.id === 'develop' ? 'http://localhost:3000/'
+      : environment.id === 'staging' ? `https://${environment.subdomainLabel || 'staging'}.example.com/` : 'https://www.example.com/';
+    const ordinal = environment.id === 'develop' ? '01' : environment.id === 'staging' ? '02' : '03';
+    return `
+      <article class="wd-card wd-environment" data-wd-environment="${escapeAttr(environment.id)}" data-hosting-mode="${escapeAttr(environment.hostingMode)}">
+        <div class="wd-card-head">
+          <div><p class="section-kicker">${ordinal} · ${escapeHtml(environment.accessPolicy)}</p><h4>${escapeHtml(environment.name)}</h4></div>
+          <span class="wd-pill ${escapeAttr(readiness.status)}">${escapeHtml(label)}</span>
+        </div>
+        <p class="list-meta">${escapeHtml(environment.purpose)}</p>
+        ${environment.id === 'develop'
+          ? wdSelect('Hosting mode', 'environment-hostingMode', WEBSITE_DEVELOP_MODES, environment.hostingMode)
+          : '<div class="wd-locked"><span>Hosting mode</span><strong>Hosted</strong></div>'}
+        <div class="wd-locked environment-accessPolicy"><span>Access policy</span><strong>${escapeHtml(environment.accessPolicy)}</strong></div>
+        ${wdField('Environment URL', 'environment-url', environment.url, urlPlaceholder)}
+        ${environment.id === 'staging' ? wdField('Review subdomain label', 'environment-subdomainLabel', environment.subdomainLabel || 'staging', 'staging') : ''}
+        ${wdField('Branch / project reference', 'environment-branchReference', environment.branchReference, environment.id)}
+        ${environment.id !== 'production'
+          ? wdField(environment.id === 'develop' ? 'Password reference (hosted fallback)' : 'Password reference', 'environment-credentialReference', environment.credentialReference,
+            environment.id === 'develop' ? 'SecretStorage:website.develop.password' : 'SecretStorage:website.staging.password')
+          : ''}
+        ${wdTextarea('Environment notes', 'environment-notes', environment.notes, 'DNS, review, QA, ownership, or promotion notes.')}
+        ${environment.promotionProtected ? '<div class="wd-guard">Production promotion protected</div>' : ''}
+        ${readiness.issues.length > 0
+          ? `<ul class="wd-issues">${readiness.issues.map(issue => `<li>${escapeHtml(issue)}</li>`).join('')}</ul>`
+          : '<p class="wd-clear">Environment policy is ready.</p>'}
+      </article>`;
+  }
+
+  function renderWebsiteDelivery(snapshot) {
+    const web = snapshot.websiteDelivery;
+    if (!web) {
+      return '';
+    }
+    const readOnly = web.readOnly === true;
+    const disabled = readOnly ? ' disabled' : '';
+    const selectedId = web.stack ? web.stack.frameworkId : '';
+    const frameworks = (web.frameworks || []).map(spec => `
+      <button type="button" class="wd-framework${spec.selected ? ' selected' : ''} compat-${escapeAttr(spec.compatibility)}" data-action="website-framework" data-payload="${escapeAttr(spec.id)}" aria-pressed="${spec.selected ? 'true' : 'false'}"${disabled}>
+        <span class="wd-framework-name">${escapeHtml(spec.label)}</span>
+        <span class="wd-framework-badge">${escapeHtml(spec.compatibility)}</span>
+        <span class="wd-framework-desc">${escapeHtml(spec.description)}</span>
+        <span class="wd-framework-reason">${escapeHtml(spec.reason)}</span>
+        <span class="wd-framework-meta">${spec.scaffold ? 'Scaffolds automatically' : 'No automatic setup'} · builds to <code>${escapeHtml(spec.outputDir)}</code></span>
+      </button>`).join('');
+    const summary = web.stackSummary
+      ? `<dl class="wd-summary">
+          <dt>Dev server</dt><dd>${web.stackSummary.dev ? `<code>${escapeHtml(web.stackSummary.dev)}</code>` : 'No dev server — the files are served as they are.'}</dd>
+          <dt>Build</dt><dd>${web.stackSummary.build ? `<code>${escapeHtml(web.stackSummary.build)}</code>` : 'No build step.'}</dd>
+          <dt>Output</dt><dd><code>${escapeHtml(web.stackSummary.output)}</code></dd>
+        </dl>`
+      : '';
+    const automations = (web.automations || []).map(websiteAutomationCard).join('');
+    return `
+      <section class="website-delivery" id="website-delivery">
+        <div class="stage-pipeline-header">
+          <div>
+            <p class="section-kicker">Website delivery</p>
+            <h3>Stack, hosting and automations</h3>
+            <p class="list-meta">The website plan's delivery half: what the site is built with, where each environment is hosted, and which n8n workflows it maps. Nothing here deploys; the pipeline above does that, behind its own gates.</p>
+            ${web.notice ? `<p class="list-meta">${escapeHtml(web.notice)}</p>` : ''}
+          </div>
+          <button type="button" class="action-link primary" data-action="website-delivery-save"${disabled}>Save website delivery</button>
+        </div>
+        <div class="delivery-grid">
+          <article class="panel-card wd-span">
+            <div class="wd-card-head">
+              <div><p class="section-kicker">Built with</p><h3>Framework</h3><p class="list-meta">Graded against ${escapeHtml(web.gradedAgainst)}. Choosing one records it and nothing else — setup is a separate, confirmed step.</p></div>
+              ${web.canSetUpStack
+                ? `<button type="button" class="action-link" data-action="website-stack-setup"${selectedId ? '' : ' disabled'}>Set up this stack</button>`
+                : '<span class="list-meta" title="atlasmind.website.setup.enabled">Automatic setup is off</span>'}
+            </div>
+            <div class="wd-frameworks">${frameworks}</div>
+            ${summary}
+          </article>
+          <article class="panel-card wd-span">
+            <p class="section-kicker">Cross-check</p>
+            <h3>Against the pipeline</h3>
+            <p class="list-meta ${web.drift.compared ? (web.drift.inStep ? 'wd-instep' : 'wd-drift') : 'wd-uncompared'}">${escapeHtml(web.drift.summary)}</p>
+          </article>
+        </div>
+        <div class="stage-pipeline-header">
+          <div><p class="section-kicker">Environment pipeline</p><h3>Three deliberate hosting stages</h3><p class="list-meta">Develop stays local by default. Staging is a password-protected client-review subdomain. Production is public and protected from unguarded promotion. Use a password <em>reference</em> such as <code>SecretStorage:website.staging.password</code>; raw values are refused and never written.</p></div>
+        </div>
+        <div class="wd-environments">${(web.hostingEnvironments || []).map(websiteEnvironmentCard).join('')}</div>
+        <div class="stage-pipeline-header">
+          <div><p class="section-kicker">Publishing technology</p><h3>Platform targets</h3><p class="list-meta">One primary platform. Account, project and environment references only — never a credential.</p></div>
+        </div>
+        <div class="wd-platforms">
+          ${(web.platforms || []).map(platform => `
+            <article class="wd-card" data-wd-platform="${escapeAttr(platform.id)}">
+              <div class="wd-card-head">
+                <div><p class="section-kicker">${escapeHtml(platform.mode)}</p><h4 class="wd-platform-label">${escapeHtml(platform.label)}</h4></div>
+                <label class="wd-primary"><input type="radio" name="wd-primary-platform" value="${escapeAttr(platform.id)}"${platform.primary ? ' checked' : ''}${disabled} /> Primary</label>
+              </div>
+              <p class="list-meta">${escapeHtml(platform.description)}</p>
+              ${wdSelect('Readiness', 'platform-status', WEBSITE_PLATFORM_STATUS, platform.status)}
+              ${wdField('Public site URL', 'platform-siteUrl', platform.siteUrl, 'https://example.com')}
+              ${wdField('Project / site reference', 'platform-projectReference', platform.projectReference, 'Account/project label — never a credential')}
+              ${wdField('Environment reference', 'platform-environmentReference', platform.environmentReference, 'e.g. production, branch name, hosting project')}
+              ${wdTextarea('Notes', 'platform-notes', platform.notes, 'Migration, content editing, plugin, DNS, or ownership notes.')}
+            </article>`).join('')}
+        </div>
+        <div class="stage-pipeline-header">
+          <div><p class="section-kicker">n8n automations</p><h3>Workflow map</h3><p class="list-meta">Map forms, content, CRM, notifications, analytics and publishing workflows. Reference secrets — <code>env:N8N_CONTACT_WEBHOOK_URL</code>, <code>SecretStorage:n8n.contact</code> — never paste them; triggering stays separate from mapping.</p></div>
+          <button type="button" class="action-link" data-action="website-automation-add"${disabled}>Add automation</button>
+        </div>
+        <div class="wd-automations" id="website-automations">
+          ${automations || '<div class="dashboard-empty" id="website-automations-empty">No workflows mapped yet. Start with a contact form, lead routing, content approval, or launch-monitoring workflow.</div>'}
+        </div>
+      </section>`;
+  }
+
+  /** The three arrays the Save button owns, read from the cards as they are now. */
+  function collectWebsiteDelivery() {
+    const root = document.getElementById('website-delivery');
+    const read = (selector, scope) => {
+      const element = scope.querySelector(selector);
+      return element && typeof element.value === 'string' ? element.value.trim() : '';
+    };
+    if (!root) {
+      return { platforms: [], hostingEnvironments: [], automations: [] };
+    }
+    const platforms = Array.from(root.querySelectorAll('[data-wd-platform]')).map(card => ({
+      id: card.dataset.wdPlatform,
+      label: (card.querySelector('.wd-platform-label') || {}).textContent || card.dataset.wdPlatform,
+      primary: (card.querySelector('input[name="wd-primary-platform"]') || {}).checked === true,
+      status: read('.platform-status', card),
+      siteUrl: read('.platform-siteUrl', card),
+      projectReference: read('.platform-projectReference', card),
+      environmentReference: read('.platform-environmentReference', card),
+      notes: read('.platform-notes', card),
+    }));
+    const hostingEnvironments = Array.from(root.querySelectorAll('[data-wd-environment]')).map(card => ({
+      id: card.dataset.wdEnvironment,
+      hostingMode: read('.environment-hostingMode', card) || card.dataset.hostingMode,
+      url: read('.environment-url', card),
+      branchReference: read('.environment-branchReference', card),
+      credentialReference: read('.environment-credentialReference', card),
+      subdomainLabel: read('.environment-subdomainLabel', card),
+      notes: read('.environment-notes', card),
+    }));
+    const automations = Array.from(root.querySelectorAll('[data-wd-automation]')).map(card => ({
+      id: card.dataset.wdAutomation,
+      name: read('.automation-name', card),
+      event: read('.automation-event', card),
+      outcome: read('.automation-outcome', card),
+      status: read('.automation-status', card),
+      n8nWorkflowId: read('.automation-workflowId', card),
+      instanceUrl: read('.automation-instanceUrl', card),
+      credentialReference: read('.automation-credentialReference', card),
+      dataNotes: read('.automation-dataNotes', card),
+    }));
+    return { platforms, hostingEnvironments, automations };
+  }
+
+  // Develop's hosting mode changes its access policy; the host rebuilds the
+  // policy on save, and this only previews it.
+  root?.addEventListener('change', event => {
+    const select = event.target instanceof HTMLElement ? event.target.closest('.environment-hostingMode') : null;
+    const card = select ? select.closest('[data-wd-environment]') : null;
+    if (!(select instanceof HTMLSelectElement) || !card) {
+      return;
+    }
+    card.dataset.hostingMode = select.value;
+    const access = card.querySelector('.environment-accessPolicy strong');
+    if (access) {
+      access.textContent = select.value === 'hosted' ? 'password-protected' : 'local-only';
+    }
+  });
 
   // ── Project Director page ──────────────────────────────────────
   function directorDeepLink(kind, handle) {

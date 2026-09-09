@@ -19,6 +19,103 @@ Older entries below describe the software as it was at the time and are delibera
 
 ---
 
+## v0.474.0 -- Website delivery, on the Delivery page
+
+The framework choice, the three hosting environments, the platform targets and the n8n workflow
+map were a UI Studio page for three layouts. They are delivery decisions, so they now sit on the
+Project Dashboard's **Delivery** page as a *Website delivery* card, beside the pipeline that ships
+them. Frameworks are still graded against the primary platform with the reason on the card and an
+unsupported pairing still visible; environments still show readiness; the setup button is withheld
+until the setting is on. The drift against the pipeline is checked on every render -- no Compare
+button -- and a project with no pipeline says so.
+
+UI Studio's Handoff view points there with an **Open Delivery** button, and the old `stack`,
+`platforms` and `automations` deep links land on Handoff.
+
+**Fixed:** a Studio save used to drop the framework choice (its form never carried it) and could
+overwrite the other surface's fields with a stale copy. Both writers now re-read the plan from disk
+at the moment of the save and touch only what they own.
+
+---
+
+## v0.473.0 -- Into the engine
+
+A drawn surface can now be **emitted** for the engine that will own it: Web (HTML + CSS), Unity
+UI Toolkit (UXML + USS) and Godot 4 (Control scene + Theme), each with a shared token file from
+the brand presets. Unreal UMG, SwiftUI and Compose get a **handoff specification, not source** --
+their syntax was not verified, and a plausible wrong file costs more than a document somebody reads.
+
+**Divergence, not regeneration.** The layout is emitted once and then belongs to the engine. A
+second emit over changed files is refused, and the card states it: *Layout: owned by Unity since the
+emit on ... · Content: editable here*. Discarding the engine's work is a separate red button that
+names every file whose edits are lost.
+
+**Content is anchored data, patched by anchor.** Every node's words sit in a region keyed by its
+id -- an element name, a scene node name, a marker in a spec. **Push content** finds each region in
+the file as it is now and replaces only that. A missing anchor is refused by name; a region edited
+in the engine is refused and shown; a node removed in Studio is reported, never deleted; a node
+drawn after the emit is reported, never inserted. Adding a nav link adds one line in the nav's
+region and nothing else.
+
+**Launch** runs Godot through `spawn` with a constant argv and no shell, after a modal that shows
+it; Web opens in the browser; Unity's command is shown to copy, since its editor is not on PATH.
+
+---
+
+## v0.472.0 -- The UI Studio shell
+
+Three layouts in a row numbered the Studio's pages one to eight and promised a waterfall the work
+does not have. Nobody finishes the brief before drawing; the preview sat two steps after the canvas
+it previews; and the first screen was six metric tiles about a project nobody had asked about yet.
+
+**A Surfaces rail is the navigation.** *Found in this project* is the scan -- every UI file a
+declared rule classified, with the rule table underneath -- and **Pick up** brings one in as a
+surface that records where it came from. *Designed here* is every surface, found or drawn, and
+clicking one opens it on the canvas. The views across the top are unnumbered, and the Studio lands
+on the canvas. Every old step id still deep-links to where its content went.
+
+**A Brands view.** Each brand's swatches and origin; how far the default is actually in effect,
+naming any override; **Apply to surfaces...** against what each surface wears now; and **Read a
+brand from a stylesheet**, confirmed on the extraction's own evidence rather than a summary of it.
+
+**The browser names; the host decides.** A pick-up carries one path, and the host re-scans and
+refuses anything the scan did not itself list. Brand actions carry ids only.
+
+**Scoped down, and said so.** Stack, hosting and automations were to move to the Dashboard's
+Delivery page; they moved to a demoted Delivery view inside the Studio, websites only, and the move
+is a follow-up. Emitters and content write-back are release 3.
+
+---
+
+## v0.471.0 -- Brand presets
+
+UI Studio held its visual decisions in two places that could not agree: a flat design system labelled
+*legacy* on its own page, and the typed token graph directly beneath it. Two sources of truth for
+"what colour is primary" is a parity bug in waiting -- and it is why a brand had nowhere to live.
+
+A preset is the object that was missing: a small set of value tokens keyed by role, the same ids the
+preview already reads. **Applied by alias, never by copy** -- change the preset and every surface
+follows. **A local override is a value, and it is reported**, so a surface cannot quietly keep its own
+primary while claiming the brand. **Materialised tokens are a projection**, rebuilt on every save.
+
+**An extracted preset cites its source and invents nothing.** Read a brand out of a stylesheet's
+`:root` custom properties and every role names the file and line it came from; every property it
+could not use is listed with the reason rather than guessed at.
+
+**The legacy design system folds into a preset once, at migration, and only if you had changed it.**
+Defaults nobody touched are not a brand decision.
+
+The model half of the UI Studio rebuild; the surface follows.
+
+---
+
+## v0.470.1 -- Delivery record
+
+The delivery register now names 0.470.0 as the last promotion to Integration, so the Delivery
+page reports the stage where it actually is.
+
+---
+
 ## v0.470.0 -- The Ideation page, as two panes
 
 The page had been redesigned three times, and every time the fix was rearranging chrome above and

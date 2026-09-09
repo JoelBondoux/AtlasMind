@@ -6,6 +6,194 @@ The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/),
 
 ## [Unreleased]
 
+## [0.474.0] - 2026-09-09
+
+### Changed
+
+- **Website delivery lives on the Dashboard's Delivery page now, not in UI Studio.** The framework
+  choice, the three hosting environments, the platform targets and the n8n workflow map were a Studio
+  page for three layouts. They are delivery decisions — where the site is built and shipped — so they
+  now sit on the Project Dashboard's Delivery page as a **Website delivery** card, directly beside the
+  pipeline that promotes it. Every framework is still graded against the primary platform with the
+  reason on the card and an unsupported pairing still visible; each environment still shows its
+  readiness and its issues; the setup button is withheld until `atlasmind.website.setup.enabled` is
+  on and says so. **The drift check runs on every render**: with the Delivery pipeline on the same
+  page there is no longer a Compare button to press, and a project with no pipeline says so rather
+  than showing a clean blank. The card appears only for a website plan of the website profile.
+- **UI Studio's Handoff view points there**, and the Studio has no Delivery view. The old step ids
+  `stack`, `platforms` and `automations` deep-link to Handoff, which carries an *Open Delivery*
+  button that opens the Dashboard on its Delivery page by a constant target. The Studio's hero copy
+  says where delivery went.
+
+### Fixed
+
+- **A Studio save can no longer undo a Delivery save, or drop the stack choice.** The Studio form
+  never carried the framework choice, so saving the Studio silently discarded it; and with two
+  surfaces writing one file, a save from either could overwrite the other's fields with a stale copy.
+  Both writers now re-read the plan from disk at the moment of the save and touch only what they own:
+  the Dashboard saves the three delivery arrays and the stack, the Studio saves everything else.
+
+### Security
+
+- The Dashboard's three new messages are bounded and closed: `saveWebsiteDelivery` carries exactly
+  three arrays (at most 20 platforms, 3 environments, 50 automations) and nothing else, and the
+  website manager rebuilds the fixed environment policies on save, so no message can make Staging
+  public or strip the Production guard; `selectWebsiteFramework` is checked against the catalog, since
+  the id chooses which constant command the setup planner runs; the Studio's `openDeliveryPage`
+  carries no payload and opens a constant target. `tests/views/websiteDeliverySurface.test.ts` pins
+  all three and the two-writer rule.
+
+## [0.473.0] - 2026-09-09
+
+### Added
+
+- **Emit a surface into its engine, and keep the words editable from here.** UI Studio can now write
+  a drawn surface for the engine that will own it: **Web** (HTML + CSS), **Unity UI Toolkit** (UXML +
+  USS) and **Godot 4** (a Control scene and a Theme), with a shared token file per target projected
+  from the brand presets. **Unreal UMG, SwiftUI and Compose get a handoff specification, not source**
+  — their syntax was not checked against a compiler, and a plausible wrong file costs more than a
+  document somebody reads. The emit is on the Handoff view: one row per drawn surface, the target
+  defaulting to what the implementation guide declares, and a confirmation that lists every file
+  with WRITE, OVERWRITE or IF ABSENT beside it, with "Show files first" opening each one unwritten.
+- **Divergence, not regeneration.** A surface is emitted once. From then on the engine owns the
+  layout: every emit records a manifest under `project_memory/domain/ui-emit/`, and a second emit
+  over files that changed since is refused with the statement *Layout: owned by Unity since the emit
+  on 2026-09-09 · Content: editable here (4 of 5 regions)*. Discarding the engine's layout is a
+  separate, red button behind a modal that names every file whose edits will be lost.
+- **Content is data with a stable anchor, and it patches by anchor.** Every node's words are
+  emitted inside a region keyed by the node id — an element name in HTML and UXML, a scene node name
+  in Godot, a comment marker in a specification — so **Push content** finds each region in the file
+  as it is now and replaces only that. A missing anchor is refused by name (the engine edit that
+  removed it made a decision); a region somebody edited in the engine is refused and *shown*, before
+  and after; a node removed in Studio is reported, never deleted from the engine file; a node drawn
+  after the emit is reported, never inserted into a layout that is no longer ours. Adding a nav link
+  in Studio adds a line inside the nav's region and nothing else. Godot's editor and Unity's UI
+  Builder re-serialise their own files and drop comments, which is why the anchors are structural;
+  the Godot fingerprint covers only node names and `text` values, so the editor reordering
+  properties on save is not read as a hand edit.
+- **Launch it in its engine.** Godot runs `godot --path <workspace> <scene>` through `spawn` with an
+  argument vector after a modal that shows the argv; Web opens the page in the default browser;
+  Unity's editor is not on PATH by convention, so its argv is shown with a Copy button rather than
+  run. Every argv is a constant in `uiSurfaceEmit.ts` (walked by test for shell metacharacters).
+- `UiEmitTargetId`, `UiEmitAnchor` and `UiEmitManifest` in `types.ts`; `src/core/uiSurfaceEmit.ts`
+  (pure, `fs`-free, 27 tests including a property test that round-trips arbitrary copy through
+  every source grammar); `tests/views/uiEmitSurface.test.ts` pins the message shapes, the
+  no-shell launch and the card.
+
+### Security
+
+- The browser posts a screen id, a target from the declared table and a folder; the folder is
+  validated again by the planner (inside the workspace, never `project_memory/` or `.git/`), and the
+  destructive re-emit can only be *asked for* by a message — the host confirms it by name. Committed
+  manifests are read as untrusted: a file path with traversal drops the manifest, an anchor naming a
+  file the manifest does not list is dropped. Every file read stays inside the workspace and is
+  capped at 2 MB.
+
+## [0.472.0] - 2026-09-09
+
+### Changed
+
+- **UI Studio, rebuilt around the surfaces rather than around eight steps.** Three layouts in a row
+  numbered the Studio's pages one to eight and promised a waterfall the work does not have: nobody
+  finishes the brief before drawing, the preview sat two steps after the canvas it previews, and the
+  first thing on screen was six metric tiles about a project nobody had asked about yet. The numbers,
+  the tiles and the eight-step nav are gone. A **Surfaces rail** beside the canvas is the navigation.
+  *Found in this project* lists every UI file the scan classified — React and Vue/Svelte components,
+  HTML pages, VS Code webview scripts — and **Pick up** brings one in as a surface that records where
+  it came from; *Designed here* lists every surface, found or drawn, and clicking one opens it on the
+  canvas; *Brands* shows what is defined and which is the default, with the scan's own rule table
+  underneath so a missing file can be explained rather than wondered about. The views across the top
+  are unnumbered — Design (canvas, inspector and the built-in-browser preview together), Sitemap or
+  Screens & flows, Brands & system, Content design, Handoff, Delivery (websites only) and Brief — and
+  every old step id still deep-links to where its content went. The Studio lands on the canvas.
+
+### Added
+
+- **A Brands view.** Every brand as a card: its swatches, where it came from (read from a stylesheet
+  on a date, folded from the old design system, or authored here), and for the default how far it is
+  actually in effect, naming any role a surface overrides. **Apply to surfaces…** lists every surface
+  with the brand it wears now. Applying the default *clears* a surface's own choice so it follows the
+  default from then on, rather than recording a "use the default" that would stop following when the
+  default changed. **Read a brand from a stylesheet** offers only the stylesheets the scan found, and
+  the confirmation shows the extraction's own evidence — every role with its file and line, every
+  property it left alone with the reason — so what you agree to is what was read. Removing a brand
+  says how many surfaces name it directly and whether it can be read again or is gone for good.
+- **A picked-up surface remembers its origin.** `WebsitePagePlan.source` records the path, adapter,
+  rule and time of pick-up, validated on every read — no traversal, no absolute path, an adapter this
+  build has — and dropped whole rather than repaired. The rail uses it to stop offering a file twice,
+  and the webview carries it through a save so a found surface cannot quietly become a drawn one.
+- **The preview wears the surface's brand.** The built-in-browser draft applies each screen's own
+  brand preset, where one is set, rather than the default for every page.
+
+### Security
+
+- **The browser names; the host decides.** A pick-up message carries one bounded path and nothing
+  else, and the host re-runs its own scan and refuses any path the scan did not itself classify — a
+  message can point at a file and can never supply one. A stylesheet is refused as a surface and
+  pointed at the Brands view. Brand actions carry ids only (a preset id; at most 200 screen ids), so
+  no token value crosses from the webview. Every one of these actions is refused while the workspace
+  is read-only, and the two that discard something — removing a brand, adding an extracted one —
+  are behind a modal that states what changes.
+
+### Scoped down, and said so
+
+- Stack, hosting, platforms and n8n automations were to move to the Project Dashboard's Delivery
+  page. They have moved to a demoted **Delivery** view inside the Studio, shown for websites only;
+  the move to the Dashboard is a follow-up. Emitters, patch-by-anchor content write-back and launch
+  plans are release 3 of the UI Studio rebuild.
+
+## [0.471.0] - 2026-09-09
+
+### Added
+
+- **Brand presets — one named set of design decisions, applied to many surfaces.** UI Studio held its
+  visual decisions in two places that could not agree: a flat design system (three colours, two fonts)
+  labelled *legacy* on its own page, and the typed token graph directly beneath it. Two sources of
+  truth for "what colour is primary" is a parity bug in waiting, and it is why a brand had nowhere to
+  live — there was no object that *was* the brand.
+
+  A preset is that object: a small set of value tokens keyed by declared role (`color-primary`,
+  `font-heading`, `spacing-base`, `radius-base` and six more) — the same ids the preview already
+  reads, so nothing downstream learns a new vocabulary. The workspace holds up to twelve, with one as
+  the default; a screen may name another with `brandRef`.
+
+  **Applied by alias, never by copy.** Applying a preset materialises its tokens into the graph as
+  `brand-<preset>-<role>` and points the role tokens at them. Change the preset and every surface
+  aliasing it follows; copying values into each surface would leave twelve screens each holding a stale
+  primary the day the brand changed. **A local override is a value, and it is reported** — a role
+  token holding its own value instead of an alias is named as an override per role, because a surface
+  that quietly kept its own primary while claiming the brand is the failure a preset exists to prevent.
+  **Materialised tokens are a projection**, rebuilt on every save and pruned when their preset goes;
+  editing one by hand does not survive, by design.
+
+  **An extracted preset cites its source and invents nothing.** A brand can be read out of a
+  stylesheet's `:root` custom properties by a published table of name rules; every role filled names
+  the file and the line it came from, and every property it could not use — a `var()` reference, a
+  `rem` value, a name matching no rule, a second declaration for a role already filled — is listed
+  with the reason rather than guessed at. Commented-out declarations are not read.
+
+  **The legacy design system folds into a preset once, at migration, and only if somebody changed
+  it.** Workspace format 14: a design system still holding its seeded defaults folds into nothing,
+  because a brand nobody chose must not be attributed to them. The old fields are kept for the readers
+  that still consume them and are **projected from the default preset on every save**, so they cannot
+  disagree with the graph.
+
+  This is the model half of the UI Studio rebuild; the shell that shows presets, scans the project for
+  surfaces and applies a brand across them follows.
+
+### Changed
+
+- `WebsiteWorkspaceConfig` is format 14: `brands`, `defaultBrandId`, and `brandRef` on a screen. The
+  migration adds an empty list to an untouched workspace and folds a changed one into `project-brand`.
+
+## [0.470.1] - 2026-09-09
+
+### Changed
+
+- **Delivery register:** recorded the 0.470.0 promotion to Integration (`staging`), so the Delivery
+  page reports the stage where it actually is. A stale record there is a defect rather than
+  untidiness — the record is the whole reason that page is worth reading.
+
 ## [0.470.0] - 2026-09-09
 
 ### Changed

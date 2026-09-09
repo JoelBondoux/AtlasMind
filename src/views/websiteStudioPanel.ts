@@ -8,10 +8,8 @@ import {
   type UiSurfaceScanReport,
 } from '../core/uiSurfaceScan.js';
 import {
-  assessWebsiteHostingEnvironments,
   importClientWebsiteIntake,
   sanitizeWebsiteWorkspace,
-  WEBSITE_PLATFORM_CATALOG,
   WEBSITE_WORKSPACE_SSOT_PATH,
   WEBSITE_WORKSPACE_SUMMARY_SSOT_PATH,
   WebsiteWorkspaceManager,
@@ -38,10 +36,10 @@ import {
 import type {
   UiDesignGraph,
   UiComponentInstance,
-  WebsiteAutomationStatus,
-  WebsiteHostingEnvironment,
   WebsitePagePlan,
-  WebsitePlatformStatus,
+  UiDesignScreen,
+  UiEmitManifest,
+  UiEmitTargetId,
   WebsiteWorkspaceConfig,
   WebsiteWorkStatus,
   WireframeBreakpoint,
@@ -53,10 +51,8 @@ import {
   type SitemapLayout,
 } from '../core/websiteSitemap.js';
 import { buildLinkGraph } from '../core/websiteLinkGraph.js';
-import { readDeliveryConfig } from '../core/deliveryManager.js';
 import { WebsiteContentManager } from '../core/websiteContentManager.js';
 import { parsePageContent, renderPageContent, type WebsitePageContent } from '../core/websiteContent.js';
-import { compareWebsiteToDelivery } from '../core/websiteDeliverySync.js';
 import { WIREFRAME_BREAKPOINTS, WIREFRAME_KIND_CATALOG } from '../core/websiteWireframe.js';
 import {
   applyUiRepositoryMappingCommand,
@@ -76,38 +72,55 @@ import {
   type WebsiteGenerationPlan,
   type WebsiteGenerationStage,
 } from '../core/websiteGeneration.js';
-import {
-  buildCommandFor,
-  describeStackCompatibility,
-  devCommandFor,
-  isWebsiteFrameworkId,
-  renderCommandLine,
-  WEBSITE_FRAMEWORK_CATALOG,
-  websiteFrameworkSpec,
-} from '../core/websiteFrameworks.js';
 import { ATLAS_DISCUSS_ACTION_CSS, ATLAS_ICON_DATA_URI, escapeHtml, getWebviewHtmlShell } from './webviewUtils.js';
 import { WEBSITE_STUDIO_CSS } from './websiteStudioStyles.js';
+import {
+  BRAND_PRESET_RULES,
+  BRAND_ROLES,
+  describeBrandApplication,
+  extractBrandPresetFromStylesheet,
+  resolveScreenBrand,
+} from '../core/brandPresets.js';
 import { onWebsitePreviewSelection, selectWebsitePreviewTarget } from './websitePreviewHost.js';
+import {
+  UI_EMIT_MANIFEST_DIR,
+  UI_EMIT_RULES,
+  UI_EMIT_TARGETS,
+  assessSurfaceOwnership,
+  collectSurfaceCopy,
+  isUiEmitTargetId,
+  planContentPatch,
+  planSurfaceEmit,
+  planSurfaceLaunch,
+  sanitizeUiEmitManifest,
+  suggestUiEmitTarget,
+  uiEmitManifestPath,
+  uiEmitTarget,
+  type SurfaceOwnership,
+  type UiLaunchPlan,
+} from '../core/uiSurfaceEmit.js';
+import { spawn } from 'node:child_process';
 
+/**
+ * The views. Not steps: three earlier layouts numbered these one to eight and
+ * promised a waterfall the work does not have. `design` is where you land and
+ * where you spend the time; the rest are aspects of the surface you are on.
+ */
 export type WebsiteStudioPage =
-  | 'brief'
-  | 'sitemap'
+  | 'design'
+  | 'structure'
+  | 'brands'
   | 'content'
-  | 'wireframes'
-  | 'ui-system'
-  | 'preview'
-  | 'stack'
-  | 'automations';
+  | 'handoff'
+  | 'brief';
 
 const WEBSITE_STUDIO_PAGES = new Set<WebsiteStudioPage>([
-  'brief',
-  'sitemap',
+  'design',
+  'structure',
+  'brands',
   'content',
-  'wireframes',
-  'ui-system',
-  'preview',
-  'stack',
-  'automations',
+  'handoff',
+  'brief',
 ]);
 
 /**
@@ -119,7 +132,17 @@ const WEBSITE_STUDIO_PAGES = new Set<WebsiteStudioPage>([
  * callers onto the Brief page with no indication why.
  */
 const RENAMED_PAGES: Readonly<Record<string, WebsiteStudioPage>> = {
-  platforms: 'stack',
+  // The eight numbered steps, as they were named. Every one is still a public
+  // deep-link target, and each lands where its content went.
+  wireframes: 'design',
+  preview: 'design',
+  sitemap: 'structure',
+  'ui-system': 'brands',
+  stack: 'handoff',
+  // Stack, hosting and automations moved to the Project Dashboard's Delivery
+  // page in 0.474.0; the Handoff view points there.
+  platforms: 'handoff',
+  automations: 'handoff',
 };
 
 export function isWebsiteStudioPage(value: unknown): value is WebsiteStudioPage {
@@ -131,7 +154,7 @@ export function resolveWebsiteStudioPage(value: unknown): WebsiteStudioPage {
   if (isWebsiteStudioPage(value)) {
     return value;
   }
-  return (typeof value === 'string' && RENAMED_PAGES[value]) || 'brief';
+  return (typeof value === 'string' && RENAMED_PAGES[value]) || 'design';
 }
 
 /** The scope a typed instruction applies to. Mirrors `DesignPromptScope`. */
@@ -159,9 +182,15 @@ export type WebsiteStudioMessage =
   | { type: 'selectPreviewTarget'; payload: { pageId: string; nodeId: string } }
   | { type: 'editDesignGraph'; payload: unknown }
   | { type: 'editRepositoryMapping'; payload: unknown }
-  | { type: 'selectFramework'; payload: { frameworkId: string } }
-  | { type: 'planStackSetup' }
-  | { type: 'compareDelivery' };
+  | { type: 'openDeliveryPage' }
+  | { type: 'pickUpSurface'; payload: { path: string } }
+  | { type: 'setDefaultBrand'; payload: { presetId: string } }
+  | { type: 'applyBrandToScreens'; payload: { presetId: string; screenIds: string[] } }
+  | { type: 'removeBrand'; payload: { presetId: string } }
+  | { type: 'extractBrandFromStylesheet'; payload: { path: string } }
+  | { type: 'emitSurface'; payload: { screenId: string; targetId: UiEmitTargetId; outputRoot?: string; discardEngineLayout?: boolean } }
+  | { type: 'pushSurfaceContent'; payload: { screenId: string; targetId: UiEmitTargetId } }
+  | { type: 'launchSurface'; payload: { screenId: string; targetId: UiEmitTargetId } };
 
 /**
  * Validate everything arriving from the webview.
@@ -182,9 +211,57 @@ export function isWebsiteStudioMessage(input: unknown): input is WebsiteStudioMe
     case 'openResponsivePreview':
     case 'refreshPreview':
     case 'stopPreview':
-    case 'planStackSetup':
-    case 'compareDelivery':
+    case 'openDeliveryPage':
       return true;
+    case 'emitSurface': {
+      // A target from the declared table, a screen id, and at most a folder and
+      // a flag. The folder is validated again by the planner; the flag only
+      // *asks* for the destructive path, which the host still confirms by name.
+      const payload = asPayload(message['payload']);
+      return payload !== undefined
+        && Object.keys(payload).every(key => key === 'screenId' || key === 'targetId' || key === 'outputRoot' || key === 'discardEngineLayout')
+        && isBoundedIdentifier(payload['screenId'])
+        && isUiEmitTargetId(payload['targetId'])
+        && (payload['outputRoot'] === undefined || (typeof payload['outputRoot'] === 'string' && payload['outputRoot'].length <= 160))
+        && (payload['discardEngineLayout'] === undefined || typeof payload['discardEngineLayout'] === 'boolean');
+    }
+    case 'pushSurfaceContent':
+    case 'launchSurface': {
+      const payload = asPayload(message['payload']);
+      return payload !== undefined
+        && Object.keys(payload).length === 2
+        && isBoundedIdentifier(payload['screenId'])
+        && isUiEmitTargetId(payload['targetId']);
+    }
+    case 'pickUpSurface':
+    case 'extractBrandFromStylesheet': {
+      // A path, checked for shape only. The host re-scans and refuses any path
+      // the scan did not itself classify, so the browser can name a file and
+      // can never supply one.
+      const payload = asPayload(message['payload']);
+      return payload !== undefined
+        && Object.keys(payload).length === 1
+        && typeof payload['path'] === 'string'
+        && payload['path'].length > 0
+        && payload['path'].length <= 400
+        && !payload['path'].split(/[\\/]/).includes('..');
+    }
+    case 'setDefaultBrand':
+    case 'removeBrand': {
+      const payload = asPayload(message['payload']);
+      return payload !== undefined
+        && Object.keys(payload).length === 1
+        && isBoundedIdentifier(payload['presetId']);
+    }
+    case 'applyBrandToScreens': {
+      const payload = asPayload(message['payload']);
+      return payload !== undefined
+        && Object.keys(payload).length === 2
+        && isBoundedIdentifier(payload['presetId'])
+        && Array.isArray(payload['screenIds'])
+        && payload['screenIds'].length <= 200
+        && payload['screenIds'].every(isBoundedIdentifier);
+    }
     case 'selectPreviewTarget': {
       const payload = asPayload(message['payload']);
       return payload !== undefined
@@ -196,12 +273,6 @@ export function isWebsiteStudioMessage(input: unknown): input is WebsiteStudioMe
       return parseUiEditCommand(message['payload']) !== undefined;
     case 'editRepositoryMapping':
       return parseUiRepositoryMappingCommand(message['payload']) !== undefined;
-    case 'selectFramework': {
-      const payload = asPayload(message['payload']);
-      // Checked against the catalog here, not merely for being a string: this
-      // id chooses which constant command the setup planner will run.
-      return payload !== undefined && isWebsiteFrameworkId(payload['frameworkId']);
-    }
     case 'saveConfig':
       return typeof message['payload'] === 'object'
         && message['payload'] !== null
@@ -261,6 +332,38 @@ export function isWebsiteStudioMessage(input: unknown): input is WebsiteStudioMe
   }
 }
 
+/** One emit on record, as the Handoff view shows it. */
+export interface EmittedSurfaceView {
+  manifest: UiEmitManifest;
+  ownership: SurfaceOwnership;
+  pageTitle: string;
+  launch: UiLaunchPlan;
+}
+
+const WORKSPACE_TEXT_MAX_BYTES = 2 * 1024 * 1024;
+
+/** A bounded read of a workspace-relative path that must stay inside the workspace. */
+function readWorkspaceText(root: string, relativePath: string): string | undefined {
+  const base = path.resolve(root);
+  const absolute = path.resolve(base, ...relativePath.split('/'));
+  if (absolute !== base && !absolute.startsWith(base + path.sep)) {
+    return undefined;
+  }
+  try {
+    if (nodeFs.statSync(absolute).size > WORKSPACE_TEXT_MAX_BYTES) {
+      return undefined;
+    }
+    return nodeFs.readFileSync(absolute, 'utf8');
+  } catch {
+    return undefined;
+  }
+}
+
+function excerpt(text: string): string {
+  const flat = text.replace(/\s+/g, ' ').trim();
+  return flat.length > 160 ? `${flat.slice(0, 157)}…` : flat;
+}
+
 function asPayload(value: unknown): Record<string, unknown> | undefined {
   return typeof value === 'object' && value !== null && !Array.isArray(value)
     ? value as Record<string, unknown>
@@ -286,7 +389,7 @@ export class WebsiteStudioPanel {
 
   public static createOrShow(
     context: vscode.ExtensionContext,
-    targetPage: WebsiteStudioPage = 'brief',
+    targetPage: WebsiteStudioPage = 'design',
   ): void {
     const safeTargetPage = resolveWebsiteStudioPage(targetPage);
     const column = vscode.window.activeTextEditor?.viewColumn ?? vscode.ViewColumn.One;
@@ -317,8 +420,6 @@ export class WebsiteStudioPanel {
   private activePage: WebsiteStudioPage;
   /** Set when the file on disk was written by a newer AtlasMind. Saving is refused. */
   private readOnly = false;
-  /** Result of the last Delivery comparison. Absent means *not compared*, which the page says. */
-  private deliveryDriftSummary: string | undefined;
 
   private constructor(
     private readonly panel: vscode.WebviewPanel,
@@ -382,7 +483,6 @@ export class WebsiteStudioPanel {
       {
         readOnly: this.readOnly,
         canGenerate: isGenerationEnabled(),
-        canSetUpStack: isStackSetupEnabled(),
         pageContent: [...this.contentManager.read(this.config.pages).values()],
         contentDirectory: this.contentManager.contentDirectory,
         repositoryMappingAssessments: assessUiRepositoryMappings(
@@ -390,10 +490,511 @@ export class WebsiteStudioPanel {
           this.config.implementation.repositoryMappings,
           this.workspaceRoot,
         ),
-        ...(this.deliveryDriftSummary ? { deliveryDriftSummary: this.deliveryDriftSummary } : {}),
         ...(uiSurfaces ? { uiSurfaces } : {}),
+        emittedSurfaces: this.collectEmittedSurfaces(),
         scriptContent: this.readScript(),
       },
+    );
+  }
+
+  // ── Emitted surfaces ──────────────────────────────────────────
+
+  /** The prior emit for a screen and target, and the current text of every file it names. */
+  private emitStateFor(screenId: string, targetId: UiEmitTargetId): { manifest?: UiEmitManifest; files: Map<string, string | undefined> } {
+    const files = new Map<string, string | undefined>();
+    const root = this.workspaceRoot;
+    if (!root) {
+      return { files };
+    }
+    const manifest = this.readEmitManifest(uiEmitManifestPath(screenId, targetId));
+    for (const file of manifest?.files ?? []) {
+      files.set(file.path, readWorkspaceText(root, file.path));
+    }
+    return { ...(manifest ? { manifest } : {}), files };
+  }
+
+  private readEmitManifest(relativePath: string): UiEmitManifest | undefined {
+    const text = this.workspaceRoot ? readWorkspaceText(this.workspaceRoot, relativePath) : undefined;
+    if (!text) {
+      return undefined;
+    }
+    try {
+      return sanitizeUiEmitManifest(JSON.parse(text));
+    } catch {
+      return undefined;
+    }
+  }
+
+  /**
+   * Every emit on record, with ownership computed from the files as they are
+   * now — not from the manifest's memory of them. Bounded, and a manifest that
+   * does not read is skipped rather than shown as something it is not.
+   */
+  private collectEmittedSurfaces(): EmittedSurfaceView[] {
+    const root = this.workspaceRoot;
+    if (!root) {
+      return [];
+    }
+    let names: string[];
+    try {
+      names = nodeFs.readdirSync(path.join(root, UI_EMIT_MANIFEST_DIR)).filter(name => name.endsWith('.json')).sort().slice(0, 60);
+    } catch {
+      return [];
+    }
+    const views: EmittedSurfaceView[] = [];
+    for (const name of names) {
+      const manifest = this.readEmitManifest(`${UI_EMIT_MANIFEST_DIR}/${name}`);
+      if (!manifest) {
+        continue;
+      }
+      const files = new Map<string, string | undefined>();
+      for (const file of manifest.files) {
+        files.set(file.path, readWorkspaceText(root, file.path));
+      }
+      views.push({
+        manifest,
+        ownership: assessSurfaceOwnership(manifest, files),
+        pageTitle: this.config.pages.find(page => page.id === manifest.pageId)?.title ?? manifest.pageId,
+        launch: planSurfaceLaunch(manifest, root),
+      });
+    }
+    return views;
+  }
+
+  private surfaceFor(screenId: string): { screen: UiDesignScreen; page: WebsitePagePlan } {
+    const screen = this.editSession.graph.screens.find(candidate => candidate.id === screenId);
+    const page = screen ? this.config.pages.find(candidate => candidate.id === screen.pageId) : undefined;
+    if (!screen || !page) {
+      throw new Error('That surface is not in the workspace.');
+    }
+    return { screen, page };
+  }
+
+  private surfaceCopyInput(screen: UiDesignScreen, page: WebsitePagePlan) {
+    const content = this.contentManager.read([page]).get(page.id);
+    return {
+      graph: this.editSession.graph,
+      screen,
+      page,
+      pages: this.config.pages,
+      ...(content && !content.missing ? { contentBody: content.body } : {}),
+    };
+  }
+
+  /**
+   * Emit a surface for an engine.
+   *
+   * The plan decides; this shows it and writes it. A layout the engine now owns
+   * is refused unless the message asked to discard it, and that path is its own
+   * confirmation naming every file that changed since the emit — the one act
+   * here that destroys somebody's work, so it is never the default.
+   */
+  private async handleEmitSurface(payload: { screenId: string; targetId: UiEmitTargetId; outputRoot?: string; discardEngineLayout?: boolean }): Promise<void> {
+    this.refuseIfReadOnly();
+    const root = this.workspaceRoot;
+    if (!root) {
+      throw new Error('Open a workspace folder to emit a surface.');
+    }
+    const { screen, page } = this.surfaceFor(payload.screenId);
+    const target = uiEmitTarget(payload.targetId);
+    let existing = this.emitStateFor(screen.id, target.id);
+    const base = {
+      ...this.surfaceCopyInput(screen, page),
+      targetId: target.id,
+      siteName: this.config.intake.projectName || page.title,
+      emittedAt: new Date().toISOString(),
+      ...(payload.outputRoot ? { outputRoot: payload.outputRoot } : {}),
+    };
+    let result = planSurfaceEmit({ ...base, existing });
+    if (!result.ok && result.refusal === 'layout-owned-by-engine' && payload.discardEngineLayout && existing.manifest) {
+      const changed = existing.manifest.files
+        .filter(file => !file.shared)
+        .map(file => file.path);
+      const confirmed = await vscode.window.showWarningMessage(
+        `Discard ${target.engineLabel}'s layout for ${page.title}?`,
+        {
+          modal: true,
+          detail: `${result.ownership?.layout.detail ?? ''}\n\nThese files will be overwritten with a fresh emit, and every edit made in ${target.engineLabel} since ${existing.manifest.emittedAt.slice(0, 10)} is lost:\n${changed.map(file => `  ${file}`).join('\n')}\n\nThe token file is left alone. This cannot be undone from here.`,
+        },
+        'Overwrite the layout',
+      );
+      if (confirmed !== 'Overwrite the layout') {
+        return;
+      }
+      existing = { files: new Map() };
+      result = planSurfaceEmit({ ...base, existing: undefined });
+    }
+    if (!result.ok) {
+      throw new Error(result.reason);
+    }
+    const { plan } = result;
+    const lines = plan.files.map(file => {
+      const marker = file.shared ? 'IF ABSENT' : existing.files.get(file.path) !== undefined || payload.discardEngineLayout ? 'OVERWRITE' : 'WRITE';
+      return `[${marker}] ${file.path}`;
+    });
+    lines.push(`[WRITE] ${plan.manifestPath}`);
+    const answer = await vscode.window.showWarningMessage(
+      `Emit ${page.title} for ${target.label}?`,
+      {
+        modal: true,
+        detail: `${plan.disclosure}\n\n${lines.join('\n')}\n\nWorth knowing:\n${plan.caveats.map(caveat => `  • ${caveat}`).join('\n')}`,
+      },
+      'Emit',
+      'Show files first',
+    );
+    if (answer === 'Show files first') {
+      for (const file of plan.files) {
+        const document = await vscode.workspace.openTextDocument({ content: `# ${file.path}\n\n${file.contents}`, language: 'plaintext' });
+        await vscode.window.showTextDocument(document, { preview: false });
+      }
+      return;
+    }
+    if (answer !== 'Emit') {
+      return;
+    }
+    for (const file of plan.files) {
+      const absolute = path.join(root, ...file.path.split('/'));
+      if (file.shared && nodeFs.existsSync(absolute)) {
+        continue;
+      }
+      nodeFs.mkdirSync(path.dirname(absolute), { recursive: true });
+      nodeFs.writeFileSync(absolute, file.contents, 'utf8');
+    }
+    const manifestAbsolute = path.join(root, ...plan.manifestPath.split('/'));
+    nodeFs.mkdirSync(path.dirname(manifestAbsolute), { recursive: true });
+    nodeFs.writeFileSync(manifestAbsolute, `${JSON.stringify(plan.manifest, null, 2)}\n`, 'utf8');
+    this.render('handoff');
+    await this.panel.webview.postMessage({
+      type: 'notice', tone: 'success',
+      message: `Emitted ${page.title} for ${target.label}. ${target.engineLabel} owns the layout from here; the words still update from Studio.`,
+    });
+  }
+
+  /**
+   * Bring the engine file's words up to Studio's, region by region. The plan
+   * is shown as patches — each region before and after — with every refusal
+   * beside them, so what is agreed to is what changes.
+   */
+  private async handlePushSurfaceContent(screenId: string, targetId: UiEmitTargetId): Promise<void> {
+    this.refuseIfReadOnly();
+    const root = this.workspaceRoot;
+    if (!root) {
+      throw new Error('Open a workspace folder to update an emitted surface.');
+    }
+    const { screen, page } = this.surfaceFor(screenId);
+    const target = uiEmitTarget(targetId);
+    const existing = this.emitStateFor(screen.id, target.id);
+    if (!existing.manifest) {
+      throw new Error(`${page.title} has not been emitted for ${target.label}.`);
+    }
+    const plan = planContentPatch({
+      manifest: existing.manifest,
+      files: existing.files,
+      copy: collectSurfaceCopy(this.surfaceCopyInput(screen, page)),
+      now: new Date().toISOString(),
+    });
+    const refusalLines = plan.refusals.map(refusal => `  ✗ ${refusal.reason}${refusal.current ? `\n      now: ${excerpt(refusal.current)}` : ''}`);
+    const unanchoredLines = plan.unanchored.map(nodeId => `  · ${nodeId} was drawn after the emit and has no region; add it in ${target.engineLabel}.`);
+    if (plan.patches.length === 0) {
+      await this.panel.webview.postMessage({
+        type: 'notice', tone: plan.refusals.length > 0 ? 'error' : 'success',
+        message: `Nothing to push for ${page.title}: ${plan.summary}.${plan.refusals.length > 0 ? ` ${plan.refusals.map(refusal => refusal.reason).join(' ')}` : ''}`,
+      });
+      return;
+    }
+    const patchLines = plan.patches.map(patch => `  ${patch.nodeId} in ${patch.filePath}\n      was: ${excerpt(patch.before)}\n      now: ${excerpt(patch.after)}`);
+    const confirmed = await vscode.window.showWarningMessage(
+      `Update ${plan.patches.length} region${plan.patches.length === 1 ? '' : 's'} in ${target.engineLabel}'s files?`,
+      {
+        modal: true,
+        detail: `${plan.summary}.\n\n${patchLines.join('\n')}${refusalLines.length > 0 ? `\n\nRefused, and left as they are:\n${refusalLines.join('\n')}` : ''}${unanchoredLines.length > 0 ? `\n\nNot inserted:\n${unanchoredLines.join('\n')}` : ''}\n\nOnly the regions above change. Nothing else in the files is touched.`,
+      },
+      'Update',
+    );
+    if (confirmed !== 'Update') {
+      return;
+    }
+    for (const file of plan.files) {
+      nodeFs.writeFileSync(path.join(root, ...file.path.split('/')), file.contents, 'utf8');
+    }
+    nodeFs.writeFileSync(path.join(root, ...uiEmitManifestPath(screen.id, target.id).split('/')), `${JSON.stringify(plan.manifest, null, 2)}\n`, 'utf8');
+    this.render('handoff');
+    await this.panel.webview.postMessage({
+      type: 'notice', tone: plan.refusals.length > 0 ? 'error' : 'success',
+      message: `Updated ${plan.patches.length} region${plan.patches.length === 1 ? '' : 's'} for ${page.title}.${plan.refusals.length > 0 ? ` ${plan.refusals.length} refused: ${plan.refusals.map(refusal => refusal.reason).join(' ')}` : ''}`,
+    });
+  }
+
+  /**
+   * See the emitted surface in its engine. The argv is the target's constant
+   * with the workspace root and scene filled in, run without a shell after a
+   * confirmation that shows it; a target whose executable is not on PATH by
+   * convention gets the command to copy rather than a failed spawn.
+   */
+  private async handleLaunchSurface(screenId: string, targetId: UiEmitTargetId): Promise<void> {
+    const root = this.workspaceRoot;
+    if (!root) {
+      throw new Error('Open a workspace folder to launch an emitted surface.');
+    }
+    const manifest = this.readEmitManifest(uiEmitManifestPath(screenId, targetId));
+    if (!manifest) {
+      throw new Error('That surface has not been emitted.');
+    }
+    const launch = planSurfaceLaunch(manifest, root);
+    if (launch.kind === 'open-file' && launch.filePath) {
+      await vscode.env.openExternal(vscode.Uri.file(path.join(root, ...launch.filePath.split('/'))));
+      return;
+    }
+    if (launch.kind !== 'command' || !launch.command) {
+      void vscode.window.showInformationMessage(launch.reason);
+      return;
+    }
+    const argv = [launch.command, ...(launch.args ?? [])];
+    if (launch.manualOnly) {
+      const copy = await vscode.window.showInformationMessage(`${launch.reason}\n\n${argv.join(' ')}`, { modal: true }, 'Copy command');
+      if (copy === 'Copy command') {
+        await vscode.env.clipboard.writeText(argv.join(' '));
+      }
+      return;
+    }
+    const confirmed = await vscode.window.showWarningMessage(
+      `Run ${launch.command}?`,
+      { modal: true, detail: `${argv.join(' ')}\n\nRuns directly, with no shell, from ${root}. ${launch.reason}` },
+      'Run',
+    );
+    if (confirmed !== 'Run') {
+      return;
+    }
+    await new Promise<void>((resolve, reject) => {
+      const child = spawn(launch.command!, launch.args ?? [], { cwd: root, detached: true, stdio: 'ignore' });
+      child.once('error', error => reject(new Error(`${launch.command} could not be started (${error.message}). Run it yourself: ${argv.join(' ')}`)));
+      child.once('spawn', () => {
+        child.unref();
+        resolve();
+      });
+    });
+    await this.panel.webview.postMessage({ type: 'notice', tone: 'success', message: `Started ${argv.join(' ')}.` });
+  }
+
+  private refuseIfReadOnly(): void {
+    if (this.readOnly) {
+      throw new Error('This UI plan was written by a newer AtlasMind and cannot be edited here.');
+    }
+  }
+
+  /** Save through the manager, keep the edit session in step, re-render and say so. */
+  private async persist(next: unknown, page: WebsiteStudioPage, message: string): Promise<void> {
+    this.config = await this.manager.save(next);
+    this.editSession = { ...this.editSession, graph: this.config.designGraph };
+    await this.refreshPreviewIfRunning();
+    this.render(page);
+    await this.panel.webview.postMessage({ type: 'notice', tone: 'success', message });
+  }
+
+  /**
+   * Bring a found file in as a surface.
+   *
+   * Re-scanned rather than trusted: the browser names a path, and the scan
+   * says whether that is one of the files it classified. A stylesheet is
+   * refused here and pointed at the Brands view, because it is a source of
+   * tokens rather than a thing to draw. The page it creates records where it
+   * came from, so the origin survives every later save.
+   */
+  private async handlePickUpSurface(requestedPath: string): Promise<void> {
+    this.refuseIfReadOnly();
+    const surface = this.scanWorkspaceUiSurfaces()?.surfaces.find(candidate => candidate.path === requestedPath);
+    if (!surface) {
+      throw new Error('That file is not in the current scan. Refresh UI Studio and pick it again.');
+    }
+    if (surface.kind === 'stylesheet') {
+      throw new Error('A stylesheet is a source of brand tokens, not a surface to design. Read it into a brand on the Brands view.');
+    }
+    if (this.config.pages.some(page => page.source?.path === surface.path)) {
+      throw new Error(`${surface.path} is already picked up.`);
+    }
+    const stem = surface.label.replace(/\.[^.]+$/, '');
+    const slug = surfaceSlug(stem);
+    const isWebsite = this.config.surfaceKind === 'website';
+    const page: WebsitePagePlan = {
+      id: `page-${slug}`,
+      title: stem,
+      slug: isWebsite ? `/${slug}` : `screen/${slug}`,
+      purpose: `Picked up from ${surface.path}.`,
+      template: 'Found surface',
+      sections: [],
+      wireframeNotes: '',
+      designNotes: '',
+      wireframeStatus: 'not-started',
+      designStatus: 'not-started',
+      contentStatus: 'not-started',
+      seoStatus: 'not-started',
+      order: this.config.pages.length,
+      designPrompt: '',
+      links: [],
+      source: {
+        path: surface.path,
+        adapterId: surface.adapterId,
+        ruleId: surface.ruleId,
+        pickedUpAt: new Date().toISOString(),
+      },
+    };
+    await this.persist(
+      { ...this.config, designGraph: this.editSession.graph, pages: [...this.config.pages, page] },
+      'design',
+      `Picked up ${surface.path}. Its layout stays the project's; design and brand it here.`,
+    );
+  }
+
+  private async handleSetDefaultBrand(presetId: string): Promise<void> {
+    this.refuseIfReadOnly();
+    const preset = this.config.brands.find(entry => entry.id === presetId);
+    if (!preset) {
+      throw new Error('That brand is no longer in the workspace.');
+    }
+    await this.persist(
+      { ...this.config, designGraph: this.editSession.graph, defaultBrandId: presetId },
+      'brands',
+      `"${preset.label}" is now the default brand. Every surface without a brand of its own follows it.`,
+    );
+  }
+
+  /**
+   * Point surfaces at a brand.
+   *
+   * Applying the *default* clears a surface's own reference rather than
+   * recording it, so the surface follows the default from then on — a
+   * recorded "use the default" would stop following when the default changed.
+   */
+  private async handleApplyBrand(presetId: string, screenIds: readonly string[]): Promise<void> {
+    this.refuseIfReadOnly();
+    const preset = this.config.brands.find(entry => entry.id === presetId);
+    if (!preset) {
+      throw new Error('That brand is no longer in the workspace.');
+    }
+    const targets = new Set(screenIds);
+    const graph = this.editSession.graph;
+    const applied = graph.screens.filter(screen => targets.has(screen.pageId)).length;
+    if (applied === 0) {
+      throw new Error('Tick at least one surface to apply the brand to.');
+    }
+    const screens = graph.screens.map(screen => {
+      if (!targets.has(screen.pageId)) {
+        return screen;
+      }
+      const { brandRef: _previous, ...rest } = screen;
+      return presetId === this.config.defaultBrandId ? rest : { ...rest, brandRef: presetId };
+    });
+    await this.persist(
+      { ...this.config, designGraph: { ...graph, screens } },
+      'brands',
+      `"${preset.label}" applied to ${applied} surface${applied === 1 ? '' : 's'}.`,
+    );
+  }
+
+  /**
+   * Remove a brand, behind a confirmation that says what is lost.
+   *
+   * A brand read from a stylesheet can be read again; one authored here cannot
+   * be recovered from anywhere, and the dialog says which this is.
+   */
+  private async handleRemoveBrand(presetId: string): Promise<void> {
+    this.refuseIfReadOnly();
+    const preset = this.config.brands.find(entry => entry.id === presetId);
+    if (!preset) {
+      return;
+    }
+    const wearers = this.config.designGraph.screens.filter(screen => screen.brandRef === presetId).length;
+    const origin = preset.source
+      ? preset.source.ruleId === 'stylesheet-custom-properties'
+        ? `It was read from ${preset.source.path ?? 'a stylesheet'} and can be read again.`
+        : 'It was folded from the earlier design system; the values are still in the graph tokens.'
+      : 'It was authored here and cannot be recovered from anywhere else.';
+    const confirmed = await vscode.window.showWarningMessage(
+      `Remove the brand "${preset.label}"?`,
+      {
+        modal: true,
+        detail: `${wearers} surface${wearers === 1 ? '' : 's'} name${wearers === 1 ? 's' : ''} it directly and will fall back to the default. ${origin}`,
+      },
+      'Remove it',
+    );
+    if (confirmed !== 'Remove it') {
+      return;
+    }
+    const { defaultBrandId, ...rest } = this.config;
+    await this.persist(
+      {
+        ...rest,
+        designGraph: this.editSession.graph,
+        brands: this.config.brands.filter(entry => entry.id !== presetId),
+        ...(defaultBrandId && defaultBrandId !== presetId ? { defaultBrandId } : {}),
+      },
+      'brands',
+      `Removed "${preset.label}".`,
+    );
+  }
+
+  /**
+   * Read a brand out of a stylesheet the scan found.
+   *
+   * The confirmation lists every role with the line it came from and every
+   * property left unassigned with the reason — the extraction's own words, not
+   * a summary beside them — so what somebody agrees to is what was read.
+   */
+  private async handleExtractBrand(requestedPath: string): Promise<void> {
+    this.refuseIfReadOnly();
+    const surface = this.scanWorkspaceUiSurfaces()?.surfaces
+      .find(candidate => candidate.path === requestedPath && candidate.kind === 'stylesheet');
+    if (!surface || !this.workspaceRoot) {
+      throw new Error('That stylesheet is not in the current scan. Refresh UI Studio and pick it again.');
+    }
+    let css: string;
+    try {
+      css = nodeFs.readFileSync(path.join(this.workspaceRoot, surface.path), 'utf8');
+    } catch {
+      throw new Error(`${surface.path} could not be read.`);
+    }
+    const extraction = extractBrandPresetFromStylesheet({ css, path: surface.path, extractedAt: new Date().toISOString() });
+    if (!extraction.preset) {
+      throw new Error(extraction.refusal ?? extraction.summary);
+    }
+    const lines = [extraction.summary, ''];
+    for (const item of extraction.evidence) {
+      lines.push(`  ${item.roleId}  ←  --${item.property}  (line ${item.line})`);
+    }
+    if (extraction.unassigned.length > 0) {
+      lines.push('', 'Left unassigned:');
+      for (const item of extraction.unassigned.slice(0, 12)) {
+        lines.push(`  --${item.property}: ${item.reason}`);
+      }
+      if (extraction.unassigned.length > 12) {
+        lines.push(`  …and ${extraction.unassigned.length - 12} more.`);
+      }
+    }
+    lines.push('', 'Nothing in the file changes. The brand is added to this workspace, where it can be made the default or applied to surfaces.');
+    const confirmed = await vscode.window.showInformationMessage(
+      `Read "${extraction.preset.label}" into a brand?`,
+      { modal: true, detail: lines.join('\n') },
+      'Add it',
+    );
+    if (confirmed !== 'Add it') {
+      return;
+    }
+    let id = extraction.preset.id;
+    let suffix = 1;
+    while (this.config.brands.some(entry => entry.id === id)) {
+      id = `${extraction.preset.id}-${suffix++}`;
+    }
+    const preset = { ...extraction.preset, id };
+    await this.persist(
+      {
+        ...this.config,
+        designGraph: this.editSession.graph,
+        brands: [...this.config.brands, preset],
+        // The first brand becomes the default; a second one is a choice.
+        ...(this.config.defaultBrandId ? {} : { defaultBrandId: id }),
+      },
+      'brands',
+      `Added "${preset.label}" from ${surface.path}.`,
     );
   }
 
@@ -500,6 +1101,20 @@ export class WebsiteStudioPanel {
           // cannot replace mapping authority or forge a verified baseline.
           payload.implementation.repositoryMappingRevision = this.config.implementation.repositoryMappingRevision;
           payload.implementation.repositoryMappings = structuredClone(this.config.implementation.repositoryMappings);
+          // Delivery — platforms, hosting, automations and the stack choice — is
+          // the Dashboard's to edit. Re-read from disk rather than from this
+          // panel's memory, so a save here cannot undo a Delivery save made
+          // since this panel rendered, and cannot drop the stack choice the
+          // form never carried.
+          const onDisk = this.manager.read().config;
+          payload.platforms = structuredClone(onDisk.platforms);
+          payload.hostingEnvironments = structuredClone(onDisk.hostingEnvironments);
+          payload.automations = structuredClone(onDisk.automations);
+          if (onDisk.stack) {
+            payload.stack = { ...onDisk.stack };
+          } else {
+            delete payload.stack;
+          }
           const rawPayload = input.payload as Record<string, unknown>;
           const expectedDesignRevision = rawPayload['designRevision'];
           const usesEditSession = Number.isSafeInteger(expectedDesignRevision);
@@ -582,7 +1197,7 @@ export class WebsiteStudioPanel {
             this.workspaceRoot,
           );
           if (!result.ok) {
-            this.render('stack');
+            this.render('handoff');
             await this.panel.webview.postMessage({
               type: 'notice', tone: 'error',
               message: `Repository mapping edit was refused (${result.reason}).`,
@@ -598,7 +1213,7 @@ export class WebsiteStudioPanel {
               repositoryMappings: result.mappings,
             },
           });
-          this.render('stack');
+          this.render('handoff');
           await this.panel.webview.postMessage({
             type: 'notice', tone: 'success',
             message: command.type === 'verify-mapping'
@@ -715,14 +1330,34 @@ export class WebsiteStudioPanel {
         case 'selectPreviewTarget':
           selectWebsitePreviewTarget(input.payload.pageId, input.payload.nodeId);
           return;
-        case 'selectFramework':
-          await this.handleSelectFramework(input.payload.frameworkId);
+        case 'openDeliveryPage':
+          // A constant target: the Dashboard's Delivery page, where website
+          // delivery lives now. The webview names nothing.
+          await vscode.commands.executeCommand('atlasmind.openProjectDashboard', 'delivery');
           return;
-        case 'planStackSetup':
-          await vscode.commands.executeCommand('atlasmind.setUpWebsiteStack', { config: this.config });
+        case 'pickUpSurface':
+          await this.handlePickUpSurface(input.payload.path);
           return;
-        case 'compareDelivery':
-          await this.handleCompareDelivery();
+        case 'setDefaultBrand':
+          await this.handleSetDefaultBrand(input.payload.presetId);
+          return;
+        case 'applyBrandToScreens':
+          await this.handleApplyBrand(input.payload.presetId, input.payload.screenIds);
+          return;
+        case 'removeBrand':
+          await this.handleRemoveBrand(input.payload.presetId);
+          return;
+        case 'extractBrandFromStylesheet':
+          await this.handleExtractBrand(input.payload.path);
+          return;
+        case 'emitSurface':
+          await this.handleEmitSurface(input.payload);
+          return;
+        case 'pushSurfaceContent':
+          await this.handlePushSurfaceContent(input.payload.screenId, input.payload.targetId);
+          return;
+        case 'launchSurface':
+          await this.handleLaunchSurface(input.payload.screenId, input.payload.targetId);
           return;
       }
     } catch (error) {
@@ -834,79 +1469,10 @@ export class WebsiteStudioPanel {
     });
   }
 
-  private async handleSelectFramework(frameworkId: string): Promise<void> {
-    if (this.readOnly) {
-      await this.panel.webview.postMessage({
-        type: 'notice',
-        tone: 'error',
-        message: 'This project\'s website.json was written by a newer AtlasMind, so it is read-only.',
-      });
-      return;
-    }
-    this.config = await persistFrameworkChoice(this.manager, this.config, frameworkId);
-    this.editSession = createUiEditSession(this.config.designGraph);
-    this.render('stack');
-    const spec = websiteFrameworkSpec(frameworkId as Parameters<typeof websiteFrameworkSpec>[0]);
-    await this.panel.webview.postMessage({
-      type: 'notice',
-      tone: 'success',
-      message: `${spec.label} recorded. Nothing has been installed — use "Set up this stack" when you are ready.`,
-    });
-  }
-
-  /**
-   * Compare with the Delivery pipeline.
-   *
-   * Comparing only. Website Studio and Delivery each hold their own copy of the
-   * three stages, and this is the surface that makes the disagreement visible;
-   * changing Delivery is a separate, confirmed action from its own page.
-   */
-  private async handleCompareDelivery(): Promise<void> {
-    const workspaceRoot = vscode.workspace.workspaceFolders?.[0]?.uri.fsPath;
-    const delivery = workspaceRoot ? readDeliveryConfig(workspaceRoot) : undefined;
-    const report = compareWebsiteToDelivery(this.config.hostingEnvironments, delivery, this.config.platforms);
-
-    this.deliveryDriftSummary = delivery
-      ? report.summary
-      : 'No Delivery pipeline is configured for this project yet, so there is nothing to compare against.';
-    this.render('stack');
-
-    await this.panel.webview.postMessage({
-      type: 'notice',
-      tone: report.inStep ? 'success' : '',
-      message: this.deliveryDriftSummary,
-    });
-  }
-
   private async refreshPreviewIfRunning(): Promise<void> {
     const { refreshRunningWebsitePreview } = await import('./websitePreviewHost.js');
     await refreshRunningWebsitePreview();
   }
-}
-
-/**
- * Record the framework choice.
- *
- * Saved immediately rather than held until the next Save: the choice drives what
- * the setup planner would do, and a plan built from an unsaved selection would
- * describe a stack the file does not record.
- */
-async function persistFrameworkChoice(
-  manager: WebsiteWorkspaceManager,
-  config: WebsiteWorkspaceConfig,
-  frameworkId: string,
-): Promise<WebsiteWorkspaceConfig> {
-  const primaryPlatform = config.platforms.find(platform => platform.primary);
-  return manager.save({
-    ...config,
-    stack: {
-      frameworkId,
-      platformId: config.stack?.platformId ?? primaryPlatform?.id ?? 'cloudflare-pages',
-      packageManager: config.stack?.packageManager
-        ?? vscode.workspace.getConfiguration('atlasmind').get<string>('website.setup.packageManager', 'npm'),
-      decidedAt: new Date().toISOString(),
-    },
-  });
 }
 
 /**
@@ -939,10 +1505,6 @@ export function isGenerationEnabled(): boolean {
   return vscode.workspace.getConfiguration('atlasmind').get<boolean>('website.generation.enabled', false);
 }
 
-/** Separate again from generation: scaffolding runs commands, which generation never does. */
-export function isStackSetupEnabled(): boolean {
-  return vscode.workspace.getConfiguration('atlasmind').get<boolean>('website.setup.enabled', false);
-}
 
 function generationFileLimit(): number {
   const configured = vscode.workspace
@@ -956,14 +1518,6 @@ export interface WebsiteStudioHtmlOptions {
   readOnly?: boolean;
   /** `atlasmind.website.generation.enabled`. Controls whether Generate is offered at all. */
   canGenerate?: boolean;
-  /** `atlasmind.website.setup.enabled`. Controls whether stack setup is offered. */
-  canSetUpStack?: boolean;
-  /**
-   * Last drift comparison against the Delivery pipeline, if one has been run.
-   * Absent means *not compared*, which the page states rather than showing a
-   * reassuring blank — the two models can disagree and nobody has looked.
-   */
-  deliveryDriftSummary?: string;
   /** Screen copy read from the configured Markdown content directory. */
   pageContent?: readonly WebsitePageContent[];
   contentDirectory?: string;
@@ -976,6 +1530,8 @@ export interface WebsiteStudioHtmlOptions {
    * different answers, and only one of them is worth acting on.
    */
   uiSurfaces?: UiSurfaceScanReport;
+  /** Every emit recorded under project_memory, with who owns what right now. */
+  emittedSurfaces?: readonly EmittedSurfaceView[];
   /** The canvas script, read from `media/websiteStudio.js`. */
   scriptContent?: string;
   /** Fallback when the script could not be read inline. */
@@ -1077,18 +1633,10 @@ export function buildWebsiteStudioResponsiveScreens(
 export function getWebsiteStudioHtml(
   webview: Pick<vscode.Webview, 'cspSource'>,
   config: WebsiteWorkspaceConfig,
-  activePage: WebsiteStudioPage = 'brief',
+  activePage: WebsiteStudioPage = 'design',
   options: WebsiteStudioHtmlOptions = {},
 ): string {
-  const approvedPages = config.pages.filter(page =>
-    page.wireframeStatus === 'approved' && page.designStatus === 'approved').length;
-  const readyAutomations = config.automations.filter(automation => automation.status === 'verified').length;
-  const primaryPlatform = config.platforms.find(platform => platform.primary);
-  const hostingReadiness = assessWebsiteHostingEnvironments(config);
-  const readyHostingEnvironments = hostingReadiness.filter(readiness => readiness.status === 'ready').length;
   const isWebsite = config.surfaceKind === 'website';
-  const screenNoun = isWebsite ? 'page' : 'screen';
-  const contentReady = (options.pageContent ?? []).filter(content => !content.missing && content.body.trim().length > 0).length;
 
   // The canvas needs the geometry model client-side, and the pages need to be
   // readable by the script without re-parsing the DOM. Passed as an escaped
@@ -1123,7 +1671,7 @@ export function getWebsiteStudioHtml(
         <div>
           <p class="eyebrow">AtlasMind · Interface design workspace</p>
           <h1>UI Studio</h1>
-          <p class="hero-copy">Design the structure, content, visual system, and implementation handoff for websites, apps, extensions, desktop tools, and other interfaces. Website projects keep their guarded delivery workflow.</p>
+          <p class="hero-copy">Pick a surface — one found in the project or one drawn here — design it beside the canvas, brand it, and hand it off. ${isWebsite ? 'Stack, hosting and automations live on the Project Dashboard\'s Delivery page.' : `${escapeHtml(surfaceKindLabel(config.surfaceKind))} · implementation-independent.`}</p>
         </div>
         <div class="hero-actions">
           <button type="button" class="secondary" data-command="atlasmind.openProjectIdeation">Ideation board</button>
@@ -1138,50 +1686,21 @@ export function getWebsiteStudioHtml(
         You can read it, but saving is disabled — writing now would overwrite settings this build cannot understand.
       </div>` : ''}
 
-      <div class="metric-strip" aria-label="UI readiness summary">
-        ${metricCard(isWebsite ? 'Pages' : 'Screens', String(config.pages.length), isWebsite ? 'in the sitemap' : 'in the interface map')}
-        ${metricCard('Design ready', `${approvedPages}/${config.pages.length}`, 'wireframe + UI approved')}
-        ${metricCard('Content ready', `${contentReady}/${config.pages.length}`, `Markdown ${screenNoun} files`)}
-        ${isWebsite
-          ? `${metricCard('Hosting ready', `${readyHostingEnvironments}/3`, 'Develop · Staging · Production')}
-             ${metricCard('Primary platform', primaryPlatform?.label ?? 'Not chosen', primaryPlatform?.status ?? 'decision needed')}
-             ${metricCard('n8n verified', `${readyAutomations}/${config.automations.length}`, 'mapped workflows')}`
-          : metricCard('Profile', surfaceKindLabel(config.surfaceKind), 'implementation-independent')}
-      </div>
-
       <div id="studioNotice" class="notice" role="status" aria-live="polite"></div>
 
       <div class="studio-layout">
-        <nav class="studio-nav" aria-label="UI Studio dashboards">
-          ${navButton('brief', '1', 'Project brief', activePage)}
-          ${navButton('sitemap', '2', isWebsite ? 'Sitemap' : 'Screens & flows', activePage)}
-          ${/* The nav renders literal numbered steps, so it promises a linear
-                workflow. Content design now sits before the visual system, and
-                the shared UI system still precedes the pages that apply it.
-                Each wireframe card tracks a per-page "UI design" stage, and
-                that cannot be done consistently until the shared typography,
-                colour and component decisions exist. */ ''}
-          ${navButton('content', '3', 'Content design', activePage)}
-          ${navButton('ui-system', '4', 'UI system', activePage)}
-          ${navButton('wireframes', '5', 'Wireframes & UI', activePage)}
-          ${navButton('preview', '6', 'Full preview', activePage)}
-          ${navButton('stack', '7', isWebsite ? 'Implementation & hosting' : 'Implementation', activePage)}
-          ${isWebsite ? navButton('automations', '8', 'n8n automations', activePage) : ''}
-          <div class="nav-footer">
-            <button type="button" class="secondary full" data-open-ssot="json">Open website.json</button>
-            <button type="button" class="secondary full" data-open-ssot="markdown">Open website.md</button>
-          </div>
-        </nav>
+        <aside class="studio-nav surfaces-rail" aria-label="Surfaces and brands">
+          ${renderSurfacesRail(config, options.uiSurfaces, options)}
+        </aside>
 
         <main>
-          ${renderBriefPage(config, activePage, options)}
-          ${renderSitemapPage(config, activePage, options)}
-          ${renderContentPage(config, activePage, options)}
+          ${renderViewStrip(config, activePage)}
           ${renderWireframesPage(config, activePage, options)}
-          ${renderUiSystemPage(config, activePage)}
-          ${renderPreviewPage(config, activePage, options)}
+          ${renderSitemapPage(config, activePage, options)}
+          ${renderUiSystemPage(config, activePage, options)}
+          ${renderContentPage(config, activePage, options)}
           ${renderStackPage(config, activePage, options)}
-          ${renderAutomationsPage(config, activePage)}
+          ${renderBriefPage(config, activePage, options)}
         </main>
       </div>
 
@@ -1291,7 +1810,7 @@ function renderSitemapPage(
   const findings = [...tree.findings.map(finding => finding.message), ...graph.findings.map(finding => finding.message)];
 
   return `
-    <section class="studio-page${activePage === 'sitemap' ? ' active' : ''}" data-page="sitemap">
+    <section class="studio-page${activePage === 'structure' ? ' active' : ''}" data-page="structure">
       ${pageIntro(isWebsite ? 'Sitemap dashboard' : 'Screens and flows', isWebsite
         ? 'The hierarchy draws itself from the slugs as pages are added. Give a page a design prompt and it can be generated without ever being drawn.'
         : 'Use routes or stable view identifiers to map the interface. Parent relationships show hierarchy; declared links describe navigation and task flow without assuming a web implementation.')}
@@ -1486,7 +2005,7 @@ function renderWireframesPage(
     : undefined;
   const firstBreakpoint = firstScreen?.baseBreakpoint ?? first?.wireframe?.breakpoint ?? 'desktop';
   return `
-    <section class="studio-page${activePage === 'wireframes' ? ' active' : ''}" data-page="wireframes">
+    <section class="studio-page${activePage === 'design' ? ' active' : ''}" data-page="design">
       ${pageIntro('Wireframe canvas', 'Draw the page. Pick a block, drag on the grid, drop one inside another to nest it. Select anything and describe it in your own words.')}
 
       ${config.pages.length === 0 ? '<article class="panel-card"><p>Add a page on the Sitemap tab first.</p></article>' : `
@@ -1545,6 +2064,8 @@ function renderWireframesPage(
         </aside>
       </div>`}
 
+      ${renderPreviewCard(config, options)}
+
       <div id="wireframeCards" class="wireframe-grid">
         ${config.pages.map(page => renderWireframeCard(page, config.surfaceKind === 'website')).join('')}
       </div>
@@ -1570,11 +2091,16 @@ function generateButton(
   return `<button type="button" class="generate-button" data-generate-stage="${escapeHtml(stage)}">${escapeHtml(label)}</button>`;
 }
 
-function renderUiSystemPage(config: WebsiteWorkspaceConfig, activePage: WebsiteStudioPage): string {
+function renderUiSystemPage(
+  config: WebsiteWorkspaceConfig,
+  activePage: WebsiteStudioPage,
+  options: WebsiteStudioHtmlOptions,
+): string {
   const design = config.designSystem;
   return `
-    <section class="studio-page${activePage === 'ui-system' ? ' active' : ''}" data-page="ui-system">
-      ${pageIntro('UI system dashboard', 'Capture the shared design decisions every page then applies — typography, colour, spacing and components — so the per-page UI design stage has a consistent, accessible client design.')}
+    <section class="studio-page${activePage === 'brands' ? ' active' : ''}" data-page="brands">
+      ${renderBrandCards(config, options)}
+      ${pageIntro('Design system', 'Capture the shared design decisions every page then applies — typography, colour, spacing and components — so the per-page UI design stage has a consistent, accessible client design.')}
       <div class="two-column">
         <article class="panel-card">
           <h2>Direction and typography</h2>
@@ -1585,7 +2111,8 @@ function renderUiSystemPage(config: WebsiteWorkspaceConfig, activePage: WebsiteS
           ${field('Accessibility target', 'design-accessibilityTarget', design.accessibilityTarget)}
         </article>
         <article class="panel-card">
-          <h2>Legacy visual defaults</h2>
+          <h2>Fallback defaults</h2>
+          <p class="token-help">Projected from the default brand on every save where one exists; used directly only when no brand is set.</p>
           <div class="color-grid">
             ${colorField('Primary', 'design-primaryColor', design.primaryColor)}
             ${colorField('Secondary', 'design-secondaryColor', design.secondaryColor)}
@@ -1670,9 +2197,8 @@ function renderUiSystemPage(config: WebsiteWorkspaceConfig, activePage: WebsiteS
   `;
 }
 
-function renderPreviewPage(
+function renderPreviewCard(
   config: WebsiteWorkspaceConfig,
-  activePage: WebsiteStudioPage,
   options: WebsiteStudioHtmlOptions,
 ): string {
   const contents = new Map((options.pageContent ?? []).map(content => [content.pageId, content]));
@@ -1684,8 +2210,7 @@ function renderPreviewPage(
   const screenNoun = config.surfaceKind === 'website' ? 'page' : 'screen';
 
   return `
-    <section class="studio-page${activePage === 'preview' ? ' active' : ''}" data-page="preview">
-      ${pageIntro('Full preview', 'Use the built-in browser as the main review canvas. The preview is rebuilt directly from the saved wireframes, visual tokens, and exact Markdown copy, so design decisions can be judged together without a model call.')}
+    <div class="preview-block">
 
       <article class="panel-card preview-launch-card">
         <div>
@@ -1737,99 +2262,8 @@ function renderPreviewPage(
           }).join('')}
         </div>
       </article>
-    </section>
+    </div>
   `;
-}
-
-/**
- * Framework choice, with the compatibility verdict against the chosen platform.
- *
- * Incompatible pairings stay in the list and carry their reason. Hiding them
- * would leave somebody looking for Hugo and wondering where it went; saying
- * "Shopify serves Liquid templates from its own theme system" answers the
- * question they actually had.
- */
-function renderFrameworkCard(
-  config: WebsiteWorkspaceConfig,
-  options: WebsiteStudioHtmlOptions,
-): string {
-  const primaryPlatform = config.platforms.find(platform => platform.primary);
-  const platformId = config.stack?.platformId ?? primaryPlatform?.id ?? 'cloudflare-pages';
-  const chosenFramework = config.stack?.frameworkId;
-
-  const cards = WEBSITE_FRAMEWORK_CATALOG.map(spec => {
-    const verdict = describeStackCompatibility(spec.id, platformId);
-    const selected = spec.id === chosenFramework;
-    return `
-      <button type="button"
-        class="framework-card${selected ? ' selected' : ''} compat-${escapeHtml(verdict.compatibility)}"
-        data-framework="${escapeHtml(spec.id)}"
-        aria-pressed="${selected ? 'true' : 'false'}"
-        ${options.readOnly ? 'disabled' : ''}>
-        <span class="framework-name">${escapeHtml(spec.label)}</span>
-        <span class="framework-badge">${escapeHtml(verdict.compatibility)}</span>
-        <span class="framework-desc">${escapeHtml(spec.description)}</span>
-        <span class="framework-reason">${escapeHtml(verdict.reason)}</span>
-        <span class="framework-meta">
-          ${spec.scaffold ? 'Scaffolds automatically' : 'No automatic setup'} ·
-          builds to <code>${escapeHtml(spec.outputDir)}</code>
-        </span>
-      </button>`;
-  }).join('');
-
-  const setupAvailable = options.canSetUpStack === true;
-
-  return `
-    <article class="panel-card">
-      <div class="card-heading">
-        <div>
-          <p class="eyebrow">Built with</p>
-          <h2>Framework</h2>
-          <p>Graded against ${escapeHtml(primaryPlatform?.label ?? 'the selected platform')}. Choosing one does nothing on its own — setup is a separate, confirmed step.</p>
-        </div>
-        ${setupAvailable
-          ? `<button type="button" id="planStackSetup"${chosenFramework ? '' : ' disabled'}>Set up this stack</button>`
-          : `<span class="generate-off" title="atlasmind.website.setup.enabled">Automatic setup is off</span>`}
-      </div>
-      <div class="framework-grid">${cards}</div>
-      ${chosenFramework ? renderStackSummary(config) : ''}
-    </article>
-    <article class="panel-card">
-      <div class="card-heading">
-        <div>
-          <p class="eyebrow">Cross-check</p>
-          <h2>Delivery pipeline</h2>
-          <p>These three environments are Website Studio's own. The Delivery page has its own stages with the backup, approval and rollback policy that promotions actually use.</p>
-        </div>
-        <button type="button" id="syncToDelivery"${options.readOnly ? ' disabled' : ''}>Compare with Delivery</button>
-      </div>
-      <div id="deliveryDrift" class="drift-readout" role="status" aria-live="polite">
-        ${options.deliveryDriftSummary
-          ? `<p>${escapeHtml(options.deliveryDriftSummary)}</p>`
-          : '<p class="drift-unknown">Not compared yet. Website Studio and Delivery each hold their own copy of these stages, so they can drift apart between syncs.</p>'}
-      </div>
-    </article>
-  `;
-}
-
-/** What the chosen stack implies, so the consequences are visible before setup runs. */
-function renderStackSummary(config: WebsiteWorkspaceConfig): string {
-  if (!config.stack) {
-    return '';
-  }
-  const spec = websiteFrameworkSpec(config.stack.frameworkId as Parameters<typeof websiteFrameworkSpec>[0]);
-  const manager = (config.stack.packageManager || 'npm') as Parameters<typeof buildCommandFor>[1];
-  const dev = devCommandFor(spec, manager);
-  const build = buildCommandFor(spec, manager);
-  return `
-    <div class="stack-summary">
-      <p class="eyebrow">What this means</p>
-      <dl>
-        <dt>Dev server</dt><dd>${dev ? `<code>${escapeHtml(renderCommandLine(dev.command, dev.args))}</code>` : 'No dev server — the files are served as they are.'}</dd>
-        <dt>Build</dt><dd>${build ? `<code>${escapeHtml(renderCommandLine(build.command, build.args))}</code>` : 'No build step.'}</dd>
-        <dt>Output</dt><dd><code>${escapeHtml(spec.outputDir)}</code></dd>
-      </dl>
-    </div>`;
 }
 
 function renderStackPage(
@@ -1837,77 +2271,42 @@ function renderStackPage(
   activePage: WebsiteStudioPage,
   options: WebsiteStudioHtmlOptions,
 ): string {
-  const readiness = new Map(assessWebsiteHostingEnvironments(config).map(item => [item.id, item]));
   const guide = renderImplementationGuide(config, options.uiSurfaces);
-  if (config.surfaceKind !== 'website') {
-    return `
-      <section class="studio-page${activePage === 'stack' ? ' active' : ''}" data-page="stack">
-        ${pageIntro('Implementation handoff', 'Keep the visual guide connected to the real project without assuming HTML. Record the technologies and source locations an agent or developer should inspect before continuing the interface.')}
-        ${guide}
-        <div class="callout">
-          <strong>Design intent, not code generation.</strong>
-          UI Studio records what to build and where the existing implementation lives. The normal project tools still review and edit SwiftUI, React Native, XAML, VS Code webviews, game-engine UI, or any other target through their own guarded workflow.
-        </div>
-      </section>`;
-  }
+  const isWebsite = config.surfaceKind === 'website';
   return `
-    <section class="studio-page${activePage === 'stack' ? ' active' : ''}" data-page="stack">
-      ${pageIntro('Stack, hosting and setup', 'Pick what the site is built with and where it ships, then let AtlasMind scaffold it. Framework and platform are one decision — the pairing determines the build command, the output directory and the deploy config.')}
+    <section class="studio-page${activePage === 'handoff' ? ' active' : ''}" data-page="handoff">
+      ${pageIntro('Implementation handoff', isWebsite
+        ? 'Keep the visual guide connected to the real project. Record where the implementation lives, map design facts onto source, and see where the two have drifted apart.'
+        : 'Keep the visual guide connected to the real project without assuming HTML. Record the technologies and source locations an agent or developer should inspect before continuing the interface.')}
+      ${renderEmitCard(config, options)}
       ${guide}
-      ${renderFrameworkCard(config, options)}
-      <div class="hosting-heading">
-        <div>
-          <p class="eyebrow">Environment pipeline</p>
-          <h2>Three deliberate hosting stages</h2>
-          <p>Develop stays local by default. Staging is a password-protected client-review subdomain. Production is public and protected from unguarded promotion.</p>
-        </div>
-      </div>
-      <div class="environment-flow">
-        ${config.hostingEnvironments.map((environment, index) => `
-          ${index > 0 ? '<div class="environment-arrow" aria-hidden="true">→</div>' : ''}
-          ${renderHostingEnvironmentCard(environment, readiness.get(environment.id))}
-        `).join('')}
-      </div>
+      ${isWebsite ? renderDeliveryPointer() : ''}
       <div class="callout">
-        <strong>Password references only.</strong>
-        Use a reference such as <code>SecretStorage:website.staging.password</code> or <code>env:WEBSITE_STAGING_PASSWORD</code>. UI Studio rejects raw password values and never writes them to project memory.
+        <strong>Design intent, not code generation.</strong>
+        UI Studio records what to build and where the existing implementation lives. The project's own tools still review and edit the source.
       </div>
-      <div class="callout warning">
-        <strong>No one-click production deploys here.</strong>
-        UI Studio records the platform and non-secret references. Use the Project Dashboard delivery pipeline for preflight, approval, backup, publish, and verification.
-      </div>
-      <div class="hosting-heading platform-heading">
-        <div>
-          <p class="eyebrow">Publishing technology</p>
-          <h2>Platform targets</h2>
-          <p>Select the primary delivery platform and keep account, project, and environment references credential-free.</p>
-        </div>
-      </div>
-      <div class="platform-grid">
-        ${config.platforms.map(platform => {
-          const catalog = WEBSITE_PLATFORM_CATALOG.find(item => item.id === platform.id);
-          return `
-            <article class="platform-card" data-platform-id="${escapeHtml(platform.id)}">
-              <div class="platform-topline">
-                <div>
-                  <p class="eyebrow">${escapeHtml(catalog?.mode ?? 'custom')}</p>
-                  <h2>${escapeHtml(platform.label)}</h2>
-                </div>
-                <label class="primary-choice"><input type="radio" name="primaryPlatform" value="${escapeHtml(platform.id)}"${platform.primary ? ' checked' : ''} /> Primary</label>
-              </div>
-              <p>${escapeHtml(catalog?.description ?? '')}</p>
-              ${selectField('Readiness', 'platform-status', PLATFORM_STATUS_OPTIONS, platform.status)}
-              ${field('Public site URL', '', platform.siteUrl ?? '', 'https://example.com', 'platform-siteUrl')}
-              ${field('Project / site reference', '', platform.projectReference ?? '', 'Account/project label — never a credential', 'platform-projectReference')}
-              ${field('Environment reference', '', platform.environmentReference ?? '', 'e.g. production, branch name, hosting project', 'platform-environmentReference')}
-              ${textarea('Notes', '', platform.notes, 'Migration, content editing, plugin, DNS, or ownership notes.', 'platform-notes')}
-            </article>
-          `;
-        }).join('')}
-      </div>
-      <button type="button" class="secondary" data-command="atlasmind.openProjectDashboard">Open guarded Delivery dashboard</button>
     </section>
   `;
+}
+
+/**
+ * Where the website's delivery half went. Stack, hosting and automations were
+ * a Studio page for three layouts; they are delivery decisions, and they now
+ * sit beside the pipeline that acts on them. The pointer is a constant target
+ * the host opens — the webview names nothing.
+ */
+function renderDeliveryPointer(): string {
+  return `
+    <article class="panel-card delivery-pointer">
+      <div class="card-heading">
+        <div>
+          <p class="eyebrow">Moved</p>
+          <h2>Stack, hosting and automations</h2>
+          <p>The framework, the three hosting environments, the platform targets and the n8n workflow map are on the Project Dashboard's Delivery page, beside the pipeline that ships them. A save here never touches them.</p>
+        </div>
+        <button type="button" class="secondary" id="openDeliveryPage">Open Delivery</button>
+      </div>
+    </article>`;
 }
 
 /**
@@ -1936,6 +2335,76 @@ function renderUiSurfaceChoices(report: UiSurfaceScanReport | undefined): { list
     list: `<datalist id="uiSurfaceChoices">${options}</datalist>`,
     hint: `${report.surfaces.length} UI surface(s) found in this workspace${report.truncated ? ' (list truncated — the scan hit a cap)' : ''}. Start typing to pick one, or enter any path.`,
   };
+}
+
+/**
+ * Emit a surface into its engine, and see who owns what afterwards.
+ *
+ * One row per drawn surface: the target (defaulting to what the implementation
+ * guide declares), the folder, and Emit. Below, every emit on record with the
+ * ownership statement computed from the files as they are now — "Layout: owned
+ * by Unity since the emit on … · Content: editable here" — and the three acts
+ * that remain: push the words, launch it, or discard the engine's layout and
+ * emit again, which is the one destructive act and is labelled as such.
+ */
+function renderEmitCard(config: WebsiteWorkspaceConfig, options: WebsiteStudioHtmlOptions): string {
+  const suggested = suggestUiEmitTarget(config.surfaceKind, config.implementation.targetTechnologies);
+  const drawn = config.designGraph.screens
+    .filter(screen => screen.nodes.length > 0)
+    .map(screen => ({ screen, page: config.pages.find(page => page.id === screen.pageId) }))
+    .filter((entry): entry is { screen: typeof entry.screen; page: WebsitePagePlan } => entry.page !== undefined);
+  const rows = drawn.length === 0
+    ? '<p class="token-help">Draw a surface on the Design view first; there is nothing to emit yet.</p>'
+    : drawn.map(({ screen, page }) => `
+      <div class="emit-row" data-emit-row data-emit-screen="${escapeHtml(screen.id)}">
+        <strong>${escapeHtml(page.title)}</strong>
+        <select data-emit-target aria-label="Target for ${escapeHtml(page.title)}">${UI_EMIT_TARGETS.map(target =>
+          `<option value="${target.id}" data-root="${escapeHtml(target.defaultOutputRoot)}"${target.id === suggested ? ' selected' : ''}>${escapeHtml(target.label)}</option>`).join('')}</select>
+        <input data-emit-root aria-label="Output folder" value="${escapeHtml(uiEmitTarget(suggested).defaultOutputRoot)}" />
+        <button type="button" data-emit-surface${options.readOnly ? ' disabled' : ''}>Emit</button>
+      </div>`).join('');
+  const emitted = (options.emittedSurfaces ?? []).map(view => {
+    const target = uiEmitTarget(view.manifest.targetId);
+    const engineOwned = view.ownership.layout.status === 'engine-owned';
+    const launchLabel = view.launch.kind === 'open-file'
+      ? 'Open in browser'
+      : view.launch.kind === 'command'
+        ? view.launch.manualOnly ? 'Show launch command' : `Launch in ${target.engineLabel}`
+        : '';
+    const reasons = view.ownership.content.reasons.length > 0
+      ? `<ul class="emit-reasons">${view.ownership.content.reasons.map(reason => `<li><code>${escapeHtml(reason.nodeId)}</code> — ${escapeHtml(reason.reason)}</li>`).join('')}</ul>`
+      : '';
+    return `
+      <div class="emit-surface${engineOwned ? ' engine-owned' : ''}" data-emit-manifest="${escapeHtml(view.manifest.screenId)}--${view.manifest.targetId}">
+        <div class="emit-surface-facts">
+          <strong>${escapeHtml(view.pageTitle)}</strong> <span class="tag">${escapeHtml(target.label)}</span>
+          <small>${escapeHtml(view.ownership.statement)}</small>
+          <small>${escapeHtml(view.ownership.layout.detail)}${view.manifest.contentUpdatedAt ? ` Words last pushed ${escapeHtml(view.manifest.contentUpdatedAt.slice(0, 10))}.` : ''}</small>
+          ${reasons}
+        </div>
+        <div class="brand-actions">
+          <button type="button" data-push-content data-screen="${escapeHtml(view.manifest.screenId)}" data-target="${view.manifest.targetId}"${options.readOnly || view.ownership.content.editable === 0 ? ' disabled' : ''} title="Bring the engine file's words up to Studio's, region by region. Nothing else in the file changes.">Push content</button>
+          ${launchLabel ? `<button type="button" class="secondary" data-launch-surface data-screen="${escapeHtml(view.manifest.screenId)}" data-target="${view.manifest.targetId}">${launchLabel}</button>` : ''}
+          <button type="button" class="secondary${engineOwned ? ' danger' : ''}" data-reemit-surface data-screen="${escapeHtml(view.manifest.screenId)}" data-target="${view.manifest.targetId}" data-discard="${engineOwned ? 'true' : 'false'}"${options.readOnly ? ' disabled' : ''}>${engineOwned ? `Discard ${escapeHtml(target.engineLabel)}'s layout and emit again` : 'Emit again'}</button>
+        </div>
+      </div>`;
+  }).join('');
+  return `
+    <article class="panel-card emit-card">
+      <div class="card-heading">
+        <div>
+          <p class="eyebrow">Into the engine</p>
+          <h2>Emit a surface</h2>
+          <p>Write the drawing once for the engine that will own it. After that the engine owns the layout, and the words stay editable here: they go across region by region, and a region somebody edited in the engine is refused rather than overwritten.</p>
+        </div>
+      </div>
+      <div class="emit-rows">${rows}</div>
+      ${emitted ? `<div class="emit-surfaces">${emitted}</div>` : '<p class="token-help">Nothing has been emitted yet.</p>'}
+      <details class="rail-rules"><summary>How emits behave</summary><ul>${UI_EMIT_RULES.map(rule =>
+        `<li><code>${escapeHtml(rule.id)}</code> — ${escapeHtml(rule.describes)}</li>`).join('')}</ul>
+        <p>Targets: ${UI_EMIT_TARGETS.map(target => `<strong>${escapeHtml(target.label)}</strong> — ${escapeHtml(target.verifiedAgainst)}`).join('; ')}.</p>
+      </details>
+    </article>`;
 }
 
 function renderImplementationGuide(config: WebsiteWorkspaceConfig, uiSurfaces?: UiSurfaceScanReport): string {
@@ -1986,81 +2455,6 @@ function renderImplementationGuide(config: WebsiteWorkspaceConfig, uiSurfaces?: 
         <div id="repositoryMappingEditor" class="component-editor repository-mapping-editor" aria-live="polite"></div>
       </div>
     </article>`;
-}
-
-function renderHostingEnvironmentCard(
-  environment: WebsiteHostingEnvironment,
-  readiness: ReturnType<typeof assessWebsiteHostingEnvironments>[number] | undefined,
-): string {
-  const readinessStatus = readiness?.status ?? 'blocked';
-  const readinessLabel = readinessStatus === 'needs-setup' ? 'Needs setup' : readinessStatus === 'ready' ? 'Ready' : 'Blocked';
-  const urlPlaceholder = environment.id === 'develop'
-    ? 'http://localhost:3000/'
-    : environment.id === 'staging'
-      ? `https://${environment.subdomainLabel ?? 'staging'}.example.com/`
-      : 'https://www.example.com/';
-  const modeControl = environment.id === 'develop'
-    ? selectField('Hosting mode', 'environment-hostingMode', DEVELOP_HOSTING_MODE_OPTIONS, environment.hostingMode)
-    : `<div class="locked-field"><span>Hosting mode</span><strong>Hosted</strong></div>`;
-  const credentialControl = environment.id !== 'production'
-    ? field(
-        environment.id === 'develop' ? 'Password reference (hosted fallback)' : 'Password reference',
-        '',
-        environment.credentialReference ?? '',
-        environment.id === 'develop'
-          ? 'SecretStorage:website.develop.password'
-          : 'SecretStorage:website.staging.password',
-        'environment-credentialReference',
-      )
-    : '';
-  const subdomainControl = environment.id === 'staging'
-    ? field('Review subdomain label', '', environment.subdomainLabel ?? 'staging', 'staging', 'environment-subdomainLabel')
-    : '';
-
-  return `
-    <article class="environment-card environment-${escapeHtml(environment.id)}" data-environment-id="${escapeHtml(environment.id)}" data-hosting-mode="${escapeHtml(environment.hostingMode)}">
-      <div class="environment-topline">
-        <div>
-          <p class="eyebrow">0${environment.id === 'develop' ? '1' : environment.id === 'staging' ? '2' : '3'} · ${escapeHtml(environment.accessPolicy)}</p>
-          <h3>${escapeHtml(environment.name)}</h3>
-        </div>
-        <span class="readiness-pill ${escapeHtml(readinessStatus)}">${escapeHtml(readinessLabel)}</span>
-      </div>
-      <p class="environment-purpose">${escapeHtml(environment.purpose)}</p>
-      ${modeControl}
-      <div class="locked-field environment-accessPolicy"><span>Access policy</span><strong>${escapeHtml(environment.accessPolicy)}</strong></div>
-      ${field('Environment URL', '', environment.url ?? '', urlPlaceholder, 'environment-url')}
-      ${subdomainControl}
-      ${field('Branch / project reference', '', environment.branchReference ?? '', environment.id, 'environment-branchReference')}
-      ${credentialControl}
-      ${textarea('Environment notes', '', environment.notes, 'DNS, review, QA, ownership, or promotion notes.', 'environment-notes')}
-      ${environment.promotionProtected ? '<div class="guard-badge">Production promotion protected</div>' : ''}
-      ${readiness?.issues.length
-        ? `<ul class="readiness-issues">${readiness.issues.map(issue => `<li>${escapeHtml(issue)}</li>`).join('')}</ul>`
-        : '<p class="readiness-clear">Environment policy is ready.</p>'}
-    </article>
-  `;
-}
-
-function renderAutomationsPage(config: WebsiteWorkspaceConfig, activePage: WebsiteStudioPage): string {
-  return `
-    <section class="studio-page${activePage === 'automations' ? ' active' : ''}" data-page="automations">
-      ${pageIntro('n8n automation dashboard', 'Map forms, content, CRM, notifications, analytics, and publishing workflows without copying credential or webhook values into project memory.')}
-      <div class="callout">
-        <strong>Reference secrets; never paste them.</strong>
-        Use labels such as <code>env:N8N_CONTACT_WEBHOOK_URL</code> or <code>SecretStorage:n8n.contact</code>. URLs containing credentials, queries, or fragments are rejected.
-      </div>
-      <div class="card-heading">
-        <div><h2>Workflow map</h2><p>Triggering is intentionally separate from planning and verification.</p></div>
-        <button type="button" id="addWebsiteAutomation">Add automation</button>
-      </div>
-      <div id="automationCards" class="automation-grid">
-        ${config.automations.length > 0
-          ? config.automations.map(renderAutomationCard).join('')
-          : '<div class="empty-state" id="automationEmpty"><strong>No workflows mapped yet.</strong><span>Start with a contact form, lead routing, content approval, or launch-monitoring workflow.</span></div>'}
-      </div>
-    </section>
-  `;
 }
 
 function renderSitemapRow(
@@ -2136,27 +2530,6 @@ function renderWireframeCard(page: WebsitePagePlan, isWebsite = true): string {
   `;
 }
 
-function renderAutomationCard(automation: WebsiteWorkspaceConfig['automations'][number]): string {
-  return `
-    <article class="automation-card" data-automation-id="${escapeHtml(automation.id)}">
-      <div class="card-heading">
-        <p class="eyebrow">n8n workflow</p>
-        <button type="button" class="danger subtle remove-automation" data-remove-automation="${escapeHtml(automation.id)}">Remove</button>
-      </div>
-      ${field('Workflow name', '', automation.name, 'Contact form routing', 'automation-name')}
-      ${field('Event / trigger', '', automation.event, 'Validated contact form submission', 'automation-event')}
-      ${textarea('Expected outcome', '', automation.outcome, 'Create or update CRM lead and notify the account owner.', 'automation-outcome')}
-      ${selectField('Status', 'automation-status', AUTOMATION_STATUS_OPTIONS, automation.status)}
-      <div class="field-pair">
-        ${field('n8n workflow ID', '', automation.n8nWorkflowId ?? '', 'Opaque workflow ID', 'automation-workflowId')}
-        ${field('n8n instance URL', '', automation.instanceUrl ?? '', 'https://n8n.example.com/', 'automation-instanceUrl')}
-      </div>
-      ${field('Credential reference', '', automation.credentialReference ?? '', 'env:N8N_CONTACT_WEBHOOK_URL', 'automation-credentialReference')}
-      ${textarea('Data and privacy notes', '', automation.dataNotes, 'Fields transferred, retention, consent, minimization, and error handling.', 'automation-dataNotes')}
-    </article>
-  `;
-}
-
 const WORK_STATUS_OPTIONS: ReadonlyArray<[WebsiteWorkStatus, string]> = [
   ['not-started', 'Not started'],
   ['draft', 'Draft'],
@@ -2179,37 +2552,202 @@ function surfaceKindLabel(kind: WebsiteWorkspaceConfig['surfaceKind']): string {
   return UI_SURFACE_OPTIONS.find(([value]) => value === kind)?.[1] ?? 'Other interface';
 }
 
-const PLATFORM_STATUS_OPTIONS: ReadonlyArray<[WebsitePlatformStatus, string]> = [
-  ['not-planned', 'Not planned'],
-  ['planned', 'Planned'],
-  ['configured', 'Configured'],
-  ['live', 'Live'],
-  ['blocked', 'Blocked'],
-];
+/**
+ * The Surfaces rail — the navigation, in place of eight numbered steps.
+ *
+ * Two lists. *Found in this project* is the scan, minus anything already picked
+ * up: every row is a file the scan classified by a declared rule, and picking
+ * one up creates a surface that records where it came from. *Designed here* is
+ * every surface, found or drawn, and clicking one opens it on the canvas. The
+ * scan is bounded and conservative, and the rule table sits underneath so a
+ * file that is missing can be explained rather than wondered about.
+ */
+function renderSurfacesRail(
+  config: WebsiteWorkspaceConfig,
+  uiSurfaces: UiSurfaceScanReport | undefined,
+  options: WebsiteStudioHtmlOptions,
+): string {
+  const noun = config.surfaceKind === 'website' ? 'page' : 'screen';
+  const pickedUp = new Set(config.pages.map(page => page.source?.path).filter((entry): entry is string => Boolean(entry)));
+  const found = (uiSurfaces?.surfaces ?? []).filter(surface => surface.kind !== 'stylesheet' && !pickedUp.has(surface.path));
+  const shown = found.slice(0, 20);
+  const foundList = !uiSurfaces
+    ? '<p class="rail-empty">Not scanned — open a workspace folder to look for UI files.</p>'
+    : found.length === 0
+      ? `<p class="rail-empty">Nothing waiting to be picked up. ${uiSurfaces.filesExamined} file${uiSurfaces.filesExamined === 1 ? '' : 's'} looked at.</p>`
+      : shown.map(surface => `
+        <div class="surface-row found">
+          <div><strong>${escapeHtml(surface.label)}</strong><small title="${escapeHtml(surface.path)}">${escapeHtml(surface.path)}</small></div>
+          <span class="tag">${escapeHtml(surface.adapterId)} · ${escapeHtml(surface.kind)}</span>
+          <button type="button" class="subtle" data-pick-up="${escapeHtml(surface.path)}"${options.readOnly ? ' disabled' : ''} title="Bring this file in as a surface to design and brand here. Its layout stays the project's.">Pick up</button>
+        </div>`).join('')
+        + (found.length > shown.length
+          ? `<p class="rail-empty">${found.length - shown.length} more not listed${uiSurfaces.truncated ? ' — the scan hit a cap' : ''}.</p>`
+          : '');
+  const rules = uiSurfaces
+    ? `<details class="rail-rules"><summary>Why these files</summary><ul>${uiSurfaces.rules.map(rule =>
+        `<li><code>${escapeHtml(rule.id)}</code> — ${escapeHtml(rule.description)}</li>`).join('')}</ul></details>`
+    : '';
+  const designed = config.pages.length === 0
+    ? `<p class="rail-empty">No ${noun}s yet.</p>`
+    : config.pages.map(page => `
+      <button type="button" class="surface-row designed" data-open-surface="${escapeHtml(page.id)}" title="${escapeHtml(page.slug)}">
+        <div><strong>${escapeHtml(page.title)}</strong><small>${escapeHtml(page.source ? `from ${page.source.path}` : page.slug)}</small></div>
+        ${page.source ? '<span class="tag">found</span>' : ''}
+      </button>`).join('');
+  const brands = config.brands.length === 0
+    ? '<p class="rail-empty">No brand yet.</p>'
+    : config.brands.map(preset => `
+      <div class="surface-row brand">
+        <div><strong>${escapeHtml(preset.label)}</strong><small>${preset.id === config.defaultBrandId ? 'default' : `${preset.tokens.length} role${preset.tokens.length === 1 ? '' : 's'}`}</small></div>
+        ${preset.id === config.defaultBrandId ? '<span class="tag">★</span>' : ''}
+      </div>`).join('');
+  return `
+    <div class="rail-section">
+      <div class="rail-heading"><p class="eyebrow">Found in this project</p></div>
+      ${foundList}
+      ${rules}
+    </div>
+    <div class="rail-section">
+      <div class="rail-heading"><p class="eyebrow">Designed here</p><button type="button" class="subtle" id="addSurface"${options.readOnly ? ' disabled' : ''}>+ Add</button></div>
+      ${designed}
+    </div>
+    <div class="rail-section">
+      <div class="rail-heading"><p class="eyebrow">Brands</p><button type="button" class="nav-button subtle" data-page-target="brands">Manage</button></div>
+      ${brands}
+    </div>
+    <div class="nav-footer">
+      <button type="button" class="secondary full" data-open-ssot="json">Open website.json</button>
+      <button type="button" class="secondary full" data-open-ssot="markdown">Open website.md</button>
+    </div>`;
+}
 
-const AUTOMATION_STATUS_OPTIONS: ReadonlyArray<[WebsiteAutomationStatus, string]> = [
-  ['idea', 'Idea'],
-  ['mapped', 'Mapped'],
-  ['configured', 'Configured'],
-  ['verified', 'Verified'],
-  ['paused', 'Paused'],
-];
+/**
+ * The views, as a strip of plain links.
+ *
+ * Unnumbered on purpose. The rail says *what* you are designing; this says
+ * *which aspect* of it you are looking at, and none of them comes before
+ * another.
+ */
+function renderViewStrip(config: WebsiteWorkspaceConfig, activePage: WebsiteStudioPage): string {
+  const isWebsite = config.surfaceKind === 'website';
+  const views: Array<[WebsiteStudioPage, string]> = [
+    ['design', 'Design'],
+    ['structure', isWebsite ? 'Sitemap' : 'Screens & flows'],
+    ['brands', 'Brands & system'],
+    ['content', 'Content design'],
+    ['handoff', 'Handoff'],
+    ['brief', 'Brief'],
+  ];
+  return `<nav class="view-strip" aria-label="UI Studio views">${views.map(([id, label]) =>
+    `<button type="button" class="nav-button${activePage === id ? ' active' : ''}" data-page-target="${id}">${escapeHtml(label)}</button>`).join('')}</nav>`;
+}
 
-const DEVELOP_HOSTING_MODE_OPTIONS = [
-  ['local', 'Local (default)'],
-  ['hosted', 'Hosted fallback (password protected)'],
-] as const;
+/**
+ * The brands, and the one way to read a new one out of the project.
+ *
+ * Every card shows what the brand actually sets, where it came from, and — for
+ * the default — how far it is really in effect, naming any role a surface has
+ * overridden locally. *Apply to surfaces* lists every surface with the brand it
+ * wears now, so applying is a choice made against what is there.
+ */
+function renderBrandCards(config: WebsiteWorkspaceConfig, options: WebsiteStudioHtmlOptions): string {
+  const stylesheets = (options.uiSurfaces?.surfaces ?? []).filter(surface => surface.kind === 'stylesheet');
+  const cards = config.brands.length === 0
+    ? '<div class="empty-state"><strong>No brand yet.</strong><span>Read one from a stylesheet below. Until then the fallback defaults apply.</span></div>'
+    : config.brands.map(preset => renderBrandCard(preset, config, options)).join('');
+  return `
+    ${pageIntro('Brands', 'One named set of colours, type, spacing and radius, applied to many surfaces by alias. Change the brand and every surface wearing it follows; a surface that keeps its own value is reported as an override rather than pretending.')}
+    <div class="brand-grid">${cards}</div>
+    <article class="panel-card">
+      <div class="card-heading">
+        <div>
+          <p class="eyebrow">From the project</p>
+          <h2>Read a brand from a stylesheet</h2>
+          <p>Every role names the file and line it came from. Anything that could not be read is listed with the reason, never guessed.</p>
+        </div>
+      </div>
+      ${stylesheets.length === 0
+        ? `<p class="token-help">${options.uiSurfaces ? 'No stylesheet declaring custom properties was found in this workspace.' : 'The workspace has not been scanned.'}</p>`
+        : `<div class="component-create-row">
+            <label class="field"><span>Stylesheet</span><select id="extractBrandSource">${stylesheets.map(surface =>
+              `<option value="${escapeHtml(surface.path)}">${escapeHtml(surface.path)}</option>`).join('')}</select></label>
+            <button type="button" id="extractBrand"${options.readOnly ? ' disabled' : ''}>Read it into a brand</button>
+          </div>`}
+    </article>
+    <details class="rail-rules brand-rules"><summary>How brands behave</summary><ul>${BRAND_PRESET_RULES.map(rule =>
+      `<li><code>${escapeHtml(rule.id)}</code> — ${escapeHtml(rule.describes)}</li>`).join('')}</ul></details>`;
+}
+
+function renderBrandCard(
+  preset: WebsiteWorkspaceConfig['brands'][number],
+  config: WebsiteWorkspaceConfig,
+  options: WebsiteStudioHtmlOptions,
+): string {
+  const isDefault = preset.id === config.defaultBrandId;
+  const swatches = BRAND_ROLES.map(role => {
+    const token = preset.tokens.find(entry => entry.id === role.id);
+    if (!token || !('value' in token) || token.value === undefined) {
+      return '';
+    }
+    // A colour reached this card through the preset sanitizer, which admits
+    // hex, rgb and hsl literals only — so it can sit in a style attribute.
+    if (role.kind === 'color' && typeof token.value === 'string') {
+      return `<span class="brand-swatch" title="${escapeHtml(role.label)}"><i style="background:${escapeHtml(token.value)}"></i>${escapeHtml(role.label)}</span>`;
+    }
+    const shown = typeof token.value === 'number' ? `${token.value}px` : String(token.value);
+    return `<span class="brand-swatch">${escapeHtml(role.label)}: ${escapeHtml(shown)}</span>`;
+  }).join('');
+  const report = isDefault ? describeBrandApplication(config.designGraph.tokens, preset) : undefined;
+  const origin = preset.source
+    ? preset.source.ruleId === 'legacy-design-system'
+      ? `Folded from the earlier design system on ${preset.source.extractedAt.slice(0, 10)}.`
+      : `Read from ${preset.source.path ?? 'a stylesheet'} on ${preset.source.extractedAt.slice(0, 10)}.`
+    : 'Authored here.';
+  const applyList = config.designGraph.screens.map(screen => {
+    const page = config.pages.find(entry => entry.id === screen.pageId);
+    const wearing = resolveScreenBrand({
+      brands: config.brands,
+      ...(config.defaultBrandId ? { defaultBrandId: config.defaultBrandId } : {}),
+      ...(screen.brandRef ? { brandRef: screen.brandRef } : {}),
+    });
+    const wears = wearing.preset
+      ? `${wearing.preset.label}${wearing.source === 'default' ? ' (default)' : ''}`
+      : screen.brandRef ? `names a brand that is gone (${screen.brandRef})` : 'no brand';
+    return `<label><input type="checkbox" data-brand-screen="${escapeHtml(screen.pageId)}"${wearing.preset?.id === preset.id ? ' checked' : ''} /> ${escapeHtml(page?.title ?? screen.pageId)} <small>${escapeHtml(wears)}</small></label>`;
+  }).join('');
+  return `
+    <article class="panel-card brand-card${isDefault ? ' is-default' : ''}" data-brand-card="${escapeHtml(preset.id)}">
+      <div class="card-heading">
+        <div>
+          <p class="eyebrow">${isDefault ? 'Default brand' : 'Brand'}</p>
+          <h2>${escapeHtml(preset.label)}</h2>
+          <p>${escapeHtml(origin)}</p>
+        </div>
+      </div>
+      <div class="brand-swatches">${swatches || '<span class="brand-swatch">No roles set.</span>'}</div>
+      ${preset.notes ? `<p class="token-help">${escapeHtml(preset.notes)}</p>` : ''}
+      ${report ? `<p class="token-help brand-report">${escapeHtml(report.summary)}</p>` : ''}
+      <details class="brand-apply">
+        <summary>Apply to surfaces…</summary>
+        <div class="brand-apply-list">${applyList || '<span class="rail-empty">No surfaces yet.</span>'}</div>
+        <button type="button" class="secondary" data-brand-apply="${escapeHtml(preset.id)}"${options.readOnly ? ' disabled' : ''}>Apply to the ticked surfaces</button>
+        <p class="token-help">Applying the default clears a surface's own choice, so it follows the default from then on.</p>
+      </details>
+      <div class="brand-actions">
+        <button type="button" class="secondary" data-brand-default="${escapeHtml(preset.id)}"${isDefault || options.readOnly ? ' disabled' : ''}>Set as default</button>
+        <button type="button" class="secondary danger" data-brand-remove="${escapeHtml(preset.id)}"${options.readOnly ? ' disabled' : ''}>Remove</button>
+      </div>
+    </article>`;
+}
+
+/** A slug for a surface picked up from a file name. */
+function surfaceSlug(text: string): string {
+  return text.toLowerCase().replace(/[^a-z0-9]+/g, '-').replace(/^-+|-+$/g, '') || 'surface';
+}
 
 function pageIntro(title: string, description: string): string {
   return `<div class="page-intro"><p class="eyebrow">Dedicated dashboard</p><h2>${escapeHtml(title)}</h2><p>${escapeHtml(description)}</p></div>`;
-}
-
-function navButton(id: WebsiteStudioPage, step: string, label: string, active: WebsiteStudioPage): string {
-  return `<button type="button" class="nav-button${id === active ? ' active' : ''}" data-page-target="${id}"><span>${step}</span>${escapeHtml(label)}</button>`;
-}
-
-function metricCard(label: string, value: string, detail: string): string {
-  return `<article class="metric-card"><span>${escapeHtml(label)}</span><strong>${escapeHtml(value)}</strong><small>${escapeHtml(detail)}</small></article>`;
 }
 
 function field(

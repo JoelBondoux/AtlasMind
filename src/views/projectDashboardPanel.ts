@@ -617,6 +617,25 @@ import {
   type RoadmapGraphDocument,
 } from '../core/roadmapGraphStore.js';
 import { DataPrivacyManager, readDataPrivacyConfig, writeDataPrivacyConfig, defaultDataPrivacyConfig } from '../core/dataPrivacyManager.js';
+import {
+  WEBSITE_PLATFORM_CATALOG,
+  WEBSITE_WORKSPACE_SSOT_PATH,
+  WebsiteWorkspaceManager,
+  assessWebsiteHostingEnvironments,
+  type WebsiteWorkspaceRead,
+} from '../core/websiteWorkspaceManager.js';
+import {
+  WEBSITE_FRAMEWORK_CATALOG,
+  buildCommandFor,
+  describeStackCompatibility,
+  devCommandFor,
+  isWebsiteFrameworkId,
+  renderCommandLine,
+  websiteFrameworkSpec,
+  type WebsiteFrameworkId,
+} from '../core/websiteFrameworks.js';
+import { compareWebsiteToDelivery } from '../core/websiteDeliverySync.js';
+import type { WebsiteAutomation, WebsiteHostingEnvironment, WebsitePlatformTarget, WebsiteWorkspaceConfig } from '../types.js';
 import { COMPLIANCE_PACKS } from '../core/compliancePacks.js';
 import { getProviderDataGovernance } from '../core/providerDataGovernance.js';
 import {
@@ -626,6 +645,7 @@ import {
   seedDeliveryConfig,
   appendPromotionHistory,
   readPromotionHistory,
+  readDeliveryConfig,
   acquireDeliveryLock,
   releaseDeliveryLock,
   type DeliverySeedInput,
@@ -1372,6 +1392,9 @@ type ProjectDashboardMessage =
   | { type: 'selectBaseline'; payload: string }
   | { type: 'saveDirectorConfig'; payload: import('../types.js').ProjectDirectorConfig }
   | { type: 'seedDirectorFromRepo' }
+  | { type: 'saveWebsiteDelivery'; payload: { platforms: unknown[]; hostingEnvironments: unknown[]; automations: unknown[] } }
+  | { type: 'selectWebsiteFramework'; payload: { frameworkId: WebsiteFrameworkId } }
+  | { type: 'planWebsiteStackSetup' }
   | { type: 'saveDocumentsConfig'; payload: import('../types.js').DocumentsConfig }
   | { type: 'seedDocumentsFromRepo' }
   | { type: 'createShelfFolder'; payload: string }
@@ -3233,6 +3256,13 @@ interface DashboardSnapshot {
     advisories: AdvisoryFeed;
     advisorySummary: string;
   };
+  /**
+   * Website delivery — the framework, the three hosting environments, the
+   * platform targets and the n8n automations — as the Delivery page shows it.
+   * Present only when the project has a website plan of the website profile;
+   * absent means there is no such plan, never that delivery is unconfigured.
+   */
+  websiteDelivery?: DashboardWebsiteDelivery;
   delivery: {
     packageVersion: string;
     dependencyCount: number;
@@ -6278,6 +6308,15 @@ export class ProjectDashboardPanel {
       case 'setRiskFilter':
         // View-only state; the webview owns it. Nothing to persist.
         return;
+      case 'saveWebsiteDelivery':
+        await this.handleSaveWebsiteDelivery(message.payload);
+        return;
+      case 'selectWebsiteFramework':
+        await this.handleSelectWebsiteFramework(message.payload.frameworkId);
+        return;
+      case 'planWebsiteStackSetup':
+        await this.handlePlanWebsiteStackSetup();
+        return;
       case 'saveDocumentsConfig':
         {
           // The webview payload is untrusted: sanitize it (clamp strings, make
@@ -6604,6 +6643,82 @@ export class ProjectDashboardPanel {
     }
     await this.context?.globalState?.update(LOCAL_CI_INSPECTION_MEMORY_KEY, memory);
     this.localCiInspectionMemory = { restored: true, memory, ageDays: 0, imageMatches: true };
+  }
+
+  // ── Website delivery ──────────────────────────────────────────
+
+  private websiteManager(): WebsiteWorkspaceManager | undefined {
+    const workspaceRoot = vscode.workspace.workspaceFolders?.[0]?.uri.fsPath;
+    return workspaceRoot ? new WebsiteWorkspaceManager(workspaceRoot) : undefined;
+  }
+
+  /**
+   * Save the three delivery arrays. Everything else in the plan — pages, the
+   * design graph, brands, the stack choice — is re-read from disk at the
+   * moment of the save rather than taken from this page's snapshot, so a
+   * Studio save made since this page rendered is not undone by it.
+   */
+  private async handleSaveWebsiteDelivery(payload: { platforms: unknown[]; hostingEnvironments: unknown[]; automations: unknown[] }): Promise<void> {
+    const manager = this.websiteManager();
+    if (!manager) {
+      return;
+    }
+    const current = manager.read();
+    if (current.preserveExisting) {
+      void vscode.window.showWarningMessage(current.notice ?? 'The website plan was written by a newer AtlasMind and is read-only here.');
+      return;
+    }
+    await manager.save({
+      ...current.config,
+      platforms: payload.platforms,
+      hostingEnvironments: payload.hostingEnvironments,
+      automations: payload.automations,
+    });
+    await this.syncState();
+  }
+
+  /**
+   * Record the framework choice. Saved immediately rather than held for the
+   * next Save: the choice drives what the setup planner would do, and a plan
+   * built from an unsaved selection would describe a stack the file does not
+   * record. Nothing is installed by this.
+   */
+  private async handleSelectWebsiteFramework(frameworkId: WebsiteFrameworkId): Promise<void> {
+    const manager = this.websiteManager();
+    if (!manager) {
+      return;
+    }
+    const current = manager.read();
+    if (current.preserveExisting) {
+      void vscode.window.showWarningMessage(current.notice ?? 'The website plan was written by a newer AtlasMind and is read-only here.');
+      return;
+    }
+    const config = current.config;
+    const primaryPlatform = config.platforms.find(platform => platform.primary);
+    await manager.save({
+      ...config,
+      stack: {
+        frameworkId,
+        platformId: config.stack?.platformId ?? primaryPlatform?.id ?? 'cloudflare-pages',
+        packageManager: config.stack?.packageManager
+          ?? vscode.workspace.getConfiguration('atlasmind').get<string>('website.setup.packageManager', 'npm'),
+        decidedAt: new Date().toISOString(),
+      },
+    });
+    await this.syncState();
+    void vscode.window.showInformationMessage(
+      `${websiteFrameworkSpec(frameworkId).label} recorded. Nothing has been installed — use "Set up this stack" when you are ready.`,
+    );
+  }
+
+  /** Hand the saved plan to the guarded setup command, which plans, shows and confirms before it runs anything. */
+  private async handlePlanWebsiteStackSetup(): Promise<void> {
+    const manager = this.websiteManager();
+    if (!manager) {
+      return;
+    }
+    const config: WebsiteWorkspaceConfig = manager.read().config;
+    await vscode.commands.executeCommand('atlasmind.setUpWebsiteStack', { config });
   }
 
   private async syncState(): Promise<void> {
@@ -16897,6 +17012,29 @@ export function isProjectDashboardMessage(message: unknown): message is ProjectD
       && Array.isArray(p['responsibilities']) && Array.isArray(p['assignments']) && Array.isArray(p['followUps']);
   }
 
+  if (candidate['type'] === 'saveWebsiteDelivery') {
+    // Three arrays, bounded, and nothing else: the website manager sanitizes
+    // every field on save, and the fixed environment policies are rebuilt
+    // there rather than trusted from here.
+    const p = candidate['payload'] as Record<string, unknown> | undefined;
+    return typeof p === 'object' && p !== null
+      && Object.keys(p).length === 3
+      && Array.isArray(p['platforms']) && p['platforms'].length <= 20
+      && Array.isArray(p['hostingEnvironments']) && p['hostingEnvironments'].length <= 3
+      && Array.isArray(p['automations']) && p['automations'].length <= 50;
+  }
+
+  if (candidate['type'] === 'selectWebsiteFramework') {
+    // Checked against the catalog, not merely for being a string: this id
+    // chooses which constant command the setup planner will run.
+    const p = candidate['payload'] as Record<string, unknown> | undefined;
+    return typeof p === 'object' && p !== null && isWebsiteFrameworkId(p['frameworkId']);
+  }
+
+  if (candidate['type'] === 'planWebsiteStackSetup') {
+    return true;
+  }
+
   if (candidate['type'] === 'saveDocumentsConfig') {
     const p = candidate['payload'] as Record<string, unknown> | undefined;
     return typeof p === 'object' && p !== null && p['version'] === 1 && Array.isArray(p['filing']) && Array.isArray(p['autoUpdate']);
@@ -18004,6 +18142,125 @@ function buildObservedScope(
   };
 }
 
+
+/** Website delivery on the Delivery page. Built by `buildWebsiteDeliveryView`, never assembled by the webview. */
+export interface DashboardWebsiteDelivery {
+  readOnly: boolean;
+  notice?: string;
+  /** `atlasmind.website.setup.enabled`. Off means the setup button is withheld and says which setting turns it on. */
+  canSetUpStack: boolean;
+  stack?: { frameworkId: string; platformId: string; packageManager: string };
+  /** Every framework in the catalog, graded against the primary platform, with the reason on the card. */
+  frameworks: Array<{
+    id: WebsiteFrameworkId;
+    label: string;
+    description: string;
+    outputDir: string;
+    scaffold: boolean;
+    compatibility: string;
+    reason: string;
+    selected: boolean;
+  }>;
+  gradedAgainst: string;
+  stackSummary?: { dev?: string; build?: string; output: string };
+  /**
+   * The website's three environments against the Delivery pipeline's stages,
+   * compared on every render now that both live on one page. `compared` is
+   * false when there is no pipeline to compare against, and the summary says so.
+   */
+  drift: { compared: boolean; inStep: boolean; summary: string };
+  hostingEnvironments: Array<WebsiteHostingEnvironment & { readiness: { status: string; issues: string[] } }>;
+  platforms: Array<WebsitePlatformTarget & { mode: string; description: string }>;
+  automations: WebsiteAutomation[];
+}
+
+/**
+ * The website plan as the Delivery page shows it. Pure: the framework grades,
+ * the readiness of each environment and the drift against the pipeline are
+ * all derived here from the saved plan, so the page cannot restate any of
+ * them more reassuringly than the modules that grade them.
+ */
+export function buildWebsiteDeliveryView(
+  read: Pick<WebsiteWorkspaceRead, 'config' | 'preserveExisting' | 'notice'>,
+  delivery: DeliveryConfig | undefined,
+  canSetUpStack: boolean,
+): DashboardWebsiteDelivery {
+  const config = read.config;
+  const primaryPlatform = config.platforms.find(platform => platform.primary);
+  const platformId = config.stack?.platformId ?? primaryPlatform?.id ?? 'cloudflare-pages';
+  const readiness = new Map(assessWebsiteHostingEnvironments(config).map(item => [item.id, item]));
+  const report = compareWebsiteToDelivery(config.hostingEnvironments, delivery, config.platforms);
+  const stackSummary = config.stack && isWebsiteFrameworkId(config.stack.frameworkId)
+    ? (() => {
+      const spec = websiteFrameworkSpec(config.stack!.frameworkId as WebsiteFrameworkId);
+      const manager = (config.stack!.packageManager || 'npm') as Parameters<typeof buildCommandFor>[1];
+      const dev = devCommandFor(spec, manager);
+      const build = buildCommandFor(spec, manager);
+      return {
+        ...(dev ? { dev: renderCommandLine(dev.command, dev.args) } : {}),
+        ...(build ? { build: renderCommandLine(build.command, build.args) } : {}),
+        output: spec.outputDir,
+      };
+    })()
+    : undefined;
+  return {
+    readOnly: read.preserveExisting,
+    ...(read.notice ? { notice: read.notice } : {}),
+    canSetUpStack,
+    ...(config.stack ? { stack: { ...config.stack } } : {}),
+    frameworks: WEBSITE_FRAMEWORK_CATALOG.map(spec => {
+      const verdict = describeStackCompatibility(spec.id, platformId);
+      return {
+        id: spec.id,
+        label: spec.label,
+        description: spec.description,
+        outputDir: spec.outputDir,
+        scaffold: spec.scaffold !== undefined,
+        compatibility: verdict.compatibility,
+        reason: verdict.reason,
+        selected: spec.id === config.stack?.frameworkId,
+      };
+    }),
+    gradedAgainst: primaryPlatform?.label ?? 'the selected platform',
+    ...(stackSummary ? { stackSummary } : {}),
+    drift: delivery
+      ? { compared: true, inStep: report.inStep, summary: report.summary }
+      : { compared: false, inStep: false, summary: 'No Delivery pipeline is configured for this project yet, so there is nothing to compare the three environments against.' },
+    hostingEnvironments: config.hostingEnvironments.map(environment => ({
+      ...environment,
+      readiness: {
+        status: readiness.get(environment.id)?.status ?? 'blocked',
+        issues: [...(readiness.get(environment.id)?.issues ?? [])],
+      },
+    })),
+    platforms: config.platforms.map(platform => {
+      const catalog = WEBSITE_PLATFORM_CATALOG.find(item => item.id === platform.id);
+      return { ...platform, mode: catalog?.mode ?? 'custom', description: catalog?.description ?? '' };
+    }),
+    automations: config.automations.map(automation => ({ ...automation })),
+  };
+}
+
+/**
+ * The website plan, if the workspace has one of the website profile. Read from
+ * disk on every snapshot rather than held: the Studio writes the same file,
+ * and a held copy would show the Studio's last save as this page's truth.
+ */
+function collectWebsiteDelivery(workspaceRoot: string | undefined): DashboardWebsiteDelivery | undefined {
+  if (!workspaceRoot || !existsSync(path.join(workspaceRoot, WEBSITE_WORKSPACE_SSOT_PATH))) {
+    return undefined;
+  }
+  const read = new WebsiteWorkspaceManager(workspaceRoot).read();
+  if (read.config.surfaceKind !== 'website') {
+    return undefined;
+  }
+  return buildWebsiteDeliveryView(
+    read,
+    readDeliveryConfig(workspaceRoot),
+    vscode.workspace.getConfiguration('atlasmind').get<boolean>('website.setup.enabled', false),
+  );
+}
+
 async function collectDashboardSnapshot(
   atlas: AtlasMindContext,
   ideationAttachments: TaskImageAttachment[] = [],
@@ -18057,6 +18314,7 @@ async function collectDashboardSnapshot(
   // A declared home is authoritative. Falling back to the first folder when it
   // is missing would silently read a different component's SSOT and counts.
   const workspaceRoot = declaredComposition ? homeScopeRoot?.fsPath : firstWorkspaceFolder?.uri.fsPath;
+  const websiteDelivery = collectWebsiteDelivery(workspaceRoot);
   const workspaceFolder = (vscode.workspace.workspaceFolders ?? [])
     .find(folder => folder.uri.fsPath === workspaceRoot) ?? firstWorkspaceFolder;
   const workspaceName = firstWorkspaceFolder?.name ?? 'No Workspace';
@@ -18815,6 +19073,7 @@ async function collectDashboardSnapshot(
       advisories: advisoryFeed,
       advisorySummary: describeAdvisoryFeed(advisoryFeed),
     },
+    ...(websiteDelivery === undefined ? {} : { websiteDelivery }),
     delivery: {
       packageVersion: packageSnapshot.version,
       dependencyCount: packageSnapshot.dependencyCount,
@@ -33334,4 +33593,45 @@ const DASHBOARD_CSS = `
       transform: none;
     }
   }
+  /* ── Website delivery (moved here from UI Studio) ─────────────── */
+  .website-delivery { display: grid; gap: 16px; margin: 18px 0; }
+  .website-delivery .wd-span { grid-column: 1 / -1; }
+  .website-delivery .wd-card-head { display: flex; align-items: flex-start; justify-content: space-between; gap: 12px; flex-wrap: wrap; }
+  .website-delivery .wd-card-head h3, .website-delivery .wd-card-head h4 { margin: 2px 0; }
+  .website-delivery .wd-frameworks { display: grid; grid-template-columns: repeat(auto-fill, minmax(220px, 1fr)); gap: 10px; margin-top: 12px; }
+  .website-delivery .wd-framework { display: grid; gap: 4px; text-align: left; padding: 12px; border-radius: 12px; border: 1px solid var(--vscode-widget-border, rgba(127,127,127,0.25)); background: var(--vscode-editorWidget-background, rgba(127,127,127,0.06)); color: var(--vscode-foreground); cursor: pointer; font: inherit; }
+  .website-delivery .wd-framework:hover { background: var(--vscode-list-hoverBackground); }
+  .website-delivery .wd-framework.selected { border-color: var(--vscode-focusBorder); box-shadow: inset 0 0 0 1px var(--vscode-focusBorder); }
+  .website-delivery .wd-framework[disabled] { opacity: .6; cursor: default; }
+  .website-delivery .wd-framework-name { font-weight: 600; }
+  .website-delivery .wd-framework-badge { font-size: .72rem; text-transform: uppercase; letter-spacing: .04em; opacity: .8; }
+  .website-delivery .compat-unsupported .wd-framework-badge { color: var(--vscode-errorForeground); }
+  .website-delivery .compat-workable .wd-framework-badge { color: var(--vscode-editorWarning-foreground, #d29922); }
+  .website-delivery .compat-ideal .wd-framework-badge { color: var(--vscode-testing-iconPassed, #3fb950); }
+  .website-delivery .wd-framework-desc, .website-delivery .wd-framework-reason, .website-delivery .wd-framework-meta { font-size: .8rem; opacity: .85; }
+  .website-delivery .wd-summary { display: grid; grid-template-columns: auto 1fr; gap: 6px 14px; margin: 12px 0 0; padding-top: 10px; border-top: 1px solid var(--vscode-widget-border, rgba(127,127,127,0.25)); font-size: .85rem; }
+  .website-delivery .wd-summary dt { font-weight: 600; opacity: .8; }
+  .website-delivery .wd-summary dd { margin: 0; }
+  .website-delivery .wd-instep { color: var(--vscode-testing-iconPassed, #3fb950); }
+  .website-delivery .wd-drift { color: var(--vscode-editorWarning-foreground, #d29922); }
+  .website-delivery .wd-environments { display: grid; grid-template-columns: repeat(auto-fit, minmax(260px, 1fr)); gap: 12px; }
+  .website-delivery .wd-platforms, .website-delivery .wd-automations { display: grid; grid-template-columns: repeat(auto-fill, minmax(280px, 1fr)); gap: 12px; }
+  .website-delivery .wd-card { display: grid; gap: 8px; padding: 14px; border-radius: 12px; border: 1px solid var(--vscode-widget-border, rgba(127,127,127,0.25)); background: var(--vscode-editorWidget-background, rgba(127,127,127,0.06)); }
+  .website-delivery .wd-field { display: grid; gap: 4px; font-size: .82rem; }
+  .website-delivery .wd-field span { font-weight: 600; }
+  .website-delivery .wd-field input, .website-delivery .wd-field select, .website-delivery .wd-field textarea { width: 100%; box-sizing: border-box; padding: 6px 8px; border-radius: 6px; border: 1px solid var(--vscode-input-border, var(--vscode-widget-border, rgba(127,127,127,0.35))); background: var(--vscode-input-background); color: var(--vscode-input-foreground); font: inherit; }
+  .website-delivery .wd-pair { display: grid; grid-template-columns: repeat(auto-fit, minmax(160px, 1fr)); gap: 8px; }
+  .website-delivery .wd-locked { display: grid; gap: 4px; font-size: .82rem; }
+  .website-delivery .wd-locked span { font-weight: 600; }
+  .website-delivery .wd-locked strong { padding: 6px 8px; border: 1px dashed var(--vscode-widget-border, rgba(127,127,127,0.35)); border-radius: 6px; font-weight: 500; }
+  .website-delivery .wd-pill, .website-delivery .wd-guard { display: inline-block; padding: 2px 8px; border-radius: 999px; border: 1px solid var(--vscode-widget-border, rgba(127,127,127,0.35)); font-size: .72rem; text-transform: uppercase; letter-spacing: .04em; }
+  .website-delivery .wd-pill.ready { border-color: var(--vscode-testing-iconPassed, #3fb950); color: var(--vscode-testing-iconPassed, #3fb950); }
+  .website-delivery .wd-pill.needs-setup { border-color: var(--vscode-editorWarning-foreground, #d29922); color: var(--vscode-editorWarning-foreground, #d29922); }
+  .website-delivery .wd-pill.blocked { border-color: var(--vscode-errorForeground); color: var(--vscode-errorForeground); }
+  .website-delivery .wd-guard { justify-self: start; }
+  .website-delivery .wd-issues { margin: 0; padding-left: 18px; font-size: .8rem; color: var(--vscode-editorWarning-foreground, #d29922); }
+  .website-delivery .wd-clear { margin: 0; font-size: .8rem; color: var(--vscode-testing-iconPassed, #3fb950); }
+  .website-delivery .wd-primary { display: flex; align-items: center; gap: 6px; font-size: .8rem; }
+  .website-delivery .action-link.danger { color: var(--vscode-errorForeground); }
+
 `;

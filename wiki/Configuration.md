@@ -357,10 +357,10 @@ However you set these, a few things hold:
 - A framework or platform AtlasMind has no verified command for gets **no command**, and says so,
   rather than an improvised one.
 
-The Stack page also compares Website Studio's three environments with the Delivery page's stages and
-shows you which fields disagree. They're two separate copies, so they can drift; syncing never clears
-a real Delivery value with an empty one from the Studio, and can only ever *add* promotion protection,
-never remove it.
+The Delivery page's *Website delivery* card compares the website's three environments with the
+pipeline's stages on every render and shows you which fields disagree. They're two separate copies, so
+they can drift; syncing never clears a real Delivery value with an empty one from the website plan, and
+can only ever *add* promotion protection, never remove it.
 
 ---
 
