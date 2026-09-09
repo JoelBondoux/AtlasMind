@@ -19,6 +19,43 @@ Older entries below describe the software as it was at the time and are delibera
 
 ---
 
+## v0.460.0 -- Repository events, not just chat
+
+Everything AtlasMind did began with somebody typing. That is the right default, and it was also the
+ceiling: a failing pipeline, a new advisory, a review sitting on you, a blocker defect -- all of them
+happen while you are looking somewhere else, and none of them reached you until you next opened the
+dashboard.
+
+**A word about what "while you're away" can honestly mean.** A VS Code extension does not run when the
+editor is closed; there is no daemon and there is not going to be one. So this is *ambient* rather than
+*background*: it works while you are in the editor and not looking at AtlasMind, which is where nearly
+all of the time goes anyway. Claiming more would be a promise that gets found out on the morning
+somebody needed it.
+
+**An event is a change, not a state.** A pipeline that is red stays red -- if "red" were the event it
+would fire on every check forever, and the first thing anybody would do is switch it off. A red run
+fires once. A condition that clears is forgotten, so the same one coming back later fires again.
+
+**Deny by default, twice.** A master switch and a per-event subscription, both off: switching the
+feature on subscribes to nothing.
+
+**An ambient response never goes further than proposing**, whatever your workflow permits, because
+nobody is watching it. A security advisory and a blocked release are capped at *reporting* by
+declaration -- an unattended proposal about somebody else's disclosure, or about a step that cannot be
+undone, is worse than the alert itself.
+
+**A source that could not be read says so** rather than being counted as quiet. In this first release
+your defect, approval and test-case registers are always readable; anything needing the network is
+honestly reported as unobserved.
+
+**Spend defaults to nothing** -- an event can be reported to you but never worked on by a model until
+you set a cap. Reporting is never capped, because refusing to tell you what happened when a budget ran
+out would be the worst reading of a cost control.
+
+And nothing runs unattended. You get a notification and a draft; what happens next is your decision.
+
+---
+
 ## v0.459.0 -- The half of testing a scanner cannot read
 
 AtlasMind could already say a great deal about testing: which methodologies you declare, whether

@@ -6,6 +6,56 @@ The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/),
 
 ## [Unreleased]
 
+## [0.460.0] - 2026-09-09
+
+### Added
+
+- **Ambient triggers — the event bus agents subscribe to.** Everything AtlasMind did began with a
+  person typing. That is the right default and it was also the ceiling: a failing pipeline, a new
+  advisory, a review sitting on you and a blocker defect all happen while you are looking somewhere
+  else, and none of them reached you until you next opened the dashboard.
+
+  **A word about what "while you're away" can honestly mean.** A VS Code extension does not run when
+  the editor is closed; there is no daemon and there is not going to be one. So this is *ambient*
+  rather than *background*: it works while you are in the editor and not looking at AtlasMind, which is
+  where nearly all of the time goes anyway. Claiming more would be a promise that gets found out on the
+  morning somebody needed it.
+
+  **An event is a change, not a state.** A pipeline that is red stays red — if "red" were the event it
+  would fire on every check forever, and the first thing anybody would do is switch it off. An event is
+  a *subject* entering a condition it was not in last time, fingerprinted by subject, so one failing
+  run fires once. A condition that clears is forgotten, so the same one returning later fires again;
+  accumulating instead would mean a flaky pipeline fired exactly once, ever.
+
+  **Deny by default, twice.** A master switch and a per-event subscription, both off. Switching the
+  feature on subscribes to nothing.
+
+  **An ambient response never exceeds *propose*, whatever a workflow stage permits.** This is the rule
+  that makes the rest safe: a stage may allow more because somebody started that run and is watching
+  it, and nobody is watching this one. Two events are capped at *reporting* by declaration —
+  a security advisory and a blocked release — because an unattended proposal about somebody else's
+  disclosure, or about a step that cannot be undone, is worse than the alert itself. Every reduction is
+  stated in the same sentence as the request.
+
+  **A missed window is not a backlog.** A fortnight with the editor shut is one event per subject, not
+  one per check that never happened.
+
+  **Unknown is not quiet.** A source that could not be read is reported as *not observed* rather than
+  contributing silence — and its memory is carried forward, so an unreadable source coming back does
+  not replay every standing condition. In this first release the three local registers are always
+  readable and everything needing the network is honestly reported as unobserved.
+
+  **Spend defaults to nothing.** An event can be reported to you but never worked on by a model until
+  you set a cap. Reporting is never capped: refusing to tell you what happened because a budget ran out
+  would be the worst reading of a cost control.
+
+  **Nothing runs unattended.** The service returns a *plan*; the notification offers a draft, and what
+  happens next is a person's decision under the ordinary approval regime. The hand-off prompt says two
+  things an interactive one does not — that nobody is watching, and that the trigger is not a brief: an
+  event says a condition exists, not what should be done about it.
+
+  Five new settings under `atlasmind.ambient.*`, all documented, all off or zero by default.
+
 ## [0.459.0] - 2026-09-09
 
 ### Added
