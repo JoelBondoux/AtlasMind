@@ -6,6 +6,50 @@ The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/),
 
 ## [Unreleased]
 
+## [0.471.0] - 2026-09-09
+
+### Added
+
+- **Brand presets — one named set of design decisions, applied to many surfaces.** UI Studio held its
+  visual decisions in two places that could not agree: a flat design system (three colours, two fonts)
+  labelled *legacy* on its own page, and the typed token graph directly beneath it. Two sources of
+  truth for "what colour is primary" is a parity bug in waiting, and it is why a brand had nowhere to
+  live — there was no object that *was* the brand.
+
+  A preset is that object: a small set of value tokens keyed by declared role (`color-primary`,
+  `font-heading`, `spacing-base`, `radius-base` and six more) — the same ids the preview already
+  reads, so nothing downstream learns a new vocabulary. The workspace holds up to twelve, with one as
+  the default; a screen may name another with `brandRef`.
+
+  **Applied by alias, never by copy.** Applying a preset materialises its tokens into the graph as
+  `brand-<preset>-<role>` and points the role tokens at them. Change the preset and every surface
+  aliasing it follows; copying values into each surface would leave twelve screens each holding a stale
+  primary the day the brand changed. **A local override is a value, and it is reported** — a role
+  token holding its own value instead of an alias is named as an override per role, because a surface
+  that quietly kept its own primary while claiming the brand is the failure a preset exists to prevent.
+  **Materialised tokens are a projection**, rebuilt on every save and pruned when their preset goes;
+  editing one by hand does not survive, by design.
+
+  **An extracted preset cites its source and invents nothing.** A brand can be read out of a
+  stylesheet's `:root` custom properties by a published table of name rules; every role filled names
+  the file and the line it came from, and every property it could not use — a `var()` reference, a
+  `rem` value, a name matching no rule, a second declaration for a role already filled — is listed
+  with the reason rather than guessed at. Commented-out declarations are not read.
+
+  **The legacy design system folds into a preset once, at migration, and only if somebody changed
+  it.** Workspace format 14: a design system still holding its seeded defaults folds into nothing,
+  because a brand nobody chose must not be attributed to them. The old fields are kept for the readers
+  that still consume them and are **projected from the default preset on every save**, so they cannot
+  disagree with the graph.
+
+  This is the model half of the UI Studio rebuild; the shell that shows presets, scans the project for
+  surfaces and applies a brand across them follows.
+
+### Changed
+
+- `WebsiteWorkspaceConfig` is format 14: `brands`, `defaultBrandId`, and `brandRef` on a screen. The
+  migration adds an empty list to an untouched workspace and folds a changed one into `project-brand`.
+
 ## [0.470.1] - 2026-09-09
 
 ### Changed

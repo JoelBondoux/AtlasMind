@@ -34,6 +34,7 @@ import type {
   WebsiteStackChoice,
   WebsiteWorkspaceConfig,
   WebsiteWorkStatus,
+  UiDesignGraph,
 } from '../types.js';
 import { isWebsiteFrameworkId, isWebsitePackageManager } from './websiteFrameworks.js';
 import { scanMemoryEntry } from '../memory/memoryScanner.js';
@@ -42,7 +43,13 @@ import { deriveSectionLabels, sanitizeWireframe } from './websiteWireframe.js';
 import { buildSitemapTree, flattenSitemap, normalizeSlug } from './websiteSitemap.js';
 import { buildLinkGraph } from './websiteLinkGraph.js';
 import { interpretVersionedDocument } from './schemaMigration.js';
-import { applyDesignGraphToPages, designGraphFromPages, sanitizeUiDesignGraph } from './uiDesignGraph.js';
+import {
+  applyBrandPresets,
+  cleanBrandIdentifier,
+  projectDesignSystemFromBrand,
+  sanitizeBrandPresets,
+} from './brandPresets.js';
+import { applyDesignGraphToPages, designGraphFromPages, sanitizeUiDesignGraph, sanitizeUiDesignTokens } from './uiDesignGraph.js';
 import {
   sanitizeUiRepositoryMappings,
   UI_REPOSITORY_MAPPING_MAX_REVISION,
@@ -58,7 +65,7 @@ const MAX_LIST_ITEMS = 40;
 const MAX_PAGE_LINKS = 40;
 
 /** The format this build writes. Registered in `schemaMigration.ts` as the `website` kind. */
-const WEBSITE_SCHEMA_VERSION = 13;
+const WEBSITE_SCHEMA_VERSION = 14;
 
 const WORK_STATUSES = new Set<WebsiteWorkStatus>(['not-started', 'draft', 'review', 'approved', 'blocked']);
 const PLATFORM_STATUSES = new Set<WebsitePlatformStatus>(['not-planned', 'planned', 'configured', 'live', 'blocked']);
@@ -148,6 +155,7 @@ export function createDefaultWebsiteWorkspace(seed: WebsiteBootstrapSeed = {}): 
     },
     pages,
     designGraph: designGraphFromPages(pages),
+    brands: [],
     designSystem: defaultDesignSystem(seed.brandNotes),
     contentDesign: defaultContentDesign(),
     implementation: defaultImplementationGuide(),
@@ -169,9 +177,26 @@ export function sanitizeWebsiteWorkspace(input: unknown): WebsiteWorkspaceConfig
   const intake = sanitizeClientWebsiteIntake(source['intake']);
   const pages = sanitizePages(source['pages']);
   const selectedPages = pages.length > 0 ? pages : fallback.pages;
-  const designGraph = sanitizeUiDesignGraph(source['designGraph'], selectedPages);
+  const sanitizedGraph = sanitizeUiDesignGraph(source['designGraph'], selectedPages);
+  // Brands, then the graph tokens rebuilt around them: the brand-* tokens are a
+  // projection of the presets and the role tokens alias the default, so the
+  // graph never holds a brand value the presets do not.
+  const brands = sanitizeBrandPresets(source['brands']);
+  const requestedDefault = cleanBrandIdentifier(source['defaultBrandId']);
+  const defaultBrandId = requestedDefault && brands.some(preset => preset.id === requestedDefault)
+    ? requestedDefault
+    : undefined;
+  const designGraph: UiDesignGraph = {
+    ...sanitizedGraph,
+    tokens: sanitizeUiDesignTokens(applyBrandPresets(sanitizedGraph.tokens, brands, defaultBrandId)),
+  };
   const projectedPages = applyDesignGraphToPages(selectedPages, designGraph);
-  const designSystem = sanitizeDesignSystem(source['designSystem']);
+  // The legacy fields follow the default preset where one exists, so the
+  // readers that still consume them cannot disagree with the graph.
+  const designSystem = projectDesignSystemFromBrand(
+    sanitizeDesignSystem(source['designSystem']),
+    brands.find(preset => preset.id === defaultBrandId),
+  );
   const contentDesign = sanitizeContentDesign(source['contentDesign']);
   const implementation = sanitizeImplementationGuide(source['implementation']);
   const platforms = sanitizePlatforms(source['platforms']);
@@ -190,6 +215,8 @@ export function sanitizeWebsiteWorkspace(input: unknown): WebsiteWorkspaceConfig
     intake,
     pages: projectedPages,
     designGraph,
+    brands,
+    ...(defaultBrandId ? { defaultBrandId } : {}),
     designSystem,
     contentDesign,
     implementation,

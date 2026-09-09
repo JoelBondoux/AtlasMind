@@ -33,6 +33,7 @@
  */
 
 /** A persisted document kind, keyed by the file it lives in. */
+import { LEGACY_BRAND_PRESET_ID, brandPresetFromDesignSystem } from './brandPresets.js';
 export type SchemaDocumentKind =
   | 'documents'
   | 'delivery'
@@ -78,7 +79,7 @@ export const CURRENT_SCHEMA_VERSIONS: Readonly<Record<SchemaDocumentKind, number
   'roadmap-graph': 1,
   'compliance-evidence': 1,
   'compliance-regime': 1,
-  website: 13,
+  website: 14,
 };
 
 /** One step up the version ladder for one kind. Pure by contract. */
@@ -359,6 +360,27 @@ export const SCHEMA_MIGRATIONS: readonly SchemaMigrationStep[] = [
       version: 13,
       implementation: addEmptyRepositoryImportReports(document['implementation']),
     }),
+  },
+  {
+    kind: 'website',
+    from: 13,
+    to: 14,
+    summary: 'UI Studio now stores brand presets. A changed legacy design system folds into the first one; defaults fold into nothing.',
+    migrate: document => {
+      const updatedAt = typeof document['updatedAt'] === 'string' && !Number.isNaN(Date.parse(document['updatedAt']))
+        ? document['updatedAt']
+        : new Date().toISOString();
+      const folded = brandPresetFromDesignSystem(
+        asMigrationRecord(document['designSystem']) as Partial<import('../types.js').WebsiteDesignSystem>,
+        updatedAt,
+      );
+      return {
+        ...document,
+        version: 14,
+        brands: folded ? [folded] : [],
+        ...(folded ? { defaultBrandId: LEGACY_BRAND_PRESET_ID } : {}),
+      };
+    },
   },
 ];
 

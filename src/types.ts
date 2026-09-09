@@ -2182,6 +2182,8 @@ export interface UiDesignScreen {
   /** False preserves the meaningful legacy state "this screen has not been drawn". */
   initialized: boolean;
   baseBreakpoint: WireframeBreakpoint;
+  /** The brand this screen wears, when not the default. Resolved by `resolveScreenBrand`. */
+  brandRef?: string;
   nodes: UiDesignNode[];
 }
 
@@ -2353,6 +2355,35 @@ export interface WebsitePagePlan {
 }
 
 /** Project-level UI direction. Values are design decisions, never generated CSS or executable code. */
+/** Where a brand preset came from, so a derived one can be checked against its source. */
+export interface BrandPresetSource {
+  /** `legacy-design-system` folds the old flat fields; `stylesheet-custom-properties` reads a file. */
+  ruleId: 'legacy-design-system' | 'stylesheet-custom-properties';
+  /** Workspace-relative, for a stylesheet. Absent for the legacy fold. */
+  path?: string;
+  extractedAt: string;
+}
+
+/**
+ * One named set of design decisions, applied to many surfaces by alias.
+ *
+ * `tokens` hold **direct values only**, keyed by the role ids in
+ * `brandPresets.ts` (`color-primary`, `font-heading`, …) — the same ids the
+ * preview reads. A preset token that aliased another would make "what is
+ * primary" depend on something outside the preset, which is the two-sources
+ * problem this type exists to end. Applying a preset materialises its tokens
+ * into the graph as `brand-<preset>-<role>` and points the role tokens at them;
+ * see `applyBrandPresets`.
+ */
+export interface BrandPreset {
+  id: string;
+  label: string;
+  tokens: UiDesignToken[];
+  notes?: string;
+  /** Present when the preset was derived rather than authored. */
+  source?: BrandPresetSource;
+}
+
 export interface WebsiteDesignSystem {
   brandDirection: string;
   tone: string;
@@ -2474,9 +2505,11 @@ export interface WebsiteStackChoice {
  * Version 11 adds validated asset metadata and stable node references; migration
  * adds an empty asset authority rather than inspecting or guessing from files.
  * Version 13 adds bounded adapter evidence reports to revisioned repository mappings.
+ * Version 14 adds brand presets and a default; migration folds a *changed* legacy design
+ * system into the first preset and invents nothing for one still at its defaults.
  */
 export interface WebsiteWorkspaceConfig {
-  version: 13;
+  version: 14;
   updatedAt: string;
   /** Which profile the shared UI-design core is serving. Defaults to website for migrated workspaces. */
   surfaceKind: UiSurfaceKind;
@@ -2488,6 +2521,18 @@ export interface WebsiteWorkspaceConfig {
   designPrompt: string;
   pages: WebsitePagePlan[];
   designGraph: UiDesignGraph;
+  /**
+   * Named brands. The role tokens in `designGraph.tokens` alias whichever is
+   * the default; a screen may name another with `brandRef`.
+   */
+  brands: BrandPreset[];
+  /** The preset the role tokens follow. Absent means no brand is in effect. */
+  defaultBrandId?: string;
+  /**
+   * Kept for the readers that still consume it, and **projected from the
+   * default preset on every sanitize** where one exists — the wireframe idiom,
+   * where a derived structure is rebuilt rather than asked to agree.
+   */
   designSystem: WebsiteDesignSystem;
   contentDesign: UiContentDesign;
   implementation: UiImplementationGuide;

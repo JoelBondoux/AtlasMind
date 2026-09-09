@@ -19,6 +19,28 @@ Older entries below describe the software as it was at the time and are delibera
 
 ---
 
+## v0.471.0 -- Brand presets
+
+UI Studio held its visual decisions in two places that could not agree: a flat design system labelled
+*legacy* on its own page, and the typed token graph directly beneath it. Two sources of truth for
+"what colour is primary" is a parity bug in waiting -- and it is why a brand had nowhere to live.
+
+A preset is the object that was missing: a small set of value tokens keyed by role, the same ids the
+preview already reads. **Applied by alias, never by copy** -- change the preset and every surface
+follows. **A local override is a value, and it is reported**, so a surface cannot quietly keep its own
+primary while claiming the brand. **Materialised tokens are a projection**, rebuilt on every save.
+
+**An extracted preset cites its source and invents nothing.** Read a brand out of a stylesheet's
+`:root` custom properties and every role names the file and line it came from; every property it
+could not use is listed with the reason rather than guessed at.
+
+**The legacy design system folds into a preset once, at migration, and only if you had changed it.**
+Defaults nobody touched are not a brand decision.
+
+The model half of the UI Studio rebuild; the surface follows.
+
+---
+
 ## v0.470.1 -- Delivery record
 
 The delivery register now names 0.470.0 as the last promotion to Integration, so the Delivery

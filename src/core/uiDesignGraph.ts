@@ -1257,11 +1257,15 @@ function sanitizeScreen(
     }) : [];
   sanitizeComponentSlotsOnNodes(nodes, components);
 
+  const brandRef = cleanIdentifier(input['brandRef']);
   return {
     id: page.id,
     pageId: page.id,
     initialized,
     baseBreakpoint: wireframe?.breakpoint ?? breakpoint,
+    // Kept even when no preset carries the id: a reference to a brand that was
+    // deleted is reported by `resolveScreenBrand`, not silently dropped here.
+    ...(brandRef ? { brandRef } : {}),
     nodes,
   };
 }
