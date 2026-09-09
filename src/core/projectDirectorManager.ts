@@ -41,6 +41,7 @@ import type {
   ProjectDirectorHistoryEntry,
   ProjectTeamMode,
   Responsibility,
+  RotaEntry,
   Stakeholder,
   StakeholderCategory,
   TeamMember,
@@ -308,6 +309,8 @@ const STAKEHOLDER_CATEGORIES: StakeholderCategory[] = [
   'sponsor', 'client', 'user-representative', 'regulator', 'vendor', 'partner', 'internal', 'other',
 ];
 const LEVELS: DirectorLevel[] = ['high', 'medium', 'low'];
+
+const ROTA_KINDS: Array<RotaEntry['kind']> = ['away', 'reduced'];
 const ASSIGNMENT_KINDS: AssignmentKind[] = ['task', 'responsibility', 'review', 'decision', 'other'];
 const ASSIGNMENT_STATUSES: AssignmentStatus[] = ['todo', 'in-progress', 'blocked', 'done', 'cancelled'];
 const ASSIGNMENT_PRIORITIES: AssignmentPriority[] = ['high', 'medium', 'low'];
@@ -386,6 +389,22 @@ function cleanPathPatterns(value: unknown): string[] | undefined {
     }
   }
   return out.length > 0 ? out : undefined;
+}
+
+/**
+ * An ISO calendar date exactly as written, or nothing.
+ *
+ * Validated rather than coerced. `Date.parse` accepts a great deal and
+ * normalises silently, and a rota entry quietly moved to a different week would
+ * remove somebody's capacity on days nobody declared.
+ */
+function calendarDate(value: unknown): string | undefined {
+  const text = clampStr(value, 10);
+  if (!/^[0-9]{4}-[0-9]{2}-[0-9]{2}$/.test(text)) { return undefined; }
+  const parsed = new Date(`${text}T00:00:00Z`);
+  return Number.isNaN(parsed.getTime()) || parsed.toISOString().slice(0, 10) !== text
+    ? undefined
+    : text;
 }
 
 function slugify(value: string): string {
@@ -546,6 +565,37 @@ export function sanitizeProjectDirectorConfig(input: unknown): ProjectDirectorCo
     });
   }
 
+  // Declared absence (drop if the contact is missing or the dates are unreadable).
+  //
+  // A period that cannot be read is dropped rather than kept with a repaired
+  // date: an entry silently moved to a week nobody named would remove capacity
+  // on the wrong days and read exactly like one somebody entered.
+  const usedRotaIds = new Set<string>();
+  const rota: RotaEntry[] = [];
+  for (const entry of Array.isArray(raw['rota']) ? raw['rota'] as unknown[] : []) {
+    const r = asObject(entry);
+    const contactId = validRef(r['contactId']);
+    const from = calendarDate(r['from']);
+    const to = calendarDate(r['to']);
+    if (!contactId || !from || !to || to < from) { continue; }
+    let id = clampStr(r['id'], 80) || `rota-${slugify(contactId)}-${from}`;
+    while (usedRotaIds.has(id)) { id = `${id}-${usedRotaIds.size}`; }
+    usedRotaIds.add(id);
+    const kind = whitelist(r['kind'], ROTA_KINDS, 'away');
+    const reduced = typeof r['reducedDaysPerWeek'] === 'number' && Number.isFinite(r['reducedDaysPerWeek'])
+      ? Math.min(5, Math.max(0, r['reducedDaysPerWeek'] as number))
+      : undefined;
+    rota.push({
+      id,
+      contactId,
+      from,
+      to,
+      kind,
+      ...(kind === 'reduced' && reduced !== undefined ? { reducedDaysPerWeek: reduced } : {}),
+      ...(optStr(r['note'], MAX_LONG) ? { note: optStr(r['note'], MAX_LONG) as string } : {}),
+    });
+  }
+
   // Responsibilities (drop if the owner contact is missing; clear dangling backup).
   const usedRespIds = new Set<string>();
   const responsibilities: Responsibility[] = [];
@@ -647,6 +697,7 @@ export function sanitizeProjectDirectorConfig(input: unknown): ProjectDirectorCo
     contacts,
     stakeholders,
     teamMembers,
+    rota,
     responsibilities,
     assignments,
     followUps,
@@ -863,6 +914,22 @@ export function renderProjectDirectorMarkdown(config: ProjectDirectorConfig): st
     lines.push('| --- | --- | --- | --- |');
     for (const t of config.teamMembers) {
       lines.push(`| ${nameOf(t.contactId)} | ${t.discipline} | ${describe(t.allocation)} | ${preferredChannelLabel(contactOf(t.contactId))} |`);
+    }
+  }
+  lines.push('');
+
+  lines.push('## Declared absence');
+  lines.push('');
+  // Said explicitly rather than left as an empty heading: nobody writes down
+  // "I am not away", so an empty rota means nothing was recorded and must not
+  // be read as everybody being available.
+  if ((config.rota ?? []).length === 0) {
+    lines.push('_Nothing recorded. That means no absence was entered, not that everybody is available._');
+  } else {
+    lines.push('| Who | From | To | Kind | Note |');
+    lines.push('| --- | --- | --- | --- | --- |');
+    for (const entry of config.rota ?? []) {
+      lines.push(`| ${nameOf(entry.contactId)} | ${entry.from} | ${entry.to} | ${entry.kind} | ${describe(entry.note)} |`);
     }
   }
   lines.push('');

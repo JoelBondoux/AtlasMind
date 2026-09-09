@@ -38,9 +38,10 @@ Two nice touches: a mistyped command gets **corrected rather than answered** (`/
 | `/lens` | What to put in the Lens declaration files, with a worked example for each |
 | `/compliance` | What evidences each declared governance regime. `/compliance <regime>` for one regime's readout; `/compliance next` for the control most worth a decision and what would settle it. Records nothing — a status needs a named person and a date. |
 | `/localci` | Guided setup for running this repository's GitHub CI job on your own computer |
+| `/portal` | Guided setup for hosting the producer report as a GitHub Pages site. Leads with the fact that a Pages site is public even when the repository is private, and never enables Pages for you |
 | `/sync-instructions` | Reconcile every AI tool's instruction file — yours and AtlasMind's — into one agreed set |
 
-All four setup guides work the same way: each step is reported as done, to do, blocked or optional based
+All five setup guides work the same way: each step is reported as done, to do, blocked or optional based
 on what's actually configured, and **none of them will switch anything on for you**. `/acp` finishes by
 proving a real answer comes back; `/buzz` finishes by proving a real message arrives; `/localci` finishes
 by proving one CI job has actually run. Subscribed isn't the same as receiving, and installed isn't the
@@ -185,9 +186,10 @@ The session drawer above the transcript starts closed and remembers your choice 
 | `AtlasMind: Open Project Dashboard` | Repo health, roadmap, issues, branches, delivery and more; internal callers may supply a validated page and exact-record focus |
 | `AtlasMind: Open Project Director` | Stakeholders, team, assignments, and the shared personal Follow-ups attention list |
 | `AtlasMind: Open Project Ideation` | The thinking board |
+| `AtlasMind: Import Rota from a Calendar File` | Reads declared absence out of an `.ics` your rota app exported — Deputy, When I Work, Google Calendar or anything else. Only events naming an absence are imported: a rota feed is mostly the shifts somebody is *working*, and recording those as time off would mark them away on exactly the days they are rostered on, so a file of shifts is refused with that reason and everything left alone is counted. Nothing is fetched — a calendar feed URL is a password, so you download the file and pick it. Also on the Workload card |
 | `AtlasMind: Open Project Run Center` | Review, approve, pause and resume runs |
 | `AtlasMind: Open Mission Control` | Define and watch autonomous loop runs |
-| `AtlasMind: Open UI Studio` | Visual UI planning, content design, wireframes, design system, and implementation handoff; website profiles also include delivery tooling |
+| `AtlasMind: Open UI Studio` | Pick up the UI files found in the project or draw new surfaces, design them beside the canvas with a built-in-browser preview, brand them from named presets, and hand off to the implementation. Website delivery is on the Project Dashboard's Delivery page |
 | `AtlasMind: Open UI Preview in Built-in Browser` | Rebuild the deterministic structure/content/style index, serve it from guarded `127.0.0.1`, and open it in VS Code's built-in browser. Asks before turning preview on for the first time |
 | `AtlasMind: Stop UI Preview` | Stop the shared local preview server. Also happens when UI Studio closes or the extension deactivates |
 | `AtlasMind: Generate Website From Plan` | Runs an already-confirmed generation plan. Normally reached from a **Generate** button in Website Studio, which is what builds the plan and shows you the file list |
@@ -196,6 +198,7 @@ The session drawer above the transcript starts closed and remembers your choice 
 | `AtlasMind: Set Up Website Stack` | Scaffolds the chosen framework, writes the deploy config and stage branches, and optionally the CI workflow. Shows every command and every file in full before anything runs. Normally reached from **Set up this stack** on the Stack page |
 | `AtlasMind: Generate Producer Report` | Writes project status — roadmap progress by gate, open risks and their recorded decisions, delivery readiness, and cost against estimate — into `project_memory/operations/` as markdown, a self-contained HTML page, and JSON. Deterministic and model-free: the same project state produces the same report. A section that could not be read says so rather than appearing empty |
 | `AtlasMind: Prepare Producer Report for Publication` | Builds a **redacted** copy of the report for GitHub Pages. Off until `atlasmind.producerReport.publishEnabled` is on; checks whether the repository is public or private and says so in the confirmation, because a Pages site is readable by anyone with the link either way. Risks and cost stay out unless switched on individually, and anything withheld is named on the page rather than silently missing |
+| `AtlasMind: Add Producer Portal Deploy Workflow` | Writes a `producer-portal.yml` workflow into **your** repository's workflows folder, which uploads the prepared page to GitHub Pages. Create-only — an existing file is left alone — behind a dialog naming the folder it uploads. The workflow is a constant in AtlasMind's source rather than generated, and runs on **manual dispatch only**, so adding it publishes nothing. Walked by `/portal` |
 | `AtlasMind: Open Cost Dashboard` | Spend over time, budget use, and local-model savings |
 | `AtlasMind: Open Voice Panel` · `Open Vision Panel` | Speech and image analysis |
 | `AtlasMind: Open a Setup Guide` | Starts a walkthrough **in a fresh chat session**, so it never lands mid-conversation and inherits unrelated context |

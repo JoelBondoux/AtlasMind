@@ -148,41 +148,31 @@ describe('a webview shortcut is not silently swallowed by its own allowlist', ()
   });
 });
 
-describe('the ideation stage bar is the guide, not a description of one', () => {
+describe('the ideation page has a rail beside the board and no stages', () => {
   /**
-   * The guide has been relocated twice — to the bottom in v0.119.0, back above
-   * the canvas in v0.212.1 — on the theory that placement was the problem. It
-   * was not. A guide that has to explain the layout is a symptom of the layout,
-   * and four cards describing an order the interface did not impose were only
-   * ever going to be read once.
+   * The guide was relocated twice — to the bottom in v0.119.0, back above the
+   * canvas in v0.212.1 — then became four tabs. None of it addressed the fault:
+   * a single column, with the inspector under a canvas that filled the first
+   * screen. The rail beside the board follows the selection instead, and there
+   * is no order left to explain.
    */
-  it('renders the stage bar between the board and the stage it selects', () => {
+  it('renders the board and the rail in one grid, with the drawer after them', () => {
     const source = read('media/projectIdeation.js');
-    const order = [...source.matchAll(/'<section class="(ideation-[a-z-]+)"/g)].map(match => match[1]!);
-    const board = order.indexOf('ideation-main-grid');
-    const bar = order.indexOf('ideation-mode-section');
-    const stage = order.indexOf('ideation-stage-section');
-    expect(board, 'board section not rendered').toBeGreaterThan(-1);
-    expect(bar, 'stage bar not rendered').toBeGreaterThan(-1);
-    expect(stage, 'stage section not rendered').toBeGreaterThan(-1);
-    // The board still leads; the bar sits directly above the thing it switches.
-    expect(board).toBeLessThan(bar);
-    expect(stage - bar, 'the bar must sit immediately above the stage it selects').toBe(1);
+    const order = [...source.matchAll(/'<(?:section|aside) class="(ideation-[a-z-]+)"/g)].map(match => match[1]!);
+    const grid = order.indexOf('ideation-main-grid');
+    const rail = order.indexOf('ideation-rail');
+    const drawer = order.indexOf('ideation-drawer-section');
+    expect(grid, 'board grid not rendered').toBeGreaterThan(-1);
+    expect(rail, 'rail not rendered').toBeGreaterThan(-1);
+    expect(drawer, 'drawer not rendered').toBeGreaterThan(-1);
+    expect(grid).toBeLessThan(rail);
+    expect(rail).toBeLessThan(drawer);
   });
 
-  it('has no collapsible guide panel left to relocate', () => {
+  it('has no guide, stage bar or mode state left to relocate', () => {
     const source = read('media/projectIdeation.js');
-    expect(source).not.toContain('ideation-process-details');
-    expect(source).not.toContain("(boardIsEmpty ? ' open' : '')");
-  });
-
-  it('makes every stage a control, and reports where the board actually is', () => {
-    const source = read('media/projectIdeation.js');
-    for (const mode of ['frame', 'scaffold', 'shape', 'decide']) {
-      expect(source, `${mode} is not a stage`).toContain(`id: '${mode}'`);
+    for (const relic of ['ideation-process-details', 'ideation-mode-section', 'ideation-stage-section', 'function deriveModeStatus(', "(boardIsEmpty ? ' open' : '')"]) {
+      expect(source, `${relic} survived`).not.toContain(relic);
     }
-    // The status dot describes the board, not the tab you happen to be reading,
-    // so the bar stays honest while you look ahead.
-    expect(source).toContain('function deriveModeStatus(');
   });
 });

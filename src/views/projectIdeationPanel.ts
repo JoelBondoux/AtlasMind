@@ -8,7 +8,14 @@ import { resolvePickedImageAttachments } from '../chat/imageAttachments.js';
 import { getWebviewHtmlShell, QUICK_REPLY_CSS } from './webviewUtils.js';
 import { addRoadmapItemFromExternalSurface } from './projectDashboardPanel.js';
 import { assessIdeationReadiness, type IdeationReadiness } from '../core/ideationReadiness.js';
-import { findBoardTemplate, suggestBoardTemplates } from '../core/ideationBoardTemplates.js';
+import { findBoardTemplate, suggestBoardTemplates, type IdeationBoardTemplate } from '../core/ideationBoardTemplates.js';
+import {
+  assessBrief,
+  briefToBoardTemplate,
+  buildBriefParsePrompt,
+  parseBriefProposal,
+  renderBriefDocument,
+} from '../core/projectBrief.js';
 import { detectProjectArchetype } from '../core/projectArchetype.js';
 import {
   collectCardConnectionSources,
@@ -311,6 +318,9 @@ type ProjectIdeationMessage =
   | { type: 'raiseCardAsWork'; payload: { cardId: string } }
   | { type: 'archiveCard'; payload: { cardId: string; archive: boolean } }
   | { type: 'seedBoardTemplate'; payload: string }
+  | { type: 'captureProjectBrief'; payload: string }
+  | { type: 'deriveFromProjectBrief' }
+  | { type: 'openProjectBrief' }
   | { type: 'runDeepBoardAnalysis' }
   | { type: 'generateReviewCheckpoint'; payload: { cardId: string } };
 
@@ -360,6 +370,14 @@ interface IdeationSnapshot {
    * are additive by design rather than destructive.
    */
   templates: Array<{ id: string; label: string; whenToUse: string; cardCount: number; suggestedBecause?: string }>;
+  /**
+   * The project brief, when one has been written.
+   *
+   * An excerpt rather than the whole text: the panel offers to re-open the file
+   * for the rest, and a webview does not need a copy of it to show that it
+   * exists.
+   */
+  brief: { captured: boolean; excerpt?: string };
   updatedAt: string;
   updatedRelative: string;
 }
@@ -509,6 +527,15 @@ export class ProjectIdeationPanel {
         return;
       case 'seedBoardTemplate':
         await this.seedBoardTemplate(message.payload);
+        return;
+      case 'captureProjectBrief':
+        await this.captureProjectBrief(message.payload);
+        return;
+      case 'deriveFromProjectBrief':
+        await this.deriveFromProjectBrief();
+        return;
+      case 'openProjectBrief':
+        await this.openProjectBrief();
         return;
       case 'archiveCard':
         await this.archiveCard(message.payload.cardId, message.payload.archive);
@@ -716,6 +743,7 @@ export class ProjectIdeationPanel {
         })),
         roadmapItems: await this.readRoadmapItems(workspaceRoot, ssotPath),
       }),
+      brief: await this.collectBriefSummary(workspaceRoot),
       templates: board.cards.some(card => !card.archivedAt)
         ? []
         : (await this.suggestTemplates(workspaceRoot)).map(template => ({
@@ -1382,8 +1410,186 @@ export class ProjectIdeationPanel {
    * layout belongs to the board, and a second placement algorithm here would be
    * the wrong one because it cannot see what is already there.
    */
-  private async seedBoardTemplate(templateId: string): Promise<void> {
-    const template = findBoardTemplate(templateId);
+  /**
+   * Write the brief, exactly as it was typed.
+   *
+   * One act of three. Nothing is derived here — a button that captured the
+   * brief and immediately filled a board would put a model's reading of one
+   * paragraph into a committed file nobody had read yet.
+   */
+  private async captureProjectBrief(raw: string): Promise<void> {
+    const assessment = assessBrief(raw);
+    if (!assessment.usable) {
+      // The refusal names what to add. It is shown rather than swallowed,
+      // because a Save button that silently does nothing reads as broken.
+      await this.postMessage({ type: 'ideationStatus', payload: assessment.refusal ?? 'That brief could not be used.' });
+      return;
+    }
+    const workspaceRoot = vscode.workspace.workspaceFolders?.[0]?.uri.fsPath;
+    if (!workspaceRoot) {
+      return;
+    }
+    const briefPath = this.projectBriefPath(workspaceRoot);
+    const exists = await fs.stat(briefPath).then(() => true, () => false);
+    if (exists) {
+      // Overwriting somebody's own words is the one destructive act here, so it
+      // is confirmed and says what is lost.
+      const replace = await vscode.window.showWarningMessage(
+        'Replace the project brief?',
+        {
+          modal: true,
+          detail: 'A brief is already recorded. It is your own description of the project, and replacing it cannot be undone from here — the previous text is only recoverable from git.',
+        },
+        'Replace it',
+      );
+      if (replace !== 'Replace it') {
+        return;
+      }
+    }
+    await fs.mkdir(path.dirname(briefPath), { recursive: true });
+    await fs.writeFile(briefPath, renderBriefDocument(assessment.text, new Date().toISOString()), 'utf-8');
+    await this.postMessage({
+      type: 'ideationStatus',
+      payload: 'Brief saved. Reading it into cards is the next step, and it is a separate one.',
+    });
+    await this.syncState();
+  }
+
+  /**
+   * Read the stored brief into proposed cards.
+   *
+   * The brief is read **from the file** rather than taken from the message, so
+   * the text a reading is grounded against is always the text on disk — a
+   * webview supplying both the claim and the evidence for it would make the
+   * quote check meaningless.
+   *
+   * Nothing is written until the proposal has been shown and agreed to.
+   */
+  private async deriveFromProjectBrief(): Promise<void> {
+    const workspaceRoot = vscode.workspace.workspaceFolders?.[0]?.uri.fsPath;
+    if (!workspaceRoot) {
+      return;
+    }
+    const brief = await this.readProjectBrief(workspaceRoot);
+    if (!brief) {
+      await this.postMessage({ type: 'ideationStatus', payload: 'No brief is recorded yet.' });
+      return;
+    }
+    const configuration = vscode.workspace.getConfiguration('atlasmind');
+    await this.postMessage({ type: 'ideationBusy', payload: true });
+    await this.postMessage({ type: 'ideationStatus', payload: 'Reading your brief...' });
+
+    let streamedText = '';
+    try {
+      const result = await this.atlas.orchestrator.processTask({
+        id: `ideation-brief-${Date.now()}`,
+        userMessage: buildBriefParsePrompt(brief),
+        context: {},
+        constraints: {
+          budget: toBudgetMode(configuration.get<string>('budgetMode')),
+          speed: toSpeedMode(configuration.get<string>('speedMode')),
+        },
+        timestamp: new Date().toISOString(),
+      }, async chunk => {
+        if (chunk) { streamedText += chunk; }
+      });
+
+      const reconciled = reconcileAssistantResponse(streamedText, result.response);
+      // The grounding gate. Every quote is checked against the brief here,
+      // whatever the prompt asked for.
+      const proposal = parseBriefProposal(reconciled.transcriptText, brief);
+      if (proposal.cards.length === 0) {
+        await this.postMessage({ type: 'ideationStatus', payload: proposal.summary });
+        return;
+      }
+      const confirmed = await vscode.window.showInformationMessage(
+        `Add ${proposal.cards.length} card${proposal.cards.length === 1 ? '' : 's'} to the board?`,
+        { modal: true, detail: this.describeBriefProposal(proposal) },
+        'Add them',
+      );
+      if (confirmed !== 'Add them') {
+        return;
+      }
+      // Written through the board's own seeder, so there is still exactly one
+      // thing that writes cards.
+      await this.seedBoardTemplate(briefToBoardTemplate(proposal));
+      await this.postMessage({ type: 'ideationStatus', payload: proposal.summary });
+    } catch (error) {
+      const detail = error instanceof Error ? error.message : String(error);
+      await this.postMessage({ type: 'ideationStatus', payload: `Could not read the brief: ${detail}` });
+    } finally {
+      await this.postMessage({ type: 'ideationBusy', payload: false });
+    }
+  }
+
+  /** Every proposed card, in full, before anything is written. */
+  private describeBriefProposal(proposal: ReturnType<typeof parseBriefProposal>): string {
+    const lines = [proposal.summary, ''];
+    for (const card of proposal.cards) {
+      lines.push(`  ${card.question ? '?' : '\u2022'} ${card.title}`);
+      if (card.quote) {
+        lines.push(`      quoting: "${card.quote}"`);
+      } else if (card.demotedReason) {
+        lines.push('      this claimed a quote that is not in your brief');
+      }
+    }
+    lines.push('');
+    lines.push('Cards marked ? are questions your brief did not answer. Nothing here is a decision until you make it one.');
+    return lines.join('\n');
+  }
+
+  /** Whether a brief exists, and enough of it to recognise. */
+  private async collectBriefSummary(
+    workspaceRoot: string | undefined,
+  ): Promise<{ captured: boolean; excerpt?: string }> {
+    // No workspace is not an absent brief; both read as "nothing to show", and
+    // neither is a reason to offer to overwrite anything.
+    const brief = workspaceRoot ? await this.readProjectBrief(workspaceRoot) : undefined;
+    if (!brief) {
+      return { captured: false };
+    }
+    const excerpt = brief.length > 400 ? `${brief.slice(0, 400).trimEnd()}...` : brief;
+    return { captured: true, excerpt };
+  }
+
+  private projectBriefPath(workspaceRoot: string): string {
+    const ssotPath = normalizeSsotPath(
+      vscode.workspace.getConfiguration('atlasmind').get<string>('ssotPath', 'project_memory'),
+    );
+    return path.join(workspaceRoot, ssotPath, 'project-brief.md');
+  }
+
+  /** The brief as written, with the document's own header removed. */
+  private async readProjectBrief(workspaceRoot: string): Promise<string | undefined> {
+    try {
+      const raw = await fs.readFile(this.projectBriefPath(workspaceRoot), 'utf-8');
+      const marker = raw.indexOf('---');
+      const body = marker >= 0 ? raw.slice(marker + 3) : raw;
+      const text = body.trim();
+      return text.length > 0 ? text : undefined;
+    } catch {
+      return undefined;
+    }
+  }
+
+  private async openProjectBrief(): Promise<void> {
+    const workspaceRoot = vscode.workspace.workspaceFolders?.[0]?.uri.fsPath;
+    if (!workspaceRoot) {
+      return;
+    }
+    const uri = vscode.Uri.file(this.projectBriefPath(workspaceRoot));
+    try {
+      await vscode.window.showTextDocument(await vscode.workspace.openTextDocument(uri));
+    } catch {
+      await this.postMessage({ type: 'ideationStatus', payload: 'No brief is recorded yet.' });
+    }
+  }
+
+  private async seedBoardTemplate(source: string | IdeationBoardTemplate): Promise<void> {
+    // Accepts either a declared frame's id or a template built for this board —
+    // the brief-derived one. One seeder either way: a second writer for cards
+    // would eventually disagree with this one about the board format.
+    const template = typeof source === 'string' ? findBoardTemplate(source) : source;
     if (!template) {
       await this.postMessage({ type: 'ideationStatus', payload: 'That starter frame is no longer available.' });
       return;
@@ -1663,6 +1869,19 @@ export function isProjectIdeationMessage(message: unknown): message is ProjectId
       && typeof (candidate['payload'] as Record<string, unknown>)['cardId'] === 'string'
       && ((candidate['payload'] as Record<string, unknown>)['cardId'] as string).trim().length > 0;
   }
+  if (candidate['type'] === 'captureProjectBrief') {
+    // Shape only. `assessBrief` decides whether it is usable and refuses with a
+    // reason; a length check here would duplicate that rule in a second place.
+    return typeof candidate['payload'] === 'string';
+  }
+
+  if (candidate['type'] === 'deriveFromProjectBrief' || candidate['type'] === 'openProjectBrief') {
+    // No payload at all. The host re-reads the brief it wrote, so a crafted
+    // message can ask for a reading and can never supply the text that reading
+    // is grounded against.
+    return true;
+  }
+
   if (candidate['type'] === 'seedBoardTemplate') {
     return typeof candidate['payload'] === 'string';
   }
@@ -4650,11 +4869,6 @@ const IDEATION_CSS = `${QUICK_REPLY_CSS}
     font-size: 11px;
     color: var(--vscode-descriptionForeground);
   }
-  .ideation-stat .card-kicker {
-    display: inline-flex;
-    align-items: center;
-    gap: 7px;
-  }
   .pill-dot {
     width: 9px;
     height: 9px;
@@ -4676,7 +4890,6 @@ const IDEATION_CSS = `${QUICK_REPLY_CSS}
   .section-copy,
   .stat-detail,
   .muted,
-  .ideation-hint,
   .list-meta {
     color: var(--vscode-descriptionForeground);
     line-height: 1.5;
@@ -4685,7 +4898,6 @@ const IDEATION_CSS = `${QUICK_REPLY_CSS}
   .action-link,
   .ideation-card,
   .ideation-chip,
-  .ideation-stat,
   .media-pill,
   .attachment-pill,
   .file-pill {
@@ -4751,65 +4963,220 @@ const IDEATION_CSS = `${QUICK_REPLY_CSS}
     flex-direction: column;
     gap: 18px;
   }
+  /* Two panes. The canvas fills what is left after the rail, and the rail
+     shows whatever the selection is about — so editing a card never means
+     scrolling away from the board it is on, which was the fault every earlier
+     rearrangement of this page left in place. */
   .ideation-main-grid {
     display: grid;
+    grid-template-columns: minmax(0, 1fr) 380px;
     gap: 18px;
+    align-items: start;
   }
-  /* Replaces the hero grid (whose rules are gone with its markup): three
-     compact stats in a single row, so the board starts within the first screen
-     instead of below an explainer panel. */
-  .ideation-stat-strip {
-    display: grid;
-    grid-template-columns: repeat(auto-fit, minmax(160px, 1fr));
+  .ideation-rail {
+    display: flex;
+    flex-direction: column;
+    gap: 14px;
+    min-width: 0;
+    position: sticky;
+    top: 12px;
+    max-height: calc(100vh - 24px);
+    overflow-y: auto;
+  }
+  .ideation-rail .ideation-panel {
+    padding: 16px;
+  }
+  .ideation-rail .ideation-template-grid {
+    grid-template-columns: 1fr;
+  }
+  .ideation-rail .ideation-constraint-grid {
+    grid-template-columns: 1fr;
+  }
+  .ideation-rail .ideation-score-grid {
+    grid-template-columns: repeat(2, minmax(0, 1fr));
+  }
+  .ideation-rail .ideation-prompt {
+    min-height: 96px;
+  }
+  .ideation-brief-input {
+    width: 100%;
+    box-sizing: border-box;
+    min-height: 120px;
+    padding: 12px 14px;
+    font: inherit;
+    border-radius: 16px;
+    border: 1px solid var(--vscode-input-border, var(--vscode-widget-border, #444));
+    background: var(--vscode-input-background);
+    color: var(--vscode-input-foreground);
+    resize: vertical;
+  }
+  /* One line above the board: the workspace, when it changed, the files. */
+  .ideation-header {
+    display: flex;
+    align-items: center;
+    justify-content: space-between;
     gap: 12px;
+    flex-wrap: wrap;
   }
-  /* The stage bar. This *is* the old four-card process guide: it used to
-     describe an order the layout did not impose, and was moved twice on the
-     theory that placement was the problem. Every card is a control now, and
-     only the stage you pick is rendered below it. */
-  .ideation-mode-bar {
-    display: grid;
-    grid-template-columns: repeat(auto-fit, minmax(170px, 1fr));
-    gap: 8px;
+  .ideation-header-workspace,
+  .ideation-header-meta {
+    display: flex;
+    align-items: center;
+    gap: 10px;
+    flex-wrap: wrap;
   }
-  .ideation-mode-button {
+  .ideation-header-label {
+    font-size: 11px;
+    text-transform: uppercase;
+    letter-spacing: 0.09em;
+    color: var(--vscode-descriptionForeground);
+  }
+  .ideation-header .ideation-lens-select {
+    min-width: 220px;
+  }
+  .ideation-toolbar {
     display: flex;
     align-items: center;
     justify-content: space-between;
     gap: 10px;
-    padding: 10px 12px;
-    text-align: left;
-    cursor: pointer;
+    flex-wrap: wrap;
+  }
+  .ideation-shortcuts {
+    display: flex;
+    flex-direction: column;
+    gap: 10px;
+    padding: 12px 14px;
+    border-radius: 16px;
+    border: 1px solid var(--vscode-widget-border, #444);
+    background: color-mix(in srgb, var(--vscode-editorWidget-background, var(--vscode-sideBar-background)) 90%, transparent);
+  }
+  .ideation-shortcut-grid {
+    display: grid;
+    grid-template-columns: repeat(auto-fit, minmax(260px, 1fr));
+    gap: 6px 18px;
+  }
+  .ideation-shortcut-row {
+    display: grid;
+    grid-template-columns: max-content minmax(0, 1fr);
+    gap: 10px;
+    align-items: baseline;
+  }
+  .ideation-shortcut-row kbd {
     font: inherit;
+    font-size: 12px;
+    padding: 2px 7px;
+    border-radius: 6px;
+    border: 1px solid var(--vscode-widget-border, #444);
+    background: var(--vscode-editor-background);
+    white-space: nowrap;
+  }
+  .ideation-pair-row {
+    display: flex;
+    align-items: center;
+    gap: 10px;
+    flex-wrap: wrap;
+    padding: 8px 12px;
+    border-radius: 12px;
+    background: color-mix(in srgb, var(--vscode-focusBorder, #4ea8de) 10%, transparent);
+  }
+  /* The one way off the board, with the readiness reading inside it. */
+  .ideation-exit {
+    display: flex;
+    flex-direction: column;
+    gap: 10px;
+    margin-top: 6px;
+    padding-top: 12px;
+    border-top: 1px solid var(--vscode-widget-border, #444);
+  }
+  .ideation-readiness-line {
+    display: flex;
+    align-items: center;
+    gap: 10px;
+    flex-wrap: wrap;
+  }
+  .action-link.inline {
+    display: inline;
+    padding: 0;
+    font: inherit;
+    text-decoration: underline;
+  }
+  .ideation-more-toggle {
+    align-self: flex-start;
+    margin-top: 6px;
+  }
+  .ideation-inspector-more {
+    display: flex;
+    flex-direction: column;
+    gap: 10px;
+  }
+  .ideation-status-line {
+    margin-top: 4px;
+  }
+  /* The drawer under the canvas. Closed by default; the bar is always there. */
+  .ideation-drawer {
+    padding: 0;
+    overflow: hidden;
+  }
+  .ideation-drawer-bar {
+    display: flex;
+    align-items: center;
+    justify-content: space-between;
+    gap: 12px;
+    flex-wrap: wrap;
+    padding: 10px 16px;
+  }
+  .ideation-drawer-toggle {
+    display: flex;
+    align-items: center;
+    gap: 10px;
+    padding: 6px 0;
+    font: inherit;
+    color: var(--vscode-foreground);
+    background: none;
+    border: none;
+    cursor: pointer;
+  }
+  .ideation-drawer-toggle .section-kicker {
+    margin: 0;
+  }
+  .ideation-drawer-caret {
     color: var(--vscode-descriptionForeground);
-    background: var(--vscode-editorWidget-background);
-    border: 1px solid var(--vscode-panel-border);
-    border-radius: 8px;
-    transition: border-color 120ms ease, color 120ms ease, background 120ms ease;
   }
-  .ideation-mode-button:hover {
-    color: var(--vscode-foreground);
-    border-color: var(--vscode-focusBorder);
+  .ideation-drawer-body {
+    display: flex;
+    flex-direction: column;
+    gap: 12px;
+    padding: 4px 16px 16px;
+    border-top: 1px solid var(--vscode-widget-border, #444);
   }
-  /* A left border rather than a filled background: four saturated buttons read
-     as an alarm state even when three of them just say "later". */
-  .ideation-mode-button.is-active {
+  .ideation-drawer-columns {
+    display: grid;
+    grid-template-columns: repeat(auto-fit, minmax(320px, 1fr));
+    gap: 16px;
+  }
+  .segmented {
+    display: inline-flex;
+    gap: 4px;
+    padding: 3px;
+    border-radius: 999px;
+    border: 1px solid var(--vscode-widget-border, #444);
+  }
+  .segmented button {
+    font: inherit;
+    font-size: 13px;
+    padding: 5px 12px;
+    border-radius: 999px;
+    border: none;
+    background: transparent;
+    color: var(--vscode-descriptionForeground);
+    cursor: pointer;
+  }
+  .segmented button.active {
     color: var(--vscode-foreground);
-    border-left: 3px solid var(--vscode-focusBorder);
     background: var(--vscode-list-activeSelectionBackground);
   }
-  .ideation-mode-button:focus-visible {
-    outline: 1px solid var(--vscode-focusBorder);
-    outline-offset: 2px;
-  }
-  .ideation-mode-label { font-weight: 600; }
-  .ideation-mode-blurb {
-    margin: 8px 2px 0;
-    font-size: 12px;
-  }
-  .ideation-stage-section {
-    display: grid;
-    gap: 18px;
+  .action-link.danger {
+    color: var(--vscode-errorForeground, #d05f5f);
   }
   /* Starter frames, offered on an empty board only. */
   .ideation-template-grid {
@@ -4873,9 +5240,6 @@ const IDEATION_CSS = `${QUICK_REPLY_CSS}
     font-size: 11px;
     color: var(--vscode-descriptionForeground);
   }
-  .ideation-main-grid {
-    grid-template-columns: minmax(0, 1fr);
-  }
   .ideation-composer-panel,
   .ideation-canvas-panel {
     width: 100%;
@@ -4883,7 +5247,6 @@ const IDEATION_CSS = `${QUICK_REPLY_CSS}
   }
   .ideation-panel,
   .panel-card,
-  .ideation-stat,
   .dashboard-empty {
     padding: 18px;
     border-radius: 22px;
@@ -4923,11 +5286,6 @@ const IDEATION_CSS = `${QUICK_REPLY_CSS}
     visibility: visible;
     transform: translateY(0);
   }
-  .ideation-stat strong {
-    display: block;
-    font-size: 22px;
-    margin-bottom: 6px;
-  }
   .ideation-composer-shell {
     display: flex;
     flex-direction: column;
@@ -4944,12 +5302,6 @@ const IDEATION_CSS = `${QUICK_REPLY_CSS}
   .ideation-score-grid {
     grid-template-columns: repeat(2, minmax(0, 1fr));
   }
-  .ideation-workspace-switcher {
-    display: grid;
-    grid-template-columns: minmax(0, 1fr) auto;
-    gap: 12px;
-    align-items: end;
-  }
   .constraint-span {
     grid-column: 1 / -1;
   }
@@ -4962,7 +5314,6 @@ const IDEATION_CSS = `${QUICK_REPLY_CSS}
     color: var(--vscode-input-foreground);
   }
   .ideation-score-field,
-  .ideation-workspace-switcher label,
   .ideation-constraint-grid label {
     display: flex;
     flex-direction: column;
@@ -5159,49 +5510,6 @@ const IDEATION_CSS = `${QUICK_REPLY_CSS}
     height: 3800px;
     transform: translate(-50%, -50%);
     transform-origin: center center;
-  }
-  .ideation-board-lanes {
-    position: absolute;
-    inset: 0;
-    pointer-events: none;
-    z-index: 0;
-  }
-  .ideation-board-lane {
-    position: absolute;
-    top: 90px;
-    bottom: 90px;
-    border-radius: 28px;
-    border: 1px dashed color-mix(in srgb, var(--vscode-widget-border, #444) 60%, transparent);
-    background: linear-gradient(180deg, color-mix(in srgb, var(--vscode-editor-background) 94%, transparent), color-mix(in srgb, #0f2738 10%, transparent));
-    opacity: 0.36;
-  }
-  .ideation-board-lane-label {
-    position: absolute;
-    top: 14px;
-    left: 16px;
-    padding: 4px 10px;
-    border-radius: 999px;
-    font-size: 12px;
-    font-weight: 600;
-    color: var(--vscode-descriptionForeground);
-    border: 1px solid color-mix(in srgb, var(--vscode-widget-border, #444) 70%, transparent);
-    background: color-mix(in srgb, var(--vscode-editor-background) 90%, transparent);
-  }
-  .ideation-board-flow-arrow {
-    position: absolute;
-    top: 24px;
-    right: 132px;
-    padding: 4px 10px;
-    border-radius: 999px;
-    font-size: 12px;
-    color: var(--vscode-descriptionForeground);
-    border: 1px solid color-mix(in srgb, #52b788 42%, var(--vscode-widget-border, #444));
-    background: color-mix(in srgb, var(--vscode-editor-background) 90%, transparent);
-  }
-  .ideation-board-flow-arrow::after {
-    content: '->';
-    margin-left: 8px;
-    color: color-mix(in srgb, #52b788 72%, var(--tint-away) 18%);
   }
   .ideation-connections {
     position: absolute;
@@ -5512,15 +5820,6 @@ const IDEATION_CSS = `${QUICK_REPLY_CSS}
     flex-wrap: wrap;
     gap: 10px;
   }
-  .ideation-shortcut-strip {
-    display: flex;
-    flex-direction: column;
-    gap: 8px;
-    padding: 12px 14px;
-    border-radius: 16px;
-    border: 1px solid var(--vscode-widget-border, #444);
-    background: color-mix(in srgb, var(--vscode-editorWidget-background, var(--vscode-sideBar-background)) 90%, transparent);
-  }
   .ideation-history-list {
     flex-direction: column;
   }
@@ -5573,18 +5872,6 @@ const IDEATION_CSS = `${QUICK_REPLY_CSS}
   .ideation-composer-actions .ideation-chip-row {
     flex: 1;
   }
-  .ideation-action-callout {
-    display: flex;
-    flex-direction: column;
-    gap: 8px;
-    padding: 14px 16px;
-    border-radius: 18px;
-    border: 1px solid color-mix(in srgb, var(--vscode-button-background) 35%, var(--vscode-widget-border, #444));
-    background: linear-gradient(135deg, color-mix(in srgb, var(--vscode-button-background) 12%, transparent), color-mix(in srgb, var(--vscode-editorWidget-background, var(--vscode-sideBar-background)) 92%, transparent));
-  }
-  .ideation-action-callout strong {
-    font-size: 14px;
-  }
   .ideation-edge-glow {
     position: absolute;
     pointer-events: none;
@@ -5623,15 +5910,12 @@ const IDEATION_CSS = `${QUICK_REPLY_CSS}
     left: 0;
     background: linear-gradient(90deg, color-mix(in srgb, var(--vscode-button-background) 40%, transparent), transparent);
   }
-  /* Canvas focus mode hides everything that is not the board. The process
-     guide was missing from this list, so it stayed on screen in what is meant
-     to be a full-screen canvas; the composer now has its own section wrapper
-     that has to be hidden alongside the panel itself. */
+  /* Canvas focus mode hides everything that is not the board: the header,
+     the rail and the drawer. */
   body.canvas-focus-mode .ideation-topbar,
-  body.canvas-focus-mode .ideation-stat-strip,
-  body.canvas-focus-mode .ideation-composer-panel,
-  body.canvas-focus-mode .ideation-mode-section,
-  body.canvas-focus-mode .ideation-stage-section {
+  body.canvas-focus-mode .ideation-header,
+  body.canvas-focus-mode .ideation-rail,
+  body.canvas-focus-mode .ideation-drawer-section {
     display: none;
   }
   body.canvas-focus-mode .ideation-shell-page {
@@ -5666,13 +5950,16 @@ const IDEATION_CSS = `${QUICK_REPLY_CSS}
     min-height: 0;
     height: 100%;
   }
-  @media (max-width: 1180px) {
+  @media (max-width: 1100px) {
     .ideation-main-grid,
-    .ideation-mode-bar,
-    .ideation-workspace-switcher,
     .ideation-constraint-grid,
     .ideation-score-grid {
       grid-template-columns: 1fr;
+    }
+    .ideation-rail {
+      position: static;
+      max-height: none;
+      overflow: visible;
     }
   }
     .ideation-analytics-panel {

@@ -357,10 +357,10 @@ However you set these, a few things hold:
 - A framework or platform AtlasMind has no verified command for gets **no command**, and says so,
   rather than an improvised one.
 
-The Stack page also compares Website Studio's three environments with the Delivery page's stages and
-shows you which fields disagree. They're two separate copies, so they can drift; syncing never clears
-a real Delivery value with an empty one from the Studio, and can only ever *add* promotion protection,
-never remove it.
+The Delivery page's *Website delivery* card compares the website's three environments with the
+pipeline's stages on every render and shows you which fields disagree. They're two separate copies, so
+they can drift; syncing never clears a real Delivery value with an empty one from the website plan, and
+can only ever *add* promotion protection, never remove it.
 
 ---
 
@@ -369,6 +369,13 @@ never remove it.
 | Setting | Default | What it does |
 |---------|---------|-------------|
 | `atlasmind.ideation.crossProjectPaths` | `[]` | Other AtlasMind projects whose ideation boards may be read for context. At most three, and nothing is ever written to them |
+| `atlasmind.codebaseIndex.embeddingModel` | string | `""` | A local Ollama embedding model to index this codebase with — `nomic-embed-text`, say. Empty (the default) uses the **token-hash** embedder, which needs no model and matches shared *vocabulary* rather than shared *meaning*: useful, and not semantic search, which every result says. **Nothing leaves your machine either way** — AtlasMind ships no remote embedder, because offering one from a dropdown would mean sending an entire repository to a third party. The vector width is read from the model rather than assumed, and a model that cannot embed is reported rather than silently replaced. |
+| `atlasmind.codebaseIndex.ollamaUrl` | string | `http://127.0.0.1:11434` | Where the local Ollama runtime listens, used only when `atlasmind.codebaseIndex.embeddingModel` names a model. Requests go to this address and nowhere else. |
+| `atlasmind.ambient.enabled` | boolean | `false` | Master switch for **ambient triggers** — repository events waking AtlasMind up while you are working on something else. Off by default, and switching it on subscribes to nothing: each event is a separate decision in `atlasmind.ambient.events`. An ambient response never goes further than *proposing*, whatever your workflow stage permits, because nobody is watching it. Nothing is ever executed — the trigger produces a notification and a draft. |
+| `atlasmind.ambient.events` | array | `[]` | Which events may raise a trigger: `ci-failed`, `security-advisory`, `review-requested`, `blocker-defect`, `approval-awaiting-you`, `test-case-failed`, `dependency-update-stale`, `release-blocked`. Empty by default. `security-advisory` and `release-blocked` are capped at *reporting* by declaration — an unattended proposal about somebody else’s disclosure, or about a step that cannot be undone, is worse than the alert itself. |
+| `atlasmind.ambient.monthlySpendCapUsd` | number | `0` | The most ambient triggers may spend per month. `0` means an event can be reported to you but never worked on by a model: switching ambient triggers on and letting them cost something are two decisions. **Reporting is never capped** — refusing to tell you what happened because a budget ran out would be the worst reading of a cost control. |
+| `atlasmind.ambient.maxPerCheck` | number | `3` | How many events one check may raise. The remainder is stated rather than silently dropped, and nothing is lost — an event not raised this time is raised on the next check. |
+| `atlasmind.ambient.checkIntervalMinutes` | number | `30` | How often ambient triggers are evaluated while the editor is open. A VS Code extension does not run when the editor is closed, so this is *ambient* rather than *background*: it works while you are not looking at AtlasMind. |
 | `atlasmind.research.enabled` | `false` | Master switch for research scans. Off by default — a scan reaches the network and spends money |
 | `atlasmind.research.automationLevel` | `observe` | The ceiling every scan is capped by. `observe` tells you one is due, `propose` drafts it, `auto` runs it |
 | `atlasmind.research.scans` | `{}` | Per-scan settings, keyed by scan id. Each takes `enabled`, `cadenceDays` and `automationLevel` |

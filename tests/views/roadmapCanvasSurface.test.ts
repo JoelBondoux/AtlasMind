@@ -18,7 +18,11 @@ import { describe, expect, it } from 'vitest';
 const WEBVIEW_SCRIPT = readFileSync(
   path.join(process.cwd(), 'media', 'projectDashboard.js'),
   'utf8',
-);
+// Line endings normalised: git checks this file out with CRLF on Windows, and
+// the assertions below span line breaks. Without this they pass on CI and fail
+// on half the team's machines, which reads as a broken test rather than a
+// broken environment.
+).replace(/\r\n/g, '\n');
 
 const HOST_PANEL = readFileSync(
   path.join(process.cwd(), 'src', 'views', 'projectDashboardPanel.ts'),
@@ -354,7 +358,11 @@ describe('the by-person view', () => {
   });
 
   it('fits the canvas when the view changes, because every node moves', () => {
-    expect(WEBVIEW_SCRIPT).toContain("state.roadmapFitAfterRender = state.roadmapView !== 'list';");
+    // Every view without a canvas is excluded — the backlog list, the timeline
+    // and the board. Fitting one would measure a frame that is not on the page.
+    expect(WEBVIEW_SCRIPT).toContain(
+      "state.roadmapFitAfterRender = state.roadmapView !== 'list' && state.roadmapView !== 'timeline'\n        && state.roadmapView !== 'board';",
+    );
   });
 
   it('is laid out host-side and shipped, so switching to it is offline', () => {

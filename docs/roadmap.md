@@ -38,7 +38,15 @@ AtlasMind will deliver fast-start, opinionated project templates for:
     - **DevOps:** Docker, Kubernetes, Serverless, Terraform
     - **Testing:** Full, Playwright, API
     - **Business Models:** Marketplace, Subscription, Booking, CRM
-    - **Utilities:** Auth, Payments, Email, Analytics, i18n, Accessibility
+    - **Utilities (delivered, deliberately a different shape):** Auth; Payments; Email; Analytics;
+      i18n; Accessibility. Not project templates — nobody starts a project called “payments” — but the
+      *decision* each one really is, with libraries as answers to it: merchant of record versus payment
+      processor, cookieless versus identified analytics, who owns the sending domain, who translates.
+      Every install line is a constant read from the vendor’s own documentation on a pinned date and
+      nothing executes one; an unverified line is absent rather than guessed; what leaves the machine is
+      stated per candidate; two candidates answering opposite sides of one decision are reported rather
+      than added to; and accessibility is never offered as installable, because automated tooling
+      catches roughly 30–40% of WCAG barriers. Surfaced on the Project Dashboard → Gap Analysis.
 
 **First Release Focus:**
 Shopify, Next.js SaaS, Static Website, Next.js App Router, React SPA, React Native, AI Orchestrator, Dockerised Full‑Stack, Full Testing, Auth, Payments.

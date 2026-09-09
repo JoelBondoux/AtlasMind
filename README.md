@@ -4,7 +4,7 @@
 
 <h1 align="center">AtlasMind</h1>
 
-<p align="center"><sub> · <strong>Current source version: 0.449.5</strong> · </sub></p>
+<p align="center"><sub> · <strong>Current source version: 0.474.1</strong> · </sub></p>
 
 
 <p align="center">
@@ -32,9 +32,9 @@ Most AI coding tools give you an assistant in a chat box. That solves *writing c
 tell you what to build next, what's blocking it, who owns it, what you deferred three weeks ago and
 why, whether your tests actually cover what you claim, or whether you're fit to release.
 
-That's the job AtlasMind does. A **23-page project dashboard** built entirely from your own
+That's the job AtlasMind does. A **25-page project dashboard** built entirely from your own
 repository: roadmap and dependency graph, issues and pull requests, people and follow-ups, risk,
-compliance, technical debt, testing evidence, documents, delivery and release readiness. Nothing is
+compliance, technical debt, defects, testing evidence, documents, delivery and release readiness. Nothing is
 a form you fill in twice — it reads git, GitHub, your files and your project memory, then grades
 what it finds against rules it **publishes on the card**, so you can see the reasoning and disagree
 with it.
@@ -175,11 +175,188 @@ important limits on overrides and compliance claims.
 
 ---
 
-## What's new in 0.449.5
+## What's new in 0.474.1
 
-The last Marketplace publication, **v0.420.4**, brought the changes below. Every release is written
+The last Marketplace publication, **v0.449.5**, brought the changes below. Every release is written
 up in full in [CHANGELOG.md](CHANGELOG.md).
 
+- **Website delivery is on the Dashboard's Delivery page.** The framework choice, the three hosting
+  environments, the platform targets and the n8n workflow map moved out of UI Studio and onto the
+  Project Dashboard's Delivery page, beside the pipeline that ships them. Frameworks are graded
+  against the primary platform with the reason on the card, each environment shows its readiness, the
+  drift against the pipeline is checked on every render, and the setup button stays withheld until
+  the setting is on. The Studio's Handoff view points there, and a save from either surface now
+  re-reads the plan from disk and touches only what it owns, so neither can undo the other.
+
+- **Emit a surface into its engine, and keep the words editable from here.** From the Handoff
+  view, a drawn surface can be written for Web (HTML + CSS), Unity UI Toolkit (UXML + USS) or Godot 4
+  (Control scene + Theme), with a shared token file from the brand presets; Unreal UMG, SwiftUI and
+  Compose get a handoff specification rather than unverified source. The layout is emitted once and
+  then belongs to the engine — a second emit over changed files is refused, and the card says
+  *Layout: owned by Unity since the emit on … · Content: editable here*. The words stay Studio's:
+  every node's copy sits in a region anchored by its id, and **Push content** patches those regions
+  by anchor in the file as it is now, refusing by name any anchor the engine removed and showing
+  any region somebody edited there rather than overwriting it. **Launch** runs Godot with a constant
+  argv and no shell, opens a web page in the browser, and shows Unity's command to copy.
+
+- **UI Studio, rebuilt around the surfaces.** The eight numbered steps and the six metric tiles are
+  gone. A Surfaces rail beside the canvas lists every UI file the scan found in the project — pick one
+  up and it becomes a surface that remembers where it came from — and every surface designed here;
+  clicking one opens it on the canvas. The views across the top are unnumbered (Design, Sitemap or
+  Screens & flows, Brands & system, Content design, Handoff, Delivery for websites, Brief) and the
+  Studio lands on the canvas. A new **Brands** view shows each brand's swatches and origin, applies
+  one to any set of surfaces, and reads a new one out of a stylesheet behind a confirmation that
+  shows the extraction's own evidence. The browser only ever names a file or an id; the host re-scans
+  and decides.
+
+- **Brand presets.** One named set of colours, fonts, spacing and radius, applied to many surfaces
+  **by alias** — change the brand and every surface follows, and a surface that keeps its own value is
+  reported as an override rather than pretending to wear the brand. A preset can be read out of a
+  stylesheet's custom properties, naming the file and line for every role and listing what it could
+  not read instead of guessing. The old two-places-for-one-colour design system folds into a preset at
+  migration, and only if you had changed it. The model half of the UI Studio rebuild; the surface
+  above is the shell half.
+
+- **The Ideation page, rebuilt as two panes.** The inspector used to sit under a canvas that filled
+  the screen, so editing a card meant scrolling away from the board — and four "stages" explained an
+  order the page did not have. Now a rail beside the canvas follows what you click: a card shows its
+  inspector, a link its editor, nothing shows the prompt. The toolbar only draws; there is one way off
+  the board, with the readiness reading inside it; and everything Atlas says lives in one drawer that
+  opens itself when it speaks. The stat tiles, board lanes, stage bar and the 180-word shortcut
+  paragraph are gone.
+
+- **Tell AtlasMind what the project is for, and watch it stay honest about it.** A brief composer on
+  the empty ideation board takes a couple of sentences in your own words and reads them into cards.
+  **Every card either quotes your brief word for word or is a question** — a quote that is not really
+  in your brief is turned into a question rather than shown as a finding, and the count is stated, so
+  an invented reading cannot look clean. Your brief is **stored exactly as you wrote it** and never
+  edited, which is what makes every derived card checkable. A brief too thin to work from is refused
+  with what to add. Writing it, reading it into cards and raising roadmap items stay three separate
+  confirmations.
+
+- **Name a baseline, and compare against it whenever you like.** *What moved* could only ever answer
+  "since you last looked" — the one span nobody chose. Now you can capture a moment worth comparing
+  against and ask the same question about it: since the release, since this branch started, since the
+  audit. It is the **same comparison**, so two cards can never disagree about one fortnight. **The age
+  is always shown**, because eleven changes over six weeks is not eleven changes today. Nothing is
+  captured automatically, nothing expires, and the oldest is never evicted to make room — it is the
+  only one that can speak about the whole project.
+
+- **Import absence from the rota app your team already uses.** Deputy, When I Work, Google Calendar or
+  anything else that exports an `.ics` file. It reads the published iCalendar format rather than a
+  vendor API, so one thing works everywhere. **Only events naming an absence are imported** — a rota
+  feed is mostly the shifts somebody is *working*, and recording those as time off would mark them away
+  on exactly the days they are rostered on; a file of shifts is refused, with that reason. Everything
+  left alone is counted and shown. **Nothing is fetched**: a calendar feed URL is a password, so you
+  download the file. The confirmation lists every entry, absence you typed by hand is kept, and
+  re-importing updates in place.
+
+- **See what each person is actually carrying — and read it honestly.** A Workload card on the
+  Director page joins your roster to the roadmap's estimates and assignments. It is **not a
+  performance measure**, and says so above the numbers: it counts work somebody was *given* against
+  capacity they *declared*. Capacity is written down, never worked out from commit rates. An
+  allocation it cannot read stays **unknown rather than being read as a full week**, unestimated work
+  is never counted as zero, a derived estimate is counted but flagged as derived, and an empty rota
+  means *nothing was recorded* rather than *everybody is available*. Overload is reported over a
+  stated window and **nothing offers to reassign anybody**.
+
+- **Golden cases for your agents, and a gate on the rewrite that would break them.** AtlasMind can
+  rewrite an agent's prompt on a cadence — a prompt edit deployed with no failing build. Pin cases with
+  a prompt, a check and the reason each exists, and a rewrite that regresses one is **held** rather than
+  shipped. So is one that could not be checked, because the cadence runs while nobody is watching. An
+  errored case is set aside rather than counted as a failure, a first run is a baseline rather than a
+  pass, and every verdict says how many cases actually ran.
+- **One button builds and publishes the portal.** Gather, narrow, prepare, deploy — with a single
+  confirmation that says what goes out, what is withheld, who can read it, which commands will run and
+  which step cannot be undone. It **refuses** rather than warns when you have named an audience your
+  host cannot enforce, or when a risk register would go out behind a policy nobody has confirmed. On a
+  host AtlasMind has no command for, it stops with the page prepared and leaves publishing to you.
+- **Say where the portal is hosted, and who may read it.** A new host choice — GitHub Pages,
+  Cloudflare Pages, Netlify, Vercel or your own — each presented with what it can *actually* enforce.
+  **Signing in with GitHub admits every GitHub account there is**, so a sign-in without an allowlist is
+  a public portal with a turnstile in front of it. Only Cloudflare Pages does both without an
+  enterprise plan; Netlify's shared password is not an audience; Vercel's is your Vercel team; GitHub
+  Pages cannot restrict at all outside Enterprise Cloud. The Director assigns the audience by contact,
+  never by address, and AtlasMind never claims to be enforcing any of it.
+- **Search your own codebase, semantically, without anything leaving the machine.** Two new commands
+  build and search an index of your source — the gap that meant an agent had to be told which files to
+  read. The default embedder needs no model at all; point it at a local Ollama model for genuinely
+  semantic results. There is **no remote embedder**, because offering one from a dropdown would mean
+  sending an entire repository to a third party. A file that looks like it holds a credential is never
+  indexed, a result whose file has changed since is dropped rather than flagged, and every search says
+  how much of the tree it actually covers and how old the index is.
+- **The six utilities every product needs, as decisions rather than packages.** Auth, payments,
+  email, analytics, i18n and accessibility now appear on the Gap Analysis page — each opening with the
+  question that actually matters. Whether you or your vendor is the **merchant of record** is a tax
+  question you cannot undo by swapping an SDK; whether your analytics sets a cookie decides whether you
+  need a consent banner at all. Every install line is read from the vendor’s own documentation on a
+  stated date and **nothing is ever run**; where a line was not verified, none is shown rather than one
+  being invented. What leaves your machine is stated for every candidate. Two libraries answering
+  opposite sides of one decision is reported, not added to. And accessibility is not offered as
+  something to install, because it is not.
+- **Ambient triggers: repository events, not just chat.** A failed CI run, an advisory, a review
+  waiting on you, a blocker defect — all of them happen while you are looking somewhere else, and none
+  of them reached you until you next opened the dashboard. Now they can raise a trigger. Off by
+  default, and switching it on subscribes to nothing: each event is a separate decision. An event is a
+  *change*, not a state, so a red pipeline fires once rather than on every check; an ambient response
+  never goes further than **proposing**, whatever your workflow permits, because nobody is watching;
+  and a source that could not be read is reported as *not observed* rather than as quiet. Nothing runs
+  unattended — you get a notification and a draft.
+- **Test management, for the half a scanner cannot read.** The Testing page now keeps the cases a
+  person carries out: who owns each, when it was last actually run, and what a tester needs in front of
+  them. Priority is derived from what breaks and how often the path is taken rather than asked for. A
+  case that was not run is **never run**, not passed; a result belongs to a *revision*, so a pass
+  against steps somebody has since rewritten reads as stale instead of staying green; and an automated
+  case is never given a manual result, because its result is measured by the test report. Test assets
+  **name** where a credential lives and never hold one — anything credential-shaped is refused outright
+  rather than quietly stripped.
+- **Who agreed, and to which version.** A new Approvals page records that a named person agreed to a
+  change — an idea reaching the roadmap, a document going out, a licence term, a commercial
+  commitment. Pending is never read as approved, there is deliberately no timeout that grants one,
+  and an approval that was given before the content changed goes **stale** rather than carrying over.
+  Each category routes to a role by a published rule, and if nobody holds it the request says so
+  instead of being handed to whoever is available. It is a record, not a permission: nothing here
+  blocks a commit or a release.
+- **Somewhere to write a bug down.** A new Defects page keeps bugs in a local committed file, so
+  recording one costs a keystroke rather than a remote, a `gh` and a network. Severity is never asked
+  for — you say what it does and how many people meet it, and a published rule table grades it, so a
+  grade made today still compares with one made in six months. Data loss and security exposures are
+  blockers whatever their reach; an intermittent bug is not a smaller one; and *fixed* is kept apart
+  from *verified*, because a fix nobody checked is a claim. Nothing is deleted and nothing is gated.
+- **`/portal` hosts the producer report as an actual page.** The report could be built and narrowed;
+  what was missing was the last mile, because GitHub Pages cannot serve an arbitrary folder. The guide
+  walks it — including the fact that a Pages site is public even when the repository is private — and
+  writes a deploy workflow that runs only when you run it. AtlasMind never turns Pages on and never
+  publishes.
+- **See what the chat is carrying, and carry less.** The context meter opens into a breakdown — session
+  history, attachments, your draft, each with its share — and says what gets dropped first when the
+  window fills. What the panel cannot measure (the system prompt, tool definitions, images) is named
+  rather than quietly left out of the total, and one control lets you carry all, half, one or none of
+  the earlier turns for this conversation.
+- **Assess an advisory with Atlas.** Any Dependabot or code-scanning finding can be handed to an agent
+  to answer the only question that matters: does it reach *your* code? "Present but not reachable here"
+  is a first-class answer, the advisory's own text is fenced as third-party content, and a named fixed
+  version is explicitly not treated as permission to bump it.
+- **The Security page now says what is known to be wrong.** Dependabot alerts and code-scanning
+  findings, ranked by severity across both, read when you refresh the repository. Severity is
+  GitHub's rather than ours, a dismissal is counted as a decision and never as a fix, and if a source
+  was not read — or the feature is switched off — the page says that instead of showing you a clean
+  list.
+- **A board view for the roadmap** — waiting, ready, in progress, in review, delivered. A card only
+  moves on evidence AtlasMind can point at: a branch that exists, or an open pull request. Nothing is
+  ever "in progress" because it looks important, delivered still means the backlog line is ticked, and
+  if your branches or pull requests could not be read the board says that instead of showing a project
+  where nobody has started.
+- **The roadmap can now be read against time.** A fifth view puts the plan on a timeline: when each
+  item can start and finish, how much room it has before the finish moves, and where each release gate
+  lands. The axis is days from today rather than dates, deliberately — your estimates are graded in
+  working days for people and wall clock for agents, and inventing a calendar to reconcile them would
+  be a commitment made up by a chart. Deadlines you set are drawn as markers, and they never move a bar.
+- **Ctrl+wheel zooms the Project Dashboard.** The gesture you already use in a browser now works on
+  the densest page in AtlasMind, on Chromium's own zoom ladder, with a quiet indicator that appears
+  only while zoomed and clicks back to 100%. The roadmap canvas keeps Ctrl+wheel for zooming the plan
+  — whichever the pointer is over wins — and dragging a node still lands where you dropped it at any
+  page zoom.
 - **Security housekeeping, with the findings read rather than waved through.** Every open CodeQL alert
   on `develop` is addressed: 40 fixed, 8 dismissed with a written reason. The ones worth knowing about
   — webview image previews now only load a source AtlasMind recognises, the content-security-policy
@@ -330,8 +507,8 @@ Highlights from the last few releases. Everything here is already in the publish
 
 | | |
 |---|---|
-| **A 23-page project dashboard** | Overview, project score, gap analysis, workflow, roadmap, issues, pull requests, people & follow-ups, branches, repository, pipeline, testing, tech debt, security, privacy, risk, compliance, release, delivery, documents, project memory, runtime and ideation. Built from your repository, not from data you re-enter. |
-| **Registers that don't forget** | Tech debt, risk, compliance and research findings *transition* rather than vanish — resolved stays distinct from obsolete, accepted from dismissed — each graded by a published rule table so two people reading the same project get the same answer in March and in July. |
+| **A 25-page project dashboard** | Overview, project score, gap analysis, workflow, roadmap, issues, pull requests, approvals, people & follow-ups, branches, repository, pipeline, testing, tech debt, defects, security, privacy, risk, compliance, release, delivery, documents, project memory, runtime and ideation. Built from your repository, not from data you re-enter. |
+| **Registers that don't forget** | Approvals, defects, test cases, tech debt, risk, compliance and research findings *transition* rather than vanish — resolved stays distinct from obsolete, accepted from dismissed — each graded by a published rule table so two people reading the same project get the same answer in March and in July. |
 | **A roadmap that knows what blocks what** | A dependency graph beside the prioritised backlog: readable tree layout, release gates, owners, estimates, routes to any item, and honest "not assessed" instead of a confident zero. |
 | **A team of specialists** | 27 built-in agents — debugger, frontend, backend, reviewer, security, testing, docs, performance, DevOps, dependencies, SEO, UX, release and CI, plus ethics, legal, commercial and market oversight. Add your own. Optional: bring your own AI tool instead. |
 | **50 built-in skills** | File edits, the full local git lifecycle (branches, worktrees, fetch/pull, merge, stash), terminal, Docker, test runners, code navigation, debugging, web fetch, and more. Extend with your own or connect MCP servers. |
@@ -343,7 +520,7 @@ Highlights from the last few releases. Everything here is already in the publish
 | **Tech debt register** | Deferred work found from your own code markers, graded by a published rule you can read, tracked rather than forgotten. |
 | **Testing strategy** | 69 configurable methodologies — including data & schema, AI-specific and compliance families — with owners, tooling, evidence checks, scaffolding, and sync to other AI tools. |
 | **Works with your existing AI tool** | Testing methodologies, debt markers and workflow rules synced into Copilot, Claude Code, Cursor, Codex, Gemini CLI and Windsurf instruction files as a managed block. The management layer needs no chat of its own. |
-| **UI Studio** | Design websites, apps, extensions, desktop tools, and other interfaces through screens, flows, content, wireframes, tokens, components, full built-in-browser preview, responsive inspection, and implementation handoff. Website profiles also keep protected Develop → Staging → Production delivery. |
+| **UI Studio** | Pick up the UI files already in the project or draw new surfaces, design them beside the canvas with a built-in-browser preview, brand them from named presets, and hand off to the implementation. Screens, flows, content, wireframes, tokens, components and responsive inspection are all here. Website delivery — the stack, the three hosting environments, the platform targets and the n8n map — lives on the Project Dashboard's Delivery page. |
 | **Voice, vision & remote** | Local or hosted speech, image analysis, opt-in remote control, and a keep-awake lock for long runs. |
 | **Lenses over your code — and your services** | Eleven read-only views built from what your project declares: flow, change impact, test evidence, state lifecycle, config precedence, field wiring, branch change story — plus three that compare your declared schemas against what a live API or database actually serves. Shape only: never a row, never a write, off by default. |
 | **Honest cost tracking** | Per-session and per-model spend in your own currency, with model comparison and routing evidence. |
@@ -380,7 +557,7 @@ Type these in the AtlasMind chat panel as `/<command>`, or in the VS Code chat v
 | `/cost` | Running spend for this workspace across all sessions (each reply's own cost is in its footer) |
 | `/runs` | Recent autonomous runs and checkpoints |
 | `/director` · `/followups` | People, responsibilities, assignments and what's overdue |
-| `/setup` · `/acp` · `/buzz` · `/lens` · `/localci` | Guided setup walkthroughs |
+| `/setup` · `/acp` · `/buzz` · `/lens` · `/localci` · `/portal` | Guided setup walkthroughs |
 | `/compliance` | What evidences each governance regime, control by control; `/compliance next` for the next control needing a decision |
 | `/ship [routine]` | Run a saved project routine |
 | `/sync-instructions` | Keep every AI tool's instruction file in agreement |
@@ -426,7 +603,7 @@ All 154 settings are documented in the [Configuration reference](wiki/Configurat
 
 | Path | What's in it |
 |---|---|
-| `src/core/` | Orchestration, routing, planning, safety, cost, project composition, opt-in workspace scope, read-only upstream distance, game-engine identity, bounded asset inventory, pure engine-fork interpretation, and hostile-input build-log reading (`projectComposition.ts`, `workspaceScope.ts`, `upstreamDivergence.ts`, `gameEngineIdentity.ts`, `gameAssetInventory.ts`, `gameEngineDivergence.ts`, `gameBuildLog.ts`), UI Studio's graph/edit/live-preview/repository core (`uiDesignGraph.ts`, `uiEditCommands.ts`, `uiPreviewRuntime.ts`, `uiRepositoryMapping.ts`, `uiRepositoryImport.ts`, `uiSurfaceScan.ts`), CI inspection/scaffolding (`ciManager.ts`, `trustedLocalCiStarter.ts`), the CI route model, routing policy, build ledger and act adapter (`ciRoutes.ts`, `ciRoutingPolicy.ts`, `ciCreditMeter.ts`, `ciBuildLedger.ts`, `ciActRoute.ts`), the local CI guide, GitHub CLI installer and remembered machine inspection (`localCiSetupPlan.ts`, `localCiInstaller.ts`, `localCiInspectionMemory.ts`), confirmed-write echo (`trackerWriteOutcome.ts`), the register-to-work hand-off (`registerHandoff.ts`), the personal-vs-project split behind the two sidebar people views (`directorPriority.ts`), the semver primitives and branch-to-channel versioning policy (`semver.ts`, `versioningPolicy.ts`), the shell-free Windows shim bypass shared by the extension host, the CLI and the ACP launcher (`windowsShimBypass.ts`), parallel-write placement, worktree plumbing, merge-back and the run that ties them together (`worktreeIsolation.ts`, `worktreeManager.ts`, `worktreeMerge.ts`, `worktreeRun.ts`), the roadmap dependency graph and its overlay store (`roadmapGraph.ts`, `roadmapGraphStore.ts`, `roadmapCriticalPath.ts`), whether the configured team can work and how much of it is used (`agentCapacity.ts`), and the git trailers that link a commit to the work it was for (`commitTrailers.ts`), and the evidence-triggered MCP capability offer (`capabilityOffer.ts`), release-gate destinations and urgency ordering (`releaseGateNavigation.ts`), roadmap ingestion from markdown, issues, Projects and spreadsheets (`roadmapImport.ts`, `roadmapReconcile.ts`) plus the guarded `localCiRunner.ts` executor, the governance-compliance stack — the control catalog, evidence register and readiness grader (`complianceControlCatalog.ts`, `complianceEvidenceRegister.ts`, `complianceReadiness.ts`) the per-methodology standard editions (`testingStandards.ts`), the Compliance page's view builder (`complianceDashboard.ts`), its walkthrough (`complianceSetupPlan.ts`), the shared stack-signal gatherer (`complianceStackSignals.ts`) and the mapping importer (`complianceMarkdownImport.ts`) — and project services |
+| `src/core/` | Orchestration, routing, planning, safety, cost, project composition, opt-in workspace scope, read-only upstream distance, game-engine identity, bounded asset inventory, pure engine-fork interpretation, and hostile-input build-log reading (`projectComposition.ts`, `workspaceScope.ts`, `upstreamDivergence.ts`, `gameEngineIdentity.ts`, `gameAssetInventory.ts`, `gameEngineDivergence.ts`, `gameBuildLog.ts`), UI Studio's graph/edit/live-preview/repository core (`uiDesignGraph.ts`, `uiEditCommands.ts`, `uiPreviewRuntime.ts`, `uiRepositoryMapping.ts`, `uiRepositoryImport.ts`, `uiSurfaceScan.ts`), brand presets — one named token set applied to many surfaces by alias, extracted from a stylesheet with a citation (`brandPresets.ts`) — and the engine emitters with anchored, patch-by-anchor content write-back and constant-argv launch plans (`uiSurfaceEmit.ts`), CI inspection/scaffolding (`ciManager.ts`, `trustedLocalCiStarter.ts`), the CI route model, routing policy, build ledger and act adapter (`ciRoutes.ts`, `ciRoutingPolicy.ts`, `ciCreditMeter.ts`, `ciBuildLedger.ts`, `ciActRoute.ts`), the local CI guide, GitHub CLI installer and remembered machine inspection (`localCiSetupPlan.ts`, `localCiInstaller.ts`, `localCiInspectionMemory.ts`), confirmed-write echo (`trackerWriteOutcome.ts`), the register-to-work hand-off (`registerHandoff.ts`), the personal-vs-project split behind the two sidebar people views (`directorPriority.ts`), the semver primitives and branch-to-channel versioning policy (`semver.ts`, `versioningPolicy.ts`), the shell-free Windows shim bypass shared by the extension host, the CLI and the ACP launcher (`windowsShimBypass.ts`), parallel-write placement, worktree plumbing, merge-back and the run that ties them together (`worktreeIsolation.ts`, `worktreeManager.ts`, `worktreeMerge.ts`, `worktreeRun.ts`), the live security advisory feed and the per-turn context breakdown and the producer-portal hosting guide (`advisoryFeed.ts`, `contextBudget.ts`, `producerPortalPlan.ts`), the defect register — what is broken, graded by a published table rather than asked for (`defectRegister.ts`), the approval register — who agreed, to which version, and what goes stale when it changes (`changeApprovals.ts`), the test-case register — the manual half of testing, its owners and the assets it needs (`testCaseRegister.ts`), the ambient event bus — what may wake AtlasMind up, how far it may go, and why it stayed quiet (`ambientTriggers.ts`), the six cross-cutting utility decisions with their verified vendor facts (`utilityPacks.ts`), the searchable codebase index — what may be indexed, what is stale, and what a result may be taken to mean (`codebaseIndex.ts`, `codebaseIndexStore.ts`), where the producer portal is hosted and who may read it, and what one press to publish would actually do (`portalHosting.ts`, `portalPublishPlan.ts`), golden cases for an agent and the gate on an unattended prompt rewrite (`agentEvalHarness.ts`), what each person has been asked to do against the capacity they declared, and declared absence read out of an exported calendar (`teamWorkload.ts`, `rotaImport.ts`), baselines you can name so "what changed" can be asked about a moment you chose (`baselineRegister.ts`), the project in your own words and the grounding rule for anything read out of it (`projectBrief.ts`), the roadmap dependency graph, its overlay store, the chain the finish rests on and the plan against time (`roadmapGraph.ts`, `roadmapGraphStore.ts`, `roadmapCriticalPath.ts`, `roadmapTimeline.ts`, `roadmapBoard.ts`), whether the configured team can work and how much of it is used (`agentCapacity.ts`), and the git trailers that link a commit to the work it was for (`commitTrailers.ts`), and the evidence-triggered MCP capability offer (`capabilityOffer.ts`), release-gate destinations and urgency ordering (`releaseGateNavigation.ts`), roadmap ingestion from markdown, issues, Projects and spreadsheets (`roadmapImport.ts`, `roadmapReconcile.ts`) plus the guarded `localCiRunner.ts` executor, the governance-compliance stack — the control catalog, evidence register and readiness grader (`complianceControlCatalog.ts`, `complianceEvidenceRegister.ts`, `complianceReadiness.ts`) the per-methodology standard editions (`testingStandards.ts`), the Compliance page's view builder (`complianceDashboard.ts`), its walkthrough (`complianceSetupPlan.ts`), the shared stack-signal gatherer (`complianceStackSignals.ts`) and the mapping importer (`complianceMarkdownImport.ts`) — and project services |
 | `src/runtime/` | Built-in agents and runtime composition |
 | `src/providers/` | Model provider adapters, catalogs, health, `modelRole.ts` (what a model is *for*), and the local-GPU support layer — `gpuProbe.ts`, `localFootprint.ts`, `localRuntimeClient.ts` |
 | `src/skills/` | Built-in tools and skill handlers |

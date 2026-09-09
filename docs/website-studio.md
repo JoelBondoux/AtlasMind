@@ -20,17 +20,36 @@ SwiftUI, React Native, XAML, game-engine, or other non-web project, that preview
 content, states and tokens; it never claims HTML is the implementation target. The Implementation guide
 is what points subsequent project work at the real technology and source locations.
 
-## Dashboards
+## The shell: a rail of surfaces, and views
 
-| Dashboard | Purpose |
+There are no numbered steps. A **Surfaces rail** on the left is the navigation:
+
+- **Found in this project** — every UI file the workspace scan classified by a declared rule (React and
+  Vue/Svelte components, HTML pages, VS Code webview scripts) that has not been picked up yet, with the
+  rule table underneath. **Pick up** brings one in as a surface that records where it came from
+  (`WebsitePagePlan.source`). A stylesheet is never offered here; it is a source of tokens, read on the
+  Brands view.
+- **Designed here** — every surface, found or drawn. Clicking one opens it on the canvas. **+ Add**
+  draws a new one.
+- **Brands** — what is defined and which is the default; **Manage** opens the Brands view.
+
+The views across the top are aspects of the surface you are on, in the order of attention rather than
+of work:
+
+| View | Purpose |
 |---|---|
-| Project Brief | Choose the interface profile and capture the project, goals, audiences, features, content sources, brand notes, constraints, metrics, stakeholders, timing, budget, and whole-interface prompt |
+| Design | The canvas: nav, hero, section, grid, card, media, text, form, CTA, sidebar, footer; the inspector for the selected element; per-page design prompts and review states; and the built-in-browser preview card. The landing view |
 | Sitemap / Screens & flows | Website profiles use pages and slugs; other profiles use screens and stable route/view identifiers. Both share the auto-drawn hierarchy, parent relationships, and links |
-| Content Design | Set voice, principles, preferred/avoided terms, comprehension target, locales, and accessibility rules; edit each screen's real Markdown copy and UI states |
-| Wireframe canvas | Draw the page: nav, hero, section, grid, card, media, text, form, CTA, sidebar, footer. Select any element to describe it. Per-page design prompts and the wireframe/UI/content/SEO review states live here |
-| UI System | Record brand direction and legacy defaults; edit typed tokens/aliases, reusable component definitions, bounded sample-data collections, and validated assets |
-| Implementation | Record target technologies, source roots, component locations, handoff notes, and explicit design-to-source mappings with divergence status. Website profiles also choose framework/platform, configure hosting, run setup, and compare Delivery |
-| n8n Automations (website) | Map workflow event, expected outcome, readiness, opaque workflow ID, instance, credential reference, and data/privacy notes |
+| Brands & system | Each brand as a card — swatches, origin, how far the default is in effect, **Apply to surfaces…**, **Read a brand from a stylesheet** — followed by the typed tokens/aliases, reusable component definitions, sample-data collections, validated assets and the fallback defaults projected from the default brand |
+| Content design | Set voice, principles, preferred/avoided terms, comprehension target, locales, and accessibility rules; edit each screen's real Markdown copy and UI states |
+| Brief | Choose the interface profile and capture the project, goals, audiences, features, content sources, brand notes, constraints, metrics, stakeholders, timing, budget, and whole-interface prompt |
+| Handoff | Record target technologies, source roots, component locations, handoff notes, and explicit design-to-source mappings with divergence status |
+
+Every one of the old step ids (`brief`, `sitemap`, `content`, `ui-system`, `wireframes`, `preview`,
+`stack`, `platforms`, `automations`) still deep-links to the view its content went to. The last three land on
+Handoff, which points at the Project Dashboard's Delivery page: the framework, the three hosting
+environments, the platform targets and the n8n workflow map live there since 0.474.0, beside the pipeline
+that ships them, and a Studio save never touches them.
 
 ## Typed design tokens
 
@@ -218,9 +237,45 @@ not become one. The user's own sentence is deliberately *not* fenced — it is t
 fencing it would be theatre that also breaks the feature. Every prompt ends by saying the answer is a
 proposal and that nothing should be written to `website.json`.
 
+## Emitting a surface into its engine
+
+The Handoff view's **Emit** card writes a drawn surface for the engine that will own it. Three targets
+produce source: **Web** (an HTML page, a stylesheet and a shared `atlas-tokens.css`), **Unity UI
+Toolkit** (UXML, USS and a shared `AtlasTokens.uss`) and **Godot 4** (a Control scene and a shared
+`atlas_theme.tres`). **Unreal UMG, SwiftUI and Compose produce a handoff specification** — a Markdown
+document with the tokens, every node's rect and layout mode, and anchored copy — because their syntax
+was not checked against a compiler, and a plausible wrong file costs more than a document somebody
+reads. The target defaults to what the implementation guide's target technologies declare; the output
+folder defaults per target and must stay inside the workspace.
+
+The rule is **divergence, not regeneration**:
+
+- **The layout is emitted once, and the engine owns it from then on.** Every emit records a manifest
+  under `project_memory/domain/ui-emit/`. A second emit over files that changed since is refused, and
+  the card states the ownership from the files as they are: *Layout: owned by Unity since the emit on
+  2026-09-09 · Content: editable here (4 of 5 regions; 1 blocked)*. **Discard <engine>'s layout and
+  emit again** is a separate red button behind a modal that names every file whose edits are lost.
+- **The words stay editable here.** Every node's copy — title, body, action, nav items — is emitted
+  inside a region anchored by the node id: `data-atlas-copy` on a `<div>`, `name="atlas_copy_<id>"` on a
+  `VisualElement`, `[node name="atlas_copy_<id>…"]` blocks in a scene, a comment marker in a
+  specification. **Push content** finds each region in the file *as it is now* and replaces only that.
+  A missing anchor is refused by name (the engine edit that removed it made a decision). A region
+  somebody edited in the engine is refused and shown, before and after. A node removed in Studio is
+  reported, never deleted from the engine file; a node drawn after the emit is reported, never inserted.
+  Adding a nav link in Studio adds one line inside the nav's region.
+- **Engines re-serialise their own files.** Unity's UI Builder rewrites a UXML on save and Godot's
+  editor rewrites a `.tscn`, and both drop comments — so the anchors are element and node names, and
+  the Godot fingerprint covers node names and `text` values only, so reordered properties are not read
+  as a hand edit.
+- **Launch** opens a web page in the default browser, runs Godot as `godot --path <workspace> <scene>`
+  through `spawn` with no shell after a modal that shows the argv, and shows Unity's
+  `Unity -projectPath <workspace>` to copy, since the editor is not on PATH by convention.
+
+Nothing in `uiSurfaceEmit.ts` writes or runs; the module imports neither `fs` nor `child_process`.
+
 ## Full preview: the design feedback loop
 
-**Full Preview is a numbered Studio step**, not an output utility. Save the current design, then choose
+**Full Preview lives on the Design view, beside the canvas it previews**, not on an output page. Save the current design, then choose
 **Rebuild and open** to render one deterministic draft from three sources of truth:
 
 - wireframe geometry and hierarchy from the canvas;
@@ -455,7 +510,7 @@ Comments are recorded against a page or a specific wireframe element and transit
 ### The shareable link
 
 The overlay is generated **into the site**, so it travels to the password-protected staging
-environment the Stack page already sets up — the client's own hosting. **AtlasMind hosts nothing.**
+environment the Dashboard's Delivery page already sets up — the client's own hosting. **AtlasMind hosts nothing.**
 
 Comments return either by download (imported with **AtlasMind: Import Website Client Feedback**) or by
 POST to an endpoint the team already owns. **No endpoint is ever invented**: unset means export-only,

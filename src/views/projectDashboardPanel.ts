@@ -146,6 +146,17 @@ import {
   type ObservedSnapshot,
 } from '../core/observedDelta.js';
 import {
+  BASELINE_RULES,
+  captureBaseline,
+  compareAgainstBaseline,
+  orderedBaselines,
+  removeBaseline,
+  sanitizeBaselineRegister,
+  MAX_NAMED_BASELINES,
+  type BaselineRegister,
+  type BaselineStaleness,
+} from '../core/baselineRegister.js';
+import {
   buildAttentionFeed,
   type AttentionFeed,
   type AttentionInput,
@@ -240,6 +251,102 @@ import {
   type DebtScanScope,
   type DebtStatus,
 } from '../core/debtRegister.js';
+import {
+  DEFECT_SSOT_PATH,
+  DEFECT_RULES,
+  DefectRegisterManager,
+  addDefect,
+  buildDefectWorkPrompt,
+  deriveDefectMetrics,
+  markDefectDuplicate,
+  readDefectRegister,
+  regradeDefect,
+  setDefectStatus,
+  sortDefectEntries,
+  type DefectEntry,
+  type DefectImpact,
+  type DefectMetrics,
+  type DefectReach,
+  type DefectReproducibility,
+  type DefectStatus,
+} from '../core/defectRegister.js';
+import {
+  APPROVALS_SSOT_PATH,
+  APPROVAL_CATEGORIES,
+  APPROVAL_ROUTING_RULES,
+  ApprovalRegisterManager,
+  approvalCurrency,
+  approvalFingerprint,
+  buildApprovalReviewPrompt,
+  decideApproval,
+  deriveApprovalMetrics,
+  raiseApproval,
+  readApprovalRegister,
+  refreshApprovalSubject,
+  resolveApprover,
+  sortApprovalRequests,
+  withdrawApproval,
+  type ApprovalCategory,
+  type ApprovalCurrency,
+  type ApprovalMetrics,
+  type ApprovalRosterInput,
+} from '../core/changeApprovals.js';
+import {
+  TEST_CASES_SSOT_PATH,
+  TEST_CASE_PRIORITY_RULES,
+  TestCaseRegisterManager,
+  addTestAsset,
+  addTestCase,
+  buildTestCaseDraftingPrompt,
+  deriveTestCaseMetrics,
+  readTestCaseRegister,
+  recordTestExecution,
+  runnableCases,
+  setTestCaseStatus,
+  testCaseStanding,
+  type TestAsset,
+  type TestCaseConsequence,
+  type TestCaseFrequency,
+  type TestCaseMetrics,
+  type TestCaseState,
+  type TestCaseStatus,
+  type TestResult,
+} from '../core/testCaseRegister.js';
+import {
+  UTILITY_PACKS,
+  UTILITY_PACKS_VERIFIED_AT,
+  assessUtilityPacks,
+  buildUtilityDecisionPrompt,
+  offerableUtilityPacks,
+  type UtilityCapability,
+} from '../core/utilityPacks.js';
+import {
+  summarizeTeamWorkload,
+  type TeamWorkloadSummary,
+} from '../core/teamWorkload.js';
+
+/**
+ * The window the team workload is read over, in days.
+ *
+ * Fixed and stated on the card rather than configurable: "overloaded" is
+ * meaningless without "over what period", and a number whose window the reader
+ * has to remember invites them to supply their own.
+ */
+const TEAM_WORKLOAD_WINDOW_DAYS = 14;
+import {
+  PORTAL_HOSTING_VERIFIED_AT,
+  PORTAL_HOST_CAPABILITIES,
+  PortalHostingManager,
+  addPortalViewer,
+  assessPortalAccess,
+  confirmPortalAccess,
+  readPortalHostingConfig,
+  seedPortalHostingConfig,
+  portalAccessSteps,
+  removePortalViewer,
+  type PortalAccessAssessment,
+  type RepositoryVisibility,
+} from '../core/portalHosting.js';
 import {
   WORKFLOW_HISTORY_SSOT_PATH,
   WorkflowAuditLedger,
@@ -477,6 +584,25 @@ import {
   type RoadmapCriticalPath,
 } from '../core/roadmapCriticalPath.js';
 import {
+  ROADMAP_TIMELINE_RULES,
+  buildRoadmapTimeline,
+  describeRoadmapTimeline,
+} from '../core/roadmapTimeline.js';
+import {
+  buildRoadmapBoard,
+  describeRoadmapBoard,
+} from '../core/roadmapBoard.js';
+import {
+  buildAdvisoryFeed,
+  buildAdvisoryWorkPrompt,
+  describeAdvisoryFeed,
+  parseCodeScanningAlerts,
+  parseDependabotAlerts,
+} from '../core/advisoryFeed.js';
+import type { AdvisoryFeed, AdvisoryFeedInput, AdvisoryItem as AdvisoryItemLike } from '../core/advisoryFeed.js';
+import type { RoadmapBoard } from '../core/roadmapBoard.js';
+import type { RoadmapTimeline } from '../core/roadmapTimeline.js';
+import {
   agentUtilisationScore,
   readAgentCapacity,
   type AgentCapacityReading,
@@ -491,6 +617,25 @@ import {
   type RoadmapGraphDocument,
 } from '../core/roadmapGraphStore.js';
 import { DataPrivacyManager, readDataPrivacyConfig, writeDataPrivacyConfig, defaultDataPrivacyConfig } from '../core/dataPrivacyManager.js';
+import {
+  WEBSITE_PLATFORM_CATALOG,
+  WEBSITE_WORKSPACE_SSOT_PATH,
+  WebsiteWorkspaceManager,
+  assessWebsiteHostingEnvironments,
+  type WebsiteWorkspaceRead,
+} from '../core/websiteWorkspaceManager.js';
+import {
+  WEBSITE_FRAMEWORK_CATALOG,
+  buildCommandFor,
+  describeStackCompatibility,
+  devCommandFor,
+  isWebsiteFrameworkId,
+  renderCommandLine,
+  websiteFrameworkSpec,
+  type WebsiteFrameworkId,
+} from '../core/websiteFrameworks.js';
+import { compareWebsiteToDelivery } from '../core/websiteDeliverySync.js';
+import type { WebsiteAutomation, WebsiteHostingEnvironment, WebsitePlatformTarget, WebsiteWorkspaceConfig } from '../types.js';
 import { COMPLIANCE_PACKS } from '../core/compliancePacks.js';
 import { getProviderDataGovernance } from '../core/providerDataGovernance.js';
 import {
@@ -500,6 +645,7 @@ import {
   seedDeliveryConfig,
   appendPromotionHistory,
   readPromotionHistory,
+  readDeliveryConfig,
   acquireDeliveryLock,
   releaseDeliveryLock,
   type DeliverySeedInput,
@@ -693,6 +839,7 @@ const ALLOWED_DASHBOARD_COMMANDS = new Set([
   'atlasmind.updateProjectMemory',
   'atlasmind.bootstrapProject',
   'atlasmind.importProject',
+  'atlasmind.importRota',
   'atlasmind.openMcpServers',
   'atlasmind.lens.setupDeclarations',
   'workbench.view.scm',
@@ -1114,6 +1261,81 @@ type ProjectDashboardMessage =
   | { type: 'setDebtStatus'; payload: { id: string; status: string; note?: string } }
   | { type: 'openDebtEvidence'; payload: { id: string } }
   | { type: 'workOnDebt'; payload: { id: string } }
+  // The reporter supplies what the defect *does* and how many people meet it.
+  // There is deliberately no severity field: it is derived host-side from the
+  // declared rule table, so no message can carry a grade the table would not
+  // produce.
+  | {
+    type: 'reportDefect';
+    payload: {
+      title: string;
+      impact: string;
+      reach: string;
+      reproducibility?: string;
+      detail?: string;
+      area?: string;
+      stepsToReproduce?: string;
+      expected?: string;
+      actual?: string;
+      environment?: string;
+    };
+  }
+  | { type: 'setDefectStatus'; payload: { id: string; status: string; note?: string } }
+  | { type: 'regradeDefect'; payload: { id: string; impact: string; reach: string } }
+  | { type: 'markDefectDuplicate'; payload: { id: string; duplicateOfId: string } }
+  | { type: 'workOnDefect'; payload: { id: string } }
+  // A request names its subject by an **opaque option id** the host published
+  // on this render, never by a path or an item id. The host resolves it against
+  // the same allowlist it built, so a crafted message can name a subject that
+  // does not exist and can never point the register at a file.
+  | {
+    type: 'raiseApproval';
+    payload: { category: string; title: string; subjectId: string; rationale?: string };
+  }
+  | { type: 'decideApproval'; payload: { id: string; decision: string; note?: string } }
+  | { type: 'withdrawApproval'; payload: { id: string } }
+  | { type: 'recheckApproval'; payload: { id: string } }
+  | { type: 'reviewApproval'; payload: { id: string } }
+  // A case is described, never graded: there is no priority field, because the
+  // grade comes from the declared table host-side.
+  | {
+    type: 'addTestCase';
+    payload: {
+      title: string;
+      consequence: string;
+      frequency: string;
+      objective?: string;
+      expected?: string;
+      execution?: string;
+      ownerContactId?: string;
+      policyId?: string;
+    };
+  }
+  | { type: 'setTestCaseStatus'; payload: { id: string; status: string } }
+  | { type: 'recordTestResult'; payload: { id: string; result: string; notes?: string } }
+  | { type: 'draftTestCase'; payload: { id: string } }
+  // A capability id, resolved host-side against the declared pack list. The
+  // browser can name one and can never supply the text an agent reads, nor a
+  // command — the pack's install lines are constants and nothing executes them.
+  | { type: 'discussUtilityPack'; payload: { capability: string } }
+  // The audience is addressed by contact id, resolved host-side against the
+  // Director roster. No address ever travels from the webview, and none is
+  // stored: the committed file keeps ids.
+  | { type: 'addPortalViewer'; payload: { contactId: string } }
+  | { type: 'removePortalViewer'; payload: { contactId: string } }
+  | { type: 'confirmPortalAccess' }
+  | { type: 'publishPortal' }
+  | {
+    type: 'addTestAsset';
+    payload: {
+      label: string;
+      kind: string;
+      ownerContactId?: string;
+      location?: string;
+      secretRef?: string;
+      notes?: string;
+    };
+  }
   | { type: 'loadReviewComments'; payload: { number: number } }
   | { type: 'createLabel'; payload: { name: string; color?: string; description?: string } }
   | { type: 'deleteLabel'; payload: { name: string } }
@@ -1123,6 +1345,8 @@ type ProjectDashboardMessage =
   | { type: 'draftIssueFromRoadmap'; payload: { itemId: string } }
   | { type: 'draftIssueFromPullRequest'; payload: { number: number } }
   | { type: 'openGithubLink'; payload: { page: string; id: string } }
+  | { type: 'openAdvisory'; payload: string }
+  | { type: 'workOnAdvisory'; payload: string }
   | { type: 'markDeltaSeen' }
   | { type: 'setWorkflowGate'; payload: { key: string; enabled: boolean } }
   | { type: 'setAutomationCeiling'; payload: { level: string } }
@@ -1163,8 +1387,14 @@ type ProjectDashboardMessage =
   | { type: 'rollbackStage'; payload: { stageId: string; confirmText: string } }
   | { type: 'testHealthUrl'; payload: { url: string } }
   | { type: 'testDataPrivacy'; payload: { kind: 'text' | 'path'; value: string } }
+  | { type: 'captureBaseline'; payload: { label: string; reason?: string } }
+  | { type: 'removeBaseline'; payload: string }
+  | { type: 'selectBaseline'; payload: string }
   | { type: 'saveDirectorConfig'; payload: import('../types.js').ProjectDirectorConfig }
   | { type: 'seedDirectorFromRepo' }
+  | { type: 'saveWebsiteDelivery'; payload: { platforms: unknown[]; hostingEnvironments: unknown[]; automations: unknown[] } }
+  | { type: 'selectWebsiteFramework'; payload: { frameworkId: WebsiteFrameworkId } }
+  | { type: 'planWebsiteStackSetup' }
   | { type: 'saveDocumentsConfig'; payload: import('../types.js').DocumentsConfig }
   | { type: 'seedDocumentsFromRepo' }
   | { type: 'createShelfFolder'; payload: string }
@@ -1292,8 +1522,8 @@ interface DashboardStat {
  * into the conversation.
  */
 const DASHBOARD_PAGE_IDS = [
-  'overview', 'score', 'gapAnalysis', 'workflow', 'roadmap', 'issues', 'pullRequests', 'director',
-  'branches', 'repo', 'pipeline', 'testing', 'debt', 'security', 'privacy', 'risk', 'compliance', 'release', 'delivery', 'documents',
+  'overview', 'score', 'gapAnalysis', 'workflow', 'roadmap', 'issues', 'pullRequests', 'approvals', 'director',
+  'branches', 'repo', 'pipeline', 'testing', 'debt', 'defects', 'security', 'privacy', 'risk', 'compliance', 'release', 'delivery', 'documents',
   'ssot', 'runtime', 'ideation',
 ] as const;
 
@@ -2404,6 +2634,36 @@ interface DashboardGuidedWorkflowSnapshot {
     changes: Array<{ label: string; kind: string; summary: string; before?: string; after?: string }>;
     droppedByCap: number;
   };
+  /**
+   * Baselines somebody named, and the comparison against the chosen one.
+   *
+   * The `delta` above is always *since you last looked* — the span nobody
+   * chose. This is how the same comparison is asked about a moment somebody
+   * did choose, using the same rules rather than a second implementation.
+   */
+  baselines: {
+    entries: Array<{
+      id: string;
+      label: string;
+      reason?: string;
+      takenAt: string;
+      ageDays: number;
+      staleness: BaselineStaleness;
+    }>;
+    /** The chosen baseline's id, when one is chosen. */
+    selectedId?: string;
+    /** The comparison against it. Absent when nothing is chosen. */
+    comparison?: {
+      span: string;
+      status: ObservedDelta['status'];
+      staleness: BaselineStaleness;
+      changes: Array<{ label: string; kind: string; summary: string }>;
+      droppedByCap: number;
+    };
+    /** How many more may be captured before a capture is refused. */
+    remaining: number;
+    rules: Array<{ id: string; describes: string }>;
+  };
   /** The next actionable step, or absent when the workflow is complete. */
   next?: { stageId: WorkflowStageId; stepId: string; stageName: string; stepTitle: string };
   /** Only the glossary entries this curriculum actually references. */
@@ -2580,6 +2840,26 @@ interface DashboardRoadmapGraphView {
   criticalPath: RoadmapCriticalPath;
   /** The same thing in a sentence, so no renderer has to restate the numbers. */
   criticalPathSummary: string;
+  /**
+   * The same plan on a time axis: bars, float, and where each gate lands.
+   *
+   * Built from `criticalPath` rather than beside it, so the chart and the
+   * sentence above it cannot hold two opinions about the finish.
+   */
+  timeline: RoadmapTimeline;
+  /** The timeline in a sentence, for the same reason `criticalPathSummary` exists. */
+  timelineSummary: string;
+  /**
+   * The same plan as a board: what is waiting, ready, started or in review.
+   *
+   * Filled in by `collectDashboardSnapshot`, not here: the state of an item is
+   * evidenced by branches and pull requests, and this builder has neither. It
+   * ships with an unassessed board so a surface always has one to render, and
+   * `unassessed-is-not-empty` is what stops that reading as "nothing started".
+   */
+  board: RoadmapBoard;
+  /** The board in a sentence. */
+  boardSummary: string;
   /** Precomputed route per node, so filtering to one is instant and offline. */
   routes: Record<string, { nodeIds: string[]; edgeKeys: string[]; order: string[]; routeDays: number; completedCount: number }>;
   /** People who can be recorded as adding or completing work, from the Director roster. */
@@ -2966,7 +3246,23 @@ interface DashboardSnapshot {
     issueTemplateCount: number;
     changelogPresent: boolean;
     governanceProviders: string[];
+    /**
+     * What is publicly known to be wrong with the code and its dependencies.
+     *
+     * Read on the repository refresh, like issues and pull requests, and never
+     * on render: these are rate-limited API calls. Always present, because
+     * `unassessed-is-not-clean` needs somewhere to say nobody looked.
+     */
+    advisories: AdvisoryFeed;
+    advisorySummary: string;
   };
+  /**
+   * Website delivery — the framework, the three hosting environments, the
+   * platform targets and the n8n automations — as the Delivery page shows it.
+   * Present only when the project has a website plan of the website profile;
+   * absent means there is no such plan, never that delivery is unconfigured.
+   */
+  websiteDelivery?: DashboardWebsiteDelivery;
   delivery: {
     packageVersion: string;
     dependencyCount: number;
@@ -3060,6 +3356,61 @@ interface DashboardSnapshot {
     rules: Array<{ id: string; domain: string; severity: string; describes: string }>;
     scanning: boolean;
   };
+  /**
+   * What is broken, as opposed to what was deferred.
+   *
+   * Sits beside `debt` rather than inside it because the two answer different
+   * questions: debt is a decision somebody made on purpose, a defect is
+   * something that does not work. Read from disk on every collection, so this
+   * and the writes the panel makes cannot disagree about the file.
+   */
+  defects: {
+    path: string;
+    entries: DefectEntry[];
+    metrics: DefectMetrics;
+    /** The declared rules, so a grade can be checked against them on screen. */
+    rules: Array<{ id: string; severity: string; describes: string }>;
+    /**
+     * False until somebody has written a defect down.
+     *
+     * The page needs it because an empty register means nobody recorded one,
+     * not that there are none — and a confident zero is exactly the reading
+     * this dashboard keeps refusing to produce.
+     */
+    recorded: boolean;
+  };
+  /**
+   * Who agreed to what, and to which version of it.
+   *
+   * A record rather than a gate: nothing on this dashboard refuses on the
+   * strength of an approval, because a gate AtlasMind cannot enforce is one
+   * people learn to route around.
+   */
+  approvals: DashboardApprovalsSnapshot;
+  /**
+   * The other half of testing: the cases somebody wrote down.
+   *
+   * Alongside `testing` rather than inside it, because everything in that
+   * snapshot is derived from files and everything here was written by a person.
+   * A manual case is additional evidence somebody can point at, never a
+   * substitute for the automated kind — `testingPolicyCoverage` still owns
+   * whether a methodology is evidenced.
+   */
+  testCases: DashboardTestCasesSnapshot;
+  /**
+   * The six cross-cutting utilities, and which of them this project has decided
+   * about. Read from the same manifest names archetype detection uses, so it
+   * costs no extra I/O and infers nothing from source shape.
+   */
+  utilities: DashboardUtilitiesSnapshot;
+  /**
+   * Where the producer portal is hosted and who may read it.
+   *
+   * On the Director page because the audience is a decision about people; the
+   * host itself is chosen in Settings. Both edit one committed file, so the two
+   * surfaces cannot hold different answers.
+   */
+  portalHosting: DashboardPortalHostingSnapshot;
   /** Human ownership for actionable records across the dashboard. */
   workAssignments: DashboardWorkAssignmentsSnapshot;
   /**
@@ -3069,6 +3420,14 @@ interface DashboardSnapshot {
    */
   vitalFiles: VitalFileOwnershipReport;
   director: DashboardDirectorSnapshot;
+  /**
+   * What each person has been asked to do, against what they said they could.
+   *
+   * Sits beside `director` rather than inside it because it joins two things
+   * that page does not own — the roadmap's estimates and its assignments — and
+   * folding it in would make the Director collector read the plan.
+   */
+  teamWorkload: TeamWorkloadSummary;
   documents: DashboardDocumentsSnapshot;
   risk: DashboardRiskSnapshot;
   /**
@@ -3575,6 +3934,414 @@ function collectIdeationEvidence(input: {
   }
 
   return entries;
+}
+
+const APPROVAL_STATUS_LABEL: Record<string, string> = {
+  pending: 'Pending',
+  approved: 'Approved',
+  rejected: 'Rejected',
+  withdrawn: 'Withdrawn',
+  superseded: 'Superseded',
+};
+
+const MS_PER_APPROVAL_DAY = 24 * 60 * 60 * 1000;
+
+/**
+ * What a request can be raised about, and how its content is read back.
+ *
+ * Deliberately a **host-derived allowlist** rather than a path or an id the
+ * webview supplies. A subject is addressed by an opaque option id, resolved
+ * here; nothing the browser sends can name a file, so no message exists by
+ * which the register could be pointed at something outside the two spaces this
+ * function knows how to read.
+ */
+function collectApprovalSubjects(
+  roadmap: DashboardRoadmapSnapshot,
+  documents: DashboardDocumentsSnapshot,
+  workspaceRoot: string | undefined,
+): Map<string, { kind: string; ref: string; label: string; content: string | undefined }> {
+  const subjects = new Map<string, { kind: string; ref: string; label: string; content: string | undefined }>();
+
+  for (const item of roadmap.items) {
+    // The durable anchor, never the positional id: a request keyed on
+    // `roadmap-3` would silently point at a different item the moment somebody
+    // inserted a line above it.
+    if (!item.nodeId || item.completed) {
+      continue;
+    }
+    subjects.set(`roadmap-item::${item.nodeId}`, {
+      kind: 'roadmap-item',
+      ref: item.nodeId,
+      label: item.text,
+      content: item.text,
+    });
+  }
+
+  for (const document of documents.autoUpdate) {
+    const relative = document.path;
+    if (!relative) {
+      continue;
+    }
+    let content: string | undefined;
+    if (workspaceRoot && document.exists) {
+      try {
+        // Bounded: a fingerprint over a very large file costs nothing useful,
+        // and an approval is about a document somebody reads.
+        content = readFileSync(path.join(workspaceRoot, relative), 'utf8').slice(0, 200_000);
+      } catch {
+        // Unreadable now. Left undefined, which reports as `unresolvable`
+        // rather than as an approval that still applies.
+        content = undefined;
+      }
+    }
+    subjects.set(`document::${relative}`, {
+      kind: 'document',
+      ref: relative,
+      label: document.label ?? relative,
+      ...(content === undefined ? { content: undefined } : { content }),
+    });
+  }
+
+  return subjects;
+}
+
+/**
+ * The approvals page's view of the register.
+ *
+ * Read from disk on every collection, like the defect register, so the page and
+ * the panel's own writes cannot disagree about the file. Currency is computed
+ * against the subject's content *now* — which is why nothing here writes: a
+ * render that re-fingerprinted into the register would be a write on a read
+ * path, and `project_memory/` is committed.
+ */
+function collectApprovalsSnapshot(
+  workspaceRoot: string | undefined,
+  director: ProjectDirectorConfig | undefined,
+  roadmap: DashboardRoadmapSnapshot,
+  documents: DashboardDocumentsSnapshot,
+  now: number,
+): DashboardApprovalsSnapshot {
+  const register = workspaceRoot
+    ? readApprovalRegister(workspaceRoot)
+    : { version: 1 as const, requests: [] };
+  const subjects = collectApprovalSubjects(roadmap, documents, workspaceRoot);
+  const contactName = (id: string | undefined): string | undefined => {
+    if (!id) {
+      return undefined;
+    }
+    // An id that names nobody is shown as the id rather than dropped: a request
+    // routed to somebody who has left the roster is a finding, and a blank
+    // approver field reads as "unrouted", which is a different problem.
+    return director?.contacts.find(contact => contact.id === id)?.name ?? id;
+  };
+  const selfContactId = director?.selfContactId;
+
+  const requests: DashboardApprovalView[] = sortApprovalRequests(register.requests).map(request => {
+    const subject = subjects.get(`${request.subject.kind}::${request.subject.ref}`);
+    const live = subject?.content === undefined ? undefined : approvalFingerprint(subject.content);
+    const raised = Date.parse(request.requestedAt);
+    const routing = request.approverContactId === undefined && request.status === 'pending'
+      ? resolveApprover(request.category, buildApprovalRoster(director))
+      : undefined;
+    return {
+      id: request.id,
+      category: request.category,
+      title: request.title,
+      rationale: request.rationale,
+      subjectKind: request.subject.kind,
+      subjectRef: request.subject.ref,
+      subjectLabel: subject?.label ?? request.subject.label,
+      status: request.status,
+      statusLabel: APPROVAL_STATUS_LABEL[request.status] ?? request.status,
+      requestedAt: request.requestedAt,
+      ...(contactName(request.requestedBy) === undefined ? {} : { requestedByLabel: contactName(request.requestedBy)! }),
+      ...(contactName(request.approverContactId) === undefined ? {} : { approverLabel: contactName(request.approverContactId)! }),
+      ...(request.approverRule === undefined ? {} : { approverRule: request.approverRule }),
+      ...(routing?.unresolvedReason === undefined ? {} : { unresolvedReason: routing.unresolvedReason }),
+      ...(request.decidedAt === undefined ? {} : { decidedAt: request.decidedAt }),
+      ...(contactName(request.decidedBy) === undefined ? {} : { decidedByLabel: contactName(request.decidedBy)! }),
+      ...(request.decisionNote === undefined ? {} : { decisionNote: request.decisionNote }),
+      selfApproved: request.selfApproved === true,
+      currency: approvalCurrency(request, live),
+      ...(Number.isFinite(raised) && request.status === 'pending'
+        ? { waitingDays: Math.max(0, Math.floor((now - raised) / MS_PER_APPROVAL_DAY)) }
+        : {}),
+      mine: selfContactId !== undefined && request.approverContactId === selfContactId,
+    };
+  });
+
+  return {
+    path: APPROVALS_SSOT_PATH,
+    requests,
+    metrics: deriveApprovalMetrics(register, now),
+    rules: APPROVAL_ROUTING_RULES.map(rule => ({
+      category: rule.category,
+      roleId: rule.roleId,
+      describes: rule.describes,
+    })),
+    categories: [...APPROVAL_CATEGORIES],
+    subjects: [...subjects.entries()].map(([id, subject]) => ({
+      id,
+      kind: subject.kind,
+      label: subject.label,
+    })),
+    recorded: register.requests.length > 0,
+    rosterKnown: (director?.teamMembers.length ?? 0) > 0,
+  };
+}
+
+/**
+ * The test-case register's view.
+ *
+ * Read from disk on every collection, like the defect and approval registers,
+ * so the page and the panel's own writes cannot disagree about the file. Owner
+ * ids are resolved to names here so the page never has to look a contact up,
+ * and an id that names nobody is shown as the id rather than dropped — a case
+ * assigned to somebody who has left the roster is a finding, while a blank
+ * owner field reads as unassigned, which is a different problem.
+ */
+function collectTestCasesSnapshot(
+  workspaceRoot: string | undefined,
+  director: ProjectDirectorConfig | undefined,
+  policyRows: ReadonlyArray<{ id: string; label: string }>,
+  now: number,
+): DashboardTestCasesSnapshot {
+  const register = workspaceRoot
+    ? readTestCaseRegister(workspaceRoot)
+    : { version: 1 as const, cases: [], executions: [], assets: [] };
+  const contactName = (id: string | undefined): string | undefined =>
+    (id ? director?.contacts.find(contact => contact.id === id)?.name ?? id : undefined);
+  const assetLabel = new Map(register.assets.map(asset => [asset.id, asset.label]));
+
+  const cases: DashboardTestCaseView[] = [
+    ...runnableCases(register),
+    // Drafts, automated and deprecated cases follow the live set rather than
+    // being hidden: a draft nobody promoted is exactly the thing a testing team
+    // loses track of.
+    ...register.cases.filter(entry => entry.status !== 'active' || entry.execution !== 'manual'),
+  ].map(entry => {
+    const standing = testCaseStanding(entry, register.executions);
+    return {
+      id: entry.id,
+      title: entry.title,
+      objective: entry.objective,
+      priority: entry.priority,
+      priorityRule: entry.priorityRule,
+      execution: entry.execution,
+      status: entry.status,
+      state: standing.state,
+      revision: entry.revision,
+      ...(contactName(entry.ownerContactId) === undefined ? {} : { ownerLabel: contactName(entry.ownerContactId)! }),
+      ...(entry.policyId === undefined ? {} : { policyId: entry.policyId }),
+      ...(standing.lastExecution === undefined ? {} : { lastRunAt: standing.lastExecution.executedAt }),
+      ...(contactName(standing.lastExecution?.executedBy) === undefined
+        ? {}
+        : { lastRunBy: contactName(standing.lastExecution?.executedBy)! }),
+      staleResult: standing.staleResult,
+      stepCount: entry.steps.length,
+      assetLabels: entry.assetIds.map(id => assetLabel.get(id) ?? id),
+    };
+  });
+
+  return {
+    path: TEST_CASES_SSOT_PATH,
+    cases,
+    assets: register.assets.map(asset => ({
+      id: asset.id,
+      label: asset.label,
+      kind: asset.kind,
+      ...(contactName(asset.ownerContactId) === undefined ? {} : { ownerLabel: contactName(asset.ownerContactId)! }),
+      ...(asset.location === undefined ? {} : { location: asset.location }),
+      // The *name* of a secret. The register refuses a value, on write and on
+      // read, so nothing that reaches here can be one.
+      ...(asset.secretRef === undefined ? {} : { secretRef: asset.secretRef }),
+    })),
+    metrics: deriveTestCaseMetrics(register, now),
+    rules: TEST_CASE_PRIORITY_RULES.map(rule => ({
+      id: rule.id,
+      priority: rule.priority,
+      describes: rule.describes,
+    })),
+    policies: policyRows.map(row => ({ id: row.id, label: row.label })),
+    owners: (director?.teamMembers ?? [])
+      .map(member => ({
+        id: member.contactId,
+        label: contactName(member.contactId) ?? member.contactId,
+      })),
+    recorded: register.cases.length > 0,
+  };
+}
+
+/**
+ * People, their declared capacity, their declared absence and the work assigned
+ * to them, joined into one reading.
+ *
+ * The join is here rather than in `teamWorkload` so the module stays pure and
+ * knows nothing about roadmap node shapes. Two decisions are made in this
+ * mapping, and both are the kind that get broken by defaulting:
+ *
+ * **Only outstanding work counts.** A delivered item is not load somebody is
+ * still carrying, and including it would report everybody as permanently over.
+ *
+ * **A derived estimate is passed through as derived.** Every roadmap node
+ * carries a number because the graph grades the unestimated ones from a
+ * published rule; marking those `declared` here would present a rule's reading
+ * as a commitment somebody made, which is precisely the distinction the
+ * workload summary exists to keep.
+ */
+function collectTeamWorkloadSnapshot(
+  director: ProjectDirectorConfig | undefined,
+  nodes: readonly RoadmapGraphNode[],
+  now: Date,
+): TeamWorkloadSummary {
+  return summarizeTeamWorkload({
+    members: (director?.teamMembers ?? []).map(member => ({
+      contactId: member.contactId,
+      name: director?.contacts.find(contact => contact.id === member.contactId)?.name ?? member.contactId,
+      ...(member.allocation === undefined ? {} : { allocation: member.allocation }),
+    })),
+    items: nodes
+      .filter(node => !node.completed)
+      .map(node => ({
+        id: node.id,
+        title: node.text,
+        ...(node.assigneeId === undefined ? {} : { ownerContactId: node.assigneeId }),
+        estimateDays: node.estimate.days,
+        estimateSource: node.estimate.source,
+        ...(node.deadline === undefined ? {} : { dueAt: node.deadline }),
+      })),
+    rota: director?.rota ?? [],
+    windowDays: TEAM_WORKLOAD_WINDOW_DAYS,
+    from: now.toISOString().slice(0, 10),
+  });
+}
+
+/**
+ * The six utility packs, assessed against this project's declared dependencies.
+ *
+ * `evidence` is the manifest corpus archetype detection already built, so this
+ * reads nothing of its own. Absent evidence means no manifest could be read,
+ * which is reported as unassessed rather than as a project using none of them —
+ * the distinction `collectArchetypeEvidence` returns `undefined` to preserve.
+ */
+function collectUtilitiesSnapshot(
+  evidence: { corpus: string } | undefined,
+): DashboardUtilitiesSnapshot {
+  const assessments = assessUtilityPacks(evidence?.corpus ?? '');
+  const byCapability = new Map(assessments.map(assessment => [assessment.capability, assessment]));
+  return {
+    packs: UTILITY_PACKS.map(pack => {
+      const assessment = byCapability.get(pack.capability)!;
+      const present = new Set(assessment.presentIds);
+      return {
+        capability: pack.capability,
+        label: pack.label,
+        premise: pack.premise,
+        question: pack.decision.question,
+        why: pack.decision.why,
+        options: pack.decision.options.map(option => ({ ...option })),
+        candidates: pack.candidates.map(candidate => ({
+          id: candidate.id,
+          label: candidate.label,
+          summary: candidate.summary,
+          answers: candidate.answers,
+          docs: candidate.docs,
+          ...(candidate.install === undefined ? {} : { install: candidate.install }),
+          leavesTheMachine: candidate.leavesTheMachine,
+          selfHostable: candidate.selfHostable,
+          present: present.has(candidate.id),
+        })),
+        gates: pack.gates.map(gate => ({ ...gate })),
+        installable: pack.installable,
+        // With no manifest read, every pack reads `absent` — which would be a
+        // confident zero. The status is downgraded to `unassessed` on the view
+        // rather than in the pure module, which correctly answers about the
+        // corpus it was given.
+        status: evidence === undefined ? 'unassessed' : assessment.status,
+        note: evidence === undefined
+          ? 'No manifest could be read, so nothing was assessed. That is not the same as this project using none of them.'
+          : assessment.note,
+      };
+    }),
+    offerable: evidence === undefined ? [] : offerableUtilityPacks(assessments),
+    verifiedAt: UTILITY_PACKS_VERIFIED_AT,
+    assessed: evidence !== undefined,
+  };
+}
+
+/**
+ * The portal hosting declaration, assessed.
+ *
+ * Read through the panel's own manager so the Director page and the Settings
+ * page cannot disagree about one committed file. Nothing is seeded on render:
+ * `declared` is false until somebody chooses, because writing a committed file
+ * because a tab was opened is the rule `workflowConfig` states about its own.
+ */
+function collectPortalHostingSnapshot(
+  workspaceRoot: string | undefined,
+  director: ProjectDirectorConfig | undefined,
+  visibility: RepositoryVisibility,
+): DashboardPortalHostingSnapshot {
+  const declared = workspaceRoot ? readPortalHostingConfig(workspaceRoot) : undefined;
+  const config = declared ?? seedPortalHostingConfig();
+  const contacts = director?.contacts ?? [];
+  const assessment: PortalAccessAssessment = assessPortalAccess(config, visibility, contacts);
+  const onAudience = new Set(config.audienceContactIds);
+
+  return {
+    path: 'project_memory/operations/portal-hosting.json',
+    host: config.host,
+    hostLabel: assessment.capability.label,
+    ...(config.siteUrl === undefined ? {} : { siteUrl: config.siteUrl }),
+    capabilities: PORTAL_HOST_CAPABILITIES.map(entry => ({
+      host: entry.host,
+      label: entry.label,
+      control: entry.control,
+      githubSignIn: entry.githubSignIn,
+      enforcedBy: entry.enforcedBy,
+      audienceCost: entry.audienceCost,
+      requires: entry.requires,
+      notes: entry.notes,
+    })),
+    // Names and identifier *kinds* only. The address itself is resolved at the
+    // point of use and never travels to a webview or into the committed file.
+    audience: assessment.audience.members.map(member => ({
+      contactId: member.contactId,
+      name: member.name,
+      ...(member.identifierKind === undefined ? {} : { identifierKind: member.identifierKind }),
+      ...(member.unresolvedReason === undefined ? {} : { unresolvedReason: member.unresolvedReason }),
+    })),
+    candidates: contacts
+      .filter(contact => !onAudience.has(contact.id))
+      .map(contact => ({
+        contactId: contact.id,
+        name: contact.name,
+        // Shown before somebody is added, so an audience is not built out of
+        // people who could never be put on an allowlist.
+        hasIdentifier: contact.links.some(link =>
+          (link.kind === 'email' || link.kind === 'github') && link.handle.trim().length > 0),
+      })),
+    missingContactIds: assessment.audience.missingContactIds,
+    warnings: assessment.warnings.map(warning => ({ ...warning })),
+    steps: portalAccessSteps(config.host),
+    summary: assessment.summary,
+    audienceEnforceable: assessment.audienceEnforceable,
+    ...(config.accessConfiguredAt === undefined ? {} : { accessConfiguredAt: config.accessConfiguredAt }),
+    ...(config.accessConfiguredBy === undefined ? {} : { accessConfiguredBy: config.accessConfiguredBy }),
+    declared: declared !== undefined,
+    verifiedAt: PORTAL_HOSTING_VERIFIED_AT,
+  };
+}
+
+/** The roster facts the routing table needs, and nothing else. */
+function buildApprovalRoster(director: ProjectDirectorConfig | undefined): ApprovalRosterInput {
+  return {
+    members: (director?.teamMembers ?? []).map(member => ({
+      contactId: member.contactId,
+      ...(member.roleId === undefined ? {} : { roleId: member.roleId }),
+    })),
+    ...(director?.selfContactId === undefined ? {} : { selfContactId: director.selfContactId }),
+  };
 }
 
 async function collectGapAnalysisSnapshot(workspaceRoot: string | undefined, ssotPath: string, fallbackItems: DashboardGapAnalysisItem[] = []): Promise<DashboardGapAnalysisSnapshot> {
@@ -4474,6 +5241,14 @@ export class ProjectDashboardPanel {
   private releaseState: { records: readonly MetricReleaseInput[]; loadedAt: string } | { failure: string } | undefined;
 
   /**
+   * Security advisories, read on the repository refresh.
+   *
+   * Undefined until something has actually looked. That is not the same as an
+   * empty feed, and the difference is the point: `unassessed-is-not-clean`.
+   */
+  private advisoryState: AdvisoryFeedInput | undefined;
+
+  /**
    * The committed workflow file.
    *
    * Held rather than re-read on every render because it is a file read on the
@@ -4540,11 +5315,53 @@ export class ProjectDashboardPanel {
    */
   private registerFindings = new Map<string, { finding: RegisterFinding; outstanding: boolean }>();
 
+  private portalHostingInstance: PortalHostingManager | undefined;
+
+  /**
+   * Where the portal is hosted and who may read it. Reloaded on access, like
+   * the other committed registers: the file is shared, and a colleague's change
+   * arriving through a pull must not be overwritten by a stale copy.
+   */
+  private get portalHosting(): PortalHostingManager {
+    this.portalHostingInstance ??= new PortalHostingManager(
+      vscode.workspace.workspaceFolders?.[0]?.uri.fsPath,
+    );
+    this.portalHostingInstance.reload();
+    return this.portalHostingInstance;
+  }
+
+  /**
+   * Repository visibility, as far as this panel knows it.
+   *
+   * Starts `unknown` and stays there until something that already asks GitHub
+   * happens to tell us — probing `gh` on every render would be a network call on
+   * a read path. `unknown` is not a gap: `portalHosting` treats it as public,
+   * which is the assumption that keeps a secret.
+   */
+  private portalRepoVisibility: RepositoryVisibility = 'unknown';
+
   private get debtManager(): DebtRegisterManager {
     this.debtManagerInstance ??= new DebtRegisterManager(
       vscode.workspace.workspaceFolders?.[0]?.uri.fsPath,
     );
     return this.debtManagerInstance;
+  }
+
+  private defectManagerInstance: DefectRegisterManager | undefined;
+
+  /**
+   * The defect register, for writes only — the snapshot reads the file itself.
+   *
+   * Every write reloads first, because `defects.json` is committed and a
+   * teammate's entry arriving through a pull must not be overwritten by a
+   * status change made against a register this panel read an hour ago.
+   */
+  private get defectManager(): DefectRegisterManager {
+    this.defectManagerInstance ??= new DefectRegisterManager(
+      vscode.workspace.workspaceFolders?.[0]?.uri.fsPath,
+    );
+    this.defectManagerInstance.reload();
+    return this.defectManagerInstance;
   }
 
   private get auditLedger(): WorkflowAuditLedger {
@@ -5304,6 +6121,15 @@ export class ProjectDashboardPanel {
       case 'resolveAndRunPromotion':
         await this.handleResolveAndRunPromotion(message.payload);
         return;
+      case 'captureBaseline':
+        await this.handleCaptureBaseline(message.payload);
+        return;
+      case 'removeBaseline':
+        await this.handleRemoveBaseline(message.payload);
+        return;
+      case 'selectBaseline':
+        await this.handleSelectBaseline(message.payload);
+        return;
       case 'saveDirectorConfig':
         await this.handleSaveDirectorConfig(message.payload);
         return;
@@ -5321,6 +6147,69 @@ export class ProjectDashboardPanel {
         return;
       case 'workOnDebt':
         await this.handleWorkOnDebt(message.payload);
+        return;
+      case 'reportDefect':
+        await this.handleReportDefect(message.payload);
+        return;
+      case 'setDefectStatus':
+        await this.handleSetDefectStatus(message.payload);
+        return;
+      case 'regradeDefect':
+        await this.handleRegradeDefect(message.payload);
+        return;
+      case 'markDefectDuplicate':
+        await this.handleMarkDefectDuplicate(message.payload);
+        return;
+      case 'workOnDefect':
+        await this.handleWorkOnDefect(message.payload);
+        return;
+      case 'raiseApproval':
+        await this.handleRaiseApproval(message.payload);
+        return;
+      case 'decideApproval':
+        await this.handleDecideApproval(message.payload);
+        return;
+      case 'withdrawApproval':
+        await this.handleWithdrawApproval(message.payload);
+        return;
+      case 'recheckApproval':
+        await this.handleRecheckApproval(message.payload);
+        return;
+      case 'reviewApproval':
+        await this.handleReviewApproval(message.payload);
+        return;
+      case 'addTestCase':
+        await this.handleAddTestCase(message.payload);
+        return;
+      case 'setTestCaseStatus':
+        await this.handleSetTestCaseStatus(message.payload);
+        return;
+      case 'recordTestResult':
+        await this.handleRecordTestResult(message.payload);
+        return;
+      case 'draftTestCase':
+        await this.handleDraftTestCase(message.payload);
+        return;
+      case 'discussUtilityPack':
+        await this.handleDiscussUtilityPack(message.payload);
+        return;
+      case 'addPortalViewer':
+        await this.handlePortalViewer(message.payload.contactId, 'add');
+        return;
+      case 'removePortalViewer':
+        await this.handlePortalViewer(message.payload.contactId, 'remove');
+        return;
+      case 'confirmPortalAccess':
+        await this.handleConfirmPortalAccess();
+        return;
+      case 'publishPortal': {
+        const { buildAndPublishPortal } = await import('./portalPublishCommand.js');
+        await buildAndPublishPortal();
+        await this.syncState();
+        return;
+      }
+      case 'addTestAsset':
+        await this.handleAddTestAsset(message.payload);
         return;
       case 'loadReviewComments':
         await this.handleLoadReviewComments(message.payload.number);
@@ -5342,6 +6231,12 @@ export class ProjectDashboardPanel {
         return;
       case 'openGithubLink':
         await this.handleOpenGithubLink(message.payload);
+        return;
+      case 'openAdvisory':
+        await this.handleOpenAdvisory(message.payload);
+        return;
+      case 'workOnAdvisory':
+        await this.handleWorkOnAdvisory(message.payload);
         return;
       case 'markDeltaSeen':
         // No payload and nothing to validate: it clears a held computation and
@@ -5412,6 +6307,15 @@ export class ProjectDashboardPanel {
         return;
       case 'setRiskFilter':
         // View-only state; the webview owns it. Nothing to persist.
+        return;
+      case 'saveWebsiteDelivery':
+        await this.handleSaveWebsiteDelivery(message.payload);
+        return;
+      case 'selectWebsiteFramework':
+        await this.handleSelectWebsiteFramework(message.payload.frameworkId);
+        return;
+      case 'planWebsiteStackSetup':
+        await this.handlePlanWebsiteStackSetup();
         return;
       case 'saveDocumentsConfig':
         {
@@ -5741,10 +6645,86 @@ export class ProjectDashboardPanel {
     this.localCiInspectionMemory = { restored: true, memory, ageDays: 0, imageMatches: true };
   }
 
+  // ── Website delivery ──────────────────────────────────────────
+
+  private websiteManager(): WebsiteWorkspaceManager | undefined {
+    const workspaceRoot = vscode.workspace.workspaceFolders?.[0]?.uri.fsPath;
+    return workspaceRoot ? new WebsiteWorkspaceManager(workspaceRoot) : undefined;
+  }
+
+  /**
+   * Save the three delivery arrays. Everything else in the plan — pages, the
+   * design graph, brands, the stack choice — is re-read from disk at the
+   * moment of the save rather than taken from this page's snapshot, so a
+   * Studio save made since this page rendered is not undone by it.
+   */
+  private async handleSaveWebsiteDelivery(payload: { platforms: unknown[]; hostingEnvironments: unknown[]; automations: unknown[] }): Promise<void> {
+    const manager = this.websiteManager();
+    if (!manager) {
+      return;
+    }
+    const current = manager.read();
+    if (current.preserveExisting) {
+      void vscode.window.showWarningMessage(current.notice ?? 'The website plan was written by a newer AtlasMind and is read-only here.');
+      return;
+    }
+    await manager.save({
+      ...current.config,
+      platforms: payload.platforms,
+      hostingEnvironments: payload.hostingEnvironments,
+      automations: payload.automations,
+    });
+    await this.syncState();
+  }
+
+  /**
+   * Record the framework choice. Saved immediately rather than held for the
+   * next Save: the choice drives what the setup planner would do, and a plan
+   * built from an unsaved selection would describe a stack the file does not
+   * record. Nothing is installed by this.
+   */
+  private async handleSelectWebsiteFramework(frameworkId: WebsiteFrameworkId): Promise<void> {
+    const manager = this.websiteManager();
+    if (!manager) {
+      return;
+    }
+    const current = manager.read();
+    if (current.preserveExisting) {
+      void vscode.window.showWarningMessage(current.notice ?? 'The website plan was written by a newer AtlasMind and is read-only here.');
+      return;
+    }
+    const config = current.config;
+    const primaryPlatform = config.platforms.find(platform => platform.primary);
+    await manager.save({
+      ...config,
+      stack: {
+        frameworkId,
+        platformId: config.stack?.platformId ?? primaryPlatform?.id ?? 'cloudflare-pages',
+        packageManager: config.stack?.packageManager
+          ?? vscode.workspace.getConfiguration('atlasmind').get<string>('website.setup.packageManager', 'npm'),
+        decidedAt: new Date().toISOString(),
+      },
+    });
+    await this.syncState();
+    void vscode.window.showInformationMessage(
+      `${websiteFrameworkSpec(frameworkId).label} recorded. Nothing has been installed — use "Set up this stack" when you are ready.`,
+    );
+  }
+
+  /** Hand the saved plan to the guarded setup command, which plans, shows and confirms before it runs anything. */
+  private async handlePlanWebsiteStackSetup(): Promise<void> {
+    const manager = this.websiteManager();
+    if (!manager) {
+      return;
+    }
+    const config: WebsiteWorkspaceConfig = manager.read().config;
+    await vscode.commands.executeCommand('atlasmind.setUpWebsiteStack', { config });
+  }
+
   private async syncState(): Promise<void> {
     try {
       await this.refreshTrustedWorkflowReview();
-      const snapshot = await collectDashboardSnapshot(this.atlas, this.ideationAttachments, this.issuesState, this.pullRequestsState, this.ciState, this.releaseState, this.workflowConfig, this.auditLedger, { register: this.debtManager.get(), scanning: this.debtScanning }, this.reviewCommentsState, this.taxonomyState, this.pullRequestsNotice, this.localCiRunnerSnapshot(), this.ciRouting, this.ciCreditState, this.readCiBuildLedger());
+      const snapshot = await collectDashboardSnapshot(this.atlas, this.ideationAttachments, this.issuesState, this.pullRequestsState, this.ciState, this.releaseState, this.workflowConfig, this.auditLedger, { register: this.debtManager.get(), scanning: this.debtScanning }, this.reviewCommentsState, this.taxonomyState, this.pullRequestsNotice, this.localCiRunnerSnapshot(), this.ciRouting, this.ciCreditState, this.readCiBuildLedger(), this.advisoryState, this.portalRepoVisibility);
       // Only keep polling while something is actually running. The schedule
       // itself decides when to stop, so this cannot become a permanent timer.
       this.scheduleCiBuildPoll(snapshot.delivery.builds.hasRunning);
@@ -7096,6 +8076,29 @@ export class ProjectDashboardPanel {
       } catch (error) {
         this.releaseState = { failure: ghFailureOf(error).detail };
       }
+
+      // Security advisories: Dependabot's dependency alerts and code scanning's
+      // findings. Read here, on the explicit repository refresh, and never on
+      // render — these are rate-limited API calls, and the Security page is one
+      // of nine that re-render on every keystroke elsewhere in the panel.
+      //
+      // Each half is classified rather than merely caught, because the failures
+      // are not equivalent: a 403 or 404 from these endpoints is what GitHub
+      // returns when the feature is switched **off**, which is a finding about
+      // the repository rather than a fault in the read. Reporting that as an
+      // empty list would make the riskiest configuration look like the safest.
+      this.advisoryState = {
+        dependency: await this.readAdvisories(
+          workspaceRoot,
+          `repos/${slug}/dependabot/alerts?state=all&per_page=100`,
+          parseDependabotAlerts,
+        ),
+        codeScanning: await this.readAdvisories(
+          workspaceRoot,
+          `repos/${slug}/code-scanning/alerts?state=all&per_page=100`,
+          parseCodeScanningAlerts,
+        ),
+      };
     } catch (error) {
       this.issuesState = { ...this.classifyIssueFailure(error), issues: [], busy: false };
     } finally {
@@ -8022,6 +9025,11 @@ export class ProjectDashboardPanel {
         'repo', 'view', '--json', 'isPrivate,owner',
       ])) as { isPrivate?: unknown; owner?: { login?: unknown; type?: unknown } };
 
+      // Free information: this call already asked, and the portal card would
+      // otherwise have to assume the worst.
+      this.portalRepoVisibility = identity.isPrivate === true
+        ? 'private'
+        : identity.isPrivate === false ? 'public' : 'unknown';
       if (identity.isPrivate === false) {
         this.ciCreditState = notMeteredReading();
         await this.syncState();
@@ -8637,6 +9645,54 @@ export class ProjectDashboardPanel {
         'Then give a professional review covering least-privilege permissions, action pinning, dependency caching, timeouts, concurrency, secret exposure, artifact retention, duplicated work, and whether build/lint/test coverage matches the repository scripts.',
         'Propose a small ordered change set. Do not weaken, skip, disable, rerun-until-green, or apply any change until I approve the exact diff.',
       ].join('\n'),
+      sendMode: 'new-session',
+    });
+  }
+
+  /**
+   * One advisory endpoint, read and classified.
+   *
+   * The classification is the point. GitHub answers **403** when a security
+   * feature is not enabled for the repository (or the token cannot see it) and
+   * **404** when the endpoint is not available for that plan — neither is a
+   * fault in the read, and both are facts about the repository worth stating.
+   * Anything else is a genuine failure, which is reported as such rather than
+   * being folded into "nothing found": a feed that cannot distinguish those
+   * three is a feed that can call an unread repository clean.
+   */
+  private async readAdvisories(
+    workspaceRoot: string,
+    endpoint: string,
+    parse: (raw: string) => { open: AdvisoryItemLike[]; dismissed: number },
+  ): Promise<{ state: 'ready' | 'disabled' | 'failed'; alerts?: { open: AdvisoryItemLike[]; dismissed: number } }> {
+    try {
+      const raw = await runGh(workspaceRoot, ['api', endpoint]);
+      return { state: 'ready', alerts: parse(raw) };
+    } catch (error) {
+      const detail = error instanceof Error ? error.message : String(error);
+      return /\b(403|404)\b|not enabled|disabled|Advanced Security/i.test(detail)
+        ? { state: 'disabled' }
+        : { state: 'failed' };
+    }
+  }
+
+  /**
+   * Hand an advisory to an agent as a finding to read, never as a change to make.
+   *
+   * The prompt is built host-side from the advisory this panel read, so the
+   * webview supplies neither the text the agent sees nor the severity it is told
+   * about — the same division as the debt register's hand-off, and it matters
+   * more here because the text was published by somebody outside the project.
+   */
+  private async handleWorkOnAdvisory(reference: string): Promise<void> {
+    const feed = buildAdvisoryFeed(this.advisoryState);
+    const match = feed.items.find(item => `${item.source}:${item.reference}` === reference);
+    if (!match) {
+      void vscode.window.showWarningMessage('That advisory is no longer in the feed. Refresh the repository and try again.');
+      return;
+    }
+    await vscode.commands.executeCommand('atlasmind.openChat', {
+      draftPrompt: buildAdvisoryWorkPrompt(match),
       sendMode: 'new-session',
     });
   }
@@ -9872,6 +10928,24 @@ ${buildCardEvidenceSection(source, derivation)}`;
     await vscode.env.openExternal(vscode.Uri.parse(url));
   }
 
+  /**
+   * Open the advisory a card is about.
+   *
+   * The webview sends `<source>:<reference>` and nothing else. The URL is looked
+   * up in the advisories this panel read — which came from GitHub's API and were
+   * already refused unless `https` — so a crafted message can name an advisory
+   * that does not exist and can never choose where the browser goes. Same rule
+   * as `handleOpenGithubLink`: a surface that could name a URL could name any.
+   */
+  private async handleOpenAdvisory(reference: string): Promise<void> {
+    const feed = buildAdvisoryFeed(this.advisoryState);
+    const match = feed.items.find(item => `${item.source}:${item.reference}` === reference);
+    if (match?.url === undefined) {
+      return;
+    }
+    await vscode.env.openExternal(vscode.Uri.parse(match.url));
+  }
+
   private async handleSetWorkflowGate(payload: { key: string; enabled: boolean }): Promise<void> {
     // Unsectioned on purpose: a gate key is written in full, so there is no
     // section to prefix it with. Named to say so, because `configuration` in
@@ -10173,6 +11247,686 @@ ${buildCardEvidenceSection(source, derivation)}`;
     }
     await vscode.commands.executeCommand('atlasmind.openChat', {
       draftPrompt: buildDebtWorkPrompt(entry),
+      sendMode: 'new-session',
+    });
+  }
+
+  // ── Defects ────────────────────────────────────────────────────
+  //
+  // Every enum arriving from the webview is re-coerced against the declared
+  // vocabulary here rather than trusted. The browser can *name* a value; it can
+  // never define one, and in particular it can never supply a severity — that
+  // comes from the rule table, so no message exists by which a grade the table
+  // would not produce could enter the register.
+
+  private static coerceDefectImpact(value: string): DefectImpact | undefined {
+    const impacts: DefectImpact[] = ['data-loss', 'security', 'broken', 'degraded', 'cosmetic'];
+    return impacts.find(impact => impact === value);
+  }
+
+  private static coerceDefectReach(value: string): DefectReach | undefined {
+    const reaches: DefectReach[] = ['everyone', 'many', 'few', 'one'];
+    return reaches.find(reach => reach === value);
+  }
+
+  /**
+   * Record a defect.
+   *
+   * No confirmation: this writes a local tracked file, changes nothing outside
+   * the repository, and nothing here files an issue or notifies anybody.
+   * Putting a dialog in front of writing a bug down is how bugs stop getting
+   * written down, which costs far more than the occasional stray entry — and
+   * an entry can be transitioned, never being deleted either way.
+   */
+  private async handleReportDefect(payload: {
+    title: string;
+    impact: string;
+    reach: string;
+    reproducibility?: string;
+    detail?: string;
+    area?: string;
+    stepsToReproduce?: string;
+    expected?: string;
+    actual?: string;
+    environment?: string;
+  }): Promise<void> {
+    const impact = ProjectDashboardPanel.coerceDefectImpact(payload.impact);
+    const reach = ProjectDashboardPanel.coerceDefectReach(payload.reach);
+    if (!impact || !reach) {
+      void vscode.window.showWarningMessage('That defect could not be graded — say what it does and how many people meet it.');
+      return;
+    }
+    const reproducibilities: DefectReproducibility[] = ['always', 'sometimes', 'once', 'not-reproduced'];
+    const reproducibility = reproducibilities.find(value => value === payload.reproducibility);
+    try {
+      await this.defectManager.save(addDefect(
+        this.defectManager.get(),
+        {
+          title: payload.title,
+          impact,
+          reach,
+          ...(reproducibility === undefined ? {} : { reproducibility }),
+          ...(payload.detail === undefined ? {} : { detail: payload.detail }),
+          ...(payload.area === undefined ? {} : { area: payload.area }),
+          ...(payload.stepsToReproduce === undefined ? {} : { stepsToReproduce: payload.stepsToReproduce }),
+          ...(payload.expected === undefined ? {} : { expected: payload.expected }),
+          ...(payload.actual === undefined ? {} : { actual: payload.actual }),
+          ...(payload.environment === undefined ? {} : { environment: payload.environment }),
+        },
+        new Date().toISOString(),
+      ));
+    } catch (error) {
+      const detail = error instanceof Error ? error.message : String(error);
+      void vscode.window.showWarningMessage(`Could not record the defect: ${detail.slice(0, 300)}`);
+    }
+    await this.syncState();
+  }
+
+  /** Transition a defect. Same reasoning as the debt register: no dialog. */
+  private async handleSetDefectStatus(payload: { id: string; status: string; note?: string }): Promise<void> {
+    const statuses: DefectStatus[] = [
+      'open', 'confirmed', 'in-progress', 'fixed', 'verified', 'wont-fix', 'duplicate', 'not-reproducible',
+    ];
+    const status = statuses.find(candidate => candidate === payload.status);
+    // `duplicate` is deliberately unreachable here: it needs a target, and one
+    // recorded without a target is a dead cross-reference the reader cannot
+    // tell from a live one.
+    if (!status || status === 'duplicate') {
+      return;
+    }
+    const register = this.defectManager.get();
+    if (!register.entries.some(entry => entry.id === payload.id)) {
+      void vscode.window.showWarningMessage('That defect is no longer in the register.');
+      return;
+    }
+    try {
+      await this.defectManager.save(setDefectStatus(
+        register,
+        payload.id,
+        status,
+        new Date().toISOString(),
+        payload.note,
+      ));
+    } catch (error) {
+      const detail = error instanceof Error ? error.message : String(error);
+      void vscode.window.showWarningMessage(`Could not update the register: ${detail.slice(0, 300)}`);
+    }
+    await this.syncState();
+  }
+
+  /** Correct what a defect does or how many people meet it, and re-grade it. */
+  private async handleRegradeDefect(payload: { id: string; impact: string; reach: string }): Promise<void> {
+    const impact = ProjectDashboardPanel.coerceDefectImpact(payload.impact);
+    const reach = ProjectDashboardPanel.coerceDefectReach(payload.reach);
+    if (!impact || !reach) {
+      return;
+    }
+    try {
+      await this.defectManager.save(regradeDefect(
+        this.defectManager.get(),
+        payload.id,
+        impact,
+        reach,
+        new Date().toISOString(),
+      ));
+    } catch (error) {
+      const detail = error instanceof Error ? error.message : String(error);
+      void vscode.window.showWarningMessage(`Could not re-grade the defect: ${detail.slice(0, 300)}`);
+    }
+    await this.syncState();
+  }
+
+  /**
+   * Mark one defect a duplicate of another.
+   *
+   * The register refuses a target it does not hold, so an unresolvable pair
+   * leaves it unchanged; that is reported rather than passing silently, because
+   * a button that appears to work and does nothing is worse than a refusal.
+   */
+  private async handleMarkDefectDuplicate(payload: { id: string; duplicateOfId?: unknown }): Promise<void> {
+    const duplicateOfId = typeof payload.duplicateOfId === 'string' ? payload.duplicateOfId : '';
+    if (!duplicateOfId) {
+      return;
+    }
+    const register = this.defectManager.get();
+    const updated = markDefectDuplicate(register, payload.id, duplicateOfId, new Date().toISOString());
+    if (updated === register) {
+      void vscode.window.showWarningMessage('That defect could not be linked — the entry it would duplicate is not in the register.');
+      return;
+    }
+    try {
+      await this.defectManager.save(updated);
+    } catch (error) {
+      const detail = error instanceof Error ? error.message : String(error);
+      void vscode.window.showWarningMessage(`Could not link the defects: ${detail.slice(0, 300)}`);
+    }
+    await this.syncState();
+  }
+
+  /**
+   * Hand a defect to an agent.
+   *
+   * The prompt is rebuilt host-side from the register by id, so the webview can
+   * name a defect and never supply the text an agent reads — the same rule the
+   * rest of this panel's hand-offs follow.
+   */
+  private async handleWorkOnDefect(payload: { id: string }): Promise<void> {
+    const entry = this.defectManager.get().entries.find(candidate => candidate.id === payload.id);
+    if (!entry) {
+      void vscode.window.showWarningMessage('That defect is no longer in the register.');
+      return;
+    }
+    await vscode.commands.executeCommand('atlasmind.openChat', {
+      draftPrompt: buildDefectWorkPrompt(entry),
+      sendMode: 'new-session',
+    });
+  }
+
+  // ── Approvals ──────────────────────────────────────────────────
+
+  private approvalManagerInstance: ApprovalRegisterManager | undefined;
+
+  /**
+   * The approval register, for writes only — the snapshot reads the file itself.
+   *
+   * Reloaded on every access for the reason the defect register is: the file is
+   * committed, and a colleague's request arriving through a pull must not be
+   * overwritten by a decision made against a register this panel read an hour
+   * ago.
+   */
+  private get approvalManager(): ApprovalRegisterManager {
+    this.approvalManagerInstance ??= new ApprovalRegisterManager(
+      vscode.workspace.workspaceFolders?.[0]?.uri.fsPath,
+    );
+    this.approvalManagerInstance.reload();
+    return this.approvalManagerInstance;
+  }
+
+  /**
+   * The subjects a request may be raised about, rebuilt from the snapshot the
+   * page was drawn from.
+   *
+   * Rebuilt rather than trusted: the webview posts an opaque option id, and if
+   * it names something this map does not hold, nothing happens. That is what
+   * stops a message naming a file.
+   */
+  private approvalSubjects(): ReturnType<typeof collectApprovalSubjects> {
+    const snapshot = this.lastSnapshot;
+    if (!snapshot) {
+      return new Map();
+    }
+    return collectApprovalSubjects(
+      snapshot.roadmap,
+      snapshot.documents,
+      vscode.workspace.workspaceFolders?.[0]?.uri.fsPath,
+    );
+  }
+
+  /**
+   * Who the user is, as a contact id.
+   *
+   * An approval is a named person's recorded act, so a decision needs one. This
+   * is a real prerequisite rather than a nuisance: a register full of decisions
+   * by nobody is a register that cannot answer the only question it exists for.
+   */
+  private approvalActor(): string | undefined {
+    return this.lastSnapshot?.director.config?.selfContactId;
+  }
+
+  /** Raise a request. No dialog: it writes a local tracked file and notifies nobody. */
+  private async handleRaiseApproval(payload: {
+    category: string;
+    title: string;
+    subjectId: string;
+    rationale?: string;
+  }): Promise<void> {
+    const category = APPROVAL_CATEGORIES.find(candidate => candidate === payload.category);
+    const subject = this.approvalSubjects().get(payload.subjectId);
+    if (!category || !subject) {
+      void vscode.window.showWarningMessage('That approval could not be raised — the thing it is about is no longer on this page.');
+      return;
+    }
+    if (subject.content === undefined) {
+      // Raising against something unreadable would produce an approval nobody
+      // could ever check, which is the state this register exists to make
+      // visible rather than to create.
+      void vscode.window.showWarningMessage('That subject could not be read, so there is nothing to record an approval against.');
+      return;
+    }
+    try {
+      await this.approvalManager.save(raiseApproval(
+        this.approvalManager.get(),
+        {
+          category,
+          title: payload.title,
+          subject: { kind: subject.kind, ref: subject.ref, label: subject.label },
+          content: subject.content,
+          ...(payload.rationale === undefined ? {} : { rationale: payload.rationale }),
+          ...(this.approvalActor() === undefined ? {} : { requestedBy: this.approvalActor()! }),
+        },
+        buildApprovalRoster(this.lastSnapshot?.director.config ?? undefined),
+        new Date().toISOString(),
+      ));
+    } catch (error) {
+      const detail = error instanceof Error ? error.message : String(error);
+      void vscode.window.showWarningMessage(`Could not raise the approval: ${detail.slice(0, 300)}`);
+    }
+    await this.syncState();
+  }
+
+  /**
+   * Record a decision.
+   *
+   * Confirmed, unlike the other register writes on this dashboard. A debt
+   * status is a note to yourself; this is a durable statement that a named
+   * person agreed to something, and it is the kind of record somebody later
+   * relies on. The dialog names the request and the decision.
+   */
+  private async handleDecideApproval(payload: { id: string; decision: string; note?: string }): Promise<void> {
+    const decision = payload.decision === 'approved' || payload.decision === 'rejected'
+      ? payload.decision
+      : undefined;
+    if (!decision) {
+      return;
+    }
+    const request = this.approvalManager.get().requests.find(entry => entry.id === payload.id);
+    if (!request) {
+      void vscode.window.showWarningMessage('That request is no longer in the register.');
+      return;
+    }
+    const actor = this.approvalActor();
+    if (!actor) {
+      void vscode.window.showWarningMessage(
+        'Name yourself on the Project Dashboard → Director page first. An approval records that a named person agreed, and a decision by nobody cannot answer that.',
+      );
+      return;
+    }
+    const selfApproving = decision === 'approved' && request.requestedBy === actor;
+    const confirmed = await vscode.window.showWarningMessage(
+      `Record that this is ${decision === 'approved' ? 'approved' : 'rejected'}: "${request.title}"?`,
+      {
+        modal: true,
+        detail: [
+          `Category: ${request.category}. Subject: ${request.subject.label}.`,
+          selfApproving
+            ? 'You raised this request, so it will be recorded as self-approved. That is permitted and it is stated on every surface that shows the decision.'
+            : '',
+          decision === 'approved'
+            ? 'The approval is recorded against the content as it stands now. If that content changes later the approval goes stale rather than carrying over.'
+            : '',
+        ].filter(Boolean).join('\n\n'),
+      },
+      decision === 'approved' ? 'Approve' : 'Reject',
+    );
+    if (!confirmed) {
+      return;
+    }
+    try {
+      await this.approvalManager.save(decideApproval(
+        this.approvalManager.get(),
+        payload.id,
+        decision,
+        actor,
+        new Date().toISOString(),
+        payload.note,
+      ));
+    } catch (error) {
+      const detail = error instanceof Error ? error.message : String(error);
+      void vscode.window.showWarningMessage(`Could not record the decision: ${detail.slice(0, 300)}`);
+    }
+    await this.syncState();
+  }
+
+  /** Withdraw a request. The requester taking it back, not a rejection. */
+  private async handleWithdrawApproval(payload: { id: string }): Promise<void> {
+    try {
+      await this.approvalManager.save(withdrawApproval(
+        this.approvalManager.get(),
+        payload.id,
+        this.approvalActor(),
+        new Date().toISOString(),
+      ));
+    } catch (error) {
+      const detail = error instanceof Error ? error.message : String(error);
+      void vscode.window.showWarningMessage(`Could not withdraw the request: ${detail.slice(0, 300)}`);
+    }
+    await this.syncState();
+  }
+
+  /**
+   * Re-take the subject's fingerprint.
+   *
+   * The only place the stored fingerprint moves, and it is a deliberate act
+   * rather than something a render does — the page computes staleness live, so
+   * this exists for the case where somebody has looked at the change and wants
+   * the register to stop reporting it. It does **not** re-approve: the decision
+   * stays exactly as recorded, and re-approving is a separate, confirmed act.
+   */
+  private async handleRecheckApproval(payload: { id: string }): Promise<void> {
+    const subjects = this.approvalSubjects();
+    const request = this.approvalManager.get().requests.find(entry => entry.id === payload.id);
+    if (!request) {
+      return;
+    }
+    const subject = subjects.get(`${request.subject.kind}::${request.subject.ref}`);
+    if (!subject || subject.content === undefined) {
+      void vscode.window.showWarningMessage('That subject could not be read, so its approval cannot be re-checked. It stays reported as unresolvable.');
+      return;
+    }
+    try {
+      await this.approvalManager.save(refreshApprovalSubject(
+        this.approvalManager.get(),
+        payload.id,
+        subject.content,
+        new Date().toISOString(),
+      ));
+    } catch (error) {
+      const detail = error instanceof Error ? error.message : String(error);
+      void vscode.window.showWarningMessage(`Could not re-check the request: ${detail.slice(0, 300)}`);
+    }
+    await this.syncState();
+  }
+
+  /**
+   * Hand a request to an agent for review, never for a decision.
+   *
+   * The prompt is rebuilt host-side from the register by id, so the webview can
+   * name a request and never supply the text the agent reads.
+   */
+  private async handleReviewApproval(payload: { id: string }): Promise<void> {
+    const request = this.approvalManager.get().requests.find(entry => entry.id === payload.id);
+    if (!request) {
+      void vscode.window.showWarningMessage('That request is no longer in the register.');
+      return;
+    }
+    await vscode.commands.executeCommand('atlasmind.openChat', {
+      draftPrompt: buildApprovalReviewPrompt(request),
+      sendMode: 'new-session',
+    });
+  }
+
+  // ── Test cases ─────────────────────────────────────────────────
+
+  private testCaseManagerInstance: TestCaseRegisterManager | undefined;
+
+  /** Reloaded on every access, for the reason the other two registers are. */
+  private get testCaseManager(): TestCaseRegisterManager {
+    this.testCaseManagerInstance ??= new TestCaseRegisterManager(
+      vscode.workspace.workspaceFolders?.[0]?.uri.fsPath,
+    );
+    this.testCaseManagerInstance.reload();
+    return this.testCaseManagerInstance;
+  }
+
+  /**
+   * Write a case down.
+   *
+   * No priority travels: the grade is derived host-side from what breaks and
+   * how often the path is taken, so no message can carry a priority the
+   * declared table would not produce.
+   */
+  private async handleAddTestCase(payload: {
+    title: string;
+    consequence: string;
+    frequency: string;
+    objective?: string;
+    expected?: string;
+    execution?: string;
+    ownerContactId?: string;
+    policyId?: string;
+  }): Promise<void> {
+    const consequences: TestCaseConsequence[] = ['data-or-security', 'core-journey', 'supporting', 'cosmetic'];
+    const frequencies: TestCaseFrequency[] = ['every-use', 'common', 'occasional', 'rare'];
+    const consequence = consequences.find(value => value === payload.consequence);
+    const frequency = frequencies.find(value => value === payload.frequency);
+    if (!consequence || !frequency) {
+      void vscode.window.showWarningMessage('That case could not be graded — say what breaks and how often the path is taken.');
+      return;
+    }
+    try {
+      await this.testCaseManager.save(addTestCase(
+        this.testCaseManager.get(),
+        {
+          title: payload.title,
+          consequence,
+          frequency,
+          execution: payload.execution === 'automated' ? 'automated' : 'manual',
+          ...(payload.objective === undefined ? {} : { objective: payload.objective }),
+          ...(payload.expected === undefined ? {} : { expected: payload.expected }),
+          ...(payload.ownerContactId === undefined ? {} : { ownerContactId: payload.ownerContactId }),
+          ...(payload.policyId === undefined ? {} : { policyId: payload.policyId }),
+        },
+        new Date().toISOString(),
+      ));
+    } catch (error) {
+      const detail = error instanceof Error ? error.message : String(error);
+      void vscode.window.showWarningMessage(`Could not write the case down: ${detail.slice(0, 300)}`);
+    }
+    await this.syncState();
+  }
+
+  private async handleSetTestCaseStatus(payload: { id: string; status: string }): Promise<void> {
+    const statuses: TestCaseStatus[] = ['draft', 'active', 'deprecated'];
+    const status = statuses.find(value => value === payload.status);
+    if (!status) {
+      return;
+    }
+    try {
+      await this.testCaseManager.save(setTestCaseStatus(
+        this.testCaseManager.get(),
+        payload.id,
+        status,
+        this.lastSnapshot?.director.config?.selfContactId,
+        new Date().toISOString(),
+      ));
+    } catch (error) {
+      const detail = error instanceof Error ? error.message : String(error);
+      void vscode.window.showWarningMessage(`Could not update the case: ${detail.slice(0, 300)}`);
+    }
+    await this.syncState();
+  }
+
+  /**
+   * Record what happened when somebody ran a case.
+   *
+   * The register's refusals are surfaced rather than swallowed — an automated
+   * case whose result is measured elsewhere, or a deprecated one — because a
+   * button that appears to work and records nothing is worse than one that says
+   * why it will not.
+   */
+  private async handleRecordTestResult(payload: { id: string; result: string; notes?: string }): Promise<void> {
+    const results: TestResult[] = ['pass', 'fail', 'blocked', 'skipped'];
+    const result = results.find(value => value === payload.result);
+    if (!result) {
+      return;
+    }
+    const outcome = recordTestExecution(
+      this.testCaseManager.get(),
+      {
+        caseId: payload.id,
+        result,
+        ...(this.lastSnapshot?.director.config?.selfContactId === undefined
+          ? {}
+          : { executedBy: this.lastSnapshot.director.config.selfContactId }),
+        ...(payload.notes === undefined ? {} : { notes: payload.notes }),
+      },
+      new Date().toISOString(),
+    );
+    if (outcome.refusal) {
+      void vscode.window.showWarningMessage(outcome.refusal.detail);
+      return;
+    }
+    try {
+      await this.testCaseManager.save(outcome.register);
+    } catch (error) {
+      const detail = error instanceof Error ? error.message : String(error);
+      void vscode.window.showWarningMessage(`Could not record the result: ${detail.slice(0, 300)}`);
+    }
+    await this.syncState();
+  }
+
+  /**
+   * Record a test asset.
+   *
+   * The register refuses one that carries a credential rather than naming
+   * where it lives, and the refusal is shown to the person who typed it: a
+   * silently scrubbed record would report success while the secret stayed in
+   * whatever they pasted it from.
+   */
+  private async handleAddTestAsset(payload: {
+    label: string;
+    kind: string;
+    ownerContactId?: string;
+    location?: string;
+    secretRef?: string;
+    notes?: string;
+  }): Promise<void> {
+    const kinds: TestAsset['kind'][] = ['data', 'account', 'device', 'environment', 'fixture'];
+    const kind = kinds.find(value => value === payload.kind);
+    if (!kind) {
+      return;
+    }
+    const outcome = addTestAsset(
+      this.testCaseManager.get(),
+      {
+        label: payload.label,
+        kind,
+        ...(payload.ownerContactId === undefined ? {} : { ownerContactId: payload.ownerContactId }),
+        ...(payload.location === undefined ? {} : { location: payload.location }),
+        ...(payload.secretRef === undefined ? {} : { secretRef: payload.secretRef }),
+        ...(payload.notes === undefined ? {} : { notes: payload.notes }),
+      },
+      new Date().toISOString(),
+    );
+    if (outcome.refusal) {
+      void vscode.window.showWarningMessage(outcome.refusal);
+      return;
+    }
+    try {
+      await this.testCaseManager.save(outcome.register);
+    } catch (error) {
+      const detail = error instanceof Error ? error.message : String(error);
+      void vscode.window.showWarningMessage(`Could not record the asset: ${detail.slice(0, 300)}`);
+    }
+    await this.syncState();
+  }
+
+  /**
+   * Ask an agent to draft the steps.
+   *
+   * The prompt is rebuilt host-side from the register by id, and it forbids the
+   * agent saying whether the case passes — a stated result is indistinguishable
+   * from a real one once it is in the register, and somebody relies on it
+   * before a release.
+   */
+  private async handleDraftTestCase(payload: { id: string }): Promise<void> {
+    const testCase = this.testCaseManager.get().cases.find(entry => entry.id === payload.id);
+    if (!testCase) {
+      void vscode.window.showWarningMessage('That case is no longer in the register.');
+      return;
+    }
+    await vscode.commands.executeCommand('atlasmind.openChat', {
+      draftPrompt: buildTestCaseDraftingPrompt(testCase),
+      sendMode: 'new-session',
+    });
+  }
+
+  /**
+   * Work through one of the six utility decisions with an agent.
+   *
+   * The prompt is rebuilt host-side from the declared pack, so the webview
+   * names a capability and can never supply the text — nor a command, since the
+   * pack's install lines are constants in `utilityPacks.ts` and nothing here
+   * executes one. The prompt itself says both of those things to the agent.
+   */
+  // ── Portal audience ────────────────────────────────────────────
+
+  /**
+   * Add or remove somebody from the portal audience.
+   *
+   * The contact id is resolved against the Director roster before anything is
+   * written, so the webview can name a person and never invent one. Removing
+   * somebody here does **not** remove their access — the policy that admits
+   * them lives in the host's console — and the notification says so, because a
+   * list that looks authoritative and is not is the failure this whole feature
+   * exists to avoid.
+   */
+  private async handlePortalViewer(contactId: string, action: 'add' | 'remove'): Promise<void> {
+    const director = this.lastSnapshot?.director.config;
+    const contacts = director?.contacts ?? [];
+    if (action === 'add' && !contacts.some(contact => contact.id === contactId)) {
+      void vscode.window.showWarningMessage('That person is no longer on the Director roster.');
+      return;
+    }
+    const manager = this.portalHosting;
+    const config = manager.getOrDefault();
+    const at = new Date().toISOString();
+    const next = action === 'add'
+      ? addPortalViewer(config, contactId, at)
+      : removePortalViewer(config, contactId, at);
+    if (next === config) {
+      return;
+    }
+    try {
+      await manager.save(next, contacts, this.portalRepoVisibility);
+      if (action === 'remove') {
+        void vscode.window.showInformationMessage(
+          'Removed from the portal audience. This is a record — it does not revoke their access. Remove them from the policy in your host\'s console too.',
+        );
+      }
+    } catch (error) {
+      const detail = error instanceof Error ? error.message : String(error);
+      void vscode.window.showWarningMessage(`Could not update the portal audience: ${detail.slice(0, 300)}`);
+    }
+    await this.syncState();
+  }
+
+  /**
+   * Record that the host-side restriction is actually in place.
+   *
+   * Confirmed, because it is the one control here that changes what the
+   * dashboard *claims*: everything else on this card is a declaration, and this
+   * turns it into an assertion that somebody stands behind. AtlasMind cannot
+   * see a Cloudflare Access policy, so the dialog says the claim is theirs.
+   */
+  private async handleConfirmPortalAccess(): Promise<void> {
+    const manager = this.portalHosting;
+    const config = manager.getOrDefault();
+    const contacts = this.lastSnapshot?.director.config?.contacts ?? [];
+    const confirmed = await vscode.window.showWarningMessage(
+      'Record that the portal is restricted at the host?',
+      {
+        modal: true,
+        detail: [
+          'AtlasMind cannot see your host\'s access policy. This records that you checked it, with your name and today\'s date against it.',
+          'Confirm only after you have opened the portal in a private window and watched an account outside the audience be refused.',
+        ].join('\n\n'),
+      },
+      'I have configured it',
+    );
+    if (confirmed !== 'I have configured it') {
+      return;
+    }
+    try {
+      await manager.save(
+        confirmPortalAccess(config, this.lastSnapshot?.director.config?.selfContactId, new Date().toISOString()),
+        contacts,
+        this.portalRepoVisibility,
+      );
+    } catch (error) {
+      const detail = error instanceof Error ? error.message : String(error);
+      void vscode.window.showWarningMessage(`Could not record the confirmation: ${detail.slice(0, 300)}`);
+    }
+    await this.syncState();
+  }
+
+  private async handleDiscussUtilityPack(payload: { capability: string }): Promise<void> {
+    const pack = UTILITY_PACKS.find(candidate => candidate.capability === payload.capability);
+    if (!pack) {
+      return;
+    }
+    await vscode.commands.executeCommand('atlasmind.openChat', {
+      draftPrompt: buildUtilityDecisionPrompt(pack),
       sendMode: 'new-session',
     });
   }
@@ -12263,6 +14017,99 @@ ${buildCardEvidenceSection(source, derivation)}`;
       // Best-effort; the Director save still proceeds.
       return { policyTurnedOn: false };
     }
+  }
+
+  /**
+   * Capture the current reading under a name.
+   *
+   * The reading comes from the snapshot already on screen rather than being
+   * re-gathered, so the baseline is the numbers somebody was looking at when
+   * they pressed the button — re-reading would capture a moment they never saw.
+   */
+  private async handleCaptureBaseline(payload: { label: string; reason?: string }): Promise<void> {
+    const observed = this.lastSnapshot?.guidedWorkflow.observed;
+    if (!observed) {
+      void vscode.window.showWarningMessage('There is no reading to capture yet. Refresh the dashboard first.');
+      return;
+    }
+    const state = this.atlas.extensionContext?.workspaceState;
+    const register = readBaselineRegister(this.atlas);
+    const result = captureBaseline({
+      register,
+      label: payload.label,
+      ...(payload.reason === undefined ? {} : { reason: payload.reason }),
+      current: observed,
+      ...(this.lastSnapshot?.guidedWorkflow.delta.scope === undefined
+        ? {}
+        : { scope: this.lastSnapshot.guidedWorkflow.delta.scope }),
+      now: new Date().toISOString(),
+    });
+    if (result.refusal) {
+      // The refusal names what to change. "Could not capture" teaches nothing.
+      void vscode.window.showWarningMessage(result.detail ?? 'That baseline could not be captured.');
+      return;
+    }
+    try {
+      await state?.update(NAMED_BASELINE_STATE_KEY, result.register);
+      // Selected on capture, because somebody who just named a span wants to
+      // look at it. Nothing else moves.
+      await state?.update(SELECTED_BASELINE_STATE_KEY, result.captured?.id ?? '');
+    } catch {
+      void vscode.window.showWarningMessage('That baseline could not be stored.');
+      return;
+    }
+    await this.syncState();
+  }
+
+  /**
+   * Remove one baseline, behind a confirmation.
+   *
+   * Nothing expires and nothing is evicted, so this is the only way a baseline
+   * leaves — which makes the dialog the whole safeguard. It names the span that
+   * is about to be lost rather than asking "are you sure?".
+   */
+  private async handleRemoveBaseline(id: string): Promise<void> {
+    const register = readBaselineRegister(this.atlas);
+    const baseline = register.baselines.find(entry => entry.id === id);
+    if (!baseline) {
+      return;
+    }
+    const confirmed = await vscode.window.showWarningMessage(
+      `Remove the baseline "${baseline.label}"?`,
+      {
+        modal: true,
+        detail: `It was captured on ${baseline.takenAt.slice(0, 10)}. Removing it means nothing can be compared against that moment again — the reading it holds cannot be recovered from anywhere else.`,
+      },
+      'Remove it',
+    );
+    if (confirmed !== 'Remove it') {
+      return;
+    }
+    const state = this.atlas.extensionContext?.workspaceState;
+    try {
+      await state?.update(NAMED_BASELINE_STATE_KEY, removeBaseline(register, id));
+      if (readSelectedBaselineId(this.atlas) === id) {
+        await state?.update(SELECTED_BASELINE_STATE_KEY, '');
+      }
+    } catch {
+      void vscode.window.showWarningMessage('That baseline could not be removed.');
+      return;
+    }
+    await this.syncState();
+  }
+
+  /** Choose which baseline the comparison is against. An empty id chooses none. */
+  private async handleSelectBaseline(id: string): Promise<void> {
+    const register = readBaselineRegister(this.atlas);
+    // Resolved against the register, so an id that names nothing selects
+    // nothing rather than leaving a dangling selection on the page.
+    const resolved = register.baselines.some(entry => entry.id === id) ? id : '';
+    try {
+      await this.atlas.extensionContext?.workspaceState.update(SELECTED_BASELINE_STATE_KEY, resolved);
+    } catch {
+      return;
+    }
+    await this.syncState();
   }
 
   private async handleSaveDirectorConfig(payload: unknown): Promise<void> {
@@ -14481,6 +16328,11 @@ ${buildCardEvidenceSection(source, derivation)}`;
               <p id="dashboard-provenance" class="dashboard-provenance"></p>
             </div>
             <div class="dashboard-actions" role="group" aria-label="Dashboard actions">
+              <!-- Shown only while the page is zoomed, the way a browser shows
+                   its own zoom indicator. A permanent "100%" would be one more
+                   thing to read on a row that already carries three controls. -->
+              <button id="dashboard-zoom-reset" class="dashboard-zoom-reset" type="button" hidden
+                title="Dashboard zoom. Click to return to 100%.">100%</button>
               <button id="dashboard-score-chip" class="dashboard-score-chip" type="button" hidden
                 title="Composite score across operational discipline and outcome completeness. Opens the breakdown."></button>
               <!-- A split button. The label refreshes once; the caret opens the
@@ -14731,6 +16583,90 @@ export function isProjectDashboardMessage(message: unknown): message is ProjectD
     return typeof payload === 'object' && payload !== null && typeof payload['id'] === 'string';
   }
 
+  // A defect id is resolved against the register, so shape is all that is
+  // checked here — an unrecognised one finds no entry rather than something
+  // adjacent. Enums are re-coerced host-side against the declared vocabulary
+  // for the same reason: the browser can name a value, never define one.
+  if (candidate['type'] === 'setDefectStatus' || candidate['type'] === 'workOnDefect'
+    || candidate['type'] === 'regradeDefect' || candidate['type'] === 'markDefectDuplicate') {
+    const payload = candidate['payload'] as Record<string, unknown> | undefined;
+    return typeof payload === 'object' && payload !== null && typeof payload['id'] === 'string';
+  }
+
+  // Test-case messages. Ids resolve against the register; enums are re-coerced
+  // host-side, and no message carries a priority — that comes from the table.
+  if (candidate['type'] === 'setTestCaseStatus' || candidate['type'] === 'recordTestResult'
+    || candidate['type'] === 'draftTestCase') {
+    const payload = candidate['payload'] as Record<string, unknown> | undefined;
+    return typeof payload === 'object' && payload !== null && typeof payload['id'] === 'string';
+  }
+
+  if (candidate['type'] === 'addTestCase') {
+    const payload = candidate['payload'] as Record<string, unknown> | undefined;
+    return typeof payload === 'object' && payload !== null
+      && typeof payload['title'] === 'string' && payload['title'].trim().length > 0
+      && typeof payload['consequence'] === 'string'
+      && typeof payload['frequency'] === 'string';
+  }
+
+  if (candidate['type'] === 'addTestAsset') {
+    const payload = candidate['payload'] as Record<string, unknown> | undefined;
+    return typeof payload === 'object' && payload !== null
+      && typeof payload['label'] === 'string' && payload['label'].trim().length > 0
+      && typeof payload['kind'] === 'string';
+  }
+
+  if (candidate['type'] === 'addPortalViewer' || candidate['type'] === 'removePortalViewer') {
+    const payload = candidate['payload'] as Record<string, unknown> | undefined;
+    return typeof payload === 'object' && payload !== null
+      && typeof payload['contactId'] === 'string' && payload['contactId'].length > 0;
+  }
+
+  if (candidate['type'] === 'publishPortal') {
+    // No payload: the plan, the refusals and the confirmation are all built
+    // host-side from files, so nothing the webview sends can widen it.
+    return true;
+  }
+
+  if (candidate['type'] === 'confirmPortalAccess') {
+    // No payload: it records that the person at this editor says they set the
+    // host-side policy up. Who they are comes from the Director roster.
+    return true;
+  }
+
+  if (candidate['type'] === 'discussUtilityPack') {
+    const payload = candidate['payload'] as Record<string, unknown> | undefined;
+    return typeof payload === 'object' && payload !== null
+      && typeof payload['capability'] === 'string';
+  }
+
+  // Approval messages. Every id is resolved against the register or the
+  // host-published subject list, so shape is all that is checked here.
+  if (candidate['type'] === 'decideApproval' || candidate['type'] === 'withdrawApproval'
+    || candidate['type'] === 'recheckApproval' || candidate['type'] === 'reviewApproval') {
+    const payload = candidate['payload'] as Record<string, unknown> | undefined;
+    return typeof payload === 'object' && payload !== null && typeof payload['id'] === 'string';
+  }
+
+  if (candidate['type'] === 'raiseApproval') {
+    const payload = candidate['payload'] as Record<string, unknown> | undefined;
+    return typeof payload === 'object' && payload !== null
+      && typeof payload['title'] === 'string' && payload['title'].trim().length > 0
+      && typeof payload['category'] === 'string'
+      && typeof payload['subjectId'] === 'string' && payload['subjectId'].length > 0;
+  }
+
+  // The one defect message that carries prose. Only the title is required —
+  // a defect with no title cannot be found again, which makes recording it
+  // worse than not recording it. Everything else is clamped host-side.
+  if (candidate['type'] === 'reportDefect') {
+    const payload = candidate['payload'] as Record<string, unknown> | undefined;
+    return typeof payload === 'object' && payload !== null
+      && typeof payload['title'] === 'string' && payload['title'].trim().length > 0
+      && typeof payload['impact'] === 'string'
+      && typeof payload['reach'] === 'string';
+  }
+
   // A pull-request number and an index into the fetched list. Both are looked
   // up host-side, so an out-of-range value resolves to nothing rather than to
   // something adjacent.
@@ -14810,6 +16746,20 @@ export function isProjectDashboardMessage(message: unknown): message is ProjectD
     return typeof payload === 'object' && payload !== null
       && typeof payload['page'] === 'string'
       && typeof payload['id'] === 'string';
+  }
+
+  if (candidate['type'] === 'workOnAdvisory') {
+    // Same shape and the same reason as openAdvisory: the reference is resolved
+    // against what this panel read, so the webview supplies neither the prompt
+    // text nor anything the agent is told about.
+    return typeof candidate['payload'] === 'string' && candidate['payload'].length <= 120;
+  }
+
+  if (candidate['type'] === 'openAdvisory') {
+    // Shape only, and deliberately not a URL. The reference is resolved against
+    // the advisories this panel actually read, so a message naming one that is
+    // not there opens nothing.
+    return typeof candidate['payload'] === 'string' && candidate['payload'].length <= 120;
   }
 
   if (candidate['type'] === 'markDeltaSeen') {
@@ -15040,11 +16990,49 @@ export function isProjectDashboardMessage(message: unknown): message is ProjectD
     return typeof p === 'object' && p !== null && p['version'] === 1 && Array.isArray(p['stages']) && Array.isArray(p['paths']);
   }
 
+  if (candidate['type'] === 'captureBaseline') {
+    // The label is a person's free text and is checked for shape only; the
+    // register clamps and control-strips it, and refuses an empty one with a
+    // reason rather than inventing a name.
+    const p = candidate['payload'] as Record<string, unknown> | undefined;
+    return typeof p === 'object' && p !== null && typeof p['label'] === 'string'
+      && (p['reason'] === undefined || typeof p['reason'] === 'string');
+  }
+
+  if (candidate['type'] === 'removeBaseline' || candidate['type'] === 'selectBaseline') {
+    // An opaque id, resolved host-side against the stored register: a crafted
+    // message can name a baseline that exists and can never supply one.
+    return typeof candidate['payload'] === 'string';
+  }
+
   if (candidate['type'] === 'saveDirectorConfig') {
     const p = candidate['payload'] as Record<string, unknown> | undefined;
     return typeof p === 'object' && p !== null && p['version'] === 1
       && Array.isArray(p['contacts']) && Array.isArray(p['stakeholders']) && Array.isArray(p['teamMembers'])
       && Array.isArray(p['responsibilities']) && Array.isArray(p['assignments']) && Array.isArray(p['followUps']);
+  }
+
+  if (candidate['type'] === 'saveWebsiteDelivery') {
+    // Three arrays, bounded, and nothing else: the website manager sanitizes
+    // every field on save, and the fixed environment policies are rebuilt
+    // there rather than trusted from here.
+    const p = candidate['payload'] as Record<string, unknown> | undefined;
+    return typeof p === 'object' && p !== null
+      && Object.keys(p).length === 3
+      && Array.isArray(p['platforms']) && p['platforms'].length <= 20
+      && Array.isArray(p['hostingEnvironments']) && p['hostingEnvironments'].length <= 3
+      && Array.isArray(p['automations']) && p['automations'].length <= 50;
+  }
+
+  if (candidate['type'] === 'selectWebsiteFramework') {
+    // Checked against the catalog, not merely for being a string: this id
+    // chooses which constant command the setup planner will run.
+    const p = candidate['payload'] as Record<string, unknown> | undefined;
+    return typeof p === 'object' && p !== null && isWebsiteFrameworkId(p['frameworkId']);
+  }
+
+  if (candidate['type'] === 'planWebsiteStackSetup') {
+    return true;
   }
 
   if (candidate['type'] === 'saveDocumentsConfig') {
@@ -15311,7 +17299,7 @@ function buildGuidedWorkflowSnapshot(input: {
   commitSeries: DashboardSeriesPoint[];
   // The delta is not built here: it needs per-developer editor storage, and
   // this function is pure over its input. `withObservedDelta` attaches it.
-}): Omit<DashboardGuidedWorkflowSnapshot, 'delta'> {
+}): Omit<DashboardGuidedWorkflowSnapshot, 'delta' | 'baselines'> {
   const now = Date.now();
   // Deliberately a normal `get()`, unlike the safety settings below it.
   // `profile` and `archetype` are *declarations* about the project, not
@@ -16154,6 +18142,125 @@ function buildObservedScope(
   };
 }
 
+
+/** Website delivery on the Delivery page. Built by `buildWebsiteDeliveryView`, never assembled by the webview. */
+export interface DashboardWebsiteDelivery {
+  readOnly: boolean;
+  notice?: string;
+  /** `atlasmind.website.setup.enabled`. Off means the setup button is withheld and says which setting turns it on. */
+  canSetUpStack: boolean;
+  stack?: { frameworkId: string; platformId: string; packageManager: string };
+  /** Every framework in the catalog, graded against the primary platform, with the reason on the card. */
+  frameworks: Array<{
+    id: WebsiteFrameworkId;
+    label: string;
+    description: string;
+    outputDir: string;
+    scaffold: boolean;
+    compatibility: string;
+    reason: string;
+    selected: boolean;
+  }>;
+  gradedAgainst: string;
+  stackSummary?: { dev?: string; build?: string; output: string };
+  /**
+   * The website's three environments against the Delivery pipeline's stages,
+   * compared on every render now that both live on one page. `compared` is
+   * false when there is no pipeline to compare against, and the summary says so.
+   */
+  drift: { compared: boolean; inStep: boolean; summary: string };
+  hostingEnvironments: Array<WebsiteHostingEnvironment & { readiness: { status: string; issues: string[] } }>;
+  platforms: Array<WebsitePlatformTarget & { mode: string; description: string }>;
+  automations: WebsiteAutomation[];
+}
+
+/**
+ * The website plan as the Delivery page shows it. Pure: the framework grades,
+ * the readiness of each environment and the drift against the pipeline are
+ * all derived here from the saved plan, so the page cannot restate any of
+ * them more reassuringly than the modules that grade them.
+ */
+export function buildWebsiteDeliveryView(
+  read: Pick<WebsiteWorkspaceRead, 'config' | 'preserveExisting' | 'notice'>,
+  delivery: DeliveryConfig | undefined,
+  canSetUpStack: boolean,
+): DashboardWebsiteDelivery {
+  const config = read.config;
+  const primaryPlatform = config.platforms.find(platform => platform.primary);
+  const platformId = config.stack?.platformId ?? primaryPlatform?.id ?? 'cloudflare-pages';
+  const readiness = new Map(assessWebsiteHostingEnvironments(config).map(item => [item.id, item]));
+  const report = compareWebsiteToDelivery(config.hostingEnvironments, delivery, config.platforms);
+  const stackSummary = config.stack && isWebsiteFrameworkId(config.stack.frameworkId)
+    ? (() => {
+      const spec = websiteFrameworkSpec(config.stack!.frameworkId as WebsiteFrameworkId);
+      const manager = (config.stack!.packageManager || 'npm') as Parameters<typeof buildCommandFor>[1];
+      const dev = devCommandFor(spec, manager);
+      const build = buildCommandFor(spec, manager);
+      return {
+        ...(dev ? { dev: renderCommandLine(dev.command, dev.args) } : {}),
+        ...(build ? { build: renderCommandLine(build.command, build.args) } : {}),
+        output: spec.outputDir,
+      };
+    })()
+    : undefined;
+  return {
+    readOnly: read.preserveExisting,
+    ...(read.notice ? { notice: read.notice } : {}),
+    canSetUpStack,
+    ...(config.stack ? { stack: { ...config.stack } } : {}),
+    frameworks: WEBSITE_FRAMEWORK_CATALOG.map(spec => {
+      const verdict = describeStackCompatibility(spec.id, platformId);
+      return {
+        id: spec.id,
+        label: spec.label,
+        description: spec.description,
+        outputDir: spec.outputDir,
+        scaffold: spec.scaffold !== undefined,
+        compatibility: verdict.compatibility,
+        reason: verdict.reason,
+        selected: spec.id === config.stack?.frameworkId,
+      };
+    }),
+    gradedAgainst: primaryPlatform?.label ?? 'the selected platform',
+    ...(stackSummary ? { stackSummary } : {}),
+    drift: delivery
+      ? { compared: true, inStep: report.inStep, summary: report.summary }
+      : { compared: false, inStep: false, summary: 'No Delivery pipeline is configured for this project yet, so there is nothing to compare the three environments against.' },
+    hostingEnvironments: config.hostingEnvironments.map(environment => ({
+      ...environment,
+      readiness: {
+        status: readiness.get(environment.id)?.status ?? 'blocked',
+        issues: [...(readiness.get(environment.id)?.issues ?? [])],
+      },
+    })),
+    platforms: config.platforms.map(platform => {
+      const catalog = WEBSITE_PLATFORM_CATALOG.find(item => item.id === platform.id);
+      return { ...platform, mode: catalog?.mode ?? 'custom', description: catalog?.description ?? '' };
+    }),
+    automations: config.automations.map(automation => ({ ...automation })),
+  };
+}
+
+/**
+ * The website plan, if the workspace has one of the website profile. Read from
+ * disk on every snapshot rather than held: the Studio writes the same file,
+ * and a held copy would show the Studio's last save as this page's truth.
+ */
+function collectWebsiteDelivery(workspaceRoot: string | undefined): DashboardWebsiteDelivery | undefined {
+  if (!workspaceRoot || !existsSync(path.join(workspaceRoot, WEBSITE_WORKSPACE_SSOT_PATH))) {
+    return undefined;
+  }
+  const read = new WebsiteWorkspaceManager(workspaceRoot).read();
+  if (read.config.surfaceKind !== 'website') {
+    return undefined;
+  }
+  return buildWebsiteDeliveryView(
+    read,
+    readDeliveryConfig(workspaceRoot),
+    vscode.workspace.getConfiguration('atlasmind').get<boolean>('website.setup.enabled', false),
+  );
+}
+
 async function collectDashboardSnapshot(
   atlas: AtlasMindContext,
   ideationAttachments: TaskImageAttachment[] = [],
@@ -16188,6 +18295,14 @@ async function collectDashboardSnapshot(
   credit: CiCreditReading = { state: 'unknown', reason: 'the hosted allowance has not been checked yet.' },
   // Per-developer build history, read from workspaceState by the panel.
   localBuilds: readonly CiBuildRecord[] = [],
+  // Security advisories, held by the panel because they are network reads. Left
+  // trailing and optional so the existing call sites are unaffected, and absent
+  // means nobody looked — which the feed reports rather than calling it clean.
+  advisories?: AdvisoryFeedInput,
+  // Repository visibility as the panel last learned it. Defaults to `unknown`,
+  // which `portalHosting` treats as public — the assumption that keeps a secret,
+  // and the reason probing `gh` on a render path is not worth it.
+  portalVisibility: RepositoryVisibility = 'unknown',
 ): Promise<DashboardSnapshot> {
   const firstWorkspaceFolder = vscode.workspace.workspaceFolders?.[0];
   const declaredComposition = workflowConfigManager?.getConfig()?.composition;
@@ -16199,6 +18314,7 @@ async function collectDashboardSnapshot(
   // A declared home is authoritative. Falling back to the first folder when it
   // is missing would silently read a different component's SSOT and counts.
   const workspaceRoot = declaredComposition ? homeScopeRoot?.fsPath : firstWorkspaceFolder?.uri.fsPath;
+  const websiteDelivery = collectWebsiteDelivery(workspaceRoot);
   const workspaceFolder = (vscode.workspace.workspaceFolders ?? [])
     .find(folder => folder.uri.fsPath === workspaceRoot) ?? firstWorkspaceFolder;
   const workspaceName = firstWorkspaceFolder?.name ?? 'No Workspace';
@@ -16353,6 +18469,10 @@ async function collectDashboardSnapshot(
   const warnedEntries = [...scanResults.values()].filter(result => result.status === 'warned').length;
   const blockedEntries = [...scanResults.values()].filter(result => result.status === 'blocked').length;
   const governanceProviders = detectGovernanceProviders(workspaceRoot);
+  // Built whatever the panel handed over: with no argument the feed reports
+  // that nothing was read, which is the state that must never be confused with
+  // a clean repository.
+  const advisoryFeed = buildAdvisoryFeed(advisories);
   const toolApprovalMode = configuration.get<string>('toolApprovalMode', 'ask-on-write');
   const allowTerminalWrite = configuration.get<boolean>('allowTerminalWrite', false);
   const autoVerifyAfterWrite = configuration.get<boolean>('autoVerifyAfterWrite', false);
@@ -16636,6 +18756,37 @@ async function collectDashboardSnapshot(
     ...(dashboardIssues.viewerLogin ? { viewerLogin: dashboardIssues.viewerLogin } : {}),
     ...(gitSnapshot.gitUserName ? { gitUserName: gitSnapshot.gitUserName } : {}),
   });
+  // The board is rebuilt here rather than inside `buildRoadmapGraphView`,
+  // because the state of an item is evidenced by branches and pull requests and
+  // that builder has neither. Both are passed only when they were actually
+  // gathered: `undefined` means nobody looked, which the board reports rather
+  // than treating as "nothing has been started".
+  const roadmapBoard = buildRoadmapBoard(
+    [...roadmapWithIdeation.graph.active, ...roadmapWithIdeation.graph.completed],
+    {
+      branchNames: branchInventory.items.map(item => item.name),
+      ...(pullRequests === undefined
+        ? {}
+        : {
+          openPullRequests: pullRequests
+            .filter(pull => pull.state === 'open')
+            .map(pull => ({
+              number: pull.number,
+              headRefName: pull.headRefName,
+              isDraft: pull.isDraft,
+              url: pull.url,
+            })),
+        }),
+    },
+  );
+  const roadmapWithBoard: DashboardRoadmapSnapshot = {
+    ...roadmapWithIdeation,
+    graph: {
+      ...roadmapWithIdeation.graph,
+      board: roadmapBoard,
+      boardSummary: describeRoadmapBoard(roadmapBoard),
+    },
+  };
   const enrichedBranchInventory: DashboardBranchesSnapshot = {
     ...branchInventory,
     items: branchInventory.items.map(item => ({
@@ -16677,6 +18828,11 @@ async function collectDashboardSnapshot(
   // Named rather than returned directly so the attention feed can be derived
   // from the finished snapshot — reading the same fields the pages render is
   // what stops the Overview and the page it links to disagreeing.
+  // Read once and used twice: the archetype detector and the utility
+  // assessment both want the dependency names, and reading the manifests twice
+  // on a render path would be paying for the same bytes to say the same thing.
+  const archetypeEvidence = await collectArchetypeEvidence(workspaceRoot);
+
   const snapshot: Omit<DashboardSnapshot, 'attention' | 'workAssignments' | 'vitalFiles'> = {
     generatedAt: new Date().toISOString(),
     ssotPresent: ssotSnapshot.totalFiles > 0 || memoryEntries.length > 0,
@@ -16783,7 +18939,7 @@ async function collectDashboardSnapshot(
       blockedEntries,
       delta: ssotDelta,
     },
-    roadmap: roadmapWithIdeation,
+    roadmap: roadmapWithBoard,
     taxonomy: {
       loaded: taxonomy !== undefined,
       labels: taxonomy?.labels ?? [],
@@ -16821,6 +18977,25 @@ async function collectDashboardSnapshot(
       ].map(rule => ({ ...rule })),
       scanning: debt?.scanning ?? false,
     },
+    defects: (() => {
+      // Read here rather than carried in on a parameter: the register is one
+      // small JSON file, and reading it on the same pass that renders it means
+      // the page and the panel's own writes cannot disagree about what is on
+      // disk. `readDefectRegister` never throws — a corrupt file yields an
+      // empty register and the page says so.
+      const register = workspaceRoot ? readDefectRegister(workspaceRoot) : { version: 1 as const, entries: [] };
+      return {
+        path: DEFECT_SSOT_PATH,
+        entries: sortDefectEntries(register.entries),
+        metrics: deriveDefectMetrics(register, Date.now()),
+        rules: DEFECT_RULES.map(rule => ({
+          id: rule.id,
+          severity: rule.severity,
+          describes: rule.describes,
+        })),
+        recorded: register.entries.length > 0,
+      };
+    })(),
     release: buildReleaseSnapshot({
       packageVersion: packageSnapshot.version,
       ...(changelog === undefined ? {} : { changelog }),
@@ -16852,7 +19027,7 @@ async function collectDashboardSnapshot(
       // Detection reads dependency names the package snapshot already loaded, so
       // this adds no I/O. Absent evidence means "we did not look", which the
       // surface reports as such rather than as "generic project".
-      archetypeEvidence: await collectArchetypeEvidence(workspaceRoot),
+      ...(archetypeEvidence === undefined ? {} : { archetypeEvidence }),
       packageVersion: packageSnapshot.version,
       ciWorkflowCount: workflowSnapshot.length,
       testing: testingSnapshot,
@@ -16895,7 +19070,10 @@ async function collectDashboardSnapshot(
       issueTemplateCount,
       changelogPresent,
       governanceProviders,
+      advisories: advisoryFeed,
+      advisorySummary: describeAdvisoryFeed(advisoryFeed),
     },
+    ...(websiteDelivery === undefined ? {} : { websiteDelivery }),
     delivery: {
       packageVersion: packageSnapshot.version,
       dependencyCount: packageSnapshot.dependencyCount,
@@ -16925,7 +19103,32 @@ async function collectDashboardSnapshot(
       stages: stagePipeline,
       runbooks: deliveryRunbooks,
     },
+    utilities: collectUtilitiesSnapshot(archetypeEvidence),
+    portalHosting: collectPortalHostingSnapshot(
+      workspaceRoot,
+      directorSnapshot.config ?? undefined,
+      // The same reading `/portal` uses, and unknown is treated as public.
+      portalVisibility,
+    ),
+    testCases: collectTestCasesSnapshot(
+      workspaceRoot,
+      directorSnapshot.config ?? undefined,
+      testingSnapshot.policyCoverage?.rows ?? [],
+      Date.now(),
+    ),
+    approvals: collectApprovalsSnapshot(
+      workspaceRoot,
+      directorSnapshot.config ?? undefined,
+      roadmapWithBoard,
+      documentsSnapshot,
+      Date.now(),
+    ),
     director: directorSnapshot,
+    teamWorkload: collectTeamWorkloadSnapshot(
+      directorSnapshot.config ?? undefined,
+      roadmapWithBoard.graph.active,
+      new Date(),
+    ),
     documents: documentsSnapshot,
     risk: riskSnapshot,
     ...(complianceSnapshot ? { compliance: complianceSnapshot } : {}),
@@ -17274,6 +19477,45 @@ function buildAttentionInput(
       open: snapshot.debt.metrics.open,
       high: snapshot.debt.metrics.bySeverity.find(bucket => bucket.key === 'high')?.value ?? 0,
     },
+    // Supplied only once something has been recorded. Unlike every other
+    // register here, a defect register cannot be *assessed* — recording a
+    // defect means finding one — so an empty one raises nothing and, by being
+    // absent, does not count toward the groups that let the page claim `clear`.
+    ...(snapshot.defects.recorded
+      ? {
+        defects: {
+          openBlockers: snapshot.defects.metrics.blockers,
+          awaitingVerification: snapshot.defects.metrics.awaitingVerification,
+        },
+      }
+      : {}),
+    // Same rule, same reason. `stale` is counted from the page's own live view
+    // rather than from the register's stored fingerprints, so the band and the
+    // page it links to cannot disagree about which approvals still apply.
+    // Same rule again: a register nobody has written in raises nothing and is
+    // not counted toward the groups that let the page claim it is clear.
+    ...(snapshot.testCases.recorded
+      ? {
+        testCases: {
+          failing: snapshot.testCases.metrics.failing,
+          criticalNeverRun: snapshot.testCases.cases.filter(entry =>
+            entry.status === 'active' && entry.execution === 'manual'
+            && entry.priority === 'critical' && entry.state === 'not-run').length,
+          staleResults: snapshot.testCases.metrics.staleResults,
+        },
+      }
+      : {}),
+    ...(snapshot.approvals.recorded
+      ? {
+        approvals: {
+          awaitingMe: snapshot.approvals.requests
+            .filter(request => request.status === 'pending' && request.mine).length,
+          unrouted: snapshot.approvals.metrics.unrouted,
+          stale: snapshot.approvals.requests
+            .filter(request => request.currency === 'stale').length,
+        },
+      }
+      : {}),
     // `blockedBy` is the release plan's own list of gates that are not passing,
     // and it already treats `unknown` as not-a-pass. Recounting it here would be
     // a second opinion on a question the Release page has already answered.
@@ -19802,6 +22044,16 @@ const CI_BUILD_LEDGER_STATE_KEY = 'atlasmind.ciBuildLedger';
  * review's `reviewedAt` above.
  */
 const OBSERVED_BASELINE_STATE_KEY = 'atlasmind.workflow.observedBaseline';
+/**
+ * Named baselines, and which one is being compared against.
+ *
+ * Editor storage rather than the committed SSOT folder, for the reason
+ * `OBSERVED_SNAPSHOT_NOTE` gives: these hold counts read from one machine at one
+ * moment, and a shared one would mean "when did anybody last look" and conflict
+ * between two people on the same day.
+ */
+const NAMED_BASELINE_STATE_KEY = 'atlasmind.workflow.namedBaselines';
+const SELECTED_BASELINE_STATE_KEY = 'atlasmind.workflow.selectedBaseline';
 
 /**
  * The delta, computed once and then held.
@@ -19872,7 +22124,7 @@ function resolveObservedDelta(
 function withObservedDelta(
   atlas: AtlasMindContext,
   workspaceRoot: string | undefined,
-  snapshot: Omit<DashboardGuidedWorkflowSnapshot, 'delta'>,
+  snapshot: Omit<DashboardGuidedWorkflowSnapshot, 'delta' | 'baselines'>,
   scope?: ObservedScope,
 ): DashboardGuidedWorkflowSnapshot {
   const now = new Date().toISOString();
@@ -19893,7 +22145,83 @@ function withObservedDelta(
       })),
       droppedByCap: delta.droppedByCap,
     },
+    baselines: buildBaselineView(atlas, snapshot.observed, now, scope),
   };
+}
+
+/**
+ * The named baselines, and the comparison against whichever one is chosen.
+ *
+ * Read-only: unlike `resolveObservedDelta`, which advances its watermark as a
+ * side effect of being read, nothing here writes. A named baseline means *the
+ * moment somebody chose*, and moving it on a render would erase the span it was
+ * created to measure.
+ */
+function buildBaselineView(
+  atlas: AtlasMindContext,
+  observed: WorkflowObservedState,
+  now: string,
+  scope: ObservedScope | undefined,
+): DashboardGuidedWorkflowSnapshot['baselines'] {
+  const register = readBaselineRegister(atlas);
+  const ordered = orderedBaselines(register);
+  const selectedId = readSelectedBaselineId(atlas);
+  const selected = ordered.find(entry => entry.id === selectedId);
+  const comparisons = ordered.map(entry => compareAgainstBaseline({
+    baseline: entry,
+    current: observed,
+    ...(scope === undefined ? {} : { scope }),
+    now,
+  }));
+  const chosen = selected
+    ? comparisons.find(comparison => comparison.baseline.id === selected.id)
+    : undefined;
+  return {
+    entries: comparisons.map(comparison => ({
+      id: comparison.baseline.id,
+      label: comparison.baseline.label,
+      ...(comparison.baseline.reason === undefined ? {} : { reason: comparison.baseline.reason }),
+      takenAt: comparison.baseline.takenAt,
+      ageDays: comparison.ageDays,
+      staleness: comparison.staleness,
+    })),
+    ...(chosen === undefined ? {} : {
+      selectedId: chosen.baseline.id,
+      comparison: {
+        // Composed in the module, so no renderer can show the changes without
+        // the age that makes them mean something.
+        span: chosen.span,
+        status: chosen.delta.status,
+        staleness: chosen.staleness,
+        changes: chosen.delta.changes.map(change => ({
+          label: change.label,
+          kind: change.kind,
+          summary: change.summary,
+        })),
+        droppedByCap: chosen.delta.droppedByCap,
+      },
+    }),
+    remaining: Math.max(0, MAX_NAMED_BASELINES - register.baselines.length),
+    rules: BASELINE_RULES.map(rule => ({ id: rule.id, describes: rule.describes })),
+  };
+}
+
+/** The stored register, sanitized. Never throws: storage is a convenience. */
+function readBaselineRegister(atlas: AtlasMindContext): BaselineRegister {
+  try {
+    return sanitizeBaselineRegister(atlas.extensionContext?.workspaceState.get(NAMED_BASELINE_STATE_KEY));
+  } catch {
+    return { version: 1, baselines: [] };
+  }
+}
+
+function readSelectedBaselineId(atlas: AtlasMindContext): string | undefined {
+  try {
+    const value = atlas.extensionContext?.workspaceState.get<string>(SELECTED_BASELINE_STATE_KEY);
+    return typeof value === 'string' && value ? value : undefined;
+  } catch {
+    return undefined;
+  }
 }
 
 /**
@@ -21144,6 +23472,201 @@ interface DashboardDocumentAutoView {
   updatePrompt: string;
 }
 
+// ── Portal hosting snapshot ──────────────────────────────────────────────────
+
+interface DashboardPortalHostingSnapshot {
+  path: string;
+  host: string;
+  hostLabel: string;
+  siteUrl?: string;
+  /** Every host with what it can actually enforce, so the choice is arguable. */
+  capabilities: Array<{
+    host: string;
+    label: string;
+    control: string;
+    githubSignIn: boolean;
+    enforcedBy: string;
+    audienceCost: string;
+    requires: string;
+    notes: string;
+  }>;
+  /** The audience, resolved to names and identifier kinds — never addresses. */
+  audience: Array<{
+    contactId: string;
+    name: string;
+    identifierKind?: string;
+    unresolvedReason?: string;
+  }>;
+  /** Contacts not yet on the audience, offered for assignment. */
+  candidates: Array<{ contactId: string; name: string; hasIdentifier: boolean }>;
+  missingContactIds: string[];
+  warnings: Array<{ code: string; severity: string; message: string }>;
+  steps: string[];
+  summary: string;
+  audienceEnforceable: boolean;
+  accessConfiguredAt?: string;
+  accessConfiguredBy?: string;
+  /** False until somebody declares one. Never read as a default. */
+  declared: boolean;
+  verifiedAt: string;
+}
+
+// ── Utility packs snapshot ───────────────────────────────────────────────────
+
+interface DashboardUtilityCandidateView {
+  id: string;
+  label: string;
+  summary: string;
+  answers: string;
+  docs: string;
+  /** Absent where the vendor's install line was not verified. Never invented. */
+  install?: string;
+  leavesTheMachine: string;
+  selfHostable: boolean;
+  present: boolean;
+}
+
+interface DashboardUtilityPackView {
+  capability: UtilityCapability;
+  label: string;
+  premise: string;
+  question: string;
+  why: string;
+  options: Array<{ id: string; label: string; consequence: string }>;
+  candidates: DashboardUtilityCandidateView[];
+  gates: Array<{ id: string; statement: string; why: string }>;
+  installable: boolean;
+  status: string;
+  note: string;
+}
+
+interface DashboardUtilitiesSnapshot {
+  packs: DashboardUtilityPackView[];
+  /** Which capabilities are genuinely missing *and* addable. Never accessibility. */
+  offerable: UtilityCapability[];
+  /** When these vendor facts were last read from the vendors' own documentation. */
+  verifiedAt: string;
+  /**
+   * False when no manifest could be read.
+   *
+   * "We did not look" and "this project uses none of them" are different
+   * facts, and the second is what a reader would otherwise assume — the same
+   * distinction `collectArchetypeEvidence` returns `undefined` to preserve.
+   */
+  assessed: boolean;
+}
+
+// ── Test case snapshot ───────────────────────────────────────────────────────
+
+/** One case, with its standing already resolved host-side. */
+interface DashboardTestCaseView {
+  id: string;
+  title: string;
+  objective: string;
+  priority: string;
+  priorityRule: string;
+  execution: string;
+  status: TestCaseStatus;
+  state: TestCaseState;
+  revision: number;
+  ownerLabel?: string;
+  policyId?: string;
+  lastRunAt?: string;
+  lastRunBy?: string;
+  /** True when the last result was recorded against an earlier revision. */
+  staleResult: boolean;
+  stepCount: number;
+  assetLabels: string[];
+}
+
+interface DashboardTestAssetView {
+  id: string;
+  label: string;
+  kind: TestAsset['kind'];
+  ownerLabel?: string;
+  location?: string;
+  /** The *name* of a secret held elsewhere. Never a value. */
+  secretRef?: string;
+}
+
+interface DashboardTestCasesSnapshot {
+  path: string;
+  cases: DashboardTestCaseView[];
+  assets: DashboardTestAssetView[];
+  metrics: TestCaseMetrics;
+  /** The declared priority rules, so a grade can be checked on screen. */
+  rules: Array<{ id: string; priority: string; describes: string }>;
+  /** The enabled methodologies a case can be recorded as evidence for. */
+  policies: Array<{ id: string; label: string }>;
+  /** Testers a case or an asset can be assigned to, from the Director roster. */
+  owners: Array<{ id: string; label: string }>;
+  /** False until somebody has written a case down. Never "nothing to test". */
+  recorded: boolean;
+}
+
+// ── Approvals snapshot ───────────────────────────────────────────────────────
+
+/**
+ * One request, with everything the page needs already resolved host-side.
+ *
+ * `currency` is computed against the subject's content **as it stands now**
+ * rather than against the fingerprint the register happens to hold, which is
+ * what lets the page notice that an approved document has been rewritten
+ * without the register having to be written to on a render.
+ */
+interface DashboardApprovalView {
+  id: string;
+  category: ApprovalCategory;
+  title: string;
+  rationale: string;
+  subjectKind: string;
+  subjectRef: string;
+  subjectLabel: string;
+  status: string;
+  statusLabel: string;
+  requestedAt: string;
+  requestedByLabel?: string;
+  approverLabel?: string;
+  approverRule?: string;
+  /** Stated when nobody holds the role the category routes to. */
+  unresolvedReason?: string;
+  decidedAt?: string;
+  decidedByLabel?: string;
+  decisionNote?: string;
+  selfApproved: boolean;
+  currency: ApprovalCurrency;
+  waitingDays?: number;
+  /** True when this request is routed to the contact representing the user. */
+  mine: boolean;
+}
+
+/** Something a request can be raised about. Resolved host-side; ids are opaque. */
+interface DashboardApprovalSubjectOption {
+  id: string;
+  kind: string;
+  label: string;
+}
+
+interface DashboardApprovalsSnapshot {
+  path: string;
+  requests: DashboardApprovalView[];
+  metrics: ApprovalMetrics;
+  /** The declared routing table, so the page publishes the rules that applied. */
+  rules: Array<{ category: string; roleId: string; describes: string }>;
+  categories: string[];
+  /** What a new request can be raised about. Empty when nothing is resolvable. */
+  subjects: DashboardApprovalSubjectOption[];
+  /** False until somebody has raised one — never read as "nothing needs approval". */
+  recorded: boolean;
+  /**
+   * False when the roster names nobody at all.
+   *
+   * Distinct from "no request is routed": a project with no roster cannot route
+   * anything, and saying so is more useful than a page of unrouted requests.
+   */
+  rosterKnown: boolean;
+}
+
 interface DashboardDocumentsSnapshot {
   filePath: string;
   summaryPath: string;
@@ -21811,6 +24334,20 @@ function emptyRoadmapGraphView(filePath: string): DashboardRoadmapGraphView {
       note: 'There is nothing on the roadmap yet.',
     },
     criticalPathSummary: 'There is nothing on the roadmap yet.',
+    timeline: {
+      state: 'nothing-outstanding',
+      horizonDays: 0,
+      bars: [],
+      milestones: [],
+      outstandingCount: 0,
+      deliveredCount: 0,
+      criticalCount: 0,
+      rules: ROADMAP_TIMELINE_RULES,
+      note: 'There is nothing on the roadmap yet.',
+    },
+    timelineSummary: 'There is nothing on the roadmap yet.',
+    board: buildRoadmapBoard([]),
+    boardSummary: 'There is nothing on the roadmap yet.',
     routes: {},
     people: [],
     filePath,
@@ -21935,6 +24472,15 @@ function buildRoadmapGraphView(
     // prerequisite contributes no days, and dropping it before the walk would
     // have left the path unchanged but the reasoning unable to say why.
     const criticalPath = roadmapCriticalPath(graph);
+    // Gate labels are passed in rather than looked up inside: only this layer
+    // knows what the project called `#mvp`, and a module inventing a label
+    // would print a different name from the selector two rows above it.
+    const timeline = buildRoadmapTimeline(
+      graph,
+      criticalPath,
+      new Map(gates.map(gate => [gate.id, gate.label])),
+    );
+    const unassessedBoard = buildRoadmapBoard(graph.nodes);
 
     return {
       active: partition.active,
@@ -21954,6 +24500,12 @@ function buildRoadmapGraphView(
       anchored,
       criticalPath,
       criticalPathSummary: describeRoadmapCriticalPath(criticalPath),
+      timeline,
+      timelineSummary: describeRoadmapTimeline(timeline),
+      // No evidence here by construction — see the field's note. The snapshot
+      // assembly rebuilds it once branches and pull requests are known.
+      board: unassessedBoard,
+      boardSummary: describeRoadmapBoard(unassessedBoard),
       routes,
       people,
       ...(director?.selfContactId === undefined ? {} : { selfContactId: director.selfContactId }),
@@ -24249,6 +26801,33 @@ const DASHBOARD_CSS = `
 
   .dashboard-score-chip:hover {
     border-color: var(--dash-accent-strong);
+  }
+
+  /* The page-zoom indicator. Quieter than the score chip beside it: it reports
+     a viewing preference, not a fact about the project. */
+  .dashboard-zoom-reset {
+    display: inline-flex;
+    align-items: center;
+    padding: 4px 10px;
+    border-radius: 999px;
+    border: 1px dashed var(--dash-border);
+    background: transparent;
+    color: var(--dash-muted, var(--vscode-descriptionForeground));
+    font-family: inherit;
+    font-size: 11px;
+    font-variant-numeric: tabular-nums;
+    cursor: pointer;
+  }
+
+  /* Same reason as the score chip: the flex above would beat [hidden]. */
+  .dashboard-zoom-reset[hidden] {
+    display: none;
+  }
+
+  .dashboard-zoom-reset:hover {
+    border-style: solid;
+    border-color: var(--dash-accent-strong);
+    color: var(--vscode-foreground);
   }
 
   .score-chip-figure {
@@ -28436,6 +31015,297 @@ const DASHBOARD_CSS = `
     margin-bottom: 12px;
   }
 
+  /* ── Timeline ───────────────────────────────────────────────────────────
+     The plan against time. Bars are positioned as percentages of the horizon
+     the host computed, so the chart reflows with the panel and never needs a
+     measurement pass — a way of *looking* at a plan must not be something that
+     can fail. */
+  .rm-timeline-card { display: block; }
+
+  .rm-tl-axis {
+    position: relative;
+    height: 20px;
+    margin: 4px 0 6px calc(var(--rm-tl-label-width, 240px) + 12px);
+  }
+
+  .rm-tl-axis-track { position: absolute; inset: 0; display: block; }
+
+  .rm-tl-gridline {
+    position: absolute;
+    top: 0;
+    bottom: -4px;
+    width: 1px;
+    background: color-mix(in srgb, var(--vscode-foreground) 12%, transparent);
+  }
+
+  .rm-tl-tick {
+    position: absolute;
+    top: 2px;
+    transform: translateX(-50%);
+    font-size: 10.5px;
+    color: var(--vscode-descriptionForeground);
+    white-space: nowrap;
+  }
+
+  .rm-tl-rows {
+    list-style: none;
+    margin: 0;
+    padding: 0;
+    display: flex;
+    flex-direction: column;
+    gap: 4px;
+  }
+
+  .rm-tl-row {
+    display: grid;
+    grid-template-columns: var(--rm-tl-label-width, 240px) 1fr;
+    gap: 12px;
+    align-items: center;
+    padding: 3px 0;
+    border-radius: 6px;
+  }
+
+  .rm-tl-row:hover { background: color-mix(in srgb, var(--vscode-foreground) 5%, transparent); }
+
+  .rm-tl-label { min-width: 0; }
+
+  .rm-tl-title {
+    display: block;
+    overflow: hidden;
+    text-overflow: ellipsis;
+    white-space: nowrap;
+    font-size: 12px;
+  }
+
+  .rm-tl-meta {
+    display: flex;
+    align-items: center;
+    gap: 6px;
+    font-size: 10.5px;
+    color: var(--vscode-descriptionForeground);
+  }
+
+  .rm-tl-estimate { font-variant-numeric: tabular-nums; }
+
+  .rm-tl-track {
+    position: relative;
+    height: 18px;
+    border-radius: 4px;
+    background: color-mix(in srgb, var(--vscode-foreground) 5%, transparent);
+  }
+
+  .rm-tl-bar {
+    position: absolute;
+    top: 3px;
+    bottom: 3px;
+    border-radius: 3px;
+    background: color-mix(in srgb, var(--dash-accent-strong) 45%, transparent);
+  }
+
+  /* The path is the finding, so it is the one thing on the chart that carries
+     full-strength colour. */
+  .rm-tl-row.is-critical .rm-tl-bar {
+    background: var(--dash-accent-strong);
+  }
+
+  /* Float, drawn as a hollow tail rather than a second solid bar: it is room
+     before the *plan's* finish moves, not work anybody is doing. */
+  .rm-tl-float {
+    position: absolute;
+    top: 6px;
+    bottom: 6px;
+    border-radius: 2px;
+    border: 1px dashed color-mix(in srgb, var(--vscode-foreground) 28%, transparent);
+    border-left: none;
+  }
+
+  .rm-tl-deadline {
+    position: absolute;
+    top: -2px;
+    bottom: -2px;
+    width: 2px;
+    background: color-mix(in srgb, var(--vscode-foreground) 55%, transparent);
+  }
+
+  .rm-tl-deadline.is-late { background: var(--dash-critical, #d13438); }
+
+  .rm-tl-milestones { margin-bottom: 6px; }
+
+  .rm-tl-milestone-track {
+    position: relative;
+    height: 22px;
+    margin-left: calc(var(--rm-tl-label-width, 240px) + 12px);
+  }
+
+  .rm-tl-milestone {
+    position: absolute;
+    transform: translateX(-50%);
+    display: flex;
+    flex-direction: column;
+    align-items: center;
+    font-size: 10.5px;
+    color: var(--vscode-descriptionForeground);
+    white-space: nowrap;
+  }
+
+  .rm-tl-milestone-pin {
+    width: 8px;
+    height: 8px;
+    border-radius: 2px;
+    transform: rotate(45deg);
+    background: var(--dash-accent-strong);
+  }
+
+  .rm-tl-milestone-label { margin-top: 2px; }
+
+  .rm-tl-milestone-note {
+    margin: 4px 0 0;
+    font-size: 11px;
+    color: var(--vscode-descriptionForeground);
+  }
+
+  .rm-tl-rules {
+    margin-top: 12px;
+    font-size: 11px;
+    color: var(--vscode-descriptionForeground);
+  }
+
+  /* ── Board ──────────────────────────────────────────────────────────────
+     Read-only by design: dragging a card between columns would write a state
+     nothing evidenced, and the next refresh would move it back. */
+  /* ── Advisories ─────────────────────────────────────────────────────────
+     Full width above the governance grid: what is known to be wrong outranks
+     what is configured, and a card in the grid would sit beside four green
+     ones as though it were the same kind of fact. */
+  .advisory-card { grid-column: 1 / -1; }
+
+  .advisory-list {
+    list-style: none;
+    margin: 8px 0 0;
+    padding: 0;
+    display: flex;
+    flex-direction: column;
+    gap: 6px;
+  }
+
+  .advisory-item {
+    display: flex;
+    align-items: flex-start;
+    gap: 8px;
+    padding: 6px 8px;
+    border: 1px solid var(--dash-border);
+    border-radius: 6px;
+    background: color-mix(in srgb, var(--dash-panel-strong) 55%, transparent);
+  }
+
+  .advisory-body { flex: 1; min-width: 0; }
+
+  .advisory-title {
+    margin: 0;
+    font-size: 12px;
+  }
+
+  .advisory-meta {
+    margin: 2px 0 0;
+    display: flex;
+    flex-wrap: wrap;
+    gap: 8px;
+    font-size: 10.5px;
+    color: var(--vscode-descriptionForeground);
+  }
+
+  .advisory-subject, .advisory-location {
+    font-family: var(--vscode-editor-font-family, monospace);
+  }
+
+  .advisory-fix { color: var(--dash-good, var(--vscode-charts-green)); }
+
+  .rm-board-card { display: block; }
+
+  .rm-board-columns {
+    display: grid;
+    grid-template-columns: repeat(auto-fit, minmax(190px, 1fr));
+    gap: 10px;
+    align-items: start;
+  }
+
+  .rm-board-column {
+    border: 1px solid var(--dash-border);
+    border-radius: 8px;
+    padding: 8px;
+    background: color-mix(in srgb, var(--dash-panel-strong) 55%, transparent);
+  }
+
+  .rm-board-column-head {
+    display: flex;
+    align-items: center;
+    justify-content: space-between;
+    gap: 8px;
+    margin-bottom: 6px;
+    font-size: 11.5px;
+    text-transform: uppercase;
+    letter-spacing: 0.04em;
+    color: var(--vscode-descriptionForeground);
+  }
+
+  .rm-board-empty {
+    margin: 0;
+    font-size: 11px;
+    font-style: italic;
+    color: var(--vscode-descriptionForeground);
+  }
+
+  .rm-board-cards {
+    list-style: none;
+    margin: 0;
+    padding: 0;
+    display: flex;
+    flex-direction: column;
+    gap: 6px;
+  }
+
+  .rm-board-cardlet {
+    border: 1px solid var(--dash-border);
+    border-left: 3px solid color-mix(in srgb, var(--vscode-foreground) 30%, transparent);
+    border-radius: 6px;
+    padding: 6px 8px;
+    background: var(--vscode-editorWidget-background, var(--vscode-editor-background));
+  }
+
+  .rm-board-cardlet-text {
+    margin: 0 0 4px;
+    font-size: 12px;
+    display: -webkit-box;
+    -webkit-line-clamp: 3;
+    -webkit-box-orient: vertical;
+    overflow: hidden;
+  }
+
+  .rm-board-cardlet-meta {
+    display: flex;
+    flex-wrap: wrap;
+    align-items: center;
+    gap: 4px;
+    font-size: 10.5px;
+    color: var(--vscode-descriptionForeground);
+  }
+
+  .rm-board-branch, .rm-board-person {
+    font-family: var(--vscode-editor-font-family, monospace);
+    font-size: 10px;
+    opacity: 0.85;
+  }
+
+  .rm-board-person { font-family: inherit; }
+
+  .rm-tl-rules summary { cursor: pointer; }
+  .rm-tl-rules p { margin: 6px 0 0; }
+
+  @media (max-width: 900px) {
+    .rm-tl-row { --rm-tl-label-width: 140px; }
+    .rm-tl-axis, .rm-tl-milestone-track { --rm-tl-label-width: 140px; }
+  }
+
   .rm-view-bar {
     display: flex;
     flex-wrap: wrap;
@@ -30723,4 +33593,45 @@ const DASHBOARD_CSS = `
       transform: none;
     }
   }
+  /* ── Website delivery (moved here from UI Studio) ─────────────── */
+  .website-delivery { display: grid; gap: 16px; margin: 18px 0; }
+  .website-delivery .wd-span { grid-column: 1 / -1; }
+  .website-delivery .wd-card-head { display: flex; align-items: flex-start; justify-content: space-between; gap: 12px; flex-wrap: wrap; }
+  .website-delivery .wd-card-head h3, .website-delivery .wd-card-head h4 { margin: 2px 0; }
+  .website-delivery .wd-frameworks { display: grid; grid-template-columns: repeat(auto-fill, minmax(220px, 1fr)); gap: 10px; margin-top: 12px; }
+  .website-delivery .wd-framework { display: grid; gap: 4px; text-align: left; padding: 12px; border-radius: 12px; border: 1px solid var(--vscode-widget-border, rgba(127,127,127,0.25)); background: var(--vscode-editorWidget-background, rgba(127,127,127,0.06)); color: var(--vscode-foreground); cursor: pointer; font: inherit; }
+  .website-delivery .wd-framework:hover { background: var(--vscode-list-hoverBackground); }
+  .website-delivery .wd-framework.selected { border-color: var(--vscode-focusBorder); box-shadow: inset 0 0 0 1px var(--vscode-focusBorder); }
+  .website-delivery .wd-framework[disabled] { opacity: .6; cursor: default; }
+  .website-delivery .wd-framework-name { font-weight: 600; }
+  .website-delivery .wd-framework-badge { font-size: .72rem; text-transform: uppercase; letter-spacing: .04em; opacity: .8; }
+  .website-delivery .compat-unsupported .wd-framework-badge { color: var(--vscode-errorForeground); }
+  .website-delivery .compat-workable .wd-framework-badge { color: var(--vscode-editorWarning-foreground, #d29922); }
+  .website-delivery .compat-ideal .wd-framework-badge { color: var(--vscode-testing-iconPassed, #3fb950); }
+  .website-delivery .wd-framework-desc, .website-delivery .wd-framework-reason, .website-delivery .wd-framework-meta { font-size: .8rem; opacity: .85; }
+  .website-delivery .wd-summary { display: grid; grid-template-columns: auto 1fr; gap: 6px 14px; margin: 12px 0 0; padding-top: 10px; border-top: 1px solid var(--vscode-widget-border, rgba(127,127,127,0.25)); font-size: .85rem; }
+  .website-delivery .wd-summary dt { font-weight: 600; opacity: .8; }
+  .website-delivery .wd-summary dd { margin: 0; }
+  .website-delivery .wd-instep { color: var(--vscode-testing-iconPassed, #3fb950); }
+  .website-delivery .wd-drift { color: var(--vscode-editorWarning-foreground, #d29922); }
+  .website-delivery .wd-environments { display: grid; grid-template-columns: repeat(auto-fit, minmax(260px, 1fr)); gap: 12px; }
+  .website-delivery .wd-platforms, .website-delivery .wd-automations { display: grid; grid-template-columns: repeat(auto-fill, minmax(280px, 1fr)); gap: 12px; }
+  .website-delivery .wd-card { display: grid; gap: 8px; padding: 14px; border-radius: 12px; border: 1px solid var(--vscode-widget-border, rgba(127,127,127,0.25)); background: var(--vscode-editorWidget-background, rgba(127,127,127,0.06)); }
+  .website-delivery .wd-field { display: grid; gap: 4px; font-size: .82rem; }
+  .website-delivery .wd-field span { font-weight: 600; }
+  .website-delivery .wd-field input, .website-delivery .wd-field select, .website-delivery .wd-field textarea { width: 100%; box-sizing: border-box; padding: 6px 8px; border-radius: 6px; border: 1px solid var(--vscode-input-border, var(--vscode-widget-border, rgba(127,127,127,0.35))); background: var(--vscode-input-background); color: var(--vscode-input-foreground); font: inherit; }
+  .website-delivery .wd-pair { display: grid; grid-template-columns: repeat(auto-fit, minmax(160px, 1fr)); gap: 8px; }
+  .website-delivery .wd-locked { display: grid; gap: 4px; font-size: .82rem; }
+  .website-delivery .wd-locked span { font-weight: 600; }
+  .website-delivery .wd-locked strong { padding: 6px 8px; border: 1px dashed var(--vscode-widget-border, rgba(127,127,127,0.35)); border-radius: 6px; font-weight: 500; }
+  .website-delivery .wd-pill, .website-delivery .wd-guard { display: inline-block; padding: 2px 8px; border-radius: 999px; border: 1px solid var(--vscode-widget-border, rgba(127,127,127,0.35)); font-size: .72rem; text-transform: uppercase; letter-spacing: .04em; }
+  .website-delivery .wd-pill.ready { border-color: var(--vscode-testing-iconPassed, #3fb950); color: var(--vscode-testing-iconPassed, #3fb950); }
+  .website-delivery .wd-pill.needs-setup { border-color: var(--vscode-editorWarning-foreground, #d29922); color: var(--vscode-editorWarning-foreground, #d29922); }
+  .website-delivery .wd-pill.blocked { border-color: var(--vscode-errorForeground); color: var(--vscode-errorForeground); }
+  .website-delivery .wd-guard { justify-self: start; }
+  .website-delivery .wd-issues { margin: 0; padding-left: 18px; font-size: .8rem; color: var(--vscode-editorWarning-foreground, #d29922); }
+  .website-delivery .wd-clear { margin: 0; font-size: .8rem; color: var(--vscode-testing-iconPassed, #3fb950); }
+  .website-delivery .wd-primary { display: flex; align-items: center; gap: 6px; font-size: .8rem; }
+  .website-delivery .action-link.danger { color: var(--vscode-errorForeground); }
+
 `;

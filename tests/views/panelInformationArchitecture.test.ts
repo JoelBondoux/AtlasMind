@@ -279,66 +279,104 @@ describe('run center order', () => {
 describe('ideation workspace order', () => {
   const script = readFileSync(path.join(process.cwd(), 'media', 'projectIdeation.js'), 'utf8');
   const renderStart = script.indexOf('root.innerHTML =');
-  const template = script.slice(renderStart, script.indexOf("';", script.indexOf('ideation-stage-section', renderStart)));
+  const template = script.slice(renderStart, script.indexOf("';", script.indexOf('ideation-drawer-section', renderStart)));
   const at = (needle: string) => {
     const index = template.indexOf(needle);
     expect(index, `"${needle}" not found in the render template`).toBeGreaterThan(-1);
     return index;
   };
 
-  it('keeps the board leading', () => {
-    // Three versions of this layout have been spent learning that the board is
-    // the point of the panel. It was once below a hero, a four-card guide and a
-    // very tall composer — roughly three screens — and everything since has
-    // been about keeping it first.
+  it('keeps the board leading, beside a rail rather than above a stack', () => {
+    // Three versions of this layout were spent rearranging chrome above and
+    // below a single column. The fault all three left in place was that the
+    // inspector sat under a canvas that filled the first screen, so every
+    // click on a card meant scrolling away from the board to edit it.
     expect(script).not.toContain('ideation-hero-grid');
-    expect(at('ideation-stat-strip')).toBeLessThan(at('renderBoard(snapshot)'));
-    expect(at('renderBoard(snapshot)')).toBeLessThan(at('renderStage('));
+    expect(script).not.toContain('ideation-stat-strip');
+    expect(at('renderHeader(snapshot)')).toBeLessThan(at('renderBoard(snapshot)'));
+    expect(at('renderBoard(snapshot)')).toBeLessThan(at('renderRail('));
+    expect(at('renderRail(')).toBeLessThan(at('renderDrawer(snapshot)'));
+    // Board and rail share one grid section; the drawer is its own.
+    const grid = template.slice(template.indexOf('ideation-main-grid'), template.indexOf('ideation-drawer-section'));
+    expect(grid).toContain('renderBoard(snapshot)');
+    expect(grid).toContain('<aside class="ideation-rail"');
   });
 
-  it('makes the staged guide the navigation instead of a description of one', () => {
-    // The guide has been moved twice on the theory that placement was the
-    // problem. It was not: a guide that has to explain the layout is a symptom
-    // of the layout. Every stage is a control now, and the `<details>` panel it
-    // used to live in is gone rather than relocated.
-    expect(script).not.toContain('ideation-process-details');
-    expect(script).not.toContain('renderProcessGuide');
-    expect(at('renderModeBar(')).toBeGreaterThan(at('renderBoard(snapshot)'));
-    expect(at('renderModeBar(')).toBeLessThan(at('renderStage('));
-    expect(script).toContain("data-action=\"ideation-mode\"");
-  });
-
-  it('renders one stage at a time', () => {
-    // The actual fix. Five sections used to be on screen at once — composer,
-    // inspector, feedback, analytics and the guide explaining their order.
-    const stage = script.slice(script.indexOf('function renderStage('));
-    const body = stage.slice(0, stage.indexOf('\n  }'));
-    for (const [mode, renderer] of [
-      ["mode === 'frame'", 'renderComposer(snapshot)'],
-      ["mode === 'scaffold'", 'renderFeedback(snapshot)'],
-      ["mode === 'decide'", 'renderReadiness(snapshot)'],
-    ] as const) {
-      expect(body, `${mode} does not reach ${renderer}`).toContain(mode);
-      expect(body).toContain(renderer);
+  it('has no stages left to explain', () => {
+    // The four-card guide became four tabs and the tabs still needed the
+    // guide, because two of them rendered the same panels as their
+    // neighbours. There is no order to explain: you are looking at the board
+    // or at the thing you clicked.
+    for (const relic of ['ideation-process-details', 'renderProcessGuide', 'renderModeBar', 'renderStage(', 'IDEATION_MODES', "data-action=\"ideation-mode\"", 'deriveModeStatus']) {
+      expect(script, `${relic} survived`).not.toContain(relic);
     }
-    // Shape is the fall-through, so the board's own editing surfaces are what
-    // you get when nothing else was asked for.
-    expect(body.trimEnd().endsWith('renderInspector(snapshot, selectedCard, selectedLink) + renderAnalytics(snapshot);'))
-      .toBe(true);
   });
 
-  it('derives the opening stage rather than storing it', () => {
-    // Storing the resolved value would freeze a first-time user on Frame the
-    // moment their board stopped being empty.
-    const resolve = script.slice(script.indexOf('function resolveMode('));
-    expect(resolve.slice(0, resolve.indexOf('\n  }'))).toContain("boardIsEmpty ? 'frame' : 'shape'");
+  it('follows the selection in the rail', () => {
+    // A link → its editor. A card → the inspector. Nothing → the prompt. One
+    // place, one thing at a time, never a tab to pick first.
+    const rail = script.slice(script.indexOf('function renderRail('));
+    const body = rail.slice(0, rail.indexOf('\n  }'));
+    expect(body.indexOf('if (selectedLink)')).toBeLessThan(body.indexOf('if (selectedCard)'));
+    expect(body).toContain('renderLinkEditor(snapshot, selectedLink)');
+    expect(body).toContain('renderInspector(snapshot, selectedCard)');
+    expect(body.trimEnd().endsWith("renderComposer(snapshot, boardIsEmpty);")).toBe(true);
   });
 
-  it('offers starter frames only while the board is empty', () => {
+  it('offers the brief and the starter frames only while the board is empty', () => {
     // The frames append and never replace — but a picker that could touch a
     // board with work on it is a picker somebody eventually clicks by accident.
-    const stage = script.slice(script.indexOf('function renderStage('));
-    expect(stage.slice(0, stage.indexOf('\n  }'))).toContain('boardIsEmpty ? renderStarterFrames(snapshot)');
+    // The brief sits behind the same guard: it is an onboarding question.
+    const rail = script.slice(script.indexOf('function renderRail('));
+    const body = rail.slice(0, rail.indexOf('\n  }'));
+    const guarded = body.slice(body.indexOf('boardIsEmpty ?'), body.indexOf(" : ''"));
+    expect(guarded).toContain('renderProjectBrief(snapshot)');
+    expect(guarded).toContain('renderStarterFrames(snapshot)');
+    // And the canvas no longer competes with a second "start here".
+    expect(script).not.toContain('Start with one sharp note');
+  });
+
+  it('has one way off the board, with readiness inside it', () => {
+    // "Send to Project Run" sat in the drawing toolbar, again in the inspector,
+    // and "Add to roadmap" in a third card, with the difference never stated.
+    const toolbar = script.slice(script.indexOf('function renderBoard('), script.indexOf('function renderShortcuts('));
+    expect(toolbar).not.toContain('ideation-promote-card');
+    expect(toolbar).not.toContain('ideation-raise-work');
+    const exit = script.slice(script.indexOf('function renderExit('), script.indexOf('function renderQuickReplies('));
+    expect(exit).toContain('renderWorkHandoff(card)');
+    expect(exit).toContain('ideation-promote-card');
+    expect(exit).toContain('ideation-readiness-toggle');
+    // Exactly one promote control across the whole script.
+    expect(script.split('data-action="ideation-promote-card"').length - 1).toBe(1);
+  });
+
+  it('keeps the shortcut list off the page until asked for', () => {
+    // A 180-word paragraph of shortcuts plus a chip strip repeating it, under
+    // every board, all the time. Reference material is looked up, not read.
+    expect(script).not.toContain('ideation-hint');
+    expect(script).not.toContain('renderCanvasShortcutStrip');
+    const board = script.slice(script.indexOf('function renderBoard('), script.indexOf('function renderShortcuts('));
+    expect(board).toContain("state.shortcutsOpen ? renderShortcuts() : ''");
+  });
+
+  it('puts what Atlas said in a drawer that opens itself when it speaks', () => {
+    const drawer = script.slice(script.indexOf('function renderDrawer('), script.indexOf('function renderProjectBrief('));
+    expect(drawer).toContain("['latest', 'Latest pass']");
+    expect(drawer).toContain("['history', 'History']");
+    expect(drawer).toContain("['analytics', 'Analytics']");
+    // The answer to what you just asked must not land in a closed drawer.
+    const chunk = script.slice(script.indexOf("message.type === 'ideationResponseChunk'"));
+    expect(chunk.slice(0, chunk.indexOf('render();'))).toContain('state.drawerOpen = true');
+  });
+
+  it('holds every disclosure in module state, not in the DOM', () => {
+    // render() replaces the markup wholesale; a native <details open> snaps
+    // shut on every update. This is the rule the dashboard's help panels keep.
+    const rail = script.slice(script.indexOf('function renderRail('), script.indexOf('function renderAnalytics('));
+    expect(rail).not.toContain('<details');
+    for (const key of ['drawerOpen', 'inspectorMore', 'constraintsOpen', 'shortcutsOpen', 'readinessOpen']) {
+      expect(script).toContain(`${key}: false`);
+    }
   });
 
   it('publishes what a card kind commits to, where the kind is chosen', () => {
@@ -373,29 +411,43 @@ describe('ideation workspace order', () => {
     const panel = read('projectIdeationPanel.ts');
     const focusBlock = panel.slice(panel.indexOf('body.canvas-focus-mode .ideation-topbar'));
     const block = focusBlock.slice(0, focusBlock.indexOf('}'));
-    for (const section of ['ideation-stat-strip', 'ideation-mode-section', 'ideation-stage-section']) {
+    for (const section of ['ideation-header', 'ideation-rail', 'ideation-drawer-section']) {
       expect(block, `${section} is still visible in canvas focus mode`).toContain(section);
     }
   });
 });
 
-describe('website studio step order', () => {
+describe('ui studio shell', () => {
   const source = read('websiteStudioPanel.ts');
-  const steps = [...source.matchAll(/navButton\('([a-z-]+)', '(\d)'/g)].map(m => ({ id: m[1]!, n: m[2]! }));
 
-  it('defines the shared UI system before the pages that apply it', () => {
-    // Each wireframe card tracks a per-page "UI design" stage, which cannot be
-    // done consistently before the shared typography/colour/component
-    // decisions exist. The numbered steps promise a linear workflow, so the
-    // order has to actually be one.
-    // `platforms` became `stack` when the page grew the framework half: the
-    // framework and the hosting platform are one decision, and the pairing
-    // determines the build command and output directory together.
-    expect(steps.map(s => s.id)).toEqual(['brief', 'sitemap', 'content', 'ui-system', 'wireframes', 'preview', 'stack', 'automations']);
+  it('has no numbered steps', () => {
+    // Three earlier layouts numbered the pages one to eight and promised a
+    // waterfall the work does not have: nobody finishes the brief before
+    // drawing, and the preview is not a stage after the canvas it previews.
+    // The rail says *what* you are designing and the strip says *which
+    // aspect*; neither is ordered.
+    expect(source).not.toMatch(/navButton\(/);
+    expect(source).not.toMatch(/data-page-target="[a-z-]+">\s*<span>\d/);
   });
 
-  it('numbers the steps consecutively from 1', () => {
-    expect(steps.map(s => s.n)).toEqual(['1', '2', '3', '4', '5', '6', '7', '8']);
+  it('lands on the canvas, and lists the views with design first', () => {
+    // The strip's order is the order of attention, not of work: the surface
+    // itself, then its structure, its brand, its words, and only then where it
+    // goes. The brief is last because it is read once and drawn against daily.
+    const strip = source.slice(source.indexOf('function renderViewStrip('), source.indexOf('function renderBrandCards('));
+    const ids = [...strip.matchAll(/\['([a-z-]+)', /g)].map(m => m[1]!);
+    expect(ids).toEqual(['design', 'structure', 'brands', 'content', 'handoff', 'brief']);
+    expect(source).toMatch(/activePage: WebsiteStudioPage = 'design'/);
+  });
+
+  it('puts the surfaces rail before the views, not a metric strip above them', () => {
+    // Six metric tiles summarised a project nobody had asked about yet; the
+    // rail is the navigation, since a surface is the thing you pick.
+    const shell = source.slice(source.indexOf('<header class="studio-hero">'), source.indexOf('<footer class="save-bar">'));
+    expect(shell).not.toContain('metric-strip');
+    expect(shell.indexOf('surfaces-rail')).toBeGreaterThan(-1);
+    expect(shell.indexOf('surfaces-rail')).toBeLessThan(shell.indexOf('<main>'));
+    expect(shell.indexOf('renderViewStrip(')).toBeLessThan(shell.indexOf('renderWireframesPage('));
   });
 });
 

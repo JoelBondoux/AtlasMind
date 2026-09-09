@@ -6,6 +6,1136 @@ The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/),
 
 ## [Unreleased]
 
+## [0.474.1] - 2026-09-10
+
+### Changed
+
+- **Delivery register:** recorded the 0.474.0 promotion to Integration (`staging`), so the Delivery
+  page reports the stage where it actually is.
+
+## [0.474.0] - 2026-09-09
+
+### Changed
+
+- **Website delivery lives on the Dashboard's Delivery page now, not in UI Studio.** The framework
+  choice, the three hosting environments, the platform targets and the n8n workflow map were a Studio
+  page for three layouts. They are delivery decisions — where the site is built and shipped — so they
+  now sit on the Project Dashboard's Delivery page as a **Website delivery** card, directly beside the
+  pipeline that promotes it. Every framework is still graded against the primary platform with the
+  reason on the card and an unsupported pairing still visible; each environment still shows its
+  readiness and its issues; the setup button is withheld until `atlasmind.website.setup.enabled` is
+  on and says so. **The drift check runs on every render**: with the Delivery pipeline on the same
+  page there is no longer a Compare button to press, and a project with no pipeline says so rather
+  than showing a clean blank. The card appears only for a website plan of the website profile.
+- **UI Studio's Handoff view points there**, and the Studio has no Delivery view. The old step ids
+  `stack`, `platforms` and `automations` deep-link to Handoff, which carries an *Open Delivery*
+  button that opens the Dashboard on its Delivery page by a constant target. The Studio's hero copy
+  says where delivery went.
+
+### Fixed
+
+- **A Studio save can no longer undo a Delivery save, or drop the stack choice.** The Studio form
+  never carried the framework choice, so saving the Studio silently discarded it; and with two
+  surfaces writing one file, a save from either could overwrite the other's fields with a stale copy.
+  Both writers now re-read the plan from disk at the moment of the save and touch only what they own:
+  the Dashboard saves the three delivery arrays and the stack, the Studio saves everything else.
+
+### Security
+
+- The Dashboard's three new messages are bounded and closed: `saveWebsiteDelivery` carries exactly
+  three arrays (at most 20 platforms, 3 environments, 50 automations) and nothing else, and the
+  website manager rebuilds the fixed environment policies on save, so no message can make Staging
+  public or strip the Production guard; `selectWebsiteFramework` is checked against the catalog, since
+  the id chooses which constant command the setup planner runs; the Studio's `openDeliveryPage`
+  carries no payload and opens a constant target. `tests/views/websiteDeliverySurface.test.ts` pins
+  all three and the two-writer rule.
+
+## [0.473.0] - 2026-09-09
+
+### Added
+
+- **Emit a surface into its engine, and keep the words editable from here.** UI Studio can now write
+  a drawn surface for the engine that will own it: **Web** (HTML + CSS), **Unity UI Toolkit** (UXML +
+  USS) and **Godot 4** (a Control scene and a Theme), with a shared token file per target projected
+  from the brand presets. **Unreal UMG, SwiftUI and Compose get a handoff specification, not source**
+  — their syntax was not checked against a compiler, and a plausible wrong file costs more than a
+  document somebody reads. The emit is on the Handoff view: one row per drawn surface, the target
+  defaulting to what the implementation guide declares, and a confirmation that lists every file
+  with WRITE, OVERWRITE or IF ABSENT beside it, with "Show files first" opening each one unwritten.
+- **Divergence, not regeneration.** A surface is emitted once. From then on the engine owns the
+  layout: every emit records a manifest under `project_memory/domain/ui-emit/`, and a second emit
+  over files that changed since is refused with the statement *Layout: owned by Unity since the emit
+  on 2026-09-09 · Content: editable here (4 of 5 regions)*. Discarding the engine's layout is a
+  separate, red button behind a modal that names every file whose edits will be lost.
+- **Content is data with a stable anchor, and it patches by anchor.** Every node's words are
+  emitted inside a region keyed by the node id — an element name in HTML and UXML, a scene node name
+  in Godot, a comment marker in a specification — so **Push content** finds each region in the file
+  as it is now and replaces only that. A missing anchor is refused by name (the engine edit that
+  removed it made a decision); a region somebody edited in the engine is refused and *shown*, before
+  and after; a node removed in Studio is reported, never deleted from the engine file; a node drawn
+  after the emit is reported, never inserted into a layout that is no longer ours. Adding a nav link
+  in Studio adds a line inside the nav's region and nothing else. Godot's editor and Unity's UI
+  Builder re-serialise their own files and drop comments, which is why the anchors are structural;
+  the Godot fingerprint covers only node names and `text` values, so the editor reordering
+  properties on save is not read as a hand edit.
+- **Launch it in its engine.** Godot runs `godot --path <workspace> <scene>` through `spawn` with an
+  argument vector after a modal that shows the argv; Web opens the page in the default browser;
+  Unity's editor is not on PATH by convention, so its argv is shown with a Copy button rather than
+  run. Every argv is a constant in `uiSurfaceEmit.ts` (walked by test for shell metacharacters).
+- `UiEmitTargetId`, `UiEmitAnchor` and `UiEmitManifest` in `types.ts`; `src/core/uiSurfaceEmit.ts`
+  (pure, `fs`-free, 27 tests including a property test that round-trips arbitrary copy through
+  every source grammar); `tests/views/uiEmitSurface.test.ts` pins the message shapes, the
+  no-shell launch and the card.
+
+### Security
+
+- The browser posts a screen id, a target from the declared table and a folder; the folder is
+  validated again by the planner (inside the workspace, never `project_memory/` or `.git/`), and the
+  destructive re-emit can only be *asked for* by a message — the host confirms it by name. Committed
+  manifests are read as untrusted: a file path with traversal drops the manifest, an anchor naming a
+  file the manifest does not list is dropped. Every file read stays inside the workspace and is
+  capped at 2 MB.
+
+## [0.472.0] - 2026-09-09
+
+### Changed
+
+- **UI Studio, rebuilt around the surfaces rather than around eight steps.** Three layouts in a row
+  numbered the Studio's pages one to eight and promised a waterfall the work does not have: nobody
+  finishes the brief before drawing, the preview sat two steps after the canvas it previews, and the
+  first thing on screen was six metric tiles about a project nobody had asked about yet. The numbers,
+  the tiles and the eight-step nav are gone. A **Surfaces rail** beside the canvas is the navigation.
+  *Found in this project* lists every UI file the scan classified — React and Vue/Svelte components,
+  HTML pages, VS Code webview scripts — and **Pick up** brings one in as a surface that records where
+  it came from; *Designed here* lists every surface, found or drawn, and clicking one opens it on the
+  canvas; *Brands* shows what is defined and which is the default, with the scan's own rule table
+  underneath so a missing file can be explained rather than wondered about. The views across the top
+  are unnumbered — Design (canvas, inspector and the built-in-browser preview together), Sitemap or
+  Screens & flows, Brands & system, Content design, Handoff, Delivery (websites only) and Brief — and
+  every old step id still deep-links to where its content went. The Studio lands on the canvas.
+
+### Added
+
+- **A Brands view.** Every brand as a card: its swatches, where it came from (read from a stylesheet
+  on a date, folded from the old design system, or authored here), and for the default how far it is
+  actually in effect, naming any role a surface overrides. **Apply to surfaces…** lists every surface
+  with the brand it wears now. Applying the default *clears* a surface's own choice so it follows the
+  default from then on, rather than recording a "use the default" that would stop following when the
+  default changed. **Read a brand from a stylesheet** offers only the stylesheets the scan found, and
+  the confirmation shows the extraction's own evidence — every role with its file and line, every
+  property it left alone with the reason — so what you agree to is what was read. Removing a brand
+  says how many surfaces name it directly and whether it can be read again or is gone for good.
+- **A picked-up surface remembers its origin.** `WebsitePagePlan.source` records the path, adapter,
+  rule and time of pick-up, validated on every read — no traversal, no absolute path, an adapter this
+  build has — and dropped whole rather than repaired. The rail uses it to stop offering a file twice,
+  and the webview carries it through a save so a found surface cannot quietly become a drawn one.
+- **The preview wears the surface's brand.** The built-in-browser draft applies each screen's own
+  brand preset, where one is set, rather than the default for every page.
+
+### Security
+
+- **The browser names; the host decides.** A pick-up message carries one bounded path and nothing
+  else, and the host re-runs its own scan and refuses any path the scan did not itself classify — a
+  message can point at a file and can never supply one. A stylesheet is refused as a surface and
+  pointed at the Brands view. Brand actions carry ids only (a preset id; at most 200 screen ids), so
+  no token value crosses from the webview. Every one of these actions is refused while the workspace
+  is read-only, and the two that discard something — removing a brand, adding an extracted one —
+  are behind a modal that states what changes.
+
+### Scoped down, and said so
+
+- Stack, hosting, platforms and n8n automations were to move to the Project Dashboard's Delivery
+  page. They have moved to a demoted **Delivery** view inside the Studio, shown for websites only;
+  the move to the Dashboard is a follow-up. Emitters, patch-by-anchor content write-back and launch
+  plans are release 3 of the UI Studio rebuild.
+
+## [0.471.0] - 2026-09-09
+
+### Added
+
+- **Brand presets — one named set of design decisions, applied to many surfaces.** UI Studio held its
+  visual decisions in two places that could not agree: a flat design system (three colours, two fonts)
+  labelled *legacy* on its own page, and the typed token graph directly beneath it. Two sources of
+  truth for "what colour is primary" is a parity bug in waiting, and it is why a brand had nowhere to
+  live — there was no object that *was* the brand.
+
+  A preset is that object: a small set of value tokens keyed by declared role (`color-primary`,
+  `font-heading`, `spacing-base`, `radius-base` and six more) — the same ids the preview already
+  reads, so nothing downstream learns a new vocabulary. The workspace holds up to twelve, with one as
+  the default; a screen may name another with `brandRef`.
+
+  **Applied by alias, never by copy.** Applying a preset materialises its tokens into the graph as
+  `brand-<preset>-<role>` and points the role tokens at them. Change the preset and every surface
+  aliasing it follows; copying values into each surface would leave twelve screens each holding a stale
+  primary the day the brand changed. **A local override is a value, and it is reported** — a role
+  token holding its own value instead of an alias is named as an override per role, because a surface
+  that quietly kept its own primary while claiming the brand is the failure a preset exists to prevent.
+  **Materialised tokens are a projection**, rebuilt on every save and pruned when their preset goes;
+  editing one by hand does not survive, by design.
+
+  **An extracted preset cites its source and invents nothing.** A brand can be read out of a
+  stylesheet's `:root` custom properties by a published table of name rules; every role filled names
+  the file and the line it came from, and every property it could not use — a `var()` reference, a
+  `rem` value, a name matching no rule, a second declaration for a role already filled — is listed
+  with the reason rather than guessed at. Commented-out declarations are not read.
+
+  **The legacy design system folds into a preset once, at migration, and only if somebody changed
+  it.** Workspace format 14: a design system still holding its seeded defaults folds into nothing,
+  because a brand nobody chose must not be attributed to them. The old fields are kept for the readers
+  that still consume them and are **projected from the default preset on every save**, so they cannot
+  disagree with the graph.
+
+  This is the model half of the UI Studio rebuild; the shell that shows presets, scans the project for
+  surfaces and applies a brand across them follows.
+
+### Changed
+
+- `WebsiteWorkspaceConfig` is format 14: `brands`, `defaultBrandId`, and `brandRef` on a screen. The
+  migration adds an empty list to an untouched workspace and folds a changed one into `project-brand`.
+
+## [0.470.1] - 2026-09-09
+
+### Changed
+
+- **Delivery register:** recorded the 0.470.0 promotion to Integration (`staging`), so the Delivery
+  page reports the stage where it actually is. A stale record there is a defect rather than
+  untidiness — the record is the whole reason that page is worth reading.
+
+## [0.470.0] - 2026-09-09
+
+### Changed
+
+- **The Ideation page is two panes and a drawer, and nothing else.** It had been redesigned three
+  times — the comments in the code say so — and every time the fix was rearranging chrome above and
+  below a single column. The fault all three left in place: the inspector sat *under* a canvas that
+  filled the first screen, so every click on a card meant scrolling away from the board to edit it.
+  And the four "stages" (Frame, Scaffold, Shape, Decide) were four tools wearing a fake sequence —
+  two of the tabs rendered the same panels as their neighbours, and the status dots marked a stage
+  "done" the moment one run existed.
+
+  **A rail beside the canvas follows the selection.** A link → its editor. A card → the inspector.
+  Nothing → the prompt, and on an empty board the brief and the starter frames above it. You are
+  never "in" a stage; you are looking at the board or at the thing you clicked.
+
+  **The canvas toolbar draws and nothing else** — add, link, views, zoom, and a `?` that opens the
+  keyboard shortcuts on request. It was fifteen controls in one row, with *Send to Project Run* next
+  to *Zoom in*. Duplicate, focus, archive and delete moved into the inspector beside the card they
+  are about.
+
+  **One way off the board.** *Send to Project Run* was in the toolbar, again in the inspector, and
+  *Add to roadmap* in a third card, with the difference never stated. There is one exit section now,
+  it says what each destination is for, and the board's readiness reading sits inside it — "before
+  you raise it" belongs where you raise it.
+
+  **One drawer under the canvas** holds everything Atlas said: latest pass, history, analytics. It is
+  closed by default and opens itself when a response arrives, because the answer to what you just
+  asked must not land in a closed drawer.
+
+  **One start.** The canvas empty-state said *"Start with one sharp note"* while the panel below said
+  *"Start here"*, and the brief added yesterday made a third. The rail is the only start now: the
+  brief, then frames, then the prompt.
+
+  **Removed outright:** the three stat tiles (none was a decision), the board lanes and *Direction of
+  travel* arrow (structure nothing used), the 180-word shortcut paragraph and the chip strip
+  repeating it, the prompt-inference preview, the context-weaving card, the stage bar and its status
+  dots, and the Voice / Vision / Website Studio buttons in the header of *latest pass* (Website Studio
+  is one link in the page header instead). The inspector shows title, notes, kind and the exit first;
+  colour, scores, tags, memory sync and genealogy are behind *More*.
+
+  Every disclosure — the drawer, *More*, *Constraints*, shortcuts, *Why* on readiness — is held in
+  module state rather than a native `<details>`, because `render()` replaces the markup wholesale and
+  an open disclosure would snap shut on every update.
+
+## [0.469.0] - 2026-09-09
+
+### Added
+
+- **Say what the project is for, in your own words, and have it read into cards.** Every starting
+  point AtlasMind had was *detected* — the archetype from manifests, the starter frames from the
+  archetype, the roadmap from whatever you typed line by line. None of them could know what the
+  project is **for**, because that fact exists only in the head of the person starting it. So the
+  board opened onto generic questions and the roadmap opened onto nothing.
+
+  A brief composer now sits on the empty ideation board: a couple of sentences about who it is for,
+  what it should do, and what should be true once it works.
+
+  The whole feature is built around one hazard. A model handed "a booking app for dog groomers" will
+  produce twelve confident cards about payment flows, cancellation policies and SMS reminders — none
+  of which anybody said, all of which read afterwards like decisions somebody made, in a committed
+  file where a later reader cannot tell them from the real ones. That is closed **in the sanitizer,
+  not in the prompt**: a prompt is a request, a sanitizer is a guarantee.
+
+  **Every derived card either quotes your brief word for word, or is a question.** The quote is
+  checked against the brief here rather than trusted, and a card whose quote is *not* in your brief is
+  **demoted to a question rather than dropped** — the model may have noticed something worth asking
+  even having invented the words it claimed to be quoting, and a question commits nobody to anything.
+  The number demoted is always stated, because a proposal that quietly discarded its ungrounded half
+  would look like a flawless reading.
+
+  **The brief is kept verbatim and never rewritten.** Control characters go and the length is capped;
+  spelling, capitalisation, paragraphs and sentence shape are untouched. A tidied-up version is
+  somebody else's words, and the file exists precisely so every derived card can be checked against
+  what you actually wrote. The quote travels *onto* each card, so provenance survives on the board.
+
+  **A brief too thin to derive from is refused, never expanded.** Under twelve words it says which two
+  facts are missing rather than "too short", because asking a model to make a project out of "an app"
+  produces a fabricated project with no author.
+
+  **Three acts, not one.** Writing the brief, reading it into cards, and raising roadmap items are
+  three separate confirmations — each writes to a different committed file, and one button doing all
+  three would put a model's reading of one paragraph into three places nobody reviewed. The
+  confirmation lists **every proposed card**, marking which are questions and which quote you.
+
+  **No edges are drawn.** An edge asserts that one card supports or contradicts another — a claim
+  about the project your brief did not make. Inferring the reasoning as well as the content is a step
+  too far.
+
+  Cards are written through the board's existing seeder rather than a second writer, and from there
+  the existing **Raise as work** door puts them on the roadmap. Nothing in the new module writes a
+  file at all.
+
+## [0.468.0] - 2026-09-09
+
+### Added
+
+- **Baselines you can name, so "what changed" can be asked about more than one moment.** The
+  *What moved* card answers one question carefully — five rules about the ways a delta can lie — but it
+  held exactly one baseline, advanced on every render. The only span available was the one nobody
+  chose. *What has changed since the release? Since this branch started? Since the audit?* could not
+  be asked at all.
+
+  Capture a baseline on the Workflow page, name it, and compare against it whenever you like.
+
+  **The comparison is the existing one, unchanged.** A second implementation would eventually disagree
+  with the first, and the symptom would be two cards on one dashboard reporting different numbers for
+  the same fortnight. Every rule already enforced — no baseline is a first look, unknown to known is
+  not zero to n, a changed repository discards the comparison — holds here by construction.
+
+  **A named baseline is captured deliberately, never on a render.** The "last looked" watermark
+  advances by itself because it *means* last looked; a named one means the moment somebody chose, and
+  moving it silently would erase the span it was created to measure. Nothing in the module writes on
+  read, asserted by comparing the register before and after every read path.
+
+  **The age is always stated.** Eleven changes against a six-week-old baseline is six weeks of work,
+  and rendered without its age it looks like this morning. The sentence carrying the span is composed
+  in the module so no surface can show the changes without it, and a baseline over a month old says so
+  in its own line.
+
+  **Past the cap a capture is refused and names what to remove — the oldest is never evicted.**
+  Evicting by age deletes precisely the most valuable one, since the furthest-back baseline is the only
+  one that can answer a question about the whole project. **Nothing expires, nothing is cleaned up**,
+  and removing one is confirmed in a dialog that says the reading cannot be recovered from anywhere
+  else.
+
+  **A baseline that no longer applies is kept and reported, never removed.** Opening a different
+  repository does not make somebody's baseline wrong — it makes it inapplicable *here*, and it says
+  which, rather than reporting no changes, because "nothing moved" would be a different and more
+  reassuring claim.
+
+  Baselines are per-developer, in editor storage, for the same reason the watermark is: they hold
+  counts read from one machine at one moment, and a shared one would mean "when did *anybody* last
+  look".
+
+### Fixed
+
+- Removed an `eslint-disable` directive in `rotaImport.ts` that reported as unused — the escapes it
+  covered are Unicode escapes, which the rule does not flag.
+
+## [0.467.0] - 2026-09-09
+
+### Added
+
+- **Import declared absence from the rota app the team already uses.** The workload reading refuses to
+  infer absence, which leaves it to be typed by hand — the step nobody does, and the point at which
+  the reading quietly stops being accurate. The rota already exists somewhere else.
+
+  Every one of those tools exports the same thing, so this reads **iCalendar** rather than a vendor
+  API: one published format (RFC 5545, pinned at `ICALENDAR_SPEC_VERIFIED_AT`) instead of a stack of
+  integrations that each break on their own schedule. Deputy, When I Work and Google Calendar are
+  listed with the export step read from each vendor's own documentation, and anything else that writes
+  an `.ics` works whether or not it is named.
+
+  **A rota says when you are *working*, which is the opposite of an absence** — the rule the whole
+  feature turns on, and getting it wrong is not a small error. Importing a shift feed wholesale would
+  mark somebody away on exactly the days they are rostered on, and the workload card would then show a
+  full week as free. So only events naming a declared absence term are imported, and **everything else
+  is counted and reported** rather than silently dropped: "12 events, 2 imported, 10 left alone because
+  they do not name an absence" is arguable, and "2 imported" is not. A file that is entirely shifts is
+  **refused**, with that reason.
+
+  **`DTEND` is non-inclusive for a `DATE` value**, which RFC 5545 states and illustrates — 28 June to
+  8 July inclusive is written `DTEND;VALUE=DATE:20070709`. A reader taking it literally adds a phantom
+  day to every absence, and the error is invisible: one day long, in the right week, on a record nobody
+  re-reads.
+
+  **A date that cannot be read without guessing a timezone is refused, never converted.** `20260231`
+  matches the shape and is not a day; rolling it into March would move an absence to a week nobody
+  named. A UTC time is read at its UTC date and the conversion is stated.
+
+  **The person is chosen before the file is opened, and never matched out of it.** Feeds carry
+  attendee addresses, and matching one to a roster contact would attach a colleague's calendar to the
+  wrong person — a mistake that reads as a fact afterwards.
+
+  **Nothing is fetched, and there is no field that could hold a feed URL.** Google's own documentation
+  calls a calendar's iCal address a *secret* and says not to share it: anyone holding one can read the
+  whole calendar. `project-director.json` is committed, so the person downloads the file and picks it.
+
+  The confirmation lists **the entries themselves**, not a count, and importing is additive: absence
+  somebody typed by hand is kept, and re-importing an amended calendar updates in place rather than
+  duplicating.
+
+  New command: **AtlasMind: Import Rota from a Calendar File** (`atlasmind.importRota`), also on the
+  Workload card.
+
+## [0.466.0] - 2026-09-09
+
+### Added
+
+- **What each person has been asked to do, against what they said they could.** The Director page
+  knew who owned what. The roadmap knew what each item was estimated to cost. Nothing joined the two,
+  so the question every delivery conversation actually opens with — *is anyone carrying too much?* —
+  had no answer, and the two halves sat one page apart.
+
+  The new **Workload** card on Dashboard → Director joins them, with a rule that is not about
+  arithmetic: **this is not a performance measure and must never become one.** It counts work somebody
+  has been *given* against capacity they *declared*. It says nothing about how fast anybody works, and
+  the sentence saying so is rendered above the numbers rather than under them.
+
+  **Capacity is declared, never inferred.** There is deliberately no derivation from commit counts or
+  hours of activity — that is surveillance wearing planning's clothes, and it would be wrong as well,
+  since somebody quiet for a fortnight may be doing the hardest thing on the board. Six declared rules
+  read an allocation (`50%`, `0.5 FTE`, `2 days/wk`, `15 hours per week`, `full time`, `half time`),
+  the table is published on the card, and **anything unrecognised stays unknown** rather than falling
+  back to a full week — the one direction that costs somebody their week. `150%` is somebody making a
+  point, not seven and a half days.
+
+  **Unknown capacity is not full capacity.** A person with no declared allocation is excluded from the
+  over/under verdict and counted separately, and the summary says so — a clean-looking reading that
+  quietly rests on half the team having declared nothing is the failure mode here.
+
+  **An estimate absent is not an estimate of zero.** Unestimated work is counted as unestimated and
+  never folded into the total; below a declared floor of estimated work the verdict is *too little
+  estimated* rather than a number, because one estimated day beside six unknowns is not "comfortably
+  within capacity". And because the roadmap grades unestimated items from a published rule, **a
+  derived estimate is counted but stated as derived** — a rule's reading is not a commitment somebody
+  made. Unstated provenance counts as derived, the weaker claim.
+
+  **Absence is declared, and its absence means nothing was recorded.** Rota entries live in
+  `project-director.json` and are mirrored into `project-director.md`. The asymmetry with capacity is
+  deliberate: nobody writes down "I am not away", so an empty rota means *none recorded* rather than
+  *available all week* — and the card says exactly that instead of showing a reassuring blank. An
+  unreadable or inverted period is refused rather than repaired, since an entry silently moved to a
+  week nobody named would remove capacity on the wrong days.
+
+  **A window is always stated** — fourteen days, on the card — because "overloaded" is meaningless
+  without "over what period". **And overload is reported, never resolved:** nothing here reassigns
+  anybody, and there is no control that could. Who picks up work somebody cannot take is a
+  conversation, not a button.
+
+  Items assigned to nobody are counted and **never distributed across the team**, which would invent
+  commitments nobody made.
+
+### Changed
+
+- `ProjectDirectorConfig` gains an optional `rota` array. Optional on purpose: a document written
+  before this existed still validates, and an absent array genuinely means nothing was recorded.
+
+## [0.465.0] - 2026-09-09
+
+### Added
+
+- **Golden cases for agents, and a gate on the rewrite that would break them.** AtlasMind can rewrite
+  an agent's system prompt on a cadence — daily, weekly or monthly — and register the result. That is a
+  prompt edit, deployed automatically, with **no equivalent of a failing build**, which is exactly the
+  failure this project's own Prompt Regression protocol describes: *a wording change that fixes one
+  case and breaks nine is invisible without a replay set.* The cadence was the risk. This is the replay
+  set.
+
+  Pin cases in `project_memory/agents/eval-cases.json` — a prompt, at least one check, and **the reason
+  the case exists**. All three are required: a case with no checks passes trivially and adds a green
+  tick that means nothing, and a case with no stated reason is deleted by the next person tidying the
+  file, taking the regression it was quietly catching with it.
+
+  **A case is graded by a declared check wherever possible.** Did it mention the thing, did it avoid
+  the thing, did it match, did it refuse — all decided by reading the text. A judge check exists for
+  what genuinely cannot be, and every result says whether one was involved, because "it did the thing"
+  and "a judge liked it" are different findings. A judge check with **no verdict fails rather than
+  passes**: a suite must not go green by not asking.
+
+  **An errored case is not a failed case.** A provider outage is not a quality regression, and counting
+  one as the other would block every rewrite during a bad afternoon — after which nobody believes the
+  gate. Errored cases are set aside and named.
+
+  **A regression is a case that passed and now fails**, never a score that moved. **No baseline is a
+  first run, not a pass** — reporting "no regressions" on the first run is a confident zero delivered
+  at the exact moment somebody decides whether to trust it. And **an unrun case is not a passing case**:
+  coverage travels with every verdict, so "eight of twelve ran" cannot read as twelve.
+
+- **The auto-updater now holds a rewrite that regresses.** The gate runs *before* the new definition is
+  registered, and replays against the **candidate** prompt rather than the live one — running the agent
+  as currently registered would answer a different question and always pass.
+
+  **An update that could not be verified is held, not shipped.** The cadence is unattended, and "we did
+  not check" resolving to "ship it" is how an unattended rewrite becomes an unattended regression. A
+  verifier that throws counts as unverified for the same reason. An agent with **no declared cases** is
+  not held — freezing every agent on day one is how a gate gets switched off — but the decision says
+  plainly that nothing verified it. Why a rewrite was held is kept, because an update that silently
+  stops happening is indistinguishable from one that never came due.
+
+- **AtlasMind: Replay Agent Golden Cases** runs the suite on request and shows the verdict — what
+  regressed, what now passes, what errored and was set aside, and what did not run. Recording it as the
+  new baseline is a separate confirmation, because a baseline is what every later regression is
+  measured against and overwriting one is how a real regression becomes the new normal.
+
+## [0.464.1] - 2026-09-09
+
+### Changed
+
+- **Recorded the promotion of 0.464.0 to the Integration stage.** The delivery register still named
+  0.461.0 as the last promotion, which would have had the Delivery page reporting a stage three
+  releases behind where it actually is. The record is the whole reason that page is worth reading, so
+  a stale one is a defect rather than untidiness.
+
+## [0.464.0] - 2026-09-09
+
+### Added
+
+- **Build and publish the portal in one press.** Until now this was three commands and a walkthrough:
+  generate the report, decide what may be published, prepare the narrowed folder, add a workflow, turn
+  the host on, prove a page came up. Every step exists for a reason and none of them is interesting to
+  somebody who just wants the status page updated. One button now does the lot — and because nobody
+  reads six dialogs but everybody reads one, that single confirmation carries the whole disclosure:
+  what will be published, what is withheld, **who will be able to read it**, which commands will run,
+  and which step cannot be undone.
+
+  **It refuses when the audience and the host disagree.** Somebody who has named five viewers on a host
+  that cannot enforce a list would, with one press, publish to the open internet a page they believe is
+  restricted. That is not a warning — a warning on a one-press button is a thing you click past — it is
+  a **refusal**, and it names the two fixes: move to a host that can restrict, or clear the audience so
+  the page is knowingly public.
+
+  **Unconfirmed access is not restricted access.** A host that *can* restrict, where nobody has
+  confirmed a policy exists, is treated as open — and publishing a risk register or a spend figure into
+  that is refused. AtlasMind cannot see a Cloudflare Access policy, and the moment it assumes one is
+  there is the moment this button publishes the wrong thing.
+
+  **AtlasMind performs only what a constant can express.** Every deploy command is a literal with its
+  arguments passed as argv — never a shell string, never composed — so a folder name stays a folder
+  name even when it looks like a command. A host with no constant gets **no deploy step**, which is the
+  second action: the folder is prepared and you take it from there. That is Custom Host, and it is also
+  GitHub Pages until the deploy workflow exists.
+
+  **Nothing here turns a public switch on.** Enabling Pages, creating an Access policy, adding somebody
+  to a Vercel team: all still absent, by declaration. Publishing to a host somebody has already
+  configured is a different act from making that host serve to the public in the first place, and only
+  the first belongs behind a button.
+
+  **Nothing is scheduled.** One press publishes once — there is deliberately no publish-on-commit and
+  no timer, because a standing publication republishes whatever the report happened to say.
+
+  The button sits on the Director page beside the audience it publishes to, and the command is
+  **AtlasMind: Build and Publish Producer Portal**.
+
+## [0.463.0] - 2026-09-09
+
+### Added
+
+- **Choose where the producer portal is hosted, and say who may read it.** The portal could be
+  generated and published, and the only honest thing AtlasMind could say about the result was that it
+  was public. Now the host is a declared choice — GitHub Pages, Cloudflare Pages, Netlify, Vercel, or a
+  host you run yourself — and each one is presented with **what it can actually enforce**.
+
+  **Authentication is not authorisation, and that is the whole feature.** Signing in with GitHub admits
+  every GitHub account there is, something over a hundred million of them. A portal behind a GitHub
+  prompt and nothing else is a public portal with a turnstile in front of it, and it is *worse* than an
+  obviously public one — the turnstile is what persuades somebody to switch on the cost figures and the
+  risk register. A host that can sign somebody in and cannot then restrict *which* signed-in people get
+  through is reported as `authenticated-but-open`, not as protected.
+
+  The differences between the hosts are stark, and they are read from each vendor's own documentation
+  on a pinned date rather than recalled. Only **Cloudflare Pages** both signs somebody in with GitHub
+  and restricts to a list you name without an enterprise plan, via Cloudflare Access. **Vercel** can
+  restrict, to your Vercel team — a real restriction, and somebody else's list, costing a seat per
+  viewer. **Netlify** offers a shared site password on Pro, which is not an audience: it is one secret
+  that gets passed on, with no record of who used it and no way to remove one person. A **named
+  audience** on Netlify is Enterprise. And **GitHub Pages** cannot restrict at all unless Enterprise
+  Cloud, an organization-owned private-or-internal repository and a project site all line up — and then
+  the audience is everyone who can read the repository, which is a different list.
+
+  **A public repository gets its own, louder warning**, because the page is public and so is every
+  draft that produced it. An unreadable visibility is treated as public, the assumption that keeps a
+  secret.
+
+  **AtlasMind declares; the host enforces.** Nothing in this feature makes a page private, and every
+  surface says so and names the console where the enforcement actually lives. A switch here that looked
+  like a gate would be the most dangerous control in the product.
+
+- **The Director assigns the audience; Settings chooses the host.** Both write one committed file, so
+  the two surfaces cannot hold different answers. The audience stores **contact ids, never addresses** —
+  `project_memory/` is committed, and the Project Director module goes to some trouble to prefer a
+  system-of-record reference over raw personal data. Resolution to an email or a GitHub login happens at
+  the point of use.
+
+  **Somebody who cannot be expressed is reported, never dropped.** A contact with no email and no GitHub
+  handle cannot go on any allowlist, and quietly leaving them out produces a list that looks complete
+  and one person locked out with nothing to explain why.
+
+  **Removing somebody from the list does not revoke their access**, and the notification says so.
+  Changing the host **clears any confirmation** that access was configured, because an assertion about a
+  Netlify password says nothing about a Vercel deployment. And confirming that the host-side policy is
+  in place is an explicit, attributed act behind a dialog that asks you to have actually watched an
+  account outside the audience be refused — AtlasMind cannot see a Cloudflare Access policy and does not
+  pretend to.
+
+  **A restricted audience is not a reason to publish more.** What may leave the machine stays with the
+  publication rules, which still assume the worst: the restriction is enforced by somebody else's
+  product, in a console AtlasMind cannot see, and one wrong policy makes it public again.
+
+### Fixed
+
+- **A test that pinned a statement terminator rather than the claim it cared about.** The security
+  advisory surface asserted an exact argument list ending in `);`, so adding any later parameter to the
+  snapshot call failed it — which reads as a broken feature rather than a moved comma.
+
+## [0.462.0] - 2026-09-09
+
+### Added
+
+- **A searchable index of your own source.** AtlasMind's memory has always answered *what was decided*
+  — decisions, architecture notes, misadventures — and never *what the code does*. An agent asked to
+  change how promotions are gated had to be told which files to read, because nothing indexed the
+  source itself. Two new commands close that: **Build Codebase Index** and **Search the Codebase**.
+
+  **Nothing leaves your machine, and there is no option that would change that.** The default embedder
+  needs no model at all; point `atlasmind.codebaseIndex.embeddingModel` at a local Ollama model for
+  genuinely semantic results. AtlasMind ships **no remote embedder** — offering one from a dropdown
+  would mean sending an entire repository to a third party, and that is a decision worth building
+  deliberately with its own consent surface rather than one that arrives as a menu item.
+
+  **The fallback is honest about what it is.** With no model configured, the index uses a token-hash
+  embedder: it works offline, costs nothing, and matches shared *vocabulary* rather than shared
+  *meaning*. It is not semantic search, `semantic: false` travels with it, and every result says so —
+  because "semantic search found nothing" and "word matching found nothing" are different findings and
+  only one is about your code. When a configured model cannot be used, the fallback says **why**
+  instead of quietly happening.
+
+  **A stale result is excluded, not caveated.** Every chunk records its file's content hash; when the
+  file changes, its chunks stop being returned. Returning code that no longer exists at those line
+  numbers is worse than returning nothing, and a warning attached to an otherwise plausible result is
+  read past. The index stores *where*, never *what* — a path and a line range, re-read from disk — so
+  there is no stored copy that could be returned after an edit.
+
+  **Coverage travels with every search.** "3 results from an index currently covering 412 of 1,340
+  files, built 6 days ago" is a different answer from a bare list of three, and only one of them can be
+  judged.
+
+  **A file that looks like it holds a credential is never indexed**, and the refusal is recorded and
+  counted in the build confirmation. An indexed secret is a *retrievable* secret, and retrieval feeds
+  prompts.
+
+  **A misaligned index is refused rather than built.** If an embedder returns the wrong number of
+  vectors, or vectors of the wrong width, the build fails loudly — an index whose vectors cannot be
+  compared would rank nonsense plausibly and nothing would look wrong. A stored index is validated the
+  same way on read, and refused whole rather than partially accepted.
+
+  The index lives in extension storage rather than `project_memory/`: it is derived, per developer, and
+  thousands of float vectors changing on every edit is the worst diff imaginable.
+
+### Fixed
+
+- **A source-reading test that failed on Windows and passed on CI.** `roadmapCanvasSurface` asserts on
+  a string spanning a line break in `media/projectDashboard.js`, which git checks out with CRLF on
+  Windows — so it went red after any branch switch and looked like a broken test rather than a broken
+  environment. The read is now normalised.
+
+## [0.461.0] - 2026-09-09
+
+### Added
+
+- **The Utilities pack — auth, payments, email, analytics, i18n and accessibility, as decisions rather
+  than packages.** The other architecture packs are *project* templates: pick a stack, get a starter.
+  These six are not that shape. Nobody starts a project called "payments"; you reach the point in an
+  existing project where money has to change hands, pick a library, and discover the decision
+  afterwards. That is the wrong order and it is the expensive one — whether you or your vendor is the
+  **merchant of record** is a tax-liability question you cannot undo by swapping an SDK, and whether
+  your analytics sets a cookie decides whether you owe your visitors a consent banner at all.
+
+  So each pack opens with the question and treats the libraries as answers to it. Do you hold the user
+  records or does somebody else? Who owns the sending domain, and has it been authenticated? Cookieless
+  and aggregate, or identified and cookie-based? Who translates, and how does a translation reach
+  production without a developer?
+
+  **Every install line is a constant in AtlasMind's source, read from the vendor's own documentation on
+  a stated date, and nothing runs one.** The same rule the website scaffolder and the ACP installer
+  hold: a command composed from a setting, a fetched page or a model is remote code execution with
+  extra steps. **An unverified fact is absent rather than guessed** — a candidate whose install line was
+  not verified carries none and the card says to follow the vendor's current instructions, because a
+  plausible-looking wrong package name costs more than a missing one.
+
+  **What leaves your machine is stated for every candidate**, including the ones where it is nothing.
+  "Add analytics" means "start sending your users' behaviour to a third party", and a catalogue that
+  omitted that would be selling rather than advising.
+
+  **A capability already present is reported, never proposed again.** Two candidates answering opposite
+  sides of one decision — an auth library that keeps users in your database *and* a managed identity
+  provider — is reported as **two answers** rather than added to. That is a security problem rather
+  than a redundancy: two session models, two logout paths, and one of them forgotten.
+
+  **Accessibility is not a library**, and the pack says so first. Automated tooling catches roughly
+  30–40% of WCAG barriers — Deque publish about 57% for axe-core on a first audit — which makes it
+  necessary and not sufficient. The pack lists the tools, then states the part a person has to do, with
+  the European Accessibility Act's 28 June 2025 application date and the EN 301 549 / WCAG 2.1 AA
+  conformance route named rather than implied. It is never offered as something to "add".
+
+  Each pack ends in gates that are statements about the world rather than files that exist: *somebody
+  has completed an account recovery end to end from a real inbox*; *no card number reaches your servers
+  or your logs*; *somebody has tried the main flow with a screen reader and can say what it announced*.
+  Nothing marks itself done.
+
+  The packs render on the Gap Analysis page — the page that already asks what this project is missing —
+  assessed against the dependency names archetype detection already reads, so they cost no extra I/O
+  and infer nothing from source shape. With no manifest readable, every pack reads **not assessed**
+  rather than absent.
+
+- **"Work through this decision with AtlasMind"** hands a pack to an agent that is forbidden two things:
+  installing anything (the install lines are records of what a vendor publishes, not instructions to
+  execute) and stating a price, version or feature it was not given — the list is a dated snapshot and
+  vendors move faster than a release, so anything missing is reported as needing checking rather than
+  filled in confidently.
+
+## [0.460.0] - 2026-09-09
+
+### Added
+
+- **Ambient triggers — the event bus agents subscribe to.** Everything AtlasMind did began with a
+  person typing. That is the right default and it was also the ceiling: a failing pipeline, a new
+  advisory, a review sitting on you and a blocker defect all happen while you are looking somewhere
+  else, and none of them reached you until you next opened the dashboard.
+
+  **A word about what "while you're away" can honestly mean.** A VS Code extension does not run when
+  the editor is closed; there is no daemon and there is not going to be one. So this is *ambient*
+  rather than *background*: it works while you are in the editor and not looking at AtlasMind, which is
+  where nearly all of the time goes anyway. Claiming more would be a promise that gets found out on the
+  morning somebody needed it.
+
+  **An event is a change, not a state.** A pipeline that is red stays red — if "red" were the event it
+  would fire on every check forever, and the first thing anybody would do is switch it off. An event is
+  a *subject* entering a condition it was not in last time, fingerprinted by subject, so one failing
+  run fires once. A condition that clears is forgotten, so the same one returning later fires again;
+  accumulating instead would mean a flaky pipeline fired exactly once, ever.
+
+  **Deny by default, twice.** A master switch and a per-event subscription, both off. Switching the
+  feature on subscribes to nothing.
+
+  **An ambient response never exceeds *propose*, whatever a workflow stage permits.** This is the rule
+  that makes the rest safe: a stage may allow more because somebody started that run and is watching
+  it, and nobody is watching this one. Two events are capped at *reporting* by declaration —
+  a security advisory and a blocked release — because an unattended proposal about somebody else's
+  disclosure, or about a step that cannot be undone, is worse than the alert itself. Every reduction is
+  stated in the same sentence as the request.
+
+  **A missed window is not a backlog.** A fortnight with the editor shut is one event per subject, not
+  one per check that never happened.
+
+  **Unknown is not quiet.** A source that could not be read is reported as *not observed* rather than
+  contributing silence — and its memory is carried forward, so an unreadable source coming back does
+  not replay every standing condition. In this first release the three local registers are always
+  readable and everything needing the network is honestly reported as unobserved.
+
+  **Spend defaults to nothing.** An event can be reported to you but never worked on by a model until
+  you set a cap. Reporting is never capped: refusing to tell you what happened because a budget ran out
+  would be the worst reading of a cost control.
+
+  **Nothing runs unattended.** The service returns a *plan*; the notification offers a draft, and what
+  happens next is a person's decision under the ordinary approval regime. The hand-off prompt says two
+  things an interactive one does not — that nobody is watching, and that the trigger is not a brief: an
+  event says a condition exists, not what should be done about it.
+
+  Five new settings under `atlasmind.ambient.*`, all documented, all off or zero by default.
+
+## [0.459.0] - 2026-09-09
+
+### Added
+
+- **Test management, for the half a scanner cannot read.** AtlasMind could already say a great deal
+  about testing — which methodologies a project declares, whether anything evidences each, which
+  declared subjects have a test that names them. All of it derived from **files**, which is the half a
+  machine can answer. It had nothing to say about the other half: the cases somebody wrote down, who
+  owns them, when one was last actually carried out, and what a tester needs in front of them. That is
+  not a shortfall of the file-based reading — exploratory testing, an accessibility pass with a screen
+  reader, a device matrix and a disaster-recovery rehearsal leave no file to grade, and this
+  repository's own testing protocols name TestRail, Zephyr and Xray precisely because that is where it
+  lives everywhere else.
+
+  **Priority is derived, not asked for.** You say what breaks if this is wrong — loses data or exposes
+  something, a journey that has to work, supporting behaviour, appearance — and how often the path is
+  taken. A published seven-rule table grades those two answers, every case names the rule that graded
+  it, and the grade is recomputed on every read so a hand-edited priority in the committed file does
+  not survive. A path that can lose data is critical whatever the traffic.
+
+  **A case that was not run is *never run*, not passed.** There is no default result and no way to seed
+  one, and an unrecognised stored result reads as `blocked` — "we do not know that this works" is the
+  safe direction.
+
+  **A result belongs to a *revision* of its case.** Editing the steps or the expected result bumps the
+  revision, and an earlier result reads as **stale** rather than continuing to count. A pass recorded
+  in March against steps somebody rewrote in June is a pass for a test nobody has run, and nothing else
+  on the page can see it — every other surface still reads it as green. The execution record is neither
+  edited nor discarded; the register keeps what happened and simply stops claiming it describes the
+  case as it stands.
+
+  **An automated case is never given a result here.** Its result comes from the test report the project
+  writes. A person recording a manual pass for it would be asserting what a machine should measure, and
+  the register refuses rather than allowing the most convincing wrong number on the page. A deprecated
+  case is refused too, and both refusals say why instead of a button appearing to work and recording
+  nothing.
+
+  **A test asset names where a credential lives and never holds one.** The whole point of recording a
+  tester's context is that it is shared with a named person, so a value stored there is a value
+  distributed. Anything credential-shaped **refuses the whole asset** rather than being quietly
+  stripped — a silently scrubbed record reports success while the secret stays in whatever it was
+  pasted from — and the check runs on read as well as on write. An asset with no owner is *unassigned*,
+  never everybody's, and a case nobody owns is reported as a case nobody runs.
+
+  Cases transition rather than vanish: retiring one keeps it, and keeps the results recorded against
+  it. Nothing here grades a methodology — file-derived coverage still owns that, and a manual case is
+  additional evidence a person can point at rather than a substitute.
+
+- **Failing and never-run cases reach the Overview.** A manual case somebody ran and watched fail ranks
+  as *now*, alongside a red pipeline: that is a person's observation rather than a scanner's inference.
+  Stale results and critical cases nobody has ever run rank below. As with the other two registers
+  added this week, one nobody has written in raises nothing and is not counted toward the groups that
+  let the page claim it is clear.
+
+- **"Draft the steps" hands a case to an agent that cannot say whether it passes.** It proposes steps
+  somebody could follow without knowing the code, and names the data, accounts and devices a tester
+  will have to be given. It is explicitly forbidden from stating a result, because a stated one is
+  indistinguishable from a real one once it is in the register and somebody relies on it before a
+  release. The objective is fenced as untrusted text, since a case can be imported from a requirements
+  document or a customer's acceptance criteria.
+
+## [0.458.0] - 2026-09-09
+
+### Added
+
+- **An approval register — who agreed to what, and to which version of it.** AtlasMind had approvals
+  in two senses and neither was this one. A tool approval is a *permission*, asked and answered in
+  seconds. A release gate is a *condition*, evaluated from evidence. Missing was the durable record
+  that a named person agreed to a change: an idea reaching the roadmap, a document going out, a
+  licence term, a commercial commitment.
+
+  **An approval is not a permission.** Nothing here grants a capability, unlocks a branch or lets a
+  tool run, and nothing here blocks a commit or a release — a gate AtlasMind cannot enforce is one
+  people learn to route around. What it can do is remember accurately.
+
+  **Pending is not approved.** There is no auto-approval and deliberately no timeout that grants one:
+  *nobody objected within five days* is the single most common way an approval process comes to
+  certify things nobody read. An unrecognised status in the committed file reads as pending, never as
+  consent.
+
+  **An approval names *what* was approved.** Each request carries a fingerprint of its subject's
+  content, and an approval records the fingerprint it was made against. When the content changes
+  afterwards the approval goes **stale** rather than carrying over — an approval that applies to text
+  nobody signed is worse than none at all. The decision is not revoked and not edited; it simply stops
+  describing what is there. The page computes that live, against the roadmap item or document as it
+  stands now, so nothing has to be written on a render. And a subject that can no longer be found — a
+  deleted document, an item that left the roadmap — reads as **unknown**, never as still current.
+
+  **Nobody is substituted.** A declared table routes each category to a role: a code change to a
+  reviewer, because a review *is* the approval; documentation to a maintainer; and a roadmap
+  commitment, a licence term and a commercial undertaking to the Director, because nobody else can
+  accept those on the project's behalf. If the role is unheld the request has **no approver** and says
+  so, rather than falling back to whoever is available — a substituted approver reads later as
+  somebody having agreed. A project that disagrees names an approver explicitly, and the record says
+  which rule applied.
+
+  **Self-approval is permitted and always stated.** Refusing it would make the register useless on a
+  solo project; hiding it would let a formality look like a review.
+
+  **Requests transition; nothing is deleted.** Rejected, withdrawn and superseded record three
+  different things having happened, and a register that collapsed them would report agreement it
+  cannot attest to. A supersession must name a request that exists, and one whose successor has gone
+  returns to pending rather than staying closed by something nobody can find.
+
+  The content itself is **never stored** — only its fingerprint — because `approvals.json` is
+  committed, and mirroring a legal draft into it would publish the very thing under review.
+
+- **Requests reach the Overview.** Approvals waiting on you rank as *now*, because somebody else's
+  work is stopped until you answer. Stale approvals and requests nobody can decide rank below them and
+  are kept apart, since one waits on a decision and the other waits on somebody being given a role. As
+  with defects, an unused register raises nothing and is not counted toward the groups that let the
+  page claim it is clear.
+
+- **"Help me decide" hands a request to an agent, and the agent cannot decide.** The prompt sets out
+  what would have to be true for approving to be the right call, what is not yet known, and what
+  approving commits the project to that is hard to undo. It is explicitly forbidden from approving or
+  rejecting, the rationale is fenced as untrusted third-party text (a request can be raised from an
+  imported issue or a partner's email), and a legal-category request carries the statement that
+  nothing it says is legal advice.
+
+## [0.457.0] - 2026-09-09
+
+### Added
+
+- **A defect register — somewhere to write a bug down.** The dashboard kept a register for what
+  somebody found in the plan, in the code, in the world and in the business, and none for the thing
+  every project accumulates first and fastest. The Issues tab reads GitHub issues, which answers a
+  different question: an issue is a public, filed artefact needing a repository, a remote and a working
+  `gh`, while a bug is something you saw thirty seconds ago and will lose if there is nowhere to put
+  it. Making a network round trip the price of recording one is how the observation gets lost, so this
+  register is a local committed file and filing an issue stays a separate, deliberate act.
+
+  **Severity is never asked for.** Somebody asked *how bad is it?* answers about their own
+  frustration; asked what it does — loses work, exposes something, does not work at all, works badly,
+  looks wrong — and how many people meet it, they answer about the defect. The grade comes from a
+  published eight-rule table, every entry names the rule that produced it, and it is **recomputed on
+  every read**, so a severity hand-edited into the committed file does not survive. A grade made today
+  is comparable with one made in six months, which is the only thing that makes the register worth
+  sorting.
+
+  **Data loss and a security exposure are blockers whatever their reach**, because the one person it
+  happened to lost exactly as much as if it had happened to everybody.
+
+  **How reliably a defect reproduces is a separate fact and does not move its severity.** The classic
+  mistake is to downgrade an intermittent bug, which is exactly backwards — *sometimes* says how
+  confident we are that we can see it, not how bad it is when it happens. *Could not reproduce* is a
+  first-class state and is never quietly read as fixed.
+
+  **`fixed` is not `verified`.** A fix nobody checked is a claim, the two counts stay apart, and the
+  Overview raises unverified fixes rather than counting them as done. **A defect that came back is the
+  same defect, reopened** — recurrence lives on the entry, because two rows would make a bug that has
+  recurred four times look like four bugs each fixed once, which is precisely the shape that hides a
+  chronic defect. And nothing is ever deleted: *verified*, *won't fix*, *duplicate* and *not
+  reproducible* record four different decisions, and only one of them is an accomplishment.
+
+  Nothing here gates anything. An open blocker appears on the *Needs you* band as a statement; the
+  Release page still owns release gates. And the register is the one attention group with no
+  "never assessed" item, deliberately — every other register can be scanned or asked on demand, while
+  recording a defect means finding one, so an item saying "no defects recorded" would nag a project
+  that has genuinely found none, with no action that could ever satisfy it. An unused register instead
+  supplies no group at all, which keeps the Overview reading *unexamined* rather than reassuring.
+
+- **Agents are told to record what they find broken.** Every code-writing role prompt now carries the
+  defect-reporting rule alongside the existing debt-marker rule. The two are stated separately because
+  confusing them is exactly what puts a real bug in the debt register and a deliberate trade-off in
+  the defect one. An agent that notices a bug while doing something else and mentions it in a sentence
+  of chat has left no record — after which an empty register reads as an absence of defects rather
+  than an absence of recording.
+
+- **"Investigate this defect" hands one to an agent, fenced.** A bug report can be pasted from a
+  support ticket, an app-store review or a colleague's message, so it is treated as untrusted
+  third-party text exactly as an issue body is. The prompt makes *cannot reproduce* a first-class
+  answer — an agent that must find something will find something, and a fabricated root cause recorded
+  against a real defect is worse than an unresolved entry — and forbids it marking anything fixed or
+  verified, because verification is a person checking.
+
+## [0.456.0] - 2026-09-08
+
+### Added
+
+- **`/portal` — the last mile of the producer report, which was previously an exercise for the
+  reader.** AtlasMind could build the report and decide what may leave the machine, then said: *point
+  GitHub Pages at that folder.* That instruction cannot be followed. Pages serves from a repository
+  root, from `/docs`, or from an uploaded artifact — never from an arbitrary path — so the page was
+  written where no host could serve it.
+
+  The guide walks the whole distance: generate the report, allow publication, prepare the narrowed
+  copy, add a deploy workflow, turn Pages on, and prove a page actually came up. It leads with the fact
+  everything else depends on — **a GitHub Pages site is public even when the repository is private**,
+  because access control for Pages is an Enterprise Cloud feature — and treats an unreadable visibility
+  as public, which is the assumption that keeps a secret.
+
+  **Nothing in it enables Pages and nothing in it publishes.** Turning Pages on is the decision that
+  makes the report public, so that step has no button at all — only GitHub's own documentation. The
+  three steps whose commands write files name them rather than offering to run them, because a setup
+  guide that could install things is not a guide.
+
+  The new `AtlasMind: Add Producer Portal Deploy Workflow` command writes
+  `.github/workflows/producer-portal.yml` **create-only**, behind a dialog naming the folder it uploads.
+  The workflow is a constant in the source rather than generated — executable content with permission
+  to publish is not something a model should write — it uploads the prepared folder rather than the
+  repository, asks for the minimum permissions a Pages deploy needs, and runs on **manual dispatch
+  only**: a push trigger would turn one decision into a standing one, republishing whatever the report
+  happened to say on every commit.
+
+## [0.455.0] - 2026-09-08
+
+### Added
+
+- **The chat's context meter opens into a breakdown, and you can prune what it carries.** The bar
+  answered one question — am I near the limit — so the question people actually ask when a model
+  forgets something had no surface at all: *what is in there, and why did it not know that?*
+
+  Clicking the meter now lists each part with its size and share — session history, attachments, your
+  draft — and says **what gets dropped first** when the window fills, which is nearly always the real
+  answer.
+
+  **What the panel cannot measure is named, not left out.** The system prompt, the tool definitions and
+  any images are charged against the same window, but they are assembled at submit time against a model
+  the router has not chosen yet, so measuring them here would mean guessing at both. They are listed
+  without a figure and kept out of every total: a bar that counts only what it can see reads
+  comfortable while the turn is full, which is exactly the failure a meter is supposed to prevent. And
+  every figure carries the caveat that it is estimated from characters rather than from the provider's
+  own tokenizer — a number that looks exact invites decisions it cannot support.
+
+  **One control changes it**: carry all, half, one or none of the earlier turns. It only ever asks for
+  *fewer* — `atlasmind.chatSessionTurnLimit` stays the ceiling, since a panel that could exceed it
+  would be a setting with no effect — it is held per session rather than written to settings, because
+  carrying less is a decision about the conversation in front of you, and it is applied to the turn
+  that actually runs as well as to the meter. A meter that promised to carry less and did not would be
+  worse than no control at all.
+
+## [0.454.0] - 2026-09-08
+
+### Added
+
+- **An advisory can be handed to an agent — as a finding to read, never as a change to make.**
+  Completes the roadmap item the previous release delivered half of: the feed reached the Security
+  page, and now it reaches an agent too.
+
+  **Assess with Atlas** on any advisory opens a chat asking one question: does this reach *your* code?
+  Three answers are offered and all three are first class — reachable, with the smallest correct change
+  that closes it; present but not reachable in how this project uses it, with the reason; or already
+  handled and the alert is stale. A finding that does not reach the code is exactly what dismissal
+  exists for, and the model should be able to say so without feeling it failed the task.
+
+  The advisory's own words are **fenced as reported content**, because an advisory summary is written
+  by whoever published the advisory and a code-scanning message by whoever wrote the query: both are
+  third-party text arriving in a prompt, which is the shape prompt injection takes. The prompt is built
+  host-side from the advisory AtlasMind read — the webview sends `<source>:<reference>` and composes
+  nothing the agent is told.
+
+  Two prohibitions travel with it. **Do not re-grade the severity**: the publisher graded the
+  vulnerability, not this project's exposure to it. And **a named fixed version is not permission to
+  take it** — an upgrade has a blast radius the advisory says nothing about. Propose; do not apply.
+
+## [0.453.0] - 2026-09-08
+
+### Added
+
+- **The Security page says what is publicly known to be wrong with your project.** It could already
+  say whether a `SECURITY.md` exists and which dependency monitors were configured. It could not say
+  whether any of them had *found* anything — so a repository with eleven open vulnerability alerts and
+  one with none looked identical: four green governance cards either way.
+
+  Dependabot's dependency alerts and code scanning's findings are now read on the repository refresh —
+  never on render, because they are rate-limited API calls and this page re-renders on every keystroke
+  elsewhere in the panel — and shown as one list ranked by severity across both sources.
+
+  **Severity is the publisher's, never re-graded here**: an advisory with none stays *unknown* rather
+  than defaulting to something reassuring, and a code-scanning rule's `warning`/`error` lint grade is
+  not mistaken for a risk grade. **A dismissal is a decision, not a fix** — dismissed alerts are
+  counted apart and never folded into anything that reads as resolved, or a project can dismiss its way
+  to a clean board. **Unassessed is not clean**: a source nobody read says so, and zero open is claimed
+  only where something actually looked. And **a security feature that is switched off is reported as
+  switched off** — GitHub answers 403 or 404 when these are disabled, and showing that as an empty list
+  would make the riskiest configuration look like the safest one.
+
+  The card's Open button sends `<source>:<reference>` and never a URL; the host resolves it against
+  the advisories it actually read. A surface that could name a URL could name any, and `openExternal`
+  hands it to the browser without asking.
+
+  The roadmap item this comes from also asks for the feed to reach the Security and Dependency Manager
+  *agents*. That half is not done, and the item stays open.
+
+## [0.452.0] - 2026-09-08
+
+### Added
+
+- **The roadmap has a board: what is waiting, ready, started, in review and delivered.** The backlog
+  says what an item *is*, the canvas what it waits on, and the timeline how long it takes. None of them
+  said **what state it is in** — the question a stand-up asks — so the answer lived in somebody's head
+  or in a second tracker kept by hand beside this one.
+
+  **A card only moves on evidence.** A branch that exists, or an open pull request. An item nobody has
+  started reads as *Ready*, never as in progress because it is near the top of the list or has
+  somebody's name on it — a board that guesses is quietly wrong at exactly the moment somebody relies
+  on it. **Delivered comes from the backlog line being ticked, never from a merged pull request**:
+  work merges without finishing an item, and items finish with no pull request at all.
+
+  An item can be started *and* waiting, so the waiting count travels on the card in every column — the
+  column is the most advanced state there is evidence for, and hiding the work would be the bigger lie.
+  How the branch matched is carried too, because a branch the item declares is a fact while a name
+  derived from its text matching a real branch is a naming convention holding.
+
+  **If AtlasMind could not read your branches or pull requests, the board says so** rather than showing
+  a project where nothing has been started. Silence earned by not looking is the one thing that would
+  make this view worse than no view.
+
+  Read-only by design: dragging a card between columns would write a state nothing evidenced, and the
+  next refresh would move it back. The board reports where the work is; the work is moved by doing it.
+
+## [0.451.0] - 2026-09-08
+
+### Added
+
+- **The roadmap has a timeline: the plan against time, with milestones and the critical path on it.**
+  The dependency canvas shows *order* and the backlog shows *priority*. Neither shows **duration**, so
+  nothing on the dashboard could say that four items sit idle for a week waiting on one, or that a
+  release gate lands three days after the deadline it is tagged for. A list cannot show simultaneity
+  and a graph cannot show length.
+
+  Each bar starts when its prerequisites can be finished and ends when it can, with a dashed tail for
+  the room it has before the plan's own finish moves; the chain with no room is drawn at full strength.
+  Each gate is pinned on the axis at the day its last outstanding item lands.
+
+  Seven rules, and two of them decide what the chart may claim. **One schedule, not two** — bars are
+  positioned from the earliest and latest finishes `roadmapCriticalPath` already computed, because a
+  second forward pass would eventually disagree with the number printed on the card beside it, and a
+  Gantt that contradicts its own cards is worse than no Gantt. **A bar is a duration, never a date**:
+  a human estimate is effort spread across working days while an agent's is wall clock, so turning a
+  mixed chain into calendar dates would mean inventing a working calendar nobody declared — printing
+  "12 March" from that would be a commitment made up by a renderer. The only dates on the chart are
+  deadlines you set, and they **grade a bar without ever moving it**, since a plan pulled earlier to
+  meet its deadline is a plan that always meets it.
+
+  Also: float is measured against the plan's finish rather than any deadline; a gate is dated only
+  when *every* member can be scheduled, because a partial maximum reads early and looks identical to a
+  complete one; delivered work is counted rather than drawn; and a plan with a circular dependency has
+  no timeline at all, for the same reason it has no finish. The rules that drew the chart are printed
+  at its foot.
+
+  Positioned as percentages of a horizon the host computed, so it reflows with the panel and needs no
+  measurement pass — a way of *looking* at a plan must not be something that can fail.
+
+## [0.450.0] - 2026-09-08
+
+### Added
+
+- **Ctrl (or ⌘) with the wheel zooms the Project Dashboard, the way it zooms a browser.** A webview
+  does not inherit the window's zoom, so the gesture everybody already knows did nothing on the
+  densest surface in AtlasMind — nine stat cards, a nav strip and a table on one screen, with no way
+  to fit more in or make the type bigger.
+
+  Chromium's own ladder (50 → 200%), clamped at both ends because below 50% the labels stop being
+  readable and above 200% a stat card no longer fits the panel — offering either would be offering a
+  broken view. Steps rather than a continuous scale, because that is what the gesture does everywhere
+  else and a notch landing on 113% reads as a bug. A quiet indicator appears in the action row only
+  while zoomed, like a browser's own, and clicking it returns to 100%.
+
+  **A canvas that already zooms on Ctrl+wheel keeps the gesture** — zooming the page *and* the plan
+  from one notch would be two answers to one question, and the canvas is the one the pointer is over.
+  The level is remembered **per viewer** in webview state, never sent to the host and never written to
+  the project: it is how you like to read the panel, not a fact about the work.
+
+### Fixed
+
+- **Canvas dragging stays under the cursor while the page is zoomed.** Pointer deltas arrive in
+  viewport pixels while a node's position is stored in layout pixels, and those are the same unit only
+  at 100%. Both canvases on the dashboard — the roadmap graph and the pipeline graph — now convert
+  through one helper, so a node dragged at 150% lands where it was dropped rather than half again as
+  far.
+
+## [0.449.6] - 2026-09-08
+
+### Documentation
+
+- **README's published baseline now names v0.449.5**, the version the Marketplace publish just
+  accepted. It said v0.420.4, which was true until a few minutes ago. `docsIntegrity` compares the
+  stated baseline against the newest tag, so the suite is red between tagging and this commit — by
+  design, since the tag this line must name does not exist when the release commit is written, and a
+  README claiming a version that never shipped would be the worse failure.
+
 ## [0.449.5] - 2026-09-08
 
 ### Security

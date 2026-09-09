@@ -117,6 +117,14 @@ export type ChatPanelMessage =
   | { type: 'raiseToolCallsPerTurnLimitPermanent'; payload: { entryId: string; value: number } }
   | { type: 'raiseToolCallsPerTurnLimitTemporary'; payload: { entryId: string; value: number } }
   | { type: 'saveFontScale'; payload: number }
+  /**
+   * Carry fewer earlier turns into the next message.
+   *
+   * A request for the *next* turn, never a rewrite of one that has run, and
+   * never able to raise the operator's configured limit — see
+   * `resolveCarriedTurns`.
+   */
+  | { type: 'setCarriedTurns'; payload: number }
   | { type: 'toggleAutopilot' }
   | { type: 'importSessionContext'; payload: string }
   | { type: 'deleteMessage'; payload: string }
@@ -327,6 +335,12 @@ export function isChatPanelMessage(value: unknown): value is ChatPanelMessage {
   }
 
   if (message.type === 'saveFontScale') {
+    return typeof message.payload === 'number' && Number.isFinite(message.payload);
+  }
+
+  if (message.type === 'setCarriedTurns') {
+    // Shape only; the value is clamped against the configured limit host-side,
+    // so a stale panel can ask for something impossible and get the ceiling.
     return typeof message.payload === 'number' && Number.isFinite(message.payload);
   }
 

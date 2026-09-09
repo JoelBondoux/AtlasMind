@@ -60,7 +60,7 @@ explanation at every step. See [[GitHub Workflow]] and [[Delivery]].
 
 **Design an interface and carry it into the project.** Use screens, content, wireframes, UI system and
 implementation handoff for any UI, with full-canvas review in VS Code's built-in browser and a responsive
-inspection lab; website profiles add protected delivery. See [[Website Studio|UI Studio]].
+inspection lab; a website's delivery half lives on the Dashboard's Delivery page. See [[Website Studio|UI Studio]].
 
 **Work from the terminal.** The same orchestrator, agents and safety rules without opening the editor.
 See [[CLI]].

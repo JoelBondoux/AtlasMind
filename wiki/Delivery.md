@@ -183,10 +183,21 @@ that doesn't genuinely restore service is worse than knowing you don't have one.
 
 ---
 
+## Website delivery
+
+A website plan's delivery half — the framework, the three hosting environments (Develop, Staging,
+Production), the platform targets and the n8n workflow map — is a card on this page since 0.474.0,
+moved from UI Studio because choosing a host is a delivery decision. Frameworks are graded against
+the primary platform with the reason on the card; each environment shows its readiness; the drift
+against the pipeline above is checked on every render; **Set up this stack** appears only when
+`atlasmind.website.setup.enabled` is on, and plans, shows and confirms before it runs anything.
+Nothing on the card deploys or triggers a workflow. Password and credential values are never
+stored — only references such as `SecretStorage:website.staging.password`.
+
 ## Related
 
 - [[GitHub Workflow]] — the eight-stage workflow this is part of
 - [[Project Planner]] — autonomous runs route deployments through here rather than deploying directly
 - [[Tool Execution]] — the approval model shared with the rest of AtlasMind
-- [[Website Studio|UI Studio]] — the Develop → Staging → Production path for website profiles
+- [[Website Studio|UI Studio]] — where the website is designed; its delivery half is the card above
 - [[Security]] — these boundaries in their wider context

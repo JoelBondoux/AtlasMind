@@ -2182,6 +2182,8 @@ export interface UiDesignScreen {
   /** False preserves the meaningful legacy state "this screen has not been drawn". */
   initialized: boolean;
   baseBreakpoint: WireframeBreakpoint;
+  /** The brand this screen wears, when not the default. Resolved by `resolveScreenBrand`. */
+  brandRef?: string;
   nodes: UiDesignNode[];
 }
 
@@ -2318,12 +2320,30 @@ export interface WebsitePageLink {
   origin: 'declared' | 'derived';
 }
 
+/**
+ * Where a surface came from, when it was picked up out of the project rather
+ * than designed here.
+ *
+ * Recorded at the moment of pick-up and never inferred afterwards: a page whose
+ * title happens to match a file is not that file. The path is the one the scan
+ * classified, so it is workspace-relative and already passed the scan's own
+ * exclusion rules; the adapter and rule say why it was offered at all.
+ */
+export interface WebsitePageSource {
+  path: string;
+  adapterId: UiRepositoryAdapterId;
+  ruleId: string;
+  pickedUpAt: string;
+}
+
 /** One page moving from sitemap through wireframe, visual design, content, and SEO review. */
 export interface WebsitePagePlan {
   id: string;
   title: string;
   slug: string;
   purpose: string;
+  /** Present when this surface was picked up from a file the scan found. */
+  source?: WebsitePageSource;
   template: string;
   sections: string[];
   wireframeNotes: string;
@@ -2353,6 +2373,35 @@ export interface WebsitePagePlan {
 }
 
 /** Project-level UI direction. Values are design decisions, never generated CSS or executable code. */
+/** Where a brand preset came from, so a derived one can be checked against its source. */
+export interface BrandPresetSource {
+  /** `legacy-design-system` folds the old flat fields; `stylesheet-custom-properties` reads a file. */
+  ruleId: 'legacy-design-system' | 'stylesheet-custom-properties';
+  /** Workspace-relative, for a stylesheet. Absent for the legacy fold. */
+  path?: string;
+  extractedAt: string;
+}
+
+/**
+ * One named set of design decisions, applied to many surfaces by alias.
+ *
+ * `tokens` hold **direct values only**, keyed by the role ids in
+ * `brandPresets.ts` (`color-primary`, `font-heading`, …) — the same ids the
+ * preview reads. A preset token that aliased another would make "what is
+ * primary" depend on something outside the preset, which is the two-sources
+ * problem this type exists to end. Applying a preset materialises its tokens
+ * into the graph as `brand-<preset>-<role>` and points the role tokens at them;
+ * see `applyBrandPresets`.
+ */
+export interface BrandPreset {
+  id: string;
+  label: string;
+  tokens: UiDesignToken[];
+  notes?: string;
+  /** Present when the preset was derived rather than authored. */
+  source?: BrandPresetSource;
+}
+
 export interface WebsiteDesignSystem {
   brandDirection: string;
   tone: string;
@@ -2474,9 +2523,11 @@ export interface WebsiteStackChoice {
  * Version 11 adds validated asset metadata and stable node references; migration
  * adds an empty asset authority rather than inspecting or guessing from files.
  * Version 13 adds bounded adapter evidence reports to revisioned repository mappings.
+ * Version 14 adds brand presets and a default; migration folds a *changed* legacy design
+ * system into the first preset and invents nothing for one still at its defaults.
  */
 export interface WebsiteWorkspaceConfig {
-  version: 13;
+  version: 14;
   updatedAt: string;
   /** Which profile the shared UI-design core is serving. Defaults to website for migrated workspaces. */
   surfaceKind: UiSurfaceKind;
@@ -2488,6 +2539,18 @@ export interface WebsiteWorkspaceConfig {
   designPrompt: string;
   pages: WebsitePagePlan[];
   designGraph: UiDesignGraph;
+  /**
+   * Named brands. The role tokens in `designGraph.tokens` alias whichever is
+   * the default; a screen may name another with `brandRef`.
+   */
+  brands: BrandPreset[];
+  /** The preset the role tokens follow. Absent means no brand is in effect. */
+  defaultBrandId?: string;
+  /**
+   * Kept for the readers that still consume it, and **projected from the
+   * default preset on every sanitize** where one exists — the wireframe idiom,
+   * where a derived structure is rebuilt rather than asked to agree.
+   */
   designSystem: WebsiteDesignSystem;
   contentDesign: UiContentDesign;
   implementation: UiImplementationGuide;
@@ -2496,6 +2559,58 @@ export interface WebsiteWorkspaceConfig {
   automations: WebsiteAutomation[];
   /** The framework/platform pairing. Absent until somebody picks one. */
   stack?: WebsiteStackChoice;
+}
+
+// ── UI Studio: emitted surfaces ──────────────────────────────────
+
+/**
+ * Where a designed surface can be emitted to. `web`, `unity-uitoolkit` and
+ * `godot-control` produce source the engine loads; the other three produce a
+ * handoff specification, because their syntax was not verified and a plausible
+ * wrong source file costs more than a document somebody reads.
+ */
+export type UiEmitTargetId =
+  | 'web'
+  | 'unity-uitoolkit'
+  | 'godot-control'
+  | 'unreal-umg'
+  | 'swiftui'
+  | 'compose';
+
+/**
+ * One node's copy region in an emitted file, keyed by the node id so a later
+ * content update can find it by anchor rather than by position.
+ *
+ * Two fingerprints, deliberately separate: `regionFingerprint` is the region
+ * text as last written by AtlasMind, so a hand edit inside it is detectable;
+ * `copyFingerprint` is the Studio copy it was rendered from, so a change in
+ * Studio is detectable. Neither implies the other.
+ */
+export interface UiEmitAnchor {
+  nodeId: string;
+  filePath: string;
+  regionFingerprint: string;
+  copyFingerprint: string;
+  /** Target-owned rendering facts the region needs again (parent path, indent). */
+  context?: Record<string, string>;
+}
+
+/**
+ * What one emit wrote and what it recorded about it. Committed beside the
+ * workspace (`project_memory/domain/ui-emit/`), because it is the record of who
+ * owns the layout from now on, and a teammate needs to see that too.
+ */
+export interface UiEmitManifest {
+  version: 1;
+  targetId: UiEmitTargetId;
+  screenId: string;
+  pageId: string;
+  emittedAt: string;
+  /** Set on every content patch after the emit; never on the emit itself. */
+  contentUpdatedAt?: string;
+  graphRevision: number;
+  files: Array<{ path: string; fingerprint: string; shared: boolean }>;
+  anchors: UiEmitAnchor[];
 }
 
 // ── Delivery / Deployment Stages ─────────────────────────────────
@@ -3172,6 +3287,39 @@ export interface TeamMember {
 }
 
 /**
+ * A period somebody is away or on reduced hours.
+ *
+ * **Declared, never derived.** AtlasMind reads no calendar and infers nothing
+ * from quiet days: the rule that capacity is declared rather than observed
+ * applies with more force to whether somebody is on holiday.
+ *
+ * The asymmetry with `TeamMember.allocation` is deliberate and load-bearing.
+ * Nobody writes down "I am not away", so **no entry means nothing was
+ * recorded**, not "available all week" — while an absent *allocation* must
+ * never read as a full week. Silence means the opposite thing on each side, and
+ * both readings err away from handing somebody work they cannot take.
+ *
+ * Graded and joined by `teamWorkload.ts`.
+ */
+export interface RotaEntry {
+  id: string;
+  contactId: string;
+  /** Inclusive ISO calendar date, `YYYY-MM-DD`. */
+  from: string;
+  /** Inclusive ISO calendar date, `YYYY-MM-DD`. */
+  to: string;
+  /**
+   * `away` removes the days from the window; `reduced` is recorded and shown
+   * but deliberately does not alter the total, because "half days that week" is
+   * not a figure anybody stated precisely enough to subtract.
+   */
+  kind: 'away' | 'reduced';
+  /** For `reduced`, the days per week still available. Ignored for `away`. */
+  reducedDaysPerWeek?: number;
+  note?: string;
+}
+
+/**
  * An area of ownership. `ownerContactId` is the single accountable owner;
  * `backupContactId` names a fallback. A full RACI matrix is deferred.
  */
@@ -3367,6 +3515,14 @@ export interface ProjectDirectorConfig {
   contacts: DirectorContact[];
   stakeholders: Stakeholder[];
   teamMembers: TeamMember[];
+  /**
+   * Declared absence, for the team workload reading.
+   *
+   * Optional so a document written before this existed still validates — and
+   * because an absent array genuinely means "nothing recorded", which is what
+   * the reading treats it as.
+   */
+  rota?: RotaEntry[];
   responsibilities: Responsibility[];
   /**
    * Edited or custom workflow roles, merged over the built-ins on read.

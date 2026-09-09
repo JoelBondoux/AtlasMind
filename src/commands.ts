@@ -483,9 +483,68 @@ export function registerCommands(
     );
   };
 
+  /**
+   * Write the Pages deploy workflow, once, after saying what it means.
+   *
+   * GitHub Pages cannot serve an arbitrary folder, so the prepared site needs a
+   * workflow to upload it. Three properties matter and all three are visible in
+   * the code rather than only in the dialog: the YAML is a **constant** in
+   * `producerPortalPlan` (executable content with permission to publish is not
+   * something a model should be writing), the write is **create-only** (an
+   * existing file is somebody's, possibly edited, and is never overwritten),
+   * and the workflow runs on **manual dispatch only** — adding it publishes
+   * nothing, and each publication stays an act.
+   */
+  const addProducerPortalWorkflow = async (): Promise<void> => {
+    const folder = vscode.workspace.workspaceFolders?.[0];
+    if (!folder) {
+      void vscode.window.showInformationMessage('Open a project folder first.');
+      return;
+    }
+    const [{ producerPortalWorkflow, PRODUCER_PORTAL_WORKFLOW_PATH }, fs, path] = await Promise.all([
+      import('./core/producerPortalPlan.js'),
+      import('node:fs/promises'),
+      import('node:path'),
+    ]);
+    const root = folder.uri.fsPath;
+    const config = vscode.workspace.getConfiguration('atlasmind');
+    const sitePath = `${config.get<string>('ssotPath', 'project_memory')}/operations/producer-site`;
+    const target = path.join(root, PRODUCER_PORTAL_WORKFLOW_PATH);
+
+    try {
+      await fs.stat(target);
+      void vscode.window.showInformationMessage(
+        `${PRODUCER_PORTAL_WORKFLOW_PATH} already exists and was left alone. Delete it first if you want a fresh copy.`,
+      );
+      return;
+    } catch { /* absent, which is the case this command is for. */ }
+
+    const confirmed = await vscode.window.showWarningMessage(
+      `Add ${PRODUCER_PORTAL_WORKFLOW_PATH}?`,
+      {
+        modal: true,
+        detail: [
+          'It uploads the prepared report folder to GitHub Pages when you run it manually. It has no push trigger, so adding it publishes nothing.',
+          '',
+          `Uploads: ${sitePath}`,
+          '',
+          'A GitHub Pages site is public even when the repository is private, unless you are on Enterprise Cloud. Turning Pages on stays your decision, on GitHub.',
+        ].join('\n'),
+      },
+      'Write the workflow',
+    );
+    if (confirmed !== 'Write the workflow') { return; }
+
+    await fs.mkdir(path.dirname(target), { recursive: true });
+    await fs.writeFile(target, producerPortalWorkflow(sitePath), 'utf8');
+    const document = await vscode.workspace.openTextDocument(vscode.Uri.file(target));
+    await vscode.window.showTextDocument(document, { preview: false });
+  };
+
   context.subscriptions.push(
     vscode.commands.registerCommand('atlasmind.generateProducerReport', generateProducerReport),
     vscode.commands.registerCommand('atlasmind.publishProducerReport', publishProducerReport),
+    vscode.commands.registerCommand('atlasmind.addProducerPortalWorkflow', addProducerPortalWorkflow),
 
     vscode.commands.registerCommand('atlasmind.openGettingStarted', async () => {
       await vscode.commands.executeCommand(
@@ -1664,6 +1723,68 @@ export function registerCommands(
       if (!atlas) { return; }
       const { ProjectDashboardPanel } = await import('./views/projectDashboardPanel.js');
       ProjectDashboardPanel.createOrShow(atlas.extensionContext, atlas, 'director');
+    }),
+
+    // ── Codebase index ───────────────────────────────────────────
+    //
+    // Two commands, and the split is deliberate: building costs time and, on a
+    // remote embedder, would cost privacy, so it is an explicit act behind a
+    // confirmation that names what leaves the machine. Searching is free and
+    // needs none.
+    // One press: gather, narrow, prepare and publish. Every refusal and the
+    // single confirmation live in `portalPublishPlan`, so the words somebody
+    // agrees to are the words the module composed.
+    // Replay an agent's golden cases on request. The same cases gate the
+    // unattended rewrite; this is how somebody sees the result and decides
+    // whether to accept it as the new baseline.
+    vscode.commands.registerCommand('atlasmind.runAgentEvals', async () => {
+      const atlas = requireAtlas();
+      if (!atlas) { return; }
+      const { runAgentEvalSuite } = await import('./views/agentEvalRunner.js');
+      await runAgentEvalSuite({
+        agents: atlas.agentRegistry,
+        router: atlas.modelRouter,
+        providers: atlas.providerRegistry,
+        workspaceRoot: () => vscode.workspace.workspaceFolders?.[0]?.uri.fsPath,
+      });
+    }),
+
+    // Read declared absence out of a calendar the team's rota app exported.
+    // Nothing is fetched: a calendar feed URL is a credential, so the person
+    // downloads the file and picks it here.
+    vscode.commands.registerCommand('atlasmind.importRota', async () => {
+      const root = vscode.workspace.workspaceFolders?.[0]?.uri.fsPath;
+      if (!root) {
+        void vscode.window.showWarningMessage('Open a workspace folder before importing a rota.');
+        return;
+      }
+      const [{ importRotaFromCalendar }, director] = await Promise.all([
+        import('./views/rotaImportCommand.js'),
+        import('./core/projectDirectorManager.js'),
+      ]);
+      await importRotaFromCalendar({
+        config: () => director.readProjectDirectorConfig(root),
+        save: async config => { await director.writeProjectDirectorConfig(root, config); },
+      });
+    }),
+
+    vscode.commands.registerCommand('atlasmind.buildAndPublishPortal', async () => {
+      const { buildAndPublishPortal } = await import('./views/portalPublishCommand.js');
+      await buildAndPublishPortal();
+    }),
+
+    vscode.commands.registerCommand('atlasmind.buildCodebaseIndex', async () => {
+      const atlas = requireAtlas();
+      if (!atlas) { return; }
+      const { buildCodebaseIndexCommand } = await import('./views/codebaseIndexCommands.js');
+      await buildCodebaseIndexCommand(atlas);
+    }),
+
+    vscode.commands.registerCommand('atlasmind.searchCodebase', async (query?: string) => {
+      const atlas = requireAtlas();
+      if (!atlas) { return; }
+      const { searchCodebaseCommand } = await import('./views/codebaseIndexCommands.js');
+      await searchCodebaseCommand(atlas, typeof query === 'string' ? query : undefined);
     }),
 
     vscode.commands.registerCommand('atlasmind.openProjectIdeation', async (target?: import('./views/projectIdeationPanel.js').ProjectIdeationOpenTarget) => {

@@ -103,6 +103,43 @@ export interface AttentionInput {
   documents?: { reviewDue: number; missing: number };
   risk?: { assessed: boolean; open: number };
   debt?: { scanned: boolean; open: number; high: number };
+  /**
+   * Recorded defects — and **only once something has been recorded**.
+   *
+   * The one group with no `unassessed` rule, deliberately. Every other register
+   * here can be *assessed*: a scan can be run, an advisor can be asked, a report
+   * can be read, so "never looked" is a real state somebody can clear. A defect
+   * register cannot be — recording a defect means finding one, and an item
+   * saying "no defects recorded" would nag a project that genuinely has none
+   * found, permanently and with no action that would satisfy it.
+   *
+   * So an empty register supplies no group at all. That keeps rule 5 intact from
+   * the other direction: it is not counted toward the groups that let the page
+   * claim `clear`, so an unused register makes the Overview read `unexamined`
+   * rather than silently reassuring.
+   */
+  defects?: { openBlockers: number; awaitingVerification: number };
+  /**
+   * Change approvals — and, like defects, **only once something has been
+   * raised**, for the same reason: an approval register cannot be *assessed*,
+   * and an item reading "no approvals recorded" would nag a project that does
+   * not use them with nothing that could satisfy it.
+   *
+   * `unrouted` is separate from `awaitingMe` because they need opposite
+   * reactions: one waits on a decision, the other waits on somebody being given
+   * the role, and a pending request nobody can decide will wait forever while
+   * looking exactly like one that is working.
+   */
+  approvals?: { awaitingMe: number; unrouted: number; stale: number };
+  /**
+   * Manual test cases, and again **only once something has been written down**.
+   *
+   * `staleResults` is the one worth having: a case that passed, and whose steps
+   * somebody has since rewritten, still reads as green on every other surface.
+   * It is not a failure and it is not a pass — it is a result for a different
+   * test, and nothing else on the dashboard can see it.
+   */
+  testCases?: { failing: number; criticalNeverRun: number; staleResults: number };
   release?: { blockedGates: number };
   delivery?: { blockedPaths: number };
   workflow?: { nextStepBlocked: boolean; nextStepTitle?: string };
@@ -170,6 +207,22 @@ const RULES: readonly AttentionRule[] = [
     pageTarget: 'pipeline',
     evaluate: input => (input.pipeline?.loaded && input.pipeline.latestFailed
       ? { label: 'CI is red', detail: 'The most recent run on this branch failed. The Pipeline page classifies why.' }
+      : undefined),
+  },
+  {
+    // Below CI: a red pipeline stops the whole team, a blocker defect is loose
+    // in something already shipped. Both are `now`; the ordering between them
+    // is the declared editorial call, not a count.
+    id: 'defect-blockers',
+    urgency: 'now',
+    rule: 'any open defect graded blocker by the register\'s rule table',
+    pageTarget: 'defects',
+    evaluate: input => (input.defects && input.defects.openBlockers > 0
+      ? {
+        label: `${input.defects.openBlockers} blocker defect${input.defects.openBlockers === 1 ? '' : 's'} open`,
+        detail: 'Graded blocker because it loses work, exposes something, or breaks a path most people take — never because somebody called it urgent.',
+        count: input.defects.openBlockers,
+      }
       : undefined),
   },
   {
@@ -263,6 +316,102 @@ const RULES: readonly AttentionRule[] = [
         label: `${input.debt.high} high-severity debt`,
         detail: 'Graded by the register\'s published rule table, so the grade is comparable with last month\'s.',
         count: input.debt.high,
+      }
+      : undefined),
+  },
+  {
+    // Above the merely-due items: somebody else's work is stopped until this
+    // is answered, which is a different kind of waiting from your own backlog.
+    id: 'approvals-awaiting-me',
+    urgency: 'now',
+    rule: 'any approval request routed to you and still pending',
+    pageTarget: 'approvals',
+    evaluate: input => (input.approvals && input.approvals.awaitingMe > 0
+      ? {
+        label: `${input.approvals.awaitingMe} approval${input.approvals.awaitingMe === 1 ? '' : 's'} waiting on you`,
+        detail: 'Pending is not approved, and there is deliberately no timeout that grants one. Until you decide, this stays exactly where it is.',
+        count: input.approvals.awaitingMe,
+      }
+      : undefined),
+  },
+  {
+    // With the failures rather than below them: a manual case that failed is a
+    // person having watched the software do the wrong thing, which is at least
+    // as strong a signal as a red pipeline.
+    id: 'test-cases-failing',
+    urgency: 'now',
+    rule: 'any live manual test case whose last recorded result was a failure',
+    pageTarget: 'testing',
+    evaluate: input => (input.testCases && input.testCases.failing > 0
+      ? {
+        label: `${input.testCases.failing} manual test${input.testCases.failing === 1 ? '' : 's'} failing`,
+        detail: 'Somebody ran these and watched them fail. That is a person’s observation, not a scanner’s inference.',
+        count: input.testCases.failing,
+      }
+      : undefined),
+  },
+  {
+    id: 'test-cases-stale-results',
+    urgency: 'soon',
+    rule: 'any manual test case whose last result predates an edit to the case',
+    pageTarget: 'testing',
+    evaluate: input => (input.testCases && input.testCases.staleResults > 0
+      ? {
+        label: `${input.testCases.staleResults} test result${input.testCases.staleResults === 1 ? '' : 's'} predate the case`,
+        detail: 'These passed against steps somebody has since rewritten, so they are results for a different test. Not a failure, and certainly not a pass.',
+        count: input.testCases.staleResults,
+      }
+      : undefined),
+  },
+  {
+    id: 'test-cases-critical-never-run',
+    urgency: 'soon',
+    rule: 'any critical-priority manual case nobody has ever run',
+    pageTarget: 'testing',
+    evaluate: input => (input.testCases && input.testCases.criticalNeverRun > 0
+      ? {
+        label: `${input.testCases.criticalNeverRun} critical case${input.testCases.criticalNeverRun === 1 ? ' has' : 's have'} never been run`,
+        detail: 'Graded critical because the path can lose data, expose something, or is a journey most people take. A case that was not run is never a pass.',
+        count: input.testCases.criticalNeverRun,
+      }
+      : undefined),
+  },
+  {
+    id: 'approvals-stale',
+    urgency: 'soon',
+    rule: 'any approval given against content that has since changed',
+    pageTarget: 'approvals',
+    evaluate: input => (input.approvals && input.approvals.stale > 0
+      ? {
+        label: `${input.approvals.stale} approval${input.approvals.stale === 1 ? '' : 's'} no longer describe what is there`,
+        detail: 'These were approved and the thing they approved has changed since. An approval that carries over to text nobody signed is worse than no approval at all.',
+        count: input.approvals.stale,
+      }
+      : undefined),
+  },
+  {
+    id: 'approvals-unrouted',
+    urgency: 'soon',
+    rule: 'any pending approval with nobody holding the role it routes to',
+    pageTarget: 'approvals',
+    evaluate: input => (input.approvals && input.approvals.unrouted > 0
+      ? {
+        label: `${input.approvals.unrouted} approval${input.approvals.unrouted === 1 ? ' has' : 's have'} no approver`,
+        detail: 'Nobody on the roster holds the role these route to, so they will wait forever. AtlasMind will not reassign them — a substituted approver reads later as somebody having agreed.',
+        count: input.approvals.unrouted,
+      }
+      : undefined),
+  },
+  {
+    id: 'defects-awaiting-verification',
+    urgency: 'soon',
+    rule: 'any defect marked fixed that nobody has verified',
+    pageTarget: 'defects',
+    evaluate: input => (input.defects && input.defects.awaitingVerification > 0
+      ? {
+        label: `${input.defects.awaitingVerification} fix${input.defects.awaitingVerification === 1 ? '' : 'es'} unverified`,
+        detail: 'A fix nobody checked is a claim. These are not counted as done, and a release should not assume they are.',
+        count: input.defects.awaitingVerification,
       }
       : undefined),
   },
@@ -485,7 +634,9 @@ export function buildAttentionFeed(input: AttentionInput): AttentionFeed {
     const assessed = [
       input.testing, input.pipeline, input.issues, input.ssot, input.director,
       input.documents, input.risk, input.debt, input.release, input.delivery, input.workflow,
-      input.research, input.capacity,
+      // `defects` is supplied only once something has been recorded, so an
+      // unused register cannot help the page claim it is clear.
+      input.research, input.capacity, input.defects, input.approvals, input.testCases,
     ].filter(group => group !== undefined).length;
     feed.emptyState = assessed >= 4 ? 'clear' : 'unexamined';
   }

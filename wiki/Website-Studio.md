@@ -209,6 +209,10 @@ and they're two switches rather than one because they're genuinely two different
 
 ## Choosing a stack, and having it set up for you
 
+> Since 0.474.0 this lives on **Project Dashboard → Delivery**, as the *Website delivery* card beside
+> the pipeline. The Studio's Handoff view has an **Open Delivery** button. Everything below still
+> holds; only the page changed.
+
 The framework and the host are one choice, not two. "Astro on Cloudflare Pages" decides your build
 command, your output directory and your deploy config together — so picking them on separate pages
 just meant you had to already know which combinations work.
@@ -384,6 +388,9 @@ Anything missing from the import **leaves your existing value alone** rather tha
 
 ## The three environments
 
+> Edited on **Project Dashboard → Delivery** since 0.474.0, beside the pipeline they are compared
+> against. The comparison now runs on every render rather than behind a button.
+
 Every project gets the same three-stage path, and the rules for each are fixed:
 
 | Environment | How it's hosted | What it's for |
@@ -404,6 +411,9 @@ Passwords are never stored. What's saved is a *reference* — `SecretStorage:web
 ---
 
 ## Website Studio plans; it doesn't deploy
+
+> Platform targets and the n8n map are edited on **Project Dashboard → Delivery** since 0.474.0.
+> The rule is unchanged: nothing there deploys or triggers a workflow either.
 
 Platform readiness here is **descriptive only** — `not-planned`, `planned`, `configured`, `live` or
 `blocked`, with at most one primary target. Choosing a platform doesn't push anything anywhere.
