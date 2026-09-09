@@ -6,6 +6,43 @@ The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/),
 
 ## [Unreleased]
 
+## [0.474.0] - 2026-09-09
+
+### Changed
+
+- **Website delivery lives on the Dashboard's Delivery page now, not in UI Studio.** The framework
+  choice, the three hosting environments, the platform targets and the n8n workflow map were a Studio
+  page for three layouts. They are delivery decisions — where the site is built and shipped — so they
+  now sit on the Project Dashboard's Delivery page as a **Website delivery** card, directly beside the
+  pipeline that promotes it. Every framework is still graded against the primary platform with the
+  reason on the card and an unsupported pairing still visible; each environment still shows its
+  readiness and its issues; the setup button is withheld until `atlasmind.website.setup.enabled` is
+  on and says so. **The drift check runs on every render**: with the Delivery pipeline on the same
+  page there is no longer a Compare button to press, and a project with no pipeline says so rather
+  than showing a clean blank. The card appears only for a website plan of the website profile.
+- **UI Studio's Handoff view points there**, and the Studio has no Delivery view. The old step ids
+  `stack`, `platforms` and `automations` deep-link to Handoff, which carries an *Open Delivery*
+  button that opens the Dashboard on its Delivery page by a constant target. The Studio's hero copy
+  says where delivery went.
+
+### Fixed
+
+- **A Studio save can no longer undo a Delivery save, or drop the stack choice.** The Studio form
+  never carried the framework choice, so saving the Studio silently discarded it; and with two
+  surfaces writing one file, a save from either could overwrite the other's fields with a stale copy.
+  Both writers now re-read the plan from disk at the moment of the save and touch only what they own:
+  the Dashboard saves the three delivery arrays and the stack, the Studio saves everything else.
+
+### Security
+
+- The Dashboard's three new messages are bounded and closed: `saveWebsiteDelivery` carries exactly
+  three arrays (at most 20 platforms, 3 environments, 50 automations) and nothing else, and the
+  website manager rebuilds the fixed environment policies on save, so no message can make Staging
+  public or strip the Production guard; `selectWebsiteFramework` is checked against the catalog, since
+  the id chooses which constant command the setup planner runs; the Studio's `openDeliveryPage`
+  carries no payload and opens a constant target. `tests/views/websiteDeliverySurface.test.ts` pins
+  all three and the two-writer rule.
+
 ## [0.473.0] - 2026-09-09
 
 ### Added

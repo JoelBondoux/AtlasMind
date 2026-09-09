@@ -419,7 +419,7 @@ UI Studio follows the same extension-host/webview split while retaining the comp
 views. The rail (`renderSurfacesRail`) lists what the workspace scan found and has not yet been picked
 up, every surface designed here (found or drawn — a found one carries `WebsitePagePlan.source`), and the
 brands; the views (`renderViewStrip`) are `design` (canvas, inspector and the preview card together),
-`structure`, `brands`, `content`, `handoff`, `delivery` (websites only) and `brief`, with `design` the
+`structure`, `brands`, `content`, `handoff` and `brief`, with `design` the
 landing view. The eight numbered step ids the Studio used until 0.471.0 survive only in `RENAMED_PAGES`,
 each resolving to the view its content went to. Non-website profiles never render SEO, stack, hosting,
 Delivery comparison, or n8n controls. Every incoming message is checked by `isWebsiteStudioMessage()` and
@@ -436,6 +436,16 @@ lost. `handlePushSurfaceContent` shows each region before and after beside every
 the files the plan names; `handleLaunchSurface` opens a web page externally, shows Unity's argv to copy,
 and runs Godot through `spawn` with an argument vector and no shell after a modal that shows the argv.
 Manifests are read as untrusted (`sanitizeUiEmitManifest`) through a bounded, workspace-contained read.
+
+Website delivery — the framework, hosting environments, platform targets and n8n automations — is
+rendered by the Project Dashboard's Delivery page (`renderWebsiteDelivery` in `media/projectDashboard.js`)
+from `DashboardWebsiteDelivery`, which `buildWebsiteDeliveryView` (pure, exported from
+`projectDashboardPanel.ts`) derives from the saved plan on every snapshot. The webview posts
+`saveWebsiteDelivery` (three bounded arrays), `selectWebsiteFramework` (a catalog id) and
+`planWebsiteStackSetup`; the host re-reads the plan from disk at the moment of a save and writes only the
+delivery fields, and the Studio's own save re-reads those same fields from disk, so the two writers of
+`website.json` cannot undo each other. The Studio's Handoff view carries an *Open Delivery* button that
+posts `openDeliveryPage`, which the host resolves to a constant target.
 
 Format v14 adds brand presets (`brands`, `defaultBrandId`, and `brandRef` on a screen). The migration folds a *changed* legacy design system into the first preset and adds an empty list for one still at its defaults; on every sanitize the graph's role tokens are re-pointed at the default preset by alias and the legacy `designSystem` fields are projected from it, so the two cannot disagree. Format v13 adds bounded adapter evidence/capability/loss reports; v12 added revisioned repository mappings and host-created verification fingerprints; v11 added validated asset metadata and stable node assignments; v10 added bounded sample-data collections and explicit node bindings; v9 added optional node-owned content-state presentations; v8 added reusable component definitions and explicit instances; v7 added typed
 tokens and v6 introduced screens/nodes. `uiDesignGraph.ts` is the only compatibility converter and system-definition sanitizer: when a graph is

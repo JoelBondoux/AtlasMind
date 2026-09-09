@@ -1855,28 +1855,8 @@
       return;
     }
 
-    const frameworkCard = event.target.closest('[data-framework]');
-    if (frameworkCard) {
-      // Data only: the id names a catalog entry, and the panel decides what that
-      // entry means. The webview never names a command to run.
-      vscode.postMessage({ type: 'selectFramework', payload: { frameworkId: frameworkCard.dataset.framework } });
-      qsa('[data-framework]').forEach(card => {
-        const selected = card === frameworkCard;
-        card.classList.toggle('selected', selected);
-        card.setAttribute('aria-pressed', selected ? 'true' : 'false');
-      });
-      return;
-    }
-
-    if (event.target.id === 'planStackSetup') {
-      vscode.postMessage({ type: 'planStackSetup' });
-      notice('Working out what setting this stack up would involve…');
-      return;
-    }
-
-    if (event.target.id === 'syncToDelivery') {
-      vscode.postMessage({ type: 'compareDelivery' });
-      notice('Comparing with the Delivery pipeline…');
+    if (event.target.id === 'openDeliveryPage') {
+      vscode.postMessage({ type: 'openDeliveryPage' });
       return;
     }
 
@@ -1983,36 +1963,8 @@
       };
     });
 
-    const platforms = qsa('[data-platform-id]').map(card => ({
-      id: card.dataset.platformId,
-      label: qs('h2', card)?.textContent ?? card.dataset.platformId,
-      primary: qs('input[name="primaryPlatform"]', card)?.checked === true,
-      status: value('.platform-status', card),
-      siteUrl: value('.platform-siteUrl', card),
-      projectReference: value('.platform-projectReference', card),
-      environmentReference: value('.platform-environmentReference', card),
-      notes: value('.platform-notes', card),
-    }));
-    const hostingEnvironments = qsa('[data-environment-id]').map(card => ({
-      id: card.dataset.environmentId,
-      hostingMode: value('.environment-hostingMode', card) || card.dataset.hostingMode,
-      url: value('.environment-url', card),
-      branchReference: value('.environment-branchReference', card),
-      credentialReference: value('.environment-credentialReference', card),
-      subdomainLabel: value('.environment-subdomainLabel', card),
-      notes: value('.environment-notes', card),
-    }));
-    const automations = qsa('[data-automation-id]').map(card => ({
-      id: card.dataset.automationId,
-      name: value('.automation-name', card),
-      event: value('.automation-event', card),
-      outcome: value('.automation-outcome', card),
-      status: value('.automation-status', card),
-      n8nWorkflowId: value('.automation-workflowId', card),
-      instanceUrl: value('.automation-instanceUrl', card),
-      credentialReference: value('.automation-credentialReference', card),
-      dataNotes: value('.automation-dataNotes', card),
-    }));
+    // Platforms, hosting environments and automations are the Dashboard's to
+    // edit; the host re-reads them from disk on save, so they are not carried.
 
     return {
       version: 14,
@@ -2065,9 +2017,6 @@
         repositoryMappingRevision,
         repositoryMappings: state.repositoryMappings,
       },
-      platforms,
-      hostingEnvironments,
-      automations,
     };
   }
 
@@ -2147,17 +2096,6 @@
     });
   }));
 
-  qsa('.environment-hostingMode').forEach(select => select.addEventListener('change', () => {
-    const card = select.closest('[data-environment-id]');
-    if (!card) { return; }
-    card.dataset.hostingMode = select.value;
-    const access = qs('.environment-accessPolicy strong', card);
-    if (access) { access.textContent = select.value === 'hosted' ? 'password-protected' : 'local-only'; }
-    notice(select.value === 'hosted'
-      ? 'Hosted Develop requires HTTPS and a password credential reference.'
-      : 'Develop restored to loopback-only local hosting. Save to persist.');
-  }));
-
   qs('#saveWebsiteStudio')?.addEventListener('click', () => {
     vscode.postMessage({ type: 'saveConfig', payload: collectConfig() });
     notice('Saving Website Studio…');
@@ -2235,29 +2173,6 @@
       + '</tr>';
   }
 
-  qs('#addWebsiteAutomation')?.addEventListener('click', () => {
-    qs('#automationEmpty')?.remove();
-    const id = makeId('automation');
-    qs('#automationCards')?.insertAdjacentHTML('beforeend', automationCardMarkup(id));
-    notice('New n8n workflow added. Add references only, then save.');
-  });
-
-  function automationCardMarkup(id) {
-    return '<article class="automation-card" data-automation-id="' + escapeAttribute(id) + '">'
-      + '<div class="card-heading"><p class="eyebrow">n8n workflow</p>'
-      + '<button type="button" class="danger subtle remove-automation" data-remove-automation="' + escapeAttribute(id) + '">Remove</button></div>'
-      + '<label class="field"><span>Workflow name</span><input class="automation-name" value="New automation" /></label>'
-      + '<label class="field"><span>Event / trigger</span><input class="automation-event" /></label>'
-      + '<label class="field"><span>Expected outcome</span><textarea class="automation-outcome" rows="4"></textarea></label>'
-      + '<label class="field"><span>Status</span><select class="automation-status">'
-      + '<option value="idea">Idea</option><option value="mapped">Mapped</option><option value="configured">Configured</option>'
-      + '<option value="verified">Verified</option><option value="paused">Paused</option></select></label>'
-      + '<div class="field-pair"><label class="field"><span>n8n workflow ID</span><input class="automation-workflowId" /></label>'
-      + '<label class="field"><span>n8n instance URL</span><input class="automation-instanceUrl" placeholder="https://n8n.example.com/" /></label></div>'
-      + '<label class="field"><span>Credential reference</span><input class="automation-credentialReference" placeholder="env:N8N_WORKFLOW_URL" /></label>'
-      + '<label class="field"><span>Data and privacy notes</span><textarea class="automation-dataNotes" rows="4"></textarea></label></article>';
-  }
-
   document.addEventListener('click', event => {
     const removePage = event.target.closest('[data-remove-id]');
     if (removePage) {
@@ -2280,16 +2195,6 @@
       markDirty();
       notice('Page removed from the draft. Any links pointing at it will be reported once you save.');
       return;
-    }
-    const removeAutomation = event.target.closest('[data-remove-automation]');
-    if (removeAutomation) {
-      if (removeAutomation.dataset.confirm !== 'true') {
-        removeAutomation.dataset.confirm = 'true';
-        removeAutomation.textContent = 'Confirm remove';
-        return;
-      }
-      removeAutomation.closest('[data-automation-id]')?.remove();
-      notice('Automation removed from the draft. Save Website Studio to persist.');
     }
   });
 

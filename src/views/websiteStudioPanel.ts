@@ -8,10 +8,8 @@ import {
   type UiSurfaceScanReport,
 } from '../core/uiSurfaceScan.js';
 import {
-  assessWebsiteHostingEnvironments,
   importClientWebsiteIntake,
   sanitizeWebsiteWorkspace,
-  WEBSITE_PLATFORM_CATALOG,
   WEBSITE_WORKSPACE_SSOT_PATH,
   WEBSITE_WORKSPACE_SUMMARY_SSOT_PATH,
   WebsiteWorkspaceManager,
@@ -38,13 +36,10 @@ import {
 import type {
   UiDesignGraph,
   UiComponentInstance,
-  WebsiteAutomationStatus,
-  WebsiteHostingEnvironment,
   WebsitePagePlan,
   UiDesignScreen,
   UiEmitManifest,
   UiEmitTargetId,
-  WebsitePlatformStatus,
   WebsiteWorkspaceConfig,
   WebsiteWorkStatus,
   WireframeBreakpoint,
@@ -56,10 +51,8 @@ import {
   type SitemapLayout,
 } from '../core/websiteSitemap.js';
 import { buildLinkGraph } from '../core/websiteLinkGraph.js';
-import { readDeliveryConfig } from '../core/deliveryManager.js';
 import { WebsiteContentManager } from '../core/websiteContentManager.js';
 import { parsePageContent, renderPageContent, type WebsitePageContent } from '../core/websiteContent.js';
-import { compareWebsiteToDelivery } from '../core/websiteDeliverySync.js';
 import { WIREFRAME_BREAKPOINTS, WIREFRAME_KIND_CATALOG } from '../core/websiteWireframe.js';
 import {
   applyUiRepositoryMappingCommand,
@@ -79,15 +72,6 @@ import {
   type WebsiteGenerationPlan,
   type WebsiteGenerationStage,
 } from '../core/websiteGeneration.js';
-import {
-  buildCommandFor,
-  describeStackCompatibility,
-  devCommandFor,
-  isWebsiteFrameworkId,
-  renderCommandLine,
-  WEBSITE_FRAMEWORK_CATALOG,
-  websiteFrameworkSpec,
-} from '../core/websiteFrameworks.js';
 import { ATLAS_DISCUSS_ACTION_CSS, ATLAS_ICON_DATA_URI, escapeHtml, getWebviewHtmlShell } from './webviewUtils.js';
 import { WEBSITE_STUDIO_CSS } from './websiteStudioStyles.js';
 import {
@@ -128,7 +112,6 @@ export type WebsiteStudioPage =
   | 'brands'
   | 'content'
   | 'handoff'
-  | 'delivery'
   | 'brief';
 
 const WEBSITE_STUDIO_PAGES = new Set<WebsiteStudioPage>([
@@ -137,7 +120,6 @@ const WEBSITE_STUDIO_PAGES = new Set<WebsiteStudioPage>([
   'brands',
   'content',
   'handoff',
-  'delivery',
   'brief',
 ]);
 
@@ -157,8 +139,10 @@ const RENAMED_PAGES: Readonly<Record<string, WebsiteStudioPage>> = {
   sitemap: 'structure',
   'ui-system': 'brands',
   stack: 'handoff',
-  platforms: 'delivery',
-  automations: 'delivery',
+  // Stack, hosting and automations moved to the Project Dashboard's Delivery
+  // page in 0.474.0; the Handoff view points there.
+  platforms: 'handoff',
+  automations: 'handoff',
 };
 
 export function isWebsiteStudioPage(value: unknown): value is WebsiteStudioPage {
@@ -198,9 +182,7 @@ export type WebsiteStudioMessage =
   | { type: 'selectPreviewTarget'; payload: { pageId: string; nodeId: string } }
   | { type: 'editDesignGraph'; payload: unknown }
   | { type: 'editRepositoryMapping'; payload: unknown }
-  | { type: 'selectFramework'; payload: { frameworkId: string } }
-  | { type: 'planStackSetup' }
-  | { type: 'compareDelivery' }
+  | { type: 'openDeliveryPage' }
   | { type: 'pickUpSurface'; payload: { path: string } }
   | { type: 'setDefaultBrand'; payload: { presetId: string } }
   | { type: 'applyBrandToScreens'; payload: { presetId: string; screenIds: string[] } }
@@ -229,8 +211,7 @@ export function isWebsiteStudioMessage(input: unknown): input is WebsiteStudioMe
     case 'openResponsivePreview':
     case 'refreshPreview':
     case 'stopPreview':
-    case 'planStackSetup':
-    case 'compareDelivery':
+    case 'openDeliveryPage':
       return true;
     case 'emitSurface': {
       // A target from the declared table, a screen id, and at most a folder and
@@ -292,12 +273,6 @@ export function isWebsiteStudioMessage(input: unknown): input is WebsiteStudioMe
       return parseUiEditCommand(message['payload']) !== undefined;
     case 'editRepositoryMapping':
       return parseUiRepositoryMappingCommand(message['payload']) !== undefined;
-    case 'selectFramework': {
-      const payload = asPayload(message['payload']);
-      // Checked against the catalog here, not merely for being a string: this
-      // id chooses which constant command the setup planner will run.
-      return payload !== undefined && isWebsiteFrameworkId(payload['frameworkId']);
-    }
     case 'saveConfig':
       return typeof message['payload'] === 'object'
         && message['payload'] !== null
@@ -445,8 +420,6 @@ export class WebsiteStudioPanel {
   private activePage: WebsiteStudioPage;
   /** Set when the file on disk was written by a newer AtlasMind. Saving is refused. */
   private readOnly = false;
-  /** Result of the last Delivery comparison. Absent means *not compared*, which the page says. */
-  private deliveryDriftSummary: string | undefined;
 
   private constructor(
     private readonly panel: vscode.WebviewPanel,
@@ -510,7 +483,6 @@ export class WebsiteStudioPanel {
       {
         readOnly: this.readOnly,
         canGenerate: isGenerationEnabled(),
-        canSetUpStack: isStackSetupEnabled(),
         pageContent: [...this.contentManager.read(this.config.pages).values()],
         contentDirectory: this.contentManager.contentDirectory,
         repositoryMappingAssessments: assessUiRepositoryMappings(
@@ -518,7 +490,6 @@ export class WebsiteStudioPanel {
           this.config.implementation.repositoryMappings,
           this.workspaceRoot,
         ),
-        ...(this.deliveryDriftSummary ? { deliveryDriftSummary: this.deliveryDriftSummary } : {}),
         ...(uiSurfaces ? { uiSurfaces } : {}),
         emittedSurfaces: this.collectEmittedSurfaces(),
         scriptContent: this.readScript(),
@@ -1130,6 +1101,20 @@ export class WebsiteStudioPanel {
           // cannot replace mapping authority or forge a verified baseline.
           payload.implementation.repositoryMappingRevision = this.config.implementation.repositoryMappingRevision;
           payload.implementation.repositoryMappings = structuredClone(this.config.implementation.repositoryMappings);
+          // Delivery — platforms, hosting, automations and the stack choice — is
+          // the Dashboard's to edit. Re-read from disk rather than from this
+          // panel's memory, so a save here cannot undo a Delivery save made
+          // since this panel rendered, and cannot drop the stack choice the
+          // form never carried.
+          const onDisk = this.manager.read().config;
+          payload.platforms = structuredClone(onDisk.platforms);
+          payload.hostingEnvironments = structuredClone(onDisk.hostingEnvironments);
+          payload.automations = structuredClone(onDisk.automations);
+          if (onDisk.stack) {
+            payload.stack = { ...onDisk.stack };
+          } else {
+            delete payload.stack;
+          }
           const rawPayload = input.payload as Record<string, unknown>;
           const expectedDesignRevision = rawPayload['designRevision'];
           const usesEditSession = Number.isSafeInteger(expectedDesignRevision);
@@ -1345,14 +1330,10 @@ export class WebsiteStudioPanel {
         case 'selectPreviewTarget':
           selectWebsitePreviewTarget(input.payload.pageId, input.payload.nodeId);
           return;
-        case 'selectFramework':
-          await this.handleSelectFramework(input.payload.frameworkId);
-          return;
-        case 'planStackSetup':
-          await vscode.commands.executeCommand('atlasmind.setUpWebsiteStack', { config: this.config });
-          return;
-        case 'compareDelivery':
-          await this.handleCompareDelivery();
+        case 'openDeliveryPage':
+          // A constant target: the Dashboard's Delivery page, where website
+          // delivery lives now. The webview names nothing.
+          await vscode.commands.executeCommand('atlasmind.openProjectDashboard', 'delivery');
           return;
         case 'pickUpSurface':
           await this.handlePickUpSurface(input.payload.path);
@@ -1488,79 +1469,10 @@ export class WebsiteStudioPanel {
     });
   }
 
-  private async handleSelectFramework(frameworkId: string): Promise<void> {
-    if (this.readOnly) {
-      await this.panel.webview.postMessage({
-        type: 'notice',
-        tone: 'error',
-        message: 'This project\'s website.json was written by a newer AtlasMind, so it is read-only.',
-      });
-      return;
-    }
-    this.config = await persistFrameworkChoice(this.manager, this.config, frameworkId);
-    this.editSession = createUiEditSession(this.config.designGraph);
-    this.render('delivery');
-    const spec = websiteFrameworkSpec(frameworkId as Parameters<typeof websiteFrameworkSpec>[0]);
-    await this.panel.webview.postMessage({
-      type: 'notice',
-      tone: 'success',
-      message: `${spec.label} recorded. Nothing has been installed — use "Set up this stack" when you are ready.`,
-    });
-  }
-
-  /**
-   * Compare with the Delivery pipeline.
-   *
-   * Comparing only. Website Studio and Delivery each hold their own copy of the
-   * three stages, and this is the surface that makes the disagreement visible;
-   * changing Delivery is a separate, confirmed action from its own page.
-   */
-  private async handleCompareDelivery(): Promise<void> {
-    const workspaceRoot = vscode.workspace.workspaceFolders?.[0]?.uri.fsPath;
-    const delivery = workspaceRoot ? readDeliveryConfig(workspaceRoot) : undefined;
-    const report = compareWebsiteToDelivery(this.config.hostingEnvironments, delivery, this.config.platforms);
-
-    this.deliveryDriftSummary = delivery
-      ? report.summary
-      : 'No Delivery pipeline is configured for this project yet, so there is nothing to compare against.';
-    this.render('delivery');
-
-    await this.panel.webview.postMessage({
-      type: 'notice',
-      tone: report.inStep ? 'success' : '',
-      message: this.deliveryDriftSummary,
-    });
-  }
-
   private async refreshPreviewIfRunning(): Promise<void> {
     const { refreshRunningWebsitePreview } = await import('./websitePreviewHost.js');
     await refreshRunningWebsitePreview();
   }
-}
-
-/**
- * Record the framework choice.
- *
- * Saved immediately rather than held until the next Save: the choice drives what
- * the setup planner would do, and a plan built from an unsaved selection would
- * describe a stack the file does not record.
- */
-async function persistFrameworkChoice(
-  manager: WebsiteWorkspaceManager,
-  config: WebsiteWorkspaceConfig,
-  frameworkId: string,
-): Promise<WebsiteWorkspaceConfig> {
-  const primaryPlatform = config.platforms.find(platform => platform.primary);
-  return manager.save({
-    ...config,
-    stack: {
-      frameworkId,
-      platformId: config.stack?.platformId ?? primaryPlatform?.id ?? 'cloudflare-pages',
-      packageManager: config.stack?.packageManager
-        ?? vscode.workspace.getConfiguration('atlasmind').get<string>('website.setup.packageManager', 'npm'),
-      decidedAt: new Date().toISOString(),
-    },
-  });
 }
 
 /**
@@ -1593,10 +1505,6 @@ export function isGenerationEnabled(): boolean {
   return vscode.workspace.getConfiguration('atlasmind').get<boolean>('website.generation.enabled', false);
 }
 
-/** Separate again from generation: scaffolding runs commands, which generation never does. */
-export function isStackSetupEnabled(): boolean {
-  return vscode.workspace.getConfiguration('atlasmind').get<boolean>('website.setup.enabled', false);
-}
 
 function generationFileLimit(): number {
   const configured = vscode.workspace
@@ -1610,14 +1518,6 @@ export interface WebsiteStudioHtmlOptions {
   readOnly?: boolean;
   /** `atlasmind.website.generation.enabled`. Controls whether Generate is offered at all. */
   canGenerate?: boolean;
-  /** `atlasmind.website.setup.enabled`. Controls whether stack setup is offered. */
-  canSetUpStack?: boolean;
-  /**
-   * Last drift comparison against the Delivery pipeline, if one has been run.
-   * Absent means *not compared*, which the page states rather than showing a
-   * reassuring blank — the two models can disagree and nobody has looked.
-   */
-  deliveryDriftSummary?: string;
   /** Screen copy read from the configured Markdown content directory. */
   pageContent?: readonly WebsitePageContent[];
   contentDirectory?: string;
@@ -1771,7 +1671,7 @@ export function getWebsiteStudioHtml(
         <div>
           <p class="eyebrow">AtlasMind · Interface design workspace</p>
           <h1>UI Studio</h1>
-          <p class="hero-copy">Pick a surface — one found in the project or one drawn here — design it beside the canvas, brand it, and hand it off. ${isWebsite ? 'Websites keep their delivery tools under Delivery.' : `${escapeHtml(surfaceKindLabel(config.surfaceKind))} · implementation-independent.`}</p>
+          <p class="hero-copy">Pick a surface — one found in the project or one drawn here — design it beside the canvas, brand it, and hand it off. ${isWebsite ? 'Stack, hosting and automations live on the Project Dashboard\'s Delivery page.' : `${escapeHtml(surfaceKindLabel(config.surfaceKind))} · implementation-independent.`}</p>
         </div>
         <div class="hero-actions">
           <button type="button" class="secondary" data-command="atlasmind.openProjectIdeation">Ideation board</button>
@@ -2366,183 +2266,47 @@ function renderPreviewCard(
   `;
 }
 
-/**
- * Framework choice, with the compatibility verdict against the chosen platform.
- *
- * Incompatible pairings stay in the list and carry their reason. Hiding them
- * would leave somebody looking for Hugo and wondering where it went; saying
- * "Shopify serves Liquid templates from its own theme system" answers the
- * question they actually had.
- */
-function renderFrameworkCard(
-  config: WebsiteWorkspaceConfig,
-  options: WebsiteStudioHtmlOptions,
-): string {
-  const primaryPlatform = config.platforms.find(platform => platform.primary);
-  const platformId = config.stack?.platformId ?? primaryPlatform?.id ?? 'cloudflare-pages';
-  const chosenFramework = config.stack?.frameworkId;
-
-  const cards = WEBSITE_FRAMEWORK_CATALOG.map(spec => {
-    const verdict = describeStackCompatibility(spec.id, platformId);
-    const selected = spec.id === chosenFramework;
-    return `
-      <button type="button"
-        class="framework-card${selected ? ' selected' : ''} compat-${escapeHtml(verdict.compatibility)}"
-        data-framework="${escapeHtml(spec.id)}"
-        aria-pressed="${selected ? 'true' : 'false'}"
-        ${options.readOnly ? 'disabled' : ''}>
-        <span class="framework-name">${escapeHtml(spec.label)}</span>
-        <span class="framework-badge">${escapeHtml(verdict.compatibility)}</span>
-        <span class="framework-desc">${escapeHtml(spec.description)}</span>
-        <span class="framework-reason">${escapeHtml(verdict.reason)}</span>
-        <span class="framework-meta">
-          ${spec.scaffold ? 'Scaffolds automatically' : 'No automatic setup'} ·
-          builds to <code>${escapeHtml(spec.outputDir)}</code>
-        </span>
-      </button>`;
-  }).join('');
-
-  const setupAvailable = options.canSetUpStack === true;
-
-  return `
-    <article class="panel-card">
-      <div class="card-heading">
-        <div>
-          <p class="eyebrow">Built with</p>
-          <h2>Framework</h2>
-          <p>Graded against ${escapeHtml(primaryPlatform?.label ?? 'the selected platform')}. Choosing one does nothing on its own — setup is a separate, confirmed step.</p>
-        </div>
-        ${setupAvailable
-          ? `<button type="button" id="planStackSetup"${chosenFramework ? '' : ' disabled'}>Set up this stack</button>`
-          : `<span class="generate-off" title="atlasmind.website.setup.enabled">Automatic setup is off</span>`}
-      </div>
-      <div class="framework-grid">${cards}</div>
-      ${chosenFramework ? renderStackSummary(config) : ''}
-    </article>
-    <article class="panel-card">
-      <div class="card-heading">
-        <div>
-          <p class="eyebrow">Cross-check</p>
-          <h2>Delivery pipeline</h2>
-          <p>These three environments are Website Studio's own. The Delivery page has its own stages with the backup, approval and rollback policy that promotions actually use.</p>
-        </div>
-        <button type="button" id="syncToDelivery"${options.readOnly ? ' disabled' : ''}>Compare with Delivery</button>
-      </div>
-      <div id="deliveryDrift" class="drift-readout" role="status" aria-live="polite">
-        ${options.deliveryDriftSummary
-          ? `<p>${escapeHtml(options.deliveryDriftSummary)}</p>`
-          : '<p class="drift-unknown">Not compared yet. Website Studio and Delivery each hold their own copy of these stages, so they can drift apart between syncs.</p>'}
-      </div>
-    </article>
-  `;
-}
-
-/** What the chosen stack implies, so the consequences are visible before setup runs. */
-function renderStackSummary(config: WebsiteWorkspaceConfig): string {
-  if (!config.stack) {
-    return '';
-  }
-  const spec = websiteFrameworkSpec(config.stack.frameworkId as Parameters<typeof websiteFrameworkSpec>[0]);
-  const manager = (config.stack.packageManager || 'npm') as Parameters<typeof buildCommandFor>[1];
-  const dev = devCommandFor(spec, manager);
-  const build = buildCommandFor(spec, manager);
-  return `
-    <div class="stack-summary">
-      <p class="eyebrow">What this means</p>
-      <dl>
-        <dt>Dev server</dt><dd>${dev ? `<code>${escapeHtml(renderCommandLine(dev.command, dev.args))}</code>` : 'No dev server — the files are served as they are.'}</dd>
-        <dt>Build</dt><dd>${build ? `<code>${escapeHtml(renderCommandLine(build.command, build.args))}</code>` : 'No build step.'}</dd>
-        <dt>Output</dt><dd><code>${escapeHtml(spec.outputDir)}</code></dd>
-      </dl>
-    </div>`;
-}
-
 function renderStackPage(
   config: WebsiteWorkspaceConfig,
   activePage: WebsiteStudioPage,
   options: WebsiteStudioHtmlOptions,
 ): string {
-  const readiness = new Map(assessWebsiteHostingEnvironments(config).map(item => [item.id, item]));
   const guide = renderImplementationGuide(config, options.uiSurfaces);
-  if (config.surfaceKind !== 'website') {
-    return `
-      <section class="studio-page${activePage === 'handoff' ? ' active' : ''}" data-page="handoff">
-        ${pageIntro('Implementation handoff', 'Keep the visual guide connected to the real project without assuming HTML. Record the technologies and source locations an agent or developer should inspect before continuing the interface.')}
-        ${renderEmitCard(config, options)}
-        ${guide}
-        <div class="callout">
-          <strong>Design intent, not code generation.</strong>
-          UI Studio records what to build and where the existing implementation lives. The normal project tools still review and edit SwiftUI, React Native, XAML, VS Code webviews, game-engine UI, or any other target through their own guarded workflow.
-        </div>
-      </section>`;
-  }
+  const isWebsite = config.surfaceKind === 'website';
   return `
     <section class="studio-page${activePage === 'handoff' ? ' active' : ''}" data-page="handoff">
-      ${pageIntro('Implementation handoff', 'Keep the visual guide connected to the real project. Record where the implementation lives, map design facts onto source, and see where the two have drifted apart.')}
+      ${pageIntro('Implementation handoff', isWebsite
+        ? 'Keep the visual guide connected to the real project. Record where the implementation lives, map design facts onto source, and see where the two have drifted apart.'
+        : 'Keep the visual guide connected to the real project without assuming HTML. Record the technologies and source locations an agent or developer should inspect before continuing the interface.')}
       ${renderEmitCard(config, options)}
       ${guide}
+      ${isWebsite ? renderDeliveryPointer() : ''}
       <div class="callout">
         <strong>Design intent, not code generation.</strong>
         UI Studio records what to build and where the existing implementation lives. The project's own tools still review and edit the source.
       </div>
     </section>
-    <section class="studio-page${activePage === 'delivery' ? ' active' : ''}" data-page="delivery">
-      ${pageIntro('Stack, hosting and setup', 'Pick what the site is built with and where it ships, then let AtlasMind scaffold it. Nothing here deploys — the guarded Delivery dashboard does that.')}
-      ${renderFrameworkCard(config, options)}
-      <div class="hosting-heading">
-        <div>
-          <p class="eyebrow">Environment pipeline</p>
-          <h2>Three deliberate hosting stages</h2>
-          <p>Develop stays local by default. Staging is a password-protected client-review subdomain. Production is public and protected from unguarded promotion.</p>
-        </div>
-      </div>
-      <div class="environment-flow">
-        ${config.hostingEnvironments.map((environment, index) => `
-          ${index > 0 ? '<div class="environment-arrow" aria-hidden="true">→</div>' : ''}
-          ${renderHostingEnvironmentCard(environment, readiness.get(environment.id))}
-        `).join('')}
-      </div>
-      <div class="callout">
-        <strong>Password references only.</strong>
-        Use a reference such as <code>SecretStorage:website.staging.password</code> or <code>env:WEBSITE_STAGING_PASSWORD</code>. UI Studio rejects raw password values and never writes them to project memory.
-      </div>
-      <div class="callout warning">
-        <strong>No one-click production deploys here.</strong>
-        UI Studio records the platform and non-secret references. Use the Project Dashboard delivery pipeline for preflight, approval, backup, publish, and verification.
-      </div>
-      <div class="hosting-heading platform-heading">
-        <div>
-          <p class="eyebrow">Publishing technology</p>
-          <h2>Platform targets</h2>
-          <p>Select the primary delivery platform and keep account, project, and environment references credential-free.</p>
-        </div>
-      </div>
-      <div class="platform-grid">
-        ${config.platforms.map(platform => {
-          const catalog = WEBSITE_PLATFORM_CATALOG.find(item => item.id === platform.id);
-          return `
-            <article class="platform-card" data-platform-id="${escapeHtml(platform.id)}">
-              <div class="platform-topline">
-                <div>
-                  <p class="eyebrow">${escapeHtml(catalog?.mode ?? 'custom')}</p>
-                  <h2>${escapeHtml(platform.label)}</h2>
-                </div>
-                <label class="primary-choice"><input type="radio" name="primaryPlatform" value="${escapeHtml(platform.id)}"${platform.primary ? ' checked' : ''} /> Primary</label>
-              </div>
-              <p>${escapeHtml(catalog?.description ?? '')}</p>
-              ${selectField('Readiness', 'platform-status', PLATFORM_STATUS_OPTIONS, platform.status)}
-              ${field('Public site URL', '', platform.siteUrl ?? '', 'https://example.com', 'platform-siteUrl')}
-              ${field('Project / site reference', '', platform.projectReference ?? '', 'Account/project label — never a credential', 'platform-projectReference')}
-              ${field('Environment reference', '', platform.environmentReference ?? '', 'e.g. production, branch name, hosting project', 'platform-environmentReference')}
-              ${textarea('Notes', '', platform.notes, 'Migration, content editing, plugin, DNS, or ownership notes.', 'platform-notes')}
-            </article>
-          `;
-        }).join('')}
-      </div>
-      <button type="button" class="secondary" data-command="atlasmind.openProjectDashboard">Open guarded Delivery dashboard</button>
-      ${renderAutomationsFragment(config)}
-    </section>
   `;
+}
+
+/**
+ * Where the website's delivery half went. Stack, hosting and automations were
+ * a Studio page for three layouts; they are delivery decisions, and they now
+ * sit beside the pipeline that acts on them. The pointer is a constant target
+ * the host opens — the webview names nothing.
+ */
+function renderDeliveryPointer(): string {
+  return `
+    <article class="panel-card delivery-pointer">
+      <div class="card-heading">
+        <div>
+          <p class="eyebrow">Moved</p>
+          <h2>Stack, hosting and automations</h2>
+          <p>The framework, the three hosting environments, the platform targets and the n8n workflow map are on the Project Dashboard's Delivery page, beside the pipeline that ships them. A save here never touches them.</p>
+        </div>
+        <button type="button" class="secondary" id="openDeliveryPage">Open Delivery</button>
+      </div>
+    </article>`;
 }
 
 /**
@@ -2693,81 +2457,6 @@ function renderImplementationGuide(config: WebsiteWorkspaceConfig, uiSurfaces?: 
     </article>`;
 }
 
-function renderHostingEnvironmentCard(
-  environment: WebsiteHostingEnvironment,
-  readiness: ReturnType<typeof assessWebsiteHostingEnvironments>[number] | undefined,
-): string {
-  const readinessStatus = readiness?.status ?? 'blocked';
-  const readinessLabel = readinessStatus === 'needs-setup' ? 'Needs setup' : readinessStatus === 'ready' ? 'Ready' : 'Blocked';
-  const urlPlaceholder = environment.id === 'develop'
-    ? 'http://localhost:3000/'
-    : environment.id === 'staging'
-      ? `https://${environment.subdomainLabel ?? 'staging'}.example.com/`
-      : 'https://www.example.com/';
-  const modeControl = environment.id === 'develop'
-    ? selectField('Hosting mode', 'environment-hostingMode', DEVELOP_HOSTING_MODE_OPTIONS, environment.hostingMode)
-    : `<div class="locked-field"><span>Hosting mode</span><strong>Hosted</strong></div>`;
-  const credentialControl = environment.id !== 'production'
-    ? field(
-        environment.id === 'develop' ? 'Password reference (hosted fallback)' : 'Password reference',
-        '',
-        environment.credentialReference ?? '',
-        environment.id === 'develop'
-          ? 'SecretStorage:website.develop.password'
-          : 'SecretStorage:website.staging.password',
-        'environment-credentialReference',
-      )
-    : '';
-  const subdomainControl = environment.id === 'staging'
-    ? field('Review subdomain label', '', environment.subdomainLabel ?? 'staging', 'staging', 'environment-subdomainLabel')
-    : '';
-
-  return `
-    <article class="environment-card environment-${escapeHtml(environment.id)}" data-environment-id="${escapeHtml(environment.id)}" data-hosting-mode="${escapeHtml(environment.hostingMode)}">
-      <div class="environment-topline">
-        <div>
-          <p class="eyebrow">0${environment.id === 'develop' ? '1' : environment.id === 'staging' ? '2' : '3'} · ${escapeHtml(environment.accessPolicy)}</p>
-          <h3>${escapeHtml(environment.name)}</h3>
-        </div>
-        <span class="readiness-pill ${escapeHtml(readinessStatus)}">${escapeHtml(readinessLabel)}</span>
-      </div>
-      <p class="environment-purpose">${escapeHtml(environment.purpose)}</p>
-      ${modeControl}
-      <div class="locked-field environment-accessPolicy"><span>Access policy</span><strong>${escapeHtml(environment.accessPolicy)}</strong></div>
-      ${field('Environment URL', '', environment.url ?? '', urlPlaceholder, 'environment-url')}
-      ${subdomainControl}
-      ${field('Branch / project reference', '', environment.branchReference ?? '', environment.id, 'environment-branchReference')}
-      ${credentialControl}
-      ${textarea('Environment notes', '', environment.notes, 'DNS, review, QA, ownership, or promotion notes.', 'environment-notes')}
-      ${environment.promotionProtected ? '<div class="guard-badge">Production promotion protected</div>' : ''}
-      ${readiness?.issues.length
-        ? `<ul class="readiness-issues">${readiness.issues.map(issue => `<li>${escapeHtml(issue)}</li>`).join('')}</ul>`
-        : '<p class="readiness-clear">Environment policy is ready.</p>'}
-    </article>
-  `;
-}
-
-function renderAutomationsFragment(config: WebsiteWorkspaceConfig): string {
-  return `
-    <div class="delivery-automations">
-      ${pageIntro('n8n automation dashboard', 'Map forms, content, CRM, notifications, analytics, and publishing workflows without copying credential or webhook values into project memory.')}
-      <div class="callout">
-        <strong>Reference secrets; never paste them.</strong>
-        Use labels such as <code>env:N8N_CONTACT_WEBHOOK_URL</code> or <code>SecretStorage:n8n.contact</code>. URLs containing credentials, queries, or fragments are rejected.
-      </div>
-      <div class="card-heading">
-        <div><h2>Workflow map</h2><p>Triggering is intentionally separate from planning and verification.</p></div>
-        <button type="button" id="addWebsiteAutomation">Add automation</button>
-      </div>
-      <div id="automationCards" class="automation-grid">
-        ${config.automations.length > 0
-          ? config.automations.map(renderAutomationCard).join('')
-          : '<div class="empty-state" id="automationEmpty"><strong>No workflows mapped yet.</strong><span>Start with a contact form, lead routing, content approval, or launch-monitoring workflow.</span></div>'}
-      </div>
-    </div>
-  `;
-}
-
 function renderSitemapRow(
   page: WebsitePagePlan,
   graph: ReturnType<typeof buildLinkGraph>,
@@ -2841,27 +2530,6 @@ function renderWireframeCard(page: WebsitePagePlan, isWebsite = true): string {
   `;
 }
 
-function renderAutomationCard(automation: WebsiteWorkspaceConfig['automations'][number]): string {
-  return `
-    <article class="automation-card" data-automation-id="${escapeHtml(automation.id)}">
-      <div class="card-heading">
-        <p class="eyebrow">n8n workflow</p>
-        <button type="button" class="danger subtle remove-automation" data-remove-automation="${escapeHtml(automation.id)}">Remove</button>
-      </div>
-      ${field('Workflow name', '', automation.name, 'Contact form routing', 'automation-name')}
-      ${field('Event / trigger', '', automation.event, 'Validated contact form submission', 'automation-event')}
-      ${textarea('Expected outcome', '', automation.outcome, 'Create or update CRM lead and notify the account owner.', 'automation-outcome')}
-      ${selectField('Status', 'automation-status', AUTOMATION_STATUS_OPTIONS, automation.status)}
-      <div class="field-pair">
-        ${field('n8n workflow ID', '', automation.n8nWorkflowId ?? '', 'Opaque workflow ID', 'automation-workflowId')}
-        ${field('n8n instance URL', '', automation.instanceUrl ?? '', 'https://n8n.example.com/', 'automation-instanceUrl')}
-      </div>
-      ${field('Credential reference', '', automation.credentialReference ?? '', 'env:N8N_CONTACT_WEBHOOK_URL', 'automation-credentialReference')}
-      ${textarea('Data and privacy notes', '', automation.dataNotes, 'Fields transferred, retention, consent, minimization, and error handling.', 'automation-dataNotes')}
-    </article>
-  `;
-}
-
 const WORK_STATUS_OPTIONS: ReadonlyArray<[WebsiteWorkStatus, string]> = [
   ['not-started', 'Not started'],
   ['draft', 'Draft'],
@@ -2883,27 +2551,6 @@ const UI_SURFACE_OPTIONS: ReadonlyArray<[WebsiteWorkspaceConfig['surfaceKind'], 
 function surfaceKindLabel(kind: WebsiteWorkspaceConfig['surfaceKind']): string {
   return UI_SURFACE_OPTIONS.find(([value]) => value === kind)?.[1] ?? 'Other interface';
 }
-
-const PLATFORM_STATUS_OPTIONS: ReadonlyArray<[WebsitePlatformStatus, string]> = [
-  ['not-planned', 'Not planned'],
-  ['planned', 'Planned'],
-  ['configured', 'Configured'],
-  ['live', 'Live'],
-  ['blocked', 'Blocked'],
-];
-
-const AUTOMATION_STATUS_OPTIONS: ReadonlyArray<[WebsiteAutomationStatus, string]> = [
-  ['idea', 'Idea'],
-  ['mapped', 'Mapped'],
-  ['configured', 'Configured'],
-  ['verified', 'Verified'],
-  ['paused', 'Paused'],
-];
-
-const DEVELOP_HOSTING_MODE_OPTIONS = [
-  ['local', 'Local (default)'],
-  ['hosted', 'Hosted fallback (password protected)'],
-] as const;
 
 /**
  * The Surfaces rail — the navigation, in place of eight numbered steps.
@@ -2990,7 +2637,6 @@ function renderViewStrip(config: WebsiteWorkspaceConfig, activePage: WebsiteStud
     ['brands', 'Brands & system'],
     ['content', 'Content design'],
     ['handoff', 'Handoff'],
-    ...(isWebsite ? [['delivery', 'Delivery'] as [WebsiteStudioPage, string]] : []),
     ['brief', 'Brief'],
   ];
   return `<nav class="view-strip" aria-label="UI Studio views">${views.map(([id, label]) =>

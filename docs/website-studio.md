@@ -44,10 +44,12 @@ of work:
 | Content design | Set voice, principles, preferred/avoided terms, comprehension target, locales, and accessibility rules; edit each screen's real Markdown copy and UI states |
 | Brief | Choose the interface profile and capture the project, goals, audiences, features, content sources, brand notes, constraints, metrics, stakeholders, timing, budget, and whole-interface prompt |
 | Handoff | Record target technologies, source roots, component locations, handoff notes, and explicit design-to-source mappings with divergence status |
-| Delivery (website only) | Choose framework/platform, configure hosting, run setup, compare Delivery, and map n8n workflows (event, expected outcome, readiness, opaque workflow ID, instance, credential reference, and data/privacy notes) |
 
 Every one of the old step ids (`brief`, `sitemap`, `content`, `ui-system`, `wireframes`, `preview`,
-`stack`, `platforms`, `automations`) still deep-links to the view its content went to.
+`stack`, `platforms`, `automations`) still deep-links to the view its content went to. The last three land on
+Handoff, which points at the Project Dashboard's Delivery page: the framework, the three hosting
+environments, the platform targets and the n8n workflow map live there since 0.474.0, beside the pipeline
+that ships them, and a Studio save never touches them.
 
 ## Typed design tokens
 
@@ -508,7 +510,7 @@ Comments are recorded against a page or a specific wireframe element and transit
 ### The shareable link
 
 The overlay is generated **into the site**, so it travels to the password-protected staging
-environment the Stack page already sets up — the client's own hosting. **AtlasMind hosts nothing.**
+environment the Dashboard's Delivery page already sets up — the client's own hosting. **AtlasMind hosts nothing.**
 
 Comments return either by download (imported with **AtlasMind: Import Website Client Feedback**) or by
 POST to an endpoint the team already owns. **No endpoint is ever invented**: unset means export-only,

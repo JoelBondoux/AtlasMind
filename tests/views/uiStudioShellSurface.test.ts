@@ -163,17 +163,18 @@ describe('UI Studio brands view', () => {
 });
 
 describe('UI Studio views by profile', () => {
-  it('shows Delivery only for a website, and always shows Handoff', () => {
+  it('has no Delivery view — a website is pointed at the Dashboard from Handoff — and always shows Handoff', () => {
     const website = createDefaultWebsiteWorkspace({ projectName: 'Northstar' });
     const websiteHtml = getWebsiteStudioHtml(webview, website, 'design', { scriptContent: '' });
-    expect(websiteHtml).toContain('data-page-target="delivery"');
+    expect(websiteHtml).not.toContain('data-page-target="delivery"');
+    expect(websiteHtml).not.toContain('data-page="delivery"');
     expect(websiteHtml).toContain('data-page-target="handoff"');
-    expect(websiteHtml).toContain('data-page="delivery"');
+    expect(websiteHtml).toContain('id="openDeliveryPage"');
 
     const native = createDefaultWebsiteWorkspace({ projectName: 'Northstar' });
     native.surfaceKind = 'editor-extension';
     const nativeHtml = getWebsiteStudioHtml(webview, native, 'design', { scriptContent: '' });
-    expect(nativeHtml).not.toContain('data-page-target="delivery"');
+    expect(nativeHtml).not.toContain('id="openDeliveryPage"');
     expect(nativeHtml).toContain('data-page-target="handoff"');
     expect(nativeHtml).toContain('Screens &amp; flows');
   });

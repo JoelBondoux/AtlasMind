@@ -899,8 +899,8 @@ The Studio's shell (0.472.0) is built around those presets and the workspace sca
 steps: a **Surfaces rail** beside the canvas lists what `uiSurfaceScan` found and has not been picked
 up, every surface designed here — a picked-up one records its origin in `WebsitePagePlan.source`
 (`WebsitePageSource`), validated on every read and dropped whole rather than repaired — and the brands;
-unnumbered views (Design, Sitemap or Screens & flows, Brands & system, Content design, Handoff, Delivery
-for websites, Brief) replace the eight numbered steps, whose ids survive as renames. The boundary is
+unnumbered views (Design, Sitemap or Screens & flows, Brands & system, Content design, Handoff,
+Brief) replace the eight numbered steps, whose ids survive as renames. The boundary is
 the same one every other surface keeps: a pick-up posts one path and the host re-scans and refuses any
 file the scan did not itself classify; brand actions post ids only.
 
@@ -915,6 +915,12 @@ re-serialise their files and drop comments), and **Push content** patches those 
 in the file as it is now, refusing a missing anchor by name and showing a hand-edited region rather
 than overwriting it. Launch plans are constant argvs filled with the workspace root and scene, run
 through `spawn` with no shell after a modal that shows them.
+
+Website delivery — the framework, the three hosting environments, the platform targets and the n8n
+map — is a card on the Project Dashboard's Delivery page since 0.474.0, not a Studio view:
+`buildWebsiteDeliveryView` grades, assesses readiness and checks drift against the pipeline on every
+render, the webview posts three bounded arrays and a catalog id, and both writers of `website.json`
+re-read the plan from disk at the moment of a save and touch only what they own.
 
 AtlasMind can also take **the project in your own words** (`src/core/projectBrief.ts`, the brief
 composer on an empty ideation board). Everything else it starts from is *detected* — the archetype

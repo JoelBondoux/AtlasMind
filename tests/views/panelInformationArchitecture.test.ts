@@ -436,7 +436,7 @@ describe('ui studio shell', () => {
     // goes. The brief is last because it is read once and drawn against daily.
     const strip = source.slice(source.indexOf('function renderViewStrip('), source.indexOf('function renderBrandCards('));
     const ids = [...strip.matchAll(/\['([a-z-]+)', /g)].map(m => m[1]!);
-    expect(ids).toEqual(['design', 'structure', 'brands', 'content', 'handoff', 'delivery', 'brief']);
+    expect(ids).toEqual(['design', 'structure', 'brands', 'content', 'handoff', 'brief']);
     expect(source).toMatch(/activePage: WebsiteStudioPage = 'design'/);
   });
 

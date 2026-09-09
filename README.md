@@ -4,7 +4,7 @@
 
 <h1 align="center">AtlasMind</h1>
 
-<p align="center"><sub> · <strong>Current source version: 0.473.0</strong> · </sub></p>
+<p align="center"><sub> · <strong>Current source version: 0.474.0</strong> · </sub></p>
 
 
 <p align="center">
@@ -175,10 +175,18 @@ important limits on overrides and compliance claims.
 
 ---
 
-## What's new in 0.473.0
+## What's new in 0.474.0
 
 The last Marketplace publication, **v0.449.5**, brought the changes below. Every release is written
 up in full in [CHANGELOG.md](CHANGELOG.md).
+
+- **Website delivery is on the Dashboard's Delivery page.** The framework choice, the three hosting
+  environments, the platform targets and the n8n workflow map moved out of UI Studio and onto the
+  Project Dashboard's Delivery page, beside the pipeline that ships them. Frameworks are graded
+  against the primary platform with the reason on the card, each environment shows its readiness, the
+  drift against the pipeline is checked on every render, and the setup button stays withheld until
+  the setting is on. The Studio's Handoff view points there, and a save from either surface now
+  re-reads the plan from disk and touches only what it owns, so neither can undo the other.
 
 - **Emit a surface into its engine, and keep the words editable from here.** From the Handoff
   view, a drawn surface can be written for Web (HTML + CSS), Unity UI Toolkit (UXML + USS) or Godot 4
@@ -512,7 +520,7 @@ Highlights from the last few releases. Everything here is already in the publish
 | **Tech debt register** | Deferred work found from your own code markers, graded by a published rule you can read, tracked rather than forgotten. |
 | **Testing strategy** | 69 configurable methodologies — including data & schema, AI-specific and compliance families — with owners, tooling, evidence checks, scaffolding, and sync to other AI tools. |
 | **Works with your existing AI tool** | Testing methodologies, debt markers and workflow rules synced into Copilot, Claude Code, Cursor, Codex, Gemini CLI and Windsurf instruction files as a managed block. The management layer needs no chat of its own. |
-| **UI Studio** | Pick up the UI files already in the project or draw new surfaces, design them beside the canvas with a built-in-browser preview, brand them from named presets, and hand off to the implementation. Screens, flows, content, wireframes, tokens, components and responsive inspection are all here. Website profiles also keep protected Develop → Staging → Production delivery. |
+| **UI Studio** | Pick up the UI files already in the project or draw new surfaces, design them beside the canvas with a built-in-browser preview, brand them from named presets, and hand off to the implementation. Screens, flows, content, wireframes, tokens, components and responsive inspection are all here. Website delivery — the stack, the three hosting environments, the platform targets and the n8n map — lives on the Project Dashboard's Delivery page. |
 | **Voice, vision & remote** | Local or hosted speech, image analysis, opt-in remote control, and a keep-awake lock for long runs. |
 | **Lenses over your code — and your services** | Eleven read-only views built from what your project declares: flow, change impact, test evidence, state lifecycle, config precedence, field wiring, branch change story — plus three that compare your declared schemas against what a live API or database actually serves. Shape only: never a row, never a write, off by default. |
 | **Honest cost tracking** | Per-session and per-model spend in your own currency, with model comparison and routing evidence. |

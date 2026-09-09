@@ -19,6 +19,25 @@ Older entries below describe the software as it was at the time and are delibera
 
 ---
 
+## v0.474.0 -- Website delivery, on the Delivery page
+
+The framework choice, the three hosting environments, the platform targets and the n8n workflow
+map were a UI Studio page for three layouts. They are delivery decisions, so they now sit on the
+Project Dashboard's **Delivery** page as a *Website delivery* card, beside the pipeline that ships
+them. Frameworks are still graded against the primary platform with the reason on the card and an
+unsupported pairing still visible; environments still show readiness; the setup button is withheld
+until the setting is on. The drift against the pipeline is checked on every render -- no Compare
+button -- and a project with no pipeline says so.
+
+UI Studio's Handoff view points there with an **Open Delivery** button, and the old `stack`,
+`platforms` and `automations` deep links land on Handoff.
+
+**Fixed:** a Studio save used to drop the framework choice (its form never carried it) and could
+overwrite the other surface's fields with a stale copy. Both writers now re-read the plan from disk
+at the moment of the save and touch only what they own.
+
+---
+
 ## v0.473.0 -- Into the engine
 
 A drawn surface can now be **emitted** for the engine that will own it: Web (HTML + CSS), Unity
