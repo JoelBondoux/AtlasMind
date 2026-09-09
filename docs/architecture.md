@@ -1795,6 +1795,20 @@ The page searches title, path and rule, because those are the three things someb
 
 **Handing an entry to an agent.** `buildDebtWorkPrompt` fences the entry, and the fence does a different job from the ones around issue bodies and review comments. A debt entry is not untrusted third-party text — AtlasMind wrote it, from the user's own repository, through a sanitizer. The risk is the opposite one: that the *agent* mistakes a recorded shortcut for a mandate. The register says a decision was deferred, not that it should now be reversed, and plenty of debt is worth keeping. So the prompt offers "worth keeping, with the reason it was the right call" as a first-class answer alongside "worth fixing", and says plainly: propose, do not apply. The button is labelled "Look at it with Atlas" rather than "Fix it" for the same reason.
 
+### PortalPublishPlan (`src/core/portalPublishPlan.ts`)
+
+Build the portal and publish it in one press. This was three commands and a walkthrough, and every step existed for a reason — none of which is interesting to somebody who just wants the status page updated. Collapsing them is also exactly when the guards elsewhere in this codebase become easy to skip, because nobody reads six dialogs and everybody reads one. Hence: one plan, one confirmation, and the confirmation says what becomes visible and to whom.
+
+**It refuses when the audience and the host disagree.** Named viewers on a host that cannot enforce a list means somebody believes the page is restricted and one press would put it on the open internet. A warning on a one-press button is a thing you click past, so this is a refusal — and every refusal names its fix, because there are only ever two (narrow what is published, or change the host) and a refusal without one reads as a malfunction.
+
+**Unconfirmed access is not restricted access.** A host that can restrict, where nobody has confirmed a policy exists, is treated as open, and publishing a *disclosing* section into that is refused. `DISCLOSING_SECTIONS` is deliberately just risks and cost: a roadmap and a delivery date are what a client asks for and name nobody, while a risk register and a spend figure carry stakeholder names, commercial and legal findings, and money — the same split `producerReportPublication` gates separately.
+
+**AtlasMind performs only what a constant can express.** `portalDeployCommand` returns a literal file and argv per host and there is no fallback: a host it cannot express gets no deploy step, which *is* the two-action case. Arguments are never shell-joined, so a folder name stays a folder name — a test walks every producible command for metacharacters, and the runner uses the same `execFileAsync` no-shell path as `ghClient`.
+
+**Nothing here turns a public switch on** — enabling Pages, creating an Access policy and adding a Vercel team member are all absent by declaration, and a test asserts no step mentions them. **A step that cannot be undone is named as such**, so the confirmation can say so. And **nothing is scheduled**: one press publishes once, for the reason `/portal`'s workflow runs on manual dispatch only.
+
+`portalPublishCommand.ts` is the thin wiring — it renders the plan's own disclosure and command list rather than a summary beside them, reads repository visibility at the moment it matters, and tells you afterwards to check the restriction yourself, because AtlasMind cannot.
+
 ### PortalHosting (`src/core/portalHosting.ts`)
 
 Where the producer portal is hosted, and — the part that actually decides whether it is private — **who is allowed to see it**. `producerReportPublication` answers what may leave the machine, on the assumption that whatever leaves is world-readable, because on GitHub Pages it is. This answers the next question, and never relaxes the first.

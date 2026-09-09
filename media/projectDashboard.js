@@ -2641,6 +2641,13 @@
       vscode.postMessage({ type: 'removePortalViewer', payload: { contactId: payload } });
       return;
     }
+    if (action === 'portal-publish') {
+      // No payload. Everything the confirmation shows is composed host-side
+      // from the plan, so this button can ask for a publication and can never
+      // describe one.
+      vscode.postMessage({ type: 'publishPortal' });
+      return;
+    }
     if (action === 'portal-confirm-access') {
       // No payload: the confirmation dialog and the identity both live host-side.
       vscode.postMessage({ type: 'confirmPortalAccess' });
@@ -17990,6 +17997,7 @@
               title="${candidate.hasIdentifier ? 'Add to the portal audience' : 'No email or GitHub handle is recorded, so this person cannot be put on a host allowlist'}">${escapeHtml(candidate.name)}${candidate.hasIdentifier ? '' : ' (no identifier)'}</button>`).join('')}</div>`
           : '<p class="stat-detail">Everybody on the roster is already named.</p>'}
         <div class="tag-row">
+          <button type="button" class="action-link primary" data-action="portal-publish">Build and publish</button>
           <button type="button" class="action-link" data-action="portal-confirm-access">I have configured the host</button>
         </div>
         ${portal.accessConfiguredAt

@@ -19,6 +19,34 @@ Older entries below describe the software as it was at the time and are delibera
 
 ---
 
+## v0.464.0 -- One button
+
+Building and publishing the portal was three commands and a walkthrough. Every step existed for a
+reason, and none of them is interesting to somebody who just wants the status page updated. One button
+now does the lot.
+
+Because nobody reads six dialogs and everybody reads one, that single confirmation carries the whole
+disclosure: what goes out, what is withheld, **who will be able to read it**, exactly which commands
+will run, and which step cannot be undone.
+
+**It refuses rather than warns when the audience and the host disagree.** Name five viewers on a host
+that cannot enforce a list, and one press would publish to the open internet a page you believe is
+restricted. A warning on a one-press button is a thing you click past. The refusal names the two fixes:
+move to a host that can restrict, or clear the audience so the page is knowingly public.
+
+**Unconfirmed access is not restricted access.** If a risk register or a spend figure would go out
+behind a policy nobody has confirmed exists, that is refused too. AtlasMind cannot see a Cloudflare
+Access policy, and assuming one is there is precisely how this button would publish the wrong thing.
+
+**On a host AtlasMind has no command for it stops with the page prepared** and leaves publishing to
+you -- the second action. Every deploy command is a constant with its arguments passed as an argument
+vector rather than a shell string, so a folder name stays a folder name.
+
+And nothing here turns a public switch on. Enabling Pages, creating an access policy, adding somebody
+to a Vercel team: all still yours. Nothing is scheduled either -- one press publishes once.
+
+---
+
 ## v0.463.0 -- Who may read the portal
 
 The producer portal could be generated and published, and the only honest thing AtlasMind could say

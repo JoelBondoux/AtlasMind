@@ -6,6 +6,46 @@ The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/),
 
 ## [Unreleased]
 
+## [0.464.0] - 2026-09-09
+
+### Added
+
+- **Build and publish the portal in one press.** Until now this was three commands and a walkthrough:
+  generate the report, decide what may be published, prepare the narrowed folder, add a workflow, turn
+  the host on, prove a page came up. Every step exists for a reason and none of them is interesting to
+  somebody who just wants the status page updated. One button now does the lot — and because nobody
+  reads six dialogs but everybody reads one, that single confirmation carries the whole disclosure:
+  what will be published, what is withheld, **who will be able to read it**, which commands will run,
+  and which step cannot be undone.
+
+  **It refuses when the audience and the host disagree.** Somebody who has named five viewers on a host
+  that cannot enforce a list would, with one press, publish to the open internet a page they believe is
+  restricted. That is not a warning — a warning on a one-press button is a thing you click past — it is
+  a **refusal**, and it names the two fixes: move to a host that can restrict, or clear the audience so
+  the page is knowingly public.
+
+  **Unconfirmed access is not restricted access.** A host that *can* restrict, where nobody has
+  confirmed a policy exists, is treated as open — and publishing a risk register or a spend figure into
+  that is refused. AtlasMind cannot see a Cloudflare Access policy, and the moment it assumes one is
+  there is the moment this button publishes the wrong thing.
+
+  **AtlasMind performs only what a constant can express.** Every deploy command is a literal with its
+  arguments passed as argv — never a shell string, never composed — so a folder name stays a folder
+  name even when it looks like a command. A host with no constant gets **no deploy step**, which is the
+  second action: the folder is prepared and you take it from there. That is Custom Host, and it is also
+  GitHub Pages until the deploy workflow exists.
+
+  **Nothing here turns a public switch on.** Enabling Pages, creating an Access policy, adding somebody
+  to a Vercel team: all still absent, by declaration. Publishing to a host somebody has already
+  configured is a different act from making that host serve to the public in the first place, and only
+  the first belongs behind a button.
+
+  **Nothing is scheduled.** One press publishes once — there is deliberately no publish-on-commit and
+  no timer, because a standing publication republishes whatever the report happened to say.
+
+  The button sits on the Director page beside the audience it publishes to, and the command is
+  **AtlasMind: Build and Publish Producer Portal**.
+
 ## [0.463.0] - 2026-09-09
 
 ### Added

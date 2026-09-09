@@ -1279,6 +1279,7 @@ type ProjectDashboardMessage =
   | { type: 'addPortalViewer'; payload: { contactId: string } }
   | { type: 'removePortalViewer'; payload: { contactId: string } }
   | { type: 'confirmPortalAccess' }
+  | { type: 'publishPortal' }
   | {
     type: 'addTestAsset';
     payload: {
@@ -6052,6 +6053,12 @@ export class ProjectDashboardPanel {
       case 'confirmPortalAccess':
         await this.handleConfirmPortalAccess();
         return;
+      case 'publishPortal': {
+        const { buildAndPublishPortal } = await import('./portalPublishCommand.js');
+        await buildAndPublishPortal();
+        await this.syncState();
+        return;
+      }
       case 'addTestAsset':
         await this.handleAddTestAsset(message.payload);
         return;
@@ -16286,6 +16293,12 @@ export function isProjectDashboardMessage(message: unknown): message is ProjectD
     const payload = candidate['payload'] as Record<string, unknown> | undefined;
     return typeof payload === 'object' && payload !== null
       && typeof payload['contactId'] === 'string' && payload['contactId'].length > 0;
+  }
+
+  if (candidate['type'] === 'publishPortal') {
+    // No payload: the plan, the refusals and the confirmation are all built
+    // host-side from files, so nothing the webview sends can widen it.
+    return true;
   }
 
   if (candidate['type'] === 'confirmPortalAccess') {

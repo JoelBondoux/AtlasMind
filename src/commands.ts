@@ -1731,6 +1731,14 @@ export function registerCommands(
     // remote embedder, would cost privacy, so it is an explicit act behind a
     // confirmation that names what leaves the machine. Searching is free and
     // needs none.
+    // One press: gather, narrow, prepare and publish. Every refusal and the
+    // single confirmation live in `portalPublishPlan`, so the words somebody
+    // agrees to are the words the module composed.
+    vscode.commands.registerCommand('atlasmind.buildAndPublishPortal', async () => {
+      const { buildAndPublishPortal } = await import('./views/portalPublishCommand.js');
+      await buildAndPublishPortal();
+    }),
+
     vscode.commands.registerCommand('atlasmind.buildCodebaseIndex', async () => {
       const atlas = requireAtlas();
       if (!atlas) { return; }
