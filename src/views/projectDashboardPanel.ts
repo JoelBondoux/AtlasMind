@@ -302,6 +302,14 @@ import {
   type TestResult,
 } from '../core/testCaseRegister.js';
 import {
+  UTILITY_PACKS,
+  UTILITY_PACKS_VERIFIED_AT,
+  assessUtilityPacks,
+  buildUtilityDecisionPrompt,
+  offerableUtilityPacks,
+  type UtilityCapability,
+} from '../core/utilityPacks.js';
+import {
   WORKFLOW_HISTORY_SSOT_PATH,
   WorkflowAuditLedger,
   beginWorkflowRun,
@@ -1247,6 +1255,10 @@ type ProjectDashboardMessage =
   | { type: 'setTestCaseStatus'; payload: { id: string; status: string } }
   | { type: 'recordTestResult'; payload: { id: string; result: string; notes?: string } }
   | { type: 'draftTestCase'; payload: { id: string } }
+  // A capability id, resolved host-side against the declared pack list. The
+  // browser can name one and can never supply the text an agent reads, nor a
+  // command — the pack's install lines are constants and nothing executes them.
+  | { type: 'discussUtilityPack'; payload: { capability: string } }
   | {
     type: 'addTestAsset';
     payload: {
@@ -3276,6 +3288,12 @@ interface DashboardSnapshot {
    * whether a methodology is evidenced.
    */
   testCases: DashboardTestCasesSnapshot;
+  /**
+   * The six cross-cutting utilities, and which of them this project has decided
+   * about. Read from the same manifest names archetype detection uses, so it
+   * costs no extra I/O and infers nothing from source shape.
+   */
+  utilities: DashboardUtilitiesSnapshot;
   /** Human ownership for actionable records across the dashboard. */
   workAssignments: DashboardWorkAssignmentsSnapshot;
   /**
@@ -4026,6 +4044,59 @@ function collectTestCasesSnapshot(
         label: contactName(member.contactId) ?? member.contactId,
       })),
     recorded: register.cases.length > 0,
+  };
+}
+
+/**
+ * The six utility packs, assessed against this project's declared dependencies.
+ *
+ * `evidence` is the manifest corpus archetype detection already built, so this
+ * reads nothing of its own. Absent evidence means no manifest could be read,
+ * which is reported as unassessed rather than as a project using none of them —
+ * the distinction `collectArchetypeEvidence` returns `undefined` to preserve.
+ */
+function collectUtilitiesSnapshot(
+  evidence: { corpus: string } | undefined,
+): DashboardUtilitiesSnapshot {
+  const assessments = assessUtilityPacks(evidence?.corpus ?? '');
+  const byCapability = new Map(assessments.map(assessment => [assessment.capability, assessment]));
+  return {
+    packs: UTILITY_PACKS.map(pack => {
+      const assessment = byCapability.get(pack.capability)!;
+      const present = new Set(assessment.presentIds);
+      return {
+        capability: pack.capability,
+        label: pack.label,
+        premise: pack.premise,
+        question: pack.decision.question,
+        why: pack.decision.why,
+        options: pack.decision.options.map(option => ({ ...option })),
+        candidates: pack.candidates.map(candidate => ({
+          id: candidate.id,
+          label: candidate.label,
+          summary: candidate.summary,
+          answers: candidate.answers,
+          docs: candidate.docs,
+          ...(candidate.install === undefined ? {} : { install: candidate.install }),
+          leavesTheMachine: candidate.leavesTheMachine,
+          selfHostable: candidate.selfHostable,
+          present: present.has(candidate.id),
+        })),
+        gates: pack.gates.map(gate => ({ ...gate })),
+        installable: pack.installable,
+        // With no manifest read, every pack reads `absent` — which would be a
+        // confident zero. The status is downgraded to `unassessed` on the view
+        // rather than in the pure module, which correctly answers about the
+        // corpus it was given.
+        status: evidence === undefined ? 'unassessed' : assessment.status,
+        note: evidence === undefined
+          ? 'No manifest could be read, so nothing was assessed. That is not the same as this project using none of them.'
+          : assessment.note,
+      };
+    }),
+    offerable: evidence === undefined ? [] : offerableUtilityPacks(assessments),
+    verifiedAt: UTILITY_PACKS_VERIFIED_AT,
+    assessed: evidence !== undefined,
   };
 }
 
@@ -5851,6 +5922,9 @@ export class ProjectDashboardPanel {
         return;
       case 'draftTestCase':
         await this.handleDraftTestCase(message.payload);
+        return;
+      case 'discussUtilityPack':
+        await this.handleDiscussUtilityPack(message.payload);
         return;
       case 'addTestAsset':
         await this.handleAddTestAsset(message.payload);
@@ -11386,6 +11460,25 @@ ${buildCardEvidenceSection(source, derivation)}`;
   }
 
   /**
+   * Work through one of the six utility decisions with an agent.
+   *
+   * The prompt is rebuilt host-side from the declared pack, so the webview
+   * names a capability and can never supply the text — nor a command, since the
+   * pack's install lines are constants in `utilityPacks.ts` and nothing here
+   * executes one. The prompt itself says both of those things to the agent.
+   */
+  private async handleDiscussUtilityPack(payload: { capability: string }): Promise<void> {
+    const pack = UTILITY_PACKS.find(candidate => candidate.capability === payload.capability);
+    if (!pack) {
+      return;
+    }
+    await vscode.commands.executeCommand('atlasmind.openChat', {
+      draftPrompt: buildUtilityDecisionPrompt(pack),
+      sendMode: 'new-session',
+    });
+  }
+
+  /**
    * Create `workflow.json` from a profile.
    *
    * Never happens implicitly. Every other persisted document in AtlasMind seeds
@@ -15977,6 +16070,12 @@ export function isProjectDashboardMessage(message: unknown): message is ProjectD
       && typeof payload['kind'] === 'string';
   }
 
+  if (candidate['type'] === 'discussUtilityPack') {
+    const payload = candidate['payload'] as Record<string, unknown> | undefined;
+    return typeof payload === 'object' && payload !== null
+      && typeof payload['capability'] === 'string';
+  }
+
   // Approval messages. Every id is resolved against the register or the
   // host-published subject list, so shape is all that is checked here.
   if (candidate['type'] === 'decideApproval' || candidate['type'] === 'withdrawApproval'
@@ -18003,6 +18102,11 @@ async function collectDashboardSnapshot(
   // Named rather than returned directly so the attention feed can be derived
   // from the finished snapshot — reading the same fields the pages render is
   // what stops the Overview and the page it links to disagreeing.
+  // Read once and used twice: the archetype detector and the utility
+  // assessment both want the dependency names, and reading the manifests twice
+  // on a render path would be paying for the same bytes to say the same thing.
+  const archetypeEvidence = await collectArchetypeEvidence(workspaceRoot);
+
   const snapshot: Omit<DashboardSnapshot, 'attention' | 'workAssignments' | 'vitalFiles'> = {
     generatedAt: new Date().toISOString(),
     ssotPresent: ssotSnapshot.totalFiles > 0 || memoryEntries.length > 0,
@@ -18197,7 +18301,7 @@ async function collectDashboardSnapshot(
       // Detection reads dependency names the package snapshot already loaded, so
       // this adds no I/O. Absent evidence means "we did not look", which the
       // surface reports as such rather than as "generic project".
-      archetypeEvidence: await collectArchetypeEvidence(workspaceRoot),
+      ...(archetypeEvidence === undefined ? {} : { archetypeEvidence }),
       packageVersion: packageSnapshot.version,
       ciWorkflowCount: workflowSnapshot.length,
       testing: testingSnapshot,
@@ -18272,6 +18376,7 @@ async function collectDashboardSnapshot(
       stages: stagePipeline,
       runbooks: deliveryRunbooks,
     },
+    utilities: collectUtilitiesSnapshot(archetypeEvidence),
     testCases: collectTestCasesSnapshot(
       workspaceRoot,
       directorSnapshot.config ?? undefined,
@@ -22541,6 +22646,51 @@ interface DashboardDocumentAutoView {
   statusLabel: string;
   detail: string;
   updatePrompt: string;
+}
+
+// ── Utility packs snapshot ───────────────────────────────────────────────────
+
+interface DashboardUtilityCandidateView {
+  id: string;
+  label: string;
+  summary: string;
+  answers: string;
+  docs: string;
+  /** Absent where the vendor's install line was not verified. Never invented. */
+  install?: string;
+  leavesTheMachine: string;
+  selfHostable: boolean;
+  present: boolean;
+}
+
+interface DashboardUtilityPackView {
+  capability: UtilityCapability;
+  label: string;
+  premise: string;
+  question: string;
+  why: string;
+  options: Array<{ id: string; label: string; consequence: string }>;
+  candidates: DashboardUtilityCandidateView[];
+  gates: Array<{ id: string; statement: string; why: string }>;
+  installable: boolean;
+  status: string;
+  note: string;
+}
+
+interface DashboardUtilitiesSnapshot {
+  packs: DashboardUtilityPackView[];
+  /** Which capabilities are genuinely missing *and* addable. Never accessibility. */
+  offerable: UtilityCapability[];
+  /** When these vendor facts were last read from the vendors' own documentation. */
+  verifiedAt: string;
+  /**
+   * False when no manifest could be read.
+   *
+   * "We did not look" and "this project uses none of them" are different
+   * facts, and the second is what a reader would otherwise assume — the same
+   * distinction `collectArchetypeEvidence` returns `undefined` to preserve.
+   */
+  assessed: boolean;
 }
 
 // ── Test case snapshot ───────────────────────────────────────────────────────

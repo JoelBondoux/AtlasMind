@@ -6,6 +6,61 @@ The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/),
 
 ## [Unreleased]
 
+## [0.461.0] - 2026-09-09
+
+### Added
+
+- **The Utilities pack — auth, payments, email, analytics, i18n and accessibility, as decisions rather
+  than packages.** The other architecture packs are *project* templates: pick a stack, get a starter.
+  These six are not that shape. Nobody starts a project called "payments"; you reach the point in an
+  existing project where money has to change hands, pick a library, and discover the decision
+  afterwards. That is the wrong order and it is the expensive one — whether you or your vendor is the
+  **merchant of record** is a tax-liability question you cannot undo by swapping an SDK, and whether
+  your analytics sets a cookie decides whether you owe your visitors a consent banner at all.
+
+  So each pack opens with the question and treats the libraries as answers to it. Do you hold the user
+  records or does somebody else? Who owns the sending domain, and has it been authenticated? Cookieless
+  and aggregate, or identified and cookie-based? Who translates, and how does a translation reach
+  production without a developer?
+
+  **Every install line is a constant in AtlasMind's source, read from the vendor's own documentation on
+  a stated date, and nothing runs one.** The same rule the website scaffolder and the ACP installer
+  hold: a command composed from a setting, a fetched page or a model is remote code execution with
+  extra steps. **An unverified fact is absent rather than guessed** — a candidate whose install line was
+  not verified carries none and the card says to follow the vendor's current instructions, because a
+  plausible-looking wrong package name costs more than a missing one.
+
+  **What leaves your machine is stated for every candidate**, including the ones where it is nothing.
+  "Add analytics" means "start sending your users' behaviour to a third party", and a catalogue that
+  omitted that would be selling rather than advising.
+
+  **A capability already present is reported, never proposed again.** Two candidates answering opposite
+  sides of one decision — an auth library that keeps users in your database *and* a managed identity
+  provider — is reported as **two answers** rather than added to. That is a security problem rather
+  than a redundancy: two session models, two logout paths, and one of them forgotten.
+
+  **Accessibility is not a library**, and the pack says so first. Automated tooling catches roughly
+  30–40% of WCAG barriers — Deque publish about 57% for axe-core on a first audit — which makes it
+  necessary and not sufficient. The pack lists the tools, then states the part a person has to do, with
+  the European Accessibility Act's 28 June 2025 application date and the EN 301 549 / WCAG 2.1 AA
+  conformance route named rather than implied. It is never offered as something to "add".
+
+  Each pack ends in gates that are statements about the world rather than files that exist: *somebody
+  has completed an account recovery end to end from a real inbox*; *no card number reaches your servers
+  or your logs*; *somebody has tried the main flow with a screen reader and can say what it announced*.
+  Nothing marks itself done.
+
+  The packs render on the Gap Analysis page — the page that already asks what this project is missing —
+  assessed against the dependency names archetype detection already reads, so they cost no extra I/O
+  and infer nothing from source shape. With no manifest readable, every pack reads **not assessed**
+  rather than absent.
+
+- **"Work through this decision with AtlasMind"** hands a pack to an agent that is forbidden two things:
+  installing anything (the install lines are records of what a vendor publishes, not instructions to
+  execute) and stating a price, version or feature it was not given — the list is a dated snapshot and
+  vendors move faster than a release, so anything missing is reported as needing checking rather than
+  filled in confidently.
+
 ## [0.460.0] - 2026-09-09
 
 ### Added

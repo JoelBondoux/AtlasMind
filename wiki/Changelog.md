@@ -19,6 +19,46 @@ Older entries below describe the software as it was at the time and are delibera
 
 ---
 
+## v0.461.0 -- Six decisions dressed up as packages
+
+The other architecture packs are project templates: pick a stack, get a starter. These six are not that
+shape. Nobody starts a project called "payments". You reach the point in an existing project where
+money has to change hands, pick a library, and discover the decision afterwards.
+
+That is the wrong order and it is the expensive one. Whether **you or your vendor is the merchant of
+record** is a tax-liability question you cannot undo by swapping an SDK. Whether your analytics sets a
+cookie decides whether you owe your visitors a consent banner at all. Whether you own the sending
+domain's DNS decides whether your email arrives -- Google and Yahoo have rejected unauthenticated bulk
+mail since 2025, and transactional mail counts toward the threshold with no exemption.
+
+So each of the six -- auth, payments, email, analytics, i18n, accessibility -- now opens with the
+question, says what each answer commits you to, and treats the libraries as answers to it.
+
+**Nothing is installed and nothing is run.** Every install line is a constant in AtlasMind's own source,
+read from the vendor's documentation on a date the card shows you. Where a line was not verified, none
+is shown -- a plausible-looking wrong package name installs somebody else's code, and a missing one
+costs a search.
+
+**What leaves your machine is stated for every candidate**, including the ones where it is nothing.
+
+**A capability you already have is reported, never proposed again.** And two libraries answering
+opposite sides of one decision -- users in your own database *and* a managed identity provider -- is
+reported as *two answers*, because that is a security problem rather than a redundancy: two session
+models, two logout paths, and one of them forgotten.
+
+**Accessibility is not offered as something to install**, because it is not something you can install.
+Automated tooling catches roughly 30-40% of WCAG barriers. The pack lists the tools and then states the
+part a person has to do, with the European Accessibility Act's June 2025 date and the standard
+conformance is presumed through.
+
+Each pack ends in gates that are statements about the world rather than files that exist: *somebody has
+completed an account recovery from a real inbox*; *no card number reaches your logs*; *somebody has
+tried the main flow with a screen reader and can say what it announced*.
+
+They sit on the Gap Analysis page -- the page that already asks what this project is missing.
+
+---
+
 ## v0.460.0 -- Repository events, not just chat
 
 Everything AtlasMind did began with somebody typing. That is the right default, and it was also the

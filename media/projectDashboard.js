@@ -624,6 +624,8 @@
     debtSearch: '',
     defectSearch: '',
     /** Which composer is open on the Testing page: '', 'case' or 'asset'. */
+    /** Which utility pack is expanded on the Gap Analysis page, if any. */
+    utilityExpanded: '',
     testCaseDraft: '',
     testCaseFilter: 'live',
     testCaseExpandedId: '',
@@ -2626,6 +2628,18 @@
     }
     if (action === 'scan-debt') {
       vscode.postMessage({ type: 'scanDebt' });
+      return;
+    }
+    if (action === 'utility-expand') {
+      state.utilityExpanded = state.utilityExpanded === payload ? '' : payload;
+      render();
+      return;
+    }
+    if (action === 'discuss-utility') {
+      // Only the capability id travels. The host rebuilds the prompt from its
+      // own declared pack, so this can name a decision and never supply the
+      // text an agent reads or a command it might run.
+      vscode.postMessage({ type: 'discussUtilityPack', payload: { capability: payload } });
       return;
     }
     if (action === 'set-test-case-filter') {
@@ -5572,8 +5586,119 @@
             </div>
           </article>
         </div>
+
+        ${renderUtilityPacks(snapshot)}
       </section>
     `;
+  }
+
+  // ── The six cross-cutting utilities ────────────────────────────────────
+  // Auth, payments, email, analytics, i18n, accessibility. On this page rather
+  // than a page of their own because the question they answer is this page's
+  // question — what is this project missing — and because a catalogue nobody
+  // navigates to is a catalogue nobody reads.
+
+  const UTILITY_STATUS_TONE = {
+    present: 'tag-good', absent: '', ambiguous: 'tag-warn', unassessed: 'tag-warn',
+  };
+  const UTILITY_STATUS_LABEL = {
+    present: 'decided', absent: 'not decided', ambiguous: 'two answers', unassessed: 'not assessed',
+  };
+
+  function renderUtilityCandidate(candidate) {
+    return `
+      <div class="recent-item static">
+        <div class="row-head">
+          <strong>${escapeHtml(candidate.label)}</strong>
+          <span>
+            ${candidate.present ? '<span class="tag tag-good">in this project</span>' : ''}
+            ${candidate.selfHostable ? '<span class="tag">self-hostable</span>' : ''}
+          </span>
+        </div>
+        <div class="list-meta">${escapeHtml(candidate.summary)}</div>
+        <div class="list-meta"><strong>Leaves the machine:</strong> ${escapeHtml(candidate.leavesTheMachine)}</div>
+        <div class="list-meta">${candidate.install
+          ? 'Published install: <code>' + escapeHtml(candidate.install) + '</code>'
+          : 'AtlasMind has not verified an install line for this one — follow the current instructions in its documentation.'} · <code>${escapeHtml(candidate.docs)}</code></div>
+      </div>`;
+  }
+
+  function renderUtilityPack(pack) {
+    const expanded = state.utilityExpanded === pack.capability;
+    return `
+      <div class="recent-item">
+        <div class="row-head">
+          <button type="button" class="action-link" data-action="utility-expand" data-payload="${escapeAttr(pack.capability)}"
+            aria-expanded="${expanded ? 'true' : 'false'}">${escapeHtml(pack.label)}</button>
+          <span>
+            ${pack.installable ? '' : '<span class="tag">not a library</span>'}
+            <span class="tag ${UTILITY_STATUS_TONE[pack.status] || ''}">${escapeHtml(UTILITY_STATUS_LABEL[pack.status] || pack.status)}</span>
+          </span>
+        </div>
+        <div class="list-meta">${escapeHtml(pack.note)}</div>
+        ${expanded ? `
+          <p class="section-copy">${escapeHtml(pack.premise)}</p>
+          <p class="stat-detail"><strong>${escapeHtml(pack.question)}</strong> ${escapeHtml(pack.why)}</p>
+          <div class="stack-list">${pack.options.map(option => `
+            <div class="recent-item static">
+              <div class="row-head"><strong>${escapeHtml(option.label)}</strong></div>
+              <div class="list-meta">${escapeHtml(option.consequence)}</div>
+            </div>`).join('')}</div>
+          <p class="card-kicker">Candidates</p>
+          <div class="stack-list">${pack.candidates.map(candidate => renderUtilityCandidate(candidate)).join('')}</div>
+          <p class="card-kicker">What has to be true afterwards</p>
+          <div class="stack-list">${pack.gates.map(gate => `
+            <div class="recent-item static">
+              <div class="row-head"><strong>${escapeHtml(gate.statement)}</strong></div>
+              <div class="list-meta">${escapeHtml(gate.why)}</div>
+            </div>`).join('')}</div>
+          <div class="tag-row">
+            ${renderAtlasDiscussAction('discuss-utility', pack.capability, 'Work through this decision with AtlasMind', { intent: 'discuss', title: 'Ask AtlasMind which answer fits this repository. It installs nothing and runs nothing.' })}
+          </div>` : ''}
+      </div>`;
+  }
+
+  function renderUtilityPacks(snapshot) {
+    const utilities = snapshot.utilities;
+    if (!utilities || !Array.isArray(utilities.packs) || utilities.packs.length === 0) {
+      return '';
+    }
+    const undecided = utilities.packs.filter(pack => pack.status === 'absent' && pack.installable).length;
+    const ambiguous = utilities.packs.filter(pack => pack.status === 'ambiguous').length;
+
+    const help = renderWorkflowHelp('utilities.packs', {
+      label: 'why these are decisions rather than packages',
+      why: 'Nobody starts a project called "payments". You reach the point where money has to change hands and pick a library, then discover the decision afterwards — and whether you or your vendor is the merchant of record is a tax question you cannot undo by swapping an SDK. Each of these leads with the question and treats the libraries as answers to it.',
+      how: [
+        { text: 'Every install line here is a constant in AtlasMind’s source, read from the vendor’s own documentation on ' + (utilities.verifiedAt || 'the recorded date') + '. Nothing runs one, and where a line was not verified none is shown rather than one being invented.' },
+        { text: 'What leaves your machine is stated for every candidate, including the ones where it is nothing. "Add analytics" means "start sending your users’ behaviour to a third party", and a list that omitted that would be selling.' },
+        { text: 'Two candidates answering opposite sides of one decision is reported rather than added to. Two auth libraries is a security problem, not a redundancy — two session models, two logout paths, and one of them forgotten.' },
+        { text: 'Accessibility cannot be installed. Automated tooling catches roughly 30–40% of WCAG barriers, so the pack lists tools and then states the part a person has to do.' },
+      ],
+      commonMistakes: [
+        'Reading "not decided" as a gap. Plenty of projects need no payments and no translations.',
+        'Treating a green automated accessibility score as a compliance position.',
+      ],
+    });
+
+    return `
+      <article class="panel-card">
+        <div class="row-head">
+          <div><p class="card-kicker">Cross-cutting utilities${help.button}</p><h3>${
+            utilities.assessed
+              ? escapeHtml(String(undecided)) + ' not decided about' + (ambiguous ? ', ' + escapeHtml(String(ambiguous)) + ' answered twice' : '')
+              : 'Not assessed'
+          }</h3></div>
+          <span class="list-meta">vendor facts read ${escapeHtml(utilities.verifiedAt || 'unknown')}</span>
+        </div>
+        ${help.panel}
+        <p class="section-copy">Six things nearly every product needs and none of them is really a package: authentication, payments, transactional email, analytics, internationalisation and accessibility. Each opens with the decision that comes first, what each answer commits you to, and what leaves your machine either way.</p>
+        ${utilities.assessed
+          ? ''
+          : '<p class="stat-detail wf-unknown">No manifest could be read, so nothing was assessed. That is not the same as this project using none of them.</p>'}
+        <div class="stack-list">${utilities.packs.map(pack => renderUtilityPack(pack)).join('')}</div>
+        <p class="stat-detail">AtlasMind installs nothing here and runs no command. These are records of what each vendor publishes, with the date they were read.</p>
+      </article>`;
   }
 
   function renderIdeation(snapshot) {

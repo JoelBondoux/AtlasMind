@@ -91,7 +91,7 @@ export const CAPABILITY_PAGES: readonly CapabilityPage[] = [
   // Project dashboard.
   { surface: 'dashboard', id: 'overview', title: 'Dashboard — Overview', answers: 'what needs a person right now, what moved since last time' },
   { surface: 'dashboard', id: 'score', title: 'Dashboard — Score', answers: 'the project health score and what each component contributes' },
-  { surface: 'dashboard', id: 'gapAnalysis', title: 'Dashboard — Gap Analysis', answers: 'what the project is missing against its own declared intent' },
+  { surface: 'dashboard', id: 'gapAnalysis', title: 'Dashboard — Gap Analysis', answers: 'what the project is missing against its own declared intent, and the six cross-cutting utilities — auth, payments, email, analytics, i18n, accessibility — with the decision each one really is' },
   { surface: 'dashboard', id: 'workflow', title: 'Dashboard — Workflow', answers: 'the eight delivery stages, how far each may go unattended, what blocks one' },
   { surface: 'dashboard', id: 'roadmap', title: 'Dashboard — Roadmap', answers: 'planned work, priorities, release gates, drafting an issue from an item' },
   { surface: 'dashboard', id: 'issues', title: 'Dashboard — Issues', answers: 'GitHub issues, labels and milestones, working on one with Atlas' },
