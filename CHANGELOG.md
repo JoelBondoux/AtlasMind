@@ -6,6 +6,67 @@ The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/),
 
 ## [Unreleased]
 
+## [0.463.0] - 2026-09-09
+
+### Added
+
+- **Choose where the producer portal is hosted, and say who may read it.** The portal could be
+  generated and published, and the only honest thing AtlasMind could say about the result was that it
+  was public. Now the host is a declared choice — GitHub Pages, Cloudflare Pages, Netlify, Vercel, or a
+  host you run yourself — and each one is presented with **what it can actually enforce**.
+
+  **Authentication is not authorisation, and that is the whole feature.** Signing in with GitHub admits
+  every GitHub account there is, something over a hundred million of them. A portal behind a GitHub
+  prompt and nothing else is a public portal with a turnstile in front of it, and it is *worse* than an
+  obviously public one — the turnstile is what persuades somebody to switch on the cost figures and the
+  risk register. A host that can sign somebody in and cannot then restrict *which* signed-in people get
+  through is reported as `authenticated-but-open`, not as protected.
+
+  The differences between the hosts are stark, and they are read from each vendor's own documentation
+  on a pinned date rather than recalled. Only **Cloudflare Pages** both signs somebody in with GitHub
+  and restricts to a list you name without an enterprise plan, via Cloudflare Access. **Vercel** can
+  restrict, to your Vercel team — a real restriction, and somebody else's list, costing a seat per
+  viewer. **Netlify** offers a shared site password on Pro, which is not an audience: it is one secret
+  that gets passed on, with no record of who used it and no way to remove one person. A **named
+  audience** on Netlify is Enterprise. And **GitHub Pages** cannot restrict at all unless Enterprise
+  Cloud, an organization-owned private-or-internal repository and a project site all line up — and then
+  the audience is everyone who can read the repository, which is a different list.
+
+  **A public repository gets its own, louder warning**, because the page is public and so is every
+  draft that produced it. An unreadable visibility is treated as public, the assumption that keeps a
+  secret.
+
+  **AtlasMind declares; the host enforces.** Nothing in this feature makes a page private, and every
+  surface says so and names the console where the enforcement actually lives. A switch here that looked
+  like a gate would be the most dangerous control in the product.
+
+- **The Director assigns the audience; Settings chooses the host.** Both write one committed file, so
+  the two surfaces cannot hold different answers. The audience stores **contact ids, never addresses** —
+  `project_memory/` is committed, and the Project Director module goes to some trouble to prefer a
+  system-of-record reference over raw personal data. Resolution to an email or a GitHub login happens at
+  the point of use.
+
+  **Somebody who cannot be expressed is reported, never dropped.** A contact with no email and no GitHub
+  handle cannot go on any allowlist, and quietly leaving them out produces a list that looks complete
+  and one person locked out with nothing to explain why.
+
+  **Removing somebody from the list does not revoke their access**, and the notification says so.
+  Changing the host **clears any confirmation** that access was configured, because an assertion about a
+  Netlify password says nothing about a Vercel deployment. And confirming that the host-side policy is
+  in place is an explicit, attributed act behind a dialog that asks you to have actually watched an
+  account outside the audience be refused — AtlasMind cannot see a Cloudflare Access policy and does not
+  pretend to.
+
+  **A restricted audience is not a reason to publish more.** What may leave the machine stays with the
+  publication rules, which still assume the worst: the restriction is enforced by somebody else's
+  product, in a console AtlasMind cannot see, and one wrong policy makes it public again.
+
+### Fixed
+
+- **A test that pinned a statement terminator rather than the claim it cared about.** The security
+  advisory surface asserted an exact argument list ending in `);`, so adding any later parameter to the
+  snapshot call failed it — which reads as a broken feature rather than a moved comma.
+
 ## [0.462.0] - 2026-09-09
 
 ### Added

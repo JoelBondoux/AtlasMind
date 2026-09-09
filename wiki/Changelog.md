@@ -19,6 +19,45 @@ Older entries below describe the software as it was at the time and are delibera
 
 ---
 
+## v0.463.0 -- Who may read the portal
+
+The producer portal could be generated and published, and the only honest thing AtlasMind could say
+about the result was that it was public. Now you choose the host -- GitHub Pages, Cloudflare Pages,
+Netlify, Vercel, or your own -- and each is shown with **what it can actually enforce**.
+
+**Authentication is not authorisation.** Signing in with GitHub admits every GitHub account there is,
+something over a hundred million of them. A portal behind a GitHub prompt and nothing else is a public
+portal with a turnstile in front of it -- and it is *worse* than an obviously public one, because the
+turnstile is what persuades somebody to switch on the cost figures and the risk register.
+
+The hosts differ more than you would expect, and the facts come from each vendor's own documentation
+rather than from memory:
+
+- **Cloudflare Pages** is the only one that both signs somebody in with GitHub and restricts to a list
+  you name, without an enterprise plan.
+- **Vercel** restricts to your Vercel team -- a real restriction, and somebody else's list, costing a
+  seat for every stakeholder who needs to read a report.
+- **Netlify**'s shared password is not an audience. It is one secret that gets passed on, with no
+  record of who used it and no way to remove one person.
+- **GitHub Pages** cannot restrict at all unless Enterprise Cloud, an organization-owned private
+  repository and a project site all line up -- and then the audience is everyone who can read the
+  repository, which is a different list. A **public** repository gets its own louder warning, because
+  the page is public and so is every draft that produced it.
+
+**The Director assigns the audience; Settings chooses the host**, and both write one committed file so
+they cannot disagree. The list stores people by contact, never by address -- and somebody with no email
+or GitHub handle recorded is reported as *unlistable* rather than quietly left off, because a short
+list that looks complete is how one person spends an afternoon wondering why the link does not work.
+
+**AtlasMind never claims to be enforcing any of this.** Nothing here makes a page private; every
+surface says so and names the console where the policy actually lives. Removing somebody from the list
+does not revoke their access, and the notification says so. Changing the host clears any confirmation
+that access was set up, because an assertion about a Netlify password says nothing about a Vercel
+deployment. And confirming that the policy exists asks you to have actually watched an account outside
+the audience be refused.
+
+---
+
 ## v0.462.0 -- Search your own code
 
 AtlasMind's memory has always answered *what was decided* -- decisions, architecture notes,

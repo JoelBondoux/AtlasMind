@@ -57,6 +57,14 @@ import {
 import { detectProjectArchetype } from '../core/projectArchetype.js';
 import { parseAgentBindings } from '../core/buzzAgentBindings.js';
 import { parseCustomDebtMarkers } from '../core/debtRegister.js';
+import {
+  PORTAL_HOSTING_VERIFIED_AT,
+  PORTAL_HOST_CAPABILITIES,
+  readPortalHostingConfig,
+  setPortalHost,
+  writePortalHostingConfig,
+  seedPortalHostingConfig,
+} from '../core/portalHosting.js';
 import { inspectLensDeclarations, lensDeclarationStatusLabel } from '../core/lensDeclarations.js';
 import {
   modelSidebarHiddenEntryKey,
@@ -356,6 +364,7 @@ type SettingsMessage =
   | { type: 'setDailyCostLimitUsd'; payload: number }
   | { type: 'setDisplayCurrency'; payload: DisplayCurrency }
   | { type: 'setShowImportProjectAction'; payload: boolean }
+  | { type: 'setPortalHost'; payload: string }
   | { type: 'setToolApprovalMode'; payload: 'always-ask' | 'ask-on-write' | 'ask-on-external' | 'allow-safe-readonly' }
   | { type: 'setAllowTerminalWrite'; payload: boolean }
   | { type: 'setAcpToolsEnabled'; payload: boolean }
@@ -934,6 +943,10 @@ export class SettingsPanel {
         }
         return;
       }
+
+      case 'setPortalHost':
+        await this.handleSetPortalHost(message.payload);
+        return;
 
       case 'setToolApprovalMode':
         await configuration.update('toolApprovalMode', message.payload, vscode.ConfigurationTarget.Workspace);
@@ -2132,6 +2145,50 @@ export class SettingsPanel {
       </div>`;
   }
 
+  /**
+   * Change where the producer portal is hosted.
+   *
+   * Written to a committed file rather than to a setting, because where a
+   * report is hosted and who may read it is a statement about how a team works
+   * — the reason `workflowConfig` keeps its own decisions in one too, and two
+   * developers must not be able to hold different answers with nothing to
+   * arbitrate.
+   *
+   * The host is validated against the declared list: an unrecognised value must
+   * never reach the file, where it would read as `custom` and be assessed as
+   * offering no protection for the wrong reason. Changing the host clears any
+   * confirmation that access was configured, which `setPortalHost` does — an
+   * assertion about one host says nothing about another.
+   */
+  private async handleSetPortalHost(host: string): Promise<void> {
+    const chosen = PORTAL_HOST_CAPABILITIES.find(capability => capability.host === host);
+    const folder = vscode.workspace.workspaceFolders?.[0];
+    const root = folder?.uri.scheme === 'file' || folder?.uri.scheme === 'vscode-remote'
+      ? folder.uri.fsPath
+      : undefined;
+    if (!chosen || !root) {
+      return;
+    }
+    const current = readPortalHostingConfig(root) ?? seedPortalHostingConfig();
+    const next = setPortalHost(current, chosen.host, new Date().toISOString());
+    try {
+      // Contacts are only needed for the markdown mirror's audience section.
+      // The Director page owns the audience and writes it with the full roster;
+      // here an empty list simply renders names it cannot resolve, which the
+      // mirror already reports rather than hiding.
+      await writePortalHostingConfig(root, next, [], 'unknown');
+      if (chosen.control !== 'named-audience') {
+        void vscode.window.showWarningMessage(
+          `${chosen.label} cannot restrict the portal to a list of people you name. ${chosen.audienceCost}`,
+        );
+      }
+    } catch (error) {
+      const detail = error instanceof Error ? error.message : String(error);
+      void vscode.window.showWarningMessage(`Could not record the portal host: ${detail.slice(0, 300)}`);
+    }
+    this.panel.webview.html = this.getHtml();
+  }
+
   private getHtml(): string {
     const configuration = vscode.workspace.getConfiguration('atlasmind');
     const lensWorkspace = vscode.workspace.workspaceFolders?.[0];
@@ -2140,6 +2197,35 @@ export class SettingsPanel {
         ? lensWorkspace.uri.fsPath
         : undefined,
     );
+    // The portal host declaration. Read, never seeded: writing a committed file
+    // because somebody opened a settings tab would put words in their mouth.
+    const portalWorkspaceRoot = lensWorkspace?.uri.scheme === 'file' || lensWorkspace?.uri.scheme === 'vscode-remote'
+      ? lensWorkspace.uri.fsPath
+      : undefined;
+    const portalConfig = (portalWorkspaceRoot ? readPortalHostingConfig(portalWorkspaceRoot) : undefined)
+      ?? seedPortalHostingConfig();
+    const portalHostOptions = PORTAL_HOST_CAPABILITIES.map(capability =>
+      `<option value="${escapeHtml(capability.host)}"${capability.host === portalConfig.host ? ' selected' : ''}>${escapeHtml(capability.label)}</option>`,
+    ).join('');
+    // Every host with what it can actually enforce, so the choice can be argued
+    // with rather than taken on trust — and so the one that answers the question
+    // without an enterprise plan is visible rather than buried.
+    const portalHostTable = `<table class="settings-table"><thead><tr>
+        <th>Host</th><th>Can it restrict to people you name?</th><th>Sign in with GitHub</th><th>What it costs</th>
+      </tr></thead><tbody>${PORTAL_HOST_CAPABILITIES.map(capability => `<tr>
+        <td><strong>${escapeHtml(capability.label)}</strong></td>
+        <td>${capability.control === 'named-audience'
+          ? '<strong>Yes</strong>'
+          : capability.control === 'platform-members'
+            ? 'Only to your platform team'
+            : capability.control === 'repository-readers'
+              ? 'Only to repository readers, on Enterprise Cloud'
+              : capability.control === 'shared-password'
+                ? 'No &mdash; one shared password is not an audience'
+                : 'No'}</td>
+        <td>${capability.githubSignIn ? 'Yes' : 'No'}</td>
+        <td>${escapeHtml(capability.audienceCost)}</td>
+      </tr>`).join('')}</tbody></table>`;
     const registeredAgents = this.atlasContext?.agentRegistry?.listAgents() ?? [];
     const enabledAgentCount = registeredAgents.filter(agent =>
       this.atlasContext?.agentRegistry?.isEnabled(agent.id) ?? true,
@@ -2802,6 +2888,32 @@ export class SettingsPanel {
                   <input id="projectRunReportFolder" type="text" value="${projectRunReportFolder}" />
                 </div>
                 <p class="info-note">Report folders stay workspace-relative and reject absolute paths or traversal sequences.</p>
+              </article>
+
+              <article class="settings-card" id="portalHostingCard">
+                <div class="card-header">
+                  <p class="card-kicker">Producer portal</p>
+                  <h3>Where the portal is hosted, and who can read it</h3>
+                </div>
+                <p class="card-copy">
+                  The producer report can be published as a web page. <strong>Choosing a host is
+                  choosing whether that page can be restricted at all</strong> &mdash; and on most
+                  hosts it cannot. Whoever may read it is assigned on the Project Dashboard &rarr;
+                  Director page; both write one committed file, so the two surfaces cannot disagree.
+                </p>
+                <p class="card-copy">
+                  <strong>Authentication is not authorisation.</strong> Signing in with GitHub admits
+                  every GitHub account there is. An allowlist is what turns a sign-in into an
+                  audience, and a host that can do the first but not the second is not protecting
+                  anything. AtlasMind records the decision; the policy that admits or refuses
+                  somebody lives in the host&rsquo;s own console, where AtlasMind cannot see it.
+                </p>
+                <div class="field-grid">
+                  <label for="portalHost">Host provider</label>
+                  <select id="portalHost">${portalHostOptions}</select>
+                </div>
+                <div class="card-note">${portalHostTable}</div>
+                <p class="card-copy">Host facts read ${escapeHtml(PORTAL_HOSTING_VERIFIED_AT)}. Recorded in <code>project_memory/operations/portal-hosting.json</code>.</p>
               </article>
 
               <article class="settings-card" id="lensDeclarationsCard">
@@ -5046,6 +5158,13 @@ export class SettingsPanel {
           }
 
           renderLocalEndpoints();
+
+          const portalHost = document.getElementById('portalHost');
+          if (portalHost instanceof HTMLSelectElement) {
+            portalHost.addEventListener('change', () => {
+              vscode.postMessage({ type: 'setPortalHost', payload: portalHost.value });
+            });
+          }
 
           const toolApprovalMode = document.getElementById('toolApprovalMode');
           if (toolApprovalMode instanceof HTMLSelectElement) {
