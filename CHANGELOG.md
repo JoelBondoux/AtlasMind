@@ -6,6 +6,14 @@ The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/),
 
 ## [Unreleased]
 
+## [0.470.1] - 2026-09-09
+
+### Changed
+
+- **Delivery register:** recorded the 0.470.0 promotion to Integration (`staging`), so the Delivery
+  page reports the stage where it actually is. A stale record there is a defect rather than
+  untidiness — the record is the whole reason that page is worth reading.
+
 ## [0.470.0] - 2026-09-09
 
 ### Changed

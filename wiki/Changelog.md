@@ -19,6 +19,13 @@ Older entries below describe the software as it was at the time and are delibera
 
 ---
 
+## v0.470.1 -- Delivery record
+
+The delivery register now names 0.470.0 as the last promotion to Integration, so the Delivery
+page reports the stage where it actually is.
+
+---
+
 ## v0.470.0 -- The Ideation page, as two panes
 
 The page had been redesigned three times, and every time the fix was rearranging chrome above and
