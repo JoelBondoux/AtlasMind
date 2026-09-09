@@ -6,6 +6,15 @@ The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/),
 
 ## [Unreleased]
 
+## [0.464.1] - 2026-09-09
+
+### Changed
+
+- **Recorded the promotion of 0.464.0 to the Integration stage.** The delivery register still named
+  0.461.0 as the last promotion, which would have had the Delivery page reporting a stage three
+  releases behind where it actually is. The record is the whole reason that page is worth reading, so
+  a stale one is a defect rather than untidiness.
+
 ## [0.464.0] - 2026-09-09
 
 ### Added

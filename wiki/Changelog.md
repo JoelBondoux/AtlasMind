@@ -19,6 +19,14 @@ Older entries below describe the software as it was at the time and are delibera
 
 ---
 
+## v0.464.1 -- Recorded the promotion
+
+Housekeeping. The delivery register still named 0.461.0 as the last promotion to the Integration
+stage, three releases behind where it actually was. That register is the whole reason the Delivery
+page is worth reading, so a stale entry is a defect rather than untidiness.
+
+---
+
 ## v0.464.0 -- One button
 
 Building and publishing the portal was three commands and a walkthrough. Every step existed for a
