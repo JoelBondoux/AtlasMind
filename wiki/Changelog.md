@@ -19,6 +19,13 @@ Older entries below describe the software as it was at the time and are delibera
 
 ---
 
+## v0.474.1 -- Delivery record
+
+The delivery register now names 0.474.0 as the last promotion to Integration, so the Delivery
+page reports the stage where it actually is.
+
+---
+
 ## v0.474.0 -- Website delivery, on the Delivery page
 
 The framework choice, the three hosting environments, the platform targets and the n8n workflow
