@@ -260,6 +260,27 @@ import {
   type DefectStatus,
 } from '../core/defectRegister.js';
 import {
+  APPROVALS_SSOT_PATH,
+  APPROVAL_CATEGORIES,
+  APPROVAL_ROUTING_RULES,
+  ApprovalRegisterManager,
+  approvalCurrency,
+  approvalFingerprint,
+  buildApprovalReviewPrompt,
+  decideApproval,
+  deriveApprovalMetrics,
+  raiseApproval,
+  readApprovalRegister,
+  refreshApprovalSubject,
+  resolveApprover,
+  sortApprovalRequests,
+  withdrawApproval,
+  type ApprovalCategory,
+  type ApprovalCurrency,
+  type ApprovalMetrics,
+  type ApprovalRosterInput,
+} from '../core/changeApprovals.js';
+import {
   WORKFLOW_HISTORY_SSOT_PATH,
   WorkflowAuditLedger,
   beginWorkflowRun,
@@ -1175,6 +1196,18 @@ type ProjectDashboardMessage =
   | { type: 'regradeDefect'; payload: { id: string; impact: string; reach: string } }
   | { type: 'markDefectDuplicate'; payload: { id: string; duplicateOfId: string } }
   | { type: 'workOnDefect'; payload: { id: string } }
+  // A request names its subject by an **opaque option id** the host published
+  // on this render, never by a path or an item id. The host resolves it against
+  // the same allowlist it built, so a crafted message can name a subject that
+  // does not exist and can never point the register at a file.
+  | {
+    type: 'raiseApproval';
+    payload: { category: string; title: string; subjectId: string; rationale?: string };
+  }
+  | { type: 'decideApproval'; payload: { id: string; decision: string; note?: string } }
+  | { type: 'withdrawApproval'; payload: { id: string } }
+  | { type: 'recheckApproval'; payload: { id: string } }
+  | { type: 'reviewApproval'; payload: { id: string } }
   | { type: 'loadReviewComments'; payload: { number: number } }
   | { type: 'createLabel'; payload: { name: string; color?: string; description?: string } }
   | { type: 'deleteLabel'; payload: { name: string } }
@@ -1355,7 +1388,7 @@ interface DashboardStat {
  * into the conversation.
  */
 const DASHBOARD_PAGE_IDS = [
-  'overview', 'score', 'gapAnalysis', 'workflow', 'roadmap', 'issues', 'pullRequests', 'director',
+  'overview', 'score', 'gapAnalysis', 'workflow', 'roadmap', 'issues', 'pullRequests', 'approvals', 'director',
   'branches', 'repo', 'pipeline', 'testing', 'debt', 'defects', 'security', 'privacy', 'risk', 'compliance', 'release', 'delivery', 'documents',
   'ssot', 'runtime', 'ideation',
 ] as const;
@@ -3175,6 +3208,14 @@ interface DashboardSnapshot {
      */
     recorded: boolean;
   };
+  /**
+   * Who agreed to what, and to which version of it.
+   *
+   * A record rather than a gate: nothing on this dashboard refuses on the
+   * strength of an approval, because a gate AtlasMind cannot enforce is one
+   * people learn to route around.
+   */
+  approvals: DashboardApprovalsSnapshot;
   /** Human ownership for actionable records across the dashboard. */
   workAssignments: DashboardWorkAssignmentsSnapshot;
   /**
@@ -3690,6 +3731,171 @@ function collectIdeationEvidence(input: {
   }
 
   return entries;
+}
+
+const APPROVAL_STATUS_LABEL: Record<string, string> = {
+  pending: 'Pending',
+  approved: 'Approved',
+  rejected: 'Rejected',
+  withdrawn: 'Withdrawn',
+  superseded: 'Superseded',
+};
+
+const MS_PER_APPROVAL_DAY = 24 * 60 * 60 * 1000;
+
+/**
+ * What a request can be raised about, and how its content is read back.
+ *
+ * Deliberately a **host-derived allowlist** rather than a path or an id the
+ * webview supplies. A subject is addressed by an opaque option id, resolved
+ * here; nothing the browser sends can name a file, so no message exists by
+ * which the register could be pointed at something outside the two spaces this
+ * function knows how to read.
+ */
+function collectApprovalSubjects(
+  roadmap: DashboardRoadmapSnapshot,
+  documents: DashboardDocumentsSnapshot,
+  workspaceRoot: string | undefined,
+): Map<string, { kind: string; ref: string; label: string; content: string | undefined }> {
+  const subjects = new Map<string, { kind: string; ref: string; label: string; content: string | undefined }>();
+
+  for (const item of roadmap.items) {
+    // The durable anchor, never the positional id: a request keyed on
+    // `roadmap-3` would silently point at a different item the moment somebody
+    // inserted a line above it.
+    if (!item.nodeId || item.completed) {
+      continue;
+    }
+    subjects.set(`roadmap-item::${item.nodeId}`, {
+      kind: 'roadmap-item',
+      ref: item.nodeId,
+      label: item.text,
+      content: item.text,
+    });
+  }
+
+  for (const document of documents.autoUpdate) {
+    const relative = document.path;
+    if (!relative) {
+      continue;
+    }
+    let content: string | undefined;
+    if (workspaceRoot && document.exists) {
+      try {
+        // Bounded: a fingerprint over a very large file costs nothing useful,
+        // and an approval is about a document somebody reads.
+        content = readFileSync(path.join(workspaceRoot, relative), 'utf8').slice(0, 200_000);
+      } catch {
+        // Unreadable now. Left undefined, which reports as `unresolvable`
+        // rather than as an approval that still applies.
+        content = undefined;
+      }
+    }
+    subjects.set(`document::${relative}`, {
+      kind: 'document',
+      ref: relative,
+      label: document.label ?? relative,
+      ...(content === undefined ? { content: undefined } : { content }),
+    });
+  }
+
+  return subjects;
+}
+
+/**
+ * The approvals page's view of the register.
+ *
+ * Read from disk on every collection, like the defect register, so the page and
+ * the panel's own writes cannot disagree about the file. Currency is computed
+ * against the subject's content *now* — which is why nothing here writes: a
+ * render that re-fingerprinted into the register would be a write on a read
+ * path, and `project_memory/` is committed.
+ */
+function collectApprovalsSnapshot(
+  workspaceRoot: string | undefined,
+  director: ProjectDirectorConfig | undefined,
+  roadmap: DashboardRoadmapSnapshot,
+  documents: DashboardDocumentsSnapshot,
+  now: number,
+): DashboardApprovalsSnapshot {
+  const register = workspaceRoot
+    ? readApprovalRegister(workspaceRoot)
+    : { version: 1 as const, requests: [] };
+  const subjects = collectApprovalSubjects(roadmap, documents, workspaceRoot);
+  const contactName = (id: string | undefined): string | undefined => {
+    if (!id) {
+      return undefined;
+    }
+    // An id that names nobody is shown as the id rather than dropped: a request
+    // routed to somebody who has left the roster is a finding, and a blank
+    // approver field reads as "unrouted", which is a different problem.
+    return director?.contacts.find(contact => contact.id === id)?.name ?? id;
+  };
+  const selfContactId = director?.selfContactId;
+
+  const requests: DashboardApprovalView[] = sortApprovalRequests(register.requests).map(request => {
+    const subject = subjects.get(`${request.subject.kind}::${request.subject.ref}`);
+    const live = subject?.content === undefined ? undefined : approvalFingerprint(subject.content);
+    const raised = Date.parse(request.requestedAt);
+    const routing = request.approverContactId === undefined && request.status === 'pending'
+      ? resolveApprover(request.category, buildApprovalRoster(director))
+      : undefined;
+    return {
+      id: request.id,
+      category: request.category,
+      title: request.title,
+      rationale: request.rationale,
+      subjectKind: request.subject.kind,
+      subjectRef: request.subject.ref,
+      subjectLabel: subject?.label ?? request.subject.label,
+      status: request.status,
+      statusLabel: APPROVAL_STATUS_LABEL[request.status] ?? request.status,
+      requestedAt: request.requestedAt,
+      ...(contactName(request.requestedBy) === undefined ? {} : { requestedByLabel: contactName(request.requestedBy)! }),
+      ...(contactName(request.approverContactId) === undefined ? {} : { approverLabel: contactName(request.approverContactId)! }),
+      ...(request.approverRule === undefined ? {} : { approverRule: request.approverRule }),
+      ...(routing?.unresolvedReason === undefined ? {} : { unresolvedReason: routing.unresolvedReason }),
+      ...(request.decidedAt === undefined ? {} : { decidedAt: request.decidedAt }),
+      ...(contactName(request.decidedBy) === undefined ? {} : { decidedByLabel: contactName(request.decidedBy)! }),
+      ...(request.decisionNote === undefined ? {} : { decisionNote: request.decisionNote }),
+      selfApproved: request.selfApproved === true,
+      currency: approvalCurrency(request, live),
+      ...(Number.isFinite(raised) && request.status === 'pending'
+        ? { waitingDays: Math.max(0, Math.floor((now - raised) / MS_PER_APPROVAL_DAY)) }
+        : {}),
+      mine: selfContactId !== undefined && request.approverContactId === selfContactId,
+    };
+  });
+
+  return {
+    path: APPROVALS_SSOT_PATH,
+    requests,
+    metrics: deriveApprovalMetrics(register, now),
+    rules: APPROVAL_ROUTING_RULES.map(rule => ({
+      category: rule.category,
+      roleId: rule.roleId,
+      describes: rule.describes,
+    })),
+    categories: [...APPROVAL_CATEGORIES],
+    subjects: [...subjects.entries()].map(([id, subject]) => ({
+      id,
+      kind: subject.kind,
+      label: subject.label,
+    })),
+    recorded: register.requests.length > 0,
+    rosterKnown: (director?.teamMembers.length ?? 0) > 0,
+  };
+}
+
+/** The roster facts the routing table needs, and nothing else. */
+function buildApprovalRoster(director: ProjectDirectorConfig | undefined): ApprovalRosterInput {
+  return {
+    members: (director?.teamMembers ?? []).map(member => ({
+      contactId: member.contactId,
+      ...(member.roleId === undefined ? {} : { roleId: member.roleId }),
+    })),
+    ...(director?.selfContactId === undefined ? {} : { selfContactId: director.selfContactId }),
+  };
 }
 
 async function collectGapAnalysisSnapshot(workspaceRoot: string | undefined, ssotPath: string, fallbackItems: DashboardGapAnalysisItem[] = []): Promise<DashboardGapAnalysisSnapshot> {
@@ -5476,6 +5682,21 @@ export class ProjectDashboardPanel {
         return;
       case 'workOnDefect':
         await this.handleWorkOnDefect(message.payload);
+        return;
+      case 'raiseApproval':
+        await this.handleRaiseApproval(message.payload);
+        return;
+      case 'decideApproval':
+        await this.handleDecideApproval(message.payload);
+        return;
+      case 'withdrawApproval':
+        await this.handleWithdrawApproval(message.payload);
+        return;
+      case 'recheckApproval':
+        await this.handleRecheckApproval(message.payload);
+        return;
+      case 'reviewApproval':
+        await this.handleReviewApproval(message.payload);
         return;
       case 'loadReviewComments':
         await this.handleLoadReviewComments(message.payload.number);
@@ -10598,6 +10819,229 @@ ${buildCardEvidenceSection(source, derivation)}`;
     });
   }
 
+  // ── Approvals ──────────────────────────────────────────────────
+
+  private approvalManagerInstance: ApprovalRegisterManager | undefined;
+
+  /**
+   * The approval register, for writes only — the snapshot reads the file itself.
+   *
+   * Reloaded on every access for the reason the defect register is: the file is
+   * committed, and a colleague's request arriving through a pull must not be
+   * overwritten by a decision made against a register this panel read an hour
+   * ago.
+   */
+  private get approvalManager(): ApprovalRegisterManager {
+    this.approvalManagerInstance ??= new ApprovalRegisterManager(
+      vscode.workspace.workspaceFolders?.[0]?.uri.fsPath,
+    );
+    this.approvalManagerInstance.reload();
+    return this.approvalManagerInstance;
+  }
+
+  /**
+   * The subjects a request may be raised about, rebuilt from the snapshot the
+   * page was drawn from.
+   *
+   * Rebuilt rather than trusted: the webview posts an opaque option id, and if
+   * it names something this map does not hold, nothing happens. That is what
+   * stops a message naming a file.
+   */
+  private approvalSubjects(): ReturnType<typeof collectApprovalSubjects> {
+    const snapshot = this.lastSnapshot;
+    if (!snapshot) {
+      return new Map();
+    }
+    return collectApprovalSubjects(
+      snapshot.roadmap,
+      snapshot.documents,
+      vscode.workspace.workspaceFolders?.[0]?.uri.fsPath,
+    );
+  }
+
+  /**
+   * Who the user is, as a contact id.
+   *
+   * An approval is a named person's recorded act, so a decision needs one. This
+   * is a real prerequisite rather than a nuisance: a register full of decisions
+   * by nobody is a register that cannot answer the only question it exists for.
+   */
+  private approvalActor(): string | undefined {
+    return this.lastSnapshot?.director.config?.selfContactId;
+  }
+
+  /** Raise a request. No dialog: it writes a local tracked file and notifies nobody. */
+  private async handleRaiseApproval(payload: {
+    category: string;
+    title: string;
+    subjectId: string;
+    rationale?: string;
+  }): Promise<void> {
+    const category = APPROVAL_CATEGORIES.find(candidate => candidate === payload.category);
+    const subject = this.approvalSubjects().get(payload.subjectId);
+    if (!category || !subject) {
+      void vscode.window.showWarningMessage('That approval could not be raised — the thing it is about is no longer on this page.');
+      return;
+    }
+    if (subject.content === undefined) {
+      // Raising against something unreadable would produce an approval nobody
+      // could ever check, which is the state this register exists to make
+      // visible rather than to create.
+      void vscode.window.showWarningMessage('That subject could not be read, so there is nothing to record an approval against.');
+      return;
+    }
+    try {
+      await this.approvalManager.save(raiseApproval(
+        this.approvalManager.get(),
+        {
+          category,
+          title: payload.title,
+          subject: { kind: subject.kind, ref: subject.ref, label: subject.label },
+          content: subject.content,
+          ...(payload.rationale === undefined ? {} : { rationale: payload.rationale }),
+          ...(this.approvalActor() === undefined ? {} : { requestedBy: this.approvalActor()! }),
+        },
+        buildApprovalRoster(this.lastSnapshot?.director.config ?? undefined),
+        new Date().toISOString(),
+      ));
+    } catch (error) {
+      const detail = error instanceof Error ? error.message : String(error);
+      void vscode.window.showWarningMessage(`Could not raise the approval: ${detail.slice(0, 300)}`);
+    }
+    await this.syncState();
+  }
+
+  /**
+   * Record a decision.
+   *
+   * Confirmed, unlike the other register writes on this dashboard. A debt
+   * status is a note to yourself; this is a durable statement that a named
+   * person agreed to something, and it is the kind of record somebody later
+   * relies on. The dialog names the request and the decision.
+   */
+  private async handleDecideApproval(payload: { id: string; decision: string; note?: string }): Promise<void> {
+    const decision = payload.decision === 'approved' || payload.decision === 'rejected'
+      ? payload.decision
+      : undefined;
+    if (!decision) {
+      return;
+    }
+    const request = this.approvalManager.get().requests.find(entry => entry.id === payload.id);
+    if (!request) {
+      void vscode.window.showWarningMessage('That request is no longer in the register.');
+      return;
+    }
+    const actor = this.approvalActor();
+    if (!actor) {
+      void vscode.window.showWarningMessage(
+        'Name yourself on the Project Dashboard → Director page first. An approval records that a named person agreed, and a decision by nobody cannot answer that.',
+      );
+      return;
+    }
+    const selfApproving = decision === 'approved' && request.requestedBy === actor;
+    const confirmed = await vscode.window.showWarningMessage(
+      `Record that this is ${decision === 'approved' ? 'approved' : 'rejected'}: "${request.title}"?`,
+      {
+        modal: true,
+        detail: [
+          `Category: ${request.category}. Subject: ${request.subject.label}.`,
+          selfApproving
+            ? 'You raised this request, so it will be recorded as self-approved. That is permitted and it is stated on every surface that shows the decision.'
+            : '',
+          decision === 'approved'
+            ? 'The approval is recorded against the content as it stands now. If that content changes later the approval goes stale rather than carrying over.'
+            : '',
+        ].filter(Boolean).join('\n\n'),
+      },
+      decision === 'approved' ? 'Approve' : 'Reject',
+    );
+    if (!confirmed) {
+      return;
+    }
+    try {
+      await this.approvalManager.save(decideApproval(
+        this.approvalManager.get(),
+        payload.id,
+        decision,
+        actor,
+        new Date().toISOString(),
+        payload.note,
+      ));
+    } catch (error) {
+      const detail = error instanceof Error ? error.message : String(error);
+      void vscode.window.showWarningMessage(`Could not record the decision: ${detail.slice(0, 300)}`);
+    }
+    await this.syncState();
+  }
+
+  /** Withdraw a request. The requester taking it back, not a rejection. */
+  private async handleWithdrawApproval(payload: { id: string }): Promise<void> {
+    try {
+      await this.approvalManager.save(withdrawApproval(
+        this.approvalManager.get(),
+        payload.id,
+        this.approvalActor(),
+        new Date().toISOString(),
+      ));
+    } catch (error) {
+      const detail = error instanceof Error ? error.message : String(error);
+      void vscode.window.showWarningMessage(`Could not withdraw the request: ${detail.slice(0, 300)}`);
+    }
+    await this.syncState();
+  }
+
+  /**
+   * Re-take the subject's fingerprint.
+   *
+   * The only place the stored fingerprint moves, and it is a deliberate act
+   * rather than something a render does — the page computes staleness live, so
+   * this exists for the case where somebody has looked at the change and wants
+   * the register to stop reporting it. It does **not** re-approve: the decision
+   * stays exactly as recorded, and re-approving is a separate, confirmed act.
+   */
+  private async handleRecheckApproval(payload: { id: string }): Promise<void> {
+    const subjects = this.approvalSubjects();
+    const request = this.approvalManager.get().requests.find(entry => entry.id === payload.id);
+    if (!request) {
+      return;
+    }
+    const subject = subjects.get(`${request.subject.kind}::${request.subject.ref}`);
+    if (!subject || subject.content === undefined) {
+      void vscode.window.showWarningMessage('That subject could not be read, so its approval cannot be re-checked. It stays reported as unresolvable.');
+      return;
+    }
+    try {
+      await this.approvalManager.save(refreshApprovalSubject(
+        this.approvalManager.get(),
+        payload.id,
+        subject.content,
+        new Date().toISOString(),
+      ));
+    } catch (error) {
+      const detail = error instanceof Error ? error.message : String(error);
+      void vscode.window.showWarningMessage(`Could not re-check the request: ${detail.slice(0, 300)}`);
+    }
+    await this.syncState();
+  }
+
+  /**
+   * Hand a request to an agent for review, never for a decision.
+   *
+   * The prompt is rebuilt host-side from the register by id, so the webview can
+   * name a request and never supply the text the agent reads.
+   */
+  private async handleReviewApproval(payload: { id: string }): Promise<void> {
+    const request = this.approvalManager.get().requests.find(entry => entry.id === payload.id);
+    if (!request) {
+      void vscode.window.showWarningMessage('That request is no longer in the register.');
+      return;
+    }
+    await vscode.commands.executeCommand('atlasmind.openChat', {
+      draftPrompt: buildApprovalReviewPrompt(request),
+      sendMode: 'new-session',
+    });
+  }
+
   /**
    * Create `workflow.json` from a profile.
    *
@@ -15167,6 +15611,22 @@ export function isProjectDashboardMessage(message: unknown): message is ProjectD
     return typeof payload === 'object' && payload !== null && typeof payload['id'] === 'string';
   }
 
+  // Approval messages. Every id is resolved against the register or the
+  // host-published subject list, so shape is all that is checked here.
+  if (candidate['type'] === 'decideApproval' || candidate['type'] === 'withdrawApproval'
+    || candidate['type'] === 'recheckApproval' || candidate['type'] === 'reviewApproval') {
+    const payload = candidate['payload'] as Record<string, unknown> | undefined;
+    return typeof payload === 'object' && payload !== null && typeof payload['id'] === 'string';
+  }
+
+  if (candidate['type'] === 'raiseApproval') {
+    const payload = candidate['payload'] as Record<string, unknown> | undefined;
+    return typeof payload === 'object' && payload !== null
+      && typeof payload['title'] === 'string' && payload['title'].trim().length > 0
+      && typeof payload['category'] === 'string'
+      && typeof payload['subjectId'] === 'string' && payload['subjectId'].length > 0;
+  }
+
   // The one defect message that carries prose. Only the title is required —
   // a defect with no title cannot be found again, which makes recording it
   // worse than not recording it. Everything else is clamped host-side.
@@ -17446,6 +17906,13 @@ async function collectDashboardSnapshot(
       stages: stagePipeline,
       runbooks: deliveryRunbooks,
     },
+    approvals: collectApprovalsSnapshot(
+      workspaceRoot,
+      directorSnapshot.config ?? undefined,
+      roadmapWithBoard,
+      documentsSnapshot,
+      Date.now(),
+    ),
     director: directorSnapshot,
     documents: documentsSnapshot,
     risk: riskSnapshot,
@@ -17804,6 +18271,20 @@ function buildAttentionInput(
         defects: {
           openBlockers: snapshot.defects.metrics.blockers,
           awaitingVerification: snapshot.defects.metrics.awaitingVerification,
+        },
+      }
+      : {}),
+    // Same rule, same reason. `stale` is counted from the page's own live view
+    // rather than from the register's stored fingerprints, so the band and the
+    // page it links to cannot disagree about which approvals still apply.
+    ...(snapshot.approvals.recorded
+      ? {
+        approvals: {
+          awaitingMe: snapshot.approvals.requests
+            .filter(request => request.status === 'pending' && request.mine).length,
+          unrouted: snapshot.approvals.metrics.unrouted,
+          stale: snapshot.approvals.requests
+            .filter(request => request.currency === 'stale').length,
         },
       }
       : {}),
@@ -21675,6 +22156,69 @@ interface DashboardDocumentAutoView {
   statusLabel: string;
   detail: string;
   updatePrompt: string;
+}
+
+// ── Approvals snapshot ───────────────────────────────────────────────────────
+
+/**
+ * One request, with everything the page needs already resolved host-side.
+ *
+ * `currency` is computed against the subject's content **as it stands now**
+ * rather than against the fingerprint the register happens to hold, which is
+ * what lets the page notice that an approved document has been rewritten
+ * without the register having to be written to on a render.
+ */
+interface DashboardApprovalView {
+  id: string;
+  category: ApprovalCategory;
+  title: string;
+  rationale: string;
+  subjectKind: string;
+  subjectRef: string;
+  subjectLabel: string;
+  status: string;
+  statusLabel: string;
+  requestedAt: string;
+  requestedByLabel?: string;
+  approverLabel?: string;
+  approverRule?: string;
+  /** Stated when nobody holds the role the category routes to. */
+  unresolvedReason?: string;
+  decidedAt?: string;
+  decidedByLabel?: string;
+  decisionNote?: string;
+  selfApproved: boolean;
+  currency: ApprovalCurrency;
+  waitingDays?: number;
+  /** True when this request is routed to the contact representing the user. */
+  mine: boolean;
+}
+
+/** Something a request can be raised about. Resolved host-side; ids are opaque. */
+interface DashboardApprovalSubjectOption {
+  id: string;
+  kind: string;
+  label: string;
+}
+
+interface DashboardApprovalsSnapshot {
+  path: string;
+  requests: DashboardApprovalView[];
+  metrics: ApprovalMetrics;
+  /** The declared routing table, so the page publishes the rules that applied. */
+  rules: Array<{ category: string; roleId: string; describes: string }>;
+  categories: string[];
+  /** What a new request can be raised about. Empty when nothing is resolvable. */
+  subjects: DashboardApprovalSubjectOption[];
+  /** False until somebody has raised one — never read as "nothing needs approval". */
+  recorded: boolean;
+  /**
+   * False when the roster names nobody at all.
+   *
+   * Distinct from "no request is routed": a project with no roster cannot route
+   * anything, and saying so is more useful than a page of unrouted requests.
+   */
+  rosterKnown: boolean;
 }
 
 interface DashboardDocumentsSnapshot {

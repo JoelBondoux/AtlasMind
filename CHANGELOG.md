@@ -6,6 +6,65 @@ The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/),
 
 ## [Unreleased]
 
+## [0.458.0] - 2026-09-09
+
+### Added
+
+- **An approval register — who agreed to what, and to which version of it.** AtlasMind had approvals
+  in two senses and neither was this one. A tool approval is a *permission*, asked and answered in
+  seconds. A release gate is a *condition*, evaluated from evidence. Missing was the durable record
+  that a named person agreed to a change: an idea reaching the roadmap, a document going out, a
+  licence term, a commercial commitment.
+
+  **An approval is not a permission.** Nothing here grants a capability, unlocks a branch or lets a
+  tool run, and nothing here blocks a commit or a release — a gate AtlasMind cannot enforce is one
+  people learn to route around. What it can do is remember accurately.
+
+  **Pending is not approved.** There is no auto-approval and deliberately no timeout that grants one:
+  *nobody objected within five days* is the single most common way an approval process comes to
+  certify things nobody read. An unrecognised status in the committed file reads as pending, never as
+  consent.
+
+  **An approval names *what* was approved.** Each request carries a fingerprint of its subject's
+  content, and an approval records the fingerprint it was made against. When the content changes
+  afterwards the approval goes **stale** rather than carrying over — an approval that applies to text
+  nobody signed is worse than none at all. The decision is not revoked and not edited; it simply stops
+  describing what is there. The page computes that live, against the roadmap item or document as it
+  stands now, so nothing has to be written on a render. And a subject that can no longer be found — a
+  deleted document, an item that left the roadmap — reads as **unknown**, never as still current.
+
+  **Nobody is substituted.** A declared table routes each category to a role: a code change to a
+  reviewer, because a review *is* the approval; documentation to a maintainer; and a roadmap
+  commitment, a licence term and a commercial undertaking to the Director, because nobody else can
+  accept those on the project's behalf. If the role is unheld the request has **no approver** and says
+  so, rather than falling back to whoever is available — a substituted approver reads later as
+  somebody having agreed. A project that disagrees names an approver explicitly, and the record says
+  which rule applied.
+
+  **Self-approval is permitted and always stated.** Refusing it would make the register useless on a
+  solo project; hiding it would let a formality look like a review.
+
+  **Requests transition; nothing is deleted.** Rejected, withdrawn and superseded record three
+  different things having happened, and a register that collapsed them would report agreement it
+  cannot attest to. A supersession must name a request that exists, and one whose successor has gone
+  returns to pending rather than staying closed by something nobody can find.
+
+  The content itself is **never stored** — only its fingerprint — because `approvals.json` is
+  committed, and mirroring a legal draft into it would publish the very thing under review.
+
+- **Requests reach the Overview.** Approvals waiting on you rank as *now*, because somebody else's
+  work is stopped until you answer. Stale approvals and requests nobody can decide rank below them and
+  are kept apart, since one waits on a decision and the other waits on somebody being given a role. As
+  with defects, an unused register raises nothing and is not counted toward the groups that let the
+  page claim it is clear.
+
+- **"Help me decide" hands a request to an agent, and the agent cannot decide.** The prompt sets out
+  what would have to be true for approving to be the right call, what is not yet known, and what
+  approving commits the project to that is hard to undo. It is explicitly forbidden from approving or
+  rejecting, the rationale is fenced as untrusted third-party text (a request can be raised from an
+  imported issue or a partner's email), and a legal-category request carries the statement that
+  nothing it says is legal advice.
+
 ## [0.457.0] - 2026-09-09
 
 ### Added

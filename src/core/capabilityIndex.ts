@@ -96,6 +96,7 @@ export const CAPABILITY_PAGES: readonly CapabilityPage[] = [
   { surface: 'dashboard', id: 'roadmap', title: 'Dashboard — Roadmap', answers: 'planned work, priorities, release gates, drafting an issue from an item' },
   { surface: 'dashboard', id: 'issues', title: 'Dashboard — Issues', answers: 'GitHub issues, labels and milestones, working on one with Atlas' },
   { surface: 'dashboard', id: 'pullRequests', title: 'Dashboard — Pull Requests', answers: 'open pull requests, review comments, addressing one' },
+  { surface: 'dashboard', id: 'approvals', title: 'Dashboard — Approvals', answers: 'who agreed to a change and to which version of it: pending requests, who they route to, and which approvals no longer describe what is there' },
   { surface: 'dashboard', id: 'director', title: 'Dashboard — Director', answers: 'stakeholders, team, responsibilities, follow-ups and who owns them' },
   { surface: 'dashboard', id: 'branches', title: 'Dashboard — Branches', answers: 'branch state, what is ahead or behind, stale branches' },
   { surface: 'dashboard', id: 'repo', title: 'Dashboard — Repository', answers: 'repository settings, protections and taxonomy' },

@@ -191,6 +191,9 @@
         // Issues had a page and pull requests had a single card, despite being
         // the stage where a change stops being private. Parity.
         ['pullRequests', 'Pull Requests'],
+        // Between the change and the people: an approval is a decision a
+        // named person made about a change, so it belongs beside both.
+        ['approvals', 'Approvals'],
         ['director', 'Director'],
       ],
     },
@@ -336,6 +339,7 @@
     workflow: [['pullRequests', 'What is in flight right now'], ['pipeline', 'Whether the checks passed'], ['release', 'Whether this can ship']],
     roadmap: [['issues', 'What is filed against this'], ['ideation', 'Where these items came from']],
     issues: [['pullRequests', 'What is being done about them'], ['roadmap', 'How they map to planned work'], ['director', 'Who owns them']],
+    approvals: [['director', 'Who holds which role'], ['roadmap', 'What a decision commits us to'], ['documents', 'The documents under review']],
     pullRequests: [['pipeline', 'Why a check is failing'], ['issues', 'The issue a change closes'], ['release', 'What merging unblocks']],
     director: [['issues', 'The work these people own'], ['pullRequests', 'What is waiting on a review']],
     branches: [['pullRequests', 'Which branches have a pull request'], ['delivery', 'Which branch represents each stage']],
@@ -619,6 +623,10 @@
       ? persistedWebviewState.releaseGateSort : 'urgency',
     debtSearch: '',
     defectSearch: '',
+    approvalDraftOpen: false,
+    /** Opens on what is still waiting, since decided requests are kept forever. */
+    approvalFilter: 'pending',
+    approvalExpandedId: '',
     /**
      * Which slice of the defect register is on screen.
      *
@@ -2616,6 +2624,69 @@
       vscode.postMessage({ type: 'scanDebt' });
       return;
     }
+    if (action === 'set-approval-filter') {
+      state.approvalFilter = payload || 'pending';
+      render();
+      return;
+    }
+    if (action === 'approval-new') {
+      state.approvalDraftOpen = !state.approvalDraftOpen;
+      render();
+      return;
+    }
+    if (action === 'approval-expand') {
+      state.approvalExpandedId = state.approvalExpandedId === payload ? '' : payload;
+      render();
+      return;
+    }
+    if (action === 'approval-raise') {
+      const composer = document.getElementById('approval-composer');
+      const read = field => {
+        const el = composer ? composer.querySelector('[data-approval-field="' + field + '"]') : null;
+        return el ? String(el.value || '').trim() : '';
+      };
+      const title = read('title');
+      const subjectId = read('subject');
+      if (!title || !subjectId) { return; }
+      state.approvalDraftOpen = false;
+      // The subject travels as the opaque option id the host published on this
+      // render. A path or an item id chosen here would be the browser telling
+      // the host what to read.
+      vscode.postMessage({
+        type: 'raiseApproval',
+        payload: {
+          category: read('category') || 'code',
+          title: title,
+          subjectId: subjectId,
+          rationale: read('rationale'),
+        },
+      });
+      render();
+      return;
+    }
+    if (action === 'decide-approval') {
+      // `decision id` — a decision never contains a space and an id cannot.
+      const cut = payload.indexOf(' ');
+      if (cut > 0) {
+        vscode.postMessage({
+          type: 'decideApproval',
+          payload: { decision: payload.slice(0, cut), id: payload.slice(cut + 1) },
+        });
+      }
+      return;
+    }
+    if (action === 'withdraw-approval') {
+      vscode.postMessage({ type: 'withdrawApproval', payload: { id: payload } });
+      return;
+    }
+    if (action === 'recheck-approval') {
+      vscode.postMessage({ type: 'recheckApproval', payload: { id: payload } });
+      return;
+    }
+    if (action === 'review-approval') {
+      vscode.postMessage({ type: 'reviewApproval', payload: { id: payload } });
+      return;
+    }
     if (action === 'set-defect-status-filter') {
       state.defectStatusFilter = payload || 'open';
       render();
@@ -4523,6 +4594,7 @@
         ${renderRoadmap(snapshot)}
         ${renderIssues(snapshot)}
         ${renderPullRequests(snapshot)}
+        ${renderApprovals(snapshot)}
         ${renderPipeline(snapshot)}
         ${renderDirector(snapshot)}
         ${renderRuntime(snapshot)}
@@ -8555,6 +8627,225 @@
             ? 'Nothing matches that. ' + allOpen.length + ' open entr' + (allOpen.length === 1 ? 'y' : 'ies') + ' in total.'
             : 'Nothing open. Every entry has been resolved, accepted, or gone obsolete.'}</div>`}</div>
         ${openEntries.length > 200 ? `<p class="stat-detail">Showing 200 of ${openEntries.length}. The rest are in <code>${escapeHtml(debt.path || '')}</code>.</p>` : ''}
+      </article>
+    </section>`;
+  }
+
+  // ── Approvals ──────────────────────────────────────────────────────────
+  // Who agreed to what, and to which version of it. A record, never a gate:
+  // nothing on this dashboard refuses because something is unapproved.
+
+  const APPROVAL_STATUS_TONE = {
+    pending: 'tag-warn', approved: 'tag-good', rejected: '', withdrawn: '', superseded: '',
+  };
+  const APPROVAL_CURRENCY_LABEL = {
+    stale: 'no longer describes what is there',
+    unresolvable: 'the thing it approved cannot be found',
+  };
+
+  function renderApprovalComposer(approvals) {
+    if (!state.approvalDraftOpen) {
+      return '';
+    }
+    const subjects = approvals.subjects || [];
+    if (subjects.length === 0) {
+      return `
+        <article class="panel-card" id="approval-composer">
+          <p class="card-kicker">Ask for a decision</p>
+          <p class="section-copy">There is nothing to raise a request about yet. A request is always <em>about</em> something AtlasMind can read back later — an outstanding roadmap item or a tracked document — because that is what lets it notice when the thing changes after somebody approved it.</p>
+        </article>`;
+    }
+    return `
+      <article class="panel-card" id="approval-composer">
+        <p class="card-kicker">Ask for a decision</p>
+        <p class="section-copy">The request is recorded against the subject's content as it stands now. If that content changes afterwards the approval goes <strong>stale</strong> rather than carrying over.</p>
+        <input class="ideation-input" data-approval-field="title" type="text" maxlength="200"
+          placeholder="What needs a decision? One line." />
+        <div class="mini-grid">
+          <label class="stat-detail">Kind of change
+            <select class="ideation-input" data-approval-field="category">${(approvals.categories || []).map(category => `<option value="${escapeAttr(category)}">${escapeHtml(category)}</option>`).join('')}</select>
+          </label>
+          <label class="stat-detail">About
+            <select class="ideation-input" data-approval-field="subject">${subjects.map(subject => `<option value="${escapeAttr(subject.id)}">${escapeHtml(subject.kind)}: ${escapeHtml(subject.label)}</option>`).join('')}</select>
+          </label>
+        </div>
+        <textarea class="ideation-input" data-approval-field="rationale" rows="3"
+          placeholder="Why does this need a decision, and what does agreeing commit us to? (optional)"></textarea>
+        <div class="tag-row">
+          <button type="button" class="action-link" data-action="approval-raise">Raise the request</button>
+          <button type="button" class="action-link" data-action="approval-new">Cancel</button>
+        </div>
+      </article>`;
+  }
+
+  function renderApprovalRow(request) {
+    const expanded = state.approvalExpandedId === request.id;
+    const currencyNote = APPROVAL_CURRENCY_LABEL[request.currency];
+    return `
+      <div class="recent-item">
+        <div class="row-head">
+          <button type="button" class="action-link" data-action="approval-expand" data-payload="${escapeAttr(request.id)}"
+            aria-expanded="${expanded ? 'true' : 'false'}">${escapeHtml(request.title)}</button>
+          <span>
+            <span class="tag">${escapeHtml(request.category)}</span>
+            <span class="tag ${APPROVAL_STATUS_TONE[request.status] || ''}">${escapeHtml(request.statusLabel)}</span>
+            ${currencyNote ? '<span class="tag tag-warn">stale</span>' : ''}
+          </span>
+        </div>
+        <div class="list-meta">About ${escapeHtml(request.subjectKind)} <strong>${escapeHtml(request.subjectLabel)}</strong> · raised ${escapeHtml((request.requestedAt || '').slice(0, 10))}${request.waitingDays === undefined ? '' : ' · waiting ' + request.waitingDays + 'd'}${request.approverLabel ? ' · with ' + escapeHtml(request.approverLabel) : ''}</div>
+        ${request.unresolvedReason
+          ? `<div class="list-meta wf-unknown">${escapeHtml(request.unresolvedReason)}</div>`
+          : ''}
+        ${currencyNote
+          ? `<div class="list-meta wf-unknown">This approval ${escapeHtml(currencyNote)}. The decision is not revoked and has not been edited — it simply no longer applies to what is there now.</div>`
+          : ''}
+        ${request.selfApproved
+          ? '<div class="list-meta">Self-approved: the person who asked is the person who agreed.</div>'
+          : ''}
+        ${expanded ? `
+          ${request.rationale ? `<p class="section-copy">${escapeHtml(request.rationale)}</p>` : ''}
+          ${request.approverRule ? `<p class="stat-detail">Routed by the rule <code>${escapeHtml(request.approverRule)}</code>.</p>` : ''}
+          ${request.decidedAt
+            ? `<p class="stat-detail">Decided ${escapeHtml(request.decidedAt.slice(0, 10))}${request.decidedByLabel ? ' by ' + escapeHtml(request.decidedByLabel) : ''}${request.decisionNote ? ' — ' + escapeHtml(request.decisionNote) : ''}.</p>`
+            : ''}
+          <div class="tag-row">
+            ${request.status === 'pending' ? `
+              <button type="button" class="action-link" data-action="decide-approval" data-payload="${escapeAttr('approved ' + request.id)}">Approve</button>
+              <button type="button" class="action-link" data-action="decide-approval" data-payload="${escapeAttr('rejected ' + request.id)}">Reject</button>
+              <button type="button" class="action-link" data-action="withdraw-approval" data-payload="${escapeAttr(request.id)}">Withdraw</button>` : ''}
+            ${request.currency === 'stale'
+              ? `<button type="button" class="action-link" data-action="recheck-approval" data-payload="${escapeAttr(request.id)}">Stop reporting this change</button>`
+              : ''}
+            ${renderAtlasDiscussAction('review-approval', request.id, 'Ask AtlasMind to help you decide', { intent: 'discuss', title: 'Ask AtlasMind what would have to be true for this to be the right call. It cannot decide for you.' })}
+          </div>` : ''}
+      </div>`;
+  }
+
+  function renderApprovals(snapshot) {
+    const approvals = snapshot.approvals || { requests: [], metrics: {}, rules: [], categories: [], subjects: [], recorded: false, rosterKnown: false };
+    const metrics = approvals.metrics || {};
+    const requests = approvals.requests || [];
+
+    const help = renderWorkflowHelp('approvals.rules', {
+      label: 'how a request is routed',
+      why: 'An approval is a record that a named person agreed to something, not a permission. Nothing here grants a capability, unlocks a branch or blocks a release — a gate AtlasMind cannot enforce is one people learn to route around. What it can do is remember, accurately, who agreed and to which version.',
+      how: (approvals.rules || []).map(rule => ({ text: rule.category + ' → ' + rule.roleId + '. ' + rule.describes })).concat([
+        { text: 'Pending is not approved. There is no auto-approval and deliberately no timeout that grants one: "nobody objected in five days" is how an approval process comes to certify things nobody read.' },
+        { text: 'An approval names what was approved. When the content changes afterwards it goes stale rather than carrying over, because an approval that applies to text nobody signed is worse than none.' },
+        { text: 'Nobody is substituted. If the role a category routes to is unheld, the request has no approver and says so — a reassigned approver reads later as somebody having agreed.' },
+        { text: 'Self-approval is permitted and always stated. Refusing it would make this useless on a solo project; hiding it would let a formality look like a review.' },
+      ]),
+      commonMistakes: [
+        'Reading an empty register as "nothing needs approval". It means nobody raised a request.',
+        'Treating a stale approval as still valid. It was given for text that no longer exists.',
+      ],
+    });
+
+    const intro = renderPageIntro({
+      kicker: 'The work',
+      title: 'Who agreed, and to what',
+      summary: approvals.recorded
+        ? (metrics.pending || 0) + ' pending, ' + (metrics.approved || 0) + ' approved, ' + requests.filter(request => request.currency === 'stale').length + ' no longer describing what is there.'
+        : 'Nothing recorded yet. An approval is a record that a named person agreed to a change — worth having precisely because it outlives the conversation that produced it.',
+      chips: (metrics.byCategory || []).map(slice => ({
+        label: slice.value + ' ' + slice.label,
+        tone: slice.key === 'legal' || slice.key === 'commercial' ? 'warn' : 'neutral',
+      })),
+    });
+
+    if (!approvals.recorded && !state.approvalDraftOpen) {
+      return pageSectionOpen('approvals') + intro + `
+        <div class="dashboard-empty"><div>
+          <strong>No approvals recorded</strong>
+          <p class="section-copy">A request is raised about something AtlasMind can read back later — an outstanding roadmap item or a tracked document. That is what lets it notice when the thing changes after somebody approved it, which is the one part of an approval process that is usually invisible.</p>
+          <p class="section-copy">Nothing here blocks a commit or a release. It records a decision; the Release page owns gates.</p>
+          <button type="button" class="action-link" data-action="approval-new">Ask for a decision</button>
+        </div></div>
+      </section>`;
+    }
+
+    const filter = state.approvalFilter || 'pending';
+    const visible = requests.filter(request => {
+      if (filter === 'all') { return true; }
+      if (filter === 'pending') { return request.status === 'pending'; }
+      if (filter === 'mine') { return request.status === 'pending' && request.mine; }
+      if (filter === 'stale') { return request.currency === 'stale' || request.currency === 'unresolvable'; }
+      return request.status === filter;
+    });
+
+    const filters = [
+      ['pending', 'Pending'],
+      ['mine', 'Waiting on me'],
+      ['stale', 'No longer current'],
+      ['all', 'Everything'],
+    ];
+
+    return pageSectionOpen('approvals') + intro + renderApprovalComposer(approvals) + `
+      <div class="panel-grid">
+        <article class="panel-card">
+          <p class="card-kicker">Where it stands${help.button}</p>
+          ${help.panel}
+          <div class="mini-grid">
+            ${renderMetricPill('Pending', String(metrics.pending || 0), { tone: (metrics.pending || 0) > 0 ? 'warn' : undefined })}
+            ${renderMetricPill('Waiting on you', String(requests.filter(request => request.status === 'pending' && request.mine).length))}
+            ${renderMetricPill('Approved', String(metrics.approved || 0), { tone: 'good' })}
+            ${renderMetricPill('Median wait', metrics.medianWaitDays === undefined ? '—' : metrics.medianWaitDays + 'd')}
+          </div>
+          ${renderDistributionBar('approval-status', (metrics.byStatus || []).map(slice => ({
+            key: slice.key,
+            label: slice.label,
+            value: slice.value,
+            tone: slice.key === 'pending' ? 'warn' : slice.key === 'approved' ? 'accent' : 'accent',
+          })), {
+            title: 'Every request by status',
+            caption: 'Rejected, withdrawn and superseded are kept apart — three different things happened',
+            emptyLabel: 'Nothing recorded.',
+          })}
+          <button type="button" class="action-link" data-action="approval-new">${state.approvalDraftOpen ? 'Close the form' : 'Ask for a decision'}</button>
+        </article>
+        <article class="panel-card">
+          <p class="card-kicker">What is not right</p>
+          ${metrics.unrouted
+            ? `<p class="stat-detail wf-unknown">${metrics.unrouted} pending request${metrics.unrouted === 1 ? ' has' : 's have'} no approver, because nobody on the roster holds the role the category routes to. These will wait forever. AtlasMind will not reassign them — a substituted approver reads later as somebody having agreed.</p>`
+            : ''}
+          ${requests.filter(request => request.currency === 'stale').length
+            ? `<p class="stat-detail wf-unknown">${requests.filter(request => request.currency === 'stale').length} approval${requests.filter(request => request.currency === 'stale').length === 1 ? '' : 's'} no longer describe what is there. The content changed after the decision, so the approval does not carry over.</p>`
+            : ''}
+          ${requests.filter(request => request.currency === 'unresolvable').length
+            ? `<p class="stat-detail wf-unknown">${requests.filter(request => request.currency === 'unresolvable').length} approval${requests.filter(request => request.currency === 'unresolvable').length === 1 ? ' is' : 's are'} about something that can no longer be found — a deleted document, or an item that left the roadmap. Reported as unknown rather than as still current.</p>`
+            : ''}
+          ${metrics.waiting
+            ? `<p class="stat-detail">${metrics.waiting} request${metrics.waiting === 1 ? ' has' : 's have'} been waiting over a week.</p>`
+            : ''}
+          ${metrics.selfApproved
+            ? `<p class="stat-detail">${metrics.selfApproved} approval${metrics.selfApproved === 1 ? ' was' : 's were'} self-approved. That is permitted and it is always stated — on a solo project it is the only thing that can happen.</p>`
+            : ''}
+          ${!approvals.rosterKnown
+            ? '<p class="stat-detail wf-unknown">Nobody is on the team roster, so nothing can be routed. Add people and their roles on the Director page.</p>'
+            : ''}
+          ${!metrics.unrouted && !metrics.waiting && !requests.filter(request => request.currency !== 'current' && request.currency !== 'not-approved').length && approvals.rosterKnown
+            ? '<p class="stat-detail">Nothing is stuck, stale, or unroutable.</p>'
+            : ''}
+        </article>
+      </div>
+      <article class="panel-card">
+        <div class="row-head">
+          <p class="card-kicker">The register</p>
+          <span class="list-meta">${visible.length === requests.length ? requests.length : visible.length + ' of ' + requests.length}</span>
+        </div>
+        <div class="segmented" role="group" aria-label="Filter the register">${filters.map(entry => `
+          <button type="button" data-action="set-approval-filter" data-payload="${escapeAttr(entry[0])}"
+            class="${filter === entry[0] ? 'active' : ''}"
+            aria-pressed="${filter === entry[0] ? 'true' : 'false'}">${escapeHtml(entry[1])}</button>`).join('')}</div>
+        <div class="stack-list">${visible.slice(0, 200).map(request => renderApprovalRow(request)).join('') || `<div class="dashboard-empty">${
+          filter === 'pending'
+            ? 'Nothing waiting.'
+            : filter === 'mine'
+              ? 'Nothing is waiting on you.'
+              : filter === 'stale'
+                ? 'Every approval still describes the content it was given for.'
+                : 'Nothing in this view.'}</div>`}</div>
+        <p class="stat-detail">Nothing here is deleted, and nothing here blocks a release. An approval is a record that a named person agreed — not a permission, and not a gate.</p>
       </article>
     </section>`;
   }

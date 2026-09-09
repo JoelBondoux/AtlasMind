@@ -119,6 +119,18 @@ export interface AttentionInput {
    * rather than silently reassuring.
    */
   defects?: { openBlockers: number; awaitingVerification: number };
+  /**
+   * Change approvals — and, like defects, **only once something has been
+   * raised**, for the same reason: an approval register cannot be *assessed*,
+   * and an item reading "no approvals recorded" would nag a project that does
+   * not use them with nothing that could satisfy it.
+   *
+   * `unrouted` is separate from `awaitingMe` because they need opposite
+   * reactions: one waits on a decision, the other waits on somebody being given
+   * the role, and a pending request nobody can decide will wait forever while
+   * looking exactly like one that is working.
+   */
+  approvals?: { awaitingMe: number; unrouted: number; stale: number };
   release?: { blockedGates: number };
   delivery?: { blockedPaths: number };
   workflow?: { nextStepBlocked: boolean; nextStepTitle?: string };
@@ -295,6 +307,47 @@ const RULES: readonly AttentionRule[] = [
         label: `${input.debt.high} high-severity debt`,
         detail: 'Graded by the register\'s published rule table, so the grade is comparable with last month\'s.',
         count: input.debt.high,
+      }
+      : undefined),
+  },
+  {
+    // Above the merely-due items: somebody else's work is stopped until this
+    // is answered, which is a different kind of waiting from your own backlog.
+    id: 'approvals-awaiting-me',
+    urgency: 'now',
+    rule: 'any approval request routed to you and still pending',
+    pageTarget: 'approvals',
+    evaluate: input => (input.approvals && input.approvals.awaitingMe > 0
+      ? {
+        label: `${input.approvals.awaitingMe} approval${input.approvals.awaitingMe === 1 ? '' : 's'} waiting on you`,
+        detail: 'Pending is not approved, and there is deliberately no timeout that grants one. Until you decide, this stays exactly where it is.',
+        count: input.approvals.awaitingMe,
+      }
+      : undefined),
+  },
+  {
+    id: 'approvals-stale',
+    urgency: 'soon',
+    rule: 'any approval given against content that has since changed',
+    pageTarget: 'approvals',
+    evaluate: input => (input.approvals && input.approvals.stale > 0
+      ? {
+        label: `${input.approvals.stale} approval${input.approvals.stale === 1 ? '' : 's'} no longer describe what is there`,
+        detail: 'These were approved and the thing they approved has changed since. An approval that carries over to text nobody signed is worse than no approval at all.',
+        count: input.approvals.stale,
+      }
+      : undefined),
+  },
+  {
+    id: 'approvals-unrouted',
+    urgency: 'soon',
+    rule: 'any pending approval with nobody holding the role it routes to',
+    pageTarget: 'approvals',
+    evaluate: input => (input.approvals && input.approvals.unrouted > 0
+      ? {
+        label: `${input.approvals.unrouted} approval${input.approvals.unrouted === 1 ? ' has' : 's have'} no approver`,
+        detail: 'Nobody on the roster holds the role these route to, so they will wait forever. AtlasMind will not reassign them — a substituted approver reads later as somebody having agreed.',
+        count: input.approvals.unrouted,
       }
       : undefined),
   },
@@ -532,7 +585,7 @@ export function buildAttentionFeed(input: AttentionInput): AttentionFeed {
       input.documents, input.risk, input.debt, input.release, input.delivery, input.workflow,
       // `defects` is supplied only once something has been recorded, so an
       // unused register cannot help the page claim it is clear.
-      input.research, input.capacity, input.defects,
+      input.research, input.capacity, input.defects, input.approvals,
     ].filter(group => group !== undefined).length;
     feed.emptyState = assessed >= 4 ? 'clear' : 'unexamined';
   }

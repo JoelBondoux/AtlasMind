@@ -19,6 +19,41 @@ Older entries below describe the software as it was at the time and are delibera
 
 ---
 
+## v0.458.0 -- Who agreed, and to which version
+
+AtlasMind had approvals in two senses and neither was this one. A tool approval is a *permission*,
+asked and answered in seconds. A release gate is a *condition*, evaluated from evidence. What was
+missing is the durable record that a named person agreed to a change: an idea reaching the roadmap, a
+document going out, a licence term, a commercial commitment.
+
+**An approval is not a permission.** Nothing on the new Approvals page grants a capability, unlocks a
+branch, or blocks a commit or a release -- a gate AtlasMind cannot enforce is one people learn to route
+around. What it can do is remember accurately.
+
+**Pending is never read as approved.** There is no auto-approval and deliberately no timeout that
+grants one: *nobody objected within five days* is the commonest way an approval process comes to
+certify things nobody read.
+
+**An approval names what was approved.** The request records a fingerprint of the subject's content --
+never the content itself, since the file is committed -- and an approval stamps the fingerprint it was
+made against. When the content changes afterwards the approval goes **stale** rather than carrying
+over: an approval that applies to text nobody signed is worse than none. The decision is not revoked
+and not edited; it simply stops describing what is there. A subject that can no longer be found reads
+as **unknown**, never as still current.
+
+**Nobody is substituted.** A published table routes a code change to a reviewer, documentation to a
+maintainer, and roadmap, legal and commercial decisions to the Director. If nobody holds the role, the
+request says so instead of being handed to whoever is available -- a reassigned approver reads later as
+somebody having agreed. Self-approval is permitted and always stated, because on a solo project it is
+the only thing that can happen.
+
+Requests waiting on you reach the Overview as *now*; stale approvals and unroutable ones rank below.
+And "help me decide" hands a request to an agent that is explicitly forbidden from deciding -- it sets
+out what would have to be true, what is not yet known, and what agreeing commits you to that is hard to
+undo.
+
+---
+
 ## v0.457.0 -- Somewhere to write a bug down
 
 AtlasMind kept a register for what somebody found in the plan, in the code, in the world and in the
