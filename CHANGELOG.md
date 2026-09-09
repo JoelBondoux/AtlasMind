@@ -6,6 +6,67 @@ The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/),
 
 ## [Unreleased]
 
+## [0.459.0] - 2026-09-09
+
+### Added
+
+- **Test management, for the half a scanner cannot read.** AtlasMind could already say a great deal
+  about testing — which methodologies a project declares, whether anything evidences each, which
+  declared subjects have a test that names them. All of it derived from **files**, which is the half a
+  machine can answer. It had nothing to say about the other half: the cases somebody wrote down, who
+  owns them, when one was last actually carried out, and what a tester needs in front of them. That is
+  not a shortfall of the file-based reading — exploratory testing, an accessibility pass with a screen
+  reader, a device matrix and a disaster-recovery rehearsal leave no file to grade, and this
+  repository's own testing protocols name TestRail, Zephyr and Xray precisely because that is where it
+  lives everywhere else.
+
+  **Priority is derived, not asked for.** You say what breaks if this is wrong — loses data or exposes
+  something, a journey that has to work, supporting behaviour, appearance — and how often the path is
+  taken. A published seven-rule table grades those two answers, every case names the rule that graded
+  it, and the grade is recomputed on every read so a hand-edited priority in the committed file does
+  not survive. A path that can lose data is critical whatever the traffic.
+
+  **A case that was not run is *never run*, not passed.** There is no default result and no way to seed
+  one, and an unrecognised stored result reads as `blocked` — "we do not know that this works" is the
+  safe direction.
+
+  **A result belongs to a *revision* of its case.** Editing the steps or the expected result bumps the
+  revision, and an earlier result reads as **stale** rather than continuing to count. A pass recorded
+  in March against steps somebody rewrote in June is a pass for a test nobody has run, and nothing else
+  on the page can see it — every other surface still reads it as green. The execution record is neither
+  edited nor discarded; the register keeps what happened and simply stops claiming it describes the
+  case as it stands.
+
+  **An automated case is never given a result here.** Its result comes from the test report the project
+  writes. A person recording a manual pass for it would be asserting what a machine should measure, and
+  the register refuses rather than allowing the most convincing wrong number on the page. A deprecated
+  case is refused too, and both refusals say why instead of a button appearing to work and recording
+  nothing.
+
+  **A test asset names where a credential lives and never holds one.** The whole point of recording a
+  tester's context is that it is shared with a named person, so a value stored there is a value
+  distributed. Anything credential-shaped **refuses the whole asset** rather than being quietly
+  stripped — a silently scrubbed record reports success while the secret stays in whatever it was
+  pasted from — and the check runs on read as well as on write. An asset with no owner is *unassigned*,
+  never everybody's, and a case nobody owns is reported as a case nobody runs.
+
+  Cases transition rather than vanish: retiring one keeps it, and keeps the results recorded against
+  it. Nothing here grades a methodology — file-derived coverage still owns that, and a manual case is
+  additional evidence a person can point at rather than a substitute.
+
+- **Failing and never-run cases reach the Overview.** A manual case somebody ran and watched fail ranks
+  as *now*, alongside a red pipeline: that is a person's observation rather than a scanner's inference.
+  Stale results and critical cases nobody has ever run rank below. As with the other two registers
+  added this week, one nobody has written in raises nothing and is not counted toward the groups that
+  let the page claim it is clear.
+
+- **"Draft the steps" hands a case to an agent that cannot say whether it passes.** It proposes steps
+  somebody could follow without knowing the code, and names the data, accounts and devices a tester
+  will have to be given. It is explicitly forbidden from stating a result, because a stated one is
+  indistinguishable from a real one once it is in the register and somebody relies on it before a
+  release. The objective is fenced as untrusted text, since a case can be imported from a requirements
+  document or a customer's acceptance criteria.
+
 ## [0.458.0] - 2026-09-09
 
 ### Added

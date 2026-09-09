@@ -101,7 +101,7 @@ export const CAPABILITY_PAGES: readonly CapabilityPage[] = [
   { surface: 'dashboard', id: 'branches', title: 'Dashboard — Branches', answers: 'branch state, what is ahead or behind, stale branches' },
   { surface: 'dashboard', id: 'repo', title: 'Dashboard — Repository', answers: 'repository settings, protections and taxonomy' },
   { surface: 'dashboard', id: 'pipeline', title: 'Dashboard — Pipeline', answers: 'CI workflows and their current state' },
-  { surface: 'dashboard', id: 'testing', title: 'Dashboard — Testing', answers: 'per-policy coverage, failing tests, what is untested and how bad that is' },
+  { surface: 'dashboard', id: 'testing', title: 'Dashboard — Testing', answers: 'per-policy coverage, failing tests, what is untested and how bad that is, plus the manual test cases somebody wrote down, who owns each, when it was last run, and what a tester needs in front of them' },
   { surface: 'dashboard', id: 'debt', title: 'Dashboard — Tech Debt', answers: 'deferred work found in the code, how old it is, the rule that graded it' },
   { surface: 'dashboard', id: 'defects', title: 'Dashboard — Defects', answers: 'bugs recorded locally: what is broken, how badly, whether it reproduces, and which fixes nobody has verified' },
   { surface: 'dashboard', id: 'security', title: 'Dashboard — Security', answers: 'dependency and code security findings' },

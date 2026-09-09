@@ -623,6 +623,10 @@
       ? persistedWebviewState.releaseGateSort : 'urgency',
     debtSearch: '',
     defectSearch: '',
+    /** Which composer is open on the Testing page: '', 'case' or 'asset'. */
+    testCaseDraft: '',
+    testCaseFilter: 'live',
+    testCaseExpandedId: '',
     approvalDraftOpen: false,
     /** Opens on what is still waiting, since decided requests are kept forever. */
     approvalFilter: 'pending',
@@ -2622,6 +2626,103 @@
     }
     if (action === 'scan-debt') {
       vscode.postMessage({ type: 'scanDebt' });
+      return;
+    }
+    if (action === 'set-test-case-filter') {
+      state.testCaseFilter = payload || 'live';
+      render();
+      return;
+    }
+    if (action === 'test-case-expand') {
+      state.testCaseExpandedId = state.testCaseExpandedId === payload ? '' : payload;
+      render();
+      return;
+    }
+    if (action === 'test-case-new') {
+      state.testCaseDraft = state.testCaseDraft === 'case' ? '' : 'case';
+      render();
+      return;
+    }
+    if (action === 'test-asset-new') {
+      state.testCaseDraft = state.testCaseDraft === 'asset' ? '' : 'asset';
+      render();
+      return;
+    }
+    if (action === 'test-case-save') {
+      const composer = document.getElementById('test-case-composer');
+      const read = field => {
+        const el = composer ? composer.querySelector('[data-test-field="' + field + '"]') : null;
+        return el ? String(el.value || '').trim() : '';
+      };
+      const title = read('title');
+      if (!title) { return; }
+      state.testCaseDraft = '';
+      // No priority travels. It is derived host-side from what breaks and how
+      // often the path is taken, so this message describes a case and never
+      // grades one.
+      vscode.postMessage({
+        type: 'addTestCase',
+        payload: {
+          title: title,
+          consequence: read('consequence') || 'core-journey',
+          frequency: read('frequency') || 'common',
+          execution: read('execution') || 'manual',
+          objective: read('objective'),
+          expected: read('expected'),
+          ownerContactId: read('owner'),
+          policyId: read('policy'),
+        },
+      });
+      render();
+      return;
+    }
+    if (action === 'test-asset-save') {
+      const composer = document.getElementById('test-asset-composer');
+      const read = field => {
+        const el = composer ? composer.querySelector('[data-test-field="' + field + '"]') : null;
+        return el ? String(el.value || '').trim() : '';
+      };
+      const label = read('asset-label');
+      if (!label) { return; }
+      state.testCaseDraft = '';
+      // The host refuses anything credential-shaped and says so. Nothing is
+      // filtered here: a browser-side scrub would report success while leaving
+      // the value in whatever it was pasted from.
+      vscode.postMessage({
+        type: 'addTestAsset',
+        payload: {
+          label: label,
+          kind: read('asset-kind') || 'account',
+          ownerContactId: read('asset-owner'),
+          location: read('asset-location'),
+          secretRef: read('asset-secret'),
+        },
+      });
+      render();
+      return;
+    }
+    if (action === 'set-test-case-status') {
+      const cut = payload.indexOf(' ');
+      if (cut > 0) {
+        vscode.postMessage({
+          type: 'setTestCaseStatus',
+          payload: { status: payload.slice(0, cut), id: payload.slice(cut + 1) },
+        });
+      }
+      return;
+    }
+    if (action === 'record-test-result') {
+      const cut = payload.indexOf(' ');
+      if (cut > 0) {
+        vscode.postMessage({
+          type: 'recordTestResult',
+          payload: { result: payload.slice(0, cut), id: payload.slice(cut + 1) },
+        });
+      }
+      return;
+    }
+    if (action === 'draft-test-case') {
+      vscode.postMessage({ type: 'draftTestCase', payload: { id: payload } });
       return;
     }
     if (action === 'set-approval-filter') {
@@ -6701,9 +6802,248 @@
 
         ${renderPolicyCoverage(testing)}
 
+        ${renderTestCases(snapshot)}
+
         ${renderMethodologyStrategy(testing)}
       </section>
     `;
+  }
+
+  // ── Test cases ─────────────────────────────────────────────────────────
+  // The other half of testing: the cases somebody wrote down, who owns them,
+  // when one was last actually carried out, and what a tester needs in front
+  // of them. Everything above this card is derived from files.
+
+  const TEST_STATE_TONE = {
+    'not-run': 'tag-warn', pass: 'tag-good', fail: 'tag-critical',
+    blocked: 'tag-warn', skipped: '', stale: 'tag-warn',
+  };
+  const TEST_STATE_LABEL = {
+    'not-run': 'never run', pass: 'passed', fail: 'failed',
+    blocked: 'blocked', skipped: 'skipped', stale: 'result predates the case',
+  };
+  const TEST_PRIORITY_TONE = {
+    critical: 'tag-critical', high: 'tag-warn', normal: '', low: '',
+  };
+  const TEST_CONSEQUENCES = [
+    ['data-or-security', 'can lose data or expose something'],
+    ['core-journey', 'a journey that has to work'],
+    ['supporting', 'supporting behaviour'],
+    ['cosmetic', 'appearance only'],
+  ];
+  const TEST_FREQUENCIES = [
+    ['every-use', 'every use'],
+    ['common', 'commonly'],
+    ['occasional', 'occasionally'],
+    ['rare', 'rarely'],
+  ];
+  const TEST_ASSET_KINDS = [
+    ['data', 'data set'],
+    ['account', 'account'],
+    ['device', 'device'],
+    ['environment', 'environment'],
+    ['fixture', 'fixture'],
+  ];
+
+  function testCaseOptions(pairs, selected) {
+    return pairs.map(pair => `<option value="${escapeAttr(pair[0])}"${pair[0] === selected ? ' selected' : ''}>${escapeHtml(pair[1])}</option>`).join('');
+  }
+
+  function renderTestCaseComposer(cases) {
+    if (state.testCaseDraft === 'case') {
+      return `
+        <div id="test-case-composer" class="panel-card">
+          <p class="card-kicker">Write a case down</p>
+          <p class="section-copy">Priority is not asked for. It comes from what breaks if this is wrong and how often the path is taken, by the published rules below — so a grade made today still compares with one made in six months.</p>
+          <input class="ideation-input" data-test-field="title" type="text" maxlength="200" placeholder="What is being checked? One line." />
+          <textarea class="ideation-input" data-test-field="objective" rows="2" placeholder="What does a tester need to know before they start? (optional)"></textarea>
+          <input class="ideation-input" data-test-field="expected" type="text" maxlength="240" placeholder="Expected result (optional)" />
+          <div class="mini-grid">
+            <label class="stat-detail">If this is wrong
+              <select class="ideation-input" data-test-field="consequence">${testCaseOptions(TEST_CONSEQUENCES, 'core-journey')}</select>
+            </label>
+            <label class="stat-detail">The path is taken
+              <select class="ideation-input" data-test-field="frequency">${testCaseOptions(TEST_FREQUENCIES, 'common')}</select>
+            </label>
+            <label class="stat-detail">Carried out
+              <select class="ideation-input" data-test-field="execution">${testCaseOptions([['manual', 'by a person'], ['automated', 'by the suite']], 'manual')}</select>
+            </label>
+            <label class="stat-detail">Owner
+              <select class="ideation-input" data-test-field="owner"><option value="">Unassigned</option>${(cases.owners || []).map(owner => `<option value="${escapeAttr(owner.id)}">${escapeHtml(owner.label)}</option>`).join('')}</select>
+            </label>
+          </div>
+          ${(cases.policies || []).length > 0 ? `
+            <label class="stat-detail">Evidence for
+              <select class="ideation-input" data-test-field="policy"><option value="">No particular methodology</option>${cases.policies.map(policy => `<option value="${escapeAttr(policy.id)}">${escapeHtml(policy.label)}</option>`).join('')}</select>
+            </label>` : ''}
+          <div class="tag-row">
+            <button type="button" class="action-link" data-action="test-case-save">Write it down</button>
+            <button type="button" class="action-link" data-action="test-case-new">Cancel</button>
+          </div>
+        </div>`;
+    }
+    if (state.testCaseDraft === 'asset') {
+      return `
+        <div id="test-asset-composer" class="panel-card">
+          <p class="card-kicker">Record what a tester needs</p>
+          <p class="section-copy"><strong>Never paste a password, key or token here.</strong> This file is committed and shared with the tester who owns the asset. Store the value in VS Code SecretStorage and put its <em>name</em> in the reference field — anything that looks like a credential is refused outright rather than quietly stripped.</p>
+          <input class="ideation-input" data-test-field="asset-label" type="text" maxlength="200" placeholder="What is it? A staging account, a test phone, a data set." />
+          <div class="mini-grid">
+            <label class="stat-detail">Kind
+              <select class="ideation-input" data-test-field="asset-kind">${testCaseOptions(TEST_ASSET_KINDS, 'account')}</select>
+            </label>
+            <label class="stat-detail">Owner
+              <select class="ideation-input" data-test-field="asset-owner"><option value="">Unassigned</option>${(cases.owners || []).map(owner => `<option value="${escapeAttr(owner.id)}">${escapeHtml(owner.label)}</option>`).join('')}</select>
+            </label>
+          </div>
+          <input class="ideation-input" data-test-field="asset-location" type="text" maxlength="240" placeholder="Where it is — a URL, a path, a device name" />
+          <input class="ideation-input" data-test-field="asset-secret" type="text" maxlength="120" placeholder="The name of the secret, if there is one — not the secret" />
+          <div class="tag-row">
+            <button type="button" class="action-link" data-action="test-asset-save">Record it</button>
+            <button type="button" class="action-link" data-action="test-asset-new">Cancel</button>
+          </div>
+        </div>`;
+    }
+    return '';
+  }
+
+  function renderTestCaseRow(entry) {
+    const expanded = state.testCaseExpandedId === entry.id;
+    return `
+      <div class="recent-item">
+        <div class="row-head">
+          <button type="button" class="action-link" data-action="test-case-expand" data-payload="${escapeAttr(entry.id)}"
+            aria-expanded="${expanded ? 'true' : 'false'}">${escapeHtml(entry.title)}</button>
+          <span>
+            <span class="tag ${TEST_PRIORITY_TONE[entry.priority] || ''}">${escapeHtml(entry.priority)}</span>
+            <span class="tag ${TEST_STATE_TONE[entry.state] || ''}">${escapeHtml(TEST_STATE_LABEL[entry.state] || entry.state)}</span>
+            ${entry.status !== 'active' ? `<span class="tag">${escapeHtml(entry.status)}</span>` : ''}
+            ${entry.execution === 'automated' ? '<span class="tag">automated</span>' : ''}
+          </span>
+        </div>
+        <div class="list-meta">rev ${entry.revision} · ${entry.stepCount} step${entry.stepCount === 1 ? '' : 's'} · owner ${entry.ownerLabel ? escapeHtml(entry.ownerLabel) : '<strong>unassigned</strong>'}${entry.lastRunAt ? ' · last run ' + escapeHtml(entry.lastRunAt.slice(0, 10)) + (entry.lastRunBy ? ' by ' + escapeHtml(entry.lastRunBy) : '') : ''} · graded by <code>${escapeHtml(entry.priorityRule)}</code></div>
+        ${entry.staleResult
+          ? '<div class="list-meta wf-unknown">The last result was recorded against an earlier revision of this case, so it describes a different test. Not a failure, and not a pass.</div>'
+          : ''}
+        ${entry.assetLabels.length > 0
+          ? `<div class="list-meta">Needs: ${entry.assetLabels.map(label => escapeHtml(label)).join(', ')}</div>`
+          : ''}
+        ${expanded ? `
+          ${entry.objective ? `<p class="section-copy">${escapeHtml(entry.objective)}</p>` : ''}
+          <div class="tag-row">
+            ${entry.execution === 'manual' && entry.status === 'active' ? `
+              <button type="button" class="action-link" data-action="record-test-result" data-payload="${escapeAttr('pass ' + entry.id)}">Passed</button>
+              <button type="button" class="action-link" data-action="record-test-result" data-payload="${escapeAttr('fail ' + entry.id)}">Failed</button>
+              <button type="button" class="action-link" data-action="record-test-result" data-payload="${escapeAttr('blocked ' + entry.id)}">Blocked</button>` : ''}
+            ${entry.status !== 'active' ? `<button type="button" class="action-link" data-action="set-test-case-status" data-payload="${escapeAttr('active ' + entry.id)}">Put it in the run set</button>` : ''}
+            ${entry.status === 'active' ? `<button type="button" class="action-link" data-action="set-test-case-status" data-payload="${escapeAttr('deprecated ' + entry.id)}">Retire it</button>` : ''}
+            ${renderAtlasDiscussAction('draft-test-case', entry.id, 'Ask AtlasMind to draft the steps', { intent: 'discuss', title: 'Ask AtlasMind to write steps somebody could follow. It cannot say whether the case passes.' })}
+          </div>` : ''}
+      </div>`;
+  }
+
+  function renderTestCases(snapshot) {
+    const cases = snapshot.testCases || { cases: [], assets: [], metrics: {}, rules: [], policies: [], owners: [], recorded: false };
+    const metrics = cases.metrics || {};
+    const entries = cases.cases || [];
+
+    const help = renderWorkflowHelp('testcases.rules', {
+      label: 'how a case is graded, and what a result means',
+      why: 'Everything else on this page is derived from files, which is the half a machine can read. Exploratory testing, an accessibility pass with a screen reader, a device matrix — none of it leaves a file to grade, and it is still testing somebody has to do and own.',
+      how: (cases.rules || []).map(rule => ({ text: rule.id + ' → ' + rule.priority + '. ' + rule.describes })).concat([
+        { text: 'A case that was not run is never run, never passed. There is no default result and no way to seed one.' },
+        { text: 'A result belongs to a revision of its case. Editing the steps bumps the revision, and an older result reads as stale rather than continuing to count — a pass against steps somebody has since rewritten is a pass for a test nobody ran.' },
+        { text: 'An automated case is never given a result here. Its result comes from the test report the project writes; recording a manual pass for it would be asserting what a machine should measure.' },
+        { text: 'A test asset names where a credential lives and never holds one. This file is committed and shared with the tester who owns the asset.' },
+      ]),
+      commonMistakes: [
+        'Reading an empty register as "nothing to test". It means nobody wrote a case down.',
+        'Deleting a case. Retiring it keeps the record and the results recorded against it.',
+      ],
+    });
+
+    if (!cases.recorded && !state.testCaseDraft) {
+      return `
+        <article class="panel-card">
+          <div class="row-head">
+            <div><p class="card-kicker">Test cases${help.button}</p><h3>Nothing written down yet</h3></div>
+          </div>
+          ${help.panel}
+          <p class="section-copy">Everything above this card is read from files. This is the other half — the cases a person carries out, who owns each one, when it was last actually run, and what a tester needs in front of them to do it.</p>
+          <p class="section-copy">An empty register means nobody wrote a case down. It does not mean there is nothing to test.</p>
+          <div class="tag-row">
+            <button type="button" class="action-link" data-action="test-case-new">Write a case down</button>
+            <button type="button" class="action-link" data-action="test-asset-new">Record what a tester needs</button>
+          </div>
+        </article>`;
+    }
+
+    const filter = state.testCaseFilter || 'live';
+    const visible = entries.filter(entry => {
+      if (filter === 'all') { return true; }
+      if (filter === 'live') { return entry.status === 'active' && entry.execution === 'manual'; }
+      if (filter === 'attention') { return entry.state === 'fail' || entry.state === 'stale' || entry.state === 'not-run'; }
+      if (filter === 'mine') { return entry.ownerLabel === undefined; }
+      return true;
+    });
+    const filters = [
+      ['live', 'In the run set'],
+      ['attention', 'Needs running'],
+      ['mine', 'Unassigned'],
+      ['all', 'Everything'],
+    ];
+
+    return `
+      <article class="panel-card">
+        <div class="row-head">
+          <div><p class="card-kicker">Test cases${help.button}</p><h3>${escapeHtml(String(metrics.neverRun || 0))} never run · ${escapeHtml(String(metrics.staleResults || 0))} predating their case</h3></div>
+          <span class="list-meta">${escapeHtml(String((metrics.manual || 0)))} manual · ${escapeHtml(String(metrics.automated || 0))} automated</span>
+        </div>
+        ${help.panel}
+        <div class="mini-grid">
+          ${renderMetricPill('Passing', String(metrics.passing || 0), { tone: 'good' })}
+          ${renderMetricPill('Failing', String(metrics.failing || 0), { tone: (metrics.failing || 0) > 0 ? 'critical' : undefined })}
+          ${renderMetricPill('Never run', String(metrics.neverRun || 0), { tone: (metrics.neverRun || 0) > 0 ? 'warn' : undefined })}
+          ${renderMetricPill('Blocked', String(metrics.blocked || 0))}
+          ${renderMetricPill('Unowned', String(metrics.unownedCases || 0), { tone: (metrics.unownedCases || 0) > 0 ? 'warn' : undefined })}
+        </div>
+        ${renderDistributionBar('test-case-state', (metrics.byState || []).map(slice => ({
+          key: slice.key,
+          label: TEST_STATE_LABEL[slice.key] || slice.label,
+          value: slice.value,
+          tone: slice.key === 'fail' ? 'critical' : slice.key === 'pass' ? 'accent' : 'warn',
+        })), {
+          title: 'Cases in the run set, by what is known',
+          caption: 'Never run is not a failure and is certainly not a pass',
+          emptyLabel: 'Nothing in the run set.',
+        })}
+        ${metrics.staleResults
+          ? `<p class="stat-detail wf-unknown">${metrics.staleResults} result${metrics.staleResults === 1 ? '' : 's'} predate an edit to the case ${metrics.staleResults === 1 ? 'it belongs' : 'they belong'} to. Nothing else on this page can see that — every other surface still reads them as green.</p>`
+          : ''}
+        ${metrics.ageing
+          ? `<p class="stat-detail">${metrics.ageing} case${metrics.ageing === 1 ? ' was' : 's were'} last run over 90 days ago. Reported as age rather than as a downgrade — a result that changed on its own could not be compared with last quarter's.</p>`
+          : ''}
+        ${metrics.unownedCases
+          ? `<p class="stat-detail wf-unknown">${metrics.unownedCases} case${metrics.unownedCases === 1 ? ' has' : 's have'} no owner. A case nobody owns is a case nobody runs.</p>`
+          : ''}
+        ${renderTestCaseComposer(cases)}
+        <div class="segmented" role="group" aria-label="Filter the test cases">${filters.map(entry => `
+          <button type="button" data-action="set-test-case-filter" data-payload="${escapeAttr(entry[0])}"
+            class="${filter === entry[0] ? 'active' : ''}"
+            aria-pressed="${filter === entry[0] ? 'true' : 'false'}">${escapeHtml(entry[1])}</button>`).join('')}</div>
+        <div class="stack-list">${visible.slice(0, 200).map(entry => renderTestCaseRow(entry)).join('') || '<div class="dashboard-empty">Nothing in this view.</div>'}</div>
+        <div class="tag-row">
+          <button type="button" class="action-link" data-action="test-case-new">${state.testCaseDraft === 'case' ? 'Close the form' : 'Write a case down'}</button>
+          <button type="button" class="action-link" data-action="test-asset-new">${state.testCaseDraft === 'asset' ? 'Close the form' : 'Record what a tester needs'}</button>
+        </div>
+        ${(cases.assets || []).length > 0 ? `
+          <div class="row-head"><p class="card-kicker">What testers need</p><span class="list-meta">${cases.assets.length}${metrics.unassignedAssetCount ? ' · ' + metrics.unassignedAssetCount + ' unassigned' : ''}</span></div>
+          <div class="stack-list">${cases.assets.map(asset => `
+            <div class="recent-item static">
+              <div class="row-head"><strong>${escapeHtml(asset.label)}</strong><span class="tag">${escapeHtml(asset.kind)}</span></div>
+              <div class="list-meta">${asset.ownerLabel ? 'owned by ' + escapeHtml(asset.ownerLabel) : '<strong>unassigned</strong> — nobody is accountable for this, which is not the same as everybody being able to use it'}${asset.location ? ' · ' + escapeHtml(asset.location) : ''}${asset.secretRef ? ' · credential stored elsewhere as <code>' + escapeHtml(asset.secretRef) + '</code>' : ''}</div>
+            </div>`).join('')}</div>` : ''}
+      </article>`;
   }
 
   function policyChips(testing) {

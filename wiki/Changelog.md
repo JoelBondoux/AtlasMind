@@ -19,6 +19,44 @@ Older entries below describe the software as it was at the time and are delibera
 
 ---
 
+## v0.459.0 -- The half of testing a scanner cannot read
+
+AtlasMind could already say a great deal about testing: which methodologies you declare, whether
+anything evidences each, which declared endpoints and migrations have a test that names them. All of
+it read from **files** -- the half a machine can answer.
+
+It had nothing to say about the other half. The cases somebody wrote down. Who owns each one. When it
+was last actually carried out. What a tester needs in front of them to do it. That is not a shortfall
+of the file reading: an exploratory session, an accessibility pass with a screen reader, a device
+matrix and a disaster-recovery rehearsal leave nothing for a scanner to grade, which is exactly why
+teams keep them in TestRail or Zephyr.
+
+**Priority is derived, not asked for.** You say what breaks if this is wrong -- loses data, a journey
+that has to work, supporting behaviour, appearance -- and how often the path is taken. A published
+table grades those two answers, and the grade is recomputed every time the file is read, so a priority
+typed into the committed JSON by hand does not survive.
+
+**A case that was not run is never run, not passed.** There is no default result and no way to seed
+one.
+
+**A result belongs to a revision of its case.** Edit the steps and the revision moves; the old result
+then reads as **stale** rather than staying green. A pass recorded in March against steps somebody
+rewrote in June is a pass for a test nobody has run, and nothing else on the page can see it.
+
+**An automated case is never given a manual result.** Its result comes from the test report your
+project writes -- recording a pass for it by hand would be a person asserting what a machine should
+measure, and the register refuses and says why.
+
+**A test asset names where a credential lives and never holds one.** The file is committed and shared
+with the tester who owns the asset, so anything that looks like a password, key or token is refused
+outright rather than quietly stripped -- a scrubbed record would report success while the value stayed
+in whatever it was pasted from. An asset with no owner is *unassigned*, never everybody's.
+
+Failing cases reach the Overview as *now*, beside a red pipeline: somebody watched the software do the
+wrong thing, which is a person's observation rather than a scanner's inference.
+
+---
+
 ## v0.458.0 -- Who agreed, and to which version
 
 AtlasMind had approvals in two senses and neither was this one. A tool approval is a *permission*,

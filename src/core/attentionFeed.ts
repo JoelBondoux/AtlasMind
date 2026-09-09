@@ -131,6 +131,15 @@ export interface AttentionInput {
    * looking exactly like one that is working.
    */
   approvals?: { awaitingMe: number; unrouted: number; stale: number };
+  /**
+   * Manual test cases, and again **only once something has been written down**.
+   *
+   * `staleResults` is the one worth having: a case that passed, and whose steps
+   * somebody has since rewritten, still reads as green on every other surface.
+   * It is not a failure and it is not a pass — it is a result for a different
+   * test, and nothing else on the dashboard can see it.
+   */
+  testCases?: { failing: number; criticalNeverRun: number; staleResults: number };
   release?: { blockedGates: number };
   delivery?: { blockedPaths: number };
   workflow?: { nextStepBlocked: boolean; nextStepTitle?: string };
@@ -322,6 +331,48 @@ const RULES: readonly AttentionRule[] = [
         label: `${input.approvals.awaitingMe} approval${input.approvals.awaitingMe === 1 ? '' : 's'} waiting on you`,
         detail: 'Pending is not approved, and there is deliberately no timeout that grants one. Until you decide, this stays exactly where it is.',
         count: input.approvals.awaitingMe,
+      }
+      : undefined),
+  },
+  {
+    // With the failures rather than below them: a manual case that failed is a
+    // person having watched the software do the wrong thing, which is at least
+    // as strong a signal as a red pipeline.
+    id: 'test-cases-failing',
+    urgency: 'now',
+    rule: 'any live manual test case whose last recorded result was a failure',
+    pageTarget: 'testing',
+    evaluate: input => (input.testCases && input.testCases.failing > 0
+      ? {
+        label: `${input.testCases.failing} manual test${input.testCases.failing === 1 ? '' : 's'} failing`,
+        detail: 'Somebody ran these and watched them fail. That is a person’s observation, not a scanner’s inference.',
+        count: input.testCases.failing,
+      }
+      : undefined),
+  },
+  {
+    id: 'test-cases-stale-results',
+    urgency: 'soon',
+    rule: 'any manual test case whose last result predates an edit to the case',
+    pageTarget: 'testing',
+    evaluate: input => (input.testCases && input.testCases.staleResults > 0
+      ? {
+        label: `${input.testCases.staleResults} test result${input.testCases.staleResults === 1 ? '' : 's'} predate the case`,
+        detail: 'These passed against steps somebody has since rewritten, so they are results for a different test. Not a failure, and certainly not a pass.',
+        count: input.testCases.staleResults,
+      }
+      : undefined),
+  },
+  {
+    id: 'test-cases-critical-never-run',
+    urgency: 'soon',
+    rule: 'any critical-priority manual case nobody has ever run',
+    pageTarget: 'testing',
+    evaluate: input => (input.testCases && input.testCases.criticalNeverRun > 0
+      ? {
+        label: `${input.testCases.criticalNeverRun} critical case${input.testCases.criticalNeverRun === 1 ? ' has' : 's have'} never been run`,
+        detail: 'Graded critical because the path can lose data, expose something, or is a journey most people take. A case that was not run is never a pass.',
+        count: input.testCases.criticalNeverRun,
       }
       : undefined),
   },
@@ -585,7 +636,7 @@ export function buildAttentionFeed(input: AttentionInput): AttentionFeed {
       input.documents, input.risk, input.debt, input.release, input.delivery, input.workflow,
       // `defects` is supplied only once something has been recorded, so an
       // unused register cannot help the page claim it is clear.
-      input.research, input.capacity, input.defects, input.approvals,
+      input.research, input.capacity, input.defects, input.approvals, input.testCases,
     ].filter(group => group !== undefined).length;
     feed.emptyState = assessed >= 4 ? 'clear' : 'unexamined';
   }

@@ -281,6 +281,27 @@ import {
   type ApprovalRosterInput,
 } from '../core/changeApprovals.js';
 import {
+  TEST_CASES_SSOT_PATH,
+  TEST_CASE_PRIORITY_RULES,
+  TestCaseRegisterManager,
+  addTestAsset,
+  addTestCase,
+  buildTestCaseDraftingPrompt,
+  deriveTestCaseMetrics,
+  readTestCaseRegister,
+  recordTestExecution,
+  runnableCases,
+  setTestCaseStatus,
+  testCaseStanding,
+  type TestAsset,
+  type TestCaseConsequence,
+  type TestCaseFrequency,
+  type TestCaseMetrics,
+  type TestCaseState,
+  type TestCaseStatus,
+  type TestResult,
+} from '../core/testCaseRegister.js';
+import {
   WORKFLOW_HISTORY_SSOT_PATH,
   WorkflowAuditLedger,
   beginWorkflowRun,
@@ -1208,6 +1229,35 @@ type ProjectDashboardMessage =
   | { type: 'withdrawApproval'; payload: { id: string } }
   | { type: 'recheckApproval'; payload: { id: string } }
   | { type: 'reviewApproval'; payload: { id: string } }
+  // A case is described, never graded: there is no priority field, because the
+  // grade comes from the declared table host-side.
+  | {
+    type: 'addTestCase';
+    payload: {
+      title: string;
+      consequence: string;
+      frequency: string;
+      objective?: string;
+      expected?: string;
+      execution?: string;
+      ownerContactId?: string;
+      policyId?: string;
+    };
+  }
+  | { type: 'setTestCaseStatus'; payload: { id: string; status: string } }
+  | { type: 'recordTestResult'; payload: { id: string; result: string; notes?: string } }
+  | { type: 'draftTestCase'; payload: { id: string } }
+  | {
+    type: 'addTestAsset';
+    payload: {
+      label: string;
+      kind: string;
+      ownerContactId?: string;
+      location?: string;
+      secretRef?: string;
+      notes?: string;
+    };
+  }
   | { type: 'loadReviewComments'; payload: { number: number } }
   | { type: 'createLabel'; payload: { name: string; color?: string; description?: string } }
   | { type: 'deleteLabel'; payload: { name: string } }
@@ -3216,6 +3266,16 @@ interface DashboardSnapshot {
    * people learn to route around.
    */
   approvals: DashboardApprovalsSnapshot;
+  /**
+   * The other half of testing: the cases somebody wrote down.
+   *
+   * Alongside `testing` rather than inside it, because everything in that
+   * snapshot is derived from files and everything here was written by a person.
+   * A manual case is additional evidence somebody can point at, never a
+   * substitute for the automated kind — `testingPolicyCoverage` still owns
+   * whether a methodology is evidenced.
+   */
+  testCases: DashboardTestCasesSnapshot;
   /** Human ownership for actionable records across the dashboard. */
   workAssignments: DashboardWorkAssignmentsSnapshot;
   /**
@@ -3884,6 +3944,88 @@ function collectApprovalsSnapshot(
     })),
     recorded: register.requests.length > 0,
     rosterKnown: (director?.teamMembers.length ?? 0) > 0,
+  };
+}
+
+/**
+ * The test-case register's view.
+ *
+ * Read from disk on every collection, like the defect and approval registers,
+ * so the page and the panel's own writes cannot disagree about the file. Owner
+ * ids are resolved to names here so the page never has to look a contact up,
+ * and an id that names nobody is shown as the id rather than dropped — a case
+ * assigned to somebody who has left the roster is a finding, while a blank
+ * owner field reads as unassigned, which is a different problem.
+ */
+function collectTestCasesSnapshot(
+  workspaceRoot: string | undefined,
+  director: ProjectDirectorConfig | undefined,
+  policyRows: ReadonlyArray<{ id: string; label: string }>,
+  now: number,
+): DashboardTestCasesSnapshot {
+  const register = workspaceRoot
+    ? readTestCaseRegister(workspaceRoot)
+    : { version: 1 as const, cases: [], executions: [], assets: [] };
+  const contactName = (id: string | undefined): string | undefined =>
+    (id ? director?.contacts.find(contact => contact.id === id)?.name ?? id : undefined);
+  const assetLabel = new Map(register.assets.map(asset => [asset.id, asset.label]));
+
+  const cases: DashboardTestCaseView[] = [
+    ...runnableCases(register),
+    // Drafts, automated and deprecated cases follow the live set rather than
+    // being hidden: a draft nobody promoted is exactly the thing a testing team
+    // loses track of.
+    ...register.cases.filter(entry => entry.status !== 'active' || entry.execution !== 'manual'),
+  ].map(entry => {
+    const standing = testCaseStanding(entry, register.executions);
+    return {
+      id: entry.id,
+      title: entry.title,
+      objective: entry.objective,
+      priority: entry.priority,
+      priorityRule: entry.priorityRule,
+      execution: entry.execution,
+      status: entry.status,
+      state: standing.state,
+      revision: entry.revision,
+      ...(contactName(entry.ownerContactId) === undefined ? {} : { ownerLabel: contactName(entry.ownerContactId)! }),
+      ...(entry.policyId === undefined ? {} : { policyId: entry.policyId }),
+      ...(standing.lastExecution === undefined ? {} : { lastRunAt: standing.lastExecution.executedAt }),
+      ...(contactName(standing.lastExecution?.executedBy) === undefined
+        ? {}
+        : { lastRunBy: contactName(standing.lastExecution?.executedBy)! }),
+      staleResult: standing.staleResult,
+      stepCount: entry.steps.length,
+      assetLabels: entry.assetIds.map(id => assetLabel.get(id) ?? id),
+    };
+  });
+
+  return {
+    path: TEST_CASES_SSOT_PATH,
+    cases,
+    assets: register.assets.map(asset => ({
+      id: asset.id,
+      label: asset.label,
+      kind: asset.kind,
+      ...(contactName(asset.ownerContactId) === undefined ? {} : { ownerLabel: contactName(asset.ownerContactId)! }),
+      ...(asset.location === undefined ? {} : { location: asset.location }),
+      // The *name* of a secret. The register refuses a value, on write and on
+      // read, so nothing that reaches here can be one.
+      ...(asset.secretRef === undefined ? {} : { secretRef: asset.secretRef }),
+    })),
+    metrics: deriveTestCaseMetrics(register, now),
+    rules: TEST_CASE_PRIORITY_RULES.map(rule => ({
+      id: rule.id,
+      priority: rule.priority,
+      describes: rule.describes,
+    })),
+    policies: policyRows.map(row => ({ id: row.id, label: row.label })),
+    owners: (director?.teamMembers ?? [])
+      .map(member => ({
+        id: member.contactId,
+        label: contactName(member.contactId) ?? member.contactId,
+      })),
+    recorded: register.cases.length > 0,
   };
 }
 
@@ -5697,6 +5839,21 @@ export class ProjectDashboardPanel {
         return;
       case 'reviewApproval':
         await this.handleReviewApproval(message.payload);
+        return;
+      case 'addTestCase':
+        await this.handleAddTestCase(message.payload);
+        return;
+      case 'setTestCaseStatus':
+        await this.handleSetTestCaseStatus(message.payload);
+        return;
+      case 'recordTestResult':
+        await this.handleRecordTestResult(message.payload);
+        return;
+      case 'draftTestCase':
+        await this.handleDraftTestCase(message.payload);
+        return;
+      case 'addTestAsset':
+        await this.handleAddTestAsset(message.payload);
         return;
       case 'loadReviewComments':
         await this.handleLoadReviewComments(message.payload.number);
@@ -11042,6 +11199,192 @@ ${buildCardEvidenceSection(source, derivation)}`;
     });
   }
 
+  // ── Test cases ─────────────────────────────────────────────────
+
+  private testCaseManagerInstance: TestCaseRegisterManager | undefined;
+
+  /** Reloaded on every access, for the reason the other two registers are. */
+  private get testCaseManager(): TestCaseRegisterManager {
+    this.testCaseManagerInstance ??= new TestCaseRegisterManager(
+      vscode.workspace.workspaceFolders?.[0]?.uri.fsPath,
+    );
+    this.testCaseManagerInstance.reload();
+    return this.testCaseManagerInstance;
+  }
+
+  /**
+   * Write a case down.
+   *
+   * No priority travels: the grade is derived host-side from what breaks and
+   * how often the path is taken, so no message can carry a priority the
+   * declared table would not produce.
+   */
+  private async handleAddTestCase(payload: {
+    title: string;
+    consequence: string;
+    frequency: string;
+    objective?: string;
+    expected?: string;
+    execution?: string;
+    ownerContactId?: string;
+    policyId?: string;
+  }): Promise<void> {
+    const consequences: TestCaseConsequence[] = ['data-or-security', 'core-journey', 'supporting', 'cosmetic'];
+    const frequencies: TestCaseFrequency[] = ['every-use', 'common', 'occasional', 'rare'];
+    const consequence = consequences.find(value => value === payload.consequence);
+    const frequency = frequencies.find(value => value === payload.frequency);
+    if (!consequence || !frequency) {
+      void vscode.window.showWarningMessage('That case could not be graded — say what breaks and how often the path is taken.');
+      return;
+    }
+    try {
+      await this.testCaseManager.save(addTestCase(
+        this.testCaseManager.get(),
+        {
+          title: payload.title,
+          consequence,
+          frequency,
+          execution: payload.execution === 'automated' ? 'automated' : 'manual',
+          ...(payload.objective === undefined ? {} : { objective: payload.objective }),
+          ...(payload.expected === undefined ? {} : { expected: payload.expected }),
+          ...(payload.ownerContactId === undefined ? {} : { ownerContactId: payload.ownerContactId }),
+          ...(payload.policyId === undefined ? {} : { policyId: payload.policyId }),
+        },
+        new Date().toISOString(),
+      ));
+    } catch (error) {
+      const detail = error instanceof Error ? error.message : String(error);
+      void vscode.window.showWarningMessage(`Could not write the case down: ${detail.slice(0, 300)}`);
+    }
+    await this.syncState();
+  }
+
+  private async handleSetTestCaseStatus(payload: { id: string; status: string }): Promise<void> {
+    const statuses: TestCaseStatus[] = ['draft', 'active', 'deprecated'];
+    const status = statuses.find(value => value === payload.status);
+    if (!status) {
+      return;
+    }
+    try {
+      await this.testCaseManager.save(setTestCaseStatus(
+        this.testCaseManager.get(),
+        payload.id,
+        status,
+        this.lastSnapshot?.director.config?.selfContactId,
+        new Date().toISOString(),
+      ));
+    } catch (error) {
+      const detail = error instanceof Error ? error.message : String(error);
+      void vscode.window.showWarningMessage(`Could not update the case: ${detail.slice(0, 300)}`);
+    }
+    await this.syncState();
+  }
+
+  /**
+   * Record what happened when somebody ran a case.
+   *
+   * The register's refusals are surfaced rather than swallowed — an automated
+   * case whose result is measured elsewhere, or a deprecated one — because a
+   * button that appears to work and records nothing is worse than one that says
+   * why it will not.
+   */
+  private async handleRecordTestResult(payload: { id: string; result: string; notes?: string }): Promise<void> {
+    const results: TestResult[] = ['pass', 'fail', 'blocked', 'skipped'];
+    const result = results.find(value => value === payload.result);
+    if (!result) {
+      return;
+    }
+    const outcome = recordTestExecution(
+      this.testCaseManager.get(),
+      {
+        caseId: payload.id,
+        result,
+        ...(this.lastSnapshot?.director.config?.selfContactId === undefined
+          ? {}
+          : { executedBy: this.lastSnapshot.director.config.selfContactId }),
+        ...(payload.notes === undefined ? {} : { notes: payload.notes }),
+      },
+      new Date().toISOString(),
+    );
+    if (outcome.refusal) {
+      void vscode.window.showWarningMessage(outcome.refusal.detail);
+      return;
+    }
+    try {
+      await this.testCaseManager.save(outcome.register);
+    } catch (error) {
+      const detail = error instanceof Error ? error.message : String(error);
+      void vscode.window.showWarningMessage(`Could not record the result: ${detail.slice(0, 300)}`);
+    }
+    await this.syncState();
+  }
+
+  /**
+   * Record a test asset.
+   *
+   * The register refuses one that carries a credential rather than naming
+   * where it lives, and the refusal is shown to the person who typed it: a
+   * silently scrubbed record would report success while the secret stayed in
+   * whatever they pasted it from.
+   */
+  private async handleAddTestAsset(payload: {
+    label: string;
+    kind: string;
+    ownerContactId?: string;
+    location?: string;
+    secretRef?: string;
+    notes?: string;
+  }): Promise<void> {
+    const kinds: TestAsset['kind'][] = ['data', 'account', 'device', 'environment', 'fixture'];
+    const kind = kinds.find(value => value === payload.kind);
+    if (!kind) {
+      return;
+    }
+    const outcome = addTestAsset(
+      this.testCaseManager.get(),
+      {
+        label: payload.label,
+        kind,
+        ...(payload.ownerContactId === undefined ? {} : { ownerContactId: payload.ownerContactId }),
+        ...(payload.location === undefined ? {} : { location: payload.location }),
+        ...(payload.secretRef === undefined ? {} : { secretRef: payload.secretRef }),
+        ...(payload.notes === undefined ? {} : { notes: payload.notes }),
+      },
+      new Date().toISOString(),
+    );
+    if (outcome.refusal) {
+      void vscode.window.showWarningMessage(outcome.refusal);
+      return;
+    }
+    try {
+      await this.testCaseManager.save(outcome.register);
+    } catch (error) {
+      const detail = error instanceof Error ? error.message : String(error);
+      void vscode.window.showWarningMessage(`Could not record the asset: ${detail.slice(0, 300)}`);
+    }
+    await this.syncState();
+  }
+
+  /**
+   * Ask an agent to draft the steps.
+   *
+   * The prompt is rebuilt host-side from the register by id, and it forbids the
+   * agent saying whether the case passes — a stated result is indistinguishable
+   * from a real one once it is in the register, and somebody relies on it
+   * before a release.
+   */
+  private async handleDraftTestCase(payload: { id: string }): Promise<void> {
+    const testCase = this.testCaseManager.get().cases.find(entry => entry.id === payload.id);
+    if (!testCase) {
+      void vscode.window.showWarningMessage('That case is no longer in the register.');
+      return;
+    }
+    await vscode.commands.executeCommand('atlasmind.openChat', {
+      draftPrompt: buildTestCaseDraftingPrompt(testCase),
+      sendMode: 'new-session',
+    });
+  }
+
   /**
    * Create `workflow.json` from a profile.
    *
@@ -15611,6 +15954,29 @@ export function isProjectDashboardMessage(message: unknown): message is ProjectD
     return typeof payload === 'object' && payload !== null && typeof payload['id'] === 'string';
   }
 
+  // Test-case messages. Ids resolve against the register; enums are re-coerced
+  // host-side, and no message carries a priority — that comes from the table.
+  if (candidate['type'] === 'setTestCaseStatus' || candidate['type'] === 'recordTestResult'
+    || candidate['type'] === 'draftTestCase') {
+    const payload = candidate['payload'] as Record<string, unknown> | undefined;
+    return typeof payload === 'object' && payload !== null && typeof payload['id'] === 'string';
+  }
+
+  if (candidate['type'] === 'addTestCase') {
+    const payload = candidate['payload'] as Record<string, unknown> | undefined;
+    return typeof payload === 'object' && payload !== null
+      && typeof payload['title'] === 'string' && payload['title'].trim().length > 0
+      && typeof payload['consequence'] === 'string'
+      && typeof payload['frequency'] === 'string';
+  }
+
+  if (candidate['type'] === 'addTestAsset') {
+    const payload = candidate['payload'] as Record<string, unknown> | undefined;
+    return typeof payload === 'object' && payload !== null
+      && typeof payload['label'] === 'string' && payload['label'].trim().length > 0
+      && typeof payload['kind'] === 'string';
+  }
+
   // Approval messages. Every id is resolved against the register or the
   // host-published subject list, so shape is all that is checked here.
   if (candidate['type'] === 'decideApproval' || candidate['type'] === 'withdrawApproval'
@@ -17906,6 +18272,12 @@ async function collectDashboardSnapshot(
       stages: stagePipeline,
       runbooks: deliveryRunbooks,
     },
+    testCases: collectTestCasesSnapshot(
+      workspaceRoot,
+      directorSnapshot.config ?? undefined,
+      testingSnapshot.policyCoverage?.rows ?? [],
+      Date.now(),
+    ),
     approvals: collectApprovalsSnapshot(
       workspaceRoot,
       directorSnapshot.config ?? undefined,
@@ -18277,6 +18649,19 @@ function buildAttentionInput(
     // Same rule, same reason. `stale` is counted from the page's own live view
     // rather than from the register's stored fingerprints, so the band and the
     // page it links to cannot disagree about which approvals still apply.
+    // Same rule again: a register nobody has written in raises nothing and is
+    // not counted toward the groups that let the page claim it is clear.
+    ...(snapshot.testCases.recorded
+      ? {
+        testCases: {
+          failing: snapshot.testCases.metrics.failing,
+          criticalNeverRun: snapshot.testCases.cases.filter(entry =>
+            entry.status === 'active' && entry.execution === 'manual'
+            && entry.priority === 'critical' && entry.state === 'not-run').length,
+          staleResults: snapshot.testCases.metrics.staleResults,
+        },
+      }
+      : {}),
     ...(snapshot.approvals.recorded
       ? {
         approvals: {
@@ -22156,6 +22541,54 @@ interface DashboardDocumentAutoView {
   statusLabel: string;
   detail: string;
   updatePrompt: string;
+}
+
+// ── Test case snapshot ───────────────────────────────────────────────────────
+
+/** One case, with its standing already resolved host-side. */
+interface DashboardTestCaseView {
+  id: string;
+  title: string;
+  objective: string;
+  priority: string;
+  priorityRule: string;
+  execution: string;
+  status: TestCaseStatus;
+  state: TestCaseState;
+  revision: number;
+  ownerLabel?: string;
+  policyId?: string;
+  lastRunAt?: string;
+  lastRunBy?: string;
+  /** True when the last result was recorded against an earlier revision. */
+  staleResult: boolean;
+  stepCount: number;
+  assetLabels: string[];
+}
+
+interface DashboardTestAssetView {
+  id: string;
+  label: string;
+  kind: TestAsset['kind'];
+  ownerLabel?: string;
+  location?: string;
+  /** The *name* of a secret held elsewhere. Never a value. */
+  secretRef?: string;
+}
+
+interface DashboardTestCasesSnapshot {
+  path: string;
+  cases: DashboardTestCaseView[];
+  assets: DashboardTestAssetView[];
+  metrics: TestCaseMetrics;
+  /** The declared priority rules, so a grade can be checked on screen. */
+  rules: Array<{ id: string; priority: string; describes: string }>;
+  /** The enabled methodologies a case can be recorded as evidence for. */
+  policies: Array<{ id: string; label: string }>;
+  /** Testers a case or an asset can be assigned to, from the Director roster. */
+  owners: Array<{ id: string; label: string }>;
+  /** False until somebody has written a case down. Never "nothing to test". */
+  recorded: boolean;
 }
 
 // ── Approvals snapshot ───────────────────────────────────────────────────────
