@@ -6,6 +6,59 @@ The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/),
 
 ## [Unreleased]
 
+## [0.472.0] - 2026-09-09
+
+### Changed
+
+- **UI Studio, rebuilt around the surfaces rather than around eight steps.** Three layouts in a row
+  numbered the Studio's pages one to eight and promised a waterfall the work does not have: nobody
+  finishes the brief before drawing, the preview sat two steps after the canvas it previews, and the
+  first thing on screen was six metric tiles about a project nobody had asked about yet. The numbers,
+  the tiles and the eight-step nav are gone. A **Surfaces rail** beside the canvas is the navigation.
+  *Found in this project* lists every UI file the scan classified — React and Vue/Svelte components,
+  HTML pages, VS Code webview scripts — and **Pick up** brings one in as a surface that records where
+  it came from; *Designed here* lists every surface, found or drawn, and clicking one opens it on the
+  canvas; *Brands* shows what is defined and which is the default, with the scan's own rule table
+  underneath so a missing file can be explained rather than wondered about. The views across the top
+  are unnumbered — Design (canvas, inspector and the built-in-browser preview together), Sitemap or
+  Screens & flows, Brands & system, Content design, Handoff, Delivery (websites only) and Brief — and
+  every old step id still deep-links to where its content went. The Studio lands on the canvas.
+
+### Added
+
+- **A Brands view.** Every brand as a card: its swatches, where it came from (read from a stylesheet
+  on a date, folded from the old design system, or authored here), and for the default how far it is
+  actually in effect, naming any role a surface overrides. **Apply to surfaces…** lists every surface
+  with the brand it wears now. Applying the default *clears* a surface's own choice so it follows the
+  default from then on, rather than recording a "use the default" that would stop following when the
+  default changed. **Read a brand from a stylesheet** offers only the stylesheets the scan found, and
+  the confirmation shows the extraction's own evidence — every role with its file and line, every
+  property it left alone with the reason — so what you agree to is what was read. Removing a brand
+  says how many surfaces name it directly and whether it can be read again or is gone for good.
+- **A picked-up surface remembers its origin.** `WebsitePagePlan.source` records the path, adapter,
+  rule and time of pick-up, validated on every read — no traversal, no absolute path, an adapter this
+  build has — and dropped whole rather than repaired. The rail uses it to stop offering a file twice,
+  and the webview carries it through a save so a found surface cannot quietly become a drawn one.
+- **The preview wears the surface's brand.** The built-in-browser draft applies each screen's own
+  brand preset, where one is set, rather than the default for every page.
+
+### Security
+
+- **The browser names; the host decides.** A pick-up message carries one bounded path and nothing
+  else, and the host re-runs its own scan and refuses any path the scan did not itself classify — a
+  message can point at a file and can never supply one. A stylesheet is refused as a surface and
+  pointed at the Brands view. Brand actions carry ids only (a preset id; at most 200 screen ids), so
+  no token value crosses from the webview. Every one of these actions is refused while the workspace
+  is read-only, and the two that discard something — removing a brand, adding an extracted one —
+  are behind a modal that states what changes.
+
+### Scoped down, and said so
+
+- Stack, hosting, platforms and n8n automations were to move to the Project Dashboard's Delivery
+  page. They have moved to a demoted **Delivery** view inside the Studio, shown for websites only;
+  the move to the Dashboard is a follow-up. Emitters, patch-by-anchor content write-back and launch
+  plans are release 3 of the UI Studio rebuild.
+
 ## [0.471.0] - 2026-09-09
 
 ### Added

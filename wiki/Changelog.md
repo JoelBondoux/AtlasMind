@@ -19,6 +19,31 @@ Older entries below describe the software as it was at the time and are delibera
 
 ---
 
+## v0.472.0 -- The UI Studio shell
+
+Three layouts in a row numbered the Studio's pages one to eight and promised a waterfall the work
+does not have. Nobody finishes the brief before drawing; the preview sat two steps after the canvas
+it previews; and the first screen was six metric tiles about a project nobody had asked about yet.
+
+**A Surfaces rail is the navigation.** *Found in this project* is the scan -- every UI file a
+declared rule classified, with the rule table underneath -- and **Pick up** brings one in as a
+surface that records where it came from. *Designed here* is every surface, found or drawn, and
+clicking one opens it on the canvas. The views across the top are unnumbered, and the Studio lands
+on the canvas. Every old step id still deep-links to where its content went.
+
+**A Brands view.** Each brand's swatches and origin; how far the default is actually in effect,
+naming any override; **Apply to surfaces...** against what each surface wears now; and **Read a
+brand from a stylesheet**, confirmed on the extraction's own evidence rather than a summary of it.
+
+**The browser names; the host decides.** A pick-up carries one path, and the host re-scans and
+refuses anything the scan did not itself list. Brand actions carry ids only.
+
+**Scoped down, and said so.** Stack, hosting and automations were to move to the Dashboard's
+Delivery page; they moved to a demoted Delivery view inside the Studio, websites only, and the move
+is a follow-up. Emitters and content write-back are release 3.
+
+---
+
 ## v0.471.0 -- Brand presets
 
 UI Studio held its visual decisions in two places that could not agree: a flat design system labelled

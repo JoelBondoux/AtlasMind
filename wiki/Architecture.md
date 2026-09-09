@@ -895,6 +895,15 @@ for every role it filled and listing what it could not read — a `var()` refere
 name matching no rule — instead of guessing. The old design system **folds into a preset at
 migration, only if you had changed it**, and is projected from the default preset from then on.
 
+The Studio's shell (0.472.0) is built around those presets and the workspace scan rather than around
+steps: a **Surfaces rail** beside the canvas lists what `uiSurfaceScan` found and has not been picked
+up, every surface designed here — a picked-up one records its origin in `WebsitePagePlan.source`
+(`WebsitePageSource`), validated on every read and dropped whole rather than repaired — and the brands;
+unnumbered views (Design, Sitemap or Screens & flows, Brands & system, Content design, Handoff, Delivery
+for websites, Brief) replace the eight numbered steps, whose ids survive as renames. The boundary is
+the same one every other surface keeps: a pick-up posts one path and the host re-scans and refuses any
+file the scan did not itself classify; brand actions post ids only.
+
 AtlasMind can also take **the project in your own words** (`src/core/projectBrief.ts`, the brief
 composer on an empty ideation board). Everything else it starts from is *detected* — the archetype
 from manifests, the starter frames from the archetype — and none of it can know what the project is

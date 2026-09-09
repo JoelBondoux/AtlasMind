@@ -1884,7 +1884,7 @@
     if (sitemapNode) {
       activePageId = sitemapNode.dataset.sitemapPage;
       clearCanvasSelection();
-      showPage('wireframes');
+      showPage('design');
       syncPageSelect();
       renderCanvas();
       renderPagePromptField();
@@ -1968,6 +1968,10 @@
         order: basics.order ?? page.order,
         designPrompt: page.designPrompt ?? '',
         links: page.links ?? [],
+        // Where a picked-up surface came from. The host validates it; the
+        // browser only carries it, and a save that dropped it would turn a
+        // found surface back into one somebody designed from nothing.
+        ...(page.source ? { source: page.source } : {}),
         wireframe: page.wireframe,
         sections: page.sections ?? [],
         wireframeNotes: card ? value('.page-wireframeNotes', card) : (page.wireframeNotes ?? ''),
@@ -2011,7 +2015,7 @@
     }));
 
     return {
-      version: 13,
+      version: 14,
       designRevision,
       surfaceKind: value('#surfaceKind') || state.surfaceKind || 'website',
       designPrompt: value('#siteDesignPrompt'),
@@ -2075,6 +2079,43 @@
     button.addEventListener('click', () => vscode.postMessage({ type: 'openCommand', payload: button.dataset.command })));
   qsa('[data-open-ssot]').forEach(button =>
     button.addEventListener('click', () => vscode.postMessage({ type: 'openSsot', payload: button.dataset.openSsot })));
+
+  // ── Surfaces rail ──────────────────────────────────────────────
+  // The rail names things; the host decides. A pick-up carries the path the
+  // host's own scan listed and nothing else, and a brand action carries ids.
+
+  qsa('[data-open-surface]').forEach(button => button.addEventListener('click', () => {
+    const select = qs('#wireframePageSelect');
+    if (select) {
+      select.value = button.dataset.openSurface;
+      select.dispatchEvent(new Event('change', { bubbles: true }));
+    }
+    showPage('design');
+  }));
+  qs('#addSurface')?.addEventListener('click', () => {
+    qs('#addWebsitePage')?.click();
+    showPage('structure');
+  });
+  qsa('[data-pick-up]').forEach(button => button.addEventListener('click', () => {
+    if (state.readOnly) { return; }
+    vscode.postMessage({ type: 'pickUpSurface', payload: { path: button.dataset.pickUp } });
+  }));
+  qsa('[data-brand-default]').forEach(button => button.addEventListener('click', () =>
+    vscode.postMessage({ type: 'setDefaultBrand', payload: { presetId: button.dataset.brandDefault } })));
+  qsa('[data-brand-remove]').forEach(button => button.addEventListener('click', () =>
+    vscode.postMessage({ type: 'removeBrand', payload: { presetId: button.dataset.brandRemove } })));
+  qsa('[data-brand-apply]').forEach(button => button.addEventListener('click', () => {
+    const card = button.closest('[data-brand-card]');
+    const screenIds = qsa('[data-brand-screen]', card ?? document)
+      .filter(box => box.checked)
+      .map(box => box.dataset.brandScreen);
+    vscode.postMessage({ type: 'applyBrandToScreens', payload: { presetId: button.dataset.brandApply, screenIds } });
+  }));
+  qs('#extractBrand')?.addEventListener('click', () => {
+    const path = value('#extractBrandSource');
+    if (!path) { return; }
+    vscode.postMessage({ type: 'extractBrandFromStylesheet', payload: { path } });
+  });
 
   qsa('.environment-hostingMode').forEach(select => select.addEventListener('change', () => {
     const card = select.closest('[data-environment-id]');
@@ -2905,7 +2946,7 @@
       activePageId = pageId;
       selectOnly(nodeId);
       syncPageSelect();
-      showPage('wireframes');
+      showPage('design');
       renderCanvas();
       renderPagePromptField();
       qs('.wf-box[data-element-id="' + cssEscape(nodeId) + '"]')?.focus();

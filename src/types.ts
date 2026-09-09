@@ -2320,12 +2320,30 @@ export interface WebsitePageLink {
   origin: 'declared' | 'derived';
 }
 
+/**
+ * Where a surface came from, when it was picked up out of the project rather
+ * than designed here.
+ *
+ * Recorded at the moment of pick-up and never inferred afterwards: a page whose
+ * title happens to match a file is not that file. The path is the one the scan
+ * classified, so it is workspace-relative and already passed the scan's own
+ * exclusion rules; the adapter and rule say why it was offered at all.
+ */
+export interface WebsitePageSource {
+  path: string;
+  adapterId: UiRepositoryAdapterId;
+  ruleId: string;
+  pickedUpAt: string;
+}
+
 /** One page moving from sitemap through wireframe, visual design, content, and SEO review. */
 export interface WebsitePagePlan {
   id: string;
   title: string;
   slug: string;
   purpose: string;
+  /** Present when this surface was picked up from a file the scan found. */
+  source?: WebsitePageSource;
   template: string;
   sections: string[];
   wireframeNotes: string;

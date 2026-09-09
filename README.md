@@ -4,7 +4,7 @@
 
 <h1 align="center">AtlasMind</h1>
 
-<p align="center"><sub> · <strong>Current source version: 0.471.0</strong> · </sub></p>
+<p align="center"><sub> · <strong>Current source version: 0.472.0</strong> · </sub></p>
 
 
 <p align="center">
@@ -175,18 +175,28 @@ important limits on overrides and compliance claims.
 
 ---
 
-## What's new in 0.471.0
+## What's new in 0.472.0
 
 The last Marketplace publication, **v0.449.5**, brought the changes below. Every release is written
 up in full in [CHANGELOG.md](CHANGELOG.md).
+
+- **UI Studio, rebuilt around the surfaces.** The eight numbered steps and the six metric tiles are
+  gone. A Surfaces rail beside the canvas lists every UI file the scan found in the project — pick one
+  up and it becomes a surface that remembers where it came from — and every surface designed here;
+  clicking one opens it on the canvas. The views across the top are unnumbered (Design, Sitemap or
+  Screens & flows, Brands & system, Content design, Handoff, Delivery for websites, Brief) and the
+  Studio lands on the canvas. A new **Brands** view shows each brand's swatches and origin, applies
+  one to any set of surfaces, and reads a new one out of a stylesheet behind a confirmation that
+  shows the extraction's own evidence. The browser only ever names a file or an id; the host re-scans
+  and decides.
 
 - **Brand presets.** One named set of colours, fonts, spacing and radius, applied to many surfaces
   **by alias** — change the brand and every surface follows, and a surface that keeps its own value is
   reported as an override rather than pretending to wear the brand. A preset can be read out of a
   stylesheet's custom properties, naming the file and line for every role and listing what it could
   not read instead of guessing. The old two-places-for-one-colour design system folds into a preset at
-  migration, and only if you had changed it. This is the model half of the UI Studio rebuild; the
-  surface that shows it comes next.
+  migration, and only if you had changed it. The model half of the UI Studio rebuild; the surface
+  above is the shell half.
 
 - **The Ideation page, rebuilt as two panes.** The inspector used to sit under a canvas that filled
   the screen, so editing a card meant scrolling away from the board — and four "stages" explained an
@@ -491,7 +501,7 @@ Highlights from the last few releases. Everything here is already in the publish
 | **Tech debt register** | Deferred work found from your own code markers, graded by a published rule you can read, tracked rather than forgotten. |
 | **Testing strategy** | 69 configurable methodologies — including data & schema, AI-specific and compliance families — with owners, tooling, evidence checks, scaffolding, and sync to other AI tools. |
 | **Works with your existing AI tool** | Testing methodologies, debt markers and workflow rules synced into Copilot, Claude Code, Cursor, Codex, Gemini CLI and Windsurf instruction files as a managed block. The management layer needs no chat of its own. |
-| **UI Studio** | Design websites, apps, extensions, desktop tools, and other interfaces through screens, flows, content, wireframes, tokens, components, full built-in-browser preview, responsive inspection, and implementation handoff. Website profiles also keep protected Develop → Staging → Production delivery. |
+| **UI Studio** | Pick up the UI files already in the project or draw new surfaces, design them beside the canvas with a built-in-browser preview, brand them from named presets, and hand off to the implementation. Screens, flows, content, wireframes, tokens, components and responsive inspection are all here. Website profiles also keep protected Develop → Staging → Production delivery. |
 | **Voice, vision & remote** | Local or hosted speech, image analysis, opt-in remote control, and a keep-awake lock for long runs. |
 | **Lenses over your code — and your services** | Eleven read-only views built from what your project declares: flow, change impact, test evidence, state lifecycle, config precedence, field wiring, branch change story — plus three that compare your declared schemas against what a live API or database actually serves. Shape only: never a row, never a write, off by default. |
 | **Honest cost tracking** | Per-session and per-model spend in your own currency, with model comparison and routing evidence. |

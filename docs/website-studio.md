@@ -20,17 +20,34 @@ SwiftUI, React Native, XAML, game-engine, or other non-web project, that preview
 content, states and tokens; it never claims HTML is the implementation target. The Implementation guide
 is what points subsequent project work at the real technology and source locations.
 
-## Dashboards
+## The shell: a rail of surfaces, and views
 
-| Dashboard | Purpose |
+There are no numbered steps. A **Surfaces rail** on the left is the navigation:
+
+- **Found in this project** — every UI file the workspace scan classified by a declared rule (React and
+  Vue/Svelte components, HTML pages, VS Code webview scripts) that has not been picked up yet, with the
+  rule table underneath. **Pick up** brings one in as a surface that records where it came from
+  (`WebsitePagePlan.source`). A stylesheet is never offered here; it is a source of tokens, read on the
+  Brands view.
+- **Designed here** — every surface, found or drawn. Clicking one opens it on the canvas. **+ Add**
+  draws a new one.
+- **Brands** — what is defined and which is the default; **Manage** opens the Brands view.
+
+The views across the top are aspects of the surface you are on, in the order of attention rather than
+of work:
+
+| View | Purpose |
 |---|---|
-| Project Brief | Choose the interface profile and capture the project, goals, audiences, features, content sources, brand notes, constraints, metrics, stakeholders, timing, budget, and whole-interface prompt |
+| Design | The canvas: nav, hero, section, grid, card, media, text, form, CTA, sidebar, footer; the inspector for the selected element; per-page design prompts and review states; and the built-in-browser preview card. The landing view |
 | Sitemap / Screens & flows | Website profiles use pages and slugs; other profiles use screens and stable route/view identifiers. Both share the auto-drawn hierarchy, parent relationships, and links |
-| Content Design | Set voice, principles, preferred/avoided terms, comprehension target, locales, and accessibility rules; edit each screen's real Markdown copy and UI states |
-| Wireframe canvas | Draw the page: nav, hero, section, grid, card, media, text, form, CTA, sidebar, footer. Select any element to describe it. Per-page design prompts and the wireframe/UI/content/SEO review states live here |
-| UI System | Record brand direction and legacy defaults; edit typed tokens/aliases, reusable component definitions, bounded sample-data collections, and validated assets |
-| Implementation | Record target technologies, source roots, component locations, handoff notes, and explicit design-to-source mappings with divergence status. Website profiles also choose framework/platform, configure hosting, run setup, and compare Delivery |
-| n8n Automations (website) | Map workflow event, expected outcome, readiness, opaque workflow ID, instance, credential reference, and data/privacy notes |
+| Brands & system | Each brand as a card — swatches, origin, how far the default is in effect, **Apply to surfaces…**, **Read a brand from a stylesheet** — followed by the typed tokens/aliases, reusable component definitions, sample-data collections, validated assets and the fallback defaults projected from the default brand |
+| Content design | Set voice, principles, preferred/avoided terms, comprehension target, locales, and accessibility rules; edit each screen's real Markdown copy and UI states |
+| Brief | Choose the interface profile and capture the project, goals, audiences, features, content sources, brand notes, constraints, metrics, stakeholders, timing, budget, and whole-interface prompt |
+| Handoff | Record target technologies, source roots, component locations, handoff notes, and explicit design-to-source mappings with divergence status |
+| Delivery (website only) | Choose framework/platform, configure hosting, run setup, compare Delivery, and map n8n workflows (event, expected outcome, readiness, opaque workflow ID, instance, credential reference, and data/privacy notes) |
+
+Every one of the old step ids (`brief`, `sitemap`, `content`, `ui-system`, `wireframes`, `preview`,
+`stack`, `platforms`, `automations`) still deep-links to the view its content went to.
 
 ## Typed design tokens
 
@@ -220,7 +237,7 @@ proposal and that nothing should be written to `website.json`.
 
 ## Full preview: the design feedback loop
 
-**Full Preview is a numbered Studio step**, not an output utility. Save the current design, then choose
+**Full Preview lives on the Design view, beside the canvas it previews**, not on an output page. Save the current design, then choose
 **Rebuild and open** to render one deterministic draft from three sources of truth:
 
 - wireframe geometry and hierarchy from the canvas;

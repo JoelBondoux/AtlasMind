@@ -28,6 +28,7 @@ import type {
   WebsiteHostingEnvironmentId,
   WebsitePageLink,
   WebsitePagePlan,
+  WebsitePageSource,
   WebsitePlatformId,
   WebsitePlatformStatus,
   WebsitePlatformTarget,
@@ -53,6 +54,7 @@ import { applyDesignGraphToPages, designGraphFromPages, sanitizeUiDesignGraph, s
 import {
   sanitizeUiRepositoryMappings,
   UI_REPOSITORY_MAPPING_MAX_REVISION,
+  UI_REPOSITORY_ADAPTERS,
 } from './uiRepositoryMapping.js';
 
 export const WEBSITE_WORKSPACE_SSOT_PATH = 'project_memory/domain/website.json';
@@ -950,6 +952,7 @@ function sanitizePages(input: unknown): WebsitePagePlan[] {
       designPrompt: cleanText(source['designPrompt'], 2_000),
       links: sanitizePageLinks(source['links']),
       ...(wireframe ? { wireframe } : {}),
+      ...sanitizePageSource(source['source']),
     };
   });
 
@@ -1020,6 +1023,29 @@ function cleanOrder(value: unknown, fallback: number): number {
   return typeof value === 'number' && Number.isFinite(value)
     ? Math.max(0, Math.floor(value))
     : fallback;
+}
+
+/**
+ * A picked-up surface's origin.
+ *
+ * Validated, never cleaned: the path is resolved against the workspace later
+ * and shown as a citation, so one with traversal in it is dropped whole rather
+ * than repaired into a different file. An unknown adapter drops the source too
+ * — a surface claiming an adapter this build does not have would be offered
+ * mappings it cannot read.
+ */
+function sanitizePageSource(input: unknown): { source?: WebsitePageSource } {
+  const source = asRecord(input);
+  const path = cleanText(source['path'], 400).replace(/\\/g, '/');
+  const adapterId = source['adapterId'];
+  const ruleId = cleanIdentifier(source['ruleId']);
+  const pickedUpAt = cleanIsoDate(source['pickedUpAt']);
+  if (!path || path.startsWith('/') || /^[a-z]:/i.test(path) || path.split('/').includes('..')
+      || !UI_REPOSITORY_ADAPTERS.some(adapter => adapter.id === adapterId)
+      || !ruleId || !pickedUpAt) {
+    return {};
+  }
+  return { source: { path, adapterId: adapterId as WebsitePageSource['adapterId'], ruleId, pickedUpAt } };
 }
 
 function sanitizeDesignSystem(input: unknown): WebsiteDesignSystem {

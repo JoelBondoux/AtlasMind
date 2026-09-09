@@ -13,11 +13,14 @@ import {
 
 describe('Website Studio webview boundary', () => {
   it('accepts only known dashboard deep links', () => {
-    expect(isWebsiteStudioPage('wireframes')).toBe(true);
+    expect(isWebsiteStudioPage('design')).toBe(true);
     expect(isWebsiteStudioPage('content')).toBe(true);
-    expect(isWebsiteStudioPage('preview')).toBe(true);
-    expect(isWebsiteStudioPage('automations')).toBe(true);
+    expect(isWebsiteStudioPage('brands')).toBe(true);
+    expect(isWebsiteStudioPage('delivery')).toBe(true);
     expect(isWebsiteStudioPage('../../settings')).toBe(false);
+    // The numbered steps are gone; their ids survive only as renames.
+    expect(isWebsiteStudioPage('wireframes')).toBe(false);
+    expect(isWebsiteStudioPage('stack')).toBe(false);
   });
 
   it('allows only the documented bounded message shapes', () => {
@@ -184,14 +187,22 @@ describe('Website Studio webview boundary', () => {
     })).toBe(false);
   });
 
-  it('keeps the old platforms page id working as a deep link', () => {
-    // The id is a public deep-link target: the Project Dashboard and the
-    // Ideation board both link in, and a renamed id would silently drop them on
-    // the Brief page with no indication why.
-    expect(resolveWebsiteStudioPage('platforms')).toBe('stack');
-    expect(resolveWebsiteStudioPage('stack')).toBe('stack');
-    expect(resolveWebsiteStudioPage('nonsense')).toBe('brief');
-    expect(resolveWebsiteStudioPage(undefined)).toBe('brief');
+  it('keeps every old step id working as a deep link', () => {
+    // Every one of the eight numbered steps was a public deep-link target: the
+    // Project Dashboard and the Ideation board both link in, and a renamed id
+    // would silently drop them on the landing view with no indication why.
+    // Each lands where its content went.
+    expect(resolveWebsiteStudioPage('wireframes')).toBe('design');
+    expect(resolveWebsiteStudioPage('preview')).toBe('design');
+    expect(resolveWebsiteStudioPage('sitemap')).toBe('structure');
+    expect(resolveWebsiteStudioPage('ui-system')).toBe('brands');
+    expect(resolveWebsiteStudioPage('stack')).toBe('handoff');
+    expect(resolveWebsiteStudioPage('platforms')).toBe('delivery');
+    expect(resolveWebsiteStudioPage('automations')).toBe('delivery');
+    expect(resolveWebsiteStudioPage('brief')).toBe('brief');
+    // And the landing view is the canvas, not the brief.
+    expect(resolveWebsiteStudioPage('nonsense')).toBe('design');
+    expect(resolveWebsiteStudioPage(undefined)).toBe('design');
   });
 
   it('validates the framework choice against the catalog, not merely as a string', () => {
@@ -204,14 +215,14 @@ describe('Website Studio webview boundary', () => {
 
   it('offers no setup affordance until the setting is on, and says which', () => {
     const config = createDefaultWebsiteWorkspace({ projectName: 'Northstar' });
-    const off = getWebsiteStudioHtml({ cspSource: 'vscode-webview://test' }, config, 'stack', {
+    const off = getWebsiteStudioHtml({ cspSource: 'vscode-webview://test' }, config, 'handoff', {
       scriptContent: '/* canvas */',
     });
     expect(off).toContain('Automatic setup is off');
     expect(off).toContain('atlasmind.website.setup.enabled');
     expect(off).not.toContain('id="planStackSetup"');
 
-    const on = getWebsiteStudioHtml({ cspSource: 'vscode-webview://test' }, config, 'stack', {
+    const on = getWebsiteStudioHtml({ cspSource: 'vscode-webview://test' }, config, 'handoff', {
       scriptContent: '/* canvas */',
       canSetUpStack: true,
     });
@@ -220,7 +231,7 @@ describe('Website Studio webview boundary', () => {
 
   it('states that Delivery has not been compared rather than showing a reassuring blank', () => {
     const config = createDefaultWebsiteWorkspace({ projectName: 'Northstar' });
-    const html = getWebsiteStudioHtml({ cspSource: 'vscode-webview://test' }, config, 'stack', {
+    const html = getWebsiteStudioHtml({ cspSource: 'vscode-webview://test' }, config, 'handoff', {
       scriptContent: '/* canvas */',
     });
     expect(html).toContain('Not compared yet');
@@ -248,7 +259,7 @@ describe('Website Studio webview boundary', () => {
         findings: [{ code: 'react-static-only', severity: 'loss', message: 'Runtime behavior was not evaluated.' }],
       },
     }];
-    const html = getWebsiteStudioHtml({ cspSource: 'vscode-webview://test' }, config, 'stack', {
+    const html = getWebsiteStudioHtml({ cspSource: 'vscode-webview://test' }, config, 'handoff', {
       scriptContent: '/* canvas */',
       repositoryMappingAssessments: [{
         mappingId: 'button-source', status: 'code-only', sourceStatus: 'ok',
@@ -267,7 +278,7 @@ describe('Website Studio webview boundary', () => {
   it('shows an incompatible framework with its reason rather than hiding it', () => {
     const config = createDefaultWebsiteWorkspace({ projectName: 'Northstar' });
     config.platforms = config.platforms.map(platform => ({ ...platform, primary: platform.id === 'shopify' }));
-    const html = getWebsiteStudioHtml({ cspSource: 'vscode-webview://test' }, config, 'stack', {
+    const html = getWebsiteStudioHtml({ cspSource: 'vscode-webview://test' }, config, 'handoff', {
       scriptContent: '/* canvas */',
     });
     // Removing the option would leave somebody wondering where Hugo went.
@@ -303,7 +314,7 @@ describe('Website Studio webview boundary', () => {
     const config = createDefaultWebsiteWorkspace({ projectName: 'Northstar' });
     config.surfaceKind = 'mobile-app';
     config.implementation.targetTechnologies = ['SwiftUI'];
-    const html = getWebsiteStudioHtml({ cspSource: 'vscode-webview://test' }, config, 'stack', {
+    const html = getWebsiteStudioHtml({ cspSource: 'vscode-webview://test' }, config, 'handoff', {
       scriptContent: '/* canvas */',
     });
 
@@ -348,7 +359,7 @@ describe('Website Studio webview boundary', () => {
       { id: 'color-primary', label: 'Primary', kind: 'color', value: '#123456' },
       { id: 'color-action', label: 'Action', kind: 'color', aliasOf: 'color-primary' },
     ];
-    const html = getWebsiteStudioHtml({ cspSource: 'vscode-webview://test' }, config, 'ui-system', {
+    const html = getWebsiteStudioHtml({ cspSource: 'vscode-webview://test' }, config, 'brands', {
       scriptContent: '/* canvas */',
     });
 
@@ -389,7 +400,7 @@ describe('Website Studio webview boundary', () => {
       collectionId: 'actions', sampleRecordId: 'buy', fieldMappings: { action: 'label' },
     };
     config.designGraph.screens[0]!.nodes[0]!.assetRef = 'action-icon';
-    const html = getWebsiteStudioHtml({ cspSource: 'vscode-webview://test' }, config, 'ui-system', { scriptContent: '/* canvas */' });
+    const html = getWebsiteStudioHtml({ cspSource: 'vscode-webview://test' }, config, 'brands', { scriptContent: '/* canvas */' });
     expect(html).toContain('Reusable components');
     expect(html).toContain('id="designComponentEditor"');
     expect(html).toContain('&quot;components&quot;:[{');
@@ -404,13 +415,19 @@ describe('Website Studio webview boundary', () => {
     expect(html).toContain('&quot;assetRef&quot;:&quot;action-icon&quot;');
   });
 
-  it('makes the built-in browser preview a numbered design step', () => {
+  it('keeps the built-in browser preview on the Design view, beside the canvas', () => {
+    // It was a numbered step of its own, two steps after the canvas it
+    // previews. Reviewing what you drew is part of drawing it.
     const config = createDefaultWebsiteWorkspace({ projectName: 'Northstar' });
-    const html = getWebsiteStudioHtml({ cspSource: 'vscode-webview://test' }, config, 'preview', {
+    const html = getWebsiteStudioHtml({ cspSource: 'vscode-webview://test' }, config, 'design', {
       scriptContent: '/* canvas */',
     });
 
-    expect(html).toContain('data-page-target="preview"');
+    expect(html).not.toContain('data-page-target="preview"');
+    const design = html.slice(html.indexOf('data-page="design"'), html.indexOf('data-page="structure"'));
+    expect(design).toContain('id="wireframeCanvas"');
+    expect(design).toContain('Canonical review surface');
+    expect(design).toContain('id="refreshFullPreview"');
     expect(html).toContain('Canonical review surface');
     expect(html).toContain('built-in browser');
     expect(html).toContain('id="refreshFullPreview"');
@@ -448,7 +465,7 @@ describe('Website Studio webview boundary', () => {
     });
     expect(Object.keys(responsive[0]!.diagnostics)).toEqual(['desktop', 'tablet', 'mobile']);
 
-    const html = getWebsiteStudioHtml({ cspSource: 'vscode-webview://test' }, config, 'wireframes', {
+    const html = getWebsiteStudioHtml({ cspSource: 'vscode-webview://test' }, config, 'design', {
       scriptContent: '/* canvas */',
     });
     expect(html).toContain('aria-label="Canvas breakpoint"');
