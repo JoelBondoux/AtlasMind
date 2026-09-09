@@ -310,6 +310,19 @@ import {
   type UtilityCapability,
 } from '../core/utilityPacks.js';
 import {
+  summarizeTeamWorkload,
+  type TeamWorkloadSummary,
+} from '../core/teamWorkload.js';
+
+/**
+ * The window the team workload is read over, in days.
+ *
+ * Fixed and stated on the card rather than configurable: "overloaded" is
+ * meaningless without "over what period", and a number whose window the reader
+ * has to remember invites them to supply their own.
+ */
+const TEAM_WORKLOAD_WINDOW_DAYS = 14;
+import {
   PORTAL_HOSTING_VERIFIED_AT,
   PORTAL_HOST_CAPABILITIES,
   PortalHostingManager,
@@ -3332,6 +3345,14 @@ interface DashboardSnapshot {
    */
   vitalFiles: VitalFileOwnershipReport;
   director: DashboardDirectorSnapshot;
+  /**
+   * What each person has been asked to do, against what they said they could.
+   *
+   * Sits beside `director` rather than inside it because it joins two things
+   * that page does not own — the roadmap's estimates and its assignments — and
+   * folding it in would make the Director collector read the plan.
+   */
+  teamWorkload: TeamWorkloadSummary;
   documents: DashboardDocumentsSnapshot;
   risk: DashboardRiskSnapshot;
   /**
@@ -4074,6 +4095,50 @@ function collectTestCasesSnapshot(
       })),
     recorded: register.cases.length > 0,
   };
+}
+
+/**
+ * People, their declared capacity, their declared absence and the work assigned
+ * to them, joined into one reading.
+ *
+ * The join is here rather than in `teamWorkload` so the module stays pure and
+ * knows nothing about roadmap node shapes. Two decisions are made in this
+ * mapping, and both are the kind that get broken by defaulting:
+ *
+ * **Only outstanding work counts.** A delivered item is not load somebody is
+ * still carrying, and including it would report everybody as permanently over.
+ *
+ * **A derived estimate is passed through as derived.** Every roadmap node
+ * carries a number because the graph grades the unestimated ones from a
+ * published rule; marking those `declared` here would present a rule's reading
+ * as a commitment somebody made, which is precisely the distinction the
+ * workload summary exists to keep.
+ */
+function collectTeamWorkloadSnapshot(
+  director: ProjectDirectorConfig | undefined,
+  nodes: readonly RoadmapGraphNode[],
+  now: Date,
+): TeamWorkloadSummary {
+  return summarizeTeamWorkload({
+    members: (director?.teamMembers ?? []).map(member => ({
+      contactId: member.contactId,
+      name: director?.contacts.find(contact => contact.id === member.contactId)?.name ?? member.contactId,
+      ...(member.allocation === undefined ? {} : { allocation: member.allocation }),
+    })),
+    items: nodes
+      .filter(node => !node.completed)
+      .map(node => ({
+        id: node.id,
+        title: node.text,
+        ...(node.assigneeId === undefined ? {} : { ownerContactId: node.assigneeId }),
+        estimateDays: node.estimate.days,
+        estimateSource: node.estimate.source,
+        ...(node.deadline === undefined ? {} : { dueAt: node.deadline }),
+      })),
+    rota: director?.rota ?? [],
+    windowDays: TEAM_WORKLOAD_WINDOW_DAYS,
+    from: now.toISOString().slice(0, 10),
+  });
 }
 
 /**
@@ -18638,6 +18703,11 @@ async function collectDashboardSnapshot(
       Date.now(),
     ),
     director: directorSnapshot,
+    teamWorkload: collectTeamWorkloadSnapshot(
+      directorSnapshot.config ?? undefined,
+      roadmapWithBoard.graph.active,
+      new Date(),
+    ),
     documents: documentsSnapshot,
     risk: riskSnapshot,
     ...(complianceSnapshot ? { compliance: complianceSnapshot } : {}),

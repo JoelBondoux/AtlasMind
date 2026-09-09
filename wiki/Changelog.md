@@ -19,6 +19,40 @@ Older entries below describe the software as it was at the time and are delibera
 
 ---
 
+## v0.466.0 -- What each person is carrying
+
+The Director page knew who owned what. The roadmap knew what each item was estimated to cost. Nothing
+joined the two, so the question every delivery conversation opens with -- *is anyone carrying too
+much?* -- had no answer here, and the two halves sat one page apart.
+
+The **Workload** card joins them, and the first rule is not about arithmetic: **this is not a
+performance measure and must never become one.** It counts work somebody has been *given* against
+capacity they *declared*. It says nothing about how fast anybody works, and the sentence saying so is
+rendered above the numbers rather than under them.
+
+**Capacity is declared, never inferred.** Nothing is derived from commit counts or hours of activity
+-- that is surveillance wearing planning's clothes, and it would be wrong as well, since somebody
+quiet for a fortnight may be doing the hardest thing on the board. Six published rules read an
+allocation (`50%`, `0.5 FTE`, `2 days/wk`, `15 hours per week`, `full time`, `half time`) and
+**anything unrecognised stays unknown** rather than falling back to a full week -- the one direction
+that costs somebody their week. A person with no declared allocation is excluded from the verdict and
+counted separately, because a tidy-looking reading that rests on half the team having declared nothing
+is the failure mode here.
+
+**An estimate absent is not an estimate of zero.** Unestimated work is never folded into a total, and
+below a declared floor the verdict is *too little estimated* rather than a number. Because the roadmap
+grades unestimated items from a published rule, a derived estimate is counted but **stated as
+derived**: a rule's reading is not a commitment somebody made.
+
+**An empty rota means nothing was recorded**, not that everybody is available -- the opposite reading
+to capacity, and deliberately so, because nobody writes down "I am not away". An unreadable or
+inverted period is refused rather than repaired.
+
+The window is always stated, and **overload is reported, never resolved**: nothing here reassigns
+anybody, and there is no control that could.
+
+---
+
 ## v0.465.0 -- Golden cases, and a gate on the rewrite
 
 AtlasMind can rewrite an agent's system prompt on a cadence -- daily, weekly, monthly -- and register

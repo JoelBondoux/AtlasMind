@@ -6,6 +6,59 @@ The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/),
 
 ## [Unreleased]
 
+## [0.466.0] - 2026-09-09
+
+### Added
+
+- **What each person has been asked to do, against what they said they could.** The Director page
+  knew who owned what. The roadmap knew what each item was estimated to cost. Nothing joined the two,
+  so the question every delivery conversation actually opens with — *is anyone carrying too much?* —
+  had no answer, and the two halves sat one page apart.
+
+  The new **Workload** card on Dashboard → Director joins them, with a rule that is not about
+  arithmetic: **this is not a performance measure and must never become one.** It counts work somebody
+  has been *given* against capacity they *declared*. It says nothing about how fast anybody works, and
+  the sentence saying so is rendered above the numbers rather than under them.
+
+  **Capacity is declared, never inferred.** There is deliberately no derivation from commit counts or
+  hours of activity — that is surveillance wearing planning's clothes, and it would be wrong as well,
+  since somebody quiet for a fortnight may be doing the hardest thing on the board. Six declared rules
+  read an allocation (`50%`, `0.5 FTE`, `2 days/wk`, `15 hours per week`, `full time`, `half time`),
+  the table is published on the card, and **anything unrecognised stays unknown** rather than falling
+  back to a full week — the one direction that costs somebody their week. `150%` is somebody making a
+  point, not seven and a half days.
+
+  **Unknown capacity is not full capacity.** A person with no declared allocation is excluded from the
+  over/under verdict and counted separately, and the summary says so — a clean-looking reading that
+  quietly rests on half the team having declared nothing is the failure mode here.
+
+  **An estimate absent is not an estimate of zero.** Unestimated work is counted as unestimated and
+  never folded into the total; below a declared floor of estimated work the verdict is *too little
+  estimated* rather than a number, because one estimated day beside six unknowns is not "comfortably
+  within capacity". And because the roadmap grades unestimated items from a published rule, **a
+  derived estimate is counted but stated as derived** — a rule's reading is not a commitment somebody
+  made. Unstated provenance counts as derived, the weaker claim.
+
+  **Absence is declared, and its absence means nothing was recorded.** Rota entries live in
+  `project-director.json` and are mirrored into `project-director.md`. The asymmetry with capacity is
+  deliberate: nobody writes down "I am not away", so an empty rota means *none recorded* rather than
+  *available all week* — and the card says exactly that instead of showing a reassuring blank. An
+  unreadable or inverted period is refused rather than repaired, since an entry silently moved to a
+  week nobody named would remove capacity on the wrong days.
+
+  **A window is always stated** — fourteen days, on the card — because "overloaded" is meaningless
+  without "over what period". **And overload is reported, never resolved:** nothing here reassigns
+  anybody, and there is no control that could. Who picks up work somebody cannot take is a
+  conversation, not a button.
+
+  Items assigned to nobody are counted and **never distributed across the team**, which would invent
+  commitments nobody made.
+
+### Changed
+
+- `ProjectDirectorConfig` gains an optional `rota` array. Optional on purpose: a document written
+  before this existed still validates, and an absent array genuinely means nothing was recorded.
+
 ## [0.465.0] - 2026-09-09
 
 ### Added

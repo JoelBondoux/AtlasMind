@@ -736,6 +736,10 @@
     directorNewAssignment: false,
     directorSeedConfirm: false,
     directorComposeKey: '',
+    // Team workload editors: the absence form, and which person's declared
+    // allocation is open for editing.
+    workloadAbsenceOpen: false,
+    workloadEditAllocationId: '',
     // Consumed only after the exact record is present in a completed render.
     // Keeping it while data is loading lets an issue/PR deep link focus after
     // the next host snapshot instead of silently giving up.
@@ -3295,6 +3299,62 @@
     if (action === 'director-open-link') {
       const parts = payload.split('::');
       if (parts.length === 2) { vscode.postMessage({ type: 'openContactDeepLink', payload: { contactId: parts[0], linkId: parts[1] } }); }
+      return;
+    }
+    if (action === 'workload-allocation-edit') { state.workloadEditAllocationId = payload; render(); return; }
+    if (action === 'workload-allocation-cancel') { state.workloadEditAllocationId = ''; render(); return; }
+    if (action === 'workload-allocation-save') {
+      // Matched by reading the attribute rather than by building a selector
+      // out of a contact id: only one editor is ever open, and an id with a
+      // quote in it would make the selector mean something else.
+      const container = Array.prototype.find.call(
+        document.querySelectorAll('[data-workload-allocation]'),
+        el => el.getAttribute('data-workload-allocation') === payload,
+      );
+      if (!container) { return; }
+      const field = container.querySelector('[data-field="allocation"]');
+      const cfg = cloneDirectorConfig();
+      const member = cfg.teamMembers.find(m => m.contactId === payload);
+      if (!member) { state.workloadEditAllocationId = ''; render(); return; }
+      const raw = field ? field.value.trim() : '';
+      // An emptied field clears the allocation rather than storing '', so the
+      // reading goes back to "nobody has declared this" instead of to a value
+      // that parses as nothing.
+      if (raw) { member.allocation = raw; } else { delete member.allocation; }
+      state.workloadEditAllocationId = '';
+      postDirectorConfig(cfg);
+      return;
+    }
+    if (action === 'workload-absence-add') { state.workloadAbsenceOpen = !state.workloadAbsenceOpen; render(); return; }
+    if (action === 'workload-absence-cancel') { state.workloadAbsenceOpen = false; render(); return; }
+    if (action === 'workload-absence-save') {
+      const container = document.getElementById('workload-absence-form');
+      if (!container) { return; }
+      const val = f => { const el = container.querySelector('[data-field="' + f + '"]'); return el ? el.value.trim() : ''; };
+      const contactId = val('contactId');
+      const from = val('from');
+      const to = val('to');
+      // Refused rather than repaired. The host sanitizer drops an unreadable or
+      // inverted period, and saving one here would look like it worked.
+      if (!contactId || !from || !to || to < from) { return; }
+      const cfg = cloneDirectorConfig();
+      if (!Array.isArray(cfg.rota)) { cfg.rota = []; }
+      let id = 'rota-' + slugClient(contactId + '-' + from);
+      let unique = id;
+      let n = 1;
+      while (cfg.rota.some(entry => entry.id === unique)) { unique = id + '-' + (n++); }
+      const entry = { id: unique, contactId: contactId, from: from, to: to, kind: val('kind') || 'away' };
+      const note = val('note');
+      if (note) { entry.note = note; }
+      cfg.rota.push(entry);
+      state.workloadAbsenceOpen = false;
+      postDirectorConfig(cfg);
+      return;
+    }
+    if (action === 'workload-absence-remove') {
+      const cfg = cloneDirectorConfig();
+      cfg.rota = (Array.isArray(cfg.rota) ? cfg.rota : []).filter(entry => entry.id !== payload);
+      postDirectorConfig(cfg);
       return;
     }
     if (action === 'director-contact-add') { state.directorEditContactId = 'new'; state.directorConfirmRemoveContactId = ''; render(); return; }
@@ -18009,6 +18069,139 @@
       </article>`;
   }
 
+  // ── Team workload ──────────────────────────────────────────────────────
+  // What each person has been asked to do, against what they said they could.
+  // The Director page knew who owned what and the roadmap knew what things were
+  // estimated to cost; nothing joined the two.
+
+  const WORKLOAD_VERDICT = {
+    over: { label: 'Over capacity', tone: 'tag-critical' },
+    within: { label: 'Within capacity', tone: 'tag-good' },
+    'unknown-capacity': { label: 'Capacity unknown', tone: 'tag-warn' },
+    'unestimated-work': { label: 'Too little estimated', tone: 'tag-warn' },
+    'no-work': { label: 'Nothing assigned', tone: 'tag-muted' },
+  };
+
+  /**
+   * The workload card.
+   *
+   * The caveat leads rather than trails. A per-person board of days is one
+   * reading away from being used as a productivity measure, and the sentence
+   * saying it is not belongs where somebody sees it before the numbers rather
+   * than in a footnote under them.
+   *
+   * Nothing here offers to move work. Overload is reported; who picks it up
+   * instead is a conversation, and a button that reassigned somebody's week
+   * would be making a commitment on their behalf.
+   */
+  function renderTeamWorkload(snapshot) {
+    const w = snapshot.teamWorkload;
+    const cfg = (snapshot.director && snapshot.director.config) || null;
+    if (!w) { return ''; }
+
+    const nameOf = (contactId) => {
+      const contact = cfg && cfg.contacts.find(c => c.id === contactId);
+      return contact ? contact.name : contactId;
+    };
+
+    const rows = w.members.map(member => {
+      const verdict = WORKLOAD_VERDICT[member.verdict] || { label: member.verdict, tone: '' };
+      const editing = state.workloadEditAllocationId === member.contactId;
+      const capacityText = member.capacity.daysPerWeek === undefined
+        ? (member.capacity.raw
+          ? 'Could not read "' + escapeHtml(member.capacity.raw) + '"'
+          : 'No allocation recorded')
+        : escapeHtml(String(member.capacity.daysPerWeek)) + ' days/wk declared';
+      return `
+        <div class="recent-item">
+          <div class="row-head">
+            <strong>${escapeHtml(member.name)}</strong>
+            <span>
+              <span class="tag ${escapeAttr(verdict.tone)}">${escapeHtml(verdict.label)}</span>
+              ${member.absentDays > 0 ? '<span class="tag">' + escapeHtml(String(member.absentDays)) + ' day(s) away</span>' : ''}
+            </span>
+          </div>
+          <div class="list-meta">${capacityText}${member.availableDays === undefined ? '' : ' · ' + escapeHtml(String(member.availableDays)) + ' day(s) available in this window'} · ${escapeHtml(String(member.assignedItems))} item(s) assigned</div>
+          <div class="list-meta">${escapeHtml(member.detail)}</div>
+          ${editing ? `
+            <div class="stage-edit-grid" data-workload-allocation="${escapeAttr(member.contactId)}">
+              ${edText('Allocation', 'allocation', member.capacity.raw, '50%, 2 days/wk, 0.5 FTE')}
+            </div>
+            <p class="stat-detail">Written down, never worked out from how much somebody commits. Anything unrecognised stays unknown rather than being read as a full week.</p>
+            <div class="tag-row">
+              <button type="button" class="action-link primary" data-action="workload-allocation-save" data-payload="${escapeAttr(member.contactId)}">Save</button>
+              <button type="button" class="action-link" data-action="workload-allocation-cancel" data-payload="">Cancel</button>
+            </div>` : `
+            <div class="tag-row">
+              <button type="button" class="action-link" data-action="workload-allocation-edit" data-payload="${escapeAttr(member.contactId)}">Set allocation</button>
+            </div>`}
+        </div>`;
+    }).join('');
+
+    const rota = (cfg && Array.isArray(cfg.rota)) ? cfg.rota : [];
+    const rotaRows = rota.length
+      ? rota.map(entry => `
+        <div class="recent-item">
+          <div class="row-head">
+            <strong>${escapeHtml(nameOf(entry.contactId))}</strong>
+            <span class="tag">${escapeHtml(entry.kind)}</span>
+          </div>
+          <div class="list-meta">${escapeHtml(entry.from)} to ${escapeHtml(entry.to)}${entry.note ? ' · ' + escapeHtml(entry.note) : ''}</div>
+          <div class="tag-row">
+            <button type="button" class="action-link danger" data-action="workload-absence-remove" data-payload="${escapeAttr(entry.id)}">Remove</button>
+          </div>
+        </div>`).join('')
+      : '<div class="dashboard-empty">Nothing recorded. That means no absence was entered, not that everybody is available.</div>';
+
+    const contactOptions = (cfg ? cfg.teamMembers : []).map(member => ({
+      value: member.contactId,
+      label: nameOf(member.contactId),
+    }));
+    const absenceForm = (state.workloadAbsenceOpen && contactOptions.length) ? `
+      <div class="stage-edit-grid" id="workload-absence-form">
+        ${edSelect('Who', 'contactId', contactOptions[0].value, contactOptions)}
+        ${edSelect('Kind', 'kind', 'away', [
+        { value: 'away', label: 'Away' },
+        { value: 'reduced', label: 'Reduced hours' },
+      ])}
+        ${edText('From', 'from', directorTodayKey(), 'YYYY-MM-DD')}
+        ${edText('To', 'to', directorTodayKey(), 'YYYY-MM-DD')}
+        ${edText('Note', 'note', '', 'Optional')}
+      </div>
+      <div class="tag-row">
+        <button type="button" class="action-link primary" data-action="workload-absence-save" data-payload="">Record</button>
+        <button type="button" class="action-link" data-action="workload-absence-cancel" data-payload="">Cancel</button>
+      </div>` : '';
+
+    return `
+      <article class="panel-card" style="grid-column: 1 / -1">
+        <div class="row-head">
+          <p class="card-kicker">Workload</p>
+          <span class="list-meta">Next ${escapeHtml(String(w.windowDays))} days</span>
+        </div>
+        <p class="section-copy"><strong>${escapeHtml(w.caveat)}</strong></p>
+        <p class="section-copy">${escapeHtml(w.summary)}</p>
+        <div class="stack-list">${w.members.length
+        ? rows
+        : '<div class="dashboard-empty">Nobody is on the delivery team yet. Add a teammate above to read a workload.</div>'}</div>
+        ${w.unassignedItems > 0
+        ? '<p class="stat-detail">' + escapeHtml(String(w.unassignedItems)) + ' roadmap item(s) are assigned to nobody. They are counted here and never spread across the team.</p>'
+        : ''}
+        <div class="row-head" style="margin-top:12px">
+          <p class="card-kicker">Declared absence</p>
+          <button type="button" class="action-link" data-action="workload-absence-add" data-payload="">${state.workloadAbsenceOpen ? 'Close the form' : 'Record absence'}</button>
+        </div>
+        ${absenceForm}
+        <div class="stack-list">${rotaRows}</div>
+        <details class="policy-rule-table">
+          <summary>How an allocation is read</summary>
+          <ul>${(w.capacityRules || []).map(rule => '<li><code>' + escapeHtml(rule.id) + '</code> — ' + escapeHtml(rule.describes) + '</li>').join('')}</ul>
+          <p class="stat-detail">Anything else stays unknown. A parser that fell back to a full week would be wrong in the one direction that costs somebody their week.</p>
+        </details>
+        <p class="stat-detail">Nothing here reassigns anybody. Who picks up work somebody cannot take is a conversation, not a button.</p>
+      </article>`;
+  }
+
   function renderDirector(snapshot) {
     const d = snapshot.director;
     const wrap = (inner) => pageSectionOpen('director') + inner + '</section>';
@@ -18142,6 +18335,9 @@
         </div>` : ''}
       <div class="review-grid">
         ${rosterCard}
+      </div>
+      <div class="review-grid">
+        ${renderTeamWorkload(snapshot)}
       </div>
       ${renderPortalAudience(snapshot)}
       <div class="review-grid">

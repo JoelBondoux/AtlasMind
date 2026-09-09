@@ -1863,6 +1863,26 @@ The Ollama adapter uses the published `POST /api/embed` (array `input`, `embeddi
 
 The store lives in **extension storage, not `project_memory/`**: unlike every other register here the index is derived rather than decided, per developer rather than shared, and thousands of float vectors changing on every edit is the worst diff imaginable.
 
+### TeamWorkload (`src/core/teamWorkload.ts`)
+
+What each person has been asked to do, against what they said they could. The Director module knows who owns what; the roadmap knows what each item is estimated to cost. Nothing joined the two, so the question every delivery conversation opens with had no answer here and the two halves sat one page apart.
+
+Eight rules. **The first is not about arithmetic: this is not a performance measure and must never become one.** It counts work somebody has been *given* against capacity they *declared*, says nothing about how fast anybody works, and a surface presenting it as productivity would be reporting a number that punishes whoever estimates honestly. `WORKLOAD_CAVEAT` travels on the summary and the card renders it above the rows rather than beneath them.
+
+**Capacity is declared, never inferred.** There is deliberately no derivation from commit counts, hours of activity or anything else observable — surveillance wearing planning's clothes, and wrong as well, since somebody quiet for a fortnight may be doing the hardest thing on the board. A test reads the module with its comments stripped and fails on any such vocabulary, so the rule is checkable rather than stated.
+
+**An allocation that cannot be read is unknown, never assumed.** `CAPACITY_RULES` declares six literal forms and publishes them in the payload, so the card shows the rules that actually parsed the values rather than a copy that drifted. Anything else yields no `daysPerWeek`, which every caller must treat as unknown; a parser falling back to full time would be wrong in the one direction that costs a person their week. Over 100% is refused rather than read as more than a week — it is somebody making a point.
+
+**Unknown capacity is not full capacity.** A member with no readable allocation grades `unknown-capacity`, is excluded from the over/under verdict, and is counted on the summary, because a clean-looking reading resting on half the team having declared nothing is this module's version of silence earned by not looking. It is checked *before* "nothing assigned", since somebody with no work and no declared allocation is still somebody whose capacity nobody knows.
+
+**An estimate absent is not an estimate of zero** — `roadmapGraph`'s rule applied to the same numbers. Unestimated items are counted as unestimated and never folded into the total, and below `ESTIMATE_COVERAGE_FLOOR` the verdict is `unestimated-work` rather than a figure: one estimated day beside six unknowns is not "within capacity", which would be the most confident wrong answer available here. Because the graph grades unestimated items from a published rule, `estimateSource` carries provenance through and the derived share is **stated rather than folded in silently** — a rule's reading is not a commitment. **Unstated provenance counts as derived**, the weaker claim, as `roadmapCostAttribution` does.
+
+**Absence is declared and its absence means nothing was recorded.** The asymmetry with capacity is deliberate and load-bearing: nobody writes down "I am not away", so no rota entry means *none recorded*; nobody's silence about their allocation should read as a full week. Both readings err away from handing somebody work they cannot take. An unreadable or inverted period counts as no absence rather than being repaired, and absence is capped at the gross figure — nobody can be away for more of the window than they were going to work in it.
+
+**A window is always stated**, because "overloaded" is meaningless without "over what period" and a number without one invites the reader to supply their own. **And overload is reported, never resolved:** nothing here reassigns anybody, a surface test reads the card's `data-action` attributes rather than its prose to confirm no control could, and unowned items are counted rather than distributed. Moving work between people is a conversation.
+
+The join lives in the dashboard collector, not here, so the module stays pure and learns no roadmap node shapes. Rota entries are persisted on `ProjectDirectorConfig.rota` — optional, so an older document still validates — sanitized at the boundary with a calendar-date check that validates rather than coerces, and mirrored into `project-director.md`. Pure + unit-tested.
+
 ### UtilityPacks (`src/core/utilityPacks.ts`)
 
 The six cross-cutting utilities — authentication, payments, email, analytics, internationalisation and accessibility — and the decision each one really is.
