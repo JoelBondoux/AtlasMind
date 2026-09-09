@@ -1795,6 +1795,28 @@ The page searches title, path and rule, because those are the three things someb
 
 **Handing an entry to an agent.** `buildDebtWorkPrompt` fences the entry, and the fence does a different job from the ones around issue bodies and review comments. A debt entry is not untrusted third-party text — AtlasMind wrote it, from the user's own repository, through a sanitizer. The risk is the opposite one: that the *agent* mistakes a recorded shortcut for a mandate. The register says a decision was deferred, not that it should now be reversed, and plenty of debt is worth keeping. So the prompt offers "worth keeping, with the reason it was the right call" as a first-class answer alongside "worth fixing", and says plainly: propose, do not apply. The button is labelled "Look at it with Atlas" rather than "Fix it" for the same reason.
 
+### CodebaseIndex (`src/core/codebaseIndex.ts`, `src/core/codebaseIndexStore.ts`, `src/providers/embedders.ts`)
+
+A retrievable index over the project's actual source — what the codebase *does*, as opposed to what was decided about it. SSOT answers the second question well and has never been able to answer the first: an agent asked to change how promotions are gated had to be told which files to read, because nothing indexed the source.
+
+**Embedding a repository sends the repository**, which is the whole privacy story in a sentence. `planCodebaseIndex` returns a plan carrying its own `disclosure` — the embedder, what leaves the machine, how many files and chunks — and the build confirmation shows *that sentence* rather than a summary of it, so the words somebody agrees to are the words the module composed. AtlasMind ships **no remote embedder** at all: the kind is supported, and offering one from a dropdown is a decision that deserves its own consent surface rather than arriving as a menu item.
+
+**A hashed vector is not a semantic one, and it says so.** The zero-cost fallback is a signed random projection of tokens; it works offline and finds shared *vocabulary*, not shared *meaning*. `semantic: false` travels on the descriptor into every result, because “semantic search found nothing” and “word matching found nothing” are different findings and only one is about the codebase. The tokenizer splits identifiers (`parse_url`, `parseUrl`, `ParseURL` → `parse`, `url`) — the first version kept `_` inside a token, so the obvious English query matched no camelCase code at all, which the tests caught.
+
+**The index stores where, never what**: a path and a line range, re-read from disk at retrieval. That makes the next rule structural rather than remembered — there is no stored copy that *could* be returned after the file changed.
+
+**A stale chunk is excluded, not caveated.** Each chunk carries its file's content hash; a changed or deleted file drops out of results entirely, because returning code that no longer exists at those line numbers is worse than returning nothing and a caveat on a plausible result is read past. `indexFreshness` keeps *stale*, *missing* and *unindexed* apart, since each needs a different reaction.
+
+**Coverage travels with every search.** `SearchCoverage.summary` is composed in the module so no caller can present hits without them, and it carries the embedder's caveat where one applies. At most two hits per file, so one large well-matched file cannot fill the result set — the failure that makes a search feel broken while working exactly as written.
+
+**A file that looks like it holds a credential is never indexed**, checked before chunking so nothing reaches a vector, and the refusal is recorded on the index and counted in the confirmation: an indexed secret is a *retrievable* secret, and retrieval feeds prompts.
+
+**A misaligned index is refused rather than built.** `buildCodebaseIndex` checks the embedder's output count and vector width and throws rather than storing something whose vectors cannot be compared — the worst outcome available here, since every subsequent search would rank nonsense plausibly and nothing would look wrong. `sanitizeCodebaseIndex` applies the same check on read and refuses the index **whole**: partial acceptance would leave one reporting coverage it does not have.
+
+The Ollama adapter uses the published `POST /api/embed` (array `input`, `embeddings` response), pinned at `OLLAMA_EMBED_API_VERIFIED_AT`; the superseded `/api/embeddings` is single-input and unused. **The dimension is discovered, never declared** — `probeOllamaEmbedder` embeds one string and reads the width off the answer, which doubles as the cheapest check that the model exists and is an embedding model. It never falls back to a guessed width.
+
+The store lives in **extension storage, not `project_memory/`**: unlike every other register here the index is derived rather than decided, per developer rather than shared, and thousands of float vectors changing on every edit is the worst diff imaginable.
+
 ### UtilityPacks (`src/core/utilityPacks.ts`)
 
 The six cross-cutting utilities — authentication, payments, email, analytics, internationalisation and accessibility — and the decision each one really is.

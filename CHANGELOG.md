@@ -6,6 +6,57 @@ The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/),
 
 ## [Unreleased]
 
+## [0.462.0] - 2026-09-09
+
+### Added
+
+- **A searchable index of your own source.** AtlasMind's memory has always answered *what was decided*
+  — decisions, architecture notes, misadventures — and never *what the code does*. An agent asked to
+  change how promotions are gated had to be told which files to read, because nothing indexed the
+  source itself. Two new commands close that: **Build Codebase Index** and **Search the Codebase**.
+
+  **Nothing leaves your machine, and there is no option that would change that.** The default embedder
+  needs no model at all; point `atlasmind.codebaseIndex.embeddingModel` at a local Ollama model for
+  genuinely semantic results. AtlasMind ships **no remote embedder** — offering one from a dropdown
+  would mean sending an entire repository to a third party, and that is a decision worth building
+  deliberately with its own consent surface rather than one that arrives as a menu item.
+
+  **The fallback is honest about what it is.** With no model configured, the index uses a token-hash
+  embedder: it works offline, costs nothing, and matches shared *vocabulary* rather than shared
+  *meaning*. It is not semantic search, `semantic: false` travels with it, and every result says so —
+  because "semantic search found nothing" and "word matching found nothing" are different findings and
+  only one is about your code. When a configured model cannot be used, the fallback says **why**
+  instead of quietly happening.
+
+  **A stale result is excluded, not caveated.** Every chunk records its file's content hash; when the
+  file changes, its chunks stop being returned. Returning code that no longer exists at those line
+  numbers is worse than returning nothing, and a warning attached to an otherwise plausible result is
+  read past. The index stores *where*, never *what* — a path and a line range, re-read from disk — so
+  there is no stored copy that could be returned after an edit.
+
+  **Coverage travels with every search.** "3 results from an index currently covering 412 of 1,340
+  files, built 6 days ago" is a different answer from a bare list of three, and only one of them can be
+  judged.
+
+  **A file that looks like it holds a credential is never indexed**, and the refusal is recorded and
+  counted in the build confirmation. An indexed secret is a *retrievable* secret, and retrieval feeds
+  prompts.
+
+  **A misaligned index is refused rather than built.** If an embedder returns the wrong number of
+  vectors, or vectors of the wrong width, the build fails loudly — an index whose vectors cannot be
+  compared would rank nonsense plausibly and nothing would look wrong. A stored index is validated the
+  same way on read, and refused whole rather than partially accepted.
+
+  The index lives in extension storage rather than `project_memory/`: it is derived, per developer, and
+  thousands of float vectors changing on every edit is the worst diff imaginable.
+
+### Fixed
+
+- **A source-reading test that failed on Windows and passed on CI.** `roadmapCanvasSurface` asserts on
+  a string spanning a line break in `media/projectDashboard.js`, which git checks out with CRLF on
+  Windows — so it went red after any branch switch and looked like a broken test rather than a broken
+  environment. The read is now normalised.
+
 ## [0.461.0] - 2026-09-09
 
 ### Added

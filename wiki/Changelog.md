@@ -19,6 +19,48 @@ Older entries below describe the software as it was at the time and are delibera
 
 ---
 
+## v0.462.0 -- Search your own code
+
+AtlasMind's memory has always answered *what was decided* -- decisions, architecture notes,
+misadventures. It has never answered *what the code does*. Ask an agent to change how promotions are
+gated and you had to tell it which files to read, because nothing indexed the source.
+
+Two new commands close that: **Build Codebase Index** and **Search the Codebase**.
+
+**Nothing leaves your machine, and there is no option that would change that.** The default embedder
+needs no model at all. Point `atlasmind.codebaseIndex.embeddingModel` at a local Ollama model and you
+get genuinely semantic results, still entirely local. AtlasMind ships **no remote embedder** -- offering
+one from a dropdown would mean sending an entire repository to a third party, and that deserves its own
+consent surface rather than a menu item.
+
+**The fallback tells you what it is.** With no model configured the index matches shared *vocabulary*
+rather than shared *meaning*. That is useful and it is not semantic search, so every result says so --
+"semantic search found nothing" and "word matching found nothing" are different findings, and only one
+of them is about your code. If a model you configured cannot be used, you are told why rather than
+quietly getting the fallback.
+
+**A result whose file has changed is dropped, not flagged.** Code that no longer exists at those line
+numbers is worse than no result, and a warning beside an otherwise plausible hit gets read past. The
+index stores a path and a line range rather than a copy of your code, so there is nothing that *could*
+be returned stale.
+
+**Every search says how much it actually covers.** "3 results from an index currently covering 412 of
+1,340 files, built 6 days ago" is a different answer from a bare list of three.
+
+**A file that looks like it holds a credential is never indexed** -- an indexed secret is a retrievable
+one, and retrieval feeds prompts. The build confirmation tells you how many were skipped.
+
+And if an embedder returns the wrong number of vectors, or the wrong width, the build **fails** rather
+than storing an index that would rank nonsense plausibly while looking perfectly healthy.
+
+### Fixed
+
+A test that read the dashboard's webview script failed on Windows and passed on CI, because git checks
+that file out with CRLF and the assertion spanned a line break. It looked like a broken test and was a
+broken environment.
+
+---
+
 ## v0.461.0 -- Six decisions dressed up as packages
 
 The other architecture packs are project templates: pick a stack, get a starter. These six are not that
