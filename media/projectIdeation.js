@@ -135,6 +135,26 @@
       vscode.postMessage({ type: 'seedBoardTemplate', payload });
       return;
     }
+    if (action === 'ideation-brief-save') {
+      const field = document.querySelector('.ideation-brief-input');
+      const text = field ? field.value.trim() : '';
+      // Refused here as well as in the host: posting an empty brief would only
+      // produce a warning the person could have been spared.
+      if (!text) { return; }
+      vscode.postMessage({ type: 'captureProjectBrief', payload: text });
+      return;
+    }
+    if (action === 'ideation-brief-derive') {
+      // No payload. The host re-reads the brief from the file it wrote, so a
+      // crafted message can ask for a reading and can never supply the text
+      // that reading is grounded against.
+      vscode.postMessage({ type: 'deriveFromProjectBrief' });
+      return;
+    }
+    if (action === 'ideation-brief-open') {
+      vscode.postMessage({ type: 'openProjectBrief' });
+      return;
+    }
     if (action === 'ideation-create-workspace') {
       vscode.postMessage({ type: 'createIdeationWorkspace' });
       return;
@@ -841,7 +861,7 @@
   /** Only the stage that was asked for. That is the whole change. */
   function renderStage(snapshot, mode, boardIsEmpty, selectedCard, selectedLink) {
     if (mode === 'frame') {
-      return (boardIsEmpty ? renderStarterFrames(snapshot) : '') + renderComposer(snapshot);
+      return (boardIsEmpty ? renderProjectBrief(snapshot) + renderStarterFrames(snapshot) : '') + renderComposer(snapshot);
     }
     if (mode === 'scaffold') {
       return renderComposer(snapshot) + renderFeedback(snapshot);
@@ -850,6 +870,51 @@
       return renderReadiness(snapshot) + renderInspector(snapshot, selectedCard, selectedLink) + renderAnalytics(snapshot);
     }
     return renderInspector(snapshot, selectedCard, selectedLink) + renderAnalytics(snapshot);
+  }
+
+  /**
+   * The project in your own words, on an empty board.
+   *
+   * Above the starter frames deliberately: a frame is a set of generic
+   * questions, and this is the one thing that can make them specific. Offered
+   * only where the frames are — on an empty board — because it is an onboarding
+   * question, not a control somebody needs twice.
+   */
+  function renderProjectBrief(snapshot) {
+    if ((snapshot.templates || []).length === 0) {
+      return '';
+    }
+    const brief = snapshot.brief || {};
+    if (brief.captured) {
+      // Already written. Shown rather than hidden, because the brief is what
+      // every derived card can be checked against, and re-reading it is the
+      // point.
+      return '' +
+        '<article class="ideation-panel">' +
+          '<div class="row-head"><div>' +
+            '<p class="section-kicker">Your brief</p>' +
+            '<h3>What this project is for</h3>' +
+          '</div>' +
+          '<button type="button" class="action-link" data-action="ideation-brief-open" data-payload="">Open the file</button></div>' +
+          '<p class="section-copy">' + escapeHtml(brief.excerpt || '') + '</p>' +
+          '<div class="tag-row">' +
+            '<button type="button" class="action-link primary" data-action="ideation-brief-derive" data-payload="">Read it into cards</button>' +
+          '</div>' +
+        '</article>';
+    }
+    return '' +
+      '<article class="ideation-panel">' +
+        '<div class="row-head"><div>' +
+          '<p class="section-kicker">Start here</p>' +
+          '<h3>What is this project for?</h3>' +
+        '</div></div>' +
+        '<p class="section-copy">In your own words: who it is for, what it should do, and what should be true once it works. A couple of sentences is enough. <strong>AtlasMind never edits this</strong> — everything it reads out of it stays checkable against what you wrote.</p>' +
+        '<textarea class="ideation-brief-input" rows="5" placeholder="A booking tool for dog groomers working on their own. They take appointments by text and lose track of them. It works when a groomer can see their whole week without opening anything else."></textarea>' +
+        '<div class="tag-row">' +
+          '<button type="button" class="action-link primary" data-action="ideation-brief-save" data-payload="">Save it</button>' +
+          '<span class="section-copy">Saved to your project memory. Reading it into cards is a separate step.</span>' +
+        '</div>' +
+      '</article>';
   }
 
   /**

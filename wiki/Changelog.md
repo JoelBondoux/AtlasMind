@@ -19,6 +19,44 @@ Older entries below describe the software as it was at the time and are delibera
 
 ---
 
+## v0.469.0 -- The project in your own words
+
+Every starting point AtlasMind had was *detected*: the archetype from manifests, the starter frames
+from the archetype, the roadmap from whatever you typed line by line. None of them could know what the
+project is **for**, because that fact exists only in the head of the person starting it. So the board
+opened onto generic questions and the roadmap opened onto nothing.
+
+There is now a brief composer on the empty ideation board -- a couple of sentences about who it is
+for, what it should do, and what should be true once it works.
+
+The whole feature is built around one hazard. A model handed "a booking app for dog groomers" will
+produce twelve confident cards about payment flows, cancellation policies and SMS reminders -- none of
+which anybody said, all of which read afterwards like decisions somebody made, in a committed file
+where a later reader cannot tell them from the real ones. That is closed **in the sanitizer, not in
+the prompt**: a prompt is a request, a sanitizer is a guarantee.
+
+**Every derived card either quotes your brief word for word, or is a question.** The quote is checked
+against the brief rather than trusted, and a card whose quote is not really there is **demoted to a
+question rather than dropped** -- the model may have noticed something worth asking even having
+invented the words it claimed to be quoting. The number demoted is always stated, because a proposal
+that quietly discarded its ungrounded half would look like a flawless reading.
+
+**Your brief is kept verbatim.** Spelling, capitalisation, paragraphs and sentence shape are
+untouched: a tidied-up version is somebody else's words, and the file exists precisely so every
+derived card can be checked against what you actually wrote. The quote travels onto each card, so the
+provenance is visible on the board months later.
+
+**A brief too thin to derive from is refused rather than expanded** -- under twelve words it names the
+two facts that are missing, because asking a model to make a project out of "an app" produces a
+fabricated project with no author.
+
+Writing the brief, reading it into cards, and raising roadmap items stay **three separate
+confirmations**, and the confirmation lists every proposed card before anything is written. No edges
+are drawn between derived cards: an edge asserts that one thing supports or contradicts another, and
+your brief did not say that.
+
+---
+
 ## v0.468.0 -- Baselines you can name
 
 *What moved* answers one question carefully, and answered it about exactly one span: since you last

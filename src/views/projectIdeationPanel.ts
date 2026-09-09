@@ -8,7 +8,14 @@ import { resolvePickedImageAttachments } from '../chat/imageAttachments.js';
 import { getWebviewHtmlShell, QUICK_REPLY_CSS } from './webviewUtils.js';
 import { addRoadmapItemFromExternalSurface } from './projectDashboardPanel.js';
 import { assessIdeationReadiness, type IdeationReadiness } from '../core/ideationReadiness.js';
-import { findBoardTemplate, suggestBoardTemplates } from '../core/ideationBoardTemplates.js';
+import { findBoardTemplate, suggestBoardTemplates, type IdeationBoardTemplate } from '../core/ideationBoardTemplates.js';
+import {
+  assessBrief,
+  briefToBoardTemplate,
+  buildBriefParsePrompt,
+  parseBriefProposal,
+  renderBriefDocument,
+} from '../core/projectBrief.js';
 import { detectProjectArchetype } from '../core/projectArchetype.js';
 import {
   collectCardConnectionSources,
@@ -311,6 +318,9 @@ type ProjectIdeationMessage =
   | { type: 'raiseCardAsWork'; payload: { cardId: string } }
   | { type: 'archiveCard'; payload: { cardId: string; archive: boolean } }
   | { type: 'seedBoardTemplate'; payload: string }
+  | { type: 'captureProjectBrief'; payload: string }
+  | { type: 'deriveFromProjectBrief' }
+  | { type: 'openProjectBrief' }
   | { type: 'runDeepBoardAnalysis' }
   | { type: 'generateReviewCheckpoint'; payload: { cardId: string } };
 
@@ -360,6 +370,14 @@ interface IdeationSnapshot {
    * are additive by design rather than destructive.
    */
   templates: Array<{ id: string; label: string; whenToUse: string; cardCount: number; suggestedBecause?: string }>;
+  /**
+   * The project brief, when one has been written.
+   *
+   * An excerpt rather than the whole text: the panel offers to re-open the file
+   * for the rest, and a webview does not need a copy of it to show that it
+   * exists.
+   */
+  brief: { captured: boolean; excerpt?: string };
   updatedAt: string;
   updatedRelative: string;
 }
@@ -509,6 +527,15 @@ export class ProjectIdeationPanel {
         return;
       case 'seedBoardTemplate':
         await this.seedBoardTemplate(message.payload);
+        return;
+      case 'captureProjectBrief':
+        await this.captureProjectBrief(message.payload);
+        return;
+      case 'deriveFromProjectBrief':
+        await this.deriveFromProjectBrief();
+        return;
+      case 'openProjectBrief':
+        await this.openProjectBrief();
         return;
       case 'archiveCard':
         await this.archiveCard(message.payload.cardId, message.payload.archive);
@@ -716,6 +743,7 @@ export class ProjectIdeationPanel {
         })),
         roadmapItems: await this.readRoadmapItems(workspaceRoot, ssotPath),
       }),
+      brief: await this.collectBriefSummary(workspaceRoot),
       templates: board.cards.some(card => !card.archivedAt)
         ? []
         : (await this.suggestTemplates(workspaceRoot)).map(template => ({
@@ -1382,8 +1410,186 @@ export class ProjectIdeationPanel {
    * layout belongs to the board, and a second placement algorithm here would be
    * the wrong one because it cannot see what is already there.
    */
-  private async seedBoardTemplate(templateId: string): Promise<void> {
-    const template = findBoardTemplate(templateId);
+  /**
+   * Write the brief, exactly as it was typed.
+   *
+   * One act of three. Nothing is derived here — a button that captured the
+   * brief and immediately filled a board would put a model's reading of one
+   * paragraph into a committed file nobody had read yet.
+   */
+  private async captureProjectBrief(raw: string): Promise<void> {
+    const assessment = assessBrief(raw);
+    if (!assessment.usable) {
+      // The refusal names what to add. It is shown rather than swallowed,
+      // because a Save button that silently does nothing reads as broken.
+      await this.postMessage({ type: 'ideationStatus', payload: assessment.refusal ?? 'That brief could not be used.' });
+      return;
+    }
+    const workspaceRoot = vscode.workspace.workspaceFolders?.[0]?.uri.fsPath;
+    if (!workspaceRoot) {
+      return;
+    }
+    const briefPath = this.projectBriefPath(workspaceRoot);
+    const exists = await fs.stat(briefPath).then(() => true, () => false);
+    if (exists) {
+      // Overwriting somebody's own words is the one destructive act here, so it
+      // is confirmed and says what is lost.
+      const replace = await vscode.window.showWarningMessage(
+        'Replace the project brief?',
+        {
+          modal: true,
+          detail: 'A brief is already recorded. It is your own description of the project, and replacing it cannot be undone from here — the previous text is only recoverable from git.',
+        },
+        'Replace it',
+      );
+      if (replace !== 'Replace it') {
+        return;
+      }
+    }
+    await fs.mkdir(path.dirname(briefPath), { recursive: true });
+    await fs.writeFile(briefPath, renderBriefDocument(assessment.text, new Date().toISOString()), 'utf-8');
+    await this.postMessage({
+      type: 'ideationStatus',
+      payload: 'Brief saved. Reading it into cards is the next step, and it is a separate one.',
+    });
+    await this.syncState();
+  }
+
+  /**
+   * Read the stored brief into proposed cards.
+   *
+   * The brief is read **from the file** rather than taken from the message, so
+   * the text a reading is grounded against is always the text on disk — a
+   * webview supplying both the claim and the evidence for it would make the
+   * quote check meaningless.
+   *
+   * Nothing is written until the proposal has been shown and agreed to.
+   */
+  private async deriveFromProjectBrief(): Promise<void> {
+    const workspaceRoot = vscode.workspace.workspaceFolders?.[0]?.uri.fsPath;
+    if (!workspaceRoot) {
+      return;
+    }
+    const brief = await this.readProjectBrief(workspaceRoot);
+    if (!brief) {
+      await this.postMessage({ type: 'ideationStatus', payload: 'No brief is recorded yet.' });
+      return;
+    }
+    const configuration = vscode.workspace.getConfiguration('atlasmind');
+    await this.postMessage({ type: 'ideationBusy', payload: true });
+    await this.postMessage({ type: 'ideationStatus', payload: 'Reading your brief...' });
+
+    let streamedText = '';
+    try {
+      const result = await this.atlas.orchestrator.processTask({
+        id: `ideation-brief-${Date.now()}`,
+        userMessage: buildBriefParsePrompt(brief),
+        context: {},
+        constraints: {
+          budget: toBudgetMode(configuration.get<string>('budgetMode')),
+          speed: toSpeedMode(configuration.get<string>('speedMode')),
+        },
+        timestamp: new Date().toISOString(),
+      }, async chunk => {
+        if (chunk) { streamedText += chunk; }
+      });
+
+      const reconciled = reconcileAssistantResponse(streamedText, result.response);
+      // The grounding gate. Every quote is checked against the brief here,
+      // whatever the prompt asked for.
+      const proposal = parseBriefProposal(reconciled.transcriptText, brief);
+      if (proposal.cards.length === 0) {
+        await this.postMessage({ type: 'ideationStatus', payload: proposal.summary });
+        return;
+      }
+      const confirmed = await vscode.window.showInformationMessage(
+        `Add ${proposal.cards.length} card${proposal.cards.length === 1 ? '' : 's'} to the board?`,
+        { modal: true, detail: this.describeBriefProposal(proposal) },
+        'Add them',
+      );
+      if (confirmed !== 'Add them') {
+        return;
+      }
+      // Written through the board's own seeder, so there is still exactly one
+      // thing that writes cards.
+      await this.seedBoardTemplate(briefToBoardTemplate(proposal));
+      await this.postMessage({ type: 'ideationStatus', payload: proposal.summary });
+    } catch (error) {
+      const detail = error instanceof Error ? error.message : String(error);
+      await this.postMessage({ type: 'ideationStatus', payload: `Could not read the brief: ${detail}` });
+    } finally {
+      await this.postMessage({ type: 'ideationBusy', payload: false });
+    }
+  }
+
+  /** Every proposed card, in full, before anything is written. */
+  private describeBriefProposal(proposal: ReturnType<typeof parseBriefProposal>): string {
+    const lines = [proposal.summary, ''];
+    for (const card of proposal.cards) {
+      lines.push(`  ${card.question ? '?' : '\u2022'} ${card.title}`);
+      if (card.quote) {
+        lines.push(`      quoting: "${card.quote}"`);
+      } else if (card.demotedReason) {
+        lines.push('      this claimed a quote that is not in your brief');
+      }
+    }
+    lines.push('');
+    lines.push('Cards marked ? are questions your brief did not answer. Nothing here is a decision until you make it one.');
+    return lines.join('\n');
+  }
+
+  /** Whether a brief exists, and enough of it to recognise. */
+  private async collectBriefSummary(
+    workspaceRoot: string | undefined,
+  ): Promise<{ captured: boolean; excerpt?: string }> {
+    // No workspace is not an absent brief; both read as "nothing to show", and
+    // neither is a reason to offer to overwrite anything.
+    const brief = workspaceRoot ? await this.readProjectBrief(workspaceRoot) : undefined;
+    if (!brief) {
+      return { captured: false };
+    }
+    const excerpt = brief.length > 400 ? `${brief.slice(0, 400).trimEnd()}...` : brief;
+    return { captured: true, excerpt };
+  }
+
+  private projectBriefPath(workspaceRoot: string): string {
+    const ssotPath = normalizeSsotPath(
+      vscode.workspace.getConfiguration('atlasmind').get<string>('ssotPath', 'project_memory'),
+    );
+    return path.join(workspaceRoot, ssotPath, 'project-brief.md');
+  }
+
+  /** The brief as written, with the document's own header removed. */
+  private async readProjectBrief(workspaceRoot: string): Promise<string | undefined> {
+    try {
+      const raw = await fs.readFile(this.projectBriefPath(workspaceRoot), 'utf-8');
+      const marker = raw.indexOf('---');
+      const body = marker >= 0 ? raw.slice(marker + 3) : raw;
+      const text = body.trim();
+      return text.length > 0 ? text : undefined;
+    } catch {
+      return undefined;
+    }
+  }
+
+  private async openProjectBrief(): Promise<void> {
+    const workspaceRoot = vscode.workspace.workspaceFolders?.[0]?.uri.fsPath;
+    if (!workspaceRoot) {
+      return;
+    }
+    const uri = vscode.Uri.file(this.projectBriefPath(workspaceRoot));
+    try {
+      await vscode.window.showTextDocument(await vscode.workspace.openTextDocument(uri));
+    } catch {
+      await this.postMessage({ type: 'ideationStatus', payload: 'No brief is recorded yet.' });
+    }
+  }
+
+  private async seedBoardTemplate(source: string | IdeationBoardTemplate): Promise<void> {
+    // Accepts either a declared frame's id or a template built for this board —
+    // the brief-derived one. One seeder either way: a second writer for cards
+    // would eventually disagree with this one about the board format.
+    const template = typeof source === 'string' ? findBoardTemplate(source) : source;
     if (!template) {
       await this.postMessage({ type: 'ideationStatus', payload: 'That starter frame is no longer available.' });
       return;
@@ -1663,6 +1869,19 @@ export function isProjectIdeationMessage(message: unknown): message is ProjectId
       && typeof (candidate['payload'] as Record<string, unknown>)['cardId'] === 'string'
       && ((candidate['payload'] as Record<string, unknown>)['cardId'] as string).trim().length > 0;
   }
+  if (candidate['type'] === 'captureProjectBrief') {
+    // Shape only. `assessBrief` decides whether it is usable and refuses with a
+    // reason; a length check here would duplicate that rule in a second place.
+    return typeof candidate['payload'] === 'string';
+  }
+
+  if (candidate['type'] === 'deriveFromProjectBrief' || candidate['type'] === 'openProjectBrief') {
+    // No payload at all. The host re-reads the brief it wrote, so a crafted
+    // message can ask for a reading and can never supply the text that reading
+    // is grounded against.
+    return true;
+  }
+
   if (candidate['type'] === 'seedBoardTemplate') {
     return typeof candidate['payload'] === 'string';
   }

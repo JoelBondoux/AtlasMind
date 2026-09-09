@@ -334,11 +334,16 @@ describe('ideation workspace order', () => {
     expect(resolve.slice(0, resolve.indexOf('\n  }'))).toContain("boardIsEmpty ? 'frame' : 'shape'");
   });
 
-  it('offers starter frames only while the board is empty', () => {
+  it('offers starter frames and the brief only while the board is empty', () => {
     // The frames append and never replace — but a picker that could touch a
     // board with work on it is a picker somebody eventually clicks by accident.
+    // The brief composer sits behind the same guard: it is an onboarding
+    // question, not a control somebody needs beside a board full of work.
     const stage = script.slice(script.indexOf('function renderStage('));
-    expect(stage.slice(0, stage.indexOf('\n  }'))).toContain('boardIsEmpty ? renderStarterFrames(snapshot)');
+    const body = stage.slice(0, stage.indexOf('\n  }'));
+    const guarded = body.slice(body.indexOf('boardIsEmpty ?'), body.indexOf(" : ''"));
+    expect(guarded).toContain('renderStarterFrames(snapshot)');
+    expect(guarded).toContain('renderProjectBrief(snapshot)');
   });
 
   it('publishes what a card kind commits to, where the kind is chosen', () => {

@@ -6,6 +6,54 @@ The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/),
 
 ## [Unreleased]
 
+## [0.469.0] - 2026-09-09
+
+### Added
+
+- **Say what the project is for, in your own words, and have it read into cards.** Every starting
+  point AtlasMind had was *detected* — the archetype from manifests, the starter frames from the
+  archetype, the roadmap from whatever you typed line by line. None of them could know what the
+  project is **for**, because that fact exists only in the head of the person starting it. So the
+  board opened onto generic questions and the roadmap opened onto nothing.
+
+  A brief composer now sits on the empty ideation board: a couple of sentences about who it is for,
+  what it should do, and what should be true once it works.
+
+  The whole feature is built around one hazard. A model handed "a booking app for dog groomers" will
+  produce twelve confident cards about payment flows, cancellation policies and SMS reminders — none
+  of which anybody said, all of which read afterwards like decisions somebody made, in a committed
+  file where a later reader cannot tell them from the real ones. That is closed **in the sanitizer,
+  not in the prompt**: a prompt is a request, a sanitizer is a guarantee.
+
+  **Every derived card either quotes your brief word for word, or is a question.** The quote is
+  checked against the brief here rather than trusted, and a card whose quote is *not* in your brief is
+  **demoted to a question rather than dropped** — the model may have noticed something worth asking
+  even having invented the words it claimed to be quoting, and a question commits nobody to anything.
+  The number demoted is always stated, because a proposal that quietly discarded its ungrounded half
+  would look like a flawless reading.
+
+  **The brief is kept verbatim and never rewritten.** Control characters go and the length is capped;
+  spelling, capitalisation, paragraphs and sentence shape are untouched. A tidied-up version is
+  somebody else's words, and the file exists precisely so every derived card can be checked against
+  what you actually wrote. The quote travels *onto* each card, so provenance survives on the board.
+
+  **A brief too thin to derive from is refused, never expanded.** Under twelve words it says which two
+  facts are missing rather than "too short", because asking a model to make a project out of "an app"
+  produces a fabricated project with no author.
+
+  **Three acts, not one.** Writing the brief, reading it into cards, and raising roadmap items are
+  three separate confirmations — each writes to a different committed file, and one button doing all
+  three would put a model's reading of one paragraph into three places nobody reviewed. The
+  confirmation lists **every proposed card**, marking which are questions and which quote you.
+
+  **No edges are drawn.** An edge asserts that one card supports or contradicts another — a claim
+  about the project your brief did not make. Inferring the reasoning as well as the content is a step
+  too far.
+
+  Cards are written through the board's existing seeder rather than a second writer, and from there
+  the existing **Raise as work** door puts them on the roadmap. Nothing in the new module writes a
+  file at all.
+
 ## [0.468.0] - 2026-09-09
 
 ### Added
