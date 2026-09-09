@@ -4,7 +4,7 @@
 
 <h1 align="center">AtlasMind</h1>
 
-<p align="center"><sub> · <strong>Current source version: 0.464.0</strong> · </sub></p>
+<p align="center"><sub> · <strong>Current source version: 0.470.0</strong> · </sub></p>
 
 
 <p align="center">
@@ -175,11 +175,60 @@ important limits on overrides and compliance claims.
 
 ---
 
-## What's new in 0.464.0
+## What's new in 0.470.0
 
 The last Marketplace publication, **v0.449.5**, brought the changes below. Every release is written
 up in full in [CHANGELOG.md](CHANGELOG.md).
 
+- **The Ideation page, rebuilt as two panes.** The inspector used to sit under a canvas that filled
+  the screen, so editing a card meant scrolling away from the board — and four "stages" explained an
+  order the page did not have. Now a rail beside the canvas follows what you click: a card shows its
+  inspector, a link its editor, nothing shows the prompt. The toolbar only draws; there is one way off
+  the board, with the readiness reading inside it; and everything Atlas says lives in one drawer that
+  opens itself when it speaks. The stat tiles, board lanes, stage bar and the 180-word shortcut
+  paragraph are gone.
+
+- **Tell AtlasMind what the project is for, and watch it stay honest about it.** A brief composer on
+  the empty ideation board takes a couple of sentences in your own words and reads them into cards.
+  **Every card either quotes your brief word for word or is a question** — a quote that is not really
+  in your brief is turned into a question rather than shown as a finding, and the count is stated, so
+  an invented reading cannot look clean. Your brief is **stored exactly as you wrote it** and never
+  edited, which is what makes every derived card checkable. A brief too thin to work from is refused
+  with what to add. Writing it, reading it into cards and raising roadmap items stay three separate
+  confirmations.
+
+- **Name a baseline, and compare against it whenever you like.** *What moved* could only ever answer
+  "since you last looked" — the one span nobody chose. Now you can capture a moment worth comparing
+  against and ask the same question about it: since the release, since this branch started, since the
+  audit. It is the **same comparison**, so two cards can never disagree about one fortnight. **The age
+  is always shown**, because eleven changes over six weeks is not eleven changes today. Nothing is
+  captured automatically, nothing expires, and the oldest is never evicted to make room — it is the
+  only one that can speak about the whole project.
+
+- **Import absence from the rota app your team already uses.** Deputy, When I Work, Google Calendar or
+  anything else that exports an `.ics` file. It reads the published iCalendar format rather than a
+  vendor API, so one thing works everywhere. **Only events naming an absence are imported** — a rota
+  feed is mostly the shifts somebody is *working*, and recording those as time off would mark them away
+  on exactly the days they are rostered on; a file of shifts is refused, with that reason. Everything
+  left alone is counted and shown. **Nothing is fetched**: a calendar feed URL is a password, so you
+  download the file. The confirmation lists every entry, absence you typed by hand is kept, and
+  re-importing updates in place.
+
+- **See what each person is actually carrying — and read it honestly.** A Workload card on the
+  Director page joins your roster to the roadmap's estimates and assignments. It is **not a
+  performance measure**, and says so above the numbers: it counts work somebody was *given* against
+  capacity they *declared*. Capacity is written down, never worked out from commit rates. An
+  allocation it cannot read stays **unknown rather than being read as a full week**, unestimated work
+  is never counted as zero, a derived estimate is counted but flagged as derived, and an empty rota
+  means *nothing was recorded* rather than *everybody is available*. Overload is reported over a
+  stated window and **nothing offers to reassign anybody**.
+
+- **Golden cases for your agents, and a gate on the rewrite that would break them.** AtlasMind can
+  rewrite an agent's prompt on a cadence — a prompt edit deployed with no failing build. Pin cases with
+  a prompt, a check and the reason each exists, and a rewrite that regresses one is **held** rather than
+  shipped. So is one that could not be checked, because the cadence runs while nobody is watching. An
+  errored case is set aside rather than counted as a failure, a first run is a baseline rather than a
+  pass, and every verdict says how many cases actually ran.
 - **One button builds and publishes the portal.** Gather, narrow, prepare, deploy — with a single
   confirmation that says what goes out, what is withheld, who can read it, which commands will run and
   which step cannot be undone. It **refuses** rather than warns when you have named an audience your
@@ -517,7 +566,7 @@ All 154 settings are documented in the [Configuration reference](wiki/Configurat
 
 | Path | What's in it |
 |---|---|
-| `src/core/` | Orchestration, routing, planning, safety, cost, project composition, opt-in workspace scope, read-only upstream distance, game-engine identity, bounded asset inventory, pure engine-fork interpretation, and hostile-input build-log reading (`projectComposition.ts`, `workspaceScope.ts`, `upstreamDivergence.ts`, `gameEngineIdentity.ts`, `gameAssetInventory.ts`, `gameEngineDivergence.ts`, `gameBuildLog.ts`), UI Studio's graph/edit/live-preview/repository core (`uiDesignGraph.ts`, `uiEditCommands.ts`, `uiPreviewRuntime.ts`, `uiRepositoryMapping.ts`, `uiRepositoryImport.ts`, `uiSurfaceScan.ts`), CI inspection/scaffolding (`ciManager.ts`, `trustedLocalCiStarter.ts`), the CI route model, routing policy, build ledger and act adapter (`ciRoutes.ts`, `ciRoutingPolicy.ts`, `ciCreditMeter.ts`, `ciBuildLedger.ts`, `ciActRoute.ts`), the local CI guide, GitHub CLI installer and remembered machine inspection (`localCiSetupPlan.ts`, `localCiInstaller.ts`, `localCiInspectionMemory.ts`), confirmed-write echo (`trackerWriteOutcome.ts`), the register-to-work hand-off (`registerHandoff.ts`), the personal-vs-project split behind the two sidebar people views (`directorPriority.ts`), the semver primitives and branch-to-channel versioning policy (`semver.ts`, `versioningPolicy.ts`), the shell-free Windows shim bypass shared by the extension host, the CLI and the ACP launcher (`windowsShimBypass.ts`), parallel-write placement, worktree plumbing, merge-back and the run that ties them together (`worktreeIsolation.ts`, `worktreeManager.ts`, `worktreeMerge.ts`, `worktreeRun.ts`), the live security advisory feed and the per-turn context breakdown and the producer-portal hosting guide (`advisoryFeed.ts`, `contextBudget.ts`, `producerPortalPlan.ts`), the defect register — what is broken, graded by a published table rather than asked for (`defectRegister.ts`), the approval register — who agreed, to which version, and what goes stale when it changes (`changeApprovals.ts`), the test-case register — the manual half of testing, its owners and the assets it needs (`testCaseRegister.ts`), the ambient event bus — what may wake AtlasMind up, how far it may go, and why it stayed quiet (`ambientTriggers.ts`), the six cross-cutting utility decisions with their verified vendor facts (`utilityPacks.ts`), the searchable codebase index — what may be indexed, what is stale, and what a result may be taken to mean (`codebaseIndex.ts`, `codebaseIndexStore.ts`), where the producer portal is hosted and who may read it, and what one press to publish would actually do (`portalHosting.ts`, `portalPublishPlan.ts`), the roadmap dependency graph, its overlay store, the chain the finish rests on and the plan against time (`roadmapGraph.ts`, `roadmapGraphStore.ts`, `roadmapCriticalPath.ts`, `roadmapTimeline.ts`, `roadmapBoard.ts`), whether the configured team can work and how much of it is used (`agentCapacity.ts`), and the git trailers that link a commit to the work it was for (`commitTrailers.ts`), and the evidence-triggered MCP capability offer (`capabilityOffer.ts`), release-gate destinations and urgency ordering (`releaseGateNavigation.ts`), roadmap ingestion from markdown, issues, Projects and spreadsheets (`roadmapImport.ts`, `roadmapReconcile.ts`) plus the guarded `localCiRunner.ts` executor, the governance-compliance stack — the control catalog, evidence register and readiness grader (`complianceControlCatalog.ts`, `complianceEvidenceRegister.ts`, `complianceReadiness.ts`) the per-methodology standard editions (`testingStandards.ts`), the Compliance page's view builder (`complianceDashboard.ts`), its walkthrough (`complianceSetupPlan.ts`), the shared stack-signal gatherer (`complianceStackSignals.ts`) and the mapping importer (`complianceMarkdownImport.ts`) — and project services |
+| `src/core/` | Orchestration, routing, planning, safety, cost, project composition, opt-in workspace scope, read-only upstream distance, game-engine identity, bounded asset inventory, pure engine-fork interpretation, and hostile-input build-log reading (`projectComposition.ts`, `workspaceScope.ts`, `upstreamDivergence.ts`, `gameEngineIdentity.ts`, `gameAssetInventory.ts`, `gameEngineDivergence.ts`, `gameBuildLog.ts`), UI Studio's graph/edit/live-preview/repository core (`uiDesignGraph.ts`, `uiEditCommands.ts`, `uiPreviewRuntime.ts`, `uiRepositoryMapping.ts`, `uiRepositoryImport.ts`, `uiSurfaceScan.ts`), CI inspection/scaffolding (`ciManager.ts`, `trustedLocalCiStarter.ts`), the CI route model, routing policy, build ledger and act adapter (`ciRoutes.ts`, `ciRoutingPolicy.ts`, `ciCreditMeter.ts`, `ciBuildLedger.ts`, `ciActRoute.ts`), the local CI guide, GitHub CLI installer and remembered machine inspection (`localCiSetupPlan.ts`, `localCiInstaller.ts`, `localCiInspectionMemory.ts`), confirmed-write echo (`trackerWriteOutcome.ts`), the register-to-work hand-off (`registerHandoff.ts`), the personal-vs-project split behind the two sidebar people views (`directorPriority.ts`), the semver primitives and branch-to-channel versioning policy (`semver.ts`, `versioningPolicy.ts`), the shell-free Windows shim bypass shared by the extension host, the CLI and the ACP launcher (`windowsShimBypass.ts`), parallel-write placement, worktree plumbing, merge-back and the run that ties them together (`worktreeIsolation.ts`, `worktreeManager.ts`, `worktreeMerge.ts`, `worktreeRun.ts`), the live security advisory feed and the per-turn context breakdown and the producer-portal hosting guide (`advisoryFeed.ts`, `contextBudget.ts`, `producerPortalPlan.ts`), the defect register — what is broken, graded by a published table rather than asked for (`defectRegister.ts`), the approval register — who agreed, to which version, and what goes stale when it changes (`changeApprovals.ts`), the test-case register — the manual half of testing, its owners and the assets it needs (`testCaseRegister.ts`), the ambient event bus — what may wake AtlasMind up, how far it may go, and why it stayed quiet (`ambientTriggers.ts`), the six cross-cutting utility decisions with their verified vendor facts (`utilityPacks.ts`), the searchable codebase index — what may be indexed, what is stale, and what a result may be taken to mean (`codebaseIndex.ts`, `codebaseIndexStore.ts`), where the producer portal is hosted and who may read it, and what one press to publish would actually do (`portalHosting.ts`, `portalPublishPlan.ts`), golden cases for an agent and the gate on an unattended prompt rewrite (`agentEvalHarness.ts`), what each person has been asked to do against the capacity they declared, and declared absence read out of an exported calendar (`teamWorkload.ts`, `rotaImport.ts`), baselines you can name so "what changed" can be asked about a moment you chose (`baselineRegister.ts`), the project in your own words and the grounding rule for anything read out of it (`projectBrief.ts`), the roadmap dependency graph, its overlay store, the chain the finish rests on and the plan against time (`roadmapGraph.ts`, `roadmapGraphStore.ts`, `roadmapCriticalPath.ts`, `roadmapTimeline.ts`, `roadmapBoard.ts`), whether the configured team can work and how much of it is used (`agentCapacity.ts`), and the git trailers that link a commit to the work it was for (`commitTrailers.ts`), and the evidence-triggered MCP capability offer (`capabilityOffer.ts`), release-gate destinations and urgency ordering (`releaseGateNavigation.ts`), roadmap ingestion from markdown, issues, Projects and spreadsheets (`roadmapImport.ts`, `roadmapReconcile.ts`) plus the guarded `localCiRunner.ts` executor, the governance-compliance stack — the control catalog, evidence register and readiness grader (`complianceControlCatalog.ts`, `complianceEvidenceRegister.ts`, `complianceReadiness.ts`) the per-methodology standard editions (`testingStandards.ts`), the Compliance page's view builder (`complianceDashboard.ts`), its walkthrough (`complianceSetupPlan.ts`), the shared stack-signal gatherer (`complianceStackSignals.ts`) and the mapping importer (`complianceMarkdownImport.ts`) — and project services |
 | `src/runtime/` | Built-in agents and runtime composition |
 | `src/providers/` | Model provider adapters, catalogs, health, `modelRole.ts` (what a model is *for*), and the local-GPU support layer — `gpuProbe.ts`, `localFootprint.ts`, `localRuntimeClient.ts` |
 | `src/skills/` | Built-in tools and skill handlers |

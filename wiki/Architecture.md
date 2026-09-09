@@ -837,6 +837,69 @@ where the policy lives, and removing somebody from the list does not revoke thei
 stores contact ids rather than addresses, and somebody who has no email or GitHub handle is reported as
 unlistable rather than silently dropped.
 
+AtlasMind can also read **what each person is carrying** (`src/core/teamWorkload.ts`, the Workload
+card on Dashboard → **Director**). The roster knew who owned what and the roadmap knew what each item
+was estimated to cost; nothing joined them. The first rule is not about arithmetic: **this is not a
+performance measure**, it counts work somebody was *given* against capacity they *declared*, and the
+card says so above the numbers. **Capacity is declared, never inferred** — nothing is derived from
+commit rates, which would be surveillance wearing planning's clothes and wrong besides. Six published
+rules read an allocation and **anything unrecognised stays unknown rather than being read as a full
+week**; a person with no declared allocation is excluded from the verdict and counted separately, so a
+tidy-looking reading cannot rest on silence. **An estimate absent is not an estimate of zero**, and
+because the roadmap grades unestimated items from a rule, a derived estimate is counted but stated as
+derived. **An empty rota means nothing was recorded**, not that everybody is available — the opposite
+reading to capacity, and deliberately so. The window is always stated, and **overload is reported,
+never resolved**: nothing here reassigns anybody.
+
+AtlasMind can also **import absence from the rota app your team already uses**
+(`src/core/rotaImport.ts`, the **Import from a calendar** button on the Workload card). Deputy, When I
+Work, Google Calendar or anything else that exports an `.ics`: it reads the published iCalendar
+format rather than a vendor API, so one thing works everywhere. **A rota says when you are working,
+which is the opposite of an absence** — importing a shift feed wholesale would mark somebody away on
+exactly the days they are rostered on, so only events naming a declared absence are imported and
+everything left alone is counted and shown; a file of shifts is refused with that reason. `DTEND` is
+read as non-inclusive, as RFC 5545 defines it, or every absence gains a phantom day. A date needing a
+guessed timezone is refused rather than converted. **The person is chosen, never matched from the
+addresses in the file**, and **nothing is fetched** — a calendar feed URL is a password, so you
+download the file yourself. Importing is additive: absence you typed by hand is kept, and re-importing
+updates in place.
+
+AtlasMind can also **name a baseline and compare against it** (`src/core/baselineRegister.ts`, on
+Dashboard → **Workflow**, under *What moved*). That card could only ever answer "since you last
+looked" — the one span nobody chose — so *what changed since the release*, *since this branch
+started*, *since the audit* could not be asked. **The comparison is the same one**, not a second
+implementation, so two cards can never disagree about one fortnight. **A baseline is captured
+deliberately, never on a render**, because one that moved by itself would erase the span it was made
+to measure. **The age is always stated**: eleven changes over six weeks is not eleven changes today.
+**Past the cap a capture is refused and names what to remove — the oldest is never evicted**, since it
+is the only one that can speak about the whole project; nothing expires, and removing one is confirmed
+in a dialog saying the reading cannot be recovered. A baseline captured against another repository is
+**reported as not comparable here, never deleted**.
+
+The **Ideation page** is two panes and a drawer (`src/views/projectIdeationPanel.ts`,
+`media/projectIdeation.js`). The canvas sits beside a rail that follows what you click — a card shows
+its inspector, a link its editor, nothing shows the prompt, and an empty board shows the brief and
+the starter frames. There is no stage bar: three earlier layouts rearranged chrome above and below a
+single column, and every one of them left the inspector under a canvas that filled the first screen,
+so editing a card meant scrolling away from the board. The toolbar only draws; per-card actions live
+beside the card; there is **one way off the board**, with the readiness reading inside it; and
+everything Atlas has said lives in one drawer under the canvas that opens itself when it speaks.
+
+AtlasMind can also take **the project in your own words** (`src/core/projectBrief.ts`, the brief
+composer on an empty ideation board). Everything else it starts from is *detected* — the archetype
+from manifests, the starter frames from the archetype — and none of it can know what the project is
+**for**. A couple of sentences about who it is for and what should be true once it works is read into
+cards, under one rule: **every card either quotes your brief word for word, or is a question.** The
+quote is checked against the brief rather than trusted, and one that is not really there is **demoted
+to a question rather than dropped**, with the count stated — a proposal that quietly discarded its
+invented half would look like a flawless reading. **Your brief is stored exactly as you wrote it** and
+never edited, which is what makes every derived card checkable against it, and the quote travels onto
+the card so the provenance survives. A brief too thin to derive from is **refused with what to add**,
+because asking a model to make a project out of "an app" produces one nobody described. Writing the
+brief, reading it into cards and raising roadmap items are **three separate confirmations**, and no
+edges are drawn between derived cards — inferring the argument as well as the content is a step too
+far.
+
 AtlasMind can also **search your own source**, not just its memory of decisions
 (`src/core/codebaseIndex.ts`, two new commands). **Nothing leaves your machine, and no option would
 change that**: the default embedder needs no model, a local Ollama model gives genuinely semantic
@@ -1250,7 +1313,7 @@ never accepted.
 
 | Path | What's in it |
 |---|---|
-| `src/core/` | Orchestration, routing, planning, safety, cost, project services, pure game-engine identity/divergence/build-log interpretation (`gameEngineIdentity.ts`, `gameEngineDivergence.ts`, `gameBuildLog.ts`), and CI inspection, trusted-workflow generation, the route model, routing policy, build ledger, act adapter and local CI setup guidance (`ciManager.ts`, `trustedLocalCiStarter.ts`, `ciRoutes.ts`, `ciRoutingPolicy.ts`, `ciCreditMeter.ts`, `ciBuildLedger.ts`, `ciActRoute.ts`, `nodeVersionDetection.ts`, `localCiSetupPlan.ts`, `localCiInstaller.ts`, `localCiInspectionMemory.ts`), the guarded local CI executor (`localCiRunner.ts`), the confirmed-write echo that shows an issue or pull-request write before the re-read lands (`trackerWriteOutcome.ts`), the live security advisory feed and the per-turn context breakdown and the producer-portal hosting guide (`advisoryFeed.ts`, `contextBudget.ts`, `producerPortalPlan.ts`), the defect register — what is broken, graded by a published table rather than asked for (`defectRegister.ts`), the approval register — who agreed, to which version, and what goes stale when it changes (`changeApprovals.ts`), the test-case register — the manual half of testing, its owners and the assets it needs (`testCaseRegister.ts`), the ambient event bus — what may wake AtlasMind up, how far it may go, and why it stayed quiet (`ambientTriggers.ts`), the six cross-cutting utility decisions with their date-pinned vendor facts (`utilityPacks.ts`), the retrievable codebase index and its per-developer store (`codebaseIndex.ts`, `codebaseIndexStore.ts`), the portal host declaration and its audience, and the one-press publish plan (`portalHosting.ts`, `portalPublishPlan.ts`), the roadmap dependency graph with its on-disk overlay, the chain the finish rests on and the plan against time (`roadmapGraph.ts`, `roadmapGraphStore.ts`, `roadmapCriticalPath.ts`, `roadmapTimeline.ts`, `roadmapBoard.ts`), whether the configured team can work and how much of it is used (`agentCapacity.ts`), and the git trailers that link a commit to the work it was for (`commitTrailers.ts`), and the evidence-triggered MCP capability offer (`capabilityOffer.ts`), the declared table saying where each release gate’s evidence lives and how gates rank by urgency (`releaseGateNavigation.ts`), roadmap ingestion from markdown, issues, Projects and spreadsheets with re-runnable reconciliation (`roadmapImport.ts`), the register-to-work hand-off that turns a gap, a debt entry or a risk finding into planned work (`registerHandoff.ts`), and how the project numbers its software across branches — the semver primitives plus the declared scheme, source and branch-to-channel map (`semver.ts`, `versioningPolicy.ts`), how a Windows `bin` shim is resolved to something spawnable without a shell — the module that makes model-generated command arguments unable to become commands (`windowsShimBypass.ts`), and how parallel steps are kept from writing over each other — where each one runs, the git plumbing, getting the work back and the run that ties the three together (`worktreeIsolation.ts`, `worktreeManager.ts`, `worktreeMerge.ts`, `worktreeRun.ts`) |
+| `src/core/` | Orchestration, routing, planning, safety, cost, project services, pure game-engine identity/divergence/build-log interpretation (`gameEngineIdentity.ts`, `gameEngineDivergence.ts`, `gameBuildLog.ts`), and CI inspection, trusted-workflow generation, the route model, routing policy, build ledger, act adapter and local CI setup guidance (`ciManager.ts`, `trustedLocalCiStarter.ts`, `ciRoutes.ts`, `ciRoutingPolicy.ts`, `ciCreditMeter.ts`, `ciBuildLedger.ts`, `ciActRoute.ts`, `nodeVersionDetection.ts`, `localCiSetupPlan.ts`, `localCiInstaller.ts`, `localCiInspectionMemory.ts`), the guarded local CI executor (`localCiRunner.ts`), the confirmed-write echo that shows an issue or pull-request write before the re-read lands (`trackerWriteOutcome.ts`), the live security advisory feed and the per-turn context breakdown and the producer-portal hosting guide (`advisoryFeed.ts`, `contextBudget.ts`, `producerPortalPlan.ts`), the defect register — what is broken, graded by a published table rather than asked for (`defectRegister.ts`), the approval register — who agreed, to which version, and what goes stale when it changes (`changeApprovals.ts`), the test-case register — the manual half of testing, its owners and the assets it needs (`testCaseRegister.ts`), the ambient event bus — what may wake AtlasMind up, how far it may go, and why it stayed quiet (`ambientTriggers.ts`), the six cross-cutting utility decisions with their date-pinned vendor facts (`utilityPacks.ts`), the retrievable codebase index and its per-developer store (`codebaseIndex.ts`, `codebaseIndexStore.ts`), the portal host declaration and its audience, and the one-press publish plan (`portalHosting.ts`, `portalPublishPlan.ts`), golden cases for an agent and the gate on an unattended rewrite (`agentEvalHarness.ts`), what each person has been asked to do against the capacity they declared, and declared absence read out of an exported calendar (`teamWorkload.ts`, `rotaImport.ts`), baselines you can name so "what changed" can be asked about a moment you chose (`baselineRegister.ts`), the project in your own words and the grounding rule for anything read out of it (`projectBrief.ts`), the roadmap dependency graph with its on-disk overlay, the chain the finish rests on and the plan against time (`roadmapGraph.ts`, `roadmapGraphStore.ts`, `roadmapCriticalPath.ts`, `roadmapTimeline.ts`, `roadmapBoard.ts`), whether the configured team can work and how much of it is used (`agentCapacity.ts`), and the git trailers that link a commit to the work it was for (`commitTrailers.ts`), and the evidence-triggered MCP capability offer (`capabilityOffer.ts`), the declared table saying where each release gate’s evidence lives and how gates rank by urgency (`releaseGateNavigation.ts`), roadmap ingestion from markdown, issues, Projects and spreadsheets with re-runnable reconciliation (`roadmapImport.ts`), the register-to-work hand-off that turns a gap, a debt entry or a risk finding into planned work (`registerHandoff.ts`), and how the project numbers its software across branches — the semver primitives plus the declared scheme, source and branch-to-channel map (`semver.ts`, `versioningPolicy.ts`), how a Windows `bin` shim is resolved to something spawnable without a shell — the module that makes model-generated command arguments unable to become commands (`windowsShimBypass.ts`), and how parallel steps are kept from writing over each other — where each one runs, the git plumbing, getting the work back and the run that ties the three together (`worktreeIsolation.ts`, `worktreeManager.ts`, `worktreeMerge.ts`, `worktreeRun.ts`) |
 | `src/runtime/` | The built-in agents and how the runtime is composed |
 | `src/providers/` | Provider adapters, catalogues, health, local model discovery, `modelRole.ts` (what a model is *for*), and the local-GPU support layer that measures VRAM and reads what each runtime has loaded |
 | `src/skills/` | Built-in tools and skill handlers |

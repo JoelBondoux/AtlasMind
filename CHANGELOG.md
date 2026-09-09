@@ -6,6 +6,301 @@ The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/),
 
 ## [Unreleased]
 
+## [0.470.0] - 2026-09-09
+
+### Changed
+
+- **The Ideation page is two panes and a drawer, and nothing else.** It had been redesigned three
+  times — the comments in the code say so — and every time the fix was rearranging chrome above and
+  below a single column. The fault all three left in place: the inspector sat *under* a canvas that
+  filled the first screen, so every click on a card meant scrolling away from the board to edit it.
+  And the four "stages" (Frame, Scaffold, Shape, Decide) were four tools wearing a fake sequence —
+  two of the tabs rendered the same panels as their neighbours, and the status dots marked a stage
+  "done" the moment one run existed.
+
+  **A rail beside the canvas follows the selection.** A link → its editor. A card → the inspector.
+  Nothing → the prompt, and on an empty board the brief and the starter frames above it. You are
+  never "in" a stage; you are looking at the board or at the thing you clicked.
+
+  **The canvas toolbar draws and nothing else** — add, link, views, zoom, and a `?` that opens the
+  keyboard shortcuts on request. It was fifteen controls in one row, with *Send to Project Run* next
+  to *Zoom in*. Duplicate, focus, archive and delete moved into the inspector beside the card they
+  are about.
+
+  **One way off the board.** *Send to Project Run* was in the toolbar, again in the inspector, and
+  *Add to roadmap* in a third card, with the difference never stated. There is one exit section now,
+  it says what each destination is for, and the board's readiness reading sits inside it — "before
+  you raise it" belongs where you raise it.
+
+  **One drawer under the canvas** holds everything Atlas said: latest pass, history, analytics. It is
+  closed by default and opens itself when a response arrives, because the answer to what you just
+  asked must not land in a closed drawer.
+
+  **One start.** The canvas empty-state said *"Start with one sharp note"* while the panel below said
+  *"Start here"*, and the brief added yesterday made a third. The rail is the only start now: the
+  brief, then frames, then the prompt.
+
+  **Removed outright:** the three stat tiles (none was a decision), the board lanes and *Direction of
+  travel* arrow (structure nothing used), the 180-word shortcut paragraph and the chip strip
+  repeating it, the prompt-inference preview, the context-weaving card, the stage bar and its status
+  dots, and the Voice / Vision / Website Studio buttons in the header of *latest pass* (Website Studio
+  is one link in the page header instead). The inspector shows title, notes, kind and the exit first;
+  colour, scores, tags, memory sync and genealogy are behind *More*.
+
+  Every disclosure — the drawer, *More*, *Constraints*, shortcuts, *Why* on readiness — is held in
+  module state rather than a native `<details>`, because `render()` replaces the markup wholesale and
+  an open disclosure would snap shut on every update.
+
+## [0.469.0] - 2026-09-09
+
+### Added
+
+- **Say what the project is for, in your own words, and have it read into cards.** Every starting
+  point AtlasMind had was *detected* — the archetype from manifests, the starter frames from the
+  archetype, the roadmap from whatever you typed line by line. None of them could know what the
+  project is **for**, because that fact exists only in the head of the person starting it. So the
+  board opened onto generic questions and the roadmap opened onto nothing.
+
+  A brief composer now sits on the empty ideation board: a couple of sentences about who it is for,
+  what it should do, and what should be true once it works.
+
+  The whole feature is built around one hazard. A model handed "a booking app for dog groomers" will
+  produce twelve confident cards about payment flows, cancellation policies and SMS reminders — none
+  of which anybody said, all of which read afterwards like decisions somebody made, in a committed
+  file where a later reader cannot tell them from the real ones. That is closed **in the sanitizer,
+  not in the prompt**: a prompt is a request, a sanitizer is a guarantee.
+
+  **Every derived card either quotes your brief word for word, or is a question.** The quote is
+  checked against the brief here rather than trusted, and a card whose quote is *not* in your brief is
+  **demoted to a question rather than dropped** — the model may have noticed something worth asking
+  even having invented the words it claimed to be quoting, and a question commits nobody to anything.
+  The number demoted is always stated, because a proposal that quietly discarded its ungrounded half
+  would look like a flawless reading.
+
+  **The brief is kept verbatim and never rewritten.** Control characters go and the length is capped;
+  spelling, capitalisation, paragraphs and sentence shape are untouched. A tidied-up version is
+  somebody else's words, and the file exists precisely so every derived card can be checked against
+  what you actually wrote. The quote travels *onto* each card, so provenance survives on the board.
+
+  **A brief too thin to derive from is refused, never expanded.** Under twelve words it says which two
+  facts are missing rather than "too short", because asking a model to make a project out of "an app"
+  produces a fabricated project with no author.
+
+  **Three acts, not one.** Writing the brief, reading it into cards, and raising roadmap items are
+  three separate confirmations — each writes to a different committed file, and one button doing all
+  three would put a model's reading of one paragraph into three places nobody reviewed. The
+  confirmation lists **every proposed card**, marking which are questions and which quote you.
+
+  **No edges are drawn.** An edge asserts that one card supports or contradicts another — a claim
+  about the project your brief did not make. Inferring the reasoning as well as the content is a step
+  too far.
+
+  Cards are written through the board's existing seeder rather than a second writer, and from there
+  the existing **Raise as work** door puts them on the roadmap. Nothing in the new module writes a
+  file at all.
+
+## [0.468.0] - 2026-09-09
+
+### Added
+
+- **Baselines you can name, so "what changed" can be asked about more than one moment.** The
+  *What moved* card answers one question carefully — five rules about the ways a delta can lie — but it
+  held exactly one baseline, advanced on every render. The only span available was the one nobody
+  chose. *What has changed since the release? Since this branch started? Since the audit?* could not
+  be asked at all.
+
+  Capture a baseline on the Workflow page, name it, and compare against it whenever you like.
+
+  **The comparison is the existing one, unchanged.** A second implementation would eventually disagree
+  with the first, and the symptom would be two cards on one dashboard reporting different numbers for
+  the same fortnight. Every rule already enforced — no baseline is a first look, unknown to known is
+  not zero to n, a changed repository discards the comparison — holds here by construction.
+
+  **A named baseline is captured deliberately, never on a render.** The "last looked" watermark
+  advances by itself because it *means* last looked; a named one means the moment somebody chose, and
+  moving it silently would erase the span it was created to measure. Nothing in the module writes on
+  read, asserted by comparing the register before and after every read path.
+
+  **The age is always stated.** Eleven changes against a six-week-old baseline is six weeks of work,
+  and rendered without its age it looks like this morning. The sentence carrying the span is composed
+  in the module so no surface can show the changes without it, and a baseline over a month old says so
+  in its own line.
+
+  **Past the cap a capture is refused and names what to remove — the oldest is never evicted.**
+  Evicting by age deletes precisely the most valuable one, since the furthest-back baseline is the only
+  one that can answer a question about the whole project. **Nothing expires, nothing is cleaned up**,
+  and removing one is confirmed in a dialog that says the reading cannot be recovered from anywhere
+  else.
+
+  **A baseline that no longer applies is kept and reported, never removed.** Opening a different
+  repository does not make somebody's baseline wrong — it makes it inapplicable *here*, and it says
+  which, rather than reporting no changes, because "nothing moved" would be a different and more
+  reassuring claim.
+
+  Baselines are per-developer, in editor storage, for the same reason the watermark is: they hold
+  counts read from one machine at one moment, and a shared one would mean "when did *anybody* last
+  look".
+
+### Fixed
+
+- Removed an `eslint-disable` directive in `rotaImport.ts` that reported as unused — the escapes it
+  covered are Unicode escapes, which the rule does not flag.
+
+## [0.467.0] - 2026-09-09
+
+### Added
+
+- **Import declared absence from the rota app the team already uses.** The workload reading refuses to
+  infer absence, which leaves it to be typed by hand — the step nobody does, and the point at which
+  the reading quietly stops being accurate. The rota already exists somewhere else.
+
+  Every one of those tools exports the same thing, so this reads **iCalendar** rather than a vendor
+  API: one published format (RFC 5545, pinned at `ICALENDAR_SPEC_VERIFIED_AT`) instead of a stack of
+  integrations that each break on their own schedule. Deputy, When I Work and Google Calendar are
+  listed with the export step read from each vendor's own documentation, and anything else that writes
+  an `.ics` works whether or not it is named.
+
+  **A rota says when you are *working*, which is the opposite of an absence** — the rule the whole
+  feature turns on, and getting it wrong is not a small error. Importing a shift feed wholesale would
+  mark somebody away on exactly the days they are rostered on, and the workload card would then show a
+  full week as free. So only events naming a declared absence term are imported, and **everything else
+  is counted and reported** rather than silently dropped: "12 events, 2 imported, 10 left alone because
+  they do not name an absence" is arguable, and "2 imported" is not. A file that is entirely shifts is
+  **refused**, with that reason.
+
+  **`DTEND` is non-inclusive for a `DATE` value**, which RFC 5545 states and illustrates — 28 June to
+  8 July inclusive is written `DTEND;VALUE=DATE:20070709`. A reader taking it literally adds a phantom
+  day to every absence, and the error is invisible: one day long, in the right week, on a record nobody
+  re-reads.
+
+  **A date that cannot be read without guessing a timezone is refused, never converted.** `20260231`
+  matches the shape and is not a day; rolling it into March would move an absence to a week nobody
+  named. A UTC time is read at its UTC date and the conversion is stated.
+
+  **The person is chosen before the file is opened, and never matched out of it.** Feeds carry
+  attendee addresses, and matching one to a roster contact would attach a colleague's calendar to the
+  wrong person — a mistake that reads as a fact afterwards.
+
+  **Nothing is fetched, and there is no field that could hold a feed URL.** Google's own documentation
+  calls a calendar's iCal address a *secret* and says not to share it: anyone holding one can read the
+  whole calendar. `project-director.json` is committed, so the person downloads the file and picks it.
+
+  The confirmation lists **the entries themselves**, not a count, and importing is additive: absence
+  somebody typed by hand is kept, and re-importing an amended calendar updates in place rather than
+  duplicating.
+
+  New command: **AtlasMind: Import Rota from a Calendar File** (`atlasmind.importRota`), also on the
+  Workload card.
+
+## [0.466.0] - 2026-09-09
+
+### Added
+
+- **What each person has been asked to do, against what they said they could.** The Director page
+  knew who owned what. The roadmap knew what each item was estimated to cost. Nothing joined the two,
+  so the question every delivery conversation actually opens with — *is anyone carrying too much?* —
+  had no answer, and the two halves sat one page apart.
+
+  The new **Workload** card on Dashboard → Director joins them, with a rule that is not about
+  arithmetic: **this is not a performance measure and must never become one.** It counts work somebody
+  has been *given* against capacity they *declared*. It says nothing about how fast anybody works, and
+  the sentence saying so is rendered above the numbers rather than under them.
+
+  **Capacity is declared, never inferred.** There is deliberately no derivation from commit counts or
+  hours of activity — that is surveillance wearing planning's clothes, and it would be wrong as well,
+  since somebody quiet for a fortnight may be doing the hardest thing on the board. Six declared rules
+  read an allocation (`50%`, `0.5 FTE`, `2 days/wk`, `15 hours per week`, `full time`, `half time`),
+  the table is published on the card, and **anything unrecognised stays unknown** rather than falling
+  back to a full week — the one direction that costs somebody their week. `150%` is somebody making a
+  point, not seven and a half days.
+
+  **Unknown capacity is not full capacity.** A person with no declared allocation is excluded from the
+  over/under verdict and counted separately, and the summary says so — a clean-looking reading that
+  quietly rests on half the team having declared nothing is the failure mode here.
+
+  **An estimate absent is not an estimate of zero.** Unestimated work is counted as unestimated and
+  never folded into the total; below a declared floor of estimated work the verdict is *too little
+  estimated* rather than a number, because one estimated day beside six unknowns is not "comfortably
+  within capacity". And because the roadmap grades unestimated items from a published rule, **a
+  derived estimate is counted but stated as derived** — a rule's reading is not a commitment somebody
+  made. Unstated provenance counts as derived, the weaker claim.
+
+  **Absence is declared, and its absence means nothing was recorded.** Rota entries live in
+  `project-director.json` and are mirrored into `project-director.md`. The asymmetry with capacity is
+  deliberate: nobody writes down "I am not away", so an empty rota means *none recorded* rather than
+  *available all week* — and the card says exactly that instead of showing a reassuring blank. An
+  unreadable or inverted period is refused rather than repaired, since an entry silently moved to a
+  week nobody named would remove capacity on the wrong days.
+
+  **A window is always stated** — fourteen days, on the card — because "overloaded" is meaningless
+  without "over what period". **And overload is reported, never resolved:** nothing here reassigns
+  anybody, and there is no control that could. Who picks up work somebody cannot take is a
+  conversation, not a button.
+
+  Items assigned to nobody are counted and **never distributed across the team**, which would invent
+  commitments nobody made.
+
+### Changed
+
+- `ProjectDirectorConfig` gains an optional `rota` array. Optional on purpose: a document written
+  before this existed still validates, and an absent array genuinely means nothing was recorded.
+
+## [0.465.0] - 2026-09-09
+
+### Added
+
+- **Golden cases for agents, and a gate on the rewrite that would break them.** AtlasMind can rewrite
+  an agent's system prompt on a cadence — daily, weekly or monthly — and register the result. That is a
+  prompt edit, deployed automatically, with **no equivalent of a failing build**, which is exactly the
+  failure this project's own Prompt Regression protocol describes: *a wording change that fixes one
+  case and breaks nine is invisible without a replay set.* The cadence was the risk. This is the replay
+  set.
+
+  Pin cases in `project_memory/agents/eval-cases.json` — a prompt, at least one check, and **the reason
+  the case exists**. All three are required: a case with no checks passes trivially and adds a green
+  tick that means nothing, and a case with no stated reason is deleted by the next person tidying the
+  file, taking the regression it was quietly catching with it.
+
+  **A case is graded by a declared check wherever possible.** Did it mention the thing, did it avoid
+  the thing, did it match, did it refuse — all decided by reading the text. A judge check exists for
+  what genuinely cannot be, and every result says whether one was involved, because "it did the thing"
+  and "a judge liked it" are different findings. A judge check with **no verdict fails rather than
+  passes**: a suite must not go green by not asking.
+
+  **An errored case is not a failed case.** A provider outage is not a quality regression, and counting
+  one as the other would block every rewrite during a bad afternoon — after which nobody believes the
+  gate. Errored cases are set aside and named.
+
+  **A regression is a case that passed and now fails**, never a score that moved. **No baseline is a
+  first run, not a pass** — reporting "no regressions" on the first run is a confident zero delivered
+  at the exact moment somebody decides whether to trust it. And **an unrun case is not a passing case**:
+  coverage travels with every verdict, so "eight of twelve ran" cannot read as twelve.
+
+- **The auto-updater now holds a rewrite that regresses.** The gate runs *before* the new definition is
+  registered, and replays against the **candidate** prompt rather than the live one — running the agent
+  as currently registered would answer a different question and always pass.
+
+  **An update that could not be verified is held, not shipped.** The cadence is unattended, and "we did
+  not check" resolving to "ship it" is how an unattended rewrite becomes an unattended regression. A
+  verifier that throws counts as unverified for the same reason. An agent with **no declared cases** is
+  not held — freezing every agent on day one is how a gate gets switched off — but the decision says
+  plainly that nothing verified it. Why a rewrite was held is kept, because an update that silently
+  stops happening is indistinguishable from one that never came due.
+
+- **AtlasMind: Replay Agent Golden Cases** runs the suite on request and shows the verdict — what
+  regressed, what now passes, what errored and was set aside, and what did not run. Recording it as the
+  new baseline is a separate confirmation, because a baseline is what every later regression is
+  measured against and overwriting one is how a real regression becomes the new normal.
+
+## [0.464.1] - 2026-09-09
+
+### Changed
+
+- **Recorded the promotion of 0.464.0 to the Integration stage.** The delivery register still named
+  0.461.0 as the last promotion, which would have had the Delivery page reporting a stage three
+  releases behind where it actually is. The record is the whole reason that page is worth reading, so
+  a stale one is a defect rather than untidiness.
+
 ## [0.464.0] - 2026-09-09
 
 ### Added

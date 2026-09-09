@@ -4247,9 +4247,17 @@ describe('project dashboard render invariants', () => {
 describe('ideation panel render invariants', () => {
   const ideationJs = readFileSync(fileURLToPath(new URL('../../media/projectIdeation.js', import.meta.url)), 'utf-8');
 
-  it('gives the hero stat cards tone status dots', () => {
-    expect(ideationJs).toContain('function renderStat(label, value, detail, tone)');
-    expect(ideationJs).toContain("'<span class=\"pill-dot tone-' + escapeAttr(tone) + '\"></span>'");
+  it('has no stat strip, and puts the board-level controls in a header instead', () => {
+    // Active cards / Runs / Queued media were three permanently populated
+    // tiles above the canvas, none of them a decision — the pattern the
+    // dashboard's Overview removed for the same reason. What the top of the
+    // page needs is which board you are on and where its files are.
+    expect(ideationJs).not.toContain('function renderStat(');
+    expect(ideationJs).not.toContain('ideation-stat-strip');
+    const header = ideationJs.slice(ideationJs.indexOf('function renderHeader('), ideationJs.indexOf('function renderRail('));
+    expect(header).toContain('id="ideationWorkspaceSelect"');
+    expect(header).toContain('data-action="ideation-create-workspace"');
+    expect(header).toContain('data-action="ideation-toggle-canvas-focus"');
   });
 });
 

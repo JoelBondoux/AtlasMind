@@ -2900,6 +2900,17 @@ async function bootstrapAtlasMind(
 
     // Wire the agent auto-updater. Refreshes user-defined agent definitions on a
     // configurable cadence before each use, keeping prompts modern and legally compliant.
+    // Built before the updater so the seam is filled at construction: a
+    // verifier attached afterwards would leave a window in which rewrites ship
+    // unchecked, which is exactly the state the gate exists to remove.
+    const { createAgentUpdateVerifier } = await import('./views/agentEvalRunner.js');
+    const agentEvalVerifier = createAgentUpdateVerifier({
+      agents: runtime.agentRegistry,
+      router: runtime.modelRouter,
+      providers: runtime.providerRegistry,
+      profiler: runtime.taskProfiler,
+      workspaceRoot: () => vscode.workspace.workspaceFolders?.[0]?.uri.fsPath,
+    });
     const agentAutoUpdater = new startupModules.AgentAutoUpdater(
       runtime.agentRegistry,
       runtime.modelRouter,
@@ -2914,6 +2925,11 @@ async function bootstrapAtlasMind(
         }
       },
       () => vscode.workspace.getConfiguration('atlasmind').get<string>('agentAutoUpdateCadence', 'never') as import('./types.js').AgentAutoUpdateCadence,
+      // The gate on an unattended rewrite. An agent with golden cases has its
+      // candidate prompt replayed against them before it is registered, and a
+      // rewrite that could not be checked is held rather than shipped — the
+      // cadence runs while nobody is watching, which is the whole risk.
+      agentEvalVerifier,
     );
     orchestrator.setAgentAutoUpdater(agentAutoUpdater);
 

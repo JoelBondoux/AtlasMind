@@ -3172,6 +3172,39 @@ export interface TeamMember {
 }
 
 /**
+ * A period somebody is away or on reduced hours.
+ *
+ * **Declared, never derived.** AtlasMind reads no calendar and infers nothing
+ * from quiet days: the rule that capacity is declared rather than observed
+ * applies with more force to whether somebody is on holiday.
+ *
+ * The asymmetry with `TeamMember.allocation` is deliberate and load-bearing.
+ * Nobody writes down "I am not away", so **no entry means nothing was
+ * recorded**, not "available all week" — while an absent *allocation* must
+ * never read as a full week. Silence means the opposite thing on each side, and
+ * both readings err away from handing somebody work they cannot take.
+ *
+ * Graded and joined by `teamWorkload.ts`.
+ */
+export interface RotaEntry {
+  id: string;
+  contactId: string;
+  /** Inclusive ISO calendar date, `YYYY-MM-DD`. */
+  from: string;
+  /** Inclusive ISO calendar date, `YYYY-MM-DD`. */
+  to: string;
+  /**
+   * `away` removes the days from the window; `reduced` is recorded and shown
+   * but deliberately does not alter the total, because "half days that week" is
+   * not a figure anybody stated precisely enough to subtract.
+   */
+  kind: 'away' | 'reduced';
+  /** For `reduced`, the days per week still available. Ignored for `away`. */
+  reducedDaysPerWeek?: number;
+  note?: string;
+}
+
+/**
  * An area of ownership. `ownerContactId` is the single accountable owner;
  * `backupContactId` names a fallback. A full RACI matrix is deferred.
  */
@@ -3367,6 +3400,14 @@ export interface ProjectDirectorConfig {
   contacts: DirectorContact[];
   stakeholders: Stakeholder[];
   teamMembers: TeamMember[];
+  /**
+   * Declared absence, for the team workload reading.
+   *
+   * Optional so a document written before this existed still validates — and
+   * because an absent array genuinely means "nothing recorded", which is what
+   * the reading treats it as.
+   */
+  rota?: RotaEntry[];
   responsibilities: Responsibility[];
   /**
    * Edited or custom workflow roles, merged over the built-ins on read.

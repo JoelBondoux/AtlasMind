@@ -1734,6 +1734,40 @@ export function registerCommands(
     // One press: gather, narrow, prepare and publish. Every refusal and the
     // single confirmation live in `portalPublishPlan`, so the words somebody
     // agrees to are the words the module composed.
+    // Replay an agent's golden cases on request. The same cases gate the
+    // unattended rewrite; this is how somebody sees the result and decides
+    // whether to accept it as the new baseline.
+    vscode.commands.registerCommand('atlasmind.runAgentEvals', async () => {
+      const atlas = requireAtlas();
+      if (!atlas) { return; }
+      const { runAgentEvalSuite } = await import('./views/agentEvalRunner.js');
+      await runAgentEvalSuite({
+        agents: atlas.agentRegistry,
+        router: atlas.modelRouter,
+        providers: atlas.providerRegistry,
+        workspaceRoot: () => vscode.workspace.workspaceFolders?.[0]?.uri.fsPath,
+      });
+    }),
+
+    // Read declared absence out of a calendar the team's rota app exported.
+    // Nothing is fetched: a calendar feed URL is a credential, so the person
+    // downloads the file and picks it here.
+    vscode.commands.registerCommand('atlasmind.importRota', async () => {
+      const root = vscode.workspace.workspaceFolders?.[0]?.uri.fsPath;
+      if (!root) {
+        void vscode.window.showWarningMessage('Open a workspace folder before importing a rota.');
+        return;
+      }
+      const [{ importRotaFromCalendar }, director] = await Promise.all([
+        import('./views/rotaImportCommand.js'),
+        import('./core/projectDirectorManager.js'),
+      ]);
+      await importRotaFromCalendar({
+        config: () => director.readProjectDirectorConfig(root),
+        save: async config => { await director.writeProjectDirectorConfig(root, config); },
+      });
+    }),
+
     vscode.commands.registerCommand('atlasmind.buildAndPublishPortal', async () => {
       const { buildAndPublishPortal } = await import('./views/portalPublishCommand.js');
       await buildAndPublishPortal();

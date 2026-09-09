@@ -736,6 +736,12 @@
     directorNewAssignment: false,
     directorSeedConfirm: false,
     directorComposeKey: '',
+    // The named-baseline capture form on the Workflow page.
+    baselineCaptureOpen: false,
+    // Team workload editors: the absence form, and which person's declared
+    // allocation is open for editing.
+    workloadAbsenceOpen: false,
+    workloadEditAllocationId: '',
     // Consumed only after the exact record is present in a completed render.
     // Keeping it while data is loading lets an issue/PR deep link focus after
     // the next host snapshot instead of silently giving up.
@@ -3297,6 +3303,83 @@
       if (parts.length === 2) { vscode.postMessage({ type: 'openContactDeepLink', payload: { contactId: parts[0], linkId: parts[1] } }); }
       return;
     }
+    if (action === 'workload-allocation-edit') { state.workloadEditAllocationId = payload; render(); return; }
+    if (action === 'workload-allocation-cancel') { state.workloadEditAllocationId = ''; render(); return; }
+    if (action === 'workload-allocation-save') {
+      // Matched by reading the attribute rather than by building a selector
+      // out of a contact id: only one editor is ever open, and an id with a
+      // quote in it would make the selector mean something else.
+      const container = Array.prototype.find.call(
+        document.querySelectorAll('[data-workload-allocation]'),
+        el => el.getAttribute('data-workload-allocation') === payload,
+      );
+      if (!container) { return; }
+      const field = container.querySelector('[data-field="allocation"]');
+      const cfg = cloneDirectorConfig();
+      const member = cfg.teamMembers.find(m => m.contactId === payload);
+      if (!member) { state.workloadEditAllocationId = ''; render(); return; }
+      const raw = field ? field.value.trim() : '';
+      // An emptied field clears the allocation rather than storing '', so the
+      // reading goes back to "nobody has declared this" instead of to a value
+      // that parses as nothing.
+      if (raw) { member.allocation = raw; } else { delete member.allocation; }
+      state.workloadEditAllocationId = '';
+      postDirectorConfig(cfg);
+      return;
+    }
+    if (action === 'workload-absence-add') { state.workloadAbsenceOpen = !state.workloadAbsenceOpen; render(); return; }
+    if (action === 'workload-absence-cancel') { state.workloadAbsenceOpen = false; render(); return; }
+    if (action === 'workload-absence-save') {
+      const container = document.getElementById('workload-absence-form');
+      if (!container) { return; }
+      const val = f => { const el = container.querySelector('[data-field="' + f + '"]'); return el ? el.value.trim() : ''; };
+      const contactId = val('contactId');
+      const from = val('from');
+      const to = val('to');
+      // Refused rather than repaired. The host sanitizer drops an unreadable or
+      // inverted period, and saving one here would look like it worked.
+      if (!contactId || !from || !to || to < from) { return; }
+      const cfg = cloneDirectorConfig();
+      if (!Array.isArray(cfg.rota)) { cfg.rota = []; }
+      let id = 'rota-' + slugClient(contactId + '-' + from);
+      let unique = id;
+      let n = 1;
+      while (cfg.rota.some(entry => entry.id === unique)) { unique = id + '-' + (n++); }
+      const entry = { id: unique, contactId: contactId, from: from, to: to, kind: val('kind') || 'away' };
+      const note = val('note');
+      if (note) { entry.note = note; }
+      cfg.rota.push(entry);
+      state.workloadAbsenceOpen = false;
+      postDirectorConfig(cfg);
+      return;
+    }
+    if (action === 'workload-absence-remove') {
+      const cfg = cloneDirectorConfig();
+      cfg.rota = (Array.isArray(cfg.rota) ? cfg.rota : []).filter(entry => entry.id !== payload);
+      postDirectorConfig(cfg);
+      return;
+    }
+    if (action === 'baseline-capture-open') { state.baselineCaptureOpen = !state.baselineCaptureOpen; render(); return; }
+    if (action === 'baseline-capture') {
+      const form = document.getElementById('baseline-capture-form');
+      if (!form) { return; }
+      const val = f => { const el = form.querySelector('[data-field="' + f + '"]'); return el ? el.value.trim() : ''; };
+      const label = val('label');
+      // Refused here as well as in the host: the register names a baseline
+      // rather than inventing one, and posting an empty label would only
+      // produce a warning the person could have been spared.
+      if (!label) { return; }
+      const reason = val('reason');
+      state.baselineCaptureOpen = false;
+      vscode.postMessage({ type: 'captureBaseline', payload: reason ? { label: label, reason: reason } : { label: label } });
+      return;
+    }
+    if (action === 'baseline-remove') {
+      // An opaque id and nothing else. The host re-reads the register and
+      // confirms, naming the span that is about to be lost.
+      vscode.postMessage({ type: 'removeBaseline', payload: payload });
+      return;
+    }
     if (action === 'director-contact-add') { state.directorEditContactId = 'new'; state.directorConfirmRemoveContactId = ''; render(); return; }
     if (action === 'director-contact-edit') { state.directorEditContactId = payload; state.directorConfirmRemoveContactId = ''; render(); return; }
     if (action === 'director-contact-cancel') { state.directorEditContactId = ''; render(); return; }
@@ -3537,6 +3620,17 @@
       state.rollbackText = target.value;
       return;
     }
+  });
+
+  root?.addEventListener('change', event => {
+    const target = event.target instanceof HTMLSelectElement ? event.target : null;
+    if (!target || !target.classList.contains('baseline-select')) {
+      return;
+    }
+    // The id is opaque and resolved host-side against the stored register, so
+    // an empty or unknown value selects nothing rather than leaving a dangling
+    // choice on the page.
+    vscode.postMessage({ type: 'selectBaseline', payload: target.value });
   });
 
   root?.addEventListener('change', event => {
@@ -12650,6 +12744,71 @@
             : `<p class="stat-detail">The comparison covers open issues, stale issues, CI, the version, protected branches, dependency updates, test evidence and eleven other readings. Your own branch and whether your tree is dirty are deliberately excluded — you already know what you just did.</p>`}
       </article>`;
 
+    // Baselines somebody named — the same comparison, asked about a moment they
+    // chose rather than the one that advances by itself. Rendered under the
+    // delta because it answers the same question over a different span, and a
+    // second card elsewhere would invite the two to disagree.
+    const baselines = wf.baselines || { entries: [], remaining: 0, rules: [] };
+    const STALENESS_TAG = { fresh: 'tag-good', recent: '', old: 'tag-warn' };
+    const baselineOptions = baselines.entries.map(entry => `
+      <option value="${escapeAttr(entry.id)}" ${entry.id === baselines.selectedId ? 'selected' : ''}>${escapeHtml(entry.label)} (${escapeHtml(String(entry.ageDays))}d)</option>`).join('');
+    const baselineHelp = renderWorkflowHelp('workflow.baselines', {
+      label: 'how baselines behave',
+      why: 'A delta is only as honest as the moment it is measured from. These rules are about not losing that moment, and not letting an old one pass for a recent one.',
+      how: (baselines.rules || []).map(rule => ({ text: rule.describes })),
+      commonMistakes: [
+        'Reading a comparison without its age. Eleven changes over six weeks is not eleven changes today, which is why the span is always printed with them.',
+        'Expecting a baseline to be captured for you. Nothing captures one automatically — a baseline that moved on its own would erase the span it was made to measure.',
+      ],
+    });
+    const chosen = baselines.comparison;
+    const chosenEntry = baselines.entries.find(entry => entry.id === baselines.selectedId);
+    const baselineCard = `
+      <article class="panel-card">
+        <div class="row-head">
+          <p class="card-kicker">Compare against a baseline</p>
+          <button type="button" class="action-link" data-action="baseline-capture-open" data-payload="">${state.baselineCaptureOpen ? 'Close' : 'Capture one now'}</button>
+        </div>
+        <p class="stat-detail">The card above always answers <em>since you last looked</em>. A named baseline answers the same question about a moment you chose — the release, the start of a branch, before a migration.</p>
+        ${state.baselineCaptureOpen ? `
+          <div class="stage-edit-grid" id="baseline-capture-form">
+            ${edText('Name it', 'label', '', 'Before the migration')}
+            ${edText('Why (optional)', 'reason', '', 'So we can see what the rewrite actually moved')}
+          </div>
+          <div class="tag-row">
+            <button type="button" class="action-link primary" data-action="baseline-capture" data-payload="">Capture</button>
+            <span class="list-meta">${escapeHtml(String(baselines.remaining))} more can be stored. Nothing is ever deleted to make room.</span>
+          </div>` : ''}
+        ${baselines.entries.length ? `
+          <div class="row-head">
+            <label class="stage-edit-field" style="flex:1">
+              <span>Baseline</span>
+              <select class="baseline-select">
+                <option value="" ${baselines.selectedId ? '' : 'selected'}>None chosen</option>
+                ${baselineOptions}
+              </select>
+            </label>
+            ${chosenEntry ? `<button type="button" class="action-link danger" data-action="baseline-remove" data-payload="${escapeAttr(chosenEntry.id)}">Remove</button>` : ''}
+          </div>
+          ${chosenEntry && chosenEntry.reason ? `<p class="stat-detail">${escapeHtml(chosenEntry.reason)}</p>` : ''}
+          ${chosen ? `
+            <p class="section-copy"><strong>${escapeHtml(chosen.span)}</strong></p>
+            ${chosen.staleness === 'old' ? '<p class="stat-detail">This baseline is over a month old, so what follows describes a long span rather than recent activity.</p>' : ''}
+            ${chosen.status === 'changed' ? `<div class="stack-list">${chosen.changes.map(change => `
+              <div class="row-head">
+                <span>
+                  <strong>${escapeHtml(change.label)}</strong>
+                  <span class="section-copy">${escapeHtml(change.summary)}</span>
+                </span>
+                <span class="tag ${DELTA_TAG[change.kind] || ''}">${escapeHtml(DELTA_WORD[change.kind] || change.kind)}</span>
+              </div>`).join('')}</div>` : ''}
+            ${chosen.droppedByCap > 0 ? `<p class="stat-detail">${escapeHtml(String(chosen.droppedByCap))} more moved than are listed.</p>` : ''}` : ''}
+          <div class="tag-row">${baselines.entries.map(entry => `<span class="tag ${escapeAttr(STALENESS_TAG[entry.staleness] || '')}">${escapeHtml(entry.label)}</span>`).join(' ')}</div>`
+        : '<div class="dashboard-empty">No baselines yet. Capture one at a moment worth comparing against — nothing is captured automatically, because a baseline that moved on its own would erase the span it was made to measure.</div>'}
+        ${baselineHelp.button}
+        ${baselineHelp.panel}
+      </article>`;
+
     // The gates, as controls rather than a read-out. Turning one *off* is
     // immediate — more restrictive is always safe, and a dialog in front of
     // somebody reaching for the brake teaches them to dismiss dialogs. Turning
@@ -12918,6 +13077,7 @@
       ${strip}
       <div class="panel-grid">
         ${deltaCard}
+      ${baselineCard}
         ${healthCard}
         ${configCard}
         ${auditCard}
@@ -18009,6 +18169,143 @@
       </article>`;
   }
 
+  // ── Team workload ──────────────────────────────────────────────────────
+  // What each person has been asked to do, against what they said they could.
+  // The Director page knew who owned what and the roadmap knew what things were
+  // estimated to cost; nothing joined the two.
+
+  const WORKLOAD_VERDICT = {
+    over: { label: 'Over capacity', tone: 'tag-critical' },
+    within: { label: 'Within capacity', tone: 'tag-good' },
+    'unknown-capacity': { label: 'Capacity unknown', tone: 'tag-warn' },
+    'unestimated-work': { label: 'Too little estimated', tone: 'tag-warn' },
+    'no-work': { label: 'Nothing assigned', tone: 'tag-muted' },
+  };
+
+  /**
+   * The workload card.
+   *
+   * The caveat leads rather than trails. A per-person board of days is one
+   * reading away from being used as a productivity measure, and the sentence
+   * saying it is not belongs where somebody sees it before the numbers rather
+   * than in a footnote under them.
+   *
+   * Nothing here offers to move work. Overload is reported; who picks it up
+   * instead is a conversation, and a button that reassigned somebody's week
+   * would be making a commitment on their behalf.
+   */
+  function renderTeamWorkload(snapshot) {
+    const w = snapshot.teamWorkload;
+    const cfg = (snapshot.director && snapshot.director.config) || null;
+    if (!w) { return ''; }
+
+    const nameOf = (contactId) => {
+      const contact = cfg && cfg.contacts.find(c => c.id === contactId);
+      return contact ? contact.name : contactId;
+    };
+
+    const rows = w.members.map(member => {
+      const verdict = WORKLOAD_VERDICT[member.verdict] || { label: member.verdict, tone: '' };
+      const editing = state.workloadEditAllocationId === member.contactId;
+      const capacityText = member.capacity.daysPerWeek === undefined
+        ? (member.capacity.raw
+          ? 'Could not read "' + escapeHtml(member.capacity.raw) + '"'
+          : 'No allocation recorded')
+        : escapeHtml(String(member.capacity.daysPerWeek)) + ' days/wk declared';
+      return `
+        <div class="recent-item">
+          <div class="row-head">
+            <strong>${escapeHtml(member.name)}</strong>
+            <span>
+              <span class="tag ${escapeAttr(verdict.tone)}">${escapeHtml(verdict.label)}</span>
+              ${member.absentDays > 0 ? '<span class="tag">' + escapeHtml(String(member.absentDays)) + ' day(s) away</span>' : ''}
+            </span>
+          </div>
+          <div class="list-meta">${capacityText}${member.availableDays === undefined ? '' : ' · ' + escapeHtml(String(member.availableDays)) + ' day(s) available in this window'} · ${escapeHtml(String(member.assignedItems))} item(s) assigned</div>
+          <div class="list-meta">${escapeHtml(member.detail)}</div>
+          ${editing ? `
+            <div class="stage-edit-grid" data-workload-allocation="${escapeAttr(member.contactId)}">
+              ${edText('Allocation', 'allocation', member.capacity.raw, '50%, 2 days/wk, 0.5 FTE')}
+            </div>
+            <p class="stat-detail">Written down, never worked out from how much somebody commits. Anything unrecognised stays unknown rather than being read as a full week.</p>
+            <div class="tag-row">
+              <button type="button" class="action-link primary" data-action="workload-allocation-save" data-payload="${escapeAttr(member.contactId)}">Save</button>
+              <button type="button" class="action-link" data-action="workload-allocation-cancel" data-payload="">Cancel</button>
+            </div>` : `
+            <div class="tag-row">
+              <button type="button" class="action-link" data-action="workload-allocation-edit" data-payload="${escapeAttr(member.contactId)}">Set allocation</button>
+            </div>`}
+        </div>`;
+    }).join('');
+
+    const rota = (cfg && Array.isArray(cfg.rota)) ? cfg.rota : [];
+    const rotaRows = rota.length
+      ? rota.map(entry => `
+        <div class="recent-item">
+          <div class="row-head">
+            <strong>${escapeHtml(nameOf(entry.contactId))}</strong>
+            <span class="tag">${escapeHtml(entry.kind)}</span>
+          </div>
+          <div class="list-meta">${escapeHtml(entry.from)} to ${escapeHtml(entry.to)}${entry.note ? ' · ' + escapeHtml(entry.note) : ''}</div>
+          <div class="tag-row">
+            <button type="button" class="action-link danger" data-action="workload-absence-remove" data-payload="${escapeAttr(entry.id)}">Remove</button>
+          </div>
+        </div>`).join('')
+      : '<div class="dashboard-empty">Nothing recorded. That means no absence was entered, not that everybody is available.</div>';
+
+    const contactOptions = (cfg ? cfg.teamMembers : []).map(member => ({
+      value: member.contactId,
+      label: nameOf(member.contactId),
+    }));
+    const absenceForm = (state.workloadAbsenceOpen && contactOptions.length) ? `
+      <div class="stage-edit-grid" id="workload-absence-form">
+        ${edSelect('Who', 'contactId', contactOptions[0].value, contactOptions)}
+        ${edSelect('Kind', 'kind', 'away', [
+        { value: 'away', label: 'Away' },
+        { value: 'reduced', label: 'Reduced hours' },
+      ])}
+        ${edText('From', 'from', directorTodayKey(), 'YYYY-MM-DD')}
+        ${edText('To', 'to', directorTodayKey(), 'YYYY-MM-DD')}
+        ${edText('Note', 'note', '', 'Optional')}
+      </div>
+      <div class="tag-row">
+        <button type="button" class="action-link primary" data-action="workload-absence-save" data-payload="">Record</button>
+        <button type="button" class="action-link" data-action="workload-absence-cancel" data-payload="">Cancel</button>
+      </div>` : '';
+
+    return `
+      <article class="panel-card" style="grid-column: 1 / -1">
+        <div class="row-head">
+          <p class="card-kicker">Workload</p>
+          <span class="list-meta">Next ${escapeHtml(String(w.windowDays))} days</span>
+        </div>
+        <p class="section-copy"><strong>${escapeHtml(w.caveat)}</strong></p>
+        <p class="section-copy">${escapeHtml(w.summary)}</p>
+        <div class="stack-list">${w.members.length
+        ? rows
+        : '<div class="dashboard-empty">Nobody is on the delivery team yet. Add a teammate above to read a workload.</div>'}</div>
+        ${w.unassignedItems > 0
+        ? '<p class="stat-detail">' + escapeHtml(String(w.unassignedItems)) + ' roadmap item(s) are assigned to nobody. They are counted here and never spread across the team.</p>'
+        : ''}
+        <div class="row-head" style="margin-top:12px">
+          <p class="card-kicker">Declared absence</p>
+          <span>
+            <button type="button" class="action-link" data-action="workload-absence-add" data-payload="">${state.workloadAbsenceOpen ? 'Close the form' : 'Record absence'}</button>
+            <button type="button" class="action-link" data-action="command" data-payload="atlasmind.importRota">Import from a calendar</button>
+          </span>
+        </div>
+        <p class="stat-detail">Deputy, When I Work, Google Calendar and anything else that exports an <code>.ics</code> file. Only events naming an absence are imported — a rota feed is mostly the shifts somebody is working, and recording those as time off would mark them away on exactly the days they are rostered on. Download the file yourself: a calendar feed URL is a password, and this never asks for one.</p>
+        ${absenceForm}
+        <div class="stack-list">${rotaRows}</div>
+        <details class="policy-rule-table">
+          <summary>How an allocation is read</summary>
+          <ul>${(w.capacityRules || []).map(rule => '<li><code>' + escapeHtml(rule.id) + '</code> — ' + escapeHtml(rule.describes) + '</li>').join('')}</ul>
+          <p class="stat-detail">Anything else stays unknown. A parser that fell back to a full week would be wrong in the one direction that costs somebody their week.</p>
+        </details>
+        <p class="stat-detail">Nothing here reassigns anybody. Who picks up work somebody cannot take is a conversation, not a button.</p>
+      </article>`;
+  }
+
   function renderDirector(snapshot) {
     const d = snapshot.director;
     const wrap = (inner) => pageSectionOpen('director') + inner + '</section>';
@@ -18142,6 +18439,9 @@
         </div>` : ''}
       <div class="review-grid">
         ${rosterCard}
+      </div>
+      <div class="review-grid">
+        ${renderTeamWorkload(snapshot)}
       </div>
       ${renderPortalAudience(snapshot)}
       <div class="review-grid">
