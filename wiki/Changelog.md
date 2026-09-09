@@ -19,6 +19,115 @@ Older entries below describe the software as it was at the time and are delibera
 
 ---
 
+## v0.464.0 -- One button
+
+Building and publishing the portal was three commands and a walkthrough. Every step existed for a
+reason, and none of them is interesting to somebody who just wants the status page updated. One button
+now does the lot.
+
+Because nobody reads six dialogs and everybody reads one, that single confirmation carries the whole
+disclosure: what goes out, what is withheld, **who will be able to read it**, exactly which commands
+will run, and which step cannot be undone.
+
+**It refuses rather than warns when the audience and the host disagree.** Name five viewers on a host
+that cannot enforce a list, and one press would publish to the open internet a page you believe is
+restricted. A warning on a one-press button is a thing you click past. The refusal names the two fixes:
+move to a host that can restrict, or clear the audience so the page is knowingly public.
+
+**Unconfirmed access is not restricted access.** If a risk register or a spend figure would go out
+behind a policy nobody has confirmed exists, that is refused too. AtlasMind cannot see a Cloudflare
+Access policy, and assuming one is there is precisely how this button would publish the wrong thing.
+
+**On a host AtlasMind has no command for it stops with the page prepared** and leaves publishing to
+you -- the second action. Every deploy command is a constant with its arguments passed as an argument
+vector rather than a shell string, so a folder name stays a folder name.
+
+And nothing here turns a public switch on. Enabling Pages, creating an access policy, adding somebody
+to a Vercel team: all still yours. Nothing is scheduled either -- one press publishes once.
+
+---
+
+## v0.463.0 -- Who may read the portal
+
+The producer portal could be generated and published, and the only honest thing AtlasMind could say
+about the result was that it was public. Now you choose the host -- GitHub Pages, Cloudflare Pages,
+Netlify, Vercel, or your own -- and each is shown with **what it can actually enforce**.
+
+**Authentication is not authorisation.** Signing in with GitHub admits every GitHub account there is,
+something over a hundred million of them. A portal behind a GitHub prompt and nothing else is a public
+portal with a turnstile in front of it -- and it is *worse* than an obviously public one, because the
+turnstile is what persuades somebody to switch on the cost figures and the risk register.
+
+The hosts differ more than you would expect, and the facts come from each vendor's own documentation
+rather than from memory:
+
+- **Cloudflare Pages** is the only one that both signs somebody in with GitHub and restricts to a list
+  you name, without an enterprise plan.
+- **Vercel** restricts to your Vercel team -- a real restriction, and somebody else's list, costing a
+  seat for every stakeholder who needs to read a report.
+- **Netlify**'s shared password is not an audience. It is one secret that gets passed on, with no
+  record of who used it and no way to remove one person.
+- **GitHub Pages** cannot restrict at all unless Enterprise Cloud, an organization-owned private
+  repository and a project site all line up -- and then the audience is everyone who can read the
+  repository, which is a different list. A **public** repository gets its own louder warning, because
+  the page is public and so is every draft that produced it.
+
+**The Director assigns the audience; Settings chooses the host**, and both write one committed file so
+they cannot disagree. The list stores people by contact, never by address -- and somebody with no email
+or GitHub handle recorded is reported as *unlistable* rather than quietly left off, because a short
+list that looks complete is how one person spends an afternoon wondering why the link does not work.
+
+**AtlasMind never claims to be enforcing any of this.** Nothing here makes a page private; every
+surface says so and names the console where the policy actually lives. Removing somebody from the list
+does not revoke their access, and the notification says so. Changing the host clears any confirmation
+that access was set up, because an assertion about a Netlify password says nothing about a Vercel
+deployment. And confirming that the policy exists asks you to have actually watched an account outside
+the audience be refused.
+
+---
+
+## v0.462.0 -- Search your own code
+
+AtlasMind's memory has always answered *what was decided* -- decisions, architecture notes,
+misadventures. It has never answered *what the code does*. Ask an agent to change how promotions are
+gated and you had to tell it which files to read, because nothing indexed the source.
+
+Two new commands close that: **Build Codebase Index** and **Search the Codebase**.
+
+**Nothing leaves your machine, and there is no option that would change that.** The default embedder
+needs no model at all. Point `atlasmind.codebaseIndex.embeddingModel` at a local Ollama model and you
+get genuinely semantic results, still entirely local. AtlasMind ships **no remote embedder** -- offering
+one from a dropdown would mean sending an entire repository to a third party, and that deserves its own
+consent surface rather than a menu item.
+
+**The fallback tells you what it is.** With no model configured the index matches shared *vocabulary*
+rather than shared *meaning*. That is useful and it is not semantic search, so every result says so --
+"semantic search found nothing" and "word matching found nothing" are different findings, and only one
+of them is about your code. If a model you configured cannot be used, you are told why rather than
+quietly getting the fallback.
+
+**A result whose file has changed is dropped, not flagged.** Code that no longer exists at those line
+numbers is worse than no result, and a warning beside an otherwise plausible hit gets read past. The
+index stores a path and a line range rather than a copy of your code, so there is nothing that *could*
+be returned stale.
+
+**Every search says how much it actually covers.** "3 results from an index currently covering 412 of
+1,340 files, built 6 days ago" is a different answer from a bare list of three.
+
+**A file that looks like it holds a credential is never indexed** -- an indexed secret is a retrievable
+one, and retrieval feeds prompts. The build confirmation tells you how many were skipped.
+
+And if an embedder returns the wrong number of vectors, or the wrong width, the build **fails** rather
+than storing an index that would rank nonsense plausibly while looking perfectly healthy.
+
+### Fixed
+
+A test that read the dashboard's webview script failed on Windows and passed on CI, because git checks
+that file out with CRLF and the assertion spanned a line break. It looked like a broken test and was a
+broken environment.
+
+---
+
 ## v0.461.0 -- Six decisions dressed up as packages
 
 The other architecture packs are project templates: pick a stack, get a starter. These six are not that

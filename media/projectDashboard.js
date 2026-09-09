@@ -2630,6 +2630,29 @@
       vscode.postMessage({ type: 'scanDebt' });
       return;
     }
+    if (action === 'portal-add-viewer') {
+      // A contact id and nothing else. The host resolves it against the
+      // Director roster, so this can name a person and never invent one, and no
+      // address ever travels from the browser.
+      vscode.postMessage({ type: 'addPortalViewer', payload: { contactId: payload } });
+      return;
+    }
+    if (action === 'portal-remove-viewer') {
+      vscode.postMessage({ type: 'removePortalViewer', payload: { contactId: payload } });
+      return;
+    }
+    if (action === 'portal-publish') {
+      // No payload. Everything the confirmation shows is composed host-side
+      // from the plan, so this button can ask for a publication and can never
+      // describe one.
+      vscode.postMessage({ type: 'publishPortal' });
+      return;
+    }
+    if (action === 'portal-confirm-access') {
+      // No payload: the confirmation dialog and the identity both live host-side.
+      vscode.postMessage({ type: 'confirmPortalAccess' });
+      return;
+    }
     if (action === 'utility-expand') {
       state.utilityExpanded = state.utilityExpanded === payload ? '' : payload;
       render();
@@ -17897,6 +17920,95 @@
     `;
   }
 
+  // ── Who may read the portal ────────────────────────────────────────────
+  // On the Director page because the audience is a decision about people. The
+  // host itself is chosen in Settings; both write one committed file.
+  //
+  // The card keeps one distinction visible: a list of names here is a decision,
+  // and only some hosts turn a decision into a restriction.
+
+  const PORTAL_CONTROL_LABEL = {
+    'named-audience': 'can restrict to people you name',
+    'platform-members': 'restricts to your platform team',
+    'shared-password': 'one shared password',
+    'repository-readers': 'restricts to repository readers',
+    none: 'cannot restrict at all',
+    unknown: 'unknown to AtlasMind',
+  };
+  const PORTAL_SEVERITY_TONE = { critical: 'tag-critical', warning: 'tag-warn', note: '' };
+
+  function renderPortalAudience(snapshot) {
+    const portal = snapshot.portalHosting;
+    if (!portal) { return ''; }
+    const capability = (portal.capabilities || []).find(entry => entry.host === portal.host);
+    const critical = (portal.warnings || []).filter(warning => warning.severity === 'critical');
+
+    const help = renderWorkflowHelp('portal.audience', {
+      label: 'why a sign-in is not an audience',
+      why: 'Signing in with GitHub admits every GitHub account there is — something over a hundred million of them. A portal behind a GitHub prompt and nothing else is a public portal with a turnstile in front of it, and it is worse than an obviously public one, because the turnstile is what persuades somebody to publish the cost figures and the risk register.',
+      how: (portal.capabilities || []).map(entry => ({
+        text: entry.label + ' — ' + (PORTAL_CONTROL_LABEL[entry.control] || entry.control) + '. ' + entry.audienceCost,
+      })).concat([
+        { text: 'AtlasMind declares; the host enforces. Nothing on this card makes the portal private — the policy that admits or refuses somebody lives in the host’s own console, and AtlasMind cannot see it.' },
+        { text: 'A restricted audience is not a reason to publish more. The restriction is somebody else’s product and one wrong policy makes it public again, so what may be published stays a separate decision.' },
+      ]),
+      commonMistakes: [
+        'Reading a list of names here as a restriction. On most hosts it is a record of intent.',
+        'Removing somebody here and assuming their access is gone. It is not — remove them from the host policy too.',
+      ],
+    });
+
+    const rows = (portal.audience || []).map(member => `
+      <div class="recent-item">
+        <div class="row-head">
+          <strong>${escapeHtml(member.name)}</strong>
+          <span>${member.identifierKind
+            ? '<span class="tag">by ' + escapeHtml(member.identifierKind) + '</span>'
+            : '<span class="tag tag-warn">cannot be listed</span>'}</span>
+        </div>
+        ${member.unresolvedReason ? `<div class="list-meta wf-unknown">${escapeHtml(member.unresolvedReason)}</div>` : ''}
+        <div class="tag-row">
+          <button type="button" class="action-link" data-action="portal-remove-viewer" data-payload="${escapeAttr(member.contactId)}">Remove</button>
+        </div>
+      </div>`).join('');
+
+    const candidates = (portal.candidates || []).slice(0, 60);
+
+    return `
+      <article class="panel-card">
+        <div class="row-head">
+          <div><p class="card-kicker">Who may read the portal${help.button}</p><h3>${escapeHtml(portal.hostLabel)}</h3></div>
+          <span class="tag ${portal.audienceEnforceable ? 'tag-good' : 'tag-warn'}">${portal.audienceEnforceable ? 'restricted' : 'not restricted'}</span>
+        </div>
+        ${help.panel}
+        <p class="section-copy">${escapeHtml(portal.summary)}</p>
+        ${capability ? `<p class="stat-detail">Enforced by ${escapeHtml(capability.enforcedBy)} ${escapeHtml(capability.audienceCost)}</p>` : ''}
+        ${critical.map(warning => `<p class="stat-detail wf-unknown"><span class="tag ${PORTAL_SEVERITY_TONE[warning.severity] || ''}">${escapeHtml(warning.severity)}</span> ${escapeHtml(warning.message)}</p>`).join('')}
+        ${!portal.declared ? '<p class="stat-detail">No host has been declared yet, so this shows the default. Choose one in Settings.</p>' : ''}
+        <div class="row-head"><p class="card-kicker">Audience</p><span class="list-meta">${(portal.audience || []).length}</span></div>
+        <div class="stack-list">${rows || '<div class="dashboard-empty">Nobody is named. That is not the same as nobody having access.</div>'}</div>
+        ${portal.missingContactIds && portal.missingContactIds.length
+          ? `<p class="stat-detail wf-unknown">${portal.missingContactIds.length} named ${portal.missingContactIds.length === 1 ? 'id no longer matches' : 'ids no longer match'} anybody on the roster.</p>`
+          : ''}
+        ${candidates.length ? `
+          <div class="row-head"><p class="card-kicker">Add somebody</p></div>
+          <div class="tag-row">${candidates.map(candidate => `
+            <button type="button" class="action-link" data-action="portal-add-viewer" data-payload="${escapeAttr(candidate.contactId)}"
+              title="${candidate.hasIdentifier ? 'Add to the portal audience' : 'No email or GitHub handle is recorded, so this person cannot be put on a host allowlist'}">${escapeHtml(candidate.name)}${candidate.hasIdentifier ? '' : ' (no identifier)'}</button>`).join('')}</div>`
+          : '<p class="stat-detail">Everybody on the roster is already named.</p>'}
+        <div class="tag-row">
+          <button type="button" class="action-link primary" data-action="portal-publish">Build and publish</button>
+          <button type="button" class="action-link" data-action="portal-confirm-access">I have configured the host</button>
+        </div>
+        ${portal.accessConfiguredAt
+          ? `<p class="stat-detail">Confirmed ${escapeHtml(portal.accessConfiguredAt.slice(0, 10))}${portal.accessConfiguredBy ? ' by ' + escapeHtml(portal.accessConfiguredBy) : ''}. AtlasMind cannot see the policy — this is that person’s word.</p>`
+          : ''}
+        <div class="row-head"><p class="card-kicker">What has to be done, and where</p></div>
+        <div class="stack-list">${(portal.steps || []).map(step => `<div class="recent-item static"><div class="list-meta">${escapeHtml(step)}</div></div>`).join('')}</div>
+        <p class="stat-detail">Host facts read ${escapeHtml(portal.verifiedAt || 'unknown')}. Recorded in <code>${escapeHtml(portal.path || '')}</code>.</p>
+      </article>`;
+  }
+
   function renderDirector(snapshot) {
     const d = snapshot.director;
     const wrap = (inner) => pageSectionOpen('director') + inner + '</section>';
@@ -18031,6 +18143,7 @@
       <div class="review-grid">
         ${rosterCard}
       </div>
+      ${renderPortalAudience(snapshot)}
       <div class="review-grid">
         ${renderTeamRoles(snapshot)}
         ${renderDirectorResponsibilities(cfg)}

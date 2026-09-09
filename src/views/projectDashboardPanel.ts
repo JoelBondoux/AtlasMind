@@ -310,6 +310,20 @@ import {
   type UtilityCapability,
 } from '../core/utilityPacks.js';
 import {
+  PORTAL_HOSTING_VERIFIED_AT,
+  PORTAL_HOST_CAPABILITIES,
+  PortalHostingManager,
+  addPortalViewer,
+  assessPortalAccess,
+  confirmPortalAccess,
+  readPortalHostingConfig,
+  seedPortalHostingConfig,
+  portalAccessSteps,
+  removePortalViewer,
+  type PortalAccessAssessment,
+  type RepositoryVisibility,
+} from '../core/portalHosting.js';
+import {
   WORKFLOW_HISTORY_SSOT_PATH,
   WorkflowAuditLedger,
   beginWorkflowRun,
@@ -1259,6 +1273,13 @@ type ProjectDashboardMessage =
   // browser can name one and can never supply the text an agent reads, nor a
   // command — the pack's install lines are constants and nothing executes them.
   | { type: 'discussUtilityPack'; payload: { capability: string } }
+  // The audience is addressed by contact id, resolved host-side against the
+  // Director roster. No address ever travels from the webview, and none is
+  // stored: the committed file keeps ids.
+  | { type: 'addPortalViewer'; payload: { contactId: string } }
+  | { type: 'removePortalViewer'; payload: { contactId: string } }
+  | { type: 'confirmPortalAccess' }
+  | { type: 'publishPortal' }
   | {
     type: 'addTestAsset';
     payload: {
@@ -3294,6 +3315,14 @@ interface DashboardSnapshot {
    * costs no extra I/O and infers nothing from source shape.
    */
   utilities: DashboardUtilitiesSnapshot;
+  /**
+   * Where the producer portal is hosted and who may read it.
+   *
+   * On the Director page because the audience is a decision about people; the
+   * host itself is chosen in Settings. Both edit one committed file, so the two
+   * surfaces cannot hold different answers.
+   */
+  portalHosting: DashboardPortalHostingSnapshot;
   /** Human ownership for actionable records across the dashboard. */
   workAssignments: DashboardWorkAssignmentsSnapshot;
   /**
@@ -4097,6 +4126,70 @@ function collectUtilitiesSnapshot(
     offerable: evidence === undefined ? [] : offerableUtilityPacks(assessments),
     verifiedAt: UTILITY_PACKS_VERIFIED_AT,
     assessed: evidence !== undefined,
+  };
+}
+
+/**
+ * The portal hosting declaration, assessed.
+ *
+ * Read through the panel's own manager so the Director page and the Settings
+ * page cannot disagree about one committed file. Nothing is seeded on render:
+ * `declared` is false until somebody chooses, because writing a committed file
+ * because a tab was opened is the rule `workflowConfig` states about its own.
+ */
+function collectPortalHostingSnapshot(
+  workspaceRoot: string | undefined,
+  director: ProjectDirectorConfig | undefined,
+  visibility: RepositoryVisibility,
+): DashboardPortalHostingSnapshot {
+  const declared = workspaceRoot ? readPortalHostingConfig(workspaceRoot) : undefined;
+  const config = declared ?? seedPortalHostingConfig();
+  const contacts = director?.contacts ?? [];
+  const assessment: PortalAccessAssessment = assessPortalAccess(config, visibility, contacts);
+  const onAudience = new Set(config.audienceContactIds);
+
+  return {
+    path: 'project_memory/operations/portal-hosting.json',
+    host: config.host,
+    hostLabel: assessment.capability.label,
+    ...(config.siteUrl === undefined ? {} : { siteUrl: config.siteUrl }),
+    capabilities: PORTAL_HOST_CAPABILITIES.map(entry => ({
+      host: entry.host,
+      label: entry.label,
+      control: entry.control,
+      githubSignIn: entry.githubSignIn,
+      enforcedBy: entry.enforcedBy,
+      audienceCost: entry.audienceCost,
+      requires: entry.requires,
+      notes: entry.notes,
+    })),
+    // Names and identifier *kinds* only. The address itself is resolved at the
+    // point of use and never travels to a webview or into the committed file.
+    audience: assessment.audience.members.map(member => ({
+      contactId: member.contactId,
+      name: member.name,
+      ...(member.identifierKind === undefined ? {} : { identifierKind: member.identifierKind }),
+      ...(member.unresolvedReason === undefined ? {} : { unresolvedReason: member.unresolvedReason }),
+    })),
+    candidates: contacts
+      .filter(contact => !onAudience.has(contact.id))
+      .map(contact => ({
+        contactId: contact.id,
+        name: contact.name,
+        // Shown before somebody is added, so an audience is not built out of
+        // people who could never be put on an allowlist.
+        hasIdentifier: contact.links.some(link =>
+          (link.kind === 'email' || link.kind === 'github') && link.handle.trim().length > 0),
+      })),
+    missingContactIds: assessment.audience.missingContactIds,
+    warnings: assessment.warnings.map(warning => ({ ...warning })),
+    steps: portalAccessSteps(config.host),
+    summary: assessment.summary,
+    audienceEnforceable: assessment.audienceEnforceable,
+    ...(config.accessConfiguredAt === undefined ? {} : { accessConfiguredAt: config.accessConfiguredAt }),
+    ...(config.accessConfiguredBy === undefined ? {} : { accessConfiguredBy: config.accessConfiguredBy }),
+    declared: declared !== undefined,
+    verifiedAt: PORTAL_HOSTING_VERIFIED_AT,
   };
 }
 
@@ -5082,6 +5175,31 @@ export class ProjectDashboardPanel {
    */
   private registerFindings = new Map<string, { finding: RegisterFinding; outstanding: boolean }>();
 
+  private portalHostingInstance: PortalHostingManager | undefined;
+
+  /**
+   * Where the portal is hosted and who may read it. Reloaded on access, like
+   * the other committed registers: the file is shared, and a colleague's change
+   * arriving through a pull must not be overwritten by a stale copy.
+   */
+  private get portalHosting(): PortalHostingManager {
+    this.portalHostingInstance ??= new PortalHostingManager(
+      vscode.workspace.workspaceFolders?.[0]?.uri.fsPath,
+    );
+    this.portalHostingInstance.reload();
+    return this.portalHostingInstance;
+  }
+
+  /**
+   * Repository visibility, as far as this panel knows it.
+   *
+   * Starts `unknown` and stays there until something that already asks GitHub
+   * happens to tell us — probing `gh` on every render would be a network call on
+   * a read path. `unknown` is not a gap: `portalHosting` treats it as public,
+   * which is the assumption that keeps a secret.
+   */
+  private portalRepoVisibility: RepositoryVisibility = 'unknown';
+
   private get debtManager(): DebtRegisterManager {
     this.debtManagerInstance ??= new DebtRegisterManager(
       vscode.workspace.workspaceFolders?.[0]?.uri.fsPath,
@@ -5926,6 +6044,21 @@ export class ProjectDashboardPanel {
       case 'discussUtilityPack':
         await this.handleDiscussUtilityPack(message.payload);
         return;
+      case 'addPortalViewer':
+        await this.handlePortalViewer(message.payload.contactId, 'add');
+        return;
+      case 'removePortalViewer':
+        await this.handlePortalViewer(message.payload.contactId, 'remove');
+        return;
+      case 'confirmPortalAccess':
+        await this.handleConfirmPortalAccess();
+        return;
+      case 'publishPortal': {
+        const { buildAndPublishPortal } = await import('./portalPublishCommand.js');
+        await buildAndPublishPortal();
+        await this.syncState();
+        return;
+      }
       case 'addTestAsset':
         await this.handleAddTestAsset(message.payload);
         return;
@@ -6357,7 +6490,7 @@ export class ProjectDashboardPanel {
   private async syncState(): Promise<void> {
     try {
       await this.refreshTrustedWorkflowReview();
-      const snapshot = await collectDashboardSnapshot(this.atlas, this.ideationAttachments, this.issuesState, this.pullRequestsState, this.ciState, this.releaseState, this.workflowConfig, this.auditLedger, { register: this.debtManager.get(), scanning: this.debtScanning }, this.reviewCommentsState, this.taxonomyState, this.pullRequestsNotice, this.localCiRunnerSnapshot(), this.ciRouting, this.ciCreditState, this.readCiBuildLedger(), this.advisoryState);
+      const snapshot = await collectDashboardSnapshot(this.atlas, this.ideationAttachments, this.issuesState, this.pullRequestsState, this.ciState, this.releaseState, this.workflowConfig, this.auditLedger, { register: this.debtManager.get(), scanning: this.debtScanning }, this.reviewCommentsState, this.taxonomyState, this.pullRequestsNotice, this.localCiRunnerSnapshot(), this.ciRouting, this.ciCreditState, this.readCiBuildLedger(), this.advisoryState, this.portalRepoVisibility);
       // Only keep polling while something is actually running. The schedule
       // itself decides when to stop, so this cannot become a permanent timer.
       this.scheduleCiBuildPoll(snapshot.delivery.builds.hasRunning);
@@ -8658,6 +8791,11 @@ export class ProjectDashboardPanel {
         'repo', 'view', '--json', 'isPrivate,owner',
       ])) as { isPrivate?: unknown; owner?: { login?: unknown; type?: unknown } };
 
+      // Free information: this call already asked, and the portal card would
+      // otherwise have to assume the worst.
+      this.portalRepoVisibility = identity.isPrivate === true
+        ? 'private'
+        : identity.isPrivate === false ? 'public' : 'unknown';
       if (identity.isPrivate === false) {
         this.ciCreditState = notMeteredReading();
         await this.syncState();
@@ -11467,6 +11605,87 @@ ${buildCardEvidenceSection(source, derivation)}`;
    * pack's install lines are constants in `utilityPacks.ts` and nothing here
    * executes one. The prompt itself says both of those things to the agent.
    */
+  // ── Portal audience ────────────────────────────────────────────
+
+  /**
+   * Add or remove somebody from the portal audience.
+   *
+   * The contact id is resolved against the Director roster before anything is
+   * written, so the webview can name a person and never invent one. Removing
+   * somebody here does **not** remove their access — the policy that admits
+   * them lives in the host's console — and the notification says so, because a
+   * list that looks authoritative and is not is the failure this whole feature
+   * exists to avoid.
+   */
+  private async handlePortalViewer(contactId: string, action: 'add' | 'remove'): Promise<void> {
+    const director = this.lastSnapshot?.director.config;
+    const contacts = director?.contacts ?? [];
+    if (action === 'add' && !contacts.some(contact => contact.id === contactId)) {
+      void vscode.window.showWarningMessage('That person is no longer on the Director roster.');
+      return;
+    }
+    const manager = this.portalHosting;
+    const config = manager.getOrDefault();
+    const at = new Date().toISOString();
+    const next = action === 'add'
+      ? addPortalViewer(config, contactId, at)
+      : removePortalViewer(config, contactId, at);
+    if (next === config) {
+      return;
+    }
+    try {
+      await manager.save(next, contacts, this.portalRepoVisibility);
+      if (action === 'remove') {
+        void vscode.window.showInformationMessage(
+          'Removed from the portal audience. This is a record — it does not revoke their access. Remove them from the policy in your host\'s console too.',
+        );
+      }
+    } catch (error) {
+      const detail = error instanceof Error ? error.message : String(error);
+      void vscode.window.showWarningMessage(`Could not update the portal audience: ${detail.slice(0, 300)}`);
+    }
+    await this.syncState();
+  }
+
+  /**
+   * Record that the host-side restriction is actually in place.
+   *
+   * Confirmed, because it is the one control here that changes what the
+   * dashboard *claims*: everything else on this card is a declaration, and this
+   * turns it into an assertion that somebody stands behind. AtlasMind cannot
+   * see a Cloudflare Access policy, so the dialog says the claim is theirs.
+   */
+  private async handleConfirmPortalAccess(): Promise<void> {
+    const manager = this.portalHosting;
+    const config = manager.getOrDefault();
+    const contacts = this.lastSnapshot?.director.config?.contacts ?? [];
+    const confirmed = await vscode.window.showWarningMessage(
+      'Record that the portal is restricted at the host?',
+      {
+        modal: true,
+        detail: [
+          'AtlasMind cannot see your host\'s access policy. This records that you checked it, with your name and today\'s date against it.',
+          'Confirm only after you have opened the portal in a private window and watched an account outside the audience be refused.',
+        ].join('\n\n'),
+      },
+      'I have configured it',
+    );
+    if (confirmed !== 'I have configured it') {
+      return;
+    }
+    try {
+      await manager.save(
+        confirmPortalAccess(config, this.lastSnapshot?.director.config?.selfContactId, new Date().toISOString()),
+        contacts,
+        this.portalRepoVisibility,
+      );
+    } catch (error) {
+      const detail = error instanceof Error ? error.message : String(error);
+      void vscode.window.showWarningMessage(`Could not record the confirmation: ${detail.slice(0, 300)}`);
+    }
+    await this.syncState();
+  }
+
   private async handleDiscussUtilityPack(payload: { capability: string }): Promise<void> {
     const pack = UTILITY_PACKS.find(candidate => candidate.capability === payload.capability);
     if (!pack) {
@@ -16070,6 +16289,24 @@ export function isProjectDashboardMessage(message: unknown): message is ProjectD
       && typeof payload['kind'] === 'string';
   }
 
+  if (candidate['type'] === 'addPortalViewer' || candidate['type'] === 'removePortalViewer') {
+    const payload = candidate['payload'] as Record<string, unknown> | undefined;
+    return typeof payload === 'object' && payload !== null
+      && typeof payload['contactId'] === 'string' && payload['contactId'].length > 0;
+  }
+
+  if (candidate['type'] === 'publishPortal') {
+    // No payload: the plan, the refusals and the confirmation are all built
+    // host-side from files, so nothing the webview sends can widen it.
+    return true;
+  }
+
+  if (candidate['type'] === 'confirmPortalAccess') {
+    // No payload: it records that the person at this editor says they set the
+    // host-side policy up. Who they are comes from the Director roster.
+    return true;
+  }
+
   if (candidate['type'] === 'discussUtilityPack') {
     const payload = candidate['payload'] as Record<string, unknown> | undefined;
     return typeof payload === 'object' && payload !== null
@@ -17578,6 +17815,10 @@ async function collectDashboardSnapshot(
   // trailing and optional so the existing call sites are unaffected, and absent
   // means nobody looked — which the feed reports rather than calling it clean.
   advisories?: AdvisoryFeedInput,
+  // Repository visibility as the panel last learned it. Defaults to `unknown`,
+  // which `portalHosting` treats as public — the assumption that keeps a secret,
+  // and the reason probing `gh` on a render path is not worth it.
+  portalVisibility: RepositoryVisibility = 'unknown',
 ): Promise<DashboardSnapshot> {
   const firstWorkspaceFolder = vscode.workspace.workspaceFolders?.[0];
   const declaredComposition = workflowConfigManager?.getConfig()?.composition;
@@ -18377,6 +18618,12 @@ async function collectDashboardSnapshot(
       runbooks: deliveryRunbooks,
     },
     utilities: collectUtilitiesSnapshot(archetypeEvidence),
+    portalHosting: collectPortalHostingSnapshot(
+      workspaceRoot,
+      directorSnapshot.config ?? undefined,
+      // The same reading `/portal` uses, and unknown is treated as public.
+      portalVisibility,
+    ),
     testCases: collectTestCasesSnapshot(
       workspaceRoot,
       directorSnapshot.config ?? undefined,
@@ -22646,6 +22893,45 @@ interface DashboardDocumentAutoView {
   statusLabel: string;
   detail: string;
   updatePrompt: string;
+}
+
+// ── Portal hosting snapshot ──────────────────────────────────────────────────
+
+interface DashboardPortalHostingSnapshot {
+  path: string;
+  host: string;
+  hostLabel: string;
+  siteUrl?: string;
+  /** Every host with what it can actually enforce, so the choice is arguable. */
+  capabilities: Array<{
+    host: string;
+    label: string;
+    control: string;
+    githubSignIn: boolean;
+    enforcedBy: string;
+    audienceCost: string;
+    requires: string;
+    notes: string;
+  }>;
+  /** The audience, resolved to names and identifier kinds — never addresses. */
+  audience: Array<{
+    contactId: string;
+    name: string;
+    identifierKind?: string;
+    unresolvedReason?: string;
+  }>;
+  /** Contacts not yet on the audience, offered for assignment. */
+  candidates: Array<{ contactId: string; name: string; hasIdentifier: boolean }>;
+  missingContactIds: string[];
+  warnings: Array<{ code: string; severity: string; message: string }>;
+  steps: string[];
+  summary: string;
+  audienceEnforceable: boolean;
+  accessConfiguredAt?: string;
+  accessConfiguredBy?: string;
+  /** False until somebody declares one. Never read as a default. */
+  declared: boolean;
+  verifiedAt: string;
 }
 
 // ── Utility packs snapshot ───────────────────────────────────────────────────

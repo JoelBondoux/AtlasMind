@@ -1795,6 +1795,60 @@ The page searches title, path and rule, because those are the three things someb
 
 **Handing an entry to an agent.** `buildDebtWorkPrompt` fences the entry, and the fence does a different job from the ones around issue bodies and review comments. A debt entry is not untrusted third-party text — AtlasMind wrote it, from the user's own repository, through a sanitizer. The risk is the opposite one: that the *agent* mistakes a recorded shortcut for a mandate. The register says a decision was deferred, not that it should now be reversed, and plenty of debt is worth keeping. So the prompt offers "worth keeping, with the reason it was the right call" as a first-class answer alongside "worth fixing", and says plainly: propose, do not apply. The button is labelled "Look at it with Atlas" rather than "Fix it" for the same reason.
 
+### PortalPublishPlan (`src/core/portalPublishPlan.ts`)
+
+Build the portal and publish it in one press. This was three commands and a walkthrough, and every step existed for a reason — none of which is interesting to somebody who just wants the status page updated. Collapsing them is also exactly when the guards elsewhere in this codebase become easy to skip, because nobody reads six dialogs and everybody reads one. Hence: one plan, one confirmation, and the confirmation says what becomes visible and to whom.
+
+**It refuses when the audience and the host disagree.** Named viewers on a host that cannot enforce a list means somebody believes the page is restricted and one press would put it on the open internet. A warning on a one-press button is a thing you click past, so this is a refusal — and every refusal names its fix, because there are only ever two (narrow what is published, or change the host) and a refusal without one reads as a malfunction.
+
+**Unconfirmed access is not restricted access.** A host that can restrict, where nobody has confirmed a policy exists, is treated as open, and publishing a *disclosing* section into that is refused. `DISCLOSING_SECTIONS` is deliberately just risks and cost: a roadmap and a delivery date are what a client asks for and name nobody, while a risk register and a spend figure carry stakeholder names, commercial and legal findings, and money — the same split `producerReportPublication` gates separately.
+
+**AtlasMind performs only what a constant can express.** `portalDeployCommand` returns a literal file and argv per host and there is no fallback: a host it cannot express gets no deploy step, which *is* the two-action case. Arguments are never shell-joined, so a folder name stays a folder name — a test walks every producible command for metacharacters, and the runner uses the same `execFileAsync` no-shell path as `ghClient`.
+
+**Nothing here turns a public switch on** — enabling Pages, creating an Access policy and adding a Vercel team member are all absent by declaration, and a test asserts no step mentions them. **A step that cannot be undone is named as such**, so the confirmation can say so. And **nothing is scheduled**: one press publishes once, for the reason `/portal`'s workflow runs on manual dispatch only.
+
+`portalPublishCommand.ts` is the thin wiring — it renders the plan's own disclosure and command list rather than a summary beside them, reads repository visibility at the moment it matters, and tells you afterwards to check the restriction yourself, because AtlasMind cannot.
+
+### PortalHosting (`src/core/portalHosting.ts`)
+
+Where the producer portal is hosted, and — the part that actually decides whether it is private — **who is allowed to see it**. `producerReportPublication` answers what may leave the machine, on the assumption that whatever leaves is world-readable, because on GitHub Pages it is. This answers the next question, and never relaxes the first.
+
+**Authentication is not authorisation**, and that is the whole module. "Sign in with GitHub" admits every GitHub account in the world. A portal behind a GitHub prompt and nothing else is a public portal with a turnstile in front of it, and it is *worse* than an obviously public one — the turnstile is what persuades somebody to publish the cost figures and the risk register. A host that can authenticate and cannot then restrict *which* signed-in people get through is reported `authenticated-but-open` rather than as protected.
+
+**AtlasMind declares; the host enforces.** Nothing here makes a page private; every assessment names the console where the enforcement actually lives, and `portalAccessSteps` gives the steps a person takes *there*. A switch in AtlasMind that looked like a gate would be the single most dangerous control in the product, for exactly the reason above.
+
+`PORTAL_HOST_CAPABILITIES` is read from each vendor's own documentation and pinned at `PORTAL_HOSTING_VERIFIED_AT`. The `AudienceControl` vocabulary is the point of the table: `named-audience` is a list you chose, while `platform-members` (Vercel's team) and `repository-readers` (Pages on Enterprise Cloud) are real restrictions that are *somebody else's list*, and `enforcesNamedAudience` deliberately answers false for both — a surface that conflated them would tell somebody their five named stakeholders had access when the real answer was "everyone in the org". Only Cloudflare Access does what the feature is for without an enterprise plan; Netlify's shared password is one secret that gets passed on, with no record of who used it and no way to remove one person.
+
+**GitHub Pages gets three warnings rather than one**, because a public repository is the loudest case — the page is public and so is every draft that produced it — and an unreadable visibility is treated as public, the assumption `producerReportPublication` already makes. **Unknown is treated as unable to restrict**: a custom host is assessed as offering no protection, stated as an assumption rather than a judgement about somebody's setup.
+
+**The allowlist stores contact ids, never contact details.** `project_memory/` is committed and the Project Director module prefers a system-of-record reference over raw personal data; an audience that quietly became a committed list of email addresses would undo that. `resolvePortalAudience` resolves at the point of use, and **an audience member who cannot be expressed is reported, never dropped** — a contact with no email and no GitHub handle produces a list that would otherwise look complete with one person silently locked out.
+
+The declaration is a committed file rather than a setting, for the reason `workflowConfig` gives about its own. Changing the host **clears the access confirmation**, since an assertion about a Netlify password says nothing about a Vercel deployment, and takes the site URL with it. `accessConfiguredAt` is a human's claim with a name and a date against it, never inferred, and `audienceEnforceable` is true only when the host can enforce a named list, somebody is on it, *and* somebody has confirmed the policy exists.
+
+The audience is assigned on the Director page and the host chosen in Settings; both write the one file. The webview posts a contact id and nothing else, and the snapshot carries names and identifier *kinds* rather than addresses, so no personal data reaches a webview message.
+
+### CodebaseIndex (`src/core/codebaseIndex.ts`, `src/core/codebaseIndexStore.ts`, `src/providers/embedders.ts`)
+
+A retrievable index over the project's actual source — what the codebase *does*, as opposed to what was decided about it. SSOT answers the second question well and has never been able to answer the first: an agent asked to change how promotions are gated had to be told which files to read, because nothing indexed the source.
+
+**Embedding a repository sends the repository**, which is the whole privacy story in a sentence. `planCodebaseIndex` returns a plan carrying its own `disclosure` — the embedder, what leaves the machine, how many files and chunks — and the build confirmation shows *that sentence* rather than a summary of it, so the words somebody agrees to are the words the module composed. AtlasMind ships **no remote embedder** at all: the kind is supported, and offering one from a dropdown is a decision that deserves its own consent surface rather than arriving as a menu item.
+
+**A hashed vector is not a semantic one, and it says so.** The zero-cost fallback is a signed random projection of tokens; it works offline and finds shared *vocabulary*, not shared *meaning*. `semantic: false` travels on the descriptor into every result, because “semantic search found nothing” and “word matching found nothing” are different findings and only one is about the codebase. The tokenizer splits identifiers (`parse_url`, `parseUrl`, `ParseURL` → `parse`, `url`) — the first version kept `_` inside a token, so the obvious English query matched no camelCase code at all, which the tests caught.
+
+**The index stores where, never what**: a path and a line range, re-read from disk at retrieval. That makes the next rule structural rather than remembered — there is no stored copy that *could* be returned after the file changed.
+
+**A stale chunk is excluded, not caveated.** Each chunk carries its file's content hash; a changed or deleted file drops out of results entirely, because returning code that no longer exists at those line numbers is worse than returning nothing and a caveat on a plausible result is read past. `indexFreshness` keeps *stale*, *missing* and *unindexed* apart, since each needs a different reaction.
+
+**Coverage travels with every search.** `SearchCoverage.summary` is composed in the module so no caller can present hits without them, and it carries the embedder's caveat where one applies. At most two hits per file, so one large well-matched file cannot fill the result set — the failure that makes a search feel broken while working exactly as written.
+
+**A file that looks like it holds a credential is never indexed**, checked before chunking so nothing reaches a vector, and the refusal is recorded on the index and counted in the confirmation: an indexed secret is a *retrievable* secret, and retrieval feeds prompts.
+
+**A misaligned index is refused rather than built.** `buildCodebaseIndex` checks the embedder's output count and vector width and throws rather than storing something whose vectors cannot be compared — the worst outcome available here, since every subsequent search would rank nonsense plausibly and nothing would look wrong. `sanitizeCodebaseIndex` applies the same check on read and refuses the index **whole**: partial acceptance would leave one reporting coverage it does not have.
+
+The Ollama adapter uses the published `POST /api/embed` (array `input`, `embeddings` response), pinned at `OLLAMA_EMBED_API_VERIFIED_AT`; the superseded `/api/embeddings` is single-input and unused. **The dimension is discovered, never declared** — `probeOllamaEmbedder` embeds one string and reads the width off the answer, which doubles as the cheapest check that the model exists and is an embedding model. It never falls back to a guessed width.
+
+The store lives in **extension storage, not `project_memory/`**: unlike every other register here the index is derived rather than decided, per developer rather than shared, and thousands of float vectors changing on every edit is the worst diff imaginable.
+
 ### UtilityPacks (`src/core/utilityPacks.ts`)
 
 The six cross-cutting utilities — authentication, payments, email, analytics, internationalisation and accessibility — and the decision each one really is.

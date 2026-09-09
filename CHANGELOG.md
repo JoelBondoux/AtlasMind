@@ -6,6 +6,158 @@ The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/),
 
 ## [Unreleased]
 
+## [0.464.0] - 2026-09-09
+
+### Added
+
+- **Build and publish the portal in one press.** Until now this was three commands and a walkthrough:
+  generate the report, decide what may be published, prepare the narrowed folder, add a workflow, turn
+  the host on, prove a page came up. Every step exists for a reason and none of them is interesting to
+  somebody who just wants the status page updated. One button now does the lot — and because nobody
+  reads six dialogs but everybody reads one, that single confirmation carries the whole disclosure:
+  what will be published, what is withheld, **who will be able to read it**, which commands will run,
+  and which step cannot be undone.
+
+  **It refuses when the audience and the host disagree.** Somebody who has named five viewers on a host
+  that cannot enforce a list would, with one press, publish to the open internet a page they believe is
+  restricted. That is not a warning — a warning on a one-press button is a thing you click past — it is
+  a **refusal**, and it names the two fixes: move to a host that can restrict, or clear the audience so
+  the page is knowingly public.
+
+  **Unconfirmed access is not restricted access.** A host that *can* restrict, where nobody has
+  confirmed a policy exists, is treated as open — and publishing a risk register or a spend figure into
+  that is refused. AtlasMind cannot see a Cloudflare Access policy, and the moment it assumes one is
+  there is the moment this button publishes the wrong thing.
+
+  **AtlasMind performs only what a constant can express.** Every deploy command is a literal with its
+  arguments passed as argv — never a shell string, never composed — so a folder name stays a folder
+  name even when it looks like a command. A host with no constant gets **no deploy step**, which is the
+  second action: the folder is prepared and you take it from there. That is Custom Host, and it is also
+  GitHub Pages until the deploy workflow exists.
+
+  **Nothing here turns a public switch on.** Enabling Pages, creating an Access policy, adding somebody
+  to a Vercel team: all still absent, by declaration. Publishing to a host somebody has already
+  configured is a different act from making that host serve to the public in the first place, and only
+  the first belongs behind a button.
+
+  **Nothing is scheduled.** One press publishes once — there is deliberately no publish-on-commit and
+  no timer, because a standing publication republishes whatever the report happened to say.
+
+  The button sits on the Director page beside the audience it publishes to, and the command is
+  **AtlasMind: Build and Publish Producer Portal**.
+
+## [0.463.0] - 2026-09-09
+
+### Added
+
+- **Choose where the producer portal is hosted, and say who may read it.** The portal could be
+  generated and published, and the only honest thing AtlasMind could say about the result was that it
+  was public. Now the host is a declared choice — GitHub Pages, Cloudflare Pages, Netlify, Vercel, or a
+  host you run yourself — and each one is presented with **what it can actually enforce**.
+
+  **Authentication is not authorisation, and that is the whole feature.** Signing in with GitHub admits
+  every GitHub account there is, something over a hundred million of them. A portal behind a GitHub
+  prompt and nothing else is a public portal with a turnstile in front of it, and it is *worse* than an
+  obviously public one — the turnstile is what persuades somebody to switch on the cost figures and the
+  risk register. A host that can sign somebody in and cannot then restrict *which* signed-in people get
+  through is reported as `authenticated-but-open`, not as protected.
+
+  The differences between the hosts are stark, and they are read from each vendor's own documentation
+  on a pinned date rather than recalled. Only **Cloudflare Pages** both signs somebody in with GitHub
+  and restricts to a list you name without an enterprise plan, via Cloudflare Access. **Vercel** can
+  restrict, to your Vercel team — a real restriction, and somebody else's list, costing a seat per
+  viewer. **Netlify** offers a shared site password on Pro, which is not an audience: it is one secret
+  that gets passed on, with no record of who used it and no way to remove one person. A **named
+  audience** on Netlify is Enterprise. And **GitHub Pages** cannot restrict at all unless Enterprise
+  Cloud, an organization-owned private-or-internal repository and a project site all line up — and then
+  the audience is everyone who can read the repository, which is a different list.
+
+  **A public repository gets its own, louder warning**, because the page is public and so is every
+  draft that produced it. An unreadable visibility is treated as public, the assumption that keeps a
+  secret.
+
+  **AtlasMind declares; the host enforces.** Nothing in this feature makes a page private, and every
+  surface says so and names the console where the enforcement actually lives. A switch here that looked
+  like a gate would be the most dangerous control in the product.
+
+- **The Director assigns the audience; Settings chooses the host.** Both write one committed file, so
+  the two surfaces cannot hold different answers. The audience stores **contact ids, never addresses** —
+  `project_memory/` is committed, and the Project Director module goes to some trouble to prefer a
+  system-of-record reference over raw personal data. Resolution to an email or a GitHub login happens at
+  the point of use.
+
+  **Somebody who cannot be expressed is reported, never dropped.** A contact with no email and no GitHub
+  handle cannot go on any allowlist, and quietly leaving them out produces a list that looks complete
+  and one person locked out with nothing to explain why.
+
+  **Removing somebody from the list does not revoke their access**, and the notification says so.
+  Changing the host **clears any confirmation** that access was configured, because an assertion about a
+  Netlify password says nothing about a Vercel deployment. And confirming that the host-side policy is
+  in place is an explicit, attributed act behind a dialog that asks you to have actually watched an
+  account outside the audience be refused — AtlasMind cannot see a Cloudflare Access policy and does not
+  pretend to.
+
+  **A restricted audience is not a reason to publish more.** What may leave the machine stays with the
+  publication rules, which still assume the worst: the restriction is enforced by somebody else's
+  product, in a console AtlasMind cannot see, and one wrong policy makes it public again.
+
+### Fixed
+
+- **A test that pinned a statement terminator rather than the claim it cared about.** The security
+  advisory surface asserted an exact argument list ending in `);`, so adding any later parameter to the
+  snapshot call failed it — which reads as a broken feature rather than a moved comma.
+
+## [0.462.0] - 2026-09-09
+
+### Added
+
+- **A searchable index of your own source.** AtlasMind's memory has always answered *what was decided*
+  — decisions, architecture notes, misadventures — and never *what the code does*. An agent asked to
+  change how promotions are gated had to be told which files to read, because nothing indexed the
+  source itself. Two new commands close that: **Build Codebase Index** and **Search the Codebase**.
+
+  **Nothing leaves your machine, and there is no option that would change that.** The default embedder
+  needs no model at all; point `atlasmind.codebaseIndex.embeddingModel` at a local Ollama model for
+  genuinely semantic results. AtlasMind ships **no remote embedder** — offering one from a dropdown
+  would mean sending an entire repository to a third party, and that is a decision worth building
+  deliberately with its own consent surface rather than one that arrives as a menu item.
+
+  **The fallback is honest about what it is.** With no model configured, the index uses a token-hash
+  embedder: it works offline, costs nothing, and matches shared *vocabulary* rather than shared
+  *meaning*. It is not semantic search, `semantic: false` travels with it, and every result says so —
+  because "semantic search found nothing" and "word matching found nothing" are different findings and
+  only one is about your code. When a configured model cannot be used, the fallback says **why**
+  instead of quietly happening.
+
+  **A stale result is excluded, not caveated.** Every chunk records its file's content hash; when the
+  file changes, its chunks stop being returned. Returning code that no longer exists at those line
+  numbers is worse than returning nothing, and a warning attached to an otherwise plausible result is
+  read past. The index stores *where*, never *what* — a path and a line range, re-read from disk — so
+  there is no stored copy that could be returned after an edit.
+
+  **Coverage travels with every search.** "3 results from an index currently covering 412 of 1,340
+  files, built 6 days ago" is a different answer from a bare list of three, and only one of them can be
+  judged.
+
+  **A file that looks like it holds a credential is never indexed**, and the refusal is recorded and
+  counted in the build confirmation. An indexed secret is a *retrievable* secret, and retrieval feeds
+  prompts.
+
+  **A misaligned index is refused rather than built.** If an embedder returns the wrong number of
+  vectors, or vectors of the wrong width, the build fails loudly — an index whose vectors cannot be
+  compared would rank nonsense plausibly and nothing would look wrong. A stored index is validated the
+  same way on read, and refused whole rather than partially accepted.
+
+  The index lives in extension storage rather than `project_memory/`: it is derived, per developer, and
+  thousands of float vectors changing on every edit is the worst diff imaginable.
+
+### Fixed
+
+- **A source-reading test that failed on Windows and passed on CI.** `roadmapCanvasSurface` asserts on
+  a string spanning a line break in `media/projectDashboard.js`, which git checks out with CRLF on
+  Windows — so it went red after any branch switch and looked like a broken test rather than a broken
+  environment. The read is now normalised.
+
 ## [0.461.0] - 2026-09-09
 
 ### Added

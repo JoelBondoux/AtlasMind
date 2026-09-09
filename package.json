@@ -2,7 +2,7 @@
   "name": "atlasmind",
   "displayName": "AtlasMind",
   "description": "AI project management for VS Code: roadmap, risk, tech debt, compliance, testing and release tracked from your own repository — with a multi-agent AI team, or the AI coding tool you already use.",
-  "version": "0.461.0",
+  "version": "0.464.0",
   "publisher": "JoelBondoux",
   "preview": false,
   "license": "SEE LICENSE IN OSMFEULA.txt",
@@ -612,6 +612,21 @@
         "command": "atlasmind.openProjectDashboard",
         "title": "AtlasMind: Open Project Dashboard",
         "icon": "$(dashboard)"
+      },
+      {
+        "command": "atlasmind.buildAndPublishPortal",
+        "title": "AtlasMind: Build and Publish Producer Portal",
+        "icon": "$(cloud-upload)"
+      },
+      {
+        "command": "atlasmind.buildCodebaseIndex",
+        "title": "AtlasMind: Build Codebase Index",
+        "icon": "$(database)"
+      },
+      {
+        "command": "atlasmind.searchCodebase",
+        "title": "AtlasMind: Search the Codebase",
+        "icon": "$(search-fuzzy)"
       },
       {
         "command": "atlasmind.openProjectDirector",
@@ -2680,41 +2695,60 @@
           ],
           "markdownDescription": "Which declared environments a probe may reach. Production is deliberately absent from the default, and an endpoint that does not state its stage counts as `unknown`, which is treated as production. Adding `production` or `unknown` does not skip the confirmation: those endpoints still require you to type the endpoint's label before each probe. An empty list means no stage is allowed, and is honoured as written."
         },
+        "atlasmind.codebaseIndex.embeddingModel": {
+          "type": "string",
+          "default": "",
+          "description": "A local Ollama embedding model to index this codebase with, for example nomic-embed-text. Empty (the default) uses the built-in token-hash embedder, which needs no model and matches shared vocabulary rather than shared meaning — useful, and not semantic search. Nothing leaves your machine either way: AtlasMind ships no remote embedder, because offering one from a dropdown would mean sending an entire repository to a third party. The vector width is read from the model rather than assumed, and a model that cannot embed is reported rather than silently replaced."
+        },
+        "atlasmind.codebaseIndex.ollamaUrl": {
+          "type": "string",
+          "default": "http://127.0.0.1:11434",
+          "description": "Where the local Ollama runtime listens, used only when atlasmind.codebaseIndex.embeddingModel names a model. Requests go to this address and nowhere else."
+        },
         "atlasmind.ambient.enabled": {
-      "type": "boolean",
-      "default": false,
-      "description": "Master switch for ambient triggers — repository events (a failed CI run, a new advisory, a review waiting on you, a blocker defect) waking AtlasMind up while you are working on something else. Off by default. Switching this on subscribes to nothing: each event is a separate decision in atlasmind.ambient.events. An ambient response never goes further than proposing, whatever your workflow stage permits, because nobody is watching it."
-    },
-    "atlasmind.ambient.events": {
-      "type": "array",
-      "default": [],
-      "items": {
-        "type": "string",
-        "enum": ["ci-failed", "security-advisory", "review-requested", "blocker-defect", "approval-awaiting-you", "test-case-failed", "dependency-update-stale", "release-blocked"]
-      },
-      "description": "Which repository events may raise an ambient trigger. Empty by default: switching ambient triggers on and subscribing to an event are deliberately two decisions. security-advisory and release-blocked are capped at reporting whatever else is configured — an unattended proposal about somebody else’s disclosure, or about a step that cannot be undone, is worse than the alert itself."
-    },
-    "atlasmind.ambient.monthlySpendCapUsd": {
-      "type": "number",
-      "default": 0,
-      "minimum": 0,
-      "maximum": 1000,
-      "description": "The most ambient triggers may spend per month. 0 (the default) means an ambient event can be reported to you but never worked on by a model — switching ambient triggers on and letting them cost something are two separate decisions. Reporting is never capped: refusing to tell you what happened because a budget ran out would be the worst reading of a cost control."
-    },
-    "atlasmind.ambient.maxPerCheck": {
-      "type": "number",
-      "default": 3,
-      "minimum": 1,
-      "maximum": 20,
-      "description": "How many ambient events one check may raise. The remainder is stated rather than silently dropped, and nothing is lost — an event that is not raised this time is raised on the next check."
-    },
-    "atlasmind.ambient.checkIntervalMinutes": {
-      "type": "number",
-      "default": 30,
-      "minimum": 5,
-      "maximum": 480,
-      "description": "How often ambient triggers are evaluated while the editor is open. A VS Code extension does not run when the editor is closed, so this is ambient rather than background: it works while you are not looking at AtlasMind."
-    },
+          "type": "boolean",
+          "default": false,
+          "description": "Master switch for ambient triggers — repository events (a failed CI run, a new advisory, a review waiting on you, a blocker defect) waking AtlasMind up while you are working on something else. Off by default. Switching this on subscribes to nothing: each event is a separate decision in atlasmind.ambient.events. An ambient response never goes further than proposing, whatever your workflow stage permits, because nobody is watching it."
+        },
+        "atlasmind.ambient.events": {
+          "type": "array",
+          "default": [],
+          "items": {
+            "type": "string",
+            "enum": [
+              "ci-failed",
+              "security-advisory",
+              "review-requested",
+              "blocker-defect",
+              "approval-awaiting-you",
+              "test-case-failed",
+              "dependency-update-stale",
+              "release-blocked"
+            ]
+          },
+          "description": "Which repository events may raise an ambient trigger. Empty by default: switching ambient triggers on and subscribing to an event are deliberately two decisions. security-advisory and release-blocked are capped at reporting whatever else is configured — an unattended proposal about somebody else’s disclosure, or about a step that cannot be undone, is worse than the alert itself."
+        },
+        "atlasmind.ambient.monthlySpendCapUsd": {
+          "type": "number",
+          "default": 0,
+          "minimum": 0,
+          "maximum": 1000,
+          "description": "The most ambient triggers may spend per month. 0 (the default) means an ambient event can be reported to you but never worked on by a model — switching ambient triggers on and letting them cost something are two separate decisions. Reporting is never capped: refusing to tell you what happened because a budget ran out would be the worst reading of a cost control."
+        },
+        "atlasmind.ambient.maxPerCheck": {
+          "type": "number",
+          "default": 3,
+          "minimum": 1,
+          "maximum": 20,
+          "description": "How many ambient events one check may raise. The remainder is stated rather than silently dropped, and nothing is lost — an event that is not raised this time is raised on the next check."
+        },
+        "atlasmind.ambient.checkIntervalMinutes": {
+          "type": "number",
+          "default": 30,
+          "minimum": 5,
+          "maximum": 480,
+          "description": "How often ambient triggers are evaluated while the editor is open. A VS Code extension does not run when the editor is closed, so this is ambient rather than background: it works while you are not looking at AtlasMind."
+        },
     "atlasmind.research.enabled": {
           "type": "boolean",
           "default": false,

@@ -1725,6 +1725,34 @@ export function registerCommands(
       ProjectDashboardPanel.createOrShow(atlas.extensionContext, atlas, 'director');
     }),
 
+    // ── Codebase index ───────────────────────────────────────────
+    //
+    // Two commands, and the split is deliberate: building costs time and, on a
+    // remote embedder, would cost privacy, so it is an explicit act behind a
+    // confirmation that names what leaves the machine. Searching is free and
+    // needs none.
+    // One press: gather, narrow, prepare and publish. Every refusal and the
+    // single confirmation live in `portalPublishPlan`, so the words somebody
+    // agrees to are the words the module composed.
+    vscode.commands.registerCommand('atlasmind.buildAndPublishPortal', async () => {
+      const { buildAndPublishPortal } = await import('./views/portalPublishCommand.js');
+      await buildAndPublishPortal();
+    }),
+
+    vscode.commands.registerCommand('atlasmind.buildCodebaseIndex', async () => {
+      const atlas = requireAtlas();
+      if (!atlas) { return; }
+      const { buildCodebaseIndexCommand } = await import('./views/codebaseIndexCommands.js');
+      await buildCodebaseIndexCommand(atlas);
+    }),
+
+    vscode.commands.registerCommand('atlasmind.searchCodebase', async (query?: string) => {
+      const atlas = requireAtlas();
+      if (!atlas) { return; }
+      const { searchCodebaseCommand } = await import('./views/codebaseIndexCommands.js');
+      await searchCodebaseCommand(atlas, typeof query === 'string' ? query : undefined);
+    }),
+
     vscode.commands.registerCommand('atlasmind.openProjectIdeation', async (target?: import('./views/projectIdeationPanel.js').ProjectIdeationOpenTarget) => {
       const atlas = requireAtlas();
       if (!atlas) { return; }

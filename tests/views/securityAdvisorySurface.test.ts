@@ -105,7 +105,11 @@ describe('advisories are read on the repository refresh, never on render', () =>
   });
 
   it('passes the panel-held advisories into the snapshot rather than collecting them there', () => {
-    expect(HOST_PANEL).toContain('this.readCiBuildLedger(), this.advisoryState);');
+    // The claim is that `advisoryState` is handed in from the panel, right
+    // after the build ledger — not that it is the last argument. Pinning the
+    // statement terminator made this fail the first time a later parameter was
+    // added, which reads as a broken feature rather than a moved comma.
+    expect(HOST_PANEL).toContain('this.readCiBuildLedger(), this.advisoryState');
   });
 });
 
