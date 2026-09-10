@@ -1,0 +1,47 @@
+name: One-shot export applied AtlasMind 0.475 source
+
+on:
+  push:
+    branches:
+      - feat/provider-neutral-reviewed-pr-local-ci
+    paths:
+      - .github/workflows/one-shot-export-applied-source.yml
+
+permissions:
+  contents: read
+
+jobs:
+  export:
+    name: Apply feature payload and export source
+    runs-on: ubuntu-latest
+    timeout-minutes: 10
+
+    steps:
+      - name: Check out feature branch
+        uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7
+        with:
+          persist-credentials: false
+
+      - name: Decode and apply feature payload
+        shell: bash
+        run: |
+          cat .github/reviewed-pr-local-ci.patch.gz.b64.part-* | base64 --decode | gzip --decompress > "$RUNNER_TEMP/reviewed-pr-local-ci.patch"
+          base64 --decode .github/reviewed-pr-local-ci-fix.patch.gz.b64 | gzip --decompress > "$RUNNER_TEMP/reviewed-pr-local-ci-fix.patch"
+          git apply --check "$RUNNER_TEMP/reviewed-pr-local-ci.patch"
+          git apply "$RUNNER_TEMP/reviewed-pr-local-ci.patch"
+          git apply --check "$RUNNER_TEMP/reviewed-pr-local-ci-fix.patch"
+          git apply "$RUNNER_TEMP/reviewed-pr-local-ci-fix.patch"
+          git diff --check
+          node --check media/projectDashboard.js
+
+      - name: Upload applied source
+        uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a # v7.0.1
+        with:
+          name: atlasmind-applied-0475-source-${{ github.sha }}
+          path: |
+            .
+            !.git/**
+            !node_modules/**
+          include-hidden-files: true
+          if-no-files-found: error
+          retention-days: 1
