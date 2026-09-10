@@ -6,6 +6,65 @@ The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/),
 
 ## [Unreleased]
 
+## [0.475.0] - 2026-09-10
+
+### Added
+
+- **Reviewed pull-request local CI:** AtlasMind can now patch any GitHub repository with a small,
+  committed local-CI contract and run one explicitly approved, same-repository pull-request head SHA
+  on its existing one-job Docker runner. Node repositories with one supported lockfile get a proposed
+  argv-based install and check plan; other stacks receive a disabled contract rather than guessed
+  commands. The producer is deliberately irrelevant: Codex, Claude, another proprietary agent
+  interface, AtlasMind, and a human-authored branch all use the same repository, PR and exact-SHA
+  boundary.
+- **Local-CI entry points:** the patch and reviewed-PR actions are available from Project Dashboard →
+  Pipeline, Project Dashboard → Pull Requests, Settings → Testing, the Command Palette,
+  `/localci patch` and `/localci review`, with `/localci-patch` and `/localci-review` aliases.
+
+### Changed
+
+- **Manual-only trusted workflows may prove their branch in the job condition.** The local runner's
+  policy now accepts an exact `github.ref == 'refs/heads/…'` condition as the branch restriction, so
+  a reviewed-PR workflow does not need a decorative `push` trigger. The exact repository, owner actor,
+  read-only permissions, immutable action pins, single runner label and secret-free checks remain
+  mandatory.
+
+### Security
+
+- The reviewed-PR route re-reads the PR after approval, refuses drafts and forks, invalidates approval
+  when the head SHA changes, and dispatches only the trusted base-branch workflow. The workflow and
+  argv runner must exactly match AtlasMind's generated controller files; the candidate receives no
+  repository or environment secret, persisted checkout credential, host mount, Docker socket or OIDC
+  write permission. Every dashboard webview sends only `patch` or `review`, resolved through one
+  extension-host allowlist rather than accepting a command id. Workflow inputs are passed through
+  environment variables instead of interpolated into shell source; shell executables are rejected from
+  the command contract; the trusted controller is pinned to the dispatch commit; and the runner is bound
+  to the newly created GitHub run id rather than any adjacent job sharing the base SHA. The approval copy
+  also states that outbound network access remains available and Docker is defence in depth.
+
+## [0.474.3] - 2026-09-10
+
+### Fixed
+
+- **Secret scan:** the codebase-index test's credential-shaped fixture — the alphabet behind an
+  `sk-` prefix, there so the test can prove such a file is refused before chunking — is allowlisted
+  by path in `.gitleaks.toml`, the way every other detector fixture is. CI's Secret scan had
+  reported it on the 0.474.1 release pull request; the required checks were unaffected.
+
+## [0.474.2] - 2026-09-10
+
+### Changed
+
+- **README:** the published baseline now names v0.474.1, the release just published to the
+  Marketplace.
+
+## [0.474.1] - 2026-09-10
+
+### Changed
+
+- **Delivery register:** recorded the 0.474.0 promotion to Integration (`staging`), so the Delivery
+  page reports the stage where it actually is.
+
 ## [0.474.0] - 2026-09-09
 
 ### Changed

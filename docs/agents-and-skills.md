@@ -506,6 +506,14 @@ and Docker runtime while its fixed access policy remains disabled and the contai
 Missing flake history, testcase timing or provider registry data remains visibly unavailable instead of
 being filled by a model.
 
+Reviewed-PR local CI adds no agent skill and no provider privilege. Its three dashboards send only the
+closed action ids `patch` and `review`, resolved by `localCiSurfaceActions.ts` to two fixed extension
+commands. The host, not an agent, reads GitHub PR metadata, shows the exact SHA, revalidates it, dispatches
+the trusted workflow and supplies the newly created run id to the existing runner. Codex, Claude, Copilot,
+Cursor, AtlasMind and human-authored PRs are deliberately indistinguishable at this boundary. A model may
+propose code, but it cannot approve its own SHA, nominate a fork, alter the fixed controller, or widen the
+Linux-container evidence claim.
+
 Execution-oriented built-in skills now include a dedicated `docker-cli` helper for container work. Instead of passing arbitrary Docker commands through the generic terminal skill, AtlasMind exposes a separate allow-list for `docker` and `docker compose` inspection and lifecycle operations such as `ps`, `logs`, `inspect`, `compose up`, and `compose down`.
 
 ### Operational Boundaries

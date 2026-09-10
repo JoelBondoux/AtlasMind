@@ -2245,6 +2245,14 @@
       vscode.postMessage({ type: 'runDirectLocalChecks' });
       return;
     }
+    if (action === 'pipeline-local-ci-patch') {
+      vscode.postMessage({ type: 'runLocalCiSurfaceAction', payload: 'patch' });
+      return;
+    }
+    if (action === 'pipeline-local-ci-review') {
+      vscode.postMessage({ type: 'runLocalCiSurfaceAction', payload: 'review' });
+      return;
+    }
     if (action === 'pipeline-create-routing') {
       vscode.postMessage({ type: 'createCiRoutingConfig' });
       return;
@@ -8853,6 +8861,24 @@
     return { tag: `<span class="tag tag-good">${escapeHtml(`${checks.length} check${checks.length === 1 ? '' : 's'} green`)}</span>`, actions: '' };
   }
 
+  function renderReviewedPrLocalCiCard(compact = false) {
+    return `<article class="panel-card ci-command-deck">
+      <div class="ci-section-heading">
+        <div>
+          <p class="card-kicker">Reviewed pull requests · local execution</p>
+          <h3>${compact ? 'Run this PR on local CI' : 'Run an approved exact SHA on this computer'}</h3>
+          <p class="stat-detail">Patch a repository once, then choose an open same-repository PR and approve its current head commit. Codex, Claude, another proprietary agent interface, AtlasMind, and human-authored branches all use the same identity-and-SHA boundary.</p>
+        </div>
+        <span class="tag">Linux container evidence</span>
+      </div>
+      <div class="tag-row">
+        <button type="button" class="dashboard-button dashboard-button-primary" data-action="pipeline-local-ci-patch">Patch repository</button>
+        <button type="button" class="dashboard-button dashboard-button-secondary" data-action="pipeline-local-ci-review">Run reviewed PR</button>
+      </div>
+      <p class="stat-detail">Chat shortcuts: <code>/localci patch</code> and <code>/localci review</code>. A new commit invalidates the prior approval; forks, drafts, repository/environment secrets, host mounts, and the Docker socket remain refused. The job keeps outbound network access for GitHub and dependency installation, so review the diff: Docker is defence in depth, not a safety guarantee.</p>
+    </article>`;
+  }
+
   function renderPullRequests(snapshot) {
     const wf = snapshot.guidedWorkflow || {};
     const metrics = wf.pullRequests;
@@ -8885,6 +8911,7 @@
       return `${pageSectionOpen('pullRequests')}
         ${intro}
         ${notice}
+        ${renderReviewedPrLocalCiCard(true)}
         <div class="dashboard-empty"><div>
           <strong>Pull requests have not been loaded</strong>
           <p class="section-copy">A pull request is where a change stops being private: the point CI runs, the point a second pair of eyes can see it, and the durable record of why the change looked right at the time. Even working alone it is worth opening one — CI is the reviewer.</p>
@@ -8947,6 +8974,7 @@
       <div class="tag-row">
         ${renderRefreshAction('issues-refresh', 'Refresh GitHub activity', refreshBusy, { busyLabel: 'Refreshing GitHub…', cadence: true })}
       </div>
+      ${renderReviewedPrLocalCiCard(true)}
       <article class="panel-card">
         <p class="card-kicker">In flight</p>
         <div class="stack-list">${list}</div>
@@ -12458,6 +12486,7 @@
         <div class="list-meta">${escapeHtml(run.displayTitle || '')}</div>
       </div>`).join('');
     const buildRecords = (delivery.builds && delivery.builds.records) || [];
+    const reviewedPrLocalCiCard = renderReviewedPrLocalCiCard(false);
     // The setup view. Only the journey and what blocks it — the capability grid
     // and the duplicated results block that used to sit here were a second,
     // worse navigation system competing with the tabs, and the run history they
@@ -12497,6 +12526,7 @@
     return `${pageSectionOpen('pipeline')}
       ${intro}
       ${componentCiScopeCard}
+      ${reviewedPrLocalCiCard}
       ${renderPipelineTabs(snapshot, runs, pipelineSection, setup)}
       <div class="ci-studio-view" role="tabpanel" aria-label="${escapeAttr(pipelineSection)} pipeline view">${sectionContent}</div>
     </section>`;

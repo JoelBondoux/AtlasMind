@@ -4,7 +4,7 @@
 > `improvement-plan.md`; this file holds the deadlines, estimates, branch names
 > and dependency links that a markdown checkbox cannot carry.
 
-Last updated: 2026-09-07T21:44:48.117Z
+Last updated: 2026-09-09T12:06:20.365Z
 
 Suggested links: on — AtlasMind proposes links, and nothing is applied until somebody accepts it
 
@@ -121,7 +121,6 @@ Layout: vertical — the tree runs top to bottom. Nodes moved by hand keep their
 | `the-guided-github-workflow-o` | `in-the-project-manager-dash` | accepted suggestion (shared-subject-phase) | 2026-09-04 · contact-email-joelbondoux-net-1 |
 | `the-guided-github-workflow-o` | `when-onboarding-a-new-projec` | accepted suggestion (shared-subject-phase) | 2026-09-04 · contact-email-joelbondoux-net-1 |
 | `pr-native-github-automation` | `when-onboarding-a-new-projec` | accepted suggestion (shared-subject-phase) | 2026-09-04 · contact-email-joelbondoux-net-1 |
-| `the-guided-github-workflow-o` | `add-a-way-to-manually-and-au` | accepted suggestion (explicit-reference) | 2026-09-07 · contact-email-joelbondoux-net-1 |
 | `async-ambient-background-age` | `offer-a-capability-you-are-c` | accepted suggestion (shared-subject-phase) | 2026-09-07 · contact-email-joelbondoux-net-1 |
 | `the-guided-github-workflow-o` | `the-overview-button-on-the-p` | accepted suggestion (shared-subject-phase) | 2026-09-07 · contact-email-joelbondoux-net-1 |
 | `semantic-codebase-index-code` | `offer-a-capability-you-are-c` | accepted suggestion (shared-subject-phase) | 2026-09-07 · contact-email-joelbondoux-net-1 |

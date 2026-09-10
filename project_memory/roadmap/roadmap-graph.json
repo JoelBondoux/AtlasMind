@@ -583,10 +583,6 @@
         "sourceId": "test:project_memory/index/testing-config.json:performance-is-enabled-with-no-evidence-it-runs",
         "sourceTitle": "Performance is enabled with no evidence it runs",
         "raisedAt": "2026-09-02T23:21:31.502Z"
-      },
-      "position": {
-        "x": 4878,
-        "y": 184
       }
     },
     {
@@ -1035,15 +1031,6 @@
       "createdBy": "contact-email-joelbondoux-net-1"
     },
     {
-      "from": "the-guided-github-workflow-o",
-      "to": "add-a-way-to-manually-and-au",
-      "origin": "declared",
-      "rule": "explicit-reference",
-      "evidence": "“need a new dashboard page”",
-      "createdAt": "2026-09-07T15:45:06.640Z",
-      "createdBy": "contact-email-joelbondoux-net-1"
-    },
-    {
       "from": "async-ambient-background-age",
       "to": "offer-a-capability-you-are-c",
       "origin": "declared",
@@ -1218,5 +1205,5 @@
   "suggestLinks": true,
   "dismissed": [],
   "layoutOrientation": "vertical",
-  "updatedAt": "2026-09-07T21:44:48.117Z"
+  "updatedAt": "2026-09-09T12:06:20.365Z"
 }

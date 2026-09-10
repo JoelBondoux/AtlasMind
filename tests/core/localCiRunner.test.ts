@@ -11,6 +11,7 @@ import {
   assessLocalCiQueue,
   assessTrustedLocalCiWorkflow,
   buildLocalCiQueueInvocation,
+  expectedLocalCiRunBlocker,
   initialLocalCiRunnerSnapshot,
   normalizeLocalCiArch,
   parseDockerGpuRuntimes,
@@ -200,6 +201,27 @@ describe('trusted local workflow policy', () => {
     expect(assessTrustedLocalCiWorkflow(workflow, input)).toEqual({ ok: true, blockers: [], warnings: [] });
   });
 
+  it('accepts a manual-only workflow whose job condition pins the trusted branch', () => {
+    const workflow = `name: Manual trusted job
+
+on:
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+jobs:
+  ci:
+    if: github.repository == 'JoelBondoux/AtlasMind' && github.ref == 'refs/heads/develop' && github.actor == github.repository_owner
+    runs-on: [atlasmind-trusted-linux-x64]
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1
+        with:
+          persist-credentials: false
+`;
+    expect(assessTrustedLocalCiWorkflow(workflow, input)).toEqual({ ok: true, blockers: [], warnings: [] });
+  });
+
   it('refuses pull-request reachability, secrets, write permission and moving action tags', () => {
     const unsafe = `name: Unsafe\n
 on:\n
@@ -259,6 +281,14 @@ describe('queued-run and registration parsing', () => {
     const sha = 'a'.repeat(40);
     const run = parseQueuedRuns(JSON.stringify([queuedRun(42, sha, 'pending')]))[0]!;
     expect(assessLocalCiQueue([run], sha.toUpperCase(), 'develop')).toEqual({ ok: true, run });
+  });
+
+  it('binds a reviewed-PR runner to the newly dispatched run id, not an adjacent job on the same base SHA', () => {
+    const sha = 'a'.repeat(40);
+    const run = parseQueuedRuns(JSON.stringify([queuedRun(42, sha, 'pending')]))[0]!;
+    expect(expectedLocalCiRunBlocker(run, 42)).toBeUndefined();
+    expect(expectedLocalCiRunBlocker(run, 43)).toContain('not the just-dispatched run 43');
+    expect(expectedLocalCiRunBlocker(run, 0)).toContain('invalid');
   });
 
   it('explains when the waiting run is for the pushed branch rather than local work', () => {

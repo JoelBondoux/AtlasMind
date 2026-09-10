@@ -45,4 +45,8 @@ paths = [
   # The Unreal build-log reader is asserted to redact a key before retaining a
   # diagnostic, so the fixture is a key-shaped string — the alphabet, in fact.
   '''tests/core/gameBuildLog\.test\.ts''',
+  # The codebase index is asserted to refuse a credential-shaped file before
+  # chunking, so no secret can reach a vector — which needs a fixture that is
+  # shaped like one. Again the alphabet, behind an `sk-` prefix.
+  '''tests/core/codebaseIndex\.test\.ts''',
 ]

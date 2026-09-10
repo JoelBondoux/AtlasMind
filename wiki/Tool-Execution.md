@@ -263,6 +263,17 @@ It runs a resolved image id with CPU, memory, no-swap and process limits, all ca
 privilege escalation disabled. Docker Desktop starts only after confirmation. Cleanup refuses to stop it
 when another container runs or inventory cannot be read, and never manages an ordinary Linux daemon.
 
+**Reviewed pull-request local CI is an explicit code-execution approval, not automatic PR CI.** The
+repository patch commits a fixed controller on a trusted base branch. AtlasMind refuses drafts and forks,
+shows one exact current head SHA, re-reads it after approval, and dispatches a manual workflow whose run
+name includes that PR and SHA. It snapshots the queue first and gives the newly created run id to the
+runner, so a neighbouring dispatch with the same base SHA cannot be claimed. The workflow takes inputs
+through environment variables rather than interpolating them into shell source; candidate commands are
+argv pairs and shell executables are rejected. The job receives no repository/environment secret, host
+mount or Docker socket, but it does retain outbound network access for GitHub and dependency installation.
+Reviewing the exact diff remains mandatory; the container is defence in depth rather than proof that
+malicious code is safe.
+
 **Pipeline visuals are not an execution bridge.** Selecting a Studio subview or moving a workflow node
 changes only VS Code webview state. The graph cannot supply YAML, a command or a host path. Monorepo and
 package cards come from bounded extension-host reads; registry configuration is checked for presence but

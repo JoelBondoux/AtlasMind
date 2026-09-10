@@ -121,6 +121,10 @@ describe('isSettingsMessage', () => {
     expect(isSettingsMessage({ type: 'createTestFile' })).toBe(true);
     expect(isSettingsMessage({ type: 'openCoverageReport' })).toBe(true);
     expect(isSettingsMessage({ type: 'openWorkspaceFile', payload: 'tests/commands.test.ts' })).toBe(true);
+    expect(isSettingsMessage({ type: 'runLocalCiSurfaceAction', payload: 'patch' })).toBe(true);
+    expect(isSettingsMessage({ type: 'runLocalCiSurfaceAction', payload: 'review' })).toBe(true);
+    expect(isSettingsMessage({ type: 'runLocalCiSurfaceAction', payload: 'atlasmind.toggleAutopilot' })).toBe(false);
+    expect(isSettingsMessage({ type: 'runLocalCiSurfaceAction', payload: { command: 'evil' } })).toBe(false);
   });
 
   it('accepts only bounded sidebar restore identities', () => {
@@ -746,6 +750,14 @@ describe('isProjectDashboardMessage', () => {
     expect(isProjectDashboardMessage({ type: 'runDirectLocalChecks' })).toBe(true);
     expect(isProjectDashboardMessage({ type: 'runDirectLocalChecks', payload: 'npm run deploy' })).toBe(false);
     expect(isProjectDashboardMessage({ type: 'runDirectLocalChecks', payload: ['test'] })).toBe(false);
+  });
+
+
+  it('accepts only the two host-owned reviewed-PR local-CI actions', () => {
+    expect(isProjectDashboardMessage({ type: 'runLocalCiSurfaceAction', payload: 'patch' })).toBe(true);
+    expect(isProjectDashboardMessage({ type: 'runLocalCiSurfaceAction', payload: 'review' })).toBe(true);
+    expect(isProjectDashboardMessage({ type: 'runLocalCiSurfaceAction', payload: 'workbench.action.terminal.sendSequence' })).toBe(false);
+    expect(isProjectDashboardMessage({ type: 'runLocalCiSurfaceAction', payload: { command: 'atlasmind.toggleAutopilot' } })).toBe(false);
   });
 
   /**

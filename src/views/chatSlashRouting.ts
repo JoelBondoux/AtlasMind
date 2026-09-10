@@ -2,8 +2,8 @@
  * Deciding what a leading `/` in the AtlasMind chat panel means.
  *
  * The panel had no answer to that question at all. `runPrompt` passed whatever
- * was typed straight to the orchestrator, so every one of the twenty
- * deterministic slash commands **silently reached a model** — and on a machine
+ * was typed straight to the orchestrator, so every one of the twenty-seven
+ * recognised slash commands **silently reached a model** — and on a machine
  * with no provider configured that meant the built-in echo adapter replying
  * "Answered from context." to `/acp`. The command was declared, documented,
  * autocompleted by the composer, and inert.
@@ -38,7 +38,7 @@
  */
 export const ATLAS_SLASH_COMMANDS = [
   'acp', 'agents', 'bootstrap', 'buzz', 'compliance', 'cost', 'director', 'discover', 'followups',
-  'ideate', 'import', 'lens', 'localci', 'loop', 'memory', 'portal', 'project', 'research', 'runs', 'setup', 'ship', 'skills',
+  'ideate', 'import', 'lens', 'localci', 'localci-patch', 'localci-review', 'loop', 'memory', 'portal', 'project', 'research', 'runs', 'setup', 'ship', 'skills',
   'sync-instructions', 'vision', 'voice',
 ] as const;
 
@@ -51,14 +51,14 @@ const KNOWN = new Set<string>(ATLAS_SLASH_COMMANDS);
  * a collecting stream, rather than by mapping each one to a VS Code command.
  *
  * One dispatch, two surfaces. The alternative — a table pairing every slash
- * command with an equivalent command id — is twenty-two chances for the panel to
+ * command with an equivalent command id — is twenty-five chances for the panel to
  * answer a question differently from `@atlas`, and it would have to be kept
  * correct by hand forever. These handlers are already deterministic and already
  * produce markdown; the panel's only real gap was having nowhere to put it.
  */
 const REPLAYED: ReadonlySet<string> = new Set([
   'acp', 'agents', 'bootstrap', 'buzz', 'compliance', 'cost', 'director', 'discover',
-  'followups', 'ideate', 'import', 'lens', 'localci', 'memory', 'portal', 'research', 'runs', 'setup', 'ship', 'skills',
+  'followups', 'ideate', 'import', 'lens', 'localci', 'localci-patch', 'localci-review', 'memory', 'portal', 'research', 'runs', 'setup', 'ship', 'skills',
   'sync-instructions', 'vision', 'voice',
 ]);
 

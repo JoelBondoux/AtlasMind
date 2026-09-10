@@ -19,6 +19,45 @@ Older entries below describe the software as it was at the time and are delibera
 
 ---
 
+## v0.475.0 -- Reviewed pull-request local CI
+
+AtlasMind can patch any GitHub repository with a committed local-CI contract, then run one
+explicitly approved, same-repository pull-request head SHA on its isolated one-job Docker runner.
+Conventional npm, pnpm and Yarn repositories get a proposed locked install and check plan; other
+stacks get a disabled contract until the operator declares the argv commands. Codex, Claude, other
+agentic services and human authors all follow the same route -- the authoring product is not a trust
+signal.
+
+The actions are on **Pipeline**, **Pull Requests**, **Settings → Testing**, the Command Palette,
+`/localci patch`, `/localci review`, `/localci-patch` and `/localci-review`. A changed SHA invalidates
+the approval. Forks, drafts, secrets, host mounts, the Docker socket and native-platform claims remain
+refused; the trusted workflow and command runner must exactly match AtlasMind's generated controller.
+The controller is pinned to the dispatch commit, workflow inputs are not interpolated into shell source,
+and the runner is bound to the newly created GitHub run id. Outbound network access remains available for
+GitHub and dependency installation, so Docker is defence in depth rather than a replacement for review.
+
+---
+
+## v0.474.3 -- Secret scan allowlist
+
+The codebase-index test's credential-shaped fixture is allowlisted by path, as every other
+detector fixture is, so CI's Secret scan is green again.
+
+---
+
+## v0.474.2 -- Published baseline
+
+The README's published baseline now names v0.474.1.
+
+---
+
+## v0.474.1 -- Delivery record
+
+The delivery register now names 0.474.0 as the last promotion to Integration, so the Delivery
+page reports the stage where it actually is.
+
+---
+
 ## v0.474.0 -- Website delivery, on the Delivery page
 
 The framework choice, the three hosting environments, the platform targets and the n8n workflow

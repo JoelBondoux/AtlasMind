@@ -118,9 +118,9 @@
       "fromStageId": "stage-local",
       "toStageId": "stage-staging",
       "lastPromotion": {
-        "ranAt": "2026-09-09T11:28:32.000Z",
+        "ranAt": "2026-09-09T23:36:16.000Z",
         "succeeded": true,
-        "version": "0.470.0"
+        "version": "0.474.0"
       }
     },
     {
