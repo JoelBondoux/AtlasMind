@@ -10,6 +10,7 @@ import { getLocalModelRecommendationCandidates, type LocalRecommendationWorkload
 import { getCachedLocalModelCatalog } from '../providers/localModelCatalogSync.js';
 import { RECOMMENDED_MCP_SERVERS, getRecommendedMcpStarterDetails } from '../constants.js';
 import { escapeHtml, getWebviewHtmlShell } from './webviewUtils.js';
+import { findLocalCiSurfaceAction, type LocalCiSurfaceActionId } from './localCiSurfaceActions.js';
 import { scanAiInstructionFiles, syncAiInstructionFiles } from '../utils/aiInstructionSync.js';
 import { syncTestingProtocols, readWorkflowGuidanceInput } from '../utils/testingProtocolSync.js';
 import { detectScaffoldFrameworks, scaffoldTestingFramework, scaffoldableMethodologies, type FirstTestCandidate } from '../core/testingScaffolder.js';
@@ -448,6 +449,7 @@ type SettingsMessage =
   | { type: 'autoAssessTestingConfig' }
   | { type: 'syncTestingProtocols' }
   | { type: 'scaffoldTestingFramework' }
+  | { type: 'runLocalCiSurfaceAction'; payload: LocalCiSurfaceActionId }
   | { type: 'ardSearch'; payload: { query: string; typeFilter?: string } }
   | { type: 'ardFetchManifest'; payload: { url: string } }
   | { type: 'ardInstall'; payload: { identifier: string } }
@@ -1364,6 +1366,14 @@ export class SettingsPanel {
         try { await this.runScaffoldTestingFramework(); }
         finally { this.panel.webview.html = this.getHtml(); }
         return;
+
+      case 'runLocalCiSurfaceAction': {
+        const action = findLocalCiSurfaceAction(message.payload);
+        if (action) {
+          await vscode.commands.executeCommand(action.command);
+        }
+        return;
+      }
 
       case 'openWorkspaceFile':
         await this.openWorkspaceFile(message.payload);
@@ -4744,6 +4754,19 @@ export class SettingsPanel {
           bindCommandButton('createTestFile', 'createTestFile');
           bindCommandButton('openCoverageReport', 'openCoverageReport');
 
+          const patchReviewedPrLocalCi = document.getElementById('patchReviewedPrLocalCi');
+          if (patchReviewedPrLocalCi instanceof HTMLButtonElement) {
+            patchReviewedPrLocalCi.addEventListener('click', () => {
+              vscode.postMessage({ type: 'runLocalCiSurfaceAction', payload: 'patch' });
+            });
+          }
+          const runReviewedPrLocalCi = document.getElementById('runReviewedPrLocalCi');
+          if (runReviewedPrLocalCi instanceof HTMLButtonElement) {
+            runReviewedPrLocalCi.addEventListener('click', () => {
+              vscode.postMessage({ type: 'runLocalCiSurfaceAction', payload: 'review' });
+            });
+          }
+
           document.querySelectorAll('[data-restore-model-sidebar-entry]').forEach(element => {
             if (!(element instanceof HTMLButtonElement)) {
               return;
@@ -6136,6 +6159,19 @@ function renderTestingPage(snapshot: TestingDashboardSnapshot, isActive: boolean
               <p class="info-note top-gap">Saved configuration is written to <strong>project_memory/index/testing-config.json</strong> and is read by Atlas agents when planning test tasks. <strong>Sync to AI agents</strong> mirrors the enabled protocols into external agent instruction files; saving and scaffolding also sync automatically. Scaffolding may ask AtlasMind to write one focused test only after it finds an existing Vitest/Jest runner and a small exported source target; it never invents a test target or installs tooling.</p>
             </article>
 
+            <article class="settings-card full-width-card" id="reviewedPrLocalCiCard">
+              <div class="card-header">
+                <p class="card-kicker">Repository local CI</p>
+                <h3>Patch once, then run an approved PR commit here</h3>
+              </div>
+              <p class="card-copy">AtlasMind can add a managed, reviewable local-CI contract to this repository and then run one explicitly approved same-repository head SHA in a one-job Docker runner. The producer is deliberately irrelevant: Codex, Claude, another agentic service, AtlasMind, and a human-authored branch follow the same route.</p>
+              <div class="button-stack">
+                <button id="patchReviewedPrLocalCi" type="button">Patch repository for local CI</button>
+                <button id="runReviewedPrLocalCi" type="button" class="secondary-button">Run reviewed PR</button>
+              </div>
+              <p class="info-note top-gap">The exact SHA is re-read after approval and immediately before dispatch. A new commit invalidates approval. Forks, drafts, repository/environment secrets, host mounts, the Docker socket, and native-platform claims remain refused. The job retains outbound network access for GitHub and dependency installation; Docker is defence in depth, so inspect the diff. Chat: <code>/localci patch</code> or <code>/localci review</code>.</p>
+            </article>
+
             <div class="page-grid two-up">
               <article id="testingInventoryCard" class="settings-card">
                 <div class="card-header">
@@ -7501,6 +7537,10 @@ export function isSettingsMessage(value: unknown): value is SettingsMessage {
       && message.payload.length > 0
       && message.payload.length <= 4096
       && !/[\u0000-\u001f\u007f]/.test(message.payload);
+  }
+
+  if (message.type === 'runLocalCiSurfaceAction') {
+    return findLocalCiSurfaceAction(message.payload) !== undefined;
   }
 
   if (

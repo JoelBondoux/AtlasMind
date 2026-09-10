@@ -183,6 +183,28 @@ export type LocalCiQueueAssessment =
   | { ok: true; run: LocalCiQueuedRun }
   | { ok: false; issue: LocalCiQueuePreflightIssue };
 
+/**
+ * Bind a prepared runner to the run the caller just dispatched.
+ *
+ * Head SHA is not enough for workflow_dispatch jobs: two different PR inputs
+ * share the trusted base branch SHA. A caller that knows the new run id supplies
+ * it, and an adjacent queue entry is refused even when every other field agrees.
+ */
+export function expectedLocalCiRunBlocker(
+  run: Pick<LocalCiQueuedRun, 'databaseId'>,
+  expectedRunId?: number,
+): string | undefined {
+  if (expectedRunId === undefined) {
+    return undefined;
+  }
+  if (!Number.isSafeInteger(expectedRunId) || expectedRunId < 1) {
+    return 'The expected queued run id is invalid.';
+  }
+  return run.databaseId === expectedRunId
+    ? undefined
+    : `The waiting job is run ${run.databaseId}, not the just-dispatched run ${expectedRunId}. AtlasMind will not lend this machine to an adjacent queue entry.`;
+}
+
 export interface LocalCiRunnerSnapshot {
   provider: 'github-actions';
   executor: 'docker';
@@ -532,8 +554,11 @@ export function assessTrustedLocalCiWorkflow(
   if (!/^\s{2}workflow_dispatch\s*:/m.test(normalized) && !/^\s{2}push\s*:/m.test(normalized)) {
     blockers.push('The workflow has neither a push nor manual trigger.');
   }
-  if (!exact(`branches: [${input.branch}]`).test(normalized)
-    && !new RegExp(`^\\s+[- ]+${escapeRegex(input.branch)}\\s*$`, 'm').test(normalized)) {
+  const branchRestrictedByTrigger = exact(`branches: [${input.branch}]`).test(normalized)
+    || new RegExp(`^\\s+[- ]+${escapeRegex(input.branch)}\\s*$`, 'm').test(normalized);
+  const branchRestrictedByJob = exact(`github.ref == 'refs/heads/${input.branch}'`).test(normalized)
+    || exact(`github.ref == "refs/heads/${input.branch}"`).test(normalized);
+  if (!branchRestrictedByTrigger && !branchRestrictedByJob) {
     blockers.push(`The workflow is not visibly restricted to the trusted branch "${input.branch}".`);
   }
   if (!exact(`github.repository == '${input.repoSlug}'`).test(normalized)
@@ -1190,7 +1215,7 @@ export class LocalCiRunnerManager {
     return review;
   }
 
-  async prepare(configuration: LocalCiRunnerConfiguration): Promise<LocalCiStartPlan> {
+  async prepare(configuration: LocalCiRunnerConfiguration, expectedRunId?: number): Promise<LocalCiStartPlan> {
     if (!configuration.enabled) {
       throw new Error('Local CI is disabled in machine settings.');
     }
@@ -1263,6 +1288,10 @@ export class LocalCiRunnerManager {
       throw new LocalCiQueuePreflightError(queueAssessment.issue);
     }
     const queuedRun = queueAssessment.run;
+    const expectedRunBlocker = expectedLocalCiRunBlocker(queuedRun, expectedRunId);
+    if (expectedRunBlocker) {
+      throw new Error(expectedRunBlocker);
+    }
     if (queuedRun.event !== 'push' && queuedRun.event !== 'workflow_dispatch') {
       throw new Error(`Queued event ${queuedRun.event || 'unknown'} is not trusted by the local executor.`);
     }
@@ -1298,13 +1327,14 @@ export class LocalCiRunnerManager {
   async start(
     configuration: LocalCiRunnerConfiguration,
     authorize: (plan: LocalCiStartPlan) => Promise<boolean>,
+    expectedRunId?: number,
   ): Promise<void> {
     if (this.operationRunning || this.runnerProcess) {
       throw new Error('A local runner operation is already in progress.');
     }
     this.operationRunning = true;
     try {
-      const plan = await this.prepare(configuration);
+      const plan = await this.prepare(configuration, expectedRunId);
       if (!await authorize(plan)) {
         this.update({ lifecycle: 'ready', message: 'The local runner start was cancelled.' });
         return;

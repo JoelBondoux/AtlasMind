@@ -493,6 +493,10 @@ import {
   type CiRouteId,
 } from '../core/ciRoutes.js';
 import {
+  findLocalCiSurfaceAction,
+  type LocalCiSurfaceActionId,
+} from './localCiSurfaceActions.js';
+import {
   CI_ROUTING_SSOT_PATH,
   CiRoutingConfigManager,
   buildCiRoutingMatrix,
@@ -1202,6 +1206,11 @@ type ProjectDashboardMessage =
    * the scripts from package.json, so the page can ask but never supply.
    */
   | { type: 'runDirectLocalChecks' }
+  /**
+   * One of the two reviewed-PR local-CI actions. The webview sends only this
+   * closed id; the host resolves the fixed VS Code command from one shared map.
+   */
+  | { type: 'runLocalCiSurfaceAction'; payload: LocalCiSurfaceActionId }
   /** Create the committed routing file. Explicit — never seeded on render. */
   | { type: 'createCiRoutingConfig' }
   /** Read the hosted allowance. Costs a `gh` request, so it is asked for. */
@@ -5933,6 +5942,13 @@ export class ProjectDashboardPanel {
       case 'runDirectLocalChecks':
         await this.handleRunDirectLocalChecks();
         return;
+      case 'runLocalCiSurfaceAction': {
+        const action = findLocalCiSurfaceAction(message.payload);
+        if (action) {
+          await vscode.commands.executeCommand(action.command);
+        }
+        return;
+      }
       case 'createCiRoutingConfig':
         await this.handleCreateCiRoutingConfig();
         return;
@@ -16480,6 +16496,10 @@ export function isProjectDashboardMessage(message: unknown): message is ProjectD
   if (candidate['type'] === 'openLocalCiSetupHelp') {
     return typeof candidate['payload'] === 'string'
       && Object.hasOwn(LOCAL_CI_SETUP_HELP_URLS, candidate['payload']);
+  }
+
+  if (candidate['type'] === 'runLocalCiSurfaceAction') {
+    return findLocalCiSurfaceAction(candidate['payload']) !== undefined;
   }
 
   if (candidate['type'] === 'createCiStarter') {

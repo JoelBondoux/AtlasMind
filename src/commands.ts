@@ -584,6 +584,16 @@ export function registerCommands(
       SettingsPanel.createOrShow(context, 'testing', getAtlas());
     }),
 
+    vscode.commands.registerCommand('atlasmind.localCi.patchRepository', async () => {
+      const { patchRepositoryForReviewedPrLocalCi } = await import('./views/reviewedPrLocalCiCommands.js');
+      await patchRepositoryForReviewedPrLocalCi();
+    }),
+
+    vscode.commands.registerCommand('atlasmind.localCi.runReviewedPullRequest', async () => {
+      const { runReviewedPullRequestOnLocalCi } = await import('./views/reviewedPrLocalCiCommands.js');
+      await runReviewedPullRequestOnLocalCi();
+    }),
+
     vscode.commands.registerCommand('atlasmind.syncTestingProtocols', async () => {
       const workspaceRoot = vscode.workspace.workspaceFolders?.[0]?.uri.fsPath;
       if (!workspaceRoot) {

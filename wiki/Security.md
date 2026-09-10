@@ -741,6 +741,20 @@ port, GPU, persistent volume, repository/environment secrets or OIDC permission.
 non-root user, capability drop, no-new-privileges flag, CPU/memory/no-swap limits and process ceiling are
 shown in the confirmation and dashboard.
 
+The reviewed-PR extension of this path is **manual and exact-SHA**, never a `pull_request` trigger. The
+trusted base branch owns `.atlasmind/local-ci.json`, the generated argv runner and the workflow; AtlasMind
+requires the two executable files to match its generator byte for byte. It refuses draft and fork PRs,
+shows the complete head SHA, re-reads the PR after approval, then identifies the newly dispatched run by
+its run id and input-derived title before the local runner may claim it. The workflow controller checkout
+uses the dispatch commit (`github.sha`), so a later base-branch push cannot replace the reviewed controller
+while a job waits. Inputs reach the validation shell through environment variables, and the candidate
+contract rejects shell executables.
+
+That is still execution of proposed code. The job has outbound network access for GitHub and dependency
+installation, and Docker shares the host kernel through its runtime. The modal therefore states that the
+container is defence in depth and not a substitute for reviewing the exact diff. Codex, Claude, any other
+agent interface and a human author receive no different trust treatment; producer identity grants nothing.
+
 Hardware detection is an evidence boundary as well as a convenience. AtlasMind reads Docker's actual
 OS/architecture and capacity after startup, reserves at least 25% for the desktop, and refuses if the safe
 remainder is below 2 CPUs/4 GB or if the workflow label does not match the engine. The same explicit scan

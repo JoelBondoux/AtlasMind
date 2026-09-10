@@ -737,6 +737,16 @@ from GitHub CLI directly into Docker stdin; it never enters browser state or Atl
 container has no host mounts, Docker socket, GPU, persistent volume, ports or default labels and is bounded
 by CPU, memory, swap, process, capability and privilege-escalation controls.
 
+Reviewed pull requests reuse that fabric through a repository patch rather than a new agent-specific
+executor. `localCiRepositoryPatch.ts` emits the strict config, fixed argv runner and manual workflow;
+`reviewedPrLocalCiCommands.ts` requires a same-repository, non-draft PR into the trusted base, displays the
+complete head SHA, re-reads it after approval, and binds the runner to the one newly dispatched GitHub run
+id. The trusted controller is checked out at the dispatch commit (`github.sha`), while the candidate is
+checked out at the approved SHA. Pipeline, Pull Requests, Settings → Testing and the slash commands all
+resolve `patch`/`review` through one host allowlist. Codex, Claude, another proprietary agent interface and
+a human therefore share one identity-and-SHA boundary. The job still has outbound network access for
+GitHub and dependency installation; Docker is defence in depth, not permission to skip reviewing the diff.
+
 **A run outlives the editor, and the next session adopts it.** Closing VS Code leaves the container
 executing its job, which is kept on purpose: GitHub is waiting on real work, and killing it because a window
 closed would throw away minutes of compute. What is new is that AtlasMind now looks for it again — a running
