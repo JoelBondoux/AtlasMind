@@ -1,29 +1,81 @@
-name: One-shot export AtlasMind feature source
+name: One-shot apply and validate reviewed-PR local CI feature
 
 on:
   push:
     branches:
       - feat/provider-neutral-reviewed-pr-local-ci
     paths:
-      - .github/workflows/one-shot-export-atlasmind-source.yml
+      - .github/reviewed-pr-local-ci.patch
 
-permissions:
-  contents: read
+permissions: {}
 
 jobs:
-  export:
+  validate:
+    name: Validate source, tests and package
     runs-on: ubuntu-latest
+    timeout-minutes: 30
+    permissions:
+      contents: read
+
     steps:
       - name: Check out feature branch
-        uses: actions/checkout@34e114876b0b11c390a56381ad16ebd13914f8d5 # v4.3.1
+        # v7
+        uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1
         with:
           persist-credentials: false
 
-      - name: Upload source tree
-        uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a # v7.0.1
+      - name: Apply the proposed feature without committing it
+        shell: bash
+        run: |
+          git apply --check .github/reviewed-pr-local-ci.patch
+          git apply .github/reviewed-pr-local-ci.patch
+          git diff --check
+          node --check media/projectDashboard.js
+
+      - name: Set up Node.js
+        # v7
+        uses: actions/setup-node@820762786026740c76f36085b0efc47a31fe5020
         with:
-          name: atlasmind-feature-source
-          path: .
-          include-hidden-files: true
-          if-no-files-found: error
-          retention-days: 1
+          node-version: 24
+          cache: npm
+
+      - name: Install locked dependencies
+        run: npm ci
+
+      - name: Type-check tests
+        run: npm run typecheck:tests
+
+      - name: Run the complete local CI gate
+        run: npm run ci:local
+
+  commit:
+    name: Commit the already-validated feature
+    needs: validate
+    runs-on: ubuntu-latest
+    timeout-minutes: 5
+    permissions:
+      contents: write
+
+    steps:
+      - name: Check out feature branch for the write-only commit
+        # v7
+        uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1
+
+      - name: Apply the validated patch and remove one-shot helpers
+        shell: bash
+        run: |
+          git apply --check .github/reviewed-pr-local-ci.patch
+          git apply .github/reviewed-pr-local-ci.patch
+          rm .github/reviewed-pr-local-ci.patch
+          rm .github/workflows/one-shot-export-atlasmind-source.yml
+          git diff --check
+          node --check media/projectDashboard.js
+
+      - name: Commit and push
+        shell: bash
+        run: |
+          git config user.name "Joel Bondoux"
+          git config user.email "email@joelbondoux.net"
+          git add -A
+          git -c core.hooksPath=/dev/null commit -m "feat: add provider-neutral reviewed-PR local CI"
+          git push origin HEAD:refs/heads/feat/provider-neutral-reviewed-pr-local-ci
