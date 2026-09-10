@@ -28,8 +28,11 @@ jobs:
         shell: bash
         run: |
           cat .github/reviewed-pr-local-ci.patch.gz.b64.part-* | base64 --decode | gzip --decompress > "$RUNNER_TEMP/reviewed-pr-local-ci.patch"
+          base64 --decode .github/reviewed-pr-local-ci-fix.patch.gz.b64 | gzip --decompress > "$RUNNER_TEMP/reviewed-pr-local-ci-fix.patch"
           git apply --check "$RUNNER_TEMP/reviewed-pr-local-ci.patch"
           git apply "$RUNNER_TEMP/reviewed-pr-local-ci.patch"
+          git apply --check "$RUNNER_TEMP/reviewed-pr-local-ci-fix.patch"
+          git apply "$RUNNER_TEMP/reviewed-pr-local-ci-fix.patch"
           git diff --check
           node --check media/projectDashboard.js
 
@@ -43,10 +46,7 @@ jobs:
       - name: Install locked dependencies
         run: npm ci
 
-      - name: Type-check tests
-        run: npm run typecheck:tests
-
-      - name: Run the complete local CI gate
+      - name: Run the complete AtlasMind local CI gate
         run: npm run ci:local
 
   commit:
@@ -66,9 +66,13 @@ jobs:
         shell: bash
         run: |
           cat .github/reviewed-pr-local-ci.patch.gz.b64.part-* | base64 --decode | gzip --decompress > "$RUNNER_TEMP/reviewed-pr-local-ci.patch"
+          base64 --decode .github/reviewed-pr-local-ci-fix.patch.gz.b64 | gzip --decompress > "$RUNNER_TEMP/reviewed-pr-local-ci-fix.patch"
           git apply --check "$RUNNER_TEMP/reviewed-pr-local-ci.patch"
           git apply "$RUNNER_TEMP/reviewed-pr-local-ci.patch"
+          git apply --check "$RUNNER_TEMP/reviewed-pr-local-ci-fix.patch"
+          git apply "$RUNNER_TEMP/reviewed-pr-local-ci-fix.patch"
           rm .github/reviewed-pr-local-ci.patch.gz.b64.part-*
+          rm .github/reviewed-pr-local-ci-fix.patch.gz.b64
           rm .github/reviewed-pr-local-ci.ready
           rm .github/workflows/one-shot-export-atlasmind-source.yml
           git diff --check
