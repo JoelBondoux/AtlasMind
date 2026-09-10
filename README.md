@@ -4,7 +4,7 @@
 
 <h1 align="center">AtlasMind</h1>
 
-<p align="center"><sub> · <strong>Current source version: 0.474.1</strong> · </sub></p>
+<p align="center"><sub> · <strong>Current source version: 0.474.2</strong> · </sub></p>
 
 
 <p align="center">
@@ -175,9 +175,9 @@ important limits on overrides and compliance claims.
 
 ---
 
-## What's new in 0.474.1
+## What's new in 0.474.2
 
-The last Marketplace publication, **v0.449.5**, brought the changes below. Every release is written
+The last Marketplace publication, **v0.474.1**, brought the changes below. Every release is written
 up in full in [CHANGELOG.md](CHANGELOG.md).
 
 - **Website delivery is on the Dashboard's Delivery page.** The framework choice, the three hosting

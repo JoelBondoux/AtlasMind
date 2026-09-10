@@ -19,6 +19,12 @@ Older entries below describe the software as it was at the time and are delibera
 
 ---
 
+## v0.474.2 -- Published baseline
+
+The README's published baseline now names v0.474.1.
+
+---
+
 ## v0.474.1 -- Delivery record
 
 The delivery register now names 0.474.0 as the last promotion to Integration, so the Delivery
