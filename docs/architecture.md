@@ -67,6 +67,16 @@ secrets/OIDC, full-SHA actions, and one custom label registered without GitHub's
 The worker is an ephemeral non-root Linux container in Docker Desktop's WSL2 VM, with no host mounts or
 Docker socket, and is started only for the reviewed job.
 
+A fourth, pre-merge plane is opt-in per repository. `localCiRepositoryPatch.ts` creates a committed
+`.atlasmind/local-ci.json`, fixed shell-rejecting argv runner, and owner-only manual workflow.
+`reviewedPrLocalCi.ts` authorises repository identity, target branch and one exact current PR head SHA;
+`reviewedPrLocalCiCommands.ts` re-reads the PR after approval, identifies the newly dispatched workflow
+run by its unique run id and input-derived title, and passes that id into `LocalCiRunnerManager`. The base
+branch supplies the controller at `github.sha`; the proposed SHA supplies only the candidate checkout.
+The producer name is never a trust signal, so Codex, Claude, other agent interfaces and humans follow the
+same route. The job retains outbound network access for GitHub and dependency installation, so the
+container is defence in depth and explicit code review remains the authorisation boundary.
+
 `.github/workflows/ci.yml` is a different plane: provider-hosted release evidence. It runs automatically
 only for pull requests into protected `main`, preserves the three check contexts branch protection already
 requires, and can be dispatched manually for an intentional platform investigation. Separating workflow

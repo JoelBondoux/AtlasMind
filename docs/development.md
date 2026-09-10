@@ -708,6 +708,24 @@ manager completes its ephemeral cleanup in the extension host. Add provider adap
 rather than adding provider-specific process calls to the panel, and never convert Linux-container evidence
 into a native host result.
 
+The **reviewed-PR route** is layered on that executor rather than implemented as another runner.
+`localCiRepositoryPatch.ts` builds three managed repository files and refuses unrelated occupants;
+`reviewedPrLocalCi.ts` parses the strict contract and exact GitHub PR identity; and
+`reviewedPrLocalCiCommands.ts` owns the two installed commands. A run starts only from the trusted base
+checkout with clean managed files whose workflow and controller bytes exactly match the installed
+generator. It snapshots waiting workflow run ids before dispatch, requires exactly one newly created
+input-labelled run, and gives that expected id to `LocalCiRunnerManager.prepare`, so another job sharing
+the same base SHA cannot be claimed. Workflow inputs enter bash through environment variables rather than
+source interpolation, and the candidate command contract rejects shell executables as well as composed
+command strings.
+
+`localCiSurfaceActions.ts` is the shared two-value allowlist used by Pipeline, Pull Requests and Settings →
+Testing. Webviews may send only `patch` or `review`; the host maps that id to a fixed command. Slash routing
+exposes `/localci patch`, `/localci review`, `/localci-patch` and `/localci-review` through the same command
+handlers. Do not add a producer-specific branch here: Codex, Claude and other agent services are merely
+ways a GitHub PR was authored, never authorisation. Also do not describe the container as making unknown
+code safe: it retains outbound network access for GitHub and dependency installation.
+
 Queue guidance follows the dashboard command-control contract: never style a branch argument by itself as
 runnable code. Render the complete `gh` command and its standard Copy/Send controls together. Queue
 Copy/Send messages carry no command payload; the host rebuilds a validated argv value with

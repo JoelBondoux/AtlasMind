@@ -35,6 +35,11 @@ describe('routePanelPrompt — a slash command never reaches a model by accident
       raw: '/memory  what did we decide about auth',
     });
     expect(routePanelPrompt('/sync-instructions')).toMatchObject({ kind: 'replay', command: 'sync-instructions' });
+    expect(routePanelPrompt('/localci patch')).toEqual({
+      kind: 'replay', command: 'localci', argument: 'patch', raw: '/localci patch',
+    });
+    expect(routePanelPrompt('/localci-patch')).toMatchObject({ kind: 'replay', command: 'localci-patch' });
+    expect(routePanelPrompt('/localci-review')).toMatchObject({ kind: 'replay', command: 'localci-review' });
   });
 
   it('hands the long-running two back as goals for the panel to run natively', () => {

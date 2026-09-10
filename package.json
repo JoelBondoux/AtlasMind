@@ -2,7 +2,7 @@
   "name": "atlasmind",
   "displayName": "AtlasMind",
   "description": "AI project management for VS Code: roadmap, risk, tech debt, compliance, testing and release tracked from your own repository — with a multi-agent AI team, or the AI coding tool you already use.",
-  "version": "0.474.3",
+  "version": "0.475.0",
   "publisher": "JoelBondoux",
   "preview": false,
   "license": "SEE LICENSE IN OSMFEULA.txt",
@@ -159,6 +159,14 @@
           {
             "name": "localci",
             "description": "Local CI: a checklist for running this repository's GitHub job on your own computer"
+          },
+          {
+            "name": "localci-patch",
+            "description": "Patch the current repository with AtlasMind-managed reviewed-PR local CI files"
+          },
+          {
+            "name": "localci-review",
+            "description": "Select and run an approved exact PR SHA on the isolated local CI runner"
           },
           {
             "name": "setup",
@@ -763,6 +771,16 @@
         "command": "atlasmind.models.configureSubscription",
         "title": "AtlasMind: Configure Subscription Plan",
         "icon": "$(credit-card)"
+      },
+      {
+        "command": "atlasmind.localCi.patchRepository",
+        "title": "AtlasMind: Patch This Repository for Local CI",
+        "icon": "$(tools)"
+      },
+      {
+        "command": "atlasmind.localCi.runReviewedPullRequest",
+        "title": "AtlasMind: Run a Reviewed Pull Request on Local CI",
+        "icon": "$(git-pull-request)"
       }
     ],
     "keybindings": [

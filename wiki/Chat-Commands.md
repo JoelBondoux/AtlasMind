@@ -37,7 +37,9 @@ Two nice touches: a mistyped command gets **corrected rather than answered** (`/
 | `/buzz` | Guided setup for the Buzz messaging integration |
 | `/lens` | What to put in the Lens declaration files, with a worked example for each |
 | `/compliance` | What evidences each declared governance regime. `/compliance <regime>` for one regime's readout; `/compliance next` for the control most worth a decision and what would settle it. Records nothing — a status needs a named person and a date. |
-| `/localci` | Guided setup for running this repository's GitHub CI job on your own computer |
+| `/localci` | Local-CI status and setup for running this repository's GitHub job on your own computer |
+| `/localci patch` · `/localci-patch` | Preview and write the three AtlasMind-managed files that opt this repository into exact-SHA reviewed-PR local CI |
+| `/localci review` · `/localci-review` | Choose an eligible same-repository PR, inspect and approve its exact current SHA, then lend one one-job Docker runner |
 | `/portal` | Guided setup for hosting the producer report as a GitHub Pages site. Leads with the fact that a Pages site is public even when the repository is private, and never enables Pages for you |
 | `/sync-instructions` | Reconcile every AI tool's instruction file — yours and AtlasMind's — into one agreed set |
 
@@ -105,6 +107,7 @@ autocomplete only knows the commands above, so it will not suggest these; they w
 | `/sync-instructions apply` | Accept the reconciled instruction set |
 | `/sync-instructions choose <n> <m>` | Resolve conflict *n* by taking option *m* |
 | `/sync-instructions reset` · `/sync-instructions cancel` | Start the reconciliation again, or abandon it |
+| `/localci patch` · `/localci review` | Patch the repository contract, or select and approve one exact PR SHA. The aliases `/localci-patch` and `/localci-review` do the same thing |
 | `/project <goal> --approve` · `/loop <goal> --approve` | Skip the file-count review gate for a run you have already read. Nothing else about the run changes — tool approvals, protected branches and release gates all still apply |
 
 ---
@@ -184,6 +187,8 @@ The session drawer above the transcript starts closed and remembers your choice 
 | `AtlasMind: Open Settings Panel` | The full settings workspace |
 | `AtlasMind: Open Chat / Model / Safety / Project Settings` | Straight to one settings page |
 | `AtlasMind: Open Project Dashboard` | Repo health, roadmap, issues, branches, delivery and more; internal callers may supply a validated page and exact-record focus |
+| `AtlasMind: Patch This Repository for Local CI` | Preview and write the managed exact-SHA local-CI contract; it commits or pushes nothing |
+| `AtlasMind: Run a Reviewed Pull Request on Local CI` | Re-read and approve one same-repository PR SHA, dispatch the trusted workflow, and start the one-job runner |
 | `AtlasMind: Open Project Director` | Stakeholders, team, assignments, and the shared personal Follow-ups attention list |
 | `AtlasMind: Open Project Ideation` | The thinking board |
 | `AtlasMind: Import Rota from a Calendar File` | Reads declared absence out of an `.ics` your rota app exported — Deputy, When I Work, Google Calendar or anything else. Only events naming an absence are imported: a rota feed is mostly the shifts somebody is *working*, and recording those as time off would mark them away on exactly the days they are rostered on, so a file of shifts is refused with that reason and everything left alone is counted. Nothing is fetched — a calendar feed URL is a password, so you download the file and pick it. Also on the Workload card |
