@@ -5,7 +5,7 @@ on:
     branches:
       - feat/provider-neutral-reviewed-pr-local-ci
     paths:
-      - .github/reviewed-pr-local-ci.patch.gz.b64
+      - .github/reviewed-pr-local-ci.ready
 
 permissions: {}
 
@@ -27,7 +27,7 @@ jobs:
       - name: Decode and apply the proposed feature without committing it
         shell: bash
         run: |
-          base64 --decode .github/reviewed-pr-local-ci.patch.gz.b64 | gzip --decompress > "$RUNNER_TEMP/reviewed-pr-local-ci.patch"
+          cat .github/reviewed-pr-local-ci.patch.gz.b64.part-* | base64 --decode | gzip --decompress > "$RUNNER_TEMP/reviewed-pr-local-ci.patch"
           git apply --check "$RUNNER_TEMP/reviewed-pr-local-ci.patch"
           git apply "$RUNNER_TEMP/reviewed-pr-local-ci.patch"
           git diff --check
@@ -65,10 +65,11 @@ jobs:
       - name: Apply the validated patch and remove one-shot helpers
         shell: bash
         run: |
-          base64 --decode .github/reviewed-pr-local-ci.patch.gz.b64 | gzip --decompress > "$RUNNER_TEMP/reviewed-pr-local-ci.patch"
+          cat .github/reviewed-pr-local-ci.patch.gz.b64.part-* | base64 --decode | gzip --decompress > "$RUNNER_TEMP/reviewed-pr-local-ci.patch"
           git apply --check "$RUNNER_TEMP/reviewed-pr-local-ci.patch"
           git apply "$RUNNER_TEMP/reviewed-pr-local-ci.patch"
-          rm .github/reviewed-pr-local-ci.patch.gz.b64
+          rm .github/reviewed-pr-local-ci.patch.gz.b64.part-*
+          rm .github/reviewed-pr-local-ci.ready
           rm .github/workflows/one-shot-export-atlasmind-source.yml
           git diff --check
           node --check media/projectDashboard.js
