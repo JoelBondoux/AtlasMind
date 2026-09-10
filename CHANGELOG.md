@@ -6,6 +6,15 @@ The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/),
 
 ## [Unreleased]
 
+## [0.474.3] - 2026-09-10
+
+### Fixed
+
+- **Secret scan:** the codebase-index test's credential-shaped fixture — the alphabet behind an
+  `sk-` prefix, there so the test can prove such a file is refused before chunking — is allowlisted
+  by path in `.gitleaks.toml`, the way every other detector fixture is. CI's Secret scan had
+  reported it on the 0.474.1 release pull request; the required checks were unaffected.
+
 ## [0.474.2] - 2026-09-10
 
 ### Changed

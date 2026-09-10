@@ -19,6 +19,13 @@ Older entries below describe the software as it was at the time and are delibera
 
 ---
 
+## v0.474.3 -- Secret scan allowlist
+
+The codebase-index test's credential-shaped fixture is allowlisted by path, as every other
+detector fixture is, so CI's Secret scan is green again.
+
+---
+
 ## v0.474.2 -- Published baseline
 
 The README's published baseline now names v0.474.1.
