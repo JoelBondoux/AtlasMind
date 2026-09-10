@@ -24,7 +24,7 @@ jobs:
         with:
           persist-credentials: false
 
-      - name: Decode and apply the proposed feature without committing it
+      - name: Decode, apply and repair the proposed feature without committing it
         shell: bash
         run: |
           cat .github/reviewed-pr-local-ci.patch.gz.b64.part-* | base64 --decode | gzip --decompress > "$RUNNER_TEMP/reviewed-pr-local-ci.patch"
@@ -33,6 +33,37 @@ jobs:
           git apply "$RUNNER_TEMP/reviewed-pr-local-ci.patch"
           git apply --check "$RUNNER_TEMP/reviewed-pr-local-ci-fix.patch"
           git apply "$RUNNER_TEMP/reviewed-pr-local-ci-fix.patch"
+          python - <<'PY'
+          from pathlib import Path
+
+          replacements = [
+              ('docs/local-ci-and-safe-runners.md',
+               '- `.github/workflows/atlasmind-reviewed-pr-local-ci.yml` -- an owner-only manual workflow whose inputs',
+               '- **.github/workflows/atlasmind-reviewed-pr-local-ci.yml** -- an owner-only manual workflow whose inputs'),
+              ('src/views/chatSlashRouting.ts',
+               'so every one of the twenty\n * deterministic slash commands',
+               'so every one of the twenty-seven\n * recognised slash commands'),
+              ('src/views/chatSlashRouting.ts',
+               'is twenty-two chances for the panel to',
+               'is twenty-five chances for the panel to'),
+              ('tests/chat/slashCommandRouting.test.ts',
+               "    24: 'twenty-four', 25: 'twenty-five',\n",
+               "    24: 'twenty-four', 25: 'twenty-five', 26: 'twenty-six', 27: 'twenty-seven',\n"),
+              ('src/core/localCiRepositoryPatch.ts',
+               'export function isAtlasMindManagedLocalCiContent(',
+               'function isAtlasMindManagedLocalCiContent('),
+              ('src/core/reviewedPrLocalCi.ts',
+               'export function reviewedPrFingerprint(',
+               'function reviewedPrFingerprint('),
+          ]
+          for filename, old, new in replacements:
+              path = Path(filename)
+              text = path.read_text(encoding='utf-8')
+              count = text.count(old)
+              if count != 1:
+                  raise SystemExit(f'{filename}: expected one repair target, found {count}')
+              path.write_text(text.replace(old, new, 1), encoding='utf-8')
+          PY
           git diff --check
           node --check media/projectDashboard.js
 
@@ -62,7 +93,7 @@ jobs:
         # v7
         uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1
 
-      - name: Apply the validated patch and remove one-shot helpers
+      - name: Apply the validated patch, repairs and remove one-shot helpers
         shell: bash
         run: |
           cat .github/reviewed-pr-local-ci.patch.gz.b64.part-* | base64 --decode | gzip --decompress > "$RUNNER_TEMP/reviewed-pr-local-ci.patch"
@@ -71,10 +102,42 @@ jobs:
           git apply "$RUNNER_TEMP/reviewed-pr-local-ci.patch"
           git apply --check "$RUNNER_TEMP/reviewed-pr-local-ci-fix.patch"
           git apply "$RUNNER_TEMP/reviewed-pr-local-ci-fix.patch"
+          python - <<'PY'
+          from pathlib import Path
+
+          replacements = [
+              ('docs/local-ci-and-safe-runners.md',
+               '- `.github/workflows/atlasmind-reviewed-pr-local-ci.yml` -- an owner-only manual workflow whose inputs',
+               '- **.github/workflows/atlasmind-reviewed-pr-local-ci.yml** -- an owner-only manual workflow whose inputs'),
+              ('src/views/chatSlashRouting.ts',
+               'so every one of the twenty\n * deterministic slash commands',
+               'so every one of the twenty-seven\n * recognised slash commands'),
+              ('src/views/chatSlashRouting.ts',
+               'is twenty-two chances for the panel to',
+               'is twenty-five chances for the panel to'),
+              ('tests/chat/slashCommandRouting.test.ts',
+               "    24: 'twenty-four', 25: 'twenty-five',\n",
+               "    24: 'twenty-four', 25: 'twenty-five', 26: 'twenty-six', 27: 'twenty-seven',\n"),
+              ('src/core/localCiRepositoryPatch.ts',
+               'export function isAtlasMindManagedLocalCiContent(',
+               'function isAtlasMindManagedLocalCiContent('),
+              ('src/core/reviewedPrLocalCi.ts',
+               'export function reviewedPrFingerprint(',
+               'function reviewedPrFingerprint('),
+          ]
+          for filename, old, new in replacements:
+              path = Path(filename)
+              text = path.read_text(encoding='utf-8')
+              count = text.count(old)
+              if count != 1:
+                  raise SystemExit(f'{filename}: expected one repair target, found {count}')
+              path.write_text(text.replace(old, new, 1), encoding='utf-8')
+          PY
           rm .github/reviewed-pr-local-ci.patch.gz.b64.part-*
           rm .github/reviewed-pr-local-ci-fix.patch.gz.b64
           rm .github/reviewed-pr-local-ci.ready
           rm .github/workflows/one-shot-export-atlasmind-source.yml
+          rm .github/workflows/one-shot-export-applied-source.yml
           git diff --check
           node --check media/projectDashboard.js
 
