@@ -97,10 +97,10 @@ const DEFAULT_PROJECT_APPROVAL_FILE_THRESHOLD = 12;
 const DEFAULT_ESTIMATED_FILES_PER_SUBTASK = 2;
 const DEFAULT_CHANGED_FILE_REFERENCE_LIMIT = 5;
 const DEFAULT_PROJECT_RUN_REPORT_FOLDER = 'project_memory/operations';
-const TEST_SCAN_EXCLUDED_DIRS = new Set(['.git', '.next', '.turbo', 'coverage', 'dist', 'node_modules', 'out', 'project_memory']);
+const TEST_SCAN_EXCLUDED_DIRS = new Set(['.git', '.next', '.turbo', '.claude', '.codex', '.worktrees', 'coverage', 'dist', 'node_modules', 'out', 'project_memory', 'test-results']);
 const TEST_FILE_NAME_PATTERN = /(?:^|[.-])(test|spec)\.[cm]?[jt]sx?$/i;
 const TEST_CODE_EXT_PATTERN = /\.[cm]?[jt]sx?$/i;
-const MAX_DISCOVERED_TEST_FILES = 200;
+const MAX_DISCOVERED_TEST_FILES = 10_000;
 const MAX_DISCOVERED_TEST_CASES = 600;
 const MAX_TEST_FILE_BYTES = 128_000;
 const SETTINGS_HELP = {
@@ -6722,7 +6722,8 @@ export function collectTestingDashboardSnapshot(
     }
   }
 
-  const discoveredFiles = discoverTestFiles(workspaceRoot);
+  const discovery = discoverTestFiles(workspaceRoot);
+  const discoveredFiles = discovery.files;
   let totalSuites = 0;
   let totalCases = 0;
   let unitFiles = 0;
@@ -6905,7 +6906,9 @@ export function collectTestingDashboardSnapshot(
     frameworkLabel,
     frameworks: detectedFrameworkList,
     testingPolicyLabel,
-    testingPolicyDetail,
+    testingPolicyDetail: testingPolicyDetail + (discovery.truncated
+      ? ` Test discovery reached its ${MAX_DISCOVERED_TEST_FILES.toLocaleString()}-file safety limit; counts and missing-evidence findings are partial.`
+      : ''),
     totalFiles: discoveredFiles.length,
     totalSuites,
     totalCases,
@@ -7131,11 +7134,12 @@ function cleanCodePreview(line: string): string {
   return line.replace(/\s+/g, ' ').replace(/^[([{]+|[)\]};,]+$/g, '').slice(0, 140).trim();
 }
 
-function discoverTestFiles(workspaceRoot: string): string[] {
+export function discoverTestFiles(workspaceRoot: string, maxFiles = MAX_DISCOVERED_TEST_FILES): { files: string[]; truncated: boolean } {
   const results: Array<{ filePath: string; mtimeMs: number }> = [];
   const pending = [workspaceRoot];
+  let truncated = false;
 
-  while (pending.length > 0 && results.length < MAX_DISCOVERED_TEST_FILES) {
+  scan: while (pending.length > 0) {
     const current = pending.pop();
     if (!current) {
       continue;
@@ -7151,7 +7155,8 @@ function discoverTestFiles(workspaceRoot: string): string[] {
     for (const entry of entries) {
       const fullPath = path.join(current, entry.name);
       if (entry.isDirectory()) {
-        if (!TEST_SCAN_EXCLUDED_DIRS.has(entry.name.toLowerCase())) {
+        // A nested checkout has its own evidence; never attribute it to this one.
+        if (!TEST_SCAN_EXCLUDED_DIRS.has(entry.name.toLowerCase()) && !existsSync(path.join(fullPath, '.git'))) {
           pending.push(fullPath);
         }
         continue;
@@ -7169,6 +7174,10 @@ function discoverTestFiles(workspaceRoot: string): string[] {
       }
 
       try {
+        if (results.length >= maxFiles) {
+          truncated = true;
+          break scan;
+        }
         results.push({ filePath: fullPath, mtimeMs: statSync(fullPath).mtimeMs });
       } catch {
         // Ignore stat failures for transient files.
@@ -7176,9 +7185,10 @@ function discoverTestFiles(workspaceRoot: string): string[] {
     }
   }
 
-  return results
-    .sort((left, right) => right.mtimeMs - left.mtimeMs)
-    .map(item => item.filePath);
+  return {
+    files: results.sort((left, right) => right.mtimeMs - left.mtimeMs).map(item => item.filePath),
+    truncated,
+  };
 }
 
 /**

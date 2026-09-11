@@ -4,7 +4,7 @@
 
 <h1 align="center">AtlasMind</h1>
 
-<p align="center"><sub> · <strong>Current source version: 0.475.0</strong> · </sub></p>
+<p align="center"><sub> · <strong>Current source version: 0.475.1</strong> · </sub></p>
 
 
 <p align="center">
@@ -174,6 +174,10 @@ allow-list, redaction and file-withholding behaviour, retained metadata, provide
 important limits on overrides and compliance claims.
 
 ---
+
+## What's new in 0.475.1
+
+Operational scoring now reads full Project Soul sections and discovers tests throughout large monorepos. Nested checkouts are excluded, and a scan that reaches the safety limit says it is partial. No score weights or test requirements changed.
 
 ## What's new in 0.475.0
 

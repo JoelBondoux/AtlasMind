@@ -306,3 +306,5 @@ Be respectful, constructive and inclusive. Standard open-source community guidel
 - [[Agents]] · [[Skills]] · [[Model Routing]] — the areas people most often extend
 - [[GitHub Workflow]] — the workflow this repository follows
 - [[Funding and Sponsorship]] — the other way to help
+
+The Vitest VS Code alias uses `fileURLToPath` so temporary worktrees with spaces in their Windows paths resolve the same test stub as the main checkout.

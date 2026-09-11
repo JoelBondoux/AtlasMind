@@ -1,4 +1,5 @@
 import { defineConfig } from 'vitest/config';
+import { fileURLToPath } from 'node:url';
 
 /**
  * The worker allowance a containerised runner declared for this job, if any.
@@ -93,7 +94,7 @@ export default defineConfig({
     alias: {
       // Stub the vscode module so tests that transitively import it compile and run.
       // Tests that need specific vscode behaviour should use vi.mock('vscode', ...) locally.
-      vscode: new URL('./tests/__mocks__/vscode.ts', import.meta.url).pathname,
+      vscode: fileURLToPath(new URL('./tests/__mocks__/vscode.ts', import.meta.url)),
     },
     coverage: {
       provider: 'v8',

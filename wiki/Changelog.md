@@ -19,6 +19,14 @@ Older entries below describe the software as it was at the time and are delibera
 
 ---
 
+## v0.475.1 -- Accurate project evidence
+
+### Fixed
+
+- Read complete Project Soul Vision and References sections, including Windows line endings and nested subheadings, so the operational score can use the evidence already present.
+- Discover tests across large monorepos rather than silently stopping after 200 files. Exclude nested repositories and generated agent worktrees; report when the 10,000-file safety limit makes a scan partial. Score weights and testing obligations are unchanged.
+- Resolve the VS Code test stub with a filesystem URL conversion so tests work in Windows paths containing spaces.
+
 ## v0.475.0 -- Reviewed pull-request local CI
 
 AtlasMind can patch any GitHub repository with a committed local-CI contract, then run one

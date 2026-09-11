@@ -1393,3 +1393,7 @@ not presentation conventions: the webview never treats a dynamic dotted path as 
 - [[Tool Execution]] — the approval pipeline
 - [[Security]] — the boundaries
 - [[CLI]] — the terminal host
+
+## Operational evidence discovery
+
+Project Dashboard outcome evidence reads the complete level-two Vision and References sections of Project Soul, retaining nested subheadings and handling LF/CRLF. Testing discovery scans across workspaces up to a 10,000-file safety bound, excludes nested repositories and agent worktrees, and states when results are partial. The 600-case display limit does not cap the policy-evidence scan. Regression coverage is in `tests/views/operationsEvidence.test.ts`; score weights remain unchanged.

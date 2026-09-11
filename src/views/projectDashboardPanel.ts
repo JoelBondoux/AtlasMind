@@ -23273,7 +23273,7 @@ async function collectSsotDelta(
   };
 }
 
-async function collectOutcomeCompleteness(
+export async function collectOutcomeCompleteness(
   workspaceRoot: string | undefined,
   ssotPath: string,
   runs: Array<{ completedSubtaskCount: number; totalSubtaskCount: number; status: string }>,
@@ -23426,9 +23426,13 @@ async function collectMarkdownFiles(directoryPath: string): Promise<string[]> {
 }
 
 function extractMarkdownSection(text: string, heading: string): string {
-  const pattern = new RegExp(`^##\\s+${escapeRegExp(heading)}\\s*$([\\s\\S]*?)(?=^##\\s+|$)`, 'im');
-  const match = text.match(pattern);
-  return match?.[1]?.trim() ?? '';
+  const lines = text.split(/\r?\n/);
+  const pattern = new RegExp(`^##[\\t ]+${escapeRegExp(heading)}[\\t ]*$`, 'i');
+  const start = lines.findIndex(line => pattern.test(line));
+  if (start < 0) return '';
+  const rest = lines.slice(start + 1);
+  const end = rest.findIndex(line => /^##[\t ]+/.test(line));
+  return (end < 0 ? rest : rest.slice(0, end)).join('\n').trim();
 }
 
 function extractMarkdownBulletItems(text: string): string[] {

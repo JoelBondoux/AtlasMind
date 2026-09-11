@@ -6,6 +6,14 @@ The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/),
 
 ## [Unreleased]
 
+## [0.475.1] - 2026-09-11
+
+### Fixed
+
+- Read complete Project Soul Vision and References sections, including Windows line endings and nested subheadings, so the operational score can use existing evidence.
+- Discover tests across large monorepos rather than silently stopping after 200 files. Exclude nested repositories and generated agent worktrees; report when the 10,000-file safety limit makes a scan partial. Score weights and testing obligations are unchanged.
+- Resolve the VS Code test stub with a filesystem URL conversion so tests work in Windows paths containing spaces.
+
 ## [0.475.0] - 2026-09-10
 
 ### Added
