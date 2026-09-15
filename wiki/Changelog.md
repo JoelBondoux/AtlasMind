@@ -19,6 +19,12 @@ Older entries below describe the software as it was at the time and are delibera
 
 ---
 
+## v0.476.2 -- Published baseline
+
+The README's published baseline now names v0.476.1.
+
+---
+
 ## v0.476.1 -- One approval choice covers the response
 
 Selecting **Bypass Approvals** or **Autopilot** now applies the scope before concurrent tool gates resume

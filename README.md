@@ -4,7 +4,7 @@
 
 <h1 align="center">AtlasMind</h1>
 
-<p align="center"><sub> · <strong>Current source version: 0.476.1</strong> · </sub></p>
+<p align="center"><sub> · <strong>Current source version: 0.476.2</strong> · </sub></p>
 
 
 <p align="center">
@@ -175,7 +175,10 @@ important limits on overrides and compliance claims.
 
 ---
 
-## What's new in 0.476.1
+## What's new in 0.476.2
+
+The last Marketplace publication, **v0.476.1**, brought the changes below. Every release is written
+up in full in [CHANGELOG.md](CHANGELOG.md).
 
 Bypass Approvals and Autopilot now take effect on the click itself, so concurrent tool calls already
 waiting in one response settle together instead of asking repeatedly. Irreversible remote actions remain
