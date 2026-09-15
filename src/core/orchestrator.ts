@@ -6607,15 +6607,13 @@ export function selectTaskScopedSkills(
   const command = TASK_SCOPED_COMMAND_PATTERN.test(userMessage);
   const contextualAction = shouldBiasTowardDirectAction(userMessage, requestContext);
   const contextualInvestigation = shouldBiasTowardWorkspaceInvestigation(userMessage, requestContext);
-  const priorContext = [
-    requestContext['sessionContext'],
-    requestContext['nativeChatContext'],
-    requestContext['attachmentContext'],
-  ].filter((value): value is string => typeof value === 'string').join('\n');
+  const priorContext = collectTaskSelectionContext(requestContext);
   const verificationOnly = /\b(?:did you|have you|was it|were they|check whether|verify whether|confirm whether)\b/i.test(userMessage)
     && !/\b(?:fix|patch|repair|implement|update|change|edit|write|create|delete|remove|move|rename|refactor)\b[^.!?\n]{0,40}\b(?:now|after|then|if)\b/i.test(userMessage);
+  const contextualWorkspaceMutation = contextualAction
+    && ACTIONABLE_WORKSPACE_CONTEXT_PATTERN.test(priorContext);
   const mutation = (!verificationOnly && TASK_SCOPED_ACTION_PATTERN.test(userMessage))
-    || (contextualAction && ACTIONABLE_WORKSPACE_CONTEXT_PATTERN.test(priorContext));
+    || contextualWorkspaceMutation;
   const action = mutation
     || TASK_SCOPED_TOOL_ACTION_PATTERN.test(userMessage)
     || contextualAction;
@@ -6641,6 +6639,7 @@ export function selectTaskScopedSkills(
     && !TASK_SCOPED_STRONG_WORKSPACE_PATTERN.test(userMessage);
   const workspace = (!conceptualExplanation && TASK_SCOPED_WORKSPACE_PATTERN.test(userMessage))
     || contextualInvestigation
+    || contextualWorkspaceMutation
     || (testing && (command || action));
 
   // `gh` lives behind `terminal-run`, so a GitHub turn that does not also select
@@ -7650,10 +7649,33 @@ export function budgetForCorrection(budget: BudgetMode): BudgetMode {
   return budget === 'cheap' ? 'balanced' : 'expensive';
 }
 
+function collectSessionContextBundleText(requestContext: Record<string, unknown>): string {
+  const value = requestContext['sessionContextBundle'];
+  if (!value || typeof value !== 'object' || Array.isArray(value)) {
+    return '';
+  }
+
+  const bundle = value as Record<string, unknown>;
+  return ['goal', 'summary', 'decisions', 'openThreads']
+    .map(field => typeof bundle[field] === 'string' ? bundle[field].trim() : '')
+    .filter(Boolean)
+    .join('\n');
+}
+
+function collectTaskSelectionContext(requestContext: Record<string, unknown>): string {
+  return [
+    typeof requestContext['sessionContext'] === 'string' ? requestContext['sessionContext'].trim() : '',
+    collectSessionContextBundleText(requestContext),
+    typeof requestContext['nativeChatContext'] === 'string' ? requestContext['nativeChatContext'].trim() : '',
+    typeof requestContext['attachmentContext'] === 'string' ? requestContext['attachmentContext'].trim() : '',
+  ].filter(Boolean).join('\n');
+}
+
 function collectActionableContext(requestContext: Record<string, unknown>): string {
   return [
     typeof requestContext['workstationContext'] === 'string' ? requestContext['workstationContext'].trim() : '',
     typeof requestContext['sessionContext'] === 'string' ? requestContext['sessionContext'].trim() : '',
+    collectSessionContextBundleText(requestContext),
     typeof requestContext['nativeChatContext'] === 'string' ? requestContext['nativeChatContext'].trim() : '',
   ].filter(Boolean).join('\n');
 }

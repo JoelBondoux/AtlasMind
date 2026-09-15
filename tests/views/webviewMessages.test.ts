@@ -102,6 +102,7 @@ describe('isSettingsMessage', () => {
     expect(isSettingsMessage({ type: 'setDashboardChatDestination', payload: 'vscode' })).toBe(true);
     expect(isSettingsMessage({ type: 'setDashboardChatDestination', payload: 'session:openai-codex' })).toBe(true);
     expect(isSettingsMessage({ type: 'setDashboardChatDestination', payload: 'participant:sample.reviewer' })).toBe(true);
+    expect(isSettingsMessage({ type: 'testDashboardChatDestination', payload: 'session:openai-codex' })).toBe(true);
     expect(isSettingsMessage({ type: 'setProjectApprovalFileThreshold', payload: 5 })).toBe(true);
     expect(isSettingsMessage({ type: 'setProjectEstimatedFilesPerSubtask', payload: 3 })).toBe(true);
     expect(isSettingsMessage({ type: 'setProjectChangedFileReferenceLimit', payload: 10 })).toBe(true);
@@ -129,6 +130,7 @@ describe('isSettingsMessage', () => {
     expect(isSettingsMessage({ type: 'runLocalCiSurfaceAction', payload: 'review' })).toBe(true);
     expect(isSettingsMessage({ type: 'runLocalCiSurfaceAction', payload: 'atlasmind.toggleAutopilot' })).toBe(false);
     expect(isSettingsMessage({ type: 'setDashboardChatDestination', payload: 'session:bad;command' })).toBe(false);
+    expect(isSettingsMessage({ type: 'testDashboardChatDestination', payload: 'session:bad;command' })).toBe(false);
     expect(isSettingsMessage({ type: 'runLocalCiSurfaceAction', payload: { command: 'evil' } })).toBe(false);
   });
 

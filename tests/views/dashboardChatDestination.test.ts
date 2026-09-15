@@ -3,6 +3,7 @@ import {
   collectDashboardChatDestinations,
   isDashboardChatDestinationId,
   planDashboardChatDispatch,
+  resolveDashboardChatDestinationSetting,
 } from '../../src/views/webviewUtils.js';
 
 const extensions = [
@@ -27,6 +28,8 @@ const extensions = [
       contributes: {
         chatParticipants: [
           { id: 'sample.reviewer', name: 'reviewer', fullName: 'Code Reviewer' },
+          { id: 'sample.reviewer.editor', name: 'reviewer', fullName: 'Code Reviewer' },
+          { id: 'sample.terminal', name: 'terminal', fullName: 'Terminal' },
           { id: 'atlasmind.orchestrator', name: 'atlas', fullName: 'AtlasMind' },
           { id: 'sample.unsafe', name: 'bad mention', fullName: 'Unsafe' },
         ],
@@ -53,7 +56,48 @@ describe('Project Dashboard chat destinations', () => {
     expect(destinations.find(destination => destination.id === 'session:openai-codex'))
       .toMatchObject({ kind: 'session', label: 'OpenAI Codex', sessionType: 'openai-codex' });
     expect(destinations.find(destination => destination.id === 'participant:sample.reviewer'))
-      .toMatchObject({ kind: 'participant', label: 'Code Reviewer', mention: 'reviewer' });
+      .toMatchObject({
+        kind: 'participant',
+        label: 'Code Reviewer',
+        mention: 'reviewer',
+        aliases: ['participant:sample.reviewer.editor', 'participant:sample.terminal'],
+      });
+    expect(destinations.filter(destination => destination.label === 'Code Reviewer')).toHaveLength(1);
+    expect(destinations.some(destination => destination.label === 'Terminal')).toBe(false);
+  });
+
+  it('shows one service choice when an extension declares internal context participants', () => {
+    const destinations = collectDashboardChatDestinations([{
+      id: 'github.copilot-chat',
+      packageJSON: {
+        displayName: 'GitHub Copilot',
+        contributes: {
+          chatParticipants: [
+            { id: 'github.copilot.terminal', name: 'terminal', fullName: 'Terminal' },
+            { id: 'github.copilot.editingSession', name: 'GitHubCopilot', fullName: 'GitHub Copilot' },
+            { id: 'github.copilot.default', name: 'GitHubCopilot', fullName: 'GitHub Copilot' },
+          ],
+        },
+      },
+    }]);
+
+    expect(destinations.slice(2)).toEqual([expect.objectContaining({
+      id: 'participant:github.copilot.default',
+      kind: 'participant',
+      label: 'GitHub Copilot',
+      mention: 'GitHubCopilot',
+      aliases: [
+        'participant:github.copilot.editingSession',
+        'participant:github.copilot.terminal',
+      ],
+    })]);
+    expect(planDashboardChatDispatch(
+      { draftPrompt: 'Check this route.' },
+      'participant:github.copilot.terminal',
+      destinations,
+    )).toMatchObject({
+      arguments: [{ query: '@GitHubCopilot Check this route.', isPartialQuery: false }],
+    });
   });
 
   it('turns an Atlas icon click into an immediate AtlasMind submission', () => {
@@ -98,6 +142,15 @@ describe('Project Dashboard chat destinations', () => {
     });
 
     expect(planDashboardChatDispatch(
+      { draftPrompt: 'Review this risk.' },
+      'participant:sample.terminal',
+      destinations,
+    )).toMatchObject({
+      command: 'workbench.action.chat.open',
+      arguments: [{ query: '@reviewer Review this risk.', isPartialQuery: false }],
+    });
+
+    expect(planDashboardChatDispatch(
       { draftPrompt: 'Resolve this gap.' },
       'session:openai-codex',
       destinations,
@@ -118,5 +171,25 @@ describe('Project Dashboard chat destinations', () => {
     expect(isDashboardChatDestinationId('participant:sample.reviewer')).toBe(true);
     expect(isDashboardChatDestinationId('session:bad;command')).toBe(false);
     expect(isDashboardChatDestinationId('workbench.action.files.delete')).toBe(false);
+  });
+
+  it('uses the workspace-state fallback only while no explicit setting exists', () => {
+    expect(resolveDashboardChatDestinationSetting(
+      'atlasmind',
+      undefined,
+      'session:openai-codex',
+    )).toBe('session:openai-codex');
+
+    expect(resolveDashboardChatDestinationSetting(
+      'atlasmind',
+      { workspaceValue: 'vscode' },
+      'session:openai-codex',
+    )).toBe('vscode');
+
+    expect(resolveDashboardChatDestinationSetting(
+      'atlasmind',
+      { defaultValue: 'atlasmind' },
+      'workbench.action.files.delete',
+    )).toBe('atlasmind');
   });
 });

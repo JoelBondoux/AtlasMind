@@ -44,6 +44,11 @@ parameters, its risk category and a plain summary of the impact. You get four ch
 Parameters are redacted for secrets and length-capped before you see them. If a parameter can't be
 displayed properly, it says **"unserializable arguments"** rather than showing a misleading empty object.
 
+Bypass and Autopilot are applied by the approval manager in the same state transition that resolves the
+card. Tool calls from one model response run concurrently, so the manager also settles every already-waiting
+card covered by the new scope before any tool gate resumes. A card cannot be answered before its resolver
+exists, and the host rejects any decision the card did not offer.
+
 Autopilot can also be toggled directly with **AtlasMind: Toggle Autopilot**, and puts an indicator in
 your status bar so you always know it's on.
 

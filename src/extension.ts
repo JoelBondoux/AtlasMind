@@ -1958,6 +1958,7 @@ async function bootstrapAtlasMind(
       classifyToolInvocation: toolPolicyModule.classifyToolInvocation,
       getToolApprovalMode: toolPolicyModule.getToolApprovalMode,
       requiresToolApproval: toolPolicyModule.requiresToolApproval,
+      toolBypassCeiling: toolPolicyModule.toolBypassCeiling,
       RoutineRegistry: routineRegistryModule.RoutineRegistry,
       DeliveryManager: deliveryManagerModule.DeliveryManager,
       ProjectDirectorManager: projectDirectorManagerModule.ProjectDirectorManager,
@@ -2529,6 +2530,7 @@ async function bootstrapAtlasMind(
         return { approved: true };
       }
 
+      const bypassCeilingReason = startupModules.toolBypassCeiling(policy);
       void import('./views/chatPanel.js').then(({ revealPreferredChatSurface }) => revealPreferredChatSurface({ preserveFocus: true }));
       const choice = await toolApprovalManager.requestApproval({
         taskId,
@@ -2536,6 +2538,11 @@ async function bootstrapAtlasMind(
         category: policy.category,
         risk: policy.risk,
         summary: policy.summary,
+        ...(bypassCeilingReason
+          ? {
+            detail: `This action always requires explicit approval, even when Bypass Approvals or Autopilot is enabled. ${bypassCeilingReason}`,
+          }
+          : {}),
       });
 
       if (choice === 'allow-once') {
@@ -2543,12 +2550,10 @@ async function bootstrapAtlasMind(
       }
 
       if (choice === 'bypass-task') {
-        toolApprovalManager.bypassTask(taskId);
         return { approved: true };
       }
 
       if (choice === 'autopilot') {
-        toolApprovalManager.enableAutopilot();
         return { approved: true };
       }
 

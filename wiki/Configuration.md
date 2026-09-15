@@ -151,9 +151,13 @@ Reopen the chat and it picks the run back up properly: you watch the answer arri
 
 ### Where Dashboard Atlas actions go
 
-The Atlas icon on a Project Dashboard card submits the generated request; it does not merely fill a composer. Choose its destination under **Settings → Chat & Sidebar → Atlas action destination**. AtlasMind remains the default. **VS Code Chat (current target)** follows the target, agent, and model currently selected in VS Code Chat, while named installed choices are shown only for extensions that declare a chat participant or chat-session prompt route. An extension with only Open or Focus commands is not guessed to be send-capable.
+The Atlas icon on a Project Dashboard card submits the generated request; it does not merely fill a composer. Choose its destination under **Settings → Chat & Sidebar → Atlas action destination**, where the same prompt button is shown beside the selector so it is clear which Dashboard button the setting controls. Click that button to send a clearly labelled real test prompt; it can use the chosen service's quota or normal request cost. AtlasMind remains the default. **VS Code Chat (current target)** follows the target, agent, and model currently selected in VS Code Chat, while named installed choices are shown only for extensions that declare a chat participant or chat-session prompt route. An extension with only Open or Focus commands is not guessed to be send-capable.
 
-The choice belongs to the workspace and is checked against the installed extensions on every click. If the saved destination was removed or is malformed, AtlasMind sends nothing and tells you to choose again. When you select an external service, that service receives the Dashboard prompt directly under its own privacy, routing, cost, and approval controls; AtlasMind's controls do not wrap it.
+An extension may declare several internal participants for editor, notebook, agent, terminal, or other contexts. Settings collapses those to one primary service choice instead of showing duplicate-looking rows; the hidden IDs remain compatibility aliases for an existing selection. Distinct declared chat sessions, such as a CLI or cloud-agent session, remain separate options.
+
+The choice belongs to the workspace and is checked against the installed extensions on every click. If an Extension Development Host has not registered this setting yet, AtlasMind retains the validated choice in workspace-local extension state, uses it immediately, and asks you to reload the window; an explicit registered setting always wins and clears that fallback on the next successful save. If the saved destination was removed or is malformed, AtlasMind sends nothing and tells you to choose again.
+
+When you select another chat, AtlasMind creates the prompt and hands the text to that service. The other service then controls the model, its privacy and retention behaviour, quota or cost, and any permission prompts. AtlasMind sends no private structured Dashboard context, but its redaction, spending limits, and approval rules cannot wrap the request after hand-off; the generated prompt itself can still contain project details.
 
 ---
 

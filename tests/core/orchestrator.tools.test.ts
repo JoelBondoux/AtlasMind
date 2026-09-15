@@ -411,6 +411,20 @@ describe('Orchestrator agentic loop', () => {
       'Handle that.',
       { sessionContext: 'The current thread is about stale Dependabot branches and the merge order for the repo.' },
     )).toBe(true);
+
+    expect(shouldBiasTowardWorkspaceInvestigation(
+      'Handle that.',
+      {
+        sessionContextBundle: {
+          goal: 'Repair the project dashboard chat hand-off.',
+          summary: 'The broken behavior is in the workspace chat panel code.',
+          decisions: '',
+          openThreads: 'Apply and verify the source change.',
+          ssotExcerpts: [],
+          loadedAt: '2026-09-15T12:00:00.000Z',
+        },
+      },
+    )).toBe(true);
   });
 
   it('biases current-project-structure settings requests toward workspace investigation', () => {
@@ -5358,6 +5372,44 @@ describe('task-scoped skill context', () => {
     'git-status', 'git-diff', 'git-log', 'git-commit', 'git-push', 'git-branch',
     'file-read', 'terminal-run', 'npm-scripts', 'web-fetch',
   ];
+
+  it.each([
+    [
+      'legacy session text',
+      {
+        sessionContext: 'The CI metadata is inaccurate. Update .github/workflows/ci.yml and engine/package.json before committing.',
+      },
+    ],
+    [
+      'structured session context',
+      {
+        sessionContextBundle: {
+          goal: 'Make the project coverage claims match the repository.',
+          summary: 'The mismatch is in .github/workflows/ci.yml and engine/package.json.',
+          decisions: 'Scale back the inflated coverage claims.',
+          openThreads: 'The source edit still needs to be applied before committing.',
+          ssotExcerpts: [],
+          loadedAt: '2026-09-15T12:00:00.000Z',
+        },
+      },
+    ],
+  ])('keeps the unfinished workspace mutation tools available for commit and push with %s', (_label, requestContext) => {
+    const eligibleSkills = [
+      ...GIT_AND_DELIVERY_SKILLS,
+      'file-search', 'file-edit', 'file-write', 'diff-preview',
+    ].map(id => skill(id));
+
+    const selected = selectTaskScopedSkills(
+      { skills: [], skillPolicy: 'task-scoped' },
+      eligibleSkills,
+      'commit and push',
+      requestContext,
+    ).map(item => item.id);
+
+    expect(selected).toEqual(expect.arrayContaining([
+      'file-read', 'file-edit', 'file-write', 'diff-preview', 'git-commit', 'git-push',
+    ]));
+  });
 
   const ATLASMIND_VOCABULARY = {
     stages: [

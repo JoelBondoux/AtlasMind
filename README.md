@@ -4,7 +4,7 @@
 
 <h1 align="center">AtlasMind</h1>
 
-<p align="center"><sub> · <strong>Current source version: 0.476.0</strong> · </sub></p>
+<p align="center"><sub> · <strong>Current source version: 0.476.1</strong> · </sub></p>
 
 
 <p align="center">
@@ -174,6 +174,20 @@ allow-list, redaction and file-withholding behaviour, retained metadata, provide
 important limits on overrides and compliance claims.
 
 ---
+
+## What's new in 0.476.1
+
+Bypass Approvals and Autopilot now take effect on the click itself, so concurrent tool calls already
+waiting in one response settle together instead of asking repeatedly. Irreversible remote actions remain
+outside both bypass modes and their approval card now says why it reappeared. Short Git follow-ups such
+as `commit and push` also retain the file tools needed to finish an outstanding source edit recorded in
+the session, including when that history is carried by the structured context bundle. Dashboard prompt
+destinations also survive a stale Extension Development Host registry: a displayed Codex selection is retained
+for that workspace and used immediately instead of silently reverting to AtlasMind. The setting now shows the
+actual Dashboard prompt button and clicking it sends a live route test. Internal editor, notebook, agent, and
+terminal participants from one extension collapse into one service choice instead of duplicate-looking rows.
+Its hand-off guidance plainly identifies which privacy, model, quota/cost, context, and permission controls
+belong to the other chat.
 
 ## What's new in 0.476.0
 
@@ -616,7 +630,7 @@ Everything is in the AtlasMind Settings panel, or under `atlasmind.*` in VS Code
 | `autoVerifyAfterWrite` | `true` | Run your checks automatically after a change |
 | `ssotPath` | `project_memory` | Where project memory lives in your repo |
 | `chatSessionTurnLimit` | `6` | How much recent conversation carries forward |
-| `dashboard.chatDestination` | `atlasmind` | Where Project Dashboard Atlas actions submit: AtlasMind, the current VS Code Chat target, or an installed prompt-capable chat extension |
+| `dashboard.chatDestination` | `atlasmind` | Where Project Dashboard Atlas actions submit: AtlasMind, the current VS Code Chat target, or an installed prompt-capable chat extension. Settings shows the matching prompt button; click it to send a live route test. Internal participant routes are collapsed to one choice per extension. A stale Extension Development Host retains the validated workspace choice until its settings registry reloads |
 | `lens.live.enabled` | `false` | Let the live lenses read the schema a running service serves. Shape only, never a row |
 | `ci.localRunner.enabled` | `false` | Permit one confirmed ephemeral runner for an already-queued trusted job; machine-scoped |
 | `ci.localRunner.shutdownPolicy` | `ifStartedByAtlasMind` | Keep Docker open, close it only when AtlasMind opened it, or always close when no other container runs |

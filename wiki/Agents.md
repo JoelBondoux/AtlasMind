@@ -360,6 +360,12 @@ Skills, Models & budget, Testing and Maintenance, with advanced groups collapsed
 
 The third is deliberately separate, because its scope grows on its own.
 
+Task-scoped selection carries unfinished work across short follow-ups. If the current session says a
+source edit is still outstanding, a direct instruction such as `commit and push` receives the bounded
+file read/write tools as well as the Git tools. This works with both older transcript context and the
+structured goal, summary, decisions, and open threads used by current sessions; it never expands the
+agent's eligibility list or skips approval.
+
 ### Advice that saves pain later
 
 - **Be specific in the role field.** "Reviews Terraform for security misconfigurations" routes far better

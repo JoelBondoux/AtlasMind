@@ -135,6 +135,11 @@ the session.
 It stays one narrow category on purpose. A gate that prompts on every file write is a gate people turn
 off, and a gate that is off protects nothing. Full detail in [Tool Execution](Tool-Execution.md).
 
+Scope changes are atomic with the click: concurrent bypassable cards already waiting for the same response
+are settled before their tool gates resume. Bulk settlement re-checks the ceiling and the card's declared
+decision list, so a protected remote action or a restricted review card stays pending. The extension host
+also rejects a forged webview decision that was never offered on that card.
+
 ---
 
 ## Routines are shown to you before they run

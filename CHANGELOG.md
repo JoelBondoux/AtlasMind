@@ -6,6 +6,21 @@ The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/),
 
 ## [Unreleased]
 
+## [0.476.1] - 2026-09-15
+
+### Fixed
+
+- Apply an approval card's **Bypass Approvals** or **Autopilot** choice atomically, before concurrent tool gates resume, and settle the other eligible prompts already waiting in the same response. The first click is no longer followed by repeated approval cards for work it already covered.
+- Register each pending approval's resolver before publishing the card, so an immediate answer cannot be lost.
+- Explain on protected approval cards why irreversible remote actions still require an explicit click under Bypass or Autopilot.
+- Preserve the workspace edit/write tools needed by action follow-ups such as `commit and push` when the prior session says a source change is still unfinished. Task-scoped selection now reads both legacy session text and the structured session context used by current chat sessions.
+- Keep a selected external Dashboard chat destination effective when an Extension Development Host has not registered the new setting yet. A validated workspace-local fallback prevents a displayed Codex selection from silently reverting to AtlasMind; an explicit registered setting still takes precedence.
+- Show the actual Dashboard prompt button beside its destination setting and make that button send a clearly labelled live test through the chosen route. Collapse an extension's internal editor, notebook, agent, and terminal participant IDs into one service choice while preserving those IDs as compatibility aliases. Rewrite the external-service explanation in plain language while retaining the model, privacy, quota/cost, context, and approval boundary.
+
+### Security
+
+- Keep non-bypassable remote actions and restricted review cards out of bulk approval. The host now rejects a decision a card did not offer, even if a forged webview message requests it.
+
 ## [0.476.0] - 2026-09-15
 
 ### Added

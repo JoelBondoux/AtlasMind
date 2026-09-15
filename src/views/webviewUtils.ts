@@ -14,6 +14,7 @@ export const PROJECT_DASHBOARD_VIEW_TYPE = 'atlasmind.projectDashboard';
 /** The per-workspace destination for prompt-bearing Project Dashboard actions. */
 export const DASHBOARD_CHAT_DESTINATION_SETTING = 'dashboard.chatDestination';
 export const DEFAULT_DASHBOARD_CHAT_DESTINATION = 'atlasmind';
+export const DASHBOARD_CHAT_DESTINATION_FALLBACK_STATE_KEY = 'atlasmind.dashboard.chatDestination.fallback';
 
 const DASHBOARD_CHAT_TOKEN = /^[A-Za-z0-9][A-Za-z0-9._-]{0,159}$/;
 
@@ -26,6 +27,8 @@ interface DashboardChatDestinationBase {
   id: string;
   label: string;
   description: string;
+  /** Older or duplicate contributed ids that execute the same route. */
+  aliases?: readonly string[];
 }
 
 export type DashboardChatDestination =
@@ -45,6 +48,16 @@ export interface DashboardChatDispatch {
   command: string;
   arguments: unknown[];
   destination: DashboardChatDestination;
+}
+
+export interface DashboardChatConfigurationInspectionLike {
+  defaultValue?: unknown;
+  globalValue?: unknown;
+  globalLanguageValue?: unknown;
+  workspaceValue?: unknown;
+  workspaceLanguageValue?: unknown;
+  workspaceFolderValue?: unknown;
+  workspaceFolderLanguageValue?: unknown;
 }
 
 function asRecord(value: unknown): Record<string, unknown> | undefined {
@@ -123,6 +136,13 @@ export function collectDashboardChatDestinations(
       });
     }
 
+    const participantCandidates: Array<{
+      id: string;
+      participantId: string;
+      mention: string;
+      label: string;
+      description: string;
+    }> = [];
     for (const row of contributionRows(contributes['chatParticipants'])) {
       const participantId = typeof row['id'] === 'string' ? row['id'].trim() : '';
       const mention = typeof row['name'] === 'string' ? row['name'].trim() : '';
@@ -132,9 +152,8 @@ export function collectDashboardChatDestinations(
         continue;
       }
       const id = `participant:${participantId}`;
-      discovered.set(id, {
+      participantCandidates.push({
         id,
-        kind: 'participant',
         participantId,
         mention,
         label: boundedContributionText(row['fullName'] ?? row['name'], `@${mention}`),
@@ -144,15 +163,86 @@ export function collectDashboardChatDestinations(
         ),
       });
     }
+
+    if (participantCandidates.length > 0) {
+      // Chat extensions often contribute internal participants for editor,
+      // notebook, agent, terminal, or other host contexts. The destination
+      // setting chooses an installed chat service, not one of those internal
+      // implementation surfaces, so expose one primary participant per
+      // extension. Prefer an explicitly named `.default` participant, then
+      // preserve manifest order. Old internal ids remain aliases so an existing
+      // workspace selection migrates to the same extension instead of failing.
+      const primary = participantCandidates.find(candidate => candidate.participantId.endsWith('.default'))
+        ?? participantCandidates[0];
+      const aliases = participantCandidates
+        .filter(candidate => candidate.id !== primary.id)
+        .map(candidate => candidate.id)
+        .sort((a, b) => a.localeCompare(b, 'en'));
+      discovered.set(primary.id, {
+        ...primary,
+        kind: 'participant',
+        ...(aliases.length > 0 ? { aliases } : {}),
+      });
+    }
   }
 
   return [...base, ...[...discovered.values()].sort(compareDestination)];
+}
+
+/** Resolve canonical and legacy contributed ids to one executable route. */
+export function findDashboardChatDestination(
+  destinations: readonly DashboardChatDestination[],
+  configuredDestination: unknown,
+): DashboardChatDestination | undefined {
+  const configured = typeof configuredDestination === 'string'
+    ? configuredDestination.trim()
+    : '';
+  if (!configured) {
+    return undefined;
+  }
+  return destinations.find(candidate => candidate.id === configured
+    || candidate.aliases?.includes(configured));
 }
 
 export function isDashboardChatDestinationId(value: unknown): value is string {
   return value === DEFAULT_DASHBOARD_CHAT_DESTINATION
     || value === 'vscode'
     || (typeof value === 'string' && /^(?:participant|session):[A-Za-z0-9][A-Za-z0-9._-]{0,159}$/.test(value));
+}
+
+/**
+ * Resolve a dashboard destination without mistaking a manifest default for a
+ * persisted choice.
+ *
+ * Extension Development Hosts do not re-register `package.json`
+ * configuration contributions when only the extension host reloads. In that
+ * split-brain state the current webview can offer this setting while VS Code
+ * refuses to store it. A workspace-state fallback keeps the explicit choice
+ * effective until the outer window reloads and registers the manifest.
+ */
+export function resolveDashboardChatDestinationSetting(
+  resolvedConfigurationValue: unknown,
+  inspection: DashboardChatConfigurationInspectionLike | undefined,
+  persistedFallback: unknown,
+): unknown {
+  const explicitConfigurationValue = inspection === undefined
+    ? undefined
+    : [
+      inspection.workspaceFolderLanguageValue,
+      inspection.workspaceFolderValue,
+      inspection.workspaceLanguageValue,
+      inspection.workspaceValue,
+      inspection.globalLanguageValue,
+      inspection.globalValue,
+    ].find(value => value !== undefined);
+
+  if (explicitConfigurationValue !== undefined) {
+    return explicitConfigurationValue;
+  }
+  if (isDashboardChatDestinationId(persistedFallback)) {
+    return persistedFallback;
+  }
+  return resolvedConfigurationValue ?? DEFAULT_DASHBOARD_CHAT_DESTINATION;
 }
 
 /**
@@ -169,7 +259,7 @@ export function planDashboardChatDispatch(
   const configured = typeof configuredDestination === 'string' && configuredDestination.trim()
     ? configuredDestination.trim()
     : DEFAULT_DASHBOARD_CHAT_DESTINATION;
-  const destination = destinations.find(candidate => candidate.id === configured);
+  const destination = findDashboardChatDestination(destinations, configured);
   if (!prompt || !destination) {
     return undefined;
   }
@@ -546,6 +636,7 @@ export const ATLAS_ACTION_GLYPHS = {
 export type AtlasActionIntent = keyof typeof ATLAS_ACTION_GLYPHS;
 
 export interface AtlasDiscussActionOptions {
+  id?: string;
   iconUri: string;
   action: string;
   label: string;
@@ -557,11 +648,14 @@ export interface AtlasDiscussActionOptions {
 
 /** Render a nonce-free, delegated-event button that opens an Atlas discussion. */
 export function renderAtlasDiscussAction(options: AtlasDiscussActionOptions): string {
+  const id = options.id
+    ? ` id="${escapeHtml(options.id)}"`
+    : '';
   const target = options.targetId
     ? ` data-id="${escapeHtml(options.targetId)}"`
     : '';
   const glyph = ATLAS_ACTION_GLYPHS[options.intent ?? 'discuss'];
-  return `<button type="button" class="atlas-discuss-action icon-only" data-action="${escapeHtml(options.action)}"${target} title="${escapeHtml(options.title)}" aria-label="${escapeHtml(options.label)}"><img src="${escapeHtml(options.iconUri)}" alt="" aria-hidden="true" /><span class="atlas-discuss-glyph" aria-hidden="true">${glyph}</span><span class="atlas-discuss-label">${escapeHtml(options.label)}</span></button>`;
+  return `<button${id} type="button" class="atlas-discuss-action icon-only" data-action="${escapeHtml(options.action)}"${target} title="${escapeHtml(options.title)}" aria-label="${escapeHtml(options.label)}"><img src="${escapeHtml(options.iconUri)}" alt="" aria-hidden="true" /><span class="atlas-discuss-glyph" aria-hidden="true">${glyph}</span><span class="atlas-discuss-label">${escapeHtml(options.label)}</span></button>`;
 }
 
 export function escapeHtml(text: string): string {
