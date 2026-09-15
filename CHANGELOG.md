@@ -6,6 +6,20 @@ The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/),
 
 ## [Unreleased]
 
+## [0.476.0] - 2026-09-15
+
+### Added
+
+- Add `atlasmind.dashboard.chatDestination`, exposed on Settings → Chat & Sidebar, so Project Dashboard Atlas actions can submit to AtlasMind, the current VS Code Chat target, or an installed extension that declares a chat participant or chat-session prompt contract.
+
+### Fixed
+
+- Make every prompt-bearing Atlas action on the Project Dashboard submit its request immediately. In 0.475.2 most actions opened AtlasMind Chat with an unsent draft, making the icon appear inert.
+
+### Security
+
+- Discover third-party destinations from installed declarative chat contributions only. Validate and re-resolve the saved destination on every click; a malformed, removed, or unsupported destination refuses without sending project text, and external routing is labelled as outside AtlasMind's routing, redaction, cost, context, and approval controls.
+
 ## [0.475.1] - 2026-09-11
 
 ### Fixed

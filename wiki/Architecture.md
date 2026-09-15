@@ -362,6 +362,17 @@ of the restored webview, since the snapshot is rebuilt from the workspace anyway
 a watchdog on any request the host must answer, so silence is rendered as silence rather than as a
 spinner that never stops. Any inbound message counts as proof of life, not only a final result.
 
+Project Dashboard Atlas actions have one host-owned dispatch boundary. The browser posts only its existing
+bounded action or record id; `projectDashboardPanel.ts` rebuilds the prompt and passes it to
+`openDashboardChat()`, which resolves the per-workspace `atlasmind.dashboard.chatDestination` through the
+pure planner in `webviewUtils.ts`. AtlasMind is the default and is always opened with immediate submission —
+the icon click is the submit gesture. The other fixed route is VS Code Chat's current target. Named third-party
+choices exist only when an installed manifest declares a chat participant or chat session; arbitrary extension
+commands are never accepted as configuration. Contribution ids use a closed token grammar, labels are bounded,
+and the selection is re-resolved on every click so a removed or malformed target refuses without sending.
+External routes receive the generated prompt only, not AtlasMind-only context/direct-response objects, and run
+under that service's privacy, routing, cost, and approval controls.
+
 UI Studio retains the original `atlasmind.openWebsiteStudio` command id and
 `project_memory/domain/website.json` path for compatibility. Format v6 added a revisioned,
 target-independent `UiDesignGraph` behind the explicit interface profile. Website, web-app, mobile,

@@ -19,6 +19,15 @@ Older entries below describe the software as it was at the time and are delibera
 
 ---
 
+## v0.476.0 -- Dashboard Atlas actions submit where you choose
+
+Project Dashboard Atlas actions submit again instead of opening AtlasMind Chat with an unsent draft.
+The new **Settings → Chat & Sidebar → Atlas action destination** selector keeps AtlasMind as the default,
+or sends through the current VS Code Chat target or an installed extension that declares a compatible
+chat participant or chat-session route. Installed routes are discovered live; malformed, unsupported, or
+removed selections refuse without sending project text. The Settings page also states that an external
+service receives the generated prompt under its own routing, privacy, cost, and approval controls.
+
 ## v0.475.1 -- Accurate project evidence
 
 ### Fixed

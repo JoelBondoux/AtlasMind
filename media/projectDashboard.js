@@ -2575,13 +2575,13 @@
     if (action === 'gap-run') {
       state.activePage = 'gapAnalysis';
       state.gapBusy = true;
-      state.gapStatus = 'Opening a live Atlas chat session for the analysis...';
+      state.gapStatus = 'Submitting the analysis to the configured chat destination...';
       render();
       vscode.postMessage({ type: 'runGapAnalysis' });
       return;
     }
     if (action === 'gap-resolve') {
-      state.gapStatus = 'Opening a new Atlas chat session to resolve this gap...';
+      state.gapStatus = 'Submitting this gap to the configured chat destination...';
       render();
       vscode.postMessage({ type: 'resolveGapItem', payload });
       return;
@@ -2591,7 +2591,7 @@
       return;
     }
     if (action === 'gap-group') {
-      state.gapStatus = `Opening a new Atlas chat session for ${payload} items...`;
+      state.gapStatus = `Submitting ${payload} items to the configured chat destination...`;
       render();
       vscode.postMessage({ type: 'resolveGapGroup', payload });
       return;

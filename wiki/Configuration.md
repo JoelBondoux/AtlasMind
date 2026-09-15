@@ -118,6 +118,7 @@ Providers**. Azure uses `atlasmind.provider.azure.apiKey`; Bedrock uses
 | `atlasmind.cli.addToTerminalPath` | `false` | Whether the `atlasmind` launchers go on the PATH of new integrated terminals |
 | `atlasmind.chat.revealOnApprovalRequest` | `true` | Bring the chat panel forward when something's waiting on you. You get a notification either way |
 | `atlasmind.chat.continueInBackground` | `true` | Let a chat finish after you close or hide its window, instead of stopping it |
+| `atlasmind.dashboard.chatDestination` | `atlasmind` | Where Project Dashboard Atlas actions submit: AtlasMind, the current VS Code Chat target, or an installed prompt-capable chat extension |
 | `atlasmind.maxToolIterations` | `10` | How many tool rounds one turn may take |
 | `atlasmind.maxToolCallsPerTurn` | `8` | How many tools may run at once |
 | `atlasmind.toolExecutionTimeoutMs` | `15000` | Per-tool timeout |
@@ -147,6 +148,12 @@ Reopen the chat and it picks the run back up properly: you watch the answer arri
 | `atlasmind.chatSessionTurnLimit` | `6` | How many recent turns come with you into the next request |
 | `atlasmind.chatSessionContextChars` | `2500` | How much room that carried context gets |
 | `atlasmind.contextCompressionEnabled` | `true` | Compact prompts to cut tokens and spend. Leave on |
+
+### Where Dashboard Atlas actions go
+
+The Atlas icon on a Project Dashboard card submits the generated request; it does not merely fill a composer. Choose its destination under **Settings → Chat & Sidebar → Atlas action destination**. AtlasMind remains the default. **VS Code Chat (current target)** follows the target, agent, and model currently selected in VS Code Chat, while named installed choices are shown only for extensions that declare a chat participant or chat-session prompt route. An extension with only Open or Focus commands is not guessed to be send-capable.
+
+The choice belongs to the workspace and is checked against the installed extensions on every click. If the saved destination was removed or is malformed, AtlasMind sends nothing and tells you to choose again. When you select an external service, that service receives the Dashboard prompt directly under its own privacy, routing, cost, and approval controls; AtlasMind's controls do not wrap it.
 
 ---
 
