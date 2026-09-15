@@ -3414,10 +3414,8 @@ export class ChatPanel {
       case 'allow-once':
         return;
       case 'bypass-task':
-        this.atlas.toolApprovalManager.bypassTask(taskId);
         return;
       case 'autopilot':
-        this.atlas.toolApprovalManager.enableAutopilot();
         return;
       case 'deny':
       default:

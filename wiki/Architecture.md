@@ -274,6 +274,11 @@ Perforce boundary as `not-visible` rather than zero.
 | **Voice** | Speech in and out — cloud, your OS, or fully on-device |
 | **Local GPU arbiter** | Decides which local model requests may run, so several at once cannot over-fill one graphics card |
 
+The approval gate makes a Bypass/Autopilot click and its runtime scope one atomic transition. It settles
+concurrent pending cards only when the scope covers them, the card offered that decision, and the tool is
+below the non-waivable ceiling. Protected remote actions remain pending and carry the reason they still
+need an explicit click; a forged webview choice is rejected by the extension host.
+
 **About the first one.** Before it existed there were 21 places in the code that could call a model
 and only one of them redacted anything first — not because the other twenty leaked, but because
 nothing stopped them. A rule every caller has to remember is not a rule; it had already been forgotten
@@ -372,6 +377,18 @@ commands are never accepted as configuration. Contribution ids use a closed toke
 and the selection is re-resolved on every click so a removed or malformed target refuses without sending.
 External routes receive the generated prompt only, not AtlasMind-only context/direct-response objects, and run
 under that service's privacy, routing, cost, and approval controls.
+
+Settings and Dashboard resolve the stored destination through the same precedence rule: an explicit registered
+configuration value, then a validated workspace-state fallback, then the manifest default. The fallback is only
+for an Extension Development Host whose outer window has not registered a newly contributed setting; it lets the
+displayed Codex choice take effect immediately, while a successful registered save clears it.
+
+Participant contributions are reduced to one primary service route per extension, with internal editor,
+notebook, agent, and terminal IDs retained as compatibility aliases; distinct chat sessions remain separate.
+Chat settings uses the shared Atlas prompt button as both the visual reference and live test control. Its
+webview message contains only the selected destination id. The extension host re-resolves that id
+against installed declarative chat contributions, supplies a fixed test prompt, and dispatches it through the
+same pure planner as a Dashboard action; browser-supplied prompt text or command ids are never accepted.
 
 UI Studio retains the original `atlasmind.openWebsiteStudio` command id and
 `project_memory/domain/website.json` path for compatibility. Format v6 added a revisioned,
@@ -1340,6 +1357,11 @@ These are worth knowing because they explain a lot of AtlasMind's behaviour.
 **Selection is not authorisation.** Choosing which tools to offer a model happens *after* eligibility and
 *after* your turn's limits, so it can only ever narrow. Approval classification and the execution-time
 check still run for every single call.
+
+Selection also reads prior work in either supported session representation. A short direct Git follow-up
+keeps the bounded file tools only when the legacy session text or the structured goal, summary, decisions,
+and open threads show an unfinished workspace mutation. That prevents an incoherent turn with commit/push
+available but no way to finish the source edit, without widening the agent ceiling or bypassing approval.
 
 **A panel supplies data, never a command.** The dashboard can trigger a promotion and attest a check, but
 it can never supply the command string that runs. What executes comes from your saved configuration, read

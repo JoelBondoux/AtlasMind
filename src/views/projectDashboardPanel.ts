@@ -78,12 +78,14 @@ import { TESTING_METHODOLOGY_DEFINITIONS } from '../types.js';
 import {
   ATLAS_DISCUSS_ACTION_CSS,
   collectDashboardChatDestinations,
+  DASHBOARD_CHAT_DESTINATION_FALLBACK_STATE_KEY,
   DASHBOARD_CHAT_DESTINATION_SETTING,
   DEFAULT_DASHBOARD_CHAT_DESTINATION,
   escapeHtml,
   getWebviewHtmlShell,
   planDashboardChatDispatch,
   PROJECT_DASHBOARD_VIEW_TYPE,
+  resolveDashboardChatDestinationSetting,
   type DashboardChatTargetLike,
 } from './webviewUtils.js';
 import {
@@ -5698,9 +5700,16 @@ export class ProjectDashboardPanel {
     const destinations = collectDashboardChatDestinations(
       (vscode as unknown as { extensions?: { all?: readonly vscode.Extension<unknown>[] } }).extensions?.all,
     );
-    const configured = vscode.workspace.getConfiguration('atlasmind').get<unknown>(
-      DASHBOARD_CHAT_DESTINATION_SETTING,
-      DEFAULT_DASHBOARD_CHAT_DESTINATION,
+    const configuration = vscode.workspace.getConfiguration('atlasmind');
+    const configured = resolveDashboardChatDestinationSetting(
+      configuration.get<unknown>(
+        DASHBOARD_CHAT_DESTINATION_SETTING,
+        DEFAULT_DASHBOARD_CHAT_DESTINATION,
+      ),
+      configuration.inspect<unknown>(DASHBOARD_CHAT_DESTINATION_SETTING),
+      (this.context as vscode.ExtensionContext | undefined)?.workspaceState?.get<unknown>(
+        DASHBOARD_CHAT_DESTINATION_FALLBACK_STATE_KEY,
+      ),
     );
     const dispatch = planDashboardChatDispatch(target, configured, destinations);
     if (!dispatch) {

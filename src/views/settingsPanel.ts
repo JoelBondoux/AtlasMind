@@ -10,12 +10,18 @@ import { getLocalModelRecommendationCandidates, type LocalRecommendationWorkload
 import { getCachedLocalModelCatalog } from '../providers/localModelCatalogSync.js';
 import { RECOMMENDED_MCP_SERVERS, getRecommendedMcpStarterDetails } from '../constants.js';
 import {
+  ATLAS_DISCUSS_ACTION_CSS,
   collectDashboardChatDestinations,
+  DASHBOARD_CHAT_DESTINATION_FALLBACK_STATE_KEY,
   DASHBOARD_CHAT_DESTINATION_SETTING,
   DEFAULT_DASHBOARD_CHAT_DESTINATION,
   escapeHtml,
+  findDashboardChatDestination,
   getWebviewHtmlShell,
   isDashboardChatDestinationId,
+  planDashboardChatDispatch,
+  renderAtlasDiscussAction,
+  resolveDashboardChatDestinationSetting,
 } from './webviewUtils.js';
 import { findLocalCiSurfaceAction, type LocalCiSurfaceActionId } from './localCiSurfaceActions.js';
 import { scanAiInstructionFiles, syncAiInstructionFiles } from '../utils/aiInstructionSync.js';
@@ -407,6 +413,7 @@ type SettingsMessage =
   | { type: 'setChatSessionTurnLimit'; payload: number }
   | { type: 'setChatSessionContextChars'; payload: number }
   | { type: 'setDashboardChatDestination'; payload: string }
+  | { type: 'testDashboardChatDestination'; payload: string }
   | { type: 'setProjectApprovalFileThreshold'; payload: number }
   | { type: 'setProjectEstimatedFilesPerSubtask'; payload: number }
   | { type: 'setProjectChangedFileReferenceLimit'; payload: number }
@@ -1046,17 +1053,79 @@ export class SettingsPanel {
         const available = collectDashboardChatDestinations(
           (vscode as unknown as { extensions?: { all?: readonly vscode.Extension<unknown>[] } }).extensions?.all,
         );
-        if (!available.some(destination => destination.id === message.payload)) {
+        const destination = findDashboardChatDestination(available, message.payload);
+        if (!destination) {
           void vscode.window.showWarningMessage(
             'AtlasMind did not save that chat destination because it is no longer installed or does not expose a prompt route.',
           );
           return;
         }
-        await configuration.update(
-          DASHBOARD_CHAT_DESTINATION_SETTING,
-          message.payload,
-          vscode.ConfigurationTarget.Workspace,
+        const inspection = configuration.inspect<unknown>(DASHBOARD_CHAT_DESTINATION_SETTING);
+        if (inspection === undefined) {
+          await this.extensionContext.workspaceState?.update(
+            DASHBOARD_CHAT_DESTINATION_FALLBACK_STATE_KEY,
+            destination.id,
+          );
+          void vscode.window.showWarningMessage(
+            `AtlasMind kept ${destination.label} as this workspace's Dashboard destination, but VS Code has not registered the setting in this window yet. The Dashboard will use it now; reload the VS Code window to refresh extension settings.`,
+          );
+          return;
+        }
+        try {
+          await configuration.update(
+            DASHBOARD_CHAT_DESTINATION_SETTING,
+            destination.id,
+            vscode.ConfigurationTarget.Workspace,
+          );
+          await this.extensionContext.workspaceState?.update(
+            DASHBOARD_CHAT_DESTINATION_FALLBACK_STATE_KEY,
+            undefined,
+          );
+        } catch (error) {
+          await this.extensionContext.workspaceState?.update(
+            DASHBOARD_CHAT_DESTINATION_FALLBACK_STATE_KEY,
+            destination.id,
+          );
+          const detail = error instanceof Error ? error.message : String(error);
+          void vscode.window.showWarningMessage(
+            `AtlasMind kept ${destination.label} as this workspace's Dashboard destination after VS Code rejected its settings write. The Dashboard will use it now; reload the VS Code window before editing the setting as JSON. ${detail.slice(0, 180)}`,
+          );
+        }
+        return;
+      }
+
+      case 'testDashboardChatDestination': {
+        const available = collectDashboardChatDestinations(
+          (vscode as unknown as { extensions?: { all?: readonly vscode.Extension<unknown>[] } }).extensions?.all,
         );
+        const destination = findDashboardChatDestination(available, message.payload);
+        if (!destination) {
+          void vscode.window.showWarningMessage(
+            'AtlasMind could not test that Dashboard destination because it is no longer installed or does not expose a prompt route.',
+          );
+          return;
+        }
+        const dispatch = planDashboardChatDispatch(
+          {
+            draftPrompt: 'This is a test prompt from AtlasMind Settings for the Project Dashboard destination. Please reply with: Dashboard prompt received.',
+          },
+          destination.id,
+          available,
+        );
+        if (!dispatch) {
+          void vscode.window.showWarningMessage(
+            `AtlasMind could not build a safe test route for ${destination.label}.`,
+          );
+          return;
+        }
+        try {
+          await vscode.commands.executeCommand(dispatch.command, ...dispatch.arguments);
+        } catch (error) {
+          const detail = error instanceof Error ? error.message : String(error);
+          void vscode.window.showWarningMessage(
+            `AtlasMind could not open ${destination.label} for the test. ${detail.slice(0, 220)}`,
+          );
+        }
         return;
       }
 
@@ -2306,25 +2375,43 @@ export class SettingsPanel {
     const dashboardChatDestinations = collectDashboardChatDestinations(
       (vscode as unknown as { extensions?: { all?: readonly vscode.Extension<unknown>[] } }).extensions?.all,
     );
-    const configuredDashboardChatDestinationValue = configuration.get<unknown>(
-      DASHBOARD_CHAT_DESTINATION_SETTING,
-      DEFAULT_DASHBOARD_CHAT_DESTINATION,
+    const configuredDashboardChatDestinationValue = resolveDashboardChatDestinationSetting(
+      configuration.get<unknown>(
+        DASHBOARD_CHAT_DESTINATION_SETTING,
+        DEFAULT_DASHBOARD_CHAT_DESTINATION,
+      ),
+      configuration.inspect<unknown>(DASHBOARD_CHAT_DESTINATION_SETTING),
+      this.extensionContext.workspaceState?.get<unknown>(
+        DASHBOARD_CHAT_DESTINATION_FALLBACK_STATE_KEY,
+      ),
     );
     const configuredDashboardChatDestination = typeof configuredDashboardChatDestinationValue === 'string'
       && configuredDashboardChatDestinationValue.trim()
       ? configuredDashboardChatDestinationValue.trim()
       : DEFAULT_DASHBOARD_CHAT_DESTINATION;
-    const selectedDashboardChatDestination = dashboardChatDestinations.find(
-      destination => destination.id === configuredDashboardChatDestination,
+    const selectedDashboardChatDestination = findDashboardChatDestination(
+      dashboardChatDestinations,
+      configuredDashboardChatDestination,
     );
     const dashboardChatDestinationOptions = [
       ...(!selectedDashboardChatDestination
         ? [`<option value="${escapeHtml(configuredDashboardChatDestination.slice(0, 180))}" data-description="${escapeHtml('This saved destination is unavailable. Choose an installed destination before using a Dashboard Atlas action.')}" selected disabled>Unavailable saved destination</option>`]
         : []),
-      ...dashboardChatDestinations.map(destination => `<option value="${escapeHtml(destination.id)}" data-description="${escapeHtml(destination.description)}"${destination.id === configuredDashboardChatDestination ? ' selected' : ''}>${escapeHtml(destination.label)}</option>`),
+      ...dashboardChatDestinations.map(destination => `<option value="${escapeHtml(destination.id)}" data-description="${escapeHtml(destination.description)}"${destination.id === selectedDashboardChatDestination?.id ? ' selected' : ''}>${escapeHtml(destination.label)}</option>`),
     ].join('');
     const dashboardChatDestinationDescription = selectedDashboardChatDestination?.description
       ?? 'This saved destination is unavailable. Choose an installed destination before using a Dashboard Atlas action.';
+    const dashboardChatActionIconUri = this.panel.webview.asWebviewUri(
+      vscode.Uri.joinPath(this.extensionContext.extensionUri, 'media', 'icon.svg'),
+    ).toString();
+    const dashboardChatTestButton = renderAtlasDiscussAction({
+      id: 'testDashboardChatDestination',
+      iconUri: dashboardChatActionIconUri,
+      action: 'test-dashboard-chat-destination',
+      label: 'Test the selected Dashboard prompt destination',
+      title: 'This is the Dashboard prompt button controlled by this setting. Click it to send a real test prompt to the selected destination.',
+      intent: 'discuss',
+    });
     const projectApprovalFileThreshold = getPositiveInteger(
       configuration.get<number>('projectApprovalFileThreshold'),
       DEFAULT_PROJECT_APPROVAL_FILE_THRESHOLD,
@@ -2654,12 +2741,19 @@ export class SettingsPanel {
                   <h3>Atlas action destination</h3>
                 </div>
                 <p class="card-copy">An Atlas icon is the submit gesture: clicking it starts a new request in the destination below. AtlasMind remains the default.</p>
+                <div class="dashboard-chat-setting-tools">
+                  <div class="dashboard-chat-button-example">
+                    <span class="dashboard-chat-control-caption">Dashboard prompt button — click to test the selected destination</span>
+                    ${dashboardChatTestButton}
+                  </div>
+                </div>
+                <p id="dashboardChatTestStatus" class="info-note dashboard-chat-test-status" aria-live="polite">Clicking the button opens a real new chat and may use that service's quota.</p>
                 <div class="field-stack">
                   ${renderFieldLabel('dashboardChatDestination', 'Send Dashboard prompts to', 'dashboardChatDestination')}
                   <select id="dashboardChatDestination">${dashboardChatDestinationOptions}</select>
                   <p id="dashboardChatDestinationDescription" class="info-note">${escapeHtml(dashboardChatDestinationDescription)}</p>
                 </div>
-                <div class="info-band"><strong>External destination boundary.</strong> VS Code Chat, contributed participants, and contributed chat sessions receive the generated prompt directly. AtlasMind routing, redaction, cost limits, structured Dashboard context, and approval policy do not wrap another extension's request; that service's own controls apply.</div>
+                <div class="info-band"><strong>When you send to another chat.</strong> AtlasMind creates the Dashboard prompt and hands that text to the destination you chose. From then on, that service controls the model, privacy, quota or cost, and permission prompts. AtlasMind cannot apply its own redaction, spending limits, private structured context, or approval rules after the hand-off.</div>
                 <p class="info-note">Only installed destinations that declare a VS Code prompt contract are listed. A standalone extension with only Open or Focus commands is not treated as send-capable.</p>
               </article>
 
@@ -3447,6 +3541,8 @@ export class SettingsPanel {
       `,
       extraCss:
       `
+        ${ATLAS_DISCUSS_ACTION_CSS}
+
         /* Palette, page frame and hero come from the shared dashboard theme. */
         code {
           font-family: var(--vscode-editor-font-family, var(--vscode-font-family, monospace));
@@ -3819,6 +3915,31 @@ export class SettingsPanel {
         .secondary-button:focus-visible {
           border-color: color-mix(in srgb, var(--atlas-panel-accent) 48%, var(--atlas-panel-border));
           outline: none;
+        }
+        .dashboard-chat-setting-tools {
+          display: flex;
+          flex-wrap: wrap;
+          align-items: flex-end;
+          gap: 14px;
+          margin: 14px 0 4px;
+        }
+        .dashboard-chat-button-example {
+          display: flex;
+          flex-direction: column;
+          align-items: flex-start;
+          gap: 6px;
+        }
+        .dashboard-chat-control-caption {
+          color: var(--atlas-panel-muted);
+          font-size: 0.78rem;
+        }
+        .dashboard-chat-button-example .atlas-discuss-action:disabled {
+          cursor: not-allowed;
+          opacity: 0.55;
+        }
+        .dashboard-chat-test-status {
+          min-height: 1.4em;
+          margin-top: 6px;
         }
         .label-with-help,
         .field-label-with-help,
@@ -5393,13 +5514,45 @@ export class SettingsPanel {
 
           const dashboardChatDestination = document.getElementById('dashboardChatDestination');
           const dashboardChatDestinationDescription = document.getElementById('dashboardChatDestinationDescription');
+          const testDashboardChatDestination = document.getElementById('testDashboardChatDestination');
+          const dashboardChatTestStatus = document.getElementById('dashboardChatTestStatus');
+          function syncDashboardChatDestinationUi() {
+            if (!(dashboardChatDestination instanceof HTMLSelectElement)) {
+              return;
+            }
+            const option = dashboardChatDestination.selectedOptions[0];
+            if (dashboardChatDestinationDescription) {
+              dashboardChatDestinationDescription.textContent = option?.dataset.description || '';
+            }
+            if (testDashboardChatDestination instanceof HTMLButtonElement) {
+              const available = Boolean(option && !option.disabled);
+              testDashboardChatDestination.disabled = !available;
+              const destinationLabel = option?.textContent?.trim() || 'the selected destination';
+              testDashboardChatDestination.title = available
+                ? 'Send a real test prompt to ' + destinationLabel
+                : 'Choose an installed destination before testing';
+            }
+          }
           if (dashboardChatDestination instanceof HTMLSelectElement) {
             dashboardChatDestination.addEventListener('change', () => {
-              const option = dashboardChatDestination.selectedOptions[0];
-              if (dashboardChatDestinationDescription) {
-                dashboardChatDestinationDescription.textContent = option?.dataset.description || '';
-              }
+              syncDashboardChatDestinationUi();
               vscode.postMessage({ type: 'setDashboardChatDestination', payload: dashboardChatDestination.value });
+            });
+            syncDashboardChatDestinationUi();
+          }
+          if (testDashboardChatDestination instanceof HTMLButtonElement) {
+            testDashboardChatDestination.addEventListener('click', () => {
+              if (!(dashboardChatDestination instanceof HTMLSelectElement)) {
+                return;
+              }
+              const option = dashboardChatDestination.selectedOptions[0];
+              if (!option || option.disabled) {
+                return;
+              }
+              if (dashboardChatTestStatus) {
+                dashboardChatTestStatus.textContent = 'Opening a real test request in ' + (option.textContent?.trim() || 'the selected destination') + '…';
+              }
+              vscode.postMessage({ type: 'testDashboardChatDestination', payload: dashboardChatDestination.value });
             });
           }
 
@@ -7521,7 +7674,7 @@ export function isSettingsMessage(value: unknown): value is SettingsMessage {
     return typeof message.payload === 'string';
   }
 
-  if (message.type === 'setDashboardChatDestination') {
+  if (message.type === 'setDashboardChatDestination' || message.type === 'testDashboardChatDestination') {
     return isDashboardChatDestinationId(message.payload);
   }
 

@@ -19,6 +19,24 @@ Older entries below describe the software as it was at the time and are delibera
 
 ---
 
+## v0.476.1 -- One approval choice covers the response
+
+Selecting **Bypass Approvals** or **Autopilot** now applies the scope before concurrent tool gates resume
+and settles the other eligible prompts already waiting in that response. Pending approval cards cannot
+appear before their resolver exists, and forged choices that a restricted review card did not offer are
+rejected by the host. Irreversible remote actions remain outside both bypass modes and now explain why
+they still need an explicit click. Direct Git follow-ups such as `commit and push` now also retain the
+bounded file tools needed to finish an outstanding source edit recorded in either legacy or structured
+session context. Dashboard prompt destinations now also survive a stale Extension Development Host settings
+registry: a displayed OpenAI Codex selection is retained for that workspace and used immediately rather than
+silently reverting to AtlasMind. Chat settings now shows the actual Dashboard prompt button, and that button
+sends the live destination test itself. Internal editor, notebook, agent, and terminal participant IDs from one
+extension collapse into one service choice while remaining compatibility aliases for saved selections. The
+external hand-off explanation now uses plain language while still naming who controls the model, privacy,
+quota/cost, context, and permissions.
+
+---
+
 ## v0.476.0 -- Dashboard Atlas actions submit where you choose
 
 Project Dashboard Atlas actions submit again instead of opening AtlasMind Chat with an unsent draft.
