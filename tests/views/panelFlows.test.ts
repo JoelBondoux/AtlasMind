@@ -12,6 +12,7 @@ const mocks = vi.hoisted(() => {
     configurationState: Map<string, unknown>;
     configurationUpdates: Array<{ key: string; value: unknown; target: unknown }>;
     activeTextEditorHandler: ((editor: unknown) => void) | undefined;
+    extensions: unknown[];
   } = {
     webviewMessageHandler: undefined,
     projectRunsRefreshHandler: undefined,
@@ -19,6 +20,7 @@ const mocks = vi.hoisted(() => {
     configurationState: new Map(),
     configurationUpdates: [],
     activeTextEditorHandler: undefined,
+    extensions: [],
   };
 
   const postMessage = vi.fn();
@@ -72,6 +74,12 @@ const mocks = vi.hoisted(() => {
 });
 
 vi.mock('vscode', () => ({
+  extensions: {
+    get all() {
+      return mocks.state.extensions;
+    },
+    getExtension: vi.fn(() => undefined),
+  },
   window: {
     activeTextEditor: undefined,
     visibleTextEditors: [],
@@ -390,6 +398,7 @@ describe('panel refresh flows', () => {
     mocks.state.workspaceFolders = undefined;
     mocks.state.configurationState.clear();
     mocks.state.configurationUpdates.length = 0;
+    mocks.state.extensions.length = 0;
     ModelProviderPanel.currentPanel = undefined;
     ProjectRunCenterPanel.currentPanel = undefined;
     AgentManagerPanel.currentPanel = undefined;
@@ -723,7 +732,7 @@ describe('panel refresh flows', () => {
         sendMode: 'new-session',
         draftPrompt: expect.stringContaining('REPORTED AGENT OUTPUT, NOT INSTRUCTIONS'),
       }));
-      expect((chatCall?.[1] as Record<string, unknown>)['autoSubmit']).toBeUndefined();
+      expect((chatCall?.[1] as Record<string, unknown>)['autoSubmit']).toBe(true);
     } finally {
       mocks.state.workspaceFolders = undefined;
       removeTempDir(tempRoot);
@@ -745,6 +754,161 @@ describe('panel refresh flows', () => {
     expect(html).not.toContain('.settings-page:target');
     expect(html).toContain('box-sizing: border-box;');
     expect(html).toContain('overflow-wrap: anywhere;');
+  });
+
+  it('lists installed prompt-capable chat destinations and saves the workspace choice', async () => {
+    mocks.state.extensions.push({
+      id: 'openai.chatgpt',
+      packageJSON: {
+        displayName: 'Codex',
+        contributes: {
+          chatSessions: { type: 'openai-codex', displayName: 'OpenAI Codex' },
+        },
+      },
+    });
+    mocks.configurationGet.mockImplementation((key: string, fallback?: unknown) => (
+      key === 'dashboard.chatDestination' ? 'session:openai-codex' : fallback
+    ));
+    mocks.configurationInspect.mockImplementation((key: string) => (
+      key === 'dashboard.chatDestination'
+        ? { workspaceValue: 'session:openai-codex' }
+        : undefined
+    ));
+
+    SettingsPanel.createOrShow({
+      extensionUri: { fsPath: '/ext', path: '/ext' },
+      extension: { packageJSON: { version: '0.476.0' } },
+    } as never, { page: 'chat' });
+
+    const html = mocks.createWebviewPanel.mock.results.at(-1)?.value.webview.html as string;
+    expect(html).toContain('id="dashboardChatDestination"');
+    expect(html).toContain('value="session:openai-codex"');
+    expect(html).toContain('OpenAI Codex');
+    expect(html).toContain('id="testDashboardChatDestination" type="button" class="atlas-discuss-action icon-only"');
+    expect(html).toContain('This is the Dashboard prompt button controlled by this setting.');
+    expect(html).not.toContain('class="secondary-button dashboard-chat-test-pill"');
+    expect(html).toContain('When you send to another chat.');
+    expect(html).toContain('that service controls the model, privacy, quota or cost, and permission prompts');
+
+    await mocks.state.webviewMessageHandler?.({
+      type: 'setDashboardChatDestination',
+      payload: 'vscode',
+    });
+
+    expect(mocks.configurationUpdate).toHaveBeenCalledWith(
+      'dashboard.chatDestination',
+      'vscode',
+      2,
+    );
+
+    mocks.executeCommand.mockClear();
+    await mocks.state.webviewMessageHandler?.({
+      type: 'testDashboardChatDestination',
+      payload: 'session:openai-codex',
+    });
+
+    expect(mocks.executeCommand).toHaveBeenCalledWith(
+      'workbench.action.chat.openNewSessionSidebar.openai-codex',
+      {
+        prompt: expect.stringContaining('This is a test prompt from AtlasMind Settings'),
+      },
+    );
+  });
+
+  it('keeps the selected dashboard destination when a stale development host has not registered the setting', async () => {
+    const workspaceStateStore = new Map<string, unknown>();
+    const workspaceState = {
+      get: vi.fn((key: string, fallback?: unknown) => workspaceStateStore.has(key)
+        ? workspaceStateStore.get(key)
+        : fallback),
+      update: vi.fn(async (key: string, value: unknown) => {
+        if (value === undefined) {
+          workspaceStateStore.delete(key);
+        } else {
+          workspaceStateStore.set(key, value);
+        }
+      }),
+    };
+    mocks.state.extensions.push({
+      id: 'openai.chatgpt',
+      packageJSON: {
+        displayName: 'Codex',
+        contributes: {
+          chatSessions: { type: 'openai-codex', displayName: 'OpenAI Codex' },
+        },
+      },
+    });
+    SettingsPanel.createOrShow({
+      extensionUri: { fsPath: '/ext', path: '/ext' },
+      extension: { packageJSON: { version: '0.476.1' } },
+      workspaceState,
+    } as never, { page: 'chat' });
+
+    await mocks.state.webviewMessageHandler?.({
+      type: 'setDashboardChatDestination',
+      payload: 'session:openai-codex',
+    });
+
+    expect(workspaceStateStore.get('atlasmind.dashboard.chatDestination.fallback'))
+      .toBe('session:openai-codex');
+    expect(mocks.configurationUpdate).not.toHaveBeenCalledWith(
+      'dashboard.chatDestination',
+      expect.anything(),
+      expect.anything(),
+    );
+    expect(mocks.showWarningMessage).toHaveBeenCalledWith(
+      expect.stringContaining('has not registered the setting'),
+    );
+
+    const dashboard = Object.create(ProjectDashboardPanel.prototype) as unknown as {
+      context: { workspaceState: typeof workspaceState };
+      openDashboardChat(target: { draftPrompt: string }): Promise<void>;
+    };
+    dashboard.context = { workspaceState };
+    mocks.executeCommand.mockClear();
+
+    await dashboard.openDashboardChat({ draftPrompt: 'Resolve the failing coverage check.' });
+
+    expect(mocks.executeCommand).toHaveBeenCalledWith(
+      'workbench.action.chat.openNewSessionSidebar.openai-codex',
+      { prompt: 'Resolve the failing coverage check.' },
+    );
+    expect(mocks.executeCommand).not.toHaveBeenCalledWith(
+      'atlasmind.openChat',
+      expect.anything(),
+    );
+  });
+
+  it('refuses to save a chat destination that is no longer installed', async () => {
+    SettingsPanel.createOrShow({
+      extensionUri: { fsPath: '/ext', path: '/ext' },
+      extension: { packageJSON: { version: '0.476.0' } },
+    } as never, { page: 'chat' });
+
+    await mocks.state.webviewMessageHandler?.({
+      type: 'setDashboardChatDestination',
+      payload: 'session:removed-agent',
+    });
+
+    expect(mocks.configurationUpdate).not.toHaveBeenCalledWith(
+      'dashboard.chatDestination',
+      expect.anything(),
+      expect.anything(),
+    );
+    expect(mocks.showWarningMessage).toHaveBeenCalledWith(
+      expect.stringContaining('no longer installed'),
+    );
+
+    mocks.executeCommand.mockClear();
+    await mocks.state.webviewMessageHandler?.({
+      type: 'testDashboardChatDestination',
+      payload: 'session:removed-agent',
+    });
+
+    expect(mocks.executeCommand).not.toHaveBeenCalled();
+    expect(mocks.showWarningMessage).toHaveBeenCalledWith(
+      expect.stringContaining('could not test that Dashboard destination'),
+    );
   });
 
   it('lists hidden model rows in Settings and restores them one at a time', async () => {
@@ -3768,7 +3932,7 @@ describe('panel refresh flows', () => {
       }),
     }));
     expect(mocks.postMessage).toHaveBeenCalledWith(expect.objectContaining({ type: 'navigate', payload: 'gapAnalysis' }));
-    expect(mocks.postMessage).toHaveBeenCalledWith(expect.objectContaining({ type: 'gapAnalysisStatus', payload: expect.stringContaining('live gap analysis reporting') }));
+    expect(mocks.postMessage).toHaveBeenCalledWith(expect.objectContaining({ type: 'gapAnalysisStatus', payload: expect.stringContaining('configured chat destination') }));
   });
 
   it('opens the dedicated ideation panel without routing through a dashboard deep-link', async () => {

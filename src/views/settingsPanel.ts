@@ -9,7 +9,21 @@ import { probeGpuDevices } from '../providers/gpuProbe.js';
 import { getLocalModelRecommendationCandidates, type LocalRecommendationWorkloadTag } from '../providers/localModelRecommendationRegistry.js';
 import { getCachedLocalModelCatalog } from '../providers/localModelCatalogSync.js';
 import { RECOMMENDED_MCP_SERVERS, getRecommendedMcpStarterDetails } from '../constants.js';
-import { escapeHtml, getWebviewHtmlShell } from './webviewUtils.js';
+import {
+  ATLAS_DISCUSS_ACTION_CSS,
+  collectDashboardChatDestinations,
+  DASHBOARD_CHAT_DESTINATION_FALLBACK_STATE_KEY,
+  DASHBOARD_CHAT_DESTINATION_SETTING,
+  DEFAULT_DASHBOARD_CHAT_DESTINATION,
+  escapeHtml,
+  findDashboardChatDestination,
+  getWebviewHtmlShell,
+  isDashboardChatDestinationId,
+  planDashboardChatDispatch,
+  renderAtlasDiscussAction,
+  resolveDashboardChatDestinationSetting,
+} from './webviewUtils.js';
+import { findLocalCiSurfaceAction, type LocalCiSurfaceActionId } from './localCiSurfaceActions.js';
 import { scanAiInstructionFiles, syncAiInstructionFiles } from '../utils/aiInstructionSync.js';
 import { syncTestingProtocols, readWorkflowGuidanceInput } from '../utils/testingProtocolSync.js';
 import { detectScaffoldFrameworks, scaffoldTestingFramework, scaffoldableMethodologies, type FirstTestCandidate } from '../core/testingScaffolder.js';
@@ -96,10 +110,10 @@ const DEFAULT_PROJECT_APPROVAL_FILE_THRESHOLD = 12;
 const DEFAULT_ESTIMATED_FILES_PER_SUBTASK = 2;
 const DEFAULT_CHANGED_FILE_REFERENCE_LIMIT = 5;
 const DEFAULT_PROJECT_RUN_REPORT_FOLDER = 'project_memory/operations';
-const TEST_SCAN_EXCLUDED_DIRS = new Set(['.git', '.next', '.turbo', 'coverage', 'dist', 'node_modules', 'out', 'project_memory']);
+const TEST_SCAN_EXCLUDED_DIRS = new Set(['.git', '.next', '.turbo', '.claude', '.codex', '.worktrees', 'coverage', 'dist', 'node_modules', 'out', 'project_memory', 'test-results']);
 const TEST_FILE_NAME_PATTERN = /(?:^|[.-])(test|spec)\.[cm]?[jt]sx?$/i;
 const TEST_CODE_EXT_PATTERN = /\.[cm]?[jt]sx?$/i;
-const MAX_DISCOVERED_TEST_FILES = 200;
+const MAX_DISCOVERED_TEST_FILES = 10_000;
 const MAX_DISCOVERED_TEST_CASES = 600;
 const MAX_TEST_FILE_BYTES = 128_000;
 const SETTINGS_HELP = {
@@ -111,6 +125,7 @@ const SETTINGS_HELP = {
   showImportProjectAction: 'Controls whether the Memory toolbar keeps the Import Existing Project action visible. Keep it on during onboarding and turn it off in already standardized repos.',
   chatSessionTurnLimit: 'How many recent chat turns AtlasMind carries forward. Examples: 4 for short task chats, 6 for the default balance, or 10 when long debugging context matters.',
   chatSessionContextChars: 'Maximum characters reserved for summarized carry-forward context. Examples: 1200 for lightweight carry-forward, 2500 for default use, or 4000+ for complex multi-step work.',
+  dashboardChatDestination: 'Where prompt-bearing Atlas icons on the Project Dashboard send their request. AtlasMind is the default; VS Code Chat uses its current target, and installed extensions appear only when they declare a chat participant or chat-session prompt contract.',
   localOpenAiBaseUrl: 'Legacy single-endpoint fallback for local OpenAI-compatible routing. AtlasMind now prefers the structured local endpoint list when it is present.',
   localOpenAiEndpoints: 'Configure one or more labeled local OpenAI-compatible endpoints. Examples: Ollama at http://127.0.0.1:11434/v1 and LM Studio at http://127.0.0.1:1234/v1. Labels are shown back in provider surfaces so operators can tell which engine owns each routed model.',
   toolApprovalMode: 'Main approval policy for tool execution. Examples: always-ask for regulated repos, ask-on-write for normal coding, ask-on-external for tighter network boundaries, or allow-safe-readonly for investigation-only work.',
@@ -397,6 +412,8 @@ type SettingsMessage =
   | { type: 'setVoiceOutputDeviceId'; payload: string }
   | { type: 'setChatSessionTurnLimit'; payload: number }
   | { type: 'setChatSessionContextChars'; payload: number }
+  | { type: 'setDashboardChatDestination'; payload: string }
+  | { type: 'testDashboardChatDestination'; payload: string }
   | { type: 'setProjectApprovalFileThreshold'; payload: number }
   | { type: 'setProjectEstimatedFilesPerSubtask'; payload: number }
   | { type: 'setProjectChangedFileReferenceLimit'; payload: number }
@@ -448,6 +465,7 @@ type SettingsMessage =
   | { type: 'autoAssessTestingConfig' }
   | { type: 'syncTestingProtocols' }
   | { type: 'scaffoldTestingFramework' }
+  | { type: 'runLocalCiSurfaceAction'; payload: LocalCiSurfaceActionId }
   | { type: 'ardSearch'; payload: { query: string; typeFilter?: string } }
   | { type: 'ardFetchManifest'; payload: { url: string } }
   | { type: 'ardInstall'; payload: { identifier: string } }
@@ -1031,6 +1049,86 @@ export class SettingsPanel {
         await configuration.update('chatSessionContextChars', message.payload, vscode.ConfigurationTarget.Workspace);
         return;
 
+      case 'setDashboardChatDestination': {
+        const available = collectDashboardChatDestinations(
+          (vscode as unknown as { extensions?: { all?: readonly vscode.Extension<unknown>[] } }).extensions?.all,
+        );
+        const destination = findDashboardChatDestination(available, message.payload);
+        if (!destination) {
+          void vscode.window.showWarningMessage(
+            'AtlasMind did not save that chat destination because it is no longer installed or does not expose a prompt route.',
+          );
+          return;
+        }
+        const inspection = configuration.inspect<unknown>(DASHBOARD_CHAT_DESTINATION_SETTING);
+        if (inspection === undefined) {
+          await this.extensionContext.workspaceState?.update(
+            DASHBOARD_CHAT_DESTINATION_FALLBACK_STATE_KEY,
+            destination.id,
+          );
+          void vscode.window.showWarningMessage(
+            `AtlasMind kept ${destination.label} as this workspace's Dashboard destination, but VS Code has not registered the setting in this window yet. The Dashboard will use it now; reload the VS Code window to refresh extension settings.`,
+          );
+          return;
+        }
+        try {
+          await configuration.update(
+            DASHBOARD_CHAT_DESTINATION_SETTING,
+            destination.id,
+            vscode.ConfigurationTarget.Workspace,
+          );
+          await this.extensionContext.workspaceState?.update(
+            DASHBOARD_CHAT_DESTINATION_FALLBACK_STATE_KEY,
+            undefined,
+          );
+        } catch (error) {
+          await this.extensionContext.workspaceState?.update(
+            DASHBOARD_CHAT_DESTINATION_FALLBACK_STATE_KEY,
+            destination.id,
+          );
+          const detail = error instanceof Error ? error.message : String(error);
+          void vscode.window.showWarningMessage(
+            `AtlasMind kept ${destination.label} as this workspace's Dashboard destination after VS Code rejected its settings write. The Dashboard will use it now; reload the VS Code window before editing the setting as JSON. ${detail.slice(0, 180)}`,
+          );
+        }
+        return;
+      }
+
+      case 'testDashboardChatDestination': {
+        const available = collectDashboardChatDestinations(
+          (vscode as unknown as { extensions?: { all?: readonly vscode.Extension<unknown>[] } }).extensions?.all,
+        );
+        const destination = findDashboardChatDestination(available, message.payload);
+        if (!destination) {
+          void vscode.window.showWarningMessage(
+            'AtlasMind could not test that Dashboard destination because it is no longer installed or does not expose a prompt route.',
+          );
+          return;
+        }
+        const dispatch = planDashboardChatDispatch(
+          {
+            draftPrompt: 'This is a test prompt from AtlasMind Settings for the Project Dashboard destination. Please reply with: Dashboard prompt received.',
+          },
+          destination.id,
+          available,
+        );
+        if (!dispatch) {
+          void vscode.window.showWarningMessage(
+            `AtlasMind could not build a safe test route for ${destination.label}.`,
+          );
+          return;
+        }
+        try {
+          await vscode.commands.executeCommand(dispatch.command, ...dispatch.arguments);
+        } catch (error) {
+          const detail = error instanceof Error ? error.message : String(error);
+          void vscode.window.showWarningMessage(
+            `AtlasMind could not open ${destination.label} for the test. ${detail.slice(0, 220)}`,
+          );
+        }
+        return;
+      }
+
       case 'setProjectApprovalFileThreshold':
         await configuration.update('projectApprovalFileThreshold', message.payload, vscode.ConfigurationTarget.Workspace);
         return;
@@ -1364,6 +1462,14 @@ export class SettingsPanel {
         try { await this.runScaffoldTestingFramework(); }
         finally { this.panel.webview.html = this.getHtml(); }
         return;
+
+      case 'runLocalCiSurfaceAction': {
+        const action = findLocalCiSurfaceAction(message.payload);
+        if (action) {
+          await vscode.commands.executeCommand(action.command);
+        }
+        return;
+      }
 
       case 'openWorkspaceFile':
         await this.openWorkspaceFile(message.payload);
@@ -2266,6 +2372,46 @@ export class SettingsPanel {
     const voiceOutputDeviceId = escapeHtml(configuration.get<string>('voice.outputDeviceId', ''));
     const chatSessionTurnLimit = getPositiveInteger(configuration.get<number>('chatSessionTurnLimit'), 6);
     const chatSessionContextChars = getPositiveInteger(configuration.get<number>('chatSessionContextChars'), 2500);
+    const dashboardChatDestinations = collectDashboardChatDestinations(
+      (vscode as unknown as { extensions?: { all?: readonly vscode.Extension<unknown>[] } }).extensions?.all,
+    );
+    const configuredDashboardChatDestinationValue = resolveDashboardChatDestinationSetting(
+      configuration.get<unknown>(
+        DASHBOARD_CHAT_DESTINATION_SETTING,
+        DEFAULT_DASHBOARD_CHAT_DESTINATION,
+      ),
+      configuration.inspect<unknown>(DASHBOARD_CHAT_DESTINATION_SETTING),
+      this.extensionContext.workspaceState?.get<unknown>(
+        DASHBOARD_CHAT_DESTINATION_FALLBACK_STATE_KEY,
+      ),
+    );
+    const configuredDashboardChatDestination = typeof configuredDashboardChatDestinationValue === 'string'
+      && configuredDashboardChatDestinationValue.trim()
+      ? configuredDashboardChatDestinationValue.trim()
+      : DEFAULT_DASHBOARD_CHAT_DESTINATION;
+    const selectedDashboardChatDestination = findDashboardChatDestination(
+      dashboardChatDestinations,
+      configuredDashboardChatDestination,
+    );
+    const dashboardChatDestinationOptions = [
+      ...(!selectedDashboardChatDestination
+        ? [`<option value="${escapeHtml(configuredDashboardChatDestination.slice(0, 180))}" data-description="${escapeHtml('This saved destination is unavailable. Choose an installed destination before using a Dashboard Atlas action.')}" selected disabled>Unavailable saved destination</option>`]
+        : []),
+      ...dashboardChatDestinations.map(destination => `<option value="${escapeHtml(destination.id)}" data-description="${escapeHtml(destination.description)}"${destination.id === selectedDashboardChatDestination?.id ? ' selected' : ''}>${escapeHtml(destination.label)}</option>`),
+    ].join('');
+    const dashboardChatDestinationDescription = selectedDashboardChatDestination?.description
+      ?? 'This saved destination is unavailable. Choose an installed destination before using a Dashboard Atlas action.';
+    const dashboardChatActionIconUri = this.panel.webview.asWebviewUri(
+      vscode.Uri.joinPath(this.extensionContext.extensionUri, 'media', 'icon.svg'),
+    ).toString();
+    const dashboardChatTestButton = renderAtlasDiscussAction({
+      id: 'testDashboardChatDestination',
+      iconUri: dashboardChatActionIconUri,
+      action: 'test-dashboard-chat-destination',
+      label: 'Test the selected Dashboard prompt destination',
+      title: 'This is the Dashboard prompt button controlled by this setting. Click it to send a real test prompt to the selected destination.',
+      intent: 'discuss',
+    });
     const projectApprovalFileThreshold = getPositiveInteger(
       configuration.get<number>('projectApprovalFileThreshold'),
       DEFAULT_PROJECT_APPROVAL_FILE_THRESHOLD,
@@ -2584,11 +2730,33 @@ export class SettingsPanel {
           <section id="page-chat" class="settings-page ${initialPage === 'chat' ? 'active fallback-visible' : ''}" role="tabpanel" aria-labelledby="tab-chat" tabindex="0">
             <div class="page-header">
               <p class="page-kicker">Chat &amp; Sidebar</p>
-              <h2>Session carry-forward and sidebar affordances</h2>
-              <p>Control how much AtlasMind carries across turns and which actions stay visible in the sidebar workflow.</p>
+              <h2>Dashboard hand-offs, session carry-forward and sidebar affordances</h2>
+              <p>Choose where Project Dashboard requests go, how much AtlasMind carries across turns, and which actions stay visible in the sidebar workflow.</p>
             </div>
 
             <div class="page-grid">
+              <article class="settings-card">
+                <div class="card-header">
+                  <p class="card-kicker">Project Dashboard</p>
+                  <h3>Atlas action destination</h3>
+                </div>
+                <p class="card-copy">An Atlas icon is the submit gesture: clicking it starts a new request in the destination below. AtlasMind remains the default.</p>
+                <div class="dashboard-chat-setting-tools">
+                  <div class="dashboard-chat-button-example">
+                    <span class="dashboard-chat-control-caption">Dashboard prompt button — click to test the selected destination</span>
+                    ${dashboardChatTestButton}
+                  </div>
+                </div>
+                <p id="dashboardChatTestStatus" class="info-note dashboard-chat-test-status" aria-live="polite">Clicking the button opens a real new chat and may use that service's quota.</p>
+                <div class="field-stack">
+                  ${renderFieldLabel('dashboardChatDestination', 'Send Dashboard prompts to', 'dashboardChatDestination')}
+                  <select id="dashboardChatDestination">${dashboardChatDestinationOptions}</select>
+                  <p id="dashboardChatDestinationDescription" class="info-note">${escapeHtml(dashboardChatDestinationDescription)}</p>
+                </div>
+                <div class="info-band"><strong>When you send to another chat.</strong> AtlasMind creates the Dashboard prompt and hands that text to the destination you chose. From then on, that service controls the model, privacy, quota or cost, and permission prompts. AtlasMind cannot apply its own redaction, spending limits, private structured context, or approval rules after the hand-off.</div>
+                <p class="info-note">Only installed destinations that declare a VS Code prompt contract are listed. A standalone extension with only Open or Focus commands is not treated as send-capable.</p>
+              </article>
+
               <article class="settings-card">
                 <div class="card-header">
                   <p class="card-kicker">Atlas workspace</p>
@@ -3373,6 +3541,8 @@ export class SettingsPanel {
       `,
       extraCss:
       `
+        ${ATLAS_DISCUSS_ACTION_CSS}
+
         /* Palette, page frame and hero come from the shared dashboard theme. */
         code {
           font-family: var(--vscode-editor-font-family, var(--vscode-font-family, monospace));
@@ -3745,6 +3915,31 @@ export class SettingsPanel {
         .secondary-button:focus-visible {
           border-color: color-mix(in srgb, var(--atlas-panel-accent) 48%, var(--atlas-panel-border));
           outline: none;
+        }
+        .dashboard-chat-setting-tools {
+          display: flex;
+          flex-wrap: wrap;
+          align-items: flex-end;
+          gap: 14px;
+          margin: 14px 0 4px;
+        }
+        .dashboard-chat-button-example {
+          display: flex;
+          flex-direction: column;
+          align-items: flex-start;
+          gap: 6px;
+        }
+        .dashboard-chat-control-caption {
+          color: var(--atlas-panel-muted);
+          font-size: 0.78rem;
+        }
+        .dashboard-chat-button-example .atlas-discuss-action:disabled {
+          cursor: not-allowed;
+          opacity: 0.55;
+        }
+        .dashboard-chat-test-status {
+          min-height: 1.4em;
+          margin-top: 6px;
         }
         .label-with-help,
         .field-label-with-help,
@@ -4744,6 +4939,19 @@ export class SettingsPanel {
           bindCommandButton('createTestFile', 'createTestFile');
           bindCommandButton('openCoverageReport', 'openCoverageReport');
 
+          const patchReviewedPrLocalCi = document.getElementById('patchReviewedPrLocalCi');
+          if (patchReviewedPrLocalCi instanceof HTMLButtonElement) {
+            patchReviewedPrLocalCi.addEventListener('click', () => {
+              vscode.postMessage({ type: 'runLocalCiSurfaceAction', payload: 'patch' });
+            });
+          }
+          const runReviewedPrLocalCi = document.getElementById('runReviewedPrLocalCi');
+          if (runReviewedPrLocalCi instanceof HTMLButtonElement) {
+            runReviewedPrLocalCi.addEventListener('click', () => {
+              vscode.postMessage({ type: 'runLocalCiSurfaceAction', payload: 'review' });
+            });
+          }
+
           document.querySelectorAll('[data-restore-model-sidebar-entry]').forEach(element => {
             if (!(element instanceof HTMLButtonElement)) {
               return;
@@ -5301,6 +5509,50 @@ export class SettingsPanel {
           if (displayCurrency instanceof HTMLSelectElement) {
             displayCurrency.addEventListener('change', () => {
               vscode.postMessage({ type: 'setDisplayCurrency', payload: displayCurrency.value });
+            });
+          }
+
+          const dashboardChatDestination = document.getElementById('dashboardChatDestination');
+          const dashboardChatDestinationDescription = document.getElementById('dashboardChatDestinationDescription');
+          const testDashboardChatDestination = document.getElementById('testDashboardChatDestination');
+          const dashboardChatTestStatus = document.getElementById('dashboardChatTestStatus');
+          function syncDashboardChatDestinationUi() {
+            if (!(dashboardChatDestination instanceof HTMLSelectElement)) {
+              return;
+            }
+            const option = dashboardChatDestination.selectedOptions[0];
+            if (dashboardChatDestinationDescription) {
+              dashboardChatDestinationDescription.textContent = option?.dataset.description || '';
+            }
+            if (testDashboardChatDestination instanceof HTMLButtonElement) {
+              const available = Boolean(option && !option.disabled);
+              testDashboardChatDestination.disabled = !available;
+              const destinationLabel = option?.textContent?.trim() || 'the selected destination';
+              testDashboardChatDestination.title = available
+                ? 'Send a real test prompt to ' + destinationLabel
+                : 'Choose an installed destination before testing';
+            }
+          }
+          if (dashboardChatDestination instanceof HTMLSelectElement) {
+            dashboardChatDestination.addEventListener('change', () => {
+              syncDashboardChatDestinationUi();
+              vscode.postMessage({ type: 'setDashboardChatDestination', payload: dashboardChatDestination.value });
+            });
+            syncDashboardChatDestinationUi();
+          }
+          if (testDashboardChatDestination instanceof HTMLButtonElement) {
+            testDashboardChatDestination.addEventListener('click', () => {
+              if (!(dashboardChatDestination instanceof HTMLSelectElement)) {
+                return;
+              }
+              const option = dashboardChatDestination.selectedOptions[0];
+              if (!option || option.disabled) {
+                return;
+              }
+              if (dashboardChatTestStatus) {
+                dashboardChatTestStatus.textContent = 'Opening a real test request in ' + (option.textContent?.trim() || 'the selected destination') + '…';
+              }
+              vscode.postMessage({ type: 'testDashboardChatDestination', payload: dashboardChatDestination.value });
             });
           }
 
@@ -6136,6 +6388,19 @@ function renderTestingPage(snapshot: TestingDashboardSnapshot, isActive: boolean
               <p class="info-note top-gap">Saved configuration is written to <strong>project_memory/index/testing-config.json</strong> and is read by Atlas agents when planning test tasks. <strong>Sync to AI agents</strong> mirrors the enabled protocols into external agent instruction files; saving and scaffolding also sync automatically. Scaffolding may ask AtlasMind to write one focused test only after it finds an existing Vitest/Jest runner and a small exported source target; it never invents a test target or installs tooling.</p>
             </article>
 
+            <article class="settings-card full-width-card" id="reviewedPrLocalCiCard">
+              <div class="card-header">
+                <p class="card-kicker">Repository local CI</p>
+                <h3>Patch once, then run an approved PR commit here</h3>
+              </div>
+              <p class="card-copy">AtlasMind can add a managed, reviewable local-CI contract to this repository and then run one explicitly approved same-repository head SHA in a one-job Docker runner. The producer is deliberately irrelevant: Codex, Claude, another agentic service, AtlasMind, and a human-authored branch follow the same route.</p>
+              <div class="button-stack">
+                <button id="patchReviewedPrLocalCi" type="button">Patch repository for local CI</button>
+                <button id="runReviewedPrLocalCi" type="button" class="secondary-button">Run reviewed PR</button>
+              </div>
+              <p class="info-note top-gap">The exact SHA is re-read after approval and immediately before dispatch. A new commit invalidates approval. Forks, drafts, repository/environment secrets, host mounts, the Docker socket, and native-platform claims remain refused. The job retains outbound network access for GitHub and dependency installation; Docker is defence in depth, so inspect the diff. Chat: <code>/localci patch</code> or <code>/localci review</code>.</p>
+            </article>
+
             <div class="page-grid two-up">
               <article id="testingInventoryCard" class="settings-card">
                 <div class="card-header">
@@ -6686,7 +6951,8 @@ export function collectTestingDashboardSnapshot(
     }
   }
 
-  const discoveredFiles = discoverTestFiles(workspaceRoot);
+  const discovery = discoverTestFiles(workspaceRoot);
+  const discoveredFiles = discovery.files;
   let totalSuites = 0;
   let totalCases = 0;
   let unitFiles = 0;
@@ -6869,7 +7135,9 @@ export function collectTestingDashboardSnapshot(
     frameworkLabel,
     frameworks: detectedFrameworkList,
     testingPolicyLabel,
-    testingPolicyDetail,
+    testingPolicyDetail: testingPolicyDetail + (discovery.truncated
+      ? ` Test discovery reached its ${MAX_DISCOVERED_TEST_FILES.toLocaleString()}-file safety limit; counts and missing-evidence findings are partial.`
+      : ''),
     totalFiles: discoveredFiles.length,
     totalSuites,
     totalCases,
@@ -7095,11 +7363,12 @@ function cleanCodePreview(line: string): string {
   return line.replace(/\s+/g, ' ').replace(/^[([{]+|[)\]};,]+$/g, '').slice(0, 140).trim();
 }
 
-function discoverTestFiles(workspaceRoot: string): string[] {
+export function discoverTestFiles(workspaceRoot: string, maxFiles = MAX_DISCOVERED_TEST_FILES): { files: string[]; truncated: boolean } {
   const results: Array<{ filePath: string; mtimeMs: number }> = [];
   const pending = [workspaceRoot];
+  let truncated = false;
 
-  while (pending.length > 0 && results.length < MAX_DISCOVERED_TEST_FILES) {
+  scan: while (pending.length > 0) {
     const current = pending.pop();
     if (!current) {
       continue;
@@ -7115,7 +7384,8 @@ function discoverTestFiles(workspaceRoot: string): string[] {
     for (const entry of entries) {
       const fullPath = path.join(current, entry.name);
       if (entry.isDirectory()) {
-        if (!TEST_SCAN_EXCLUDED_DIRS.has(entry.name.toLowerCase())) {
+        // A nested checkout has its own evidence; never attribute it to this one.
+        if (!TEST_SCAN_EXCLUDED_DIRS.has(entry.name.toLowerCase()) && !existsSync(path.join(fullPath, '.git'))) {
           pending.push(fullPath);
         }
         continue;
@@ -7133,6 +7403,10 @@ function discoverTestFiles(workspaceRoot: string): string[] {
       }
 
       try {
+        if (results.length >= maxFiles) {
+          truncated = true;
+          break scan;
+        }
         results.push({ filePath: fullPath, mtimeMs: statSync(fullPath).mtimeMs });
       } catch {
         // Ignore stat failures for transient files.
@@ -7140,9 +7414,10 @@ function discoverTestFiles(workspaceRoot: string): string[] {
     }
   }
 
-  return results
-    .sort((left, right) => right.mtimeMs - left.mtimeMs)
-    .map(item => item.filePath);
+  return {
+    files: results.sort((left, right) => right.mtimeMs - left.mtimeMs).map(item => item.filePath),
+    truncated,
+  };
 }
 
 /**
@@ -7399,6 +7674,10 @@ export function isSettingsMessage(value: unknown): value is SettingsMessage {
     return typeof message.payload === 'string';
   }
 
+  if (message.type === 'setDashboardChatDestination' || message.type === 'testDashboardChatDestination') {
+    return isDashboardChatDestinationId(message.payload);
+  }
+
   if (message.type === 'setVoiceRate') {
     return typeof message.payload === 'number'
       && Number.isFinite(message.payload)
@@ -7501,6 +7780,10 @@ export function isSettingsMessage(value: unknown): value is SettingsMessage {
       && message.payload.length > 0
       && message.payload.length <= 4096
       && !/[\u0000-\u001f\u007f]/.test(message.payload);
+  }
+
+  if (message.type === 'runLocalCiSurfaceAction') {
+    return findLocalCiSurfaceAction(message.payload) !== undefined;
   }
 
   if (

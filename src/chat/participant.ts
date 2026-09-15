@@ -877,7 +877,9 @@ export async function runDeterministicSlashCommand(
     case 'lens': await handleLensCommand(stream); return true;
     case 'portal': await handlePortalCommand(argument, stream); return true;
     case 'compliance': await handleComplianceCommand(argument, stream); return true;
-    case 'localci': await handleLocalCiCommand(stream, atlas); return true;
+    case 'localci': await handleLocalCiCommand(argument, stream, atlas); return true;
+    case 'localci-patch': await handleLocalCiCommand('patch', stream, atlas); return true;
+    case 'localci-review': await handleLocalCiCommand('review', stream, atlas); return true;
     case 'setup': await handleSetupCommand(argument, stream, atlas, token); return true;
     case 'followups': await handleFollowUpsCommand(stream, atlas); return true;
     case 'research': await handleResearchCommand(argument, stream, atlas); return true;
@@ -3035,9 +3037,30 @@ async function collectLocalCiSetupSteps(
  * stops being opened.
  */
 async function handleLocalCiCommand(
+  prompt: string,
   stream: vscode.ChatResponseStream,
   atlas: AtlasMindContext,
 ): Promise<void> {
+  const action = (prompt ?? '').trim().toLowerCase();
+  if (action === 'patch') {
+    stream.markdown('Opening the reviewed-PR local-CI repository patcher. AtlasMind will inspect the repository and show every managed file before it writes anything.');
+    stream.button({ command: 'atlasmind.localCi.patchRepository', title: 'Patch this repository' });
+    await vscode.commands.executeCommand('atlasmind.localCi.patchRepository');
+    return;
+  }
+  if (action === 'review' || action === 'run') {
+    stream.markdown('Opening the reviewed pull-request selector. The approval names one exact same-repository head SHA; a new commit invalidates it.');
+    stream.button({ command: 'atlasmind.localCi.runReviewedPullRequest', title: 'Run reviewed PR' });
+    await vscode.commands.executeCommand('atlasmind.localCi.runReviewedPullRequest');
+    return;
+  }
+  if (action && action !== 'status' && action !== 'setup') {
+    stream.markdown(`Unknown local-CI action \`${escapeMd(action)}\`. Use \`/localci\`, \`/localci patch\`, or \`/localci review\`.`);
+    stream.button({ command: 'atlasmind.localCi.patchRepository', title: 'Patch this repository' });
+    stream.button({ command: 'atlasmind.localCi.runReviewedPullRequest', title: 'Run reviewed PR' });
+    return;
+  }
+
   const [{ LOCAL_CI_SETUP_GUIDE }, walkthrough] = await Promise.all([
     import('../core/localCiSetupPlan.js'),
     import('../core/setupWalkthrough.js'),
@@ -3063,6 +3086,8 @@ async function handleLocalCiCommand(
       ...(next.action.args ? { arguments: next.action.args } : {}),
     });
   }
+  stream.button({ command: 'atlasmind.localCi.patchRepository', title: 'Patch this repository' });
+  stream.button({ command: 'atlasmind.localCi.runReviewedPullRequest', title: 'Run reviewed PR' });
 }
 
 /**
@@ -3098,7 +3123,7 @@ async function handleSetupCommand(
     return;
   }
   if (requested?.id === 'localci') {
-    await handleLocalCiCommand(stream, atlas);
+    await handleLocalCiCommand('', stream, atlas);
     return;
   }
 

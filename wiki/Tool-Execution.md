@@ -44,6 +44,11 @@ parameters, its risk category and a plain summary of the impact. You get four ch
 Parameters are redacted for secrets and length-capped before you see them. If a parameter can't be
 displayed properly, it says **"unserializable arguments"** rather than showing a misleading empty object.
 
+Bypass and Autopilot are applied by the approval manager in the same state transition that resolves the
+card. Tool calls from one model response run concurrently, so the manager also settles every already-waiting
+card covered by the new scope before any tool gate resumes. A card cannot be answered before its resolver
+exists, and the host rejects any decision the card did not offer.
+
 Autopilot can also be toggled directly with **AtlasMind: Toggle Autopilot**, and puts an indicator in
 your status bar so you always know it's on.
 
@@ -262,6 +267,17 @@ The container gets no host mount, Docker socket, inbound port, GPU, persistent v
 It runs a resolved image id with CPU, memory, no-swap and process limits, all capabilities dropped and
 privilege escalation disabled. Docker Desktop starts only after confirmation. Cleanup refuses to stop it
 when another container runs or inventory cannot be read, and never manages an ordinary Linux daemon.
+
+**Reviewed pull-request local CI is an explicit code-execution approval, not automatic PR CI.** The
+repository patch commits a fixed controller on a trusted base branch. AtlasMind refuses drafts and forks,
+shows one exact current head SHA, re-reads it after approval, and dispatches a manual workflow whose run
+name includes that PR and SHA. It snapshots the queue first and gives the newly created run id to the
+runner, so a neighbouring dispatch with the same base SHA cannot be claimed. The workflow takes inputs
+through environment variables rather than interpolating them into shell source; candidate commands are
+argv pairs and shell executables are rejected. The job receives no repository/environment secret, host
+mount or Docker socket, but it does retain outbound network access for GitHub and dependency installation.
+Reviewing the exact diff remains mandatory; the container is defence in depth rather than proof that
+malicious code is safe.
 
 **Pipeline visuals are not an execution bridge.** Selecting a Studio subview or moving a workflow node
 changes only VS Code webview state. The graph cannot supply YAML, a command or a host path. Monorepo and

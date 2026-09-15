@@ -19,6 +19,73 @@ Older entries below describe the software as it was at the time and are delibera
 
 ---
 
+## v0.476.1 -- One approval choice covers the response
+
+Selecting **Bypass Approvals** or **Autopilot** now applies the scope before concurrent tool gates resume
+and settles the other eligible prompts already waiting in that response. Pending approval cards cannot
+appear before their resolver exists, and forged choices that a restricted review card did not offer are
+rejected by the host. Irreversible remote actions remain outside both bypass modes and now explain why
+they still need an explicit click. Direct Git follow-ups such as `commit and push` now also retain the
+bounded file tools needed to finish an outstanding source edit recorded in either legacy or structured
+session context. Dashboard prompt destinations now also survive a stale Extension Development Host settings
+registry: a displayed OpenAI Codex selection is retained for that workspace and used immediately rather than
+silently reverting to AtlasMind. Chat settings now shows the actual Dashboard prompt button, and that button
+sends the live destination test itself. Internal editor, notebook, agent, and terminal participant IDs from one
+extension collapse into one service choice while remaining compatibility aliases for saved selections. The
+external hand-off explanation now uses plain language while still naming who controls the model, privacy,
+quota/cost, context, and permissions.
+
+---
+
+## v0.476.0 -- Dashboard Atlas actions submit where you choose
+
+Project Dashboard Atlas actions submit again instead of opening AtlasMind Chat with an unsent draft.
+The new **Settings → Chat & Sidebar → Atlas action destination** selector keeps AtlasMind as the default,
+or sends through the current VS Code Chat target or an installed extension that declares a compatible
+chat participant or chat-session route. Installed routes are discovered live; malformed, unsupported, or
+removed selections refuse without sending project text. The Settings page also states that an external
+service receives the generated prompt under its own routing, privacy, cost, and approval controls.
+
+## v0.475.1 -- Accurate project evidence
+
+### Fixed
+
+- Read complete Project Soul Vision and References sections, including Windows line endings and nested subheadings, so the operational score can use the evidence already present.
+- Discover tests across large monorepos rather than silently stopping after 200 files. Exclude nested repositories and generated agent worktrees; report when the 10,000-file safety limit makes a scan partial. Score weights and testing obligations are unchanged.
+- Resolve the VS Code test stub with a filesystem URL conversion so tests work in Windows paths containing spaces.
+
+## v0.475.0 -- Reviewed pull-request local CI
+
+AtlasMind can patch any GitHub repository with a committed local-CI contract, then run one
+explicitly approved, same-repository pull-request head SHA on its isolated one-job Docker runner.
+Conventional npm, pnpm and Yarn repositories get a proposed locked install and check plan; other
+stacks get a disabled contract until the operator declares the argv commands. Codex, Claude, other
+agentic services and human authors all follow the same route -- the authoring product is not a trust
+signal.
+
+The actions are on **Pipeline**, **Pull Requests**, **Settings → Testing**, the Command Palette,
+`/localci patch`, `/localci review`, `/localci-patch` and `/localci-review`. A changed SHA invalidates
+the approval. Forks, drafts, secrets, host mounts, the Docker socket and native-platform claims remain
+refused; the trusted workflow and command runner must exactly match AtlasMind's generated controller.
+The controller is pinned to the dispatch commit, workflow inputs are not interpolated into shell source,
+and the runner is bound to the newly created GitHub run id. Outbound network access remains available for
+GitHub and dependency installation, so Docker is defence in depth rather than a replacement for review.
+
+---
+
+## v0.474.3 -- Secret scan allowlist
+
+The codebase-index test's credential-shaped fixture is allowlisted by path, as every other
+detector fixture is, so CI's Secret scan is green again.
+
+---
+
+## v0.474.2 -- Published baseline
+
+The README's published baseline now names v0.474.1.
+
+---
+
 ## v0.474.1 -- Delivery record
 
 The delivery register now names 0.474.0 as the last promotion to Integration, so the Delivery

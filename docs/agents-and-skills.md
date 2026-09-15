@@ -462,6 +462,13 @@ Risky built-in skills are also filtered by a tool-approval policy before executi
 
 Two ceilings sit outside that mode, and the order matters. `atlasmind.allowTerminalWrite` (default off) refuses `terminal-write` and is evaluated **before** any bypass, so Autopilot cannot convert it into a permission. `NEVER_BYPASSABLE_TOOLS` (`toolPolicy.ts`) is the second: `ToolApprovalManager.shouldBypass` consults it first and returns `false` regardless of Autopilot, whole-task bypass or a per-category bypass. It holds exactly one pair — `network` at `high` risk — which covers `git-push`, deleting a remote branch, and any external tool the classifier could not identify, since an unrecognised name grades `network`/`high` on the name alone. Before this existed, `shouldBypass` returned `true` for every category once Autopilot was on, and Autopilot is offered as an answer to any approval dialog, so one click on a low-risk tool bought all three unattended for the session. The ceiling is deliberately narrow rather than covering every `high`: prompting on ordinary file writes is the friction that gets a gate switched off wholesale, which protects nothing. `toolBypassCeiling()` returns the reason rather than a boolean, so a dialog reappearing after Autopilot was enabled can explain itself.
 
+Approval scope is committed inside `ToolApprovalManager.resolvePendingRequest`, before the selected promise
+or any concurrent tool gate resumes. Enabling Bypass or Autopilot settles other already-pending requests
+only when the new scope covers their task, the invocation is below `toolBypassCeiling`, and the card itself
+declared that decision. This makes one response behave as one authorization choice without turning a bulk
+resolution into a route around the ceiling. Pending resolvers are registered before their cards are
+published, and a webview decision outside a card's `allowedDecisions` is rejected in the extension host.
+
 Routines are not tools and never passed through this gate at all. `RoutineRunner` reaches a real shell via `promisify(exec)`, so it has its own boundary in `routineExecutionPolicy.ts`: the commands are planned and shown before anything runs, and the runner takes the plan rather than the routine and its values so a caller cannot display one command and execute another. See `docs/architecture.md` for why a preview rather than a stricter validator was the right answer there.
 
 Turn-scoped capability ceilings are narrower than approval policy and apply only when the request explicitly withdraws a broad capability. A no-command directive must name commands, terminal, shell, packages, scripts, or processes; a narrow instruction such as “do not release” is enforced by the release/approval boundary and does not erase unrelated local Git tools. This distinction is load-bearing for host-authored Delivery prompts: approval-qualified release wording must leave `git-status`, `git-diff`, and `git-commit` callable so the ordinary approval manager can make the decision it was designed to make.
@@ -506,6 +513,14 @@ and Docker runtime while its fixed access policy remains disabled and the contai
 Missing flake history, testcase timing or provider registry data remains visibly unavailable instead of
 being filled by a model.
 
+Reviewed-PR local CI adds no agent skill and no provider privilege. Its three dashboards send only the
+closed action ids `patch` and `review`, resolved by `localCiSurfaceActions.ts` to two fixed extension
+commands. The host, not an agent, reads GitHub PR metadata, shows the exact SHA, revalidates it, dispatches
+the trusted workflow and supplies the newly created run id to the existing runner. Codex, Claude, Copilot,
+Cursor, AtlasMind and human-authored PRs are deliberately indistinguishable at this boundary. A model may
+propose code, but it cannot approve its own SHA, nominate a fork, alter the fixed controller, or widen the
+Linux-container evidence claim.
+
 Execution-oriented built-in skills now include a dedicated `docker-cli` helper for container work. Instead of passing arbitrary Docker commands through the generic terminal skill, AtlasMind exposes a separate allow-list for `docker` and `docker compose` inspection and lifecycle operations such as `ps`, `logs`, `inspect`, `compose up`, and `compose down`.
 
 ### Operational Boundaries
@@ -528,6 +543,7 @@ That separation is the current answer to scaling the number of agents and tools:
 - A stored definition without `skillPolicy` remains compatible: a populated list resolves as `allowlist`; an empty list resolves as `task-scoped`.
 - **A per-turn schema ceiling of 24 applies to every policy**, not only `task-scoped`. `skillPolicy` answers which skills an agent *may* use; it does not also decide how many schemas are worth a turn's context. Before this, an `allowlist` agent sent its whole list and an `all` agent sent every enabled skill — including every connected MCP tool — on every query. The ceiling is an overflow guard rather than a selection policy: a pool at or under it is returned untouched, so a hand-written allowlist is byte-identical to before. Above it, skills are ranked by request intent and unscored ones keep the order they were declared in rather than being sorted by id, so an overflowing allowlist keeps the ones the user named first. When the cap trims anything, the progress line says so.
 - The turn selector uses explicit tool IDs plus workspace, action, testing, Git, memory, web, delivery, and prior-session follow-through signals. Selection can only narrow the eligibility pool and the user's capability envelope; it cannot grant a skill.
+- A direct Git follow-up such as `commit and push` keeps the bounded workspace read/write subset when the prior session records an unfinished source mutation. The selector reads the goal, summary, decisions, and open threads from `SessionContextBundle` as well as the legacy session string; structured context therefore cannot leave the model with Git publication tools but no way to finish the change being published.
 - **Delivery intent comes from the project's own declared vocabulary** (`src/core/projectVocabulary.ts`), never from a keyword table maintained in the selector. A promotion requires both a promotion verb *and* a stage the project declared in `delivery.json` — a verb alone is not delivery ("publish the docs"), and a stage alone is a question about it ("why is production slow?"). A stage's *kind* counts as a name, so "promote to staging" resolves a stage of kind `staging` whatever it is called.
 - **Git integration flows select the write tools as a set.** Merging, rebasing, cherry-picking and promoting are one task ending in a published change, and per-word selection produced incoherent bundles: "merge to main then publish" contains neither `commit` nor `push`, so it received the tools that describe a repository and none of the tools that change one. `commit` and `push` keep their own per-word rules, so asking about a commit does not hand over the ability to publish one.
 - **An escalating turn widens its selection once**, up to 18 tools, within the same eligibility pool. A thin answer is often a model that was never given the tool it needed, and re-routing to a stronger model does not fix that.

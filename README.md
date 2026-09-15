@@ -4,7 +4,7 @@
 
 <h1 align="center">AtlasMind</h1>
 
-<p align="center"><sub> · <strong>Current source version: 0.474.1</strong> · </sub></p>
+<p align="center"><sub> · <strong>Current source version: 0.476.1</strong> · </sub></p>
 
 
 <p align="center">
@@ -175,10 +175,46 @@ important limits on overrides and compliance claims.
 
 ---
 
-## What's new in 0.474.1
+## What's new in 0.476.1
 
-The last Marketplace publication, **v0.449.5**, brought the changes below. Every release is written
-up in full in [CHANGELOG.md](CHANGELOG.md).
+Bypass Approvals and Autopilot now take effect on the click itself, so concurrent tool calls already
+waiting in one response settle together instead of asking repeatedly. Irreversible remote actions remain
+outside both bypass modes and their approval card now says why it reappeared. Short Git follow-ups such
+as `commit and push` also retain the file tools needed to finish an outstanding source edit recorded in
+the session, including when that history is carried by the structured context bundle. Dashboard prompt
+destinations also survive a stale Extension Development Host registry: a displayed Codex selection is retained
+for that workspace and used immediately instead of silently reverting to AtlasMind. The setting now shows the
+actual Dashboard prompt button and clicking it sends a live route test. Internal editor, notebook, agent, and
+terminal participants from one extension collapse into one service choice instead of duplicate-looking rows.
+Its hand-off guidance plainly identifies which privacy, model, quota/cost, context, and permission controls
+belong to the other chat.
+
+## What's new in 0.476.0
+
+Project Dashboard Atlas actions submit again instead of only filling AtlasMind's composer. A new
+**Settings → Chat & Sidebar → Atlas action destination** choice can send those prompts to AtlasMind,
+the current VS Code Chat target, or an installed extension that declares a compatible chat participant
+or chat-session route. The default remains AtlasMind; removed destinations fail closed without sending.
+
+## What's new in 0.475.1
+
+Operational scoring now reads full Project Soul sections and discovers tests throughout large monorepos. Nested checkouts are excluded, and a scan that reaches the safety limit says it is partial. No score weights or test requirements changed.
+
+## What's new in 0.475.0
+
+The current source adds the change below on top of the last Marketplace publication, **v0.474.1**.
+Every release is written up in full in [CHANGELOG.md](CHANGELOG.md).
+
+- **Run a reviewed agent PR locally without trusting the agent by name.** AtlasMind can patch any
+  GitHub repository with a committed exact-SHA local-CI contract, then let you inspect and approve one
+  same-repository PR commit before lending a one-job Docker runner. Conventional npm, pnpm
+  and Yarn repositories get a proposed locked install and check plan; another stack gets a disabled
+  contract until you declare its argv commands. Codex, Claude, other agentic services, AtlasMind and
+  human contributors all follow the same route. The controls live on Pipeline, Pull Requests and
+  Settings → Testing, with `/localci patch` and `/localci review` shortcuts. A new commit invalidates
+  the approval; forks, drafts, repository/environment secrets, host mounts, the Docker socket and
+  native-platform claims are refused. The job retains outbound network access for GitHub and dependency
+  installation, so Docker is defence in depth rather than a substitute for reviewing the proposed code.
 
 - **Website delivery is on the Dashboard's Delivery page.** The framework choice, the three hosting
   environments, the platform targets and the n8n workflow map moved out of UI Studio and onto the
@@ -515,6 +551,7 @@ Highlights from the last few releases. Everything here is already in the publish
 | **Smart model routing** | Cloud, local, or your existing subscription — chosen per task by fit, cost, speed, health, and past results. |
 | **Project memory** | Architecture, decisions, roadmap, lessons and operations kept as readable Markdown in your repo, retrieved when relevant. |
 | **A guided GitHub workflow** | Ideation → issues → branches → development → pull requests → CI → release → tech debt, each with its own automation level from *watch* to *act*. |
+| **Reviewed-PR local CI** | Patch a repository once, inspect and approve one exact same-repository PR SHA, then run its declared checks on AtlasMind's one-job Docker runner. Codex, Claude, other agents and humans share the same boundary. |
 | **Project planning & Mission Control** | Dependency-aware task plans, previews, checkpoints, resumable runs, and goal evaluation inside limits you set. |
 | **Ideation board** | Visual thinking that reaches the backlog — cards become roadmap items, roadmap items become issue drafts. |
 | **Tech debt register** | Deferred work found from your own code markers, graded by a published rule you can read, tracked rather than forgotten. |
@@ -558,10 +595,14 @@ Type these in the AtlasMind chat panel as `/<command>`, or in the VS Code chat v
 | `/runs` | Recent autonomous runs and checkpoints |
 | `/director` · `/followups` | People, responsibilities, assignments and what's overdue |
 | `/setup` · `/acp` · `/buzz` · `/lens` · `/localci` · `/portal` | Guided setup walkthroughs |
+| `/localci patch` · `/localci-patch` | Preview and write the three AtlasMind-managed files that opt the current repository into reviewed-PR local CI |
+| `/localci review` · `/localci-review` | Select an eligible PR, inspect and approve its exact head SHA, then start the one-job runner |
 | `/compliance` | What evidences each governance regime, control by control; `/compliance next` for the next control needing a decision |
 | `/ship [routine]` | Run a saved project routine |
 | `/sync-instructions` | Keep every AI tool's instruction file in agreement |
 | `/voice` · `/vision` | Speech and image analysis panels |
+
+The same reviewed-PR operations are also available as **AtlasMind: Patch This Repository for Local CI** and **AtlasMind: Run a Reviewed Pull Request on Local CI** in the Command Palette.
 
 Full behaviour and the Command Palette list are in [Chat Commands](wiki/Chat-Commands.md).
 
@@ -589,13 +630,14 @@ Everything is in the AtlasMind Settings panel, or under `atlasmind.*` in VS Code
 | `autoVerifyAfterWrite` | `true` | Run your checks automatically after a change |
 | `ssotPath` | `project_memory` | Where project memory lives in your repo |
 | `chatSessionTurnLimit` | `6` | How much recent conversation carries forward |
+| `dashboard.chatDestination` | `atlasmind` | Where Project Dashboard Atlas actions submit: AtlasMind, the current VS Code Chat target, or an installed prompt-capable chat extension. Settings shows the matching prompt button; click it to send a live route test. Internal participant routes are collapsed to one choice per extension. A stale Extension Development Host retains the validated workspace choice until its settings registry reloads |
 | `lens.live.enabled` | `false` | Let the live lenses read the schema a running service serves. Shape only, never a row |
 | `ci.localRunner.enabled` | `false` | Permit one confirmed ephemeral runner for an already-queued trusted job; machine-scoped |
 | `ci.localRunner.shutdownPolicy` | `ifStartedByAtlasMind` | Keep Docker open, close it only when AtlasMind opened it, or always close when no other container runs |
 | `testing.resourceShare` | `50` | Sliding scale for local test execution: the percentage of this computer tests may use, across every path AtlasMind runs or composes; the OS always keeps ≥25% (≥2 CPUs / 8 GB); machine-scoped |
 | `execution.worktreeIsolation` | `false` | Give each file-writing step of a job its own git worktree so a batch can write in parallel. Off means writers run one at a time — this setting buys back speed, it is not what makes the run safe |
 
-All 154 settings are documented in the [Configuration reference](wiki/Configuration.md).
+All 162 settings are documented in the [Configuration reference](wiki/Configuration.md).
 
 ---
 
@@ -603,13 +645,13 @@ All 154 settings are documented in the [Configuration reference](wiki/Configurat
 
 | Path | What's in it |
 |---|---|
-| `src/core/` | Orchestration, routing, planning, safety, cost, project composition, opt-in workspace scope, read-only upstream distance, game-engine identity, bounded asset inventory, pure engine-fork interpretation, and hostile-input build-log reading (`projectComposition.ts`, `workspaceScope.ts`, `upstreamDivergence.ts`, `gameEngineIdentity.ts`, `gameAssetInventory.ts`, `gameEngineDivergence.ts`, `gameBuildLog.ts`), UI Studio's graph/edit/live-preview/repository core (`uiDesignGraph.ts`, `uiEditCommands.ts`, `uiPreviewRuntime.ts`, `uiRepositoryMapping.ts`, `uiRepositoryImport.ts`, `uiSurfaceScan.ts`), brand presets — one named token set applied to many surfaces by alias, extracted from a stylesheet with a citation (`brandPresets.ts`) — and the engine emitters with anchored, patch-by-anchor content write-back and constant-argv launch plans (`uiSurfaceEmit.ts`), CI inspection/scaffolding (`ciManager.ts`, `trustedLocalCiStarter.ts`), the CI route model, routing policy, build ledger and act adapter (`ciRoutes.ts`, `ciRoutingPolicy.ts`, `ciCreditMeter.ts`, `ciBuildLedger.ts`, `ciActRoute.ts`), the local CI guide, GitHub CLI installer and remembered machine inspection (`localCiSetupPlan.ts`, `localCiInstaller.ts`, `localCiInspectionMemory.ts`), confirmed-write echo (`trackerWriteOutcome.ts`), the register-to-work hand-off (`registerHandoff.ts`), the personal-vs-project split behind the two sidebar people views (`directorPriority.ts`), the semver primitives and branch-to-channel versioning policy (`semver.ts`, `versioningPolicy.ts`), the shell-free Windows shim bypass shared by the extension host, the CLI and the ACP launcher (`windowsShimBypass.ts`), parallel-write placement, worktree plumbing, merge-back and the run that ties them together (`worktreeIsolation.ts`, `worktreeManager.ts`, `worktreeMerge.ts`, `worktreeRun.ts`), the live security advisory feed and the per-turn context breakdown and the producer-portal hosting guide (`advisoryFeed.ts`, `contextBudget.ts`, `producerPortalPlan.ts`), the defect register — what is broken, graded by a published table rather than asked for (`defectRegister.ts`), the approval register — who agreed, to which version, and what goes stale when it changes (`changeApprovals.ts`), the test-case register — the manual half of testing, its owners and the assets it needs (`testCaseRegister.ts`), the ambient event bus — what may wake AtlasMind up, how far it may go, and why it stayed quiet (`ambientTriggers.ts`), the six cross-cutting utility decisions with their verified vendor facts (`utilityPacks.ts`), the searchable codebase index — what may be indexed, what is stale, and what a result may be taken to mean (`codebaseIndex.ts`, `codebaseIndexStore.ts`), where the producer portal is hosted and who may read it, and what one press to publish would actually do (`portalHosting.ts`, `portalPublishPlan.ts`), golden cases for an agent and the gate on an unattended prompt rewrite (`agentEvalHarness.ts`), what each person has been asked to do against the capacity they declared, and declared absence read out of an exported calendar (`teamWorkload.ts`, `rotaImport.ts`), baselines you can name so "what changed" can be asked about a moment you chose (`baselineRegister.ts`), the project in your own words and the grounding rule for anything read out of it (`projectBrief.ts`), the roadmap dependency graph, its overlay store, the chain the finish rests on and the plan against time (`roadmapGraph.ts`, `roadmapGraphStore.ts`, `roadmapCriticalPath.ts`, `roadmapTimeline.ts`, `roadmapBoard.ts`), whether the configured team can work and how much of it is used (`agentCapacity.ts`), and the git trailers that link a commit to the work it was for (`commitTrailers.ts`), and the evidence-triggered MCP capability offer (`capabilityOffer.ts`), release-gate destinations and urgency ordering (`releaseGateNavigation.ts`), roadmap ingestion from markdown, issues, Projects and spreadsheets (`roadmapImport.ts`, `roadmapReconcile.ts`) plus the guarded `localCiRunner.ts` executor, the governance-compliance stack — the control catalog, evidence register and readiness grader (`complianceControlCatalog.ts`, `complianceEvidenceRegister.ts`, `complianceReadiness.ts`) the per-methodology standard editions (`testingStandards.ts`), the Compliance page's view builder (`complianceDashboard.ts`), its walkthrough (`complianceSetupPlan.ts`), the shared stack-signal gatherer (`complianceStackSignals.ts`) and the mapping importer (`complianceMarkdownImport.ts`) — and project services |
+| `src/core/` | Orchestration, routing, planning, safety, cost, project composition, opt-in workspace scope, read-only upstream distance, game-engine identity, bounded asset inventory, pure engine-fork interpretation, and hostile-input build-log reading (`projectComposition.ts`, `workspaceScope.ts`, `upstreamDivergence.ts`, `gameEngineIdentity.ts`, `gameAssetInventory.ts`, `gameEngineDivergence.ts`, `gameBuildLog.ts`), UI Studio's graph/edit/live-preview/repository core (`uiDesignGraph.ts`, `uiEditCommands.ts`, `uiPreviewRuntime.ts`, `uiRepositoryMapping.ts`, `uiRepositoryImport.ts`, `uiSurfaceScan.ts`), brand presets — one named token set applied to many surfaces by alias, extracted from a stylesheet with a citation (`brandPresets.ts`) — and the engine emitters with anchored, patch-by-anchor content write-back and constant-argv launch plans (`uiSurfaceEmit.ts`), CI inspection/scaffolding (`ciManager.ts`, `trustedLocalCiStarter.ts`), the CI route model, routing policy, build ledger and act adapter (`ciRoutes.ts`, `ciRoutingPolicy.ts`, `ciCreditMeter.ts`, `ciBuildLedger.ts`, `ciActRoute.ts`), the local CI guide, GitHub CLI installer and remembered machine inspection (`localCiSetupPlan.ts`, `localCiInstaller.ts`, `localCiInspectionMemory.ts`), the provider-neutral reviewed-PR contract, exact-SHA policy and repository patcher (`localCiRepositoryPatch.ts`, `reviewedPrLocalCi.ts`), confirmed-write echo (`trackerWriteOutcome.ts`), the register-to-work hand-off (`registerHandoff.ts`), the personal-vs-project split behind the two sidebar people views (`directorPriority.ts`), the semver primitives and branch-to-channel versioning policy (`semver.ts`, `versioningPolicy.ts`), the shell-free Windows shim bypass shared by the extension host, the CLI and the ACP launcher (`windowsShimBypass.ts`), parallel-write placement, worktree plumbing, merge-back and the run that ties them together (`worktreeIsolation.ts`, `worktreeManager.ts`, `worktreeMerge.ts`, `worktreeRun.ts`), the live security advisory feed and the per-turn context breakdown and the producer-portal hosting guide (`advisoryFeed.ts`, `contextBudget.ts`, `producerPortalPlan.ts`), the defect register — what is broken, graded by a published table rather than asked for (`defectRegister.ts`), the approval register — who agreed, to which version, and what goes stale when it changes (`changeApprovals.ts`), the test-case register — the manual half of testing, its owners and the assets it needs (`testCaseRegister.ts`), the ambient event bus — what may wake AtlasMind up, how far it may go, and why it stayed quiet (`ambientTriggers.ts`), the six cross-cutting utility decisions with their verified vendor facts (`utilityPacks.ts`), the searchable codebase index — what may be indexed, what is stale, and what a result may be taken to mean (`codebaseIndex.ts`, `codebaseIndexStore.ts`), where the producer portal is hosted and who may read it, and what one press to publish would actually do (`portalHosting.ts`, `portalPublishPlan.ts`), golden cases for an agent and the gate on an unattended prompt rewrite (`agentEvalHarness.ts`), what each person has been asked to do against the capacity they declared, and declared absence read out of an exported calendar (`teamWorkload.ts`, `rotaImport.ts`), baselines you can name so "what changed" can be asked about a moment you chose (`baselineRegister.ts`), the project in your own words and the grounding rule for anything read out of it (`projectBrief.ts`), the roadmap dependency graph, its overlay store, the chain the finish rests on and the plan against time (`roadmapGraph.ts`, `roadmapGraphStore.ts`, `roadmapCriticalPath.ts`, `roadmapTimeline.ts`, `roadmapBoard.ts`), whether the configured team can work and how much of it is used (`agentCapacity.ts`), and the git trailers that link a commit to the work it was for (`commitTrailers.ts`), and the evidence-triggered MCP capability offer (`capabilityOffer.ts`), release-gate destinations and urgency ordering (`releaseGateNavigation.ts`), roadmap ingestion from markdown, issues, Projects and spreadsheets (`roadmapImport.ts`, `roadmapReconcile.ts`) plus the guarded `localCiRunner.ts` executor, the governance-compliance stack — the control catalog, evidence register and readiness grader (`complianceControlCatalog.ts`, `complianceEvidenceRegister.ts`, `complianceReadiness.ts`) the per-methodology standard editions (`testingStandards.ts`), the Compliance page's view builder (`complianceDashboard.ts`), its walkthrough (`complianceSetupPlan.ts`), the shared stack-signal gatherer (`complianceStackSignals.ts`) and the mapping importer (`complianceMarkdownImport.ts`) — and project services |
 | `src/runtime/` | Built-in agents and runtime composition |
 | `src/providers/` | Model provider adapters, catalogs, health, `modelRole.ts` (what a model is *for*), and the local-GPU support layer — `gpuProbe.ts`, `localFootprint.ts`, `localRuntimeClient.ts` |
 | `src/skills/` | Built-in tools and skill handlers |
 | `src/memory/` | Project memory: retrieval, scanning, redaction, persistence |
 | `src/chat/` | The chat participant and interaction protocol |
-| `src/views/` | Settings, dashboards, editors and sidebar surfaces |
+| `src/views/` | Settings, dashboards, editors and sidebar surfaces, including the shared reviewed-PR local-CI action allowlist and host commands (`localCiSurfaceActions.ts`, `reviewedPrLocalCiCommands.ts`) |
 | `src/acp/` and `src/cli/` | Subscription-agent sessions and the headless CLI |
 | `src/mcp/` and `src/ard/` | MCP servers and agentic resource discovery |
 | `src/voice/` and `src/remote/` | Voice backends and opt-in remote control |

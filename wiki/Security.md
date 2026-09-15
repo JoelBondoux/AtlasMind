@@ -135,6 +135,11 @@ the session.
 It stays one narrow category on purpose. A gate that prompts on every file write is a gate people turn
 off, and a gate that is off protects nothing. Full detail in [Tool Execution](Tool-Execution.md).
 
+Scope changes are atomic with the click: concurrent bypassable cards already waiting for the same response
+are settled before their tool gates resume. Bulk settlement re-checks the ceiling and the card's declared
+decision list, so a protected remote action or a restricted review card stays pending. The extension host
+also rejects a forged webview decision that was never offered on that card.
+
 ---
 
 ## Routines are shown to you before they run
@@ -740,6 +745,20 @@ and checkout does not persist it. The ephemeral container receives no host paths
 port, GPU, persistent volume, repository/environment secrets or OIDC permission. Its immutable image id,
 non-root user, capability drop, no-new-privileges flag, CPU/memory/no-swap limits and process ceiling are
 shown in the confirmation and dashboard.
+
+The reviewed-PR extension of this path is **manual and exact-SHA**, never a `pull_request` trigger. The
+trusted base branch owns `.atlasmind/local-ci.json`, the generated argv runner and the workflow; AtlasMind
+requires the two executable files to match its generator byte for byte. It refuses draft and fork PRs,
+shows the complete head SHA, re-reads the PR after approval, then identifies the newly dispatched run by
+its run id and input-derived title before the local runner may claim it. The workflow controller checkout
+uses the dispatch commit (`github.sha`), so a later base-branch push cannot replace the reviewed controller
+while a job waits. Inputs reach the validation shell through environment variables, and the candidate
+contract rejects shell executables.
+
+That is still execution of proposed code. The job has outbound network access for GitHub and dependency
+installation, and Docker shares the host kernel through its runtime. The modal therefore states that the
+container is defence in depth and not a substitute for reviewing the exact diff. Codex, Claude, any other
+agent interface and a human author receive no different trust treatment; producer identity grants nothing.
 
 Hardware detection is an evidence boundary as well as a convenience. AtlasMind reads Docker's actual
 OS/architecture and capacity after startup, reserves at least 25% for the desktop, and refuses if the safe

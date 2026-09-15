@@ -90,6 +90,69 @@ describe('the ceiling holds against every bypass route', () => {
       }
     }
   });
+
+  it('does not bulk-approve a pending ceilinged action when Autopilot is enabled', async () => {
+    const manager = new ToolApprovalManager();
+    const ordinaryDecision = manager.requestApproval({
+      taskId: 'task-1',
+      toolName: 'file-write',
+      category: 'workspace-write',
+      risk: 'high',
+      summary: 'edit a workspace file',
+    });
+    const protectedDecision = manager.requestApproval({
+      taskId: 'task-1',
+      toolName: 'git-push',
+      category: 'network',
+      risk: 'high',
+      summary: 'push commits to a remote repository',
+    });
+    let protectedSettled = false;
+    void protectedDecision.then(() => { protectedSettled = true; });
+
+    manager.enableAutopilot();
+
+    await expect(ordinaryDecision).resolves.toBe('autopilot');
+    await Promise.resolve();
+    expect(protectedSettled).toBe(false);
+    expect(manager.listPendingRequests()).toEqual([
+      expect.objectContaining({ toolName: 'git-push' }),
+    ]);
+
+    const [protectedRequest] = manager.listPendingRequests();
+    manager.resolvePendingRequest(protectedRequest!.id, 'deny');
+    await expect(protectedDecision).resolves.toBe('deny');
+  });
+
+  it('keeps a concurrent ceilinged action pending after an in-card task bypass', async () => {
+    const manager = new ToolApprovalManager();
+    const ordinaryDecision = manager.requestApproval({
+      taskId: 'task-2',
+      toolName: 'file-write',
+      category: 'workspace-write',
+      risk: 'medium',
+      summary: 'edit a workspace file',
+    });
+    const protectedDecision = manager.requestApproval({
+      taskId: 'task-2',
+      toolName: 'mcp:vendor:delete_records',
+      category: 'network',
+      risk: 'high',
+      summary: 'delete external records',
+    });
+
+    const [ordinaryRequest] = manager.listPendingRequests();
+    manager.resolvePendingRequest(ordinaryRequest!.id, 'bypass-task');
+
+    await expect(ordinaryDecision).resolves.toBe('bypass-task');
+    expect(manager.listPendingRequests()).toEqual([
+      expect.objectContaining({ toolName: 'mcp:vendor:delete_records' }),
+    ]);
+
+    const [protectedRequest] = manager.listPendingRequests();
+    manager.resolvePendingRequest(protectedRequest!.id, 'deny');
+    await expect(protectedDecision).resolves.toBe('deny');
+  });
 });
 
 describe('the ceiling stays narrow enough to be kept', () => {

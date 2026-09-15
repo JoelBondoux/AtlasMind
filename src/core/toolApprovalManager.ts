@@ -39,7 +39,10 @@ export class ToolApprovalManager {
 
   enableAutopilot(): void {
     this.state.autopilot = true;
-    this.resolveAllPending('autopilot');
+    this.settleMatchingPending(
+      request => this.canResolveFromScope(request, 'autopilot'),
+      'autopilot',
+    );
     this.notifyAutopilotChange(true);
   }
 
@@ -67,24 +70,50 @@ export class ToolApprovalManager {
       createdAt: new Date().toISOString(),
     };
 
-    this.pendingApprovals = [...this.pendingApprovals, pendingRequest];
-    this.notifyPendingApprovalChange();
-
     return new Promise(resolve => {
+      // Register the resolver before publishing the request. A listener is
+      // allowed to answer synchronously (the chat webview normally answers on
+      // a later event-loop turn, but tests and future hosts need not), and a
+      // visible card whose resolver does not exist yet turns the first click
+      // into a no-op.
       this.pendingApprovalResolvers.set(pendingRequest.id, resolve);
+      this.pendingApprovals = [...this.pendingApprovals, pendingRequest];
+      this.notifyPendingApprovalChange();
     });
   }
 
   resolvePendingRequest(requestId: string, decision: ToolApprovalDecision): boolean {
+    const request = this.pendingApprovals.find(candidate => candidate.id === requestId);
     const resolver = this.pendingApprovalResolvers.get(requestId);
-    if (!resolver) {
+    if (!request || !resolver || !this.isDecisionAllowed(request, decision)) {
       return false;
     }
 
-    this.pendingApprovalResolvers.delete(requestId);
-    this.pendingApprovals = this.pendingApprovals.filter(request => request.id !== requestId);
-    this.notifyPendingApprovalChange();
-    resolver(decision);
+    // The click and the scope it grants are one state transition. Previously
+    // the UI resolved this one promise and the caller enabled Bypass/Autopilot
+    // only after its `await` resumed. Tool calls run concurrently, so the other
+    // gates remained visible (and could add more cards) during that gap.
+    if (decision === 'autopilot') {
+      this.state.autopilot = true;
+      this.settleMatchingPending(
+        candidate => candidate.id === requestId || this.canResolveFromScope(candidate, decision),
+        decision,
+      );
+      this.notifyAutopilotChange(true);
+      return true;
+    }
+
+    if (decision === 'bypass-task') {
+      this.state.bypassTaskId = request.taskId;
+      this.settleMatchingPending(
+        candidate => candidate.id === requestId
+          || (candidate.taskId === request.taskId && this.canResolveFromScope(candidate, decision)),
+        decision,
+      );
+      return true;
+    }
+
+    this.settleMatchingPending(candidate => candidate.id === requestId, decision);
     return true;
   }
 
@@ -94,7 +123,10 @@ export class ToolApprovalManager {
    */
   bypassTask(taskId: string): void {
     this.state.bypassTaskId = taskId;
-    this.resolveMatchingPending(request => request.taskId === taskId, 'bypass-task');
+    this.settleMatchingPending(
+      request => request.taskId === taskId && this.canResolveFromScope(request, 'bypass-task'),
+      'bypass-task',
+    );
   }
 
   /**
@@ -152,7 +184,7 @@ export class ToolApprovalManager {
       this.state.bypassTaskId = undefined;
     }
     this.bypassedCategories.delete(taskId);
-    this.resolveMatchingPending(request => request.taskId === taskId, 'deny');
+    this.settleMatchingPending(request => request.taskId === taskId, 'deny');
   }
 
   /**
@@ -211,19 +243,53 @@ export class ToolApprovalManager {
   }
 
   private resolveAllPending(decision: ToolApprovalDecision): void {
-    this.resolveMatchingPending(() => true, decision);
+    this.settleMatchingPending(() => true, decision);
   }
 
-  private resolveMatchingPending(
+  private settleMatchingPending(
     predicate: (request: PendingToolApprovalRequest) => boolean,
     decision: ToolApprovalDecision,
   ): void {
-    const matchingIds = this.pendingApprovals
-      .filter(predicate)
-      .map(request => request.id);
-    for (const requestId of matchingIds) {
-      this.resolvePendingRequest(requestId, decision);
+    const matching = this.pendingApprovals.filter(predicate);
+    if (matching.length === 0) {
+      return;
     }
+
+    const matchingIds = new Set(matching.map(request => request.id));
+    const resolvers = matching
+      .map(request => this.pendingApprovalResolvers.get(request.id))
+      .filter((resolver): resolver is (decision: ToolApprovalDecision) => void => Boolean(resolver));
+
+    for (const requestId of matchingIds) {
+      this.pendingApprovalResolvers.delete(requestId);
+    }
+    this.pendingApprovals = this.pendingApprovals.filter(request => !matchingIds.has(request.id));
+    this.notifyPendingApprovalChange();
+
+    for (const resolver of resolvers) {
+      resolver(decision);
+    }
+  }
+
+  /**
+   * A scope grant can settle only ordinary approval cards that accept that
+   * decision and whose policy is below the non-waivable ceiling. The request
+   * the operator actually clicked is handled separately: that click is still
+   * explicit one-time authorization for the displayed action.
+   */
+  private canResolveFromScope(
+    request: PendingToolApprovalRequest,
+    decision: Extract<ToolApprovalDecision, 'bypass-task' | 'autopilot'>,
+  ): boolean {
+    return this.isDecisionAllowed(request, decision) && isToolBypassable({
+      category: request.category,
+      risk: request.risk,
+      summary: request.summary,
+    });
+  }
+
+  private isDecisionAllowed(request: PendingToolApprovalRequest, decision: ToolApprovalDecision): boolean {
+    return request.allowedDecisions === undefined || request.allowedDecisions.includes(decision);
   }
 
   private createRequestId(taskId: string, toolName: string): string {

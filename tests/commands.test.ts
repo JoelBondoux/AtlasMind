@@ -123,6 +123,17 @@ describe('registerCommands', () => {
 
     expect(registerCommand.mock.calls.map(call => call[0])).toContain('atlasmind.openWebsiteStudio');
   });
+
+  it('registers both reviewed-PR local-CI commands', () => {
+    const registerCommand = vi.fn().mockReturnValue({ dispose: () => undefined });
+    (vscode as unknown as { commands: { registerCommand: typeof registerCommand } }).commands = { registerCommand };
+
+    registerCommands({ subscriptions: [] } as never, () => undefined);
+
+    const commands = registerCommand.mock.calls.map(call => call[0]);
+    expect(commands).toContain('atlasmind.localCi.patchRepository');
+    expect(commands).toContain('atlasmind.localCi.runReviewedPullRequest');
+  });
 });
 
 describe('RECOMMENDED_MCP_SERVERS', () => {

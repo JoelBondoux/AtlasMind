@@ -274,6 +274,11 @@ Perforce boundary as `not-visible` rather than zero.
 | **Voice** | Speech in and out — cloud, your OS, or fully on-device |
 | **Local GPU arbiter** | Decides which local model requests may run, so several at once cannot over-fill one graphics card |
 
+The approval gate makes a Bypass/Autopilot click and its runtime scope one atomic transition. It settles
+concurrent pending cards only when the scope covers them, the card offered that decision, and the tool is
+below the non-waivable ceiling. Protected remote actions remain pending and carry the reason they still
+need an explicit click; a forged webview choice is rejected by the extension host.
+
 **About the first one.** Before it existed there were 21 places in the code that could call a model
 and only one of them redacted anything first — not because the other twenty leaked, but because
 nothing stopped them. A rule every caller has to remember is not a rule; it had already been forgotten
@@ -361,6 +366,29 @@ live host (re-applying `webview.options`, which a restored panel does not keep, 
 of the restored webview, since the snapshot is rebuilt from the workspace anyway); and the webview arms
 a watchdog on any request the host must answer, so silence is rendered as silence rather than as a
 spinner that never stops. Any inbound message counts as proof of life, not only a final result.
+
+Project Dashboard Atlas actions have one host-owned dispatch boundary. The browser posts only its existing
+bounded action or record id; `projectDashboardPanel.ts` rebuilds the prompt and passes it to
+`openDashboardChat()`, which resolves the per-workspace `atlasmind.dashboard.chatDestination` through the
+pure planner in `webviewUtils.ts`. AtlasMind is the default and is always opened with immediate submission —
+the icon click is the submit gesture. The other fixed route is VS Code Chat's current target. Named third-party
+choices exist only when an installed manifest declares a chat participant or chat session; arbitrary extension
+commands are never accepted as configuration. Contribution ids use a closed token grammar, labels are bounded,
+and the selection is re-resolved on every click so a removed or malformed target refuses without sending.
+External routes receive the generated prompt only, not AtlasMind-only context/direct-response objects, and run
+under that service's privacy, routing, cost, and approval controls.
+
+Settings and Dashboard resolve the stored destination through the same precedence rule: an explicit registered
+configuration value, then a validated workspace-state fallback, then the manifest default. The fallback is only
+for an Extension Development Host whose outer window has not registered a newly contributed setting; it lets the
+displayed Codex choice take effect immediately, while a successful registered save clears it.
+
+Participant contributions are reduced to one primary service route per extension, with internal editor,
+notebook, agent, and terminal IDs retained as compatibility aliases; distinct chat sessions remain separate.
+Chat settings uses the shared Atlas prompt button as both the visual reference and live test control. Its
+webview message contains only the selected destination id. The extension host re-resolves that id
+against installed declarative chat contributions, supplies a fixed test prompt, and dispatches it through the
+same pure planner as a Dashboard action; browser-supplied prompt text or command ids are never accepted.
 
 UI Studio retains the original `atlasmind.openWebsiteStudio` command id and
 `project_memory/domain/website.json` path for compatibility. Format v6 added a revisioned,
@@ -736,6 +764,16 @@ then does a modal name the run, image, resource limits and cleanup effect. The r
 from GitHub CLI directly into Docker stdin; it never enters browser state or AtlasMind text. The ephemeral
 container has no host mounts, Docker socket, GPU, persistent volume, ports or default labels and is bounded
 by CPU, memory, swap, process, capability and privilege-escalation controls.
+
+Reviewed pull requests reuse that fabric through a repository patch rather than a new agent-specific
+executor. `localCiRepositoryPatch.ts` emits the strict config, fixed argv runner and manual workflow;
+`reviewedPrLocalCiCommands.ts` requires a same-repository, non-draft PR into the trusted base, displays the
+complete head SHA, re-reads it after approval, and binds the runner to the one newly dispatched GitHub run
+id. The trusted controller is checked out at the dispatch commit (`github.sha`), while the candidate is
+checked out at the approved SHA. Pipeline, Pull Requests, Settings → Testing and the slash commands all
+resolve `patch`/`review` through one host allowlist. Codex, Claude, another proprietary agent interface and
+a human therefore share one identity-and-SHA boundary. The job still has outbound network access for
+GitHub and dependency installation; Docker is defence in depth, not permission to skip reviewing the diff.
 
 **A run outlives the editor, and the next session adopts it.** Closing VS Code leaves the container
 executing its job, which is kept on purpose: GitHub is waiting on real work, and killing it because a window
@@ -1320,6 +1358,11 @@ These are worth knowing because they explain a lot of AtlasMind's behaviour.
 *after* your turn's limits, so it can only ever narrow. Approval classification and the execution-time
 check still run for every single call.
 
+Selection also reads prior work in either supported session representation. A short direct Git follow-up
+keeps the bounded file tools only when the legacy session text or the structured goal, summary, decisions,
+and open threads show an unfinished workspace mutation. That prevents an incoherent turn with commit/push
+available but no way to finish the source edit, without widening the agent ceiling or bypassing approval.
+
 **A panel supplies data, never a command.** The dashboard can trigger a promotion and attest a check, but
 it can never supply the command string that runs. What executes comes from your saved configuration, read
 on the extension side. This is why a tampered panel message can't do much.
@@ -1383,3 +1426,7 @@ not presentation conventions: the webview never treats a dynamic dotted path as 
 - [[Tool Execution]] — the approval pipeline
 - [[Security]] — the boundaries
 - [[CLI]] — the terminal host
+
+## Operational evidence discovery
+
+Project Dashboard outcome evidence reads the complete level-two Vision and References sections of Project Soul, retaining nested subheadings and handling LF/CRLF. Testing discovery scans across workspaces up to a 10,000-file safety bound, excludes nested repositories and agent worktrees, and states when results are partial. The 600-case display limit does not cap the policy-evidence scan. Regression coverage is in `tests/views/operationsEvidence.test.ts`; score weights remain unchanged.

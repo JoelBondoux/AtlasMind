@@ -6,6 +6,95 @@ The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/),
 
 ## [Unreleased]
 
+## [0.476.1] - 2026-09-15
+
+### Fixed
+
+- Apply an approval card's **Bypass Approvals** or **Autopilot** choice atomically, before concurrent tool gates resume, and settle the other eligible prompts already waiting in the same response. The first click is no longer followed by repeated approval cards for work it already covered.
+- Register each pending approval's resolver before publishing the card, so an immediate answer cannot be lost.
+- Explain on protected approval cards why irreversible remote actions still require an explicit click under Bypass or Autopilot.
+- Preserve the workspace edit/write tools needed by action follow-ups such as `commit and push` when the prior session says a source change is still unfinished. Task-scoped selection now reads both legacy session text and the structured session context used by current chat sessions.
+- Keep a selected external Dashboard chat destination effective when an Extension Development Host has not registered the new setting yet. A validated workspace-local fallback prevents a displayed Codex selection from silently reverting to AtlasMind; an explicit registered setting still takes precedence.
+- Show the actual Dashboard prompt button beside its destination setting and make that button send a clearly labelled live test through the chosen route. Collapse an extension's internal editor, notebook, agent, and terminal participant IDs into one service choice while preserving those IDs as compatibility aliases. Rewrite the external-service explanation in plain language while retaining the model, privacy, quota/cost, context, and approval boundary.
+
+### Security
+
+- Keep non-bypassable remote actions and restricted review cards out of bulk approval. The host now rejects a decision a card did not offer, even if a forged webview message requests it.
+
+## [0.476.0] - 2026-09-15
+
+### Added
+
+- Add `atlasmind.dashboard.chatDestination`, exposed on Settings → Chat & Sidebar, so Project Dashboard Atlas actions can submit to AtlasMind, the current VS Code Chat target, or an installed extension that declares a chat participant or chat-session prompt contract.
+
+### Fixed
+
+- Make every prompt-bearing Atlas action on the Project Dashboard submit its request immediately. In 0.475.2 most actions opened AtlasMind Chat with an unsent draft, making the icon appear inert.
+
+### Security
+
+- Discover third-party destinations from installed declarative chat contributions only. Validate and re-resolve the saved destination on every click; a malformed, removed, or unsupported destination refuses without sending project text, and external routing is labelled as outside AtlasMind's routing, redaction, cost, context, and approval controls.
+
+## [0.475.1] - 2026-09-11
+
+### Fixed
+
+- Read complete Project Soul Vision and References sections, including Windows line endings and nested subheadings, so the operational score can use existing evidence.
+- Discover tests across large monorepos rather than silently stopping after 200 files. Exclude nested repositories and generated agent worktrees; report when the 10,000-file safety limit makes a scan partial. Score weights and testing obligations are unchanged.
+- Resolve the VS Code test stub with a filesystem URL conversion so tests work in Windows paths containing spaces.
+
+## [0.475.0] - 2026-09-10
+
+### Added
+
+- **Reviewed pull-request local CI:** AtlasMind can now patch any GitHub repository with a small,
+  committed local-CI contract and run one explicitly approved, same-repository pull-request head SHA
+  on its existing one-job Docker runner. Node repositories with one supported lockfile get a proposed
+  argv-based install and check plan; other stacks receive a disabled contract rather than guessed
+  commands. The producer is deliberately irrelevant: Codex, Claude, another proprietary agent
+  interface, AtlasMind, and a human-authored branch all use the same repository, PR and exact-SHA
+  boundary.
+- **Local-CI entry points:** the patch and reviewed-PR actions are available from Project Dashboard →
+  Pipeline, Project Dashboard → Pull Requests, Settings → Testing, the Command Palette,
+  `/localci patch` and `/localci review`, with `/localci-patch` and `/localci-review` aliases.
+
+### Changed
+
+- **Manual-only trusted workflows may prove their branch in the job condition.** The local runner's
+  policy now accepts an exact `github.ref == 'refs/heads/…'` condition as the branch restriction, so
+  a reviewed-PR workflow does not need a decorative `push` trigger. The exact repository, owner actor,
+  read-only permissions, immutable action pins, single runner label and secret-free checks remain
+  mandatory.
+
+### Security
+
+- The reviewed-PR route re-reads the PR after approval, refuses drafts and forks, invalidates approval
+  when the head SHA changes, and dispatches only the trusted base-branch workflow. The workflow and
+  argv runner must exactly match AtlasMind's generated controller files; the candidate receives no
+  repository or environment secret, persisted checkout credential, host mount, Docker socket or OIDC
+  write permission. Every dashboard webview sends only `patch` or `review`, resolved through one
+  extension-host allowlist rather than accepting a command id. Workflow inputs are passed through
+  environment variables instead of interpolated into shell source; shell executables are rejected from
+  the command contract; the trusted controller is pinned to the dispatch commit; and the runner is bound
+  to the newly created GitHub run id rather than any adjacent job sharing the base SHA. The approval copy
+  also states that outbound network access remains available and Docker is defence in depth.
+
+## [0.474.3] - 2026-09-10
+
+### Fixed
+
+- **Secret scan:** the codebase-index test's credential-shaped fixture — the alphabet behind an
+  `sk-` prefix, there so the test can prove such a file is refused before chunking — is allowlisted
+  by path in `.gitleaks.toml`, the way every other detector fixture is. CI's Secret scan had
+  reported it on the 0.474.1 release pull request; the required checks were unaffected.
+
+## [0.474.2] - 2026-09-10
+
+### Changed
+
+- **README:** the published baseline now names v0.474.1, the release just published to the
+  Marketplace.
+
 ## [0.474.1] - 2026-09-10
 
 ### Changed
