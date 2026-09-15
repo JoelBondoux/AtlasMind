@@ -9,7 +9,14 @@ import { probeGpuDevices } from '../providers/gpuProbe.js';
 import { getLocalModelRecommendationCandidates, type LocalRecommendationWorkloadTag } from '../providers/localModelRecommendationRegistry.js';
 import { getCachedLocalModelCatalog } from '../providers/localModelCatalogSync.js';
 import { RECOMMENDED_MCP_SERVERS, getRecommendedMcpStarterDetails } from '../constants.js';
-import { escapeHtml, getWebviewHtmlShell } from './webviewUtils.js';
+import {
+  collectDashboardChatDestinations,
+  DASHBOARD_CHAT_DESTINATION_SETTING,
+  DEFAULT_DASHBOARD_CHAT_DESTINATION,
+  escapeHtml,
+  getWebviewHtmlShell,
+  isDashboardChatDestinationId,
+} from './webviewUtils.js';
 import { findLocalCiSurfaceAction, type LocalCiSurfaceActionId } from './localCiSurfaceActions.js';
 import { scanAiInstructionFiles, syncAiInstructionFiles } from '../utils/aiInstructionSync.js';
 import { syncTestingProtocols, readWorkflowGuidanceInput } from '../utils/testingProtocolSync.js';
@@ -97,10 +104,10 @@ const DEFAULT_PROJECT_APPROVAL_FILE_THRESHOLD = 12;
 const DEFAULT_ESTIMATED_FILES_PER_SUBTASK = 2;
 const DEFAULT_CHANGED_FILE_REFERENCE_LIMIT = 5;
 const DEFAULT_PROJECT_RUN_REPORT_FOLDER = 'project_memory/operations';
-const TEST_SCAN_EXCLUDED_DIRS = new Set(['.git', '.next', '.turbo', 'coverage', 'dist', 'node_modules', 'out', 'project_memory']);
+const TEST_SCAN_EXCLUDED_DIRS = new Set(['.git', '.next', '.turbo', '.claude', '.codex', '.worktrees', 'coverage', 'dist', 'node_modules', 'out', 'project_memory', 'test-results']);
 const TEST_FILE_NAME_PATTERN = /(?:^|[.-])(test|spec)\.[cm]?[jt]sx?$/i;
 const TEST_CODE_EXT_PATTERN = /\.[cm]?[jt]sx?$/i;
-const MAX_DISCOVERED_TEST_FILES = 200;
+const MAX_DISCOVERED_TEST_FILES = 10_000;
 const MAX_DISCOVERED_TEST_CASES = 600;
 const MAX_TEST_FILE_BYTES = 128_000;
 const SETTINGS_HELP = {
@@ -112,6 +119,7 @@ const SETTINGS_HELP = {
   showImportProjectAction: 'Controls whether the Memory toolbar keeps the Import Existing Project action visible. Keep it on during onboarding and turn it off in already standardized repos.',
   chatSessionTurnLimit: 'How many recent chat turns AtlasMind carries forward. Examples: 4 for short task chats, 6 for the default balance, or 10 when long debugging context matters.',
   chatSessionContextChars: 'Maximum characters reserved for summarized carry-forward context. Examples: 1200 for lightweight carry-forward, 2500 for default use, or 4000+ for complex multi-step work.',
+  dashboardChatDestination: 'Where prompt-bearing Atlas icons on the Project Dashboard send their request. AtlasMind is the default; VS Code Chat uses its current target, and installed extensions appear only when they declare a chat participant or chat-session prompt contract.',
   localOpenAiBaseUrl: 'Legacy single-endpoint fallback for local OpenAI-compatible routing. AtlasMind now prefers the structured local endpoint list when it is present.',
   localOpenAiEndpoints: 'Configure one or more labeled local OpenAI-compatible endpoints. Examples: Ollama at http://127.0.0.1:11434/v1 and LM Studio at http://127.0.0.1:1234/v1. Labels are shown back in provider surfaces so operators can tell which engine owns each routed model.',
   toolApprovalMode: 'Main approval policy for tool execution. Examples: always-ask for regulated repos, ask-on-write for normal coding, ask-on-external for tighter network boundaries, or allow-safe-readonly for investigation-only work.',
@@ -398,6 +406,7 @@ type SettingsMessage =
   | { type: 'setVoiceOutputDeviceId'; payload: string }
   | { type: 'setChatSessionTurnLimit'; payload: number }
   | { type: 'setChatSessionContextChars'; payload: number }
+  | { type: 'setDashboardChatDestination'; payload: string }
   | { type: 'setProjectApprovalFileThreshold'; payload: number }
   | { type: 'setProjectEstimatedFilesPerSubtask'; payload: number }
   | { type: 'setProjectChangedFileReferenceLimit'; payload: number }
@@ -1032,6 +1041,24 @@ export class SettingsPanel {
       case 'setChatSessionContextChars':
         await configuration.update('chatSessionContextChars', message.payload, vscode.ConfigurationTarget.Workspace);
         return;
+
+      case 'setDashboardChatDestination': {
+        const available = collectDashboardChatDestinations(
+          (vscode as unknown as { extensions?: { all?: readonly vscode.Extension<unknown>[] } }).extensions?.all,
+        );
+        if (!available.some(destination => destination.id === message.payload)) {
+          void vscode.window.showWarningMessage(
+            'AtlasMind did not save that chat destination because it is no longer installed or does not expose a prompt route.',
+          );
+          return;
+        }
+        await configuration.update(
+          DASHBOARD_CHAT_DESTINATION_SETTING,
+          message.payload,
+          vscode.ConfigurationTarget.Workspace,
+        );
+        return;
+      }
 
       case 'setProjectApprovalFileThreshold':
         await configuration.update('projectApprovalFileThreshold', message.payload, vscode.ConfigurationTarget.Workspace);
@@ -2276,6 +2303,28 @@ export class SettingsPanel {
     const voiceOutputDeviceId = escapeHtml(configuration.get<string>('voice.outputDeviceId', ''));
     const chatSessionTurnLimit = getPositiveInteger(configuration.get<number>('chatSessionTurnLimit'), 6);
     const chatSessionContextChars = getPositiveInteger(configuration.get<number>('chatSessionContextChars'), 2500);
+    const dashboardChatDestinations = collectDashboardChatDestinations(
+      (vscode as unknown as { extensions?: { all?: readonly vscode.Extension<unknown>[] } }).extensions?.all,
+    );
+    const configuredDashboardChatDestinationValue = configuration.get<unknown>(
+      DASHBOARD_CHAT_DESTINATION_SETTING,
+      DEFAULT_DASHBOARD_CHAT_DESTINATION,
+    );
+    const configuredDashboardChatDestination = typeof configuredDashboardChatDestinationValue === 'string'
+      && configuredDashboardChatDestinationValue.trim()
+      ? configuredDashboardChatDestinationValue.trim()
+      : DEFAULT_DASHBOARD_CHAT_DESTINATION;
+    const selectedDashboardChatDestination = dashboardChatDestinations.find(
+      destination => destination.id === configuredDashboardChatDestination,
+    );
+    const dashboardChatDestinationOptions = [
+      ...(!selectedDashboardChatDestination
+        ? [`<option value="${escapeHtml(configuredDashboardChatDestination.slice(0, 180))}" data-description="${escapeHtml('This saved destination is unavailable. Choose an installed destination before using a Dashboard Atlas action.')}" selected disabled>Unavailable saved destination</option>`]
+        : []),
+      ...dashboardChatDestinations.map(destination => `<option value="${escapeHtml(destination.id)}" data-description="${escapeHtml(destination.description)}"${destination.id === configuredDashboardChatDestination ? ' selected' : ''}>${escapeHtml(destination.label)}</option>`),
+    ].join('');
+    const dashboardChatDestinationDescription = selectedDashboardChatDestination?.description
+      ?? 'This saved destination is unavailable. Choose an installed destination before using a Dashboard Atlas action.';
     const projectApprovalFileThreshold = getPositiveInteger(
       configuration.get<number>('projectApprovalFileThreshold'),
       DEFAULT_PROJECT_APPROVAL_FILE_THRESHOLD,
@@ -2594,11 +2643,26 @@ export class SettingsPanel {
           <section id="page-chat" class="settings-page ${initialPage === 'chat' ? 'active fallback-visible' : ''}" role="tabpanel" aria-labelledby="tab-chat" tabindex="0">
             <div class="page-header">
               <p class="page-kicker">Chat &amp; Sidebar</p>
-              <h2>Session carry-forward and sidebar affordances</h2>
-              <p>Control how much AtlasMind carries across turns and which actions stay visible in the sidebar workflow.</p>
+              <h2>Dashboard hand-offs, session carry-forward and sidebar affordances</h2>
+              <p>Choose where Project Dashboard requests go, how much AtlasMind carries across turns, and which actions stay visible in the sidebar workflow.</p>
             </div>
 
             <div class="page-grid">
+              <article class="settings-card">
+                <div class="card-header">
+                  <p class="card-kicker">Project Dashboard</p>
+                  <h3>Atlas action destination</h3>
+                </div>
+                <p class="card-copy">An Atlas icon is the submit gesture: clicking it starts a new request in the destination below. AtlasMind remains the default.</p>
+                <div class="field-stack">
+                  ${renderFieldLabel('dashboardChatDestination', 'Send Dashboard prompts to', 'dashboardChatDestination')}
+                  <select id="dashboardChatDestination">${dashboardChatDestinationOptions}</select>
+                  <p id="dashboardChatDestinationDescription" class="info-note">${escapeHtml(dashboardChatDestinationDescription)}</p>
+                </div>
+                <div class="info-band"><strong>External destination boundary.</strong> VS Code Chat, contributed participants, and contributed chat sessions receive the generated prompt directly. AtlasMind routing, redaction, cost limits, structured Dashboard context, and approval policy do not wrap another extension's request; that service's own controls apply.</div>
+                <p class="info-note">Only installed destinations that declare a VS Code prompt contract are listed. A standalone extension with only Open or Focus commands is not treated as send-capable.</p>
+              </article>
+
               <article class="settings-card">
                 <div class="card-header">
                   <p class="card-kicker">Atlas workspace</p>
@@ -5327,6 +5391,18 @@ export class SettingsPanel {
             });
           }
 
+          const dashboardChatDestination = document.getElementById('dashboardChatDestination');
+          const dashboardChatDestinationDescription = document.getElementById('dashboardChatDestinationDescription');
+          if (dashboardChatDestination instanceof HTMLSelectElement) {
+            dashboardChatDestination.addEventListener('change', () => {
+              const option = dashboardChatDestination.selectedOptions[0];
+              if (dashboardChatDestinationDescription) {
+                dashboardChatDestinationDescription.textContent = option?.dataset.description || '';
+              }
+              vscode.postMessage({ type: 'setDashboardChatDestination', payload: dashboardChatDestination.value });
+            });
+          }
+
           bindRangedNumberInput('feedbackRoutingWeight', 'setFeedbackRoutingWeight', 0, 2);
           bindPositiveIntegerInput('autoVerifyTimeoutMs', 'setAutoVerifyTimeoutMs');
           bindPositiveIntegerInput('maxToolIterations', 'setMaxToolIterations');
@@ -6722,7 +6798,8 @@ export function collectTestingDashboardSnapshot(
     }
   }
 
-  const discoveredFiles = discoverTestFiles(workspaceRoot);
+  const discovery = discoverTestFiles(workspaceRoot);
+  const discoveredFiles = discovery.files;
   let totalSuites = 0;
   let totalCases = 0;
   let unitFiles = 0;
@@ -6905,7 +6982,9 @@ export function collectTestingDashboardSnapshot(
     frameworkLabel,
     frameworks: detectedFrameworkList,
     testingPolicyLabel,
-    testingPolicyDetail,
+    testingPolicyDetail: testingPolicyDetail + (discovery.truncated
+      ? ` Test discovery reached its ${MAX_DISCOVERED_TEST_FILES.toLocaleString()}-file safety limit; counts and missing-evidence findings are partial.`
+      : ''),
     totalFiles: discoveredFiles.length,
     totalSuites,
     totalCases,
@@ -7131,11 +7210,12 @@ function cleanCodePreview(line: string): string {
   return line.replace(/\s+/g, ' ').replace(/^[([{]+|[)\]};,]+$/g, '').slice(0, 140).trim();
 }
 
-function discoverTestFiles(workspaceRoot: string): string[] {
+export function discoverTestFiles(workspaceRoot: string, maxFiles = MAX_DISCOVERED_TEST_FILES): { files: string[]; truncated: boolean } {
   const results: Array<{ filePath: string; mtimeMs: number }> = [];
   const pending = [workspaceRoot];
+  let truncated = false;
 
-  while (pending.length > 0 && results.length < MAX_DISCOVERED_TEST_FILES) {
+  scan: while (pending.length > 0) {
     const current = pending.pop();
     if (!current) {
       continue;
@@ -7151,7 +7231,8 @@ function discoverTestFiles(workspaceRoot: string): string[] {
     for (const entry of entries) {
       const fullPath = path.join(current, entry.name);
       if (entry.isDirectory()) {
-        if (!TEST_SCAN_EXCLUDED_DIRS.has(entry.name.toLowerCase())) {
+        // A nested checkout has its own evidence; never attribute it to this one.
+        if (!TEST_SCAN_EXCLUDED_DIRS.has(entry.name.toLowerCase()) && !existsSync(path.join(fullPath, '.git'))) {
           pending.push(fullPath);
         }
         continue;
@@ -7169,6 +7250,10 @@ function discoverTestFiles(workspaceRoot: string): string[] {
       }
 
       try {
+        if (results.length >= maxFiles) {
+          truncated = true;
+          break scan;
+        }
         results.push({ filePath: fullPath, mtimeMs: statSync(fullPath).mtimeMs });
       } catch {
         // Ignore stat failures for transient files.
@@ -7176,9 +7261,10 @@ function discoverTestFiles(workspaceRoot: string): string[] {
     }
   }
 
-  return results
-    .sort((left, right) => right.mtimeMs - left.mtimeMs)
-    .map(item => item.filePath);
+  return {
+    files: results.sort((left, right) => right.mtimeMs - left.mtimeMs).map(item => item.filePath),
+    truncated,
+  };
 }
 
 /**
@@ -7433,6 +7519,10 @@ export function isSettingsMessage(value: unknown): value is SettingsMessage {
 
   if (message.type === 'setVoiceLanguage' || message.type === 'setVoiceOutputDeviceId') {
     return typeof message.payload === 'string';
+  }
+
+  if (message.type === 'setDashboardChatDestination') {
+    return isDashboardChatDestinationId(message.payload);
   }
 
   if (message.type === 'setVoiceRate') {

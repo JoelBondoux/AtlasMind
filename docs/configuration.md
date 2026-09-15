@@ -180,6 +180,11 @@ Disabling a server also disconnects it — a gate that reports itself closed whi
 |---|---|---:|---|
 | `atlasmind.chat.revealOnApprovalRequest` | `boolean` | `true` | Bring the AtlasMind chat panel forward when a tool approval is waiting. |
 | `atlasmind.chat.continueInBackground` | `boolean` | `true` | Let a chat turn finish after its window is closed or hidden, rather than stopping it. |
+| `atlasmind.dashboard.chatDestination` | `string` | `atlasmind` | Where prompt-bearing Atlas actions on the Project Dashboard submit: AtlasMind, the current VS Code Chat target, or an installed declared chat participant/session. |
+
+The Dashboard's Atlas icon is a submit action, not a copy-to-composer shortcut. `atlasmind` starts a new AtlasMind session and submits immediately. `vscode` submits through whichever target, agent, and model VS Code Chat currently has selected. Settings also lists installed extensions whose manifests declare a chat participant (`participant:<id>`) or chat session (`session:<type>`); an Open/Focus command alone is not treated as proof that an extension can receive a prompt.
+
+The destination is stored per workspace and re-resolved against the installed extensions on every click. A malformed, removed, or unsupported destination fails closed and sends nothing. An external destination receives the generated Dashboard prompt directly: AtlasMind's model routing, redaction, cost limits, structured Dashboard context, and approval policy do not wrap the other service's request, so that service's own controls apply.
 
 Closing a chat used to abort whatever it was doing, which is defensible for a deliberate close and wrong for the case it also covered: **VS Code disposes a sidebar view's webview when you click another view**, so looking away tore the chat down mid-answer. Those two are indistinguishable from inside the disposal, so surviving is made safe rather than guessed at. The sidebar view is also registered with `retainContextWhenHidden`, so hiding it no longer disposes anything in the first place — detaching is the fallback for a genuine close.
 

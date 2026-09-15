@@ -4,7 +4,7 @@
 
 <h1 align="center">AtlasMind</h1>
 
-<p align="center"><sub> · <strong>Current source version: 0.475.0</strong> · </sub></p>
+<p align="center"><sub> · <strong>Current source version: 0.476.0</strong> · </sub></p>
 
 
 <p align="center">
@@ -174,6 +174,17 @@ allow-list, redaction and file-withholding behaviour, retained metadata, provide
 important limits on overrides and compliance claims.
 
 ---
+
+## What's new in 0.476.0
+
+Project Dashboard Atlas actions submit again instead of only filling AtlasMind's composer. A new
+**Settings → Chat & Sidebar → Atlas action destination** choice can send those prompts to AtlasMind,
+the current VS Code Chat target, or an installed extension that declares a compatible chat participant
+or chat-session route. The default remains AtlasMind; removed destinations fail closed without sending.
+
+## What's new in 0.475.1
+
+Operational scoring now reads full Project Soul sections and discovers tests throughout large monorepos. Nested checkouts are excluded, and a scan that reaches the safety limit says it is partial. No score weights or test requirements changed.
 
 ## What's new in 0.475.0
 
@@ -605,13 +616,14 @@ Everything is in the AtlasMind Settings panel, or under `atlasmind.*` in VS Code
 | `autoVerifyAfterWrite` | `true` | Run your checks automatically after a change |
 | `ssotPath` | `project_memory` | Where project memory lives in your repo |
 | `chatSessionTurnLimit` | `6` | How much recent conversation carries forward |
+| `dashboard.chatDestination` | `atlasmind` | Where Project Dashboard Atlas actions submit: AtlasMind, the current VS Code Chat target, or an installed prompt-capable chat extension |
 | `lens.live.enabled` | `false` | Let the live lenses read the schema a running service serves. Shape only, never a row |
 | `ci.localRunner.enabled` | `false` | Permit one confirmed ephemeral runner for an already-queued trusted job; machine-scoped |
 | `ci.localRunner.shutdownPolicy` | `ifStartedByAtlasMind` | Keep Docker open, close it only when AtlasMind opened it, or always close when no other container runs |
 | `testing.resourceShare` | `50` | Sliding scale for local test execution: the percentage of this computer tests may use, across every path AtlasMind runs or composes; the OS always keeps ≥25% (≥2 CPUs / 8 GB); machine-scoped |
 | `execution.worktreeIsolation` | `false` | Give each file-writing step of a job its own git worktree so a batch can write in parallel. Off means writers run one at a time — this setting buys back speed, it is not what makes the run safe |
 
-All 154 settings are documented in the [Configuration reference](wiki/Configuration.md).
+All 162 settings are documented in the [Configuration reference](wiki/Configuration.md).
 
 ---
 

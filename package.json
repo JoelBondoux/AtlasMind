@@ -2,7 +2,7 @@
   "name": "atlasmind",
   "displayName": "AtlasMind",
   "description": "AI project management for VS Code: roadmap, risk, tech debt, compliance, testing and release tracked from your own repository — with a multi-agent AI team, or the AI coding tool you already use.",
-  "version": "0.475.0",
+  "version": "0.476.0",
   "publisher": "JoelBondoux",
   "preview": false,
   "license": "SEE LICENSE IN OSMFEULA.txt",
@@ -1582,6 +1582,14 @@
           "default": true,
           "description": "Bring the AtlasMind chat panel forward when a tool approval is waiting. A notification is shown either way — turning this off only stops the panel taking focus.",
           "markdownDescription": "Bring the AtlasMind chat panel forward when a tool approval needs an answer.\n\nAn approval **blocks the run until it is answered**, and the approval bar lives in this panel — which you may not be looking at. Without this, the run appears to hang.\n\nA dismissible notification naming the waiting action is shown regardless, so turning this off only stops the panel taking focus; it never leaves you unaware. Nothing is announced while the panel is already on screen."
+        },
+        "atlasmind.dashboard.chatDestination": {
+          "type": "string",
+          "default": "atlasmind",
+          "pattern": "^(atlasmind|vscode|participant:[A-Za-z0-9][A-Za-z0-9._-]{0,159}|session:[A-Za-z0-9][A-Za-z0-9._-]{0,159})$",
+          "patternErrorMessage": "Choose AtlasMind, VS Code Chat, or an installed chat destination from AtlasMind: Open Chat Settings.",
+          "description": "Where prompt-bearing Atlas actions on the Project Dashboard submit their request.",
+          "markdownDescription": "Where prompt-bearing Atlas icons on the Project Dashboard submit their request.\n\n- `atlasmind` — start a new AtlasMind chat and submit immediately (default).\n- `vscode` — submit through VS Code Chat using its current session target, agent, and model (normally Copilot unless you selected another target).\n- `participant:<id>` or `session:<type>` — submit to an installed extension that declares a VS Code chat participant or chat-session prompt contract.\n\nUse **AtlasMind: Open Chat Settings** for a dropdown of destinations available in this window. AtlasMind does not infer prompt support from an extension's Open or Focus command.\n\n**Privacy boundary:** an external destination receives the generated prompt directly. AtlasMind routing, redaction, cost limits, structured Dashboard context, and approval policy do not wrap another extension's request; that service's own controls apply."
         },
         "atlasmind.buzz.relayMode": {
           "type": "string",

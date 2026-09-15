@@ -6,6 +6,28 @@ The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/),
 
 ## [Unreleased]
 
+## [0.476.0] - 2026-09-15
+
+### Added
+
+- Add `atlasmind.dashboard.chatDestination`, exposed on Settings → Chat & Sidebar, so Project Dashboard Atlas actions can submit to AtlasMind, the current VS Code Chat target, or an installed extension that declares a chat participant or chat-session prompt contract.
+
+### Fixed
+
+- Make every prompt-bearing Atlas action on the Project Dashboard submit its request immediately. In 0.475.2 most actions opened AtlasMind Chat with an unsent draft, making the icon appear inert.
+
+### Security
+
+- Discover third-party destinations from installed declarative chat contributions only. Validate and re-resolve the saved destination on every click; a malformed, removed, or unsupported destination refuses without sending project text, and external routing is labelled as outside AtlasMind's routing, redaction, cost, context, and approval controls.
+
+## [0.475.1] - 2026-09-11
+
+### Fixed
+
+- Read complete Project Soul Vision and References sections, including Windows line endings and nested subheadings, so the operational score can use existing evidence.
+- Discover tests across large monorepos rather than silently stopping after 200 files. Exclude nested repositories and generated agent worktrees; report when the 10,000-file safety limit makes a scan partial. Score weights and testing obligations are unchanged.
+- Resolve the VS Code test stub with a filesystem URL conversion so tests work in Windows paths containing spaces.
+
 ## [0.475.0] - 2026-09-10
 
 ### Added

@@ -11,6 +11,208 @@ import { DASHBOARD_PANEL_BASE_CSS, DASHBOARD_PANEL_SKIN_CSS } from './dashboardT
  */
 export const PROJECT_DASHBOARD_VIEW_TYPE = 'atlasmind.projectDashboard';
 
+/** The per-workspace destination for prompt-bearing Project Dashboard actions. */
+export const DASHBOARD_CHAT_DESTINATION_SETTING = 'dashboard.chatDestination';
+export const DEFAULT_DASHBOARD_CHAT_DESTINATION = 'atlasmind';
+
+const DASHBOARD_CHAT_TOKEN = /^[A-Za-z0-9][A-Za-z0-9._-]{0,159}$/;
+
+interface ExtensionContributionLike {
+  id?: unknown;
+  packageJSON?: unknown;
+}
+
+interface DashboardChatDestinationBase {
+  id: string;
+  label: string;
+  description: string;
+}
+
+export type DashboardChatDestination =
+  | (DashboardChatDestinationBase & { kind: 'atlasmind' })
+  | (DashboardChatDestinationBase & { kind: 'vscode' })
+  | (DashboardChatDestinationBase & { kind: 'participant'; participantId: string; mention: string })
+  | (DashboardChatDestinationBase & { kind: 'session'; sessionType: string });
+
+export interface DashboardChatTargetLike {
+  draftPrompt?: unknown;
+  sendMode?: unknown;
+  autoSubmit?: unknown;
+  [key: string]: unknown;
+}
+
+export interface DashboardChatDispatch {
+  command: string;
+  arguments: unknown[];
+  destination: DashboardChatDestination;
+}
+
+function asRecord(value: unknown): Record<string, unknown> | undefined {
+  return typeof value === 'object' && value !== null && !Array.isArray(value)
+    ? value as Record<string, unknown>
+    : undefined;
+}
+
+function contributionRows(value: unknown): Record<string, unknown>[] {
+  const rows = Array.isArray(value) ? value : value === undefined ? [] : [value];
+  return rows.map(asRecord).filter((row): row is Record<string, unknown> => row !== undefined);
+}
+
+function boundedContributionText(value: unknown, fallback: string): string {
+  const text = typeof value === 'string' ? value.trim().replace(/\s+/g, ' ') : '';
+  return (text || fallback).slice(0, 160);
+}
+
+function compareDestination(a: DashboardChatDestination, b: DashboardChatDestination): number {
+  const byLabel = a.label.toLowerCase().localeCompare(b.label.toLowerCase(), 'en');
+  return byLabel !== 0 ? byLabel : a.id.localeCompare(b.id, 'en');
+}
+
+/**
+ * Discover only installed chat destinations with a declared prompt contract.
+ *
+ * An extension command called "open" or "focus" is not evidence that it
+ * accepts a prompt. VS Code chat participants and chat sessions do declare
+ * that contract, so those are the only third-party surfaces offered here.
+ */
+export function collectDashboardChatDestinations(
+  extensions: readonly ExtensionContributionLike[] | undefined,
+): DashboardChatDestination[] {
+  const base: DashboardChatDestination[] = [
+    {
+      id: DEFAULT_DASHBOARD_CHAT_DESTINATION,
+      kind: 'atlasmind',
+      label: 'AtlasMind chat',
+      description: 'Start a new AtlasMind chat and submit the dashboard prompt immediately.',
+    },
+    {
+      id: 'vscode',
+      kind: 'vscode',
+      label: 'VS Code Chat (current target)',
+      description: 'Submit through VS Code Chat using its currently selected session target, agent, and model.',
+    },
+  ];
+  const discovered = new Map<string, DashboardChatDestination>();
+
+  for (const extension of extensions ?? []) {
+    const manifest = asRecord(extension.packageJSON);
+    const contributes = asRecord(manifest?.['contributes']);
+    if (!contributes) {
+      continue;
+    }
+    const extensionLabel = boundedContributionText(
+      manifest?.['displayName'] ?? manifest?.['name'] ?? extension.id,
+      'Installed extension',
+    );
+
+    for (const row of contributionRows(contributes['chatSessions'])) {
+      const sessionType = typeof row['type'] === 'string' ? row['type'].trim() : '';
+      if (!DASHBOARD_CHAT_TOKEN.test(sessionType)) {
+        continue;
+      }
+      const id = `session:${sessionType}`;
+      discovered.set(id, {
+        id,
+        kind: 'session',
+        sessionType,
+        label: boundedContributionText(row['displayName'] ?? row['name'], sessionType),
+        description: boundedContributionText(
+          row['description'],
+          `Start an installed ${extensionLabel} chat session and submit the dashboard prompt.`,
+        ),
+      });
+    }
+
+    for (const row of contributionRows(contributes['chatParticipants'])) {
+      const participantId = typeof row['id'] === 'string' ? row['id'].trim() : '';
+      const mention = typeof row['name'] === 'string' ? row['name'].trim() : '';
+      if (participantId === 'atlasmind.orchestrator'
+        || !DASHBOARD_CHAT_TOKEN.test(participantId)
+        || !DASHBOARD_CHAT_TOKEN.test(mention)) {
+        continue;
+      }
+      const id = `participant:${participantId}`;
+      discovered.set(id, {
+        id,
+        kind: 'participant',
+        participantId,
+        mention,
+        label: boundedContributionText(row['fullName'] ?? row['name'], `@${mention}`),
+        description: boundedContributionText(
+          row['description'],
+          `Submit to @${mention}, contributed by ${extensionLabel}.`,
+        ),
+      });
+    }
+  }
+
+  return [...base, ...[...discovered.values()].sort(compareDestination)];
+}
+
+export function isDashboardChatDestinationId(value: unknown): value is string {
+  return value === DEFAULT_DASHBOARD_CHAT_DESTINATION
+    || value === 'vscode'
+    || (typeof value === 'string' && /^(?:participant|session):[A-Za-z0-9][A-Za-z0-9._-]{0,159}$/.test(value));
+}
+
+/**
+ * Turn one dashboard prompt into a command invocation without executing it.
+ * Unknown or no-longer-installed destinations refuse instead of silently
+ * sending project text somewhere else.
+ */
+export function planDashboardChatDispatch(
+  target: DashboardChatTargetLike,
+  configuredDestination: unknown,
+  destinations: readonly DashboardChatDestination[],
+): DashboardChatDispatch | undefined {
+  const prompt = typeof target.draftPrompt === 'string' ? target.draftPrompt.trim() : '';
+  const configured = typeof configuredDestination === 'string' && configuredDestination.trim()
+    ? configuredDestination.trim()
+    : DEFAULT_DASHBOARD_CHAT_DESTINATION;
+  const destination = destinations.find(candidate => candidate.id === configured);
+  if (!prompt || !destination) {
+    return undefined;
+  }
+
+  if (destination.kind === 'atlasmind') {
+    return {
+      command: 'atlasmind.openChat',
+      arguments: [{
+        ...target,
+        draftPrompt: prompt,
+        sendMode: target.sendMode ?? 'new-session',
+        // This is the v0.475.2 regression fix. A dashboard action says "Ask"
+        // and is itself the user's submit gesture; leaving this false only
+        // copied the request into the composer and made the icon look dead.
+        autoSubmit: true,
+      }],
+      destination,
+    };
+  }
+
+  if (destination.kind === 'vscode') {
+    return {
+      command: 'workbench.action.chat.open',
+      arguments: [{ query: prompt, isPartialQuery: false }],
+      destination,
+    };
+  }
+
+  if (destination.kind === 'participant') {
+    return {
+      command: 'workbench.action.chat.open',
+      arguments: [{ query: `@${destination.mention} ${prompt}`, isPartialQuery: false }],
+      destination,
+    };
+  }
+
+  return {
+    command: `workbench.action.chat.openNewSessionSidebar.${destination.sessionType}`,
+    arguments: [{ prompt }],
+    destination,
+  };
+}
+
 /** The extension mark as a CSP-safe data URI for panels without local resource roots. */
 export const ATLAS_ICON_DATA_URI = 'data:image/svg+xml,%3Csvg xmlns=%22http://www.w3.org/2000/svg%22 viewBox=%220 0 24 24%22 fill=%22none%22 stroke=%22%23000%22 stroke-width=%222%22 stroke-linecap=%22round%22 stroke-linejoin=%22round%22%3E%3Ccircle cx=%2212%22 cy=%2212%22 r=%2210%22/%3E%3Cpath d=%22M12 2 C7 7,7 17,12 22%22/%3E%3Cpath d=%22M12 2 C17 7,17 17,12 22%22/%3E%3Cline x1=%222%22 y1=%2212%22 x2=%2222%22 y2=%2212%22/%3E%3C/svg%3E';
 
