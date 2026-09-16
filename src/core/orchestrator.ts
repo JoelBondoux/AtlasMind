@@ -2249,6 +2249,10 @@ export class Orchestrator {
           // it has to clear are wording-based and a reworded message would
           // silently re-arm them.
           const capacityDeferral = isCapacityDeferral(error);
+          const providerRateLimited = isProviderRateLimited(error);
+          const billingFailure = isBillingError(error);
+          const authenticationFailure = !billingFailure && isProviderAuthenticationError(error);
+          const providerScopedFailure = providerRateLimited || billingFailure || authenticationFailure;
           if (!capacityDeferral && shouldOpenEndpointCircuit(failureMessage, selectedProvider)) {
             blockedEndpointScopes.add(endpointScope);
             this.recordEndpointFailure(endpointScope);
@@ -2257,14 +2261,14 @@ export class Orchestrator {
           const modelWasRetired = isModelDeprecatedError(error);
           if (modelWasRetired) {
             this.router.recordModelRetirement(currentModel, `Model deprecated or not found: ${failureMessage}`);
-          } else if (!capacityDeferral) {
+          } else if (!capacityDeferral && !providerScopedFailure) {
             this.router.recordModelFailure(currentModel, failureMessage);
           }
           // Feed struggle memory — but only for genuine model/provider failures,
           // not a billing pause (provider out of credits), a deprecated-model
-          // signal, or a busy GPU, none of which say anything about how this
-          // model performs on the task.
-          if (!isBillingError(error) && !modelWasRetired && !capacityDeferral) {
+          // signal, an account-wide refusal, or a busy GPU, none of which say
+          // anything about how this model performs on the task.
+          if (!providerScopedFailure && !modelWasRetired && !capacityDeferral) {
             this.noteModelStruggle(currentModel, /timed out/i.test(failureMessage) ? 'timeout' : 'error-finish', baseTaskProfile);
           }
           // A rate limit belongs to the account, so skip the whole provider for
@@ -2272,9 +2276,18 @@ export class Orchestrator {
           // Not `recordEndpointFailure`: a 429 is a "not now", and holding it
           // against the endpoint afterwards would punish a provider for being
           // busy for a minute.
-          if (isProviderRateLimited(error)) {
+          if (providerRateLimited) {
             blockedEndpointScopes.add(endpointScope);
             onProgress?.(`"${selectedProvider}" is rate-limiting; skipping its other models for this turn.`);
+          }
+
+          // Authentication and explicit project/account access denials belong
+          // to the credential behind the provider, not to one model. Repeating
+          // the same revoked key against a sibling model both wastes the turn
+          // and leaves the Models tree claiming the provider is healthy merely
+          // because a secret exists.
+          if (authenticationFailure) {
+            blockedEndpointScopes.add(endpointScope);
           }
 
           if (capacityDeferral) {
@@ -2290,7 +2303,7 @@ export class Orchestrator {
             onProgress?.('The local GPU budget is committed; skipping the other models on this runtime and trying another provider for this turn.');
           }
 
-          if (isBillingError(error)) {
+          if (billingFailure) {
             this.router.autoDisableProvider(selectedProvider, 'billing');
             const providerConfig = this.router.getProviderConfig(selectedProvider);
             autoDisabledProvider = {
@@ -2299,6 +2312,15 @@ export class Orchestrator {
               reason: 'billing',
             };
             onProgress?.(`Provider "${autoDisabledProvider.displayName}" paused — insufficient credits. Searching for a fallback provider…`);
+          } else if (authenticationFailure) {
+            this.router.autoDisableProvider(selectedProvider, 'auth');
+            const providerConfig = this.router.getProviderConfig(selectedProvider);
+            autoDisabledProvider = {
+              providerId: selectedProvider,
+              displayName: providerConfig?.displayName ?? selectedProvider,
+              reason: 'auth',
+            };
+            onProgress?.(`Provider "${autoDisabledProvider.displayName}" paused — authentication or project access was denied. Searching for a fallback provider…`);
           } else if (modelWasRetired) {
             // The provider signalled that this specific model is gone.  Tombstone it
             // for the rest of the session so the router never routes to it again.
@@ -2335,7 +2357,9 @@ export class Orchestrator {
             const summary = summarizeAttemptFailures(modelAttempts);
             const exhausted = describeExhaustedSearch(failoverAttempts, modelAttempts.length);
             const noFallbackContent = autoDisabledProvider
-              ? `**${autoDisabledProvider.displayName}** has been paused this session because it reported insufficient credits. No other configured provider is available to complete this request.\n\nTo resume, top up your ${autoDisabledProvider.displayName} account or enable a different provider in **AtlasMind: Model Providers**.`
+              ? autoDisabledProvider.reason === 'billing'
+                ? `**${autoDisabledProvider.displayName}** has been paused this session because it reported insufficient credits. No other configured provider is available to complete this request.\n\nTo resume, top up your ${autoDisabledProvider.displayName} account or enable a different provider in **AtlasMind: Model Providers**.`
+                : `**${autoDisabledProvider.displayName}** has been paused this session because authentication or project access was denied. No other configured provider is available to complete this request.\n\nReconnect ${autoDisabledProvider.displayName}, replace its API key, or restore the project's access in **AtlasMind: Model Providers**.`
               : [
                   `AtlasMind could not complete this turn. All ${modelAttempts.length} model attempt${modelAttempts.length === 1 ? '' : 's'} failed:`,
                   summary.lines.join('\n'),
@@ -8088,6 +8112,40 @@ export function isProviderRateLimited(error: unknown): boolean {
   }
   const message = String(record['message'] ?? '');
   return /\b429\b/.test(message) || /\brate[ _-]?limit(?:ed|ing)?\b/i.test(message);
+}
+
+/**
+ * A credential or project refusal shared by every model on the provider.
+ *
+ * A bare 403 is not enough: providers also use it for model-specific access and
+ * policy decisions. The narrower message patterns below identify the cases
+ * where the provider names the API key, account, or project itself. HTTP status
+ * is read from structured adapter errors when available and from the adapter's
+ * bounded message for streaming paths that currently carry only text.
+ */
+export function isProviderAuthenticationError(error: unknown): boolean {
+  if (typeof error !== 'object' || error === null) {
+    return false;
+  }
+  const record = error as Record<string, unknown>;
+  const message = String(record['message'] ?? '');
+  const structuredStatus = Number(record['status'] ?? record['statusCode']);
+  const status = Number.isFinite(structuredStatus)
+    ? structuredStatus
+    : Number(/\((401|403)\)/.exec(message)?.[1] ?? NaN);
+
+  if (status === 401) {
+    return true;
+  }
+  if (status !== 403) {
+    return false;
+  }
+
+  return /\bpermission[_ -]?denied\b/i.test(message)
+    || /\b(?:project|account)\b[^.]{0,120}\bdenied access\b/i.test(message)
+    || /\baccess\b[^.]{0,80}\bdenied\b[^.]{0,80}\b(?:project|account)\b/i.test(message)
+    || /\bapi key\b[^.]{0,80}\b(?:invalid|revoked|disabled|denied)\b/i.test(message)
+    || /\b(?:account|project)\b[^.]{0,80}\b(?:disabled|suspended|revoked)\b/i.test(message);
 }
 
 function isTransientProviderError(err: unknown): boolean {

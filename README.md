@@ -4,7 +4,7 @@
 
 <h1 align="center">AtlasMind</h1>
 
-<p align="center"><sub> · <strong>Current source version: 0.476.1</strong> · </sub></p>
+<p align="center"><sub> · <strong>Current source version: 0.478.0</strong> · </sub></p>
 
 
 <p align="center">
@@ -32,7 +32,7 @@ Most AI coding tools give you an assistant in a chat box. That solves *writing c
 tell you what to build next, what's blocking it, who owns it, what you deferred three weeks ago and
 why, whether your tests actually cover what you claim, or whether you're fit to release.
 
-That's the job AtlasMind does. A **25-page project dashboard** built entirely from your own
+That's the job AtlasMind does. A **26-page project dashboard** built entirely from your own
 repository: roadmap and dependency graph, issues and pull requests, people and follow-ups, risk,
 compliance, technical debt, defects, testing evidence, documents, delivery and release readiness. Nothing is
 a form you fill in twice — it reads git, GitHub, your files and your project memory, then grades
@@ -69,9 +69,10 @@ the workflow — and let Copilot, Claude Code, Cursor, Codex, Gemini CLI or Wind
 
 AtlasMind writes what it knows into the instruction files those tools already read —
 `.github/copilot-instructions.md`, `CLAUDE.md`, `AGENTS.md`, `.cursorrules`, `GEMINI.md`,
-`.windsurfrules` — as a **managed block** it maintains and you can delete: your enabled testing
-methodologies, the technical-debt markers it scans for, and the stage-by-stage rules of your
-declared GitHub workflow. Whatever agent you use gets told the same rules AtlasMind holds itself to,
+`.windsurfrules` — as a **managed block** it maintains and you can delete: the canonical AtlasMind
+roadmap and same-change synchronization rule, your enabled testing methodologies, the technical-debt
+markers it scans for, and the stage-by-stage rules of your declared GitHub workflow. Whatever agent
+you use gets told the same rules AtlasMind holds itself to,
 and the registers keep working because they read your repository rather than your chat history.
 
 Its own agents are there when you want them. They are not a prerequisite. Full setup in
@@ -175,7 +176,55 @@ important limits on overrides and compliance claims.
 
 ---
 
-## What's new in 0.476.1
+## What's new in 0.478.0
+
+The Project Dashboard Versions page presents public releases as a reviewable portfolio. Stable and
+preview releases are classified by SemVer value tier and joined to their real roadmap gate, milestone
+progress, and filed design plans. Each version can open its GitHub release, its roadmap route, or its
+linked plans; a missing version gate can be created through a confirmed tracked-file write. AtlasMind's
+version-review action reconstructs its prompt from host-owned evidence and labels missing data instead
+of turning it into a confident zero.
+
+Source debugging now performs one finite compile before the Extension Development Host opens and turns
+off the unstable experimental Node network inspector. The default F5 profile also isolates AtlasMind
+from installed extensions and GitHub Copilot Chat; a separate profile retains Copilot when that
+integration is the subject of the test.
+
+Roadmap load-time reconciliation is now conservative about document shape: detailed implementation
+plans and validation/acceptance checklists no longer become hundreds of top-level backlog entries.
+The Roadmap header's **Check integrity** action uses stored import provenance plus the current source
+documents to highlight likely artifacts, then lets you choose exact rows before a separately confirmed
+removal. Reconciliation dialogs now group source, changes, conflicts, untouched data, and safety notes
+into labelled bullet sections instead of one dense block of text.
+
+## What's new in 0.476.5
+
+AtlasMind's dependency graph now requires patched releases of `hono`, `js-yaml`, and `morgan`,
+closing five Dependabot advisories across the MCP runtime and the development packaging/test toolchain.
+Regression checks keep all three transitive packages at or above their patched floors.
+
+## What's new in 0.476.4
+
+AtlasMind now keeps Gemini Live-only voice models out of its ordinary text chat route, pauses a cloud
+provider after an explicit API-key or project-access denial instead of trying another model behind the
+same refused account, and gives the local GPU gate the parameter count already present in model names
+such as `qwen3-8b`. That last fix lets an ordinary 8B Ollama or LM Studio model run when the card has
+room instead of being conservatively mistaken for an unknown 16 GiB model. Local `.kilo` worktrees are
+also excluded from VSIX packages so repository fixtures and token-shaped test data cannot ship.
+
+## What's new in 0.476.3
+
+AtlasMind now tells Codex and other repository agents that
+`project_memory/roadmap/improvement-plan.md` is the canonical roadmap and that any change to another
+roadmap file must be reconciled there in the same change. Opening the Roadmap dashboard also performs
+a bounded local drift check across roadmap-named markdown files, shows the exact plan before writing,
+and can carry additions, renames, and checkbox changes into AtlasMind. Local conflicts, ambiguous
+legacy status, and items missing from the secondary source are reported and left untouched.
+
+## What's new in 0.476.2
+
+The last Marketplace publication, **v0.476.1**, brought the changes below. Every release is written
+up in full in [CHANGELOG.md](CHANGELOG.md).
 
 Bypass Approvals and Autopilot now take effect on the click itself, so concurrent tool calls already
 waiting in one response settle together instead of asking repeatedly. Irreversible remote actions remain
@@ -543,7 +592,7 @@ Highlights from the last few releases. Everything here is already in the publish
 
 | | |
 |---|---|
-| **A 25-page project dashboard** | Overview, project score, gap analysis, workflow, roadmap, issues, pull requests, approvals, people & follow-ups, branches, repository, pipeline, testing, tech debt, defects, security, privacy, risk, compliance, release, delivery, documents, project memory, runtime and ideation. Built from your repository, not from data you re-enter. |
+| **A 26-page project dashboard** | Overview, project score, gap analysis, workflow, roadmap, issues, pull requests, approvals, people & follow-ups, branches, repository, pipeline, testing, tech debt, defects, security, privacy, risk, compliance, public versions, release, delivery, documents, project memory, runtime and ideation. Built from your repository, not from data you re-enter. |
 | **Registers that don't forget** | Approvals, defects, test cases, tech debt, risk, compliance and research findings *transition* rather than vanish — resolved stays distinct from obsolete, accepted from dismissed — each graded by a published rule table so two people reading the same project get the same answer in March and in July. |
 | **A roadmap that knows what blocks what** | A dependency graph beside the prioritised backlog: readable tree layout, release gates, owners, estimates, routes to any item, and honest "not assessed" instead of a confident zero. |
 | **A team of specialists** | 27 built-in agents — debugger, frontend, backend, reviewer, security, testing, docs, performance, DevOps, dependencies, SEO, UX, release and CI, plus ethics, legal, commercial and market oversight. Add your own. Optional: bring your own AI tool instead. |
@@ -556,7 +605,7 @@ Highlights from the last few releases. Everything here is already in the publish
 | **Ideation board** | Visual thinking that reaches the backlog — cards become roadmap items, roadmap items become issue drafts. |
 | **Tech debt register** | Deferred work found from your own code markers, graded by a published rule you can read, tracked rather than forgotten. |
 | **Testing strategy** | 69 configurable methodologies — including data & schema, AI-specific and compliance families — with owners, tooling, evidence checks, scaffolding, and sync to other AI tools. |
-| **Works with your existing AI tool** | Testing methodologies, debt markers and workflow rules synced into Copilot, Claude Code, Cursor, Codex, Gemini CLI and Windsurf instruction files as a managed block. The management layer needs no chat of its own. |
+| **Works with your existing AI tool** | The roadmap SSOT rule, testing methodologies, debt markers and workflow rules are synced into Copilot, Claude Code, Cursor, Codex, Gemini CLI and Windsurf instruction files as managed blocks. The management layer needs no chat of its own. |
 | **UI Studio** | Pick up the UI files already in the project or draw new surfaces, design them beside the canvas with a built-in-browser preview, brand them from named presets, and hand off to the implementation. Screens, flows, content, wireframes, tokens, components and responsive inspection are all here. Website delivery — the stack, the three hosting environments, the platform targets and the n8n map — lives on the Project Dashboard's Delivery page. |
 | **Voice, vision & remote** | Local or hosted speech, image analysis, opt-in remote control, and a keep-awake lock for long runs. |
 | **Lenses over your code — and your services** | Eleven read-only views built from what your project declares: flow, change impact, test evidence, state lifecycle, config precedence, field wiring, branch change story — plus three that compare your declared schemas against what a live API or database actually serves. Shape only: never a row, never a write, off by default. |
@@ -660,6 +709,12 @@ All 162 settings are documented in the [Configuration reference](wiki/Configurat
 | `docs/` and `wiki/` | Developer reference, user guides, and the approved UI Studio and Chat reliability plans |
 
 The full service map is in [Architecture](docs/architecture.md).
+
+Source debugging uses two F5 profiles. Both run a finite full compile before launch and disable the JavaScript
+debugger's experimental Node network inspection; this avoids retaining a large `tsc -watch` process and the
+`Missing dataLength in event` inspector failure observed on VS Code 1.137.0. **Run Extension** is the stable
+default and also disables built-in GitHub Copilot Chat. **Run Extension (Copilot integration)** is the opt-in
+profile for testing AtlasMind's Copilot-provider path. See the [development guide](docs/development.md#run).
 
 ---
 

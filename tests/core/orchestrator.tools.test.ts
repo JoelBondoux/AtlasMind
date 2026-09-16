@@ -4,7 +4,7 @@ import { mkdirSync, mkdtempSync, writeFileSync } from 'node:fs';
 import { tmpdir } from 'node:os';
 import nodePath from 'node:path';
 import { removeTempDir } from '../helpers/tempDir.ts';
-import { Orchestrator, appendTddBlockedCaveat, appendVerificationCaveat, budgetForCorrection, buildPrivacyScanSlices, buildProjectSessionContextBundle, buildSupplementalContextMessage, classifySubTaskFailure, classifyToolFailure, collapseDuplicatedTrailingBlock, CONVERSATION_CONTEXT_PREAMBLE, describeExhaustedSearch, shouldAbortSupersededRequest, deriveTurnCapabilityEnvelope, detectVerificationContradiction, estimateCompletionRequestInputTokens, estimateToolDefinitionTokens, executionEndpointScope, getProviderTimeoutMs, isProviderRateLimited, isToolAllowedByTurnEnvelope, isUserCorrectionTurn, looksLikeAnswerlessCompletionClaim, looksLikeIncompleteDelivery, looksLikeLeakedReasoning, looksLikePreambleOnly, looksLikeToolCapabilityRefusal, resolveProviderIdForModel, responseClaimsSuccessWithoutCaveat, sanitizeAssistantResponse, selectTaskScopedSkills, shouldBiasTowardWorkspaceInvestigation, shouldOpenEndpointCircuit, summarizeAttemptFailures, TOOL_EXECUTION_FAILURE_PREFIX, UNTRUSTED_CONTEXT_PREAMBLE, verificationIndicatesFailure } from '../../src/core/orchestrator.ts';
+import { Orchestrator, appendTddBlockedCaveat, appendVerificationCaveat, budgetForCorrection, buildPrivacyScanSlices, buildProjectSessionContextBundle, buildSupplementalContextMessage, classifySubTaskFailure, classifyToolFailure, collapseDuplicatedTrailingBlock, CONVERSATION_CONTEXT_PREAMBLE, describeExhaustedSearch, shouldAbortSupersededRequest, deriveTurnCapabilityEnvelope, detectVerificationContradiction, estimateCompletionRequestInputTokens, estimateToolDefinitionTokens, executionEndpointScope, getProviderTimeoutMs, isProviderAuthenticationError, isProviderRateLimited, isToolAllowedByTurnEnvelope, isUserCorrectionTurn, looksLikeAnswerlessCompletionClaim, looksLikeIncompleteDelivery, looksLikeLeakedReasoning, looksLikePreambleOnly, looksLikeToolCapabilityRefusal, resolveProviderIdForModel, responseClaimsSuccessWithoutCaveat, sanitizeAssistantResponse, selectTaskScopedSkills, shouldBiasTowardWorkspaceInvestigation, shouldOpenEndpointCircuit, summarizeAttemptFailures, TOOL_EXECUTION_FAILURE_PREFIX, UNTRUSTED_CONTEXT_PREAMBLE, verificationIndicatesFailure } from '../../src/core/orchestrator.ts';
 import { ACP_HANDSHAKE_HEADROOM_MS, ACP_PROVIDER_TIMEOUT_MS, ACP_REQUEST_TIMEOUT_MS, LOCAL_PROVIDER_MAX_TIMEOUT_MS, MAX_TOOL_ITERATIONS } from '../../src/constants.ts';
 import type { TaskModelAttempt } from '../../src/types.ts';
 import { AgentRegistry } from '../../src/core/agentRegistry.ts';
@@ -1106,6 +1106,86 @@ describe('Orchestrator agentic loop', () => {
     expect(localFallbackProvider.complete).not.toHaveBeenCalled();
     expect(result.response).toBe('Recovered through backup provider.');
     expect(result.modelUsed).toBe('anthropic/claude-sonnet-4');
+  });
+
+  it('pauses a provider after one explicit project-access denial and fails over elsewhere', async () => {
+    const localFallbackProvider = makeMockProvider([{
+      content: 'Local fallback should stay unused here.',
+      model: 'local/echo-1',
+      inputTokens: 10,
+      outputTokens: 5,
+      finishReason: 'stop',
+    }]);
+    const denied = Object.assign(
+      new Error('Google Gemini request failed (403): {"status":"PERMISSION_DENIED","message":"Your project has been denied access."}'),
+      { status: 403 },
+    );
+    const googleProvider: ProviderAdapter = {
+      providerId: 'google',
+      complete: vi.fn().mockRejectedValue(denied),
+      listModels: vi.fn().mockResolvedValue(['google/gemini-a', 'google/gemini-b']),
+      healthCheck: vi.fn().mockResolvedValue(true),
+    };
+    const backupProvider: ProviderAdapter = {
+      providerId: 'anthropic',
+      complete: vi.fn().mockResolvedValue({
+        content: 'Recovered through the healthy provider.',
+        model: 'anthropic/claude-sonnet-4',
+        inputTokens: 14,
+        outputTokens: 9,
+        finishReason: 'stop',
+      }),
+      listModels: vi.fn().mockResolvedValue(['anthropic/claude-sonnet-4']),
+      healthCheck: vi.fn().mockResolvedValue(true),
+    };
+    const orchestrator = makeOrchestrator(
+      localFallbackProvider,
+      [],
+      makeSkillContext(),
+      undefined,
+      [],
+      [],
+      undefined,
+      undefined,
+      undefined,
+      undefined,
+      {
+        extraProviders: [
+          {
+            providerId: 'google',
+            adapter: googleProvider,
+            models: [
+              { id: 'google/gemini-a', name: 'Gemini A', contextWindow: 32_000, inputPricePer1k: 0.001, outputPricePer1k: 0.001, capabilities: ['chat', 'code'] },
+              { id: 'google/gemini-b', name: 'Gemini B', contextWindow: 32_000, inputPricePer1k: 0.0015, outputPricePer1k: 0.0015, capabilities: ['chat', 'code'] },
+            ],
+          },
+          {
+            providerId: 'anthropic',
+            adapter: backupProvider,
+            models: [
+              { id: 'anthropic/claude-sonnet-4', name: 'Claude Sonnet 4', contextWindow: 32_000, inputPricePer1k: 0.003, outputPricePer1k: 0.003, capabilities: ['chat', 'code'] },
+            ],
+          },
+        ],
+      },
+    );
+
+    const result = await orchestrator.processTask({
+      id: 'provider-project-denied',
+      userMessage: 'Give me a short answer.',
+      context: {},
+      constraints: { budget: 'balanced', speed: 'balanced', preferredModel: 'google/gemini-a' },
+      timestamp: new Date().toISOString(),
+    });
+
+    expect(googleProvider.complete).toHaveBeenCalledTimes(1);
+    expect(backupProvider.complete).toHaveBeenCalledTimes(1);
+    expect(result.response).toBe('Recovered through the healthy provider.');
+    expect(result.autoDisabledProvider).toEqual(expect.objectContaining({
+      providerId: 'google',
+      reason: 'auth',
+      failoverModelUsed: 'anthropic/claude-sonnet-4',
+    }));
   });
 
   it('quarantines all variants of a timed-out ACP agent and commits only the winning stream', async () => {
@@ -6040,6 +6120,27 @@ describe('a rate limit belongs to the account, not the model', () => {
     'a bare string',
   ])('leaves %j alone', error => {
     expect(isProviderRateLimited(error)).toBe(false);
+  });
+});
+
+describe('provider authentication belongs to the account, not the model', () => {
+  it.each([
+    { status: 401, message: 'Unauthorized' },
+    { status: 403, message: 'Your project has been denied access. Please contact support.' },
+    { message: 'Google Gemini request failed (403): {"status":"PERMISSION_DENIED"}' },
+    { statusCode: 403, message: 'The API key was revoked.' },
+  ])('recognises %j', error => {
+    expect(isProviderAuthenticationError(error)).toBe(true);
+  });
+
+  it.each([
+    { status: 403, message: 'This model is not enabled for your plan.' },
+    { status: 400, message: 'Invalid request.' },
+    { status: 429, message: 'Rate limit exceeded.' },
+    null,
+    'a bare string',
+  ])('does not widen %j into a provider auth failure', error => {
+    expect(isProviderAuthenticationError(error)).toBe(false);
   });
 });
 

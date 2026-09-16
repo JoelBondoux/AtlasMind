@@ -76,6 +76,13 @@ System design docs: component diagrams, data flow diagrams, API contracts, datab
 ### `roadmap/`
 Feature plans with status tracking. Milestones, sprints, priorities.
 
+`roadmap/improvement-plan.md` is the canonical list of work. Other `ROADMAP.md`-style files are
+secondary import sources: opening the Roadmap dashboard performs a bounded local comparison and asks
+before carrying additions, source links, title changes, or checkbox changes into the canonical file.
+`roadmap/roadmap-graph.json` keeps import provenance per durable item id, including the last source title
+and checkbox state, so source-only changes can be distinguished from local edits. Conflicts, ambiguous
+older provenance, and items missing from a source are reported and never overwritten or deleted.
+
 ### `decisions/`
 Architecture Decision Records following the format:
 - **Title**: Short description

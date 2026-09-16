@@ -207,12 +207,25 @@ across a glob, GitHub issues, a GitHub Projects board, or a CSV/TSV export. You 
 then for whatever it needs — a glob, a project number, or which spreadsheet column holds the item — and
 then shown exactly what would change before anything is written.
 
+The load-time check is deliberately narrower than that explicit import. A document shaped like a
+detailed implementation plan — Objective, Context, Approach, Steps, Verification — and checklist rows
+under Acceptance criteria, Definition of done, Tests, or similar validation headings are not proposed
+as top-level work. They explain or prove a roadmap item; flattening them would turn one feature into
+dozens of misleading backlog entries.
+
 Run it as often as you like. Each imported line records where it came from, so a second run updates what
 moved rather than duplicating everything, and a *first* import adopts items you already typed by hand
 instead of adding them twice. Nothing is ever deleted: an item the source has lost is reported and left
 where it is, because "dropped", "renamed" and "your glob stopped matching that file" look identical from
 here. And your own edits are safe — if you have retitled an item and the source has also changed it,
 you get a conflict showing both texts and nothing is written.
+
+If an older automatic reconciliation already brought those checklist rows in, press **Check integrity**
+in the Roadmap header. The review highlights only entries whose stored Markdown-import provenance and
+current source document together identify them as detailed-plan or validation artifacts. Select the
+exact rows you want removed, then review the separately formatted confirmation naming both tracked
+files. Nothing is preselected; source plans, hand-written entries, ambiguous findings, and every
+unselected row stay untouched.
 
 **Six views.** **Dependency canvas**, **Timeline**, **Board**, **Prioritised backlog**, **By person**
 and **Delivered**.
@@ -519,6 +532,13 @@ release.
 - **Guesses stay MVP-only.** With nothing tagged for MVP, AtlasMind suggests foundational items to get
   you started. A gate *you* created gets no such guess: what belongs in your "v2" is a release decision,
   not something to infer.
+
+The Versions page reads those same gates back against public GitHub versions. Each stable or preview version
+shows its semantic value tier, publication date, matching gate progress, linked milestones, and filed plan
+coverage. No matching gate is shown as **not declared**, never 0% complete. **Create roadmap gate** adds the
+empty, tag-derived gate only after a modal names the tracked roadmap write; assigning items remains a separate
+human decision. Version cards link back to the gate and its filed plans, while **Ask AtlasMind to review**
+uses a host-built evidence prompt rather than browser-supplied instructions.
 
 ### Asking about the roadmap in chat
 

@@ -16,6 +16,7 @@ project_memory*/**
 # Exclude local workspace-only artifacts
 .claude/**
 .continue/**
+.kilo/**
 website/**
 .vitest-*.json
 *.vsix

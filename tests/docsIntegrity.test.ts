@@ -57,6 +57,47 @@ describe('the corpus is actually being read', () => {
   });
 });
 
+describe('source debug profiles isolate unstable host integrations', () => {
+  it('keeps network inspection and persistent watch tasks out of extension-host startup', () => {
+    const source = read('.vscode/launch.json');
+    const launch = JSON.parse(source) as {
+      configurations: Array<{
+        name: string;
+        args?: string[];
+        experimentalNetworking?: string;
+        preLaunchTask?: string;
+      }>;
+    };
+    const tasks = JSON.parse(read('.vscode/tasks.json')) as {
+      tasks: Array<{ label?: string; script?: string; isBackground?: boolean }>;
+    };
+
+    expect(source.match(/"args"\s*:/g)?.length ?? 0).toBe(launch.configurations.length);
+
+    const stable = launch.configurations[0];
+    expect(stable?.name).toBe('Run Extension');
+    expect(stable?.experimentalNetworking).toBe('off');
+    expect(stable?.preLaunchTask).toBe('build-extension');
+    expect(stable?.args).toContain('--disable-extensions');
+    expect(stable?.args).toContain('--extensionDevelopmentPath=${workspaceFolder}');
+    const disableCopilotAt = stable?.args?.indexOf('--disable-extension') ?? -1;
+    expect(disableCopilotAt).toBeGreaterThanOrEqual(0);
+    expect(stable?.args?.[disableCopilotAt + 1]).toBe('GitHub.copilot-chat');
+
+    const integration = launch.configurations.find(
+      configuration => configuration.name === 'Run Extension (Copilot integration)',
+    );
+    expect(integration?.experimentalNetworking).toBe('off');
+    expect(integration?.preLaunchTask).toBe('build-extension');
+    expect(integration?.args).toContain('--extensionDevelopmentPath=${workspaceFolder}');
+    expect(integration?.args).not.toContain('--disable-extension');
+
+    const build = tasks.tasks.find(task => task.label === 'build-extension');
+    expect(build?.script).toBe('compile');
+    expect(build?.isBackground).toBe(false);
+  });
+});
+
 describe('every wikilink resolves to a page', () => {
   const pageNames = new Set(WIKI_FILES.map(file => path.basename(file, '.md')));
 

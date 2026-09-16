@@ -235,9 +235,11 @@
       id: 'ship',
       label: 'Ship & record',
       pages: [
-        // Release is versioning, changelog, tags and the four delivery keys;
-        // Delivery is the environments a version moves through. Adjacent, and
-        // genuinely different questions.
+        // Versions is the public portfolio and its roadmap evidence; Release
+        // is the readiness decision for the next version; Delivery is the
+        // environments a version moves through. Adjacent, and genuinely
+        // different questions.
+        ['versions', 'Versions'],
         ['release', 'Release'],
         ['delivery', 'Delivery'],
         ['documents', 'Documents'],
@@ -351,7 +353,8 @@
     security: [['risk', 'What has been raised and accepted'], ['testing', 'Whether a control is evidenced']],
     privacy: [['security', 'The boundaries behind these settings'], ['risk', 'What a decision here exposes']],
     risk: [['security', 'The controls a finding leans on'], ['debt', 'What was knowingly deferred']],
-    release: [['pipeline', 'Whether CI is green'], ['delivery', 'Where the version goes next'], ['documents', 'What the notes must match']],
+    versions: [['release', 'Whether the next version is ready'], ['roadmap', 'What each public version promised'], ['documents', 'The plans and notes behind each version']],
+    release: [['versions', 'How public versions map to the roadmap'], ['pipeline', 'Whether CI is green'], ['delivery', 'Where the version goes next']],
     delivery: [['release', 'What is ready to promote'], ['branches', 'The branch behind each stage']],
     documents: [['ssot', 'The memory these draw from'], ['release', 'Docs a release must update']],
     ssot: [['documents', 'How memory reaches the docs'], ['ideation', 'Where new thinking is captured']],
@@ -2046,6 +2049,13 @@
       vscode.postMessage({ type: 'importRoadmap' });
       return;
     }
+    // No payload: the host proves every candidate from stored import
+    // provenance and the current source documents. The picker, not the page,
+    // decides which exact entries are offered for removal.
+    if (action === 'roadmap-integrity-check') {
+      vscode.postMessage({ type: 'checkRoadmapIntegrity' });
+      return;
+    }
     if (action === 'roadmap-derive-links') {
       // Accepting links changes every node's depth, which is the largest layout
       // change this page can make. Fit afterwards for the same reason arranging
@@ -2068,6 +2078,30 @@
     if (action === 'roadmap-open-plan') {
       // The id, never the path: the host reads the plan's path from the record.
       vscode.postMessage({ type: 'roadmapOpenPlan', payload: String(payload || '') });
+      return;
+    }
+    if (action === 'release-version-create-gate') {
+      // The host resolves the tag against the portfolio it last published and
+      // confirms the tracked-file write. The page supplies no gate label.
+      vscode.postMessage({ type: 'createReleaseRoadmapGate', payload: String(payload || '') });
+      return;
+    }
+    if (action === 'release-version-discuss') {
+      // The prompt is reconstructed from host-owned evidence; the page names
+      // only the public version it is asking about.
+      vscode.postMessage({ type: 'discussPublicRelease', payload: String(payload || '') });
+      return;
+    }
+    if (action === 'release-version-open') {
+      // The repository and URL are resolved extension-side.
+      vscode.postMessage({ type: 'openPublicRelease', payload: String(payload || '') });
+      return;
+    }
+    if (action === 'release-version-roadmap') {
+      state.activeRoadmapGate = String(payload || 'mvp');
+      state.activePage = 'roadmap';
+      state.roadmapView = 'list';
+      render();
       return;
     }
     if (action === 'raise-register-work' || action === 'draft-register-issue') {
@@ -4884,6 +4918,7 @@
         ${renderPrivacy(snapshot)}
         ${renderRisk(snapshot)}
         ${renderCompliance(snapshot)}
+        ${renderVersions(snapshot)}
         ${renderRelease(snapshot)}
         ${renderDelivery(snapshot)}
         ${renderDocuments(snapshot)}
@@ -9783,6 +9818,106 @@
   const GATE_WORD = { pass: 'ready', fail: 'blocked', unknown: 'unknown' };
   const DORA_BAND_TONE = { elite: 'tag-good', high: 'tag-good', medium: 'tag-warn', low: 'tag-critical' };
 
+  function renderVersions(snapshot) {
+    const rel = snapshot.release || {};
+    const portfolio = rel.portfolio || { entries: [], publicCount: 0, stableCount: 0, previewCount: 0, gatedCount: 0, plannedCount: 0 };
+    const refreshBusy = state.repositoryRefreshBusy || Boolean((snapshot.issues || {}).busy);
+    const versionCards = (portfolio.entries || []).map((entry, index) => {
+      const progress = entry.progress;
+      const progressLabel = progress
+        ? `${progress.completed} of ${progress.total} roadmap milestones complete`
+        : 'No roadmap gate declared — progress is not measurable';
+      const itemRows = (entry.roadmapItems || []).map(item => `
+        <div class="release-version-item">
+          <span class="release-version-item-state ${item.completed ? 'done' : 'open'}" aria-hidden="true">${item.completed ? '✓' : '○'}</span>
+          <span>${escapeHtml(item.text)}</span>
+          ${item.hasPlan
+            ? `<button type="button" class="action-link" data-action="roadmap-open-plan" data-payload="${escapeAttr(item.nodeId)}">Open plan</button>`
+            : '<span class="list-meta">no filed plan</span>'}
+        </div>`).join('');
+      return `
+        <details class="release-version-card${entry.isLatest ? ' is-latest' : ''}"${entry.isLatest || index === 0 ? ' open' : ''}>
+          <summary>
+            <span class="release-version-heading">
+              <strong>${escapeHtml(entry.name || entry.tagName)}</strong>
+              ${entry.name && entry.name !== entry.tagName ? `<code>${escapeHtml(entry.tagName)}</code>` : ''}
+            </span>
+            <span class="release-version-badges">
+              ${entry.isLatest ? '<span class="tag tag-good">latest</span>' : ''}
+              <span class="tag ${entry.channel === 'preview' ? 'tag-warn' : ''}">${escapeHtml(entry.channel)}</span>
+              <span class="tag">${escapeHtml(entry.valueTier)} value</span>
+            </span>
+            <span class="release-version-summary">${escapeHtml((entry.publishedAt || '').slice(0, 10) || 'date unavailable')} · ${escapeHtml(progressLabel)}</span>
+            <span class="release-version-progress${progress ? '' : ' is-unknown'}" role="img" aria-label="${escapeAttr(progressLabel)}">
+              <span style="width:${progress ? Math.max(0, Math.min(100, progress.percent)) : 0}%"></span>
+            </span>
+          </summary>
+          <div class="release-version-body">
+            <div class="mini-grid">
+              ${renderMetricPill('Roadmap gate', entry.gateExists ? '#' + entry.gateId : 'not declared', { tone: entry.gateExists ? '' : 'warn' })}
+              ${renderMetricPill('Progress', progress ? progress.percent + '%' : '—', { tone: progress && progress.percent === 100 ? 'good' : progress ? 'warn' : undefined })}
+              ${renderMetricPill('Filed plans', progress ? entry.filedPlanCount + '/' + progress.total : '—')}
+              ${renderMetricPill('Release record', entry.isImmutable ? 'immutable' : 'mutable / unknown')}
+            </div>
+            ${itemRows ? `<div class="release-version-items">${itemRows}</div>` : '<p class="stat-detail wf-unknown">No roadmap items are linked to this public version.</p>'}
+            ${progress && progress.total > (entry.roadmapItems || []).length
+              ? `<p class="stat-detail">Showing ${(entry.roadmapItems || []).length} of ${progress.total} linked milestones.</p>`
+              : ''}
+            <p class="release-version-suggestion"><strong>Observed next move:</strong> ${escapeHtml(entry.suggestion || '')}</p>
+            <div class="tag-row release-version-actions">
+              <button type="button" class="action-link" data-action="release-version-open" data-payload="${escapeAttr(entry.tagName)}">Open release ↗</button>
+              ${entry.gateExists
+                ? `<button type="button" class="action-link" data-action="release-version-roadmap" data-payload="${escapeAttr(entry.gateId)}">Review roadmap gate →</button>`
+                : entry.gateId
+                  ? `<button type="button" class="action-link" data-action="release-version-create-gate" data-payload="${escapeAttr(entry.tagName)}">Create roadmap gate</button>`
+                  : ''}
+              ${renderAtlasDiscussAction('release-version-discuss', entry.tagName, `Ask AtlasMind to review ${entry.tagName}`, { intent: 'summarise', title: 'Review this version using its observed release, roadmap, and filed-plan evidence' })}
+            </div>
+          </div>
+        </details>`;
+    }).join('');
+
+    const intro = renderPageIntro({
+      kicker: 'Portfolio',
+      title: 'Public versions and the value they delivered',
+      summary: portfolio.summary || 'Load GitHub activity to join public releases to roadmap gates, progress, and filed plans.',
+      chips: [
+        { label: `${portfolio.publicCount || 0} public`, tone: portfolio.publicCount ? '' : 'warn' },
+        { label: `${portfolio.gatedCount || 0} gated`, tone: portfolio.gatedCount === portfolio.publicCount && portfolio.publicCount > 0 ? 'good' : 'warn' },
+      ],
+    });
+
+    const portfolioCard = `
+      <article class="panel-card release-portfolio-card">
+        <div class="row-head">
+          <p class="card-kicker">Public version portfolio</p>
+          <div class="tag-row">
+            ${rel.loadedAt ? `<span class="list-meta">read ${escapeHtml(rel.loadedAt.slice(0, 16).replace('T', ' '))}</span>` : ''}
+            ${renderRefreshAction('issues-refresh', rel.loadedAt ? 'Refresh versions' : 'Load public versions', refreshBusy, { busyLabel: 'Reading releases…' })}
+          </div>
+        </div>
+        ${rel.loadedAt || (rel.releases || []).length
+          ? `<div class="mini-grid release-portfolio-metrics">
+              ${renderMetricPill('Public versions', String(portfolio.publicCount || 0))}
+              ${renderMetricPill('Stable / preview', `${portfolio.stableCount || 0} / ${portfolio.previewCount || 0}`)}
+              ${renderMetricPill('Roadmap gates', `${portfolio.gatedCount || 0}/${portfolio.publicCount || 0}`, { tone: portfolio.gatedCount === portfolio.publicCount && portfolio.publicCount > 0 ? 'good' : 'warn' })}
+              ${renderMetricPill('Tracked paths', `${portfolio.plannedCount || 0}/${portfolio.publicCount || 0}`)}
+            </div>
+            <p class="stat-detail">${escapeHtml(portfolio.summary || '')} Draft releases are excluded because they are not public versions; previews remain visible but stay outside the delivery metrics.</p>
+            <div class="release-version-list">${versionCards || '<div class="dashboard-empty">This repository has no public releases yet.</div>'}</div>`
+          : `<div class="dashboard-empty"><div>
+              <strong>Releases have not been read</strong>
+              <p class="section-copy">Reading the release list is a network call, so it happens only on an explicit GitHub activity refresh. Load it here to compare every public version with the roadmap evidence already on disk.</p>
+              ${renderRefreshAction('issues-refresh', 'Load public versions', refreshBusy, { busyLabel: 'Reading releases…', primary: true })}
+            </div></div>`}
+      </article>`;
+
+    return `${pageSectionOpen('versions')}
+      ${intro}
+      ${portfolioCard}
+    </section>`;
+  }
+
   function renderRelease(snapshot) {
     const rel = snapshot.release || {};
     const plan = rel.plan || { gates: [], blockedBy: [] };
@@ -10030,29 +10165,6 @@
       'release',
     );
 
-    const recent = (rel.releases || []).slice(0, 12).map(entry => `
-      <div class="recent-item">
-        <div class="row-head">
-          <strong>${escapeHtml(entry.tagName)}</strong>
-          <span class="list-meta">${escapeHtml((entry.publishedAt || '').slice(0, 10))}</span>
-        </div>
-        ${entry.isPrerelease || entry.isDraft
-          ? `<div class="list-meta">${entry.isDraft ? 'draft' : 'pre-release'} — excluded from the delivery metrics</div>`
-          : ''}
-      </div>`).join('');
-
-    const historyCard = `
-      <article class="panel-card">
-        <p class="card-kicker">Published releases</p>
-        ${rel.loadedAt || (rel.releases || []).length
-          ? `<div class="stack-list">${recent || '<div class="dashboard-empty">This repository has no published releases yet.</div>'}</div>`
-          : `<div class="dashboard-empty"><div>
-              <strong>Releases have not been read</strong>
-              <p class="section-copy">Reading the release list is a network call, so it happens when you ask rather than on every render. The gates above do not need it — they come from your own files, which is why they are already filled in.</p>
-              <button type="button" class="action-link" data-action="page" data-payload="issues">Open the Issues tab and refresh</button>
-            </div></div>`}
-      </article>`;
-
     return `${pageSectionOpen('release')}
       ${intro}
       <div class="panel-grid">
@@ -10067,7 +10179,6 @@
         ${doraCard}
       </div>
       ${frequencyChart}
-      ${historyCard}
     </section>`;
   }
 
@@ -13998,11 +14109,17 @@
               <span class="rm-view-count">${counts[id]}</span>
             </button>`).join('')}
         </div>
-        ${state.roadmapView === 'completed' ? '' : `
-          <button type="button" class="rm-add-item" data-action="roadmap-add" data-payload="new"
-            title="${escapeAttr('Add an item to the prioritised backlog. Opens the entry form with the caret already in it.')}">
-            <span aria-hidden="true">+</span><span>Add roadmap item</span>
-          </button>`}
+        <div class="rm-view-actions">
+          ${state.roadmapView === 'completed' ? '' : `
+            <button type="button" class="rm-add-item" data-action="roadmap-add" data-payload="new"
+              title="${escapeAttr('Add an item to the prioritised backlog. Opens the entry form with the caret already in it.')}">
+              <span aria-hidden="true">+</span><span>Add roadmap item</span>
+            </button>`}
+          <button type="button" class="rm-add-item rm-integrity-action" data-action="roadmap-integrity-check"
+            title="${escapeAttr('Review imported checklist rows that AtlasMind can prove came from detailed plans or validation sections. Nothing is removed without selecting exact entries and confirming.')}">
+            <span aria-hidden="true">✓</span><span>Check integrity</span>
+          </button>
+        </div>
       </div>`;
   }
 

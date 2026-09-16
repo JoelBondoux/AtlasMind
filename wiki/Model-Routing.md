@@ -113,6 +113,12 @@ route straight back into an endpoint the turn had already watched fail. The judg
 an agent AtlasMind launched as a process, a protocol-level error means *that process*; for a cloud
 provider reached over the web, one error is one server among many and the provider stays in play.
 
+Account-wide refusals are handled differently. A rate limit skips the provider for the rest of that
+turn; insufficient credits pause it for the session; and an explicit invalid-key, account, or project
+access denial also pauses it after one attempt. AtlasMind does not blame the individual model for any of
+those. A bare 403 that might be specific to one model is left narrow rather than disabling unrelated
+capacity.
+
 **And it remembers between messages.** An endpoint that fails hard twice is set aside for ten minutes, so
 a crashed agent isn't the first thing tried on your next message — but if it's the only thing that can do
 the job, AtlasMind tries it anyway rather than refusing your request. One successful call clears the
@@ -145,6 +151,11 @@ These are now recognised by family name and kept out of routing entirely: they d
 picker and can't be failed over to. The rule is deliberately cautious in one direction — a model AtlasMind
 doesn't recognise is always treated as a chat model, because wrongly hiding something you installed is
 worse than the occasional one slipping through.
+
+There is a second, provider-specific check for the protocol a conversational model requires. Google lists
+Gemini Live voice models beside ordinary text models, but Live models require a stateful bidirectional
+WebSocket session. AtlasMind's Google text adapter is stateless, so model ids carrying the declared `live`
+segment are withheld from that route before they can consume an attempt.
 
 ---
 
@@ -279,6 +290,8 @@ works before discovery finishes.
   things
 - **Extended-thinking models are priced honestly**, with their thinking multiplier applied, so they
   aren't misfiled as cheap
+- **Provider-specific transport filters run after the general chat-role check**, so a conversational
+  model that requires a different API is not offered to the wrong adapter
 
 ---
 

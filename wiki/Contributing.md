@@ -20,7 +20,13 @@ npm install
 ```
 
 Then press **F5** in VS Code to launch an Extension Development Host with AtlasMind loaded. `@atlas`
-becomes available in chat there.
+becomes available in chat there. Both debug profiles run a finite full compile before launch and disable
+the JavaScript debugger's experimental Node network inspection, avoiding both a retained heavyweight
+`tsc -watch` process and the `Missing dataLength in event` inspector failure seen on VS Code 1.137.0.
+The default **Run Extension** profile also disables built-in GitHub Copilot Chat and other installed
+extensions because VS Code 1.137.0 with Copilot Chat 0.65.0 has an open exit-code-134 regression
+([microsoft/vscode#335916](https://github.com/microsoft/vscode/issues/335916)). Choose **Run Extension
+(Copilot integration)** only when testing AtlasMind's Copilot-provider path.
 
 ### The commands you'll use
 
@@ -94,8 +100,15 @@ build without noticing.
 AtlasMind has real runtime dependencies. **Don't package or publish with `--no-dependencies`** unless
 they've been bundled into the output first.
 
-If `vsce package` ever shows a workspace-memory directory in the package contents, treat that as a
-release blocker — it means somebody's project notes are about to ship to every user.
+Transitive advisory fixes use caret-version floors in `package.json`'s `overrides` block, with matching
+minimum-version assertions in `tests/packageManifest.test.ts`. Confirm the real path with
+`npm ls <package> --all`, regenerate the lockfile, and require `npm audit` to return zero; do not dismiss
+a Dependabot alert merely because its vulnerable package is indirect or development-only.
+
+If `vsce package` ever shows a workspace-memory directory or a local assistant worktree such as
+`.kilo/` in the package contents, treat that as a release blocker — it means project notes, fixtures,
+or token-shaped test data are about to ship to every user. Fix `.vscodeignore`; do not bypass the
+package secret scanner.
 
 ---
 

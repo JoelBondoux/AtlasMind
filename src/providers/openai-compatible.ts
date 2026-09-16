@@ -56,6 +56,8 @@ export interface OpenAiCompatibleProviderConfig {
   staticModels?: string[];
   /** Optional dynamic model list provider. Useful for deployment-based providers such as Azure OpenAI. */
   modelListProvider?: () => Promise<string[]> | string[];
+  /** Provider-specific eligibility check applied after generic non-chat model filtering. */
+  modelIdFilter?: (modelId: string) => boolean;
   /** Header name used for API key authentication. Defaults to `Authorization`. */
   authHeaderName?: string;
   /** Authentication scheme for the configured auth header. Defaults to `bearer`. */
@@ -338,7 +340,8 @@ export class OpenAiCompatibleAdapter implements ProviderAdapter {
     // nothing on ids that carry no marker.
     return [...new Set(discoveredIds)]
       .map(id => ensureProviderPrefix(this.config.providerId, id))
-      .filter(id => isConversationalModel(id));
+      .filter(id => isConversationalModel(id))
+      .filter(id => this.config.modelIdFilter?.(id) ?? true);
   }
 
   async discoverModels(): Promise<DiscoveredModel[]> {
@@ -425,6 +428,21 @@ export class OpenAiCompatibleAdapter implements ProviderAdapter {
     }
     throw new Error('Unreachable');
   }
+}
+
+/**
+ * Whether a Google model can be called through the stateless chat-completions
+ * adapter AtlasMind currently uses.
+ *
+ * Google's model inventory includes Live API models alongside ordinary text
+ * generation models. A Live model is conversational, but only over the
+ * stateful bidirectional WebSocket protocol; treating it as an ordinary chat
+ * model spends an attempt on a request that can never succeed. Google encodes
+ * that transport contract as a whole `live` segment in every Live model id.
+ */
+export function isGoogleChatCompletionsModel(modelId: string): boolean {
+  const segments = stripProviderPrefix(modelId).toLowerCase().split(/[^a-z0-9]+/).filter(Boolean);
+  return !segments.includes('live');
 }
 
 function isAbortError(error: unknown): boolean {

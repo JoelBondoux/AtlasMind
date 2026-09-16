@@ -1926,6 +1926,7 @@ async function bootstrapAtlasMind(
       createCachedGpuProbe: gpuProbeModule.createCachedGpuProbe,
       createRuntimeClientForEndpoint: localRuntimeClientModule.createRuntimeClientForEndpoint,
       OpenAiCompatibleAdapter: providersModule.OpenAiCompatibleAdapter,
+      isGoogleChatCompletionsModel: providersModule.isGoogleChatCompletionsModel,
       OpenRouterAdapter: providersModule.OpenRouterAdapter,
       ProviderRegistry: providersModule.ProviderRegistry,
       createBuiltinSkills: skillsModule.createBuiltinSkills,
@@ -2412,7 +2413,13 @@ async function bootstrapAtlasMind(
         context.secrets,
       ),
       new startupModules.OpenAiCompatibleAdapter(
-        { providerId: 'google', baseUrl: 'https://generativelanguage.googleapis.com/v1beta/openai', secretKey: 'atlasmind.provider.google.apiKey', displayName: 'Google Gemini' },
+        {
+          providerId: 'google',
+          baseUrl: 'https://generativelanguage.googleapis.com/v1beta/openai',
+          secretKey: 'atlasmind.provider.google.apiKey',
+          displayName: 'Google Gemini',
+          modelIdFilter: startupModules.isGoogleChatCompletionsModel,
+        },
         context.secrets,
       ),
       new startupModules.OpenAiCompatibleAdapter(

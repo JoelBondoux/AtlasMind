@@ -4,7 +4,7 @@ import * as path from 'node:path';
 import { createAtlasRuntime } from '../runtime/core.js';
 import type { SecretStore } from '../runtime/secrets.js';
 import { LocalEchoAdapter } from '../providers/registry.js';
-import { OpenAiCompatibleAdapter } from '../providers/openai-compatible.js';
+import { OpenAiCompatibleAdapter, isGoogleChatCompletionsModel } from '../providers/openai-compatible.js';
 import { AnthropicAdapter } from '../providers/anthropic.js';
 import type { ProviderAdapter } from '../providers/adapter.js';
 import type { BudgetMode, SpeedMode, ProviderId, AgentDefinition, OrchestratorHooks, TaskRequest, ProjectProgressUpdate } from '../types.js';
@@ -568,7 +568,13 @@ export function createCliProviderAdapters(): ProviderAdapter[] {
     { providerId: 'zai', baseUrl: 'https://api.z.ai/api/paas/v4', secretKey: 'atlasmind.provider.zai.apiKey', displayName: 'z.ai' },
     { providerId: 'deepseek', baseUrl: 'https://api.deepseek.com/v1', secretKey: 'atlasmind.provider.deepseek.apiKey', displayName: 'DeepSeek' },
     { providerId: 'mistral', baseUrl: 'https://api.mistral.ai/v1', secretKey: 'atlasmind.provider.mistral.apiKey', displayName: 'Mistral' },
-    { providerId: 'google', baseUrl: 'https://generativelanguage.googleapis.com/v1beta/openai', secretKey: 'atlasmind.provider.google.apiKey', displayName: 'Google Gemini' },
+    {
+      providerId: 'google',
+      baseUrl: 'https://generativelanguage.googleapis.com/v1beta/openai',
+      secretKey: 'atlasmind.provider.google.apiKey',
+      displayName: 'Google Gemini',
+      modelIdFilter: isGoogleChatCompletionsModel,
+    },
     { providerId: 'xai', baseUrl: 'https://api.x.ai/v1', secretKey: 'atlasmind.provider.xai.apiKey', displayName: 'xAI' },
     { providerId: 'cohere', baseUrl: 'https://api.cohere.ai/compatibility/v1', secretKey: 'atlasmind.provider.cohere.apiKey', displayName: 'Cohere' },
     { providerId: 'huggingface', baseUrl: 'https://router.huggingface.co/v1', secretKey: 'atlasmind.provider.huggingface.apiKey', displayName: 'Hugging Face Inference' },

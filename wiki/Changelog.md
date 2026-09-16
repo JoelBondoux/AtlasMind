@@ -19,6 +19,73 @@ Older entries below describe the software as it was at the time and are delibera
 
 ---
 
+## v0.478.0 -- Public versions get a page of their own
+
+The public-version portfolio is now a first-class **Versions** page under **Ship & record**, rather
+than the last card below Release readiness and delivery-performance charts. Release links to it, and
+the page links onward to the roadmap and supporting documents. It can load its GitHub release evidence
+directly, while version actions remain host-resolved and reviewable.
+
+F5 source debugging now finishes one full compile before opening the Extension Development Host and
+disables the unstable experimental Node network inspector. The default profile isolates installed
+extensions and GitHub Copilot Chat; a separate Copilot-integration profile is available when that
+provider is specifically being tested.
+
+---
+
+## v0.477.0 -- Public versions become a reviewable portfolio
+
+Project Dashboard → Release now joins every fetched public stable or preview version to its SemVer
+value tier, matching roadmap gate, milestone progress, and filed design plans. Each version links to
+the public GitHub release, its roadmap route, and the plans AtlasMind can actually evidence. Missing
+gates are shown as unplanned rather than 0% complete and can be created through an explicit confirmed
+write. The AtlasMind review control uses a host-built evidence prompt, so the webview never supplies
+instructions or silently fills missing facts.
+
+Roadmap reconciliation now separates automatic discovery from explicit import. The load-time path
+ignores detailed plan scaffolds plus verification, acceptance, and definition-of-done checklists rather
+than flattening them into the backlog. **Check integrity** compares stored import provenance with the
+current source documents, highlights the rows it can prove are likely artifacts, and removes only the
+entries selected through a second confirmation. Roadmap dialogs use labelled bullet sections so the
+source, proposed changes, conflicts, preserved data, and consequences are readable at a glance.
+
+---
+
+## v0.476.5 -- Dependency advisories cleared
+
+Patched floors for `hono`, `js-yaml`, and `morgan` close five Dependabot advisories in the MCP runtime
+and development packaging/test paths. Manifest tests now enforce each minimum patched release while
+still allowing compatible updates above it.
+
+---
+
+## v0.476.4 -- Working capacity stays routable
+
+The local GPU gate now receives the parameter count already present in model ids such as `qwen3-8b`,
+so it no longer prices every routed local model as the unknown 16 GiB fallback. Runtime-native model
+names containing `/` also keep their `local/` routing identity. Google Gemini Live-only models are
+excluded from the ordinary stateless chat route, and an explicit API-key, account, or project-access
+denial pauses the affected provider after one attempt before AtlasMind searches elsewhere.
+
+---
+
+## v0.476.3 -- Roadmap files stay aligned
+
+Repository agents now receive a managed instruction naming
+`project_memory/roadmap/improvement-plan.md` as AtlasMind's canonical roadmap and requiring secondary
+roadmap edits to be reconciled there in the same change. Opening the Roadmap dashboard performs a
+bounded local drift check and previews additions, source links, renames, and checkbox changes before
+writing. Conflicts, ambiguous legacy checkbox state, and items removed from a secondary source remain
+untouched and are reported.
+
+---
+
+## v0.476.2 -- Published baseline
+
+The README's published baseline now names v0.476.1.
+
+---
+
 ## v0.476.1 -- One approval choice covers the response
 
 Selecting **Bypass Approvals** or **Autopilot** now applies the scope before concurrent tool gates resume

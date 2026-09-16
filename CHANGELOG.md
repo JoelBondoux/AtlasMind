@@ -6,6 +6,101 @@ The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/),
 
 ## [Unreleased]
 
+## [0.478.0] - 2026-09-16
+
+### Added
+
+- Give the public-version portfolio its own Project Dashboard → Versions page under **Ship & record**,
+  with declared routes from Release and to the supporting roadmap and documents.
+- Index the Versions page in AtlasMind's capability map so chat guidance can identify and navigate to
+  the public-release review surface.
+
+### Changed
+
+- Let the Versions page load and refresh its GitHub release evidence directly instead of sending the
+  reader to the Issues page for an unrelated-looking refresh action.
+
+### Fixed
+
+- Stabilize F5 Extension Development Host startup with a finite compile task and experimental Node
+  network inspection disabled. The default profile also isolates installed extensions and Copilot Chat;
+  the explicit Copilot-integration profile keeps that provider available when it is under test.
+
+## [0.477.0] - 2026-09-16
+
+### Added
+
+- Add a public-version portfolio to Project Dashboard → Release, joining stable and preview GitHub
+  releases to SemVer value tiers, roadmap gates, milestone progress, and filed design plans.
+- Add host-resolved links for each version's GitHub release, roadmap route, and filed plans, plus a
+  confirmed action that creates the matching roadmap gate without guessing item membership.
+- Add a governed AtlasMind review action whose prompt is reconstructed from the version evidence held
+  by the extension host and explicitly distinguishes missing data from zero progress.
+
+### Fixed
+
+- Keep load-time roadmap reconciliation from flattening detailed implementation plans, verification
+  lists, acceptance criteria, and definitions of done into top-level backlog items. Explicit Markdown
+  imports remain broad because the user selected their source deliberately.
+- Add a provenance-led **Check integrity** review to the Roadmap dashboard. It highlights imported rows
+  that current source evidence identifies as plan or validation checklist artifacts, lets the user
+  select exact entries, and confirms both tracked files before removing their graph metadata.
+- Structure Roadmap and reconciliation dialogs into labelled, bulleted sections so changes, conflicts,
+  untouched data, and safety consequences remain scannable in VS Code's plain-text modal details.
+
+## [0.476.5] - 2026-09-16
+
+### Security
+
+- Raise the transitive `hono` floor to `^4.13.5`, closing three runtime advisories in the MCP SDK
+  path: unbounded `parseBody()` nesting, URL-fragment query parsing, and `toSSG()` output traversal.
+- Raise development-tool floors to `js-yaml` `^4.3.2` and `morgan` `^1.12.0`, closing the merge-key
+  CPU exhaustion advisory under `vsce` and log-forging advisory under `@vscode/test-web`.
+- Extend the manifest security contract to pin every new remediation as a minimum patched version,
+  allowing later compatible patches without weakening the advisory floor.
+
+## [0.476.4] - 2026-09-16
+
+### Fixed
+
+- Carry the parameter count encoded in a local model id into GPU admission, so an 8B LM Studio or
+  Ollama model is not priced as the conservative unknown 16 GiB fallback and refused on a card that
+  has room. Local model ids whose runtime-native name contains `/` also retain the `local/` routing
+  prefix instead of losing their provider identity.
+- Keep Google Gemini Live-only models out of the stateless OpenAI-compatible chat-completions route.
+  They remain available through the Live API, but no longer consume a model attempt on a request whose
+  transport can never serve them.
+- Treat explicit API-key, account, and project-access denials as provider-wide failures. AtlasMind now
+  pauses that provider after the first refusal, fails over elsewhere, and does not mislabel the refusal
+  as a model quality failure. Rate limits and billing refusals likewise no longer penalize one model.
+- Exclude local `.kilo` worktrees from VSIX packages, preventing repository fixtures and token-shaped
+  test data from entering the extension archive or tripping the package secret scanner.
+
+## [0.476.3] - 2026-09-16
+
+### Changed
+
+- Write a managed roadmap synchronization rule into repository-agent instruction files, seeding
+  `AGENTS.md` when the Roadmap dashboard first loads so Codex and other cross-tool readers know that
+  `project_memory/roadmap/improvement-plan.md` is canonical and secondary roadmap edits must be
+  reconciled there in the same change.
+- Perform a bounded, local secondary-roadmap drift check when the Project Dashboard loads. AtlasMind
+  previews additions, source links, title changes, and checkbox changes before writing; conflicts and
+  source removals remain untouched.
+
+### Fixed
+
+- Re-import roadmap checkbox state as well as item text. Import provenance now records the last source
+  checkbox, so a source-only completion or reopen can be applied while a local or legacy ambiguity is
+  reported rather than overwritten.
+
+## [0.476.2] - 2026-09-15
+
+### Changed
+
+- **README:** the published baseline now names v0.476.1, the release just published to the
+  Marketplace.
+
 ## [0.476.1] - 2026-09-15
 
 ### Fixed
