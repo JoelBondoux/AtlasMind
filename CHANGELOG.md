@@ -6,6 +6,28 @@ The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/),
 
 ## [Unreleased]
 
+## [0.477.0] - 2026-09-16
+
+### Added
+
+- Add a public-version portfolio to Project Dashboard → Release, joining stable and preview GitHub
+  releases to SemVer value tiers, roadmap gates, milestone progress, and filed design plans.
+- Add host-resolved links for each version's GitHub release, roadmap route, and filed plans, plus a
+  confirmed action that creates the matching roadmap gate without guessing item membership.
+- Add a governed AtlasMind review action whose prompt is reconstructed from the version evidence held
+  by the extension host and explicitly distinguishes missing data from zero progress.
+
+### Fixed
+
+- Keep load-time roadmap reconciliation from flattening detailed implementation plans, verification
+  lists, acceptance criteria, and definitions of done into top-level backlog items. Explicit Markdown
+  imports remain broad because the user selected their source deliberately.
+- Add a provenance-led **Check integrity** review to the Roadmap dashboard. It highlights imported rows
+  that current source evidence identifies as plan or validation checklist artifacts, lets the user
+  select exact entries, and confirms both tracked files before removing their graph metadata.
+- Structure Roadmap and reconciliation dialogs into labelled, bulleted sections so changes, conflicts,
+  untouched data, and safety consequences remain scannable in VS Code's plain-text modal details.
+
 ## [0.476.5] - 2026-09-16
 
 ### Security

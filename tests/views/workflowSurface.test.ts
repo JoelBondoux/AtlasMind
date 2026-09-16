@@ -697,7 +697,24 @@ describe('the Release page', () => {
     // Both produce an empty list, and only one of them justifies telling
     // somebody their delivery cadence is unmeasurable.
     expect(rendered()).toContain('Releases have not been read');
-    expect(rendered()).toContain('no published releases yet');
+    expect(rendered()).toContain('no public releases yet');
+  });
+
+  it('renders public versions as an evidence-backed portfolio', () => {
+    expect(rendered()).toContain('Public version portfolio');
+    expect(rendered()).toContain('entry.valueTier');
+    expect(rendered()).toContain('entry.filedPlanCount');
+    expect(rendered()).toContain('No roadmap gate declared — progress is not measurable');
+    expect(rendered()).toContain('data-action="release-version-roadmap"');
+    expect(rendered()).toContain('data-action="roadmap-open-plan"');
+  });
+
+  it('keeps gate creation and AI review host-owned', () => {
+    expect(rendered()).toContain('data-action="release-version-create-gate"');
+    expect(rendered()).toContain("renderAtlasDiscussAction('release-version-discuss', entry.tagName");
+    expect(WEBVIEW_SCRIPT).toContain("type: 'createReleaseRoadmapGate', payload: String(payload || '')");
+    expect(WEBVIEW_SCRIPT).toContain("type: 'discussPublicRelease', payload: String(payload || '')");
+    expect(HOST_PANEL).toContain('buildPublicReleaseReviewPrompt(release)');
   });
 
   it('explains the feature in its empty states rather than reporting emptiness', () => {

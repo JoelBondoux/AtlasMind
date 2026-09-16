@@ -214,8 +214,10 @@ import {
   MAX_IMPORT_FILES,
   MAX_IMPORT_ITEMS,
   ROADMAP_IMPORT_SOURCES,
+  assessAutomaticRoadmapItems,
   importRecordFor,
   isWorkspaceRoadmapMarkdownPath,
+  parseAutomaticRoadmapItems,
   parseGithubIssueRoadmapItems,
   parseGithubProjectRoadmapItems,
   parseMarkdownRoadmapItems,
@@ -228,6 +230,7 @@ import {
   type RoadmapImportRead,
   type RoadmapImportSourceKind,
 } from '../core/roadmapImport.js';
+import { resolveRelativePath } from '../utils/aiInstructionSync.js';
 import { syncRoadmapInstructions } from '../utils/testingProtocolSync.js';
 import {
   buildReleasePlan,
@@ -1162,6 +1165,12 @@ type ProjectDashboardMessage =
    */
   | { type: 'importRoadmap' }
   /**
+   * Review likely automatic-import artifacts. Carries no filters or ids: the
+   * host re-reads provenance and source documents, then lets the user choose
+   * exact rows in a native picker before any removal is offered.
+   */
+  | { type: 'checkRoadmapIntegrity' }
+  /**
    * Ask AtlasMind to work the tree out and offer it.
    *
    * Derivation already runs on every render; what this adds is the bulk accept,
@@ -1183,6 +1192,10 @@ type ProjectDashboardMessage =
   /** The same contract, for the issue composer. Nothing is posted here either. */
   | { type: 'draftRegisterIssue'; payload: string }
   | { type: 'createRoadmapGate' }
+  /** Public-release actions carry only the tag the host last published. */
+  | { type: 'createReleaseRoadmapGate'; payload: string }
+  | { type: 'discussPublicRelease'; payload: string }
+  | { type: 'openPublicRelease'; payload: string }
   | { type: 'deleteRoadmapGate'; payload: string }
   | { type: 'refreshIssues' }
   /**
@@ -2552,8 +2565,50 @@ interface DashboardReleaseGateView {
   destinations: Record<string, ReleaseGateDestination>;
 }
 
+type DashboardReleaseValueTier = 'major' | 'minor' | 'patch' | 'custom';
+type DashboardReleaseChannel = 'stable' | 'preview';
+
+interface DashboardReleasePortfolioItem {
+  /** Durable roadmap graph id. The webview never receives a plan path as an action payload. */
+  nodeId: string;
+  text: string;
+  completed: boolean;
+  hasPlan: boolean;
+}
+
+/** One public version joined to the plan AtlasMind can actually evidence for it. */
+interface DashboardReleasePortfolioEntry {
+  tagName: string;
+  name: string;
+  publishedAt?: string;
+  channel: DashboardReleaseChannel;
+  valueTier: DashboardReleaseValueTier;
+  isLatest: boolean;
+  isImmutable: boolean;
+  gateId: string;
+  gateLabel: string;
+  gateExists: boolean;
+  /** Absent means no declared gate, never zero progress. */
+  progress?: { completed: number; total: number; percent: number };
+  roadmapItems: DashboardReleasePortfolioItem[];
+  filedPlanCount: number;
+  suggestion: string;
+}
+
+interface DashboardReleasePortfolio {
+  entries: DashboardReleasePortfolioEntry[];
+  publicCount: number;
+  stableCount: number;
+  previewCount: number;
+  gatedCount: number;
+  plannedCount: number;
+  summary: string;
+}
+
 interface DashboardReleaseSnapshot {
   releases: MetricReleaseInput[];
+  /** Public versions joined to roadmap evidence and filed design plans. */
+  portfolio: DashboardReleasePortfolio;
   /** Every tag `git tag` reported, so an existing tag can block a re-publish. */
   tags: string[];
   plan: ReleasePlan;
@@ -5961,6 +6016,9 @@ export class ProjectDashboardPanel {
       case 'importRoadmap':
         await this.handleImportRoadmap();
         break;
+      case 'checkRoadmapIntegrity':
+        await this.handleRoadmapIntegrityCheck();
+        break;
       case 'roadmapDeriveLinks':
         await this.handleRoadmapDeriveLinks();
         break;
@@ -5972,6 +6030,15 @@ export class ProjectDashboardPanel {
         break;
       case 'createRoadmapGate':
         await this.handleCreateRoadmapGate();
+        return;
+      case 'createReleaseRoadmapGate':
+        await this.handleCreateReleaseRoadmapGate(message.payload);
+        return;
+      case 'discussPublicRelease':
+        await this.handleDiscussPublicRelease(message.payload);
+        return;
+      case 'openPublicRelease':
+        await this.handleOpenPublicRelease(message.payload);
         return;
       case 'deleteRoadmapGate':
         await this.handleDeleteRoadmapGate(message.payload);
@@ -7855,12 +7922,31 @@ export class ProjectDashboardPanel {
     const unmanaged = assessUnmanagedRoadmap(existing);
     if (unmanaged.wouldDuplicate) {
       const plan = planRoadmapReconcile(existing, sanitizedItems.map(item => item.text));
-      const detail = `${filePath} has ${unmanaged.orphanItemTexts.length} item(s) outside the block AtlasMind manages`
-        + `${unmanaged.truncated ? ' (more than it counted)' : ''}.\n\n`
-        + `Saving as-is would keep them as a second copy of the backlog. Reconciling adopts `
-        + `${plan.adopted.length} of them as roadmap items`
-        + `${plan.alreadyPresent > 0 ? `, skips ${plan.alreadyPresent} already on the roadmap` : ''}`
-        + `, and keeps the remaining prose as notes.\n\nNothing is deleted.`;
+      const detail = formatRoadmapDialogSections([
+        {
+          heading: 'File',
+          lines: [path.relative(workspaceRoot, filePath).replace(/\\/g, '/')],
+        },
+        {
+          heading: 'Found outside the managed block',
+          lines: [
+            `${unmanaged.orphanItemTexts.length} loose roadmap item${unmanaged.orphanItemTexts.length === 1 ? '' : 's'}${unmanaged.truncated ? ' (the scan limit was reached)' : ''}`,
+            'Saving without reconciliation would preserve a second copy of the backlog.',
+          ],
+        },
+        {
+          heading: 'Reconcile and save',
+          lines: [
+            `${plan.adopted.length} ${plan.adopted.length === 1 ? 'item' : 'items'} will be adopted into the managed backlog`,
+            ...(plan.alreadyPresent > 0 ? [`${plan.alreadyPresent} ${plan.alreadyPresent === 1 ? 'duplicate is' : 'duplicates are'} already represented and will be skipped`] : []),
+            'Remaining prose will stay under Existing Notes.',
+          ],
+        },
+        {
+          heading: 'Safety',
+          lines: ['Nothing is deleted. Cancelling leaves the file unchanged.'],
+        },
+      ]);
       const choice = await vscode.window.showWarningMessage(
         'Reconcile this roadmap first?',
         { modal: true, detail },
@@ -8150,7 +8236,7 @@ export class ProjectDashboardPanel {
       try {
         const releaseRaw = await runGh(workspaceRoot, [
           'release', 'list', '--limit', '100',
-          '--json', 'tagName,publishedAt,isPrerelease,isDraft',
+          '--json', 'tagName,name,createdAt,publishedAt,isPrerelease,isDraft,isLatest,isImmutable',
         ]);
         this.releaseState = { records: parseGhReleaseList(releaseRaw), loadedAt: new Date().toISOString() };
       } catch (error) {
@@ -12352,6 +12438,89 @@ ${buildCardEvidenceSection(source, derivation)}`;
     void vscode.window.showInformationMessage(`Release gate #${id} added. Tag backlog items with it to build its path.`);
   }
 
+  /** Resolve a public-version action against the exact portfolio last rendered. */
+  private resolvePublicReleaseEntry(tagName: string): DashboardReleasePortfolioEntry | undefined {
+    const tag = typeof tagName === 'string' ? tagName.trim() : '';
+    if (tag.length === 0) {
+      return undefined;
+    }
+    return this.lastSnapshot?.release.portfolio.entries.find(entry => entry.tagName === tag);
+  }
+
+  /** Add the deterministic gate for one public version after naming the tracked write. */
+  private async handleCreateReleaseRoadmapGate(tagName: string): Promise<void> {
+    const release = this.resolvePublicReleaseEntry(tagName);
+    if (release === undefined || release.gateExists) {
+      return;
+    }
+    const context = await this.readRoadmapDocument();
+    if (!context) {
+      return;
+    }
+    if (context.gates.some(gate => gate.id === release.gateId)) {
+      void vscode.window.showInformationMessage(`Release gate #${release.gateId} already exists. Refresh the dashboard to review it.`);
+      return;
+    }
+    if (context.gates.length >= MAX_ROADMAP_GATES) {
+      void vscode.window.showWarningMessage(`A roadmap can track ${MAX_ROADMAP_GATES} release gates. Remove one before adding another.`);
+      return;
+    }
+
+    const confirmation = await vscode.window.showInformationMessage(
+      `Create a roadmap gate for ${release.tagName}?`,
+      {
+        modal: true,
+        detail: formatRoadmapDialogSections([
+          {
+            heading: 'Roadmap change',
+            lines: [
+              `Add release gate #${release.gateId}`,
+              `Write ${path.relative(context.workspaceRoot, context.filePath).replace(/\\/g, '/')}`,
+            ],
+          },
+          {
+            heading: 'Unchanged',
+            lines: ['No roadmap item is tagged, edited, or removed until you assign it to the gate.'],
+          },
+        ]),
+      },
+      'Create gate',
+    );
+    if (confirmation !== 'Create gate') {
+      return;
+    }
+
+    const gates = normalizeGates([
+      ...context.gates,
+      { id: release.gateId, label: release.tagName, order: context.gates.length, builtIn: false },
+    ]);
+    await this.writeRoadmapDocument(context, context.items, gates);
+    void vscode.window.showInformationMessage(`Release gate #${release.gateId} added. Tag the roadmap items that define ${release.tagName} to build its path.`);
+  }
+
+  /** Ask for judgement about one version without accepting prompt text from the page. */
+  private async handleDiscussPublicRelease(tagName: string): Promise<void> {
+    const release = this.resolvePublicReleaseEntry(tagName);
+    if (release === undefined) {
+      return;
+    }
+    await this.openDashboardChat({
+      draftPrompt: buildPublicReleaseReviewPrompt(release),
+      sendMode: 'new-session',
+    });
+  }
+
+  /** Open the release represented by the card; the webview never supplies the URL. */
+  private async handleOpenPublicRelease(tagName: string): Promise<void> {
+    const release = this.resolvePublicReleaseEntry(tagName);
+    const repository = parseRepoSlug(this.lastGitRemoteUrl ?? this.issuesState.repoSlug);
+    if (release === undefined || repository === undefined) {
+      return;
+    }
+    const url = `https://github.com/${encodeURIComponent(repository.owner)}/${encodeURIComponent(repository.repo)}/releases/tag/${encodeURIComponent(release.tagName)}`;
+    await vscode.env.openExternal(vscode.Uri.parse(url));
+  }
+
   /**
    * Remove a release gate.
    *
@@ -12377,9 +12546,22 @@ ${buildCardEvidenceSection(source, derivation)}`;
       `Remove the release gate "${gate.label}" (#${id})?`,
       {
         modal: true,
-        detail: taggedCount > 0
-          ? `The tag will be removed from ${taggedCount} backlog item${taggedCount === 1 ? '' : 's'}. No backlog item is deleted.`
-          : 'No backlog items are tagged for it.',
+        detail: formatRoadmapDialogSections([
+          {
+            heading: 'Gate',
+            lines: [`${gate.label} (#${id})`],
+          },
+          {
+            heading: 'Roadmap change',
+            lines: taggedCount > 0
+              ? [`Remove #${id} from ${taggedCount} backlog item${taggedCount === 1 ? '' : 's'}`]
+              : ['No backlog items are tagged for this gate.'],
+          },
+          {
+            heading: 'Safety',
+            lines: ['No backlog item is deleted.'],
+          },
+        ]),
       },
       'Remove gate',
     );
@@ -12803,7 +12985,7 @@ ${buildCardEvidenceSection(source, derivation)}`;
       return;
     }
 
-    const parsed = parseMarkdownRoadmapItems(files);
+    const parsed = parseAutomaticRoadmapItems(files);
     const read: RoadmapImportRead = { ...parsed, notes: [...parsed.notes, ...notes] };
     if (read.items.length === 0) {
       return;
@@ -13471,6 +13653,179 @@ ${buildCardEvidenceSection(source, derivation)}`;
    * can say "accepted suggestion" rather than claiming a person drew it.
    */
   /**
+   * Find automatic-import artifacts and let the user remove exact rows.
+   *
+   * This is deliberately provenance-led. Wording alone is never evidence that
+   * a roadmap item is wrong: "write integration tests" may be perfectly valid
+   * planned work. A row is offered only when it has a stored Markdown import
+   * record and its current source is either a detailed plan document or places
+   * that exact checkbox under a validation-only heading. Unreadable, missing,
+   * hand-written, and ambiguous rows are left out.
+   *
+   * The review is two gates: a multi-select picker highlights the findings and
+   * a modal names the tracked files before removal. Nothing is preselected and
+   * cancelling either gate writes nothing.
+   */
+  private async handleRoadmapIntegrityCheck(): Promise<void> {
+    const context = await this.readRoadmapDocument();
+    if (context === undefined) {
+      void vscode.window.showWarningMessage('Open a workspace before checking roadmap integrity.');
+      return;
+    }
+
+    const graphRead = readRoadmapGraphFile(context.workspaceRoot, context.ssotPath);
+    if (graphRead.preserveExisting) {
+      void vscode.window.showWarningMessage(
+        graphRead.notice ?? 'The roadmap graph file was written by a newer AtlasMind. Integrity was not checked because import provenance cannot be read safely.',
+      );
+      return;
+    }
+    const graph = graphRead.config ?? seedRoadmapGraphDocument();
+    const nodeById = new Map(graph.nodes.map(node => [node.id, node]));
+    const imported = context.items.flatMap(item => {
+      const record = item.nodeId === undefined ? undefined : nodeById.get(item.nodeId)?.imported;
+      if (item.nodeId === undefined || record?.kind !== 'markdown') {
+        return [];
+      }
+      const separator = record.sourceId.lastIndexOf('::');
+      const sourcePath = separator > 0 ? record.sourceId.slice(0, separator).replace(/\\/g, '/') : '';
+      return sourcePath === '' ? [] : [{ item, nodeId: item.nodeId, record, sourcePath }];
+    });
+
+    const sourcePaths = [...new Set(imported.map(entry => entry.sourcePath))]
+      .sort((left, right) => left.localeCompare(right));
+    const files: Array<{ path: string; content: string }> = [];
+    let unreadableSources = 0;
+    for (const sourcePath of sourcePaths.slice(0, MAX_IMPORT_FILES)) {
+      const absolute = resolveRelativePath(context.workspaceRoot, sourcePath);
+      if (absolute === undefined) {
+        unreadableSources += 1;
+        continue;
+      }
+      try {
+        const stat = await fs.stat(absolute);
+        if (!stat.isFile() || stat.size > 1_000_000) {
+          unreadableSources += 1;
+          continue;
+        }
+        files.push({ path: sourcePath, content: await fs.readFile(absolute, 'utf8') });
+      } catch {
+        unreadableSources += 1;
+      }
+    }
+    unreadableSources += Math.max(0, sourcePaths.length - MAX_IMPORT_FILES);
+
+    const assessment = assessAutomaticRoadmapItems(files);
+    const detailedPlanPaths = new Set(assessment.detailedPlanPaths);
+    const exclusionById = new Map(assessment.exclusions.map(exclusion => [exclusion.sourceId, exclusion]));
+    const findings = imported.flatMap(entry => {
+      const exclusion = exclusionById.get(entry.record.sourceId);
+      const detailedPlan = detailedPlanPaths.has(entry.sourcePath);
+      if (!detailedPlan && exclusion === undefined) {
+        return [];
+      }
+      const reason = detailedPlan
+        ? 'Imported from a detailed implementation plan'
+        : `Imported from ${exclusion?.context ? `the “${exclusion.context}” checklist` : 'a validation-only checklist'}`;
+      return [{ ...entry, reason }];
+    });
+
+    if (findings.length === 0) {
+      await vscode.window.showInformationMessage(
+        'Roadmap integrity check complete',
+        {
+          modal: true,
+          detail: [
+            'RESULT',
+            '  • No imported entries could be proven to come from a detailed plan or validation-only checklist.',
+            '',
+            'SCOPE',
+            `  • ${imported.length} Markdown-imported roadmap ${imported.length === 1 ? 'entry' : 'entries'} checked`,
+            `  • ${files.length} current source ${files.length === 1 ? 'file' : 'files'} read`,
+            ...(unreadableSources > 0 ? [`  • ${unreadableSources} source ${unreadableSources === 1 ? 'was' : 'files were'} unavailable and left unjudged`] : []),
+            '',
+            'No roadmap files were changed.',
+          ].join('\n'),
+        },
+      );
+      return;
+    }
+
+    const selected = await vscode.window.showQuickPick(
+      findings.map(finding => ({
+        label: `$(warning) ${finding.item.text}`,
+        description: finding.reason,
+        detail: `Source: ${finding.sourcePath}`,
+        finding,
+      })),
+      {
+        title: `Roadmap integrity · ${findings.length} likely import artifact${findings.length === 1 ? '' : 's'}`,
+        placeHolder: 'Select only the entries to remove; nothing is preselected',
+        canPickMany: true,
+        ignoreFocusOut: true,
+      },
+    );
+    if (selected === undefined || selected.length === 0) {
+      return;
+    }
+
+    const selectedIds = new Set(selected.map(choice => choice.finding.nodeId));
+    const roadmapPath = path.relative(context.workspaceRoot, context.filePath).replace(/\\/g, '/');
+    const graphPath = `${context.ssotPath.replace(/\\/g, '/').replace(/\/$/, '')}/roadmap/roadmap-graph.md`;
+    const preview = selected.slice(0, 10).map(choice => `  • ${choice.finding.item.text}`);
+    const confirmation = await vscode.window.showWarningMessage(
+      `Remove ${selected.length} flagged roadmap ${selected.length === 1 ? 'entry' : 'entries'}?`,
+      {
+        modal: true,
+        detail: [
+          'SELECTED FOR REMOVAL',
+          ...preview,
+          ...(selected.length > preview.length ? [`  • …and ${selected.length - preview.length} more`] : []),
+          '',
+          'TRACKED FILES',
+          `  • ${roadmapPath}`,
+          `  • ${graphPath}`,
+          '',
+          'WHAT STAYS',
+          '  • Source plan documents are not changed.',
+          '  • Unselected, hand-written, missing-source, and ambiguous roadmap entries stay untouched.',
+          '',
+          'This removal can be recovered from Git until the changed files are committed.',
+        ].join('\n'),
+      },
+      'Remove selected',
+    );
+    if (confirmation !== 'Remove selected') {
+      return;
+    }
+
+    const remainingItems = context.items
+      .filter(item => item.nodeId === undefined || !selectedIds.has(item.nodeId))
+      .map(item => ({
+        text: item.text,
+        completed: item.completed,
+        gates: item.gates,
+        ...(item.nodeId === undefined ? {} : { nodeId: item.nodeId }),
+      }));
+    const nextRoadmap = serializeDashboardRoadmapDocument(context.existing, remainingItems, context.gates);
+    await fs.writeFile(context.filePath, nextRoadmap, 'utf8');
+    await writeRoadmapGraph(context.workspaceRoot, context.ssotPath, {
+      ...graph,
+      nodes: graph.nodes.filter(node => !selectedIds.has(node.id)),
+      edges: graph.edges.filter(edge => !selectedIds.has(edge.from) && !selectedIds.has(edge.to)),
+      dismissed: graph.dismissed.filter(edge => !selectedIds.has(edge.from) && !selectedIds.has(edge.to)),
+    });
+
+    const ssotRoot = vscode.Uri.file(path.join(context.workspaceRoot, context.ssotPath));
+    await this.atlas.memoryManager.loadFromDisk(ssotRoot);
+    this.atlas.memoryRefresh.fire();
+    await this.syncState();
+    void vscode.window.showInformationMessage(
+      `Removed ${selected.length} selected roadmap ${selected.length === 1 ? 'entry' : 'entries'} and their graph metadata. Source plans were not changed.`,
+    );
+  }
+
+  /**
    * Read somebody else's roadmap into this one.
    *
    * The webview asks for an import and says nothing else. Every detail — which
@@ -13871,12 +14226,23 @@ ${buildCardEvidenceSection(source, derivation)}`;
       `Add ${suggestions.length} inferred dependenc${suggestions.length === 1 ? 'y' : 'ies'} to the roadmap?`,
       {
         modal: true,
-        detail: [
-          preview,
-          suggestions.length > 3 ? `…and ${suggestions.length - 3} more.` : '',
-          '',
-          'These are inferred from the wording of your backlog items, not from anything you told AtlasMind. Each one is recorded with the rule that produced it, and any of them can be removed afterwards.',
-        ].filter(Boolean).join('\n'),
+        detail: formatRoadmapDialogSections([
+          {
+            heading: 'Proposed order',
+            lines: [
+              ...preview.split('\n'),
+              ...(suggestions.length > 3 ? [`…and ${suggestions.length - 3} more`] : []),
+            ],
+          },
+          {
+            heading: 'Evidence',
+            lines: ['These links are inferred from backlog wording, not from a dependency you declared.'],
+          },
+          {
+            heading: 'Control',
+            lines: ['Each link keeps the rule that produced it and can be removed afterwards.'],
+          },
+        ]),
       },
       'Add them',
     );
@@ -16613,7 +16979,7 @@ export function isProjectDashboardMessage(message: unknown): message is ProjectD
   if (candidate['type'] === 'saveBranchPreferences') {
     return normalizeBranchDashboardPreferences(candidate['payload']) !== undefined;
   }
-  if (candidate['type'] === 'ready' || candidate['type'] === 'refresh' || candidate['type'] === 'fetchBranches' || candidate['type'] === 'runGapAnalysis' || candidate['type'] === 'markDeliveryReviewed' || candidate['type'] === 'reimportDelivery' || candidate['type'] === 'seedDirectorFromRepo' || candidate['type'] === 'seedDocumentsFromRepo' || candidate['type'] === 'createRoadmapGate' || candidate['type'] === 'importRoadmap' || candidate['type'] === 'recordVitalFileOwners' || candidate['type'] === 'discussDashboardError') {
+  if (candidate['type'] === 'ready' || candidate['type'] === 'refresh' || candidate['type'] === 'fetchBranches' || candidate['type'] === 'runGapAnalysis' || candidate['type'] === 'markDeliveryReviewed' || candidate['type'] === 'reimportDelivery' || candidate['type'] === 'seedDirectorFromRepo' || candidate['type'] === 'seedDocumentsFromRepo' || candidate['type'] === 'createRoadmapGate' || candidate['type'] === 'importRoadmap' || candidate['type'] === 'checkRoadmapIntegrity' || candidate['type'] === 'recordVitalFileOwners' || candidate['type'] === 'discussDashboardError') {
     return true;
   }
 
@@ -16624,6 +16990,9 @@ export function isProjectDashboardMessage(message: unknown): message is ProjectD
     || candidate['type'] === 'openBranchChangeStory'
     || candidate['type'] === 'reviewBranchCleanup'
     || candidate['type'] === 'openBranchPullRequest'
+    || candidate['type'] === 'createReleaseRoadmapGate'
+    || candidate['type'] === 'discussPublicRelease'
+    || candidate['type'] === 'openPublicRelease'
     // A version-strip pill id. Resolved against the strip this panel last sent,
     // so the branch git is handed never comes from the webview.
     || candidate['type'] === 'versionPillCheckout'
@@ -17904,6 +18273,136 @@ function buildReleaseGateView(gates: readonly ReleaseGate[]): DashboardReleaseGa
   };
 }
 
+function releaseValueTier(tagName: string): DashboardReleaseValueTier {
+  const match = /^v?(\d+)\.(\d+)\.(\d+)(?:[-+].*)?$/i.exec(tagName.trim());
+  if (match === null) {
+    return 'custom';
+  }
+  const major = Number(match[1]);
+  const minor = Number(match[2]);
+  const patch = Number(match[3]);
+  if (major > 0 && minor === 0 && patch === 0) {
+    return 'major';
+  }
+  if (patch === 0) {
+    return 'minor';
+  }
+  return 'patch';
+}
+
+function releasePublishedTime(release: MetricReleaseInput): number {
+  const parsed = Date.parse(release.publishedAt ?? release.createdAt ?? '');
+  return Number.isFinite(parsed) ? parsed : 0;
+}
+
+/**
+ * Join public release records to roadmap gates and design-plan evidence.
+ *
+ * A missing gate deliberately leaves `progress` absent. Showing 0% would claim
+ * a plan exists and none of it is done; the observed fact is that no plan was
+ * declared for that version at all.
+ */
+export function buildPublicReleasePortfolio(
+  releases: readonly MetricReleaseInput[],
+  roadmap: Pick<DashboardRoadmapSnapshot, 'gates' | 'gateRoutes' | 'graph'>,
+): DashboardReleasePortfolio {
+  const publicReleases = releases
+    .filter(release => !release.isDraft)
+    .slice()
+    .sort((left, right) => releasePublishedTime(right) - releasePublishedTime(left)
+      || right.tagName.localeCompare(left.tagName));
+  const newestStableTag = publicReleases.find(release => !release.isPrerelease)?.tagName;
+  const graphNodes = [...roadmap.graph.active, ...roadmap.graph.completed];
+  const nodesByItemId = new Map(graphNodes.map(node => [node.itemId, node]));
+
+  const entries = publicReleases.map((release): DashboardReleasePortfolioEntry => {
+    const expectedGateId = slugifyGateId(release.tagName);
+    const gate = roadmap.gates.find(candidate => candidate.id === expectedGateId)
+      ?? roadmap.gates.find(candidate => slugifyGateId(candidate.label) === expectedGateId);
+    const route = gate === undefined ? undefined : roadmap.gateRoutes[gate.id];
+    const fullRoadmapItems = (route?.route ?? []).map(step => {
+      const node = nodesByItemId.get(step.id);
+      return {
+        nodeId: node?.id ?? step.id,
+        text: step.text,
+        completed: step.completed,
+        hasPlan: Boolean(node?.planPath),
+      };
+    });
+    const progress = route === undefined ? undefined : {
+      completed: route.completedCount,
+      total: route.totalCount,
+      percent: route.progressPercent,
+    };
+    let suggestion: string;
+    if (gate === undefined) {
+      suggestion = expectedGateId
+        ? `Create the ${release.tagName} gate, then tag the roadmap items that defined its value.`
+        : 'This tag cannot become a roadmap gate automatically; add a gate with a plain-language name.';
+    } else if ((route?.totalCount ?? 0) === 0) {
+      suggestion = `The ${gate.label} gate exists but has no roadmap items. Tag the work that defined this version.`;
+    } else if ((route?.completedCount ?? 0) < (route?.totalCount ?? 0)) {
+      suggestion = route?.nextStep
+        ? `Review the ${route.totalCount - route.completedCount} unfinished milestone${route.totalCount - route.completedCount === 1 ? '' : 's'}; next is “${route.nextStep.text}”.`
+        : 'Review the unfinished roadmap milestones attached to this version.';
+    } else if (fullRoadmapItems.some(item => !item.hasPlan)) {
+      suggestion = 'The tracked milestones are complete; file the missing design plans so the release decision remains reviewable.';
+    } else {
+      suggestion = 'The tracked gate is complete with filed plans; compare the release notes and observed outcomes before reusing this pattern.';
+    }
+
+    return {
+      tagName: release.tagName,
+      name: release.name?.trim() || release.tagName,
+      ...(release.publishedAt === undefined ? {} : { publishedAt: release.publishedAt }),
+      channel: release.isPrerelease ? 'preview' : 'stable',
+      valueTier: releaseValueTier(release.tagName),
+      isLatest: release.isLatest === true || (release.isLatest !== false && release.tagName === newestStableTag),
+      isImmutable: release.isImmutable === true,
+      gateId: gate?.id ?? expectedGateId,
+      gateLabel: gate?.label ?? release.tagName,
+      gateExists: gate !== undefined,
+      ...(progress === undefined ? {} : { progress }),
+      roadmapItems: fullRoadmapItems.slice(0, 8),
+      filedPlanCount: fullRoadmapItems.filter(item => item.hasPlan).length,
+      suggestion,
+    };
+  });
+  const stableCount = entries.filter(entry => entry.channel === 'stable').length;
+  const previewCount = entries.length - stableCount;
+  const gatedCount = entries.filter(entry => entry.gateExists).length;
+  const plannedCount = entries.filter(entry => (entry.progress?.total ?? 0) > 0).length;
+  return {
+    entries,
+    publicCount: entries.length,
+    stableCount,
+    previewCount,
+    gatedCount,
+    plannedCount,
+    summary: entries.length === 0
+      ? 'No public releases were returned. Drafts are not counted as public versions.'
+      : `${entries.length} public version${entries.length === 1 ? '' : 's'} · ${gatedCount} with a roadmap gate · ${plannedCount} with a tracked release path.`,
+  };
+}
+
+/** A bounded, evidence-labelled prompt reconstructed by the extension host. */
+export function buildPublicReleaseReviewPrompt(release: DashboardReleasePortfolioEntry): string {
+  const progress = release.progress === undefined
+    ? 'No matching roadmap gate is declared, so progress is not measurable.'
+    : `${release.progress.completed} of ${release.progress.total} roadmap milestones are complete (${release.progress.percent}%).`;
+  const items = release.roadmapItems.length === 0
+    ? 'No roadmap items are linked to this version.'
+    : release.roadmapItems.map((item, index) => `${index + 1}. [${item.completed ? 'complete' : 'open'}] ${item.text}${item.hasPlan ? ' (filed plan)' : ' (no filed plan)'}`).join('\n');
+  return [
+    `Review public release ${release.tagName} (${release.channel}, ${release.valueTier} value tier).`,
+    `Observed status: ${release.publishedAt ? `published ${release.publishedAt.slice(0, 10)}` : 'publication date unavailable'}; ${release.isLatest ? 'marked as the latest stable release' : 'not marked latest'}; ${release.isImmutable ? 'GitHub reports it immutable' : 'immutability not reported'}.`,
+    `Roadmap evidence: ${progress} ${release.filedPlanCount} linked milestone${release.filedPlanCount === 1 ? ' has' : 's have'} a filed design plan.`,
+    items,
+    `Deterministic dashboard suggestion: ${release.suggestion}`,
+    'Using only this evidence and the repository files available to you, assess the version status, identify the most important design or roadmap gap, and give three concise next suggestions. Distinguish observed facts from inference and do not claim missing evidence is complete.',
+  ].join('\n\n');
+}
+
 function buildReleaseSnapshot(input: {
   packageVersion: string;
   changelog?: string;
@@ -17912,6 +18411,7 @@ function buildReleaseSnapshot(input: {
   commitSubjects: readonly string[];
   ciConclusion?: 'success' | 'failure' | 'pending' | 'none';
   releases?: readonly MetricReleaseInput[];
+  roadmap: Pick<DashboardRoadmapSnapshot, 'gates' | 'gateRoutes' | 'graph'>;
   pullRequests?: readonly PullRequestRecord[];
   /**
    * The testing coverage the Testing page already derived. Absent when it was
@@ -17986,6 +18486,7 @@ function buildReleaseSnapshot(input: {
 
   return {
     releases: [...(input.releases ?? [])],
+    portfolio: buildPublicReleasePortfolio(input.releases ?? [], input.roadmap),
     tags: [...(input.tags ?? [])],
     plan,
     planSummary: describeReleasePlan(plan),
@@ -18178,11 +18679,17 @@ export function parseGhReleaseList(raw: string): MetricReleaseInput[] {
       continue;
     }
     const publishedAt = typeof record['publishedAt'] === 'string' ? record['publishedAt'] : undefined;
+    const name = typeof record['name'] === 'string' ? record['name'].trim().slice(0, 200) : undefined;
+    const createdAt = typeof record['createdAt'] === 'string' ? record['createdAt'] : undefined;
     out.push({
       tagName,
+      ...(name === undefined || name.length === 0 ? {} : { name }),
+      ...(createdAt === undefined ? {} : { createdAt }),
       ...(publishedAt === undefined ? {} : { publishedAt }),
       ...(record['isPrerelease'] === true ? { isPrerelease: true } : {}),
       ...(record['isDraft'] === true ? { isDraft: true } : {}),
+      ...(record['isLatest'] === true ? { isLatest: true } : {}),
+      ...(record['isImmutable'] === true ? { isImmutable: true } : {}),
     });
   }
   return out;
@@ -19220,6 +19727,7 @@ async function collectDashboardSnapshot(
     })(),
     release: buildReleaseSnapshot({
       packageVersion: packageSnapshot.version,
+      roadmap: roadmapWithBoard,
       ...(changelog === undefined ? {} : { changelog }),
       ...(localTags === undefined ? {} : { tags: localTags }),
       workingTreeClean: !gitSnapshot.dirty,
@@ -25023,13 +25531,27 @@ function buildMvpPlanPrompt(outstanding: DashboardMvpStep[], hasTaggedItems: boo
  * item again. Not an id: ids here are positional and renumber on insert.
  * Returns `undefined` when there is nothing to write to.
  */
+/** Native VS Code modal details are plain text, so hierarchy has to be explicit. */
+function formatRoadmapDialogSections(
+  sections: ReadonlyArray<{ heading: string; lines: readonly string[] }>,
+): string {
+  return sections
+    .filter(section => section.lines.length > 0)
+    .map(section => [
+      section.heading.toUpperCase(),
+      ...section.lines.map(line => `  • ${line.replace(/\n/g, '\n    ')}`),
+    ].join('\n'))
+    .join('\n\n');
+}
+
 /**
  * The detail block for an import confirmation.
  *
  * Every outcome is named, including the ones that change nothing. A dialog
  * reading "42 to add" is true and useless: the two facts somebody needs before
  * agreeing are what it would leave alone and what it could not read, and both
- * are exactly what a count of additions omits.
+ * are exactly what a count of additions omits. Section labels and bullets are
+ * intentional: VS Code does not render Markdown in modal `detail` text.
  */
 function describeRoadmapImportDetail(plan: RoadmapImportPlan): string {
   const sample = (outcome: RoadmapImportPlan['entries'][number]['outcome'], limit: number): string[] => {
@@ -25038,35 +25560,38 @@ function describeRoadmapImportDetail(plan: RoadmapImportPlan): string {
       if (outcome === 'conflict') {
         const sourceState = entry.item?.completed ? '[x]' : '[ ]';
         const localState = entry.existing?.completed ? '[x]' : '[ ]';
-        return `  • source: ${sourceState} "${entry.item?.title ?? ''}"\n    yours:  ${localState} "${entry.existing?.text ?? ''}"`;
+        return `Source: ${sourceState} "${entry.item?.title ?? ''}"\nYours:  ${localState} "${entry.existing?.text ?? ''}"`;
       }
       const state = entry.item?.completed ?? entry.existing?.completed ? '[x]' : '[ ]';
-      return `  • ${state} ${entry.item?.title ?? entry.existing?.text ?? ''}`;
+      return `${state} ${entry.item?.title ?? entry.existing?.text ?? ''}`;
     });
     return matching.length > limit
-      ? [...lines, `  • …and ${matching.length - limit} more`]
+      ? [...lines, `…and ${matching.length - limit} more`]
       : lines;
   };
 
-  return [
-    plan.summary,
-    ...(plan.counts.add > 0 ? ['', `Added (${plan.counts.add}):`, ...sample('add', 8)] : []),
-    ...(plan.counts.adopt > 0 ? ['', `Linked to the source (${plan.counts.adopt}):`, ...sample('adopt', 8)] : []),
-    ...(plan.counts.update > 0 ? ['', `Updated from the source (${plan.counts.update}):`, ...sample('update', 6)] : []),
+  const changes = [
+    ...(plan.counts.add > 0 ? [`${plan.counts.add} to add`] : []),
+    ...(plan.counts.adopt > 0 ? [`${plan.counts.adopt} existing ${plan.counts.adopt === 1 ? 'item' : 'items'} to link to the source`] : []),
+    ...(plan.counts.update > 0 ? [`${plan.counts.update} to update`] : []),
+    ...(plan.counts.unchanged > 0 ? [`${plan.counts.unchanged} already up to date`] : []),
+  ];
+
+  return formatRoadmapDialogSections([
+    { heading: 'Source', lines: [plan.sourceLabel] },
+    { heading: 'Summary', lines: changes.length > 0 ? changes : ['No additions or updates'] },
+    ...(plan.counts.add > 0 ? [{ heading: `Add (${plan.counts.add})`, lines: sample('add', 8) }] : []),
+    ...(plan.counts.adopt > 0 ? [{ heading: `Link to source (${plan.counts.adopt})`, lines: sample('adopt', 8) }] : []),
+    ...(plan.counts.update > 0 ? [{ heading: `Update from source (${plan.counts.update})`, lines: sample('update', 6) }] : []),
     ...(plan.counts.conflict > 0
-      ? [
-        '',
-        `Conflicting text or checkbox — left alone (${plan.counts.conflict}):`,
-        ...sample('conflict', 4),
-      ]
+      ? [{ heading: `Needs a decision — left alone (${plan.counts.conflict})`, lines: sample('conflict', 4) }]
       : []),
     ...(plan.counts.missing > 0
-      ? ['', `No longer in the source — left on the roadmap (${plan.counts.missing}):`, ...sample('missing', 4)]
+      ? [{ heading: `Missing from source — left on roadmap (${plan.counts.missing})`, lines: sample('missing', 4) }]
       : []),
-    ...(plan.notes.length > 0 ? ['', 'Notes:', ...plan.notes.map(note => `  • ${note}`)] : []),
-    '',
-    'Nothing on this roadmap is deleted by an import.',
-  ].join('\n');
+    ...(plan.notes.length > 0 ? [{ heading: 'Notes', lines: plan.notes }] : []),
+    { heading: 'Safety', lines: ['Imports never delete roadmap entries. Cancelling writes nothing.'] },
+  ]);
 }
 
 /**
@@ -28590,6 +29115,72 @@ const DASHBOARD_CSS = `
   .wf-gate-pass { border-left-color: color-mix(in srgb, var(--dash-good) 55%, transparent); }
   .wf-gate-actions { margin-top: 7px; }
 
+  /* Public versions are a portfolio, not a second flat release log. Details
+     keep a hundred fetched releases navigable while the summary still carries
+     the evidence that lets somebody choose which one to inspect. */
+  .release-portfolio-card { grid-column: 1 / -1; }
+  .release-portfolio-metrics { margin: 8px 0 4px; }
+  .release-version-list { display: grid; gap: 10px; margin-top: 14px; }
+  .release-version-card {
+    border: 1px solid var(--dash-border);
+    border-radius: var(--dash-radius);
+    background: color-mix(in srgb, var(--vscode-editor-background) 82%, var(--dash-panel));
+    overflow: clip;
+  }
+  .release-version-card.is-latest { border-color: color-mix(in srgb, var(--dash-good) 55%, var(--dash-border)); }
+  .release-version-card > summary {
+    cursor: pointer;
+    display: grid;
+    grid-template-columns: minmax(150px, 0.8fr) auto minmax(220px, 1.4fr);
+    align-items: center;
+    gap: 10px 16px;
+    padding: 13px 14px;
+    list-style-position: inside;
+  }
+  .release-version-card > summary:hover { background: color-mix(in srgb, var(--dash-accent-strong) 6%, transparent); }
+  .release-version-heading { display: inline-flex; align-items: baseline; gap: 8px; min-width: 0; }
+  .release-version-heading strong { overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+  .release-version-heading code { color: var(--dash-muted); font-size: 11px; }
+  .release-version-badges { display: inline-flex; gap: 5px; flex-wrap: wrap; justify-content: flex-end; }
+  .release-version-summary { color: var(--dash-muted); font-size: 11px; }
+  .release-version-progress {
+    grid-column: 1 / -1;
+    height: 5px;
+    border-radius: 999px;
+    background: color-mix(in srgb, var(--dash-border) 70%, transparent);
+    overflow: hidden;
+  }
+  .release-version-progress > span {
+    display: block;
+    height: 100%;
+    border-radius: inherit;
+    background: var(--dash-accent-strong);
+  }
+  .release-version-progress.is-unknown {
+    background: repeating-linear-gradient(90deg, color-mix(in srgb, var(--dash-warn) 35%, transparent) 0 8px, transparent 8px 13px);
+  }
+  .release-version-body { padding: 0 14px 14px; border-top: 1px solid color-mix(in srgb, var(--dash-border) 60%, transparent); }
+  .release-version-body .mini-grid { margin-top: 12px; }
+  .release-version-items { display: grid; gap: 6px; margin-top: 12px; }
+  .release-version-item {
+    display: grid;
+    grid-template-columns: auto minmax(0, 1fr) auto;
+    align-items: center;
+    gap: 8px;
+    font-size: 12px;
+  }
+  .release-version-item-state.done { color: var(--dash-good); }
+  .release-version-item-state.open { color: var(--dash-warn); }
+  .release-version-suggestion {
+    margin: 12px 0 0;
+    padding: 9px 11px;
+    border-left: 2px solid color-mix(in srgb, var(--dash-accent-strong) 55%, var(--dash-border));
+    background: color-mix(in srgb, var(--dash-accent-strong) 6%, transparent);
+    font-size: 12px;
+    line-height: 1.5;
+  }
+  .release-version-actions { margin-top: 10px; }
+
   /* A classified CI failure and the lines that decided it. */
   .wf-ci-failure {
     margin-top: 10px;
@@ -31233,9 +31824,8 @@ const DASHBOARD_CSS = `
      background, for the reason the attention band already establishes: a wall of
      saturated cards reads as an alarm state even when most of them are fine. */
 
-  /* The view chips and the one action that belongs to the page rather than to a
-     view. Wraps as a unit, so on a narrow window the button drops beneath the
-     chips instead of squeezing them. */
+  /* The view chips and page-level actions wrap as units, so on a narrow window
+     the actions drop beneath the chips instead of squeezing them. */
   .rm-view-row {
     display: flex;
     flex-wrap: wrap;
@@ -31564,6 +32154,26 @@ const DASHBOARD_CSS = `
 
   .rm-add-item:hover {
     background: color-mix(in srgb, var(--dash-accent-strong) 88%, transparent);
+  }
+
+  .rm-view-actions {
+    display: inline-flex;
+    flex-wrap: wrap;
+    align-items: center;
+    justify-content: flex-end;
+    gap: 8px;
+  }
+
+  .rm-integrity-action {
+    color: var(--dash-muted);
+    background: transparent;
+    border-color: var(--dash-border);
+  }
+
+  .rm-integrity-action:hover {
+    color: var(--vscode-foreground);
+    background: color-mix(in srgb, var(--dash-panel) 70%, transparent);
+    border-color: var(--dash-accent-strong);
   }
 
   .rm-add-item:focus-visible {
@@ -33311,6 +33921,11 @@ const DASHBOARD_CSS = `
        it is a deliberate 0.95/1.05 split rather than repeating tracks. The
        rest reach one column on their own once the space is gone. */
     .score-summary-grid { grid-template-columns: 1fr; }
+    .release-version-card > summary { grid-template-columns: 1fr; }
+    .release-version-badges { justify-content: flex-start; }
+    .release-version-item { grid-template-columns: auto minmax(0, 1fr); }
+    .release-version-item .action-link,
+    .release-version-item .list-meta { grid-column: 2; justify-self: start; }
   }
 
   @keyframes dashBarRise {

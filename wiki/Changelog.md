@@ -19,6 +19,24 @@ Older entries below describe the software as it was at the time and are delibera
 
 ---
 
+## v0.477.0 -- Public versions become a reviewable portfolio
+
+Project Dashboard → Release now joins every fetched public stable or preview version to its SemVer
+value tier, matching roadmap gate, milestone progress, and filed design plans. Each version links to
+the public GitHub release, its roadmap route, and the plans AtlasMind can actually evidence. Missing
+gates are shown as unplanned rather than 0% complete and can be created through an explicit confirmed
+write. The AtlasMind review control uses a host-built evidence prompt, so the webview never supplies
+instructions or silently fills missing facts.
+
+Roadmap reconciliation now separates automatic discovery from explicit import. The load-time path
+ignores detailed plan scaffolds plus verification, acceptance, and definition-of-done checklists rather
+than flattening them into the backlog. **Check integrity** compares stored import provenance with the
+current source documents, highlights the rows it can prove are likely artifacts, and removes only the
+entries selected through a second confirmation. Roadmap dialogs use labelled bullet sections so the
+source, proposed changes, conflicts, preserved data, and consequences are readable at a glance.
+
+---
+
 ## v0.476.5 -- Dependency advisories cleared
 
 Patched floors for `hono`, `js-yaml`, and `morgan` close five Dependabot advisories in the MCP runtime

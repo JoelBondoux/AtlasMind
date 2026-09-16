@@ -397,9 +397,10 @@ describe('importing somebody else‘s roadmap', () => {
   it('names what it would leave alone, not just what it would add', () => {
     // "42 to add" is true and useless: what it would leave alone and what it
     // could not read are exactly what a count of additions omits.
-    expect(HOST_PANEL).toContain('Conflicting text or checkbox — left alone');
-    expect(HOST_PANEL).toContain('No longer in the source — left on the roadmap');
-    expect(HOST_PANEL).toContain('Nothing on this roadmap is deleted by an import.');
+    expect(HOST_PANEL).toContain('Needs a decision — left alone');
+    expect(HOST_PANEL).toContain('Missing from source — left on roadmap');
+    expect(HOST_PANEL).toContain('Imports never delete roadmap entries.');
+    expect(HOST_PANEL).toContain('formatRoadmapDialogSections');
   });
 
   it('writes the backlog before the overlay, and records add, adoption, or update only', () => {
@@ -409,6 +410,23 @@ describe('importing somebody else‘s roadmap', () => {
     expect(apply.slice(0, 5000)).toContain('serializeDashboardRoadmapDocument');
     expect(apply.slice(0, 5000)).toContain("entry.outcome !== 'add' && entry.outcome !== 'adopt' && entry.outcome !== 'update'");
     expect(apply.slice(0, 5000)).toContain('importRecordFor(read, item, stamped)');
+  });
+
+  it('offers a provenance-led integrity review without accepting candidates from the webview', () => {
+    expect(WEBVIEW_SCRIPT).toContain('data-action="roadmap-integrity-check"');
+    expect(WEBVIEW_SCRIPT).toContain("vscode.postMessage({ type: 'checkRoadmapIntegrity' });");
+    expect(WEBVIEW_SCRIPT).not.toMatch(/type: 'checkRoadmapIntegrity', payload/);
+    expect(HOST_PANEL).toContain("| { type: 'checkRoadmapIntegrity' }");
+
+    const handler = HOST_PANEL.slice(
+      HOST_PANEL.indexOf('private async handleRoadmapIntegrityCheck'),
+      HOST_PANEL.indexOf('private async handleImportRoadmap'),
+    );
+    expect(handler).toContain('assessAutomaticRoadmapItems(files)');
+    expect(handler).toContain('canPickMany: true');
+    expect(handler).toContain('nothing is preselected');
+    expect(handler).toContain("'Remove selected'");
+    expect(handler).toContain('Source plan documents are not changed.');
   });
 
   it('checks secondary markdown roadmaps on load and confirms before reconciling', () => {

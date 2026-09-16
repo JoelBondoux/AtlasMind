@@ -4,7 +4,7 @@
 
 <h1 align="center">AtlasMind</h1>
 
-<p align="center"><sub> · <strong>Current source version: 0.476.5</strong> · </sub></p>
+<p align="center"><sub> · <strong>Current source version: 0.477.0</strong> · </sub></p>
 
 
 <p align="center">
@@ -175,6 +175,22 @@ allow-list, redaction and file-withholding behaviour, retained metadata, provide
 important limits on overrides and compliance claims.
 
 ---
+
+## What's new in 0.477.0
+
+The Project Dashboard Release page now presents public versions as a reviewable portfolio. Stable and
+preview releases are classified by SemVer value tier and joined to their real roadmap gate, milestone
+progress, and filed design plans. Each version can open its GitHub release, its roadmap route, or its
+linked plans; a missing version gate can be created through a confirmed tracked-file write. AtlasMind's
+version-review action reconstructs its prompt from host-owned evidence and labels missing data instead
+of turning it into a confident zero.
+
+Roadmap load-time reconciliation is now conservative about document shape: detailed implementation
+plans and validation/acceptance checklists no longer become hundreds of top-level backlog entries.
+The Roadmap header's **Check integrity** action uses stored import provenance plus the current source
+documents to highlight likely artifacts, then lets you choose exact rows before a separately confirmed
+removal. Reconciliation dialogs now group source, changes, conflicts, untouched data, and safety notes
+into labelled bullet sections instead of one dense block of text.
 
 ## What's new in 0.476.5
 

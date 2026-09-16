@@ -5,6 +5,8 @@ import { describe, expect, it } from 'vitest';
 
 import {
   buildBranchChatTarget,
+  buildPublicReleasePortfolio,
+  buildPublicReleaseReviewPrompt,
   buildDashboardBranchInventory,
   listChangelogVersions,
   normalizeBranchDashboardPreferences,
@@ -731,12 +733,12 @@ describe('listChangelogVersions', () => {
 describe('parseGhReleaseList', () => {
   it('keeps the flags that decide whether a release counts as a deployment', () => {
     const raw = JSON.stringify([
-      { tagName: 'v1.0.0', publishedAt: '2026-01-01T00:00:00Z' },
+      { tagName: 'v1.0.0', name: 'First public release', createdAt: '2025-12-31T00:00:00Z', publishedAt: '2026-01-01T00:00:00Z', isLatest: true, isImmutable: true },
       { tagName: 'v1.1.0-rc.1', publishedAt: '2026-01-02T00:00:00Z', isPrerelease: true },
       { tagName: 'v1.1.0', isDraft: true },
     ]);
     expect(parseGhReleaseList(raw)).toEqual([
-      { tagName: 'v1.0.0', publishedAt: '2026-01-01T00:00:00Z' },
+      { tagName: 'v1.0.0', name: 'First public release', createdAt: '2025-12-31T00:00:00Z', publishedAt: '2026-01-01T00:00:00Z', isLatest: true, isImmutable: true },
       { tagName: 'v1.1.0-rc.1', publishedAt: '2026-01-02T00:00:00Z', isPrerelease: true },
       { tagName: 'v1.1.0', isDraft: true },
     ]);
@@ -746,6 +748,66 @@ describe('parseGhReleaseList', () => {
     expect(parseGhReleaseList('not json')).toEqual([]);
     expect(parseGhReleaseList('{}')).toEqual([]);
     expect(parseGhReleaseList('[null, 3, {"tagName": ""}]')).toEqual([]);
+  });
+});
+
+describe('public release portfolio', () => {
+  const roadmap = {
+    gates: [{ id: 'mvp', label: 'MVP' }, { id: 'v1-0-0', label: 'v1.0.0' }],
+    gateRoutes: {
+      'v1-0-0': {
+        totalCount: 2,
+        completedCount: 1,
+        progressPercent: 50,
+        route: [
+          { id: 'roadmap-1', text: 'Ship the stable API', completed: true },
+          { id: 'roadmap-2', text: 'Publish the migration guide', completed: false },
+        ],
+        nextStep: { id: 'roadmap-2', text: 'Publish the migration guide', completed: false },
+      },
+    },
+    graph: {
+      active: [{ id: 'publish-migration-guide', itemId: 'roadmap-2' }],
+      completed: [{ id: 'ship-stable-api', itemId: 'roadmap-1', planPath: 'project_memory/roadmap/plans/stable-api.md' }],
+    },
+  } as unknown as Parameters<typeof buildPublicReleasePortfolio>[1];
+
+  it('joins public versions to real gate progress and filed plans without counting drafts', () => {
+    const portfolio = buildPublicReleasePortfolio([
+      { tagName: 'v1.1.0-rc.1', publishedAt: '2026-02-01T00:00:00Z', isPrerelease: true },
+      { tagName: 'v1.0.0', name: 'One', publishedAt: '2026-01-01T00:00:00Z', isLatest: true, isImmutable: true },
+      { tagName: 'v1.2.0', isDraft: true },
+    ], roadmap);
+
+    expect(portfolio).toMatchObject({ publicCount: 2, stableCount: 1, previewCount: 1, gatedCount: 1, plannedCount: 1 });
+    expect(portfolio.entries[0]).toMatchObject({ tagName: 'v1.1.0-rc.1', channel: 'preview', valueTier: 'minor', gateExists: false });
+    expect(portfolio.entries[0]?.progress).toBeUndefined();
+    expect(portfolio.entries[1]).toMatchObject({
+      tagName: 'v1.0.0',
+      name: 'One',
+      channel: 'stable',
+      valueTier: 'major',
+      isLatest: true,
+      isImmutable: true,
+      gateExists: true,
+      progress: { completed: 1, total: 2, percent: 50 },
+      filedPlanCount: 1,
+    });
+    expect(portfolio.entries[1]?.roadmapItems).toEqual([
+      { nodeId: 'ship-stable-api', text: 'Ship the stable API', completed: true, hasPlan: true },
+      { nodeId: 'publish-migration-guide', text: 'Publish the migration guide', completed: false, hasPlan: false },
+    ]);
+  });
+
+  it('builds a bounded review prompt that labels missing evidence', () => {
+    const entry = buildPublicReleasePortfolio([
+      { tagName: 'release-candidate', publishedAt: '2026-03-01T00:00:00Z' },
+    ], roadmap).entries[0];
+    expect(entry).toBeDefined();
+    const prompt = buildPublicReleaseReviewPrompt(entry!);
+    expect(prompt).toContain('No matching roadmap gate is declared');
+    expect(prompt).toContain('Distinguish observed facts from inference');
+    expect(prompt).not.toContain('undefined');
   });
 });
 

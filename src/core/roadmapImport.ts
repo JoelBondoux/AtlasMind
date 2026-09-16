@@ -309,9 +309,76 @@ const DONE_CHECKBOX = /^\[[xX✓]\]/;
 export function parseMarkdownRoadmapItems(
   files: ReadonlyArray<{ path: string; content: string }>,
 ): RoadmapImportRead {
+  return parseMarkdownRoadmapItemsWithPolicy(files, 'manual').read;
+}
+
+/**
+ * Roadmap items safe enough to propose during the dashboard's load-time scan.
+ *
+ * An explicit import may deliberately select a detailed implementation plan,
+ * so `parseMarkdownRoadmapItems` remains broad. Automatic discovery has no such
+ * intent signal: a file called `roadmap/plans/feature.md` can contain dozens of
+ * implementation steps, test cases, and definition-of-done checks that are not
+ * independent product work. Treating those checkboxes as top-level roadmap
+ * items is how a handful of plan documents filled the backlog up to the
+ * 300-item safety ceiling.
+ *
+ * The automatic path therefore refuses documents that identify themselves as
+ * detailed plans (or have the standard Objective/Context/Steps/Verification
+ * scaffold) and ignores checklist rows under validation-only headings in an
+ * otherwise genuine roadmap. What was ignored is reported in `notes`; nothing
+ * is silently reclassified and the manual importer remains available when a
+ * repository intentionally uses one of those shapes as its roadmap.
+ */
+export function parseAutomaticRoadmapItems(
+  files: ReadonlyArray<{ path: string; content: string }>,
+): RoadmapImportRead {
+  return assessAutomaticRoadmapItems(files).read;
+}
+
+export type AutomaticRoadmapExclusionReason = 'detailed-plan' | 'validation-checklist';
+
+/** One checkbox the automatic synchronizer deliberately refuses to propose. */
+export interface AutomaticRoadmapExclusion {
+  sourceId: string;
+  path: string;
+  title: string;
+  reason: AutomaticRoadmapExclusionReason;
+  context?: string;
+}
+
+/**
+ * The same conservative reading used on load, plus evidence for an integrity
+ * review. Exclusions are data rather than a delete instruction: callers may
+ * highlight them, but removal still needs the user to select exact rows and
+ * confirm a write.
+ */
+export interface AutomaticRoadmapAssessment {
+  read: RoadmapImportRead;
+  exclusions: AutomaticRoadmapExclusion[];
+  /** Entire documents whose checklist is execution detail. Paths are normalized as supplied. */
+  detailedPlanPaths: string[];
+}
+
+export function assessAutomaticRoadmapItems(
+  files: ReadonlyArray<{ path: string; content: string }>,
+): AutomaticRoadmapAssessment {
+  return parseMarkdownRoadmapItemsWithPolicy(files, 'automatic');
+}
+
+type MarkdownRoadmapParsePolicy = 'manual' | 'automatic';
+
+function parseMarkdownRoadmapItemsWithPolicy(
+  files: ReadonlyArray<{ path: string; content: string }>,
+  policy: MarkdownRoadmapParsePolicy,
+): AutomaticRoadmapAssessment {
   const notes: string[] = [];
   const items: RoadmapImportItem[] = [];
   const seen = new Set<string>();
+  const exclusions: AutomaticRoadmapExclusion[] = [];
+  const excludedSeen = new Set<string>();
+  const ignoredPlanPaths: string[] = [];
+  let ignoredValidationItems = 0;
 
   const considered = files.slice(0, MAX_IMPORT_FILES);
   if (files.length > considered.length) {
@@ -320,6 +387,10 @@ export function parseMarkdownRoadmapItems(
 
   for (const file of considered) {
     const lines = String(file.content ?? '').split(/\r?\n/);
+    const detailedPlan = policy === 'automatic' && looksLikeDetailedPlan(lines);
+    if (detailedPlan) {
+      ignoredPlanPaths.push(file.path);
+    }
     const hasCheckbox = lines.some(line => /^\s*(?:[-*+]|\d+[.)])\s+\[[ xX✓~-]?\]/.test(line));
     let heading = '';
     let fenced = false;
@@ -352,11 +423,37 @@ export function parseMarkdownRoadmapItems(
       if (title === '' || normalizeImportedTitle(title) === '') {
         continue;
       }
+      const sourceId = contentSourceId(file.path, title);
+      const exclusionReason: AutomaticRoadmapExclusionReason | undefined = detailedPlan
+        ? 'detailed-plan'
+        : policy === 'automatic' && isValidationOnlyHeading(heading)
+          ? 'validation-checklist'
+          : undefined;
+      if (exclusionReason !== undefined) {
+        if (!excludedSeen.has(sourceId)) {
+          if (fromFile >= MAX_ITEMS_PER_FILE) {
+            notes.push(`${file.path} has more than ${MAX_ITEMS_PER_FILE} checklist entries; the rest were not assessed.`);
+            break;
+          }
+          excludedSeen.add(sourceId);
+          fromFile += 1;
+          exclusions.push({
+            sourceId,
+            path: file.path,
+            title,
+            reason: exclusionReason,
+            ...(heading === '' ? {} : { context: heading }),
+          });
+          if (exclusionReason === 'validation-checklist') {
+            ignoredValidationItems += 1;
+          }
+        }
+        continue;
+      }
       if (fromFile >= MAX_ITEMS_PER_FILE) {
         notes.push(`${file.path} has more than ${MAX_ITEMS_PER_FILE} items; the rest were not read.`);
         break;
       }
-      const sourceId = contentSourceId(file.path, title);
       if (seen.has(sourceId)) {
         continue;
       }
@@ -371,7 +468,91 @@ export function parseMarkdownRoadmapItems(
     }
   }
 
-  return finishRead('markdown', describeMarkdownScope(considered), items, notes);
+  if (ignoredPlanPaths.length > 0) {
+    const preview = ignoredPlanPaths.slice(0, 5).join(', ');
+    const remainder = ignoredPlanPaths.length > 5 ? `, and ${ignoredPlanPaths.length - 5} more` : '';
+    notes.push(
+      `Automatic reconciliation ignored ${ignoredPlanPaths.length} detailed plan file${ignoredPlanPaths.length === 1 ? '' : 's'} (${preview}${remainder}). `
+      + 'Use the manual Markdown import only if every checklist row in those files is intended as top-level roadmap work.',
+    );
+  }
+  if (ignoredValidationItems > 0) {
+    notes.push(
+      `Automatic reconciliation ignored ${ignoredValidationItems} validation or acceptance checklist item${ignoredValidationItems === 1 ? '' : 's'}; `
+      + 'those rows describe proof of completion, not separate roadmap work.',
+    );
+  }
+
+  return {
+    read: finishRead('markdown', describeMarkdownScope(considered), items, notes),
+    exclusions,
+    detailedPlanPaths: ignoredPlanPaths,
+  };
+}
+
+/** Headings from the create-plan scaffold, outside fenced examples. */
+function markdownHeadings(lines: readonly string[]): string[] {
+  const headings: string[] = [];
+  let fenced = false;
+  for (const line of lines) {
+    if (/^\s*(```|~~~)/.test(line)) {
+      fenced = !fenced;
+      continue;
+    }
+    if (fenced) {
+      continue;
+    }
+    const match = /^\s{0,3}#{1,6}\s+(.*)$/.exec(line);
+    if (match?.[1]) {
+      headings.push(match[1].trim());
+    }
+  }
+  return headings;
+}
+
+function headingKey(value: string): string {
+  return normalizeImportedTitle(value).replace(/\bchecklist\b/g, '').replace(/\s+/g, ' ').trim();
+}
+
+/**
+ * A whole document whose checkboxes are execution detail rather than backlog.
+ *
+ * The title test catches AtlasMind's own `# Plan: ...` / `# Plan — ...`
+ * scaffold. The shape test catches equivalent templates from other tools
+ * without deciding that any one generic heading, such as "Steps", is enough.
+ */
+function looksLikeDetailedPlan(lines: readonly string[]): boolean {
+  const headings = markdownHeadings(lines);
+  const title = headings[0] ?? '';
+  if (/^(?:(?:implementation|delivery|design|technical|project)\s+)?plan(?:\s*[:—–-]|\s+for\b)/i.test(title)) {
+    return true;
+  }
+
+  const keys = new Set(headings.slice(1).map(headingKey));
+  const hasObjective = keys.has('objective') || keys.has('goal');
+  const hasContext = keys.has('context') || keys.has('background');
+  const hasApproach = keys.has('approach') || keys.has('design') || keys.has('implementation');
+  const hasSteps = keys.has('steps') || keys.has('tasks') || keys.has('implementation steps');
+  const hasVerification = [...keys].some(isValidationOnlyHeading);
+  return hasObjective && hasContext && hasApproach && hasSteps && hasVerification;
+}
+
+/** A checklist here proves a parent item; it is not another roadmap item. */
+function isValidationOnlyHeading(value: string): boolean {
+  const key = headingKey(value);
+  return key === 'acceptance criteria'
+    || key === 'completion criteria'
+    || key === 'definition of done'
+    || key === 'done when'
+    || key === 'exit criteria'
+    || key === 'success criteria'
+    || key === 'verification'
+    || key === 'validation'
+    || key === 'test'
+    || key === 'tests'
+    || key === 'testing'
+    || key === 'test plan'
+    || key === 'quality gates';
 }
 
 function describeMarkdownScope(files: ReadonlyArray<{ path: string }>): string {

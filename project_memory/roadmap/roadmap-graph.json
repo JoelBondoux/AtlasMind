@@ -599,7 +599,9 @@
     {
       "id": "we-need-a-project-dashboard",
       "normalizedText": "we need a project dashboard way of reviewing the status, design plan, roadmap items, any other associated relevant data of public release versions, such as tierd value releases. perhaps include in this page a way to generate a roadmap gate for each version listed. a visualiser of each version, its progress to a version mvp, any other links, statistics and observed data with ai suggestions.",
-      "planPath": "project_memory/roadmap/plans/we-need-a-project-dashboard-we-need-a-project-dashboard-way-of-reviewing-the.md"
+      "planPath": "project_memory/roadmap/plans/we-need-a-project-dashboard-we-need-a-project-dashboard-way-of-reviewing-the.md",
+      "completedAt": "2026-09-16T19:47:15.429Z",
+      "completedBy": "Joel Bondoux"
     }
   ],
   "edges": [

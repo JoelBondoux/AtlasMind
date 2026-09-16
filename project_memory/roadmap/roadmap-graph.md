@@ -4,7 +4,7 @@
 > `improvement-plan.md`; this file holds the deadlines, estimates, branch names
 > and dependency links that a markdown checkbox cannot carry.
 
-Last updated: 2026-09-16T17:49:33.918Z
+Last updated: 2026-09-16T19:47:15.429Z
 
 Suggested links: on — AtlasMind proposes links, and nothing is applied until somebody accepts it
 
@@ -68,7 +68,7 @@ Layout: vertical — the tree runs top to bottom. Nodes moved by hand keep their
 | `pay-down-mutation-testing-is` | pay down: mutation testing is enabled with no evidence it runs | — | — | derived | yes | 2026-09-02 | — |
 | `pay-down-performance-is-enab` | pay down: performance is enabled with no evidence it runs | — | — | derived | yes | 2026-09-02 | — |
 | `pay-down-property-based-is-e` | pay down: property-based is enabled with no evidence it runs | — | — | derived | yes | 2026-09-02 | — |
-| `we-need-a-project-dashboard` | we need a project dashboard way of reviewing the status, design plan, roadmap it | — | — | derived | yes | — | — |
+| `we-need-a-project-dashboard` | we need a project dashboard way of reviewing the status, design plan, roadmap it | — | — | derived | yes | — | 2026-09-16 · Joel Bondoux |
 
 ## Links
 
@@ -154,4 +154,3 @@ contradict a link drawn by hand, and it can never make the plan circular.
 | Names what it waits for | The item says “after”, “once”, “depends on”, “requires”, “needs” or “blocked by”, and the words that follow name another item. |
 | Same subject, earlier phase | Two items share at least two distinctive words, and one is foundation work for the other (security → architecture → delivery → feature → documentation). |
 | Earlier release, same subject | Two items share a distinctive word and sit on different declared release gates; the earlier release comes first. |
-

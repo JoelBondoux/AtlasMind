@@ -681,9 +681,17 @@ export function deriveReleaseMetrics(input: {
 /** One published release, as `gh release list --json` reports it. */
 export interface MetricReleaseInput {
   tagName: string;
+  /** Human-readable GitHub release title, when one was declared. */
+  name?: string;
+  /** Creation is retained separately: a draft may exist before publication. */
+  createdAt?: string;
   publishedAt?: string;
   isPrerelease?: boolean;
   isDraft?: boolean;
+  /** GitHub's current public-release designation, when the CLI exposes it. */
+  isLatest?: boolean;
+  /** Whether GitHub has made the release record immutable. */
+  isImmutable?: boolean;
 }
 
 /** Default window. Long enough for a monthly cadence to register at all. */

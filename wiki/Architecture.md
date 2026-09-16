@@ -378,6 +378,13 @@ and the selection is re-resolved on every click so a removed or malformed target
 External routes receive the generated prompt only, not AtlasMind-only context/direct-response objects, and run
 under that service's privacy, routing, cost, and approval controls.
 
+The Release page uses the same boundary for its public-version portfolio. The host joins refreshed GitHub
+release records to roadmap gates, the gate routes already used by the Roadmap page, and graph records that
+name filed plans. Drafts are not public versions; previews stay visible but do not become DORA deployments.
+A missing gate leaves progress unknown rather than 0%. Version actions carry only a tag or roadmap node id:
+the host rebuilds the GitHub URL, confirms the tracked-file write for a new empty gate, resolves plan paths,
+and constructs the bounded evidence prompt used by **Ask AtlasMind to review**.
+
 Settings and Dashboard resolve the stored destination through the same precedence rule: an explicit registered
 configuration value, then a validated workspace-state fallback, then the manifest default. The fallback is only
 for an Extension Development Host whose outer window has not registered a newly contributed setting; it lets the
@@ -1235,11 +1242,21 @@ its node now warns and resyncs rather than doing nothing.
 
 Secondary roadmap files are import sources, not a second authority. On first dashboard load AtlasMind
 searches a bounded set of roadmap-named markdown files and files under `roadmap/` directories, excluding
-the configured SSOT, dependencies, Git internals, and generated agent worktrees. It plans additions,
-source-link adoptions, renames, and checkbox changes, shows the plan before writing, and never deletes an
-item or applies a conflict. Import provenance records both the last source title and checkbox; a
+the configured SSOT, dependencies, Git internals, and generated agent worktrees. Automatic parsing
+refuses detailed implementation-plan scaffolds and ignores verification, acceptance, and
+definition-of-done checklists; an explicit Markdown import stays broad because the user deliberately
+selected its glob. It plans additions, source-link adoptions, renames, and checkbox changes, shows the
+plan in labelled sections before writing, and never deletes an item or applies a conflict. Import
+provenance records both the last source title and checkbox; a
 source-only completion or reopen can therefore flow into `improvement-plan.md`, while a local change or
 an older record with no status baseline is reported rather than overwritten.
+
+**Check integrity** is the governed recovery path for an earlier over-broad import. It joins current
+source classification to stored Markdown-import provenance, highlights only rows that can be tied to a
+detailed plan or validation checklist, and asks the user to select exact entries. A second confirmation
+names the roadmap and graph files before removing those rows, their node metadata, and touching edges.
+Hand-written, unreadable-source, missing-source, ambiguous, and unselected work stays untouched; source
+plan documents are never edited.
 
 The same load gate writes an AtlasMind-managed roadmap block into repository-agent instructions and
 seeds `AGENTS.md` if no Codex/cross-tool file exists. It names
