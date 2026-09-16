@@ -6,6 +6,26 @@ The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/),
 
 ## [Unreleased]
 
+## [0.478.0] - 2026-09-16
+
+### Added
+
+- Give the public-version portfolio its own Project Dashboard → Versions page under **Ship & record**,
+  with declared routes from Release and to the supporting roadmap and documents.
+- Index the Versions page in AtlasMind's capability map so chat guidance can identify and navigate to
+  the public-release review surface.
+
+### Changed
+
+- Let the Versions page load and refresh its GitHub release evidence directly instead of sending the
+  reader to the Issues page for an unrelated-looking refresh action.
+
+### Fixed
+
+- Stabilize F5 Extension Development Host startup with a finite compile task and experimental Node
+  network inspection disabled. The default profile also isolates installed extensions and Copilot Chat;
+  the explicit Copilot-integration profile keeps that provider available when it is under test.
+
 ## [0.477.0] - 2026-09-16
 
 ### Added

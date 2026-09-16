@@ -4,7 +4,7 @@
 
 <h1 align="center">AtlasMind</h1>
 
-<p align="center"><sub> · <strong>Current source version: 0.477.0</strong> · </sub></p>
+<p align="center"><sub> · <strong>Current source version: 0.478.0</strong> · </sub></p>
 
 
 <p align="center">
@@ -32,7 +32,7 @@ Most AI coding tools give you an assistant in a chat box. That solves *writing c
 tell you what to build next, what's blocking it, who owns it, what you deferred three weeks ago and
 why, whether your tests actually cover what you claim, or whether you're fit to release.
 
-That's the job AtlasMind does. A **25-page project dashboard** built entirely from your own
+That's the job AtlasMind does. A **26-page project dashboard** built entirely from your own
 repository: roadmap and dependency graph, issues and pull requests, people and follow-ups, risk,
 compliance, technical debt, defects, testing evidence, documents, delivery and release readiness. Nothing is
 a form you fill in twice — it reads git, GitHub, your files and your project memory, then grades
@@ -176,14 +176,19 @@ important limits on overrides and compliance claims.
 
 ---
 
-## What's new in 0.477.0
+## What's new in 0.478.0
 
-The Project Dashboard Release page now presents public versions as a reviewable portfolio. Stable and
+The Project Dashboard Versions page presents public releases as a reviewable portfolio. Stable and
 preview releases are classified by SemVer value tier and joined to their real roadmap gate, milestone
 progress, and filed design plans. Each version can open its GitHub release, its roadmap route, or its
 linked plans; a missing version gate can be created through a confirmed tracked-file write. AtlasMind's
 version-review action reconstructs its prompt from host-owned evidence and labels missing data instead
 of turning it into a confident zero.
+
+Source debugging now performs one finite compile before the Extension Development Host opens and turns
+off the unstable experimental Node network inspector. The default F5 profile also isolates AtlasMind
+from installed extensions and GitHub Copilot Chat; a separate profile retains Copilot when that
+integration is the subject of the test.
 
 Roadmap load-time reconciliation is now conservative about document shape: detailed implementation
 plans and validation/acceptance checklists no longer become hundreds of top-level backlog entries.
@@ -587,7 +592,7 @@ Highlights from the last few releases. Everything here is already in the publish
 
 | | |
 |---|---|
-| **A 25-page project dashboard** | Overview, project score, gap analysis, workflow, roadmap, issues, pull requests, approvals, people & follow-ups, branches, repository, pipeline, testing, tech debt, defects, security, privacy, risk, compliance, release, delivery, documents, project memory, runtime and ideation. Built from your repository, not from data you re-enter. |
+| **A 26-page project dashboard** | Overview, project score, gap analysis, workflow, roadmap, issues, pull requests, approvals, people & follow-ups, branches, repository, pipeline, testing, tech debt, defects, security, privacy, risk, compliance, public versions, release, delivery, documents, project memory, runtime and ideation. Built from your repository, not from data you re-enter. |
 | **Registers that don't forget** | Approvals, defects, test cases, tech debt, risk, compliance and research findings *transition* rather than vanish — resolved stays distinct from obsolete, accepted from dismissed — each graded by a published rule table so two people reading the same project get the same answer in March and in July. |
 | **A roadmap that knows what blocks what** | A dependency graph beside the prioritised backlog: readable tree layout, release gates, owners, estimates, routes to any item, and honest "not assessed" instead of a confident zero. |
 | **A team of specialists** | 27 built-in agents — debugger, frontend, backend, reviewer, security, testing, docs, performance, DevOps, dependencies, SEO, UX, release and CI, plus ethics, legal, commercial and market oversight. Add your own. Optional: bring your own AI tool instead. |
@@ -704,6 +709,12 @@ All 162 settings are documented in the [Configuration reference](wiki/Configurat
 | `docs/` and `wiki/` | Developer reference, user guides, and the approved UI Studio and Chat reliability plans |
 
 The full service map is in [Architecture](docs/architecture.md).
+
+Source debugging uses two F5 profiles. Both run a finite full compile before launch and disable the JavaScript
+debugger's experimental Node network inspection; this avoids retaining a large `tsc -watch` process and the
+`Missing dataLength in event` inspector failure observed on VS Code 1.137.0. **Run Extension** is the stable
+default and also disables built-in GitHub Copilot Chat. **Run Extension (Copilot integration)** is the opt-in
+profile for testing AtlasMind's Copilot-provider path. See the [development guide](docs/development.md#run).
 
 ---
 

@@ -20,7 +20,13 @@ npm install
 ```
 
 Then press **F5** in VS Code to launch an Extension Development Host with AtlasMind loaded. `@atlas`
-becomes available in chat there.
+becomes available in chat there. Both debug profiles run a finite full compile before launch and disable
+the JavaScript debugger's experimental Node network inspection, avoiding both a retained heavyweight
+`tsc -watch` process and the `Missing dataLength in event` inspector failure seen on VS Code 1.137.0.
+The default **Run Extension** profile also disables built-in GitHub Copilot Chat and other installed
+extensions because VS Code 1.137.0 with Copilot Chat 0.65.0 has an open exit-code-134 regression
+([microsoft/vscode#335916](https://github.com/microsoft/vscode/issues/335916)). Choose **Run Extension
+(Copilot integration)** only when testing AtlasMind's Copilot-provider path.
 
 ### The commands you'll use
 

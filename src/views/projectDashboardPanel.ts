@@ -1559,7 +1559,7 @@ interface DashboardStat {
  */
 const DASHBOARD_PAGE_IDS = [
   'overview', 'score', 'gapAnalysis', 'workflow', 'roadmap', 'issues', 'pullRequests', 'approvals', 'director',
-  'branches', 'repo', 'pipeline', 'testing', 'debt', 'defects', 'security', 'privacy', 'risk', 'compliance', 'release', 'delivery', 'documents',
+  'branches', 'repo', 'pipeline', 'testing', 'debt', 'defects', 'security', 'privacy', 'risk', 'compliance', 'versions', 'release', 'delivery', 'documents',
   'ssot', 'runtime', 'ideation',
 ] as const;
 

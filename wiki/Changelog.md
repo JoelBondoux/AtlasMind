@@ -19,6 +19,20 @@ Older entries below describe the software as it was at the time and are delibera
 
 ---
 
+## v0.478.0 -- Public versions get a page of their own
+
+The public-version portfolio is now a first-class **Versions** page under **Ship & record**, rather
+than the last card below Release readiness and delivery-performance charts. Release links to it, and
+the page links onward to the roadmap and supporting documents. It can load its GitHub release evidence
+directly, while version actions remain host-resolved and reviewable.
+
+F5 source debugging now finishes one full compile before opening the Extension Development Host and
+disables the unstable experimental Node network inspector. The default profile isolates installed
+extensions and GitHub Copilot Chat; a separate Copilot-integration profile is available when that
+provider is specifically being tested.
+
+---
+
 ## v0.477.0 -- Public versions become a reviewable portfolio
 
 Project Dashboard → Release now joins every fetched public stable or preview version to its SemVer

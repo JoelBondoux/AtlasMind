@@ -378,7 +378,8 @@ and the selection is re-resolved on every click so a removed or malformed target
 External routes receive the generated prompt only, not AtlasMind-only context/direct-response objects, and run
 under that service's privacy, routing, cost, and approval controls.
 
-The Release page uses the same boundary for its public-version portfolio. The host joins refreshed GitHub
+The Versions page uses the same boundary for its public-version portfolio. It sits beside Release under
+**Ship & record**, with a declared cross-page route from Release. The host joins refreshed GitHub
 release records to roadmap gates, the gate routes already used by the Roadmap page, and graph records that
 name filed plans. Drafts are not public versions; previews stay visible but do not become DORA deployments.
 A missing gate leaves progress unknown rather than 0%. Version actions carry only a tag or roadmap node id:

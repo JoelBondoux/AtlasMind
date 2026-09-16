@@ -533,7 +533,7 @@ release.
   you started. A gate *you* created gets no such guess: what belongs in your "v2" is a release decision,
   not something to infer.
 
-The Release page reads those same gates back against public GitHub versions. Each stable or preview version
+The Versions page reads those same gates back against public GitHub versions. Each stable or preview version
 shows its semantic value tier, publication date, matching gate progress, linked milestones, and filed plan
 coverage. No matching gate is shown as **not declared**, never 0% complete. **Create roadmap gate** adds the
 empty, tag-derived gate only after a modal names the tracked roadmap write; assigning items remains a separate

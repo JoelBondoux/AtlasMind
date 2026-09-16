@@ -5,14 +5,27 @@
       "name": "Run Extension",
       "type": "extensionHost",
       "request": "launch",
-      "args": ["--extensionDevelopmentPath=${workspaceFolder}"],
-      "outFiles": ["${workspaceFolder}/out/**/*.js"],
-      "preLaunchTask": "${defaultBuildTask}",
       "args": [
-  "--disable-extensions",
-  "--extensionDevelopmentPath=${workspaceFolder}"
-]
+        "--disable-extensions",
+        "--disable-extension",
+        "GitHub.copilot-chat",
+        "--extensionDevelopmentPath=${workspaceFolder}"
+      ],
+      "experimentalNetworking": "off",
+      "outFiles": ["${workspaceFolder}/out/**/*.js"],
+      "preLaunchTask": "build-extension"
+    },
+    {
+      "name": "Run Extension (Copilot integration)",
+      "type": "extensionHost",
+      "request": "launch",
+      "args": [
+        "--disable-extensions",
+        "--extensionDevelopmentPath=${workspaceFolder}"
+      ],
+      "experimentalNetworking": "off",
+      "outFiles": ["${workspaceFolder}/out/**/*.js"],
+      "preLaunchTask": "build-extension"
     }
   ]
-  
 }
