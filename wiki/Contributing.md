@@ -94,6 +94,11 @@ build without noticing.
 AtlasMind has real runtime dependencies. **Don't package or publish with `--no-dependencies`** unless
 they've been bundled into the output first.
 
+Transitive advisory fixes use caret-version floors in `package.json`'s `overrides` block, with matching
+minimum-version assertions in `tests/packageManifest.test.ts`. Confirm the real path with
+`npm ls <package> --all`, regenerate the lockfile, and require `npm audit` to return zero; do not dismiss
+a Dependabot alert merely because its vulnerable package is indirect or development-only.
+
 If `vsce package` ever shows a workspace-memory directory or a local assistant worktree such as
 `.kilo/` in the package contents, treat that as a release blocker — it means project notes, fixtures,
 or token-shaped test data are about to ship to every user. Fix `.vscodeignore`; do not bypass the

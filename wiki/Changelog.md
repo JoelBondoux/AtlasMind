@@ -19,6 +19,14 @@ Older entries below describe the software as it was at the time and are delibera
 
 ---
 
+## v0.476.5 -- Dependency advisories cleared
+
+Patched floors for `hono`, `js-yaml`, and `morgan` close five Dependabot advisories in the MCP runtime
+and development packaging/test paths. Manifest tests now enforce each minimum patched release while
+still allowing compatible updates above it.
+
+---
+
 ## v0.476.4 -- Working capacity stays routable
 
 The local GPU gate now receives the parameter count already present in model ids such as `qwen3-8b`,

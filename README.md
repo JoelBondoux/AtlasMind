@@ -4,7 +4,7 @@
 
 <h1 align="center">AtlasMind</h1>
 
-<p align="center"><sub> · <strong>Current source version: 0.476.4</strong> · </sub></p>
+<p align="center"><sub> · <strong>Current source version: 0.476.5</strong> · </sub></p>
 
 
 <p align="center">
@@ -175,6 +175,12 @@ allow-list, redaction and file-withholding behaviour, retained metadata, provide
 important limits on overrides and compliance claims.
 
 ---
+
+## What's new in 0.476.5
+
+AtlasMind's dependency graph now requires patched releases of `hono`, `js-yaml`, and `morgan`,
+closing five Dependabot advisories across the MCP runtime and the development packaging/test toolchain.
+Regression checks keep all three transitive packages at or above their patched floors.
 
 ## What's new in 0.476.4
 

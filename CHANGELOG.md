@@ -6,6 +6,17 @@ The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/),
 
 ## [Unreleased]
 
+## [0.476.5] - 2026-09-16
+
+### Security
+
+- Raise the transitive `hono` floor to `^4.13.5`, closing three runtime advisories in the MCP SDK
+  path: unbounded `parseBody()` nesting, URL-fragment query parsing, and `toSSG()` output traversal.
+- Raise development-tool floors to `js-yaml` `^4.3.2` and `morgan` `^1.12.0`, closing the merge-key
+  CPU exhaustion advisory under `vsce` and log-forging advisory under `@vscode/test-web`.
+- Extend the manifest security contract to pin every new remediation as a minimum patched version,
+  allowing later compatible patches without weakening the advisory floor.
+
 ## [0.476.4] - 2026-09-16
 
 ### Fixed

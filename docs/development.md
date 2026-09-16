@@ -1001,9 +1001,9 @@ repository cannot obsolete another repository's evidence at the same relative pa
   whole 7,659-test process to reload. The bounded gate still exercises every non-static mutation in the
   three declared policy modules; a separate unbounded static run can be invoked deliberately when its
   cost is justified.
-- **Security overrides are floors, not pins.** Three transitive packages are held above
-  a vulnerable release by the root manifest's `overrides` block, because the parents that
-  pull them in ship exact or lagging pins of their own:
+- **Security overrides are floors, not pins.** The manifest contract currently ratchets these six
+  transitive packages above vulnerable releases in the root `overrides` block, because the parents
+  that pull them in ship exact or lagging pins of their own:
   - `qs` `^6.16.0` — reached through `@modelcontextprotocol/sdk` -> `express`, and through
     `typed-rest-client` under both Stryker and `vsce`. Answers GHSA-4mjr-xmp4-gh2g and
     GHSA-x5fp-wj9c-mxmx.
@@ -1011,6 +1011,12 @@ repository cannot obsolete another repository's evidence at the same relative pa
     GHSA-jqff-g426-hqxp, GHSA-f65p-4m7j-42xc, GHSA-fph4-wmhf-6fwf and GHSA-5jgf-p345-68v8.
   - `nanoid` `^3.3.18` — through `vitest` -> `vite` -> `postcss`, so test-only. Answers
     GHSA-2v37-7h3g-55p8.
+  - `hono` `^4.13.5` — through `@modelcontextprotocol/sdk`, so part of the runtime graph. Answers
+    GHSA-gqvv-2mrq-wpjv, GHSA-g6gw-c38x-mqfc and GHSA-crvj-82cr-hjcx.
+  - `js-yaml` `^4.3.2` — through `@vscode/vsce` -> `@secretlint/node`, so packaging-only. Answers
+    GHSA-2883-xcg3-v3hh.
+  - `morgan` `^1.12.0` — through `@vscode/test-web` -> `koa-morgan`, so test-only. Answers
+    GHSA-jxfw-x594-9x9m.
 
   Write them as caret ranges. This list previously carried `qs` as the exact string
   `6.15.2`, correct when written, and `6.15.2` then acquired advisories of its own — at
