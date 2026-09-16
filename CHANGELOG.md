@@ -6,6 +6,24 @@ The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/),
 
 ## [Unreleased]
 
+## [0.476.3] - 2026-09-16
+
+### Changed
+
+- Write a managed roadmap synchronization rule into repository-agent instruction files, seeding
+  `AGENTS.md` when the Roadmap dashboard first loads so Codex and other cross-tool readers know that
+  `project_memory/roadmap/improvement-plan.md` is canonical and secondary roadmap edits must be
+  reconciled there in the same change.
+- Perform a bounded, local secondary-roadmap drift check when the Project Dashboard loads. AtlasMind
+  previews additions, source links, title changes, and checkbox changes before writing; conflicts and
+  source removals remain untouched.
+
+### Fixed
+
+- Re-import roadmap checkbox state as well as item text. Import provenance now records the last source
+  checkbox, so a source-only completion or reopen can be applied while a local or legacy ambiguity is
+  reported rather than overwritten.
+
 ## [0.476.2] - 2026-09-15
 
 ### Changed

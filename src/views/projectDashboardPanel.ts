@@ -215,6 +215,7 @@ import {
   MAX_IMPORT_ITEMS,
   ROADMAP_IMPORT_SOURCES,
   importRecordFor,
+  isWorkspaceRoadmapMarkdownPath,
   parseGithubIssueRoadmapItems,
   parseGithubProjectRoadmapItems,
   parseMarkdownRoadmapItems,
@@ -227,6 +228,7 @@ import {
   type RoadmapImportRead,
   type RoadmapImportSourceKind,
 } from '../core/roadmapImport.js';
+import { syncRoadmapInstructions } from '../utils/testingProtocolSync.js';
 import {
   buildReleasePlan,
   describeReleasePlan,
@@ -5086,11 +5088,12 @@ export class ProjectDashboardPanel {
    */
   private lastSnapshot: DashboardSnapshot | undefined;
   /**
-   * The load-time anchor write, started once in the constructor and held so
-   * everything else can order itself after it.
+   * The load-time roadmap preparation, started once in the constructor and held
+   * so everything else can order itself after it.
    *
-   * Started from the constructor — not from a later sync — because any
-   * fire-and-forget refresh that could still *arm* it left a window where a
+   * Anchoring runs first, then the secondary-roadmap drift check and instruction
+   * sync. Started from the constructor — not from a later refresh — because any
+   * fire-and-forget pass that could still *arm* a write left a window where a
    * background write overlapped whatever a click did next: two writers of the
    * same backlog file, `fs.writeFile` truncating first, and a reader in that
    * window seeing an empty backlog (the release-gate flow test caught exactly
@@ -5678,10 +5681,11 @@ export class ProjectDashboardPanel {
       }),
     );
 
-    // Anchor the roadmap first, then collect: the first sync would otherwise
-    // read the backlog while the anchors are being written into it, and every
-    // message handler orders itself after this same promise.
-    this.roadmapAnchorsEnsure = this.ensureRoadmapAnchors();
+    // Anchor and reconcile the roadmap first, then collect: the first sync would
+    // otherwise read the backlog while it is being written, and every message
+    // handler orders itself after this same promise.
+    this.roadmapAnchorsEnsure = this.ensureRoadmapAnchors()
+      .then(() => this.ensureRoadmapSynchronization());
     void this.roadmapAnchorsEnsure.then(() => this.syncState());
   }
 
@@ -12716,6 +12720,135 @@ ${buildCardEvidenceSection(source, derivation)}`;
     }
   }
 
+  /**
+   * Keep external agents and secondary markdown roadmaps pointed at the SSOT.
+   *
+   * This is a once-per-panel load gate, not a render side effect. The instruction
+   * write owns one delimited block and is idempotent. Discovery is bounded to
+   * roadmap-named markdown paths, excludes AtlasMind memory and nested agent
+   * worktrees, and never reaches the network. A drift plan is always shown
+   * before additions, renames, or checkbox changes are written; conflicts and
+   * missing source entries remain untouched.
+   */
+  private async ensureRoadmapSynchronization(): Promise<void> {
+    const context = await this.readRoadmapDocument();
+    if (context === undefined) {
+      return;
+    }
+
+    const instructionResult = await syncRoadmapInstructions(context.workspaceRoot, context.ssotPath)
+      .catch(error => ({
+        success: false,
+        summary: error instanceof Error ? error.message : String(error),
+        updated: [] as string[],
+        skipped: [],
+      }));
+    if (!instructionResult.success) {
+      void vscode.window.showWarningMessage(
+        `AtlasMind could not install the roadmap synchronization rule for external agents: ${instructionResult.summary}`,
+      );
+    }
+
+    if (typeof vscode.workspace.findFiles !== 'function') {
+      return;
+    }
+    const ssotGlob = context.ssotPath.replace(/\\/g, '/').replace(/^\/+|\/+$/g, '');
+    const exclude = `{**/node_modules/**,**/.git/**,**/.claude/worktrees/**,**/.agents/worktrees/**,${ssotGlob}/roadmap/**}`;
+    let discovered: vscode.Uri[];
+    try {
+      const [named, contained] = await Promise.all([
+        vscode.workspace.findFiles(
+          new vscode.RelativePattern(context.workspaceRoot, '**/*[Rr][Oo][Aa][Dd][Mm][Aa][Pp]*.md'),
+          exclude,
+          MAX_IMPORT_FILES + 1,
+        ),
+        vscode.workspace.findFiles(
+          new vscode.RelativePattern(context.workspaceRoot, '**/{roadmap,roadmaps,ROADMAP,ROADMAPS}/**/*.md'),
+          exclude,
+          MAX_IMPORT_FILES + 1,
+        ),
+      ]);
+      discovered = [...new Map([...named, ...contained].map(uri => [uri.fsPath, uri])).values()];
+    } catch {
+      return;
+    }
+
+    const candidates = discovered
+      .map(uri => ({ uri, relative: path.relative(context.workspaceRoot, uri.fsPath).split(path.sep).join('/') }))
+      .filter(entry => isWorkspaceRoadmapMarkdownPath(entry.relative, context.ssotPath))
+      .sort((left, right) => left.relative.localeCompare(right.relative))
+      .slice(0, MAX_IMPORT_FILES + 1);
+    if (candidates.length === 0) {
+      return;
+    }
+
+    const files: Array<{ path: string; content: string }> = [];
+    const notes: string[] = [];
+    for (const candidate of candidates.slice(0, MAX_IMPORT_FILES)) {
+      try {
+        const stat = await fs.stat(candidate.uri.fsPath);
+        if (!stat.isFile() || stat.size > 1_000_000) {
+          notes.push(`${candidate.relative} was not read because it is not a regular markdown file under 1 MB.`);
+          continue;
+        }
+        files.push({ path: candidate.relative, content: await fs.readFile(candidate.uri.fsPath, 'utf8') });
+      } catch {
+        notes.push(`${candidate.relative} could not be read.`);
+      }
+    }
+    if (candidates.length > MAX_IMPORT_FILES) {
+      notes.push(`More than ${MAX_IMPORT_FILES} roadmap files were found; the rest were not read.`);
+    }
+    if (files.length === 0) {
+      return;
+    }
+
+    const parsed = parseMarkdownRoadmapItems(files);
+    const read: RoadmapImportRead = { ...parsed, notes: [...parsed.notes, ...notes] };
+    if (read.items.length === 0) {
+      return;
+    }
+
+    const graphRead = readRoadmapGraphFile(context.workspaceRoot, context.ssotPath);
+    if (graphRead.preserveExisting) {
+      void vscode.window.showWarningMessage(
+        graphRead.notice ?? 'The roadmap graph file was written by a newer AtlasMind. Secondary roadmaps were checked, but nothing was changed.',
+      );
+      return;
+    }
+    const recordById = new Map((graphRead.config?.nodes ?? []).map(node => [node.id, node]));
+    const existingLines: ExistingRoadmapLine[] = context.items.map(item => {
+      const imported = item.nodeId === undefined ? undefined : recordById.get(item.nodeId)?.imported;
+      return {
+        ...(item.nodeId === undefined ? {} : { nodeId: item.nodeId }),
+        text: item.text,
+        completed: item.completed,
+        ...(imported === undefined ? {} : { imported }),
+      };
+    });
+    const plan = planRoadmapImport(read, existingLines);
+    const changing = plan.counts.add + plan.counts.adopt + plan.counts.update;
+    if (changing === 0) {
+      if (plan.counts.conflict > 0 || plan.counts.missing > 0) {
+        await vscode.window.showWarningMessage(
+          'AtlasMind found roadmap drift that needs a decision.',
+          { modal: true, detail: describeRoadmapImportDetail(plan) },
+        );
+      }
+      return;
+    }
+
+    const confirmation = await vscode.window.showWarningMessage(
+      `Reconcile ${changing} secondary-roadmap change${changing === 1 ? '' : 's'} into AtlasMind?`,
+      { modal: true, detail: describeRoadmapImportDetail(plan) },
+      'Reconcile now',
+    );
+    if (confirmation !== 'Reconcile now') {
+      return;
+    }
+    await this.applyRoadmapImport(context, read, plan);
+  }
+
   /** Persist the graph and redraw. One place, so no handler can forget the refresh. */
   private async commitRoadmapGraph(
     workspaceRoot: string,
@@ -13404,7 +13537,7 @@ ${buildCardEvidenceSection(source, derivation)}`;
     });
 
     const plan = planRoadmapImport(read, existingLines);
-    if (plan.counts.add === 0 && plan.counts.update === 0) {
+    if (plan.counts.add === 0 && plan.counts.adopt === 0 && plan.counts.update === 0) {
       await vscode.window.showInformationMessage(
         plan.summary,
         { modal: true, detail: describeRoadmapImportDetail(plan) },
@@ -13412,7 +13545,7 @@ ${buildCardEvidenceSection(source, derivation)}`;
       return;
     }
 
-    const changing = plan.counts.add + plan.counts.update;
+    const changing = plan.counts.add + plan.counts.adopt + plan.counts.update;
     const confirmation = await vscode.window.showWarningMessage(
       `Import ${changing} roadmap item${changing === 1 ? '' : 's'}?`,
       { modal: true, detail: describeRoadmapImportDetail(plan) },
@@ -13639,18 +13772,21 @@ ${buildCardEvidenceSection(source, derivation)}`;
     read: RoadmapImportRead,
     plan: RoadmapImportPlan,
   ): Promise<void> {
-    const updates = new Map<string, string>();
+    const updates = new Map<string, { text: string; completed: boolean }>();
     for (const entry of plan.entries) {
-      if (entry.outcome === 'update' && entry.existing !== undefined && entry.nextText !== undefined) {
-        updates.set(normalizeRoadmapText(entry.existing.text), entry.nextText);
+      if (entry.outcome === 'update' && entry.existing !== undefined) {
+        updates.set(normalizeRoadmapText(entry.existing.text), {
+          text: entry.nextText ?? entry.existing.text,
+          completed: entry.nextCompleted ?? entry.existing.completed,
+        });
       }
     }
 
     const kept = context.items.map(item => {
       const next = updates.get(normalizeRoadmapText(item.text));
       return {
-        text: next ?? item.text,
-        completed: item.completed,
+        text: next?.text ?? item.text,
+        completed: next?.completed ?? item.completed,
         gates: item.gates,
         ...(item.nodeId === undefined ? {} : { nodeId: item.nodeId }),
       };
@@ -13659,12 +13795,18 @@ ${buildCardEvidenceSection(source, derivation)}`;
       .filter(entry => entry.outcome === 'add' && entry.item !== undefined)
       .map(entry => ({ text: entry.item!.title, completed: entry.item!.completed, gates: [] as string[] }));
 
-    await fs.mkdir(path.dirname(context.filePath), { recursive: true });
-    await fs.writeFile(
-      context.filePath,
-      serializeDashboardRoadmapDocument(context.existing, [...kept, ...added], normalizeGates(context.gates)),
-      'utf-8',
-    );
+    // An adoption only records provenance in the graph. Re-serializing an
+    // otherwise identical backlog would still be a material edit (the writer
+    // groups active and completed rows), so do not touch the canonical file
+    // unless source content or checkbox state actually changes.
+    if (updates.size > 0 || added.length > 0) {
+      await fs.mkdir(path.dirname(context.filePath), { recursive: true });
+      await fs.writeFile(
+        context.filePath,
+        serializeDashboardRoadmapDocument(context.existing, [...kept, ...added], normalizeGates(context.gates)),
+        'utf-8',
+      );
+    }
 
     // Re-open so the new lines are anchored, then record where each came from.
     const graphContext = await this.openRoadmapGraphForWrite();
@@ -13680,7 +13822,7 @@ ${buildCardEvidenceSection(source, derivation)}`;
       const stamped = new Date().toISOString();
       for (const entry of plan.entries) {
         const item = entry.item;
-        if ((entry.outcome !== 'add' && entry.outcome !== 'update') || item === undefined) {
+        if ((entry.outcome !== 'add' && entry.outcome !== 'adopt' && entry.outcome !== 'update') || item === undefined) {
           continue;
         }
         const nodeId = idByText.get(normalizeRoadmapText(item.title));
@@ -24894,9 +25036,12 @@ function describeRoadmapImportDetail(plan: RoadmapImportPlan): string {
     const matching = plan.entries.filter(entry => entry.outcome === outcome);
     const lines = matching.slice(0, limit).map(entry => {
       if (outcome === 'conflict') {
-        return `  • source: "${entry.item?.title ?? ''}"\n    yours:  "${entry.existing?.text ?? ''}"`;
+        const sourceState = entry.item?.completed ? '[x]' : '[ ]';
+        const localState = entry.existing?.completed ? '[x]' : '[ ]';
+        return `  • source: ${sourceState} "${entry.item?.title ?? ''}"\n    yours:  ${localState} "${entry.existing?.text ?? ''}"`;
       }
-      return `  • ${entry.item?.title ?? entry.existing?.text ?? ''}`;
+      const state = entry.item?.completed ?? entry.existing?.completed ? '[x]' : '[ ]';
+      return `  • ${state} ${entry.item?.title ?? entry.existing?.text ?? ''}`;
     });
     return matching.length > limit
       ? [...lines, `  • …and ${matching.length - limit} more`]
@@ -24906,11 +25051,12 @@ function describeRoadmapImportDetail(plan: RoadmapImportPlan): string {
   return [
     plan.summary,
     ...(plan.counts.add > 0 ? ['', `Added (${plan.counts.add}):`, ...sample('add', 8)] : []),
-    ...(plan.counts.update > 0 ? ['', `Retitled from the source (${plan.counts.update}):`, ...sample('update', 6)] : []),
+    ...(plan.counts.adopt > 0 ? ['', `Linked to the source (${plan.counts.adopt}):`, ...sample('adopt', 8)] : []),
+    ...(plan.counts.update > 0 ? ['', `Updated from the source (${plan.counts.update}):`, ...sample('update', 6)] : []),
     ...(plan.counts.conflict > 0
       ? [
         '',
-        `Changed on both sides — left alone (${plan.counts.conflict}):`,
+        `Conflicting text or checkbox — left alone (${plan.counts.conflict}):`,
         ...sample('conflict', 4),
       ]
       : []),

@@ -327,8 +327,14 @@ no manifest is touched, and it asks first.
 
 **Sync Testing Protocols to AI Agents** writes your enabled protocols into the instruction files other
 tools read — `CLAUDE.md`, `AGENTS.md`, `.github/copilot-instructions.md`, Cursor, Cline, Gemini,
-Windsurf, Aider — as a clearly delimited managed block, so agents outside AtlasMind follow the same
+Windsurf, Aider — as clearly delimited managed blocks, so agents outside AtlasMind follow the same
 standard. Saving the matrix syncs automatically.
+
+Opening the Roadmap dashboard also installs a separate managed roadmap rule, seeding `AGENTS.md` when
+needed. It tells Codex and other repository agents that `project_memory/roadmap/improvement-plan.md` is
+the canonical plan: additions, renames, checkbox/status changes, reopens, moves, or removals made in any
+other roadmap file must be reconciled there in the same change. If the relationship is ambiguous, the
+agent must preserve both and report the drift rather than guessing.
 
 ---
 

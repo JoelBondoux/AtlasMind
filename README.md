@@ -4,7 +4,7 @@
 
 <h1 align="center">AtlasMind</h1>
 
-<p align="center"><sub> · <strong>Current source version: 0.476.2</strong> · </sub></p>
+<p align="center"><sub> · <strong>Current source version: 0.476.3</strong> · </sub></p>
 
 
 <p align="center">
@@ -69,9 +69,10 @@ the workflow — and let Copilot, Claude Code, Cursor, Codex, Gemini CLI or Wind
 
 AtlasMind writes what it knows into the instruction files those tools already read —
 `.github/copilot-instructions.md`, `CLAUDE.md`, `AGENTS.md`, `.cursorrules`, `GEMINI.md`,
-`.windsurfrules` — as a **managed block** it maintains and you can delete: your enabled testing
-methodologies, the technical-debt markers it scans for, and the stage-by-stage rules of your
-declared GitHub workflow. Whatever agent you use gets told the same rules AtlasMind holds itself to,
+`.windsurfrules` — as a **managed block** it maintains and you can delete: the canonical AtlasMind
+roadmap and same-change synchronization rule, your enabled testing methodologies, the technical-debt
+markers it scans for, and the stage-by-stage rules of your declared GitHub workflow. Whatever agent
+you use gets told the same rules AtlasMind holds itself to,
 and the registers keep working because they read your repository rather than your chat history.
 
 Its own agents are there when you want them. They are not a prerequisite. Full setup in
@@ -174,6 +175,15 @@ allow-list, redaction and file-withholding behaviour, retained metadata, provide
 important limits on overrides and compliance claims.
 
 ---
+
+## What's new in 0.476.3
+
+AtlasMind now tells Codex and other repository agents that
+`project_memory/roadmap/improvement-plan.md` is the canonical roadmap and that any change to another
+roadmap file must be reconciled there in the same change. Opening the Roadmap dashboard also performs
+a bounded local drift check across roadmap-named markdown files, shows the exact plan before writing,
+and can carry additions, renames, and checkbox changes into AtlasMind. Local conflicts, ambiguous
+legacy status, and items missing from the secondary source are reported and left untouched.
 
 ## What's new in 0.476.2
 
@@ -559,7 +569,7 @@ Highlights from the last few releases. Everything here is already in the publish
 | **Ideation board** | Visual thinking that reaches the backlog — cards become roadmap items, roadmap items become issue drafts. |
 | **Tech debt register** | Deferred work found from your own code markers, graded by a published rule you can read, tracked rather than forgotten. |
 | **Testing strategy** | 69 configurable methodologies — including data & schema, AI-specific and compliance families — with owners, tooling, evidence checks, scaffolding, and sync to other AI tools. |
-| **Works with your existing AI tool** | Testing methodologies, debt markers and workflow rules synced into Copilot, Claude Code, Cursor, Codex, Gemini CLI and Windsurf instruction files as a managed block. The management layer needs no chat of its own. |
+| **Works with your existing AI tool** | The roadmap SSOT rule, testing methodologies, debt markers and workflow rules are synced into Copilot, Claude Code, Cursor, Codex, Gemini CLI and Windsurf instruction files as managed blocks. The management layer needs no chat of its own. |
 | **UI Studio** | Pick up the UI files already in the project or draw new surfaces, design them beside the canvas with a built-in-browser preview, brand them from named presets, and hand off to the implementation. Screens, flows, content, wireframes, tokens, components and responsive inspection are all here. Website delivery — the stack, the three hosting environments, the platform targets and the n8n map — lives on the Project Dashboard's Delivery page. |
 | **Voice, vision & remote** | Local or hosted speech, image analysis, opt-in remote control, and a keep-awake lock for long runs. |
 | **Lenses over your code — and your services** | Eleven read-only views built from what your project declares: flow, change impact, test evidence, state lifecycle, config precedence, field wiring, branch change story — plus three that compare your declared schemas against what a live API or database actually serves. Shape only: never a row, never a write, off by default. |

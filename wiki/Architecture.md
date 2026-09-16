@@ -1233,6 +1233,21 @@ the two once disagreed for unanchored items with surviving records — the same 
 and `slug-2` on disk, and every save against it missed silently; an action that still cannot resolve
 its node now warns and resyncs rather than doing nothing.
 
+Secondary roadmap files are import sources, not a second authority. On first dashboard load AtlasMind
+searches a bounded set of roadmap-named markdown files and files under `roadmap/` directories, excluding
+the configured SSOT, dependencies, Git internals, and generated agent worktrees. It plans additions,
+source-link adoptions, renames, and checkbox changes, shows the plan before writing, and never deletes an
+item or applies a conflict. Import provenance records both the last source title and checkbox; a
+source-only completion or reopen can therefore flow into `improvement-plan.md`, while a local change or
+an older record with no status baseline is reported rather than overwritten.
+
+The same load gate writes an AtlasMind-managed roadmap block into repository-agent instructions and
+seeds `AGENTS.md` if no Codex/cross-tool file exists. It names
+`project_memory/roadmap/improvement-plan.md` as canonical and requires any agent changing another roadmap
+to reconcile the applicable item there in the same change. Two-way instruction alignment strips this
+block before merging and restores it separately, so generated policy is never re-ingested as authored
+guidance.
+
 Human ownership also follows one contract across the dashboard. Branches, active roadmap items, open
 issues and pull requests, unresolved gaps, risks and debt, and documents needing attention all render
 the Director's contact picker beside the work; Director → Assignments changes the same records. The

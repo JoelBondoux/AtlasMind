@@ -616,6 +616,7 @@ export function registerCommands(
           vscode.workspace.getConfiguration('atlasmind').get<string[]>('debt.markers', []),
         ),
         readWorkflowGuidanceInput(workspaceRoot),
+        vscode.workspace.getConfiguration('atlasmind').get<string>('ssotPath', 'project_memory'),
       );
       if (result.success) {
         void vscode.window.showInformationMessage(result.summary);

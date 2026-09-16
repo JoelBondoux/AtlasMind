@@ -34,10 +34,10 @@
  * making. `debtRegister` refuses the same guess for the same reason.
  *
  * **A local edit is never overwritten; it is reported.** The normalized source
- * title is stored at import time, so "this line still says what the source said"
- * is answerable. When both sides have moved the item is a `conflict` carrying
- * both texts, and the import changes nothing about it. Silently taking either
- * side would be a lie in a committed file.
+ * title and checkbox state are stored at import time, so "this line still says
+ * what the source said" is answerable. When both sides have moved the item is a
+ * `conflict` carrying both states, and the import changes nothing about it.
+ * Silently taking either side would be a lie in a committed file.
  *
  * **A plan is produced, and a plan is not a write.** `planRoadmapImport` returns
  * what would happen; the caller shows it and writes only on confirmation. No
@@ -150,6 +150,14 @@ export interface RoadmapImportRecord {
    * update anything.
    */
   importedTitleNormalized: string;
+  /**
+   * The source checkbox state at the last successful import.
+   *
+   * Optional for compatibility with graph records written before roadmap
+   * status reconciliation existed. When it is absent, a differing checkbox is
+   * a conflict rather than permission to overwrite either side.
+   */
+  importedCompleted?: boolean;
   importedAt?: string;
   url?: string;
 }
@@ -164,6 +172,43 @@ const MAX_IMPORT_TITLE_CHARS = 300;
 const MAX_IMPORT_CONTEXT_CHARS = 80;
 /** Files per markdown glob. Beyond this the glob is too broad to be a roadmap. */
 export const MAX_IMPORT_FILES = 40;
+
+/**
+ * Whether a workspace markdown path is a plausible secondary roadmap.
+ *
+ * This is deliberately path-based and conservative. Dashboard load uses it to
+ * find files worth parsing without reading every markdown document as work.
+ * A roadmap-named file or a file inside a `roadmap/` directory qualifies; the
+ * AtlasMind SSOT directory and generated/nested checkouts never do.
+ */
+export function isWorkspaceRoadmapMarkdownPath(
+  relativePath: string,
+  ssotPath = 'project_memory',
+): boolean {
+  const normalized = String(relativePath ?? '').replace(/\\/g, '/').replace(/^\.\//, '');
+  const lowered = normalized.toLowerCase();
+  const segments = lowered.split('/').filter(Boolean);
+  if (segments.length === 0 || !lowered.endsWith('.md') || segments.includes('node_modules') || segments.includes('.git')) {
+    return false;
+  }
+  if (lowered.includes('/.claude/worktrees/') || lowered.startsWith('.claude/worktrees/')
+    || lowered.includes('/.agents/worktrees/') || lowered.startsWith('.agents/worktrees/')) {
+    return false;
+  }
+
+  const normalizedSsot = String(ssotPath ?? 'project_memory')
+    .replace(/\\/g, '/')
+    .replace(/^\.\//, '')
+    .replace(/^\/+|\/+$/g, '')
+    .toLowerCase();
+  if (normalizedSsot && (lowered === `${normalizedSsot}/roadmap`
+    || lowered.startsWith(`${normalizedSsot}/roadmap/`))) {
+    return false;
+  }
+
+  const filename = segments.at(-1) ?? '';
+  return filename.includes('roadmap') || segments.slice(0, -1).some(segment => segment === 'roadmap' || segment === 'roadmaps');
+}
 
 // ── Boundary handling ─────────────────────────────────────────────────────
 
@@ -672,7 +717,7 @@ export interface ExistingRoadmapLine {
   imported?: RoadmapImportRecord;
 }
 
-export type RoadmapImportOutcome = 'add' | 'update' | 'conflict' | 'unchanged' | 'missing';
+export type RoadmapImportOutcome = 'add' | 'adopt' | 'update' | 'conflict' | 'unchanged' | 'missing';
 
 export interface RoadmapImportEntry {
   outcome: RoadmapImportOutcome;
@@ -682,6 +727,8 @@ export interface RoadmapImportEntry {
   existing?: ExistingRoadmapLine;
   /** What this line would say afterwards. Absent unless something would be written. */
   nextText?: string;
+  /** What its checkbox would say afterwards. Absent unless status would change. */
+  nextCompleted?: boolean;
   /** The declared rule that produced this outcome, published with the plan. */
   reason: string;
 }
@@ -702,9 +749,10 @@ export interface RoadmapImportPlan {
  */
 export const ROADMAP_IMPORT_RULES: readonly { outcome: RoadmapImportOutcome; rule: string }[] = [
   { outcome: 'add', rule: 'The source has an item this roadmap has never seen, by import key or by text.' },
-  { outcome: 'update', rule: 'The source text changed and this line still says what the source last said, so nothing of yours is at stake.' },
-  { outcome: 'conflict', rule: 'Both sides changed. Nothing is written; both texts are shown so you can decide.' },
-  { outcome: 'unchanged', rule: 'The source says what this line already says.' },
+  { outcome: 'adopt', rule: 'A hand-written AtlasMind item already matches the source text and checkbox, so only the source link is recorded.' },
+  { outcome: 'update', rule: 'The source text or checkbox changed while the AtlasMind line still matches the last imported state, so no local edit is overwritten.' },
+  { outcome: 'conflict', rule: 'The AtlasMind line diverged from the last imported text or checkbox. Nothing is written; both states are shown so you can decide.' },
+  { outcome: 'unchanged', rule: 'The source text and checkbox say what this line already says.' },
   { outcome: 'missing', rule: 'This line was imported before and the source no longer has it. It is left exactly where it is.' },
 ];
 
@@ -751,19 +799,42 @@ export function planRoadmapImport(
     claimed.add(matchedIndex);
 
     const localNormalized = normalizeImportedTitle(line.text);
-    if (localNormalized === normalized) {
-      entries.push({ outcome: 'unchanged', item, existing: line, reason: ruleFor('unchanged') });
-      continue;
-    }
-    // No record means this line was adopted by text on a first import, so there
-    // is no "what the source last said" to compare against — and the texts
-    // matching is what got us here. Anything else is a genuine divergence.
-    const lastImported = line.imported?.importedTitleNormalized;
-    if (lastImported !== undefined && localNormalized !== lastImported) {
+    const textDiffers = localNormalized !== normalized;
+    const completedDiffers = line.completed !== item.completed;
+
+    // No import record means this is a first-import adoption by identical text,
+    // so the confirmed source may supply its checkbox. For a tracked line, a
+    // local value that no longer equals the recorded baseline is a conflict.
+    // Legacy records have no checkbox baseline; refusing a differing value is
+    // the only way not to guess which side changed.
+    const lastImportedTitle = line.imported?.importedTitleNormalized;
+    const textConflict = textDiffers
+      && lastImportedTitle !== undefined
+      && localNormalized !== lastImportedTitle;
+    const lastImportedCompleted = line.imported?.importedCompleted;
+    const completedConflict = completedDiffers
+      && line.imported !== undefined
+      && (lastImportedCompleted === undefined || line.completed !== lastImportedCompleted);
+    if (textConflict || completedConflict) {
       entries.push({ outcome: 'conflict', item, existing: line, reason: ruleFor('conflict') });
       continue;
     }
-    entries.push({ outcome: 'update', item, existing: line, nextText: item.title, reason: ruleFor('update') });
+    if (textDiffers || completedDiffers) {
+      entries.push({
+        outcome: 'update',
+        item,
+        existing: line,
+        ...(textDiffers ? { nextText: item.title } : {}),
+        ...(completedDiffers ? { nextCompleted: item.completed } : {}),
+        reason: ruleFor('update'),
+      });
+      continue;
+    }
+    if (line.imported === undefined) {
+      entries.push({ outcome: 'adopt', item, existing: line, reason: ruleFor('adopt') });
+      continue;
+    }
+    entries.push({ outcome: 'unchanged', item, existing: line, reason: ruleFor('unchanged') });
   }
 
   // Lines this source imported before and did not produce this time. Only ever
@@ -780,7 +851,7 @@ export function planRoadmapImport(
   });
 
   const counts = entries.reduce((all, entry) => ({ ...all, [entry.outcome]: all[entry.outcome] + 1 }), {
-    add: 0, update: 0, conflict: 0, unchanged: 0, missing: 0,
+    add: 0, adopt: 0, update: 0, conflict: 0, unchanged: 0, missing: 0,
   } as Record<RoadmapImportOutcome, number>);
 
   return {
@@ -814,6 +885,7 @@ function describeRoadmapImportPlan(
 ): string {
   const changes = [
     counts.add > 0 ? `${counts.add} to add` : '',
+    counts.adopt > 0 ? `${counts.adopt} existing ${counts.adopt === 1 ? 'item' : 'items'} to link to the source` : '',
     counts.update > 0 ? `${counts.update} to update` : '',
   ].filter(Boolean).join(', ');
   const held = [
@@ -843,6 +915,7 @@ export function importRecordFor(
     sourceId: item.sourceId,
     sourceLabel: read.sourceLabel,
     importedTitleNormalized: normalizeImportedTitle(item.title),
+    importedCompleted: item.completed,
     ...(importedAt === undefined ? {} : { importedAt }),
     ...(item.url === undefined ? {} : { url: item.url }),
   };

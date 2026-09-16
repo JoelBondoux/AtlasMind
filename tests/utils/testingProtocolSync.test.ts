@@ -24,7 +24,10 @@ import {
   MANAGED_BLOCK_START,
   MANAGED_BLOCK_END,
   buildDebtMarkerMarkdown,
+  buildRoadmapSyncMarkdown,
   DEBT_MARKER_BLOCK_START,
+  ROADMAP_SYNC_BLOCK_START,
+  syncRoadmapInstructions,
 } from '../../src/utils/testingProtocolSync.ts';
 import { isSafeRelativePath } from '../../src/utils/aiInstructionSync.ts';
 import type { AgentDefinition, ProjectTestingConfig } from '../../src/types.ts';
@@ -95,6 +98,19 @@ describe('syncTestingProtocols', () => {
     expect(content).toContain(MANAGED_BLOCK_START);
     expect(content).toContain(MANAGED_BLOCK_END);
     expect(content).toContain('### Unit Testing');
+    expect(content).toContain(ROADMAP_SYNC_BLOCK_START);
+    expect(content).toContain('project_memory/roadmap/improvement-plan.md');
+  });
+
+  it('uses the configured memory root in the roadmap block', async () => {
+    const agentsPath = path.join(workspace, 'AGENTS.md');
+    writeFileSync(agentsPath, '# Agent rules\n');
+
+    await syncTestingProtocols(workspace, makeConfig(), agents, [], undefined, 'workspace_memory');
+
+    const content = readFileSync(agentsPath, 'utf8');
+    expect(content).toContain('workspace_memory/roadmap/improvement-plan.md');
+    expect(content).not.toContain('project_memory/roadmap/improvement-plan.md');
   });
 
   it('is idempotent — re-running replaces the block instead of duplicating it', async () => {
@@ -149,6 +165,35 @@ describe('syncTestingProtocols', () => {
     expect(result.skipped.some(s => s.path === '.continue/config.json')).toBe(true);
     // The JSON file is left byte-for-byte intact.
     expect(readFileSync(continuePath, 'utf8')).toBe('{"systemMessage":"hi"}');
+  });
+});
+
+describe('roadmap instruction sync', () => {
+  it('names the configurable canonical roadmap and the same-change rule', () => {
+    const markdown = buildRoadmapSyncMarkdown('workspace_memory');
+    expect(markdown).toContain('`workspace_memory/roadmap/improvement-plan.md`');
+    expect(markdown).toContain('In the same change');
+    expect(markdown).toContain('Changing only a secondary roadmap does not update AtlasMind');
+    expect(markdown).toContain('Conflicts and missing source items are never auto-applied');
+  });
+
+  it('falls back to the default path when a configured path is unsafe markdown or traversal', () => {
+    expect(buildRoadmapSyncMarkdown('../outside`oops')).toContain('`project_memory/roadmap/improvement-plan.md`');
+    expect(buildRoadmapSyncMarkdown('../outside`oops')).not.toContain('outside');
+  });
+
+  it('seeds AGENTS.md and preserves existing agent instruction content', async () => {
+    const result = await syncRoadmapInstructions(workspace, 'project_memory');
+    expect(result.success).toBe(true);
+    expect(result.updated).toContain('AGENTS.md');
+    const content = readFileSync(path.join(workspace, 'AGENTS.md'), 'utf8');
+    expect(content).toContain(ROADMAP_SYNC_BLOCK_START);
+
+    writeFileSync(path.join(workspace, 'CLAUDE.md'), '# Existing Claude rules\n');
+    await syncRoadmapInstructions(workspace, 'project_memory');
+    const claude = readFileSync(path.join(workspace, 'CLAUDE.md'), 'utf8');
+    expect(claude).toContain('# Existing Claude rules');
+    expect(claude).toContain(ROADMAP_SYNC_BLOCK_START);
   });
 });
 

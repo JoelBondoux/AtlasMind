@@ -4,7 +4,7 @@
 > `improvement-plan.md`; this file holds the deadlines, estimates, branch names
 > and dependency links that a markdown checkbox cannot carry.
 
-Last updated: 2026-09-09T12:06:20.365Z
+Last updated: 2026-09-16T17:13:14.387Z
 
 Suggested links: on — AtlasMind proposes links, and nothing is applied until somebody accepts it
 
@@ -140,6 +140,8 @@ Layout: vertical — the tree runs top to bottom. Nodes moved by hand keep their
 | `extend-the-test-surface-to-h` | `offer-a-capability-you-are-c` | accepted suggestion (shared-subject-phase) | 2026-09-07 · contact-email-joelbondoux-net-1 |
 | `pr-native-github-automation` | `explore-a-github-pages-hoste` | accepted suggestion (shared-subject-phase) | 2026-09-07 · contact-email-joelbondoux-net-1 |
 | `the-guided-github-workflow-o` | `explore-a-github-pages-hoste` | accepted suggestion (shared-subject-phase) | 2026-09-07 · contact-email-joelbondoux-net-1 |
+| `if-you-double-click-on-a-roa` | `roadmap-canvas-for-the-deliv` | accepted suggestion (explicit-reference) | 2026-09-16 · contact-email-joelbondoux-net-1 |
+| `semantic-codebase-index-code` | `roadmap-autotree-doesn-t-bri` | accepted suggestion (shared-subject-phase) | 2026-09-16 · contact-email-joelbondoux-net-1 |
 
 ## How a link gets suggested
 

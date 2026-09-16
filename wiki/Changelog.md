@@ -19,6 +19,17 @@ Older entries below describe the software as it was at the time and are delibera
 
 ---
 
+## v0.476.3 -- Roadmap files stay aligned
+
+Repository agents now receive a managed instruction naming
+`project_memory/roadmap/improvement-plan.md` as AtlasMind's canonical roadmap and requiring secondary
+roadmap edits to be reconciled there in the same change. Opening the Roadmap dashboard performs a
+bounded local drift check and previews additions, source links, renames, and checkbox changes before
+writing. Conflicts, ambiguous legacy checkbox state, and items removed from a secondary source remain
+untouched and are reported.
+
+---
+
 ## v0.476.2 -- Published baseline
 
 The README's published baseline now names v0.476.1.

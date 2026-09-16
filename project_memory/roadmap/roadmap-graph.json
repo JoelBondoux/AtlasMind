@@ -1200,10 +1200,28 @@
       "evidence": "both mention “github” and “project”",
       "createdAt": "2026-09-07T20:43:21.894Z",
       "createdBy": "contact-email-joelbondoux-net-1"
+    },
+    {
+      "from": "if-you-double-click-on-a-roa",
+      "to": "roadmap-canvas-for-the-deliv",
+      "origin": "declared",
+      "rule": "explicit-reference",
+      "evidence": "“needs the same node management controls as the other canvas pages”",
+      "createdAt": "2026-09-16T17:12:26.859Z",
+      "createdBy": "contact-email-joelbondoux-net-1"
+    },
+    {
+      "from": "semantic-codebase-index-code",
+      "to": "roadmap-autotree-doesn-t-bri",
+      "origin": "declared",
+      "rule": "shared-subject-phase",
+      "evidence": "both mention “bring” and “keeps”",
+      "createdAt": "2026-09-16T17:12:26.859Z",
+      "createdBy": "contact-email-joelbondoux-net-1"
     }
   ],
   "suggestLinks": true,
   "dismissed": [],
   "layoutOrientation": "vertical",
-  "updatedAt": "2026-09-09T12:06:20.365Z"
+  "updatedAt": "2026-09-16T17:13:14.387Z"
 }

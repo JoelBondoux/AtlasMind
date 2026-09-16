@@ -302,6 +302,7 @@ function sanitizeRoadmapImport(value: unknown): RoadmapImportRecord | undefined 
     sourceId,
     sourceLabel,
     importedTitleNormalized: clampString(record['importedTitleNormalized'], 400) ?? '',
+    ...(typeof record['importedCompleted'] === 'boolean' ? { importedCompleted: record['importedCompleted'] } : {}),
     ...(importedAt === undefined ? {} : { importedAt }),
     ...(url === undefined ? {} : { url }),
   };
