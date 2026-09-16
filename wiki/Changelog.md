@@ -19,6 +19,16 @@ Older entries below describe the software as it was at the time and are delibera
 
 ---
 
+## v0.476.4 -- Working capacity stays routable
+
+The local GPU gate now receives the parameter count already present in model ids such as `qwen3-8b`,
+so it no longer prices every routed local model as the unknown 16 GiB fallback. Runtime-native model
+names containing `/` also keep their `local/` routing identity. Google Gemini Live-only models are
+excluded from the ordinary stateless chat route, and an explicit API-key, account, or project-access
+denial pauses the affected provider after one attempt before AtlasMind searches elsewhere.
+
+---
+
 ## v0.476.3 -- Roadmap files stay aligned
 
 Repository agents now receive a managed instruction naming

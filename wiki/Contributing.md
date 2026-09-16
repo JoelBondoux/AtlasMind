@@ -94,8 +94,10 @@ build without noticing.
 AtlasMind has real runtime dependencies. **Don't package or publish with `--no-dependencies`** unless
 they've been bundled into the output first.
 
-If `vsce package` ever shows a workspace-memory directory in the package contents, treat that as a
-release blocker — it means somebody's project notes are about to ship to every user.
+If `vsce package` ever shows a workspace-memory directory or a local assistant worktree such as
+`.kilo/` in the package contents, treat that as a release blocker — it means project notes, fixtures,
+or token-shaped test data are about to ship to every user. Fix `.vscodeignore`; do not bypass the
+package secret scanner.
 
 ---
 

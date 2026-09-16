@@ -1,5 +1,5 @@
 import { afterEach, describe, expect, it, vi } from 'vitest';
-import { AnthropicAdapter, LocalEchoAdapter, OpenAiCompatibleAdapter, ProviderRegistry, encodeLocalEndpointModelId } from '../../src/providers/index.ts';
+import { AnthropicAdapter, LocalEchoAdapter, OpenAiCompatibleAdapter, ProviderRegistry, encodeLocalEndpointModelId, isGoogleChatCompletionsModel } from '../../src/providers/index.ts';
 import { coerceOpenAiContentText } from '../../src/providers/openai-compatible.ts';
 import type { CompletionRequest } from '../../src/providers/adapter.ts';
 
@@ -175,6 +175,42 @@ describe('LocalEchoAdapter', () => {
 
     expect(result.content).toBe('LM Studio reply');
     expect(result.model).toBe('local/lm-studio@@deepseek-r1-distill-qwen-7b');
+  });
+
+  it('carries the parameter count in a local model id into GPU admission', async () => {
+    const fetchMock = vi.fn(async (input: string) => {
+      if (input === 'http://127.0.0.1:1234/v1/chat/completions') {
+        return {
+          ok: true,
+          json: async () => ({
+            model: 'qwen/qwen3-8b',
+            choices: [{ finish_reason: 'stop', message: { role: 'assistant', content: 'Local reply' } }],
+            usage: { prompt_tokens: 10, completion_tokens: 3 },
+          }),
+        };
+      }
+      throw new Error(`Unexpected fetch: ${input}`);
+    });
+    vi.stubGlobal('fetch', fetchMock);
+    const release = vi.fn();
+    const acquire = vi.fn().mockResolvedValue({ rule: 'fits-headroom', release });
+    const adapter = new LocalEchoAdapter({
+      getEndpoints: () => [
+        { id: 'lm-studio', label: 'LM Studio', baseUrl: 'http://127.0.0.1:1234/v1' },
+      ],
+      arbiter: { acquire },
+    });
+
+    await adapter.complete(makeRequest({
+      model: encodeLocalEndpointModelId('lm-studio', 'qwen/qwen3-8b'),
+    }));
+
+    expect(acquire).toHaveBeenCalledWith(expect.objectContaining({
+      endpointId: 'lm-studio',
+      modelKey: 'qwen/qwen3-8b',
+      parametersBillions: 8,
+    }));
+    expect(release).toHaveBeenCalledTimes(1);
   });
 });
 
@@ -724,6 +760,37 @@ describe('multimodal provider payloads', () => {
 
     const result = await adapter.complete(makeRequest({ model: 'google/gemini-2.5-pro' }));
     expect(result.model).toBe('google/gemini-2.5-pro');
+  });
+
+  it('withholds Google Live models from the stateless chat-completions adapter', async () => {
+    const fetchMock = vi.fn().mockResolvedValue({
+      ok: true,
+      json: async () => ({
+        data: [
+          { id: 'models/gemini-3.8-flash' },
+          { id: 'models/gemini-3.8-live' },
+          { id: 'models/gemini-3.8-live-extended-thinking' },
+          { id: 'models/gemini-live-2.5-flash-preview' },
+        ],
+      }),
+      text: async () => '',
+      headers: { get: () => null },
+    });
+    vi.stubGlobal('fetch', fetchMock);
+    const adapter = new OpenAiCompatibleAdapter(
+      {
+        providerId: 'google',
+        baseUrl: 'https://generativelanguage.googleapis.com/v1beta/openai',
+        secretKey: 'test',
+        displayName: 'Google Gemini',
+        modelIdFilter: isGoogleChatCompletionsModel,
+      },
+      { get: vi.fn().mockResolvedValue('secret') } as never,
+    );
+
+    await expect(adapter.listModels()).resolves.toEqual(['google/gemini-3.8-flash']);
+    expect(isGoogleChatCompletionsModel('google/gemini-3.8-live-extended-thinking')).toBe(false);
+    expect(isGoogleChatCompletionsModel('google/gemini-3.8-flash')).toBe(true);
   });
 
   it('parses Gemini usage metadata fields when OpenAI token fields are absent', async () => {

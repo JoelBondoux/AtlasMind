@@ -13,7 +13,7 @@ export { ACP_MAX_MODEL_ROWS_PER_AGENT, ACP_MODEL_CATEGORY, ACP_MODEL_RULE_NOTE, 
 export { ACP_PERMISSION_METHOD, ACP_TOOL_KINDS, ACP_TOOL_CALL_STATUSES, type AcpMcpServer, type AcpPermissionOption, type AcpPermissionRequest, type AcpToolCall, type AcpToolKind } from './acpProtocol.js';
 export { ACP_HIDE_CONSOLE_SETTING, isAcpConsoleModeChosen } from './acpWindowsLauncher.js';
 export { CopilotAdapter } from './copilot.js';
-export { OpenAiCompatibleAdapter } from './openai-compatible.js';
+export { OpenAiCompatibleAdapter, isGoogleChatCompletionsModel } from './openai-compatible.js';
 export { OpenRouterAdapter } from './openrouter.js';
 export { lookupCatalog, type CatalogEntry } from './modelCatalog.js';
 export {

@@ -6,6 +6,23 @@ The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/),
 
 ## [Unreleased]
 
+## [0.476.4] - 2026-09-16
+
+### Fixed
+
+- Carry the parameter count encoded in a local model id into GPU admission, so an 8B LM Studio or
+  Ollama model is not priced as the conservative unknown 16 GiB fallback and refused on a card that
+  has room. Local model ids whose runtime-native name contains `/` also retain the `local/` routing
+  prefix instead of losing their provider identity.
+- Keep Google Gemini Live-only models out of the stateless OpenAI-compatible chat-completions route.
+  They remain available through the Live API, but no longer consume a model attempt on a request whose
+  transport can never serve them.
+- Treat explicit API-key, account, and project-access denials as provider-wide failures. AtlasMind now
+  pauses that provider after the first refusal, fails over elsewhere, and does not mislabel the refusal
+  as a model quality failure. Rate limits and billing refusals likewise no longer penalize one model.
+- Exclude local `.kilo` worktrees from VSIX packages, preventing repository fixtures and token-shaped
+  test data from entering the extension archive or tripping the package secret scanner.
+
 ## [0.476.3] - 2026-09-16
 
 ### Changed

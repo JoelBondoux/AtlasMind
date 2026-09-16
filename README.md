@@ -4,7 +4,7 @@
 
 <h1 align="center">AtlasMind</h1>
 
-<p align="center"><sub> · <strong>Current source version: 0.476.3</strong> · </sub></p>
+<p align="center"><sub> · <strong>Current source version: 0.476.4</strong> · </sub></p>
 
 
 <p align="center">
@@ -175,6 +175,15 @@ allow-list, redaction and file-withholding behaviour, retained metadata, provide
 important limits on overrides and compliance claims.
 
 ---
+
+## What's new in 0.476.4
+
+AtlasMind now keeps Gemini Live-only voice models out of its ordinary text chat route, pauses a cloud
+provider after an explicit API-key or project-access denial instead of trying another model behind the
+same refused account, and gives the local GPU gate the parameter count already present in model names
+such as `qwen3-8b`. That last fix lets an ordinary 8B Ollama or LM Studio model run when the card has
+room instead of being conservatively mistaken for an unknown 16 GiB model. Local `.kilo` worktrees are
+also excluded from VSIX packages so repository fixtures and token-shaped test data cannot ship.
 
 ## What's new in 0.476.3
 
