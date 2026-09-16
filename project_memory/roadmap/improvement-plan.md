@@ -3,10 +3,11 @@ This file is the developer-facing backlog AtlasMind should absorb into SSOT and 
 > Priority order matters: items nearer the top receive more weight, but AtlasMind should still weigh criticality, security, architecture, delivery risk, and fresh execution evidence before choosing the next task.
 ## Prioritized Backlog
 <!-- atlasmind:roadmap-items:start -->
-- [ ] AM dashboard visual identity has the boxes, bubbles etc of a very similar colour to the background sometimes making it difficult to read the various parse. Perhaps run a visual accessibiliy on all the dashboards. #mvp #critical
-- [ ] We need a Project Dashboard way of reviewing the status, design plan, roadmap items, any other associated relevant data of public release versions, such as tierd value releases. Perhaps include in this page a way to generate a roadmap Gate for each version listed. A visualiser of each version, its progress to a version mvp, any other links, statistics and observed data with AI suggestions. #mvp
-- [ ] Roadmap nodes should have a row of dots in them to represent the various Gates that item is included in. Each gate is auto assigned a colour, but it would also mean keeping the gate selector buttons on the dash screen of the canvas pages. #mvp
-- [ ] Roadmap Gates should have a function where there is an AM scan of the roadmap items against the Gate name and items are listed as potential candidates for inclusion. #mvp
+- [ ] We need a Project Dashboard way of reviewing the status, design plan, roadmap items, any other associated relevant data of public release versions, such as tierd value releases. Perhaps include in this page a way to generate a roadmap Gate for each version listed. A visualiser of each version, its progress to a version mvp, any other links, statistics and observed data with AI suggestions. #mvp <!-- rm:we-need-a-project-dashboard -->
+- [ ] On all the roadmap pages have a button to toggle visiblity of completed items (so the canvas would also show them - but colour coded accordingly. #mvp
+- [ ] AM dashboard visual identity has the boxes, bubbles etc of a very similar colour to the background sometimes making it difficult to read the various parse. Perhaps run a visual accessibiliy on all the dashboards. #mvp #critical <!-- rm:am-dashboard-visual-identity -->
+- [ ] Roadmap nodes should have a row of dots in them to represent the various Gates that item is included in. Each gate is auto assigned a colour, but it would also mean keeping the gate selector buttons on the dash screen of the canvas pages. #mvp <!-- rm:roadmap-nodes-should-have-a -->
+- [ ] Roadmap Gates should have a function where there is an AM scan of the roadmap items against the Gate name and items are listed as potential candidates for inclusion. #mvp <!-- rm:roadmap-gates-should-have-a -->
 - [ ] Roadmap canvas for the delivered page needs the same node management controls as the other canvas pages. #mvp <!-- rm:roadmap-canvas-for-the-deliv -->
 - [ ] Roadmap AutoTree doesn't bring nodes together enough and keeps many spread out off screen. #mvp <!-- rm:roadmap-autotree-doesn-t-bri -->
 - [ ] Team management surface to manage workload, estimated work times, rotas, and integrate with common rota management applications. <!-- rm:team-management-surface-to-m -->
@@ -53,14 +54,14 @@ This file is the developer-facing backlog AtlasMind should absorb into SSOT and 
 - [x] **Utilities:** Auth, Payments, Email, Analytics, i18n, Accessibility #mvp #critical <!-- rm:utilities-auth-payments-emai -->
 - [x] **Semantic codebase index (`@codebase` / embeddings RAG):** Vector index over actual source so agents retrieve relevant code, not just remembered SSOT decisions. Local embedding option (Ollama) keeps it bring-your-own-model and privacy-friendly. Biggest single capability gap; benefits all personas. #mvp #critical <!-- rm:semantic-codebase-index-code -->
 - [x] Eval / regression harness for agents: pin "golden" tasks and detect when an agent definition or model swap regresses quality (mitigates the risk of the auto-update cadence). <!-- rm:eval-regression-harness-for -->
-- [x] Add an approval flow system for changes, ideas -> roadmaps, documentation, legal and commercial changes. #mvp <!-- rm:add-an-approval-flow-system -->
 - [x] Context window / token budget visualizer: show what's in context and let users prune it. #mvp <!-- rm:context-window-token-budget -->
+- [x] SAST / dependency-CVE integration wired into the Security and Dependency Manager agents via an advisory feed. #mvp <!-- rm:sast-dependency-cve-integrat -->
+- [x] Add an approval flow system for changes, ideas -> roadmaps, documentation, legal and commercial changes. #mvp <!-- rm:add-an-approval-flow-system -->
+- [x] **Promote worktree isolation toward near-term.** AtlasMind already runs parallel subtask batches (`taskScheduler.ts`, `Promise.all`, cap 5) but on a **single shared working tree** — a latent write-race that is a correctness bug under the safety-first rule. Worktree-per-batch isolation… #mvp <!-- rm:promote-worktree-isolation-t -->
 - [x] Create more smart content in commits so workflows and analytics can be mapped to them. #mvp <!-- rm:create-more-smart-content-in -->
 - [x] Extend the test surface to have a test management interface for testing teams. Create test cases, have discreet context for tests assets that are name associated to testers #mvp <!-- rm:extend-the-test-surface-to-h -->
-- [x] SAST / dependency-CVE integration wired into the Security and Dependency Manager agents via an advisory feed. #mvp <!-- rm:sast-dependency-cve-integrat -->
 - [x] Add a built-in or utilise Git-Hub projects Kanban board. #mvp <!-- rm:add-a-built-in-or-utilise-gi -->
 - [x] Add an AM logo to the generic Source Control side panel next to the icon "Create Pull Request" to have AM generate a commit message. <!-- rm:add-an-am-logo-to-the-generi -->
-- [x] **Promote worktree isolation toward near-term.** AtlasMind already runs parallel subtask batches (`taskScheduler.ts`, `Promise.all`, cap 5) but on a **single shared working tree** — a latent write-race that is a correctness bug under the safety-first rule. Worktree-per-batch isolation… #mvp <!-- rm:promote-worktree-isolation-t -->
 - [x] Sometimes when deleting all sessions in AM chat window, the chat history of an old session stays on the screen and doesn't refresh to a blank chat. #mvp #critical <!-- rm:sometimes-when-deleting-all -->
 - [x] Explore a github pages hosted (within the host repo) web portal for AM Project Manager. #mvp <!-- rm:explore-a-github-pages-hoste -->
 - [x] The Lens surfaces are not all accessible as they need a file selected. #mvp <!-- rm:the-lens-surfaces-are-not-al -->

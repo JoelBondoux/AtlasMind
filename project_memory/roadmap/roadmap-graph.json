@@ -595,6 +595,11 @@
         "sourceTitle": "Property-Based is enabled with no evidence it runs",
         "raisedAt": "2026-09-02T23:21:37.298Z"
       }
+    },
+    {
+      "id": "we-need-a-project-dashboard",
+      "normalizedText": "we need a project dashboard way of reviewing the status, design plan, roadmap items, any other associated relevant data of public release versions, such as tierd value releases. perhaps include in this page a way to generate a roadmap gate for each version listed. a visualiser of each version, its progress to a version mvp, any other links, statistics and observed data with ai suggestions.",
+      "planPath": "project_memory/roadmap/plans/we-need-a-project-dashboard-we-need-a-project-dashboard-way-of-reviewing-the.md"
     }
   ],
   "edges": [
@@ -1223,5 +1228,5 @@
   "suggestLinks": true,
   "dismissed": [],
   "layoutOrientation": "vertical",
-  "updatedAt": "2026-09-16T17:13:14.387Z"
+  "updatedAt": "2026-09-16T17:49:33.918Z"
 }

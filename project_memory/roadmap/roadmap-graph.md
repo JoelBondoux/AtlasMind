@@ -4,7 +4,7 @@
 > `improvement-plan.md`; this file holds the deadlines, estimates, branch names
 > and dependency links that a markdown checkbox cannot carry.
 
-Last updated: 2026-09-16T17:13:14.387Z
+Last updated: 2026-09-16T17:49:33.918Z
 
 Suggested links: on — AtlasMind proposes links, and nothing is applied until somebody accepts it
 
@@ -68,6 +68,7 @@ Layout: vertical — the tree runs top to bottom. Nodes moved by hand keep their
 | `pay-down-mutation-testing-is` | pay down: mutation testing is enabled with no evidence it runs | — | — | derived | yes | 2026-09-02 | — |
 | `pay-down-performance-is-enab` | pay down: performance is enabled with no evidence it runs | — | — | derived | yes | 2026-09-02 | — |
 | `pay-down-property-based-is-e` | pay down: property-based is enabled with no evidence it runs | — | — | derived | yes | 2026-09-02 | — |
+| `we-need-a-project-dashboard` | we need a project dashboard way of reviewing the status, design plan, roadmap it | — | — | derived | yes | — | — |
 
 ## Links
 
