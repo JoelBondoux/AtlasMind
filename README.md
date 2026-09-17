@@ -4,7 +4,7 @@
 
 <h1 align="center">AtlasMind</h1>
 
-<p align="center"><sub> · <strong>Current source version: 0.480.0</strong> · </sub></p>
+<p align="center"><sub> · <strong>Current source version: 0.480.1</strong> · </sub></p>
 
 
 <p align="center">
@@ -175,6 +175,12 @@ allow-list, redaction and file-withholding behaviour, retained metadata, provide
 important limits on overrides and compliance claims.
 
 ---
+
+## What's new in 0.480.1
+
+The Editions **Import design document…** action now reaches the extension host and opens its source
+picker. The import-preview response is handled on the host-message path rather than in the click
+dispatcher, removing the browser-side error that previously made the button appear to do nothing.
 
 ## What's new in 0.480.0
 

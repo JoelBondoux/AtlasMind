@@ -391,6 +391,8 @@ source digest plus current matrix and relationship evidence before a confirmed i
 name a matrix entity and a stored file/Issue-link index, but cannot choose a filesystem path, Issue number,
 or roadmap text. Roadmap links store durable node ids; matrix removal and roadmap removal remain separate
 confirmed acts, and unlinking an Issue changes neither the Issue nor the feature.
+The import click and import-preview reply intentionally use separate dispatchers: the click path posts
+the opaque scan request, and `handleSecondaryMessage` receives the host-owned preview.
 
 The Versions page uses the same boundary for its public-version portfolio. It sits beside Release under
 **Ship & record**, with a declared cross-page route from Release. The host joins refreshed GitHub

@@ -6,6 +6,15 @@ The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/),
 
 ## [Unreleased]
 
+## [0.480.1] - 2026-09-17
+
+### Fixed
+
+- Make the Editions **Import design document…** button post its scan request instead of throwing a
+  browser-side `ReferenceError` before the message reached the extension host.
+- Handle import-preview replies in the dashboard's host-message dispatcher, with a regression contract
+  that keeps host replies out of the delegated click handler.
+
 ## [0.480.0] - 2026-09-17
 
 ### Added

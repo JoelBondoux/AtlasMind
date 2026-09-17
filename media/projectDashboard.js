@@ -1291,6 +1291,24 @@
       return;
     }
 
+    if (message.type === 'releaseMatrixImportPreview') {
+      const payload = message.payload || {};
+      state.editionImportBusy = false;
+      state.editionImportPreview = payload.preview || null;
+      state.editionImportNotice = typeof payload.notice === 'string' ? payload.notice : '';
+      state.editionImportSelections = {};
+      for (const feature of (state.editionImportPreview && state.editionImportPreview.features) || []) {
+        state.editionImportSelections[feature.importId] = {
+          include: true,
+          linkRoadmap: Boolean(feature.roadmap && feature.roadmap.selectedByDefault),
+          linkIssue: Boolean(feature.issue && feature.issue.selectedByDefault),
+        };
+      }
+      announce(state.editionImportNotice);
+      render();
+      return;
+    }
+
     if (message.type === 'dataPrivacyTestResult') {
       state.privacyTestResult = message.payload || null;
       render();
@@ -2395,23 +2413,6 @@
       return;
     }
 
-    if (message.type === 'releaseMatrixImportPreview') {
-      const payload = message.payload || {};
-      state.editionImportBusy = false;
-      state.editionImportPreview = payload.preview || null;
-      state.editionImportNotice = typeof payload.notice === 'string' ? payload.notice : '';
-      state.editionImportSelections = {};
-      for (const feature of (state.editionImportPreview && state.editionImportPreview.features) || []) {
-        state.editionImportSelections[feature.importId] = {
-          include: true,
-          linkRoadmap: Boolean(feature.roadmap && feature.roadmap.selectedByDefault),
-          linkIssue: Boolean(feature.issue && feature.issue.selectedByDefault),
-        };
-      }
-      announce(state.editionImportNotice);
-      render();
-      return;
-    }
     if (action === 'edition-filter') {
       state.editionStatusFilter = payload || 'all';
       render();

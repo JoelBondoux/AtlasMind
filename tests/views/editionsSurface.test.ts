@@ -80,6 +80,20 @@ describe('Editions dashboard surface', () => {
     expect(HOST).toContain('Existing names, statuses, pricing, parameters and file links are not replaced.');
   });
 
+  it('keeps import replies in the message handler and scan actions in the click handler', () => {
+    const secondaryStart = WEBVIEW.indexOf('function handleSecondaryMessage(message)');
+    const secondaryEnd = WEBVIEW.indexOf('// The header sits outside #dashboard-root', secondaryStart);
+    const clickStart = WEBVIEW.indexOf("root?.addEventListener('click'", secondaryEnd);
+    const clickEnd = WEBVIEW.indexOf("root?.addEventListener('change'", clickStart);
+    expect(secondaryStart).toBeGreaterThan(-1);
+    expect(secondaryEnd).toBeGreaterThan(secondaryStart);
+    expect(clickStart).toBeGreaterThan(secondaryEnd);
+    expect(clickEnd).toBeGreaterThan(clickStart);
+    expect(WEBVIEW.slice(secondaryStart, secondaryEnd)).toContain("message.type === 'releaseMatrixImportPreview'");
+    expect(WEBVIEW.slice(clickStart, clickEnd)).toContain("action === 'edition-import-scan'");
+    expect(WEBVIEW.slice(clickStart, clickEnd)).not.toContain("message.type === 'releaseMatrixImportPreview'");
+  });
+
   it('shows reviewable roadmap and Issue matches and keeps their navigation host-owned', () => {
     expect(WEBVIEW).toContain('No plausible roadmap match');
     expect(WEBVIEW).toContain('No plausible Issue match');
