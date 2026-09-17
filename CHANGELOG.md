@@ -6,6 +6,15 @@ The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/),
 
 ## [Unreleased]
 
+## [0.480.2] - 2026-09-17
+
+### Fixed
+
+- Include root-level Markdown, text, and JSON files explicitly in Editions discovery, then deduplicate
+  them against the bounded recursive scan.
+- Recognize roadmap filenames and row-oriented tier-gate tables whose package cells declare combined
+  offerings and feature lists, such as `Free/Starter: core gallery, product tags`.
+
 ## [0.480.1] - 2026-09-17
 
 ### Fixed

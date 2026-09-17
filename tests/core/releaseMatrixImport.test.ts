@@ -23,14 +23,29 @@ const DESIGN = `# Product editions
 | 4K export | Export | 1080p limit | In progress |
 `;
 
+const PACKAGING_ROADMAP = `# Product roadmap
+
+| Market observation | Roadmap response | Target package |
+| --- | --- | --- |
+| Basic gallery parity must be instant and inexpensive. | One collection-to-lookbook wizard and mobile-safe defaults. | Free/Starter: core gallery, product tags, responsive output, basic templates, bounded trial-to-value. |
+| Video and UGC are parity expectations. | Add authenticated social import and vertical template packs. | Starter/Pro: video/reels, UGC workflow, translation, templates, brand-aware styling. |
+| Low-cost tools cannot prove revenue. | Lead with attribution and guided optimisation. | Pro: campaign canvas, Image Studio, full attribution, SEO/distribution, recommendations, automation. |
+| Enterprise buyers pay for governance. | Keep experiments and auditability in Enterprise. | Enterprise: experimentation, governance, agency scale, BI, domains, advanced AI controls. |
+`;
+
 describe('release design discovery', () => {
   it('ranks product matrices above unrelated repository documents', () => {
     const candidates = discoverReleaseDesignCandidates([
       { path: 'docs/product-tiers.md', content: DESIGN },
+      { path: 'Roadmap.md', content: PACKAGING_ROADMAP },
       { path: 'CHANGELOG.md', content: '# Changelog\n\n## 1.0.0\n- Fixed a feature.' },
       { path: 'docs/notes.md', content: 'Meeting notes.' },
     ]);
     expect(candidates[0]).toMatchObject({ path: 'docs/product-tiers.md' });
+    expect(candidates).toContainEqual(expect.objectContaining({
+      path: 'Roadmap.md',
+      reasons: expect.arrayContaining(['the filename identifies a roadmap', 'it contains a tier-gate table']),
+    }));
     expect(candidates.some(candidate => candidate.path === 'CHANGELOG.md')).toBe(false);
   });
 });
@@ -57,6 +72,30 @@ describe('release design parsing', () => {
     expect(plan.tiers.map(tier => tier.name)).toEqual(['Free', 'Pro']);
     expect(plan.features.map(feature => feature.name)).toEqual(['Offline mode', 'Local export', 'Team sharing']);
     expect(plan.cells.find(cell => cell.featureImportId === 'local-export')?.status).toBe('released');
+  });
+
+  it('extracts tier gates from row-oriented target-package roadmap tables', () => {
+    const plan = parseReleaseDesignDocument('Roadmap.md', PACKAGING_ROADMAP);
+    expect(plan.tiers.map(tier => tier.name)).toEqual(['Free', 'Starter', 'Pro', 'Enterprise']);
+    expect(plan.features.map(feature => feature.name)).toEqual(expect.arrayContaining([
+      'core gallery',
+      'product tags',
+      'video/reels',
+      'campaign canvas',
+      'full attribution',
+      'experimentation',
+      'advanced AI controls',
+    ]));
+    expect(plan.cells).toEqual(expect.arrayContaining([
+      expect.objectContaining({ featureImportId: 'core-gallery', tierImportId: 'free', status: 'planned' }),
+      expect.objectContaining({ featureImportId: 'core-gallery', tierImportId: 'starter', status: 'planned' }),
+      expect.objectContaining({ featureImportId: 'video-reels', tierImportId: 'starter', status: 'planned' }),
+      expect.objectContaining({ featureImportId: 'video-reels', tierImportId: 'pro', status: 'planned' }),
+      expect.objectContaining({ featureImportId: 'campaign-canvas', tierImportId: 'pro', status: 'planned' }),
+      expect.objectContaining({ featureImportId: 'experimentation', tierImportId: 'enterprise', status: 'planned' }),
+    ]));
+    expect(plan.cells.find(cell => cell.featureImportId === 'core-gallery' && cell.tierImportId === 'free'))
+      .not.toHaveProperty('parameters');
   });
 
   it('accepts a structured JSON design shape', () => {

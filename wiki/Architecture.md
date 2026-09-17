@@ -384,9 +384,11 @@ plugins, bonuses, or custom shapes), feature rows, and explicit entitlement cell
 `src/core/releaseMatrix.ts` model sanitizes and bounds every record, rejects workspace-file traversal,
 refuses future schemas, and derives decision coverage plus per-offering readiness without treating an
 absent cell as an exclusion. `src/core/releaseMatrixImport.ts` ranks likely workspace design documents,
-parses explicit Markdown matrices/tier lists and structured JSON, proposes conservative roadmap/Issue
-relationships, and merges reviewed selections without replacing existing decisions. The host bounds the
-scan, checks real paths, offers a native source chooser, retains previews only in memory, and re-reads the
+parses explicit Markdown matrices, row-oriented package gates, tier lists, and structured JSON, proposes
+conservative roadmap/Issue relationships, and merges reviewed selections without replacing existing
+decisions. Combined declarations such as `Free/Starter:` create separate offering relationships for the
+declared feature list. The host explicitly includes root documents, deduplicates them against the bounded
+recursive scan, checks real paths, offers a native source chooser, retains previews only in memory, and re-reads the
 source digest plus current matrix and relationship evidence before a confirmed import. The browser may
 name a matrix entity and a stored file/Issue-link index, but cannot choose a filesystem path, Issue number,
 or roadmap text. Roadmap links store durable node ids; matrix removal and roadmap removal remain separate

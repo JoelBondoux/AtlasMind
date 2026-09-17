@@ -19,6 +19,16 @@ Older entries below describe the software as it was at the time and are delibera
 
 ---
 
+## v0.480.2 -- Editions finds root roadmaps and package gates
+
+Editions discovery now includes supported product-design documents at the repository root instead of
+depending on the recursive glob to surface them. Roadmap tables written as package rows are also
+understood: a declaration such as `Free/Starter: core gallery, product tags` becomes Free and Starter
+offerings linked to both named features in the review preview, while prose outside declared table cells
+remains uninferred.
+
+---
+
 ## v0.480.1 -- The Editions import button opens its picker
 
 The Editions **Import design document…** button now sends its scan request and opens the product-design
