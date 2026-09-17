@@ -492,6 +492,12 @@ already contained with no unique commits, and checks open pull requests. Local d
 delete flag — never the force one. Remote deletion additionally needs a live hash match and the exact
 branch name typed. **A missing proof is a refusal, not an approval prompt.**
 
+**Automatic roadmap reconciliation cannot borrow another checkout's plan.** The Dashboard excludes the
+complete AtlasMind SSOT, backups, fixtures and known agent worktrees, then checks the resolved ancestry
+of every surviving candidate for a nested `.git` boundary. Unknown worktree vendors and symlink escapes
+therefore fail closed too. Only checkbox rows are automatic; bullet-only documents, duplicate-state
+conflicts and deliberately broader sources require explicit Markdown import.
+
 **URLs are untrusted.** Routed prompts carry a standing rule: validate the scheme and host, and actually
 check a link works before presenting it as working.
 

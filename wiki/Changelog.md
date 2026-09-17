@@ -19,6 +19,50 @@ Older entries below describe the software as it was at the time and are delibera
 
 ---
 
+## v0.480.0 -- Editions imports product design without erasing decisions
+
+Project Dashboard → **Editions** now scans the repository for likely product-design documents and asks
+you to confirm the source, with a native file chooser when the right document was not ranked. Markdown
+feature-comparison tables, named-tier feature lists, and structured JSON become a review screen rather
+than an immediate write: proposed offerings, features, cells, warnings, and source links are all visible,
+and any feature can be excluded.
+
+AtlasMind also proposes conservative matches from each imported feature to the current roadmap and
+loaded GitHub Issues. Strong candidates start selected, possible ones require a deliberate choice, and
+weak coincidences stay out. Existing matrix decisions win over imports, a source changed since preview
+is refused, and accepted Issue links can be opened or unlinked without editing the Issue itself.
+
+---
+
+## v0.479.0 -- Designed editions become a feature matrix
+
+Project Dashboard → **Editions** now records the product shape intended for the public: Free,
+Student, Pro, expansions, DLC, plugins, bonuses, or any custom offering can be a column, with features
+as rows and explicit status/parameter decisions at every intersection. Columns, rows, and cells can be
+added, edited, and removed in place; dates, pricing, notes, current status, and workspace files remain
+visible from the matrix. Each data point can also be added to or removed from the roadmap through a
+separately confirmed tracked-file change.
+
+Coverage, status-distribution, and per-offering readiness graphics make gaps discoverable without
+turning them into false decisions: an empty cell still means *not assessed*, while **not offered** is a
+deliberate entitlement choice. The existing Versions page remains the evidence-led history of what
+actually shipped.
+
+---
+
+## v0.478.1 -- Roadmap reconciliation stays in the open repository
+
+Opening the Roadmap dashboard no longer discovers stale roadmaps inside Kilo or other nested Git
+worktrees. Automatic discovery also excludes AtlasMind's complete SSOT, common backup copies and test
+fixtures before reading Markdown. If genuine secondary roadmaps repeat one title, AtlasMind proposes it
+once; if their checkbox states disagree, it leaves the title out and asks for an explicit source choice.
+Bullet-only documents are left to deliberate Markdown import instead of treating their narrative lists
+as top-level work.
+The confirmation now says exactly what cancellation stops and separately names the Dashboard setup
+writes that may already have maintained anchors or agent instructions.
+
+---
+
 ## v0.478.0 -- Public versions get a page of their own
 
 The public-version portfolio is now a first-class **Versions** page under **Ship & record**, rather

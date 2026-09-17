@@ -188,11 +188,21 @@ export function isWorkspaceRoadmapMarkdownPath(
   const normalized = String(relativePath ?? '').replace(/\\/g, '/').replace(/^\.\//, '');
   const lowered = normalized.toLowerCase();
   const segments = lowered.split('/').filter(Boolean);
-  if (segments.length === 0 || !lowered.endsWith('.md') || segments.includes('node_modules') || segments.includes('.git')) {
+  if (segments.length === 0 || !lowered.endsWith('.md') || segments.includes('..')
+    || segments.includes('node_modules') || segments.includes('.git')) {
     return false;
   }
-  if (lowered.includes('/.claude/worktrees/') || lowered.startsWith('.claude/worktrees/')
-    || lowered.includes('/.agents/worktrees/') || lowered.startsWith('.agents/worktrees/')) {
+  const worktreeOwners = new Set(['.agents', '.claude', '.codex', '.cursor', '.kilo', '.roo']);
+  if (segments.includes('.kilo') || segments.some((segment, index) =>
+    segment === 'worktrees' && index > 0 && worktreeOwners.has(segments[index - 1] ?? ''))) {
+    return false;
+  }
+  const nonSourceDirectories = new Set([
+    'test', 'tests', '__tests__',
+    'fixture', 'fixtures', '__fixtures__',
+    'baseline', 'baselines', '__approvals__',
+  ]);
+  if (segments.some(segment => nonSourceDirectories.has(segment))) {
     return false;
   }
 
@@ -201,9 +211,21 @@ export function isWorkspaceRoadmapMarkdownPath(
     .replace(/^\.\//, '')
     .replace(/^\/+|\/+$/g, '')
     .toLowerCase();
-  if (normalizedSsot && (lowered === `${normalizedSsot}/roadmap`
-    || lowered.startsWith(`${normalizedSsot}/roadmap/`))) {
-    return false;
+  if (normalizedSsot) {
+    // The whole SSOT is canonical state, not a secondary import source. Limiting
+    // this to its roadmap folder let roadmap-named agent and decision documents
+    // feed back into the backlog they were derived from.
+    if (lowered === normalizedSsot || lowered.startsWith(`${normalizedSsot}/`)) {
+      return false;
+    }
+    // Common adjacent backup names are stale snapshots by definition. An
+    // explicit Markdown import remains available if one is intentionally the
+    // source; the load-time pass must not guess that an archive is current.
+    const backupRoots = ['old', 'backup', 'bak', 'archive']
+      .flatMap(suffix => [`${normalizedSsot}_${suffix}`, `${normalizedSsot}-${suffix}`, `${normalizedSsot}.${suffix}`]);
+    if (backupRoots.some(root => lowered === root || lowered.startsWith(`${root}/`))) {
+      return false;
+    }
   }
 
   const filename = segments.at(-1) ?? '';
@@ -375,12 +397,18 @@ function parseMarkdownRoadmapItemsWithPolicy(
   const notes: string[] = [];
   const items: RoadmapImportItem[] = [];
   const seen = new Set<string>();
+  const automaticByTitle = new Map<string, { item: RoadmapImportItem; paths: string[]; conflictingState: boolean }>();
   const exclusions: AutomaticRoadmapExclusion[] = [];
   const excludedSeen = new Set<string>();
   const ignoredPlanPaths: string[] = [];
+  const ignoredBulletOnlyPaths: string[] = [];
   let ignoredValidationItems = 0;
+  let collapsedAutomaticDuplicates = 0;
 
-  const considered = files.slice(0, MAX_IMPORT_FILES);
+  const considered = (policy === 'automatic'
+    ? [...files].sort((left, right) => left.path.localeCompare(right.path))
+    : [...files])
+    .slice(0, MAX_IMPORT_FILES);
   if (files.length > considered.length) {
     notes.push(`${files.length - considered.length} more file${files.length - considered.length === 1 ? '' : 's'} matched the glob and ${files.length - considered.length === 1 ? 'was' : 'were'} not read. Narrow it if the roadmap really is spread that widely.`);
   }
@@ -392,6 +420,10 @@ function parseMarkdownRoadmapItemsWithPolicy(
       ignoredPlanPaths.push(file.path);
     }
     const hasCheckbox = lines.some(line => /^\s*(?:[-*+]|\d+[.)])\s+\[[ xX✓~-]?\]/.test(line));
+    if (policy === 'automatic' && !hasCheckbox) {
+      ignoredBulletOnlyPaths.push(file.path);
+      continue;
+    }
     let heading = '';
     let fenced = false;
     let fromFile = 0;
@@ -459,12 +491,50 @@ function parseMarkdownRoadmapItemsWithPolicy(
       }
       seen.add(sourceId);
       fromFile += 1;
-      items.push({
+      const item: RoadmapImportItem = {
         sourceId,
         title,
         completed: checkbox ? DONE_CHECKBOX.test(`[${checkbox[1] ?? ''}]`) : false,
         ...(heading === '' ? {} : { context: heading }),
-      });
+      };
+      if (policy === 'automatic') {
+        const titleKey = normalizeImportedTitle(title);
+        const previous = automaticByTitle.get(titleKey);
+        if (previous !== undefined) {
+          collapsedAutomaticDuplicates += 1;
+          previous.paths.push(file.path);
+          previous.conflictingState ||= previous.item.completed !== item.completed;
+          continue;
+        }
+        automaticByTitle.set(titleKey, { item, paths: [file.path], conflictingState: false });
+      }
+      items.push(item);
+    }
+  }
+
+  if (policy === 'automatic' && collapsedAutomaticDuplicates > 0) {
+    notes.push(
+      `Automatic reconciliation collapsed ${collapsedAutomaticDuplicates} repeated checklist row${collapsedAutomaticDuplicates === 1 ? '' : 's'} `
+      + 'that appeared in more than one file; the first path in lexical order retains the import key.',
+    );
+  }
+  if (policy === 'automatic') {
+    const conflictingTitles = new Set(
+      [...automaticByTitle.entries()]
+        .filter(([, value]) => value.conflictingState)
+        .map(([titleKey]) => titleKey),
+    );
+    if (conflictingTitles.size > 0) {
+      for (let index = items.length - 1; index >= 0; index -= 1) {
+        const item = items[index];
+        if (item !== undefined && conflictingTitles.has(normalizeImportedTitle(item.title))) {
+          items.splice(index, 1);
+        }
+      }
+      notes.push(
+        `Automatic reconciliation ignored ${conflictingTitles.size} repeated title${conflictingTitles.size === 1 ? '' : 's'} `
+        + 'whose checkbox state disagreed across files; choose the intended source with the manual Markdown import.',
+      );
     }
   }
 
@@ -474,6 +544,14 @@ function parseMarkdownRoadmapItemsWithPolicy(
     notes.push(
       `Automatic reconciliation ignored ${ignoredPlanPaths.length} detailed plan file${ignoredPlanPaths.length === 1 ? '' : 's'} (${preview}${remainder}). `
       + 'Use the manual Markdown import only if every checklist row in those files is intended as top-level roadmap work.',
+    );
+  }
+  if (ignoredBulletOnlyPaths.length > 0) {
+    const preview = ignoredBulletOnlyPaths.slice(0, 5).join(', ');
+    const remainder = ignoredBulletOnlyPaths.length > 5 ? `, and ${ignoredBulletOnlyPaths.length - 5} more` : '';
+    notes.push(
+      `Automatic reconciliation ignored ${ignoredBulletOnlyPaths.length} bullet-only Markdown file${ignoredBulletOnlyPaths.length === 1 ? '' : 's'} (${preview}${remainder}). `
+      + 'Without checkboxes, ordinary narrative lists cannot be distinguished safely from top-level work; use the manual Markdown import when the bullets are intentional roadmap items.',
     );
   }
   if (ignoredValidationItems > 0) {

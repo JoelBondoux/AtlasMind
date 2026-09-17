@@ -862,6 +862,16 @@ Project Dashboard values are untrusted even when they came from AtlasMind's own 
 User-authored Director text reaches the DOM only through `textContent`, and delivery-stage editing accepts
 only an explicit set of property writes. Altered DOM attributes cannot request recursive object paths.
 
+## Roadmap discovery stays in one repository
+
+Opening Roadmap performs a local, bounded check for secondary Markdown roadmaps. Candidate names are
+not enough authority to cross a repository boundary: AtlasMind excludes its complete SSOT, common
+backup and test-fixture locations, and known agent worktrees, then resolves every remaining file and
+rejects it if an ancestor below the open workspace contains another `.git` marker. Symlink escapes and
+unreadable boundaries fail closed. Automatic discovery requires checkboxes, collapses repeated titles,
+and refuses contradictory checkbox states; choosing **Import Markdown** explicitly is the way to opt
+into a broader source. No proposed import is written until its confirmation is accepted.
+
 ---
 
 ## Threat model, briefly

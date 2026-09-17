@@ -433,9 +433,18 @@ describe('importing somebody else‘s roadmap', () => {
     const ensure = HOST_PANEL.slice(HOST_PANEL.indexOf('private async ensureRoadmapSynchronization'));
     expect(ensure.slice(0, 8000)).toContain('syncRoadmapInstructions(context.workspaceRoot, context.ssotPath)');
     expect(ensure.slice(0, 8000)).toContain('isWorkspaceRoadmapMarkdownPath(entry.relative, context.ssotPath)');
+    expect(ensure.slice(0, 8000)).toContain('isInsideNestedGitCheckout(context.workspaceRoot, entry.uri.fsPath)');
+    expect(ensure.slice(0, 8000)).toContain('**/.kilo/**');
+    expect(ensure.slice(0, 8000)).toContain('${ssotGlob}/**');
     expect(ensure.slice(0, 8000)).toContain('planRoadmapImport(read, existingLines)');
     expect(ensure.slice(0, 8000)).toContain("'Reconcile now'");
     expect(ensure.slice(0, 8000)).toContain("confirmation !== 'Reconcile now'");
+  });
+
+  it('does not imply that cancelling an import reverses separate dashboard setup writes', () => {
+    expect(HOST_PANEL).toContain('Cancelling this confirmation does not apply the listed import');
+    expect(HOST_PANEL).toContain('roadmap anchors and managed agent instructions are maintained separately');
+    expect(HOST_PANEL).not.toContain('Cancelling writes nothing.');
   });
 
   it('reuses the issue list already read rather than fetching a second copy', () => {
