@@ -772,6 +772,34 @@ Expensive branch evidence is on demand. The readiness chip is informational: onl
 
 Cleanup is intentionally not a generic Git-delete bridge. A candidate card only opens `handleReviewBranchCleanup`: remote-backed work is fetched first, then the id is resolved again. Current/default/protected/other-worktree/open-PR branches are refused; both current and production commits must resolve; unique commits outside both must be zero. Local removal is `git branch -d -- <host ref>` only. Remote removal additionally requires loaded GitHub PR evidence, production containment, `ls-remote` returning the exact reviewed hash, a modal evidence review, and an exact branch-name entry before `git push --delete`. Never add `-D`, a force push, or a browser-supplied ref to this path. The source-level guards live in `tests/views/branchDashboardSafety.test.ts`; pure verdict and CODEOWNERS rules live in `tests/core/branchDashboard.test.ts`.
 
+The Project Dashboard's **Editions** page is the editable design-time complement to Versions. Its
+table is intentionally literal: offering/tier/add-on records are columns, feature records are rows,
+and a persisted cell is one explicit entitlement decision with status, limits, supporting files, and
+an optional roadmap relationship. An absent cell renders as unknown rather than as not offered.
+`src/core/releaseMatrix.ts` is pure and owns the versioned document plus sanitizers, bounded mutation
+helpers, entity-key grammar, and summary metrics. The panel reads and writes
+`project_memory/product/release-matrix.json` beneath the configured SSOT path. The webview posts only
+bounded form fields or opaque entity keys; before writing, the host re-reads the document and resolves
+the named record. A file button carries `{ entityKey, index }`, so the host—not the page—selects the
+workspace-relative path. Roadmap add/remove uses the same entity-key boundary, durable graph ids, and
+separate modal confirmations; removing a column/row/cell leaves its roadmap item, while removing the
+roadmap item leaves the matrix record. CSS-only status distribution and per-offering readiness charts
+are derived from the same snapshot as the table.
+
+`src/core/releaseMatrixImport.ts` keeps Editions import parsing and relationship scoring testable and
+VS Code-free. The host scans at most 220 supported text documents while excluding generated trees,
+accepts only regular files of at most 600 KB whose real path remains below the workspace root, and then
+always presents a Quick Pick with an explicit browse option. Parsing recognizes explicit Markdown
+feature matrices, named offering headings with feature lists, and structured JSON; narrative prose does
+not manufacture features. The webview reviews bounded feature selections and roadmap/Issue suggestions.
+The host retains the plan only in memory, refuses a changed source digest, revalidates live relationship
+ids, re-reads the matrix, and confirms the exact merge. Imports append source relationships but preserve
+existing names, statuses, pricing, parameters, file links, and cell decisions. Issue links are opened and
+removed through stored feature/index pairs, so the browser never supplies a repository Issue number.
+Core contracts live in `tests/core/releaseMatrix.test.ts` and
+`tests/core/releaseMatrixImport.test.ts`; boundary and surface wiring live in
+`tests/views/editionsSurface.test.ts` plus the shared nav/message-parity tests.
+
 The Project Dashboard's **Versions** page treats fetched GitHub releases as a public-version portfolio rather than a flat tag log. It is a first-class **Ship & record** destination beside **Release**, which now links to it instead of burying the portfolio below release-readiness and DORA charts. The page can load or refresh its GitHub evidence directly. `buildPublicReleasePortfolio` in `projectDashboardPanel.ts` is the deterministic join: drafts are excluded, previews stay visible but outside DORA deployment metrics, semantic tags are labelled major/minor/patch value tiers, and each version is matched to a roadmap gate only by the gate id derived from that tag. The matching gate's existing route supplies completed/total progress; no gate leaves progress absent rather than manufacturing 0%. Roadmap graph records supply filed-plan coverage, while the webview receives only the graph node id for an **Open plan** action. **Create roadmap gate** posts only the tag, re-resolves it against the last host snapshot, and names the tracked roadmap file in a modal before writing an empty gate — it never guesses which items belong there. GitHub release links are likewise rebuilt from the host-held repository slug and tag. **Ask AtlasMind to review** posts only the tag; the host reconstructs a bounded prompt from the release, gate, milestone, and plan evidence and routes it through the configured Dashboard destination. Focused contracts live in `tests/views/dashboardNav.test.ts`, `tests/views/workflowSurface.test.ts`, and `tests/views/dashboardMessageParity.test.ts`.
 
 The Project Dashboard also includes **Issues** and **Pull Requests** pages (backed by `src/core/issueTracker.ts`, `src/core/pullRequestTracker.ts`, and the `gh` CLI). The dashboard's ready handshake starts one shared read of issues, PRs, CI, releases, labels, and milestones; revealing it again retries only after a five-minute freshness window, and the in-flight guard prevents a double-click or concurrent reveal from multiplying requests. The dashboard-wide Refresh button and either GitHub page explicitly refresh the same snapshot. Data remains absent until a read succeeds, so unavailable GitHub is never reported as zero issues or zero PRs, and both pages receive independent navigation badges once loaded. Issues shows open / unassigned / stale counts, label and assignee distributions, search/filter controls, and a **Tracking coverage** card combining open issues, commits since the latest tag, and open PRs without a linked issue. Pull Requests lists open and draft work directly. An unlinked PR can create a deterministic composer draft derived host-side from its current sanitized record and repository-known labels; opening/refreshing never writes, the browser supplies only the PR number, and posting still passes through the existing issue-write permission and modal confirmation. Per-issue **Work on it with Atlas**, **Comment**, **Close/Reopen**, and **Open on GitHub** retain the same guarded behavior. The Project Dashboard also includes a **Risk** page (backed by `src/core/riskOversightManager.ts` and `project_memory/operations/risk-oversight.json` + a `risk-oversight.md` mirror and `risk-oversight-history.json` audit trail) that runs the three read-only oversight advisors, records what they find, scores it into the operational health number, and charts it. Runs are explicit and user-triggered — per-domain or all three **sequentially**, never concurrently, since three parallel model calls is a surprising cost from one click — with live per-advisor progress via `riskBusy`/`riskStatus` messages. The advisor is *pinned* with `orchestrator.processTaskWithAgent` rather than routed, so the page always consults the advisor requested. Because the advisors are read-only, the panel owns the write path: it parses the model's JSON defensively (`parseRiskFindings` never throws), sanitises it (`sanitizeRiskFindings`, path-traversal rejected in cited evidence), and merges it without undoing human decisions. Charts are hand-rolled under the existing CSP (no external library): a likelihood × impact **risk matrix** heatmap in CSS grid whose cells filter the register, plus the shared `renderChartCard`/`renderScoreRing`/`renderMetricPill` primitives. Risk is **excluded from the score until a project has actually been assessed**, so an unassessed project reads as unknown rather than safe.
@@ -1111,8 +1139,19 @@ validation-only checklists before it proposes work. **Check integrity** joins cu
 classification to stored import provenance, collects exact rows in a native multi-picker, and uses a
 second confirmation naming both tracked files before removing rows and graph metadata. The webview
 supplies no candidates. Hand-written, unreadable-source, ambiguous, and unselected entries remain
-untouched.
+untouched. Automatic discovery requires checkbox rows; only explicit import interprets a bullet-only
+document, because a background scan has no reliable way to distinguish its narrative lists from work.
+
+Automatic discovery treats repository ownership as a boundary, not a naming convention. Its fast glob
+excludes known agent-worktree roots (including `.kilo`) and the complete configured SSOT; a second
+filesystem check rejects any candidate with a `.git` file or directory on an ancestor below the open
+workspace, including worktrees from tools AtlasMind does not know by name. Common SSOT backups and
+test fixtures are also excluded. Across the remaining files, one normalized title produces one
+proposal; differing checkbox states refuse that title and direct the user to explicit Markdown import.
+That explicit path stays broad because choosing its source is the missing intent signal.
 
 Roadmap confirmations use `formatRoadmapDialogSections` because VS Code modal detail is plain text.
 Labelled groups and bullets carry the hierarchy Markdown cannot, keeping proposed changes, conflicts,
-preserved data, and consequences scannable.
+preserved data, and consequences scannable. Cancellation wording applies only to the listed import;
+load-time anchor and managed-instruction maintenance are named separately because they may already
+have completed before the confirmation appears.

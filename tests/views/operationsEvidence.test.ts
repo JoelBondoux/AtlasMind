@@ -2,7 +2,7 @@ import { afterEach, describe, expect, it } from 'vitest';
 import { mkdtempSync, mkdirSync, writeFileSync, rmSync } from 'node:fs';
 import { tmpdir } from 'node:os';
 import path from 'node:path';
-import { collectOutcomeCompleteness } from '../../src/views/projectDashboardPanel.js';
+import { collectOutcomeCompleteness, isInsideNestedGitCheckout } from '../../src/views/projectDashboardPanel.js';
 import { discoverTestFiles } from '../../src/views/settingsPanel.js';
 
 const roots: string[] = [];
@@ -28,6 +28,23 @@ describe('outcome evidence', () => {
     const outcome = await collectOutcomeCompleteness(root(), 'project_memory', [], []);
     expect(outcome.desiredOutcome).toMatch(/^Define the desired project outcome/);
     expect(outcome.referenceCoveragePercent).toBe(0);
+  });
+});
+
+describe('roadmap discovery repository boundary', () => {
+  it('rejects a nested checkout marked by a gitdir file without rejecting the open repository', async () => {
+    const dir = root();
+    put(dir, 'ROADMAP.md', '- [ ] Current work');
+    put(dir, 'nested/.git', 'gitdir: elsewhere');
+    put(dir, 'nested/docs/roadmap.md', '- [ ] Foreign work');
+
+    await expect(isInsideNestedGitCheckout(dir, path.join(dir, 'ROADMAP.md'))).resolves.toBe(false);
+    await expect(isInsideNestedGitCheckout(dir, path.join(dir, 'nested/docs/roadmap.md'))).resolves.toBe(true);
+  });
+
+  it('fails closed for a missing candidate', async () => {
+    const dir = root();
+    await expect(isInsideNestedGitCheckout(dir, path.join(dir, 'missing-roadmap.md'))).resolves.toBe(true);
   });
 });
 

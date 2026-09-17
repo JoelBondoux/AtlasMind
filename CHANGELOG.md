@@ -6,6 +6,62 @@ The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/),
 
 ## [Unreleased]
 
+## [0.480.0] - 2026-09-17
+
+### Added
+
+- Add repository discovery and a native source picker to Editions so a likely product-design document
+  can be confirmed, or another workspace Markdown, text, or JSON document selected deliberately.
+- Add a reviewed import preview for Markdown comparison tables, named-tier feature lists, and structured
+  JSON. It exposes every proposed offering, feature, entitlement cell, source link, warning, and skipped
+  item before a separately confirmed write.
+- Add conservative feature matching against durable roadmap items and currently loaded GitHub Issues.
+  Strong candidates are selected for review by default, possible candidates stay visible but unchecked,
+  and accepted Issue links expose current status plus open and unlink actions.
+- Add the pure `releaseMatrixImport.ts` discovery/parser/matcher/merge layer and focused import contracts.
+
+### Security
+
+- Keep discovery bounded to supported regular files inside the real workspace root, reject symlink
+  escapes and oversized sources, validate every browser selection, re-read current roadmap/Issue/matrix
+  state before applying, and refuse an import whose source changed after preview.
+- Preserve existing names, statuses, pricing, parameters, file links, and cell decisions during import;
+  source documents are treated as proposed data rather than instructions or authority to overwrite.
+
+## [0.479.0] - 2026-09-17
+
+### Added
+
+- Add a dedicated Project Dashboard **Editions** page for the designed public product shape, keeping
+  Free/Student/Pro tiers, expansions, DLC, plugins, bonuses, and custom offerings distinct from the
+  Versions page's record of releases that already shipped.
+- Add an editable feature-by-offering matrix with create/edit/remove controls for columns, rows, and
+  cells; current lifecycle and entitlement status; planned dates; pricing structures; tier-specific
+  parameters; notes; and host-resolved workspace file links.
+- Add confirmed bidirectional roadmap relationships for offerings, features, and decided cells. Links
+  use durable roadmap ids, stale links are visible, and removing one side never silently deletes the
+  other side.
+- Add decision-coverage, cell-status distribution, and per-offering readiness visuals, preserving the
+  difference between an unassessed cell and an explicit `not-offered` decision.
+- Add the versioned `project_memory/product/release-matrix.json` SSOT and the pure
+  `releaseMatrix.ts` sanitizer/mutation/metrics layer, with future-schema refusal and bounded records.
+
+## [0.478.1] - 2026-09-17
+
+### Fixed
+
+- Keep automatic secondary-roadmap reconciliation inside the open repository: exclude `.kilo` and
+  other agent worktrees, every nested Git checkout, the complete AtlasMind SSOT, common SSOT backup
+  directories, and test fixtures before any candidate Markdown is read.
+- Collapse repeated automatic checklist titles across source files, and refuse a title whose checkbox
+  state disagrees between files instead of importing an arbitrary copy. Explicit Markdown import
+  remains broad when the user deliberately selects those sources.
+- Require checkbox rows for load-time automatic discovery. Bullet-only Markdown remains available to
+  explicit import, but is no longer flattened from narrative lists into apparent top-level work.
+- Make the reconciliation dialog precise about cancellation: cancelling does not apply the listed
+  import, while the separate load-time maintenance of roadmap anchors and managed agent instructions
+  remains stated rather than being described as no write at all.
+
 ## [0.478.0] - 2026-09-16
 
 ### Added
