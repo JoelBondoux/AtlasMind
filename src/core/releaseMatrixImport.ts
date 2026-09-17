@@ -166,6 +166,7 @@ function scoreReleaseDesignCandidate(file: ReleaseDesignSourceFile): ReleaseDesi
   const pathSignals: Array<[RegExp, number, string]> = [
     [/\b(tier|tiers|edition|editions|pricing|plans?)\b/, 34, 'the filename names product offerings'],
     [/\b(product|release|feature|features|capabilities)\b/, 22, 'the filename names product capabilities'],
+    [/\broadmap\b/, 22, 'the filename identifies a roadmap'],
     [/\b(design|requirements?|spec|proposal|scope)\b/, 18, 'the filename looks like a design document'],
   ];
   for (const [pattern, points, reason] of pathSignals) {
@@ -178,6 +179,11 @@ function scoreReleaseDesignCandidate(file: ReleaseDesignSourceFile): ReleaseDesi
       && /^\s*\|?\s*:?-{3,}/m.test(file.content)) {
     score += 38;
     reasons.push('it contains a feature comparison table');
+  }
+  if (/^\s*\|[^\n]*(target\s+)?(package|tier|plan|edition|offering)s?[^\n]*\|/im.test(file.content)
+      && /^\s*\|?\s*:?-{3,}/m.test(file.content)) {
+    score += 38;
+    reasons.push('it contains a tier-gate table');
   }
   if (/\b(free|student|pro|professional|premium|enterprise|starter|team)\b/.test(sample)) {
     score += 18;
@@ -235,6 +241,58 @@ function isSeparatorRow(cells: readonly string[]): boolean {
   return cells.length > 1 && cells.every(cell => /^:?-{3,}:?$/.test(cell.replace(/\s/g, '')));
 }
 
+function splitTierGateNames(value: string): { names: string[]; featureList: string } | undefined {
+  const cleaned = markdownText(value, 1_000);
+  if (!cleaned) return undefined;
+  const colon = cleaned.indexOf(':');
+  const tierText = (colon < 0 ? cleaned : cleaned.slice(0, colon)).trim();
+  const names = tierText
+    .split(/\s*(?:\/|\+|&|\band\b)\s*/i)
+    .map(name => markdownText(name.replace(/\s+(tier|plan|edition|package)$/i, ''), 120))
+    .filter(Boolean);
+  if (names.length === 0 || names.length > 6 || names.some(name => name.length > 60 || /[.!?;,]/.test(name))) return undefined;
+  return { names, featureList: colon < 0 ? '' : cleaned.slice(colon + 1).trim() };
+}
+
+function splitDeclaredFeatureList(value: string): string[] {
+  return value.split(/\s*[,;]\s*/)
+    .map(feature => markdownText(feature.replace(/[.!?]+$/, ''), 160))
+    .filter(Boolean);
+}
+
+function parseTierGateTable(
+  lines: readonly string[],
+  index: number,
+  headers: readonly string[],
+  builder: ImportPlanBuilder,
+): boolean {
+  const packageIndex = headers.findIndex(header => /^(?:target\s+)?(?:package|tier|plan|edition|offering)s?$/i.test(header));
+  if (packageIndex < 0) return false;
+  const explicitFeatureIndex = headers.findIndex(header => /^(?:features?|capabilities?|functions?|items?|feature set|included features?)$/i.test(header));
+  const notesIndexes = headers.map((header, column) => ({ header, column }))
+    .filter(({ header, column }) => column !== packageIndex && column !== explicitFeatureIndex
+      && /^(?:market observation|roadmap response|notes?|description|rationale)$/i.test(header))
+    .map(({ column }) => column);
+  const initialCellCount = builder.cells.length;
+  for (let rowIndex = index + 2; rowIndex < lines.length; rowIndex += 1) {
+    if (!lines[rowIndex]!.includes('|') || lines[rowIndex]!.trim() === '') break;
+    const row = markdownRow(lines[rowIndex]!);
+    if (row.length < headers.length) continue;
+    const gate = splitTierGateNames(row[packageIndex] ?? '');
+    if (!gate) continue;
+    const featureNames = splitDeclaredFeatureList(gate.featureList || (explicitFeatureIndex < 0 ? '' : row[explicitFeatureIndex] ?? ''));
+    if (featureNames.length === 0) continue;
+    const tiers = gate.names.map(name => builder.tier(name, rowIndex + 1)).filter((tier): tier is ReleaseDesignImportTier => tier !== undefined);
+    const notes = notesIndexes.map(column => row[column]).filter(Boolean).join(' — ');
+    for (const featureName of featureNames) {
+      const feature = builder.feature(featureName, rowIndex + 1, notes ? { notes } : {});
+      if (!feature) continue;
+      for (const tier of tiers) builder.cell(feature, tier, 'planned', rowIndex + 1);
+    }
+  }
+  return builder.cells.length > initialCellCount;
+}
+
 function cellDecision(value: string): { status: ReleaseMatrixCellStatus; parameters?: string } | undefined {
   const cleaned = markdownText(value, 1_000);
   if (cleaned === '') return undefined;
@@ -246,7 +304,8 @@ function cellDecision(value: string): { status: ReleaseMatrixCellStatus; paramet
   if (/\b(ready|complete|completed)\b/.test(normalized)) return { status: 'ready', parameters: cleaned };
   if (/\b(released|live|available now|shipped)\b/.test(normalized)
       || /^(?:yes|included|available|✓|✅)$/.test(cleaned.toLowerCase())) return { status: 'released' };
-  if (/\b(planned|coming soon|roadmap|later|future)\b/.test(normalized)) return { status: 'planned', parameters: cleaned };
+  if (normalized === 'planned') return { status: 'planned' };
+  if (/\b(coming soon|roadmap|later|future)\b/.test(normalized)) return { status: 'planned', parameters: cleaned };
   return { status: 'planned', parameters: cleaned };
 }
 
@@ -325,6 +384,10 @@ function parseMarkdownTables(lines: readonly string[], builder: ImportPlanBuilde
     const headers = markdownRow(lines[index]!);
     const separator = markdownRow(lines[index + 1]!);
     if (headers.length !== separator.length || !isSeparatorRow(separator)) continue;
+    if (parseTierGateTable(lines, index, headers, builder)) {
+      found = true;
+      continue;
+    }
     const featureIndex = headers.findIndex(header => /^(feature|capability|function|item)$/i.test(header));
     if (featureIndex < 0) continue;
     const metadata = new Set(['group', 'category', 'notes', 'note', 'description', 'status']);

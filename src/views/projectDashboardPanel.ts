@@ -13018,13 +13018,14 @@ ${buildCardEvidenceSection(source, derivation)}`;
       await this.postMessage({ type: 'releaseMatrixImportPreview', payload: { notice: 'Open a workspace before scanning design documents.' } });
       return;
     }
-    const uris = typeof vscode.workspace.findFiles === 'function'
-      ? await vscode.workspace.findFiles(
-          '**/*.{md,mdx,txt,json}',
-          '**/{.git,node_modules,out,dist,build,coverage,.next,.cache,vendor}/**',
-          220,
-        )
+    const exclude = '**/{.git,node_modules,out,dist,build,coverage,.next,.cache,vendor}/**';
+    const discovered = typeof vscode.workspace.findFiles === 'function'
+      ? await Promise.all([
+          vscode.workspace.findFiles('*.{md,mdx,txt,json}', exclude, 80),
+          vscode.workspace.findFiles('**/*.{md,mdx,txt,json}', exclude, 220),
+        ])
       : [];
+    const uris = [...new Map(discovered.flat().map(uri => [uri.fsPath, uri])).values()].slice(0, 220);
     const readable = (await Promise.all(uris.map(async uri => {
       const resolved = await this.resolveReleaseDesignFile(workspaceRoot, uri.fsPath);
       if (!resolved) return undefined;

@@ -80,6 +80,11 @@ describe('Editions dashboard surface', () => {
     expect(HOST).toContain('Existing names, statuses, pricing, parameters and file links are not replaced.');
   });
 
+  it('scans root-level design documents as well as nested project documents', () => {
+    expect(HOST).toContain("vscode.workspace.findFiles('*.{md,mdx,txt,json}'");
+    expect(HOST).toContain("vscode.workspace.findFiles('**/*.{md,mdx,txt,json}'");
+  });
+
   it('keeps import replies in the message handler and scan actions in the click handler', () => {
     const secondaryStart = WEBVIEW.indexOf('function handleSecondaryMessage(message)');
     const secondaryEnd = WEBVIEW.indexOf('// The header sits outside #dashboard-root', secondaryStart);

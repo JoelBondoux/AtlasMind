@@ -4,7 +4,7 @@
 
 <h1 align="center">AtlasMind</h1>
 
-<p align="center"><sub> · <strong>Current source version: 0.480.1</strong> · </sub></p>
+<p align="center"><sub> · <strong>Current source version: 0.480.2</strong> · </sub></p>
 
 
 <p align="center">
@@ -175,6 +175,13 @@ allow-list, redaction and file-withholding behaviour, retained metadata, provide
 important limits on overrides and compliance claims.
 
 ---
+
+## What's new in 0.480.2
+
+The Editions importer now discovers product-design documents stored at the repository root as well as
+inside folders. Roadmap packaging tables can declare gates row by row—for example,
+`Free/Starter: core gallery, product tags`—and AtlasMind expands them into the named offerings,
+features, and planned entitlement cells shown in the review screen.
 
 ## What's new in 0.480.1
 

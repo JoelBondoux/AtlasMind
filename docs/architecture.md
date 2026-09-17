@@ -112,9 +112,12 @@ columns, feature rows, and their entitlement cells. Missing cells remain unknown
 `not-offered` cell makes an exclusion claim. The document lives at
 `project_memory/product/release-matrix.json` (under the configured SSOT root), but the pure core never
 touches disk. `src/core/releaseMatrixImport.ts` is the second pure boundary: it ranks bounded candidate
-documents, parses explicit Markdown tables/tier lists or structured JSON, scores conservative lexical
-roadmap and Issue relationships, and applies a reviewed merge in which existing matrix values win.
-`projectDashboardPanel.ts` owns discovery and I/O. It keeps candidates inside the real workspace root,
+documents, parses explicit Markdown comparison tables, row-oriented package gates, tier lists, or
+structured JSON, scores conservative lexical roadmap and Issue relationships, and applies a reviewed
+merge in which existing matrix values win. Combined gates such as `Free/Starter:` expand into separate
+offering relationships without guessing from surrounding prose. `projectDashboardPanel.ts` owns
+discovery and I/O. It scans root documents explicitly before its bounded recursive scan, deduplicates
+the results, and keeps candidates inside the real workspace root,
 shows the native source picker, holds the preview in memory, hashes and re-reads the source before a
 confirmed import, revalidates selected roadmap/Issue ids against current data, and re-reads the tracked
 matrix before every mutation. File-open and Issue actions carry an entity key plus a stored-link index,

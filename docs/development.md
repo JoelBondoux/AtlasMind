@@ -787,11 +787,13 @@ roadmap item leaves the matrix record. CSS-only status distribution and per-offe
 are derived from the same snapshot as the table.
 
 `src/core/releaseMatrixImport.ts` keeps Editions import parsing and relationship scoring testable and
-VS Code-free. The host scans at most 220 supported text documents while excluding generated trees,
+VS Code-free. The host scans root-level supported documents explicitly, merges them with a recursive
+search, deduplicates the result, and inspects at most 220 files while excluding generated trees. It
 accepts only regular files of at most 600 KB whose real path remains below the workspace root, and then
 always presents a Quick Pick with an explicit browse option. Parsing recognizes explicit Markdown
-feature matrices, named offering headings with feature lists, and structured JSON; narrative prose does
-not manufacture features. The webview reviews bounded feature selections and roadmap/Issue suggestions.
+feature matrices, named offering headings with feature lists, row-oriented package gates such as
+`Free/Starter: core gallery, product tags`, and structured JSON; narrative prose does not manufacture
+features. The webview reviews bounded feature selections and roadmap/Issue suggestions.
 The host retains the plan only in memory, refuses a changed source digest, revalidates live relationship
 ids, re-reads the matrix, and confirms the exact merge. Imports append source relationships but preserve
 existing names, statuses, pricing, parameters, file links, and cell decisions. Issue links are opened and
