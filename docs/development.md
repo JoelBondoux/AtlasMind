@@ -796,6 +796,9 @@ The host retains the plan only in memory, refuses a changed source digest, reval
 ids, re-reads the matrix, and confirms the exact merge. Imports append source relationships but preserve
 existing names, statuses, pricing, parameters, file links, and cell decisions. Issue links are opened and
 removed through stored feature/index pairs, so the browser never supplies a repository Issue number.
+The scan gesture belongs to the delegated click handler, while `releaseMatrixImportPreview` belongs to
+`handleSecondaryMessage`; keeping those event boundaries separate prevents a browser exception from
+silently stopping the request before `postMessage`.
 Core contracts live in `tests/core/releaseMatrix.test.ts` and
 `tests/core/releaseMatrixImport.test.ts`; boundary and surface wiring live in
 `tests/views/editionsSurface.test.ts` plus the shared nav/message-parity tests.

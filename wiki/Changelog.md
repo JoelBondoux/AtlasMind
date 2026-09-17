@@ -19,6 +19,15 @@ Older entries below describe the software as it was at the time and are delibera
 
 ---
 
+## v0.480.1 -- The Editions import button opens its picker
+
+The Editions **Import design document…** button now sends its scan request and opens the product-design
+source picker. Its reply handler had been placed inside the click dispatcher, where the undefined
+message variable stopped the click before it reached AtlasMind. Import replies now live on the host
+message path, and a regression test keeps the two event boundaries separate.
+
+---
+
 ## v0.480.0 -- Editions imports product design without erasing decisions
 
 Project Dashboard → **Editions** now scans the repository for likely product-design documents and asks
