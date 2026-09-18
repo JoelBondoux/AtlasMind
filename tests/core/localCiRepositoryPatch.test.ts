@@ -139,6 +139,8 @@ describe('buildLocalCiRepositoryPatch', () => {
     expect(runner).toContain("shell: false");
     expect(runner).toContain("detached: process.platform !== 'win32'");
     expect(runner).toContain("NPM_CONFIG_CACHE");
+    expect(runner).toContain("'pythonLocation'");
+    expect(runner).toContain("'LD_LIBRARY_PATH'");
     expect(runner).toContain("invokes a shell");
     expect(runner).toContain("'bash'");
     expect(runner).toContain("pull?.base?.ref !== config.trustedBaseBranch");
