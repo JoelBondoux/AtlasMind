@@ -60,6 +60,7 @@ import { parseRepoSlug } from './githubDeepLinks.js';
 export const TRUSTED_LOCAL_CI_ACTIONS_REVIEWED = {
   checkout: { name: 'actions/checkout', release: 'v7', sha: '3d3c42e5aac5ba805825da76410c181273ba90b1' },
   setupNode: { name: 'actions/setup-node', release: 'v7', sha: '820762786026740c76f36085b0efc47a31fe5020' },
+  setupPython: { name: 'actions/setup-python', release: 'v7', sha: '5fda3b95a4ea91299a34e894583c3862153e4b97' },
 } as const;
 
 /** Mirrors the runner's own configuration checks, so a scaffold cannot produce a file the runtime path then rejects. */

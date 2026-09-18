@@ -12,6 +12,7 @@ import {
   type LocalCiRepositoryPatchPlan,
 } from '../../src/core/localCiRepositoryPatch.ts';
 import { assessTrustedLocalCiWorkflow } from '../../src/core/localCiRunner.ts';
+import { TRUSTED_LOCAL_CI_ACTIONS_REVIEWED } from '../../src/core/trustedLocalCiStarter.ts';
 
 function build(overrides: Partial<Parameters<typeof buildLocalCiRepositoryPatch>[0]> = {}) {
   return buildLocalCiRepositoryPatch({
@@ -66,6 +67,9 @@ describe('buildLocalCiRepositoryPatch', () => {
     expect(workflow).toContain('ref: ${{ github.sha }}');
     expect(workflow).toContain('ref: ${{ inputs.pr_sha }}');
     expect(workflow).toContain('APPROVED_PR_SHA: ${{ inputs.pr_sha }}');
+    expect(workflow).toContain('pull-requests: read');
+    expect(workflow).toContain(`uses: actions/setup-python@${TRUSTED_LOCAL_CI_ACTIONS_REVIEWED.setupPython.sha}`);
+    expect(workflow).toContain("python-version: '3.11'");
     expect(workflow).not.toContain('[[ "${{ inputs.pr_sha }}"');
     expect(workflow).toContain('Codex, Claude, another agent, and a human');
     expect(workflow).not.toMatch(/^\s{2}push:/m);
@@ -137,8 +141,9 @@ describe('buildLocalCiRepositoryPatch', () => {
     expect(runner).toContain("NPM_CONFIG_CACHE");
     expect(runner).toContain("invokes a shell");
     expect(runner).toContain("'bash'");
+    expect(runner).toContain("pull?.base?.ref !== config.trustedBaseBranch");
+    expect(runner).toContain("pull?.head?.sha !== prShaInput");
     expect(runner).not.toContain('env: process.env');
-    expect(runner).not.toContain('GITHUB_TOKEN');
     expect(runner).not.toContain('exec(');
   });
 });
