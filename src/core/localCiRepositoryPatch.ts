@@ -247,7 +247,7 @@ export function buildReviewedPrLocalCiRunnerScript(): string {
     + `  ATLASMIND_REVIEWED_PR_LOCAL_CI: 'true',\n`
     + `  NPM_CONFIG_CACHE: path.join(jobTemp, 'npm-cache'),\n`
     + `};\n`
-    + `for (const key of ['NODE_OPTIONS', 'ATLASMIND_TEST_MAX_WORKERS', 'VITEST_MAX_WORKERS', 'JEST_MAX_WORKERS']) {\n`
+    + `for (const key of ['NODE_OPTIONS', 'ATLASMIND_TEST_MAX_WORKERS', 'VITEST_MAX_WORKERS', 'JEST_MAX_WORKERS', 'pythonLocation', 'LD_LIBRARY_PATH']) {\n`
     + `  const value = process.env[key];\n`
     + `  if (typeof value === 'string' && value.length > 0) cleanEnv[key] = value;\n`
     + `}\n\n`
