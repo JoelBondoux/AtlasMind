@@ -1,6 +1,7 @@
 import { describe, it, expect } from 'vitest';
 import {
   parseMultiplierTable,
+  parseTokenPriceTable,
   normalizeModelKey,
   resolveMultiplier,
   isSyncStale,
@@ -60,6 +61,37 @@ describe('parseMultiplierTable', () => {
       </table>`;
     const result = parseMultiplierTable(html);
     expect(result['somemodel']).toBeUndefined();
+  });
+});
+
+describe('parseTokenPriceTable', () => {
+  // The layout GitHub publishes as of September 2026: extra columns that differ
+  // per vendor, a second row per model for a long-context tier, and footnote
+  // superscripts inside the model cell. Positional parsing read "GA" as the
+  // input price and found nothing, which is how every sync came to fail.
+  const html = `
+    <table><thead><tr><th scope="col">Model</th><th scope="col">Release status</th><th scope="col">Category</th><th scope="col">Tier</th><th scope="col">Threshold (input tokens)</th><th scope="col">Input</th><th scope="col">Cached input</th><th scope="col">Cache write</th><th scope="col">Output</th></tr></thead>
+    <tbody>
+      <tr><td>GPT-5 mini</td><td>GA</td><td>Lightweight</td><td>Default</td><td>Not applicable</td><td>$0.25</td><td>$0.025</td><td>Not applicable</td><td>$2.00</td></tr>
+      <tr><td>GPT-6 Sol</td><td>GA</td><td>Powerful</td><td>Default</td><td>Not applicable</td><td>$2.00</td><td>$0.20</td><td>$2.50</td><td>$10.00</td></tr>
+      <tr><td>GPT-6 Sol</td><td>GA</td><td>Powerful</td><td>Long context</td><td>&gt; 272K</td><td>$4.00</td><td>$0.40</td><td>$5.00</td><td>$15.00</td></tr>
+    </tbody></table>
+    <table><thead><tr><th>Model</th><th>Release status</th><th>Category</th><th>Input</th><th>Cached input</th><th>Output</th></tr></thead>
+    <tbody><tr><td>Gemini 3.8 Flash<sup><a href="#fn-1">1</a></sup></td><td>GA</td><td>Versatile</td><td>$0.75</td><td>$0.075</td><td>$3.75</td></tr></tbody></table>`;
+
+  it('locates the Input and Output columns by header', () => {
+    const result = parseTokenPriceTable(html);
+    expect(result['gpt-5 mini']).toEqual({ inputPer1k: 0.25 / 1000, outputPer1k: 2 / 1000 });
+  });
+
+  it('keeps the default tier rather than the long-context surcharge', () => {
+    expect(parseTokenPriceTable(html)['gpt-6 sol']).toEqual({ inputPer1k: 2 / 1000, outputPer1k: 10 / 1000 });
+  });
+
+  it('drops footnote markers from the model name', () => {
+    const result = parseTokenPriceTable(html);
+    expect(result['gemini 3.8 flash']).toEqual({ inputPer1k: 0.75 / 1000, outputPer1k: 3.75 / 1000 });
+    expect(result['gemini 3.8 flash1']).toBeUndefined();
   });
 });
 

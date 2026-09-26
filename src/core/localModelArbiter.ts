@@ -283,6 +283,18 @@ export class LocalModelArbiter {
       if (decision.rule === 'insufficient-headroom' && await this._tryEvictForRoom(request, decision.chargeBytes)) {
         continue;
       }
+      // A wait only helps if something AtlasMind holds can be given back. When
+      // nothing is in flight, nothing is loading and none of the resident
+      // models are ours, the shortfall belongs to other processes, and waiting
+      // out the bound just stalls the turn before the same refusal — observed as
+      // a chat turn sitting 45s per local runtime before failing over.
+      if (decision.rule === 'insufficient-headroom' && !this._waitCouldHelp()) {
+        this._log(`Refused a local request at once: ${decision.rule}; nothing AtlasMind holds could free the room.`);
+        throw new LocalGpuCapacityError(
+          decision.rule,
+          'The local GPU does not have room for this model, and nothing AtlasMind holds could be released to make room, so nothing was sent to the endpoint.',
+        );
+      }
       // Not admissible now. Wait to be woken by a release, a poll, or the bound.
       await this._waitForCapacity(request, decision.rule);
     }
@@ -304,6 +316,15 @@ export class LocalModelArbiter {
   }
 
   // ── internals ────────────────────────────────────────────────────────────
+
+  /** Whether anything AtlasMind holds could be released, changing the headroom. */
+  private _waitCouldHelp(): boolean {
+    if (this._inFlight > 0 || this._coldLoadInFlight) { return true; }
+    for (const entry of this._residency.values()) {
+      if (entry.ownedByUs) { return true; }
+    }
+    return false;
+  }
 
   private _isResident(request: AdmissionRequest): boolean {
     return this._residency.has(residencyKey(request.endpointId, request.modelKey));

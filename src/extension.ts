@@ -2725,7 +2725,34 @@ async function bootstrapAtlasMind(
       }
     };
 
-    const refreshProviderModels = async (includeInteractiveProviders = true) => {
+    type ProviderRefreshSummary = { providersUpdated: number; modelsAvailable: number };
+    // One refresh at a time, and at most one queued behind it that every request
+    // arriving meanwhile shares. `onDidChangeChatModels` fires in bursts while
+    // Copilot registers its models, and each event used to start a full
+    // discovery of every provider concurrently with the last.
+    let providerRefreshInFlight: Promise<ProviderRefreshSummary> | undefined;
+    let providerRefreshQueued: { includeInteractive: boolean; promise: Promise<ProviderRefreshSummary> } | undefined;
+    const refreshProviderModels = (includeInteractiveProviders = true): Promise<ProviderRefreshSummary> => {
+      if (!providerRefreshInFlight) {
+        providerRefreshInFlight = runProviderModelsRefresh(includeInteractiveProviders)
+          .finally(() => { providerRefreshInFlight = undefined; });
+        return providerRefreshInFlight;
+      }
+      if (providerRefreshQueued) {
+        providerRefreshQueued.includeInteractive ||= includeInteractiveProviders;
+        return providerRefreshQueued.promise;
+      }
+      const queued = { includeInteractive: includeInteractiveProviders, promise: undefined as unknown as Promise<ProviderRefreshSummary> };
+      queued.promise = providerRefreshInFlight
+        .catch(() => undefined)
+        .then(() => {
+          providerRefreshQueued = undefined;
+          return refreshProviderModels(queued.includeInteractive);
+        });
+      providerRefreshQueued = queued;
+      return queued.promise;
+    };
+    const runProviderModelsRefresh = async (includeInteractiveProviders: boolean): Promise<ProviderRefreshSummary> => {
       const summary = await refreshProviderModelsCatalog(
         modelRouter,
         providerRegistry,
@@ -2758,18 +2785,25 @@ async function bootstrapAtlasMind(
     const refreshProviderHealth = async () => {
       await updateProviderStatusBar(providerStatusBar, providerRegistry, context.secrets, modelRouter);
     };
+    let chatModelsChangedTimer: ReturnType<typeof setTimeout> | undefined;
+    context.subscriptions.push({ dispose: () => { if (chatModelsChangedTimer) { clearTimeout(chatModelsChangedTimer); } } });
     context.subscriptions.push(vscode.lm.onDidChangeChatModels(() => {
-      void (async () => {
-        outputChannel.appendLine('[providers] VS Code chat model availability changed; refreshing AtlasMind provider metadata.');
-        try {
-          await refreshProviderModels(true);
-          await refreshProviderHealth();
-        } catch (error) {
-          outputChannel.appendLine(
-            `[providers] Automatic chat-model refresh failed: ${error instanceof Error ? error.message : String(error)}`,
-          );
-        }
-      })();
+      // Debounced: the event arrives in bursts, and one refresh answers them all.
+      if (chatModelsChangedTimer) { clearTimeout(chatModelsChangedTimer); }
+      chatModelsChangedTimer = setTimeout(() => {
+        chatModelsChangedTimer = undefined;
+        void (async () => {
+          outputChannel.appendLine('[providers] VS Code chat model availability changed; refreshing AtlasMind provider metadata.');
+          try {
+            await refreshProviderModels(true);
+            await refreshProviderHealth();
+          } catch (error) {
+            outputChannel.appendLine(
+              `[providers] Automatic chat-model refresh failed: ${error instanceof Error ? error.message : String(error)}`,
+            );
+          }
+        })();
+      }, 1500);
     }));
     for (const agent of loadStoredUserAgents(context.globalState)) {
       agentRegistry.register(agent);
@@ -3123,6 +3157,31 @@ async function bootstrapAtlasMind(
     if (vscode.workspace.getConfiguration('atlasmind').get<boolean>('ard.enabled', true)) {
       skillsRegistry.register(startupModules.createDiscoverResourcesSkill(ardClient, ardRegistry));
     }
+    // When chat needs a tool nothing installed provides, `find-tool` falls through
+    // to the finders the user enabled. Read live, so switching Resource Discovery
+    // off takes effect without a reload. Results are cached on the registry so
+    // the reply's "Review & install" button can only name something actually found.
+    orchestrator.setExternalCapabilitySearch(async query => {
+      if (!vscode.workspace.getConfiguration('atlasmind').get<boolean>('ard.enabled', true)) {
+        return { status: 'no-finders' };
+      }
+      const endpoints = ardRegistry.listEnabled();
+      if (endpoints.length === 0) {
+        return { status: 'no-finders' };
+      }
+      const outcome = await ardClient.searchEndpoints(endpoints, query, { maxResults: 5 });
+      const fresh = new Set(outcome.results.map(resource => resource.identifier));
+      ardRegistry.setRecentResults([
+        ...outcome.results,
+        ...ardRegistry.getRecentResults().filter(resource => !fresh.has(resource.identifier)),
+      ].slice(0, 50));
+      return {
+        status: 'searched',
+        finderCount: endpoints.length,
+        resources: outcome.results,
+        errors: outcome.errors.map(error => `${error.endpoint}: ${error.message}`),
+      };
+    });
 
     atlasContext = {
       orchestrator,
@@ -5009,6 +5068,9 @@ export async function refreshProviderModelsCatalog(
   return { providersUpdated, modelsAvailable };
 }
 
+const COPILOT_MULTIPLIER_RETRY_MS = 60 * 60 * 1000;
+let lastCopilotMultiplierFailureAt = 0;
+
 /**
  * Fetch fresh Copilot multiplier data if the cached copy is missing or stale.
  * Returns the most current available result (fresh or cached).
@@ -5021,6 +5083,11 @@ async function refreshCopilotMultiplierSync(
 
   // Use the cache if it is fresh enough.
   if (cached && !isSyncStale(cached)) {
+    return cached;
+  }
+  // A failed fetch is not retried on every refresh: provider refreshes arrive in
+  // bursts, and without this each one re-fetched a 600 KB page and failed again.
+  if (Date.now() - lastCopilotMultiplierFailureAt < COPILOT_MULTIPLIER_RETRY_MS) {
     return cached;
   }
 
@@ -5045,6 +5112,7 @@ async function refreshCopilotMultiplierSync(
     clearTimeout(timeout);
   }
 
+  lastCopilotMultiplierFailureAt = Date.now();
   if (cached) {
     outputChannel?.appendLine('[providers] Copilot multiplier sync failed; using cached data.');
   } else {

@@ -4,8 +4,8 @@ import { mkdirSync, mkdtempSync, writeFileSync } from 'node:fs';
 import { tmpdir } from 'node:os';
 import nodePath from 'node:path';
 import { removeTempDir } from '../helpers/tempDir.ts';
-import { Orchestrator, appendTddBlockedCaveat, appendVerificationCaveat, budgetForCorrection, buildPrivacyScanSlices, buildProjectSessionContextBundle, buildSupplementalContextMessage, classifySubTaskFailure, classifyToolFailure, collapseDuplicatedTrailingBlock, CONVERSATION_CONTEXT_PREAMBLE, describeExhaustedSearch, shouldAbortSupersededRequest, deriveTurnCapabilityEnvelope, detectVerificationContradiction, estimateCompletionRequestInputTokens, estimateToolDefinitionTokens, executionEndpointScope, getProviderTimeoutMs, isProviderAuthenticationError, isProviderRateLimited, isToolAllowedByTurnEnvelope, isUserCorrectionTurn, looksLikeAnswerlessCompletionClaim, looksLikeIncompleteDelivery, looksLikeLeakedReasoning, looksLikePreambleOnly, looksLikeToolCapabilityRefusal, resolveProviderIdForModel, responseClaimsSuccessWithoutCaveat, sanitizeAssistantResponse, selectTaskScopedSkills, shouldBiasTowardWorkspaceInvestigation, shouldOpenEndpointCircuit, summarizeAttemptFailures, TOOL_EXECUTION_FAILURE_PREFIX, UNTRUSTED_CONTEXT_PREAMBLE, verificationIndicatesFailure } from '../../src/core/orchestrator.ts';
-import { ACP_HANDSHAKE_HEADROOM_MS, ACP_PROVIDER_TIMEOUT_MS, ACP_REQUEST_TIMEOUT_MS, LOCAL_PROVIDER_MAX_TIMEOUT_MS, MAX_TOOL_ITERATIONS } from '../../src/constants.ts';
+import { Orchestrator, appendTddBlockedCaveat, appendVerificationCaveat, budgetForCorrection, buildPrivacyScanSlices, buildProjectSessionContextBundle, buildSupplementalContextMessage, classifySubTaskFailure, classifyToolFailure, collapseDuplicatedTrailingBlock, CONVERSATION_CONTEXT_PREAMBLE, describeExhaustedSearch, describeReplayHazard, isSideEffectingToolCall, shouldAbortSupersededRequest, deriveTurnCapabilityEnvelope, detectVerificationContradiction, estimateCompletionRequestInputTokens, estimateToolDefinitionTokens, executionEndpointScope, getProviderTimeoutMs, isProviderAuthenticationError, isProviderRateLimited, isToolAllowedByTurnEnvelope, isUserCorrectionTurn, looksLikeAnswerlessCompletionClaim, looksLikeIncompleteDelivery, looksLikeLeakedReasoning, looksLikePreambleOnly, looksLikeToolCapabilityRefusal, resolveProviderIdForModel, responseClaimsSuccessWithoutCaveat, sanitizeAssistantResponse, selectTaskScopedSkills, shouldBiasTowardWorkspaceInvestigation, shouldOpenEndpointCircuit, summarizeAttemptFailures, TOOL_EXECUTION_FAILURE_PREFIX, UNTRUSTED_CONTEXT_PREAMBLE, verificationIndicatesFailure } from '../../src/core/orchestrator.ts';
+import { ACP_HANDSHAKE_HEADROOM_MS, ACP_PROMPT_CEILING_MS, ACP_PROVIDER_TIMEOUT_MS, ACP_REQUEST_TIMEOUT_MS, LOCAL_PROVIDER_MAX_TIMEOUT_MS, MAX_TOOL_ITERATIONS } from '../../src/constants.ts';
 import type { TaskModelAttempt } from '../../src/types.ts';
 import { AgentRegistry } from '../../src/core/agentRegistry.ts';
 import { SkillsRegistry } from '../../src/core/skillsRegistry.ts';
@@ -1324,6 +1324,110 @@ describe('Orchestrator agentic loop', () => {
     // sent the reader to raise a limit that was never reached.
     expect(result.response).toContain('no other configured provider could serve this request');
     expect(result.response).not.toContain('safety ceiling');
+  });
+
+  it('does not replay a task on another model once it has committed', async () => {
+    // The reported failure: "commit, push and promote" was handed to model after
+    // model, each starting over on a repository the previous one had changed.
+    let commits = 0;
+    const primary: ProviderAdapter = {
+      providerId: 'local',
+      complete: vi.fn()
+        .mockResolvedValueOnce({
+          content: '',
+          model: 'local/echo-1',
+          inputTokens: 5,
+          outputTokens: 5,
+          finishReason: 'tool_calls',
+          toolCalls: [{ id: 'c1', name: 'git-commit', arguments: { message: 'feat: x', paths: ['a.ts'] } }],
+        })
+        .mockRejectedValue(new Error('local fatal provider failure')),
+      listModels: vi.fn().mockResolvedValue(['local/echo-1']),
+      healthCheck: vi.fn().mockResolvedValue(true),
+    };
+    const backup: ProviderAdapter = {
+      providerId: 'mistral',
+      complete: vi.fn().mockResolvedValue({ content: 'Redid it.', model: 'mistral/c', inputTokens: 1, outputTokens: 1, finishReason: 'stop' }),
+      listModels: vi.fn().mockResolvedValue(['mistral/c']),
+      healthCheck: vi.fn().mockResolvedValue(true),
+    };
+    const orchestrator = makeOrchestrator(
+      primary,
+      [{
+        id: 'git-commit',
+        name: 'git-commit',
+        description: 'Commit.',
+        parameters: { type: 'object', properties: { message: { type: 'string' }, paths: { type: 'array', items: { type: 'string' } } } },
+        execute: async () => { commits += 1; return 'git commit: exit 0'; },
+      }],
+      makeSkillContext(),
+      undefined, [], [], undefined, undefined, undefined, undefined,
+      {
+        modelCapabilities: ['chat', 'code', 'function_calling'],
+        extraProviders: [{
+          providerId: 'mistral',
+          adapter: backup,
+          models: [{ id: 'mistral/c', name: 'C', contextWindow: 32_000, inputPricePer1k: 0.003, outputPricePer1k: 0.003, capabilities: ['chat', 'code', 'function_calling'] }],
+        }],
+      },
+    );
+
+    const result = await orchestrator.processTask({
+      id: 'no-replay-after-commit',
+      userMessage: 'commit a.ts',
+      context: {},
+      constraints: { budget: 'balanced', speed: 'balanced', preferredModel: 'local/echo-1' },
+      timestamp: new Date().toISOString(),
+    });
+
+    expect(commits).toBe(1);
+    expect(backup.complete).not.toHaveBeenCalled();
+    expect(result.response).toContain('did not hand the task to another model');
+    expect(result.response).toMatch(/commit/i);
+  });
+
+  it('falls through to Resource Discovery when nothing installed can do the job', async () => {
+    const requests: CompletionRequest[] = [];
+    const replies: CompletionResponse[] = [
+      { content: '', model: 'local/echo-1', inputTokens: 5, outputTokens: 5, finishReason: 'tool_calls', toolCalls: [{ id: 'f1', name: 'find-tool', arguments: { query: 'query a postgres database' } }] },
+      { content: 'Pg Tools would do it — install it with the button below.', model: 'local/echo-1', inputTokens: 5, outputTokens: 5, finishReason: 'stop' },
+    ];
+    const provider: ProviderAdapter = {
+      providerId: 'local',
+      complete: vi.fn((request: CompletionRequest) => { requests.push(request); return Promise.resolve(replies[requests.length - 1] ?? replies.at(-1)!); }),
+      listModels: vi.fn().mockResolvedValue(['local/echo-1']),
+      healthCheck: vi.fn().mockResolvedValue(true),
+    };
+    const orchestrator = makeOrchestrator(
+      provider,
+      [{ id: 'file-read', name: 'file-read', description: 'Read a file.', parameters: { type: 'object', properties: {} }, execute: async () => '' }],
+      makeSkillContext(),
+      undefined, [], [], undefined, undefined, undefined, undefined,
+      { modelCapabilities: ['chat', 'code', 'function_calling'] },
+    );
+    const search = vi.fn().mockResolvedValue({
+      status: 'searched',
+      finderCount: 1,
+      errors: [],
+      resources: [{ identifier: 'urn:pg', displayName: 'Pg Tools', type: 'application/mcp-server+json', sourceName: 'GitHub Agent Finder', score: 91 }],
+    });
+    orchestrator.setExternalCapabilitySearch(search);
+
+    const result = await orchestrator.processTask({
+      id: 'rd-fallthrough',
+      userMessage: 'Read the config file, then query the postgres database for the users row count.',
+      context: {},
+      constraints: { budget: 'balanced', speed: 'balanced', preferredModel: 'local/echo-1' },
+      timestamp: new Date().toISOString(),
+    });
+
+    // The whole pool was sent, and find-tool is still offered because it can look further.
+    expect(requests[0]?.tools?.some(tool => tool.name === 'find-tool')).toBe(true);
+    expect(search).toHaveBeenCalledWith('query a postgres database', undefined);
+    const toolMessage = requests[1]?.messages.find(message => message.role === 'tool');
+    expect(toolMessage?.content).toContain('Pg Tools');
+    expect(toolMessage?.content).toMatch(/None of these is installed/);
+    expect(result.discoveredResources?.map(resource => resource.identifier)).toEqual(['urn:pg']);
   });
 
   it('gives an outage its own failover budget instead of rationing it against escalation', async () => {
@@ -5130,7 +5234,30 @@ describe('bounded reply sanitation and turn capabilities', () => {
     // surfaced. The enclosing budget covers spawn + initialize + session/new +
     // session/prompt; the inner one covers a single frame of that.
     expect(ACP_PROVIDER_TIMEOUT_MS).toBeGreaterThan(ACP_REQUEST_TIMEOUT_MS);
-    expect(ACP_PROVIDER_TIMEOUT_MS).toBe(ACP_REQUEST_TIMEOUT_MS + ACP_HANDSHAKE_HEADROOM_MS);
+    expect(ACP_PROVIDER_TIMEOUT_MS).toBe(ACP_PROMPT_CEILING_MS + ACP_HANDSHAKE_HEADROOM_MS);
+  });
+});
+
+describe('replay hazards', () => {
+  it('treats only read-only categories as safe to replay', () => {
+    expect(isSideEffectingToolCall('file-read', { path: 'a' })).toBe(false);
+    expect(isSideEffectingToolCall('git-status', {})).toBe(false);
+    expect(isSideEffectingToolCall('git-commit', { message: 'x' })).toBe(true);
+    expect(isSideEffectingToolCall('git-push', {})).toBe(true);
+    expect(isSideEffectingToolCall('file-write', { path: 'a', content: '' })).toBe(true);
+    // Unknown means it might change something: deny by default.
+    expect(isSideEffectingToolCall('some-unknown-tool', {})).toBe(true);
+  });
+
+  it('names what already ran, and is silent when nothing did', () => {
+    expect(describeReplayHazard([], false, 'Provider timed out after 30000ms.')).toBeUndefined();
+    expect(describeReplayHazard(['commit 1 path'], false, 'boom')).toContain('commit 1 path');
+  });
+
+  it('assumes a delegated agent may have acted once it had the prompt, not before', () => {
+    expect(describeReplayHazard([], true, 'The ACP agent went silent for 180s during session/prompt.')).toBeDefined();
+    expect(describeReplayHazard([], true, 'The ACP agent did not answer initialize within 180s.')).toBeUndefined();
+    expect(describeReplayHazard([], false, 'The ACP agent went silent for 180s during session/prompt.')).toBeUndefined();
   });
 });
 

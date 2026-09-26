@@ -5006,6 +5006,11 @@ export interface TaskResult {
   durationMs: number;
   /** Every model endpoint actually invoked, in order. Selection previews are excluded. */
   modelAttempts?: TaskModelAttempt[];
+  /**
+   * Third-party tools Resource Discovery found when nothing installed could do
+   * part of this task. Offered to the user to review and install; never installed.
+   */
+  discoveredResources?: ArdDiscoveredResource[];
   artifacts?: Omit<SubTaskExecutionArtifacts, 'changedFiles' | 'diffPreview'>;
   /** Set when a provider was automatically paused mid-request (e.g. billing failure). */
   autoDisabledProvider?: {

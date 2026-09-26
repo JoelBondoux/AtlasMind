@@ -342,6 +342,21 @@ setting twice.
 
 ---
 
+## A half-finished task is not started over elsewhere
+
+If a model fails partway through a task, AtlasMind normally hands the task to another model. That means
+running it again from the top, which is harmless for reading and wrong for a commit, a push or a
+publish — the second model repeats what the first already did.
+
+So every tool call that can change something is noted as it starts. Only reads — files, git history,
+web lookups, read-only terminal commands — are exempt, and a call AtlasMind can't classify counts as a
+change. If the attempt then fails, the turn **stops** instead of failing over, lists what had started,
+and suggests checking `git status` and `git log -3` before you ask it to continue. A subscription agent
+running its own tools is treated the same way once it has your prompt, because AtlasMind cannot see which
+of those tools ran.
+
+---
+
 ## Installing things
 
 **MCP runtimes and subscription agents are confirm-before-install.** AtlasMind shows you every command it
@@ -356,6 +371,13 @@ Two properties hold there:
 Where elevation is needed, AtlasMind uses a non-interactive form that **fails rather than prompting** —
 an extension has no terminal to read your password from. Those steps are reported as *do this yourself*
 with the exact commands, rather than offered as a button that couldn't work.
+
+**Things found through Resource Discovery are also confirm-before-install**, including from the
+**Review & install** buttons chat shows when no installed tool fits. The confirmation names the finder
+that returned it, its source URL, and that the relevance score is not a trust rating; for an MCP server it
+shows the exact command line it would run (or the URL it would connect to) and the environment variable
+names, and says it will be added **switched off**. The chat button sends only the resource's identifier;
+AtlasMind looks it up in its own search results, so a crafted message cannot describe what gets installed.
 
 **An agent distributed only as an archive gets no install button at all.** AtlasMind doesn't download and
 unpack archives, so it names the launch command and tells you it's manual.

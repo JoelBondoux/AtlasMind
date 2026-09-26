@@ -18,6 +18,8 @@ interface OpenAiChatResponse {
         type: 'function';
         function: { name: string; arguments: string };
         thought_signature?: string;
+        /** Where Gemini's OpenAI-compatible layer actually puts the signature. */
+        extra_content?: { google?: { thought_signature?: string | null } | null } | null;
       }>;
     };
   }>;
@@ -85,7 +87,7 @@ export class OpenAiCompatibleAdapter implements ProviderAdapter {
   async complete(request: CompletionRequest): Promise<CompletionResponse> {
     const apiKey = await this.getApiKey();
     const toolNameMap = buildProviderToolNameMap(request.tools);
-    const payload = buildPayload(request, this.config.compatibilityMode, toolNameMap);
+    const payload = buildPayload(request, this.config.compatibilityMode, toolNameMap, this.config.providerId);
     const additionalHeaders = await this.getAdditionalHeaders();
     const baseUrl = await this.getBaseUrl();
 
@@ -129,7 +131,7 @@ export class OpenAiCompatibleAdapter implements ProviderAdapter {
       id: tc.id,
       name: toolNameMap.toOriginal.get(tc.function.name) ?? tc.function.name,
       arguments: parseArguments(tc.function.arguments),
-      ...(tc.thought_signature ? { thoughtSignature: tc.thought_signature } : {}),
+      ...withThoughtSignature(readThoughtSignature(tc as unknown as Record<string, unknown>)),
     }));
 
     const usage = extractUsageMetrics(result);
@@ -152,7 +154,7 @@ export class OpenAiCompatibleAdapter implements ProviderAdapter {
     const apiKey = await this.getApiKey();
     const toolNameMap = buildProviderToolNameMap(request.tools);
     const payload = {
-      ...buildPayload(request, this.config.compatibilityMode, toolNameMap),
+      ...buildPayload(request, this.config.compatibilityMode, toolNameMap, this.config.providerId),
       stream: true,
       ...(this.config.compatibilityMode === 'openai-modern-chat'
         ? { stream_options: { include_usage: true } }
@@ -245,7 +247,8 @@ export class OpenAiCompatibleAdapter implements ProviderAdapter {
               const fn = tc['function'] as Record<string, string> | undefined;
               if (fn?.['name']) { existing.name = fn['name']; }
               if (fn?.['arguments']) { existing.args += fn['arguments']; }
-              if (tc['thought_signature']) { existing.thoughtSignature = tc['thought_signature'] as string; }
+              const signature = readThoughtSignature(tc);
+              if (signature) { existing.thoughtSignature = signature; }
               toolCallParts.set(idx, existing);
             }
           }
@@ -445,6 +448,31 @@ export function isGoogleChatCompletionsModel(modelId: string): boolean {
   return !segments.includes('live');
 }
 
+/**
+ * A tool call's thought signature, wherever the provider put it.
+ *
+ * Gemini's OpenAI-compatible layer nests it at `extra_content.google.thought_signature`
+ * (the Vercel AI SDK reads and echoes the same path); a top-level
+ * `thought_signature` is accepted for other providers. Reading only the top-level
+ * field lost every Gemini signature, and Gemini 3 then rejected the next tool
+ * round with "Function call is missing a thought_signature".
+ */
+function readThoughtSignature(toolCall: Record<string, unknown>): string | undefined {
+  const extra = toolCall['extra_content'];
+  if (isRecord(extra) && isRecord(extra['google'])) {
+    const nested = extra['google']['thought_signature'];
+    if (typeof nested === 'string' && nested.length > 0) {
+      return nested;
+    }
+  }
+  const topLevel = toolCall['thought_signature'];
+  return typeof topLevel === 'string' && topLevel.length > 0 ? topLevel : undefined;
+}
+
+function withThoughtSignature(signature: string | undefined): { thoughtSignature?: string } {
+  return signature ? { thoughtSignature: signature } : {};
+}
+
 function isAbortError(error: unknown): boolean {
   return error instanceof Error && error.name === 'AbortError';
 }
@@ -455,6 +483,7 @@ function buildPayload(
   request: CompletionRequest,
   compatibilityMode: OpenAiCompatibleProviderConfig['compatibilityMode'] = 'generic-chat-completions',
   toolNameMap = buildProviderToolNameMap(request.tools),
+  providerId = '',
 ): Record<string, unknown> {
   const strippedModel = stripProviderPrefix(request.model);
   const messages = request.messages.map(m => {
@@ -472,7 +501,11 @@ function buildPayload(
           id: tc.id,
           type: 'function',
           function: { name: toolNameMap.toProvider.get(tc.name) ?? tc.name, arguments: JSON.stringify(tc.arguments) },
-          ...(tc.thoughtSignature ? { thought_signature: tc.thoughtSignature } : {}),
+          ...(tc.thoughtSignature
+            ? (providerId === 'google'
+              ? { extra_content: { google: { thought_signature: tc.thoughtSignature } } }
+              : { thought_signature: tc.thoughtSignature })
+            : {}),
         })),
       };
     }

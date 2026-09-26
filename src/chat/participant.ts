@@ -4713,6 +4713,19 @@ async function runChatTask(
     ...(options.native ? { responseText: reconciled.transcriptText } : {}),
   });
 
+  // Native chat renders the install offer as buttons; the panel draws its own
+  // from the same metadata.
+  if (options.native && assistantMeta.discoveredResources?.length) {
+    for (const resource of assistantMeta.discoveredResources) {
+      stream.button({
+        command: 'atlasmind.ard.installEntry',
+        title: `Review & install: ${resource.displayName}`,
+        arguments: [resource.identifier],
+        tooltip: `${resource.displayName} (${shortDiscoverType(resource.type)}) via ${resource.sourceName}. You confirm before anything is added.`,
+      });
+    }
+  }
+
   if (options.detectRunProposal) {
     const transcript = sessionId ? atlas.sessionConversation.getTranscript(sessionId) : [];
     const proposal = resolveProjectRunProposal(
@@ -5348,7 +5361,7 @@ export function buildQuickReplyPayload(responseText: string | undefined): Webvie
 
 export function buildAssistantResponseMetadata(
   prompt: string,
-  result: Pick<TaskResult, 'agentId' | 'modelUsed' | 'costUsd' | 'inputTokens' | 'outputTokens' | 'modelAttempts' | 'artifacts' | 'autoDisabledProvider' | 'contextCompressionSavingsUsd' | 'iterationLimitHit' | 'suggestedIterationLimit' | 'suggestedToolCallsPerTurnLimit'>,
+  result: Pick<TaskResult, 'agentId' | 'modelUsed' | 'costUsd' | 'inputTokens' | 'outputTokens' | 'modelAttempts' | 'artifacts' | 'autoDisabledProvider' | 'contextCompressionSavingsUsd' | 'iterationLimitHit' | 'suggestedIterationLimit' | 'suggestedToolCallsPerTurnLimit'> & Partial<Pick<TaskResult, 'discoveredResources'>>,
   options?: { hasSessionContext?: boolean; imageAttachments?: TaskImageAttachment[]; routingContext?: Record<string, unknown>; policies?: SessionPolicySnapshot[]; responseText?: string },
 ): SessionTranscriptMetadata {
   const toolCallCount = result.artifacts?.toolCallCount ?? 0;
@@ -5509,6 +5522,17 @@ export function buildAssistantResponseMetadata(
       : {}),
     ...(options?.policies?.length ? { policies: options.policies.map(policy => ({ ...policy })) } : {}),
     ...(timelineNotes.length ? { timelineNotes } : {}),
+    ...(result.discoveredResources?.length
+      ? {
+        discoveredResources: result.discoveredResources.slice(0, 5).map(resource => ({
+          identifier: resource.identifier,
+          displayName: resource.displayName,
+          type: resource.type,
+          sourceName: resource.sourceName,
+          ...(typeof resource.score === 'number' ? { score: resource.score } : {}),
+        })),
+      }
+      : {}),
     ...(emptyResponseRecovery
       ? emptyResponseRecovery
       : suggestedFollowups

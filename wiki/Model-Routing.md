@@ -113,6 +113,18 @@ route straight back into an endpoint the turn had already watched fail. The judg
 an agent AtlasMind launched as a process, a protocol-level error means *that process*; for a cloud
 provider reached over the web, one error is one server among many and the provider stays in play.
 
+The same goes for an agent that simply stops answering partway through your request: every model it hosts
+is set aside for the rest of the turn, rather than waiting out the timeout once per model.
+
+**A task that already changed something is not started over somewhere else.** Failing over means running
+the whole task again from the top on another model. That's fine for reading and wrong for a commit or a
+push — "commit, push and promote" was once handed to model after model, each starting again on a
+repository the last one had already changed. So if an attempt fails after it started anything that can
+change your workspace, repository or a remote, AtlasMind stops, tells you what had started, and suggests
+checking `git status` and `git log -3` before you ask it to carry on. A subscription agent running its own
+tools is treated the same once it has your prompt, because AtlasMind can't see which of them ran. It won't
+escalate to a stronger model in that situation either.
+
 Account-wide refusals are handled differently. A rate limit skips the provider for the rest of that
 turn; insufficient credits pause it for the session; and an explicit invalid-key, account, or project
 access denial also pauses it after one attempt. AtlasMind does not blame the individual model for any of
@@ -157,6 +169,11 @@ Gemini Live voice models beside ordinary text models, but Live models require a 
 WebSocket session. AtlasMind's Google text adapter is stateless, so model ids carrying the declared `live`
 segment are withheld from that route before they can consume an attempt.
 
+Gemini 3 also needs its tool calls' **thought signatures** handed back on the next round. Google's
+OpenAI-compatible layer puts them in a nested `extra_content.google` field, which AtlasMind didn't read,
+so every follow-up tool round failed with "Function call is missing a thought_signature". It now reads
+and returns them where Google puts them.
+
 ---
 
 ## How long AtlasMind waits
@@ -166,7 +183,10 @@ A hosted API call gets 30 seconds. Two cases need more, and both used to fail fo
 - **Subscription agents (ACP)** have to start a process and shake hands before they see your prompt.
   Their deadline now covers all of that plus the prompt itself. Previously the outer limit and the
   agent's own limit were the same number, so a slow start always tripped the outer one first and you got
-  "timed out" with no clue which part was slow.
+  "timed out" with no clue which part was slow. Once the agent has your prompt, AtlasMind waits as long as
+  it keeps reporting progress — the 180-second limit is for *silence*, with a 30-minute ceiling on the
+  whole prompt — because a fixed limit declared an agent hung while it was running tests and pushing. When
+  it does give up, it tells the agent to stop rather than leaving it working in the background.
 - **Local models** load their weights and read your prompt on your own machine. The wait now scales with
   the model's size, the length of your prompt, and whether the model has already answered once this
   session — the first request after a restart pays for loading. A 14B model on a long prompt was being

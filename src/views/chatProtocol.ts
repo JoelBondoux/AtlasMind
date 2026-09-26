@@ -37,6 +37,7 @@ export type ChatPanelImportedItem =
 export type ChatPanelMessage =
   | { type: 'ready' }
   | { type: 'submitPrompt'; payload: { prompt: string; mode: ComposerSendMode } }
+  | { type: 'installDiscoveredResource'; payload: { identifier: string } }
   | { type: 'resolveLoopDecision'; payload: { id: string; choice: string } }
   | { type: 'resolveProjectRunProposal'; payload: { entryId: string; decision: 'start' | 'save' | 'cancel' } }
   | { type: 'stopPrompt' }
@@ -231,6 +232,15 @@ export function isChatPanelMessage(value: unknown): value is ChatPanelMessage {
     || message.type === 'openProjectDashboard'
   ) {
     return true;
+  }
+
+  if (message.type === 'installDiscoveredResource') {
+    // An identifier and nothing else: the host looks it up in its own search
+    // results, so a crafted message can name a resource but never describe one.
+    const identifier = typeof message.payload === 'object' && message.payload !== null
+      ? (message.payload as { identifier?: unknown }).identifier
+      : undefined;
+    return typeof identifier === 'string' && identifier.length > 0 && identifier.length <= 512;
   }
 
   if (message.type === 'submitPrompt') {

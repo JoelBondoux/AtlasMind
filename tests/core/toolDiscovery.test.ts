@@ -104,6 +104,11 @@ describe('shouldOfferToolDiscovery', () => {
     // very tools that mode exists to withhold, against a different revision.
     // Zero is a decision, not a small number.
     expect(shouldOfferToolDiscovery(40, 0)).toBe(false);
+    expect(shouldOfferToolDiscovery(40, 0, true)).toBe(false);
+  });
+
+  it('offers the search on a full pool when Resource Discovery can look further', () => {
+    expect(shouldOfferToolDiscovery(12, 12, true)).toBe(true);
   });
 
   it('has an id that cannot collide with a real skill', () => {

@@ -348,6 +348,13 @@ describe('isSpecialistIntegrationsMessage', () => {
 });
 
 describe('isChatPanelMessage', () => {
+  it('accepts an install request naming only an identifier', () => {
+    expect(isChatPanelMessage({ type: 'installDiscoveredResource', payload: { identifier: 'urn:tool:1' } })).toBe(true);
+    expect(isChatPanelMessage({ type: 'installDiscoveredResource', payload: { identifier: '' } })).toBe(false);
+    expect(isChatPanelMessage({ type: 'installDiscoveredResource', payload: { identifier: 'x'.repeat(513) } })).toBe(false);
+    expect(isChatPanelMessage({ type: 'installDiscoveredResource', payload: {} })).toBe(false);
+  });
+
   it('accepts valid chat panel messages', () => {
     expect(isChatPanelMessage({ type: 'submitPrompt', payload: { prompt: 'Explain the current routing logic.', mode: 'send' } })).toBe(true);
     expect(isChatPanelMessage({ type: 'submitPrompt', payload: { prompt: 'Continue autonomously.', mode: 'steer' } })).toBe(true);

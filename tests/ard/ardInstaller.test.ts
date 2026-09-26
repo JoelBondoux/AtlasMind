@@ -1,5 +1,5 @@
 import { describe, expect, it, vi } from 'vitest';
-import { ArdInstaller, resolveMcpConfig } from '../../src/ard/ardInstaller.ts';
+import { ArdInstaller, describeInstallPlan, resolveMcpConfig } from '../../src/ard/ardInstaller.ts';
 import type { McpServerRegistry } from '../../src/mcp/mcpServerRegistry.ts';
 import type { ArdRegistry } from '../../src/ard/ardRegistry.ts';
 import type { ArdDiscoveredResource } from '../../src/types.ts';
@@ -80,5 +80,31 @@ describe('ArdInstaller.install', () => {
     expect(addFinder).not.toHaveBeenCalled();
     expect(a2a.kind).toBe('reference');
     expect(skill.kind).toBe('reference');
+  });
+});
+
+describe('describeInstallPlan', () => {
+  const base = { identifier: 'urn:x', displayName: 'Pg Tools', sourceName: 'GitHub Agent Finder', score: 88 };
+
+  it('names the exact command a stdio server would run, and that it arrives switched off', () => {
+    const plan = describeInstallPlan({
+      ...base,
+      type: 'application/mcp-server+json',
+      data: { command: 'npx', args: ['-y', '@acme/pg-mcp'], env: { PGHOST: 'x' } },
+    } as ArdDiscoveredResource);
+    expect(plan).toContain('npx -y @acme/pg-mcp');
+    expect(plan).toContain('switched OFF');
+    expect(plan).toContain('PGHOST');
+    expect(plan).toMatch(/not a trust or safety rating/);
+  });
+
+  it('names the URL a remote server would reach', () => {
+    const plan = describeInstallPlan({ ...base, type: 'application/mcp-server+json', url: 'https://mcp.example.com/sse' } as ArdDiscoveredResource);
+    expect(plan).toContain('connect to:\n  https://mcp.example.com/sse');
+  });
+
+  it('says plainly when nothing will be added', () => {
+    const plan = describeInstallPlan({ ...base, type: 'application/a2a-agent-card+json' } as ArdDiscoveredResource);
+    expect(plan).toMatch(/nothing will be added/);
   });
 });

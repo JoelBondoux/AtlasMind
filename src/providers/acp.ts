@@ -39,7 +39,7 @@ import { statSync } from 'node:fs';
 import { homedir } from 'node:os';
 import * as path from 'node:path';
 import type { ChatMessage, CompletionRequest, CompletionResponse, DiscoveredModel, ProviderAdapter } from './adapter.js';
-import { ACP_REQUEST_TIMEOUT_MS } from '../constants.js';
+import { ACP_PROMPT_CEILING_MS, ACP_REQUEST_TIMEOUT_MS } from '../constants.js';
 import { createAcpLaunchProbe, resolveAcpLaunch } from './acpLaunch.js';
 import {
   ACP_HOST_DEFAULTS,
@@ -1940,6 +1940,8 @@ class AcpSession {
   private exited: { code: number | null; signal: string | null } | undefined;
   private disposed = false;
   private readonly pending = new Map<number, { resolve: (result: Record<string, unknown>) => void; reject: (error: Error) => void }>();
+  /** Restarts the in-flight prompt's inactivity timer; set only while a prompt is pending. */
+  private promptActivity: (() => void) | undefined;
   private onText: ((chunk: string) => void) | undefined;
   private text = '';
   /** Tool calls announced this turn. Reset with the text at each prompt. */
@@ -2110,7 +2112,7 @@ class AcpSession {
       }
       promptStarted = true;
       const result = await Promise.race([
-        this.request(buildSessionPromptRequest(this.nextId, this.sessionId, blocks)),
+        this.request(buildSessionPromptRequest(this.nextId, this.sessionId, blocks), { resetOnActivity: true }),
         aborted,
       ]);
       const stop = parseStopReason(result);
@@ -2226,17 +2228,62 @@ class AcpSession {
     }
   }
 
-  private request(frame: ReturnType<typeof buildInitializeRequest>): Promise<Record<string, unknown>> {
+  /**
+   * Send one request and wait for its answer.
+   *
+   * With `resetOnActivity` (the prompt), the budget is **inactivity**: every
+   * `session/update` or permission request restarts it, and `ACP_PROMPT_CEILING_MS`
+   * bounds the whole. A fixed total declared a working agent hung mid-commit.
+   * When a prompt times out the agent is told to cancel — otherwise it carries on
+   * with the task in the background while failover hands it to another model.
+   */
+  private request(
+    frame: ReturnType<typeof buildInitializeRequest>,
+    options?: { resetOnActivity?: boolean },
+  ): Promise<Record<string, unknown>> {
     const id = frame.id;
     this.nextId = id + 1;
+    const startedAt = Date.now();
     return new Promise<Record<string, unknown>>((resolve, reject) => {
-      const timer = setTimeout(() => {
+      let timer: ReturnType<typeof setTimeout> | undefined;
+      const expire = (message: string) => {
         this.pending.delete(id);
-        reject(new Error(`The ACP agent did not answer ${frame.method} within ${Math.round(this.timeoutMs / 1000)}s.`));
-      }, this.timeoutMs);
+        if (this.promptActivity === touch) { this.promptActivity = undefined; }
+        if (options?.resetOnActivity && this.sessionId) {
+          try { this.send(buildSessionCancelNotification(this.sessionId)); } catch { /* agent already gone */ }
+        }
+        reject(new Error(message));
+      };
+      const arm = () => {
+        if (timer) { clearTimeout(timer); }
+        const remainingCeiling = options?.resetOnActivity
+          ? ACP_PROMPT_CEILING_MS - (Date.now() - startedAt)
+          : Number.POSITIVE_INFINITY;
+        if (remainingCeiling <= 0) {
+          expire(`The ACP agent was still working on ${frame.method} after ${Math.round(ACP_PROMPT_CEILING_MS / 60_000)} minutes, the ceiling for one prompt.`);
+          return;
+        }
+        const wait = Math.min(this.timeoutMs, remainingCeiling);
+        timer = setTimeout(() => {
+          if (wait < this.timeoutMs) {
+            expire(`The ACP agent was still working on ${frame.method} after ${Math.round(ACP_PROMPT_CEILING_MS / 60_000)} minutes, the ceiling for one prompt.`);
+            return;
+          }
+          expire(options?.resetOnActivity
+            ? `The ACP agent went silent for ${Math.round(this.timeoutMs / 1000)}s during ${frame.method}.`
+            : `The ACP agent did not answer ${frame.method} within ${Math.round(this.timeoutMs / 1000)}s.`);
+        }, wait);
+      };
+      const touch = () => arm();
+      if (options?.resetOnActivity) { this.promptActivity = touch; }
+      arm();
+      const clear = () => {
+        if (timer) { clearTimeout(timer); }
+        if (this.promptActivity === touch) { this.promptActivity = undefined; }
+      };
       const settle = {
-        resolve: (result: Record<string, unknown>) => { clearTimeout(timer); resolve(result); },
-        reject: (error: Error) => { clearTimeout(timer); reject(error); },
+        resolve: (result: Record<string, unknown>) => { clear(); resolve(result); },
+        reject: (error: Error) => { clear(); reject(error); },
       };
       this.pending.set(id, settle);
       try {
@@ -2278,11 +2325,14 @@ class AcpSession {
       }
       case 'notification': {
         if (frame.method === 'session/update') {
+          this.promptActivity?.();
           this.applyUpdate(frame.params);
         }
         return;
       }
       case 'request': {
+        // The agent asking for something is the agent working, not hung.
+        this.promptActivity?.();
         // The agent is asking AtlasMind for something. `session/request_permission`
         // is the one method with an answer; everything else (fs/*, terminal/*,
         // elicitation/*) is refused, because AtlasMind declared it cannot do
