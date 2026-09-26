@@ -362,7 +362,7 @@ const HIGH_RISK_PUSH = (summary: string): ToolInvocationPolicy => ({ category: '
  * A tag push stays at the ceiling however it is spelled, because pushing a tag
  * is how most release workflows are started, and a publish cannot be recalled.
  */
-export function classifyGitPushInvocation(args: Record<string, unknown>): ToolInvocationPolicy {
+function classifyGitPushInvocation(args: Record<string, unknown>): ToolInvocationPolicy {
   const remote = typeof args['remote'] === 'string' && args['remote'].trim() ? args['remote'].trim() : 'origin';
   const branch = typeof args['branch'] === 'string' ? args['branch'].trim() : '';
   const tag = typeof args['tag'] === 'string' ? args['tag'].trim() : '';

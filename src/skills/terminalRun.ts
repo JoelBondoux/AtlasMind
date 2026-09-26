@@ -286,7 +286,7 @@ export function parseGhInvocation(args: ReadonlyArray<string>): { namespace: str
 const GIT_OPTIONS_WITH_VALUE: ReadonlySet<string> = new Set(['-c', '-C', '--git-dir', '--work-tree', '--namespace', '--exec-path', '--config-env']);
 
 /** The subcommand of a `git` invocation, located past any global options. */
-export function parseGitSubcommand(args: ReadonlyArray<string>): string {
+function parseGitSubcommand(args: ReadonlyArray<string>): string {
   for (let index = 0; index < args.length; index += 1) {
     const value = args[index]!.trim();
     if (GIT_OPTIONS_WITH_VALUE.has(value)) {
@@ -314,7 +314,7 @@ export function parseGitSubcommand(args: ReadonlyArray<string>): string {
  * `-c alias.*` is refused with it: an alias defined on the command line turns
  * any word into any subcommand, which would make the check above decorative.
  */
-export function getBlockedGitReason(command: string, args: string[]): string | undefined {
+function getBlockedGitReason(command: string, args: string[]): string | undefined {
   if (command !== 'git') {
     return undefined;
   }

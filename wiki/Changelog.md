@@ -19,6 +19,15 @@ Older entries below describe the software as it was at the time and are delibera
 
 ---
 
+## v0.482.1 -- Release checks pass again
+
+Importing a release design stripped HTML tags only once, so nested markup such as `<<b>script>` could
+leave a working `<script>` in a feature or tier name. Every angle bracket is now removed, since those
+names are plain text. The three helpers added in 0.482.0 are no longer exported, which also clears the
+dead-export check that failed the release pull request.
+
+---
+
 ## v0.482.0 -- Autopilot stops asking about ordinary pushes
 
 With Autopilot on, every `git push` still asked for approval, because every push was graded as

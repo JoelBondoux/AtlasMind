@@ -127,7 +127,10 @@ function markdownText(value: string, max: number): string {
     .replace(/!\[[^\]]*\]\([^)]*\)/g, '')
     .replace(/\[([^\]]+)\]\([^)]*\)/g, '$1')
     .replace(/[`*_~]/g, '')
-    .replace(/<[^>]+>/g, ''), max);
+    .replace(/<[^>]*>/g, '')
+    // One pass of tag stripping is not sanitization: `<<b>script>` leaves
+    // `<script>` behind. This is plain text, so no angle bracket survives.
+    .replace(/[<>]/g, ''), max);
 }
 
 function normalizedName(value: string): string {

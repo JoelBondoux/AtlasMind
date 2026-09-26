@@ -74,6 +74,17 @@ describe('release design parsing', () => {
     expect(plan.cells.find(cell => cell.featureImportId === 'local-export')?.status).toBe('released');
   });
 
+  it('leaves no tag behind when markup is nested to survive one pass of stripping', () => {
+    // A single `<[^>]+>` pass turns `<<b>script>` into `<script>`. Names from an
+    // imported document are plain text, so no angle bracket survives at all.
+    const plan = parseReleaseDesignDocument('docs/plans.md',
+      '# Plans\n\n## Free tier\n- Offline <<b>script>alert(1)<</b>/script> mode\n- <img src=x onerror=alert(1)>Sync\n');
+    for (const name of plan.features.map(feature => feature.name)) {
+      expect(name).not.toMatch(/[<>]/);
+    }
+    expect(plan.features.map(feature => feature.name)).toContain('Sync');
+  });
+
   it('extracts tier gates from row-oriented target-package roadmap tables', () => {
     const plan = parseReleaseDesignDocument('Roadmap.md', PACKAGING_ROADMAP);
     expect(plan.tiers.map(tier => tier.name)).toEqual(['Free', 'Starter', 'Pro', 'Enterprise']);

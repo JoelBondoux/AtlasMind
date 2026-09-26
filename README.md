@@ -4,7 +4,7 @@
 
 <h1 align="center">AtlasMind</h1>
 
-<p align="center"><sub> · <strong>Current source version: 0.482.0</strong> · </sub></p>
+<p align="center"><sub> · <strong>Current source version: 0.482.1</strong> · </sub></p>
 
 
 <p align="center">
@@ -175,6 +175,11 @@ allow-list, redaction and file-withholding behaviour, retained metadata, provide
 important limits on overrides and compliance claims.
 
 ---
+
+## What's new in 0.482.1
+
+Importing a release design no longer lets nested HTML survive into feature or tier names, and the
+release checks pass again.
 
 ## What's new in 0.482.0
 
