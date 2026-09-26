@@ -6,6 +6,35 @@ The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/),
 
 ## [Unreleased]
 
+## [0.482.0] - 2026-09-26
+
+### Added
+
+- `git-push` takes a `tag` parameter that pushes exactly one local tag by its full ref
+  (`refs/tags/<tag>`), after checking that it exists. It cannot be combined with a branch, `tags`,
+  `force` or `setUpstream`, so approving a release tag never also approves something else.
+- A chat turn that promotes or merges into `main`, `master`, `production`, `prod` or `stable` receives
+  `terminal-run` (for `gh pr create`) and `PROTECTED_PROMOTION_HINT`: open a pull request, never merge,
+  commit or push to the protected branch locally, and tag only after the pull request has merged.
+  The planner already had this rule; single chat turns never saw it.
+
+### Changed
+
+- Pushes are graded by where they go (`classifyGitPushInvocation`). A `git-push` naming an ordinary
+  branch on a remote given by name grades `network`/`medium`, which Autopilot may waive. Everything
+  else stays `network`/`high`, on the never-bypassable ceiling: a push with no branch named, to a
+  protected branch or `staging`/`development`, with force, of a tag or `--tags`, or to a remote given as
+  a URL or path. Previously every push was on the ceiling, so Autopilot asked on each one.
+- `git-push` checks that a named branch is a local branch before pushing, so a tag named where a branch
+  belongs cannot be pushed on a branch's approval. It also refuses a remote that is not a plain name.
+
+### Security
+
+- `terminal-run` refuses `git push`, and git aliases defined with `-c alias.*` or
+  `--config-env=alias.*`, and points the model at `git-push`. Through `terminal-run` a push was a plain
+  terminal write that Autopilot waives, so `git push origin main --force` could run unasked while the
+  dedicated tool prompted for `develop`.
+
 ## [0.481.3] - 2026-09-26
 
 ### Fixed

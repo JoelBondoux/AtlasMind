@@ -228,6 +228,11 @@ export const terminalRunSkill: SkillDefinition = {
       return blockedGhReason;
     }
 
+    const blockedGitReason = getBlockedGitReason(cmd, filteredArgs);
+    if (blockedGitReason) {
+      return blockedGitReason;
+    }
+
     const result = await context.runCommand(
       cmd,
       filteredArgs,
@@ -275,6 +280,55 @@ export function parseGhInvocation(args: ReadonlyArray<string>): { namespace: str
     return { namespace: '', verb: '' };
   }
   return { namespace: positional[index]!, verb: positional[index + 1] ?? '' };
+}
+
+/** Git global options whose value is the next argument, not the subcommand. */
+const GIT_OPTIONS_WITH_VALUE: ReadonlySet<string> = new Set(['-c', '-C', '--git-dir', '--work-tree', '--namespace', '--exec-path', '--config-env']);
+
+/** The subcommand of a `git` invocation, located past any global options. */
+export function parseGitSubcommand(args: ReadonlyArray<string>): string {
+  for (let index = 0; index < args.length; index += 1) {
+    const value = args[index]!.trim();
+    if (GIT_OPTIONS_WITH_VALUE.has(value)) {
+      index += 1;
+      continue;
+    }
+    if (value.startsWith('-')) {
+      continue;
+    }
+    return value.toLowerCase();
+  }
+  return '';
+}
+
+/**
+ * Refuse git operations that must go through a graded skill instead.
+ *
+ * `git push` belongs to `git-push`, which grades each push by where it goes: an
+ * ordinary branch push can be pre-approved, while a push to a protected branch,
+ * of a tag, or with force always asks. Here it would be one undifferentiated
+ * terminal write, which autopilot waives — so `git push origin main --force`
+ * would have run unattended while the dedicated skill asked about `develop`.
+ * One path means one set of rules.
+ *
+ * `-c alias.*` is refused with it: an alias defined on the command line turns
+ * any word into any subcommand, which would make the check above decorative.
+ */
+export function getBlockedGitReason(command: string, args: string[]): string | undefined {
+  if (command !== 'git') {
+    return undefined;
+  }
+  const definesAlias = args.some((value, index) =>
+    (value.trim() === '-c' && /^alias\./i.test(args[index + 1]?.trim() ?? ''))
+    || /^--config-env=alias\./i.test(value.trim()));
+  if (definesAlias) {
+    return 'Error: Defining a git alias through terminal-run is blocked, because it would hide which subcommand runs.';
+  }
+  if (parseGitSubcommand(args) === 'push') {
+    return 'Error: "git push" is not run through terminal-run. Use the git-push tool with the branch named (or "tag" for one tag), '
+      + 'so the push is graded by where it goes. Never push to a protected branch — open a pull request instead.';
+  }
+  return undefined;
 }
 
 /** Refuse a `gh` subcommand that is dangerous regardless of approval. */

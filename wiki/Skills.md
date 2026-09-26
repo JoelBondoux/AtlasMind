@@ -28,7 +28,7 @@ to do*, or when you want to deliberately stop an agent doing something.
 |-------|-------------|
 | `git-status` · `git-diff` · `git-log` | See where things stand |
 | `git-commit` | Commit, with the message passed straight to git (no quoting problems). It can stage and exclusively commit up to 100 exact tracked or untracked paths while preserving unrelated staged entries; `.`, traversal, absolute paths and wildcards are refused. Allows up to 120s for your pre-commit hooks |
-| `git-push` | Push, with a protected-branch guard that refuses force-pushes to main, master, production, release and hotfix branches |
+| `git-push` | Push a named branch, or exactly one tag (`tag`), with a protected-branch guard that refuses force-pushes to main, master, production, release and hotfix branches. A named working branch can be approved by Autopilot; protected branches, tags, force and unnamed branches always ask. `terminal-run` refuses `git push` and points here |
 | `git-branch` | List branches (including only-merged-into-a-ref, the safe deletion candidates), create, switch, or delete — locally, force (`-D`), or on the remote. Refuses to delete protected branches |
 | `git-fetch` | Download new commits and refs, with `--prune` to drop remote-tracking refs whose branch is gone — the first step of a branch cleanup |
 | `git-pull` | Fetch and integrate, fast-forward-only by default so a routine sync can never invent a merge commit; rebase and merge modes are explicit choices |
@@ -163,6 +163,10 @@ Tool selection used to work word by word, so "merge to main then publish" was ha
 confident report rather than stopping. Merging, rebasing, cherry-picking and promoting now get the write
 tools together, as one job. Asking a question *about* a commit still doesn't hand over the ability to
 publish one, and every one of these tools stays behind its normal approval prompt.
+
+A request to move work *into* a protected branch — "promote staging to main", "merge develop into
+master" — also gets `gh`, and is told plainly: open a pull request, don't merge into the protected
+branch locally, and tag the release only after that pull request has merged.
 
 ### Your words are enforced, not just heard
 

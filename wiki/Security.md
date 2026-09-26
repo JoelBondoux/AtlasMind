@@ -125,8 +125,10 @@ It's handled in layers:
 
 Autopilot and per-task bypass mean *stop asking me about this*. They do not mean *never ask me again
 about anything*. One category is beyond all of them: something that leaves your machine, changes
-something there, and cannot be undone from here — a `git push`, deleting a remote branch, or any
-external tool AtlasMind cannot identify by name.
+something there, and cannot be undone from here — a `git push` to a protected branch, of a tag, with
+force, or without the branch named; deleting a remote branch; or any external tool AtlasMind cannot
+identify by name. An ordinary push of a named working branch is below the ceiling, and `terminal-run`
+refuses `git push` outright so the raw command cannot route around the grading.
 
 Before v0.433.0 there was no such limit, and because Autopilot is offered as an answer to *any*
 approval dialog, one click on a harmless tool bought unattended approval of all three for the rest of
