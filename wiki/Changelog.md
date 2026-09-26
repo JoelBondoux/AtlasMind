@@ -19,6 +19,13 @@ Older entries below describe the software as it was at the time and are delibera
 
 ---
 
+## v0.481.3 -- Secret scan passes for the release
+
+A new test fixture shaped like a Stripe key — there to prove chat redacts secrets before searching
+Resource Discovery — is allowlisted by path, so the release pull request's secret scan passes.
+
+---
+
 ## v0.481.2 -- Dependency updates
 
 The open Dependabot updates are applied: the Agent Client Protocol SDK and `zod` at runtime, the

@@ -4,7 +4,7 @@
 
 <h1 align="center">AtlasMind</h1>
 
-<p align="center"><sub> · <strong>Current source version: 0.481.2</strong> · </sub></p>
+<p align="center"><sub> · <strong>Current source version: 0.481.3</strong> · </sub></p>
 
 
 <p align="center">
@@ -175,6 +175,11 @@ allow-list, redaction and file-withholding behaviour, retained metadata, provide
 important limits on overrides and compliance claims.
 
 ---
+
+## What's new in 0.481.3
+
+A test fixture shaped like a secret is allowlisted by path so the release's secret scan passes; nothing
+in the extension changed.
 
 ## What's new in 0.481.2
 

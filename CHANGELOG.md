@@ -6,6 +6,15 @@ The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/),
 
 ## [Unreleased]
 
+## [0.481.3] - 2026-09-26
+
+### Fixed
+
+- Allowlist `tests/core/capabilitySearch.test.ts` in `.gitleaks.toml`. Its redaction test uses a
+  Stripe-shaped key that was never valid, and the secret scan would otherwise have failed the next
+  release pull request. The allowlist stays by path, per the file's own rule, so the key shape is still
+  detected everywhere else.
+
 ## [0.481.2] - 2026-09-26
 
 ### Security
