@@ -183,6 +183,15 @@ describe('the ceiling stays narrow enough to be kept', () => {
 describe('the tools that actually land on the ceiling', () => {
   it.each([
     ['git-push', {}],
+    ['git-push', { branch: 'main' }],
+    ['git-push', { branch: 'MASTER' }],
+    ['git-push', { branch: 'release/1.2' }],
+    ['git-push', { branch: 'staging' }],
+    ['git-push', { branch: 'develop', force: true }],
+    ['git-push', { branch: 'develop', tags: true }],
+    ['git-push', { tag: 'v1.2.3' }],
+    ['git-push', { branch: 'develop', remote: 'https://example.com/x.git' }],
+    ['git-push', { branch: 'a..b' }],
     ['git-branch', { action: 'delete', remote: true }],
     ['mcp:someserver:delete_records', {}],
     ['mcp:someserver:wibble', {}],
@@ -204,6 +213,20 @@ describe('the tools that actually land on the ceiling', () => {
     expect(classified.category).toBe('network');
     expect(classified.risk).toBe('high');
     expect(isToolBypassable(classified)).toBe(false);
+  });
+
+  it('lets autopilot waive an ordinary push to a named working branch', () => {
+    // Every push used to land on the ceiling, so autopilot asked about `develop`
+    // on every push — while `terminal-run git push` was waived. The graded
+    // skill must not be stricter than the command it exists to replace.
+    const manager = new ToolApprovalManager();
+    manager.enableAutopilot();
+
+    for (const branch of ['develop', 'feat/12-thing', 'fix/git-push-autopilot-grading']) {
+      const classified = classifyToolInvocation('git-push', { branch, setUpstream: true });
+      expect(classified).toMatchObject({ category: 'network', risk: 'medium' });
+      expect(manager.shouldBypass('task-1', classified), branch).toBe(true);
+    }
   });
 
   it('still bypasses an ordinary MCP read', () => {

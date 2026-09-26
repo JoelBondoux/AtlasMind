@@ -19,6 +19,22 @@ Older entries below describe the software as it was at the time and are delibera
 
 ---
 
+## v0.482.0 -- Autopilot stops asking about ordinary pushes
+
+With Autopilot on, every `git push` still asked for approval, because every push was graded as
+irreversible, while the same push typed as a terminal command went through unasked. Pushes are now
+graded by where they go. A push that names a working branch such as `develop` is covered by Autopilot.
+A push to a protected branch (or `staging`), a tag, a force push, or a push that doesn't name its
+branch still asks. `terminal-run` refuses `git push` and points the model at `git-push`, so there is
+one set of rules. `git-push` can push exactly one tag with its new `tag` parameter.
+
+A chat request to promote into `main` (or `master`, `production`) is now given `gh` and told to open a
+pull request: no local merge into the protected branch, and no release tag until the pull request has
+merged. Before this, "promote staging to main and publish" merged into `main` locally and stalled at
+the tag.
+
+---
+
 ## v0.481.3 -- Secret scan passes for the release
 
 A new test fixture shaped like a Stripe key — there to prove chat redacts secrets before searching

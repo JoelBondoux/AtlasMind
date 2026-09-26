@@ -4,7 +4,7 @@
 
 <h1 align="center">AtlasMind</h1>
 
-<p align="center"><sub> · <strong>Current source version: 0.481.3</strong> · </sub></p>
+<p align="center"><sub> · <strong>Current source version: 0.482.0</strong> · </sub></p>
 
 
 <p align="center">
@@ -175,6 +175,13 @@ allow-list, redaction and file-withholding behaviour, retained metadata, provide
 important limits on overrides and compliance claims.
 
 ---
+
+## What's new in 0.482.0
+
+Autopilot now covers an ordinary `git push` of a named working branch, instead of asking on every
+push. Pushes to protected branches, tags, force pushes and pushes without a branch named still ask.
+`git-push` can push a single release tag, and a request to promote into `main` is told to open a pull
+request rather than merge locally.
 
 ## What's new in 0.481.3
 

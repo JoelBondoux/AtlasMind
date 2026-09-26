@@ -167,3 +167,42 @@ describe('gh is reachable, and its dangerous subcommands are not', () => {
     expect((context.runCommand as ReturnType<typeof vi.fn>).mock.calls.length).toBe(1);
   });
 });
+
+describe('git push goes through git-push, never terminal-run', () => {
+  // Here a push is one undifferentiated terminal write, which autopilot waives —
+  // so `git push origin main --force` ran unattended while the graded skill asked
+  // about `develop`. One path means one set of rules.
+
+  const run = async (args: string[]) => {
+    const context = makeContext();
+    const result = await terminalRunSkill.execute!({ command: 'git', args }, context);
+    return { result: String(result), ran: (context.runCommand as ReturnType<typeof vi.fn>).mock.calls.length > 0 };
+  };
+
+  it('refuses git push in every spelling and names the tool to use', async () => {
+    for (const args of [
+      ['push'],
+      ['push', 'origin', 'main', '--force'],
+      ['push', 'origin', 'v1.2.3'],
+      ['-C', '/workspace', 'push', 'origin', 'develop'],
+      ['-c', 'user.name=x', 'push'],
+      ['--no-pager', 'PUSH', 'origin'],
+    ]) {
+      const { ran, result } = await run(args);
+      expect(ran, args.join(' ')).toBe(false);
+      expect(result, args.join(' ')).toMatch(/git-push tool/);
+    }
+  });
+
+  it('refuses a command-line alias, which could rename push to anything', async () => {
+    expect((await run(['-c', 'alias.p=push', 'p'])).ran).toBe(false);
+    expect((await run(['--config-env=alias.p=PUSHALIAS', 'p'])).ran).toBe(false);
+  });
+
+  it('does not mistake a global option value or a later argument for the subcommand', async () => {
+    // `-C push` names a directory called "push"; `commit -m push` is a message.
+    expect((await run(['-C', 'push', 'status'])).ran).toBe(true);
+    expect((await run(['commit', '-m', 'push'])).ran).toBe(true);
+    expect((await run(['log', '--grep', 'push'])).ran).toBe(true);
+  });
+});
