@@ -35,7 +35,7 @@ jobs:
     if: >-
       github.event_name == 'workflow_dispatch' &&
       github.repository == 'JoelBondoux/AtlasMind' &&
-      github.ref == 'refs/heads/build/0.475.0-staging-vsix' &&
+      github.ref == 'refs/heads/develop' &&
       github.actor == github.repository_owner &&
       inputs.head_repo == github.repository
     runs-on: [atlasmind-reviewed-pr-x64]

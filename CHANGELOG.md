@@ -6,6 +6,18 @@ The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/),
 
 ## [Unreleased]
 
+## [0.481.1] - 2026-09-26
+
+### Changed
+
+- The reviewed-PR local CI workflow now accepts dispatches from `develop` instead of the retired
+  `build/0.475.0-staging-vsix` branch.
+- The managed AI instruction files (`CLAUDE.md`, `AGENTS.md`, `.github/copilot-instructions.md`) carry
+  the roadmap-synchronization block, which tells any coding agent that
+  `project_memory/roadmap/improvement-plan.md` is the canonical roadmap and that edits to secondary
+  roadmaps must be reconciled with it.
+- The roadmap item for toggling completed-item visibility now has its durable anchor.
+
 ## [0.481.0] - 2026-09-26
 
 ### Added

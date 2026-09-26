@@ -4,7 +4,7 @@
 
 <h1 align="center">AtlasMind</h1>
 
-<p align="center"><sub> · <strong>Current source version: 0.481.0</strong> · </sub></p>
+<p align="center"><sub> · <strong>Current source version: 0.481.1</strong> · </sub></p>
 
 
 <p align="center">
@@ -175,6 +175,12 @@ allow-list, redaction and file-withholding behaviour, retained metadata, provide
 important limits on overrides and compliance claims.
 
 ---
+
+## What's new in 0.481.1
+
+The reviewed-PR local CI workflow now runs from `develop`, and the AI instruction files AtlasMind
+manages tell every coding agent that `project_memory/roadmap/improvement-plan.md` is the canonical
+roadmap.
 
 ## What's new in 0.481.0
 

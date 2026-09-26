@@ -19,6 +19,15 @@ Older entries below describe the software as it was at the time and are delibera
 
 ---
 
+## v0.481.1 -- Local CI follows develop; agents told where the roadmap lives
+
+The reviewed-PR local CI workflow now runs from `develop` rather than a retired staging branch. The AI
+instruction files AtlasMind manages now tell every coding agent that
+`project_memory/roadmap/improvement-plan.md` is the canonical roadmap, so an edit to any other roadmap
+file has to be reconciled with it.
+
+---
+
 ## v0.481.0 -- Chat finds the tools it's missing, and stops repeating work
 
 When nothing installed can do part of a task, chat now searches the Resource Discovery finders you've
