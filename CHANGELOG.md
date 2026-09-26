@@ -6,6 +6,23 @@ The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/),
 
 ## [Unreleased]
 
+## [0.481.2] - 2026-09-26
+
+### Security
+
+- Apply the open Dependabot updates on `develop` (#226, #228, #236, #237):
+  - Runtime: `@agentclientprotocol/sdk` 1.4.0 → 1.5.0 and `zod` 4.5.4 → 4.6.5.
+  - Developer tooling: `@vscode/vsce` 3.9.2 → 4.0.0, `eslint` 10.11.0, `@typescript-eslint/eslint-plugin`
+    8.70.1, `@types/node` 26.6.3, `@vitest/coverage-v8` 5.0.2, `fast-check` 4.10.2 and `jsdom` 30.1.1.
+    TypeScript stays on 6.x.
+  - GitHub Actions: `azure/login` moves to the current v3 commit in `publish.yml` and
+    `marketplace-identity.yml`, and `model-prices-freshness.yml` moves from `actions/checkout` v4 to the
+    v7.0.1 pin every other workflow already uses. Both new SHAs were checked against their tags.
+- `@vscode/vsce` 4 requires Node.js 22 or later (CI runs 24) and may offer to migrate a legacy PAT on
+  the first local publish; `--azure-credential`, which CI publishes with, is unchanged.
+- The five open Dependabot alerts (`hono`, `js-yaml`, `morgan`) and #222 were already fixed on `develop`
+  by the existing overrides; they remain open only against `main` and close at the next promotion.
+
 ## [0.481.1] - 2026-09-26
 
 ### Changed

@@ -4,7 +4,7 @@
 
 <h1 align="center">AtlasMind</h1>
 
-<p align="center"><sub> · <strong>Current source version: 0.481.1</strong> · </sub></p>
+<p align="center"><sub> · <strong>Current source version: 0.481.2</strong> · </sub></p>
 
 
 <p align="center">
@@ -175,6 +175,12 @@ allow-list, redaction and file-withholding behaviour, retained metadata, provide
 important limits on overrides and compliance claims.
 
 ---
+
+## What's new in 0.481.2
+
+The open Dependabot updates are applied, including the Agent Client Protocol SDK, `zod` and the
+`@vscode/vsce` 4 packaging tool (Node.js 22 or later for contributors). The remaining security alerts
+were already fixed on `develop` and close at the next release.
 
 ## What's new in 0.481.1
 

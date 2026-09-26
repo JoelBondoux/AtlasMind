@@ -19,6 +19,15 @@ Older entries below describe the software as it was at the time and are delibera
 
 ---
 
+## v0.481.2 -- Dependency updates
+
+The open Dependabot updates are applied: the Agent Client Protocol SDK and `zod` at runtime, the
+packaging tool `@vscode/vsce` 4 (which needs Node.js 22 or later) and the rest of the developer
+tooling, and current pinned versions of two GitHub Actions. The outstanding security alerts were already
+fixed on `develop` and close when it is next promoted to `main`.
+
+---
+
 ## v0.481.1 -- Local CI follows develop; agents told where the roadmap lives
 
 The reviewed-PR local CI workflow now runs from `develop` rather than a retired staging branch. The AI
