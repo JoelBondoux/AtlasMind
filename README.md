@@ -4,7 +4,7 @@
 
 <h1 align="center">AtlasMind</h1>
 
-<p align="center"><sub> · <strong>Current source version: 0.482.2</strong> · </sub></p>
+<p align="center"><sub> · <strong>Current source version: 0.482.3</strong> · </sub></p>
 
 
 <p align="center">
@@ -175,6 +175,11 @@ allow-list, redaction and file-withholding behaviour, retained metadata, provide
 important limits on overrides and compliance claims.
 
 ---
+
+## What's new in 0.482.3
+
+Release-design import strips HTML in a form the code scanner recognises as complete, which closes its
+open alert.
 
 ## What's new in 0.482.2
 

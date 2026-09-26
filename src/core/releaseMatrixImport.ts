@@ -122,15 +122,28 @@ function clean(value: unknown, max: number): string {
   return value.replace(/[\u0000-\u001f\u007f]+/g, ' ').replace(/\s+/g, ' ').trim().slice(0, max);
 }
 
+/**
+ * Strip markup from text that is meant to be plain.
+ *
+ * One pass of tag stripping is not sanitization: `<<b>script>` leaves
+ * `<script>` behind. Stripping repeats until nothing changes, and then no
+ * angle bracket survives at all, since these names are plain text.
+ */
+function stripTags(text: string): string {
+  let current = text;
+  let previous: string;
+  do {
+    previous = current;
+    current = current.replace(/<[^>]*>/g, '');
+  } while (current !== previous);
+  return current.replace(/[<>]/g, '');
+}
+
 function markdownText(value: string, max: number): string {
-  return clean(value
+  return clean(stripTags(value
     .replace(/!\[[^\]]*\]\([^)]*\)/g, '')
     .replace(/\[([^\]]+)\]\([^)]*\)/g, '$1')
-    .replace(/[`*_~]/g, '')
-    .replace(/<[^>]*>/g, '')
-    // One pass of tag stripping is not sanitization: `<<b>script>` leaves
-    // `<script>` behind. This is plain text, so no angle bracket survives.
-    .replace(/[<>]/g, ''), max);
+    .replace(/[`*_~]/g, '')), max);
 }
 
 function normalizedName(value: string): string {

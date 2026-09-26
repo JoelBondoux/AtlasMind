@@ -6,6 +6,15 @@ The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/),
 
 ## [Unreleased]
 
+## [0.482.3] - 2026-09-26
+
+### Security
+
+- Release-design import now strips tags until the text stops changing, then removes any remaining
+  angle bracket. 0.482.1 already removed every bracket, but CodeQL does not follow a chained replace
+  and kept its incomplete-sanitization alert open on `main`. The repeat-until-stable form is the one
+  it recognises.
+
 ## [0.482.2] - 2026-09-26
 
 ### Documentation

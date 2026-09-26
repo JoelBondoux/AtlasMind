@@ -19,6 +19,13 @@ Older entries below describe the software as it was at the time and are delibera
 
 ---
 
+## v0.482.3 -- Sanitization the scanner can see
+
+Release-design import now strips tags until nothing changes, then removes any leftover angle bracket.
+The previous version was already safe, but the code scanner couldn't tell and kept its alert open.
+
+---
+
 ## v0.482.2 -- Published baseline refreshed
 
 The README now names v0.482.1 as the last Marketplace publication.
