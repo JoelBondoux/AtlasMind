@@ -6,6 +6,21 @@ The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/),
 
 ## [Unreleased]
 
+## [0.482.1] - 2026-09-26
+
+### Security
+
+- Release-design import stripped HTML tags in a single pass, so nested markup such as
+  `<<b>script>` left a working `<script>` in a feature or tier name (CodeQL: incomplete
+  multi-character sanitization). Names are plain text, so every remaining angle bracket is now removed
+  after the tags are stripped.
+
+### Fixed
+
+- The three helpers added in 0.482.0 (`classifyGitPushInvocation`, `parseGitSubcommand`,
+  `getBlockedGitReason`) are no longer exported. Nothing outside their modules reads them, and the
+  dead-export ceiling failed the release checks.
+
 ## [0.482.0] - 2026-09-26
 
 ### Added
