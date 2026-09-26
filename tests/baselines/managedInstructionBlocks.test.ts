@@ -6,6 +6,7 @@ import {
   buildTestingProtocolsMarkdown,
   buildDebtMarkerMarkdown,
   buildWorkflowMarkdown,
+  buildRoadmapSyncMarkdown,
 } from '../../src/utils/testingProtocolSync.js';
 import { seedWorkflowConfig } from '../../src/core/workflowConfig.js';
 import type { AgentDefinition, ProjectTestingConfig } from '../../src/types.js';
@@ -13,7 +14,7 @@ import type { AgentDefinition, ProjectTestingConfig } from '../../src/types.js';
 /**
  * Cross-version parity for the bytes AtlasMind writes into *other* projects.
  *
- * These three renderers do not produce a screen. They produce a managed block
+ * These renderers do not produce a screen. They produce a managed block
  * that is written into `CLAUDE.md`, `AGENTS.md`, `.github/copilot-instructions.md`
  * and the rest, in every repository AtlasMind is pointed at, and those files are
  * committed. So a wording change here is not a local edit — it is a diff in
@@ -102,6 +103,10 @@ describe('managed instruction blocks — published text is approved, not inciden
     });
     expect(block).toBeDefined();
     expectMatchesApproved('workflow', block ?? '');
+  });
+
+  it('renders the roadmap synchronization block exactly as approved', () => {
+    expectMatchesApproved('roadmap-sync', buildRoadmapSyncMarkdown('project_memory'));
   });
 
   it('writes no workflow block at all when no workflow is declared', () => {

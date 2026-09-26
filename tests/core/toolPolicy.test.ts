@@ -100,6 +100,19 @@ describe('git skills are graded by what they do, not by the unknown-tool fallbac
     expect(classifyToolInvocation('git-push', {}).summary).not.toContain('external tool');
   });
 
+  it('grades a push by where it goes, and says why in the summary', () => {
+    expect(classifyToolInvocation('git-push', { branch: 'develop' }))
+      .toEqual({ category: 'network', risk: 'medium', summary: 'push the branch "develop" to origin' });
+    expect(classifyToolInvocation('git-push', { remote: 'upstream', branch: 'feat/x' }).summary).toContain('upstream');
+    // An unnamed branch cannot be graded: it is `main` exactly when it matters.
+    expect(classifyToolInvocation('git-push', {}).summary).toMatch(/not named/);
+    expect(classifyToolInvocation('git-push', { branch: 'main' }).summary).toMatch(/protected branch "main"/);
+    expect(classifyToolInvocation('git-push', { tag: 'v1.2.3' }).summary).toMatch(/release workflow/);
+    expect(classifyToolInvocation('git-push', { branch: 'develop', force: true }).summary).toMatch(/replacing the remote history/);
+    // A blank branch is an unnamed one, not an ordinary one.
+    expect(classifyToolInvocation('git-push', { branch: '   ' }).risk).toBe('high');
+  });
+
   it('names exact-path staging in the commit approval summary', () => {
     const policy = classifyToolInvocation('git-commit', {
       message: 'fix: keep the tree scoped',

@@ -4,7 +4,7 @@
 
 <h1 align="center">AtlasMind</h1>
 
-<p align="center"><sub> · <strong>Current source version: 0.476.1</strong> · </sub></p>
+<p align="center"><sub> · <strong>Current source version: 0.482.1</strong> · </sub></p>
 
 
 <p align="center">
@@ -32,7 +32,7 @@ Most AI coding tools give you an assistant in a chat box. That solves *writing c
 tell you what to build next, what's blocking it, who owns it, what you deferred three weeks ago and
 why, whether your tests actually cover what you claim, or whether you're fit to release.
 
-That's the job AtlasMind does. A **25-page project dashboard** built entirely from your own
+That's the job AtlasMind does. A **27-page project dashboard** built entirely from your own
 repository: roadmap and dependency graph, issues and pull requests, people and follow-ups, risk,
 compliance, technical debt, defects, testing evidence, documents, delivery and release readiness. Nothing is
 a form you fill in twice — it reads git, GitHub, your files and your project memory, then grades
@@ -69,9 +69,10 @@ the workflow — and let Copilot, Claude Code, Cursor, Codex, Gemini CLI or Wind
 
 AtlasMind writes what it knows into the instruction files those tools already read —
 `.github/copilot-instructions.md`, `CLAUDE.md`, `AGENTS.md`, `.cursorrules`, `GEMINI.md`,
-`.windsurfrules` — as a **managed block** it maintains and you can delete: your enabled testing
-methodologies, the technical-debt markers it scans for, and the stage-by-stage rules of your
-declared GitHub workflow. Whatever agent you use gets told the same rules AtlasMind holds itself to,
+`.windsurfrules` — as a **managed block** it maintains and you can delete: the canonical AtlasMind
+roadmap and same-change synchronization rule, your enabled testing methodologies, the technical-debt
+markers it scans for, and the stage-by-stage rules of your declared GitHub workflow. Whatever agent
+you use gets told the same rules AtlasMind holds itself to,
 and the registers keep working because they read your repository rather than your chat history.
 
 Its own agents are there when you want them. They are not a prerequisite. Full setup in
@@ -175,7 +176,147 @@ important limits on overrides and compliance claims.
 
 ---
 
-## What's new in 0.476.1
+## What's new in 0.482.1
+
+Importing a release design no longer lets nested HTML survive into feature or tier names, and the
+release checks pass again.
+
+## What's new in 0.482.0
+
+Autopilot now covers an ordinary `git push` of a named working branch, instead of asking on every
+push. Pushes to protected branches, tags, force pushes and pushes without a branch named still ask.
+`git-push` can push a single release tag, and a request to promote into `main` is told to open a pull
+request rather than merge locally.
+
+## What's new in 0.481.3
+
+A test fixture shaped like a secret is allowlisted by path so the release's secret scan passes; nothing
+in the extension changed.
+
+## What's new in 0.481.2
+
+The open Dependabot updates are applied, including the Agent Client Protocol SDK, `zod` and the
+`@vscode/vsce` 4 packaging tool (Node.js 22 or later for contributors). The remaining security alerts
+were already fixed on `develop` and close at the next release.
+
+## What's new in 0.481.1
+
+The reviewed-PR local CI workflow now runs from `develop`, and the AI instruction files AtlasMind
+manages tell every coding agent that `project_memory/roadmap/improvement-plan.md` is the canonical
+roadmap.
+
+## What's new in 0.481.0
+
+**Chat finds tools it doesn't have.** When nothing installed can do part of a task, AtlasMind searches
+the Resource Discovery finders you've enabled and offers the candidates in the reply, each with a
+**Review & install** button. Installing now shows exactly what would be added — for an MCP server, the
+command it would run — and it arrives switched off.
+
+**A failed turn no longer repeats work.** If a model fails after it has started a commit, push or file
+change, AtlasMind stops and tells you what already ran instead of handing the whole task to another
+model. ACP agents are no longer declared hung while they are still reporting progress, and Gemini 3
+tool calls keep working past the first round.
+
+Chat turns also no longer stall when the GPU is full of models AtlasMind did not load. Copilot token
+prices sync again, and provider refreshes are coalesced instead of overlapping.
+
+## What's new in 0.480.2
+
+The Editions importer now discovers product-design documents stored at the repository root as well as
+inside folders. Roadmap packaging tables can declare gates row by row—for example,
+`Free/Starter: core gallery, product tags`—and AtlasMind expands them into the named offerings,
+features, and planned entitlement cells shown in the review screen.
+
+## What's new in 0.480.1
+
+The Editions **Import design document…** action now reaches the extension host and opens its source
+picker. The import-preview response is handled on the host-message path rather than in the click
+dispatcher, removing the browser-side error that previously made the button appear to do nothing.
+
+## What's new in 0.480.0
+
+The Project Dashboard **Editions** page can now discover likely product-design documents in the open
+repository and lets you confirm the right source—or browse for another—before anything is imported.
+Its review screen understands Markdown comparison tables, named-tier feature lists, and structured
+JSON, shows every proposed offering, feature, entitlement cell, and source-file link, and imports only
+the rows you select. Existing names, pricing, statuses, parameters, links, and manual cell decisions
+are preserved; a document changed after preview must be scanned again.
+
+Each proposed feature is also compared conservatively with the current roadmap and loaded GitHub
+Issues. Strong relationships are selected for review by default, possible ones remain visible but
+unchecked, and weak coincidences are omitted. Accepted Issue relationships expose current open/closed
+state when Issue evidence is loaded, open the Issues page directly, and can be unlinked later without
+changing either the feature or the GitHub Issue.
+
+## What's new in 0.479.0
+
+The new Project Dashboard **Editions** page captures the product people intend to release, separately
+from the Versions page's history of what already shipped. Offering columns can represent Free,
+Student, Pro, expansions, DLC, plugins, bonuses, or custom commercial shapes; feature rows and their
+cells record current status, dates, pricing, tier-specific limits, notes, and workspace file links.
+Every column, row, and decided cell is editable or removable from the page and can be linked to—or
+removed from—the roadmap through a separately confirmed tracked-file change. Decision-coverage and
+readiness graphics keep explicit **not offered** decisions distinct from cells nobody has assessed.
+
+## What's new in 0.478.1
+
+Automatic roadmap reconciliation now stays within the repository that is actually open. Nested
+Git checkouts — including Kilo worktrees — the AtlasMind SSOT, its common backup directories, and test
+fixtures are excluded before Markdown is read. Repeated titles across genuine secondary roadmaps are
+proposed once; contradictory checkbox states are refused for a manual decision. The confirmation also
+distinguishes cancelling the proposed import from the Dashboard's separate anchor and instruction-file
+maintenance. Bullet-only narrative documents are left to deliberate Markdown import because their lists
+cannot be distinguished safely from top-level work during an automatic scan.
+
+## What's new in 0.478.0
+
+The Project Dashboard Versions page presents public releases as a reviewable portfolio. Stable and
+preview releases are classified by SemVer value tier and joined to their real roadmap gate, milestone
+progress, and filed design plans. Each version can open its GitHub release, its roadmap route, or its
+linked plans; a missing version gate can be created through a confirmed tracked-file write. AtlasMind's
+version-review action reconstructs its prompt from host-owned evidence and labels missing data instead
+of turning it into a confident zero.
+
+Source debugging now performs one finite compile before the Extension Development Host opens and turns
+off the unstable experimental Node network inspector. The default F5 profile also isolates AtlasMind
+from installed extensions and GitHub Copilot Chat; a separate profile retains Copilot when that
+integration is the subject of the test.
+
+Roadmap load-time reconciliation is now conservative about document shape: detailed implementation
+plans and validation/acceptance checklists no longer become hundreds of top-level backlog entries.
+The Roadmap header's **Check integrity** action uses stored import provenance plus the current source
+documents to highlight likely artifacts, then lets you choose exact rows before a separately confirmed
+removal. Reconciliation dialogs now group source, changes, conflicts, untouched data, and safety notes
+into labelled bullet sections instead of one dense block of text.
+
+## What's new in 0.476.5
+
+AtlasMind's dependency graph now requires patched releases of `hono`, `js-yaml`, and `morgan`,
+closing five Dependabot advisories across the MCP runtime and the development packaging/test toolchain.
+Regression checks keep all three transitive packages at or above their patched floors.
+
+## What's new in 0.476.4
+
+AtlasMind now keeps Gemini Live-only voice models out of its ordinary text chat route, pauses a cloud
+provider after an explicit API-key or project-access denial instead of trying another model behind the
+same refused account, and gives the local GPU gate the parameter count already present in model names
+such as `qwen3-8b`. That last fix lets an ordinary 8B Ollama or LM Studio model run when the card has
+room instead of being conservatively mistaken for an unknown 16 GiB model. Local `.kilo` worktrees are
+also excluded from VSIX packages so repository fixtures and token-shaped test data cannot ship.
+
+## What's new in 0.476.3
+
+AtlasMind now tells Codex and other repository agents that
+`project_memory/roadmap/improvement-plan.md` is the canonical roadmap and that any change to another
+roadmap file must be reconciled there in the same change. Opening the Roadmap dashboard also performs
+a bounded local drift check across roadmap-named markdown files, shows the exact plan before writing,
+and can carry additions, renames, and checkbox changes into AtlasMind. Local conflicts, ambiguous
+legacy status, and items missing from the secondary source are reported and left untouched.
+
+## What's new in 0.476.2
+
+The last Marketplace publication, **v0.476.1**, brought the changes below. Every release is written
+up in full in [CHANGELOG.md](CHANGELOG.md).
 
 Bypass Approvals and Autopilot now take effect on the click itself, so concurrent tool calls already
 waiting in one response settle together instead of asking repeatedly. Irreversible remote actions remain
@@ -543,7 +684,7 @@ Highlights from the last few releases. Everything here is already in the publish
 
 | | |
 |---|---|
-| **A 25-page project dashboard** | Overview, project score, gap analysis, workflow, roadmap, issues, pull requests, approvals, people & follow-ups, branches, repository, pipeline, testing, tech debt, defects, security, privacy, risk, compliance, release, delivery, documents, project memory, runtime and ideation. Built from your repository, not from data you re-enter. |
+| **A 27-page project dashboard** | Overview, project score, gap analysis, workflow, roadmap, issues, pull requests, approvals, people & follow-ups, branches, repository, pipeline, testing, tech debt, defects, security, privacy, risk, compliance, planned editions and tiers, public versions, release, delivery, documents, project memory, runtime and ideation. Built from your repository, not from data you re-enter. |
 | **Registers that don't forget** | Approvals, defects, test cases, tech debt, risk, compliance and research findings *transition* rather than vanish — resolved stays distinct from obsolete, accepted from dismissed — each graded by a published rule table so two people reading the same project get the same answer in March and in July. |
 | **A roadmap that knows what blocks what** | A dependency graph beside the prioritised backlog: readable tree layout, release gates, owners, estimates, routes to any item, and honest "not assessed" instead of a confident zero. |
 | **A team of specialists** | 27 built-in agents — debugger, frontend, backend, reviewer, security, testing, docs, performance, DevOps, dependencies, SEO, UX, release and CI, plus ethics, legal, commercial and market oversight. Add your own. Optional: bring your own AI tool instead. |
@@ -556,7 +697,7 @@ Highlights from the last few releases. Everything here is already in the publish
 | **Ideation board** | Visual thinking that reaches the backlog — cards become roadmap items, roadmap items become issue drafts. |
 | **Tech debt register** | Deferred work found from your own code markers, graded by a published rule you can read, tracked rather than forgotten. |
 | **Testing strategy** | 69 configurable methodologies — including data & schema, AI-specific and compliance families — with owners, tooling, evidence checks, scaffolding, and sync to other AI tools. |
-| **Works with your existing AI tool** | Testing methodologies, debt markers and workflow rules synced into Copilot, Claude Code, Cursor, Codex, Gemini CLI and Windsurf instruction files as a managed block. The management layer needs no chat of its own. |
+| **Works with your existing AI tool** | The roadmap SSOT rule, testing methodologies, debt markers and workflow rules are synced into Copilot, Claude Code, Cursor, Codex, Gemini CLI and Windsurf instruction files as managed blocks. The management layer needs no chat of its own. |
 | **UI Studio** | Pick up the UI files already in the project or draw new surfaces, design them beside the canvas with a built-in-browser preview, brand them from named presets, and hand off to the implementation. Screens, flows, content, wireframes, tokens, components and responsive inspection are all here. Website delivery — the stack, the three hosting environments, the platform targets and the n8n map — lives on the Project Dashboard's Delivery page. |
 | **Voice, vision & remote** | Local or hosted speech, image analysis, opt-in remote control, and a keep-awake lock for long runs. |
 | **Lenses over your code — and your services** | Eleven read-only views built from what your project declares: flow, change impact, test evidence, state lifecycle, config precedence, field wiring, branch change story — plus three that compare your declared schemas against what a live API or database actually serves. Shape only: never a row, never a write, off by default. |
@@ -646,6 +787,9 @@ All 162 settings are documented in the [Configuration reference](wiki/Configurat
 | Path | What's in it |
 |---|---|
 | `src/core/` | Orchestration, routing, planning, safety, cost, project composition, opt-in workspace scope, read-only upstream distance, game-engine identity, bounded asset inventory, pure engine-fork interpretation, and hostile-input build-log reading (`projectComposition.ts`, `workspaceScope.ts`, `upstreamDivergence.ts`, `gameEngineIdentity.ts`, `gameAssetInventory.ts`, `gameEngineDivergence.ts`, `gameBuildLog.ts`), UI Studio's graph/edit/live-preview/repository core (`uiDesignGraph.ts`, `uiEditCommands.ts`, `uiPreviewRuntime.ts`, `uiRepositoryMapping.ts`, `uiRepositoryImport.ts`, `uiSurfaceScan.ts`), brand presets — one named token set applied to many surfaces by alias, extracted from a stylesheet with a citation (`brandPresets.ts`) — and the engine emitters with anchored, patch-by-anchor content write-back and constant-argv launch plans (`uiSurfaceEmit.ts`), CI inspection/scaffolding (`ciManager.ts`, `trustedLocalCiStarter.ts`), the CI route model, routing policy, build ledger and act adapter (`ciRoutes.ts`, `ciRoutingPolicy.ts`, `ciCreditMeter.ts`, `ciBuildLedger.ts`, `ciActRoute.ts`), the local CI guide, GitHub CLI installer and remembered machine inspection (`localCiSetupPlan.ts`, `localCiInstaller.ts`, `localCiInspectionMemory.ts`), the provider-neutral reviewed-PR contract, exact-SHA policy and repository patcher (`localCiRepositoryPatch.ts`, `reviewedPrLocalCi.ts`), confirmed-write echo (`trackerWriteOutcome.ts`), the register-to-work hand-off (`registerHandoff.ts`), the personal-vs-project split behind the two sidebar people views (`directorPriority.ts`), the semver primitives and branch-to-channel versioning policy (`semver.ts`, `versioningPolicy.ts`), the shell-free Windows shim bypass shared by the extension host, the CLI and the ACP launcher (`windowsShimBypass.ts`), parallel-write placement, worktree plumbing, merge-back and the run that ties them together (`worktreeIsolation.ts`, `worktreeManager.ts`, `worktreeMerge.ts`, `worktreeRun.ts`), the live security advisory feed and the per-turn context breakdown and the producer-portal hosting guide (`advisoryFeed.ts`, `contextBudget.ts`, `producerPortalPlan.ts`), the defect register — what is broken, graded by a published table rather than asked for (`defectRegister.ts`), the approval register — who agreed, to which version, and what goes stale when it changes (`changeApprovals.ts`), the test-case register — the manual half of testing, its owners and the assets it needs (`testCaseRegister.ts`), the ambient event bus — what may wake AtlasMind up, how far it may go, and why it stayed quiet (`ambientTriggers.ts`), the six cross-cutting utility decisions with their verified vendor facts (`utilityPacks.ts`), the searchable codebase index — what may be indexed, what is stale, and what a result may be taken to mean (`codebaseIndex.ts`, `codebaseIndexStore.ts`), where the producer portal is hosted and who may read it, and what one press to publish would actually do (`portalHosting.ts`, `portalPublishPlan.ts`), golden cases for an agent and the gate on an unattended prompt rewrite (`agentEvalHarness.ts`), what each person has been asked to do against the capacity they declared, and declared absence read out of an exported calendar (`teamWorkload.ts`, `rotaImport.ts`), baselines you can name so "what changed" can be asked about a moment you chose (`baselineRegister.ts`), the project in your own words and the grounding rule for anything read out of it (`projectBrief.ts`), the roadmap dependency graph, its overlay store, the chain the finish rests on and the plan against time (`roadmapGraph.ts`, `roadmapGraphStore.ts`, `roadmapCriticalPath.ts`, `roadmapTimeline.ts`, `roadmapBoard.ts`), whether the configured team can work and how much of it is used (`agentCapacity.ts`), and the git trailers that link a commit to the work it was for (`commitTrailers.ts`), and the evidence-triggered MCP capability offer (`capabilityOffer.ts`), release-gate destinations and urgency ordering (`releaseGateNavigation.ts`), roadmap ingestion from markdown, issues, Projects and spreadsheets (`roadmapImport.ts`, `roadmapReconcile.ts`) plus the guarded `localCiRunner.ts` executor, the governance-compliance stack — the control catalog, evidence register and readiness grader (`complianceControlCatalog.ts`, `complianceEvidenceRegister.ts`, `complianceReadiness.ts`) the per-methodology standard editions (`testingStandards.ts`), the Compliance page's view builder (`complianceDashboard.ts`), its walkthrough (`complianceSetupPlan.ts`), the shared stack-signal gatherer (`complianceStackSignals.ts`) and the mapping importer (`complianceMarkdownImport.ts`) — and project services |
+| `src/core/releaseMatrix.ts` | Pure schema, sanitization, mutation and metrics for the planned Editions feature-by-offering matrix; filesystem writes stay in the Project Dashboard host |
+| `src/core/releaseMatrixImport.ts` | Pure, bounded design-document discovery, Markdown/JSON parsing, conservative roadmap/Issue matching, and reviewed non-destructive merge planning for Editions |
+| `src/core/capabilitySearch.ts` | When `find-tool` finds no installed skill: sends the redacted, clamped query to the Agent Finders you enabled and returns up to five candidates to review and install — searching installs and grants nothing |
 | `src/runtime/` | Built-in agents and runtime composition |
 | `src/providers/` | Model provider adapters, catalogs, health, `modelRole.ts` (what a model is *for*), and the local-GPU support layer — `gpuProbe.ts`, `localFootprint.ts`, `localRuntimeClient.ts` |
 | `src/skills/` | Built-in tools and skill handlers |
@@ -660,6 +804,12 @@ All 162 settings are documented in the [Configuration reference](wiki/Configurat
 | `docs/` and `wiki/` | Developer reference, user guides, and the approved UI Studio and Chat reliability plans |
 
 The full service map is in [Architecture](docs/architecture.md).
+
+Source debugging uses two F5 profiles. Both run a finite full compile before launch and disable the JavaScript
+debugger's experimental Node network inspection; this avoids retaining a large `tsc -watch` process and the
+`Missing dataLength in event` inspector failure observed on VS Code 1.137.0. **Run Extension** is the stable
+default and also disables built-in GitHub Copilot Chat. **Run Extension (Copilot integration)** is the opt-in
+profile for testing AtlasMind's Copilot-provider path. See the [development guide](docs/development.md#run).
 
 ---
 

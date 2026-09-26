@@ -49,4 +49,7 @@ paths = [
   # chunking, so no secret can reach a vector — which needs a fixture that is
   # shaped like one. Again the alphabet, behind an `sk-` prefix.
   '''tests/core/codebaseIndex\.test\.ts''',
+  # Chat's Resource Discovery query is asserted to be redacted before it leaves
+  # the machine, so the fixture is a Stripe-shaped key that was never valid.
+  '''tests/core/capabilitySearch\.test\.ts''',
 ]

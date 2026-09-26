@@ -19,6 +19,204 @@ Older entries below describe the software as it was at the time and are delibera
 
 ---
 
+## v0.482.1 -- Release checks pass again
+
+Importing a release design stripped HTML tags only once, so nested markup such as `<<b>script>` could
+leave a working `<script>` in a feature or tier name. Every angle bracket is now removed, since those
+names are plain text. The three helpers added in 0.482.0 are no longer exported, which also clears the
+dead-export check that failed the release pull request.
+
+---
+
+## v0.482.0 -- Autopilot stops asking about ordinary pushes
+
+With Autopilot on, every `git push` still asked for approval, because every push was graded as
+irreversible, while the same push typed as a terminal command went through unasked. Pushes are now
+graded by where they go. A push that names a working branch such as `develop` is covered by Autopilot.
+A push to a protected branch (or `staging`), a tag, a force push, or a push that doesn't name its
+branch still asks. `terminal-run` refuses `git push` and points the model at `git-push`, so there is
+one set of rules. `git-push` can push exactly one tag with its new `tag` parameter.
+
+A chat request to promote into `main` (or `master`, `production`) is now given `gh` and told to open a
+pull request: no local merge into the protected branch, and no release tag until the pull request has
+merged. Before this, "promote staging to main and publish" merged into `main` locally and stalled at
+the tag.
+
+---
+
+## v0.481.3 -- Secret scan passes for the release
+
+A new test fixture shaped like a Stripe key — there to prove chat redacts secrets before searching
+Resource Discovery — is allowlisted by path, so the release pull request's secret scan passes.
+
+---
+
+## v0.481.2 -- Dependency updates
+
+The open Dependabot updates are applied: the Agent Client Protocol SDK and `zod` at runtime, the
+packaging tool `@vscode/vsce` 4 (which needs Node.js 22 or later) and the rest of the developer
+tooling, and current pinned versions of two GitHub Actions. The outstanding security alerts were already
+fixed on `develop` and close when it is next promoted to `main`.
+
+---
+
+## v0.481.1 -- Local CI follows develop; agents told where the roadmap lives
+
+The reviewed-PR local CI workflow now runs from `develop` rather than a retired staging branch. The AI
+instruction files AtlasMind manages now tell every coding agent that
+`project_memory/roadmap/improvement-plan.md` is the canonical roadmap, so an edit to any other roadmap
+file has to be reconciled with it.
+
+---
+
+## v0.481.0 -- Chat finds the tools it's missing, and stops repeating work
+
+When nothing installed can do part of a task, chat now searches the Resource Discovery finders you've
+enabled and offers what it finds with a **Review & install** button. Installing shows exactly what would
+be added and asks first; an MCP server arrives switched off.
+
+A turn that fails after starting a commit, push or file change now stops and says what already ran,
+instead of handing the whole task to the next model — which is why a single commit used to be reported
+as four models failing. ACP agents are no longer abandoned at 180 seconds while still reporting
+progress; Gemini 3 keeps its thought signatures between tool rounds.
+
+When the graphics card is full of models AtlasMind did not load, a chat turn now moves to another
+provider straight away instead of waiting 45 seconds on each local runtime first. Copilot token prices
+sync again after GitHub reorganised its pricing page, a failed sync no longer retries on every refresh,
+and bursts of model-change events now trigger one provider refresh rather than many overlapping ones.
+
+---
+
+## v0.480.2 -- Editions finds root roadmaps and package gates
+
+Editions discovery now includes supported product-design documents at the repository root instead of
+depending on the recursive glob to surface them. Roadmap tables written as package rows are also
+understood: a declaration such as `Free/Starter: core gallery, product tags` becomes Free and Starter
+offerings linked to both named features in the review preview, while prose outside declared table cells
+remains uninferred.
+
+---
+
+## v0.480.1 -- The Editions import button opens its picker
+
+The Editions **Import design document…** button now sends its scan request and opens the product-design
+source picker. Its reply handler had been placed inside the click dispatcher, where the undefined
+message variable stopped the click before it reached AtlasMind. Import replies now live on the host
+message path, and a regression test keeps the two event boundaries separate.
+
+---
+
+## v0.480.0 -- Editions imports product design without erasing decisions
+
+Project Dashboard → **Editions** now scans the repository for likely product-design documents and asks
+you to confirm the source, with a native file chooser when the right document was not ranked. Markdown
+feature-comparison tables, named-tier feature lists, and structured JSON become a review screen rather
+than an immediate write: proposed offerings, features, cells, warnings, and source links are all visible,
+and any feature can be excluded.
+
+AtlasMind also proposes conservative matches from each imported feature to the current roadmap and
+loaded GitHub Issues. Strong candidates start selected, possible ones require a deliberate choice, and
+weak coincidences stay out. Existing matrix decisions win over imports, a source changed since preview
+is refused, and accepted Issue links can be opened or unlinked without editing the Issue itself.
+
+---
+
+## v0.479.0 -- Designed editions become a feature matrix
+
+Project Dashboard → **Editions** now records the product shape intended for the public: Free,
+Student, Pro, expansions, DLC, plugins, bonuses, or any custom offering can be a column, with features
+as rows and explicit status/parameter decisions at every intersection. Columns, rows, and cells can be
+added, edited, and removed in place; dates, pricing, notes, current status, and workspace files remain
+visible from the matrix. Each data point can also be added to or removed from the roadmap through a
+separately confirmed tracked-file change.
+
+Coverage, status-distribution, and per-offering readiness graphics make gaps discoverable without
+turning them into false decisions: an empty cell still means *not assessed*, while **not offered** is a
+deliberate entitlement choice. The existing Versions page remains the evidence-led history of what
+actually shipped.
+
+---
+
+## v0.478.1 -- Roadmap reconciliation stays in the open repository
+
+Opening the Roadmap dashboard no longer discovers stale roadmaps inside Kilo or other nested Git
+worktrees. Automatic discovery also excludes AtlasMind's complete SSOT, common backup copies and test
+fixtures before reading Markdown. If genuine secondary roadmaps repeat one title, AtlasMind proposes it
+once; if their checkbox states disagree, it leaves the title out and asks for an explicit source choice.
+Bullet-only documents are left to deliberate Markdown import instead of treating their narrative lists
+as top-level work.
+The confirmation now says exactly what cancellation stops and separately names the Dashboard setup
+writes that may already have maintained anchors or agent instructions.
+
+---
+
+## v0.478.0 -- Public versions get a page of their own
+
+The public-version portfolio is now a first-class **Versions** page under **Ship & record**, rather
+than the last card below Release readiness and delivery-performance charts. Release links to it, and
+the page links onward to the roadmap and supporting documents. It can load its GitHub release evidence
+directly, while version actions remain host-resolved and reviewable.
+
+F5 source debugging now finishes one full compile before opening the Extension Development Host and
+disables the unstable experimental Node network inspector. The default profile isolates installed
+extensions and GitHub Copilot Chat; a separate Copilot-integration profile is available when that
+provider is specifically being tested.
+
+---
+
+## v0.477.0 -- Public versions become a reviewable portfolio
+
+Project Dashboard → Release now joins every fetched public stable or preview version to its SemVer
+value tier, matching roadmap gate, milestone progress, and filed design plans. Each version links to
+the public GitHub release, its roadmap route, and the plans AtlasMind can actually evidence. Missing
+gates are shown as unplanned rather than 0% complete and can be created through an explicit confirmed
+write. The AtlasMind review control uses a host-built evidence prompt, so the webview never supplies
+instructions or silently fills missing facts.
+
+Roadmap reconciliation now separates automatic discovery from explicit import. The load-time path
+ignores detailed plan scaffolds plus verification, acceptance, and definition-of-done checklists rather
+than flattening them into the backlog. **Check integrity** compares stored import provenance with the
+current source documents, highlights the rows it can prove are likely artifacts, and removes only the
+entries selected through a second confirmation. Roadmap dialogs use labelled bullet sections so the
+source, proposed changes, conflicts, preserved data, and consequences are readable at a glance.
+
+---
+
+## v0.476.5 -- Dependency advisories cleared
+
+Patched floors for `hono`, `js-yaml`, and `morgan` close five Dependabot advisories in the MCP runtime
+and development packaging/test paths. Manifest tests now enforce each minimum patched release while
+still allowing compatible updates above it.
+
+---
+
+## v0.476.4 -- Working capacity stays routable
+
+The local GPU gate now receives the parameter count already present in model ids such as `qwen3-8b`,
+so it no longer prices every routed local model as the unknown 16 GiB fallback. Runtime-native model
+names containing `/` also keep their `local/` routing identity. Google Gemini Live-only models are
+excluded from the ordinary stateless chat route, and an explicit API-key, account, or project-access
+denial pauses the affected provider after one attempt before AtlasMind searches elsewhere.
+
+---
+
+## v0.476.3 -- Roadmap files stay aligned
+
+Repository agents now receive a managed instruction naming
+`project_memory/roadmap/improvement-plan.md` as AtlasMind's canonical roadmap and requiring secondary
+roadmap edits to be reconciled there in the same change. Opening the Roadmap dashboard performs a
+bounded local drift check and previews additions, source links, renames, and checkbox changes before
+writing. Conflicts, ambiguous legacy checkbox state, and items removed from a secondary source remain
+untouched and are reported.
+
+---
+
+## v0.476.2 -- Published baseline
+
+The README's published baseline now names v0.476.1.
+
+---
+
 ## v0.476.1 -- One approval choice covers the response
 
 Selecting **Bypass Approvals** or **Autopilot** now applies the scope before concurrent tool gates resume

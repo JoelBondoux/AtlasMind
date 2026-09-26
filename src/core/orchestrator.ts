@@ -1,5 +1,6 @@
-import type { AgentDefinition, BudgetMode, ProjectTestingConfig, DataPrivacyMatch, MemoryEntry, ModelCapability, ModelStruggleKind, OrchestratorConfig, OrchestratorHooks, PricingModel, ProjectPlan, ProjectProgressUpdate, ProjectResult, ProviderId, RoutingConstraints, SkillDefinition, SkillExecutionContext, SubTask, SubTaskExecutionArtifacts, SubTaskResult, SubTaskStatus, TaskModelAttempt, TaskProfile, TaskRequest, TaskResult, TestingMethodologyId, ToolExecutionArtifact } from '../types.js';
+import type { AgentDefinition, ArdDiscoveredResource, BudgetMode, ProjectTestingConfig, DataPrivacyMatch, MemoryEntry, ModelCapability, ModelStruggleKind, OrchestratorConfig, OrchestratorHooks, PricingModel, ProjectPlan, ProjectProgressUpdate, ProjectResult, ProviderId, RoutingConstraints, SkillDefinition, SkillExecutionContext, SubTask, SubTaskExecutionArtifacts, SubTaskResult, SubTaskStatus, TaskModelAttempt, TaskProfile, TaskRequest, TaskResult, TestingMethodologyId, ToolExecutionArtifact } from '../types.js';
 import type { AgentAutoUpdater } from './agentAutoUpdater.js';
+import { describeCapabilityOutcome, prepareCapabilityQuery, type ExternalCapabilitySearch } from './capabilitySearch.js';
 import { buildDebtMarkerGuidance, parseCustomDebtMarkers } from './debtRegister.js';
 import { buildDefectReportingGuidance } from './defectRegister.js';
 import {
@@ -169,6 +170,33 @@ const URL_SAFETY_HINT = [
   '- When tools are available, verify health or reachability with fetchUrl or httpRequest before presenting the URL as working.',
   '- Do not present a URL as working or safe unless it has been validated; if live verification is unavailable, label it as unverified.',
 ].join('\n');
+
+/**
+ * A protected branch named in a request. `release` is left out on purpose: it is
+ * also the verb, so "release 1.2 to staging" would read as naming a branch.
+ */
+const PROTECTED_BRANCH_MENTION_PATTERN = /\b(?:main|master|production|prod|stable)\b/i;
+export const PROTECTED_PROMOTION_HINT = [
+  'Protected-branch promotion hint:',
+  '- Never merge into, commit to, or push to a protected branch (main, master, production, prod, release, stable, release/*, hotfix/*) from this workspace, and do not stash, reset, or switch branches to stage a promotion locally.',
+  '- Promotion into a protected branch goes through a pull request: open one with terminal-run `gh pr create --base <protected branch> --head <source branch>`, or dispatch the release workflow the project declares. Merging it (`gh pr merge <number>` with the merge method the project specifies) is its own approval-gated step.',
+  '- Create or push a release tag only after that pull request has merged and the protected branch on the remote shows the new version. A tag push can start a publish that cannot be undone; push one tag with the git-push tool\'s "tag" parameter.',
+  '- If a step is blocked, stop and name the blocker. Do not improvise a local route around it.',
+].join('\n');
+
+/**
+ * Whether a request is moving work into a protected branch.
+ *
+ * Exists because one chat turn is not a planned run: the planner's rule against
+ * local merges into protected branches never reached "promote staging to main
+ * and publish", which merged locally, reset, merged again, and stopped at the
+ * tag. A promotion verb or an integration verb, together with a protected
+ * branch, is the shape of that request.
+ */
+export function isProtectedBranchPromotionRequest(userMessage: string): boolean {
+  return (hasPromotionIntent(userMessage) || TASK_SCOPED_GIT_INTEGRATION_PATTERN.test(userMessage))
+    && PROTECTED_BRANCH_MENTION_PATTERN.test(userMessage);
+}
 
 type RetrievalMode = 'summary-safe' | 'hybrid' | 'live-verify';
 
@@ -452,6 +480,16 @@ export interface TurnCapabilityEnvelope {
 interface TaskAttemptContext {
   taskId: string;
   agentId: string;
+  /**
+   * Side-effecting tool calls this attempt has *started*, in order — a commit,
+   * a push, a file write. Recorded before execution, since a call that timed
+   * out may still have landed. The failover path reads it: an attempt that dies
+   * after changing something must not be replayed on another model, or the
+   * commit runs twice.
+   */
+  sideEffectsStarted?: string[];
+  /** Third-party candidates Resource Discovery found this turn, for the reply to offer. */
+  discoveredResources?: ArdDiscoveredResource[];
   budgetCapUsd?: number;
   taskProfile: TaskProfile;
   allowEscalation: boolean;
@@ -600,6 +638,7 @@ export class Orchestrator {
   private readonly warmLocalModels = new Set<string>();
   private localAdmissionBudgetMs: number | undefined;
   private egressSecretConfirmer: EgressSecretConfirmer | undefined;
+  private externalCapabilitySearch: ExternalCapabilitySearch | undefined;
   private readonly classifier: ClassifierService;
   private agentAutoUpdater?: AgentAutoUpdater;
   private dataPrivacy?: DataPrivacyManager;
@@ -1557,7 +1596,7 @@ export class Orchestrator {
       baseTaskProfile = { ...baseTaskProfile, modality: 'text' };
     }
     let tools: ToolDefinition[] = buildToolDefinitions(activeAgentSkills);
-    if (shouldOfferToolDiscovery(eligibleAgentSkills.length, activeAgentSkills.length)) {
+    if (shouldOfferToolDiscovery(eligibleAgentSkills.length, activeAgentSkills.length, this.externalCapabilitySearch !== undefined)) {
       tools.push(TOOL_DISCOVERY_DEFINITION);
     }
     // The setting authorizes a different execution shape, not a wider function
@@ -1877,6 +1916,7 @@ export class Orchestrator {
     let aggregateCacheWriteTokens = 0;
     let autoDisabledProvider: TaskResult['autoDisabledProvider'];
     const modelAttempts: TaskModelAttempt[] = [];
+    const turnDiscoveredResources: ArdDiscoveredResource[] = [];
     // Seeded from earlier turns: an endpoint that has failed hard twice should
     // not be rediscovered from scratch on every message.
     const blockedEndpointScopes = this.quarantinedEndpointScopes();
@@ -2045,6 +2085,7 @@ export class Orchestrator {
             )
           : undefined;
 
+        const attemptSideEffects: string[] = [];
         try {
           let taskAttempt = await this.executeTaskAttempt(
             provider,
@@ -2054,6 +2095,8 @@ export class Orchestrator {
             {
               taskId: request.id,
               agentId: agent.id,
+              sideEffectsStarted: attemptSideEffects,
+              discoveredResources: turnDiscoveredResources,
               budgetCapUsd,
               taskProfile,
               allowEscalation: !!escalatedModel,
@@ -2198,6 +2241,13 @@ export class Orchestrator {
           if (!taskAttempt.escalationReason || !escalatedModel) {
             break;
           }
+          // Escalating re-runs the task from the top on a stronger model, which
+          // would repeat any commit, push or write this attempt already made.
+          const delegatedCalls = taskAttempt.completion.delegatedToolCallCount ?? 0;
+          if (attemptSideEffects.length > 0 || (usesDelegatedAcpTools && delegatedCalls > 0)) {
+            onProgress?.('Not escalating to a stronger model: this attempt already changed something, and escalating would repeat it.');
+            break;
+          }
           if (modelAttempts.length >= MAX_TASK_MODEL_ATTEMPTS) {
             onProgress?.(`Stopped after the safety ceiling of ${MAX_TASK_MODEL_ATTEMPTS} model attempts.`);
             break;
@@ -2249,6 +2299,10 @@ export class Orchestrator {
           // it has to clear are wording-based and a reworded message would
           // silently re-arm them.
           const capacityDeferral = isCapacityDeferral(error);
+          const providerRateLimited = isProviderRateLimited(error);
+          const billingFailure = isBillingError(error);
+          const authenticationFailure = !billingFailure && isProviderAuthenticationError(error);
+          const providerScopedFailure = providerRateLimited || billingFailure || authenticationFailure;
           if (!capacityDeferral && shouldOpenEndpointCircuit(failureMessage, selectedProvider)) {
             blockedEndpointScopes.add(endpointScope);
             this.recordEndpointFailure(endpointScope);
@@ -2257,14 +2311,14 @@ export class Orchestrator {
           const modelWasRetired = isModelDeprecatedError(error);
           if (modelWasRetired) {
             this.router.recordModelRetirement(currentModel, `Model deprecated or not found: ${failureMessage}`);
-          } else if (!capacityDeferral) {
+          } else if (!capacityDeferral && !providerScopedFailure) {
             this.router.recordModelFailure(currentModel, failureMessage);
           }
           // Feed struggle memory — but only for genuine model/provider failures,
           // not a billing pause (provider out of credits), a deprecated-model
-          // signal, or a busy GPU, none of which say anything about how this
-          // model performs on the task.
-          if (!isBillingError(error) && !modelWasRetired && !capacityDeferral) {
+          // signal, an account-wide refusal, or a busy GPU, none of which say
+          // anything about how this model performs on the task.
+          if (!providerScopedFailure && !modelWasRetired && !capacityDeferral) {
             this.noteModelStruggle(currentModel, /timed out/i.test(failureMessage) ? 'timeout' : 'error-finish', baseTaskProfile);
           }
           // A rate limit belongs to the account, so skip the whole provider for
@@ -2272,9 +2326,18 @@ export class Orchestrator {
           // Not `recordEndpointFailure`: a 429 is a "not now", and holding it
           // against the endpoint afterwards would punish a provider for being
           // busy for a minute.
-          if (isProviderRateLimited(error)) {
+          if (providerRateLimited) {
             blockedEndpointScopes.add(endpointScope);
             onProgress?.(`"${selectedProvider}" is rate-limiting; skipping its other models for this turn.`);
+          }
+
+          // Authentication and explicit project/account access denials belong
+          // to the credential behind the provider, not to one model. Repeating
+          // the same revoked key against a sibling model both wastes the turn
+          // and leaves the Models tree claiming the provider is healthy merely
+          // because a secret exists.
+          if (authenticationFailure) {
+            blockedEndpointScopes.add(endpointScope);
           }
 
           if (capacityDeferral) {
@@ -2290,7 +2353,7 @@ export class Orchestrator {
             onProgress?.('The local GPU budget is committed; skipping the other models on this runtime and trying another provider for this turn.');
           }
 
-          if (isBillingError(error)) {
+          if (billingFailure) {
             this.router.autoDisableProvider(selectedProvider, 'billing');
             const providerConfig = this.router.getProviderConfig(selectedProvider);
             autoDisabledProvider = {
@@ -2299,10 +2362,56 @@ export class Orchestrator {
               reason: 'billing',
             };
             onProgress?.(`Provider "${autoDisabledProvider.displayName}" paused — insufficient credits. Searching for a fallback provider…`);
+          } else if (authenticationFailure) {
+            this.router.autoDisableProvider(selectedProvider, 'auth');
+            const providerConfig = this.router.getProviderConfig(selectedProvider);
+            autoDisabledProvider = {
+              providerId: selectedProvider,
+              displayName: providerConfig?.displayName ?? selectedProvider,
+              reason: 'auth',
+            };
+            onProgress?.(`Provider "${autoDisabledProvider.displayName}" paused — authentication or project access was denied. Searching for a fallback provider…`);
           } else if (modelWasRetired) {
             // The provider signalled that this specific model is gone.  Tombstone it
             // for the rest of the session so the router never routes to it again.
             onProgress?.(`Model "${currentModel}" reported as deprecated or removed by the provider. Switching to an alternative…`);
+          }
+
+          // An agent that stopped answering is the endpoint's problem, not the
+          // model's: every other model behind the same ACP agent runs in the same
+          // process. Observed: four Codex models in a row, 180s each.
+          if (selectedProvider === 'acp' && /\bACP agent (?:did not answer|went silent|was still working)\b/i.test(failureMessage)) {
+            blockedEndpointScopes.add(endpointScope);
+          }
+
+          // Never replay a task that may already have changed something.
+          //
+          // An attempt is the whole agentic loop, tools included, so failing over
+          // re-runs it from the top on another model. That is harmless for reads
+          // and wrong for a commit, a push or a publish: "commit, push and
+          // promote" was handed to three models in turn, each starting over on a
+          // repository the previous one had already changed. The same holds for a
+          // delegated ACP agent once it has the prompt — its own tools may have
+          // run, and AtlasMind cannot see which.
+          const replayHazard = describeReplayHazard(attemptSideEffects, usesDelegatedAcpTools, failureMessage);
+          if (replayHazard) {
+            finalAttempt = {
+              model: currentModel,
+              completion: {
+                content: [
+                  `\`${currentModel}\` failed partway through this task: ${boundedAttemptReason(failureMessage)}`,
+                  replayHazard,
+                  'AtlasMind did not hand the task to another model, because starting over would repeat whatever already ran. Check the current state (for example `git status` and `git log -3`), then ask again to continue from there.',
+                ].join('\n\n'),
+                model: currentModel,
+                inputTokens: estimateCompletionRequestInputTokens(messages, attemptTools),
+                outputTokens: 0,
+                finishReason: 'error',
+              },
+              costUsd: 0,
+              budgetCostUsd: 0,
+            };
+            break;
           }
 
           let failoverModel = failoverBudgetAvailable()
@@ -2335,7 +2444,9 @@ export class Orchestrator {
             const summary = summarizeAttemptFailures(modelAttempts);
             const exhausted = describeExhaustedSearch(failoverAttempts, modelAttempts.length);
             const noFallbackContent = autoDisabledProvider
-              ? `**${autoDisabledProvider.displayName}** has been paused this session because it reported insufficient credits. No other configured provider is available to complete this request.\n\nTo resume, top up your ${autoDisabledProvider.displayName} account or enable a different provider in **AtlasMind: Model Providers**.`
+              ? autoDisabledProvider.reason === 'billing'
+                ? `**${autoDisabledProvider.displayName}** has been paused this session because it reported insufficient credits. No other configured provider is available to complete this request.\n\nTo resume, top up your ${autoDisabledProvider.displayName} account or enable a different provider in **AtlasMind: Model Providers**.`
+                : `**${autoDisabledProvider.displayName}** has been paused this session because authentication or project access was denied. No other configured provider is available to complete this request.\n\nReconnect ${autoDisabledProvider.displayName}, replace its API key, or restore the project's access in **AtlasMind: Model Providers**.`
               : [
                   `AtlasMind could not complete this turn. All ${modelAttempts.length} model attempt${modelAttempts.length === 1 ? '' : 's'} failed:`,
                   summary.lines.join('\n'),
@@ -2445,6 +2556,7 @@ export class Orchestrator {
       ...(estimatedCompressionSavingsUsd > 0 ? { contextCompressionSavingsUsd: estimatedCompressionSavingsUsd } : {}),
       durationMs,
       ...(modelAttempts.length > 0 ? { modelAttempts } : {}),
+      ...(turnDiscoveredResources.length > 0 ? { discoveredResources: turnDiscoveredResources } : {}),
       ...(artifactsWithDelegated ? { artifacts: artifactsWithDelegated } : {}),
       ...(autoDisabledProvider ? { autoDisabledProvider } : {}),
       ...(finalAttempt.iterationLimitHit ? { iterationLimitHit: true } : {}),
@@ -3535,9 +3647,30 @@ export class Orchestrator {
             if (discovery.granted.length > 0) {
               onProgress?.(`Added ${discovery.granted.length} tool(s) the model asked for: ${discovery.granted.map(entry => entry.id).join(', ')}.`);
             }
+            let discoveryMessage = discovery.message;
+            const externalQuery = discovery.granted.length === 0 ? prepareCapabilityQuery(query) : '';
+            if (externalQuery && this.externalCapabilitySearch) {
+              onProgress?.(`Nothing installed can do that; searching Resource Discovery for "${externalQuery}"…`);
+              let outcome: Awaited<ReturnType<ExternalCapabilitySearch>>;
+              try {
+                outcome = await this.externalCapabilitySearch(externalQuery, context.signal);
+              } catch (error) {
+                outcome = { status: 'failed', message: error instanceof Error ? error.message : String(error) };
+              }
+              const described = describeCapabilityOutcome(externalQuery, outcome);
+              discoveryMessage = described.message;
+              const sink = context.discoveredResources;
+              if (sink) {
+                for (const resource of described.resources) {
+                  if (!sink.some(existing => existing.identifier === resource.identifier)) {
+                    sink.push(resource);
+                  }
+                }
+              }
+            }
             return {
               toolCall,
-              result: discovery.message,
+              result: discoveryMessage,
               durationMs: Date.now() - startedAt,
               checkpointed: false,
               shouldVerify: false,
@@ -3653,6 +3786,9 @@ export class Orchestrator {
               checkpointedTools.add(toolCall.name);
             }
 
+            if (context.sideEffectsStarted && isSideEffectingToolCall(toolCall.name, toolCall.arguments)) {
+              context.sideEffectsStarted.push(classifyToolInvocation(toolCall.name, toolCall.arguments).summary);
+            }
             const effectiveTimeout = skill.timeoutMs ?? this.cfg.toolExecutionTimeoutMs;
             const result = await withTimeout(
               skill.execute(toolCall.arguments, skillContext),
@@ -4053,6 +4189,14 @@ export class Orchestrator {
    */
   public setEgressSecretConfirmer(confirm: EgressSecretConfirmer | undefined): void {
     this.egressSecretConfirmer = confirm;
+  }
+
+  /**
+   * Where `find-tool` looks after the agent's own skills come up empty: the
+   * Agent Finders the user enabled. Absent means the miss is reported as before.
+   */
+  public setExternalCapabilitySearch(search: ExternalCapabilitySearch | undefined): void {
+    this.externalCapabilitySearch = search;
   }
 
   /**
@@ -5091,6 +5235,9 @@ export class Orchestrator {
     const urlSafetyHint = shouldInjectUrlSafetyGuidance(userMessage, requestContext)
       ? `\n\n${URL_SAFETY_HINT}`
       : '';
+    const protectedPromotionHint = isProtectedBranchPromotionRequest(userMessage)
+      ? `\n\n${PROTECTED_PROMOTION_HINT}`
+      : '';
     const testingMethodologyHint = typeof requestContext['__testingMethodologyHint'] === 'string' && requestContext['__testingMethodologyHint'].trim().length > 0
       ? `\n\nTesting methodology guidance:\n${requestContext['__testingMethodologyHint'].trim()}`
       : '';
@@ -5191,6 +5338,7 @@ export class Orchestrator {
             : '') +
           securityAnalysisHint +
           urlSafetyHint +
+          protectedPromotionHint +
           workflowExecutionBlock +
           deliveryPipelineBlock +
           testingObligationBlock +
@@ -5370,6 +5518,45 @@ export class Orchestrator {
 
 function requiresPostToolVerification(toolName: string): boolean {
   return toolName === 'file-write' || toolName === 'file-edit' || toolName === 'git-apply-patch';
+}
+
+/**
+ * Why a failed attempt must not be replayed on another model, or `undefined`
+ * when a replay is harmless.
+ *
+ * Two cases. AtlasMind's own loop records every side-effecting call it started.
+ * A delegated ACP agent runs its tools out of sight, so once the prompt itself
+ * was in flight — the failure names `session/prompt`, or the enclosing timer
+ * fired — assume they may have run. A failure before the prompt (spawn,
+ * handshake, sign-in) changed nothing and fails over as usual.
+ */
+export function describeReplayHazard(
+  sideEffectsStarted: readonly string[],
+  delegatedAcp: boolean,
+  failureMessage: string,
+): string | undefined {
+  if (sideEffectsStarted.length > 0) {
+    const listed = sideEffectsStarted.slice(0, 5).map(effect => `- ${effect}`).join('\n');
+    const more = sideEffectsStarted.length > 5 ? `\n- …and ${sideEffectsStarted.length - 5} more` : '';
+    return `These actions had already started:\n${listed}${more}`;
+  }
+  if (delegatedAcp && /session\/prompt|Provider timed out|ACP agent returned an error/i.test(failureMessage)) {
+    return 'The agent was running the task with its own tools, so some of it may already have been done.';
+  }
+  return undefined;
+}
+
+/**
+ * Whether a tool call can change something — the workspace, the repository, a
+ * remote, or anything a subprocess touches. Read-only categories are the only
+ * ones a replay is harmless for.
+ */
+export function isSideEffectingToolCall(toolName: string, args: Record<string, unknown>): boolean {
+  if (requiresWriteCheckpoint(toolName, args)) {
+    return true;
+  }
+  const { category } = classifyToolInvocation(toolName, args);
+  return category !== 'read' && category !== 'git-read' && category !== 'network-read' && category !== 'terminal-read';
 }
 
 function requiresWriteCheckpoint(toolName: string, args: Record<string, unknown>): boolean {
@@ -6649,6 +6836,13 @@ export function selectTaskScopedSkills(
     add('terminal-run', 'file-read', 'file-search');
   }
 
+  // Promotion into a protected branch is a pull request, and `gh` lives behind
+  // `terminal-run`. Without it the turn that most needed `gh pr create` could
+  // only reach for local git — which is how a local merge into main happens.
+  if (delivery || isProtectedBranchPromotionRequest(userMessage)) {
+    add('terminal-run');
+  }
+
   if (git) {
     add('git-status', 'git-diff', 'git-log');
     // An integration flow gets the write half as a set: it is one task that ends
@@ -6743,8 +6937,10 @@ const TOOL_DISCOVERY_DEFINITION: ToolDefinition = {
   description:
     'Find a tool you have not been given. Only some of the tools this agent may use are listed above - '
     + 'if none of them can do what you need, describe the action here and any matching tools '
-    + 'become callable immediately. Searching grants nothing on its own: results are still '
-    + 'subject to the same approvals as any other tool.',
+    + 'become callable immediately. If nothing installed can do it, AtlasMind also searches the '
+    + 'third-party tools in Resource Discovery and offers the user to install one. Searching grants '
+    + 'nothing on its own: results are still subject to the same approvals as any other tool. '
+    + 'Use this before telling the user a capability is missing.',
   parameters: {
     type: 'object',
     properties: {
@@ -8088,6 +8284,40 @@ export function isProviderRateLimited(error: unknown): boolean {
   }
   const message = String(record['message'] ?? '');
   return /\b429\b/.test(message) || /\brate[ _-]?limit(?:ed|ing)?\b/i.test(message);
+}
+
+/**
+ * A credential or project refusal shared by every model on the provider.
+ *
+ * A bare 403 is not enough: providers also use it for model-specific access and
+ * policy decisions. The narrower message patterns below identify the cases
+ * where the provider names the API key, account, or project itself. HTTP status
+ * is read from structured adapter errors when available and from the adapter's
+ * bounded message for streaming paths that currently carry only text.
+ */
+export function isProviderAuthenticationError(error: unknown): boolean {
+  if (typeof error !== 'object' || error === null) {
+    return false;
+  }
+  const record = error as Record<string, unknown>;
+  const message = String(record['message'] ?? '');
+  const structuredStatus = Number(record['status'] ?? record['statusCode']);
+  const status = Number.isFinite(structuredStatus)
+    ? structuredStatus
+    : Number(/\((401|403)\)/.exec(message)?.[1] ?? NaN);
+
+  if (status === 401) {
+    return true;
+  }
+  if (status !== 403) {
+    return false;
+  }
+
+  return /\bpermission[_ -]?denied\b/i.test(message)
+    || /\b(?:project|account)\b[^.]{0,120}\bdenied access\b/i.test(message)
+    || /\baccess\b[^.]{0,80}\bdenied\b[^.]{0,80}\b(?:project|account)\b/i.test(message)
+    || /\bapi key\b[^.]{0,80}\b(?:invalid|revoked|disabled|denied)\b/i.test(message)
+    || /\b(?:account|project)\b[^.]{0,80}\b(?:disabled|suspended|revoked)\b/i.test(message);
 }
 
 function isTransientProviderError(err: unknown): boolean {

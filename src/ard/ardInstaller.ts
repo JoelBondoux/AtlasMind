@@ -150,6 +150,48 @@ export function resolveMcpConfig(resource: ArdDiscoveredResource): Omit<McpServe
   return undefined;
 }
 
+/**
+ * What installing a resource will actually do, stated before it happens.
+ *
+ * The confirmation dialog shows this rather than a summary beside it: the
+ * finder, the destination, and — for an MCP server — the exact command it would
+ * run or the URL it would reach, since that is what a person is agreeing to.
+ * The relevance score is repeated as what it is, not as trust.
+ */
+export function describeInstallPlan(resource: ArdDiscoveredResource): string {
+  const lines = [`Found by: ${resource.sourceName}`];
+  if (resource.url) { lines.push(`Source: ${resource.url}`); }
+  if (typeof resource.score === 'number') {
+    lines.push(`Relevance ${resource.score}/100 — how well it matched the search, not a trust or safety rating.`);
+  }
+  switch (resource.type) {
+    case 'application/mcp-server+json': {
+      const config = resolveMcpConfig(resource);
+      if (!config) {
+        lines.push('Nothing will be added automatically: its connection details could not be derived. You will be pointed to the MCP Servers panel to add it by hand.');
+      } else if (config.transport === 'stdio') {
+        const commandLine = [config.command, ...(config.args ?? [])].join(' ');
+        lines.push(`Adds an MCP server, switched OFF, that would run on this machine:\n  ${commandLine.slice(0, 300)}`);
+        if (config.env && Object.keys(config.env).length > 0) {
+          lines.push(`With environment variables: ${Object.keys(config.env).slice(0, 10).join(', ')}`);
+        }
+        lines.push('Nothing runs until you enable it in the MCP Servers panel.');
+      } else {
+        lines.push(`Adds an MCP server, switched OFF, that would connect to:\n  ${config.url ?? ''}`);
+        lines.push('Nothing connects until you enable it in the MCP Servers panel.');
+      }
+      break;
+    }
+    case 'application/ai-catalog+json':
+    case 'application/ai-registry+json':
+      lines.push('Adds it as an Agent Finder, switched OFF. Nothing is queried until you enable it.');
+      break;
+    default:
+      lines.push(`${describeResourceType(resource.type)}: AtlasMind cannot install this type, so nothing will be added — you will be told how to connect it yourself.`);
+  }
+  return lines.join('\n');
+}
+
 function describeResourceType(type: string): string {
   switch (type) {
     case 'application/a2a-agent-card+json':

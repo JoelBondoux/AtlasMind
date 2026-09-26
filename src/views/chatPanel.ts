@@ -788,6 +788,11 @@ export class ChatPanel {
       case 'submitPrompt':
         await this.runPrompt(message.payload.prompt, message.payload.mode);
         return;
+      case 'installDiscoveredResource':
+        // The command resolves the identifier against the host's own recent
+        // results and asks for confirmation before adding anything.
+        await vscode.commands.executeCommand('atlasmind.ard.installEntry', message.payload.identifier);
+        return;
       case 'resolveLoopDecision':
         if (message.payload?.id === 'buzz-guide') {
           // Look the action up rather than trusting the message to name one.

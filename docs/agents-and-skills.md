@@ -189,6 +189,10 @@ An activated-testing repair remains one normal approval-gated task, but its life
 
 The **Project Dashboard → Testing** page includes a methodology toggle matrix with immediate save. Toggling a methodology writes directly to `project_memory/index/testing-config.json`. Each protocol has the same shared plain-English description, *When to use*, *Key tools*, and *Trade-offs* as Settings rather than a labels-only dashboard copy. Its **Fix activated testing** action gives the normal approval-gated Atlas task the host-derived enabled-policy coverage and report failures, so it can inspect, repair, and re-run the existing relevant test surfaces without inventing a command or silently weakening a test. An **Open Testing Strategy →** link navigates to the Settings Panel for agent assignment and model overrides.
 
+#### Project Dashboard — public release review
+
+The **Project Dashboard → Versions** portfolio is deterministic until The User explicitly asks AtlasMind for judgement. Public stable and preview release records are joined to their matching roadmap gate, milestone route, and filed design plans in the extension host. The **Ask AtlasMind to review** control sends only the selected tag; the host rebuilds a bounded prompt containing the observed release facts, measurable gate progress, plan coverage, and linked milestone states. The prompt requires facts and inference to stay separate. It uses the configured Dashboard chat destination and its normal approvals; rendering or expanding a version card invokes no model.
+
 Every Policy Coverage card also has a visible **Ask Atlas** explainer. This is not an agent task: `buildTestingPolicyLaymanGuide` declares beginner-facing copy for all 69 methodologies, and the Dashboard combines it with the live evidence row to answer what the method is, what it needs, the expected result, why it is useful, why the displayed status follows, and what to do next. The first reply bypasses model routing and tools entirely, then offers status-specific chips for an optional project-fit review, smallest-test plan, disablement explanation, coverage review, failure diagnosis, or practice checklist. Those follow-ups become ordinary routed turns only after the operator chooses one.
 
 #### Agent Testing Roles
@@ -284,7 +288,7 @@ The **Scaffold framework** button on the Settings → Testing page (command: `At
 
 #### Outbound protocol sync to external AI agents (`src/utils/testingProtocolSync.ts`)
 
-So that AI agents *outside* AtlasMind — Claude Code, GitHub Copilot, Cursor, Cline, Gemini, Windsurf, Aider, and Codex (`AGENTS.md`) — can discover and enact the same testing strategy, the **Sync to AI agents** button (command: `AtlasMind: Sync Testing Protocols to AI Agents`) writes the enabled protocols into the project's instruction files. Whereas `aiInstructionSync.ts` reads those files *into* AtlasMind, `syncTestingProtocols` does the reverse: it renders each enabled methodology (what, when to apply, key tools, owner agent, preferred model, project notes) into a delimited, AtlasMind-managed block (`<!-- atlasmind:testing-protocols:start -->` … `:end -->`) and upserts it into every *detected* (existing) markdown instruction file. The writer is non-destructive — it only touches its own block, preserves all surrounding content, writes only to files that already exist, and routes every path through the shared traversal guard. JSON-config tools (Continue) are reported as skipped. **Saving the Testing matrix auto-syncs**, and scaffold runs invoke this same sync before any eligible first-test task, keeping external agents continuously in step with the matrix.
+So that AI agents *outside* AtlasMind — Claude Code, GitHub Copilot, Cursor, Cline, Gemini, Windsurf, Aider, and Codex (`AGENTS.md`) — can discover and enact the same project policy, AtlasMind writes independent managed blocks into the instruction files those agents already read. The **Sync to AI agents** button (command: `AtlasMind: Sync Testing Protocols to AI Agents`) renders each enabled methodology (what, when to apply, key tools, owner agent, preferred model, project notes), plus the debt-marker and declared-workflow blocks, into every detected markdown instruction file. The Roadmap dashboard separately installs `<!-- atlasmind:roadmap-sync:start -->` … `:end -->`, seeding `AGENTS.md` when necessary. That block names `project_memory/roadmap/improvement-plan.md` as canonical and requires additions, renames, status/checkbox changes, reopens, moves, and removals made in any secondary roadmap to be reconciled there in the same change. A conflict must be reported rather than guessed at. The writer is non-destructive — it touches only its own delimiters, preserves surrounding content, and routes every path through the shared traversal guard. JSON-config tools (Continue) are reported as skipped. **Saving the Testing matrix auto-syncs**, scaffold runs invoke the same protocol sync, and Roadmap load refreshes the roadmap rule before checking secondary-roadmap drift. That automatic check reads only checkbox roadmaps owned by the open repository: it excludes the full SSOT, common backups, test fixtures, known agent worktrees, and any candidate below a second `.git` boundary. Detailed-plan scaffolds, validation-only checklists, and bullet-only narrative documents remain outside automatic proposals; the manual Markdown importer stays deliberately broad because choosing the source is explicit intent. Repeated titles are proposed once, while conflicting checkbox states are refused. The dashboard's integrity review uses the stored import key plus current source evidence and never judges an item from wording alone.
 
 Freeform execution also now emits lightweight live progress updates while a response is still running. In the dedicated chat surface, AtlasMind shows interim thinking-style notes such as agent selection, tool rounds, workspace-investigation retries, and escalation or anti-churn nudges before the final answer replaces those transient updates.
 
@@ -460,7 +464,7 @@ AtlasMind now also computes lightweight natural-language routing hints for MCP-b
 
 Risky built-in skills are also filtered by a tool-approval policy before execution. AtlasMind classifies each invocation as readonly, workspace-write, terminal-read, terminal-write, git-read, or git-write, then consults the configured approval mode before allowing the tool to run.
 
-Two ceilings sit outside that mode, and the order matters. `atlasmind.allowTerminalWrite` (default off) refuses `terminal-write` and is evaluated **before** any bypass, so Autopilot cannot convert it into a permission. `NEVER_BYPASSABLE_TOOLS` (`toolPolicy.ts`) is the second: `ToolApprovalManager.shouldBypass` consults it first and returns `false` regardless of Autopilot, whole-task bypass or a per-category bypass. It holds exactly one pair — `network` at `high` risk — which covers `git-push`, deleting a remote branch, and any external tool the classifier could not identify, since an unrecognised name grades `network`/`high` on the name alone. Before this existed, `shouldBypass` returned `true` for every category once Autopilot was on, and Autopilot is offered as an answer to any approval dialog, so one click on a low-risk tool bought all three unattended for the session. The ceiling is deliberately narrow rather than covering every `high`: prompting on ordinary file writes is the friction that gets a gate switched off wholesale, which protects nothing. `toolBypassCeiling()` returns the reason rather than a boolean, so a dialog reappearing after Autopilot was enabled can explain itself.
+Two ceilings sit outside that mode, and the order matters. `atlasmind.allowTerminalWrite` (default off) refuses `terminal-write` and is evaluated **before** any bypass, so Autopilot cannot convert it into a permission. `NEVER_BYPASSABLE_TOOLS` (`toolPolicy.ts`) is the second: `ToolApprovalManager.shouldBypass` consults it first and returns `false` regardless of Autopilot, whole-task bypass or a per-category bypass. It holds exactly one pair — `network` at `high` risk — which covers a `git-push` that is not provably ordinary (protected, `staging` or `development` branch, a tag, force, an unnamed branch, or a remote given as a URL; `classifyGitPushInvocation` grades a named working branch `network`/`medium`, which Autopilot may waive, and `terminal-run` refuses `git push` so the raw command cannot bypass that grading), deleting a remote branch, and any external tool the classifier could not identify, since an unrecognised name grades `network`/`high` on the name alone. Before this existed, `shouldBypass` returned `true` for every category once Autopilot was on, and Autopilot is offered as an answer to any approval dialog, so one click on a low-risk tool bought all three unattended for the session. The ceiling is deliberately narrow rather than covering every `high`: prompting on ordinary file writes is the friction that gets a gate switched off wholesale, which protects nothing. `toolBypassCeiling()` returns the reason rather than a boolean, so a dialog reappearing after Autopilot was enabled can explain itself.
 
 Approval scope is committed inside `ToolApprovalManager.resolvePendingRequest`, before the selected promise
 or any concurrent tool gate resumes. Enabling Bypass or Autopilot settles other already-pending requests
@@ -546,6 +550,7 @@ That separation is the current answer to scaling the number of agents and tools:
 - A direct Git follow-up such as `commit and push` keeps the bounded workspace read/write subset when the prior session records an unfinished source mutation. The selector reads the goal, summary, decisions, and open threads from `SessionContextBundle` as well as the legacy session string; structured context therefore cannot leave the model with Git publication tools but no way to finish the change being published.
 - **Delivery intent comes from the project's own declared vocabulary** (`src/core/projectVocabulary.ts`), never from a keyword table maintained in the selector. A promotion requires both a promotion verb *and* a stage the project declared in `delivery.json` — a verb alone is not delivery ("publish the docs"), and a stage alone is a question about it ("why is production slow?"). A stage's *kind* counts as a name, so "promote to staging" resolves a stage of kind `staging` whatever it is called.
 - **Git integration flows select the write tools as a set.** Merging, rebasing, cherry-picking and promoting are one task ending in a published change, and per-word selection produced incoherent bundles: "merge to main then publish" contains neither `commit` nor `push`, so it received the tools that describe a repository and none of the tools that change one. `commit` and `push` keep their own per-word rules, so asking about a commit does not hand over the ability to publish one.
+- **A promotion into a protected branch is a pull request, and the turn is told so.** When a message pairs a promotion or integration verb with `main`, `master`, `production`, `prod` or `stable` (`isProtectedBranchPromotionRequest`), the turn also receives `terminal-run` — `gh` lives behind it, and without it the only route left is a local merge — and `PROTECTED_PROMOTION_HINT` joins the system prompt: open a pull request, never merge, commit or push to the protected branch locally, tag only after the pull request has merged, and stop at a blocker rather than improvise around it. The planner already carried this rule; a single chat turn never saw it, which is how "promote staging to main and publish" merged into `main` locally and stalled at the tag.
 - **An escalating turn widens its selection once**, up to 18 tools, within the same eligibility pool. A thin answer is often a model that was never given the tool it needed, and re-routing to a stronger model does not fix that.
 - `SkillsRegistry.getSkillsForAgent(agent)` resolves the enabled eligibility pool. `selectTaskScopedSkills()` performs the per-turn narrowing before model capability routing and schema construction.
 
@@ -779,6 +784,13 @@ the uncertain session. This matters for tools as much as cost — duplicating a
 prompt to an agent that may act can duplicate the requested operation even
 though each individual operation remains visible in the permission and tool logs.
 
+Failover follows the same rule one level up. An attempt is the whole agentic loop, so failing over
+re-runs the task on another model; once an attempt has started a side-effecting tool call — or a
+delegated-tool ACP attempt has had its prompt in flight — a failure stops the turn and reports what had
+started instead (`describeReplayHazard` in `orchestrator.ts`). The `session/prompt` budget is an
+inactivity timeout restarted by every `session/update` or agent request, under a 30-minute ceiling, so an
+agent that is visibly working through a commit hook and a push is not declared hung.
+
 On Windows, `atlasmind.acp.hideConsoleWindows` changes where the process tree's
 windows may appear, not what the process may do. The helper now creates a
 non-interactive window station plus its default private desktop with Windows'
@@ -956,15 +968,31 @@ Four rules, in `src/core/toolDiscovery.ts`:
   the agent may not use is not nameable — otherwise the model plans around one it can never call. Every
   authorization gate still applies at invocation.
 - **Already-sent tools are excluded**, or the model rediscovers what it holds and searches again.
-- **A miss is final and says so**, rather than reading like an error and inviting a reworded retry against
-  an unchanged pool.
+- **A miss is final for the installed pool and says so**, rather than reading like an error and inviting a
+  reworded retry against an unchanged pool. What happens next is the fall-through below.
 - **At most five tools per search**, so a broad query cannot undo the cap in one call.
 
 `shouldOfferToolDiscovery` withholds it in two cases: when nothing was withheld in the first place, and —
 importantly — when the turn was given **no** tools at all. Zero is a decision rather than a small number:
 Change Story mode clears the skill set so a committed-ref answer cannot be contaminated by the
 checked-out workspace, and a search there would let the model reacquire exactly what that mode withholds,
-against a different revision.
+against a different revision. A third argument, `externalSearchAvailable`, means `find-tool` is also
+offered when every installed skill was already sent, if the fall-through below is available — the
+zero-tools rule still wins.
+
+**When nothing installed matches, the search goes to Resource Discovery** (`src/core/capabilitySearch.ts`).
+The same query is sent to the Agent Finders the user has enabled, and up to five third-party candidates
+come back to the model and to the reply, each with a **Review & install** button. Four rules:
+
+- **Enabling a finder is the consent.** Finders ship disabled. With none enabled the model is told so and
+  told to point the user at Settings → Resource Discovery — silence would read as "no such tool exists",
+  which nobody checked.
+- **Only the query leaves the machine**, secret-redacted and clamped to 160 characters. Never file
+  contents, never the conversation.
+- **Discovery installs and grants nothing.** Installing is a separate act by a person, behind a modal that
+  names the finder, the source, and — for an MCP server — the exact command line or URL and the env var
+  names; the server is added switched off.
+- **A relevance score is not a trust rating**, and every result says so.
 
 ### Project Dashboard DOM boundary
 

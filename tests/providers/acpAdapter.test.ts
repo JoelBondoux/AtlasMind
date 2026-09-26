@@ -476,6 +476,61 @@ describe('AcpAdapter — live-session reuse without duplicate prompts', () => {
     expect(agents).toHaveLength(0);
   });
 
+  it('keeps waiting on a prompt while the agent reports progress, past the inactivity budget', async () => {
+    // A Codex turn running a commit hook streams updates for minutes. A fixed
+    // budget called it hung mid-commit; activity must restart the clock.
+    const factory: AcpProcessFactory = () => new FakeAgent((self, frame) => {
+      const id = frame['id'];
+      if (frame['method'] === 'initialize') {
+        self.emitFrame({ jsonrpc: '2.0', id, result: INITIALIZE_OK });
+      } else if (frame['method'] === 'session/new') {
+        self.emitFrame({ jsonrpc: '2.0', id, result: { sessionId: 'sess_busy' } });
+      } else if (frame['method'] === 'session/prompt') {
+        let ticks = 0;
+        const beat = setInterval(() => {
+          ticks += 1;
+          self.emitFrame({
+            jsonrpc: '2.0',
+            method: 'session/update',
+            params: { sessionId: 'sess_busy', update: { sessionUpdate: 'agent_message_chunk', content: { type: 'text', text: '.' } } },
+          });
+          if (ticks === 6) {
+            clearInterval(beat);
+            self.emitFrame({ jsonrpc: '2.0', id, result: { stopReason: 'end_turn' } });
+          }
+        }, 25);
+      }
+    });
+    const adapter = new AcpAdapter({ agents: [AGENT], spawnProcess: factory, timeoutMs: 80 });
+
+    // ~150ms of work against an 80ms inactivity budget.
+    await expect(adapter.complete(request())).resolves.toMatchObject({ finishReason: 'stop' });
+    await adapter.shutdown();
+  });
+
+  it('gives up on a silent prompt and tells the agent to cancel', async () => {
+    const agents: FakeAgent[] = [];
+    const factory: AcpProcessFactory = () => {
+      const agent = new FakeAgent((self, frame) => {
+        const id = frame['id'];
+        if (frame['method'] === 'initialize') {
+          self.emitFrame({ jsonrpc: '2.0', id, result: INITIALIZE_OK });
+        } else if (frame['method'] === 'session/new') {
+          self.emitFrame({ jsonrpc: '2.0', id, result: { sessionId: 'sess_silent' } });
+        }
+      });
+      agents.push(agent);
+      return agent;
+    };
+    const adapter = new AcpAdapter({ agents: [AGENT], spawnProcess: factory, timeoutMs: 60 });
+
+    await expect(adapter.complete(request())).rejects.toThrow(/went silent .* during session\/prompt/);
+    // Left alone, the agent would carry on with the task while failover handed
+    // it to another model.
+    expect(agents[0]!.method('session/cancel')).toBeDefined();
+    await adapter.shutdown();
+  });
+
   it('cancels and discards an uncertain live prompt when its attempt is aborted', async () => {
     const controller = new AbortController();
     const agents: FakeAgent[] = [];

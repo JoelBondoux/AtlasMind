@@ -4,8 +4,8 @@ import { mkdirSync, mkdtempSync, writeFileSync } from 'node:fs';
 import { tmpdir } from 'node:os';
 import nodePath from 'node:path';
 import { removeTempDir } from '../helpers/tempDir.ts';
-import { Orchestrator, appendTddBlockedCaveat, appendVerificationCaveat, budgetForCorrection, buildPrivacyScanSlices, buildProjectSessionContextBundle, buildSupplementalContextMessage, classifySubTaskFailure, classifyToolFailure, collapseDuplicatedTrailingBlock, CONVERSATION_CONTEXT_PREAMBLE, describeExhaustedSearch, shouldAbortSupersededRequest, deriveTurnCapabilityEnvelope, detectVerificationContradiction, estimateCompletionRequestInputTokens, estimateToolDefinitionTokens, executionEndpointScope, getProviderTimeoutMs, isProviderRateLimited, isToolAllowedByTurnEnvelope, isUserCorrectionTurn, looksLikeAnswerlessCompletionClaim, looksLikeIncompleteDelivery, looksLikeLeakedReasoning, looksLikePreambleOnly, looksLikeToolCapabilityRefusal, resolveProviderIdForModel, responseClaimsSuccessWithoutCaveat, sanitizeAssistantResponse, selectTaskScopedSkills, shouldBiasTowardWorkspaceInvestigation, shouldOpenEndpointCircuit, summarizeAttemptFailures, TOOL_EXECUTION_FAILURE_PREFIX, UNTRUSTED_CONTEXT_PREAMBLE, verificationIndicatesFailure } from '../../src/core/orchestrator.ts';
-import { ACP_HANDSHAKE_HEADROOM_MS, ACP_PROVIDER_TIMEOUT_MS, ACP_REQUEST_TIMEOUT_MS, LOCAL_PROVIDER_MAX_TIMEOUT_MS, MAX_TOOL_ITERATIONS } from '../../src/constants.ts';
+import { Orchestrator, appendTddBlockedCaveat, appendVerificationCaveat, budgetForCorrection, buildPrivacyScanSlices, buildProjectSessionContextBundle, buildSupplementalContextMessage, classifySubTaskFailure, classifyToolFailure, collapseDuplicatedTrailingBlock, CONVERSATION_CONTEXT_PREAMBLE, describeExhaustedSearch, describeReplayHazard, isSideEffectingToolCall, shouldAbortSupersededRequest, deriveTurnCapabilityEnvelope, detectVerificationContradiction, estimateCompletionRequestInputTokens, estimateToolDefinitionTokens, executionEndpointScope, getProviderTimeoutMs, isProviderAuthenticationError, isProviderRateLimited, isToolAllowedByTurnEnvelope, isUserCorrectionTurn, looksLikeAnswerlessCompletionClaim, looksLikeIncompleteDelivery, looksLikeLeakedReasoning, looksLikePreambleOnly, looksLikeToolCapabilityRefusal, resolveProviderIdForModel, responseClaimsSuccessWithoutCaveat, sanitizeAssistantResponse, selectTaskScopedSkills, shouldBiasTowardWorkspaceInvestigation, shouldOpenEndpointCircuit, summarizeAttemptFailures, TOOL_EXECUTION_FAILURE_PREFIX, UNTRUSTED_CONTEXT_PREAMBLE, verificationIndicatesFailure } from '../../src/core/orchestrator.ts';
+import { ACP_HANDSHAKE_HEADROOM_MS, ACP_PROMPT_CEILING_MS, ACP_PROVIDER_TIMEOUT_MS, ACP_REQUEST_TIMEOUT_MS, LOCAL_PROVIDER_MAX_TIMEOUT_MS, MAX_TOOL_ITERATIONS } from '../../src/constants.ts';
 import type { TaskModelAttempt } from '../../src/types.ts';
 import { AgentRegistry } from '../../src/core/agentRegistry.ts';
 import { SkillsRegistry } from '../../src/core/skillsRegistry.ts';
@@ -1108,6 +1108,86 @@ describe('Orchestrator agentic loop', () => {
     expect(result.modelUsed).toBe('anthropic/claude-sonnet-4');
   });
 
+  it('pauses a provider after one explicit project-access denial and fails over elsewhere', async () => {
+    const localFallbackProvider = makeMockProvider([{
+      content: 'Local fallback should stay unused here.',
+      model: 'local/echo-1',
+      inputTokens: 10,
+      outputTokens: 5,
+      finishReason: 'stop',
+    }]);
+    const denied = Object.assign(
+      new Error('Google Gemini request failed (403): {"status":"PERMISSION_DENIED","message":"Your project has been denied access."}'),
+      { status: 403 },
+    );
+    const googleProvider: ProviderAdapter = {
+      providerId: 'google',
+      complete: vi.fn().mockRejectedValue(denied),
+      listModels: vi.fn().mockResolvedValue(['google/gemini-a', 'google/gemini-b']),
+      healthCheck: vi.fn().mockResolvedValue(true),
+    };
+    const backupProvider: ProviderAdapter = {
+      providerId: 'anthropic',
+      complete: vi.fn().mockResolvedValue({
+        content: 'Recovered through the healthy provider.',
+        model: 'anthropic/claude-sonnet-4',
+        inputTokens: 14,
+        outputTokens: 9,
+        finishReason: 'stop',
+      }),
+      listModels: vi.fn().mockResolvedValue(['anthropic/claude-sonnet-4']),
+      healthCheck: vi.fn().mockResolvedValue(true),
+    };
+    const orchestrator = makeOrchestrator(
+      localFallbackProvider,
+      [],
+      makeSkillContext(),
+      undefined,
+      [],
+      [],
+      undefined,
+      undefined,
+      undefined,
+      undefined,
+      {
+        extraProviders: [
+          {
+            providerId: 'google',
+            adapter: googleProvider,
+            models: [
+              { id: 'google/gemini-a', name: 'Gemini A', contextWindow: 32_000, inputPricePer1k: 0.001, outputPricePer1k: 0.001, capabilities: ['chat', 'code'] },
+              { id: 'google/gemini-b', name: 'Gemini B', contextWindow: 32_000, inputPricePer1k: 0.0015, outputPricePer1k: 0.0015, capabilities: ['chat', 'code'] },
+            ],
+          },
+          {
+            providerId: 'anthropic',
+            adapter: backupProvider,
+            models: [
+              { id: 'anthropic/claude-sonnet-4', name: 'Claude Sonnet 4', contextWindow: 32_000, inputPricePer1k: 0.003, outputPricePer1k: 0.003, capabilities: ['chat', 'code'] },
+            ],
+          },
+        ],
+      },
+    );
+
+    const result = await orchestrator.processTask({
+      id: 'provider-project-denied',
+      userMessage: 'Give me a short answer.',
+      context: {},
+      constraints: { budget: 'balanced', speed: 'balanced', preferredModel: 'google/gemini-a' },
+      timestamp: new Date().toISOString(),
+    });
+
+    expect(googleProvider.complete).toHaveBeenCalledTimes(1);
+    expect(backupProvider.complete).toHaveBeenCalledTimes(1);
+    expect(result.response).toBe('Recovered through the healthy provider.');
+    expect(result.autoDisabledProvider).toEqual(expect.objectContaining({
+      providerId: 'google',
+      reason: 'auth',
+      failoverModelUsed: 'anthropic/claude-sonnet-4',
+    }));
+  });
+
   it('quarantines all variants of a timed-out ACP agent and commits only the winning stream', async () => {
     const localFallbackProvider = makeMockProvider([{
       content: 'Local fallback should stay unused.',
@@ -1244,6 +1324,110 @@ describe('Orchestrator agentic loop', () => {
     // sent the reader to raise a limit that was never reached.
     expect(result.response).toContain('no other configured provider could serve this request');
     expect(result.response).not.toContain('safety ceiling');
+  });
+
+  it('does not replay a task on another model once it has committed', async () => {
+    // The reported failure: "commit, push and promote" was handed to model after
+    // model, each starting over on a repository the previous one had changed.
+    let commits = 0;
+    const primary: ProviderAdapter = {
+      providerId: 'local',
+      complete: vi.fn()
+        .mockResolvedValueOnce({
+          content: '',
+          model: 'local/echo-1',
+          inputTokens: 5,
+          outputTokens: 5,
+          finishReason: 'tool_calls',
+          toolCalls: [{ id: 'c1', name: 'git-commit', arguments: { message: 'feat: x', paths: ['a.ts'] } }],
+        })
+        .mockRejectedValue(new Error('local fatal provider failure')),
+      listModels: vi.fn().mockResolvedValue(['local/echo-1']),
+      healthCheck: vi.fn().mockResolvedValue(true),
+    };
+    const backup: ProviderAdapter = {
+      providerId: 'mistral',
+      complete: vi.fn().mockResolvedValue({ content: 'Redid it.', model: 'mistral/c', inputTokens: 1, outputTokens: 1, finishReason: 'stop' }),
+      listModels: vi.fn().mockResolvedValue(['mistral/c']),
+      healthCheck: vi.fn().mockResolvedValue(true),
+    };
+    const orchestrator = makeOrchestrator(
+      primary,
+      [{
+        id: 'git-commit',
+        name: 'git-commit',
+        description: 'Commit.',
+        parameters: { type: 'object', properties: { message: { type: 'string' }, paths: { type: 'array', items: { type: 'string' } } } },
+        execute: async () => { commits += 1; return 'git commit: exit 0'; },
+      }],
+      makeSkillContext(),
+      undefined, [], [], undefined, undefined, undefined, undefined,
+      {
+        modelCapabilities: ['chat', 'code', 'function_calling'],
+        extraProviders: [{
+          providerId: 'mistral',
+          adapter: backup,
+          models: [{ id: 'mistral/c', name: 'C', contextWindow: 32_000, inputPricePer1k: 0.003, outputPricePer1k: 0.003, capabilities: ['chat', 'code', 'function_calling'] }],
+        }],
+      },
+    );
+
+    const result = await orchestrator.processTask({
+      id: 'no-replay-after-commit',
+      userMessage: 'commit a.ts',
+      context: {},
+      constraints: { budget: 'balanced', speed: 'balanced', preferredModel: 'local/echo-1' },
+      timestamp: new Date().toISOString(),
+    });
+
+    expect(commits).toBe(1);
+    expect(backup.complete).not.toHaveBeenCalled();
+    expect(result.response).toContain('did not hand the task to another model');
+    expect(result.response).toMatch(/commit/i);
+  });
+
+  it('falls through to Resource Discovery when nothing installed can do the job', async () => {
+    const requests: CompletionRequest[] = [];
+    const replies: CompletionResponse[] = [
+      { content: '', model: 'local/echo-1', inputTokens: 5, outputTokens: 5, finishReason: 'tool_calls', toolCalls: [{ id: 'f1', name: 'find-tool', arguments: { query: 'query a postgres database' } }] },
+      { content: 'Pg Tools would do it — install it with the button below.', model: 'local/echo-1', inputTokens: 5, outputTokens: 5, finishReason: 'stop' },
+    ];
+    const provider: ProviderAdapter = {
+      providerId: 'local',
+      complete: vi.fn((request: CompletionRequest) => { requests.push(request); return Promise.resolve(replies[requests.length - 1] ?? replies.at(-1)!); }),
+      listModels: vi.fn().mockResolvedValue(['local/echo-1']),
+      healthCheck: vi.fn().mockResolvedValue(true),
+    };
+    const orchestrator = makeOrchestrator(
+      provider,
+      [{ id: 'file-read', name: 'file-read', description: 'Read a file.', parameters: { type: 'object', properties: {} }, execute: async () => '' }],
+      makeSkillContext(),
+      undefined, [], [], undefined, undefined, undefined, undefined,
+      { modelCapabilities: ['chat', 'code', 'function_calling'] },
+    );
+    const search = vi.fn().mockResolvedValue({
+      status: 'searched',
+      finderCount: 1,
+      errors: [],
+      resources: [{ identifier: 'urn:pg', displayName: 'Pg Tools', type: 'application/mcp-server+json', sourceName: 'GitHub Agent Finder', score: 91 }],
+    });
+    orchestrator.setExternalCapabilitySearch(search);
+
+    const result = await orchestrator.processTask({
+      id: 'rd-fallthrough',
+      userMessage: 'Read the config file, then query the postgres database for the users row count.',
+      context: {},
+      constraints: { budget: 'balanced', speed: 'balanced', preferredModel: 'local/echo-1' },
+      timestamp: new Date().toISOString(),
+    });
+
+    // The whole pool was sent, and find-tool is still offered because it can look further.
+    expect(requests[0]?.tools?.some(tool => tool.name === 'find-tool')).toBe(true);
+    expect(search).toHaveBeenCalledWith('query a postgres database', undefined);
+    const toolMessage = requests[1]?.messages.find(message => message.role === 'tool');
+    expect(toolMessage?.content).toContain('Pg Tools');
+    expect(toolMessage?.content).toMatch(/None of these is installed/);
+    expect(result.discoveredResources?.map(resource => resource.identifier)).toEqual(['urn:pg']);
   });
 
   it('gives an outage its own failover budget instead of rationing it against escalation', async () => {
@@ -5050,7 +5234,30 @@ describe('bounded reply sanitation and turn capabilities', () => {
     // surfaced. The enclosing budget covers spawn + initialize + session/new +
     // session/prompt; the inner one covers a single frame of that.
     expect(ACP_PROVIDER_TIMEOUT_MS).toBeGreaterThan(ACP_REQUEST_TIMEOUT_MS);
-    expect(ACP_PROVIDER_TIMEOUT_MS).toBe(ACP_REQUEST_TIMEOUT_MS + ACP_HANDSHAKE_HEADROOM_MS);
+    expect(ACP_PROVIDER_TIMEOUT_MS).toBe(ACP_PROMPT_CEILING_MS + ACP_HANDSHAKE_HEADROOM_MS);
+  });
+});
+
+describe('replay hazards', () => {
+  it('treats only read-only categories as safe to replay', () => {
+    expect(isSideEffectingToolCall('file-read', { path: 'a' })).toBe(false);
+    expect(isSideEffectingToolCall('git-status', {})).toBe(false);
+    expect(isSideEffectingToolCall('git-commit', { message: 'x' })).toBe(true);
+    expect(isSideEffectingToolCall('git-push', {})).toBe(true);
+    expect(isSideEffectingToolCall('file-write', { path: 'a', content: '' })).toBe(true);
+    // Unknown means it might change something: deny by default.
+    expect(isSideEffectingToolCall('some-unknown-tool', {})).toBe(true);
+  });
+
+  it('names what already ran, and is silent when nothing did', () => {
+    expect(describeReplayHazard([], false, 'Provider timed out after 30000ms.')).toBeUndefined();
+    expect(describeReplayHazard(['commit 1 path'], false, 'boom')).toContain('commit 1 path');
+  });
+
+  it('assumes a delegated agent may have acted once it had the prompt, not before', () => {
+    expect(describeReplayHazard([], true, 'The ACP agent went silent for 180s during session/prompt.')).toBeDefined();
+    expect(describeReplayHazard([], true, 'The ACP agent did not answer initialize within 180s.')).toBeUndefined();
+    expect(describeReplayHazard([], false, 'The ACP agent went silent for 180s during session/prompt.')).toBeUndefined();
   });
 });
 
@@ -5520,6 +5727,21 @@ describe('task-scoped skill context', () => {
     // "pull request" is GitHub vocabulary: the deterministic per-word stage must
     // not read it as a local pull, and the turn still gets the GitHub set.
     expect(select('review my pull request checks')).toContain('terminal-run');
+  });
+
+  it('gives a promotion into a protected branch gh, so it can open a pull request', () => {
+    // "promote staging to main and publish" had no terminal-run and therefore no
+    // `gh pr create`. With only local git it merged into main locally, reset,
+    // merged again, and gave up at the tag.
+    const select = (message: string): string[] => selectTaskScopedSkills(
+      { skills: [], skillPolicy: 'task-scoped' },
+      BRANCH_CLEANUP_SKILLS.map(id => skill(id)),
+      message,
+    ).map(item => item.id);
+
+    expect(select('promote staging to main and publish')).toContain('terminal-run');
+    expect(select('merge develop into master')).toContain('terminal-run');
+    expect(select('what changed in the last commit?')).not.toContain('terminal-run');
   });
 
   it('bundles the write tools for an integration flow without widening a plain commit', () => {
@@ -6040,6 +6262,27 @@ describe('a rate limit belongs to the account, not the model', () => {
     'a bare string',
   ])('leaves %j alone', error => {
     expect(isProviderRateLimited(error)).toBe(false);
+  });
+});
+
+describe('provider authentication belongs to the account, not the model', () => {
+  it.each([
+    { status: 401, message: 'Unauthorized' },
+    { status: 403, message: 'Your project has been denied access. Please contact support.' },
+    { message: 'Google Gemini request failed (403): {"status":"PERMISSION_DENIED"}' },
+    { statusCode: 403, message: 'The API key was revoked.' },
+  ])('recognises %j', error => {
+    expect(isProviderAuthenticationError(error)).toBe(true);
+  });
+
+  it.each([
+    { status: 403, message: 'This model is not enabled for your plan.' },
+    { status: 400, message: 'Invalid request.' },
+    { status: 429, message: 'Rate limit exceeded.' },
+    null,
+    'a bare string',
+  ])('does not widen %j into a provider auth failure', error => {
+    expect(isProviderAuthenticationError(error)).toBe(false);
   });
 });
 

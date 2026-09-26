@@ -1773,8 +1773,21 @@ export const PROVIDER_TIMEOUT_MS = 30_000;
  * How long a single ACP JSON-RPC request may take. Consumed by the adapter as
  * its per-request budget; exported so the enclosing budget can be derived from
  * it rather than restated.
+ *
+ * For `session/prompt` this is an **inactivity** budget, not a total: every
+ * `session/update` or permission request restarts it. An agent running a commit
+ * hook, a test suite and a push streams progress the whole time, and a fixed
+ * 180s total declared it hung while it was working — then failover handed the
+ * same half-done task to the next model.
  */
 export const ACP_REQUEST_TIMEOUT_MS = 180_000;
+
+/**
+ * The absolute ceiling on one ACP `session/prompt`, however busy the agent is.
+ * The inactivity budget above catches a hung agent; this catches one that keeps
+ * talking and never finishes.
+ */
+export const ACP_PROMPT_CEILING_MS = 30 * 60_000;
 
 /**
  * Time allowed for everything an ACP prompt needs before the prompt itself:
@@ -1798,8 +1811,11 @@ export const ACP_HANDSHAKE_HEADROOM_MS = 60_000;
  * names the method that stalled — was never the one the user saw. `acp.ts` makes
  * exactly this argument for `ACP_PROBE_TIMEOUT_MS` and the prompt path never got
  * the same treatment.
+ *
+ * Encloses the prompt's *ceiling*, not its inactivity budget: a busy agent may
+ * legitimately run for many minutes, and only the adapter can tell busy from hung.
  */
-export const ACP_PROVIDER_TIMEOUT_MS = ACP_REQUEST_TIMEOUT_MS + ACP_HANDSHAKE_HEADROOM_MS;
+export const ACP_PROVIDER_TIMEOUT_MS = ACP_PROMPT_CEILING_MS + ACP_HANDSHAKE_HEADROOM_MS;
 
 /**
  * Extra time a local model gets per billion parameters.

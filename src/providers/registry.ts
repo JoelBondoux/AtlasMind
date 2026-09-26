@@ -2,6 +2,7 @@ import type { CompletionRequest, CompletionResponse, ProviderAdapter } from './a
 import type { DiscoveredModel, ToolCall } from './adapter.js';
 import { lookupCatalog } from './modelCatalog.js';
 import { isConversationalModel } from './modelRole.js';
+import { inferParametersBillions } from './modelMetadataInference.js';
 import { coerceOpenAiContentText } from './openai-compatible.js';
 import type { SecretStore } from '../runtime/secrets.js';
 
@@ -45,6 +46,8 @@ export interface LocalAdmissionGate {
     baseUrl: string;
     modelKey: string;
     routedModelId: string;
+    /** Conservative size hint inferred from the runtime model id. */
+    parametersBillions?: number;
     signal?: AbortSignal;
   }): Promise<{ rule: string; release(): void }>;
 }
@@ -184,14 +187,21 @@ export class LocalEchoAdapter implements ProviderAdapter {
   }
 
   private async completeWithLocalEndpoint(endpoint: LocalEndpointConfig, request: CompletionRequest): Promise<CompletionResponse> {
+    const rawModelId = decodeLocalEndpointModelId(request.model).rawModelId;
+    const parametersBillions = inferParametersBillions(rawModelId);
     // The admission slot wraps the HTTP call and nothing else. Holding it across
     // anything wider would make deadlock possible; as a leaf operation it awaits
     // nothing that could itself need a slot.
     const admission = await this.options?.arbiter?.acquire({
       endpointId: endpoint.id,
       baseUrl: endpoint.baseUrl,
-      modelKey: decodeLocalEndpointModelId(request.model).rawModelId,
+      modelKey: rawModelId,
       routedModelId: request.model,
+      // The arbiter deliberately assumes a large 16 GiB model when it knows
+      // nothing. Local ids conventionally carry their size (`qwen3-8b`), and
+      // dropping that fact at this adapter boundary made an ordinary 8B model
+      // look too large for a 24 GiB card even with no model resident.
+      ...(parametersBillions !== undefined ? { parametersBillions } : {}),
       ...(request.signal ? { signal: request.signal } : {}),
     });
     try {
@@ -373,7 +383,7 @@ function buildPayload(request: CompletionRequest): Record<string, unknown> {
 
 function ensureProviderPrefix(providerId: string, modelId: string): string {
   const trimmed = modelId.trim();
-  if (trimmed.includes('/')) {
+  if (trimmed.startsWith(`${providerId}/`)) {
     return trimmed;
   }
   return `${providerId}/${trimmed}`;

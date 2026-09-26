@@ -13,6 +13,7 @@ import {
   SHARED_INSTRUCTIONS_MARKERS,
   type MergeDirective,
 } from '../../src/utils/aiInstructionMerge.js';
+import { ROADMAP_SYNC_BLOCK_START, ROADMAP_SYNC_BLOCK_END } from '../../src/utils/testingProtocolSync.js';
 
 function tempWorkspace(): string {
   return mkdtempSync(path.join(os.tmpdir(), 'atlasmind-instr-merge-'));
@@ -115,7 +116,7 @@ describe('gatherInstructionSources / detectedWritebackTools', () => {
     write(
       root,
       'CLAUDE.md',
-      `# Claude rules\n\nUse spaces.\n\n${SHARED_INSTRUCTIONS_MARKERS.start}\n## mirror (should be stripped)\n- old\n${SHARED_INSTRUCTIONS_MARKERS.end}\n`,
+      `# Claude rules\n\nUse spaces.\n\n${SHARED_INSTRUCTIONS_MARKERS.start}\n## mirror (should be stripped)\n- old\n${SHARED_INSTRUCTIONS_MARKERS.end}\n\n${ROADMAP_SYNC_BLOCK_START}\n## roadmap mirror (should be stripped too)\n${ROADMAP_SYNC_BLOCK_END}\n`,
     );
     write(root, '.github/copilot-instructions.md', '# Copilot rules\n\nUse tabs.');
 
@@ -124,6 +125,7 @@ describe('gatherInstructionSources / detectedWritebackTools', () => {
     expect(claude).toBeDefined();
     expect(claude?.content).toContain('Use spaces.');
     expect(claude?.content).not.toContain('should be stripped');
+    expect(claude?.content).not.toContain('roadmap mirror');
     expect(sources.some(s => s.tool === 'GitHub Copilot')).toBe(true);
   });
 
@@ -159,6 +161,7 @@ describe('applyManagedInstructionBlock', () => {
     const result = await applyManagedInstructionBlock(root, {}, unified);
     expect(result.updated).toContain('CLAUDE.md');
     expect(result.skipped.some(s => s.path === '.continue/config.json')).toBe(true);
+    expect(readFileSync(path.join(root, 'CLAUDE.md'), 'utf8')).toContain(ROADMAP_SYNC_BLOCK_START);
   });
 
   it('seeds the current path for a tool but never a superseded spelling', async () => {

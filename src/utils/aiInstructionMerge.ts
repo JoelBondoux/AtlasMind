@@ -35,7 +35,12 @@ import {
   resolveRelativePath,
   scanAiInstructionFiles,
 } from './aiInstructionSync.js';
-import { MANAGED_BLOCK_START, MANAGED_BLOCK_END } from './testingProtocolSync.js';
+import {
+  MANAGED_BLOCK_START,
+  MANAGED_BLOCK_END,
+  ROADMAP_SYNC_MARKERS,
+  buildRoadmapSyncMarkdown,
+} from './testingProtocolSync.js';
 import { stripManagedBlock, upsertManagedBlock, type ManagedBlockMarkers } from './managedBlock.js';
 
 export const SHARED_INSTRUCTIONS_MARKERS: ManagedBlockMarkers = {
@@ -62,7 +67,7 @@ const ATLASMIND_SOURCE_PATHS = [
  * that the file exists, looks correct, and does nothing.
  */
 const CURSOR_RULE_FRONT_MATTER =
-  '---\ndescription: AtlasMind project rules — testing policy, technical-debt markers, and GitHub workflow\nalwaysApply: true\n---\n\n';
+  '---\ndescription: AtlasMind project rules — roadmap SSOT, testing policy, technical-debt markers, and GitHub workflow\nalwaysApply: true\n---\n\n';
 
 /**
  * Markdown instruction files that can host the managed block, keyed by tool.
@@ -193,6 +198,7 @@ function readFullInstructionContent(workspaceRoot: string, relativePath: string)
     // Drop AtlasMind-managed blocks so the merge never re-ingests its own mirror.
     content = stripManagedBlock(content, SHARED_INSTRUCTIONS_MARKERS);
     content = stripManagedBlock(content, TESTING_PROTOCOL_MARKERS);
+    content = stripManagedBlock(content, ROADMAP_SYNC_MARKERS);
     return content;
   } catch {
     return undefined;
@@ -457,6 +463,7 @@ export async function applyManagedInstructionBlock(
   unified: MergeDirective[],
 ): Promise<InstructionWritebackResult> {
   const fallback = renderUnifiedMarkdown(unified);
+  const roadmapBody = buildRoadmapSyncMarkdown();
   const updated: string[] = [];
   const skipped: { path: string; reason: string }[] = [];
 
@@ -480,7 +487,8 @@ export async function applyManagedInstructionBlock(
     const body = renderedByTool[target.tool] ?? fallback;
     try {
       const existing = present ? readFileSync(resolved, { encoding: 'utf8' }) : (target.frontMatter ?? '');
-      const next = upsertManagedBlock(existing, body, SHARED_INSTRUCTIONS_MARKERS);
+      const withShared = upsertManagedBlock(existing, body, SHARED_INSTRUCTIONS_MARKERS);
+      const next = upsertManagedBlock(withShared, roadmapBody, ROADMAP_SYNC_MARKERS);
       if (next !== existing || !present) {
         // Only when seeding: an existing file's directory is already there, and
         // calling this on every write would be a side effect on the common path

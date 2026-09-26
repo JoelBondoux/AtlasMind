@@ -72,3 +72,74 @@ describe('OpenAiCompatibleAdapter', () => {
     await expect(adapter.listModels()).rejects.toThrow(/returned 401/);
   });
 });
+
+describe('Gemini thought signatures', () => {
+  // Gemini 3 rejects a tool round whose earlier function call lost its signature
+  // ("Function call is missing a thought_signature"). Its OpenAI-compatible layer
+  // carries the signature at extra_content.google.thought_signature, which the
+  // adapter used to ignore in favour of a top-level field nobody sends.
+  const geminiReply = {
+    model: 'gemini-3.1-pro-preview',
+    choices: [{
+      finish_reason: 'tool_calls',
+      message: {
+        role: 'assistant',
+        content: null,
+        tool_calls: [{
+          id: 'call_1',
+          type: 'function',
+          function: { name: 'git_status', arguments: '{}' },
+          extra_content: { google: { thought_signature: 'sig-abc' } },
+        }],
+      },
+    }],
+    usage: { prompt_tokens: 3, completion_tokens: 2 },
+  };
+
+  const makeAdapter = (providerId: string) => new OpenAiCompatibleAdapter(
+    { providerId, baseUrl: 'https://example.test/v1', secretKey: 's', displayName: providerId },
+    buildSecrets(),
+  );
+
+  it('reads the signature from extra_content and echoes it back in the same place', async () => {
+    const fetchMock = vi.fn().mockResolvedValue({ ok: true, json: vi.fn().mockResolvedValue(geminiReply) });
+    global.fetch = fetchMock;
+    const adapter = makeAdapter('google');
+
+    const first = await adapter.complete({ model: 'google/gemini-3.1-pro-preview', messages: [{ role: 'user', content: 'status?' }] });
+    expect(first.toolCalls?.[0]?.thoughtSignature).toBe('sig-abc');
+
+    await adapter.complete({
+      model: 'google/gemini-3.1-pro-preview',
+      messages: [
+        { role: 'user', content: 'status?' },
+        { role: 'assistant', content: '', toolCalls: first.toolCalls },
+        { role: 'tool', content: 'clean', toolCallId: 'call_1' },
+      ],
+    });
+    const sent = JSON.parse(fetchMock.mock.calls[1]![1].body as string);
+    const echoed = sent.messages[1].tool_calls[0];
+    expect(echoed.extra_content).toEqual({ google: { thought_signature: 'sig-abc' } });
+    expect(echoed.thought_signature).toBeUndefined();
+  });
+
+  it('keeps the top-level form for other providers', async () => {
+    const reply = structuredClone(geminiReply);
+    const call = reply.choices[0]!.message.tool_calls[0]! as Record<string, unknown>;
+    delete call['extra_content'];
+    call['thought_signature'] = 'sig-top';
+    const fetchMock = vi.fn().mockResolvedValue({ ok: true, json: vi.fn().mockResolvedValue(reply) });
+    global.fetch = fetchMock;
+    const adapter = makeAdapter('openrouter');
+
+    const first = await adapter.complete({ model: 'openrouter/x', messages: [{ role: 'user', content: 'q' }] });
+    expect(first.toolCalls?.[0]?.thoughtSignature).toBe('sig-top');
+    await adapter.complete({
+      model: 'openrouter/x',
+      messages: [{ role: 'assistant', content: '', toolCalls: first.toolCalls }, { role: 'tool', content: 'ok', toolCallId: 'call_1' }],
+    });
+    const echoed = JSON.parse(fetchMock.mock.calls[1]![1].body as string).messages[0].tool_calls[0];
+    expect(echoed.thought_signature).toBe('sig-top');
+    expect(echoed.extra_content).toBeUndefined();
+  });
+});

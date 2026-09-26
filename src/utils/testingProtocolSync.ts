@@ -60,18 +60,29 @@ export const DEBT_MARKER_BLOCK_END = '<!-- atlasmind:debt-markers:end -->';
 export const WORKFLOW_BLOCK_START = '<!-- atlasmind:workflow:start -->';
 export const WORKFLOW_BLOCK_END = '<!-- atlasmind:workflow:end -->';
 
+/**
+ * The roadmap SSOT rule is separate from testing and workflow policy because it
+ * changes on a different cadence and must also be installable when the Roadmap
+ * page loads, without requiring a testing configuration.
+ */
+export const ROADMAP_SYNC_BLOCK_START = '<!-- atlasmind:roadmap-sync:start -->';
+export const ROADMAP_SYNC_BLOCK_END = '<!-- atlasmind:roadmap-sync:end -->';
+
 /** Markdown-style instruction files that can host the managed block. */
 const MANAGED_MARKDOWN_TARGETS: { tool: string; path: string }[] = [
   { tool: 'GitHub Copilot', path: '.github/copilot-instructions.md' },
   { tool: 'Claude Code', path: 'CLAUDE.md' },
   { tool: 'Claude Code', path: '.claude/CLAUDE.md' },
   { tool: 'Cursor', path: '.cursorrules' },
+  { tool: 'Cursor', path: '.cursor/rules/atlasmind.mdc' },
   { tool: 'Cline', path: '.clinerules' },
   { tool: 'Cline', path: '.cline/system_prompt.md' },
   { tool: 'OpenAI Codex', path: 'AGENTS.md' },
+  { tool: 'Antigravity', path: '.agents/rules/atlasmind.md' },
   { tool: 'Gemini CLI', path: 'GEMINI.md' },
   { tool: 'Gemini CLI', path: '.gemini/system.md' },
   { tool: 'Windsurf', path: 'WINDSURF.md' },
+  { tool: 'Windsurf', path: '.windsurf/rules/atlasmind.md' },
   { tool: 'Aider', path: '.aider.system.md' },
 ];
 
@@ -159,6 +170,7 @@ export function buildTestingProtocolsMarkdown(
 const TESTING_PROTOCOL_MARKERS = { start: MANAGED_BLOCK_START, end: MANAGED_BLOCK_END };
 const DEBT_MARKER_MARKERS = { start: DEBT_MARKER_BLOCK_START, end: DEBT_MARKER_BLOCK_END };
 const WORKFLOW_MARKERS = { start: WORKFLOW_BLOCK_START, end: WORKFLOW_BLOCK_END };
+export const ROADMAP_SYNC_MARKERS = { start: ROADMAP_SYNC_BLOCK_START, end: ROADMAP_SYNC_BLOCK_END };
 
 /**
  * Where the testing block is rendered from.
@@ -249,6 +261,89 @@ export function buildWorkflowMarkdown(input: WorkflowGuidanceInput | undefined):
 }
 
 /**
+ * Stable instructions that make AtlasMind's roadmap the one source of truth.
+ *
+ * The path is configurable, so it is supplied by the caller. A malformed value
+ * falls back to the default rather than becoming markdown or an instruction
+ * path an agent might follow outside the workspace.
+ */
+export function buildRoadmapSyncMarkdown(ssotPath = 'project_memory'): string {
+  const candidate = String(ssotPath ?? '')
+    .replace(/\\/g, '/')
+    .replace(/^\.\//, '')
+    .replace(/^\/+|\/+$/g, '');
+  const safeSsotPath = candidate.length > 0
+    && !candidate.split('/').includes('..')
+    && !/^[A-Za-z]:/.test(candidate)
+    && !/[\u0000-\u001f`]/.test(candidate)
+    ? candidate
+    : 'project_memory';
+  const canonicalPath = `${safeSsotPath}/roadmap/improvement-plan.md`;
+  return [
+    '## Roadmap synchronization (managed by AtlasMind)',
+    '',
+    `AtlasMind's canonical roadmap is \`${canonicalPath}\`. Other roadmap files in this repository`,
+    '(for example `ROADMAP.md`, `docs/roadmap.md`, or files under a `roadmap/` directory) are secondary views or import sources.',
+    '',
+    `Before editing any roadmap file, read \`${canonicalPath}\`. In the same change, reconcile every`,
+    'applicable item addition, rename, checkbox/status change, reopen, move, or removal with that canonical file.',
+    'Changing only a secondary roadmap does not update AtlasMind. Do not mark the canonical item complete without',
+    'repository evidence. If the files disagree or the mapping is ambiguous, preserve both, do not guess or overwrite,',
+    'and report the drift so it can be resolved.',
+    '',
+    'When the AtlasMind Roadmap dashboard opens, it performs a bounded local drift check over secondary markdown',
+    'roadmaps and shows the reconciliation plan before writing. Conflicts and missing source items are never auto-applied.',
+    '',
+  ].join('\n');
+}
+
+/**
+ * Install or refresh only the roadmap rule.
+ *
+ * Existing tool instruction files are preserved outside AtlasMind's block. An
+ * absent `AGENTS.md` is seeded because it is the cross-tool repository format
+ * and the concrete no-instruction failure this guard is meant to prevent.
+ */
+export async function syncRoadmapInstructions(
+  workspaceRoot: string,
+  ssotPath = 'project_memory',
+): Promise<TestingProtocolSyncResult> {
+  const body = buildRoadmapSyncMarkdown(ssotPath);
+  const updated: string[] = [];
+  const skipped: { path: string; reason: string }[] = [];
+
+  for (const target of MANAGED_MARKDOWN_TARGETS) {
+    const resolved = resolveRelativePath(workspaceRoot, target.path);
+    if (!resolved) {
+      continue;
+    }
+    const present = existsSync(resolved);
+    if (!present && target.path !== 'AGENTS.md') {
+      continue;
+    }
+    try {
+      const existing = present ? readFileSync(resolved, { encoding: 'utf8' }) : '';
+      const next = upsertManagedBlock(existing, body, ROADMAP_SYNC_MARKERS);
+      if (next !== existing || !present) {
+        await vscode.workspace.fs.writeFile(vscode.Uri.file(resolved), Buffer.from(next, 'utf8'));
+      }
+      updated.push(target.path);
+    } catch (err) {
+      skipped.push({ path: target.path, reason: err instanceof Error ? err.message : String(err) });
+    }
+  }
+
+  return {
+    success: updated.length > 0,
+    summary: updated.length > 0
+      ? `Synced the AtlasMind roadmap rule into ${updated.length} agent instruction file${updated.length === 1 ? '' : 's'}.`
+      : 'Could not sync the AtlasMind roadmap rule into an agent instruction file.',
+    updated,
+    skipped,
+  };
+}
+
+/**
  * Writes the testing-protocol managed block into every detected (existing)
  * markdown instruction file. Non-destructive: untouched files outside the
  * managed block are preserved verbatim. JSON-config tools are reported as
@@ -313,6 +408,8 @@ export async function syncTestingProtocols(
    * depend on a filesystem layout its tests would then have to fake.
    */
   workflow?: WorkflowGuidanceInput,
+  /** The configured memory root; kept injected so this writer remains deterministic. */
+  ssotPath = 'project_memory',
 ): Promise<TestingProtocolSyncResult> {
   // Each block records a digest of the document it was rendered from, so a git
   // hook can tell whether it is current without reconstructing extension state.
@@ -325,6 +422,7 @@ export async function syncTestingProtocols(
   const workflowBody = renderedWorkflow === undefined
     ? undefined
     : withSourceDigest(renderedWorkflow, readSourceText(workspaceRoot, WORKFLOW_SSOT_PATH));
+  const roadmapBody = buildRoadmapSyncMarkdown(ssotPath);
   const updated: string[] = [];
   const skipped: { path: string; reason: string }[] = [];
 
@@ -335,16 +433,17 @@ export async function syncTestingProtocols(
     }
     try {
       const existing = readFileSync(resolved, { encoding: 'utf8' });
-      // Three blocks, written in one pass. Each owns its own delimiters, so a
+      // Four blocks, written in one pass. Each owns its own delimiters, so a
       // file carrying one and not the others keeps what it has.
       const withProtocols = upsertManagedBlock(existing, blockBody, TESTING_PROTOCOL_MARKERS);
       const withMarkers = upsertManagedBlock(withProtocols, markerBody, DEBT_MARKER_MARKERS);
+      const withRoadmap = upsertManagedBlock(withMarkers, roadmapBody, ROADMAP_SYNC_MARKERS);
       // No declared workflow means no block, not an empty one — see
       // `buildWorkflowMarkdown`. A file that already has the block keeps it
       // until a workflow exists to refresh it from.
       const next = workflowBody
-        ? upsertManagedBlock(withMarkers, workflowBody, WORKFLOW_MARKERS)
-        : withMarkers;
+        ? upsertManagedBlock(withRoadmap, workflowBody, WORKFLOW_MARKERS)
+        : withRoadmap;
       if (next !== existing) {
         await vscode.workspace.fs.writeFile(vscode.Uri.file(resolved), Buffer.from(next, 'utf8'));
       }

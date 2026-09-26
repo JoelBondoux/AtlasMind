@@ -56,9 +56,18 @@ your status bar so you always know it's on.
 
 Autopilot and per-task bypass answer *stop asking me about this*. They do not answer *and never ask me
 again about anything*. One category is beyond all of them: an operation that **leaves your machine,
-changes something there, and cannot be undone from here**. In practice that is `git push`, deleting a
-branch on the remote, and — the case that matters most — **any external tool AtlasMind cannot
-identify**, because an unrecognised MCP tool name grades as an outward write on the name alone.
+changes something there, and cannot be undone from here**. In practice that is a `git push` to a
+protected branch (or `staging`/`development`), of a tag, with force, or without the branch named;
+deleting a branch on the remote; and — the case that matters most — **any external tool AtlasMind
+cannot identify**, because an unrecognised MCP tool name grades as an outward write on the name alone.
+
+An ordinary push — the `git-push` tool naming a working branch such as `develop` or `feat/x`, to a
+remote given by name — is *not* on the ceiling, so Autopilot covers it. Until v0.482.0 every push was,
+and Autopilot asked on each one while the same push typed as `terminal-run git push` was waived: the
+dedicated tool was stricter than the raw command. `terminal-run` now refuses `git push` (and git
+aliases defined with `-c`) and sends the model to `git-push`, so a push has one set of rules. The
+`git-push` tool checks that a named branch really is a local branch, so a tag cannot ride through on a
+branch's approval, and pushes a single release tag with its `tag` parameter.
 
 Until v0.433.0 there was no such ceiling: Autopilot approved every category, and Autopilot is offered
 as an answer to *any* approval dialog, so a single click on a harmless tool bought unattended approval
@@ -342,6 +351,21 @@ setting twice.
 
 ---
 
+## A half-finished task is not started over elsewhere
+
+If a model fails partway through a task, AtlasMind normally hands the task to another model. That means
+running it again from the top, which is harmless for reading and wrong for a commit, a push or a
+publish — the second model repeats what the first already did.
+
+So every tool call that can change something is noted as it starts. Only reads — files, git history,
+web lookups, read-only terminal commands — are exempt, and a call AtlasMind can't classify counts as a
+change. If the attempt then fails, the turn **stops** instead of failing over, lists what had started,
+and suggests checking `git status` and `git log -3` before you ask it to continue. A subscription agent
+running its own tools is treated the same way once it has your prompt, because AtlasMind cannot see which
+of those tools ran.
+
+---
+
 ## Installing things
 
 **MCP runtimes and subscription agents are confirm-before-install.** AtlasMind shows you every command it
@@ -356,6 +380,13 @@ Two properties hold there:
 Where elevation is needed, AtlasMind uses a non-interactive form that **fails rather than prompting** —
 an extension has no terminal to read your password from. Those steps are reported as *do this yourself*
 with the exact commands, rather than offered as a button that couldn't work.
+
+**Things found through Resource Discovery are also confirm-before-install**, including from the
+**Review & install** buttons chat shows when no installed tool fits. The confirmation names the finder
+that returned it, its source URL, and that the relevance score is not a trust rating; for an MCP server it
+shows the exact command line it would run (or the URL it would connect to) and the environment variable
+names, and says it will be added **switched off**. The chat button sends only the resource's identifier;
+AtlasMind looks it up in its own search results, so a crafted message cannot describe what gets installed.
 
 **An agent distributed only as an archive gets no install button at all.** AtlasMind doesn't download and
 unpack archives, so it names the launch command and tells you it's manual.
@@ -491,6 +522,12 @@ the remote, refuses current, default, protected and checked-out-elsewhere branch
 already contained with no unique commits, and checks open pull requests. Local deletion uses the safe
 delete flag — never the force one. Remote deletion additionally needs a live hash match and the exact
 branch name typed. **A missing proof is a refusal, not an approval prompt.**
+
+**Automatic roadmap reconciliation cannot borrow another checkout's plan.** The Dashboard excludes the
+complete AtlasMind SSOT, backups, fixtures and known agent worktrees, then checks the resolved ancestry
+of every surviving candidate for a nested `.git` boundary. Unknown worktree vendors and symlink escapes
+therefore fail closed too. Only checkbox rows are automatic; bullet-only documents, duplicate-state
+conflicts and deliberately broader sources require explicit Markdown import.
 
 **URLs are untrusted.** Routed prompts carry a standing rule: validate the scheme and host, and actually
 check a link works before presenting it as working.

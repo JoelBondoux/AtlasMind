@@ -63,6 +63,21 @@ context and sending it.
 Narrow release guards leave Git tools callable so the normal approval policy can gate them; otherwise
 “subject to approval” would paradoxically remove the operation before an approval could be requested.
 
+**A failed attempt that already changed something is not started again on another model.** An attempt is
+the whole task, tools included, so failing over means starting from the top. That is fine for reading and
+wrong for a commit or a push — "commit, push and promote" was once handed to model after model, each
+starting over on a repository the last one had already changed. AtlasMind now notes every tool call that
+could change something as it starts; if the attempt then fails, the turn stops, says what had started,
+and suggests checking `git status` and `git log -3` before asking again. A subscription agent running
+its own tools is treated the same once it has the prompt, because AtlasMind cannot see which of them ran.
+
+**When no installed tool fits, chat can look further — but only where you said it may.** If the model's
+`find-tool` search comes back empty, the same short description (secrets redacted, at most 160
+characters) goes to the Agent Finders you switched on in Resource Discovery, and up to five candidates
+come back with a **Review & install** button each. None are on by default, and with none on the model is
+told to point you at Settings → Resource Discovery. Searching installs nothing; installing shows you
+exactly what would be added, including the command an MCP server would run, and adds it switched off.
+
 ---
 
 ## What happens during a project run
@@ -270,7 +285,7 @@ Perforce boundary as `not-visible` rather than zero.
 | **Provider adapters** | One per model provider, behind a shared contract |
 | **ACP adapter** | Drives a subscription coding agent as a model provider |
 | **MCP registry** | Connects external tool servers and dispatches their tools |
-| **Resource discovery** | Finds new servers, agents and skills |
+| **Resource discovery** | Finds new servers, agents and skills — from Settings, or from chat when no installed tool fits |
 | **Voice** | Speech in and out — cloud, your OS, or fully on-device |
 | **Local GPU arbiter** | Decides which local model requests may run, so several at once cannot over-fill one graphics card |
 
@@ -294,7 +309,8 @@ already using 9.2 GB.
 
 The arbiter measures what's actually free, charges a model's weights once however many requests share
 it, loads one new model at a time, and moves a turn to another provider rather than over-filling the
-card. Two rules keep it honest: it **only unloads models it loaded itself** — and only when idle, out of
+card. When the card is full of things AtlasMind did not load, it says so at once instead of waiting
+for room that cannot appear. Two rules keep it honest: it **only unloads models it loaded itself** — and only when idle, out of
 cooldown, and when releasing it would actually free enough — so a model you loaded by hand is never
 taken away from you; and a request refused for lack of room is recorded as *the GPU was
 busy*, never as *the model failed* — otherwise a working model would be marked unreliable for being
@@ -377,6 +393,32 @@ commands are never accepted as configuration. Contribution ids use a closed toke
 and the selection is re-resolved on every click so a removed or malformed target refuses without sending.
 External routes receive the generated prompt only, not AtlasMind-only context/direct-response objects, and run
 under that service's privacy, routing, cost, and approval controls.
+
+The **Editions** page is the designed public product, not another release log. A versioned local document
+under `project_memory/product/release-matrix.json` records offering columns (tiers, expansions, DLC,
+plugins, bonuses, or custom shapes), feature rows, and explicit entitlement cells. The pure
+`src/core/releaseMatrix.ts` model sanitizes and bounds every record, rejects workspace-file traversal,
+refuses future schemas, and derives decision coverage plus per-offering readiness without treating an
+absent cell as an exclusion. `src/core/releaseMatrixImport.ts` ranks likely workspace design documents,
+parses explicit Markdown matrices, row-oriented package gates, tier lists, and structured JSON, proposes
+conservative roadmap/Issue relationships, and merges reviewed selections without replacing existing
+decisions. Combined declarations such as `Free/Starter:` create separate offering relationships for the
+declared feature list. The host explicitly includes root documents, deduplicates them against the bounded
+recursive scan, checks real paths, offers a native source chooser, retains previews only in memory, and re-reads the
+source digest plus current matrix and relationship evidence before a confirmed import. The browser may
+name a matrix entity and a stored file/Issue-link index, but cannot choose a filesystem path, Issue number,
+or roadmap text. Roadmap links store durable node ids; matrix removal and roadmap removal remain separate
+confirmed acts, and unlinking an Issue changes neither the Issue nor the feature.
+The import click and import-preview reply intentionally use separate dispatchers: the click path posts
+the opaque scan request, and `handleSecondaryMessage` receives the host-owned preview.
+
+The Versions page uses the same boundary for its public-version portfolio. It sits beside Release under
+**Ship & record**, with a declared cross-page route from Release. The host joins refreshed GitHub
+release records to roadmap gates, the gate routes already used by the Roadmap page, and graph records that
+name filed plans. Drafts are not public versions; previews stay visible but do not become DORA deployments.
+A missing gate leaves progress unknown rather than 0%. Version actions carry only a tag or roadmap node id:
+the host rebuilds the GitHub URL, confirms the tracked-file write for a new empty gate, resolves plan paths,
+and constructs the bounded evidence prompt used by **Ask AtlasMind to review**.
 
 Settings and Dashboard resolve the stored destination through the same precedence rule: an explicit registered
 configuration value, then a validated workspace-state fallback, then the manifest default. The fallback is only
@@ -1233,6 +1275,31 @@ the two once disagreed for unanchored items with surviving records — the same 
 and `slug-2` on disk, and every save against it missed silently; an action that still cannot resolve
 its node now warns and resyncs rather than doing nothing.
 
+Secondary roadmap files are import sources, not a second authority. On first dashboard load AtlasMind
+searches a bounded set of roadmap-named markdown files and files under `roadmap/` directories, excluding
+the configured SSOT, dependencies, Git internals, and generated agent worktrees. Automatic parsing
+refuses detailed implementation-plan scaffolds and ignores verification, acceptance, and
+definition-of-done checklists; an explicit Markdown import stays broad because the user deliberately
+selected its glob. It plans additions, source-link adoptions, renames, and checkbox changes, shows the
+plan in labelled sections before writing, and never deletes an item or applies a conflict. Import
+provenance records both the last source title and checkbox; a
+source-only completion or reopen can therefore flow into `improvement-plan.md`, while a local change or
+an older record with no status baseline is reported rather than overwritten.
+
+**Check integrity** is the governed recovery path for an earlier over-broad import. It joins current
+source classification to stored Markdown-import provenance, highlights only rows that can be tied to a
+detailed plan or validation checklist, and asks the user to select exact entries. A second confirmation
+names the roadmap and graph files before removing those rows, their node metadata, and touching edges.
+Hand-written, unreadable-source, missing-source, ambiguous, and unselected work stays untouched; source
+plan documents are never edited.
+
+The same load gate writes an AtlasMind-managed roadmap block into repository-agent instructions and
+seeds `AGENTS.md` if no Codex/cross-tool file exists. It names
+`project_memory/roadmap/improvement-plan.md` as canonical and requires any agent changing another roadmap
+to reconcile the applicable item there in the same change. Two-way instruction alignment strips this
+block before merging and restores it separately, so generated policy is never re-ingested as authored
+guidance.
+
 Human ownership also follows one contract across the dashboard. Branches, active roadmap items, open
 issues and pull requests, unresolved gaps, risks and debt, and documents needing attention all render
 the Director's contact picker beside the work; Director → Assignments changes the same records. The
@@ -1394,6 +1461,9 @@ never accepted.
 | Path | What's in it |
 |---|---|
 | `src/core/` | Orchestration, routing, planning, safety, cost, project services, pure game-engine identity/divergence/build-log interpretation (`gameEngineIdentity.ts`, `gameEngineDivergence.ts`, `gameBuildLog.ts`), and CI inspection, trusted-workflow generation, the route model, routing policy, build ledger, act adapter and local CI setup guidance (`ciManager.ts`, `trustedLocalCiStarter.ts`, `ciRoutes.ts`, `ciRoutingPolicy.ts`, `ciCreditMeter.ts`, `ciBuildLedger.ts`, `ciActRoute.ts`, `nodeVersionDetection.ts`, `localCiSetupPlan.ts`, `localCiInstaller.ts`, `localCiInspectionMemory.ts`), the guarded local CI executor (`localCiRunner.ts`), the confirmed-write echo that shows an issue or pull-request write before the re-read lands (`trackerWriteOutcome.ts`), the live security advisory feed and the per-turn context breakdown and the producer-portal hosting guide (`advisoryFeed.ts`, `contextBudget.ts`, `producerPortalPlan.ts`), the defect register — what is broken, graded by a published table rather than asked for (`defectRegister.ts`), the approval register — who agreed, to which version, and what goes stale when it changes (`changeApprovals.ts`), the test-case register — the manual half of testing, its owners and the assets it needs (`testCaseRegister.ts`), the ambient event bus — what may wake AtlasMind up, how far it may go, and why it stayed quiet (`ambientTriggers.ts`), the six cross-cutting utility decisions with their date-pinned vendor facts (`utilityPacks.ts`), the retrievable codebase index and its per-developer store (`codebaseIndex.ts`, `codebaseIndexStore.ts`), the portal host declaration and its audience, and the one-press publish plan (`portalHosting.ts`, `portalPublishPlan.ts`), golden cases for an agent and the gate on an unattended rewrite (`agentEvalHarness.ts`), what each person has been asked to do against the capacity they declared, and declared absence read out of an exported calendar (`teamWorkload.ts`, `rotaImport.ts`), baselines you can name so "what changed" can be asked about a moment you chose (`baselineRegister.ts`), the project in your own words and the grounding rule for anything read out of it (`projectBrief.ts`), brand presets applied to many surfaces by alias and extracted from a stylesheet with a citation (`brandPresets.ts`), the roadmap dependency graph with its on-disk overlay, the chain the finish rests on and the plan against time (`roadmapGraph.ts`, `roadmapGraphStore.ts`, `roadmapCriticalPath.ts`, `roadmapTimeline.ts`, `roadmapBoard.ts`), whether the configured team can work and how much of it is used (`agentCapacity.ts`), and the git trailers that link a commit to the work it was for (`commitTrailers.ts`), and the evidence-triggered MCP capability offer (`capabilityOffer.ts`), the declared table saying where each release gate’s evidence lives and how gates rank by urgency (`releaseGateNavigation.ts`), roadmap ingestion from markdown, issues, Projects and spreadsheets with re-runnable reconciliation (`roadmapImport.ts`), the register-to-work hand-off that turns a gap, a debt entry or a risk finding into planned work (`registerHandoff.ts`), and how the project numbers its software across branches — the semver primitives plus the declared scheme, source and branch-to-channel map (`semver.ts`, `versioningPolicy.ts`), how a Windows `bin` shim is resolved to something spawnable without a shell — the module that makes model-generated command arguments unable to become commands (`windowsShimBypass.ts`), and how parallel steps are kept from writing over each other — where each one runs, the git plumbing, getting the work back and the run that ties the three together (`worktreeIsolation.ts`, `worktreeManager.ts`, `worktreeMerge.ts`, `worktreeRun.ts`) |
+| `src/core/releaseMatrix.ts` | Pure schema, bounded mutations, roadmap relationship keys, and coverage/readiness metrics for the planned Editions matrix |
+| `src/core/releaseMatrixImport.ts` | Pure bounded design-document ranking/parsing, roadmap and Issue matching, and preservation-first reviewed merge for Editions |
+| `src/core/capabilitySearch.ts` | What chat does when no installed tool fits: asks only the Agent Finders you switched on, with a short redacted query, and offers what comes back for you to review and install |
 | `src/runtime/` | The built-in agents and how the runtime is composed |
 | `src/providers/` | Provider adapters, catalogues, health, local model discovery, `modelRole.ts` (what a model is *for*), and the local-GPU support layer that measures VRAM and reads what each runtime has loaded |
 | `src/skills/` | Built-in tools and skill handlers |
@@ -1414,6 +1484,17 @@ never duplicated across files.
 The Project Dashboard renders static controls first, then hydrates user-authored Director text with
 `textContent`. Its delivery editor uses a fixed field-to-property switch. These are security boundaries,
 not presentation conventions: the webview never treats a dynamic dotted path as an object write.
+
+## Roadmap reconciliation boundary
+
+The automatic secondary-roadmap scan belongs to the repository that is open, not every directory below
+it. Known agent worktrees, the complete AtlasMind SSOT, common SSOT backups, and test fixtures are
+excluded by path; each remaining candidate is resolved and rejected if an ancestor below the workspace
+contains its own `.git` marker. This second check covers nested checkouts from tools AtlasMind has never
+heard of. Repeated normalized titles become one proposal, while contradictory checkbox states are
+withheld for explicit import rather than settled by file order. Automatic discovery also requires a
+checkbox: bullet-only narrative documents are not flattened into work. The explicit Markdown importer
+remains broad because selecting its source supplies the intent automatic discovery lacks.
 
 ---
 

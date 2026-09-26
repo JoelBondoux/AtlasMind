@@ -77,6 +77,9 @@ describe('package manifest', () => {
       qs: '6.16.0',           // GHSA-4mjr-xmp4-gh2g, GHSA-x5fp-wj9c-mxmx
       'fast-uri': '3.1.6',    // GHSA-jqff-g426-hqxp and three siblings
       nanoid: '3.3.18',       // GHSA-2v37-7h3g-55p8
+      hono: '4.13.5',         // GHSA-gqvv-2mrq-wpjv, GHSA-g6gw-c38x-mqfc, GHSA-crvj-82cr-hjcx
+      'js-yaml': '4.3.2',     // GHSA-2883-xcg3-v3hh
+      morgan: '1.12.0',       // GHSA-jxfw-x594-9x9m
     };
 
     for (const [name, floor] of Object.entries(floors)) {
@@ -849,7 +852,7 @@ describe('.vscodeignore excludes generated local artifacts', () => {
       .map(line => line.trim())
       .filter(line => line.length > 0 && !line.startsWith('#'));
 
-    for (const directory of ['coverage', 'test-results', 'website']) {
+    for (const directory of ['coverage', 'test-results', 'website', '.kilo']) {
       expect(
         patterns.some(pattern => pattern === `${directory}/**` || pattern === `${directory}/`),
         `.vscodeignore does not exclude ${directory}/ — it would ship inside the VSIX`,

@@ -1668,6 +1668,7 @@ export class SettingsPanel {
           vscode.workspace.getConfiguration('atlasmind').get<string[]>('debt.markers', []),
         ),
         readWorkflowGuidanceInput(workspaceRoot),
+        vscode.workspace.getConfiguration('atlasmind').get<string>('ssotPath', 'project_memory'),
       );
       if (result.success) {
         void vscode.window.showInformationMessage(result.summary);
@@ -6568,6 +6569,7 @@ export async function persistTestingConfig(
         vscode.workspace.getConfiguration('atlasmind').get<string[]>('debt.markers', []),
       ),
       readWorkflowGuidanceInput(workspaceRoot),
+      vscode.workspace.getConfiguration('atlasmind').get<string>('ssotPath', 'project_memory'),
     );
     return result.success ? { syncSummary: result.summary } : {};
   } catch {
@@ -6665,6 +6667,7 @@ export async function runTestingScaffoldWithSync(
         vscode.workspace.getConfiguration('atlasmind').get<string[]>('debt.markers', []),
       ),
       readWorkflowGuidanceInput(workspaceRoot),
+      vscode.workspace.getConfiguration('atlasmind').get<string>('ssotPath', 'project_memory'),
     );
     const firstTestSummary = result.firstTestCandidate
       ? await SettingsPanel.authorFirstScaffoldTestFor(atlasContext, result.firstTestCandidate, config)

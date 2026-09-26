@@ -129,8 +129,9 @@ describe('empty states teach rather than report emptiness', () => {
   const prSource = renderSource('renderPullRequests', 'renderPipeline');
   const pipelineSource = renderSource('renderPipeline', 'renderWorkflow');
 
-  it('explains what issue intake is for when issues were never loaded', () => {
-    expect(prSource).toContain('Open the Issues tab and refresh');
+  it('lets the Pull Requests page load the GitHub activity it needs', () => {
+    expect(prSource).toContain("renderRefreshAction('issues-refresh', 'Load GitHub activity'");
+    expect(prSource).not.toContain('Open the Issues tab and refresh');
   });
 
   it('lets the Pipeline page read the data it renders', () => {
@@ -693,13 +694,6 @@ describe('the Release page', () => {
     expect(HOST_PANEL).toContain('.wf-gate-unknown { border-left-color: var(--dash-warn); }');
   });
 
-  it('distinguishes "releases not read" from "no releases"', () => {
-    // Both produce an empty list, and only one of them justifies telling
-    // somebody their delivery cadence is unmeasurable.
-    expect(rendered()).toContain('Releases have not been read');
-    expect(rendered()).toContain('no published releases yet');
-  });
-
   it('explains the feature in its empty states rather than reporting emptiness', () => {
     expect(rendered()).toContain('No changelog section for this version');
     expect(rendered()).toMatch(/copied verbatim/);
@@ -729,6 +723,49 @@ describe('the Release page', () => {
 
   it('keeps the DORA bands honest about being an orientation, not a certification', () => {
     expect(rendered()).toMatch(/not a certification/);
+  });
+});
+
+describe('the Versions page', () => {
+  const source = (): string => renderSource('renderVersions', 'renderRelease');
+  const rendered = (): string => source()
+    .split('\n')
+    .filter(line => !line.trim().startsWith('//'))
+    .join('\n');
+
+  it('is a first-class page under Ship & record', () => {
+    expect(WEBVIEW_SCRIPT).toContain("['versions', 'Versions']");
+    expect(WEBVIEW_SCRIPT).toContain("pageSectionOpen('versions')");
+    expect(WEBVIEW_SCRIPT).toContain('${renderVersions(snapshot)}');
+  });
+
+  it('distinguishes "releases not read" from "no releases"', () => {
+    // Both produce an empty list, and only one of them justifies telling
+    // somebody their delivery cadence is unmeasurable.
+    expect(rendered()).toContain('Releases have not been read');
+    expect(rendered()).toContain('no public releases yet');
+  });
+
+  it('loads release evidence directly instead of sending the reader to Issues', () => {
+    expect(rendered()).toContain("renderRefreshAction('issues-refresh', 'Load public versions'");
+    expect(rendered()).not.toContain('Open the Issues tab and refresh');
+  });
+
+  it('renders public versions as an evidence-backed portfolio', () => {
+    expect(rendered()).toContain('Public version portfolio');
+    expect(rendered()).toContain('entry.valueTier');
+    expect(rendered()).toContain('entry.filedPlanCount');
+    expect(rendered()).toContain('No roadmap gate declared — progress is not measurable');
+    expect(rendered()).toContain('data-action="release-version-roadmap"');
+    expect(rendered()).toContain('data-action="roadmap-open-plan"');
+  });
+
+  it('keeps gate creation and AI review host-owned', () => {
+    expect(rendered()).toContain('data-action="release-version-create-gate"');
+    expect(rendered()).toContain("renderAtlasDiscussAction('release-version-discuss', entry.tagName");
+    expect(WEBVIEW_SCRIPT).toContain("type: 'createReleaseRoadmapGate', payload: String(payload || '')");
+    expect(WEBVIEW_SCRIPT).toContain("type: 'discussPublicRelease', payload: String(payload || '')");
+    expect(HOST_PANEL).toContain('buildPublicReleaseReviewPrompt(release)');
   });
 });
 

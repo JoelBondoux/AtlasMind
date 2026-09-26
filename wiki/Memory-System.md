@@ -31,6 +31,12 @@ project_memory/
 └── index/             The search index
 ```
 
+Inside `roadmap/`, `improvement-plan.md` is the canonical backlog. Other roadmap markdown in the
+repository can be reconciled into it when the Roadmap dashboard opens, but remains a secondary source:
+AtlasMind previews changes before writing and never auto-applies conflicts or deletions. The graph
+overlay records the source title and checkbox last imported for each linked item, which lets a later
+completion or reopen be synchronized without mistaking a local edit for upstream truth.
+
 The `misadventures/` folder is the one people underestimate. Recording what *didn't* work saves more
 time than recording what did, because the failed approach is the one somebody will try again.
 

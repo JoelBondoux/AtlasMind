@@ -68,6 +68,19 @@ export interface SessionComposerPrefill {
   cursorOffset?: number;
 }
 
+/**
+ * A third-party tool Resource Discovery found during a turn, offered for review.
+ * Only what the button and its label need: the identifier is resolved against the
+ * host's own search results when clicked, never trusted to describe the resource.
+ */
+export interface SessionDiscoveredResource {
+  identifier: string;
+  displayName: string;
+  type: string;
+  sourceName: string;
+  score?: number;
+}
+
 export interface SessionTimelineNote {
   label: string;
   summary: string;
@@ -110,6 +123,8 @@ export interface SessionTranscriptMetadata {
   /** Chips that pre-fill the composer so the user can answer an open question inline. */
   composerPrefills?: SessionComposerPrefill[];
   timelineNotes?: SessionTimelineNote[];
+  /** Third-party tools found when nothing installed could do part of the task. */
+  discoveredResources?: SessionDiscoveredResource[];
   promptAttachments?: SessionPromptAttachment[];
   policies?: SessionPolicySnapshot[];
   iterationLimitHit?: boolean;
@@ -1015,6 +1030,9 @@ function cloneMetadata(metadata: SessionTranscriptMetadata): SessionTranscriptMe
     ...(metadata.timelineNotes
       ? { timelineNotes: metadata.timelineNotes.map(item => ({ ...item })) }
       : {}),
+    ...(metadata.discoveredResources
+      ? { discoveredResources: metadata.discoveredResources.map(item => ({ ...item })) }
+      : {}),
     ...(metadata.promptAttachments
       ? { promptAttachments: metadata.promptAttachments.map(item => ({ ...item })) }
       : {}),
@@ -1102,7 +1120,20 @@ function isSessionTranscriptMetadata(value: unknown): value is SessionTranscript
     && (candidate['composerPrefills'] === undefined || (Array.isArray(candidate['composerPrefills']) && candidate['composerPrefills'].every(isSessionComposerPrefill)))
     && (candidate['timelineNotes'] === undefined || (Array.isArray(candidate['timelineNotes']) && candidate['timelineNotes'].every(isSessionTimelineNote)))
     && (candidate['promptAttachments'] === undefined || (Array.isArray(candidate['promptAttachments']) && candidate['promptAttachments'].every(isSessionPromptAttachment)))
-    && (candidate['policies'] === undefined || (Array.isArray(candidate['policies']) && candidate['policies'].every(isSessionPolicySnapshot)));
+    && (candidate['policies'] === undefined || (Array.isArray(candidate['policies']) && candidate['policies'].every(isSessionPolicySnapshot)))
+    && (candidate['discoveredResources'] === undefined || (Array.isArray(candidate['discoveredResources']) && candidate['discoveredResources'].every(isSessionDiscoveredResource)));
+}
+
+function isSessionDiscoveredResource(value: unknown): value is SessionDiscoveredResource {
+  if (typeof value !== 'object' || value === null) {
+    return false;
+  }
+  const candidate = value as Record<string, unknown>;
+  return typeof candidate['identifier'] === 'string'
+    && typeof candidate['displayName'] === 'string'
+    && typeof candidate['type'] === 'string'
+    && typeof candidate['sourceName'] === 'string'
+    && (candidate['score'] === undefined || typeof candidate['score'] === 'number');
 }
 
 function isSessionThoughtSummary(value: unknown): value is SessionThoughtSummary {

@@ -2502,6 +2502,13 @@
       actions.appendChild(renderQuickReplyButtons(entry.meta.quickReplies, entry.meta.followupQuestion));
     }
 
+    // Third-party tools Resource Discovery found for a capability nothing installed had.
+    // The button posts only the identifier; the host resolves it against its own search
+    // results and asks for confirmation before anything is added.
+    if (entry.meta && Array.isArray(entry.meta.discoveredResources) && entry.meta.discoveredResources.length > 0) {
+      actions.appendChild(renderDiscoveredResourceButtons(entry.meta.discoveredResources));
+    }
+
     if (entry.meta && entry.meta.followupQuestion && Array.isArray(entry.meta.suggestedFollowups) && entry.meta.suggestedFollowups.length > 0) {
       actions.appendChild(renderAssistantFollowupControls(entry.id, entry.meta.followupQuestion, entry.meta.suggestedFollowups));
     }
@@ -2575,6 +2582,31 @@
    * Render immediate-submit pill buttons for yes/no and A/B quick replies.
    * Clicking a pill submits the prompt directly without a "Proceed" step.
    */
+  function renderDiscoveredResourceButtons(resources) {
+    var wrapper = document.createElement('div');
+    wrapper.className = 'quick-reply-buttons discovered-resources';
+    wrapper.setAttribute('aria-label', 'Third-party tools found by Resource Discovery');
+    for (var i = 0; i < resources.length && i < 5; i += 1) {
+      var resource = resources[i];
+      if (!resource || typeof resource.identifier !== 'string' || typeof resource.displayName !== 'string') {
+        continue;
+      }
+      var btn = document.createElement('button');
+      btn.type = 'button';
+      btn.className = 'quick-reply-btn';
+      btn.textContent = 'Review & install: ' + resource.displayName;
+      btn.title = resource.displayName + ' via ' + String(resource.sourceName || 'a finder')
+        + '. You confirm before anything is added; relevance is not a trust rating.';
+      btn.addEventListener('click', (function (identifier) {
+        return function () {
+          vscode.postMessage({ type: 'installDiscoveredResource', payload: { identifier: identifier } });
+        };
+      }(resource.identifier)));
+      wrapper.appendChild(btn);
+    }
+    return wrapper;
+  }
+
   function renderQuickReplyButtons(quickReplies, followupQuestion) {
     var wrapper = document.createElement('div');
     wrapper.className = 'quick-reply-buttons';

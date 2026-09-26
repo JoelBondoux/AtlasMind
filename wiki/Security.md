@@ -125,8 +125,10 @@ It's handled in layers:
 
 Autopilot and per-task bypass mean *stop asking me about this*. They do not mean *never ask me again
 about anything*. One category is beyond all of them: something that leaves your machine, changes
-something there, and cannot be undone from here — a `git push`, deleting a remote branch, or any
-external tool AtlasMind cannot identify by name.
+something there, and cannot be undone from here — a `git push` to a protected branch, of a tag, with
+force, or without the branch named; deleting a remote branch; or any external tool AtlasMind cannot
+identify by name. An ordinary push of a named working branch is below the ceiling, and `terminal-run`
+refuses `git push` outright so the raw command cannot route around the grading.
 
 Before v0.433.0 there was no such limit, and because Autopilot is offered as an answer to *any*
 approval dialog, one click on a harmless tool bought unattended approval of all three for the rest of
@@ -279,6 +281,14 @@ network.
 
 Resource discovery gets the same treatment plus HTTPS enforcement, schema validation, depth-bounded
 federation, opt-in finders, and installs that arrive disabled.
+
+Chat can use it too: when no installed tool fits, the model's short tool description is sent to the Agent
+Finders **you** switched on — none are on by default — and nowhere else. What leaves is that description
+only, secret-redacted and cut to 160 characters; never file contents and never the conversation. The
+candidates that come back install nothing. Installing one goes through a confirmation that shows the
+finder, the source, and for an MCP server the exact command or URL and the environment variable names it
+would use, and the server arrives switched off. A relevance score is how well something matched the
+search, not whether it is safe.
 
 ### Nothing is contacted just because the editor started
 
@@ -861,6 +871,16 @@ source rather than as a summary of it.
 Project Dashboard values are untrusted even when they came from AtlasMind's own persisted records.
 User-authored Director text reaches the DOM only through `textContent`, and delivery-stage editing accepts
 only an explicit set of property writes. Altered DOM attributes cannot request recursive object paths.
+
+## Roadmap discovery stays in one repository
+
+Opening Roadmap performs a local, bounded check for secondary Markdown roadmaps. Candidate names are
+not enough authority to cross a repository boundary: AtlasMind excludes its complete SSOT, common
+backup and test-fixture locations, and known agent worktrees, then resolves every remaining file and
+rejects it if an ancestor below the open workspace contains another `.git` marker. Symlink escapes and
+unreadable boundaries fail closed. Automatic discovery requires checkboxes, collapses repeated titles,
+and refuses contradictory checkbox states; choosing **Import Markdown** explicitly is the way to opt
+into a broader source. No proposed import is written until its confirmation is accepted.
 
 ---
 

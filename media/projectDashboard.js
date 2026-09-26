@@ -235,9 +235,12 @@
       id: 'ship',
       label: 'Ship & record',
       pages: [
-        // Release is versioning, changelog, tags and the four delivery keys;
-        // Delivery is the environments a version moves through. Adjacent, and
-        // genuinely different questions.
+        // Editions is the designed product/entitlement matrix; Versions is the
+        // public history and its roadmap evidence; Release is the readiness
+        // decision for the next version; Delivery is where it moves. Adjacent,
+        // and genuinely different questions.
+        ['editions', 'Editions'],
+        ['versions', 'Versions'],
         ['release', 'Release'],
         ['delivery', 'Delivery'],
         ['documents', 'Documents'],
@@ -351,7 +354,9 @@
     security: [['risk', 'What has been raised and accepted'], ['testing', 'Whether a control is evidenced']],
     privacy: [['security', 'The boundaries behind these settings'], ['risk', 'What a decision here exposes']],
     risk: [['security', 'The controls a finding leans on'], ['debt', 'What was knowingly deferred']],
-    release: [['pipeline', 'Whether CI is green'], ['delivery', 'Where the version goes next'], ['documents', 'What the notes must match']],
+    editions: [['roadmap', 'Which offering decisions became planned work'], ['versions', 'What has actually shipped'], ['documents', 'Where the supporting design files live']],
+    versions: [['editions', 'How shipped versions compare with the designed offerings'], ['release', 'Whether the next version is ready'], ['roadmap', 'What each public version promised']],
+    release: [['versions', 'How public versions map to the roadmap'], ['editions', 'Which offering the work belongs to'], ['pipeline', 'Whether CI is green']],
     delivery: [['release', 'What is ready to promote'], ['branches', 'The branch behind each stage']],
     documents: [['ssot', 'The memory these draw from'], ['release', 'Docs a release must update']],
     ssot: [['documents', 'How memory reaches the docs'], ['ideation', 'Where new thinking is captured']],
@@ -621,6 +626,14 @@
       ? persistedWebviewState.releaseGateFilter : 'all',
     releaseGateSort: typeof persistedWebviewState.releaseGateSort === 'string'
       ? persistedWebviewState.releaseGateSort : 'urgency',
+    /** Editions matrix view state. The editor is session-local; search/filter are ways of looking. */
+    editionSearch: '',
+    editionStatusFilter: 'all',
+    editionEditor: null,
+    editionImportPreview: null,
+    editionImportSelections: {},
+    editionImportBusy: false,
+    editionImportNotice: '',
     debtSearch: '',
     defectSearch: '',
     /** Which composer is open on the Testing page: '', 'case' or 'asset'. */
@@ -1274,6 +1287,24 @@
     if (message.type === 'navigate') {
       const target = normalizeNavigationTarget(message.payload);
       prepareDashboardFocus(target);
+      render();
+      return;
+    }
+
+    if (message.type === 'releaseMatrixImportPreview') {
+      const payload = message.payload || {};
+      state.editionImportBusy = false;
+      state.editionImportPreview = payload.preview || null;
+      state.editionImportNotice = typeof payload.notice === 'string' ? payload.notice : '';
+      state.editionImportSelections = {};
+      for (const feature of (state.editionImportPreview && state.editionImportPreview.features) || []) {
+        state.editionImportSelections[feature.importId] = {
+          include: true,
+          linkRoadmap: Boolean(feature.roadmap && feature.roadmap.selectedByDefault),
+          linkIssue: Boolean(feature.issue && feature.issue.selectedByDefault),
+        };
+      }
+      announce(state.editionImportNotice);
       render();
       return;
     }
@@ -2046,6 +2077,13 @@
       vscode.postMessage({ type: 'importRoadmap' });
       return;
     }
+    // No payload: the host proves every candidate from stored import
+    // provenance and the current source documents. The picker, not the page,
+    // decides which exact entries are offered for removal.
+    if (action === 'roadmap-integrity-check') {
+      vscode.postMessage({ type: 'checkRoadmapIntegrity' });
+      return;
+    }
     if (action === 'roadmap-derive-links') {
       // Accepting links changes every node's depth, which is the largest layout
       // change this page can make. Fit afterwards for the same reason arranging
@@ -2068,6 +2106,30 @@
     if (action === 'roadmap-open-plan') {
       // The id, never the path: the host reads the plan's path from the record.
       vscode.postMessage({ type: 'roadmapOpenPlan', payload: String(payload || '') });
+      return;
+    }
+    if (action === 'release-version-create-gate') {
+      // The host resolves the tag against the portfolio it last published and
+      // confirms the tracked-file write. The page supplies no gate label.
+      vscode.postMessage({ type: 'createReleaseRoadmapGate', payload: String(payload || '') });
+      return;
+    }
+    if (action === 'release-version-discuss') {
+      // The prompt is reconstructed from host-owned evidence; the page names
+      // only the public version it is asking about.
+      vscode.postMessage({ type: 'discussPublicRelease', payload: String(payload || '') });
+      return;
+    }
+    if (action === 'release-version-open') {
+      // The repository and URL are resolved extension-side.
+      vscode.postMessage({ type: 'openPublicRelease', payload: String(payload || '') });
+      return;
+    }
+    if (action === 'release-version-roadmap') {
+      state.activeRoadmapGate = String(payload || 'mvp');
+      state.activePage = 'roadmap';
+      state.roadmapView = 'list';
+      render();
       return;
     }
     if (action === 'raise-register-work' || action === 'draft-register-issue') {
@@ -2348,6 +2410,167 @@
     if (action === 'issues-filter') {
       state.issueFilter = payload || 'open';
       render();
+      return;
+    }
+
+    if (action === 'edition-filter') {
+      state.editionStatusFilter = payload || 'all';
+      render();
+      return;
+    }
+    if (action === 'edition-import-scan') {
+      state.editionImportBusy = true;
+      state.editionImportNotice = 'Scanning likely design documents…';
+      vscode.postMessage({ type: 'scanReleaseMatrixDocuments' });
+      render();
+      return;
+    }
+    if (action === 'edition-import-cancel') {
+      state.editionImportPreview = null;
+      state.editionImportSelections = {};
+      state.editionImportNotice = '';
+      render();
+      return;
+    }
+    if (action === 'edition-import-apply') {
+      const preview = state.editionImportPreview;
+      if (!preview) { return; }
+      const selections = (preview.features || []).map(feature => {
+        const selection = state.editionImportSelections[feature.importId] || {};
+        return {
+          featureImportId: feature.importId,
+          include: selection.include !== false,
+          linkRoadmap: Boolean(selection.linkRoadmap),
+          linkIssue: Boolean(selection.linkIssue),
+        };
+      });
+      state.editionImportBusy = true;
+      state.editionImportPreview = null;
+      vscode.postMessage({ type: 'applyReleaseMatrixImport', payload: { previewId: preview.id, selections: selections } });
+      render();
+      return;
+    }
+    if (action === 'edition-tier-add') {
+      state.editionEditor = { kind: 'tier', id: '' };
+      render();
+      return;
+    }
+    if (action === 'edition-tier-edit') {
+      state.editionEditor = { kind: 'tier', id: payload };
+      render();
+      return;
+    }
+    if (action === 'edition-feature-add') {
+      state.editionEditor = { kind: 'feature', id: '' };
+      render();
+      return;
+    }
+    if (action === 'edition-feature-edit') {
+      state.editionEditor = { kind: 'feature', id: payload };
+      render();
+      return;
+    }
+    if (action === 'edition-cell-edit') {
+      state.editionEditor = { kind: 'cell', key: payload };
+      render();
+      return;
+    }
+    if (action === 'edition-editor-cancel') {
+      state.editionEditor = null;
+      render();
+      return;
+    }
+    if (action === 'edition-editor-save') {
+      const editor = document.getElementById('edition-editor');
+      if (!editor || !state.editionEditor) { return; }
+      const value = name => {
+        const input = editor.querySelector('[data-edition-field="' + name + '"]');
+        return input && 'value' in input ? String(input.value || '') : '';
+      };
+      const links = value('fileLinks').split(/\r?\n/).map(entry => entry.trim()).filter(Boolean).slice(0, 12);
+      if (state.editionEditor.kind === 'tier') {
+        const name = value('name').trim();
+        if (!name) { return; }
+        vscode.postMessage({
+          type: 'saveReleaseMatrixTier',
+          payload: {
+            ...(state.editionEditor.id ? { id: state.editionEditor.id } : {}),
+            name: name,
+            kind: value('kind') || 'tier',
+            status: value('status') || 'planned',
+            releaseDate: value('releaseDate').trim() || undefined,
+            pricing: value('pricing').trim() || undefined,
+            notes: value('notes').trim() || undefined,
+            fileLinks: links,
+          },
+        });
+      } else if (state.editionEditor.kind === 'feature') {
+        const name = value('name').trim();
+        if (!name) { return; }
+        vscode.postMessage({
+          type: 'saveReleaseMatrixFeature',
+          payload: {
+            ...(state.editionEditor.id ? { id: state.editionEditor.id } : {}),
+            name: name,
+            group: value('group').trim() || undefined,
+            status: value('status') || 'planned',
+            notes: value('notes').trim() || undefined,
+            fileLinks: links,
+          },
+        });
+      } else {
+        const parts = String(state.editionEditor.key || '').split(':');
+        if (parts.length !== 3 || parts[0] !== 'cell') { return; }
+        vscode.postMessage({
+          type: 'saveReleaseMatrixCell',
+          payload: {
+            featureId: parts[1],
+            tierId: parts[2],
+            status: value('status') || 'planned',
+            parameters: value('parameters').trim() || undefined,
+            fileLinks: links,
+          },
+        });
+      }
+      state.editionEditor = null;
+      render();
+      return;
+    }
+    if (action === 'edition-delete') {
+      vscode.postMessage({ type: 'deleteReleaseMatrixEntity', payload: payload });
+      return;
+    }
+    if (action === 'edition-roadmap-add' || action === 'edition-roadmap-remove' || action === 'edition-roadmap-open') {
+      vscode.postMessage({
+        type: action === 'edition-roadmap-add' ? 'addReleaseMatrixRoadmap'
+          : action === 'edition-roadmap-remove' ? 'removeReleaseMatrixRoadmap'
+            : 'openReleaseMatrixRoadmap',
+        payload: payload,
+      });
+      return;
+    }
+    if (action === 'edition-file-open') {
+      const separator = payload.lastIndexOf('|');
+      const index = Number(payload.slice(separator + 1));
+      if (separator > 0 && Number.isInteger(index) && index >= 0 && index < 12) {
+        vscode.postMessage({ type: 'openReleaseMatrixFile', payload: { entityKey: payload.slice(0, separator), index: index } });
+      }
+      return;
+    }
+    if (action === 'edition-issue-open') {
+      const separator = payload.lastIndexOf('|');
+      const index = Number(payload.slice(separator + 1));
+      if (separator > 0 && Number.isInteger(index) && index >= 0 && index < 12) {
+        vscode.postMessage({ type: 'openReleaseMatrixIssue', payload: { entityKey: payload.slice(0, separator), index: index } });
+      }
+      return;
+    }
+    if (action === 'edition-issue-remove') {
+      const separator = payload.lastIndexOf('|');
+      const index = Number(payload.slice(separator + 1));
+      if (separator > 0 && Number.isInteger(index) && index >= 0 && index < 12) {
+        vscode.postMessage({ type: 'removeReleaseMatrixIssue', payload: { entityKey: payload.slice(0, separator), index: index } });
+      }
       return;
     }
     // Filter and sort are ways of looking, so they never leave the webview. The
@@ -3635,6 +3858,10 @@
       state.defectSearch = target.value;
       render();
     }
+    if (target instanceof HTMLInputElement && target.id === 'edition-search-input') {
+      state.editionSearch = target.value;
+      render();
+    }
     if (target instanceof HTMLInputElement && target.id === 'roadmap-search-input') {
       state.roadmapSearch = target.value;
       // Re-fit on every narrowing, so the result is always in view — a filter
@@ -3668,6 +3895,20 @@
   });
 
   root?.addEventListener('change', event => {
+    const importTarget = event.target instanceof HTMLInputElement ? event.target : null;
+    const importFeatureId = importTarget?.getAttribute('data-edition-import-feature-id');
+    const importField = importTarget?.getAttribute('data-edition-import-field');
+    if (importTarget && importFeatureId && ['include', 'linkRoadmap', 'linkIssue'].includes(importField)) {
+      const current = state.editionImportSelections[importFeatureId] || { include: true, linkRoadmap: false, linkIssue: false };
+      current[importField] = importTarget.checked;
+      if (importField === 'include' && !importTarget.checked) {
+        current.linkRoadmap = false;
+        current.linkIssue = false;
+      }
+      state.editionImportSelections[importFeatureId] = current;
+      render();
+      return;
+    }
     const target = event.target instanceof HTMLSelectElement ? event.target : null;
     if (!target || !target.classList.contains('baseline-select')) {
       return;
@@ -4884,6 +5125,8 @@
         ${renderPrivacy(snapshot)}
         ${renderRisk(snapshot)}
         ${renderCompliance(snapshot)}
+        ${renderEditions(snapshot)}
+        ${renderVersions(snapshot)}
         ${renderRelease(snapshot)}
         ${renderDelivery(snapshot)}
         ${renderDocuments(snapshot)}
@@ -5104,6 +5347,12 @@
     if (delivery && Array.isArray(delivery.artifacts)) {
       const attention = delivery.artifacts.filter(artifact => artifact.needsAttention).length;
       set('delivery', attention, 'warn', `${attention} artifact${attention === 1 ? ' needs' : 's need'} attention`);
+    }
+
+    const editions = snapshot.editions;
+    if (editions && editions.unknownCellCount > 0) {
+      set('editions', editions.unknownCellCount, 'warn',
+        `${editions.unknownCellCount} tier/feature decision${editions.unknownCellCount === 1 ? '' : 's'} not recorded`);
     }
 
     return badges;
@@ -9783,6 +10032,379 @@
   const GATE_WORD = { pass: 'ready', fail: 'blocked', unknown: 'unknown' };
   const DORA_BAND_TONE = { elite: 'tag-good', high: 'tag-good', medium: 'tag-warn', low: 'tag-critical' };
 
+  const EDITION_STATUS_LABELS = {
+    idea: 'idea', planned: 'planned', 'in-progress': 'in progress', blocked: 'blocked',
+    ready: 'ready', released: 'released', retired: 'retired', 'not-offered': 'not offered', unknown: 'unknown',
+  };
+  const EDITION_STATUSES = ['idea', 'planned', 'in-progress', 'blocked', 'ready', 'released', 'retired'];
+  const EDITION_CELL_STATUSES = ['not-offered', 'planned', 'in-progress', 'blocked', 'ready', 'released'];
+  const EDITION_KINDS = ['tier', 'expansion', 'dlc', 'plugin', 'bonus', 'custom'];
+
+  function editionTone(status) {
+    return status === 'ready' || status === 'released' ? 'tag-good'
+      : status === 'blocked' ? 'tag-critical'
+        : status === 'planned' || status === 'in-progress' || status === 'unknown' ? 'tag-warn' : '';
+  }
+
+  function editionOptions(values, selected) {
+    return values.map(value => `<option value="${escapeAttr(value)}"${value === selected ? ' selected' : ''}>${escapeHtml(EDITION_STATUS_LABELS[value] || value)}</option>`).join('');
+  }
+
+  function editionFileLinks(links, entityKey) {
+    if (!Array.isArray(links) || links.length === 0) { return ''; }
+    return `<div class="edition-file-links" aria-label="Linked workspace files">${links.map((link, index) => `
+      <button type="button" class="edition-file-link" data-action="edition-file-open" data-payload="${escapeAttr(entityKey + '|' + index)}" title="Open ${escapeAttr(link)}">↗ ${escapeHtml(link)}</button>`).join('')}</div>`;
+  }
+
+  function editionRoadmapActions(entityKey, link, compact) {
+    const view = link || { state: 'not-linked' };
+    if (view.state === 'not-linked') {
+      return `<button type="button" class="action-link${compact ? ' edition-compact-action' : ''}" data-action="edition-roadmap-add" data-payload="${escapeAttr(entityKey)}" title="Add or link this data point to the roadmap">+ roadmap</button>`;
+    }
+    if (view.state === 'missing') {
+      return `<button type="button" class="action-link edition-roadmap-missing${compact ? ' edition-compact-action' : ''}" data-action="edition-roadmap-remove" data-payload="${escapeAttr(entityKey)}" title="The linked roadmap item is missing; clear this stale relationship">repair roadmap link</button>`;
+    }
+    return `<span class="edition-roadmap-actions">
+      <button type="button" class="action-link${compact ? ' edition-compact-action' : ''}" data-action="edition-roadmap-open" data-payload="${escapeAttr(entityKey)}" title="Open the linked roadmap item">${view.state === 'linked-complete' ? '✓ roadmap' : '○ roadmap'}</button>
+      <button type="button" class="icon-button danger" data-action="edition-roadmap-remove" data-payload="${escapeAttr(entityKey)}" title="Remove this item from the roadmap" aria-label="Remove ${escapeAttr(entityKey)} from the roadmap">×</button>
+    </span>`;
+  }
+
+  function editionIssueActions(entityKey, links) {
+    if (!Array.isArray(links) || links.length === 0) { return ''; }
+    return `<span class="edition-issue-actions" aria-label="Linked GitHub issues">${links.map((link, index) => {
+      const tone = link.state === 'linked-closed' ? 'tag-good'
+        : link.state === 'linked-open' ? 'tag-warn'
+          : link.state === 'missing' ? 'tag-critical' : '';
+      const status = link.state === 'not-assessed' ? 'status not loaded'
+        : link.state === 'missing' ? 'not found in loaded issues'
+          : link.state === 'linked-closed' ? 'closed' : 'open';
+      const payload = escapeAttr(entityKey + '|' + index);
+      return `<span class="edition-issue-action">
+        <button type="button" class="action-link edition-compact-action ${tone}" data-action="edition-issue-open" data-payload="${payload}" title="${escapeAttr((link.title || 'GitHub issue') + ' · ' + status)}">#${escapeHtml(String(link.number))} issue</button>
+        <button type="button" class="icon-button danger" data-action="edition-issue-remove" data-payload="${payload}" title="Unlink GitHub Issue #${escapeAttr(String(link.number))}" aria-label="Unlink GitHub Issue #${escapeAttr(String(link.number))} from ${escapeAttr(entityKey)}">×</button>
+      </span>`;
+    }).join('')}</span>`;
+  }
+
+  function renderEditionImportPreview() {
+    const preview = state.editionImportPreview;
+    if (!preview) {
+      return state.editionImportNotice
+        ? `<div class="dashboard-callout"><strong>Design import</strong><p>${escapeHtml(state.editionImportNotice)}</p></div>`
+        : '';
+    }
+    const tiers = (preview.tiers || []).map(tier => `<span class="tag">${escapeHtml(tier.name)} · ${escapeHtml(tier.kind)}</span>`).join('');
+    const rows = (preview.features || []).map(feature => {
+      const selection = state.editionImportSelections[feature.importId] || { include: true, linkRoadmap: false, linkIssue: false };
+      const included = selection.include !== false;
+      const roadmap = feature.roadmap;
+      const issue = feature.issue;
+      return `<div class="edition-import-feature${included ? '' : ' is-excluded'}">
+        <label class="edition-import-include"><input type="checkbox" data-edition-import-feature-id="${escapeAttr(feature.importId)}" data-edition-import-field="include"${included ? ' checked' : ''} /> <span><strong>${escapeHtml(feature.name)}</strong><small>${escapeHtml((feature.group || 'ungrouped') + ' · ' + (feature.cellCount || 0) + ' cell' + (feature.cellCount === 1 ? '' : 's'))}</small></span></label>
+        <div class="edition-import-matches">
+          ${roadmap ? `<label title="${escapeAttr(roadmap.target.text)}"><input type="checkbox" data-edition-import-feature-id="${escapeAttr(feature.importId)}" data-edition-import-field="linkRoadmap"${selection.linkRoadmap ? ' checked' : ''}${included ? '' : ' disabled'} /> Roadmap: ${escapeHtml(roadmap.target.text)} <span class="tag ${roadmap.confidence === 'strong' ? 'tag-good' : 'tag-warn'}">${escapeHtml(roadmap.confidence)} ${Math.round(roadmap.score * 100)}%</span></label>` : '<span class="list-meta">No plausible roadmap match</span>'}
+          ${issue ? `<label title="${escapeAttr('#' + issue.target.number + ' ' + issue.target.title)}"><input type="checkbox" data-edition-import-feature-id="${escapeAttr(feature.importId)}" data-edition-import-field="linkIssue"${selection.linkIssue ? ' checked' : ''}${included ? '' : ' disabled'} /> Issue #${escapeHtml(String(issue.target.number))}: ${escapeHtml(issue.target.title)} <span class="tag ${issue.confidence === 'strong' ? 'tag-good' : 'tag-warn'}">${escapeHtml(issue.confidence)} ${Math.round(issue.score * 100)}%</span></label>` : '<span class="list-meta">No plausible Issue match</span>'}
+        </div>
+      </div>`;
+    }).join('');
+    return `<article class="panel-card edition-import-preview">
+      <div class="row-head"><div><p class="card-kicker">Review import</p><h3>${escapeHtml(preview.sourcePath)}</h3></div><span class="tag">${escapeHtml(preview.format)}</span></div>
+      <p class="stat-detail">${escapeHtml(state.editionImportNotice || 'Nothing has been written.')} ${escapeHtml(preview.issueMatchingState || '')}</p>
+      <div class="edition-import-tier-list">${tiers || '<span class="tag tag-warn">No offering columns detected</span>'}</div>
+      <div class="edition-import-feature-list">${rows}</div>
+      ${(preview.notices || []).map(notice => `<p class="stat-detail wf-unknown">${escapeHtml(notice)}</p>`).join('')}
+      <div class="tag-row edition-editor-actions">
+        <button type="button" class="action-link primary" data-action="edition-import-apply"${state.editionImportBusy ? ' disabled' : ''}>${state.editionImportBusy ? 'Importing…' : 'Import reviewed features'}</button>
+        <button type="button" class="action-link" data-action="file" data-payload="${escapeAttr(preview.sourcePath)}">Open source</button>
+        <button type="button" class="action-link" data-action="edition-import-cancel">Cancel</button>
+      </div>
+    </article>`;
+  }
+
+  function renderEditionEditor(matrix) {
+    const editor = state.editionEditor;
+    if (!editor) { return ''; }
+    const doc = matrix.document || { tiers: [], features: [], cells: [] };
+    let record;
+    let title;
+    let fields;
+    let entityKey = '';
+    if (editor.kind === 'tier') {
+      record = (doc.tiers || []).find(entry => entry.id === editor.id) || { name: '', kind: 'tier', status: 'planned', fileLinks: [] };
+      title = editor.id ? `Edit ${record.name}` : 'Add an offering column';
+      entityKey = editor.id ? `tier:${editor.id}` : '';
+      fields = `
+        <label class="stage-edit-field"><span>Name *</span><input type="text" maxlength="120" data-edition-field="name" value="${escapeAttr(record.name || '')}" placeholder="Free, Student, Pro, Expansion 1…" /></label>
+        <label class="stage-edit-field"><span>Kind</span><select data-edition-field="kind">${EDITION_KINDS.map(value => `<option value="${escapeAttr(value)}"${value === record.kind ? ' selected' : ''}>${escapeHtml(value.toUpperCase())}</option>`).join('')}</select></label>
+        <label class="stage-edit-field"><span>Status</span><select data-edition-field="status">${editionOptions(EDITION_STATUSES, record.status)}</select></label>
+        <label class="stage-edit-field"><span>Planned release</span><input type="date" data-edition-field="releaseDate" value="${escapeAttr(record.releaseDate || '')}" /></label>
+        <label class="stage-edit-field" style="grid-column:1 / -1;"><span>Pricing structure</span><input type="text" maxlength="240" data-edition-field="pricing" value="${escapeAttr(record.pricing || '')}" placeholder="Free; £8/month; included with season pass; regional pricing…" /></label>
+        <label class="stage-edit-field" style="grid-column:1 / -1;"><span>Notes</span><textarea rows="3" maxlength="1500" data-edition-field="notes" placeholder="Audience, entitlement rules, launch constraints…">${escapeHtml(record.notes || '')}</textarea></label>`;
+    } else if (editor.kind === 'feature') {
+      record = (doc.features || []).find(entry => entry.id === editor.id) || { name: '', group: '', status: 'planned', fileLinks: [] };
+      title = editor.id ? `Edit ${record.name}` : 'Add a feature row';
+      entityKey = editor.id ? `feature:${editor.id}` : '';
+      fields = `
+        <label class="stage-edit-field"><span>Feature *</span><input type="text" maxlength="160" data-edition-field="name" value="${escapeAttr(record.name || '')}" placeholder="Cloud sync, campaign, export quality…" /></label>
+        <label class="stage-edit-field"><span>Group</span><input type="text" maxlength="80" data-edition-field="group" value="${escapeAttr(record.group || '')}" placeholder="Core, collaboration, content…" /></label>
+        <label class="stage-edit-field"><span>Current status</span><select data-edition-field="status">${editionOptions(EDITION_STATUSES, record.status)}</select></label>
+        <label class="stage-edit-field" style="grid-column:1 / -1;"><span>Notes</span><textarea rows="3" maxlength="1500" data-edition-field="notes" placeholder="What this capability means across the product…">${escapeHtml(record.notes || '')}</textarea></label>`;
+    } else {
+      const parts = String(editor.key || '').split(':');
+      const feature = (doc.features || []).find(entry => entry.id === parts[1]);
+      const tier = (doc.tiers || []).find(entry => entry.id === parts[2]);
+      if (!feature || !tier) {
+        return `<article class="panel-card edition-editor"><p class="stat-detail">That cell no longer exists in the current matrix.</p><button type="button" class="action-link" data-action="edition-editor-cancel">Close</button></article>`;
+      }
+      record = (doc.cells || []).find(entry => entry.featureId === feature.id && entry.tierId === tier.id)
+        || { status: 'planned', parameters: '', fileLinks: [] };
+      title = `${feature.name} · ${tier.name}`;
+      entityKey = `cell:${feature.id}:${tier.id}`;
+      fields = `
+        <label class="stage-edit-field"><span>Cell status</span><select data-edition-field="status">${editionOptions(EDITION_CELL_STATUSES, record.status)}</select></label>
+        <label class="stage-edit-field" style="grid-column:1 / -1;"><span>Tier-specific parameters</span><textarea rows="4" maxlength="1000" data-edition-field="parameters" placeholder="Limits, quantity, entitlement, platform, quality level, availability…">${escapeHtml(record.parameters || '')}</textarea></label>`;
+    }
+    return `<article class="panel-card stage-editor edition-editor" id="edition-editor">
+      <div class="row-head"><div><p class="card-kicker">Matrix editor</p><h3>${escapeHtml(title)}</h3></div><button type="button" class="icon-button" data-action="edition-editor-cancel" aria-label="Close editor">×</button></div>
+      <div class="stage-editor-grid">${fields}
+        <label class="stage-edit-field" style="grid-column:1 / -1;"><span>Workspace file links · one per line, optional #L12</span><textarea rows="3" maxlength="4800" data-edition-field="fileLinks" placeholder="docs/product-tiers.md&#10;src/licensing/entitlements.ts#L42">${escapeHtml((record.fileLinks || []).join('\n'))}</textarea></label>
+      </div>
+      <div class="tag-row edition-editor-actions">
+        <button type="button" class="action-link primary" data-action="edition-editor-save">Save</button>
+        <button type="button" class="action-link" data-action="edition-editor-cancel">Cancel</button>
+        ${entityKey ? editionRoadmapActions(entityKey, (matrix.roadmapLinks || {})[entityKey], false) : ''}
+        ${entityKey ? `<button type="button" class="action-link danger" data-action="edition-delete" data-payload="${escapeAttr(entityKey)}">${editor.kind === 'cell' ? 'Clear cell' : 'Remove'}</button>` : ''}
+      </div>
+    </article>`;
+  }
+
+  function renderEditions(snapshot) {
+    const matrix = snapshot.editions || {};
+    const doc = matrix.document || { tiers: [], features: [], cells: [] };
+    const tiers = doc.tiers || [];
+    const cells = doc.cells || [];
+    const cellByKey = new Map(cells.map(cell => [`${cell.featureId}:${cell.tierId}`, cell]));
+    const query = String(state.editionSearch || '').trim().toLowerCase();
+    const statusFilter = ['all', 'unknown'].concat(EDITION_CELL_STATUSES).includes(state.editionStatusFilter)
+      ? state.editionStatusFilter : 'all';
+    const features = (doc.features || []).filter(feature => {
+      const featureCells = tiers.map(tier => cellByKey.get(`${feature.id}:${tier.id}`));
+      const searchable = [feature.name, feature.group, feature.notes]
+        .concat(featureCells.flatMap(cell => cell ? [cell.parameters, ...(cell.fileLinks || [])] : []))
+        .filter(Boolean).join(' ').toLowerCase();
+      const matchesText = query === '' || searchable.includes(query);
+      const matchesStatus = statusFilter === 'all'
+        || (statusFilter === 'unknown' && featureCells.some(cell => !cell))
+        || featureCells.some(cell => cell && cell.status === statusFilter);
+      return matchesText && matchesStatus;
+    });
+
+    const tierHeadings = tiers.map(tier => {
+      const key = `tier:${tier.id}`;
+      return `<th scope="col" class="edition-tier-heading">
+        <div class="edition-tier-title"><span class="tag">${escapeHtml(tier.kind)}</span><strong>${escapeHtml(tier.name)}</strong></div>
+        <span class="tag ${editionTone(tier.status)}">${escapeHtml(EDITION_STATUS_LABELS[tier.status] || tier.status)}</span>
+        <span class="edition-tier-fact">${escapeHtml(tier.pricing || 'pricing not set')}</span>
+        <span class="edition-tier-fact">${escapeHtml(tier.releaseDate || 'date not set')}</span>
+        ${editionFileLinks(tier.fileLinks, key)}
+        <div class="edition-heading-actions">
+          <button type="button" class="action-link" data-action="edition-tier-edit" data-payload="${escapeAttr(tier.id)}">Edit</button>
+          ${editionRoadmapActions(key, (matrix.roadmapLinks || {})[key], true)}
+          <button type="button" class="icon-button danger" data-action="edition-delete" data-payload="${escapeAttr(key)}" title="Remove this offering column" aria-label="Remove ${escapeAttr(tier.name)}">×</button>
+        </div>
+      </th>`;
+    }).join('');
+
+    const rows = features.map(feature => {
+      const featureKey = `feature:${feature.id}`;
+      const featureCellHtml = tiers.map(tier => {
+        const key = `cell:${feature.id}:${tier.id}`;
+        const cell = cellByKey.get(`${feature.id}:${tier.id}`);
+        const status = cell ? cell.status : 'unknown';
+        return `<td class="edition-cell-wrap" data-edition-cell-status="${escapeAttr(status)}">
+          <button type="button" class="edition-cell-main status-${escapeAttr(status)}" data-action="edition-cell-edit" data-payload="${escapeAttr(key)}" title="Edit ${escapeAttr(feature.name)} for ${escapeAttr(tier.name)}">
+            <span class="edition-cell-status">${escapeHtml(EDITION_STATUS_LABELS[status] || status)}</span>
+            <span class="edition-cell-parameters">${escapeHtml(cell && cell.parameters ? cell.parameters : status === 'unknown' ? 'No decision recorded' : 'No parameters')}</span>
+          </button>
+          ${cell ? editionFileLinks(cell.fileLinks, key) : ''}
+          ${cell ? `<div class="edition-cell-actions">${editionRoadmapActions(key, (matrix.roadmapLinks || {})[key], true)}</div>` : ''}
+        </td>`;
+      }).join('');
+      return `<tr>
+        <th scope="row" class="edition-feature-heading">
+          <div class="edition-feature-title"><strong>${escapeHtml(feature.name)}</strong><span class="tag ${editionTone(feature.status)}">${escapeHtml(EDITION_STATUS_LABELS[feature.status] || feature.status)}</span></div>
+          <span class="edition-tier-fact">${escapeHtml(feature.group || 'ungrouped')}</span>
+          ${feature.notes ? `<p>${escapeHtml(feature.notes)}</p>` : ''}
+          ${editionFileLinks(feature.fileLinks, featureKey)}
+          ${editionIssueActions(featureKey, (matrix.issueLinks || {})[featureKey])}
+          <div class="edition-heading-actions">
+            <button type="button" class="action-link" data-action="edition-feature-edit" data-payload="${escapeAttr(feature.id)}">Edit</button>
+            ${editionRoadmapActions(featureKey, (matrix.roadmapLinks || {})[featureKey], true)}
+            <button type="button" class="icon-button danger" data-action="edition-delete" data-payload="${escapeAttr(featureKey)}" title="Remove this feature row" aria-label="Remove ${escapeAttr(feature.name)}">×</button>
+          </div>
+        </th>${featureCellHtml}
+      </tr>`;
+    }).join('');
+
+    const distributionTotal = Math.max(1, matrix.totalCellCount || 0);
+    const distributionOrder = ['released', 'ready', 'in-progress', 'planned', 'blocked', 'not-offered', 'unknown'];
+    const distribution = distributionOrder.map(status => {
+      const count = (matrix.statusCounts || {})[status] || 0;
+      return count === 0 ? '' : `<span class="edition-distribution-segment status-${escapeAttr(status)}" style="width:${(count / distributionTotal) * 100}%" title="${escapeAttr((EDITION_STATUS_LABELS[status] || status) + ': ' + count)}"></span>`;
+    }).join('');
+    const tierMetrics = new Map((matrix.tierMetrics || []).map(metric => [metric.tierId, metric]));
+    const skyline = tiers.map(tier => {
+      const metric = tierMetrics.get(tier.id) || {};
+      return `<div class="edition-skyline-card">
+        <div class="row-head"><strong>${escapeHtml(tier.name)}</strong><span>${metric.decisionCoveragePercent == null ? '—' : metric.decisionCoveragePercent + '% decided'}</span></div>
+        <div class="edition-meter" role="img" aria-label="${escapeAttr(tier.name + ' decision coverage ' + (metric.decisionCoveragePercent == null ? 'unknown' : metric.decisionCoveragePercent + '%'))}"><span style="width:${metric.decisionCoveragePercent || 0}%"></span></div>
+        <div class="edition-skyline-facts"><span>${metric.readyCount || 0} ready</span><span>${metric.blockedCount || 0} blocked</span><span>${metric.readinessPercent == null ? 'readiness —' : metric.readinessPercent + '% readiness'}</span></div>
+      </div>`;
+    }).join('');
+
+    const intro = renderPageIntro({
+      kicker: 'Product design',
+      title: 'Editions, tiers and add-ons by feature',
+      summary: matrix.summary || 'Design the public offerings independently of the versions already shipped.',
+      chips: [
+        { label: `${tiers.length} offering${tiers.length === 1 ? '' : 's'}`, tone: tiers.length ? '' : 'warn' },
+        { label: matrix.decisionCoveragePercent == null ? 'coverage unknown' : `${matrix.decisionCoveragePercent}% decided`, tone: matrix.unknownCellCount ? 'warn' : 'good' },
+        { label: `${matrix.roadmappedCount || 0} roadmap links`, tone: matrix.roadmappedCount ? 'good' : '' },
+      ],
+    });
+
+    const controls = `<article class="panel-card edition-toolbar-card">
+      <div class="row-head"><div><p class="card-kicker">Release design matrix</p><p class="stat-detail">Missing means not decided. “Not offered” is an explicit gating decision.</p></div>
+        <div class="tag-row"><button type="button" class="action-link primary" data-action="edition-tier-add">+ Offering</button><button type="button" class="action-link" data-action="edition-feature-add">+ Feature</button><button type="button" class="action-link" data-action="edition-import-scan"${state.editionImportBusy ? ' disabled' : ''}>${state.editionImportBusy ? 'Scanning…' : 'Import design document…'}</button>${matrix.exists ? `<button type="button" class="action-link" data-action="file" data-payload="${escapeAttr(matrix.path || '')}">Open data file</button>` : ''}</div>
+      </div>
+      <div class="edition-filters">
+        <input id="edition-search-input" class="ideation-input" type="search" value="${escapeAttr(state.editionSearch || '')}" placeholder="Search features, parameters, groups or files…" autocomplete="off" />
+        <div class="segmented" role="group" aria-label="Filter matrix cells by status">
+          ${['all', 'unknown'].concat(EDITION_CELL_STATUSES).map(status => `<button type="button" data-action="edition-filter" data-payload="${escapeAttr(status)}" class="${statusFilter === status ? 'active' : ''}" aria-pressed="${statusFilter === status ? 'true' : 'false'}">${escapeHtml(status === 'all' ? 'All' : EDITION_STATUS_LABELS[status] || status)}</button>`).join('')}
+        </div>
+      </div>
+      ${matrix.loadFailure ? `<div class="dashboard-callout critical"><strong>Matrix file needs attention</strong><p>${escapeHtml(matrix.loadFailure)}</p>${matrix.exists ? `<button type="button" class="action-link" data-action="file" data-payload="${escapeAttr(matrix.path || '')}">Open the file</button>` : ''}</div>` : ''}
+    </article>`;
+
+    const insight = `<div class="dashboard-grid edition-insight-grid">
+      <article class="panel-card"><p class="card-kicker">Decision coverage</p><div class="mini-grid">
+        ${renderMetricPill('Features', String((doc.features || []).length))}
+        ${renderMetricPill('Explicit cells', `${matrix.decidedCellCount || 0}/${matrix.totalCellCount || 0}`, { tone: matrix.unknownCellCount ? 'warn' : 'good' })}
+        ${renderMetricPill('Offered', String(matrix.offeredCellCount || 0))}
+        ${renderMetricPill('Blocked', String(matrix.blockedCellCount || 0), { tone: matrix.blockedCellCount ? 'critical' : 'good' })}
+      </div><div class="edition-distribution" role="img" aria-label="Cell status distribution">${distribution}</div>
+      <div class="edition-distribution-legend">${distributionOrder.map(status => `<span><i class="status-${escapeAttr(status)}"></i>${escapeHtml(EDITION_STATUS_LABELS[status])} ${(matrix.statusCounts || {})[status] || 0}</span>`).join('')}</div></article>
+      <article class="panel-card"><p class="card-kicker">Offering readiness</p><div class="edition-skyline">${skyline || '<p class="stat-detail">Add an offering to compare coverage and readiness.</p>'}</div></article>
+    </div>`;
+
+    const table = tiers.length === 0 || (doc.features || []).length === 0
+      ? `<article class="panel-card dashboard-empty"><div><strong>The matrix needs both dimensions</strong><p class="section-copy">Add at least one offering column and one feature row. Then each intersection can state availability, current status, limits, supporting files and its roadmap relationship.</p><div class="tag-row"><button type="button" class="action-link primary" data-action="edition-tier-add">+ Offering</button><button type="button" class="action-link" data-action="edition-feature-add">+ Feature</button></div></div></article>`
+      : `<article class="panel-card edition-matrix-card"><div class="edition-matrix-scroll"><table class="edition-matrix-table"><thead><tr><th scope="col" class="edition-feature-heading edition-corner"><span>Feature</span><button type="button" class="action-link" data-action="edition-feature-add">+ row</button></th>${tierHeadings}<th scope="col" class="edition-add-column"><button type="button" class="action-link" data-action="edition-tier-add">+ column</button></th></tr></thead><tbody>${rows || `<tr><td colspan="${tiers.length + 2}"><div class="dashboard-empty">No feature rows match this view.</div></td></tr>`}</tbody></table></div></article>`;
+
+    return `${pageSectionOpen('editions')}${intro}${controls}${renderEditionImportPreview()}${renderEditionEditor(matrix)}${insight}${table}</section>`;
+  }
+
+  function renderVersions(snapshot) {
+    const rel = snapshot.release || {};
+    const portfolio = rel.portfolio || { entries: [], publicCount: 0, stableCount: 0, previewCount: 0, gatedCount: 0, plannedCount: 0 };
+    const refreshBusy = state.repositoryRefreshBusy || Boolean((snapshot.issues || {}).busy);
+    const versionCards = (portfolio.entries || []).map((entry, index) => {
+      const progress = entry.progress;
+      const progressLabel = progress
+        ? `${progress.completed} of ${progress.total} roadmap milestones complete`
+        : 'No roadmap gate declared — progress is not measurable';
+      const itemRows = (entry.roadmapItems || []).map(item => `
+        <div class="release-version-item">
+          <span class="release-version-item-state ${item.completed ? 'done' : 'open'}" aria-hidden="true">${item.completed ? '✓' : '○'}</span>
+          <span>${escapeHtml(item.text)}</span>
+          ${item.hasPlan
+            ? `<button type="button" class="action-link" data-action="roadmap-open-plan" data-payload="${escapeAttr(item.nodeId)}">Open plan</button>`
+            : '<span class="list-meta">no filed plan</span>'}
+        </div>`).join('');
+      return `
+        <details class="release-version-card${entry.isLatest ? ' is-latest' : ''}"${entry.isLatest || index === 0 ? ' open' : ''}>
+          <summary>
+            <span class="release-version-heading">
+              <strong>${escapeHtml(entry.name || entry.tagName)}</strong>
+              ${entry.name && entry.name !== entry.tagName ? `<code>${escapeHtml(entry.tagName)}</code>` : ''}
+            </span>
+            <span class="release-version-badges">
+              ${entry.isLatest ? '<span class="tag tag-good">latest</span>' : ''}
+              <span class="tag ${entry.channel === 'preview' ? 'tag-warn' : ''}">${escapeHtml(entry.channel)}</span>
+              <span class="tag">${escapeHtml(entry.valueTier)} value</span>
+            </span>
+            <span class="release-version-summary">${escapeHtml((entry.publishedAt || '').slice(0, 10) || 'date unavailable')} · ${escapeHtml(progressLabel)}</span>
+            <span class="release-version-progress${progress ? '' : ' is-unknown'}" role="img" aria-label="${escapeAttr(progressLabel)}">
+              <span style="width:${progress ? Math.max(0, Math.min(100, progress.percent)) : 0}%"></span>
+            </span>
+          </summary>
+          <div class="release-version-body">
+            <div class="mini-grid">
+              ${renderMetricPill('Roadmap gate', entry.gateExists ? '#' + entry.gateId : 'not declared', { tone: entry.gateExists ? '' : 'warn' })}
+              ${renderMetricPill('Progress', progress ? progress.percent + '%' : '—', { tone: progress && progress.percent === 100 ? 'good' : progress ? 'warn' : undefined })}
+              ${renderMetricPill('Filed plans', progress ? entry.filedPlanCount + '/' + progress.total : '—')}
+              ${renderMetricPill('Release record', entry.isImmutable ? 'immutable' : 'mutable / unknown')}
+            </div>
+            ${itemRows ? `<div class="release-version-items">${itemRows}</div>` : '<p class="stat-detail wf-unknown">No roadmap items are linked to this public version.</p>'}
+            ${progress && progress.total > (entry.roadmapItems || []).length
+              ? `<p class="stat-detail">Showing ${(entry.roadmapItems || []).length} of ${progress.total} linked milestones.</p>`
+              : ''}
+            <p class="release-version-suggestion"><strong>Observed next move:</strong> ${escapeHtml(entry.suggestion || '')}</p>
+            <div class="tag-row release-version-actions">
+              <button type="button" class="action-link" data-action="release-version-open" data-payload="${escapeAttr(entry.tagName)}">Open release ↗</button>
+              ${entry.gateExists
+                ? `<button type="button" class="action-link" data-action="release-version-roadmap" data-payload="${escapeAttr(entry.gateId)}">Review roadmap gate →</button>`
+                : entry.gateId
+                  ? `<button type="button" class="action-link" data-action="release-version-create-gate" data-payload="${escapeAttr(entry.tagName)}">Create roadmap gate</button>`
+                  : ''}
+              ${renderAtlasDiscussAction('release-version-discuss', entry.tagName, `Ask AtlasMind to review ${entry.tagName}`, { intent: 'summarise', title: 'Review this version using its observed release, roadmap, and filed-plan evidence' })}
+            </div>
+          </div>
+        </details>`;
+    }).join('');
+
+    const intro = renderPageIntro({
+      kicker: 'Portfolio',
+      title: 'Public versions and the value they delivered',
+      summary: portfolio.summary || 'Load GitHub activity to join public releases to roadmap gates, progress, and filed plans.',
+      chips: [
+        { label: `${portfolio.publicCount || 0} public`, tone: portfolio.publicCount ? '' : 'warn' },
+        { label: `${portfolio.gatedCount || 0} gated`, tone: portfolio.gatedCount === portfolio.publicCount && portfolio.publicCount > 0 ? 'good' : 'warn' },
+      ],
+    });
+
+    const portfolioCard = `
+      <article class="panel-card release-portfolio-card">
+        <div class="row-head">
+          <p class="card-kicker">Public version portfolio</p>
+          <div class="tag-row">
+            ${rel.loadedAt ? `<span class="list-meta">read ${escapeHtml(rel.loadedAt.slice(0, 16).replace('T', ' '))}</span>` : ''}
+            ${renderRefreshAction('issues-refresh', rel.loadedAt ? 'Refresh versions' : 'Load public versions', refreshBusy, { busyLabel: 'Reading releases…' })}
+          </div>
+        </div>
+        ${rel.loadedAt || (rel.releases || []).length
+          ? `<div class="mini-grid release-portfolio-metrics">
+              ${renderMetricPill('Public versions', String(portfolio.publicCount || 0))}
+              ${renderMetricPill('Stable / preview', `${portfolio.stableCount || 0} / ${portfolio.previewCount || 0}`)}
+              ${renderMetricPill('Roadmap gates', `${portfolio.gatedCount || 0}/${portfolio.publicCount || 0}`, { tone: portfolio.gatedCount === portfolio.publicCount && portfolio.publicCount > 0 ? 'good' : 'warn' })}
+              ${renderMetricPill('Tracked paths', `${portfolio.plannedCount || 0}/${portfolio.publicCount || 0}`)}
+            </div>
+            <p class="stat-detail">${escapeHtml(portfolio.summary || '')} Draft releases are excluded because they are not public versions; previews remain visible but stay outside the delivery metrics.</p>
+            <div class="release-version-list">${versionCards || '<div class="dashboard-empty">This repository has no public releases yet.</div>'}</div>`
+          : `<div class="dashboard-empty"><div>
+              <strong>Releases have not been read</strong>
+              <p class="section-copy">Reading the release list is a network call, so it happens only on an explicit GitHub activity refresh. Load it here to compare every public version with the roadmap evidence already on disk.</p>
+              ${renderRefreshAction('issues-refresh', 'Load public versions', refreshBusy, { busyLabel: 'Reading releases…', primary: true })}
+            </div></div>`}
+      </article>`;
+
+    return `${pageSectionOpen('versions')}
+      ${intro}
+      ${portfolioCard}
+    </section>`;
+  }
+
   function renderRelease(snapshot) {
     const rel = snapshot.release || {};
     const plan = rel.plan || { gates: [], blockedBy: [] };
@@ -10030,29 +10652,6 @@
       'release',
     );
 
-    const recent = (rel.releases || []).slice(0, 12).map(entry => `
-      <div class="recent-item">
-        <div class="row-head">
-          <strong>${escapeHtml(entry.tagName)}</strong>
-          <span class="list-meta">${escapeHtml((entry.publishedAt || '').slice(0, 10))}</span>
-        </div>
-        ${entry.isPrerelease || entry.isDraft
-          ? `<div class="list-meta">${entry.isDraft ? 'draft' : 'pre-release'} — excluded from the delivery metrics</div>`
-          : ''}
-      </div>`).join('');
-
-    const historyCard = `
-      <article class="panel-card">
-        <p class="card-kicker">Published releases</p>
-        ${rel.loadedAt || (rel.releases || []).length
-          ? `<div class="stack-list">${recent || '<div class="dashboard-empty">This repository has no published releases yet.</div>'}</div>`
-          : `<div class="dashboard-empty"><div>
-              <strong>Releases have not been read</strong>
-              <p class="section-copy">Reading the release list is a network call, so it happens when you ask rather than on every render. The gates above do not need it — they come from your own files, which is why they are already filled in.</p>
-              <button type="button" class="action-link" data-action="page" data-payload="issues">Open the Issues tab and refresh</button>
-            </div></div>`}
-      </article>`;
-
     return `${pageSectionOpen('release')}
       ${intro}
       <div class="panel-grid">
@@ -10067,7 +10666,6 @@
         ${doraCard}
       </div>
       ${frequencyChart}
-      ${historyCard}
     </section>`;
   }
 
@@ -13998,11 +14596,17 @@
               <span class="rm-view-count">${counts[id]}</span>
             </button>`).join('')}
         </div>
-        ${state.roadmapView === 'completed' ? '' : `
-          <button type="button" class="rm-add-item" data-action="roadmap-add" data-payload="new"
-            title="${escapeAttr('Add an item to the prioritised backlog. Opens the entry form with the caret already in it.')}">
-            <span aria-hidden="true">+</span><span>Add roadmap item</span>
-          </button>`}
+        <div class="rm-view-actions">
+          ${state.roadmapView === 'completed' ? '' : `
+            <button type="button" class="rm-add-item" data-action="roadmap-add" data-payload="new"
+              title="${escapeAttr('Add an item to the prioritised backlog. Opens the entry form with the caret already in it.')}">
+              <span aria-hidden="true">+</span><span>Add roadmap item</span>
+            </button>`}
+          <button type="button" class="rm-add-item rm-integrity-action" data-action="roadmap-integrity-check"
+            title="${escapeAttr('Review imported checklist rows that AtlasMind can prove came from detailed plans or validation sections. Nothing is removed without selecting exact entries and confirming.')}">
+            <span aria-hidden="true">✓</span><span>Check integrity</span>
+          </button>
+        </div>
       </div>`;
   }
 

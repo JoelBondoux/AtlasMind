@@ -144,6 +144,7 @@ export const TOOL_DISCOVERY_SKILL_ID = 'find-tool';
 export function shouldOfferToolDiscovery(
   eligibleCount: number,
   sentCount: number,
+  externalSearchAvailable = false,
 ): boolean {
   // A turn given *no* tools was given none on purpose, and discovery must not be
   // the way back in. Change Story mode is the case that caught this: it clears
@@ -154,5 +155,7 @@ export function shouldOfferToolDiscovery(
   if (sentCount === 0) {
     return false;
   }
-  return eligibleCount > sentCount;
+  // With Resource Discovery behind it, a search can find a third-party tool even
+  // when every installed one was already sent.
+  return externalSearchAvailable || eligibleCount > sentCount;
 }

@@ -7,7 +7,7 @@ import { existsSync } from 'node:fs';
 import { mkdirSync, readFileSync, writeFileSync } from 'node:fs';
 import { execFile } from 'node:child_process';
 import { promisify } from 'node:util';
-import { randomUUID } from 'node:crypto';
+import { createHash, randomUUID } from 'node:crypto';
 import type { AtlasMindContext } from '../extension.js';
 import type { TaskImageAttachment } from '../types.js';
 import { buildAssistantResponseMetadata, buildQuickReplyPayload, buildWorkstationContext, reconcileAssistantResponse } from '../chat/participant.js';
@@ -181,6 +181,41 @@ import { readResearchSettings, researchAttentionInput } from '../core/researchSe
 import { detectResearchSources } from '../core/researchSources.js';
 import { buildVersionStrip, type VersionStrip } from '../core/versionStrip.js';
 import {
+  RELEASE_MATRIX_CELL_STATUSES,
+  RELEASE_MATRIX_RELATIVE_PATH,
+  RELEASE_MATRIX_STATUSES,
+  RELEASE_MATRIX_TIER_KINDS,
+  buildReleaseMatrixSnapshot,
+  emptyReleaseMatrixDocument,
+  interpretReleaseMatrixDocument,
+  parseReleaseMatrixEntityKey,
+  removeReleaseMatrixCell,
+  removeReleaseMatrixFeature,
+  removeReleaseMatrixTier,
+  resolveReleaseMatrixEntity,
+  setReleaseMatrixFeatureIssueLinks,
+  setReleaseMatrixRoadmapLink,
+  upsertReleaseMatrixCell,
+  upsertReleaseMatrixFeature,
+  upsertReleaseMatrixTier,
+  type ReleaseMatrixCellDraft,
+  type ReleaseMatrixDocument,
+  type ReleaseMatrixEntityRef,
+  type ReleaseMatrixFeatureDraft,
+  type ReleaseMatrixSnapshot,
+  type ReleaseMatrixTierDraft,
+} from '../core/releaseMatrix.js';
+import {
+  applyReleaseDesignImport,
+  discoverReleaseDesignCandidates,
+  matchReleaseDesignFeatures,
+  parseReleaseDesignDocument,
+  type ReleaseDesignCandidate,
+  type ReleaseDesignFeatureMatches,
+  type ReleaseDesignImportPlan,
+  type ReleaseDesignImportSelection,
+} from '../core/releaseMatrixImport.js';
+import {
   deriveVersionPlan,
   describeVersionPlan,
   recommendedVersioningPolicy,
@@ -214,7 +249,10 @@ import {
   MAX_IMPORT_FILES,
   MAX_IMPORT_ITEMS,
   ROADMAP_IMPORT_SOURCES,
+  assessAutomaticRoadmapItems,
   importRecordFor,
+  isWorkspaceRoadmapMarkdownPath,
+  parseAutomaticRoadmapItems,
   parseGithubIssueRoadmapItems,
   parseGithubProjectRoadmapItems,
   parseMarkdownRoadmapItems,
@@ -227,6 +265,8 @@ import {
   type RoadmapImportRead,
   type RoadmapImportSourceKind,
 } from '../core/roadmapImport.js';
+import { resolveRelativePath } from '../utils/aiInstructionSync.js';
+import { syncRoadmapInstructions } from '../utils/testingProtocolSync.js';
 import {
   buildReleasePlan,
   describeReleasePlan,
@@ -929,6 +969,54 @@ function normalizeRoadmapText(text: string): string {
   return text.toLowerCase().replace(/\s+/g, ' ').replace(/[.\s]+$/, '').trim();
 }
 
+/**
+ * Whether a discovered file belongs to another checkout nested below this one.
+ *
+ * Tool worktrees are not all stored under one vendor name, so path globs are a
+ * fast first filter rather than the trust boundary. A real `.git` file or
+ * directory on any ancestor below the workspace root is the repository
+ * boundary. Resolution failures and symlink escapes are refused: automatic
+ * reconciliation can safely miss a source, but it cannot safely adopt work
+ * from a checkout the user did not open.
+ */
+export async function isInsideNestedGitCheckout(workspaceRoot: string, candidatePath: string): Promise<boolean> {
+  let root: string;
+  let candidate: string;
+  try {
+    [root, candidate] = await Promise.all([
+      fs.realpath(workspaceRoot),
+      fs.realpath(candidatePath),
+    ]);
+  } catch {
+    return true;
+  }
+
+  const relative = path.relative(root, candidate);
+  if (relative === '' || relative === '..' || relative.startsWith(`..${path.sep}`) || path.isAbsolute(relative)) {
+    return true;
+  }
+
+  let current = path.dirname(candidate);
+  while (current !== root) {
+    const parent = path.dirname(current);
+    if (parent === current) {
+      return true;
+    }
+    try {
+      const marker = await fs.lstat(path.join(current, '.git'));
+      if (marker.isFile() || marker.isDirectory() || marker.isSymbolicLink()) {
+        return true;
+      }
+    } catch (error) {
+      if ((error as NodeJS.ErrnoException).code !== 'ENOENT') {
+        return true;
+      }
+    }
+    current = parent;
+  }
+  return false;
+}
+
 // True when a parsed checklist line is import-generator scaffolding rather than a
 // real backlog item, so the dashboard can hide it.
 function isRoadmapNoiseItem(text: string): boolean {
@@ -1160,6 +1248,12 @@ type ProjectDashboardMessage =
    */
   | { type: 'importRoadmap' }
   /**
+   * Review likely automatic-import artifacts. Carries no filters or ids: the
+   * host re-reads provenance and source documents, then lets the user choose
+   * exact rows in a native picker before any removal is offered.
+   */
+  | { type: 'checkRoadmapIntegrity' }
+  /**
    * Ask AtlasMind to work the tree out and offer it.
    *
    * Derivation already runs on every render; what this adds is the bulk accept,
@@ -1181,6 +1275,28 @@ type ProjectDashboardMessage =
   /** The same contract, for the issue composer. Nothing is posted here either. */
   | { type: 'draftRegisterIssue'; payload: string }
   | { type: 'createRoadmapGate' }
+  /** Public-release actions carry only the tag the host last published. */
+  | { type: 'createReleaseRoadmapGate'; payload: string }
+  | { type: 'discussPublicRelease'; payload: string }
+  | { type: 'openPublicRelease'; payload: string }
+  /**
+   * Editions matrix edits. Text is validated and bounded at this boundary, then
+   * sanitized again by the pure document model. File-open and roadmap actions
+   * carry only an entity key (and link index): paths and roadmap text are always
+   * recovered from the host's last published document.
+   */
+  | { type: 'saveReleaseMatrixTier'; payload: ReleaseMatrixTierDraft }
+  | { type: 'saveReleaseMatrixFeature'; payload: ReleaseMatrixFeatureDraft }
+  | { type: 'saveReleaseMatrixCell'; payload: ReleaseMatrixCellDraft }
+  | { type: 'deleteReleaseMatrixEntity'; payload: string }
+  | { type: 'addReleaseMatrixRoadmap'; payload: string }
+  | { type: 'removeReleaseMatrixRoadmap'; payload: string }
+  | { type: 'openReleaseMatrixRoadmap'; payload: string }
+  | { type: 'openReleaseMatrixFile'; payload: { entityKey: string; index: number } }
+  | { type: 'openReleaseMatrixIssue'; payload: { entityKey: string; index: number } }
+  | { type: 'removeReleaseMatrixIssue'; payload: { entityKey: string; index: number } }
+  | { type: 'scanReleaseMatrixDocuments' }
+  | { type: 'applyReleaseMatrixImport'; payload: { previewId: string; selections: ReleaseDesignImportSelection[] } }
   | { type: 'deleteRoadmapGate'; payload: string }
   | { type: 'refreshIssues' }
   /**
@@ -1495,6 +1611,7 @@ type DashboardWebviewMessage =
   | { type: 'branchInspection'; payload: DashboardBranchInspection }
   | { type: 'branchComparison'; payload: DashboardBranchPairComparison }
   | { type: 'branchOperationStatus'; payload: string }
+  | { type: 'releaseMatrixImportPreview'; payload: { preview?: DashboardReleaseMatrixImportPreview; notice: string } }
   /**
    * Prefill the issue composer with a derived draft.
    *
@@ -1544,7 +1661,7 @@ interface DashboardStat {
  */
 const DASHBOARD_PAGE_IDS = [
   'overview', 'score', 'gapAnalysis', 'workflow', 'roadmap', 'issues', 'pullRequests', 'approvals', 'director',
-  'branches', 'repo', 'pipeline', 'testing', 'debt', 'defects', 'security', 'privacy', 'risk', 'compliance', 'release', 'delivery', 'documents',
+  'branches', 'repo', 'pipeline', 'testing', 'debt', 'defects', 'security', 'privacy', 'risk', 'compliance', 'editions', 'versions', 'release', 'delivery', 'documents',
   'ssot', 'runtime', 'ideation',
 ] as const;
 
@@ -2550,8 +2667,72 @@ interface DashboardReleaseGateView {
   destinations: Record<string, ReleaseGateDestination>;
 }
 
+type DashboardReleaseValueTier = 'major' | 'minor' | 'patch' | 'custom';
+type DashboardReleaseChannel = 'stable' | 'preview';
+
+interface DashboardReleasePortfolioItem {
+  /** Durable roadmap graph id. The webview never receives a plan path as an action payload. */
+  nodeId: string;
+  text: string;
+  completed: boolean;
+  hasPlan: boolean;
+}
+
+/** One public version joined to the plan AtlasMind can actually evidence for it. */
+interface DashboardReleasePortfolioEntry {
+  tagName: string;
+  name: string;
+  publishedAt?: string;
+  channel: DashboardReleaseChannel;
+  valueTier: DashboardReleaseValueTier;
+  isLatest: boolean;
+  isImmutable: boolean;
+  gateId: string;
+  gateLabel: string;
+  gateExists: boolean;
+  /** Absent means no declared gate, never zero progress. */
+  progress?: { completed: number; total: number; percent: number };
+  roadmapItems: DashboardReleasePortfolioItem[];
+  filedPlanCount: number;
+  suggestion: string;
+}
+
+interface DashboardReleasePortfolio {
+  entries: DashboardReleasePortfolioEntry[];
+  publicCount: number;
+  stableCount: number;
+  previewCount: number;
+  gatedCount: number;
+  plannedCount: number;
+  summary: string;
+}
+
+/** Planned offerings are stored locally and stay distinct from shipped GitHub releases. */
+interface DashboardReleaseMatrixSnapshot extends ReleaseMatrixSnapshot {
+  path: string;
+  exists: boolean;
+  loadFailure?: string;
+}
+
+interface DashboardReleaseMatrixImportPreview {
+  id: string;
+  sourcePath: string;
+  format: ReleaseDesignImportPlan['format'];
+  tiers: ReleaseDesignImportPlan['tiers'];
+  features: Array<ReleaseDesignImportPlan['features'][number] & {
+    cellCount: number;
+    roadmap?: ReleaseDesignFeatureMatches['roadmap'];
+    issue?: ReleaseDesignFeatureMatches['issue'];
+  }>;
+  cellCount: number;
+  notices: string[];
+  issueMatchingState: string;
+}
+
 interface DashboardReleaseSnapshot {
   releases: MetricReleaseInput[];
+  /** Public versions joined to roadmap evidence and filed design plans. */
+  portfolio: DashboardReleasePortfolio;
   /** Every tag `git tag` reported, so an existing tag can block a re-publish. */
   tags: string[];
   plan: ReleasePlan;
@@ -3162,6 +3343,8 @@ interface DashboardSnapshot {
   repositoryLabel: string;
   currentBranch: string;
   versions: DashboardVersionSnapshot;
+  /** Designed tiers, add-ons and feature entitlements; not the shipped-version history. */
+  editions: DashboardReleaseMatrixSnapshot;
   /**
    * The header's version pills, derived from the delivery pipeline.
    *
@@ -5085,12 +5268,23 @@ export class ProjectDashboardPanel {
    * `syncRoadmapState`.
    */
   private lastSnapshot: DashboardSnapshot | undefined;
+  /** The reviewed import currently offered by the Editions page; never persisted. */
+  private releaseMatrixImportSession: {
+    id: string;
+    sourcePath: string;
+    absolutePath: string;
+    digest: string;
+    plan: ReleaseDesignImportPlan;
+    matches: ReleaseDesignFeatureMatches[];
+    preview: DashboardReleaseMatrixImportPreview;
+  } | undefined;
   /**
-   * The load-time anchor write, started once in the constructor and held so
-   * everything else can order itself after it.
+   * The load-time roadmap preparation, started once in the constructor and held
+   * so everything else can order itself after it.
    *
-   * Started from the constructor — not from a later sync — because any
-   * fire-and-forget refresh that could still *arm* it left a window where a
+   * Anchoring runs first, then the secondary-roadmap drift check and instruction
+   * sync. Started from the constructor — not from a later refresh — because any
+   * fire-and-forget pass that could still *arm* a write left a window where a
    * background write overlapped whatever a click did next: two writers of the
    * same backlog file, `fs.writeFile` truncating first, and a reader in that
    * window seeing an empty backlog (the release-gate flow test caught exactly
@@ -5678,10 +5872,11 @@ export class ProjectDashboardPanel {
       }),
     );
 
-    // Anchor the roadmap first, then collect: the first sync would otherwise
-    // read the backlog while the anchors are being written into it, and every
-    // message handler orders itself after this same promise.
-    this.roadmapAnchorsEnsure = this.ensureRoadmapAnchors();
+    // Anchor and reconcile the roadmap first, then collect: the first sync would
+    // otherwise read the backlog while it is being written, and every message
+    // handler orders itself after this same promise.
+    this.roadmapAnchorsEnsure = this.ensureRoadmapAnchors()
+      .then(() => this.ensureRoadmapSynchronization());
     void this.roadmapAnchorsEnsure.then(() => this.syncState());
   }
 
@@ -5957,6 +6152,9 @@ export class ProjectDashboardPanel {
       case 'importRoadmap':
         await this.handleImportRoadmap();
         break;
+      case 'checkRoadmapIntegrity':
+        await this.handleRoadmapIntegrityCheck();
+        break;
       case 'roadmapDeriveLinks':
         await this.handleRoadmapDeriveLinks();
         break;
@@ -5968,6 +6166,51 @@ export class ProjectDashboardPanel {
         break;
       case 'createRoadmapGate':
         await this.handleCreateRoadmapGate();
+        return;
+      case 'createReleaseRoadmapGate':
+        await this.handleCreateReleaseRoadmapGate(message.payload);
+        return;
+      case 'discussPublicRelease':
+        await this.handleDiscussPublicRelease(message.payload);
+        return;
+      case 'openPublicRelease':
+        await this.handleOpenPublicRelease(message.payload);
+        return;
+      case 'saveReleaseMatrixTier':
+        await this.handleSaveReleaseMatrixTier(message.payload);
+        return;
+      case 'saveReleaseMatrixFeature':
+        await this.handleSaveReleaseMatrixFeature(message.payload);
+        return;
+      case 'saveReleaseMatrixCell':
+        await this.handleSaveReleaseMatrixCell(message.payload);
+        return;
+      case 'deleteReleaseMatrixEntity':
+        await this.handleDeleteReleaseMatrixEntity(message.payload);
+        return;
+      case 'addReleaseMatrixRoadmap':
+        await this.handleAddReleaseMatrixRoadmap(message.payload);
+        return;
+      case 'removeReleaseMatrixRoadmap':
+        await this.handleRemoveReleaseMatrixRoadmap(message.payload);
+        return;
+      case 'openReleaseMatrixRoadmap':
+        await this.handleOpenReleaseMatrixRoadmap(message.payload);
+        return;
+      case 'openReleaseMatrixFile':
+        await this.handleOpenReleaseMatrixFile(message.payload);
+        return;
+      case 'openReleaseMatrixIssue':
+        await this.handleOpenReleaseMatrixIssue(message.payload);
+        return;
+      case 'removeReleaseMatrixIssue':
+        await this.handleRemoveReleaseMatrixIssue(message.payload);
+        return;
+      case 'scanReleaseMatrixDocuments':
+        await this.handleScanReleaseMatrixDocuments();
+        return;
+      case 'applyReleaseMatrixImport':
+        await this.handleApplyReleaseMatrixImport(message.payload);
         return;
       case 'deleteRoadmapGate':
         await this.handleDeleteRoadmapGate(message.payload);
@@ -7851,12 +8094,31 @@ export class ProjectDashboardPanel {
     const unmanaged = assessUnmanagedRoadmap(existing);
     if (unmanaged.wouldDuplicate) {
       const plan = planRoadmapReconcile(existing, sanitizedItems.map(item => item.text));
-      const detail = `${filePath} has ${unmanaged.orphanItemTexts.length} item(s) outside the block AtlasMind manages`
-        + `${unmanaged.truncated ? ' (more than it counted)' : ''}.\n\n`
-        + `Saving as-is would keep them as a second copy of the backlog. Reconciling adopts `
-        + `${plan.adopted.length} of them as roadmap items`
-        + `${plan.alreadyPresent > 0 ? `, skips ${plan.alreadyPresent} already on the roadmap` : ''}`
-        + `, and keeps the remaining prose as notes.\n\nNothing is deleted.`;
+      const detail = formatRoadmapDialogSections([
+        {
+          heading: 'File',
+          lines: [path.relative(workspaceRoot, filePath).replace(/\\/g, '/')],
+        },
+        {
+          heading: 'Found outside the managed block',
+          lines: [
+            `${unmanaged.orphanItemTexts.length} loose roadmap item${unmanaged.orphanItemTexts.length === 1 ? '' : 's'}${unmanaged.truncated ? ' (the scan limit was reached)' : ''}`,
+            'Saving without reconciliation would preserve a second copy of the backlog.',
+          ],
+        },
+        {
+          heading: 'Reconcile and save',
+          lines: [
+            `${plan.adopted.length} ${plan.adopted.length === 1 ? 'item' : 'items'} will be adopted into the managed backlog`,
+            ...(plan.alreadyPresent > 0 ? [`${plan.alreadyPresent} ${plan.alreadyPresent === 1 ? 'duplicate is' : 'duplicates are'} already represented and will be skipped`] : []),
+            'Remaining prose will stay under Existing Notes.',
+          ],
+        },
+        {
+          heading: 'Safety',
+          lines: ['Nothing is deleted. Cancelling leaves the file unchanged.'],
+        },
+      ]);
       const choice = await vscode.window.showWarningMessage(
         'Reconcile this roadmap first?',
         { modal: true, detail },
@@ -8146,7 +8408,7 @@ export class ProjectDashboardPanel {
       try {
         const releaseRaw = await runGh(workspaceRoot, [
           'release', 'list', '--limit', '100',
-          '--json', 'tagName,publishedAt,isPrerelease,isDraft',
+          '--json', 'tagName,name,createdAt,publishedAt,isPrerelease,isDraft,isLatest,isImmutable',
         ]);
         this.releaseState = { records: parseGhReleaseList(releaseRaw), loadedAt: new Date().toISOString() };
       } catch (error) {
@@ -12348,6 +12610,625 @@ ${buildCardEvidenceSection(source, derivation)}`;
     void vscode.window.showInformationMessage(`Release gate #${id} added. Tag backlog items with it to build its path.`);
   }
 
+  /** Resolve a public-version action against the exact portfolio last rendered. */
+  private resolvePublicReleaseEntry(tagName: string): DashboardReleasePortfolioEntry | undefined {
+    const tag = typeof tagName === 'string' ? tagName.trim() : '';
+    if (tag.length === 0) {
+      return undefined;
+    }
+    return this.lastSnapshot?.release.portfolio.entries.find(entry => entry.tagName === tag);
+  }
+
+  /** Add the deterministic gate for one public version after naming the tracked write. */
+  private async handleCreateReleaseRoadmapGate(tagName: string): Promise<void> {
+    const release = this.resolvePublicReleaseEntry(tagName);
+    if (release === undefined || release.gateExists) {
+      return;
+    }
+    const context = await this.readRoadmapDocument();
+    if (!context) {
+      return;
+    }
+    if (context.gates.some(gate => gate.id === release.gateId)) {
+      void vscode.window.showInformationMessage(`Release gate #${release.gateId} already exists. Refresh the dashboard to review it.`);
+      return;
+    }
+    if (context.gates.length >= MAX_ROADMAP_GATES) {
+      void vscode.window.showWarningMessage(`A roadmap can track ${MAX_ROADMAP_GATES} release gates. Remove one before adding another.`);
+      return;
+    }
+
+    const confirmation = await vscode.window.showInformationMessage(
+      `Create a roadmap gate for ${release.tagName}?`,
+      {
+        modal: true,
+        detail: formatRoadmapDialogSections([
+          {
+            heading: 'Roadmap change',
+            lines: [
+              `Add release gate #${release.gateId}`,
+              `Write ${path.relative(context.workspaceRoot, context.filePath).replace(/\\/g, '/')}`,
+            ],
+          },
+          {
+            heading: 'Unchanged',
+            lines: ['No roadmap item is tagged, edited, or removed until you assign it to the gate.'],
+          },
+        ]),
+      },
+      'Create gate',
+    );
+    if (confirmation !== 'Create gate') {
+      return;
+    }
+
+    const gates = normalizeGates([
+      ...context.gates,
+      { id: release.gateId, label: release.tagName, order: context.gates.length, builtIn: false },
+    ]);
+    await this.writeRoadmapDocument(context, context.items, gates);
+    void vscode.window.showInformationMessage(`Release gate #${release.gateId} added. Tag the roadmap items that define ${release.tagName} to build its path.`);
+  }
+
+  /** Ask for judgement about one version without accepting prompt text from the page. */
+  private async handleDiscussPublicRelease(tagName: string): Promise<void> {
+    const release = this.resolvePublicReleaseEntry(tagName);
+    if (release === undefined) {
+      return;
+    }
+    await this.openDashboardChat({
+      draftPrompt: buildPublicReleaseReviewPrompt(release),
+      sendMode: 'new-session',
+    });
+  }
+
+  /** Open the release represented by the card; the webview never supplies the URL. */
+  private async handleOpenPublicRelease(tagName: string): Promise<void> {
+    const release = this.resolvePublicReleaseEntry(tagName);
+    const repository = parseRepoSlug(this.lastGitRemoteUrl ?? this.issuesState.repoSlug);
+    if (release === undefined || repository === undefined) {
+      return;
+    }
+    const url = `https://github.com/${encodeURIComponent(repository.owner)}/${encodeURIComponent(repository.repo)}/releases/tag/${encodeURIComponent(release.tagName)}`;
+    await vscode.env.openExternal(vscode.Uri.parse(url));
+  }
+
+  /** Re-read the tracked matrix before every write so an external edit is never overwritten by a stale card. */
+  private async readReleaseMatrixForWrite(): Promise<{
+    workspaceRoot: string;
+    ssotPath: string;
+    filePath: string;
+    document: ReleaseMatrixDocument;
+  } | undefined> {
+    const workspaceRoot = vscode.workspace.workspaceFolders?.[0]?.uri.fsPath;
+    if (workspaceRoot === undefined) return undefined;
+    const ssotPath = normalizeSsotPath(
+      vscode.workspace.getConfiguration('atlasmind').get<string>('ssotPath', 'project_memory'),
+    );
+    const filePath = path.join(workspaceRoot, ssotPath, RELEASE_MATRIX_RELATIVE_PATH);
+    let raw: string;
+    try {
+      raw = await fs.readFile(filePath, 'utf8');
+    } catch (error) {
+      if ((error as NodeJS.ErrnoException).code === 'ENOENT') {
+        return { workspaceRoot, ssotPath, filePath, document: emptyReleaseMatrixDocument(new Date()) };
+      }
+      void vscode.window.showWarningMessage('AtlasMind could not read the editions matrix, so nothing was changed.');
+      return undefined;
+    }
+    let parsed: unknown;
+    try {
+      parsed = JSON.parse(raw);
+    } catch {
+      void vscode.window.showWarningMessage(
+        `The editions matrix is not valid JSON. Fix ${path.relative(workspaceRoot, filePath).replace(/\\/g, '/')} before editing it from the dashboard.`,
+      );
+      return undefined;
+    }
+    const reading = interpretReleaseMatrixDocument(parsed);
+    if (reading.kind === 'refused') {
+      void vscode.window.showWarningMessage(reading.notice);
+      return undefined;
+    }
+    if (reading.kind === 'invalid') {
+      void vscode.window.showWarningMessage(reading.notice);
+      return undefined;
+    }
+    return { workspaceRoot, ssotPath, filePath, document: reading.document };
+  }
+
+  /** The only editions serializer. Browser messages never carry a path or a whole document. */
+  private async writeReleaseMatrix(
+    context: { workspaceRoot: string; ssotPath: string; filePath: string },
+    document: ReleaseMatrixDocument,
+  ): Promise<void> {
+    await fs.mkdir(path.dirname(context.filePath), { recursive: true });
+    await fs.writeFile(context.filePath, `${JSON.stringify(document, null, 2)}\n`, 'utf8');
+    const ssotRoot = vscode.Uri.file(path.join(context.workspaceRoot, context.ssotPath));
+    await this.atlas.memoryManager.loadFromDisk(ssotRoot);
+    this.atlas.memoryRefresh.fire();
+    await this.syncState();
+  }
+
+  private async handleSaveReleaseMatrixTier(payload: ReleaseMatrixTierDraft): Promise<void> {
+    const context = await this.readReleaseMatrixForWrite();
+    if (context === undefined) return;
+    const result = upsertReleaseMatrixTier(context.document, payload, new Date());
+    if (result === undefined) {
+      void vscode.window.showWarningMessage('That offering could not be saved. Refresh the Editions page and check the required name.');
+      return;
+    }
+    await this.writeReleaseMatrix(context, result.document);
+  }
+
+  private async handleSaveReleaseMatrixFeature(payload: ReleaseMatrixFeatureDraft): Promise<void> {
+    const context = await this.readReleaseMatrixForWrite();
+    if (context === undefined) return;
+    const result = upsertReleaseMatrixFeature(context.document, payload, new Date());
+    if (result === undefined) {
+      void vscode.window.showWarningMessage('That feature could not be saved. Refresh the Editions page and check the required name.');
+      return;
+    }
+    await this.writeReleaseMatrix(context, result.document);
+  }
+
+  private async handleSaveReleaseMatrixCell(payload: ReleaseMatrixCellDraft): Promise<void> {
+    const context = await this.readReleaseMatrixForWrite();
+    if (context === undefined) return;
+    const document = upsertReleaseMatrixCell(context.document, payload, new Date());
+    if (document === undefined) {
+      void vscode.window.showWarningMessage('That matrix cell no longer exists in this shape. Refresh the Editions page and try again.');
+      return;
+    }
+    await this.writeReleaseMatrix(context, document);
+  }
+
+  private async handleDeleteReleaseMatrixEntity(rawKey: string): Promise<void> {
+    const ref = parseReleaseMatrixEntityKey(rawKey);
+    const context = await this.readReleaseMatrixForWrite();
+    if (ref === undefined || context === undefined) return;
+    const entity = resolveReleaseMatrixEntity(context.document, ref);
+    if (entity === undefined) return;
+    const affectedCells = ref.kind === 'tier'
+      ? context.document.cells.filter(cell => cell.tierId === ref.tierId).length
+      : ref.kind === 'feature'
+        ? context.document.cells.filter(cell => cell.featureId === ref.featureId).length
+        : 1;
+    const choice = await vscode.window.showWarningMessage(
+      `Remove ${entity.label} from the editions matrix?`,
+      {
+        modal: true,
+        detail: formatRoadmapDialogSections([
+          { heading: 'Matrix change', lines: [
+            ref.kind === 'cell' ? 'Clear this tier-specific feature decision.' : `Remove this ${ref.kind} and ${affectedCells} related cell${affectedCells === 1 ? '' : 's'}.`,
+          ] },
+          { heading: 'Unchanged', lines: [
+            entity.roadmapItemId === undefined
+              ? 'No roadmap item is linked.'
+              : 'The linked roadmap item remains. Remove it separately if it is no longer planned.',
+            'Referenced workspace files are not deleted.',
+          ] },
+        ]),
+      },
+      'Remove from matrix',
+    );
+    if (choice !== 'Remove from matrix') return;
+    const document = ref.kind === 'tier'
+      ? removeReleaseMatrixTier(context.document, ref.tierId, new Date())
+      : ref.kind === 'feature'
+        ? removeReleaseMatrixFeature(context.document, ref.featureId, new Date())
+        : removeReleaseMatrixCell(context.document, ref.tierId, ref.featureId, new Date());
+    if (document !== undefined) await this.writeReleaseMatrix(context, document);
+  }
+
+  /** Resolve an editions action from the host's latest snapshot; no label or path comes from the browser. */
+  private resolveReleaseMatrixAction(rawKey: string): {
+    ref: ReleaseMatrixEntityRef;
+    entity: NonNullable<ReturnType<typeof resolveReleaseMatrixEntity>>;
+  } | undefined {
+    const ref = parseReleaseMatrixEntityKey(rawKey);
+    const document = this.lastSnapshot?.editions.document;
+    if (ref === undefined || document === undefined) return undefined;
+    const entity = resolveReleaseMatrixEntity(document, ref);
+    return entity === undefined ? undefined : { ref, entity };
+  }
+
+  private async handleAddReleaseMatrixRoadmap(rawKey: string): Promise<void> {
+    const ref = parseReleaseMatrixEntityKey(rawKey);
+    const matrix = await this.readReleaseMatrixForWrite();
+    if (ref === undefined || matrix === undefined) return;
+    const entity = resolveReleaseMatrixEntity(matrix.document, ref);
+    if (entity === undefined || entity.roadmapItemId !== undefined) return;
+    const resolved = { ref, entity };
+    const roadmap = await this.readRoadmapDocument();
+    if (roadmap === undefined) return;
+    const normalizedTarget = normalizeRoadmapNodeText(resolved.entity.roadmapText);
+    const matching = roadmap.items.find(item => normalizeRoadmapNodeText(item.text) === normalizedTarget);
+    const choice = await vscode.window.showInformationMessage(
+      matching === undefined ? `Add ${resolved.entity.label} to the roadmap?` : `Link ${resolved.entity.label} to the matching roadmap item?`,
+      {
+        modal: true,
+        detail: formatRoadmapDialogSections([
+          { heading: matching === undefined ? 'Roadmap item' : 'Existing roadmap item', lines: [resolved.entity.roadmapText] },
+          { heading: 'Editions relationship', lines: ['Store the durable roadmap id on this matrix data point so status remains visible in both places.'] },
+          { heading: 'Safety', lines: [matching === undefined ? 'No other roadmap item is changed.' : 'No duplicate roadmap item is added.'] },
+        ]),
+      },
+      matching === undefined ? 'Add to roadmap' : 'Link existing item',
+    );
+    const expected = matching === undefined ? 'Add to roadmap' : 'Link existing item';
+    if (choice !== expected) return;
+    if (matching === undefined) {
+      const written = await addRoadmapItemFromExternalSurface(this.atlas, resolved.entity.roadmapText);
+      if (written === undefined) return;
+    }
+    // This call mints deterministic anchors before returning the durable id.
+    const graph = await this.openRoadmapGraphForWrite();
+    const nodeId = graph === undefined ? undefined : [...graph.nodeText.entries()]
+      .find(([, value]) => normalizeRoadmapNodeText(value) === normalizedTarget)?.[0];
+    if (nodeId === undefined) {
+      void vscode.window.showWarningMessage('The roadmap item was written, but AtlasMind could not establish its durable relationship. Refresh and link it again.');
+      return;
+    }
+    const fresh = await this.readReleaseMatrixForWrite();
+    if (fresh === undefined || resolveReleaseMatrixEntity(fresh.document, resolved.ref) === undefined) return;
+    const document = setReleaseMatrixRoadmapLink(fresh.document, resolved.ref, nodeId, new Date());
+    if (document !== undefined) await this.writeReleaseMatrix(fresh, document);
+  }
+
+  private async handleRemoveReleaseMatrixRoadmap(rawKey: string): Promise<void> {
+    const ref = parseReleaseMatrixEntityKey(rawKey);
+    const matrix = await this.readReleaseMatrixForWrite();
+    if (ref === undefined || matrix === undefined) return;
+    const entity = resolveReleaseMatrixEntity(matrix.document, ref);
+    if (entity?.roadmapItemId === undefined) return;
+    const resolved = { ref, entity };
+    const roadmap = await this.readRoadmapDocument();
+    if (roadmap === undefined) return;
+    const linked = roadmap.items.find(item => item.nodeId === resolved.entity.roadmapItemId);
+    const choice = await vscode.window.showWarningMessage(
+      linked === undefined ? `Clear the stale roadmap link for ${resolved.entity.label}?` : `Remove ${resolved.entity.label} from the roadmap?`,
+      {
+        modal: true,
+        detail: formatRoadmapDialogSections([
+          { heading: 'Roadmap change', lines: [
+            linked === undefined ? 'The linked roadmap item no longer exists; only the stale relationship will be cleared.' : `Delete “${linked.text}” from the tracked roadmap.`,
+          ] },
+          { heading: 'Editions matrix', lines: ['The offering, feature, or cell remains in the matrix; only its roadmap relationship is removed.'] },
+        ]),
+      },
+      linked === undefined ? 'Clear stale link' : 'Remove from roadmap',
+    );
+    const expected = linked === undefined ? 'Clear stale link' : 'Remove from roadmap';
+    if (choice !== expected) return;
+    if (linked !== undefined) {
+      const graphRead = readRoadmapGraphFile(roadmap.workspaceRoot, roadmap.ssotPath);
+      await this.writeRoadmapDocument(
+        roadmap,
+        roadmap.items.filter(item => item.nodeId !== linked.nodeId),
+        roadmap.gates,
+      );
+      if (!graphRead.preserveExisting && graphRead.config !== undefined && linked.nodeId !== undefined) {
+        await writeRoadmapGraph(roadmap.workspaceRoot, roadmap.ssotPath, {
+          ...graphRead.config,
+          nodes: graphRead.config.nodes.filter(node => node.id !== linked.nodeId),
+          edges: graphRead.config.edges.filter(edge => edge.from !== linked.nodeId && edge.to !== linked.nodeId),
+          dismissed: graphRead.config.dismissed.filter(edge => edge.from !== linked.nodeId && edge.to !== linked.nodeId),
+        });
+      }
+    }
+    const fresh = await this.readReleaseMatrixForWrite();
+    if (fresh === undefined) return;
+    const document = setReleaseMatrixRoadmapLink(fresh.document, resolved.ref, undefined, new Date());
+    if (document !== undefined) await this.writeReleaseMatrix(fresh, document);
+  }
+
+  private async handleOpenReleaseMatrixRoadmap(rawKey: string): Promise<void> {
+    const resolved = this.resolveReleaseMatrixAction(rawKey);
+    const nodeId = resolved?.entity.roadmapItemId;
+    if (nodeId === undefined) return;
+    const target: DashboardNavigationTarget = { page: 'roadmap', focus: { kind: 'roadmap', id: nodeId } };
+    this.queueNavigation(target);
+    await this.postMessage({ type: 'navigate', payload: target });
+  }
+
+  private async handleOpenReleaseMatrixFile(payload: { entityKey: string; index: number }): Promise<void> {
+    const resolved = this.resolveReleaseMatrixAction(payload.entityKey);
+    const document = this.lastSnapshot?.editions.document;
+    if (resolved === undefined || document === undefined) return;
+    const ref = resolved.ref;
+    let links: string[] | undefined;
+    if (ref.kind === 'tier') {
+      links = document.tiers.find(entry => entry.id === ref.tierId)?.fileLinks;
+    } else if (ref.kind === 'feature') {
+      links = document.features.find(entry => entry.id === ref.featureId)?.fileLinks;
+    } else {
+      links = document.cells.find(entry => entry.tierId === ref.tierId && entry.featureId === ref.featureId)?.fileLinks;
+    }
+    const target = links?.[payload.index];
+    if (target !== undefined) await this.openWorkspaceRelativeFile(target);
+  }
+
+  private async handleOpenReleaseMatrixIssue(payload: { entityKey: string; index: number }): Promise<void> {
+    const ref = parseReleaseMatrixEntityKey(payload.entityKey);
+    if (ref?.kind !== 'feature') return;
+    const number = this.lastSnapshot?.editions.document.features
+      .find(feature => feature.id === ref.featureId)?.issueNumbers[payload.index];
+    if (number === undefined) return;
+    const target: DashboardNavigationTarget = { page: 'issues', focus: { kind: 'issue', id: String(number) } };
+    this.queueNavigation(target);
+    await this.postMessage({ type: 'navigate', payload: target });
+  }
+
+  private async handleRemoveReleaseMatrixIssue(payload: { entityKey: string; index: number }): Promise<void> {
+    const ref = parseReleaseMatrixEntityKey(payload.entityKey);
+    const matrix = await this.readReleaseMatrixForWrite();
+    if (ref?.kind !== 'feature' || matrix === undefined) return;
+    const feature = matrix.document.features.find(entry => entry.id === ref.featureId);
+    const number = feature?.issueNumbers[payload.index];
+    if (feature === undefined || number === undefined) return;
+    const choice = await vscode.window.showWarningMessage(
+      `Unlink GitHub Issue #${number} from ${feature.name}?`,
+      {
+        modal: true,
+        detail: formatRoadmapDialogSections([
+          { heading: 'Editions relationship', lines: ['Remove this Issue relationship from the feature.'] },
+          { heading: 'Unchanged', lines: ['The feature remains in the editions matrix and the GitHub Issue is not changed or deleted.'] },
+        ]),
+      },
+      'Unlink Issue',
+    );
+    if (choice !== 'Unlink Issue') return;
+    const document = setReleaseMatrixFeatureIssueLinks(
+      matrix.document,
+      feature.id,
+      feature.issueNumbers.filter((_, index) => index !== payload.index),
+      new Date(),
+    );
+    if (document !== undefined) await this.writeReleaseMatrix(matrix, document);
+  }
+
+  private releaseDesignRelativePath(workspaceRoot: string, absolutePath: string): string | undefined {
+    const relative = path.relative(workspaceRoot, absolutePath).replace(/\\/g, '/');
+    if (relative === '' || relative === '..' || relative.startsWith('../') || path.isAbsolute(relative)) return undefined;
+    if (!/\.(?:md|mdx|txt|json)$/i.test(relative)) return undefined;
+    return relative;
+  }
+
+  private async resolveReleaseDesignFile(workspaceRoot: string, absolutePath: string): Promise<{
+    absolutePath: string;
+    sourcePath: string;
+  } | undefined> {
+    const sourcePath = this.releaseDesignRelativePath(workspaceRoot, absolutePath);
+    if (!sourcePath) return undefined;
+    try {
+      const [realRoot, realFile] = await Promise.all([fs.realpath(workspaceRoot), fs.realpath(absolutePath)]);
+      const realRelative = path.relative(realRoot, realFile);
+      if (realRelative === '..' || realRelative.startsWith(`..${path.sep}`) || path.isAbsolute(realRelative)) return undefined;
+      return { absolutePath: realFile, sourcePath };
+    } catch {
+      return undefined;
+    }
+  }
+
+  /** Scan bounded text documents, then let the person choose instead of trusting the top guess. */
+  private async handleScanReleaseMatrixDocuments(): Promise<void> {
+    const workspaceRoot = vscode.workspace.workspaceFolders?.[0]?.uri.fsPath;
+    if (!workspaceRoot) {
+      await this.postMessage({ type: 'releaseMatrixImportPreview', payload: { notice: 'Open a workspace before scanning design documents.' } });
+      return;
+    }
+    const exclude = '**/{.git,node_modules,out,dist,build,coverage,.next,.cache,vendor}/**';
+    const discovered = typeof vscode.workspace.findFiles === 'function'
+      ? await Promise.all([
+          vscode.workspace.findFiles('*.{md,mdx,txt,json}', exclude, 80),
+          vscode.workspace.findFiles('**/*.{md,mdx,txt,json}', exclude, 220),
+        ])
+      : [];
+    const uris = [...new Map(discovered.flat().map(uri => [uri.fsPath, uri])).values()].slice(0, 220);
+    const readable = (await Promise.all(uris.map(async uri => {
+      const resolved = await this.resolveReleaseDesignFile(workspaceRoot, uri.fsPath);
+      if (!resolved) return undefined;
+      try {
+        const stat = await fs.stat(resolved.absolutePath);
+        if (!stat.isFile() || stat.size > 600_000) return undefined;
+        return { path: resolved.sourcePath, content: await fs.readFile(resolved.absolutePath, 'utf8') };
+      } catch {
+        return undefined;
+      }
+    }))).filter((entry): entry is { path: string; content: string } => entry !== undefined);
+    const candidates = discoverReleaseDesignCandidates(readable);
+    type DesignPick = vscode.QuickPickItem & (
+      | { sourceKind: 'candidate'; candidate: ReleaseDesignCandidate }
+      | { sourceKind: 'browse' }
+    );
+    const options: DesignPick[] = candidates.map(candidate => ({
+      sourceKind: 'candidate',
+      candidate,
+      label: candidate.title,
+      description: candidate.path,
+      detail: `Relevance score ${candidate.score} · ${candidate.reasons.join('; ') || 'filename match'}`,
+    }));
+    options.push({
+      sourceKind: 'browse',
+      label: '$(folder-opened) Choose another design document…',
+      description: candidates.length === 0 ? 'No likely documents were found automatically' : 'Select any Markdown, text, or JSON file in this workspace',
+    });
+    const picked = await vscode.window.showQuickPick(options, {
+      title: 'Import Editions from a product design document',
+      placeHolder: candidates.length === 0
+        ? 'No likely documents found — choose the correct file'
+        : `${candidates.length} likely document${candidates.length === 1 ? '' : 's'} found — confirm the source`,
+      ignoreFocusOut: true,
+      matchOnDescription: true,
+      matchOnDetail: true,
+    });
+    if (!picked) {
+      await this.postMessage({ type: 'releaseMatrixImportPreview', payload: { notice: 'Design-document import cancelled.' } });
+      return;
+    }
+    let absolutePath: string;
+    let sourcePath: string;
+    if (picked.sourceKind === 'browse') {
+      const selected = await vscode.window.showOpenDialog({
+        title: 'Choose the product design document to scan',
+        canSelectMany: false,
+        defaultUri: vscode.Uri.file(workspaceRoot),
+        filters: { 'Design documents': ['md', 'mdx', 'txt', 'json'] },
+      });
+      if (!selected?.[0]) {
+        await this.postMessage({ type: 'releaseMatrixImportPreview', payload: { notice: 'Design-document import cancelled.' } });
+        return;
+      }
+      absolutePath = selected[0].fsPath;
+      const relative = this.releaseDesignRelativePath(workspaceRoot, absolutePath);
+      if (!relative) {
+        await this.postMessage({ type: 'releaseMatrixImportPreview', payload: { notice: 'Choose a supported design document inside this workspace.' } });
+        return;
+      }
+      sourcePath = relative;
+    } else {
+      sourcePath = picked.candidate.path;
+      absolutePath = path.join(workspaceRoot, ...sourcePath.split('/'));
+    }
+    const resolvedSource = await this.resolveReleaseDesignFile(workspaceRoot, absolutePath);
+    if (!resolvedSource) {
+      await this.postMessage({ type: 'releaseMatrixImportPreview', payload: { notice: 'Choose a supported design document that resolves inside this workspace.' } });
+      return;
+    }
+    absolutePath = resolvedSource.absolutePath;
+    sourcePath = resolvedSource.sourcePath;
+    let content: string;
+    try {
+      const stat = await fs.stat(absolutePath);
+      if (!stat.isFile() || stat.size > 600_000) throw new Error('The source is not a regular text file under 600 KB.');
+      content = await fs.readFile(absolutePath, 'utf8');
+    } catch (error) {
+      const detail = error instanceof Error ? error.message : 'The file could not be read.';
+      await this.postMessage({ type: 'releaseMatrixImportPreview', payload: { notice: `AtlasMind did not scan that document: ${detail}` } });
+      return;
+    }
+    const plan = parseReleaseDesignDocument(sourcePath, content);
+    if (plan.features.length === 0) {
+      this.releaseMatrixImportSession = undefined;
+      await this.postMessage({
+        type: 'releaseMatrixImportPreview',
+        payload: { notice: `${sourcePath} did not contain a supported feature table or explicit feature list. Nothing was imported.` },
+      });
+      return;
+    }
+    const roadmapCandidates = (this.lastSnapshot?.roadmap.items ?? [])
+      .filter(item => item.nodeId !== undefined)
+      .map(item => ({ id: item.nodeId!, text: item.text, completed: item.completed }));
+    const issueCandidates = this.issuesState.status === 'ready' ? this.issuesState.issues : [];
+    const matches = matchReleaseDesignFeatures(plan, roadmapCandidates, issueCandidates);
+    const byFeature = new Map(matches.map(match => [match.featureImportId, match]));
+    const id = randomUUID();
+    const issueMatchingState = this.issuesState.status === 'ready'
+      ? `${issueCandidates.length} loaded GitHub issue${issueCandidates.length === 1 ? '' : 's'} checked.`
+      : 'GitHub issues were not loaded, so Issue matches are unassessed. Refresh repository activity and rescan to include them.';
+    const preview: DashboardReleaseMatrixImportPreview = {
+      id,
+      sourcePath,
+      format: plan.format,
+      tiers: plan.tiers,
+      features: plan.features.map(feature => {
+        const match = byFeature.get(feature.importId);
+        return {
+          ...feature,
+          cellCount: plan.cells.filter(cell => cell.featureImportId === feature.importId).length,
+          ...(match?.roadmap ? { roadmap: match.roadmap } : {}),
+          ...(match?.issue ? { issue: match.issue } : {}),
+        };
+      }),
+      cellCount: plan.cells.length,
+      notices: plan.notices,
+      issueMatchingState,
+    };
+    this.releaseMatrixImportSession = {
+      id,
+      sourcePath,
+      absolutePath,
+      digest: createHash('sha256').update(content).digest('hex'),
+      plan,
+      matches,
+      preview,
+    };
+    await this.postMessage({
+      type: 'releaseMatrixImportPreview',
+      payload: { preview, notice: `Review what AtlasMind found in ${sourcePath}. Nothing has been written.` },
+    });
+  }
+
+  private async handleApplyReleaseMatrixImport(payload: { previewId: string; selections: ReleaseDesignImportSelection[] }): Promise<void> {
+    const session = this.releaseMatrixImportSession;
+    if (!session || session.id !== payload.previewId) {
+      await this.postMessage({ type: 'releaseMatrixImportPreview', payload: { notice: 'That import preview is no longer current. Scan the document again.' } });
+      return;
+    }
+    const chosen = payload.selections.filter(selection => selection.include);
+    if (chosen.length === 0) {
+      await this.postMessage({ type: 'releaseMatrixImportPreview', payload: { preview: session.preview, notice: 'Select at least one feature to import.' } });
+      return;
+    }
+    let content: string;
+    try {
+      content = await fs.readFile(session.absolutePath, 'utf8');
+    } catch {
+      await this.postMessage({ type: 'releaseMatrixImportPreview', payload: { preview: session.preview, notice: 'The selected design document can no longer be read. Nothing was changed.' } });
+      return;
+    }
+    if (createHash('sha256').update(content).digest('hex') !== session.digest) {
+      this.releaseMatrixImportSession = undefined;
+      await this.postMessage({ type: 'releaseMatrixImportPreview', payload: { notice: 'The design document changed after preview. Rescan it before importing.' } });
+      return;
+    }
+    const context = await this.readReleaseMatrixForWrite();
+    if (!context) return;
+    const roadmap = await collectRoadmapSnapshot(context.workspaceRoot, context.ssotPath);
+    const liveRoadmapIds = new Set(roadmap.items.flatMap(item => item.nodeId ? [item.nodeId] : []));
+    const liveIssueNumbers = this.issuesState.status === 'ready'
+      ? new Set(this.issuesState.issues.map(issue => issue.number))
+      : undefined;
+    const liveMatches = session.matches.map(match => ({
+      ...match,
+      ...(match.roadmap && !liveRoadmapIds.has(match.roadmap.target.id) ? { roadmap: undefined } : {}),
+      ...(match.issue && liveIssueNumbers !== undefined && !liveIssueNumbers.has(match.issue.target.number) ? { issue: undefined } : {}),
+    }));
+    const result = applyReleaseDesignImport(context.document, session.plan, liveMatches, payload.selections, new Date());
+    const confirmation = await vscode.window.showInformationMessage(
+      `Import ${chosen.length} feature${chosen.length === 1 ? '' : 's'} from ${session.sourcePath}?`,
+      {
+        modal: true,
+        detail: formatRoadmapDialogSections([
+          { heading: 'Editions matrix', lines: [
+            `${result.addedTiers} offering${result.addedTiers === 1 ? '' : 's'} added; ${result.reusedTiers} matched by name.`,
+            `${result.addedFeatures} feature${result.addedFeatures === 1 ? '' : 's'} added; ${result.reusedFeatures} matched by name.`,
+            `${result.addedCells} cell decision${result.addedCells === 1 ? '' : 's'} added; ${result.preservedCells} existing cell${result.preservedCells === 1 ? '' : 's'} preserved.`,
+          ] },
+          { heading: 'Relationships', lines: [
+            `${result.roadmapLinksAdded} roadmap link${result.roadmapLinksAdded === 1 ? '' : 's'} and ${result.issueLinksAdded} Issue link${result.issueLinksAdded === 1 ? '' : 's'} will be recorded.`,
+          ] },
+          { heading: 'Safety', lines: [
+            'Existing names, statuses, pricing, parameters and file links are not replaced.',
+            `The source document remains unchanged; ${path.relative(context.workspaceRoot, context.filePath).replace(/\\/g, '/')} is the only file written.`,
+          ] },
+        ]),
+      },
+      'Import reviewed features',
+    );
+    if (confirmation !== 'Import reviewed features') {
+      await this.postMessage({ type: 'releaseMatrixImportPreview', payload: { preview: session.preview, notice: 'Import cancelled. Nothing was written.' } });
+      return;
+    }
+    this.releaseMatrixImportSession = undefined;
+    await this.writeReleaseMatrix(context, result.document);
+    void vscode.window.showInformationMessage(
+      `Imported ${result.addedFeatures} new and ${result.reusedFeatures} existing feature${chosen.length === 1 ? '' : 's'} from ${session.sourcePath}.`
+      + (result.skipped.length > 0 ? ` ${result.skipped.length} item${result.skipped.length === 1 ? ' was' : 's were'} skipped at matrix limits.` : ''),
+    );
+  }
+
   /**
    * Remove a release gate.
    *
@@ -12373,9 +13254,22 @@ ${buildCardEvidenceSection(source, derivation)}`;
       `Remove the release gate "${gate.label}" (#${id})?`,
       {
         modal: true,
-        detail: taggedCount > 0
-          ? `The tag will be removed from ${taggedCount} backlog item${taggedCount === 1 ? '' : 's'}. No backlog item is deleted.`
-          : 'No backlog items are tagged for it.',
+        detail: formatRoadmapDialogSections([
+          {
+            heading: 'Gate',
+            lines: [`${gate.label} (#${id})`],
+          },
+          {
+            heading: 'Roadmap change',
+            lines: taggedCount > 0
+              ? [`Remove #${id} from ${taggedCount} backlog item${taggedCount === 1 ? '' : 's'}`]
+              : ['No backlog items are tagged for this gate.'],
+          },
+          {
+            heading: 'Safety',
+            lines: ['No backlog item is deleted.'],
+          },
+        ]),
       },
       'Remove gate',
     );
@@ -12714,6 +13608,144 @@ ${buildCardEvidenceSection(source, derivation)}`;
       // The canvas banner already reports the unanchored state; the first
       // change will try again through the write path.
     }
+  }
+
+  /**
+   * Keep external agents and secondary markdown roadmaps pointed at the SSOT.
+   *
+   * This is a once-per-panel load gate, not a render side effect. The instruction
+   * write owns one delimited block and is idempotent. Discovery is bounded to
+   * roadmap-named markdown paths, excludes AtlasMind memory and nested agent
+   * worktrees, and never reaches the network. A drift plan is always shown
+   * before additions, renames, or checkbox changes are written; conflicts and
+   * missing source entries remain untouched.
+   */
+  private async ensureRoadmapSynchronization(): Promise<void> {
+    const context = await this.readRoadmapDocument();
+    if (context === undefined) {
+      return;
+    }
+
+    const instructionResult = await syncRoadmapInstructions(context.workspaceRoot, context.ssotPath)
+      .catch(error => ({
+        success: false,
+        summary: error instanceof Error ? error.message : String(error),
+        updated: [] as string[],
+        skipped: [],
+      }));
+    if (!instructionResult.success) {
+      void vscode.window.showWarningMessage(
+        `AtlasMind could not install the roadmap synchronization rule for external agents: ${instructionResult.summary}`,
+      );
+    }
+
+    if (typeof vscode.workspace.findFiles !== 'function') {
+      return;
+    }
+    const ssotGlob = context.ssotPath.replace(/\\/g, '/').replace(/^\/+|\/+$/g, '');
+    const exclude = `{**/node_modules/**,**/.git/**,**/.claude/worktrees/**,**/.agents/worktrees/**,**/.codex/worktrees/**,**/.cursor/worktrees/**,**/.kilo/**,**/.roo/worktrees/**,${ssotGlob}/**}`;
+    let discovered: vscode.Uri[];
+    try {
+      const [named, contained] = await Promise.all([
+        vscode.workspace.findFiles(
+          new vscode.RelativePattern(context.workspaceRoot, '**/*[Rr][Oo][Aa][Dd][Mm][Aa][Pp]*.md'),
+          exclude,
+          MAX_IMPORT_FILES + 1,
+        ),
+        vscode.workspace.findFiles(
+          new vscode.RelativePattern(context.workspaceRoot, '**/{roadmap,roadmaps,ROADMAP,ROADMAPS}/**/*.md'),
+          exclude,
+          MAX_IMPORT_FILES + 1,
+        ),
+      ]);
+      discovered = [...new Map([...named, ...contained].map(uri => [uri.fsPath, uri])).values()];
+    } catch {
+      return;
+    }
+
+    const plausible = discovered
+      .map(uri => ({ uri, relative: path.relative(context.workspaceRoot, uri.fsPath).split(path.sep).join('/') }))
+      .filter(entry => isWorkspaceRoadmapMarkdownPath(entry.relative, context.ssotPath))
+      .sort((left, right) => left.relative.localeCompare(right.relative));
+    const candidates: typeof plausible = [];
+    for (const entry of plausible) {
+      if (await isInsideNestedGitCheckout(context.workspaceRoot, entry.uri.fsPath)) {
+        continue;
+      }
+      candidates.push(entry);
+      if (candidates.length > MAX_IMPORT_FILES) {
+        break;
+      }
+    }
+    if (candidates.length === 0) {
+      return;
+    }
+
+    const files: Array<{ path: string; content: string }> = [];
+    const notes: string[] = [];
+    for (const candidate of candidates.slice(0, MAX_IMPORT_FILES)) {
+      try {
+        const stat = await fs.stat(candidate.uri.fsPath);
+        if (!stat.isFile() || stat.size > 1_000_000) {
+          notes.push(`${candidate.relative} was not read because it is not a regular markdown file under 1 MB.`);
+          continue;
+        }
+        files.push({ path: candidate.relative, content: await fs.readFile(candidate.uri.fsPath, 'utf8') });
+      } catch {
+        notes.push(`${candidate.relative} could not be read.`);
+      }
+    }
+    if (candidates.length > MAX_IMPORT_FILES) {
+      notes.push(`More than ${MAX_IMPORT_FILES} roadmap files were found; the rest were not read.`);
+    }
+    if (files.length === 0) {
+      return;
+    }
+
+    const parsed = parseAutomaticRoadmapItems(files);
+    const read: RoadmapImportRead = { ...parsed, notes: [...parsed.notes, ...notes] };
+    if (read.items.length === 0) {
+      return;
+    }
+
+    const graphRead = readRoadmapGraphFile(context.workspaceRoot, context.ssotPath);
+    if (graphRead.preserveExisting) {
+      void vscode.window.showWarningMessage(
+        graphRead.notice ?? 'The roadmap graph file was written by a newer AtlasMind. Secondary roadmaps were checked, but nothing was changed.',
+      );
+      return;
+    }
+    const recordById = new Map((graphRead.config?.nodes ?? []).map(node => [node.id, node]));
+    const existingLines: ExistingRoadmapLine[] = context.items.map(item => {
+      const imported = item.nodeId === undefined ? undefined : recordById.get(item.nodeId)?.imported;
+      return {
+        ...(item.nodeId === undefined ? {} : { nodeId: item.nodeId }),
+        text: item.text,
+        completed: item.completed,
+        ...(imported === undefined ? {} : { imported }),
+      };
+    });
+    const plan = planRoadmapImport(read, existingLines);
+    const changing = plan.counts.add + plan.counts.adopt + plan.counts.update;
+    if (changing === 0) {
+      if (plan.counts.conflict > 0 || plan.counts.missing > 0) {
+        await vscode.window.showWarningMessage(
+          'AtlasMind found roadmap drift that needs a decision.',
+          { modal: true, detail: describeRoadmapImportDetail(plan) },
+        );
+      }
+      return;
+    }
+
+    const confirmation = await vscode.window.showWarningMessage(
+      `Reconcile ${changing} secondary-roadmap change${changing === 1 ? '' : 's'} into AtlasMind?`,
+      { modal: true, detail: describeRoadmapImportDetail(plan) },
+      'Reconcile now',
+    );
+    if (confirmation !== 'Reconcile now') {
+      return;
+    }
+    await this.applyRoadmapImport(context, read, plan);
   }
 
   /** Persist the graph and redraw. One place, so no handler can forget the refresh. */
@@ -13338,6 +14370,179 @@ ${buildCardEvidenceSection(source, derivation)}`;
    * can say "accepted suggestion" rather than claiming a person drew it.
    */
   /**
+   * Find automatic-import artifacts and let the user remove exact rows.
+   *
+   * This is deliberately provenance-led. Wording alone is never evidence that
+   * a roadmap item is wrong: "write integration tests" may be perfectly valid
+   * planned work. A row is offered only when it has a stored Markdown import
+   * record and its current source is either a detailed plan document or places
+   * that exact checkbox under a validation-only heading. Unreadable, missing,
+   * hand-written, and ambiguous rows are left out.
+   *
+   * The review is two gates: a multi-select picker highlights the findings and
+   * a modal names the tracked files before removal. Nothing is preselected and
+   * cancelling either gate writes nothing.
+   */
+  private async handleRoadmapIntegrityCheck(): Promise<void> {
+    const context = await this.readRoadmapDocument();
+    if (context === undefined) {
+      void vscode.window.showWarningMessage('Open a workspace before checking roadmap integrity.');
+      return;
+    }
+
+    const graphRead = readRoadmapGraphFile(context.workspaceRoot, context.ssotPath);
+    if (graphRead.preserveExisting) {
+      void vscode.window.showWarningMessage(
+        graphRead.notice ?? 'The roadmap graph file was written by a newer AtlasMind. Integrity was not checked because import provenance cannot be read safely.',
+      );
+      return;
+    }
+    const graph = graphRead.config ?? seedRoadmapGraphDocument();
+    const nodeById = new Map(graph.nodes.map(node => [node.id, node]));
+    const imported = context.items.flatMap(item => {
+      const record = item.nodeId === undefined ? undefined : nodeById.get(item.nodeId)?.imported;
+      if (item.nodeId === undefined || record?.kind !== 'markdown') {
+        return [];
+      }
+      const separator = record.sourceId.lastIndexOf('::');
+      const sourcePath = separator > 0 ? record.sourceId.slice(0, separator).replace(/\\/g, '/') : '';
+      return sourcePath === '' ? [] : [{ item, nodeId: item.nodeId, record, sourcePath }];
+    });
+
+    const sourcePaths = [...new Set(imported.map(entry => entry.sourcePath))]
+      .sort((left, right) => left.localeCompare(right));
+    const files: Array<{ path: string; content: string }> = [];
+    let unreadableSources = 0;
+    for (const sourcePath of sourcePaths.slice(0, MAX_IMPORT_FILES)) {
+      const absolute = resolveRelativePath(context.workspaceRoot, sourcePath);
+      if (absolute === undefined) {
+        unreadableSources += 1;
+        continue;
+      }
+      try {
+        const stat = await fs.stat(absolute);
+        if (!stat.isFile() || stat.size > 1_000_000) {
+          unreadableSources += 1;
+          continue;
+        }
+        files.push({ path: sourcePath, content: await fs.readFile(absolute, 'utf8') });
+      } catch {
+        unreadableSources += 1;
+      }
+    }
+    unreadableSources += Math.max(0, sourcePaths.length - MAX_IMPORT_FILES);
+
+    const assessment = assessAutomaticRoadmapItems(files);
+    const detailedPlanPaths = new Set(assessment.detailedPlanPaths);
+    const exclusionById = new Map(assessment.exclusions.map(exclusion => [exclusion.sourceId, exclusion]));
+    const findings = imported.flatMap(entry => {
+      const exclusion = exclusionById.get(entry.record.sourceId);
+      const detailedPlan = detailedPlanPaths.has(entry.sourcePath);
+      if (!detailedPlan && exclusion === undefined) {
+        return [];
+      }
+      const reason = detailedPlan
+        ? 'Imported from a detailed implementation plan'
+        : `Imported from ${exclusion?.context ? `the “${exclusion.context}” checklist` : 'a validation-only checklist'}`;
+      return [{ ...entry, reason }];
+    });
+
+    if (findings.length === 0) {
+      await vscode.window.showInformationMessage(
+        'Roadmap integrity check complete',
+        {
+          modal: true,
+          detail: [
+            'RESULT',
+            '  • No imported entries could be proven to come from a detailed plan or validation-only checklist.',
+            '',
+            'SCOPE',
+            `  • ${imported.length} Markdown-imported roadmap ${imported.length === 1 ? 'entry' : 'entries'} checked`,
+            `  • ${files.length} current source ${files.length === 1 ? 'file' : 'files'} read`,
+            ...(unreadableSources > 0 ? [`  • ${unreadableSources} source ${unreadableSources === 1 ? 'was' : 'files were'} unavailable and left unjudged`] : []),
+            '',
+            'No roadmap files were changed.',
+          ].join('\n'),
+        },
+      );
+      return;
+    }
+
+    const selected = await vscode.window.showQuickPick(
+      findings.map(finding => ({
+        label: `$(warning) ${finding.item.text}`,
+        description: finding.reason,
+        detail: `Source: ${finding.sourcePath}`,
+        finding,
+      })),
+      {
+        title: `Roadmap integrity · ${findings.length} likely import artifact${findings.length === 1 ? '' : 's'}`,
+        placeHolder: 'Select only the entries to remove; nothing is preselected',
+        canPickMany: true,
+        ignoreFocusOut: true,
+      },
+    );
+    if (selected === undefined || selected.length === 0) {
+      return;
+    }
+
+    const selectedIds = new Set(selected.map(choice => choice.finding.nodeId));
+    const roadmapPath = path.relative(context.workspaceRoot, context.filePath).replace(/\\/g, '/');
+    const graphPath = `${context.ssotPath.replace(/\\/g, '/').replace(/\/$/, '')}/roadmap/roadmap-graph.md`;
+    const preview = selected.slice(0, 10).map(choice => `  • ${choice.finding.item.text}`);
+    const confirmation = await vscode.window.showWarningMessage(
+      `Remove ${selected.length} flagged roadmap ${selected.length === 1 ? 'entry' : 'entries'}?`,
+      {
+        modal: true,
+        detail: [
+          'SELECTED FOR REMOVAL',
+          ...preview,
+          ...(selected.length > preview.length ? [`  • …and ${selected.length - preview.length} more`] : []),
+          '',
+          'TRACKED FILES',
+          `  • ${roadmapPath}`,
+          `  • ${graphPath}`,
+          '',
+          'WHAT STAYS',
+          '  • Source plan documents are not changed.',
+          '  • Unselected, hand-written, missing-source, and ambiguous roadmap entries stay untouched.',
+          '',
+          'This removal can be recovered from Git until the changed files are committed.',
+        ].join('\n'),
+      },
+      'Remove selected',
+    );
+    if (confirmation !== 'Remove selected') {
+      return;
+    }
+
+    const remainingItems = context.items
+      .filter(item => item.nodeId === undefined || !selectedIds.has(item.nodeId))
+      .map(item => ({
+        text: item.text,
+        completed: item.completed,
+        gates: item.gates,
+        ...(item.nodeId === undefined ? {} : { nodeId: item.nodeId }),
+      }));
+    const nextRoadmap = serializeDashboardRoadmapDocument(context.existing, remainingItems, context.gates);
+    await fs.writeFile(context.filePath, nextRoadmap, 'utf8');
+    await writeRoadmapGraph(context.workspaceRoot, context.ssotPath, {
+      ...graph,
+      nodes: graph.nodes.filter(node => !selectedIds.has(node.id)),
+      edges: graph.edges.filter(edge => !selectedIds.has(edge.from) && !selectedIds.has(edge.to)),
+      dismissed: graph.dismissed.filter(edge => !selectedIds.has(edge.from) && !selectedIds.has(edge.to)),
+    });
+
+    const ssotRoot = vscode.Uri.file(path.join(context.workspaceRoot, context.ssotPath));
+    await this.atlas.memoryManager.loadFromDisk(ssotRoot);
+    this.atlas.memoryRefresh.fire();
+    await this.syncState();
+    void vscode.window.showInformationMessage(
+      `Removed ${selected.length} selected roadmap ${selected.length === 1 ? 'entry' : 'entries'} and their graph metadata. Source plans were not changed.`,
+    );
+  }
+
+  /**
    * Read somebody else's roadmap into this one.
    *
    * The webview asks for an import and says nothing else. Every detail — which
@@ -13404,7 +14609,7 @@ ${buildCardEvidenceSection(source, derivation)}`;
     });
 
     const plan = planRoadmapImport(read, existingLines);
-    if (plan.counts.add === 0 && plan.counts.update === 0) {
+    if (plan.counts.add === 0 && plan.counts.adopt === 0 && plan.counts.update === 0) {
       await vscode.window.showInformationMessage(
         plan.summary,
         { modal: true, detail: describeRoadmapImportDetail(plan) },
@@ -13412,7 +14617,7 @@ ${buildCardEvidenceSection(source, derivation)}`;
       return;
     }
 
-    const changing = plan.counts.add + plan.counts.update;
+    const changing = plan.counts.add + plan.counts.adopt + plan.counts.update;
     const confirmation = await vscode.window.showWarningMessage(
       `Import ${changing} roadmap item${changing === 1 ? '' : 's'}?`,
       { modal: true, detail: describeRoadmapImportDetail(plan) },
@@ -13639,18 +14844,21 @@ ${buildCardEvidenceSection(source, derivation)}`;
     read: RoadmapImportRead,
     plan: RoadmapImportPlan,
   ): Promise<void> {
-    const updates = new Map<string, string>();
+    const updates = new Map<string, { text: string; completed: boolean }>();
     for (const entry of plan.entries) {
-      if (entry.outcome === 'update' && entry.existing !== undefined && entry.nextText !== undefined) {
-        updates.set(normalizeRoadmapText(entry.existing.text), entry.nextText);
+      if (entry.outcome === 'update' && entry.existing !== undefined) {
+        updates.set(normalizeRoadmapText(entry.existing.text), {
+          text: entry.nextText ?? entry.existing.text,
+          completed: entry.nextCompleted ?? entry.existing.completed,
+        });
       }
     }
 
     const kept = context.items.map(item => {
       const next = updates.get(normalizeRoadmapText(item.text));
       return {
-        text: next ?? item.text,
-        completed: item.completed,
+        text: next?.text ?? item.text,
+        completed: next?.completed ?? item.completed,
         gates: item.gates,
         ...(item.nodeId === undefined ? {} : { nodeId: item.nodeId }),
       };
@@ -13659,12 +14867,18 @@ ${buildCardEvidenceSection(source, derivation)}`;
       .filter(entry => entry.outcome === 'add' && entry.item !== undefined)
       .map(entry => ({ text: entry.item!.title, completed: entry.item!.completed, gates: [] as string[] }));
 
-    await fs.mkdir(path.dirname(context.filePath), { recursive: true });
-    await fs.writeFile(
-      context.filePath,
-      serializeDashboardRoadmapDocument(context.existing, [...kept, ...added], normalizeGates(context.gates)),
-      'utf-8',
-    );
+    // An adoption only records provenance in the graph. Re-serializing an
+    // otherwise identical backlog would still be a material edit (the writer
+    // groups active and completed rows), so do not touch the canonical file
+    // unless source content or checkbox state actually changes.
+    if (updates.size > 0 || added.length > 0) {
+      await fs.mkdir(path.dirname(context.filePath), { recursive: true });
+      await fs.writeFile(
+        context.filePath,
+        serializeDashboardRoadmapDocument(context.existing, [...kept, ...added], normalizeGates(context.gates)),
+        'utf-8',
+      );
+    }
 
     // Re-open so the new lines are anchored, then record where each came from.
     const graphContext = await this.openRoadmapGraphForWrite();
@@ -13680,7 +14894,7 @@ ${buildCardEvidenceSection(source, derivation)}`;
       const stamped = new Date().toISOString();
       for (const entry of plan.entries) {
         const item = entry.item;
-        if ((entry.outcome !== 'add' && entry.outcome !== 'update') || item === undefined) {
+        if ((entry.outcome !== 'add' && entry.outcome !== 'adopt' && entry.outcome !== 'update') || item === undefined) {
           continue;
         }
         const nodeId = idByText.get(normalizeRoadmapText(item.title));
@@ -13729,12 +14943,23 @@ ${buildCardEvidenceSection(source, derivation)}`;
       `Add ${suggestions.length} inferred dependenc${suggestions.length === 1 ? 'y' : 'ies'} to the roadmap?`,
       {
         modal: true,
-        detail: [
-          preview,
-          suggestions.length > 3 ? `…and ${suggestions.length - 3} more.` : '',
-          '',
-          'These are inferred from the wording of your backlog items, not from anything you told AtlasMind. Each one is recorded with the rule that produced it, and any of them can be removed afterwards.',
-        ].filter(Boolean).join('\n'),
+        detail: formatRoadmapDialogSections([
+          {
+            heading: 'Proposed order',
+            lines: [
+              ...preview.split('\n'),
+              ...(suggestions.length > 3 ? [`…and ${suggestions.length - 3} more`] : []),
+            ],
+          },
+          {
+            heading: 'Evidence',
+            lines: ['These links are inferred from backlog wording, not from a dependency you declared.'],
+          },
+          {
+            heading: 'Control',
+            lines: ['Each link keeps the rule that produced it and can be removed afterwards.'],
+          },
+        ]),
       },
       'Add them',
     );
@@ -16448,6 +17673,70 @@ function isOpaqueDashboardId(value: unknown): boolean {
   return typeof value === 'string' && value.trim().length > 0 && value.length <= 600;
 }
 
+function isOptionalBoundedDashboardText(value: unknown, max: number): boolean {
+  return value === undefined || (typeof value === 'string' && value.length <= max);
+}
+
+function isReleaseMatrixFileLinkList(value: unknown): boolean {
+  return value === undefined || (Array.isArray(value)
+    && value.length <= 12
+    && value.every(entry => typeof entry === 'string' && entry.length <= 400));
+}
+
+function isReleaseMatrixTierPayload(value: unknown): value is ReleaseMatrixTierDraft {
+  if (typeof value !== 'object' || value === null || Array.isArray(value)) return false;
+  const candidate = value as Record<string, unknown>;
+  return isOptionalBoundedDashboardText(candidate['id'], 48)
+    && typeof candidate['name'] === 'string' && candidate['name'].trim().length > 0 && candidate['name'].length <= 120
+    && typeof candidate['kind'] === 'string' && RELEASE_MATRIX_TIER_KINDS.includes(candidate['kind'] as typeof RELEASE_MATRIX_TIER_KINDS[number])
+    && typeof candidate['status'] === 'string' && RELEASE_MATRIX_STATUSES.includes(candidate['status'] as typeof RELEASE_MATRIX_STATUSES[number])
+    && isOptionalBoundedDashboardText(candidate['releaseDate'], 10)
+    && isOptionalBoundedDashboardText(candidate['pricing'], 240)
+    && isOptionalBoundedDashboardText(candidate['notes'], 1_500)
+    && isReleaseMatrixFileLinkList(candidate['fileLinks']);
+}
+
+function isReleaseMatrixFeaturePayload(value: unknown): value is ReleaseMatrixFeatureDraft {
+  if (typeof value !== 'object' || value === null || Array.isArray(value)) return false;
+  const candidate = value as Record<string, unknown>;
+  return isOptionalBoundedDashboardText(candidate['id'], 48)
+    && typeof candidate['name'] === 'string' && candidate['name'].trim().length > 0 && candidate['name'].length <= 160
+    && typeof candidate['status'] === 'string' && RELEASE_MATRIX_STATUSES.includes(candidate['status'] as typeof RELEASE_MATRIX_STATUSES[number])
+    && isOptionalBoundedDashboardText(candidate['group'], 80)
+    && isOptionalBoundedDashboardText(candidate['notes'], 1_500)
+    && isReleaseMatrixFileLinkList(candidate['fileLinks']);
+}
+
+function isReleaseMatrixCellPayload(value: unknown): value is ReleaseMatrixCellDraft {
+  if (typeof value !== 'object' || value === null || Array.isArray(value)) return false;
+  const candidate = value as Record<string, unknown>;
+  return typeof candidate['tierId'] === 'string' && candidate['tierId'].length <= 48
+    && typeof candidate['featureId'] === 'string' && candidate['featureId'].length <= 48
+    && typeof candidate['status'] === 'string' && RELEASE_MATRIX_CELL_STATUSES.includes(candidate['status'] as typeof RELEASE_MATRIX_CELL_STATUSES[number])
+    && isOptionalBoundedDashboardText(candidate['parameters'], 1_000)
+    && isReleaseMatrixFileLinkList(candidate['fileLinks']);
+}
+
+function isReleaseMatrixImportPayload(value: unknown): value is { previewId: string; selections: ReleaseDesignImportSelection[] } {
+  if (typeof value !== 'object' || value === null || Array.isArray(value)) return false;
+  const candidate = value as Record<string, unknown>;
+  if (typeof candidate['previewId'] !== 'string' || candidate['previewId'].length > 64
+      || !Array.isArray(candidate['selections']) || candidate['selections'].length > 250) return false;
+  const ids = new Set<string>();
+  for (const raw of candidate['selections']) {
+    if (typeof raw !== 'object' || raw === null || Array.isArray(raw)) return false;
+    const selection = raw as Record<string, unknown>;
+    const featureImportId = selection['featureImportId'];
+    if (typeof featureImportId !== 'string' || !/^[a-z0-9][a-z0-9-]{0,47}$/.test(featureImportId)
+        || ids.has(featureImportId)
+        || typeof selection['include'] !== 'boolean'
+        || typeof selection['linkRoadmap'] !== 'boolean'
+        || typeof selection['linkIssue'] !== 'boolean') return false;
+    ids.add(featureImportId);
+  }
+  return true;
+}
+
 /**
  * One `{ nodeId, x, y }`, however it arrived.
  *
@@ -16471,7 +17760,7 @@ export function isProjectDashboardMessage(message: unknown): message is ProjectD
   if (candidate['type'] === 'saveBranchPreferences') {
     return normalizeBranchDashboardPreferences(candidate['payload']) !== undefined;
   }
-  if (candidate['type'] === 'ready' || candidate['type'] === 'refresh' || candidate['type'] === 'fetchBranches' || candidate['type'] === 'runGapAnalysis' || candidate['type'] === 'markDeliveryReviewed' || candidate['type'] === 'reimportDelivery' || candidate['type'] === 'seedDirectorFromRepo' || candidate['type'] === 'seedDocumentsFromRepo' || candidate['type'] === 'createRoadmapGate' || candidate['type'] === 'importRoadmap' || candidate['type'] === 'recordVitalFileOwners' || candidate['type'] === 'discussDashboardError') {
+  if (candidate['type'] === 'ready' || candidate['type'] === 'refresh' || candidate['type'] === 'fetchBranches' || candidate['type'] === 'runGapAnalysis' || candidate['type'] === 'markDeliveryReviewed' || candidate['type'] === 'reimportDelivery' || candidate['type'] === 'seedDirectorFromRepo' || candidate['type'] === 'seedDocumentsFromRepo' || candidate['type'] === 'createRoadmapGate' || candidate['type'] === 'importRoadmap' || candidate['type'] === 'scanReleaseMatrixDocuments' || candidate['type'] === 'checkRoadmapIntegrity' || candidate['type'] === 'recordVitalFileOwners' || candidate['type'] === 'discussDashboardError') {
     return true;
   }
 
@@ -16482,6 +17771,9 @@ export function isProjectDashboardMessage(message: unknown): message is ProjectD
     || candidate['type'] === 'openBranchChangeStory'
     || candidate['type'] === 'reviewBranchCleanup'
     || candidate['type'] === 'openBranchPullRequest'
+    || candidate['type'] === 'createReleaseRoadmapGate'
+    || candidate['type'] === 'discussPublicRelease'
+    || candidate['type'] === 'openPublicRelease'
     // A version-strip pill id. Resolved against the strip this panel last sent,
     // so the branch git is handed never comes from the webview.
     || candidate['type'] === 'versionPillCheckout'
@@ -16491,6 +17783,38 @@ export function isProjectDashboardMessage(message: unknown): message is ProjectD
     return typeof candidate['payload'] === 'string'
       && candidate['payload'].length > 0
       && candidate['payload'].length <= 600;
+  }
+
+  if (candidate['type'] === 'saveReleaseMatrixTier') {
+    return isReleaseMatrixTierPayload(candidate['payload']);
+  }
+  if (candidate['type'] === 'saveReleaseMatrixFeature') {
+    return isReleaseMatrixFeaturePayload(candidate['payload']);
+  }
+  if (candidate['type'] === 'saveReleaseMatrixCell') {
+    return isReleaseMatrixCellPayload(candidate['payload']);
+  }
+  if (candidate['type'] === 'deleteReleaseMatrixEntity'
+    || candidate['type'] === 'addReleaseMatrixRoadmap'
+    || candidate['type'] === 'removeReleaseMatrixRoadmap'
+    || candidate['type'] === 'openReleaseMatrixRoadmap') {
+    return parseReleaseMatrixEntityKey(candidate['payload']) !== undefined;
+  }
+  if (candidate['type'] === 'openReleaseMatrixFile'
+    || candidate['type'] === 'openReleaseMatrixIssue'
+    || candidate['type'] === 'removeReleaseMatrixIssue') {
+    const payload = candidate['payload'] as Record<string, unknown> | undefined;
+    const ref = typeof payload === 'object' && payload !== null
+      ? parseReleaseMatrixEntityKey(payload['entityKey'])
+      : undefined;
+    return typeof payload === 'object' && payload !== null
+      && ref !== undefined
+      && (candidate['type'] === 'openReleaseMatrixFile' || ref.kind === 'feature')
+      && typeof payload['index'] === 'number' && Number.isInteger(payload['index'])
+      && payload['index'] >= 0 && payload['index'] < 12;
+  }
+  if (candidate['type'] === 'applyReleaseMatrixImport') {
+    return isReleaseMatrixImportPayload(candidate['payload']);
   }
 
   if (candidate['type'] === 'runBranchWorkflow') {
@@ -17762,6 +19086,136 @@ function buildReleaseGateView(gates: readonly ReleaseGate[]): DashboardReleaseGa
   };
 }
 
+function releaseValueTier(tagName: string): DashboardReleaseValueTier {
+  const match = /^v?(\d+)\.(\d+)\.(\d+)(?:[-+].*)?$/i.exec(tagName.trim());
+  if (match === null) {
+    return 'custom';
+  }
+  const major = Number(match[1]);
+  const minor = Number(match[2]);
+  const patch = Number(match[3]);
+  if (major > 0 && minor === 0 && patch === 0) {
+    return 'major';
+  }
+  if (patch === 0) {
+    return 'minor';
+  }
+  return 'patch';
+}
+
+function releasePublishedTime(release: MetricReleaseInput): number {
+  const parsed = Date.parse(release.publishedAt ?? release.createdAt ?? '');
+  return Number.isFinite(parsed) ? parsed : 0;
+}
+
+/**
+ * Join public release records to roadmap gates and design-plan evidence.
+ *
+ * A missing gate deliberately leaves `progress` absent. Showing 0% would claim
+ * a plan exists and none of it is done; the observed fact is that no plan was
+ * declared for that version at all.
+ */
+export function buildPublicReleasePortfolio(
+  releases: readonly MetricReleaseInput[],
+  roadmap: Pick<DashboardRoadmapSnapshot, 'gates' | 'gateRoutes' | 'graph'>,
+): DashboardReleasePortfolio {
+  const publicReleases = releases
+    .filter(release => !release.isDraft)
+    .slice()
+    .sort((left, right) => releasePublishedTime(right) - releasePublishedTime(left)
+      || right.tagName.localeCompare(left.tagName));
+  const newestStableTag = publicReleases.find(release => !release.isPrerelease)?.tagName;
+  const graphNodes = [...roadmap.graph.active, ...roadmap.graph.completed];
+  const nodesByItemId = new Map(graphNodes.map(node => [node.itemId, node]));
+
+  const entries = publicReleases.map((release): DashboardReleasePortfolioEntry => {
+    const expectedGateId = slugifyGateId(release.tagName);
+    const gate = roadmap.gates.find(candidate => candidate.id === expectedGateId)
+      ?? roadmap.gates.find(candidate => slugifyGateId(candidate.label) === expectedGateId);
+    const route = gate === undefined ? undefined : roadmap.gateRoutes[gate.id];
+    const fullRoadmapItems = (route?.route ?? []).map(step => {
+      const node = nodesByItemId.get(step.id);
+      return {
+        nodeId: node?.id ?? step.id,
+        text: step.text,
+        completed: step.completed,
+        hasPlan: Boolean(node?.planPath),
+      };
+    });
+    const progress = route === undefined ? undefined : {
+      completed: route.completedCount,
+      total: route.totalCount,
+      percent: route.progressPercent,
+    };
+    let suggestion: string;
+    if (gate === undefined) {
+      suggestion = expectedGateId
+        ? `Create the ${release.tagName} gate, then tag the roadmap items that defined its value.`
+        : 'This tag cannot become a roadmap gate automatically; add a gate with a plain-language name.';
+    } else if ((route?.totalCount ?? 0) === 0) {
+      suggestion = `The ${gate.label} gate exists but has no roadmap items. Tag the work that defined this version.`;
+    } else if ((route?.completedCount ?? 0) < (route?.totalCount ?? 0)) {
+      suggestion = route?.nextStep
+        ? `Review the ${route.totalCount - route.completedCount} unfinished milestone${route.totalCount - route.completedCount === 1 ? '' : 's'}; next is “${route.nextStep.text}”.`
+        : 'Review the unfinished roadmap milestones attached to this version.';
+    } else if (fullRoadmapItems.some(item => !item.hasPlan)) {
+      suggestion = 'The tracked milestones are complete; file the missing design plans so the release decision remains reviewable.';
+    } else {
+      suggestion = 'The tracked gate is complete with filed plans; compare the release notes and observed outcomes before reusing this pattern.';
+    }
+
+    return {
+      tagName: release.tagName,
+      name: release.name?.trim() || release.tagName,
+      ...(release.publishedAt === undefined ? {} : { publishedAt: release.publishedAt }),
+      channel: release.isPrerelease ? 'preview' : 'stable',
+      valueTier: releaseValueTier(release.tagName),
+      isLatest: release.isLatest === true || (release.isLatest !== false && release.tagName === newestStableTag),
+      isImmutable: release.isImmutable === true,
+      gateId: gate?.id ?? expectedGateId,
+      gateLabel: gate?.label ?? release.tagName,
+      gateExists: gate !== undefined,
+      ...(progress === undefined ? {} : { progress }),
+      roadmapItems: fullRoadmapItems.slice(0, 8),
+      filedPlanCount: fullRoadmapItems.filter(item => item.hasPlan).length,
+      suggestion,
+    };
+  });
+  const stableCount = entries.filter(entry => entry.channel === 'stable').length;
+  const previewCount = entries.length - stableCount;
+  const gatedCount = entries.filter(entry => entry.gateExists).length;
+  const plannedCount = entries.filter(entry => (entry.progress?.total ?? 0) > 0).length;
+  return {
+    entries,
+    publicCount: entries.length,
+    stableCount,
+    previewCount,
+    gatedCount,
+    plannedCount,
+    summary: entries.length === 0
+      ? 'No public releases were returned. Drafts are not counted as public versions.'
+      : `${entries.length} public version${entries.length === 1 ? '' : 's'} · ${gatedCount} with a roadmap gate · ${plannedCount} with a tracked release path.`,
+  };
+}
+
+/** A bounded, evidence-labelled prompt reconstructed by the extension host. */
+export function buildPublicReleaseReviewPrompt(release: DashboardReleasePortfolioEntry): string {
+  const progress = release.progress === undefined
+    ? 'No matching roadmap gate is declared, so progress is not measurable.'
+    : `${release.progress.completed} of ${release.progress.total} roadmap milestones are complete (${release.progress.percent}%).`;
+  const items = release.roadmapItems.length === 0
+    ? 'No roadmap items are linked to this version.'
+    : release.roadmapItems.map((item, index) => `${index + 1}. [${item.completed ? 'complete' : 'open'}] ${item.text}${item.hasPlan ? ' (filed plan)' : ' (no filed plan)'}`).join('\n');
+  return [
+    `Review public release ${release.tagName} (${release.channel}, ${release.valueTier} value tier).`,
+    `Observed status: ${release.publishedAt ? `published ${release.publishedAt.slice(0, 10)}` : 'publication date unavailable'}; ${release.isLatest ? 'marked as the latest stable release' : 'not marked latest'}; ${release.isImmutable ? 'GitHub reports it immutable' : 'immutability not reported'}.`,
+    `Roadmap evidence: ${progress} ${release.filedPlanCount} linked milestone${release.filedPlanCount === 1 ? ' has' : 's have'} a filed design plan.`,
+    items,
+    `Deterministic dashboard suggestion: ${release.suggestion}`,
+    'Using only this evidence and the repository files available to you, assess the version status, identify the most important design or roadmap gap, and give three concise next suggestions. Distinguish observed facts from inference and do not claim missing evidence is complete.',
+  ].join('\n\n');
+}
+
 function buildReleaseSnapshot(input: {
   packageVersion: string;
   changelog?: string;
@@ -17770,6 +19224,7 @@ function buildReleaseSnapshot(input: {
   commitSubjects: readonly string[];
   ciConclusion?: 'success' | 'failure' | 'pending' | 'none';
   releases?: readonly MetricReleaseInput[];
+  roadmap: Pick<DashboardRoadmapSnapshot, 'gates' | 'gateRoutes' | 'graph'>;
   pullRequests?: readonly PullRequestRecord[];
   /**
    * The testing coverage the Testing page already derived. Absent when it was
@@ -17844,6 +19299,7 @@ function buildReleaseSnapshot(input: {
 
   return {
     releases: [...(input.releases ?? [])],
+    portfolio: buildPublicReleasePortfolio(input.releases ?? [], input.roadmap),
     tags: [...(input.tags ?? [])],
     plan,
     planSummary: describeReleasePlan(plan),
@@ -18036,11 +19492,17 @@ export function parseGhReleaseList(raw: string): MetricReleaseInput[] {
       continue;
     }
     const publishedAt = typeof record['publishedAt'] === 'string' ? record['publishedAt'] : undefined;
+    const name = typeof record['name'] === 'string' ? record['name'].trim().slice(0, 200) : undefined;
+    const createdAt = typeof record['createdAt'] === 'string' ? record['createdAt'] : undefined;
     out.push({
       tagName,
+      ...(name === undefined || name.length === 0 ? {} : { name }),
+      ...(createdAt === undefined ? {} : { createdAt }),
       ...(publishedAt === undefined ? {} : { publishedAt }),
       ...(record['isPrerelease'] === true ? { isPrerelease: true } : {}),
       ...(record['isDraft'] === true ? { isDraft: true } : {}),
+      ...(record['isLatest'] === true ? { isLatest: true } : {}),
+      ...(record['isImmutable'] === true ? { isImmutable: true } : {}),
     });
   }
   return out;
@@ -18341,6 +19803,69 @@ function collectWebsiteDelivery(workspaceRoot: string | undefined): DashboardWeb
   );
 }
 
+async function collectReleaseMatrixSnapshot(
+  workspaceRoot: string | undefined,
+  ssotPath: string,
+  roadmap: Pick<DashboardRoadmapSnapshot, 'graph'>,
+  issues?: readonly IssueRecord[],
+): Promise<DashboardReleaseMatrixSnapshot> {
+  const relativePath = `${ssotPath.replace(/\\/g, '/').replace(/\/$/, '')}/${RELEASE_MATRIX_RELATIVE_PATH}`;
+  const roadmapNodes = [...roadmap.graph.active, ...roadmap.graph.completed]
+    .map(node => ({ id: node.id, text: node.text, completed: node.completed }));
+  if (workspaceRoot === undefined) {
+    return {
+      ...buildReleaseMatrixSnapshot(emptyReleaseMatrixDocument(), roadmapNodes, issues),
+      path: relativePath,
+      exists: false,
+      loadFailure: 'Open a workspace to store an editions matrix.',
+    };
+  }
+  const absolutePath = path.join(workspaceRoot, ssotPath, RELEASE_MATRIX_RELATIVE_PATH);
+  let raw: string;
+  try {
+    raw = await fs.readFile(absolutePath, 'utf8');
+  } catch (error) {
+    if ((error as NodeJS.ErrnoException).code === 'ENOENT') {
+      return {
+        ...buildReleaseMatrixSnapshot(emptyReleaseMatrixDocument(), roadmapNodes, issues),
+        path: relativePath,
+        exists: false,
+      };
+    }
+    return {
+      ...buildReleaseMatrixSnapshot(emptyReleaseMatrixDocument(), roadmapNodes, issues),
+      path: relativePath,
+      exists: false,
+      loadFailure: 'The editions matrix could not be read.',
+    };
+  }
+  let parsed: unknown;
+  try {
+    parsed = JSON.parse(raw);
+  } catch {
+    return {
+      ...buildReleaseMatrixSnapshot(emptyReleaseMatrixDocument(), roadmapNodes, issues),
+      path: relativePath,
+      exists: true,
+      loadFailure: 'The editions matrix is not valid JSON. The file was left untouched.',
+    };
+  }
+  const reading = interpretReleaseMatrixDocument(parsed);
+  if (reading.kind !== 'ok') {
+    return {
+      ...buildReleaseMatrixSnapshot(reading.kind === 'invalid' ? reading.document : emptyReleaseMatrixDocument(), roadmapNodes, issues),
+      path: relativePath,
+      exists: true,
+      loadFailure: reading.notice,
+    };
+  }
+  return {
+    ...buildReleaseMatrixSnapshot(reading.document, roadmapNodes, issues),
+    path: relativePath,
+    exists: true,
+  };
+}
+
 async function collectDashboardSnapshot(
   atlas: AtlasMindContext,
   ideationAttachments: TaskImageAttachment[] = [],
@@ -18448,6 +19973,12 @@ async function collectDashboardSnapshot(
     loadIdeationBoard(workspaceRoot, ssotPath, activeIdeationWorkspace),
     collectRoadmapSnapshot(workspaceRoot, ssotPath),
   ]);
+  const editionsSnapshot = await collectReleaseMatrixSnapshot(
+    workspaceRoot,
+    ssotPath,
+    roadmapSnapshot,
+    issues.status === 'ready' ? issues.issues : undefined,
+  );
   const branchInventory = withConfiguredProtectedBranches(
     gitSnapshot.branchInventory,
     workflowConfigManager?.getConfig()?.branches.protected ?? [],
@@ -18921,6 +20452,7 @@ async function collectDashboardSnapshot(
     repositoryLabel: repoLabel,
     currentBranch: gitSnapshot.currentBranch,
     versions: versionSnapshot,
+    editions: editionsSnapshot,
     // Derived from the same stage views the Delivery page renders, so a stage
     // added there appears in the header without a second definition of what a
     // stage is — and the two surfaces cannot report different versions.
@@ -19078,6 +20610,7 @@ async function collectDashboardSnapshot(
     })(),
     release: buildReleaseSnapshot({
       packageVersion: packageSnapshot.version,
+      roadmap: roadmapWithBoard,
       ...(changelog === undefined ? {} : { changelog }),
       ...(localTags === undefined ? {} : { tags: localTags }),
       workingTreeClean: !gitSnapshot.dirty,
@@ -24881,46 +26414,73 @@ function buildMvpPlanPrompt(outstanding: DashboardMvpStep[], hasTaggedItems: boo
  * item again. Not an id: ids here are positional and renumber on insert.
  * Returns `undefined` when there is nothing to write to.
  */
+/** Native VS Code modal details are plain text, so hierarchy has to be explicit. */
+function formatRoadmapDialogSections(
+  sections: ReadonlyArray<{ heading: string; lines: readonly string[] }>,
+): string {
+  return sections
+    .filter(section => section.lines.length > 0)
+    .map(section => [
+      section.heading.toUpperCase(),
+      ...section.lines.map(line => `  • ${line.replace(/\n/g, '\n    ')}`),
+    ].join('\n'))
+    .join('\n\n');
+}
+
 /**
  * The detail block for an import confirmation.
  *
  * Every outcome is named, including the ones that change nothing. A dialog
  * reading "42 to add" is true and useless: the two facts somebody needs before
  * agreeing are what it would leave alone and what it could not read, and both
- * are exactly what a count of additions omits.
+ * are exactly what a count of additions omits. Section labels and bullets are
+ * intentional: VS Code does not render Markdown in modal `detail` text.
  */
 function describeRoadmapImportDetail(plan: RoadmapImportPlan): string {
   const sample = (outcome: RoadmapImportPlan['entries'][number]['outcome'], limit: number): string[] => {
     const matching = plan.entries.filter(entry => entry.outcome === outcome);
     const lines = matching.slice(0, limit).map(entry => {
       if (outcome === 'conflict') {
-        return `  • source: "${entry.item?.title ?? ''}"\n    yours:  "${entry.existing?.text ?? ''}"`;
+        const sourceState = entry.item?.completed ? '[x]' : '[ ]';
+        const localState = entry.existing?.completed ? '[x]' : '[ ]';
+        return `Source: ${sourceState} "${entry.item?.title ?? ''}"\nYours:  ${localState} "${entry.existing?.text ?? ''}"`;
       }
-      return `  • ${entry.item?.title ?? entry.existing?.text ?? ''}`;
+      const state = entry.item?.completed ?? entry.existing?.completed ? '[x]' : '[ ]';
+      return `${state} ${entry.item?.title ?? entry.existing?.text ?? ''}`;
     });
     return matching.length > limit
-      ? [...lines, `  • …and ${matching.length - limit} more`]
+      ? [...lines, `…and ${matching.length - limit} more`]
       : lines;
   };
 
-  return [
-    plan.summary,
-    ...(plan.counts.add > 0 ? ['', `Added (${plan.counts.add}):`, ...sample('add', 8)] : []),
-    ...(plan.counts.update > 0 ? ['', `Retitled from the source (${plan.counts.update}):`, ...sample('update', 6)] : []),
+  const changes = [
+    ...(plan.counts.add > 0 ? [`${plan.counts.add} to add`] : []),
+    ...(plan.counts.adopt > 0 ? [`${plan.counts.adopt} existing ${plan.counts.adopt === 1 ? 'item' : 'items'} to link to the source`] : []),
+    ...(plan.counts.update > 0 ? [`${plan.counts.update} to update`] : []),
+    ...(plan.counts.unchanged > 0 ? [`${plan.counts.unchanged} already up to date`] : []),
+  ];
+
+  return formatRoadmapDialogSections([
+    { heading: 'Source', lines: [plan.sourceLabel] },
+    { heading: 'Summary', lines: changes.length > 0 ? changes : ['No additions or updates'] },
+    ...(plan.counts.add > 0 ? [{ heading: `Add (${plan.counts.add})`, lines: sample('add', 8) }] : []),
+    ...(plan.counts.adopt > 0 ? [{ heading: `Link to source (${plan.counts.adopt})`, lines: sample('adopt', 8) }] : []),
+    ...(plan.counts.update > 0 ? [{ heading: `Update from source (${plan.counts.update})`, lines: sample('update', 6) }] : []),
     ...(plan.counts.conflict > 0
-      ? [
-        '',
-        `Changed on both sides — left alone (${plan.counts.conflict}):`,
-        ...sample('conflict', 4),
-      ]
+      ? [{ heading: `Needs a decision — left alone (${plan.counts.conflict})`, lines: sample('conflict', 4) }]
       : []),
     ...(plan.counts.missing > 0
-      ? ['', `No longer in the source — left on the roadmap (${plan.counts.missing}):`, ...sample('missing', 4)]
+      ? [{ heading: `Missing from source — left on roadmap (${plan.counts.missing})`, lines: sample('missing', 4) }]
       : []),
-    ...(plan.notes.length > 0 ? ['', 'Notes:', ...plan.notes.map(note => `  • ${note}`)] : []),
-    '',
-    'Nothing on this roadmap is deleted by an import.',
-  ].join('\n');
+    ...(plan.notes.length > 0 ? [{ heading: 'Notes', lines: plan.notes }] : []),
+    {
+      heading: 'Safety',
+      lines: [
+        'Imports never delete roadmap entries.',
+        'Cancelling this confirmation does not apply the listed import; roadmap anchors and managed agent instructions are maintained separately during Dashboard setup.',
+      ],
+    },
+  ]);
 }
 
 /**
@@ -28444,6 +30004,194 @@ const DASHBOARD_CSS = `
   .wf-gate-pass { border-left-color: color-mix(in srgb, var(--dash-good) 55%, transparent); }
   .wf-gate-actions { margin-top: 7px; }
 
+  /* Planned public offerings. The table is the relationship itself: rows are
+     capabilities, columns are tiers/add-ons, and an absent cell remains visibly
+     unknown rather than being styled like an exclusion somebody chose. */
+  .edition-toolbar-card, .edition-matrix-card, .edition-editor, .edition-import-preview { grid-column: 1 / -1; }
+  .edition-toolbar-card { display: grid; gap: 12px; }
+  .edition-filters { display: grid; grid-template-columns: minmax(240px, 1fr) auto; gap: 10px; align-items: center; }
+  .edition-filters .segmented { justify-self: end; max-width: 100%; overflow-x: auto; }
+  .edition-editor { border-color: color-mix(in srgb, var(--dash-accent-strong) 55%, var(--dash-border)); }
+  .edition-editor h3 { margin: 3px 0 0; }
+  .edition-editor-actions { margin-top: 12px; align-items: center; }
+  .edition-import-preview { display: grid; gap: 12px; border-color: color-mix(in srgb, var(--dash-accent-strong) 45%, var(--dash-border)); }
+  .edition-import-preview h3 { margin: 3px 0 0; font-size: 13px; overflow-wrap: anywhere; }
+  .edition-import-tier-list { display: flex; flex-wrap: wrap; gap: 6px; }
+  .edition-import-feature-list { display: grid; gap: 7px; max-height: 440px; overflow: auto; padding-right: 4px; }
+  .edition-import-feature {
+    display: grid; grid-template-columns: minmax(180px, 0.72fr) minmax(260px, 1.28fr); gap: 12px;
+    padding: 9px 10px; border: 1px solid var(--dash-border); border-radius: 8px;
+    background: color-mix(in srgb, var(--dash-border) 12%, transparent);
+  }
+  .edition-import-feature.is-excluded { opacity: 0.58; }
+  .edition-import-include, .edition-import-matches label { display: flex; gap: 7px; align-items: flex-start; cursor: pointer; }
+  .edition-import-include input, .edition-import-matches input { margin-top: 2px; }
+  .edition-import-include span { display: grid; gap: 3px; }
+  .edition-import-include small { color: var(--dash-muted); font-weight: 400; }
+  .edition-import-matches { display: grid; gap: 6px; min-width: 0; font-size: 10px; }
+  .edition-import-matches label { min-width: 0; overflow-wrap: anywhere; }
+  .edition-editor .stage-edit-field input[type="date"] {
+    width: 100%; box-sizing: border-box; padding: 7px 9px; border-radius: 6px;
+    border: 1px solid var(--vscode-input-border, var(--dash-border));
+    background: var(--vscode-input-background); color: var(--vscode-input-foreground); font: inherit;
+  }
+  .edition-insight-grid { grid-template-columns: minmax(0, 0.9fr) minmax(0, 1.1fr); }
+  .edition-distribution {
+    display: flex; height: 12px; margin-top: 13px; overflow: hidden;
+    border: 1px solid var(--dash-border); border-radius: 999px;
+    background: color-mix(in srgb, var(--dash-border) 35%, transparent);
+  }
+  .edition-distribution-segment { display: block; min-width: 3px; }
+  .edition-distribution-legend { display: flex; flex-wrap: wrap; gap: 6px 12px; margin-top: 9px; font-size: 10px; color: var(--dash-muted); }
+  .edition-distribution-legend span { display: inline-flex; align-items: center; gap: 5px; }
+  .edition-distribution-legend i { width: 8px; height: 8px; border-radius: 50%; }
+  .edition-skyline { display: grid; gap: 9px; margin-top: 8px; }
+  .edition-skyline-card { display: grid; gap: 6px; }
+  .edition-skyline-card .row-head { font-size: 11px; }
+  .edition-skyline-card .row-head span { color: var(--dash-muted); }
+  .edition-meter { height: 6px; overflow: hidden; border-radius: 999px; background: color-mix(in srgb, var(--dash-border) 55%, transparent); }
+  .edition-meter span { display: block; height: 100%; border-radius: inherit; background: var(--dash-accent-strong); }
+  .edition-skyline-facts { display: flex; flex-wrap: wrap; gap: 8px 14px; font-size: 10px; color: var(--dash-muted); }
+  .edition-matrix-card { padding: 0; overflow: hidden; }
+  .edition-matrix-scroll { max-width: 100%; overflow: auto; }
+  .edition-matrix-table {
+    width: max-content; min-width: 100%; border-collapse: separate; border-spacing: 0;
+    font-size: 11px; table-layout: fixed;
+  }
+  .edition-matrix-table th, .edition-matrix-table td {
+    width: 230px; min-width: 230px; padding: 11px; text-align: left; vertical-align: top;
+    border-right: 1px solid var(--dash-border); border-bottom: 1px solid var(--dash-border);
+    background: var(--dash-panel);
+  }
+  .edition-matrix-table tr:last-child th, .edition-matrix-table tr:last-child td { border-bottom: 0; }
+  .edition-matrix-table th:last-child, .edition-matrix-table td:last-child { border-right: 0; }
+  .edition-feature-heading {
+    position: sticky; left: 0; z-index: 2; width: 260px !important; min-width: 260px !important;
+    background: color-mix(in srgb, var(--dash-panel) 94%, var(--dash-accent-strong)) !important;
+  }
+  thead .edition-feature-heading { z-index: 4; }
+  .edition-corner { display: flex; justify-content: space-between; align-items: center; }
+  .edition-tier-heading { background: color-mix(in srgb, var(--dash-panel) 94%, var(--dash-accent)) !important; }
+  .edition-tier-title, .edition-feature-title { display: flex; flex-wrap: wrap; align-items: center; gap: 6px; margin-bottom: 6px; }
+  .edition-tier-title { flex-direction: column; align-items: flex-start; }
+  .edition-tier-title strong, .edition-feature-title strong { font-size: 12px; }
+  .edition-tier-fact { display: block; margin-top: 5px; color: var(--dash-muted); font-weight: 400; }
+  .edition-feature-heading p { margin: 7px 0 0; color: var(--dash-muted); font-size: 10px; font-weight: 400; line-height: 1.45; }
+  .edition-heading-actions { display: flex; flex-wrap: wrap; gap: 5px; align-items: center; margin-top: 9px; }
+  .icon-button {
+    width: 24px; height: 24px; padding: 0; border: 1px solid var(--dash-border); border-radius: 6px;
+    background: transparent; color: var(--dash-muted); font: inherit; line-height: 1; cursor: pointer;
+  }
+  .icon-button:hover { border-color: var(--dash-accent-strong); color: var(--vscode-foreground); }
+  .icon-button.danger { background: transparent; color: var(--dash-critical); }
+  .edition-add-column { width: 90px !important; min-width: 90px !important; text-align: center !important; }
+  .edition-cell-wrap { padding: 8px !important; }
+  .edition-cell-main {
+    width: 100%; min-height: 70px; padding: 9px; display: grid; align-content: start; gap: 6px;
+    text-align: left; color: var(--vscode-foreground); border: 1px solid var(--dash-border);
+    border-radius: 8px; background: color-mix(in srgb, var(--dash-border) 18%, transparent); cursor: pointer;
+  }
+  .edition-cell-main:hover { border-color: var(--dash-accent-strong); background: color-mix(in srgb, var(--dash-accent-strong) 8%, transparent); }
+  .edition-cell-main:focus-visible { outline: 2px solid var(--vscode-focusBorder); outline-offset: 2px; }
+  .edition-cell-status { font-size: 10px; font-weight: 700; letter-spacing: 0.04em; text-transform: uppercase; }
+  .edition-cell-parameters { color: var(--dash-muted); line-height: 1.35; overflow-wrap: anywhere; }
+  .edition-cell-actions { display: flex; flex-wrap: wrap; gap: 4px; margin-top: 6px; }
+  .edition-file-links { display: grid; gap: 3px; margin-top: 6px; }
+  .edition-file-link {
+    width: 100%; padding: 2px 0; border: 0; background: transparent; color: var(--vscode-textLink-foreground);
+    font: inherit; font-size: 10px; text-align: left; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; cursor: pointer;
+  }
+  .edition-file-link:hover { text-decoration: underline; }
+  .edition-roadmap-actions { display: inline-flex; gap: 3px; align-items: center; }
+  .edition-issue-actions { display: inline-flex; flex-wrap: wrap; gap: 3px; margin-top: 5px; }
+  .edition-issue-action { display: inline-flex; align-items: center; gap: 2px; }
+  .edition-compact-action { font-size: 10px; padding: 2px 5px; }
+  .edition-roadmap-missing { color: var(--dash-warn); }
+  .edition-cell-main.status-released, .edition-cell-main.status-ready { border-color: color-mix(in srgb, var(--dash-good) 55%, var(--dash-border)); }
+  .edition-cell-main.status-blocked { border-color: color-mix(in srgb, var(--dash-critical) 65%, var(--dash-border)); }
+  .edition-cell-main.status-not-offered { opacity: 0.72; background: repeating-linear-gradient(135deg, transparent 0 7px, color-mix(in srgb, var(--dash-border) 35%, transparent) 7px 9px); }
+  .edition-cell-main.status-unknown { border-style: dashed; opacity: 0.78; }
+  .edition-distribution-segment.status-released, .edition-distribution-legend .status-released { background: var(--dash-good); }
+  .edition-distribution-segment.status-ready, .edition-distribution-legend .status-ready { background: color-mix(in srgb, var(--dash-good) 65%, var(--dash-accent-strong)); }
+  .edition-distribution-segment.status-in-progress, .edition-distribution-legend .status-in-progress { background: var(--dash-accent-strong); }
+  .edition-distribution-segment.status-planned, .edition-distribution-legend .status-planned { background: var(--dash-warn); }
+  .edition-distribution-segment.status-blocked, .edition-distribution-legend .status-blocked { background: var(--dash-critical); }
+  .edition-distribution-segment.status-not-offered, .edition-distribution-legend .status-not-offered { background: var(--dash-muted); }
+  .edition-distribution-segment.status-unknown, .edition-distribution-legend .status-unknown { background: color-mix(in srgb, var(--dash-border) 80%, transparent); }
+  @media (max-width: 900px) {
+    .edition-filters, .edition-insight-grid { grid-template-columns: 1fr; }
+    .edition-filters .segmented { justify-self: stretch; }
+    .edition-import-feature { grid-template-columns: 1fr; }
+    .edition-feature-heading { width: 210px !important; min-width: 210px !important; }
+    .edition-matrix-table th, .edition-matrix-table td { width: 200px; min-width: 200px; }
+  }
+
+  /* Public versions are a portfolio, not a second flat release log. Details
+     keep a hundred fetched releases navigable while the summary still carries
+     the evidence that lets somebody choose which one to inspect. */
+  .release-portfolio-card { grid-column: 1 / -1; }
+  .release-portfolio-metrics { margin: 8px 0 4px; }
+  .release-version-list { display: grid; gap: 10px; margin-top: 14px; }
+  .release-version-card {
+    border: 1px solid var(--dash-border);
+    border-radius: var(--dash-radius);
+    background: color-mix(in srgb, var(--vscode-editor-background) 82%, var(--dash-panel));
+    overflow: clip;
+  }
+  .release-version-card.is-latest { border-color: color-mix(in srgb, var(--dash-good) 55%, var(--dash-border)); }
+  .release-version-card > summary {
+    cursor: pointer;
+    display: grid;
+    grid-template-columns: minmax(150px, 0.8fr) auto minmax(220px, 1.4fr);
+    align-items: center;
+    gap: 10px 16px;
+    padding: 13px 14px;
+    list-style-position: inside;
+  }
+  .release-version-card > summary:hover { background: color-mix(in srgb, var(--dash-accent-strong) 6%, transparent); }
+  .release-version-heading { display: inline-flex; align-items: baseline; gap: 8px; min-width: 0; }
+  .release-version-heading strong { overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+  .release-version-heading code { color: var(--dash-muted); font-size: 11px; }
+  .release-version-badges { display: inline-flex; gap: 5px; flex-wrap: wrap; justify-content: flex-end; }
+  .release-version-summary { color: var(--dash-muted); font-size: 11px; }
+  .release-version-progress {
+    grid-column: 1 / -1;
+    height: 5px;
+    border-radius: 999px;
+    background: color-mix(in srgb, var(--dash-border) 70%, transparent);
+    overflow: hidden;
+  }
+  .release-version-progress > span {
+    display: block;
+    height: 100%;
+    border-radius: inherit;
+    background: var(--dash-accent-strong);
+  }
+  .release-version-progress.is-unknown {
+    background: repeating-linear-gradient(90deg, color-mix(in srgb, var(--dash-warn) 35%, transparent) 0 8px, transparent 8px 13px);
+  }
+  .release-version-body { padding: 0 14px 14px; border-top: 1px solid color-mix(in srgb, var(--dash-border) 60%, transparent); }
+  .release-version-body .mini-grid { margin-top: 12px; }
+  .release-version-items { display: grid; gap: 6px; margin-top: 12px; }
+  .release-version-item {
+    display: grid;
+    grid-template-columns: auto minmax(0, 1fr) auto;
+    align-items: center;
+    gap: 8px;
+    font-size: 12px;
+  }
+  .release-version-item-state.done { color: var(--dash-good); }
+  .release-version-item-state.open { color: var(--dash-warn); }
+  .release-version-suggestion {
+    margin: 12px 0 0;
+    padding: 9px 11px;
+    border-left: 2px solid color-mix(in srgb, var(--dash-accent-strong) 55%, var(--dash-border));
+    background: color-mix(in srgb, var(--dash-accent-strong) 6%, transparent);
+    font-size: 12px;
+    line-height: 1.5;
+  }
+  .release-version-actions { margin-top: 10px; }
+
   /* A classified CI failure and the lines that decided it. */
   .wf-ci-failure {
     margin-top: 10px;
@@ -31087,9 +32835,8 @@ const DASHBOARD_CSS = `
      background, for the reason the attention band already establishes: a wall of
      saturated cards reads as an alarm state even when most of them are fine. */
 
-  /* The view chips and the one action that belongs to the page rather than to a
-     view. Wraps as a unit, so on a narrow window the button drops beneath the
-     chips instead of squeezing them. */
+  /* The view chips and page-level actions wrap as units, so on a narrow window
+     the actions drop beneath the chips instead of squeezing them. */
   .rm-view-row {
     display: flex;
     flex-wrap: wrap;
@@ -31418,6 +33165,26 @@ const DASHBOARD_CSS = `
 
   .rm-add-item:hover {
     background: color-mix(in srgb, var(--dash-accent-strong) 88%, transparent);
+  }
+
+  .rm-view-actions {
+    display: inline-flex;
+    flex-wrap: wrap;
+    align-items: center;
+    justify-content: flex-end;
+    gap: 8px;
+  }
+
+  .rm-integrity-action {
+    color: var(--dash-muted);
+    background: transparent;
+    border-color: var(--dash-border);
+  }
+
+  .rm-integrity-action:hover {
+    color: var(--vscode-foreground);
+    background: color-mix(in srgb, var(--dash-panel) 70%, transparent);
+    border-color: var(--dash-accent-strong);
   }
 
   .rm-add-item:focus-visible {
@@ -33165,6 +34932,11 @@ const DASHBOARD_CSS = `
        it is a deliberate 0.95/1.05 split rather than repeating tracks. The
        rest reach one column on their own once the space is gone. */
     .score-summary-grid { grid-template-columns: 1fr; }
+    .release-version-card > summary { grid-template-columns: 1fr; }
+    .release-version-badges { justify-content: flex-start; }
+    .release-version-item { grid-template-columns: auto minmax(0, 1fr); }
+    .release-version-item .action-link,
+    .release-version-item .list-meta { grid-column: 2; justify-self: start; }
   }
 
   @keyframes dashBarRise {

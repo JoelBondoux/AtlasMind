@@ -28,7 +28,7 @@ to do*, or when you want to deliberately stop an agent doing something.
 |-------|-------------|
 | `git-status` · `git-diff` · `git-log` | See where things stand |
 | `git-commit` | Commit, with the message passed straight to git (no quoting problems). It can stage and exclusively commit up to 100 exact tracked or untracked paths while preserving unrelated staged entries; `.`, traversal, absolute paths and wildcards are refused. Allows up to 120s for your pre-commit hooks |
-| `git-push` | Push, with a protected-branch guard that refuses force-pushes to main, master, production, release and hotfix branches |
+| `git-push` | Push a named branch, or exactly one tag (`tag`), with a protected-branch guard that refuses force-pushes to main, master, production, release and hotfix branches. A named working branch can be approved by Autopilot; protected branches, tags, force and unnamed branches always ask. `terminal-run` refuses `git push` and points here |
 | `git-branch` | List branches (including only-merged-into-a-ref, the safe deletion candidates), create, switch, or delete — locally, force (`-D`), or on the remote. Refuses to delete protected branches |
 | `git-fetch` | Download new commits and refs, with `--prune` to drop remote-tracking refs whose branch is gone — the first step of a branch cleanup |
 | `git-pull` | Fetch and integrate, fast-forward-only by default so a routine sync can never invent a merge commit; rebase and merge modes are explicit choices |
@@ -163,6 +163,10 @@ Tool selection used to work word by word, so "merge to main then publish" was ha
 confident report rather than stopping. Merging, rebasing, cherry-picking and promoting now get the write
 tools together, as one job. Asking a question *about* a commit still doesn't hand over the ability to
 publish one, and every one of these tools stays behind its normal approval prompt.
+
+A request to move work *into* a protected branch — "promote staging to main", "merge develop into
+master" — also gets `gh`, and is told plainly: open a pull request, don't merge into the protected
+branch locally, and tag the release only after that pull request has merged.
 
 ### Your words are enforced, not just heard
 
@@ -413,12 +417,28 @@ Four rules, in `src/core/toolDiscovery.ts`:
   the agent may not use is not nameable — otherwise the model plans around one it can never call. Every
   authorization gate still applies at invocation.
 - **Already-sent tools are excluded**, or the model rediscovers what it holds and searches again.
-- **A miss is final and says so**, rather than reading like an error and inviting a reworded retry against
-  an unchanged pool.
+- **A miss is final for the installed pool and says so**, rather than reading like an error and inviting a
+  reworded retry against an unchanged pool. What happens next is the fall-through below.
 - **At most five tools per search**, so a broad query cannot undo the cap in one call.
 
 `shouldOfferToolDiscovery` withholds it in two cases: when nothing was withheld in the first place, and —
 importantly — when the turn was given **no** tools at all. Zero is a decision rather than a small number:
 Change Story mode clears the skill set so a committed-ref answer cannot be contaminated by the
 checked-out workspace, and a search there would let the model reacquire exactly what that mode withholds,
-against a different revision.
+against a different revision. A third argument, `externalSearchAvailable`, means `find-tool` is also
+offered when every installed skill was already sent, if the fall-through below is available — the
+zero-tools rule still wins.
+
+**When nothing installed matches, the search goes to Resource Discovery** (`src/core/capabilitySearch.ts`).
+The same query is sent to the Agent Finders the user has enabled, and up to five third-party candidates
+come back to the model and to the reply, each with a **Review & install** button. Four rules:
+
+- **Enabling a finder is the consent.** Finders ship disabled. With none enabled the model is told so and
+  told to point the user at Settings → Resource Discovery — silence would read as "no such tool exists",
+  which nobody checked.
+- **Only the query leaves the machine**, secret-redacted and clamped to 160 characters. Never file
+  contents, never the conversation.
+- **Discovery installs and grants nothing.** Installing is a separate act by a person, behind a modal that
+  names the finder, the source, and — for an MCP server — the exact command line or URL and the env var
+  names; the server is added switched off.
+- **A relevance score is not a trust rating**, and every result says so.

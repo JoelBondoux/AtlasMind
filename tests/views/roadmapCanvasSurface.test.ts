@@ -391,24 +391,60 @@ describe('importing somebody else‘s roadmap', () => {
     expect(HOST_PANEL).toContain("'Import them',");
     // And returns early when there is nothing to write, rather than asking to
     // confirm a no-op.
-    expect(HOST_PANEL).toContain('if (plan.counts.add === 0 && plan.counts.update === 0)');
+    expect(HOST_PANEL).toContain('if (plan.counts.add === 0 && plan.counts.adopt === 0 && plan.counts.update === 0)');
   });
 
   it('names what it would leave alone, not just what it would add', () => {
     // "42 to add" is true and useless: what it would leave alone and what it
     // could not read are exactly what a count of additions omits.
-    expect(HOST_PANEL).toContain('Changed on both sides — left alone');
-    expect(HOST_PANEL).toContain('No longer in the source — left on the roadmap');
-    expect(HOST_PANEL).toContain('Nothing on this roadmap is deleted by an import.');
+    expect(HOST_PANEL).toContain('Needs a decision — left alone');
+    expect(HOST_PANEL).toContain('Missing from source — left on roadmap');
+    expect(HOST_PANEL).toContain('Imports never delete roadmap entries.');
+    expect(HOST_PANEL).toContain('formatRoadmapDialogSections');
   });
 
-  it('writes the backlog before the overlay, and only for add and update', () => {
+  it('writes the backlog before the overlay, and records add, adoption, or update only', () => {
     // The overlay is meaningless without the line it points at, and a conflict
     // or a missing entry produces no write of any kind.
     const apply = HOST_PANEL.slice(HOST_PANEL.indexOf('private async applyRoadmapImport'));
-    expect(apply.slice(0, 3000)).toContain('serializeDashboardRoadmapDocument');
-    expect(apply.slice(0, 3000)).toContain("entry.outcome !== 'add' && entry.outcome !== 'update'");
-    expect(apply.slice(0, 3000)).toContain('importRecordFor(read, item, stamped)');
+    expect(apply.slice(0, 5000)).toContain('serializeDashboardRoadmapDocument');
+    expect(apply.slice(0, 5000)).toContain("entry.outcome !== 'add' && entry.outcome !== 'adopt' && entry.outcome !== 'update'");
+    expect(apply.slice(0, 5000)).toContain('importRecordFor(read, item, stamped)');
+  });
+
+  it('offers a provenance-led integrity review without accepting candidates from the webview', () => {
+    expect(WEBVIEW_SCRIPT).toContain('data-action="roadmap-integrity-check"');
+    expect(WEBVIEW_SCRIPT).toContain("vscode.postMessage({ type: 'checkRoadmapIntegrity' });");
+    expect(WEBVIEW_SCRIPT).not.toMatch(/type: 'checkRoadmapIntegrity', payload/);
+    expect(HOST_PANEL).toContain("| { type: 'checkRoadmapIntegrity' }");
+
+    const handler = HOST_PANEL.slice(
+      HOST_PANEL.indexOf('private async handleRoadmapIntegrityCheck'),
+      HOST_PANEL.indexOf('private async handleImportRoadmap'),
+    );
+    expect(handler).toContain('assessAutomaticRoadmapItems(files)');
+    expect(handler).toContain('canPickMany: true');
+    expect(handler).toContain('nothing is preselected');
+    expect(handler).toContain("'Remove selected'");
+    expect(handler).toContain('Source plan documents are not changed.');
+  });
+
+  it('checks secondary markdown roadmaps on load and confirms before reconciling', () => {
+    const ensure = HOST_PANEL.slice(HOST_PANEL.indexOf('private async ensureRoadmapSynchronization'));
+    expect(ensure.slice(0, 8000)).toContain('syncRoadmapInstructions(context.workspaceRoot, context.ssotPath)');
+    expect(ensure.slice(0, 8000)).toContain('isWorkspaceRoadmapMarkdownPath(entry.relative, context.ssotPath)');
+    expect(ensure.slice(0, 8000)).toContain('isInsideNestedGitCheckout(context.workspaceRoot, entry.uri.fsPath)');
+    expect(ensure.slice(0, 8000)).toContain('**/.kilo/**');
+    expect(ensure.slice(0, 8000)).toContain('${ssotGlob}/**');
+    expect(ensure.slice(0, 8000)).toContain('planRoadmapImport(read, existingLines)');
+    expect(ensure.slice(0, 8000)).toContain("'Reconcile now'");
+    expect(ensure.slice(0, 8000)).toContain("confirmation !== 'Reconcile now'");
+  });
+
+  it('does not imply that cancelling an import reverses separate dashboard setup writes', () => {
+    expect(HOST_PANEL).toContain('Cancelling this confirmation does not apply the listed import');
+    expect(HOST_PANEL).toContain('roadmap anchors and managed agent instructions are maintained separately');
+    expect(HOST_PANEL).not.toContain('Cancelling writes nothing.');
   });
 
   it('reuses the issue list already read rather than fetching a second copy', () => {
@@ -624,14 +660,16 @@ describe('one id resolution, and no silent failures', () => {
     // that could still *arm* it left a window where a background write
     // overlapped a click: two writers of the backlog file, `fs.writeFile`
     // truncating first, and a reader in that window seeing an empty backlog.
-    expect(HOST_PANEL).toContain('this.roadmapAnchorsEnsure = this.ensureRoadmapAnchors();');
+    expect(HOST_PANEL).toContain('this.roadmapAnchorsEnsure = this.ensureRoadmapAnchors()');
+    expect(HOST_PANEL).toContain('.then(() => this.ensureRoadmapSynchronization());');
+    expect(HOST_PANEL).toContain('if (updates.size > 0 || added.length > 0)');
     const starts = HOST_PANEL.split('this.ensureRoadmapAnchors()').length - 1;
     expect(starts, 'the ensure must be started from exactly one place').toBe(1);
   });
 
-  it('runs the first sync after the anchor write, and every handler after it too', () => {
-    // The first collection would otherwise read the backlog while the anchors
-    // were being written into it.
+  it('runs the first sync after load-time anchoring and reconciliation, and every handler after it too', () => {
+    // The first collection would otherwise read the backlog while the load-time
+    // roadmap preparation was writing it.
     expect(HOST_PANEL).toContain('void this.roadmapAnchorsEnsure.then(() => this.syncState());');
     const handler = HOST_PANEL.slice(HOST_PANEL.indexOf('private async handleMessage'));
     const beforeSwitch = handler.slice(0, handler.indexOf('switch (message.type)'));

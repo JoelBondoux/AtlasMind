@@ -15,6 +15,7 @@ import { getSelectedSessionRenameTarget, postSidebarSummaryToChat } from './view
 import { checkStarterRuntime, runRuntimeInstallPlan } from './mcp/mcpRuntime.js';
 import type { AcpBridgeTreeItem, ChatSessionTreeItem, DiscoveryFinderItem, McpServerTreeItem, ModelProviderTreeItem, ModelTreeItem, SessionFolderTreeItem, SkillFolderTreeItem, SkillTreeItem } from './views/treeViews.js';
 import { parseCustomDebtMarkers } from './core/debtRegister.js';
+import { describeInstallPlan } from './ard/ardInstaller.js';
 import { hideModelSidebarEntry, type ModelSidebarHiddenEntry } from './views/modelSidebarVisibility.js';
 import { resolveAgentSkillPolicy } from './core/skillsRegistry.js';
 import { PROJECT_DASHBOARD_VIEW_TYPE } from './views/webviewUtils.js';
@@ -616,6 +617,7 @@ export function registerCommands(
           vscode.workspace.getConfiguration('atlasmind').get<string[]>('debt.markers', []),
         ),
         readWorkflowGuidanceInput(workspaceRoot),
+        vscode.workspace.getConfiguration('atlasmind').get<string>('ssotPath', 'project_memory'),
       );
       if (result.success) {
         void vscode.window.showInformationMessage(result.summary);
@@ -1359,6 +1361,16 @@ export function registerCommands(
       const resource = atlas.ardRegistry.getRecentResults().find(r => r.identifier === id);
       if (!resource) {
         void vscode.window.showWarningMessage('That discovered resource is no longer available — run /discover again.');
+        return;
+      }
+      // Third-party code reaching this machine is a decision, not a click-through:
+      // the dialog states what will be added and what it would run.
+      const confirmed = await vscode.window.showWarningMessage(
+        `Install "${resource.displayName}"?`,
+        { modal: true, detail: describeInstallPlan(resource) },
+        'Install',
+      );
+      if (confirmed !== 'Install') {
         return;
       }
       const result = await atlas.ardInstaller.install(resource);

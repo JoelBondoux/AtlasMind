@@ -6,6 +6,304 @@ The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/),
 
 ## [Unreleased]
 
+## [0.482.1] - 2026-09-26
+
+### Security
+
+- Release-design import stripped HTML tags in a single pass, so nested markup such as
+  `<<b>script>` left a working `<script>` in a feature or tier name (CodeQL: incomplete
+  multi-character sanitization). Names are plain text, so every remaining angle bracket is now removed
+  after the tags are stripped.
+
+### Fixed
+
+- The three helpers added in 0.482.0 (`classifyGitPushInvocation`, `parseGitSubcommand`,
+  `getBlockedGitReason`) are no longer exported. Nothing outside their modules reads them, and the
+  dead-export ceiling failed the release checks.
+
+## [0.482.0] - 2026-09-26
+
+### Added
+
+- `git-push` takes a `tag` parameter that pushes exactly one local tag by its full ref
+  (`refs/tags/<tag>`), after checking that it exists. It cannot be combined with a branch, `tags`,
+  `force` or `setUpstream`, so approving a release tag never also approves something else.
+- A chat turn that promotes or merges into `main`, `master`, `production`, `prod` or `stable` receives
+  `terminal-run` (for `gh pr create`) and `PROTECTED_PROMOTION_HINT`: open a pull request, never merge,
+  commit or push to the protected branch locally, and tag only after the pull request has merged.
+  The planner already had this rule; single chat turns never saw it.
+
+### Changed
+
+- Pushes are graded by where they go (`classifyGitPushInvocation`). A `git-push` naming an ordinary
+  branch on a remote given by name grades `network`/`medium`, which Autopilot may waive. Everything
+  else stays `network`/`high`, on the never-bypassable ceiling: a push with no branch named, to a
+  protected branch or `staging`/`development`, with force, of a tag or `--tags`, or to a remote given as
+  a URL or path. Previously every push was on the ceiling, so Autopilot asked on each one.
+- `git-push` checks that a named branch is a local branch before pushing, so a tag named where a branch
+  belongs cannot be pushed on a branch's approval. It also refuses a remote that is not a plain name.
+
+### Security
+
+- `terminal-run` refuses `git push`, and git aliases defined with `-c alias.*` or
+  `--config-env=alias.*`, and points the model at `git-push`. Through `terminal-run` a push was a plain
+  terminal write that Autopilot waives, so `git push origin main --force` could run unasked while the
+  dedicated tool prompted for `develop`.
+
+## [0.481.3] - 2026-09-26
+
+### Fixed
+
+- Allowlist `tests/core/capabilitySearch.test.ts` in `.gitleaks.toml`. Its redaction test uses a
+  Stripe-shaped key that was never valid, and the secret scan would otherwise have failed the next
+  release pull request. The allowlist stays by path, per the file's own rule, so the key shape is still
+  detected everywhere else.
+
+## [0.481.2] - 2026-09-26
+
+### Security
+
+- Apply the open Dependabot updates on `develop` (#226, #228, #236, #237):
+  - Runtime: `@agentclientprotocol/sdk` 1.4.0 → 1.5.0 and `zod` 4.5.4 → 4.6.5.
+  - Developer tooling: `@vscode/vsce` 3.9.2 → 4.0.0, `eslint` 10.11.0, `@typescript-eslint/eslint-plugin`
+    8.70.1, `@types/node` 26.6.3, `@vitest/coverage-v8` 5.0.2, `fast-check` 4.10.2 and `jsdom` 30.1.1.
+    TypeScript stays on 6.x.
+  - GitHub Actions: `azure/login` moves to the current v3 commit in `publish.yml` and
+    `marketplace-identity.yml`, and `model-prices-freshness.yml` moves from `actions/checkout` v4 to the
+    v7.0.1 pin every other workflow already uses. Both new SHAs were checked against their tags.
+- `@vscode/vsce` 4 requires Node.js 22 or later (CI runs 24) and may offer to migrate a legacy PAT on
+  the first local publish; `--azure-credential`, which CI publishes with, is unchanged.
+- The five open Dependabot alerts (`hono`, `js-yaml`, `morgan`) and #222 were already fixed on `develop`
+  by the existing overrides; they remain open only against `main` and close at the next promotion.
+
+## [0.481.1] - 2026-09-26
+
+### Changed
+
+- The reviewed-PR local CI workflow now accepts dispatches from `develop` instead of the retired
+  `build/0.475.0-staging-vsix` branch.
+- The managed AI instruction files (`CLAUDE.md`, `AGENTS.md`, `.github/copilot-instructions.md`) carry
+  the roadmap-synchronization block, which tells any coding agent that
+  `project_memory/roadmap/improvement-plan.md` is the canonical roadmap and that edits to secondary
+  roadmaps must be reconciled with it.
+- The roadmap item for toggling completed-item visibility now has its durable anchor.
+
+## [0.481.0] - 2026-09-26
+
+### Added
+
+- Chat now looks for third-party tools when nothing installed can do the job. When the model's
+  `find-tool` search finds no installed skill, AtlasMind queries the Agent Finders you have enabled in
+  Resource Discovery and brings up to five candidates back into the conversation, each with a
+  **Review & install** button in both the AtlasMind chat panel and VS Code chat. Only the short,
+  secret-redacted capability description is sent, and only to finders you switched on; with none
+  enabled, the reply says how to enable one. `find-tool` is now offered even when every installed skill
+  was already sent, because it can look further.
+- Installing a discovered resource now asks first. The confirmation names the finder, the source, and
+  for an MCP server the exact command it would run (or URL it would reach) and the environment variables
+  it sets, and says it arrives switched off. Previously the install button acted immediately.
+
+### Fixed
+
+- Never replay a task that may already have changed something. A model attempt covers the whole tool
+  loop, so failing over re-ran the task from the start on the next model — observed as "commit, push
+  and promote" being handed to model after model. Once an attempt has started a commit, push, write or
+  other side-effecting tool (or a tool-running ACP agent has the prompt), a failure now stops the turn
+  and says what had already run, rather than repeating it. Escalating to a stronger model is skipped
+  for the same reason.
+- Stop declaring a working ACP agent hung. The 180-second `session/prompt` limit is now an inactivity
+  limit that resets on every progress update the agent sends, within a 30-minute ceiling, so a Codex or
+  Claude agent running a commit hook, tests and a push is no longer abandoned mid-task. When a prompt
+  does time out, the agent is told to cancel instead of carrying on in the background, and that agent's
+  other models are skipped for the rest of the turn.
+- Keep Gemini 3 tool calls working past the first round. Gemini's OpenAI-compatible endpoint carries
+  thought signatures at `extra_content.google.thought_signature`; AtlasMind only read a top-level field,
+  lost every signature, and Gemini rejected the next request with "Function call is missing a
+  thought_signature".
+- Stop chat turns stalling for 45 seconds per local runtime when the GPU is full. The local GPU arbiter
+  now refuses a request at once when nothing AtlasMind holds could be released — no request in flight,
+  no model loading, and no resident model of its own — so the turn fails over to another provider
+  immediately. A wait that a release could end is still bounded as before.
+- Read Copilot token prices again. GitHub's pricing page gained per-vendor columns (release status,
+  category, tier, threshold), so the positional parser read "GA" as a price and every sync failed. The
+  columns are now located by header, the default tier is kept over the long-context surcharge, and
+  footnote markers are dropped from model names.
+- Retry a failed Copilot pricing fetch at most once an hour instead of on every provider refresh.
+- Coalesce provider-model refreshes: one runs at a time with a single queued follow-up, and bursts of
+  VS Code chat-model change events are debounced, instead of each event starting a full concurrent
+  discovery of every provider.
+- Stop the Remote Control server throwing "Channel has been closed" during window shutdown, which
+  interrupted the rest of AtlasMind's teardown.
+
+## [0.480.2] - 2026-09-17
+
+### Fixed
+
+- Include root-level Markdown, text, and JSON files explicitly in Editions discovery, then deduplicate
+  them against the bounded recursive scan.
+- Recognize roadmap filenames and row-oriented tier-gate tables whose package cells declare combined
+  offerings and feature lists, such as `Free/Starter: core gallery, product tags`.
+
+## [0.480.1] - 2026-09-17
+
+### Fixed
+
+- Make the Editions **Import design document…** button post its scan request instead of throwing a
+  browser-side `ReferenceError` before the message reached the extension host.
+- Handle import-preview replies in the dashboard's host-message dispatcher, with a regression contract
+  that keeps host replies out of the delegated click handler.
+
+## [0.480.0] - 2026-09-17
+
+### Added
+
+- Add repository discovery and a native source picker to Editions so a likely product-design document
+  can be confirmed, or another workspace Markdown, text, or JSON document selected deliberately.
+- Add a reviewed import preview for Markdown comparison tables, named-tier feature lists, and structured
+  JSON. It exposes every proposed offering, feature, entitlement cell, source link, warning, and skipped
+  item before a separately confirmed write.
+- Add conservative feature matching against durable roadmap items and currently loaded GitHub Issues.
+  Strong candidates are selected for review by default, possible candidates stay visible but unchecked,
+  and accepted Issue links expose current status plus open and unlink actions.
+- Add the pure `releaseMatrixImport.ts` discovery/parser/matcher/merge layer and focused import contracts.
+
+### Security
+
+- Keep discovery bounded to supported regular files inside the real workspace root, reject symlink
+  escapes and oversized sources, validate every browser selection, re-read current roadmap/Issue/matrix
+  state before applying, and refuse an import whose source changed after preview.
+- Preserve existing names, statuses, pricing, parameters, file links, and cell decisions during import;
+  source documents are treated as proposed data rather than instructions or authority to overwrite.
+
+## [0.479.0] - 2026-09-17
+
+### Added
+
+- Add a dedicated Project Dashboard **Editions** page for the designed public product shape, keeping
+  Free/Student/Pro tiers, expansions, DLC, plugins, bonuses, and custom offerings distinct from the
+  Versions page's record of releases that already shipped.
+- Add an editable feature-by-offering matrix with create/edit/remove controls for columns, rows, and
+  cells; current lifecycle and entitlement status; planned dates; pricing structures; tier-specific
+  parameters; notes; and host-resolved workspace file links.
+- Add confirmed bidirectional roadmap relationships for offerings, features, and decided cells. Links
+  use durable roadmap ids, stale links are visible, and removing one side never silently deletes the
+  other side.
+- Add decision-coverage, cell-status distribution, and per-offering readiness visuals, preserving the
+  difference between an unassessed cell and an explicit `not-offered` decision.
+- Add the versioned `project_memory/product/release-matrix.json` SSOT and the pure
+  `releaseMatrix.ts` sanitizer/mutation/metrics layer, with future-schema refusal and bounded records.
+
+## [0.478.1] - 2026-09-17
+
+### Fixed
+
+- Keep automatic secondary-roadmap reconciliation inside the open repository: exclude `.kilo` and
+  other agent worktrees, every nested Git checkout, the complete AtlasMind SSOT, common SSOT backup
+  directories, and test fixtures before any candidate Markdown is read.
+- Collapse repeated automatic checklist titles across source files, and refuse a title whose checkbox
+  state disagrees between files instead of importing an arbitrary copy. Explicit Markdown import
+  remains broad when the user deliberately selects those sources.
+- Require checkbox rows for load-time automatic discovery. Bullet-only Markdown remains available to
+  explicit import, but is no longer flattened from narrative lists into apparent top-level work.
+- Make the reconciliation dialog precise about cancellation: cancelling does not apply the listed
+  import, while the separate load-time maintenance of roadmap anchors and managed agent instructions
+  remains stated rather than being described as no write at all.
+
+## [0.478.0] - 2026-09-16
+
+### Added
+
+- Give the public-version portfolio its own Project Dashboard → Versions page under **Ship & record**,
+  with declared routes from Release and to the supporting roadmap and documents.
+- Index the Versions page in AtlasMind's capability map so chat guidance can identify and navigate to
+  the public-release review surface.
+
+### Changed
+
+- Let the Versions page load and refresh its GitHub release evidence directly instead of sending the
+  reader to the Issues page for an unrelated-looking refresh action.
+
+### Fixed
+
+- Stabilize F5 Extension Development Host startup with a finite compile task and experimental Node
+  network inspection disabled. The default profile also isolates installed extensions and Copilot Chat;
+  the explicit Copilot-integration profile keeps that provider available when it is under test.
+
+## [0.477.0] - 2026-09-16
+
+### Added
+
+- Add a public-version portfolio to Project Dashboard → Release, joining stable and preview GitHub
+  releases to SemVer value tiers, roadmap gates, milestone progress, and filed design plans.
+- Add host-resolved links for each version's GitHub release, roadmap route, and filed plans, plus a
+  confirmed action that creates the matching roadmap gate without guessing item membership.
+- Add a governed AtlasMind review action whose prompt is reconstructed from the version evidence held
+  by the extension host and explicitly distinguishes missing data from zero progress.
+
+### Fixed
+
+- Keep load-time roadmap reconciliation from flattening detailed implementation plans, verification
+  lists, acceptance criteria, and definitions of done into top-level backlog items. Explicit Markdown
+  imports remain broad because the user selected their source deliberately.
+- Add a provenance-led **Check integrity** review to the Roadmap dashboard. It highlights imported rows
+  that current source evidence identifies as plan or validation checklist artifacts, lets the user
+  select exact entries, and confirms both tracked files before removing their graph metadata.
+- Structure Roadmap and reconciliation dialogs into labelled, bulleted sections so changes, conflicts,
+  untouched data, and safety consequences remain scannable in VS Code's plain-text modal details.
+
+## [0.476.5] - 2026-09-16
+
+### Security
+
+- Raise the transitive `hono` floor to `^4.13.5`, closing three runtime advisories in the MCP SDK
+  path: unbounded `parseBody()` nesting, URL-fragment query parsing, and `toSSG()` output traversal.
+- Raise development-tool floors to `js-yaml` `^4.3.2` and `morgan` `^1.12.0`, closing the merge-key
+  CPU exhaustion advisory under `vsce` and log-forging advisory under `@vscode/test-web`.
+- Extend the manifest security contract to pin every new remediation as a minimum patched version,
+  allowing later compatible patches without weakening the advisory floor.
+
+## [0.476.4] - 2026-09-16
+
+### Fixed
+
+- Carry the parameter count encoded in a local model id into GPU admission, so an 8B LM Studio or
+  Ollama model is not priced as the conservative unknown 16 GiB fallback and refused on a card that
+  has room. Local model ids whose runtime-native name contains `/` also retain the `local/` routing
+  prefix instead of losing their provider identity.
+- Keep Google Gemini Live-only models out of the stateless OpenAI-compatible chat-completions route.
+  They remain available through the Live API, but no longer consume a model attempt on a request whose
+  transport can never serve them.
+- Treat explicit API-key, account, and project-access denials as provider-wide failures. AtlasMind now
+  pauses that provider after the first refusal, fails over elsewhere, and does not mislabel the refusal
+  as a model quality failure. Rate limits and billing refusals likewise no longer penalize one model.
+- Exclude local `.kilo` worktrees from VSIX packages, preventing repository fixtures and token-shaped
+  test data from entering the extension archive or tripping the package secret scanner.
+
+## [0.476.3] - 2026-09-16
+
+### Changed
+
+- Write a managed roadmap synchronization rule into repository-agent instruction files, seeding
+  `AGENTS.md` when the Roadmap dashboard first loads so Codex and other cross-tool readers know that
+  `project_memory/roadmap/improvement-plan.md` is canonical and secondary roadmap edits must be
+  reconciled there in the same change.
+- Perform a bounded, local secondary-roadmap drift check when the Project Dashboard loads. AtlasMind
+  previews additions, source links, title changes, and checkbox changes before writing; conflicts and
+  source removals remain untouched.
+
+### Fixed
+
+- Re-import roadmap checkbox state as well as item text. Import provenance now records the last source
+  checkbox, so a source-only completion or reopen can be applied while a local or legacy ambiguity is
+  reported rather than overwritten.
+
+## [0.476.2] - 2026-09-15
+
+### Changed
+
+- **README:** the published baseline now names v0.476.1, the release just published to the
+  Marketplace.
+
 ## [0.476.1] - 2026-09-15
 
 ### Fixed
