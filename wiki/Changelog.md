@@ -19,6 +19,12 @@ Older entries below describe the software as it was at the time and are delibera
 
 ---
 
+## v0.482.2 -- Published baseline refreshed
+
+The README now names v0.482.1 as the last Marketplace publication.
+
+---
+
 ## v0.482.1 -- Release checks pass again
 
 Importing a release design stripped HTML tags only once, so nested markup such as `<<b>script>` could

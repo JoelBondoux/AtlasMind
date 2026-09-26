@@ -4,7 +4,7 @@
 
 <h1 align="center">AtlasMind</h1>
 
-<p align="center"><sub> · <strong>Current source version: 0.482.1</strong> · </sub></p>
+<p align="center"><sub> · <strong>Current source version: 0.482.2</strong> · </sub></p>
 
 
 <p align="center">
@@ -175,6 +175,11 @@ allow-list, redaction and file-withholding behaviour, retained metadata, provide
 important limits on overrides and compliance claims.
 
 ---
+
+## What's new in 0.482.2
+
+The last Marketplace publication, **v0.482.1**, brought the changes below. Every release is written
+up in full in [CHANGELOG.md](CHANGELOG.md).
 
 ## What's new in 0.482.1
 
