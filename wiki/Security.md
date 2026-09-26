@@ -280,6 +280,14 @@ network.
 Resource discovery gets the same treatment plus HTTPS enforcement, schema validation, depth-bounded
 federation, opt-in finders, and installs that arrive disabled.
 
+Chat can use it too: when no installed tool fits, the model's short tool description is sent to the Agent
+Finders **you** switched on — none are on by default — and nowhere else. What leaves is that description
+only, secret-redacted and cut to 160 characters; never file contents and never the conversation. The
+candidates that come back install nothing. Installing one goes through a confirmation that shows the
+finder, the source, and for an MCP server the exact command or URL and the environment variable names it
+would use, and the server arrives switched off. A relevance score is how well something matched the
+search, not whether it is safe.
+
 ### Nothing is contacted just because the editor started
 
 **There is no telemetry in AtlasMind and there never has been.** No usage events, no install pings, no

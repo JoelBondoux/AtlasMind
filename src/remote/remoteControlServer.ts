@@ -180,12 +180,29 @@ export class RemoteControlServer {
   }
 
   disable(): void {
+    const wasRunning = this.server !== undefined;
     this.dropAllSessions('server stopped');
     this.server?.close();
     this.server = undefined;
     this.boundPort = undefined;
-    this.output.appendLine('[remote] Server stopped.');
+    if (wasRunning) {
+      this.log('[remote] Server stopped.');
+    }
     this.emitStatus();
+  }
+
+  /**
+   * Write to the output channel, tolerating one that is already closed. On
+   * window shutdown VS Code closes channels before disposing subscriptions, so
+   * a log line from `dispose()` threw "Channel has been closed" and aborted the
+   * rest of the extension's teardown.
+   */
+  private log(line: string): void {
+    try {
+      this.output.appendLine(line);
+    } catch {
+      /* channel closed during shutdown */
+    }
   }
 
   dispose(): void {
@@ -212,7 +229,7 @@ export class RemoteControlServer {
     } catch {
       /* already closing */
     }
-    this.output.appendLine(`[remote] Session closed (${reason}). Active clients: ${this.getStatus().clientCount}`);
+    this.log(`[remote] Session closed (${reason}). Active clients: ${this.getStatus().clientCount}`);
     this.emitStatus();
   }
 

@@ -1,5 +1,6 @@
-import type { AgentDefinition, BudgetMode, ProjectTestingConfig, DataPrivacyMatch, MemoryEntry, ModelCapability, ModelStruggleKind, OrchestratorConfig, OrchestratorHooks, PricingModel, ProjectPlan, ProjectProgressUpdate, ProjectResult, ProviderId, RoutingConstraints, SkillDefinition, SkillExecutionContext, SubTask, SubTaskExecutionArtifacts, SubTaskResult, SubTaskStatus, TaskModelAttempt, TaskProfile, TaskRequest, TaskResult, TestingMethodologyId, ToolExecutionArtifact } from '../types.js';
+import type { AgentDefinition, ArdDiscoveredResource, BudgetMode, ProjectTestingConfig, DataPrivacyMatch, MemoryEntry, ModelCapability, ModelStruggleKind, OrchestratorConfig, OrchestratorHooks, PricingModel, ProjectPlan, ProjectProgressUpdate, ProjectResult, ProviderId, RoutingConstraints, SkillDefinition, SkillExecutionContext, SubTask, SubTaskExecutionArtifacts, SubTaskResult, SubTaskStatus, TaskModelAttempt, TaskProfile, TaskRequest, TaskResult, TestingMethodologyId, ToolExecutionArtifact } from '../types.js';
 import type { AgentAutoUpdater } from './agentAutoUpdater.js';
+import { describeCapabilityOutcome, prepareCapabilityQuery, type ExternalCapabilitySearch } from './capabilitySearch.js';
 import { buildDebtMarkerGuidance, parseCustomDebtMarkers } from './debtRegister.js';
 import { buildDefectReportingGuidance } from './defectRegister.js';
 import {
@@ -452,6 +453,16 @@ export interface TurnCapabilityEnvelope {
 interface TaskAttemptContext {
   taskId: string;
   agentId: string;
+  /**
+   * Side-effecting tool calls this attempt has *started*, in order — a commit,
+   * a push, a file write. Recorded before execution, since a call that timed
+   * out may still have landed. The failover path reads it: an attempt that dies
+   * after changing something must not be replayed on another model, or the
+   * commit runs twice.
+   */
+  sideEffectsStarted?: string[];
+  /** Third-party candidates Resource Discovery found this turn, for the reply to offer. */
+  discoveredResources?: ArdDiscoveredResource[];
   budgetCapUsd?: number;
   taskProfile: TaskProfile;
   allowEscalation: boolean;
@@ -600,6 +611,7 @@ export class Orchestrator {
   private readonly warmLocalModels = new Set<string>();
   private localAdmissionBudgetMs: number | undefined;
   private egressSecretConfirmer: EgressSecretConfirmer | undefined;
+  private externalCapabilitySearch: ExternalCapabilitySearch | undefined;
   private readonly classifier: ClassifierService;
   private agentAutoUpdater?: AgentAutoUpdater;
   private dataPrivacy?: DataPrivacyManager;
@@ -1557,7 +1569,7 @@ export class Orchestrator {
       baseTaskProfile = { ...baseTaskProfile, modality: 'text' };
     }
     let tools: ToolDefinition[] = buildToolDefinitions(activeAgentSkills);
-    if (shouldOfferToolDiscovery(eligibleAgentSkills.length, activeAgentSkills.length)) {
+    if (shouldOfferToolDiscovery(eligibleAgentSkills.length, activeAgentSkills.length, this.externalCapabilitySearch !== undefined)) {
       tools.push(TOOL_DISCOVERY_DEFINITION);
     }
     // The setting authorizes a different execution shape, not a wider function
@@ -1877,6 +1889,7 @@ export class Orchestrator {
     let aggregateCacheWriteTokens = 0;
     let autoDisabledProvider: TaskResult['autoDisabledProvider'];
     const modelAttempts: TaskModelAttempt[] = [];
+    const turnDiscoveredResources: ArdDiscoveredResource[] = [];
     // Seeded from earlier turns: an endpoint that has failed hard twice should
     // not be rediscovered from scratch on every message.
     const blockedEndpointScopes = this.quarantinedEndpointScopes();
@@ -2045,6 +2058,7 @@ export class Orchestrator {
             )
           : undefined;
 
+        const attemptSideEffects: string[] = [];
         try {
           let taskAttempt = await this.executeTaskAttempt(
             provider,
@@ -2054,6 +2068,8 @@ export class Orchestrator {
             {
               taskId: request.id,
               agentId: agent.id,
+              sideEffectsStarted: attemptSideEffects,
+              discoveredResources: turnDiscoveredResources,
               budgetCapUsd,
               taskProfile,
               allowEscalation: !!escalatedModel,
@@ -2198,6 +2214,13 @@ export class Orchestrator {
           if (!taskAttempt.escalationReason || !escalatedModel) {
             break;
           }
+          // Escalating re-runs the task from the top on a stronger model, which
+          // would repeat any commit, push or write this attempt already made.
+          const delegatedCalls = taskAttempt.completion.delegatedToolCallCount ?? 0;
+          if (attemptSideEffects.length > 0 || (usesDelegatedAcpTools && delegatedCalls > 0)) {
+            onProgress?.('Not escalating to a stronger model: this attempt already changed something, and escalating would repeat it.');
+            break;
+          }
           if (modelAttempts.length >= MAX_TASK_MODEL_ATTEMPTS) {
             onProgress?.(`Stopped after the safety ceiling of ${MAX_TASK_MODEL_ATTEMPTS} model attempts.`);
             break;
@@ -2325,6 +2348,43 @@ export class Orchestrator {
             // The provider signalled that this specific model is gone.  Tombstone it
             // for the rest of the session so the router never routes to it again.
             onProgress?.(`Model "${currentModel}" reported as deprecated or removed by the provider. Switching to an alternative…`);
+          }
+
+          // An agent that stopped answering is the endpoint's problem, not the
+          // model's: every other model behind the same ACP agent runs in the same
+          // process. Observed: four Codex models in a row, 180s each.
+          if (selectedProvider === 'acp' && /\bACP agent (?:did not answer|went silent|was still working)\b/i.test(failureMessage)) {
+            blockedEndpointScopes.add(endpointScope);
+          }
+
+          // Never replay a task that may already have changed something.
+          //
+          // An attempt is the whole agentic loop, tools included, so failing over
+          // re-runs it from the top on another model. That is harmless for reads
+          // and wrong for a commit, a push or a publish: "commit, push and
+          // promote" was handed to three models in turn, each starting over on a
+          // repository the previous one had already changed. The same holds for a
+          // delegated ACP agent once it has the prompt — its own tools may have
+          // run, and AtlasMind cannot see which.
+          const replayHazard = describeReplayHazard(attemptSideEffects, usesDelegatedAcpTools, failureMessage);
+          if (replayHazard) {
+            finalAttempt = {
+              model: currentModel,
+              completion: {
+                content: [
+                  `\`${currentModel}\` failed partway through this task: ${boundedAttemptReason(failureMessage)}`,
+                  replayHazard,
+                  'AtlasMind did not hand the task to another model, because starting over would repeat whatever already ran. Check the current state (for example `git status` and `git log -3`), then ask again to continue from there.',
+                ].join('\n\n'),
+                model: currentModel,
+                inputTokens: estimateCompletionRequestInputTokens(messages, attemptTools),
+                outputTokens: 0,
+                finishReason: 'error',
+              },
+              costUsd: 0,
+              budgetCostUsd: 0,
+            };
+            break;
           }
 
           let failoverModel = failoverBudgetAvailable()
@@ -2469,6 +2529,7 @@ export class Orchestrator {
       ...(estimatedCompressionSavingsUsd > 0 ? { contextCompressionSavingsUsd: estimatedCompressionSavingsUsd } : {}),
       durationMs,
       ...(modelAttempts.length > 0 ? { modelAttempts } : {}),
+      ...(turnDiscoveredResources.length > 0 ? { discoveredResources: turnDiscoveredResources } : {}),
       ...(artifactsWithDelegated ? { artifacts: artifactsWithDelegated } : {}),
       ...(autoDisabledProvider ? { autoDisabledProvider } : {}),
       ...(finalAttempt.iterationLimitHit ? { iterationLimitHit: true } : {}),
@@ -3559,9 +3620,30 @@ export class Orchestrator {
             if (discovery.granted.length > 0) {
               onProgress?.(`Added ${discovery.granted.length} tool(s) the model asked for: ${discovery.granted.map(entry => entry.id).join(', ')}.`);
             }
+            let discoveryMessage = discovery.message;
+            const externalQuery = discovery.granted.length === 0 ? prepareCapabilityQuery(query) : '';
+            if (externalQuery && this.externalCapabilitySearch) {
+              onProgress?.(`Nothing installed can do that; searching Resource Discovery for "${externalQuery}"…`);
+              let outcome: Awaited<ReturnType<ExternalCapabilitySearch>>;
+              try {
+                outcome = await this.externalCapabilitySearch(externalQuery, context.signal);
+              } catch (error) {
+                outcome = { status: 'failed', message: error instanceof Error ? error.message : String(error) };
+              }
+              const described = describeCapabilityOutcome(externalQuery, outcome);
+              discoveryMessage = described.message;
+              const sink = context.discoveredResources;
+              if (sink) {
+                for (const resource of described.resources) {
+                  if (!sink.some(existing => existing.identifier === resource.identifier)) {
+                    sink.push(resource);
+                  }
+                }
+              }
+            }
             return {
               toolCall,
-              result: discovery.message,
+              result: discoveryMessage,
               durationMs: Date.now() - startedAt,
               checkpointed: false,
               shouldVerify: false,
@@ -3677,6 +3759,9 @@ export class Orchestrator {
               checkpointedTools.add(toolCall.name);
             }
 
+            if (context.sideEffectsStarted && isSideEffectingToolCall(toolCall.name, toolCall.arguments)) {
+              context.sideEffectsStarted.push(classifyToolInvocation(toolCall.name, toolCall.arguments).summary);
+            }
             const effectiveTimeout = skill.timeoutMs ?? this.cfg.toolExecutionTimeoutMs;
             const result = await withTimeout(
               skill.execute(toolCall.arguments, skillContext),
@@ -4077,6 +4162,14 @@ export class Orchestrator {
    */
   public setEgressSecretConfirmer(confirm: EgressSecretConfirmer | undefined): void {
     this.egressSecretConfirmer = confirm;
+  }
+
+  /**
+   * Where `find-tool` looks after the agent's own skills come up empty: the
+   * Agent Finders the user enabled. Absent means the miss is reported as before.
+   */
+  public setExternalCapabilitySearch(search: ExternalCapabilitySearch | undefined): void {
+    this.externalCapabilitySearch = search;
   }
 
   /**
@@ -5394,6 +5487,45 @@ export class Orchestrator {
 
 function requiresPostToolVerification(toolName: string): boolean {
   return toolName === 'file-write' || toolName === 'file-edit' || toolName === 'git-apply-patch';
+}
+
+/**
+ * Why a failed attempt must not be replayed on another model, or `undefined`
+ * when a replay is harmless.
+ *
+ * Two cases. AtlasMind's own loop records every side-effecting call it started.
+ * A delegated ACP agent runs its tools out of sight, so once the prompt itself
+ * was in flight — the failure names `session/prompt`, or the enclosing timer
+ * fired — assume they may have run. A failure before the prompt (spawn,
+ * handshake, sign-in) changed nothing and fails over as usual.
+ */
+export function describeReplayHazard(
+  sideEffectsStarted: readonly string[],
+  delegatedAcp: boolean,
+  failureMessage: string,
+): string | undefined {
+  if (sideEffectsStarted.length > 0) {
+    const listed = sideEffectsStarted.slice(0, 5).map(effect => `- ${effect}`).join('\n');
+    const more = sideEffectsStarted.length > 5 ? `\n- …and ${sideEffectsStarted.length - 5} more` : '';
+    return `These actions had already started:\n${listed}${more}`;
+  }
+  if (delegatedAcp && /session\/prompt|Provider timed out|ACP agent returned an error/i.test(failureMessage)) {
+    return 'The agent was running the task with its own tools, so some of it may already have been done.';
+  }
+  return undefined;
+}
+
+/**
+ * Whether a tool call can change something — the workspace, the repository, a
+ * remote, or anything a subprocess touches. Read-only categories are the only
+ * ones a replay is harmless for.
+ */
+export function isSideEffectingToolCall(toolName: string, args: Record<string, unknown>): boolean {
+  if (requiresWriteCheckpoint(toolName, args)) {
+    return true;
+  }
+  const { category } = classifyToolInvocation(toolName, args);
+  return category !== 'read' && category !== 'git-read' && category !== 'network-read' && category !== 'terminal-read';
 }
 
 function requiresWriteCheckpoint(toolName: string, args: Record<string, unknown>): boolean {
@@ -6767,8 +6899,10 @@ const TOOL_DISCOVERY_DEFINITION: ToolDefinition = {
   description:
     'Find a tool you have not been given. Only some of the tools this agent may use are listed above - '
     + 'if none of them can do what you need, describe the action here and any matching tools '
-    + 'become callable immediately. Searching grants nothing on its own: results are still '
-    + 'subject to the same approvals as any other tool.',
+    + 'become callable immediately. If nothing installed can do it, AtlasMind also searches the '
+    + 'third-party tools in Resource Discovery and offers the user to install one. Searching grants '
+    + 'nothing on its own: results are still subject to the same approvals as any other tool. '
+    + 'Use this before telling the user a capability is missing.',
   parameters: {
     type: 'object',
     properties: {

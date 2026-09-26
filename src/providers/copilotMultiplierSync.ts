@@ -170,9 +170,17 @@ function parseMultiplierValue(raw: string): number | undefined {
  * where values are in USD per 1 000 tokens.
  */
 export function parseTokenPriceTable(html: string): Record<string, { inputPer1k: number; outputPer1k: number }> {
+  // Strategy 0: header-driven. The published tables gained columns (release
+  // status, category, tier, threshold) and differ from vendor to vendor, so the
+  // Input and Output columns are located by their header, never by position.
+  const byHeader = parseTokenPriceTablesByHeader(html);
+  if (Object.keys(byHeader).length > 0) {
+    return byHeader;
+  }
+
   const result: Record<string, { inputPer1k: number; outputPer1k: number }> = {};
 
-  // Strategy 1: HTML <table> rows — matches the GitHub rendered docs format.
+  // Strategy 1: HTML <table> rows — the original fixed-position layout.
   // Rows look like: <tr><td>GPT-5 mini</td><td>$0.25 per 1M tokens</td>...<td>$2.00 per 1M tokens</td></tr>
   const tableRowRe = /<tr[^>]*>([\s\S]*?)<\/tr>/gi;
   const cellRe = /<t[dh][^>]*>([\s\S]*?)<\/t[dh]>/gi;
@@ -231,6 +239,55 @@ export function parseTokenPriceTable(html: string): Record<string, { inputPer1k:
  * Parse a price string like "$0.25 per 1M tokens" and return the per-1k-token
  * equivalent in USD.  Returns `undefined` for empty, N/A, or non-price cells.
  */
+function parseTokenPriceTablesByHeader(html: string): Record<string, { inputPer1k: number; outputPer1k: number }> {
+  const result: Record<string, { inputPer1k: number; outputPer1k: number }> = {};
+  const tableRe = /<table\b[\s\S]*?<\/table[^>]*>/gi;
+  const rowRe = /<tr[^>]*>([\s\S]*?)<\/tr>/gi;
+  const cellRe = /<t[dh][^>]*>([\s\S]*?)<\/t[dh]>/gi;
+  const cellText = (raw: string) => stripHtmlTags(raw.replace(/<sup\b[\s\S]*?<\/sup[^>]*>/gi, '')).trim();
+
+  let tableMatch: RegExpExecArray | null;
+  while ((tableMatch = tableRe.exec(html)) !== null) {
+    let columns: { model: number; input: number; output: number; tier: number } | undefined;
+    let rowMatch: RegExpExecArray | null;
+    rowRe.lastIndex = 0;
+    while ((rowMatch = rowRe.exec(tableMatch[0])) !== null) {
+      const cells: string[] = [];
+      let cellMatch: RegExpExecArray | null;
+      cellRe.lastIndex = 0;
+      while ((cellMatch = cellRe.exec(rowMatch[1])) !== null) {
+        cells.push(cellText(cellMatch[1]));
+      }
+      if (!columns) {
+        const find = (label: RegExp) => cells.findIndex(cell => label.test(cell));
+        const model = find(/^model$/i);
+        const input = find(/^input$/i);
+        const output = find(/^output$/i);
+        if (model >= 0 && input >= 0 && output >= 0) {
+          columns = { model, input, output, tier: find(/^tier$/i) };
+        }
+        continue;
+      }
+      // A model priced in tiers appears once per tier. The default tier is the
+      // price an ordinary request pays; a long-context surcharge must not
+      // overwrite it.
+      if (columns.tier >= 0 && !/^default$/i.test(cells[columns.tier] ?? '')) {
+        continue;
+      }
+      const modelName = cells[columns.model];
+      const inputPer1k = parsePricePer1k(cells[columns.input] ?? '');
+      const outputPer1k = parsePricePer1k(cells[columns.output] ?? '');
+      if (modelName && inputPer1k !== undefined && outputPer1k !== undefined) {
+        const key = normalizeModelKey(modelName);
+        if (key) {
+          result[key] = { inputPer1k, outputPer1k };
+        }
+      }
+    }
+  }
+  return result;
+}
+
 function parsePricePer1k(raw: string): number | undefined {
   if (!raw || raw.toLowerCase().includes('n/a') || raw === '—' || raw === '-') {
     return undefined;

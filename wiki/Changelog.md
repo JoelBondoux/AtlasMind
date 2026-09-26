@@ -19,6 +19,24 @@ Older entries below describe the software as it was at the time and are delibera
 
 ---
 
+## v0.481.0 -- Chat finds the tools it's missing, and stops repeating work
+
+When nothing installed can do part of a task, chat now searches the Resource Discovery finders you've
+enabled and offers what it finds with a **Review & install** button. Installing shows exactly what would
+be added and asks first; an MCP server arrives switched off.
+
+A turn that fails after starting a commit, push or file change now stops and says what already ran,
+instead of handing the whole task to the next model — which is why a single commit used to be reported
+as four models failing. ACP agents are no longer abandoned at 180 seconds while still reporting
+progress; Gemini 3 keeps its thought signatures between tool rounds.
+
+When the graphics card is full of models AtlasMind did not load, a chat turn now moves to another
+provider straight away instead of waiting 45 seconds on each local runtime first. Copilot token prices
+sync again after GitHub reorganised its pricing page, a failed sync no longer retries on every refresh,
+and bursts of model-change events now trigger one provider refresh rather than many overlapping ones.
+
+---
+
 ## v0.480.2 -- Editions finds root roadmaps and package gates
 
 Editions discovery now includes supported product-design documents at the repository root instead of

@@ -145,13 +145,15 @@ describe('admission', () => {
   });
 
   it('refuses when the budget stays committed past the bound', async () => {
+    // Waiting is worth it here — a request of ours is in flight and will be
+    // released — so the request queues, and only the bound refuses it.
     const timers = controllableTimers();
-    const runtime = fakeRuntime();
-    const arbiter = makeArbiter({ devices: TIGHT, runtime: runtime.client, timers });
-    arbiter.applyConfig({ safetyMarginBytes: 2 * GIB, reserveBytes: 0 });
+    const runtime = fakeRuntime([{ modelKey: 'qwen3:14b', vramBytes: 1 * GIB }]);
+    const arbiter = makeArbiter({ runtime: runtime.client, timers });
+    arbiter.applyConfig({ maxConcurrentRequests: 1 });
 
+    const held = await arbiter.acquire(request());
     const pending = arbiter.acquire(request());
-    // Nothing fits: 3 GB free minus a 2 GB margin against a ~10 GB model.
     await settle();
     expect(arbiter.getState().queuedRequests).toBe(1);
 
@@ -161,14 +163,35 @@ describe('admission', () => {
       expect(isCapacityDeferral(error)).toBe(true);
       expect(shouldOpenEndpointCircuit((error as Error).message, 'local')).toBe(false);
     });
+    held.release();
+  });
+
+  it('refuses at once when nothing AtlasMind holds could free the room', async () => {
+    // Nothing fits (3 GB free minus a 2 GB margin against a ~10 GB model), and
+    // nothing is in flight or ours: the shortfall belongs to other processes.
+    // Waiting out the bound would stall a chat turn for nothing.
+    const timers = controllableTimers();
+    const arbiter = makeArbiter({ devices: TIGHT, runtime: fakeRuntime().client, timers });
+    arbiter.applyConfig({ safetyMarginBytes: 2 * GIB, reserveBytes: 0 });
+
+    const pending = arbiter.acquire(request());
+    await expect(pending).rejects.toThrow(LocalGpuCapacityError);
+    await pending.catch(error => {
+      expect(isCapacityDeferral(error)).toBe(true);
+      expect(shouldOpenEndpointCircuit((error as Error).message, 'local')).toBe(false);
+    });
+    expect(arbiter.getState().queuedRequests).toBe(0);
+    expect(arbiter.getState().inFlightRequests).toBe(0);
+    expect(timers.pending()).toBe(0);
   });
 
   it('respects an AbortSignal while queued and does not consume a slot', async () => {
     const timers = controllableTimers();
     const controller = new AbortController();
-    const arbiter = makeArbiter({ devices: TIGHT, runtime: fakeRuntime().client, timers });
-    arbiter.applyConfig({ safetyMarginBytes: 2 * GIB, reserveBytes: 0 });
+    const arbiter = makeArbiter({ runtime: fakeRuntime([{ modelKey: 'qwen3:14b', vramBytes: 1 * GIB }]).client, timers });
+    arbiter.applyConfig({ maxConcurrentRequests: 1 });
 
+    const held = await arbiter.acquire(request());
     const pending = arbiter.acquire(request({ signal: controller.signal }));
     await settle();
     expect(arbiter.getState().queuedRequests).toBe(1);
@@ -176,6 +199,8 @@ describe('admission', () => {
     controller.abort();
     await expect(pending).rejects.toThrow(/cancelled/i);
     expect(arbiter.getState().queuedRequests).toBe(0);
+    expect(arbiter.getState().inFlightRequests).toBe(1);
+    held.release();
     expect(arbiter.getState().inFlightRequests).toBe(0);
   });
 
@@ -267,11 +292,13 @@ describe('an unreachable runtime', () => {
 describe('dispose', () => {
   it('settles every queued waiter instead of leaving them hanging', async () => {
     const timers = controllableTimers();
-    const arbiter = makeArbiter({ devices: TIGHT, runtime: fakeRuntime().client, timers });
-    arbiter.applyConfig({ safetyMarginBytes: 2 * GIB, reserveBytes: 0 });
+    const arbiter = makeArbiter({ runtime: fakeRuntime([{ modelKey: 'qwen3:14b', vramBytes: 1 * GIB }]).client, timers });
+    arbiter.applyConfig({ maxConcurrentRequests: 1 });
 
+    await arbiter.acquire(request());
     const pending = arbiter.acquire(request());
     await settle();
+    expect(arbiter.getState().queuedRequests).toBe(1);
     arbiter.dispose();
     await expect(pending).rejects.toThrow(/shut down/i);
   });
@@ -310,12 +337,10 @@ describe('eviction', () => {
     const arbiter = makeArbiter({ devices: TIGHT, runtime: runtime.client, timers });
     arbiter.applyConfig({ safetyMarginBytes: 2 * GIB, reserveBytes: 0, evictionCooldownMs: 0 });
 
-    const pending = arbiter.acquire(request({ modelKey: 'qwen3:14b' }));
-    await settle();
-    timers.fireAll();
-    await expect(pending).rejects.toThrow(LocalGpuCapacityError);
+    await expect(arbiter.acquire(request({ modelKey: 'qwen3:14b' }))).rejects.toThrow(LocalGpuCapacityError);
+    expect(timers.pending()).toBe(0);
 
-    // It waited and then refused, rather than taking the user's model away.
+    // It refused rather than taking the user's model away.
     expect(runtime.unloaded).toEqual([]);
   });
 
@@ -327,10 +352,7 @@ describe('eviction', () => {
       safetyMarginBytes: 2 * GIB, reserveBytes: 0, evictOwnModels: false, evictionCooldownMs: 0,
     });
 
-    const pending = arbiter.acquire(request({ modelKey: 'qwen3:14b' }));
-    await settle();
-    timers.fireAll();
-    await expect(pending).rejects.toThrow(LocalGpuCapacityError);
+    await expect(arbiter.acquire(request({ modelKey: 'qwen3:14b' }))).rejects.toThrow(LocalGpuCapacityError);
     expect(runtime.unloaded).toEqual([]);
   });
 });

@@ -6,6 +6,53 @@ The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/),
 
 ## [Unreleased]
 
+## [0.481.0] - 2026-09-26
+
+### Added
+
+- Chat now looks for third-party tools when nothing installed can do the job. When the model's
+  `find-tool` search finds no installed skill, AtlasMind queries the Agent Finders you have enabled in
+  Resource Discovery and brings up to five candidates back into the conversation, each with a
+  **Review & install** button in both the AtlasMind chat panel and VS Code chat. Only the short,
+  secret-redacted capability description is sent, and only to finders you switched on; with none
+  enabled, the reply says how to enable one. `find-tool` is now offered even when every installed skill
+  was already sent, because it can look further.
+- Installing a discovered resource now asks first. The confirmation names the finder, the source, and
+  for an MCP server the exact command it would run (or URL it would reach) and the environment variables
+  it sets, and says it arrives switched off. Previously the install button acted immediately.
+
+### Fixed
+
+- Never replay a task that may already have changed something. A model attempt covers the whole tool
+  loop, so failing over re-ran the task from the start on the next model — observed as "commit, push
+  and promote" being handed to model after model. Once an attempt has started a commit, push, write or
+  other side-effecting tool (or a tool-running ACP agent has the prompt), a failure now stops the turn
+  and says what had already run, rather than repeating it. Escalating to a stronger model is skipped
+  for the same reason.
+- Stop declaring a working ACP agent hung. The 180-second `session/prompt` limit is now an inactivity
+  limit that resets on every progress update the agent sends, within a 30-minute ceiling, so a Codex or
+  Claude agent running a commit hook, tests and a push is no longer abandoned mid-task. When a prompt
+  does time out, the agent is told to cancel instead of carrying on in the background, and that agent's
+  other models are skipped for the rest of the turn.
+- Keep Gemini 3 tool calls working past the first round. Gemini's OpenAI-compatible endpoint carries
+  thought signatures at `extra_content.google.thought_signature`; AtlasMind only read a top-level field,
+  lost every signature, and Gemini rejected the next request with "Function call is missing a
+  thought_signature".
+- Stop chat turns stalling for 45 seconds per local runtime when the GPU is full. The local GPU arbiter
+  now refuses a request at once when nothing AtlasMind holds could be released — no request in flight,
+  no model loading, and no resident model of its own — so the turn fails over to another provider
+  immediately. A wait that a release could end is still bounded as before.
+- Read Copilot token prices again. GitHub's pricing page gained per-vendor columns (release status,
+  category, tier, threshold), so the positional parser read "GA" as a price and every sync failed. The
+  columns are now located by header, the default tier is kept over the long-context surcharge, and
+  footnote markers are dropped from model names.
+- Retry a failed Copilot pricing fetch at most once an hour instead of on every provider refresh.
+- Coalesce provider-model refreshes: one runs at a time with a single queued follow-up, and bursts of
+  VS Code chat-model change events are debounced, instead of each event starting a full concurrent
+  discovery of every provider.
+- Stop the Remote Control server throwing "Channel has been closed" during window shutdown, which
+  interrupted the rest of AtlasMind's teardown.
+
 ## [0.480.2] - 2026-09-17
 
 ### Fixed

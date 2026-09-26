@@ -4,7 +4,7 @@
 
 <h1 align="center">AtlasMind</h1>
 
-<p align="center"><sub> · <strong>Current source version: 0.480.2</strong> · </sub></p>
+<p align="center"><sub> · <strong>Current source version: 0.481.0</strong> · </sub></p>
 
 
 <p align="center">
@@ -175,6 +175,21 @@ allow-list, redaction and file-withholding behaviour, retained metadata, provide
 important limits on overrides and compliance claims.
 
 ---
+
+## What's new in 0.481.0
+
+**Chat finds tools it doesn't have.** When nothing installed can do part of a task, AtlasMind searches
+the Resource Discovery finders you've enabled and offers the candidates in the reply, each with a
+**Review & install** button. Installing now shows exactly what would be added — for an MCP server, the
+command it would run — and it arrives switched off.
+
+**A failed turn no longer repeats work.** If a model fails after it has started a commit, push or file
+change, AtlasMind stops and tells you what already ran instead of handing the whole task to another
+model. ACP agents are no longer declared hung while they are still reporting progress, and Gemini 3
+tool calls keep working past the first round.
+
+Chat turns also no longer stall when the GPU is full of models AtlasMind did not load. Copilot token
+prices sync again, and provider refreshes are coalesced instead of overlapping.
 
 ## What's new in 0.480.2
 
@@ -745,6 +760,7 @@ All 162 settings are documented in the [Configuration reference](wiki/Configurat
 | `src/core/` | Orchestration, routing, planning, safety, cost, project composition, opt-in workspace scope, read-only upstream distance, game-engine identity, bounded asset inventory, pure engine-fork interpretation, and hostile-input build-log reading (`projectComposition.ts`, `workspaceScope.ts`, `upstreamDivergence.ts`, `gameEngineIdentity.ts`, `gameAssetInventory.ts`, `gameEngineDivergence.ts`, `gameBuildLog.ts`), UI Studio's graph/edit/live-preview/repository core (`uiDesignGraph.ts`, `uiEditCommands.ts`, `uiPreviewRuntime.ts`, `uiRepositoryMapping.ts`, `uiRepositoryImport.ts`, `uiSurfaceScan.ts`), brand presets — one named token set applied to many surfaces by alias, extracted from a stylesheet with a citation (`brandPresets.ts`) — and the engine emitters with anchored, patch-by-anchor content write-back and constant-argv launch plans (`uiSurfaceEmit.ts`), CI inspection/scaffolding (`ciManager.ts`, `trustedLocalCiStarter.ts`), the CI route model, routing policy, build ledger and act adapter (`ciRoutes.ts`, `ciRoutingPolicy.ts`, `ciCreditMeter.ts`, `ciBuildLedger.ts`, `ciActRoute.ts`), the local CI guide, GitHub CLI installer and remembered machine inspection (`localCiSetupPlan.ts`, `localCiInstaller.ts`, `localCiInspectionMemory.ts`), the provider-neutral reviewed-PR contract, exact-SHA policy and repository patcher (`localCiRepositoryPatch.ts`, `reviewedPrLocalCi.ts`), confirmed-write echo (`trackerWriteOutcome.ts`), the register-to-work hand-off (`registerHandoff.ts`), the personal-vs-project split behind the two sidebar people views (`directorPriority.ts`), the semver primitives and branch-to-channel versioning policy (`semver.ts`, `versioningPolicy.ts`), the shell-free Windows shim bypass shared by the extension host, the CLI and the ACP launcher (`windowsShimBypass.ts`), parallel-write placement, worktree plumbing, merge-back and the run that ties them together (`worktreeIsolation.ts`, `worktreeManager.ts`, `worktreeMerge.ts`, `worktreeRun.ts`), the live security advisory feed and the per-turn context breakdown and the producer-portal hosting guide (`advisoryFeed.ts`, `contextBudget.ts`, `producerPortalPlan.ts`), the defect register — what is broken, graded by a published table rather than asked for (`defectRegister.ts`), the approval register — who agreed, to which version, and what goes stale when it changes (`changeApprovals.ts`), the test-case register — the manual half of testing, its owners and the assets it needs (`testCaseRegister.ts`), the ambient event bus — what may wake AtlasMind up, how far it may go, and why it stayed quiet (`ambientTriggers.ts`), the six cross-cutting utility decisions with their verified vendor facts (`utilityPacks.ts`), the searchable codebase index — what may be indexed, what is stale, and what a result may be taken to mean (`codebaseIndex.ts`, `codebaseIndexStore.ts`), where the producer portal is hosted and who may read it, and what one press to publish would actually do (`portalHosting.ts`, `portalPublishPlan.ts`), golden cases for an agent and the gate on an unattended prompt rewrite (`agentEvalHarness.ts`), what each person has been asked to do against the capacity they declared, and declared absence read out of an exported calendar (`teamWorkload.ts`, `rotaImport.ts`), baselines you can name so "what changed" can be asked about a moment you chose (`baselineRegister.ts`), the project in your own words and the grounding rule for anything read out of it (`projectBrief.ts`), the roadmap dependency graph, its overlay store, the chain the finish rests on and the plan against time (`roadmapGraph.ts`, `roadmapGraphStore.ts`, `roadmapCriticalPath.ts`, `roadmapTimeline.ts`, `roadmapBoard.ts`), whether the configured team can work and how much of it is used (`agentCapacity.ts`), and the git trailers that link a commit to the work it was for (`commitTrailers.ts`), and the evidence-triggered MCP capability offer (`capabilityOffer.ts`), release-gate destinations and urgency ordering (`releaseGateNavigation.ts`), roadmap ingestion from markdown, issues, Projects and spreadsheets (`roadmapImport.ts`, `roadmapReconcile.ts`) plus the guarded `localCiRunner.ts` executor, the governance-compliance stack — the control catalog, evidence register and readiness grader (`complianceControlCatalog.ts`, `complianceEvidenceRegister.ts`, `complianceReadiness.ts`) the per-methodology standard editions (`testingStandards.ts`), the Compliance page's view builder (`complianceDashboard.ts`), its walkthrough (`complianceSetupPlan.ts`), the shared stack-signal gatherer (`complianceStackSignals.ts`) and the mapping importer (`complianceMarkdownImport.ts`) — and project services |
 | `src/core/releaseMatrix.ts` | Pure schema, sanitization, mutation and metrics for the planned Editions feature-by-offering matrix; filesystem writes stay in the Project Dashboard host |
 | `src/core/releaseMatrixImport.ts` | Pure, bounded design-document discovery, Markdown/JSON parsing, conservative roadmap/Issue matching, and reviewed non-destructive merge planning for Editions |
+| `src/core/capabilitySearch.ts` | When `find-tool` finds no installed skill: sends the redacted, clamped query to the Agent Finders you enabled and returns up to five candidates to review and install — searching installs and grants nothing |
 | `src/runtime/` | Built-in agents and runtime composition |
 | `src/providers/` | Model provider adapters, catalogs, health, `modelRole.ts` (what a model is *for*), and the local-GPU support layer — `gpuProbe.ts`, `localFootprint.ts`, `localRuntimeClient.ts` |
 | `src/skills/` | Built-in tools and skill handlers |
