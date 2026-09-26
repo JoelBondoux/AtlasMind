@@ -5729,6 +5729,21 @@ describe('task-scoped skill context', () => {
     expect(select('review my pull request checks')).toContain('terminal-run');
   });
 
+  it('gives a promotion into a protected branch gh, so it can open a pull request', () => {
+    // "promote staging to main and publish" had no terminal-run and therefore no
+    // `gh pr create`. With only local git it merged into main locally, reset,
+    // merged again, and gave up at the tag.
+    const select = (message: string): string[] => selectTaskScopedSkills(
+      { skills: [], skillPolicy: 'task-scoped' },
+      BRANCH_CLEANUP_SKILLS.map(id => skill(id)),
+      message,
+    ).map(item => item.id);
+
+    expect(select('promote staging to main and publish')).toContain('terminal-run');
+    expect(select('merge develop into master')).toContain('terminal-run');
+    expect(select('what changed in the last commit?')).not.toContain('terminal-run');
+  });
+
   it('bundles the write tools for an integration flow without widening a plain commit', () => {
     // The bundle is deliberately narrower than "any word implying a write":
     // asking about a commit is not asking for the ability to publish one.

@@ -56,9 +56,18 @@ your status bar so you always know it's on.
 
 Autopilot and per-task bypass answer *stop asking me about this*. They do not answer *and never ask me
 again about anything*. One category is beyond all of them: an operation that **leaves your machine,
-changes something there, and cannot be undone from here**. In practice that is `git push`, deleting a
-branch on the remote, and — the case that matters most — **any external tool AtlasMind cannot
-identify**, because an unrecognised MCP tool name grades as an outward write on the name alone.
+changes something there, and cannot be undone from here**. In practice that is a `git push` to a
+protected branch (or `staging`/`development`), of a tag, with force, or without the branch named;
+deleting a branch on the remote; and — the case that matters most — **any external tool AtlasMind
+cannot identify**, because an unrecognised MCP tool name grades as an outward write on the name alone.
+
+An ordinary push — the `git-push` tool naming a working branch such as `develop` or `feat/x`, to a
+remote given by name — is *not* on the ceiling, so Autopilot covers it. Until v0.482.0 every push was,
+and Autopilot asked on each one while the same push typed as `terminal-run git push` was waived: the
+dedicated tool was stricter than the raw command. `terminal-run` now refuses `git push` (and git
+aliases defined with `-c`) and sends the model to `git-push`, so a push has one set of rules. The
+`git-push` tool checks that a named branch really is a local branch, so a tag cannot ride through on a
+branch's approval, and pushes a single release tag with its `tag` parameter.
 
 Until v0.433.0 there was no such ceiling: Autopilot approved every category, and Autopilot is offered
 as an answer to *any* approval dialog, so a single click on a harmless tool bought unattended approval

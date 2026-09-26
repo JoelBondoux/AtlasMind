@@ -171,6 +171,33 @@ const URL_SAFETY_HINT = [
   '- Do not present a URL as working or safe unless it has been validated; if live verification is unavailable, label it as unverified.',
 ].join('\n');
 
+/**
+ * A protected branch named in a request. `release` is left out on purpose: it is
+ * also the verb, so "release 1.2 to staging" would read as naming a branch.
+ */
+const PROTECTED_BRANCH_MENTION_PATTERN = /\b(?:main|master|production|prod|stable)\b/i;
+export const PROTECTED_PROMOTION_HINT = [
+  'Protected-branch promotion hint:',
+  '- Never merge into, commit to, or push to a protected branch (main, master, production, prod, release, stable, release/*, hotfix/*) from this workspace, and do not stash, reset, or switch branches to stage a promotion locally.',
+  '- Promotion into a protected branch goes through a pull request: open one with terminal-run `gh pr create --base <protected branch> --head <source branch>`, or dispatch the release workflow the project declares. Merging it (`gh pr merge <number>` with the merge method the project specifies) is its own approval-gated step.',
+  '- Create or push a release tag only after that pull request has merged and the protected branch on the remote shows the new version. A tag push can start a publish that cannot be undone; push one tag with the git-push tool\'s "tag" parameter.',
+  '- If a step is blocked, stop and name the blocker. Do not improvise a local route around it.',
+].join('\n');
+
+/**
+ * Whether a request is moving work into a protected branch.
+ *
+ * Exists because one chat turn is not a planned run: the planner's rule against
+ * local merges into protected branches never reached "promote staging to main
+ * and publish", which merged locally, reset, merged again, and stopped at the
+ * tag. A promotion verb or an integration verb, together with a protected
+ * branch, is the shape of that request.
+ */
+export function isProtectedBranchPromotionRequest(userMessage: string): boolean {
+  return (hasPromotionIntent(userMessage) || TASK_SCOPED_GIT_INTEGRATION_PATTERN.test(userMessage))
+    && PROTECTED_BRANCH_MENTION_PATTERN.test(userMessage);
+}
+
 type RetrievalMode = 'summary-safe' | 'hybrid' | 'live-verify';
 
 interface LiveEvidenceSlice {
@@ -5208,6 +5235,9 @@ export class Orchestrator {
     const urlSafetyHint = shouldInjectUrlSafetyGuidance(userMessage, requestContext)
       ? `\n\n${URL_SAFETY_HINT}`
       : '';
+    const protectedPromotionHint = isProtectedBranchPromotionRequest(userMessage)
+      ? `\n\n${PROTECTED_PROMOTION_HINT}`
+      : '';
     const testingMethodologyHint = typeof requestContext['__testingMethodologyHint'] === 'string' && requestContext['__testingMethodologyHint'].trim().length > 0
       ? `\n\nTesting methodology guidance:\n${requestContext['__testingMethodologyHint'].trim()}`
       : '';
@@ -5308,6 +5338,7 @@ export class Orchestrator {
             : '') +
           securityAnalysisHint +
           urlSafetyHint +
+          protectedPromotionHint +
           workflowExecutionBlock +
           deliveryPipelineBlock +
           testingObligationBlock +
@@ -6803,6 +6834,13 @@ export function selectTaskScopedSkills(
   // did this fail?" usually means reading the code the run was about.
   if (github) {
     add('terminal-run', 'file-read', 'file-search');
+  }
+
+  // Promotion into a protected branch is a pull request, and `gh` lives behind
+  // `terminal-run`. Without it the turn that most needed `gh pr create` could
+  // only reach for local git — which is how a local merge into main happens.
+  if (delivery || isProtectedBranchPromotionRequest(userMessage)) {
+    add('terminal-run');
   }
 
   if (git) {

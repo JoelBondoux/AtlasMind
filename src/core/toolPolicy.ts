@@ -1,5 +1,6 @@
 import type { ToolApprovalMode, ToolInvocationPolicy, ToolRiskCategory } from '../types.js';
 import { parseGhInvocation } from '../skills/terminalRun.js';
+import { isProtectedBranch } from '../skills/gitPush.js';
 
 export function getToolApprovalMode(value: string | undefined): ToolApprovalMode {
   switch (value) {
@@ -86,7 +87,7 @@ export function classifyToolInvocation(
       return { category: 'git-write', risk: 'high', summary: `integrate changes using ${toolName}` };
 
     case 'git-push':
-      return { category: 'network', risk: 'high', summary: 'push commits to the remote repository' };
+      return classifyGitPushInvocation(args);
 
     // Opening one of AtlasMind's own panels changes nothing. Gating it would be
     // friction with no risk behind it, and a navigation tool that prompts is one
@@ -188,7 +189,10 @@ export function classifyToolInvocation(
  *
  * The pair it does cover is the one where all three are true at once: it leaves
  * this machine, it changes something there, and it cannot be taken back. That
- * is `git push`, deleting a remote branch, and — the case that matters most —
+ * is a `git push` to a protected branch, of a tag, with force, or to a branch
+ * the call does not name (an ordinary push to a named working branch grades
+ * `medium` — see {@link classifyGitPushInvocation}), deleting a remote branch,
+ * and — the case that matters most —
  * **any external tool AtlasMind could not identify**, since an unrecognised MCP
  * tool falls here by name and was previously auto-approved under autopilot.
  *
@@ -317,6 +321,74 @@ function classifyUnknownToolName(toolName: string): ToolInvocationPolicy {
   }
 
   return { category: 'network', risk: 'high', summary: `invoke external tool ${toolName}` };
+}
+
+/**
+ * Branches a push to which is never pre-approvable, beyond the protected set.
+ *
+ * `staging` and `development` are not protected against deletion or force by
+ * `isProtectedBranch`, but a push to either is commonly a deployment — the
+ * branch *is* the environment — so it stays behind the ceiling.
+ */
+const PUSH_GATED_BRANCHES: ReadonlySet<string> = new Set(['staging', 'development']);
+
+/** A remote given by name. A URL or a path would push the code somewhere nobody configured. */
+const PLAIN_REMOTE_NAME = /^[A-Za-z0-9][A-Za-z0-9._-]*$/;
+const PLAIN_BRANCH_NAME = /^[A-Za-z0-9][A-Za-z0-9._/-]*$/;
+
+function isPushGatedBranch(branch: string): boolean {
+  return isProtectedBranch(branch) || PUSH_GATED_BRANCHES.has(branch.toLowerCase().trim());
+}
+
+const HIGH_RISK_PUSH = (summary: string): ToolInvocationPolicy => ({ category: 'network', risk: 'high', summary });
+
+/**
+ * Grade a `git-push` by what it will actually do on the remote.
+ *
+ * Every push used to grade `network`/`high`, which is the one pair no bypass may
+ * waive — so under autopilot an ordinary push to `develop` asked every time,
+ * while the same push typed as `terminal-run git push` was a bypassable
+ * terminal write. The prompt landed on the wrong tool: the dedicated skill was
+ * stricter than the raw command it exists to replace.
+ *
+ * A push drops to `medium` — gated, but waivable by autopilot — only when all of
+ * it is readable from the arguments and none of it is irreversible elsewhere: a
+ * named, unprotected branch, a remote given by name, no force, no tags. Anything
+ * the arguments leave open stays at the ceiling. An unnamed branch is the
+ * important case: this function is pure and cannot ask git which branch is
+ * checked out, and "the current branch" is exactly `main` in the run that
+ * prompted this. The skill's own description tells the model to name the branch.
+ *
+ * A tag push stays at the ceiling however it is spelled, because pushing a tag
+ * is how most release workflows are started, and a publish cannot be recalled.
+ */
+export function classifyGitPushInvocation(args: Record<string, unknown>): ToolInvocationPolicy {
+  const remote = typeof args['remote'] === 'string' && args['remote'].trim() ? args['remote'].trim() : 'origin';
+  const branch = typeof args['branch'] === 'string' ? args['branch'].trim() : '';
+  const tag = typeof args['tag'] === 'string' ? args['tag'].trim() : '';
+
+  if (!PLAIN_REMOTE_NAME.test(remote)) {
+    return HIGH_RISK_PUSH(`push to "${remote}", which is not a configured remote name`);
+  }
+  if (tag) {
+    return HIGH_RISK_PUSH(`push tag "${tag}" to ${remote} — a tag push can start a release workflow and cannot be recalled`);
+  }
+  if (args['tags'] === true) {
+    return HIGH_RISK_PUSH(`push every local tag to ${remote} — a tag push can start a release workflow and cannot be recalled`);
+  }
+  if (!branch) {
+    return HIGH_RISK_PUSH(`push the current branch to ${remote} (the branch is not named, so it cannot be pre-approved)`);
+  }
+  if (!PLAIN_BRANCH_NAME.test(branch) || branch.includes('..')) {
+    return HIGH_RISK_PUSH(`push "${branch}" to ${remote}`);
+  }
+  if (args['force'] === true) {
+    return HIGH_RISK_PUSH(`force-push "${branch}" to ${remote}, replacing the remote history`);
+  }
+  if (isPushGatedBranch(branch)) {
+    return HIGH_RISK_PUSH(`push to the protected branch "${branch}" on ${remote}`);
+  }
+  return { category: 'network', risk: 'medium', summary: `push the branch "${branch}" to ${remote}` };
 }
 
 function classifyTerminalInvocation(args: Record<string, unknown>): ToolInvocationPolicy {
