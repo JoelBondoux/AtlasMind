@@ -12,6 +12,7 @@ import {
   type LocalCiRepositoryPatchPlan,
 } from '../../src/core/localCiRepositoryPatch.ts';
 import { assessTrustedLocalCiWorkflow } from '../../src/core/localCiRunner.ts';
+import { readLocalCiActorGuard } from '../../src/core/localCiActorGuard.ts';
 import { TRUSTED_LOCAL_CI_ACTIONS_REVIEWED } from '../../src/core/trustedLocalCiStarter.ts';
 
 function build(overrides: Partial<Parameters<typeof buildLocalCiRepositoryPatch>[0]> = {}) {
@@ -132,6 +133,59 @@ describe('buildLocalCiRepositoryPatch', () => {
     const drifted = assessManagedReviewedPrLocalCiFiles(plan.config, `${runner}\n// changed`, workflow);
     expect(drifted.ok).toBe(false);
     expect(drifted.blockers[0]).toContain(REVIEWED_PR_LOCAL_CI_RUNNER_PATH);
+  });
+
+  /**
+   * An organisation owns no account, so the owner condition is false for every
+   * dispatch and the job could never start. The contract pins the one account
+   * allowed to dispatch it, and the workflow is generated from that pin.
+   */
+  it('pins one account for an organisation-owned repository', () => {
+    const account = { id: 6105707, login: 'JoelBondoux' };
+    const outcome = build({ repository: 'Hill-To-Die-On/Director-Of-Realms', trustedBaseBranch: 'main', authorizedAccount: account });
+    expect(outcome.ok).toBe(true);
+    if (!outcome.ok) return;
+    const plan = outcome.plan;
+    expect(plan.config.authorizedAccount).toEqual(account);
+
+    const workflow = buildReviewedPrLocalCiWorkflow(plan.config);
+    const condition = workflow.slice(workflow.indexOf('    if: >-'), workflow.indexOf('    runs-on:'));
+    expect(condition).toContain("github.actor_id == '6105707' &&");
+    expect(condition).not.toContain('repository_owner');
+    expect(workflow).toContain('# Only JoelBondoux (GitHub account id 6105707) may dispatch');
+    expect(readLocalCiActorGuard(workflow)).toEqual({ ok: true, guard: { kind: 'account', id: 6105707 } });
+    expect(assessTrustedLocalCiWorkflow(workflow, {
+      repoSlug: plan.repository,
+      branch: plan.trustedBaseBranch,
+      runnerLabel: plan.runnerLabel,
+    })).toMatchObject({ ok: true, blockers: [] });
+
+    const runner = buildReviewedPrLocalCiRunnerScript();
+    expect(assessManagedReviewedPrLocalCiFiles(plan.config, runner, workflow)).toEqual({ ok: true, blockers: [] });
+    // The pin lives in the contract: a workflow that dropped it, or a contract
+    // that lost it, is drift and is refused like any other.
+    const { authorizedAccount: _dropped, ...withoutPin } = plan.config;
+    expect(assessManagedReviewedPrLocalCiFiles(withoutPin, runner, workflow).ok).toBe(false);
+    expect(assessManagedReviewedPrLocalCiFiles(plan.config, runner, buildReviewedPrLocalCiWorkflow(withoutPin)).ok).toBe(false);
+  });
+
+  it('keeps the repository-owner condition, and no pin, for a personal repository', () => {
+    const plan = planOf();
+    expect(plan.config).not.toHaveProperty('authorizedAccount');
+    const workflow = buildReviewedPrLocalCiWorkflow(plan.config);
+    expect(workflow).toContain('      github.actor == github.repository_owner &&\n');
+    expect(workflow).not.toContain('actor_id');
+    expect(workflow).not.toContain('account id');
+    expect(readLocalCiActorGuard(workflow)).toEqual({ ok: true, guard: { kind: 'repository-owner' } });
+  });
+
+  it('refuses a pinned account it could not write safely into the workflow', () => {
+    for (const authorizedAccount of [
+      { id: 0, login: 'JoelBondoux' },
+      { id: 6105707, login: "JoelBondoux'\n      || true" },
+    ]) {
+      expect(build({ authorizedAccount })).toMatchObject({ ok: false });
+    }
   });
 
   it('generates a runner that never invokes a shell and passes only a narrow environment', () => {

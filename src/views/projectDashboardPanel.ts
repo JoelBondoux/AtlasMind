@@ -526,6 +526,7 @@ import {
 } from '../core/localCiInspectionMemory.js';
 import { resolveWorkflowNodeVersion, type NodeVersionResolution } from '../core/nodeVersionDetection.js';
 import { buildTrustedLocalCiStarter } from '../core/trustedLocalCiStarter.js';
+import { lookUpLocalCiDispatcher } from '../core/localCiActorGuard.js';
 import {
   ACT_COMMAND,
   ACT_DOCS_URL,
@@ -8786,6 +8787,10 @@ export class ProjectDashboardPanel {
       return;
     }
 
+    // An organisation owns no account, so the owner condition would skip every
+    // run there; the signed-in account is pinned instead. When GitHub cannot be
+    // asked the owner condition is written, and the dialog says so.
+    const dispatcher = await lookUpLocalCiDispatcher(workspaceRoot, repoSlug);
     const outcome = buildTrustedLocalCiStarter({
       repoRemote: repoSlug,
       trustedBranch: configuration.trustedBranch,
@@ -8794,6 +8799,7 @@ export class ProjectDashboardPanel {
       packageManager: packageFacts.packageManager,
       scripts: packageFacts.scripts,
       nodeVersion: packageFacts.node.version,
+      ...(dispatcher.ok && dispatcher.ownerType === 'Organization' ? { authorizedAccount: dispatcher.account } : {}),
     });
     if (!outcome.ok) {
       void vscode.window.showWarningMessage(`AtlasMind did not write a trusted workflow. ${outcome.reason}`);
@@ -8814,6 +8820,10 @@ export class ProjectDashboardPanel {
           'What it refuses:',
           ...plan.refuses.map(line => `  • ${line}`),
           '',
+          ...(dispatcher.ok ? [] : [
+            `${dispatcher.reason} The file names the repository owner. If an organisation owns ${repoSlug}, sign in to GitHub CLI and create it again: an organisation has no owner account, so that condition would skip every run.`,
+            '',
+          ]),
           `Runner label: ${plan.runnerLabel} — this machine's architecture. A different architecture needs a different label.`,
           `Node ${packageFacts.node.version}. ${packageFacts.node.rule}`,
           `Pinned actions: ${plan.pinnedActions.map(action => `${action.name}@${action.release}`).join(', ')}`,

@@ -65,6 +65,25 @@ describe('reviewed PR local CI policy', () => {
     }))).toMatchObject({ ok: false });
   });
 
+  /**
+   * The pin is what lets an organisation-owned repository dispatch at all, and
+   * the workflow is regenerated from it before every run, so a malformed one is
+   * a refusal, never a pin quietly dropped back to the owner condition.
+   */
+  it('keeps a valid pinned account and refuses a malformed one', () => {
+    const pinned = { ...config(), authorizedAccount: { id: 6105707, login: 'JoelBondoux' } };
+    expect(parseReviewedPrLocalCiConfig(JSON.stringify(pinned))).toEqual({ ok: true, config: pinned });
+    for (const authorizedAccount of [
+      null,
+      { id: '6105707', login: 'JoelBondoux' },
+      { id: 6105707 },
+      { id: 6105707, login: 'Joel Bondoux' },
+    ]) {
+      expect(parseReviewedPrLocalCiConfig(JSON.stringify({ ...config(), authorizedAccount })))
+        .toMatchObject({ ok: false, reason: expect.stringMatching(/authorised account/) });
+    }
+  });
+
   it('parses the bounded GitHub CLI shape, including owner plus repository name', () => {
     const parsed = parseReviewedPrCandidates(JSON.stringify({
       number: 42,

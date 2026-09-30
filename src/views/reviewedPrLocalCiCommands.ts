@@ -32,6 +32,14 @@ import {
   type LocalCiRunnerSnapshot,
   type LocalCiShutdownPolicy,
 } from '../core/localCiRunner.js';
+import {
+  isLocalCiAuthorizedAccount,
+  localCiActorBlocker,
+  lookUpLocalCiDispatcher,
+  parseLocalCiIdentity,
+  parseLocalCiRepositoryOwnerType,
+  type LocalCiAuthorizedAccount,
+} from '../core/localCiActorGuard.js';
 import { parseRepoSlug } from '../core/githubDeepLinks.js';
 import { runGhOrThrow } from '../core/ghClient.js';
 import { redactSecrets } from '../utils/secretRedactor.js';
@@ -105,6 +113,63 @@ async function existingManagedBaseBranch(root: string): Promise<string | undefin
   } catch {
     return undefined;
   }
+}
+
+/** The account the committed contract pins, if it pins a valid one. */
+async function existingManagedAuthorizedAccount(root: string): Promise<LocalCiAuthorizedAccount | undefined> {
+  const raw = await readOptionalText(path.join(root, REVIEWED_PR_LOCAL_CI_CONFIG_PATH));
+  if (!raw || !raw.includes(REVIEWED_PR_LOCAL_CI_MARKER)) {
+    return undefined;
+  }
+  try {
+    const value = (JSON.parse(raw) as { authorizedAccount?: unknown }).authorizedAccount;
+    return isLocalCiAuthorizedAccount(value) ? { id: value.id, login: value.login } : undefined;
+  } catch {
+    return undefined;
+  }
+}
+
+interface ResolvedDispatcher {
+  account?: LocalCiAuthorizedAccount;
+  /** What the confirmation dialog says about who may dispatch the workflow. */
+  summary: string;
+  /** Said only when GitHub could not be asked, so the answer is a fallback. */
+  caution?: string;
+}
+
+/**
+ * Who the reviewed-PR workflow lets dispatch it.
+ *
+ * A personal repository names its owner, as it always has. An organisation
+ * owns no account, so the owner condition would skip every dispatch there, and
+ * the account signed in to GitHub CLI is pinned instead: the person patching the
+ * repository is the one who will approve and dispatch its runs. When GitHub
+ * cannot be asked, an existing pin is kept rather than dropped, and otherwise
+ * the owner condition is written with a caution saying what to do if an
+ * organisation owns the repository.
+ */
+async function resolveReviewedPrDispatcher(root: string, repository: string): Promise<ResolvedDispatcher> {
+  const lookup = await lookUpLocalCiDispatcher(root, repository);
+  if (lookup.ok) {
+    return lookup.ownerType === 'Organization'
+      ? {
+          account: lookup.account,
+          summary: `${lookup.account.login} only (GitHub account id ${lookup.account.id}). An organisation owns ${repository}, so no account is its owner.`,
+        }
+      : { summary: `the owner of ${repository}` };
+  }
+  const existing = await existingManagedAuthorizedAccount(root);
+  if (existing) {
+    return {
+      account: existing,
+      summary: `${existing.login} only (GitHub account id ${existing.id}), kept from the committed contract.`,
+      caution: lookup.reason,
+    };
+  }
+  return {
+    summary: `the owner of ${repository}`,
+    caution: `${lookup.reason} If an organisation owns ${repository}, sign in to GitHub CLI and patch again: an organisation has no owner account, so this workflow could never be dispatched.`,
+  };
 }
 
 async function chooseTrustedBaseBranch(root: string): Promise<string | undefined> {
@@ -231,8 +296,10 @@ export async function patchRepositoryForReviewedPrLocalCi(): Promise<void> {
       readOptionalText(path.join(root, 'package.json')),
     ]);
     const nodeVersion = await resolveControllerNodeVersion(root, packageJsonText);
+    const dispatcher = await resolveReviewedPrDispatcher(root, repository);
     const outcome = buildLocalCiRepositoryPatch({
       repository,
+      ...(dispatcher.account ? { authorizedAccount: dispatcher.account } : {}),
       trustedBaseBranch,
       architecture: os.arch(),
       nodeVersion,
@@ -270,13 +337,15 @@ export async function patchRepositoryForReviewedPrLocalCi(): Promise<void> {
         modal: true,
         detail: [
           `Trusted base branch: ${outcome.plan.trustedBaseBranch}`,
+          `May dispatch: ${dispatcher.summary}`,
+          ...(dispatcher.caution ? [`Caution: ${dispatcher.caution}`] : []),
           `Dedicated runner label: ${outcome.plan.runnerLabel}`,
           `Detected checks: ${outcome.plan.detectionDetail}`,
           `Contract state: ${outcome.plan.enabled ? 'enabled after commit' : 'disabled until you declare safe command/argument pairs'}`,
           '',
           ...writes.map(target => `${target.state === 'create' ? 'Create' : 'Refresh'} ${target.path}`),
           '',
-          'The workflow accepts only an owner-dispatched, same-repository, exact head SHA. It receives no repository/environment secret or write permission, mounts no host directory or Docker socket, and produces Linux-container evidence only.',
+          `The workflow accepts only a same-repository, exact head SHA dispatched by ${dispatcher.account ? dispatcher.account.login : 'the repository owner'}. It receives no repository/environment secret or write permission, mounts no host directory or Docker socket, and produces Linux-container evidence only.`,
           'The job retains outbound network access for GitHub and dependency installation. Docker is defence in depth, not a substitute for reviewing the proposed code.',
           'Nothing is committed or pushed by this command.',
         ].join('\n'),
@@ -607,6 +676,36 @@ export async function runReviewedPullRequestOnLocalCi(): Promise<void> {
     );
     if (workflowReview.state !== 'ok') {
       throw new Error(workflowReview.blockers.join(' ') || 'The reviewed-PR workflow did not pass the trusted runner policy.');
+    }
+    // The dispatch below is made as the account signed in to GitHub CLI. If the
+    // workflow does not authorise that account, GitHub skips the job it queues,
+    // so the mismatch is named here instead of surfacing as a queue timeout.
+    const actorGuard = workflowReview.actorGuard;
+    if (!actorGuard) {
+      throw new Error('The reviewed-PR workflow does not name exactly one account allowed to dispatch it.');
+    }
+    const [operatorRaw, ownerRaw] = await Promise.all([
+      runGhOrThrow(root, ['api', 'user', '--jq', '{login: .login, id: .id}'], {
+        timeoutMs: 15_000,
+        maxBufferBytes: 64 * 1024,
+      }),
+      runGhOrThrow(root, ['api', `repos/${activeConfig.repository}`, '--jq', '{ownerType: .owner.type}'], {
+        timeoutMs: 15_000,
+        maxBufferBytes: 64 * 1024,
+      }),
+    ]);
+    const operator = parseLocalCiIdentity(operatorRaw);
+    if (!operator) {
+      throw new Error('GitHub CLI did not report the signed-in account, so AtlasMind cannot tell whether this workflow lets it dispatch.');
+    }
+    const ownerType = parseLocalCiRepositoryOwnerType(ownerRaw);
+    const operatorBlocker = localCiActorBlocker(actorGuard, operator, {
+      repoSlug: activeConfig.repository,
+      ...(ownerType ? { ownerType } : {}),
+      subject: 'operator',
+    });
+    if (operatorBlocker) {
+      throw new Error(operatorBlocker);
     }
 
     const baseSha = (await git(root, ['rev-parse', 'HEAD'])).toLowerCase();

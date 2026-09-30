@@ -6,6 +6,33 @@ The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/),
 
 ## [Unreleased]
 
+## [0.483.0] - 2026-09-30
+
+### Added
+
+- Local CI now works for organisation-owned repositories. The trusted-branch runner and reviewed-PR
+  local CI both authorised the job with `github.actor == github.repository_owner`, and the start
+  preflight compared the queued run's actor with the slug's owner. An organisation owns no account:
+  `github.repository_owner` is the organisation's name, which no actor's login can equal, so GitHub
+  skipped the job on every run before any runner was asked, and the preflight would have refused one
+  anyway. For an organisation-owned repository AtlasMind now pins the one account allowed to start the
+  job by its numeric GitHub id (`github.actor_id == '<id>'`), which a rename cannot move to somebody else.
+  The repository patcher and **Write it for me…** ask GitHub who owns the repository and pin the account
+  signed in to GitHub CLI; the reviewed-PR contract records it as `authorizedAccount` in
+  `.atlasmind/local-ci.json`, and the workflow is generated from it, so the exact-bytes check covers it.
+- `localCiActorGuard.ts` reads a workflow's actor condition with its comments set aside and accepts
+  exactly one: the owner condition or one pinned account id, never both and never two accounts. The
+  start preflight holds the queued run's actor to it, matching a pinned account by id, and a reviewed-PR
+  dispatch checks the signed-in account first, so a dispatch GitHub would skip is refused with a reason
+  instead of timing out in the queue. A repository-owner workflow in an organisation's repository is
+  refused with an explanation and a pointer to patch again.
+
+### Changed
+
+- The trusted-workflow policy now ignores an actor condition that appears only in a comment. A
+  commented condition authorises nothing, and a generated file explains its condition in prose.
+- A personal repository's generated files are unchanged, byte for byte.
+
 ## [0.482.3] - 2026-09-26
 
 ### Security
