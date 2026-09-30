@@ -5,6 +5,12 @@ import { execFile, spawn, type ChildProcess, type ChildProcessWithoutNullStreams
 import { promisify } from 'node:util';
 import { randomUUID } from 'node:crypto';
 import { pipeGhStdoutOrThrow, runGhOrThrow } from './ghClient.js';
+import {
+  localCiActorBlocker,
+  parseLocalCiIdentity,
+  readLocalCiActorGuard,
+  type LocalCiActorGuard,
+} from './localCiActorGuard.js';
 import { redactSecrets } from '../utils/secretRedactor.js';
 import { sanitizeTerminalOutput } from '../utils/terminalOutput.js';
 import { probeGpuDevices } from '../providers/gpuProbe.js';
@@ -298,6 +304,12 @@ export interface LocalCiWorkflowReview {
   warnings: string[];
   /** Only a genuinely absent file may be scaffolded; nothing here overwrites. */
   scaffoldable: boolean;
+  /**
+   * The actor the file authorises, when it names exactly one: the repository
+   * owner, or one pinned account in an organisation-owned repository. The start
+   * preflight holds the queued run's actor to this.
+   */
+  actorGuard?: LocalCiActorGuard;
   reviewedAt: string;
 }
 
@@ -569,8 +581,12 @@ export function assessTrustedLocalCiWorkflow(
     && !exact(`github.ref == "refs/heads/${input.branch}"`).test(normalized)) {
     blockers.push(`The job does not require refs/heads/${input.branch}.`);
   }
-  if (!/github\.actor\s*==\s*github\.repository_owner/i.test(normalized)) {
-    blockers.push('The job does not require the triggering actor to be the repository owner.');
+  // The owner in a personal repository; one pinned account id in an
+  // organisation's, where no account is the owner and the owner condition can
+  // never be true.
+  const actorGuard = readLocalCiActorGuard(normalized);
+  if (!actorGuard.ok) {
+    blockers.push(actorGuard.reason);
   }
   const routedJobs = [...normalized.matchAll(new RegExp(
     `runs-on:\\s*\\[?\\s*${escapeRegex(input.runnerLabel)}\\s*\\]?`,
@@ -792,12 +808,14 @@ export async function reviewTrustedLocalCiWorkflow(
     blockers.push(`The workflow directory could not be listed, so AtlasMind cannot prove no other workflow claims ${runnerLabel}: ${safeFailure(error)}`);
   }
 
+  const actorGuard = readLocalCiActorGuard(workflowText);
   return {
     ...base,
     state: blockers.length === 0 ? 'ok' : 'blocked',
     blockers: [...new Set(blockers)],
     warnings: [...new Set(warnings)],
     scaffoldable: false,
+    ...(actorGuard.ok ? { actorGuard: actorGuard.guard } : {}),
   };
 }
 
@@ -1295,11 +1313,27 @@ export class LocalCiRunnerManager {
     if (queuedRun.event !== 'push' && queuedRun.event !== 'workflow_dispatch') {
       throw new Error(`Queued event ${queuedRun.event || 'unknown'} is not trusted by the local executor.`);
     }
-    const actor = (await runGhOrThrow(this.workspaceRoot, [
-      'api', `repos/${repoSlug}/actions/runs/${queuedRun.databaseId}`, '--jq', '.actor.login',
-    ])).trim();
-    if (actor.toLowerCase() !== repoSlug.split('/')[0]!.toLowerCase()) {
-      throw new Error(`The queued run was triggered by ${actor || 'an unknown actor'}, not the repository owner.`);
+    // Held to the actor the reviewed file authorises. Comparing the login with
+    // the slug's owner, as this once did, refused every run in an
+    // organisation-owned repository: the owner there is the organisation.
+    const actorGuard = workflowReview.actorGuard;
+    if (!actorGuard) {
+      throw new Error('The trusted workflow does not name exactly one actor allowed to start its job.');
+    }
+    const actor = parseLocalCiIdentity(await runGhOrThrow(this.workspaceRoot, [
+      'api', `repos/${repoSlug}/actions/runs/${queuedRun.databaseId}`,
+      '--jq', '{login: .actor.login, id: .actor.id, ownerType: .repository.owner.type}',
+    ]));
+    if (!actor) {
+      throw new Error('GitHub did not report which account triggered the queued run.');
+    }
+    const actorBlocker = localCiActorBlocker(actorGuard, actor, {
+      repoSlug,
+      ...(actor.ownerType ? { ownerType: actor.ownerType } : {}),
+      subject: 'queued-run',
+    });
+    if (actorBlocker) {
+      throw new Error(actorBlocker);
     }
 
     const runnersRaw = await runGhOrThrow(this.workspaceRoot, [

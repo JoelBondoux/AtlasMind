@@ -19,6 +19,15 @@ Older entries below describe the software as it was at the time and are delibera
 
 ---
 
+## v0.483.0 -- Local CI for organisation repositories
+
+Local CI can now lend its runner to a repository an organisation owns. Such a repository has no owner
+account, so the old "only the owner may start this" rule could never be met and every job was skipped.
+AtlasMind now pins the one account allowed to start the job by its GitHub account id, and checks that
+account again before it lends the machine. Personal repositories are unchanged.
+
+---
+
 ## v0.482.3 -- Sanitization the scanner can see
 
 Release-design import now strips tags until nothing changes, then removes any leftover angle bracket.

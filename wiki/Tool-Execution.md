@@ -246,7 +246,8 @@ show output, copy the queue command, or send it to a terminal; it cannot supply 
 ref, SHA, actor, label, image, resource limit,
 container argument or shutdown policy. The host reads machine-scoped settings and performs the complete
 preflight again. Start requires exactly one waiting owner-authored run in total for current HEAD, a committed trusted
-workflow with only push/manual reachability, exact repository/ref/owner conditions, `contents: read`, no
+workflow with only push/manual reachability, exact repository/ref/actor conditions (the owner, or one account
+pinned by id in an organisation-owned repository), `contents: read`, no
 secret or OIDC/write grant, full-SHA action pins, `persist-credentials: false`, a label unique across local
 workflows, and no competing runner registration. It does not expose a dispatch or rerun operation.
 

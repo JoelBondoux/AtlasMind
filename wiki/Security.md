@@ -718,6 +718,13 @@ and checks the exact repository/ref/actor conditions, trigger set, read-only per
 absence, immutable action references, checkout credential setting, unique label and existing runner list.
 The runner it starts cannot dispatch or rerun a workflow.
 
+An organisation-owned repository has no owner account: `github.repository_owner` is the organisation's name,
+which no actor can equal, so the owner condition would skip every job. Since v0.483.0 its workflows pin the one
+account allowed to start the job by numeric id (`github.actor_id == '<id>'`), never by login, which can be renamed
+and reclaimed. The policy accepts exactly one actor condition — the owner or one pinned id, never both and never
+an alternative — and ignores a condition that appears only in a comment. The start preflight matches the queued
+run's actor to that pin by id, and a reviewed-PR dispatch checks the signed-in account first.
+
 Since v0.375.0 the *page* can queue one — a **Queue the run…** control that dispatches the trusted workflow
 on GitHub. It is not the runner gaining a capability: the container's token is unchanged and still cannot
 dispatch anything, and queueing starts nothing locally. Four properties bound it. The webview posts a bare

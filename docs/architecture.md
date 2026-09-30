@@ -68,7 +68,9 @@ The worker is an ephemeral non-root Linux container in Docker Desktop's WSL2 VM,
 Docker socket, and is started only for the reviewed job.
 
 A fourth, pre-merge plane is opt-in per repository. `localCiRepositoryPatch.ts` creates a committed
-`.atlasmind/local-ci.json`, fixed shell-rejecting argv runner, and owner-only manual workflow.
+`.atlasmind/local-ci.json`, fixed shell-rejecting argv runner, and owner-only manual workflow. In an
+organisation-owned repository, which has no owner account, the contract pins one dispatcher instead
+(`authorizedAccount`, compared by GitHub account id); `localCiActorGuard.ts` reads either condition.
 `reviewedPrLocalCi.ts` authorises repository identity, target branch and one exact current PR head SHA;
 `reviewedPrLocalCiCommands.ts` re-reads the PR after approval, identifies the newly dispatched workflow
 run by its unique run id and input-derived title, and passes that id into `LocalCiRunnerManager`. The base
@@ -1030,10 +1032,11 @@ Docker result can never be presented as native Windows or macOS coverage.
 `prepare()` is the authorization gate and **never queues work**. GitHub reports a waiting self-hosted
 workflow as `pending` while its job is `queued`, so the manager reads both lists and deduplicates by run id.
 It requires exactly one waiting `push`/`workflow_dispatch` run in total for current HEAD and the trusted
-branch, with the repository owner as actor. One current run plus a stale run refuses too: a shared label
+branch, triggered by the actor the reviewed workflow authorises: the repository owner, or the account an
+organisation-owned repository pins by id. One current run plus a stale run refuses too: a shared label
 cannot guarantee which job GitHub assigns. Queue absence/mismatch is a typed, retryable preflight issue—not
 a failed machine—and carries bounded local/waiting SHA evidence for the webview.
-The target workflow must be committed and is re-read immediately: exact repository/ref/owner conditions,
+The target workflow must be committed and is re-read immediately: exact repository/ref/actor conditions,
 read-only contents permission, no secret reference/write/OIDC permission, full-SHA action pins,
 `persist-credentials: false`, and one architecture-specific label that occurs in no sibling workflow. Any
 registered runner carrying that label refuses, preventing a stale/competing worker from sharing the route.
