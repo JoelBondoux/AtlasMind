@@ -3008,7 +3008,7 @@
     "@types/pg": "^8.23.1",
     "@types/vscode": "^1.120.0",
     "@types/ws": "^8.18.1",
-    "@typescript-eslint/eslint-plugin": "^8.70.1",
+    "@typescript-eslint/eslint-plugin": "^8.71.0",
     "@typescript-eslint/parser": "^8.67.0",
     "@vitest/coverage-v8": "^5.0.2",
     "@vscode/test-web": "^0.0.81",
