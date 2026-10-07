@@ -405,7 +405,7 @@ can only ever *add* promotion protection, never remove it.
 | `atlasmind.ard.federationMode` | `referrals` | How far a search follows references between catalogues |
 | `atlasmind.ard.maxResults` | `10` | Results per search |
 | `atlasmind.ard.requestTimeoutMs` | `15000` | Per-request timeout |
-| `atlasmind.ard.allowInsecureEndpoints` | `false` | Allow finders using plain HTTP or localhost |
+| `atlasmind.ard.allowInsecureEndpoints` | `false` | Allow finders you marked insecure to use plain HTTP or localhost. Those finders follow no redirects; every other discovery request is checked by name, by the addresses it looks up to, and after every redirect |
 
 ---
 

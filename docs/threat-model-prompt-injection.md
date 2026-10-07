@@ -65,7 +65,7 @@ laundered the page.
 
 | Entry point | How it arrives | Class | First control it meets |
 |---|---|---|---|
-| Fetched web pages | `web-fetch` (`src/skills/webFetch.ts`) | third-party | Fence + scan (`prepareToolResultForModel`); quarantine over 8,000 chars |
+| Fetched web pages | `web-fetch` (`src/skills/webFetch.ts`) | third-party | Destination screen before connecting (`egressDestinationPolicy`/`egressFetch`); fence + scan (`prepareToolResultForModel`); quarantine over 8,000 chars |
 | MCP tool **results** | `mcp:<server>:<tool>` skills | third-party | Fence + scan; quarantine over 8,000 chars |
 | MCP tool **definitions** | Descriptions and input schemas from `tools/list` | (read by the model as instruction) | Scan + pin (`src/mcp/mcpToolPins.ts`) |
 | Issue, PR and review bodies | `gh` output; the dashboard's Issues and PR tabs | third-party | `provenance.gh-command`; `REPORTED CONTENT` fencing in `buildIssueWorkPrompt` (`src/core/issueTracker.ts`) and `buildReviewCommentPrompt` (`src/core/pullRequestTracker.ts`) |
@@ -108,6 +108,7 @@ laundered the page.
 | **Terminal writes off by default** | `atlasmind.allowTerminalWrite` (default `false`) | Unauthorised writes | A model-run command that changes things is refused by the extension's gate, before any bypass is consulted |
 | **Model-written skills off by default** | `atlasmind.skillAutoSynthesisEnabled` (default `false`) | Code execution from model output | A synthesised skill is scanned and shown before it runs |
 | **Egress boundary** | `src/core/modelEgress.ts` (`ORIGIN_POLICY`, `dispatchGuardedCompletion`); `tests/security/modelEgressBoundary.test.ts` | Exfiltration to a model provider | Every prompt-bearing call goes through one gate: each part is labelled with its origin and redacted, capped and confirmed by that origin's rule (`tool-result`: redacted, 40,000 chars). An unknown origin is treated as the most sensitive class. The architectural test fails if a call bypasses it |
+| **Egress destination screen** (0.490.2) | `src/core/egressDestinationPolicy.ts` (`EGRESS_DESTINATION_RULES`, `BLOCKED_IPV4_RANGES`, `BLOCKED_IPV6_RANGES`); `src/core/egressFetch.ts`; enforced in `SkillExecutionContext.fetchUrl`/`httpRequest` (extension host and CLI) and `ArdClient` | Using this machine to reach the loopback, the local network or cloud instance metadata (SSRF) | `https` only; credentials in the URL and names local by definition refused; every literal or resolved address judged by numeric value against the declared ranges (IPv4-mapped, NAT64 and 6to4 by the IPv4 they carry); every address a name resolves to must pass and an unresolved name is refused; the connection is pinned to the vetted addresses (DNS rebinding); redirects followed by hand, every hop re-screened, at most five; credentials not forwarded across origins. Below the approval gate, so no mode or release turns it off |
 | **Secret redaction in tool results** | `redactToolResultSecrets` (orchestrator), `src/utils/secretRedactor.ts` | Credential exposure | Credential-shaped values are replaced before the model sees a result, and the model is told not to write `[REDACTED]` back |
 | **Data-privacy gate** | `src/core/dataPrivacyManager.ts` | Classified data reaching an untrusted model | Classified spans are redacted, and classified file reads withheld, for models outside the trusted list |
 | **Memory scanner** | `src/memory/memoryScanner.ts`; `MemoryManager.upsert` (`src/memory/memoryManager.ts`) | Persistence | Instruction-override phrases block a memory write outright; blocked entries are excluded from retrieval. `memory-write` is `workspace-write`, so after taint it needs a fresh approval |
@@ -194,11 +195,17 @@ approval is the control; nothing re-checks the entry's origin later.
 override patterns, kept narrow for precision. A paraphrased injection is not *suspected*: the turn is
 still tainted and writes still ask, but network calls are asked about rather than refused.
 
-**`web-fetch`'s private-address screen is by host name.** `src/skills/webFetch.ts` rejects literal
-loopback, RFC 1918 and `.local` host names and `metadata.google.internal`, but does not resolve DNS, does
-not block the link-local range (`169.254.0.0/16`, where cloud instance metadata lives), allows `http`,
-and the request follows redirects. Under taint a `web-fetch` is `network-read` and needs a fresh approval
-(or is refused if suspected); before taint it follows the approval mode.
+**Destination screening covers what a model can start, not every request AtlasMind makes.** Since
+0.490.2 every model-reachable fetch goes through the egress destination screen (§5) — this item used to
+say `web-fetch` screened by host name only. What remains outside it, deliberately: Lens endpoints, which
+come from a reviewed, committed file where private-range `https` is the ordinary case; a discovery finder
+the user marked insecure with `atlasmind.ard.allowInsecureEndpoints` on (it may use `http`/`localhost`, and
+no longer follows redirects); requests to destinations AtlasMind or the user configured (provider APIs,
+the tool webhook, Buzz's pinned documentation origin), which a model cannot choose; and `simple-browser`,
+which opens a URL in the editor's own browser panel — the model never reads the response, but a page it
+opens there can make same-machine requests of its own. The screen also trusts the system resolver's
+answer at the moment it is asked; it defends against that answer changing, not against a resolver that
+lies consistently.
 
 **Not assessed here:** whether any rendering surface can turn model output into a request (for example,
 a remote image in rendered markdown); side channels in timing or token counts; and attacks on the model
@@ -213,6 +220,7 @@ provider itself.
 | MCP pinning and description scanning | `tests/mcp/mcpToolPins.test.ts`, `tests/mcp/mcpServerRegistry.test.ts` |
 | Tool classification, Autopilot ceiling | `tests/core/toolPolicy.test.ts`, `tests/core/toolApprovalManager.test.ts` |
 | Egress boundary | `tests/core/modelEgress.test.ts`, `tests/security/modelEgressBoundary.test.ts`, `tests/security/egressLabelling.test.ts` |
+| Egress destination screen | `tests/core/egressDestinationPolicy.test.ts` (every range and encoding, fast-check over every blocked CIDR), `tests/core/egressFetch.test.ts` (pinning, DNS rebinding, redirects), `tests/skills/webFetch.test.ts`, `tests/skills/httpRequest.test.ts`, `tests/ard/ardClient.test.ts` |
 | Memory scanner | `tests/memory/memoryScanner.test.ts` |
 
 ## 8. Keeping this current

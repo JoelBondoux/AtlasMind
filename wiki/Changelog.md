@@ -19,6 +19,23 @@ Older entries below describe the software as it was at the time and are delibera
 
 ---
 
+## v0.490.2 -- A fetch goes only where it was checked to go
+
+- **Fetching a URL can no longer reach your machine or your network by a side door.** `web-fetch` and
+  `http-request` used to check the *name* in the URL against a short list. A public name that pointed at
+  `10.0.0.5` passed; the cloud metadata address `169.254.169.254`, which hands out credentials on a cloud
+  VM, wasn't blocked; plain `http` was allowed; and a public page could redirect anywhere. Now the name is
+  looked up, **every** address it points to is checked by value against a published list of private and
+  reserved ranges, the connection is made only to the addresses that were checked (so the answer can't
+  change in between), and every redirect is checked the same way.
+- **One rule for every fetch a model can start.** The check now sits underneath the tools, so a skill a
+  model drafts gets it too, and resource discovery uses the same one. Each refusal names its rule and the
+  range it hit.
+- **`https` only.** A plain-`http` URL is refused. Lens endpoints, which you declare in a reviewed file,
+  are unchanged.
+
+---
+
 ## v0.490.1 -- The long-page reader stays inside your budget
 
 - **The reader counts toward your cost caps.** In 0.490.0 the separate model that reads long pages was

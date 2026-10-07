@@ -345,6 +345,17 @@ the daily limit: `decideQuarantineBudget` checks its worst case before dispatch 
 `TaskResult.costUsd`. `atlasmind.security.quarantineReader` (`on` default, `off`) switches it. The written
 threat model is [[Prompt Injection Threat Model]].
 
+**A model-initiated fetch goes only where it was checked to go (0.490.2).**
+`src/core/egressDestinationPolicy.ts` (pure) screens a URL — `https` only, no credentials, no name that is
+local by definition — and judges every literal or resolved address by its numeric value against published
+private and reserved ranges, including IPv4-mapped, NAT64 and 6to4 forms; every address a name resolves to
+must pass, and a name that does not resolve is refused. `src/core/egressFetch.ts` connects with a `lookup`
+pinned to the vetted addresses, so DNS cannot answer differently at connect time, follows redirects by hand
+and screens every hop, and drops credentials across origins. It sits under `SkillExecutionContext.fetchUrl`
+and `httpRequest` in the extension host and the CLI, so `web-fetch`, `http-request` and model-drafted
+skills share one rule, and `ArdClient` uses it for discovery. Lens endpoints, declared in a reviewed file,
+deliberately do not.
+
 The approval gate makes a Bypass/Autopilot click and its runtime scope one atomic transition. It settles
 concurrent pending cards only when the scope covers them, the card offered that decision, and the tool is
 below the non-waivable ceiling. Protected remote actions remain pending and carry the reason they still
@@ -1554,6 +1565,8 @@ never accepted.
 | `src/core/releaseMatrixImport.ts` | Pure bounded design-document ranking/parsing, roadmap and Issue matching, and preservation-first reviewed merge for Editions |
 | `src/core/capabilitySearch.ts` | What chat does when no installed tool fits: asks only the Agent Finders you switched on, with a short redacted query, and offers what comes back for you to review and install |
 | `src/core/contextProvenance.ts` | What a task has read, and which writes and network calls need a fresh approval after it — the tables, the shared REPORTED CONTENT fence, and the release valve's rules |
+| `src/core/egressDestinationPolicy.ts` | Where a fetch a model asked for may go — the URL rules and the private and reserved address ranges, judged by value |
+| `src/core/egressFetch.ts` | The connection that goes only there: pinned to the checked addresses, redirects checked hop by hop |
 | `src/core/quarantinedReader.ts` | How a long third-party result is read by a model with no tools, what its extract must look like to be believed, and how the raw text is released only after you approve |
 | `src/runtime/` | The built-in agents and how the runtime is composed |
 | `src/providers/` | Provider adapters, catalogues, health, local model discovery, `modelRole.ts` (what a model is *for*), and the local-GPU support layer that measures VRAM and reads what each runtime has loaded |

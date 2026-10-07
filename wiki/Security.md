@@ -328,9 +328,26 @@ Chat, Edit, and Regenerate use the same boundary before the next model request i
 
 ## Network requests
 
-`web-fetch` and `http-request` block requests to localhost, private IP ranges and cloud metadata
-endpoints — so a URL that arrived in a model's output or a fetched page can't be used to reach into your
-network.
+`web-fetch` and `http-request` — and any skill a model drafts, since the check sits underneath them in
+`fetchUrl` and `httpRequest` — can't be used to reach into your machine or your network with a URL that
+arrived in a model's output or a fetched page:
+
+- **`https` only**, and a URL carrying a user name or password is refused.
+- **Names that are local by definition are refused**: `localhost`, `*.localhost`, `*.local`, `*.internal`
+  (which covers `metadata.google.internal`) and `*.home.arpa`.
+- **Addresses are judged by value, not spelling.** Loopback, private networks, link-local
+  (`169.254.0.0/16` — where cloud instance metadata lives), carrier-grade NAT, multicast and reserved
+  ranges are refused whether written `127.0.0.1`, `2130706433`, `0x7f.1` or `[::ffff:127.0.0.1]`.
+- **The name is looked up, and every address it points to must pass.** A public name that points at a
+  private address is refused, and so is a name that doesn't resolve.
+- **The connection goes only to the addresses that were checked**, so a name can't answer "public" to the
+  check and "your router" to the connection (DNS rebinding).
+- **Every redirect is checked the same way**, at most five are followed, `https` can't redirect to `http`,
+  and your `Authorization` and cookies aren't forwarded to a different site.
+
+Each refusal names its rule and the range it hit. Lens endpoints you declare in
+`.atlasmind/lens-endpoints.json` are deliberately outside this check — that file is reviewed like code,
+and a staging API on your office network is the ordinary case there.
 
 Resource discovery gets the same treatment plus HTTPS enforcement, schema validation, depth-bounded
 federation, opt-in finders, and installs that arrive disabled.
@@ -961,8 +978,8 @@ This is the short form. The prompt-injection part, including what is **not** def
 | Credential exposure | OS keychain, write gate, dispatch-time redaction |
 | Path traversal | Workspace sandboxing on every file operation |
 | Shell injection | No shell, allow-list, operator blocking |
-| Server-side request forgery | IP range and metadata endpoint blocking |
-| Malicious discovery manifests | HTTPS, private-host screening, schema validation, bounded federation, opt-in finders, disabled installs |
+| Server-side request forgery | `https` only; local names refused; every resolved address judged by value against private, link-local (cloud metadata) and reserved ranges; the connection pinned to the checked addresses; every redirect re-checked |
+| Malicious discovery manifests | HTTPS, the same destination screening as fetches (DNS, pinning, redirects), schema validation, bounded federation, opt-in finders, disabled installs |
 | Cross-site scripting in panels | CSP, nonces, escaping |
 | A permanent grant escaping AtlasMind | One-operation approvals only, never "always allow", denial on missing policy |
 | Duplicated delegated work | Stable request identity, single-flight, a short result ledger, exclusion from generic retries |

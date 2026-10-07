@@ -764,7 +764,7 @@ Selection is separate from authorisation, and both had to change: GitHub work is
 | `diagnostics` | ✅ Implemented | Retrieve compiler errors/warnings via the VS Code diagnostics API |
 | `code-symbols` | ✅ Implemented | AST-aware navigation: list symbols, find references, go to definition |
 | `rename-symbol` | ✅ Implemented | Cross-codebase rename via the language server with identifier validation |
-| `web-fetch` | ✅ Implemented | Fetch URL content with SSRF protection; 30 s skill timeout |
+| `web-fetch` | ✅ Implemented | Fetch `https` URL content through the shared egress policy (`egressDestinationPolicy`/`egressFetch`): local names and private, link-local and reserved addresses refused by value, DNS answers checked and the connection pinned to them, every redirect re-screened; 30 s skill timeout |
 | `test-run` | ✅ Implemented | Auto-detect framework (vitest/jest/mocha/pytest/cargo) and run tests; 120 s skill timeout |
 | `diff-preview` | ✅ Implemented | Combined git status + diff summary with add/modify/delete counts |
 | `code-action` | ✅ Implemented | List and apply VS Code quick-fixes and refactorings |

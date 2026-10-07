@@ -6,6 +6,54 @@ The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/),
 
 ## [Unreleased]
 
+## [0.490.2] - 2026-10-07
+
+### Fixed
+
+- **A model-initiated fetch can no longer reach this machine, the local network or cloud instance metadata
+  by way of DNS, an encoded address, plain `http` or a redirect.** `web-fetch` and `http-request` screened
+  the destination by comparing the *host-name string* against a short list, in three copies that had
+  already drifted (only the discovery client's blocked link-local). So a public name that resolves to
+  `10.0.0.5` or `127.0.0.1` passed, and its answer could change between the check and the connection (DNS
+  rebinding); `169.254.0.0/16`, where a cloud VM's instance-metadata service hands out credentials, was not
+  blocked by either skill; plain `http` was allowed; and the request followed redirects, so a public page
+  answering `302 Location: http://169.254.169.254/` was fetched without anything looking at it. Worse, the
+  screen lived only in the two skills: a model-drafted skill calling `context.fetchUrl` directly was not
+  screened at all. The wiki's threat table claimed "IP range and metadata endpoint blocking", which was
+  true only for a handful of hard-coded names.
+- **One policy, judged by value.** The new pure module `src/core/egressDestinationPolicy.ts` parses the URL
+  (validating, never coercing), refuses anything but `https`, refuses credentials in the URL rather than
+  stripping them, refuses names that are local by definition (`localhost`, `*.localhost`, `*.local`,
+  `*.internal`, `*.home.arpa`), and judges every literal or resolved address **by its numeric value**
+  against declared CIDR tables: `0/8`, `10/8`, `100.64/10`, `127/8`, `169.254/16`, `172.16/12`,
+  `192.0.0/24`, `192.168/16`, `198.18/15`, `224/4`, `240/4` and `255.255.255.255`; `::`, `::1`, the
+  deprecated IPv4-compatible `::/96`, `64:ff9b:1::/48`, `fc00::/7`, `fe80::/10`, `fec0::/10` and
+  `ff00::/8`; and IPv4-mapped, NAT64 and 6to4 addresses by the IPv4 they carry. `2130706433`, `0x7f.1`,
+  `0177.0.0.1` and `[::ffff:127.0.0.1]` all reach the loopback rule. **Every** address a name resolves to
+  must pass, and a name that does not resolve is refused — unknown is not public. Every refusal names its
+  rule from `EGRESS_DESTINATION_RULES`, and an address refusal names the range.
+- **The connection goes only where the check said.** `src/core/egressFetch.ts` connects through
+  `https.request` with a `lookup` pinned to the vetted addresses, so the name is resolved once per hop and
+  a second, different answer is never used; TLS still verifies the certificate against the name. Redirects
+  are followed by hand, each hop screened in full (URL, DNS, every address) and capped at five, an `https`
+  page redirecting to `http` is refused, and `Authorization`, `Cookie` and `Proxy-Authorization` are not
+  forwarded when a redirect changes origin. A refusal is returned as `status: 0` with the rule-naming
+  reason, so the model reads why.
+- **Enforced where every caller passes.** `SkillExecutionContext.fetchUrl` and `httpRequest` in the
+  extension host and the CLI now go through `egressFetch`, so a model-drafted skill is held to the same
+  rule as the built-in ones; the skills keep a fast URL-only check for a readable error. `ArdClient` uses
+  the same transport for every finder, referral and nested catalog not explicitly trusted-local, and its
+  `screenDiscoveryUrl` is now the URL half of the shared policy. A trusted-local finder (marked insecure,
+  with `atlasmind.ard.allowInsecureEndpoints` on) keeps `http`/`localhost` but no longer follows a
+  redirect, which would carry the request outside what you trusted.
+
+### Changed
+
+- **`web-fetch` and `http-request` are `https`-only.** A plain-`http` URL is refused with
+  `egress.scheme`; there is no setting to allow it, since loopback and private services are exactly what
+  `http` reaches. Lens endpoints are unchanged by design: they come from a reviewed, committed file, and
+  private-range `https` there is the ordinary case.
+
 ## [0.490.1] - 2026-10-07
 
 ### Fixed

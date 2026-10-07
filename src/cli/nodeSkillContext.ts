@@ -5,6 +5,7 @@ import { execFile } from 'node:child_process';
 import { promisify } from 'node:util';
 import type { SkillExecutionContext } from '../types.js';
 import { NodeMemoryManager } from './nodeMemoryManager.js';
+import { egressFetch, toSkillHttpResult } from '../core/egressFetch.js';
 import {
   planTestResourceBudget,
   TEST_RESOURCE_SHARE_DEFAULT,
@@ -224,32 +225,22 @@ export function createNodeSkillExecutionContext(
     async renameSymbol() {
       return { filesChanged: 0, editsApplied: 0 };
     },
+    // Same boundary as the extension host: screened URL, DNS and redirects,
+    // connection pinned to the vetted addresses (`egressFetch`).
     async fetchUrl(url, options) {
-      const response = await fetch(url, {
-        signal: AbortSignal.timeout(clampInteger(options?.timeoutMs, 10000, 1000, 60000)),
-      });
-      const buffer = Buffer.from(await response.arrayBuffer());
-      const maxBytes = clampInteger(options?.maxBytes, 500000, 1024, 5_000_000);
-      return {
-        ok: response.ok,
-        status: response.status,
-        body: buffer.subarray(0, maxBytes).toString('utf-8'),
-      };
+      return toSkillHttpResult(await egressFetch(url, {
+        maxBytes: clampInteger(options?.maxBytes, 500000, 1024, 5_000_000),
+        timeoutMs: clampInteger(options?.timeoutMs, 10000, 1000, 60000),
+      }));
     },
     async httpRequest(url, options) {
-      const response = await fetch(url, {
+      return toSkillHttpResult(await egressFetch(url, {
         method: options?.method ?? 'GET',
-        headers: options?.headers,
-        body: options?.body,
-        signal: AbortSignal.timeout(clampInteger(options?.timeoutMs, 10000, 1000, 60000)),
-      });
-      const buffer = Buffer.from(await response.arrayBuffer());
-      const maxBytes = clampInteger(options?.maxBytes, 500000, 1024, 5_000_000);
-      return {
-        ok: response.ok,
-        status: response.status,
-        body: buffer.subarray(0, maxBytes).toString('utf-8'),
-      };
+        ...(options?.headers ? { headers: options.headers } : {}),
+        ...(options?.body !== undefined ? { body: options.body } : {}),
+        maxBytes: clampInteger(options?.maxBytes, 500000, 1024, 5_000_000),
+        timeoutMs: clampInteger(options?.timeoutMs, 10000, 1000, 60000),
+      }));
     },
     async getCodeActions() {
       return [];

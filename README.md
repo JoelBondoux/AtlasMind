@@ -4,7 +4,7 @@
 
 <h1 align="center">AtlasMind</h1>
 
-<p align="center"><sub> · <strong>Current source version: 0.490.1</strong> · </sub></p>
+<p align="center"><sub> · <strong>Current source version: 0.490.2</strong> · </sub></p>
 
 
 <p align="center">
@@ -176,6 +176,16 @@ allow-list, redaction and file-withholding behaviour, retained metadata, provide
 important limits on overrides and compliance claims.
 
 ---
+
+## What's new in 0.490.2
+
+Fetching a URL now goes only where it was checked to go. `web-fetch` and `http-request` used to check the
+*name* in a URL against a short list, so a public name pointing at a private address passed, the cloud
+metadata address `169.254.169.254` wasn't blocked, plain `http` was allowed, and a redirect could send the
+request anywhere. Now the name is looked up, every address it points to is checked against a published
+list of private and reserved ranges — however the address is spelled — the connection is made only to the
+addresses that passed, and every redirect is checked the same way. The check sits underneath the tools, so
+a skill a model drafts is held to it too, and fetches are `https` only.
 
 ## What's new in 0.490.1
 
@@ -912,6 +922,8 @@ All 163 settings are documented in the [Configuration reference](wiki/Configurat
 | `src/core/releaseMatrix.ts` | Pure schema, sanitization, mutation and metrics for the planned Editions feature-by-offering matrix; filesystem writes stay in the Project Dashboard host |
 | `src/core/releaseMatrixImport.ts` | Pure, bounded design-document discovery, Markdown/JSON parsing, conservative roadmap/Issue matching, and reviewed non-destructive merge planning for Editions |
 | `src/core/contextProvenance.ts` | What a task has read, and what that means for the next thing it asks to do: a provenance class for every message and tool result, the shared REPORTED CONTENT fence the content cannot close, and the published table deciding which writes and network calls need a fresh approval Autopilot cannot answer |
+| `src/core/egressDestinationPolicy.ts` | Where a model-initiated fetch may go: the URL screen, the published private and reserved address ranges judged by numeric value, and the rule that every address a name resolves to must pass |
+| `src/core/egressFetch.ts` | The connection that honours that decision: pinned to the vetted addresses so DNS cannot change the answer, redirects followed by hand and screened hop by hop, credentials dropped across origins |
 | `src/core/quarantinedReader.ts` | The quarantined reader: a third-party tool result over 8,000 characters is read by a separate, tool-less model, and the agent gets a schema-checked extract and a handle instead of the raw text — the routing rules, the extraction prompt, the validator, the fallbacks and the approval-gated release |
 | `src/core/capabilitySearch.ts` | When `find-tool` finds no installed skill: sends the redacted, clamped query to the Agent Finders you enabled and returns up to five candidates to review and install — searching installs and grants nothing |
 | `src/runtime/` | Built-in agents and runtime composition |

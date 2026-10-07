@@ -143,6 +143,17 @@ that scope (`fetch`, `process`, timers). `src/core/skillScanner.ts:15,23` forbid
 
 Neither surface passes through a common capability decision. That is Phase 4's subject.
 
+> **One part of the network surface now does (0.490.2).** Every fetch a *model* can start —
+> `web-fetch`, `http-request`, a drafted skill calling `SkillExecutionContext.fetchUrl`/`httpRequest`,
+> and Agentic Resource Discovery's finders, referrals and nested catalogs — goes through
+> `src/core/egressFetch.ts`, which applies `src/core/egressDestinationPolicy.ts` before connecting: `https`
+> only, no credentials in the URL, no local-by-definition name, every resolved address judged by value
+> against the declared private, link-local and reserved ranges, the connection pinned to the vetted
+> addresses, and every redirect re-screened. The extension host's and the CLI's `fetchUrl`/`httpRequest`
+> no longer call global `fetch`. The other call sites
+> above reach destinations the user or AtlasMind configured (providers, Lens endpoints from a reviewed
+> file, the tool webhook), which a model cannot choose; they are still outside any common decision.
+
 ---
 
 ## 5. Activation-time behaviour

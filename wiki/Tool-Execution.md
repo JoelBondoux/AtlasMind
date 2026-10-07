@@ -654,6 +654,15 @@ conflicts and deliberately broader sources require explicit Markdown import.
 **URLs are untrusted.** Routed prompts carry a standing rule: validate the scheme and host, and actually
 check a link works before presenting it as working.
 
+**A fetch goes only where it was checked to go.** Every URL a model asks to fetch — through `web-fetch`,
+`http-request`, or a skill it drafted that calls `fetchUrl` — is checked before a connection opens:
+`https` only, no credentials in the URL, no name that is local by definition, and every address the name
+resolves to judged by value against the private, link-local (cloud metadata) and reserved ranges. The
+connection is then made only to the addresses that passed, and each redirect is checked the same way, up to
+five. A refusal comes back to the model as `status 0` with the rule it broke, for example
+`egress.blocked-address [169.254.0.0/16 link-local — where cloud instance metadata lives]`. This is a
+boundary, not an approval: no mode, bypass or task release turns it off.
+
 ---
 
 ## Related

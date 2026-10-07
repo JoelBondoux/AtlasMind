@@ -65,8 +65,8 @@ workspace-wide sweep can silently absorb unrelated work.
 |-------|-------------|
 | `text-search` | Grep-style search across the workspace, regex supported |
 | `memory-query` | Query project memory |
-| `web-fetch` | Fetch a URL, with protection against reaching localhost, private IPs or cloud metadata endpoints |
-| `http-request` | A full HTTP request — method, headers, body — with the same protections. Useful for testing your own APIs |
+| `web-fetch` | Fetch an `https` URL. Your machine, private networks and cloud metadata are refused — by name, by address however it's spelled, by what the name looks up to, and after every redirect |
+| `http-request` | A full `https` request — method, headers, body — with the same protections, and your `Authorization` header is not forwarded if a redirect goes to another site. Useful for testing public APIs |
 | `exa-search` | Web search via EXA. Needs an EXA key in Specialist Integrations |
 | `discover-resources` | Read-only search for new MCP servers, agents and skills. It surfaces candidates; it never installs anything |
 

@@ -1,5 +1,6 @@
 import { EnvironmentManager } from './core/environmentManager.js';
 import { resolveWithinWorkspace } from './core/workspaceBoundary.js';
+import { egressFetch, toSkillHttpResult } from './core/egressFetch.js';
 import * as vscode from 'vscode';
 import * as path from 'path';
 import * as os from 'os';
@@ -5936,57 +5937,25 @@ function buildSkillExecutionContext(
       };
     },
 
+    // Both go through `egressFetch`: the URL, its DNS answer, every address and
+    // every redirect are screened, and the connection is pinned to what was
+    // screened. Enforced here rather than in the skills, because a model-drafted
+    // skill calls `fetchUrl` directly and would otherwise reach any address.
     async fetchUrl(url, options) {
-      const fetchImpl = (globalThis as typeof globalThis & {
-        fetch?: (input: string, init?: { signal?: AbortSignal }) => Promise<{ ok: boolean; status: number; text(): Promise<string> }>;
-      }).fetch;
-      if (!fetchImpl) {
-        return { ok: false, status: 0, body: 'fetchUrl is unavailable in this environment.' };
-      }
-
-      const controller = new AbortController();
-      const timeout = setTimeout(() => controller.abort(), clampInteger(options?.timeoutMs, 15000, 1000, 120000));
-      try {
-        const response = await fetchImpl(url, { signal: controller.signal });
-        const body = await response.text();
-        const maxBytes = clampInteger(options?.maxBytes, 200_000, 1024, 1_000_000);
-        return {
-          ok: response.ok,
-          status: response.status,
-          body: body.slice(0, maxBytes),
-        };
-      } finally {
-        clearTimeout(timeout);
-      }
+      return toSkillHttpResult(await egressFetch(url, {
+        maxBytes: clampInteger(options?.maxBytes, 200_000, 1024, 1_000_000),
+        timeoutMs: clampInteger(options?.timeoutMs, 15000, 1000, 120000),
+      }));
     },
 
     async httpRequest(url, options) {
-      const fetchImpl = (globalThis as typeof globalThis & {
-        fetch?: (input: string, init?: { method?: string; headers?: Record<string, string>; body?: string; signal?: AbortSignal }) => Promise<{ ok: boolean; status: number; text(): Promise<string> }>;
-      }).fetch;
-      if (!fetchImpl) {
-        return { ok: false, status: 0, body: 'httpRequest is unavailable in this environment.' };
-      }
-
-      const controller = new AbortController();
-      const timeout = setTimeout(() => controller.abort(), clampInteger(options?.timeoutMs, 15000, 1000, 120000));
-      try {
-        const response = await fetchImpl(url, {
-          method: options?.method ?? 'GET',
-          headers: options?.headers,
-          body: options?.body,
-          signal: controller.signal,
-        });
-        const body = await response.text();
-        const maxBytes = clampInteger(options?.maxBytes, 200_000, 1024, 1_000_000);
-        return {
-          ok: response.ok,
-          status: response.status,
-          body: body.slice(0, maxBytes),
-        };
-      } finally {
-        clearTimeout(timeout);
-      }
+      return toSkillHttpResult(await egressFetch(url, {
+        method: options?.method ?? 'GET',
+        ...(options?.headers ? { headers: options.headers } : {}),
+        ...(options?.body !== undefined ? { body: options.body } : {}),
+        maxBytes: clampInteger(options?.maxBytes, 200_000, 1024, 1_000_000),
+        timeoutMs: clampInteger(options?.timeoutMs, 15000, 1000, 120000),
+      }));
     },
 
     async getCodeActions(absolutePath, startLine, startColumn, endLine, endColumn) {

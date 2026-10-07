@@ -2,7 +2,7 @@
   "name": "atlasmind",
   "displayName": "AtlasMind",
   "description": "AI project management for VS Code: roadmap, risk, tech debt, compliance, testing and release tracked from your own repository — with a multi-agent AI team, or the AI coding tool you already use.",
-  "version": "0.490.1",
+  "version": "0.490.2",
   "publisher": "JoelBondoux",
   "preview": false,
   "license": "SEE LICENSE IN OSMFEULA.txt",
@@ -1568,8 +1568,8 @@
         "atlasmind.ard.allowInsecureEndpoints": {
           "type": "boolean",
           "default": false,
-          "description": "Allow ARD Agent Finders that use http:// or localhost (e.g. the ARD conformance demo registry). When false, discovery requires HTTPS and rejects private/loopback addresses to prevent SSRF.",
-          "markdownDescription": "Allow ARD Agent Finders that use `http://` or `localhost` — for example the [ARD conformance demo](https://github.com/ards-project/ard-spec) registry.\n\nWhen `false` (default), discovery requires HTTPS and rejects private / loopback / link-local addresses to prevent SSRF. This setting only relaxes the check for finders **you** explicitly marked insecure; followed referral URLs are always screened."
+          "description": "Allow ARD Agent Finders that use http:// or localhost (e.g. the ARD conformance demo registry). When false, discovery requires HTTPS and rejects private, loopback and link-local destinations, including by DNS and by redirect.",
+          "markdownDescription": "Allow ARD Agent Finders that use `http://` or `localhost` — for example the [ARD conformance demo](https://github.com/ards-project/ard-spec) registry.\n\nWhen `false` (default), discovery requires HTTPS and screens every finder, referral and nested catalog through the shared egress policy: local names refused, every resolved address checked against private, loopback, link-local and reserved ranges, the connection pinned to those addresses, and every redirect re-checked. This setting only relaxes the check for finders **you** explicitly marked insecure — and those follow no redirects; followed referral URLs are always screened."
         },
         "atlasmind.chat.continueInBackground": {
           "type": "boolean",

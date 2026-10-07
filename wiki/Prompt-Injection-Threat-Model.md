@@ -52,6 +52,7 @@ writing doesn't reset it: a model that read a page and then wrote a plan hasn't 
 | Persistence | Project memory is scanned before every write; instruction-override phrases block it. After third-party content, a memory write needs a fresh approval |
 | Approval fatigue | Autopilot has a ceiling — a push to a protected branch, a force push or an unidentified external tool always asks. The fresh-approval dialog says what was read and why it's asking |
 | Spend | The tool-less reader answers to your task cost cap and daily limit like any other call; if it would go over, it isn't run |
+| Reaching your network through a fetch | Every URL a model asks to fetch is `https` only; the name is looked up and every address it points to is checked against private, link-local (cloud metadata) and reserved ranges; the connection goes only to those addresses; every redirect is checked the same way |
 | Secrets in prompts | Every model call goes through one gate that labels each part of the prompt, redacts what came from files and tools, and caps its size |
 
 ## What is *not* defended
@@ -84,8 +85,10 @@ Read this part. A threat model that sounds complete is the same mistake as a tes
   as workspace content in later sessions.
 - **Injection *detection* is a short list of phrases.** A reworded injection isn't flagged — the task still
   asks before writes, but a network call is asked about rather than refused.
-- **`web-fetch`'s private-address check is by name.** It doesn't resolve DNS, block the `169.254.x.x`
-  cloud-metadata range, or stop redirects. After third-party content, a fetch needs a fresh approval anyway.
+- **The fetch check covers what a model can start, not everything.** Lens endpoints you declare in a
+  reviewed file, a discovery finder you marked insecure, and services you configured yourself aren't put
+  through it, by design. `simple-browser` opens a page in the editor's browser panel; the model never sees
+  what comes back, but the page itself can make requests from your machine.
 
 ---
 

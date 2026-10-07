@@ -2,6 +2,7 @@ import { afterEach, describe, expect, it, vi } from 'vitest';
 import {
   ArdClient,
   ArdError,
+  createArdTransport,
   normalizeEntry,
   rankEntriesByText,
   screenDiscoveryUrl,
@@ -24,6 +25,30 @@ function makeResponse(body: unknown, init: { ok?: boolean; status?: number; cont
     text: async () => text,
   } as unknown as Response;
 }
+
+/**
+ * The real transport, with DNS answering "public" and the socket replaced by the
+ * stubbed global `fetch` — so these tests still run every request through the
+ * egress policy, and only the network itself is fake.
+ */
+const viaStubbedFetch = createArdTransport({
+  resolve: async () => [{ address: '93.184.216.34', family: 4 }],
+  send: async request => {
+    const response = await fetch(request.url.href, {
+      method: request.method,
+      headers: request.headers,
+      ...(request.body !== undefined ? { body: request.body } : {}),
+    });
+    const length = response.headers.get('content-length');
+    return {
+      status: response.status,
+      statusText: response.statusText,
+      headers: length === null ? {} : { 'content-length': length },
+      body: await response.text(),
+      truncated: false,
+    };
+  },
+});
 
 const registryEndpoint: ArdDiscoveryEndpoint = {
   id: 'r1', name: 'Test Registry', url: 'https://registry.example.com/search', kind: 'registry', enabled: true,
@@ -145,7 +170,7 @@ describe('ArdClient.search (registry)', () => {
     }));
     vi.stubGlobal('fetch', fetchMock);
 
-    const client = new ArdClient(() => config);
+    const client = new ArdClient(() => config, viaStubbedFetch);
     const results = await client.search(registryEndpoint, 'postgres');
 
     expect(fetchMock).toHaveBeenCalledTimes(1);
@@ -172,7 +197,7 @@ describe('ArdClient.search (registry)', () => {
     });
     vi.stubGlobal('fetch', fetchMock);
 
-    const client = new ArdClient(() => config);
+    const client = new ArdClient(() => config, viaStubbedFetch);
     const results = await client.search(registryEndpoint, 'anything');
 
     // One from the root + one from the referral; the loop back to the root is skipped.
@@ -188,7 +213,7 @@ describe('ArdClient.search (registry)', () => {
     }));
     vi.stubGlobal('fetch', fetchMock);
 
-    const client = new ArdClient(() => ({ ...config, federation: 'none' }));
+    const client = new ArdClient(() => ({ ...config, federation: 'none' }), viaStubbedFetch);
     await client.search(registryEndpoint, 'anything', { federation: 'none' });
     expect(fetchMock).toHaveBeenCalledTimes(1);
   });
@@ -198,17 +223,17 @@ describe('ArdClient.search (registry)', () => {
     vi.stubGlobal('fetch', fetchMock);
     const httpEndpoint: ArdDiscoveryEndpoint = { ...registryEndpoint, url: 'http://localhost:9010/api/search' };
 
-    const blocked = new ArdClient(() => config);
+    const blocked = new ArdClient(() => config, viaStubbedFetch);
     await expect(blocked.search(httpEndpoint, 'x')).rejects.toThrow(ArdError);
     expect(fetchMock).not.toHaveBeenCalled();
 
-    const allowed = new ArdClient(() => insecureConfig);
+    const allowed = new ArdClient(() => insecureConfig, viaStubbedFetch);
     await expect(allowed.search({ ...httpEndpoint, insecure: true }, 'x')).resolves.toEqual([]);
   });
 
   it('rejects oversized responses via content-length', async () => {
     vi.stubGlobal('fetch', vi.fn(async () => makeResponse({ results: [] }, { contentLength: 99_999_999 })));
-    const client = new ArdClient(() => config);
+    const client = new ArdClient(() => config, viaStubbedFetch);
     await expect(client.search(registryEndpoint, 'x')).rejects.toThrow(/too large/);
   });
 });
@@ -223,7 +248,7 @@ describe('ArdClient.searchEndpoints', () => {
     });
     vi.stubGlobal('fetch', fetchMock);
 
-    const client = new ArdClient(() => config);
+    const client = new ArdClient(() => config, viaStubbedFetch);
     const { results, errors } = await client.searchEndpoints(
       [
         { id: 'g', name: 'Good', url: 'https://good.com/search', kind: 'registry', enabled: true },
@@ -234,5 +259,55 @@ describe('ArdClient.searchEndpoints', () => {
     expect(results).toHaveLength(1);
     expect(errors).toHaveLength(1);
     expect(errors[0]?.endpoint).toBe('Bad');
+  });
+});
+
+describe('ArdClient egress screening', () => {
+  it('refuses a registry whose name resolves to a private address, without opening a connection', async () => {
+    const send = vi.fn();
+    const client = new ArdClient(() => config, createArdTransport({
+      resolve: async () => [{ address: '10.0.0.7', family: 4 }],
+      send,
+    }));
+    await expect(client.search(registryEndpoint, 'x')).rejects.toThrow(/egress\.blocked-address/);
+    expect(send).not.toHaveBeenCalled();
+  });
+
+  it('refuses a registry that redirects to cloud instance metadata', async () => {
+    const send = vi.fn().mockResolvedValueOnce({
+      status: 302, statusText: 'Found', headers: { location: 'https://169.254.169.254/latest/' }, body: '', truncated: false,
+    });
+    const client = new ArdClient(() => config, createArdTransport({
+      resolve: async () => [{ address: '93.184.216.34', family: 4 }],
+      send,
+    }));
+    await expect(client.search(registryEndpoint, 'x')).rejects.toThrow(/redirect hop 1/);
+    expect(send).toHaveBeenCalledTimes(1);
+  });
+
+  it('skips a referral that resolves internally and keeps the root results', async () => {
+    const send = vi.fn(async () => ({
+      status: 200,
+      statusText: 'OK',
+      headers: {},
+      body: JSON.stringify({
+        results: [{ identifier: 'urn:ai:a.com:x:one', displayName: 'One', type: 'application/mcp-server+json', url: 'https://a.com/1' }],
+        referrals: [{ identifier: 'urn:ai:evil.example:registry:x', displayName: 'Evil', type: 'application/ai-registry+json', url: 'https://evil.example/search' }],
+      }),
+      truncated: false,
+    }));
+    const resolve = vi.fn(async (host: string) => (host === 'evil.example'
+      ? [{ address: '127.0.0.1', family: 4 as const }]
+      : [{ address: '93.184.216.34', family: 4 as const }]));
+    const client = new ArdClient(() => config, createArdTransport({ resolve, send }));
+    const results = await client.search(registryEndpoint, 'x');
+    expect(results.map(result => result.identifier)).toEqual(['urn:ai:a.com:x:one']);
+    expect(send).toHaveBeenCalledTimes(1);
+  });
+
+  it('screens discovery URLs through the shared policy, including encoded and IPv6-mapped hosts', () => {
+    expect(screenDiscoveryUrl('https://2130706433/search', false)).toMatch(/private/);
+    expect(screenDiscoveryUrl('https://[::ffff:169.254.169.254]/', false)).toMatch(/private/);
+    expect(screenDiscoveryUrl('https://user:pw@registry.example.com/', false)).toMatch(/egress\.credentials/);
   });
 });
