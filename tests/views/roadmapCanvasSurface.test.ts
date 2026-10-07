@@ -696,3 +696,41 @@ describe('the three Atlas hand-offs', () => {
     expect(open.slice(0, 1200)).toContain('openWorkspaceRelativeFile(planPath)');
   });
 });
+
+describe('show completed is a way of looking, not a change', () => {
+  /** The click branch, from its guard to the `return` that ends it. */
+  function toggleBranch(): string {
+    const start = WEBVIEW_SCRIPT.indexOf("if (action === 'roadmap-completed-toggle') {");
+    expect(start, 'the show-completed handler is missing').toBeGreaterThan(-1);
+    return WEBVIEW_SCRIPT.slice(start, WEBVIEW_SCRIPT.indexOf('return;', start));
+  }
+
+  it('posts nothing to the host', () => {
+    // The DOM harness proves no message is sent on a click; this pins that no
+    // message *could* be — a branch that grows a postMessage fails here first.
+    expect(toggleBranch()).not.toContain('postMessage');
+  });
+
+  it('is remembered beside snap-to-grid, in webview state', () => {
+    expect(toggleBranch()).toContain('persistRoadmapCanvasPreferences()');
+    expect(scriptFunction('persistRoadmapCanvasPreferences')).toContain('roadmapShowCompleted: state.roadmapShowCompleted');
+    expect(WEBVIEW_SCRIPT).toContain('roadmapShowCompleted: persistedWebviewState.roadmapShowCompleted === true');
+  });
+
+  it('is rendered once, in the view row every roadmap view shares', () => {
+    expect(scriptFunction('renderRoadmapViewBar')).toContain('renderRoadmapCompletedToggle(roadmap)');
+    const toggle = scriptFunction('renderRoadmapCompletedToggle');
+    expect(toggle).toContain('type="button"');
+    expect(toggle).toContain('aria-pressed=');
+  });
+
+  it('places delivered work from the snapshot, never by asking the host', () => {
+    const placed = scriptFunction('roadmapCanvasNodesWithDelivered');
+    expect(placed).not.toContain('postMessage');
+    expect(placed).toContain('completedOverlay');
+  });
+
+  it('ships the overlay with the snapshot, built from the graph after everything derived', () => {
+    expect(HOST_PANEL).toContain('completedOverlay: buildRoadmapCompletedOverlay(graph, partition, people)');
+  });
+});

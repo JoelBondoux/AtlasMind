@@ -508,6 +508,17 @@
      */
     roadmapSnapToGrid: persistedWebviewState.roadmapSnapToGrid === true,
     /**
+     * Whether delivered work is drawn on the roadmap views that otherwise leave
+     * it off.
+     *
+     * A viewing preference, remembered per editor like snap-to-grid: it changes
+     * what *you* are looking at and nothing the roadmap says, so it lives in
+     * webview state and never reaches the host. Off by default, so the plan
+     * opens as the plan — but every view states how much it is hiding, because
+     * work that is hidden without a count reads as work that does not exist.
+     */
+    roadmapShowCompleted: persistedWebviewState.roadmapShowCompleted === true,
+    /**
      * Node ids the canvas has already drawn, so an *arrival* can be told from a
      * redraw. Deliberately session-only: it answers "is this new to what is on
      * screen right now", which a value restored from a previous session cannot.
@@ -2044,6 +2055,24 @@
     }
     if (action === 'roadmap-snap-toggle') {
       state.roadmapSnapToGrid = !state.roadmapSnapToGrid;
+      persistRoadmapCanvasPreferences();
+      render();
+      return;
+    }
+    /*
+     * Show or hide delivered work. Pure viewing: no message to the host, no
+     * write, and nothing derived is recomputed — the critical path, routes and
+     * schedules were worked out from the whole graph before the snapshot left
+     * the host, and finished work only changes which cards are drawn.
+     *
+     * The by-person view re-fits, because including finished work re-lays its
+     * lanes and every card moves. The dependency canvas does not: delivered
+     * work fills the gaps it left in the tree and nothing already on screen
+     * moves, so keeping the viewport is what lets you see what appeared.
+     */
+    if (action === 'roadmap-completed-toggle') {
+      state.roadmapShowCompleted = !state.roadmapShowCompleted;
+      state.roadmapFitAfterRender = state.roadmapView === 'people';
       persistRoadmapCanvasPreferences();
       render();
       return;
@@ -13887,9 +13916,14 @@
     // so the same rule would show items that do not match for no visible reason.
     const queueQuery = String(state.roadmapSearch || '').trim();
     const queueNeedle = queueQuery.toLowerCase();
-    const queueItems = queueNeedle
-      ? roadmap.items.filter(item => String(item.text || '').toLowerCase().indexOf(queueNeedle) >= 0)
-      : roadmap.items;
+    // Ticked items leave the queue unless asked for, like every other roadmap
+    // view — and the count of what left is stated beside it, so a short list
+    // never reads as a short roadmap. Reordering resolves by item id, so a drag
+    // still means the same thing with finished work hidden.
+    const hiddenCompleted = state.roadmapShowCompleted ? 0 : roadmap.items.filter(item => item.completed).length;
+    const queueItems = roadmap.items
+      .filter(item => state.roadmapShowCompleted || !item.completed)
+      .filter(item => !queueNeedle || String(item.text || '').toLowerCase().indexOf(queueNeedle) >= 0);
 
     return `
       ${pageSectionOpen('roadmap')}
@@ -13946,6 +13980,7 @@
             ${queueQuery ? `<button type="button" class="rm-chip-clear" data-action="roadmap-search-clear" aria-label="Clear the search">×</button>` : ''}
           </span>
           ${queueQuery ? `<div class="list-meta rm-queue-filter-note">${escapeHtml(`Showing ${queueItems.length} of ${roadmap.items.length} — filtered by “${queueQuery}”.`)} Dragging still reorders against the whole plan, not just what is on screen.</div>` : ''}
+          ${hiddenCompleted > 0 ? `<div class="list-meta rm-completed-hidden-note" role="status">${escapeHtml(`${hiddenCompleted} completed item${hiddenCompleted === 1 ? ' is' : 's are'} hidden — turn on Show completed above to list ${hiddenCompleted === 1 ? 'it' : 'them'}.`)}</div>` : ''}
           ${state.roadmapOwnerNotice ? `<div class="rm-banner rm-banner-owner" role="status">${escapeHtml(state.roadmapOwnerNotice)}<button type="button" class="rm-chip-clear" data-action="roadmap-owner-notice-dismiss" aria-label="Dismiss">×</button></div>` : ''}
           <div class="stack-list roadmap-list">
             ${state.editingRoadmapId === 'new' ? renderRoadmapEditor('new') : ''}
@@ -13953,7 +13988,9 @@
               ? '<div class="dashboard-empty">No roadmap items yet. Add the first one above.</div>'
               : queueItems.length > 0
                 ? queueItems.map(item => renderRoadmapItem(item)).join('')
-                : `<div class="dashboard-empty">${escapeHtml(`Nothing in the backlog matches “${queueQuery}”.`)} <button type="button" class="action-link" data-action="roadmap-search-clear">Clear the search</button></div>`}
+                : queueQuery
+                  ? `<div class="dashboard-empty">${escapeHtml(`Nothing in the backlog matches “${queueQuery}”.`)} <button type="button" class="action-link" data-action="roadmap-search-clear">Clear the search</button></div>`
+                  : `<div class="dashboard-empty">${escapeHtml('Everything on the backlog is completed.')}</div>`}
           </div>
         </article>
       </section>
@@ -13987,7 +14024,7 @@
           <strong>${escapeHtml(item.text)}</strong>
           <span class="tag-group">
             ${gates.filter(gate => itemGates.indexOf(gate.id) >= 0).map(gate => `<span class="tag tag-mvp" title="${escapeAttr(`This item is on the ${gate.label} path`)}">${escapeHtml(gate.label)}</span>`).join('')}
-            <span class="tag ${item.completed ? 'tag-good' : item.focus === 'security' ? 'tag-critical' : item.focus === 'architecture' ? 'tag-warn' : ''}">${escapeHtml(item.completed ? 'done' : item.focus)}</span>
+            <span class="tag ${item.completed ? 'tag-good' : item.focus === 'security' ? 'tag-critical' : item.focus === 'architecture' ? 'tag-warn' : ''}">${item.completed ? '<span aria-hidden="true">✓ </span>' : ''}${escapeHtml(item.completed ? 'done' : item.focus)}</span>
           </span>
         </div>
         <div class="list-meta">${escapeHtml(item.priorityReason)}</div>
@@ -14349,6 +14386,7 @@
     if (!graph || typeof graph !== 'object') {
       return {
         active: [], completed: [], completedColumns: [], retainedIds: [], edges: [], suggested: [],
+        completedOverlay: { planPositions: {}, byPersonPositions: {}, byPersonLanes: [] },
         layers: [], cycles: [], notes: [], rules: [], suggestLinks: true, anchored: true, routes: {},
         orientation: 'horizontal',
         people: [], filePath: 'project_memory/roadmap/improvement-plan.md',
@@ -14361,11 +14399,72 @@
   function roadmapCanvasNodes() {
     const graph = roadmapGraph();
     if (state.roadmapView === 'completed') { return graph.completed; }
-    // The by-person view is the same outstanding work in a different
-    // arrangement, laid out host-side into lanes. Falling back to `active` keeps
-    // the canvas drawing on a snapshot from a build that has no lanes yet.
-    if (state.roadmapView === 'people') { return graph.byPerson || graph.active; }
-    return graph.active;
+    if (!state.roadmapShowCompleted) {
+      // The by-person view is the same outstanding work in a different
+      // arrangement, laid out host-side into lanes. Falling back to `active` keeps
+      // the canvas drawing on a snapshot from a build that has no lanes yet.
+      if (state.roadmapView === 'people') { return graph.byPerson || graph.active; }
+      return graph.active;
+    }
+    return roadmapCanvasNodesWithDelivered(graph);
+  }
+
+  /**
+   * The canvas with delivered work included — *Show completed* on.
+   *
+   * The dependency canvas keeps every outstanding card exactly where it was and
+   * adds finished work at the positions the tree layout already gave it, so it
+   * fills the gaps it left. The by-person view cannot do that: finished work
+   * changes how deep its person's band is, so the whole arrangement comes from
+   * the overlay's own lane layout, and a snapshot without one keeps the
+   * outstanding lanes rather than drawing a mixture of two arrangements.
+   */
+  function roadmapCanvasNodesWithDelivered(graph) {
+    const overlay = graph.completedOverlay || {};
+    if (state.roadmapView === 'people') {
+      const base = graph.byPerson || graph.active;
+      return overlay.byPersonPositions
+        ? rmPlaceAt(base.concat(rmDeliveredOffPlan(graph)), overlay.byPersonPositions)
+        : base;
+    }
+    return graph.active.concat(rmPlaceAt(rmDeliveredOffPlan(graph), overlay.planPositions || {}));
+  }
+
+  /**
+   * Delivered work the plan leaves off: everything finished, minus what is
+   * retained because something outstanding still waits on it (already drawn).
+   */
+  function rmDeliveredOffPlan(graph) {
+    const retained = new Set(graph.retainedIds || []);
+    return (graph.completed || []).filter(node => !retained.has(node.id));
+  }
+
+  /**
+   * The same nodes at the coordinates a layout gave them. A node the layout did
+   * not place is left off rather than drawn at a guessed position — and each is
+   * a copy, so the shipped snapshot (which the Delivered view also reads, at its
+   * own chronological positions) is never edited in place.
+   */
+  function rmPlaceAt(nodes, positions) {
+    return nodes
+      .filter(node => positions && positions[node.id])
+      .map(node => Object.assign({}, node, { position: { x: positions[node.id].x, y: positions[node.id].y } }));
+  }
+
+  /**
+   * How many finished items the current view would add if shown — the number
+   * the toggle carries, so hiding work always says how much it is hiding.
+   * Retained work is not counted on the canvases: it is drawn either way.
+   */
+  function rmCompletedToggleCount(roadmap) {
+    const graph = roadmapGraph();
+    if (state.roadmapView === 'list') {
+      return ((roadmap && roadmap.items) || []).filter(item => item.completed).length;
+    }
+    if (state.roadmapView === 'canvas' || state.roadmapView === 'people') {
+      return rmDeliveredOffPlan(graph).length;
+    }
+    return (graph.completed || []).length;
   }
 
   function roadmapPersonName(contactId) {
@@ -14597,6 +14696,7 @@
             </button>`).join('')}
         </div>
         <div class="rm-view-actions">
+          ${renderRoadmapCompletedToggle(roadmap)}
           ${state.roadmapView === 'completed' ? '' : `
             <button type="button" class="rm-add-item" data-action="roadmap-add" data-payload="new"
               title="${escapeAttr('Add an item to the prioritised backlog. Opens the entry form with the caret already in it.')}">
@@ -14608,6 +14708,39 @@
           </button>
         </div>
       </div>`;
+  }
+
+  /**
+   * *Show completed*, on every roadmap view that can hide finished work.
+   *
+   * A native button with `aria-pressed`, so it is reachable by Tab and toggled
+   * by Enter or Space with nothing custom, and its name stays the same in both
+   * states — a toggle whose label flips between "show" and "hide" contradicts
+   * its own pressed state for a screen reader. The count is what the view would
+   * add, so a hidden pile of finished work is always stated, never silent.
+   *
+   * Absent on Delivered, for the reason *Add roadmap item* is: everything there
+   * is finished, so the control could only empty the view or do nothing, and a
+   * button whose one honest effect is a blank page is not worth offering.
+   */
+  function renderRoadmapCompletedToggle(roadmap) {
+    if (state.roadmapView === 'completed') { return ''; }
+    const on = state.roadmapShowCompleted === true;
+    const count = rmCompletedToggleCount(roadmap);
+    const hint = {
+      canvas: 'Draw delivered work on the canvas too, where the tree put it, marked with a tick. Finished work still holding something up is drawn either way. A way of looking: the critical path, routes and dates do not change.',
+      people: 'Include delivered work in each person’s band, marked with a tick. Lane totals still count outstanding days only.',
+      timeline: 'List delivered work under the chart. It takes no time, so it is listed rather than drawn as a bar.',
+      board: 'Show the cards in the Delivered column. Hidden, the column still says how many it holds.',
+      list: 'Include ticked items in the backlog. Dragging still reorders against the whole plan, shown or hidden.',
+    }[state.roadmapView] || 'Show delivered work.';
+    return `
+      <button type="button" class="rm-add-item rm-completed-toggle${on ? ' is-on' : ''}" data-action="roadmap-completed-toggle"
+        aria-pressed="${on ? 'true' : 'false'}" title="${escapeAttr(hint + ' Remembered for this editor; nothing is saved to the roadmap.')}">
+        <span class="rm-completed-toggle-mark" aria-hidden="true">✓</span><span>Show completed</span>
+        <span class="rm-view-count" aria-hidden="true">${count}</span>
+        <span class="sr-only">${escapeHtml(`(${count} completed item${count === 1 ? '' : 's'})`)}</span>
+      </button>`;
   }
 
   /* ── Timeline ──────────────────────────────────────────────────────────────
@@ -14676,6 +14809,7 @@
           <div class="rm-banner${timeline.state === 'circular' ? ' rm-banner-bad' : ''}" role="status">
             ${escapeHtml(String(timeline.note || 'Nothing to lay out on a time axis yet.'))}
           </div>
+          ${renderRoadmapTimelineDelivered(graph)}
         </article>`;
     }
 
@@ -14694,8 +14828,37 @@
         <ol class="rm-tl-rows">
           ${timeline.bars.map(bar => renderRoadmapTimelineRow(bar, horizon)).join('')}
         </ol>
+        ${renderRoadmapTimelineDelivered(graph)}
         ${renderRoadmapTimelineRules(timeline)}
       </article>`;
+  }
+
+  /**
+   * Delivered work, listed under the chart when asked for.
+   *
+   * Not drawn as bars: the axis is days of work from today, and finished work
+   * has none left, so any bar would be a length invented for it. Listed with
+   * the date it landed instead, which is the one time fact it does have — and
+   * the chart above is unchanged, because showing finished work is a way of
+   * looking, not a reason to schedule anything again.
+   */
+  function renderRoadmapTimelineDelivered(graph) {
+    if (!state.roadmapShowCompleted) { return ''; }
+    const delivered = graph.completed || [];
+    if (delivered.length === 0) { return ''; }
+    return `
+      <div class="rm-tl-delivered">
+        <p class="section-kicker">Delivered</p>
+        <p class="list-meta">${escapeHtml('Finished work takes no time on this axis, so it is listed rather than drawn.')}</p>
+        <ol class="rm-tl-delivered-list">
+          ${delivered.map(node => `
+            <li class="rm-tl-delivered-item">
+              <span class="rm-done-mark" aria-hidden="true">✓</span>
+              <span class="rm-tl-title" title="${escapeAttr(node.text)}">${escapeHtml(node.text)}</span>
+              <span class="list-meta">${escapeHtml(node.completedAt ? 'delivered ' + String(node.completedAt).slice(0, 10) : 'delivered, no date recorded')}</span>
+            </li>`).join('')}
+        </ol>
+      </div>`;
   }
 
   function renderRoadmapTimelineHead(timeline, summary) {
@@ -14826,25 +14989,31 @@
 
   function renderRoadmapBoardColumn(column) {
     const cards = column.cards || [];
+    // The Delivered column keeps its header and its count when finished work is
+    // hidden: the column is a fact about the plan, and dropping it would make a
+    // board with forty shipped items look like one that has shipped nothing.
+    const hidden = column.id === 'delivered' && !state.roadmapShowCompleted && cards.length > 0;
     return `
-      <section class="rm-board-column" aria-label="${escapeAttr(column.label)}">
+      <section class="rm-board-column${column.id === 'delivered' ? ' is-delivered' : ''}" aria-label="${escapeAttr(column.label)}">
         <header class="rm-board-column-head" title="${escapeAttr(String(column.description || ''))}">
-          <span class="rm-board-column-name">${escapeHtml(column.label)}</span>
+          <span class="rm-board-column-name">${column.id === 'delivered' ? '<span aria-hidden="true">✓ </span>' : ''}${escapeHtml(column.label)}</span>
           <span class="rm-view-count">${escapeHtml(String(cards.length))}</span>
         </header>
-        ${cards.length === 0
+        ${hidden
+    ? `<p class="rm-board-empty">${escapeHtml(`${cards.length} delivered, hidden — turn on Show completed above to list ${cards.length === 1 ? 'it' : 'them'}.`)}</p>`
+    : cards.length === 0
     // Said rather than left blank: an empty column is a fact about the plan,
     // and a bare gap reads as something that failed to load.
-    ? '<p class="rm-board-empty">Nothing here.</p>'
-    : `<ul class="rm-board-cards">${cards.map(card => renderRoadmapBoardCard(card)).join('')}</ul>`}
+      ? '<p class="rm-board-empty">Nothing here.</p>'
+      : `<ul class="rm-board-cards">${cards.map(card => renderRoadmapBoardCard(card, column.id === 'delivered')).join('')}</ul>`}
       </section>`;
   }
 
-  function renderRoadmapBoardCard(card) {
+  function renderRoadmapBoardCard(card, delivered) {
     const person = roadmapPersonName(card.assigneeId);
     return `
-      <li class="rm-board-cardlet rm-focus-${escapeAttr(card.focus)}">
-        <p class="rm-board-cardlet-text" title="${escapeAttr(card.text)}">${escapeHtml(card.text)}</p>
+      <li class="rm-board-cardlet rm-focus-${escapeAttr(card.focus)}${delivered ? ' is-done' : ''}">
+        <p class="rm-board-cardlet-text" title="${escapeAttr(card.text)}">${delivered ? '<span class="rm-done-mark" aria-hidden="true">✓</span><span class="sr-only">Delivered: </span>' : ''}${escapeHtml(card.text)}</p>
         <div class="rm-board-cardlet-meta">
           ${card.waitingOnCount > 0
     // Carried in every column, not only Blocked: an item can be started and
@@ -15125,6 +15294,7 @@
     vscode.setState({
       ...(vscode.getState() || {}),
       roadmapSnapToGrid: state.roadmapSnapToGrid,
+      roadmapShowCompleted: state.roadmapShowCompleted,
     });
   }
 
@@ -15209,7 +15379,10 @@
    */
   function renderRoadmapLaneBands(graph) {
     if (state.roadmapView !== 'people') { return ''; }
-    const lanes = graph.lanes || [];
+    const overlay = graph.completedOverlay || {};
+    const lanes = state.roadmapShowCompleted && overlay.byPersonPositions
+      ? (overlay.byPersonLanes || [])
+      : (graph.lanes || []);
     if (lanes.length === 0) { return ''; }
     const vertical = graph.orientation === 'vertical';
     return lanes.map(lane => {
@@ -15380,7 +15553,7 @@
         style="left:${position.x}px;top:${position.y}px;width:${RM_NODE_WIDTH}px;"
         data-dashboard-focus-kind="roadmap" data-dashboard-focus-id="${escapeAttr(node.itemId)}">
         <div class="rm-node-head" title="Drag to reposition. Position is saved.">
-          <span class="rm-node-title">${escapeHtml(node.text)}</span>
+          ${node.completed ? '<span class="rm-done-mark" aria-hidden="true">✓</span><span class="sr-only">Delivered: </span>' : ''}<span class="rm-node-title">${escapeHtml(node.text)}</span>
         </div>
         <div class="rm-node-meta">
           ${node.branch ? `<span class="rm-branch" title="${escapeAttr(node.branchSource === 'declared' ? 'Branch name set by hand.' : 'Branch name derived from the item. Edit the node to override it.')}">${escapeHtml(node.branch)}</span>` : '<span class="rm-branch rm-branch-none" title="No branch name could be derived from this item’s wording. Edit the node to set one.">no branch name</span>'}
@@ -15442,7 +15615,7 @@
         : schedule.daysLeft < 0
           ? Math.abs(schedule.daysLeft) + 'd over'
           : schedule.daysLeft + 'd left';
-    return `<span class="rm-chip rm-chip-${escapeAttr(schedule.state)}">${escapeHtml(label)}</span>`;
+    return `<span class="rm-chip rm-chip-${escapeAttr(schedule.state)}">${schedule.state === 'done' ? '<span aria-hidden="true">✓ </span>' : ''}${escapeHtml(label)}</span>`;
   }
 
   /**

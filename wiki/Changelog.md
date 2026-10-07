@@ -19,6 +19,21 @@ Older entries below describe the software as it was at the time and are delibera
 
 ---
 
+## v0.485.0 -- Show completed on every roadmap view
+
+The Roadmap page now has a **Show completed** toggle, in the row every view shares. Switched on, delivered
+work appears on the dependency canvas in the gaps the tree left for it, joins each person's band on By
+person, fills the board's Delivered column, is listed under the timeline (finished work takes no time, so
+it gets no bar) and returns to the prioritised backlog. Delivered items carry a tick as well as the green
+tone, so colour is never the only cue.
+
+It is a way of looking at the plan, not a change to it: the critical path, routes and dates do not move,
+nothing is written to the roadmap, and the choice is remembered for your editor. While it is off, every
+view says how many finished items it is hiding. It is not offered on Delivered, where everything is
+already finished.
+
+---
+
 ## v0.484.0 -- Dashboards you can read at a glance
 
 Every card, chip, chat bubble, badge and field on every dashboard now has an edge that stands off the

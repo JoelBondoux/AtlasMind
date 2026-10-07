@@ -1200,7 +1200,12 @@ that person's own chain and a crossing arrow is one person waiting on another. L
 (unassigned last, an unresolved id between the two) rather than by workload, so finishing something does
 not reshuffle the canvas. `RoadmapNodeRecord.assigneeId` is a Director contact id, kept even when the
 contact is gone — deleting somebody from the roster is not a statement that their work became
-unassigned — and validated against the live roster in the host rather than trusted from the webview. **Calculate tree**, carrying the AtlasMind mark, works the
+unassigned — and validated against the live roster in the host rather than trusted from the webview.
+**Show completed** brings finished work back onto any roadmap view that leaves it off, and is a way of
+looking rather than a change: `buildRoadmapCompletedOverlay` ships positions only — where the tree
+already put each delivered item, and a by-person layout that includes them — built after the critical
+path, routes and timeline, none of which read it. The webview filters client-side, posts nothing, and
+remembers the choice per editor. **Calculate tree**, carrying the AtlasMind mark, works the
 whole dependency tree out from the wording of the backlog and offers it behind one confirmation naming
 how many links it would add.
 

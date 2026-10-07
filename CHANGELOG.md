@@ -6,6 +6,45 @@ The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/),
 
 ## [Unreleased]
 
+## [0.485.0] - 2026-10-07
+
+### Added
+
+- **Show completed, on every roadmap view.** The Roadmap page's views left finished work off in some
+  places and kept it in others, with no way to choose: the dependency and by-person canvases dropped a
+  delivered item unless something outstanding still waited on it, while the backlog list kept every
+  ticked line. One toggle now sits in the row every view shares, and its state is the same everywhere.
+  On the **dependency canvas** delivered work appears where the tree layout already put it, so it
+  fills the gaps it left and nothing already on screen moves; on **By person** it joins its person's
+  band, which is re-laid because a finished item changes how deep the band is; on the **board** the
+  Delivered column's cards are listed; on the **timeline** it is listed under the chart rather than
+  given a bar, because the axis is days of work from today and finished work has none; and in the
+  **backlog** ticked lines are included. It is absent on **Delivered**, where everything is finished
+  and the control could only empty the page.
+- **Delivered work reads as delivered without relying on colour.** A tick and a screen-reader
+  "Delivered:" prefix mark it on canvas cards, board cards, the timeline list and the schedule chip,
+  and the green tone reinforces rather than carries the meaning (WCAG 1.4.1). The tone tints an edge
+  into the 0.484.0 boundary token, so the edge still clears 3:1, and it is never a filled background,
+  for the reason urgency is a left border.
+
+### Design
+
+- **A way of looking, not a change.** The toggle posts nothing to the host and writes nothing; it is
+  remembered per editor in webview state beside snap-to-grid. Placing finished work needs coordinates
+  the snapshot did not carry, so the host now ships `completedOverlay` — plan positions for delivered
+  work not already drawn, and a by-person layout that includes it — built by the new pure
+  `buildRoadmapCompletedOverlay` in `roadmapGraph.ts`. Positions only: the nodes already travel once
+  in `completed`, and shipping them twice to carry a different coordinate would double the largest part
+  of the payload for one field.
+- **Displayed, never re-planned.** The critical path, routes, schedules and at-risk states are computed
+  from the whole graph before the overlay is built and do not read it, and lane totals still count
+  outstanding days only. A property test over arbitrary roadmaps asserts the graph is not mutated, the
+  critical path and every route are unchanged, and the overlay places exactly the delivered work the
+  plan leaves off.
+- **Hiding is stated, never silent.** Off by default, so the plan opens as the plan — but the toggle
+  carries the number of finished items the current view would add, the backlog says how many ticked
+  lines it is hiding, and the board keeps the Delivered column with its count.
+
 ## [0.484.0] - 2026-10-07
 
 ### Changed

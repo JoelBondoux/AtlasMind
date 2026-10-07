@@ -1884,3 +1884,69 @@ export function layoutRoadmapByAssignee(
 
   return { nodes: placed, lanes };
 }
+
+// ── Showing delivered work on the plan, without re-planning it ────────────
+
+/**
+ * Where delivered work would sit if somebody asked to see it on the plan.
+ *
+ * The plan canvas and the by-person canvas leave finished work off — that is
+ * the point of finishing it (see `partitionRoadmapCompletion`). A viewer can ask
+ * for it back with *Show completed*, and that is a way of **looking**, so it is
+ * answered offline from data shipped with the snapshot rather than by asking
+ * the host to lay the plan out again: a view toggle that can fail is one people
+ * stop trusting.
+ *
+ * Positions only, never nodes. The nodes themselves already travel once in
+ * `completed` (laid out chronologically for the Delivered view); shipping them a
+ * second time to carry a different coordinate would double the largest part of
+ * the payload for one field.
+ *
+ * Three properties, each checked by test:
+ *
+ * - **Displayed, not re-planned.** Nothing here changes a derived fact: the
+ *   critical path, routes, schedules and at-risk states are computed from the
+ *   whole graph before this runs and do not read it. The graph is not mutated.
+ * - **The plan's own arrangement.** A delivered node appears where the tree
+ *   layout already put it — `applyRoadmapLayout` places every node, finished or
+ *   not — so switching it on fills the gaps the finished work left rather than
+ *   shuffling the outstanding work around it. Retained nodes are excluded,
+ *   because they are already drawn.
+ * - **Lanes count outstanding work only.** The by-person arrangement has to be
+ *   laid out again (a finished item changes how deep its person's band is), but
+ *   a lane's `outstandingDays` is the same with or without it, because
+ *   `layoutRoadmapByAssignee` already excludes completed work from that sum.
+ */
+export interface RoadmapCompletedOverlay {
+  /** Plan-canvas positions for delivered nodes not already on the plan. */
+  planPositions: Record<string, { x: number; y: number }>;
+  /** By-person positions for every node, finished or not, in one arrangement. */
+  byPersonPositions: Record<string, { x: number; y: number }>;
+  /** The bands that arrangement produces. */
+  byPersonLanes: RoadmapLane[];
+}
+
+export function buildRoadmapCompletedOverlay(
+  graph: RoadmapGraph,
+  partition: RoadmapCompletionPartition,
+  people: ReadonlyArray<{ id: string; name: string }>,
+): RoadmapCompletedOverlay {
+  const retained = new Set(partition.retained.map(node => node.id));
+  const byId = new Map(graph.nodes.map(node => [node.id, node]));
+  const planPositions: Record<string, { x: number; y: number }> = {};
+  for (const node of partition.completed) {
+    const planned = byId.get(node.id);
+    if (planned === undefined || retained.has(node.id)) {
+      continue;
+    }
+    planPositions[node.id] = { x: planned.position.x, y: planned.position.y };
+  }
+
+  const byPerson = layoutRoadmapByAssignee(graph.nodes, people, graph.orientation);
+  const byPersonPositions: Record<string, { x: number; y: number }> = {};
+  for (const node of byPerson.nodes) {
+    byPersonPositions[node.id] = { x: node.position.x, y: node.position.y };
+  }
+
+  return { planPositions, byPersonPositions, byPersonLanes: byPerson.lanes };
+}

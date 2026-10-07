@@ -619,6 +619,7 @@ import {
 } from '../core/roadmapGates.js';
 import {
   ROADMAP_EDGE_RULES,
+  buildRoadmapCompletedOverlay,
   edgeKey,
   layoutRoadmapByAssignee,
   layoutRoadmapCompletion,
@@ -627,6 +628,7 @@ import {
   partitionRoadmapCompletion,
   resolveRoadmapGraph,
   roadmapRouteTo,
+  type RoadmapCompletedOverlay,
   type RoadmapEdge,
   type RoadmapFocus,
   type RoadmapGraphNode,
@@ -3014,6 +3016,15 @@ interface DashboardRoadmapGraphView {
   completedColumns: Array<{ key: string; label: string }>;
   /** Delivered work still on the plan canvas because something outstanding needs it. */
   retainedIds: string[];
+  /**
+   * Where the rest of the delivered work sits when a viewer asks to see it.
+   *
+   * *Show completed* is a way of looking, so it is answered from this rather
+   * than by a round trip: plan positions for delivered work not already drawn,
+   * and a by-person arrangement that includes it. Nothing derived — critical
+   * path, routes, schedules — reads it; see `buildRoadmapCompletedOverlay`.
+   */
+  completedOverlay: RoadmapCompletedOverlay;
   edges: RoadmapEdge[];
   suggested: RoadmapEdge[];
   layers: string[][];
@@ -25941,6 +25952,7 @@ function emptyRoadmapGraphView(filePath: string): DashboardRoadmapGraphView {
     completed: [],
     completedColumns: [],
     byPerson: [],
+    completedOverlay: { planPositions: {}, byPersonPositions: {}, byPersonLanes: [] },
     lanes: [],
     retainedIds: [],
     edges: [],
@@ -26116,6 +26128,7 @@ function buildRoadmapGraphView(
       byPerson: byPerson.nodes,
       lanes: byPerson.lanes,
       retainedIds: partition.retained.map(node => node.id),
+      completedOverlay: buildRoadmapCompletedOverlay(graph, partition, people),
       edges: graph.edges,
       suggested: graph.suggested,
       layers: graph.layers,
@@ -33197,6 +33210,30 @@ const DASHBOARD_CSS = `
     border-color: var(--dash-accent-strong);
   }
 
+  /* Show completed. Quiet when off, like the integrity check beside it; when
+     on, it takes the delivered tone so the state is visible without reading
+     aria-pressed — and the tick is the cue that does not depend on colour. */
+  .rm-completed-toggle {
+    color: var(--dash-muted);
+    background: transparent;
+    border-color: var(--dash-border);
+  }
+
+  .rm-completed-toggle:hover {
+    color: var(--vscode-foreground);
+    background: color-mix(in srgb, var(--dash-panel) 70%, transparent);
+    border-color: var(--dash-accent-strong);
+  }
+
+  .rm-completed-toggle.is-on {
+    color: var(--vscode-foreground);
+    border-color: color-mix(in srgb, var(--dash-good) 65%, var(--dash-border));
+    background: color-mix(in srgb, var(--dash-good) 16%, transparent);
+  }
+
+  .rm-completed-toggle-mark { color: var(--dash-good); font-weight: 700; }
+  .rm-completed-toggle:not(.is-on) .rm-completed-toggle-mark { color: inherit; opacity: 0.6; }
+
   .rm-add-item:focus-visible {
     outline: 2px solid var(--dash-accent-strong);
     outline-offset: 2px;
@@ -33574,6 +33611,32 @@ const DASHBOARD_CSS = `
   /* Delivered work still holding something up. It is on the plan for context,
      not because anybody has to do it, and it says so. */
   .rm-node.is-retained { border-style: dashed; }
+
+  /* Delivered work wherever it is shown — the canvases, the board, the
+     timeline list. Colour alone would fail WCAG 1.4.1, so the tick is the cue
+     and the tone reinforces it; the tone tints an edge into the boundary
+     rather than thinning it, so the edge still clears 3:1. Never a filled
+     background, for the reason urgency is a left border: a page of saturated
+     cards reads as a state, and finished work is the opposite of one. */
+  .rm-done-mark { color: var(--dash-good); font-weight: 700; flex: none; }
+  .rm-node.is-done .rm-node-head { display: flex; align-items: baseline; gap: 6px; }
+  .rm-chip-done {
+    border-color: color-mix(in srgb, var(--dash-good) 65%, var(--dash-border));
+    color: color-mix(in srgb, var(--dash-good) 85%, var(--tint-away) 15%);
+  }
+  .rm-board-cardlet.is-done { border-left-color: color-mix(in srgb, var(--dash-good) 65%, var(--dash-border)); }
+  .rm-board-cardlet.is-done .rm-done-mark { margin-right: 5px; }
+
+  .rm-tl-delivered { margin-top: 14px; display: flex; flex-direction: column; gap: 4px; }
+  .rm-tl-delivered-list { list-style: none; margin: 0; padding: 0; display: flex; flex-direction: column; gap: 3px; }
+  .rm-tl-delivered-item {
+    display: grid;
+    grid-template-columns: auto minmax(0, 1fr) auto;
+    gap: 8px;
+    align-items: baseline;
+    padding: 3px 0 3px 8px;
+    border-left: 3px solid color-mix(in srgb, var(--dash-good) 65%, var(--dash-border));
+  }
 
   .rm-state-overdue { border-left-color: var(--dash-critical, #d13438); }
   .rm-state-at-risk { border-left-color: var(--dash-warn, #d0a215); }

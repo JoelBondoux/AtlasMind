@@ -4,7 +4,7 @@
 
 <h1 align="center">AtlasMind</h1>
 
-<p align="center"><sub> · <strong>Current source version: 0.484.0</strong> · </sub></p>
+<p align="center"><sub> · <strong>Current source version: 0.485.0</strong> · </sub></p>
 
 
 <p align="center">
@@ -175,6 +175,14 @@ allow-list, redaction and file-withholding behaviour, retained metadata, provide
 important limits on overrides and compliance claims.
 
 ---
+
+## What's new in 0.485.0
+
+Every roadmap view now has a **Show completed** toggle. Switched on, delivered work appears on the
+dependency canvas where the tree already put it, joins each person's band, fills the board's Delivered
+column, is listed under the timeline and returns to the backlog — marked with a tick, not just a colour.
+It is purely a way of looking: nothing is saved, nothing is re-planned, and each view says how many
+finished items it is hiding while the toggle is off.
 
 ## What's new in 0.484.0
 

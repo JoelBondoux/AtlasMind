@@ -45,13 +45,15 @@ const WEBVIEW = readFileSync(path.join(process.cwd(), 'media', 'projectDashboard
 interface Harness {
   window: Mounted;
   posted: Array<{ type?: string; payload?: unknown }>;
+  /** Every value the webview handed to `setState`, in order. */
+  stored: unknown[];
   send(message: unknown): void;
   root(): Mounted;
   html(): string;
   click(selector: string): void;
 }
 
-function mount(): Harness {
+function mount(initialState?: Record<string, unknown>): Harness {
   const dom = new JSDOM(
     `<!doctype html><html><body>
        <div id="dashboard-version-strip"></div>
@@ -68,11 +70,14 @@ function mount(): Harness {
   );
   const { window } = dom;
   const posted: Array<{ type?: string; payload?: unknown }> = [];
+  // `getState` returns only what the test seeded, never what the script wrote
+  // back, so one test's preferences cannot leak into the next render it makes.
+  const stored: unknown[] = [];
 
   (window as unknown as { acquireVsCodeApi: unknown }).acquireVsCodeApi = () => ({
     postMessage: (message: unknown) => { posted.push(message as { type?: string }); },
-    getState: () => undefined,
-    setState: () => undefined,
+    getState: () => initialState,
+    setState: (value: unknown) => { stored.push(value); },
   });
   (window as unknown as { matchMedia: unknown }).matchMedia = () => ({
     matches: false,
@@ -90,6 +95,7 @@ function mount(): Harness {
   return {
     window,
     posted,
+    stored,
     send(message: unknown) {
       (window as unknown as { __renderError?: Error }).__renderError = undefined;
       window.dispatchEvent(new window.MessageEvent('message', { data: message }));
@@ -1481,5 +1487,190 @@ describe('the board view', () => {
     const card = harness.root().querySelector('.rm-board-cardlet');
     expect(card?.getAttribute('draggable')).toBeNull();
     expect(harness.root().querySelector('.rm-board-card [data-action]')).toBeNull();
+  });
+});
+
+/**
+ * *Show completed*, executed.
+ *
+ * The toggle is a way of looking, so the properties worth holding are the ones
+ * a refactor could quietly break: it is on every view that can hide finished
+ * work, it is an ordinary keyboard-reachable button, it never talks to the
+ * host, it never re-plans anything, and hiding is always stated with a count.
+ */
+describe('show completed', () => {
+  /** Delivered work the plan leaves off, with where the tree and the lanes put it. */
+  const OVERLAY = {
+    completedOverlay: {
+      planPositions: { gamma: { x: 720, y: 400 } },
+      byPersonPositions: { alpha: { x: 80, y: 80 }, beta: { x: 400, y: 80 }, gamma: { x: 80, y: 440 } },
+      byPersonLanes: [
+        { id: '', label: 'Unassigned', count: 3, outstandingDays: 6, unresolved: false, offset: 80, extent: 720 },
+      ],
+    },
+    lanes: [
+      { id: '', label: 'Unassigned', count: 2, outstandingDays: 6, unresolved: false, offset: 80, extent: 360 },
+    ],
+    byPerson: [
+      node('alpha', { position: { x: 80, y: 80 } }),
+      node('beta', { position: { x: 400, y: 80 }, depth: 1 }),
+    ],
+  };
+
+  /** The fixture, with one ticked backlog line and a delivered card on the board. */
+  function withDelivered() {
+    const snap = snapshot(OVERLAY);
+    const roadmap = snap.payload.roadmap as unknown as {
+      items: Array<Record<string, unknown>>;
+      graph: { board: { columns: Array<{ id: string; cards: unknown[] }> } };
+    };
+    roadmap.items.push({
+      id: 'roadmap-3', nodeId: 'gamma', text: 'Item gamma', completed: true, focus: 'feature',
+      priorityScore: 1, priorityReason: 'delivered', isMvp: false, gates: [], mvpCandidate: false,
+    });
+    roadmap.graph = { ...roadmap.graph, board: JSON.parse(JSON.stringify(roadmap.graph.board)) };
+    const delivered = roadmap.graph.board.columns.find(column => column.id === 'delivered');
+    delivered?.cards.push({
+      nodeId: 'gamma', itemId: 'roadmap-3', text: 'Item gamma', focus: 'feature', gates: [],
+      column: 'delivered', waitingOnCount: 0, estimateDays: 0, priorityScore: 1,
+    });
+    return snap;
+  }
+
+  const ids = (harness: Harness) => [...harness.root().querySelectorAll('[data-rm-node]')]
+    .map(el => (el as { getAttribute(name: string): string | null }).getAttribute('data-rm-node'));
+  const toggle = (harness: Harness) => harness.root().querySelector('[data-action="roadmap-completed-toggle"]');
+  const open = (view: string, initialState?: Record<string, unknown>) => {
+    const harness = mount(initialState);
+    harness.send(withDelivered());
+    if (view !== 'canvas') {
+      harness.click(`[data-action="roadmap-view"][data-payload="${view}"]`);
+    }
+    return harness;
+  };
+
+  it('is a keyboard-reachable toggle button on every view that can hide finished work', () => {
+    for (const view of ['canvas', 'timeline', 'board', 'list', 'people']) {
+      const button = toggle(open(view));
+      expect(button, `no toggle on ${view}`).not.toBeNull();
+      // A native <button>: Tab reaches it and Enter/Space press it with
+      // nothing custom, which is the whole of keyboard support done right.
+      expect(button.tagName).toBe('BUTTON');
+      expect(button.getAttribute('type')).toBe('button');
+      expect(button.hasAttribute('disabled')).toBe(false);
+      expect(button.getAttribute('tabindex')).toBeNull();
+      expect(button.getAttribute('aria-pressed')).toBe('false');
+      // The name does not flip with the state: aria-pressed says which it is.
+      expect(button.textContent).toContain('Show completed');
+    }
+  });
+
+  it('is absent on Delivered, where everything is finished', () => {
+    expect(toggle(open('completed'))).toBeNull();
+  });
+
+  it('adds delivered work to the canvas where the tree put it, and sends nothing', () => {
+    const harness = open('canvas');
+    expect(ids(harness)).toEqual(['alpha', 'beta']);
+    // Hidden work is counted, not silent.
+    expect(toggle(harness).textContent).toContain('1 completed item');
+    const criticalBefore = harness.root().querySelector('.rm-critical-summary')?.textContent;
+    harness.posted.length = 0;
+
+    harness.click('[data-action="roadmap-completed-toggle"]');
+
+    expect(ids(harness)).toEqual(['alpha', 'beta', 'gamma']);
+    const gamma = harness.root().querySelector('[data-rm-node="gamma"]');
+    // The plan position, not the chronological one the Delivered view uses.
+    expect(gamma.style.left).toBe('720px');
+    expect(gamma.style.top).toBe('400px');
+    // Colour is never the only cue: the card carries a tick and says so.
+    expect(gamma.classList.contains('is-done')).toBe(true);
+    expect(gamma.querySelector('.rm-done-mark')?.textContent).toBe('✓');
+    expect(gamma.textContent).toContain('Delivered:');
+    expect(toggle(harness).getAttribute('aria-pressed')).toBe('true');
+    // Displayed, not re-planned.
+    expect(harness.root().querySelector('.rm-critical-summary')?.textContent).toBe(criticalBefore);
+    expect(harness.posted).toEqual([]);
+
+    harness.click('[data-action="roadmap-completed-toggle"]');
+    expect(ids(harness)).toEqual(['alpha', 'beta']);
+    expect(harness.posted).toEqual([]);
+  });
+
+  it('never edits the snapshot it was given', () => {
+    const harness = open('canvas');
+    harness.click('[data-action="roadmap-completed-toggle"]');
+    harness.click('[data-action="roadmap-view"][data-payload="completed"]');
+    // The Delivered view still draws gamma at its own chronological position.
+    expect(harness.root().querySelector('[data-rm-node="gamma"]').style.left).toBe('80px');
+  });
+
+  it('re-lays the by-person lanes when finished work joins them', () => {
+    const harness = open('people');
+    expect(ids(harness)).toEqual(['alpha', 'beta']);
+    expect(harness.root().querySelector('.rm-lane small')?.textContent).toContain('2 items');
+    harness.posted.length = 0;
+
+    harness.click('[data-action="roadmap-completed-toggle"]');
+
+    expect(ids(harness)).toEqual(['alpha', 'beta', 'gamma']);
+    expect(harness.root().querySelector('[data-rm-node="gamma"]').style.top).toBe('440px');
+    expect(harness.root().querySelector('.rm-lane small')?.textContent).toContain('3 items');
+    expect(harness.posted).toEqual([]);
+  });
+
+  it('hides ticked lines from the backlog with the count stated, and lists them on request', () => {
+    const harness = open('list');
+    const listed = () => [...harness.root().querySelectorAll('[data-roadmap-id]')]
+      .map(el => (el as { getAttribute(name: string): string | null }).getAttribute('data-roadmap-id'));
+    expect(listed()).toEqual(['roadmap-1']);
+    expect(harness.root().querySelector('.rm-completed-hidden-note')?.textContent).toContain('1 completed item is hidden');
+    harness.posted.length = 0;
+
+    harness.click('[data-action="roadmap-completed-toggle"]');
+
+    expect(listed()).toEqual(['roadmap-1', 'roadmap-3']);
+    expect(harness.root().querySelector('.rm-completed-hidden-note')).toBeNull();
+    expect(harness.posted).toEqual([]);
+  });
+
+  it('keeps the Delivered column and its count on the board, and lists the cards on request', () => {
+    const harness = open('board');
+    const column = () => harness.root().querySelector('.rm-board-column[aria-label="Delivered"]');
+    expect(column().querySelector('.rm-view-count')?.textContent).toBe('1');
+    expect(column().querySelectorAll('.rm-board-cardlet')).toHaveLength(0);
+    expect(column().textContent).toContain('1 delivered, hidden');
+
+    harness.click('[data-action="roadmap-completed-toggle"]');
+
+    const card = column().querySelector('.rm-board-cardlet');
+    expect(card?.classList.contains('is-done')).toBe(true);
+    expect(card?.querySelector('.rm-done-mark')?.textContent).toBe('✓');
+    // Still read-only: the board's own rule is unchanged.
+    expect(harness.root().querySelector('.rm-board-card [data-action]')).toBeNull();
+  });
+
+  it('lists delivered work under the timeline rather than inventing bars for it', () => {
+    const harness = open('timeline');
+    const bars = harness.root().querySelectorAll('.rm-tl-row').length;
+    expect(harness.root().querySelector('.rm-tl-delivered')).toBeNull();
+
+    harness.click('[data-action="roadmap-completed-toggle"]');
+
+    expect(harness.root().querySelectorAll('.rm-tl-row')).toHaveLength(bars);
+    const listed = harness.root().querySelector('.rm-tl-delivered');
+    expect(listed?.textContent).toContain('Item gamma');
+    expect(listed?.textContent).toContain('delivered 2026-05-04');
+  });
+
+  it('is remembered per editor, in webview state', () => {
+    const harness = open('canvas');
+    harness.click('[data-action="roadmap-completed-toggle"]');
+    expect(harness.stored.at(-1)).toMatchObject({ roadmapShowCompleted: true });
+
+    const reopened = open('canvas', { roadmapShowCompleted: true });
+    expect(toggle(reopened).getAttribute('aria-pressed')).toBe('true');
+    expect(ids(reopened)).toEqual(['alpha', 'beta', 'gamma']);
   });
 });
