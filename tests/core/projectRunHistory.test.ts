@@ -175,3 +175,36 @@ describe('ProjectRunHistory', () => {
     removeTempDir(tempDir);
   });
 });
+describe('ProjectRunHistory keeps what each subtask read', () => {
+  const READ = {
+    level: 'third-party' as const,
+    injectionSuspected: false,
+    sources: [{ origin: 'tool-result' as const, toolName: 'web-fetch', provenance: 'third-party' as const, rule: 'provenance.network-skill', injectionSuspected: false }],
+    omittedSources: 0,
+  };
+  const artifact = (subTaskId: string, provenance: unknown) => ({
+    subTaskId, title: subTaskId, role: 'general-assistant', dependsOn: [], status: 'completed' as const, output: 'done',
+    outputPreview: 'done', costUsd: 0, durationMs: 1, toolCallCount: 0, toolCalls: [], checkpointedTools: [], changedFiles: [],
+    ...(provenance === undefined ? {} : { provenance }),
+  });
+
+  it('keeps a readable record and drops an unreadable one, so a resume reads it as unrecorded', async () => {
+    const history = new ProjectRunHistory(createMemoryState() as never);
+    const run = makeRun('run-provenance', '2026-10-07T09:00:00.000Z');
+    run.subTaskArtifacts = [artifact('kept', READ), artifact('forged', { level: 'operator' }), artifact('legacy', undefined)] as never;
+    run.plannerSeedResults = [
+      { subTaskId: 'seed-kept', title: 'Seed', output: 'x', provenance: READ },
+      { subTaskId: 'seed-forged', title: 'Seed', output: 'x', provenance: 'clean' as never },
+    ];
+    await history.upsertRun(run);
+
+    const stored = history.getRun('run-provenance')!;
+    const byId = new Map(stored.subTaskArtifacts.map(entry => [entry.subTaskId, entry]));
+    expect(byId.get('kept')?.provenance).toEqual(READ);
+    // Never repaired into something that reads as clean: absent is unrecorded, which a dependent treats as third-party.
+    expect(byId.get('forged') && 'provenance' in byId.get('forged')!).toBe(false);
+    expect(byId.get('legacy') && 'provenance' in byId.get('legacy')!).toBe(false);
+    expect(stored.plannerSeedResults?.[0]?.provenance).toEqual(READ);
+    expect(stored.plannerSeedResults?.[1] && 'provenance' in stored.plannerSeedResults[1]).toBe(false);
+  });
+});

@@ -417,8 +417,10 @@ before it accepts a reasoning-only answer.
 A step's prompt includes the output of the steps it depends on, so it also inherits what they **read**.
 If a research step fetched a web page, the step that writes the result to disk asks for a fresh approval
 before it changes anything — even under Autopilot — exactly as it would if it had fetched the page
-itself. See [Tool Execution](Tool-Execution.md) for the rules. A step resumed from an earlier run has no
-record of what it read, so its dependents are treated as having read third-party content.
+itself. See [Tool Execution](Tool-Execution.md) for the rules. Since 0.489.1 a run records what each step
+read, so a step resumed from an earlier run passes that on; one recorded before then has no record, and its
+dependents are treated as having read third-party content. A run started from a chat conversation also
+starts from what that conversation has read, and what its steps read comes back into the conversation.
 
 ### The temporary specialists
 

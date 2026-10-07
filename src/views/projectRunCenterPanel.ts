@@ -3836,6 +3836,9 @@ function seedResultsToSubTaskResults(seedResults: ProjectRunSeedResult[] | undef
     output: seed.output,
     costUsd: 0,
     durationMs: 0,
+    // Absent on a seed recorded before provenance was kept; the orchestrator
+    // then seeds its dependents as third-party.
+    ...(seed.provenance ? { provenance: seed.provenance } : {}),
   }));
 }
 
@@ -3855,6 +3858,7 @@ function mergePlannerSeedResults(
       subTaskId: result.subTaskId,
       title: result.title,
       output: result.output,
+      ...(result.provenance ? { provenance: result.provenance } : {}),
     });
   }
   return [...merged.values()];
@@ -3901,6 +3905,7 @@ function buildArtifactFromResult(
     checkpointedTools: [...(result.artifacts?.checkpointedTools ?? [])],
     changedFiles: changedFiles.map(file => ({ ...file })),
     diffPreview,
+    ...(result.provenance ? { provenance: result.provenance } : {}),
   };
 }
 
@@ -3950,6 +3955,7 @@ function artifactToResult(artifact: ProjectRunSubTaskArtifact): SubTaskResult {
     error: artifact.error,
     role: artifact.role,
     dependsOn: [...artifact.dependsOn],
+    ...(artifact.provenance ? { provenance: artifact.provenance } : {}),
     artifacts: {
       output: artifact.output,
       outputPreview: artifact.outputPreview,

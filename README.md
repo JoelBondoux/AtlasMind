@@ -4,7 +4,7 @@
 
 <h1 align="center">AtlasMind</h1>
 
-<p align="center"><sub> · <strong>Current source version: 0.489.0</strong> · </sub></p>
+<p align="center"><sub> · <strong>Current source version: 0.489.1</strong> · </sub></p>
 
 
 <p align="center">
@@ -175,6 +175,16 @@ allow-list, redaction and file-withholding behaviour, retained metadata, provide
 important limits on overrides and compliance claims.
 
 ---
+
+## What's new in 0.489.1
+
+What a conversation has read now carries into its next turn. Ask AtlasMind to read a page in one message
+and to update a file in the next, and the write asks you again — even with Autopilot on — because the page
+is still in the conversation. The dialog says it was read earlier in the conversation, and the chat shows a
+short note under the turn. Starting a new chat, or clearing this one, resets it; nothing else does, and a
+window reload doesn't. Project runs started from chat inherit it, run history now records what each step
+read so a resumed run doesn't have to assume the worst, and "allow for this task" grants now end when the
+task does.
 
 ## What's new in 0.489.0
 

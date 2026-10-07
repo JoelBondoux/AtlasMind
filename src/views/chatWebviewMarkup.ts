@@ -1525,6 +1525,12 @@ export function buildChatWebviewHtml(opts: { scriptUri: string; cspSource: strin
         .assistant-footer-thought {
           min-width: 0;
         }
+        .assistant-untrusted-note {
+          font-size: 0.92em;
+          padding: 6px 10px;
+          border-left: 3px solid var(--vscode-editorWarning-foreground, #c27803);
+          color: var(--vscode-descriptionForeground, inherit);
+        }
         .assistant-utility-row {
           display: flex;
           align-items: center;

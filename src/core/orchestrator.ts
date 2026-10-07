@@ -48,6 +48,7 @@ import {
   mergeProvenance,
   prepareToolResultForModel,
   provenanceFromDependencies,
+  raiseProvenance,
   readRecordedProvenance,
   readUntrustedEscalationScope,
 } from './contextProvenance.js';
@@ -668,6 +669,7 @@ export class Orchestrator {
   private resolveWorkflowStageLevelsHook?: OrchestratorHooks['resolveWorkflowStageLevels'];
   private runGitHook?: OrchestratorHooks['runGit'];
   private onSerialisedWritersHook?: OrchestratorHooks['onSerialisedWriters'];
+  private onTaskSettledHook?: OrchestratorHooks['onTaskSettled'];
 
   constructor(
     private agents: AgentRegistry,
@@ -697,6 +699,7 @@ export class Orchestrator {
     this.resolveWorkflowStageLevelsHook = hooks?.resolveWorkflowStageLevels;
     this.runGitHook = hooks?.runGit;
     this.onSerialisedWritersHook = hooks?.onSerialisedWriters;
+    this.onTaskSettledHook = hooks?.onTaskSettled;
     this.classifier = new ClassifierService(router, providers, taskProfiler);
     this.cfg = { ...defaultConfig, ...config };
 
@@ -1590,6 +1593,33 @@ export class Orchestrator {
    * Used by the project executor to run ephemeral sub-agents.
    */
   async processTaskWithAgent(
+    request: TaskRequest,
+    agent: AgentDefinition,
+    onTextChunk?: (chunk: string) => void,
+    onProgress?: (message: string) => void,
+    onModelSelected?: (model: string) => void,
+  ): Promise<TaskResult> {
+    try {
+      return await this.runTaskWithAgent(request, agent, onTextChunk, onProgress, onModelSelected);
+    } finally {
+      // Every task id the gate can have been asked about for this request: the
+      // attempt and its self-recovery pass. A synthesised-specialist retry and a
+      // handoff are their own requests and settle themselves. Told on every
+      // path, a throw included, so a per-task grant cannot outlive its task.
+      this.settleTask(request.id);
+      this.settleTask(`${request.id}-recovery`);
+    }
+  }
+
+  private settleTask(taskId: string): void {
+    try {
+      this.onTaskSettledHook?.(taskId);
+    } catch {
+      // A host that fails to tidy up must not turn a finished task into a failed one.
+    }
+  }
+
+  private async runTaskWithAgent(
     request: TaskRequest,
     agent: AgentDefinition,
     onTextChunk?: (chunk: string) => void,
@@ -2735,6 +2765,13 @@ export class Orchestrator {
       signal?: AbortSignal;
       sessionContextBundle?: import('../types.js').SessionContextBundle;
       sessionContext?: string;
+      /**
+       * What the conversation starting this run has read. Every subtask is
+       * seeded from it — the session context above reaches each subtask's
+       * prompt — and it is raised as each subtask finishes, so a caller reading
+       * it afterwards (or after a throw) knows what the run read.
+       */
+      provenance?: { current: TurnProvenance };
     },
   ): Promise<ProjectResult> {
     const startMs = Date.now();
@@ -2808,6 +2845,9 @@ export class Orchestrator {
     const provenanceBySubTask = new Map<string, unknown>(
       (options?.resumeFromResults ?? []).map(result => [result.subTaskId, result.provenance]),
     );
+    // Taken once, before anything runs: a subtask is seeded from what the
+    // conversation had read when the run started, not from its siblings.
+    const conversationProvenance = options?.provenance?.current;
     let subTaskResults: SubTaskResult[];
     try {
       subTaskResults = await scheduler.execute(
@@ -2833,9 +2873,17 @@ export class Orchestrator {
             options?.sessionContext,
             goalCapabilities,
             isolation.worktreeFor(task.id),
-            provenanceFromDependencies(task.dependsOn, id => provenanceBySubTask.get(id)),
+            conversationProvenance
+              ? mergeProvenance(conversationProvenance, provenanceFromDependencies(task.dependsOn, id => provenanceBySubTask.get(id)))
+              : provenanceFromDependencies(task.dependsOn, id => provenanceBySubTask.get(id)),
           );
           provenanceBySubTask.set(task.id, result.provenance);
+          if (options?.provenance) {
+            options.provenance.current = raiseProvenance(
+              options.provenance.current,
+              provenanceFromDependencies([task.id], id => provenanceBySubTask.get(id)),
+            );
+          }
           // Propagate billing abort as a thrown error so the scheduler's
           // Promise.all immediately rejects and no further batches execute.
           if (result.billingAbort) {

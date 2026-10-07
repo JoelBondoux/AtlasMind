@@ -2,7 +2,8 @@ import * as fs from 'node:fs/promises';
 import * as path from 'node:path';
 import type * as vscode from 'vscode';
 import { deriveProjectRunTitle } from '../chat/sessionConversation.js';
-import type { ProjectRunExecutionOptions, ProjectRunRecord } from '../types.js';
+import type { ProjectRunExecutionOptions, ProjectRunRecord, ProjectRunSubTaskArtifact, TurnProvenance } from '../types.js';
+import { readRecordedProvenance } from './contextProvenance.js';
 
 const STORAGE_KEY = 'atlasmind.projectRunHistory';
 import { MAX_PROJECT_RUNS } from '../constants.js';
@@ -231,6 +232,28 @@ export class ProjectRunHistory {
   }
 }
 
+/**
+ * A recorded provenance, read rather than trusted. One that cannot be read is
+ * dropped — and absent means *unrecorded*, which a resumed run's dependents
+ * treat as third-party. Never repaired into something that reads as clean.
+ */
+function sanitizeRecordedProvenance(value: unknown): { provenance?: TurnProvenance } {
+  const read = readRecordedProvenance(value);
+  return read ? { provenance: read } : {};
+}
+
+function sanitizeArtifact(artifact: ProjectRunSubTaskArtifact): ProjectRunSubTaskArtifact {
+  const { provenance, ...rest } = artifact;
+  return {
+    ...rest,
+    dependsOn: [...artifact.dependsOn],
+    toolCalls: artifact.toolCalls.map(tool => ({ ...tool })),
+    checkpointedTools: [...artifact.checkpointedTools],
+    changedFiles: artifact.changedFiles.map(file => ({ ...file })),
+    ...sanitizeRecordedProvenance(provenance),
+  };
+}
+
 function sanitizeRun(run: ProjectRunRecord, workspaceKey?: string): ProjectRunRecord {
   const normalizedTitle = typeof run.title === 'string' && run.title.trim().length > 0
     ? run.title.trim()
@@ -257,7 +280,10 @@ function sanitizeRun(run: ProjectRunRecord, workspaceKey?: string): ProjectRunRe
       : {}),
     executionOptions,
     failedSubtaskTitles: [...run.failedSubtaskTitles],
-    plannerSeedResults: run.plannerSeedResults?.map(result => ({ ...result })),
+    plannerSeedResults: run.plannerSeedResults?.map(({ provenance, ...result }) => ({
+      ...result,
+      ...sanitizeRecordedProvenance(provenance),
+    })),
     plan: run.plan
       ? {
         ...run.plan,
@@ -265,13 +291,7 @@ function sanitizeRun(run: ProjectRunRecord, workspaceKey?: string): ProjectRunRe
       }
       : undefined,
     logs: run.logs.map(log => ({ ...log })),
-    subTaskArtifacts: run.subTaskArtifacts.map(artifact => ({
-      ...artifact,
-      dependsOn: [...artifact.dependsOn],
-      toolCalls: artifact.toolCalls.map(tool => ({ ...tool })),
-      checkpointedTools: [...artifact.checkpointedTools],
-      changedFiles: artifact.changedFiles.map(file => ({ ...file })),
-    })),
+    subTaskArtifacts: run.subTaskArtifacts.map(sanitizeArtifact),
     summary: run.summary
       ? {
         ...run.summary,
@@ -281,13 +301,7 @@ function sanitizeRun(run: ProjectRunRecord, workspaceKey?: string): ProjectRunRe
         fileAttribution: Object.fromEntries(
           Object.entries(run.summary.fileAttribution).map(([key, value]) => [key, [...value]]),
         ),
-        subTaskArtifacts: run.summary.subTaskArtifacts.map(artifact => ({
-          ...artifact,
-          dependsOn: [...artifact.dependsOn],
-          toolCalls: artifact.toolCalls.map(tool => ({ ...tool })),
-          checkpointedTools: [...artifact.checkpointedTools],
-          changedFiles: artifact.changedFiles.map(file => ({ ...file })),
-        })),
+        subTaskArtifacts: run.summary.subTaskArtifacts.map(sanitizeArtifact),
       }
       : undefined,
     reviewFiles: run.reviewFiles?.map(file => ({ ...file, ...(file.uri ? { uri: { ...file.uri } } : {}) })),

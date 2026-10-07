@@ -123,6 +123,38 @@ describe('AtlasMindAcpAgent', () => {
     ]);
   });
 
+  it('starts the next turn of a session from what the earlier turns read, and a new session clean', async () => {
+    const runtime = createRuntime();
+    const seen: Array<{ level: string; carried: boolean[] }> = [];
+    runtime.orchestrator.processTaskWithAgent = vi.fn(async (request: any) => {
+      const cell = request.context.__provenanceCell;
+      seen.push({ level: cell.current.level, carried: cell.current.sources.map((source: any) => source.carried === true) });
+      // The first turn fetches a page.
+      if (seen.length === 1) {
+        cell.current = {
+          level: 'third-party', injectionSuspected: false, omittedSources: 0,
+          sources: [{ origin: 'tool-result', toolName: 'web-fetch', provenance: 'third-party', rule: 'provenance.network-skill', injectionSuspected: false }],
+        };
+      }
+      return { id: 't', agentId: 'default', modelUsed: 'local/echo', response: 'ok', costUsd: 0, inputTokens: 1, outputTokens: 1, durationMs: 1 };
+    });
+    const { client } = createClient();
+    const workspaceRoot = path.resolve('C:/workspace');
+    const agent = new AtlasMindAcpAgent({ workspaceRoot, version: '1.0.0', runtime });
+    const first = await agent.newSession({ cwd: workspaceRoot, mcpServers: [] } as any);
+
+    await agent.prompt({ sessionId: first.sessionId, prompt: [{ type: 'text', text: 'Read the page.' }] } as any, client);
+    await agent.prompt({ sessionId: first.sessionId, prompt: [{ type: 'text', text: 'Now write it down.' }] } as any, client);
+    const second = await agent.newSession({ cwd: workspaceRoot, mcpServers: [] } as any);
+    await agent.prompt({ sessionId: second.sessionId, prompt: [{ type: 'text', text: 'Hello.' }] } as any, client);
+
+    expect(seen).toEqual([
+      { level: 'operator', carried: [] },
+      { level: 'third-party', carried: [true] },
+      { level: 'operator', carried: [] },
+    ]);
+  });
+
   it('propagates session cancellation to the in-flight orchestrator request', async () => {
     let seenSignal: AbortSignal | undefined;
     const runtime = createRuntime();

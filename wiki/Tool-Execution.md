@@ -182,8 +182,25 @@ prompt:" and "developer mode" all the time.
 
 `atlasmind.security.untrustedEscalationScope` widens this to repository content too
 (`workspace-and-third-party`). There is no `off`. The rule tables are in
-`src/core/contextProvenance.ts`. An earlier turn's taint does not yet carry into the next turn of the
-same conversation; see [[Security]].
+`src/core/contextProvenance.ts`.
+
+#### …and it remembers for the rest of the conversation
+
+What a turn read stays in the conversation's history — and in the model's own summary of it — so the next
+turn starts from everything the conversation has read, not from clean. Ask AtlasMind to read a page in one
+message and to update a file in the next, and the write asks for a fresh approval even under Autopilot;
+the dialog says the page was read **earlier in this conversation**. Under the turn, a short note says the
+conversation includes third-party content and that writes will ask.
+
+- **Start a new chat, or clear this one, to reset it.** Nothing else does: deleting or rewinding a message
+  does not, because the rolling session summary can still carry what the removed turn read.
+- It survives a window reload — it is kept with the transcript. A conversation from before 0.489.1 that has
+  history counts as third-party, since nobody recorded what it read.
+- A project run started from chat starts from the conversation too, and what its subtasks read comes back
+  into it. AtlasMind as an ACP agent keeps the same record per ACP session.
+- **Allow for this task — I've seen the source** still lasts one task (one turn). Every per-task grant —
+  that one, *Bypass Approvals* for a task, a category bypass — is now dropped the moment its task ends,
+  however it ends.
 
 ### Context is not authority
 

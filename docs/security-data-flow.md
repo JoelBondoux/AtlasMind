@@ -202,8 +202,17 @@ others are not yet traced — see gaps below.
 > (`ToolApprovalGateMeta`), which Autopilot and bypass cannot answer, and after a suspected injection the
 > outward categories are refused by the orchestrator itself. Data still flows **in** unchanged: nothing
 > third-party is dropped. What changes is that it can no longer flow **out** again — as a write, a
-> command or a request — without a person seeing it first. Not covered: taint across conversation
-> turns, resumed project runs (treated as third-party), and a quarantined reader for large results.
+> command or a request — without a person seeing it first. Not covered: a quarantined reader for large
+> results.
+>
+> **Added in v0.489.1 — and it lasts for the conversation.** A turn's text, and the model's account of it,
+> is in the history the next turn sends, so each chat session (panel and native) and each ACP session keeps
+> the provenance its turns have read and seeds the next turn from it. The record sits beside the transcript
+> in `workspaceState` — the same per-developer store, holding tool names and rule ids, never content — so a
+> window reload does not clear it; a stored record that cannot be read, or a session with history and no
+> record, reads as third-party. It only rises, and resets only when a conversation is cleared or a new one
+> is started. Project runs started from chat are seeded from it, and run records now keep each subtask's
+> provenance, so a resumed run no longer has to treat every finished subtask as third-party.
 
 ---
 

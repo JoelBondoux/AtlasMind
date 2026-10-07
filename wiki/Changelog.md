@@ -19,6 +19,22 @@ Older entries below describe the software as it was at the time and are delibera
 
 ---
 
+## v0.489.1 -- It remembers for the rest of the conversation
+
+In 0.489.0 the "ask again" rule lasted one turn, so a page read in one message could steer a write in the
+next without anyone being asked. Now it lasts for the conversation.
+
+- **The next turn starts from everything the conversation has read.** A write asked for after an earlier
+  fetch asks again, even with Autopilot on, and the dialog says the source was read earlier in the
+  conversation.
+- **A new chat, or clearing this one, is the only reset.** Deleting or rewinding messages isn't, because
+  the session summary can still carry what they read. A window reload doesn't reset it either.
+- **You can see it.** A short note under the turn says the conversation includes third-party content.
+- **Project runs started from chat inherit it**, and run history records what each step read, so a resumed
+  run seeds the next step from the record.
+- **"Allow for this task" really ends with the task** — every per-task grant is dropped when its task
+  finishes.
+
 ## v0.489.0 -- After it reads someone else's text, it asks again
 
 A fetched page, an issue body or an MCP server's answer can contain text aimed at the agent rather than at

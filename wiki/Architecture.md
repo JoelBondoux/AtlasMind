@@ -318,6 +318,16 @@ dependent subtasks, and a tainted turn is not delegated to an ACP agent's own to
 `TurnProvenance`, `UntrustedEscalationScope`, `TaintDecision`, `TaintEscalation` and `ToolApprovalGateMeta`;
 `ToolApprovalDecision` gains `acknowledge-source`.
 
+Since 0.489.1 it lasts for the **conversation**: `SessionConversationRecord.provenance` (persisted with the
+transcript) seeds every turn through `seedTurnFromConversation`, each source marked `carried` so a dialog
+says it was read earlier in the conversation, and `raiseProvenance` folds the turn back in. Only a new or
+cleared conversation resets it; a stored record that cannot be read, or history with no record, is
+third-party. The chat panel, the native participant, project runs started from chat (`processProject`'s
+`options.provenance`) and AtlasMind's own ACP sessions all wire it; run records keep each subtask's
+provenance (`ProjectRunSubTaskArtifact.provenance`, `ProjectRunSeedResult.provenance`) for a resume. The
+chat footer shows `SessionTranscriptMetadata.untrustedContentNote` once a conversation is in scope, and
+`OrchestratorHooks.onTaskSettled` makes `ToolApprovalManager.clearTask` run when a task ends.
+
 The approval gate makes a Bypass/Autopilot click and its runtime scope one atomic transition. It settles
 concurrent pending cards only when the scope covers them, the card offered that decision, and the tool is
 below the non-waivable ceiling. Protected remote actions remain pending and carry the reason they still

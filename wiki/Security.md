@@ -140,11 +140,22 @@ It's handled in layers:
   are fenced with a numbered marker the content cannot close. The rule tables are in
   `src/core/contextProvenance.ts`; detail in [Tool Execution](Tool-Execution.md)
 
-**What this does not cover yet.** Taint lives for one task: a later turn of the same conversation does not
-inherit an earlier turn's third-party reads, so content the model paraphrased into its own answer can come
-back as conversation. A run resumed from history records nothing about what its finished subtasks read, so
-their dependents are treated as having read third-party content. And a large third-party result still
-reaches the model whole — a quarantined reader that extracts facts from it without tools is the next step.
+**It lasts for the conversation, not just the turn.** What a turn read is still in the history the next
+turn sends — the page itself, and the model's own account of it — so since 0.489.1 the next turn starts
+from everything the conversation has read. A write asked for three turns after a fetch asks again, even
+under Autopilot, and the dialog says the source was read *earlier in this conversation*. The conversation's
+record only rises; it is kept beside the transcript, so a window reload cannot launder it, and a
+conversation saved before 0.489.1 that has history counts as third-party because nobody recorded what its
+turns read. **Starting a new conversation, or clearing this one, is the only reset.** Deleting or rewinding
+messages is not, because the rolling session summary has no per-turn identity and can outlive the turns it
+summarised. A turn whose conversation is in scope carries a one-line note under it saying so. The same
+applies to a project run started from chat (its subtasks start from the conversation, and what they read
+comes back into it), to AtlasMind as an ACP agent (per ACP session), and to run history, which now records
+what each finished subtask read so a resumed run seeds its dependents from it rather than assuming the
+worst.
+
+**What this does not cover yet.** A large third-party result still reaches the model whole — a quarantined
+reader that extracts facts from it without tools is the next step.
 
 ---
 

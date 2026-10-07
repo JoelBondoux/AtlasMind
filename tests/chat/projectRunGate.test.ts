@@ -74,6 +74,11 @@ function makeAtlas(processProject: ReturnType<typeof vi.fn>) {
       processProject,
       estimateProjectCost: () => ({ lowUsd: 0, highUsd: 0 }),
     },
+    sessionConversation: {
+      getProvenance: () => ({ level: 'operator', injectionSuspected: false, sources: [], omittedSources: 0 }),
+      getTranscript: () => [],
+      recordProvenance: () => undefined,
+    },
   } as never;
 }
 

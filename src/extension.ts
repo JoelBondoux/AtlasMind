@@ -2691,6 +2691,10 @@ async function bootstrapAtlasMind(
           });
         },
         toolApprovalGate,
+        // A task's own grants — bypass, category bypass, "I've seen the
+        // source" — end with the task. They were per task in name and lived
+        // until the window closed in fact.
+        onTaskSettled: taskId => toolApprovalManager.clearTask(taskId),
         generatedSkillApprovalGate,
         writeCheckpointHook,
         postToolVerifier,

@@ -2348,6 +2348,17 @@
       hasMeta = true;
     }
 
+    // Composed on the host; shown as text, outside the collapsed work log,
+    // because it says what the next write will do.
+    if (entry.meta && typeof entry.meta.untrustedContentNote === 'string' && entry.meta.untrustedContentNote) {
+      var untrustedNote = document.createElement('div');
+      untrustedNote.className = 'assistant-untrusted-note';
+      untrustedNote.setAttribute('role', 'note');
+      untrustedNote.textContent = entry.meta.untrustedContentNote;
+      metaStack.appendChild(untrustedNote);
+      hasMeta = true;
+    }
+
     if (hasMeta) {
       footer.appendChild(metaStack);
     }

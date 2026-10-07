@@ -253,7 +253,11 @@ arguments; `refuse` is answered by the orchestrator without calling it; `fresh-a
 argument, `ToolApprovalGateMeta`, and is refused as `taint.no-gate` when no gate is wired. The VS Code gate
 handles that case before the approval mode and before `shouldBypass`, offering only *Allow Once*, *Deny* and
 `acknowledge-source`; the last is recorded by `ToolApprovalManager.acknowledgeTaint(taskId, category)`,
-refused on any card that did not list it, and cleared by `clearTask` and `reset`.
+refused on any card that did not list it, and cleared by `clearTask` and `reset`. Since 0.489.1
+`clearTask` actually runs at task end: `processTaskWithAgent` reports `OrchestratorHooks.onTaskSettled` for
+the request id and its `-recovery` pass in a `finally`, so a task bypass, a category bypass or an
+acknowledgement cannot outlive its task. A throwing host hook is swallowed — tidying up cannot fail a
+finished task.
 
 Tool-backed ACP execution is a separate execution shape, not an emulation of AtlasMind function calling. When the live `atlasmind.acp.toolsEnabled` setting is true, the Orchestrator adds `RoutingConstraints.allowDelegatedToolExecution`; the router may then admit an ACP `ModelInfo` that declares `delegatedToolExecution`. If that ACP model is selected, the Orchestrator passes an empty AtlasMind tool-schema list and stamps that exact provider request with `allowDelegatedToolExecution: true`. The adapter requires both the global setting and this request authority; missing request authority means isolated completion-only execution with no shared MCP servers or permission policy. Every readable native operation still returns through `AcpPermission`, where the live setting automatically authorizes only an `allow_once` response and the action is logged; a non-ACP failover receives the original AtlasMind tool definitions again.
 
@@ -468,6 +472,8 @@ The single guarded path to a model provider. Every prompt-bearing call in `src/`
 ### ContextProvenance (`src/core/contextProvenance.ts`)
 
 What the model has read this turn, and what that means for the next thing it asks to do. Prompt injection has no parsing fix — no filter reliably tells text addressed to the agent from text addressed to the reader — so the module names the dangerous *moment* instead: untrusted text went in, and an action that changes something or leaves the machine is about to come out. `ORIGIN_PROVENANCE` (exhaustive over `ModelContextOrigin`) and `TOOL_RESULT_PROVENANCE_RULES` (first match wins, the last rule catching everything as `third-party`) classify every message and tool result as `operator` < `atlasmind` < `workspace` < `third-party`; `absorbProvenance` folds a source into a `TurnProvenance` by max and or, so the level and `injectionSuspected` only rise. `prepareToolResultForModel` passes a local result through byte-for-byte, and scans and fences a third-party one with the shared `fenceReportedContent` — numbered so the content cannot close it — adding a `[SECURITY]` note, never deleting the text, when `SUSPECTED_INJECTION_RULE_IDS` (the memory scanner's instruction-override rules, imported by id) fire. A call that never executed taints nothing. `TAINT_ESCALATION` (exhaustive over `ToolRiskCategory`) decides `free` / `fresh-approval` / `refuse` once the turn is in the configured scope (`atlasmind.security.untrustedEscalationScope`; no `off`, an unrecognised value reads as the stricter scope): reads stay free, writes and commands need a fresh approval, outward categories need one when tainted and are refused when suspected. In the Orchestrator the cell is shared by every attempt of a request (`__provenanceCell`), seeded from the initial messages, absorbed after each tool round, and decided against the round's starting state; dependent subtasks are seeded from `SubTaskResult.provenance` via `provenanceFromDependencies` (unrecorded = third-party); `evaluateAcpDelegation` refuses to hand a tainted turn to an ACP agent's own tools; and `find-tool` skips Resource Discovery once tainted. Pure, unit-tested with fast-check properties (monotone; once in scope no write or outward category is free), plus orchestrator wiring tests asserting an untainted turn calls the gate with three arguments and passes local results through unchanged.
+
+**Across turns (0.489.1).** A conversation keeps its own `TurnProvenance`, because what a turn read is still in the history the next turn sends. `readConversationProvenance(value, hasHistory)` reads a stored record back — readable is used, present-but-unreadable is `provenance.session-unreadable` and history-with-no-record is `provenance.session-unrecorded`, both third-party; only a conversation with no history starts clean. `seedTurnFromConversation` builds the next turn's cell with every source marked `carried`, so a dialog says *earlier in this conversation* (`describeTaintEscalation` leads with "An earlier turn of this conversation read" when every named source is carried); the turn then absorbs its own messages on top, so it runs at the maximum of the two. `raiseProvenance(earlier, later)` folds a turn back in — unlike `mergeProvenance` it expects `later` to have been seeded from `earlier`, so the overflow count is a max rather than a sum, and it drops the `carried` mark. `describeConversationTaint(provenance, scope)` composes the one-line footer note, `undefined` when nothing would ask. `processProject` accepts `options.provenance`: each subtask is seeded from it (merged with its dependencies) and the cell is raised as each subtask finishes, so the caller holds what the run read even after a throw.
 
 ### DataPrivacyManager (`src/core/dataPrivacyManager.ts`)
 
@@ -2830,6 +2836,17 @@ Interface to the SSOT folder structure. Supports `queryRelevant()` (local hashed
 
 ### SessionConversation and SessionContextManager (`src/chat/sessionConversation.ts`, `src/memory/sessionContextManager.ts`)
 
+`SessionConversationRecord.provenance` (0.489.1) is what the conversation's turns have read, persisted with
+the transcript so a window reload cannot launder it. It is read through `readConversationProvenance` in
+`cloneSession` — deliberately **not** in `isSessionConversationRecord`, which rejects the whole store on one
+bad record — so a malformed value costs one conversation its clean state rather than everyone their
+history. `getProvenance(sessionId)` seeds a turn; `recordProvenance(sessionId, provenance)` raises it and
+never lowers it; `clearSession` is the one reset (deleting or truncating messages is not, because the
+rolling bundle below has no per-turn identity). Both chat surfaces wire it the same way — seed, run, record
+in a `finally` — through `openConversationProvenance` in `participant.ts`, which also treats a native
+thread whose earlier turns AtlasMind never recorded (re-mapped after a reload) as third-party.
+`SessionTranscriptMetadata.untrustedContentNote` carries the footer line, composed on the host.
+
 `SessionConversationRecord.revision` is the monotonic version of context-bearing transcript content and
 is persisted with the transcript; records written before v0.382.4 normalize to revision zero. Append,
 content update, deletion, truncation, and non-empty clear advance it, while a no-op mutation does not.
@@ -3400,11 +3417,13 @@ All shared types live in `src/types.ts`. See the [type definitions](../src/types
 | `McpHeldTool` | A held tool for the review view: opaque version-bound id, verdict, rule, findings, offered text, and the previously approved text when there was one |
 | `ModelContextOrigin` | Where a piece of prompt content came from — the closed eleven-kind union the egress boundary and the provenance taint both key on. Declared here, re-exported by `modelEgress.ts` |
 | `ProvenanceClass` | Who could have written a piece of context: `operator` < `atlasmind` < `workspace` < `third-party` |
-| `ProvenanceSource` | One absorbed source: origin, tool name, class, the rule that classified it, `injectionSuspected` and the scanner rules that fired |
+| `ProvenanceSource` | One absorbed source: origin, tool name, class, the rule that classified it, `injectionSuspected` and the scanner rules that fired, and `carried` when an earlier turn of the conversation read it (changes the wording of a dialog, never a decision) |
 | `TurnProvenance` | What a turn has read: max `level`, sticky `injectionSuspected`, capped `sources` at `workspace` or above, `omittedSources` |
 | `UntrustedEscalationScope` | `third-party` (default) or `workspace-and-third-party` — which levels escalate. No `off` |
 | `TaintDecision` / `TaintEscalation` | `free` / `fresh-approval` / `refuse` for one call, with the deciding rule, category, scope, level and the in-scope sources a dialog names |
 | `ToolApprovalGateMeta` | Optional fourth argument to `toolApprovalGate`, present only for a `fresh-approval`: `{ escalation }` |
+| `OrchestratorHooks.onTaskSettled` | Called with every task id the gate may have been asked about once a request finishes, on every path; the extension wires it to `ToolApprovalManager.clearTask` |
+| `ProjectRunSubTaskArtifact.provenance` / `ProjectRunSeedResult.provenance` | What a recorded subtask read, so a resumed run seeds its dependents from it. Sanitized on read by `projectRunHistory`; unreadable is dropped, and absent is unrecorded (third-party) |
 | `ToolApprovalDecision` | `allow-once`, `bypass-task`, `autopilot`, `acknowledge-source` (allow this category for the rest of the task after seeing the untrusted source — only accepted on a card that offered it), `deny` |
 | `PromotionPlan` | Assembled promotion: ordered guarded steps, preflight `checks`, blockers, gate flags, and an optional `remediation` |
 | `PromotionRemediation` | "Resolve & run" offer for fixable failing checks: `resolves`, assessed `targetVersion`/`bumpLevel`/`bumpReason`, `editsChangelog`, `commits`, `summary` |

@@ -365,6 +365,11 @@ export interface ProvenanceSource {
   injectionSuspected: boolean;
   /** Scanner rule ids that fired, when `injectionSuspected`. */
   findings?: string[];
+  /**
+   * Read by an earlier turn of the same conversation rather than by the task
+   * now running. Changes how a dialog names the source, never the decision.
+   */
+  carried?: boolean;
 }
 
 /** What the model has read so far this turn. Monotone: `level` and `injectionSuspected` only ever rise. */
@@ -1494,6 +1499,14 @@ export interface OrchestratorHooks {
     args: Record<string, unknown>,
     meta?: ToolApprovalGateMeta,
   ) => Promise<{ approved: boolean; reason?: string }>;
+
+  /**
+   * A task id the gate may have been asked about has finished — on every path,
+   * including a throw. The host drops whatever it granted for that task (a task
+   * bypass, a category bypass, an "I've seen the source" acknowledgement), so a
+   * grant cannot outlive the task it was given for.
+   */
+  onTaskSettled?: (taskId: string) => void;
 
   /** Gate function for warning-level auto-generated skills before in-process execution. */
   generatedSkillApprovalGate?: (
@@ -4782,6 +4795,12 @@ export interface ProjectRunSubTaskArtifact {
   checkpointedTools: string[];
   changedFiles: ChangedWorkspaceFile[];
   diffPreview?: string;
+  /**
+   * What this subtask had read, so a resumed run seeds its dependents from it.
+   * Absent on a run recorded before 0.489.1, which a dependent reads as
+   * third-party — unknown is not clear.
+   */
+  provenance?: TurnProvenance;
 }
 
 export interface ProjectRunLogEntry {
@@ -4794,6 +4813,11 @@ export interface ProjectRunSeedResult {
   subTaskId: string;
   title: string;
   output: string;
+  /**
+   * What the subtask that produced this output had read. Absent on a seed
+   * recorded before 0.489.1, which a dependent reads as third-party.
+   */
+  provenance?: TurnProvenance;
 }
 
 export interface ProjectRunRecord {

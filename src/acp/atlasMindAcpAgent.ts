@@ -19,9 +19,14 @@ import type {
   ToolKind,
 } from '@agentclientprotocol/sdk' with { 'resolution-mode': 'import' };
 import type { AtlasRuntime } from '../runtime/core.js';
-import type { AgentDefinition, TaskRequest, ToolApprovalGateMeta, ToolInvocationPolicy } from '../types.js';
+import type { AgentDefinition, TaskRequest, ToolApprovalGateMeta, ToolInvocationPolicy, TurnProvenance } from '../types.js';
 import { classifyToolInvocation } from '../core/toolPolicy.js';
-import { describeEscalationSources } from '../core/contextProvenance.js';
+import {
+  describeEscalationSources,
+  emptyTurnProvenance,
+  raiseProvenance,
+  seedTurnFromConversation,
+} from '../core/contextProvenance.js';
 import type { AcpReplyPublisher } from './buzzReplyPublisher.js';
 
 export const ATLASMIND_ACP_PROTOCOL_VERSION = 1;
@@ -38,6 +43,12 @@ export interface AtlasMindAcpClient {
 interface AtlasMindAcpSession {
   cwd: string;
   history: string;
+  /**
+   * What this session's turns have read. `history` carries their text into
+   * the next turn, so the next turn starts from this; it only rises, and lasts
+   * exactly as long as the session.
+   */
+  provenance: TurnProvenance;
   pendingPrompt?: AbortController;
 }
 
@@ -195,7 +206,7 @@ export class AtlasMindAcpAgent {
     // Client-provided MCP commands are intentionally not spawned. Launching a
     // command supplied by an untrusted ACP peer would be remote code execution.
     const sessionId = randomUUID();
-    this.sessions.set(sessionId, { cwd, history: '' });
+    this.sessions.set(sessionId, { cwd, history: '', provenance: emptyTurnProvenance() });
     return { sessionId };
   }
 
@@ -217,6 +228,7 @@ export class AtlasMindAcpAgent {
     session.pendingPrompt = abortController;
 
     const taskId = `acp-${randomUUID()}`;
+    const provenanceCell = seedTurnFromConversation(session.provenance);
     const request: TaskRequest = {
       id: taskId,
       userMessage: prompt,
@@ -225,6 +237,7 @@ export class AtlasMindAcpAgent {
         interface: 'acp',
         acpSessionId: params.sessionId,
         ...(session.history ? { sessionContext: session.history } : {}),
+        __provenanceCell: provenanceCell,
       },
       constraints: { budget: 'balanced', speed: 'balanced' },
       timestamp: new Date().toISOString(),
@@ -276,6 +289,7 @@ export class AtlasMindAcpAgent {
       }
       return { stopReason: 'end_turn' };
     } finally {
+      session.provenance = raiseProvenance(session.provenance, provenanceCell.current);
       this.permissionBroker.unregister(taskId);
       if (session.pendingPrompt === abortController) {
         session.pendingPrompt = undefined;

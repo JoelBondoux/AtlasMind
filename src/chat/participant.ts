@@ -22,6 +22,7 @@ import type {
   SubTaskResult,
   TaskImageAttachment,
   TaskResult,
+  TurnProvenance,
 } from '../types.js';
 import { Planner } from '../core/planner.js';
 import { TaskProfiler } from '../core/taskProfiler.js';
@@ -54,6 +55,13 @@ import { deriveSessionFitSuggestions } from '../core/sessionFitSuggestions.js';
 import { buildCapabilityIndex } from '../core/capabilityIndex.js';
 import { assessIdeationReadiness } from '../core/ideationReadiness.js';
 import { extractItemGates, parseRoadmapGates, stripRoadmapGatesBlock } from '../core/roadmapGates.js';
+import {
+  absorbProvenance,
+  describeConversationTaint,
+  readUntrustedEscalationScope,
+  seedTurnFromConversation,
+  SESSION_UNRECORDED_RULE,
+} from '../core/contextProvenance.js';
 import {
   applyManagedInstructionBlock,
   detectedWritebackTools,
@@ -1153,6 +1161,12 @@ export async function runProjectCommand(
   sessionContextBundle?: import('../types.js').SessionContextBundle,
   sessionContext?: string,
   recordSessionTurn = true,
+  /**
+   * The calling turn's provenance cell, when a surface already holds one (the
+   * chat panel does). Without it the run opens its own from the conversation
+   * and records what it read back into it.
+   */
+  provenanceCell?: { current: TurnProvenance },
 ): Promise<ProjectRunOutcome> {
   const noOpOutcome: ProjectRunOutcome = { hasFailures: false, hasChangedFiles: false, failedSubtaskTitles: [] };
 
@@ -1374,6 +1388,11 @@ export async function runProjectCommand(
 
   const abortController = new AbortController();
   const cancelDisposable = token.onCancellationRequested(() => abortController.abort());
+  // Every subtask's prompt carries the conversation's context, so every
+  // subtask starts from what the conversation has read; and what the run reads
+  // belongs to the conversation from here on, since its output lands in the
+  // transcript.
+  const runProvenance = provenanceCell ?? openConversationProvenance(atlas.sessionConversation, sessionId);
 
   try {
     const result = await atlas.orchestrator.processProject(
@@ -1385,6 +1404,7 @@ export async function runProjectCommand(
         signal: abortController.signal,
         sessionContextBundle,
         sessionContext,
+        provenance: runProvenance,
       },
     );
     cancelDisposable.dispose();
@@ -1605,6 +1625,10 @@ export async function runProjectCommand(
       stream.markdown(`\u274c **Project execution failed:** ${errMsg}`);
     }
     return { hasFailures: true, hasChangedFiles: false, failedSubtaskTitles: ['Project execution failed'] };
+  } finally {
+    if (!provenanceCell) {
+      atlas.sessionConversation.recordProvenance(sessionId, runProvenance.current);
+    }
   }
 }
 
@@ -4574,6 +4598,38 @@ interface ChatTaskResult {
   outcome: 'completed' | 'cancelled' | 'failed';
 }
 
+/**
+ * The provenance cell a chat turn starts from: whatever its conversation's
+ * earlier turns read, because their text is in the history this turn sends.
+ *
+ * One case is added on top. A native chat thread whose earlier turns AtlasMind
+ * never recorded — re-mapped to a fresh session after a window reload — still
+ * sends VS Code's own history, so those turns are in the prompt and nobody
+ * knows what they read: `provenance.session-unrecorded`, third-party.
+ */
+export function openConversationProvenance(
+  conversation: Pick<import('./sessionConversation.js').SessionConversation, 'getProvenance' | 'getTranscript'>,
+  sessionId: string | undefined,
+  hostHistoryPresent = false,
+): { current: TurnProvenance } {
+  let seed = conversation.getProvenance(sessionId);
+  if (hostHistoryPresent && conversation.getTranscript(sessionId).length === 0) {
+    seed = absorbProvenance(seed, {
+      origin: 'session-context',
+      provenance: 'third-party',
+      rule: SESSION_UNRECORDED_RULE,
+      injectionSuspected: false,
+      carried: true,
+    });
+  }
+  return seedTurnFromConversation(seed);
+}
+
+/** The footer line for a conversation that will ask again, read against the configured scope. */
+export function conversationTaintNote(provenance: TurnProvenance, scopeSetting: unknown): string | undefined {
+  return describeConversationTaint(provenance, readUntrustedEscalationScope(scopeSetting));
+}
+
 async function runChatTask(
   prompt: string,
   stream: vscode.ChatResponseStream,
@@ -4599,6 +4655,14 @@ async function runChatTask(
     })
     : '';
   const sessionContext = [storedSessionContext, nativeHistory].filter(Boolean).join('\n\n');
+  // What this conversation's earlier turns read. Their text, and the model's
+  // account of it, is what `sessionContext` carries, so the turn starts no
+  // lower — and it is recorded back on every path out, a throw included.
+  const provenanceCell = openConversationProvenance(
+    atlas.sessionConversation,
+    sessionId,
+    Boolean(options.native && (options.native.chatContext.history ?? []).length > 0),
+  );
   const workstationContext = buildWorkstationContext();
   const explicitAttachments = options.attachments ?? [];
   const inlineResolution = explicitAttachments.length > 0
@@ -4633,6 +4697,7 @@ async function runChatTask(
         ...(imageAttachments.length > 0 ? { imageAttachments } : {}),
         ...(operatorAdaptation?.contextPatch ?? {}),
         ...(options.workflowExecutionPolicy ? { __workflowChatPolicy: options.workflowExecutionPolicy } : {}),
+        __provenanceCell: provenanceCell,
       },
       constraints: {
         budget: toBudgetMode(configuration.get<string>('budgetMode')),
@@ -4677,6 +4742,7 @@ async function runChatTask(
     return { transcriptText, assistantMeta, outcome: cancelled ? 'cancelled' : 'failed' };
   } finally {
     cancellationSubscription?.dispose();
+    atlas.sessionConversation.recordProvenance(sessionId, provenanceCell.current);
   }
   chunkBuffer.flush();
 
@@ -4712,6 +4778,13 @@ async function runChatTask(
     ],
     ...(options.native ? { responseText: reconciled.transcriptText } : {}),
   });
+  const untrustedContentNote = conversationTaintNote(
+    provenanceCell.current,
+    configuration.get<unknown>('security.untrustedEscalationScope'),
+  );
+  if (untrustedContentNote) {
+    assistantMeta = { ...assistantMeta, untrustedContentNote };
+  }
 
   // Native chat renders the install offer as buttons; the panel draws its own
   // from the same metadata.
@@ -5605,7 +5678,8 @@ export function renderAssistantResponseFooter(
   metadata: SessionTranscriptMetadata | undefined,
   answerText?: string,
 ): string {
-  if (!metadata?.modelUsed && !metadata?.thoughtSummary && !metadata?.followupQuestion && !metadata?.timelineNotes?.length) {
+  if (!metadata?.modelUsed && !metadata?.thoughtSummary && !metadata?.followupQuestion && !metadata?.timelineNotes?.length
+    && !metadata?.untrustedContentNote) {
     return '';
   }
 
@@ -5623,6 +5697,11 @@ export function renderAssistantResponseFooter(
       ? ` · ${metadata.inputTokens.toLocaleString()} in / ${metadata.outputTokens.toLocaleString()} out`
       : '';
     sections.push(`\n\n---\n_Model: ${metadata.modelUsed}${spend}${tokens}_`);
+  }
+
+  if (metadata.untrustedContentNote) {
+    // Escaped: the note names tools, and an MCP server chooses its own tool names.
+    sections.push(`\n\n> **Untrusted content:** ${escapeMd(metadata.untrustedContentNote)}`);
   }
 
   if (metadata.thoughtSummary) {
@@ -7358,6 +7437,9 @@ export function buildProjectRunSubTaskArtifacts(results: SubTaskResult[]): Proje
     checkpointedTools: [...(result.artifacts?.checkpointedTools ?? [])],
     changedFiles: result.artifacts?.changedFiles.map(file => ({ ...file })) ?? [],
     diffPreview: result.artifacts?.diffPreview,
+    // Kept so a resumed run seeds this subtask's dependents from what it read
+    // rather than treating it as unrecorded.
+    ...(result.provenance ? { provenance: result.provenance } : {}),
   }));
 }
 

@@ -154,6 +154,8 @@ describe('native chat participant', () => {
     const atlas = {
       orchestrator: { processTask },
       sessionConversation: {
+        getProvenance: vi.fn().mockReturnValue({ level: 'operator', injectionSuspected: false, sources: [], omittedSources: 0 }),
+        recordProvenance: vi.fn(),
         buildContext: vi.fn().mockReturnValue('Stored AtlasMind session context'),
         recordTurn: vi.fn(),
         getTranscript: vi.fn().mockReturnValue([
@@ -270,6 +272,8 @@ describe('native chat participant', () => {
       isProviderConfigured: vi.fn(async (providerId: string) => providerId === 'openai' || providerId === 'anthropic'),
       getWorkspacePolicySnapshots: vi.fn().mockReturnValue([]),
       sessionConversation: {
+        getProvenance: vi.fn().mockReturnValue({ level: 'operator', injectionSuspected: false, sources: [], omittedSources: 0 }),
+        recordProvenance: vi.fn(),
         buildContext: vi.fn().mockReturnValue(''),
         recordTurn,
         getTranscript: vi.fn().mockReturnValue([]),
@@ -323,6 +327,8 @@ describe('native chat participant', () => {
     const atlas = {
       orchestrator: { processTask },
       sessionConversation: {
+        getProvenance: vi.fn().mockReturnValue({ level: 'operator', injectionSuspected: false, sources: [], omittedSources: 0 }),
+        recordProvenance: vi.fn(),
         buildContext: vi.fn().mockReturnValue('Stored AtlasMind session context'),
         recordTurn: vi.fn(),
         getTranscript: vi.fn().mockReturnValue([
@@ -399,6 +405,8 @@ describe('native chat participant', () => {
     const atlas = {
       orchestrator: { processTask },
       sessionConversation: {
+        getProvenance: vi.fn().mockReturnValue({ level: 'operator', injectionSuspected: false, sources: [], omittedSources: 0 }),
+        recordProvenance: vi.fn(),
         buildContext: vi.fn().mockReturnValue('Stored AtlasMind session context'),
         recordTurn,
         getTranscript: vi.fn().mockReturnValue([]),
@@ -464,6 +472,8 @@ describe('native chat participant', () => {
     const atlas = {
       orchestrator: { processTask },
       sessionConversation: {
+        getProvenance: vi.fn().mockReturnValue({ level: 'operator', injectionSuspected: false, sources: [], omittedSources: 0 }),
+        recordProvenance: vi.fn(),
         buildContext: vi.fn().mockReturnValue('Stored AtlasMind session context'),
         recordTurn,
         getTranscript: vi.fn().mockReturnValue([]),
@@ -522,6 +532,8 @@ describe('native chat participant', () => {
     const atlas = {
       orchestrator: { processTask },
       sessionConversation: {
+        getProvenance: vi.fn().mockReturnValue({ level: 'operator', injectionSuspected: false, sources: [], omittedSources: 0 }),
+        recordProvenance: vi.fn(),
         buildContext: vi.fn().mockReturnValue(''),
         recordTurn: vi.fn(),
         getTranscript: vi.fn().mockReturnValue([
@@ -573,6 +585,8 @@ describe('native chat participant', () => {
     const atlas = {
       orchestrator: { processTask },
       sessionConversation: {
+        getProvenance: vi.fn().mockReturnValue({ level: 'operator', injectionSuspected: false, sources: [], omittedSources: 0 }),
+        recordProvenance: vi.fn(),
         buildContext: vi.fn().mockReturnValue(''),
         recordTurn: vi.fn(),
         getTranscript: vi.fn().mockReturnValue([]),
@@ -622,6 +636,8 @@ describe('native chat participant', () => {
       const atlas = {
         orchestrator: { processTask },
         sessionConversation: {
+          getProvenance: vi.fn().mockReturnValue({ level: 'operator', injectionSuspected: false, sources: [], omittedSources: 0 }),
+          recordProvenance: vi.fn(),
           buildContext: vi.fn().mockReturnValue('Stored AtlasMind session context'),
           recordTurn: vi.fn(),
           getTranscript: vi.fn().mockReturnValue([
@@ -657,6 +673,8 @@ describe('native chat participant', () => {
     const atlas = {
       orchestrator: { processTask },
       sessionConversation: {
+        getProvenance: vi.fn().mockReturnValue({ level: 'operator', injectionSuspected: false, sources: [], omittedSources: 0 }),
+        recordProvenance: vi.fn(),
         buildContext: vi.fn().mockReturnValue(''),
         recordTurn,
         getTranscript: vi.fn().mockReturnValue([]),
@@ -702,6 +720,8 @@ describe('native chat participant', () => {
     const atlas = {
       orchestrator: { processTask },
       sessionConversation: {
+        getProvenance: vi.fn().mockReturnValue({ level: 'operator', injectionSuspected: false, sources: [], omittedSources: 0 }),
+        recordProvenance: vi.fn(),
         buildContext: vi.fn().mockReturnValue(''),
         recordTurn: vi.fn(),
         getTranscript: vi.fn().mockReturnValue([]),

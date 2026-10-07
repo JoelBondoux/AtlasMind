@@ -6,6 +6,44 @@ The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/),
 
 ## [Unreleased]
 
+## [0.489.1] - 2026-10-07
+
+### Fixed
+
+- **What a conversation has read now carries into its next turn.** In 0.489.0 taint lived for one task, so
+  a page fetched in one message was still in the history — and in the model's own summary of it — when the
+  next message asked for a write, and that write ran as untainted, under Autopilot without asking. Each chat
+  conversation (panel and native) now keeps the provenance its turns have read, and every turn starts from
+  it: `seedTurnFromConversation` seeds the turn with each source marked `carried`, the turn absorbs its own
+  messages on top, and `raiseProvenance` folds what it read back in on every path out, a stop or a failure
+  included. The approval dialog says the source was read *earlier in this conversation*. It only rises.
+  **Clearing the conversation, or starting a new one, is the only reset** — deleting or rewinding messages
+  is not, because the rolling session summary has no per-turn identity and can outlive the turns it
+  summarised. The record is kept beside the transcript (`SessionConversationRecord.provenance`), so a window
+  reload cannot launder it; it is read rather than trusted, outside the store validator so one malformed
+  record costs one conversation its clean state rather than everyone their history, and a conversation with
+  history and no readable record is third-party (`provenance.session-unrecorded` /
+  `provenance.session-unreadable`). A native chat thread re-mapped to a fresh session after a reload, while
+  VS Code still sends its history, counts as unrecorded too.
+- **A project run started from chat starts from the conversation**, through `processProject`'s new
+  `options.provenance` cell: every subtask is seeded from it (merged with its dependencies) and the cell is
+  raised as each subtask finishes, so what the run read comes back into the conversation even after a throw.
+  A run with no conversation is unchanged.
+- **Run history records what each subtask read** (`ProjectRunSubTaskArtifact.provenance`,
+  `ProjectRunSeedResult.provenance`), so a resumed run seeds its dependents from the record instead of
+  treating every finished subtask as third-party. Sanitized on read; an unreadable record is dropped, and
+  absent still means third-party.
+- **AtlasMind as an ACP agent** keeps the same record per ACP session.
+- **Per-task grants end with the task.** `ToolApprovalManager.clearTask` existed and was only called on
+  Stop, so *Bypass Approvals* for a task, a category bypass and *Allow for this task — I've seen the source*
+  lived until the window closed. `processTaskWithAgent` now reports the new `OrchestratorHooks.onTaskSettled`
+  for the request and its recovery pass in a `finally`, and the extension wires it to `clearTask`.
+- **The chat says so.** Once a conversation is in scope, the turn's footer carries a short note — composed
+  by `describeConversationTaint` on the host, rendered as text in the panel and escaped in native chat —
+  naming the source and saying writes will ask until a new conversation. A clean conversation's footer, its
+  requests and its gate calls are unchanged, asserted by a test that runs the same two turns with and
+  without the seed.
+
 ## [0.489.0] - 2026-10-07
 
 ### Added

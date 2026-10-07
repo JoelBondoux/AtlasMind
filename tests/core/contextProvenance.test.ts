@@ -4,6 +4,9 @@ import {
   absorbMessageOrigins,
   absorbProvenance,
   classifyToolResultProvenance,
+  describeConversationTaint,
+  describeTaintEscalation,
+  describeTaintRefusal,
   emptyTurnProvenance,
   evaluateAcpDelegation,
   evaluateTaintEscalation,
@@ -15,9 +18,14 @@ import {
   PROVENANCE_ORDER,
   provenanceFromDependencies,
   provenanceRank,
+  raiseProvenance,
+  readConversationProvenance,
   readRecordedProvenance,
   readUntrustedEscalationScope,
   scanForInjection,
+  seedTurnFromConversation,
+  SESSION_UNREADABLE_RULE,
+  SESSION_UNRECORDED_RULE,
   TAINT_ESCALATION,
   TOOL_RESULT_PROVENANCE_RULES,
   unknownSuspicionRuleIds,
@@ -302,5 +310,106 @@ describe('evaluateAcpDelegation', () => {
     const refusal = evaluateAcpDelegation(THIRD_PARTY, 'third-party', 'acp/claude');
     expect(refusal).toMatchObject({ refused: true, rule: 'taint.acp-delegation' });
     expect(refusal.refused && refusal.message).toContain('web-fetch');
+  });
+});
+
+describe('a conversation carries what its turns read', () => {
+  const fetched = absorbProvenance(emptyTurnProvenance(), {
+    origin: 'tool-result', toolName: 'web-fetch', provenance: 'third-party', rule: 'provenance.network-skill', injectionSuspected: false,
+  });
+
+  it('reads a conversation with no history as clean, and one with history but no record as third-party', () => {
+    expect(readConversationProvenance(undefined, false)).toEqual(emptyTurnProvenance());
+    const legacy = readConversationProvenance(undefined, true);
+    expect(legacy.level).toBe('third-party');
+    expect(legacy.sources[0]).toMatchObject({ rule: SESSION_UNRECORDED_RULE, carried: true });
+  });
+
+  it('never repairs an unreadable record into a clean one', () => {
+    for (const bad of [{ level: 'trusted' }, 'third-party', 42, { level: 'operator', injectionSuspected: 'no', sources: [] }]) {
+      for (const hasHistory of [false, true]) {
+        const read = readConversationProvenance(bad, hasHistory);
+        expect(read.level).toBe('third-party');
+        expect(read.sources[0]?.rule).toBe(SESSION_UNREADABLE_RULE);
+      }
+    }
+    expect(readConversationProvenance(fetched, true)).toEqual(fetched);
+  });
+
+  it('seeds the next turn at the conversation\'s level, marking every source as earlier', () => {
+    const cell = seedTurnFromConversation(fetched);
+    expect(cell.current.level).toBe('third-party');
+    expect(cell.current.sources.every(entry => entry.carried === true)).toBe(true);
+    // The conversation's own record is not touched.
+    expect(fetched.sources[0]?.carried).toBeUndefined();
+  });
+
+  it('round-trips the carried mark through a stored record', () => {
+    const carried = seedTurnFromConversation(fetched).current;
+    expect(readRecordedProvenance(JSON.parse(JSON.stringify(carried)))?.sources[0]?.carried).toBe(true);
+  });
+
+  it('names an earlier turn when every source was read before the task now asking', () => {
+    const carried = evaluateTaintEscalation(seedTurnFromConversation(fetched).current, { category: 'workspace-write' }, 'third-party');
+    expect(carried.decision).toBe('fresh-approval');
+    expect(describeTaintEscalation(carried)).toMatch(/^An earlier turn of this conversation read third-party content/);
+    expect(describeTaintEscalation(carried)).toContain('earlier in this conversation');
+    const fresh = evaluateTaintEscalation(fetched, { category: 'workspace-write' }, 'third-party');
+    expect(describeTaintEscalation(fresh)).toMatch(/^This task has read third-party content/);
+    expect(describeTaintRefusal('web-fetch', fresh)).toContain('a new conversation');
+  });
+
+  it('says nothing for a clean conversation, or one outside the configured scope', () => {
+    expect(describeConversationTaint(emptyTurnProvenance(), 'third-party')).toBeUndefined();
+    const workspace = absorbProvenance(emptyTurnProvenance(), {
+      origin: 'workspace-file', provenance: 'workspace', rule: 'provenance.origin.workspace-file', injectionSuspected: false,
+    });
+    expect(describeConversationTaint(workspace, 'third-party')).toBeUndefined();
+    expect(describeConversationTaint(workspace, 'workspace-and-third-party')).toContain('untrusted repository content');
+  });
+
+  it('says what will ask and what resets it, and that the network is refused once suspected', () => {
+    const note = describeConversationTaint(fetched, 'third-party') ?? '';
+    expect(note).toContain('web-fetch');
+    expect(note).toContain('fresh approval');
+    expect(note).toContain('new conversation');
+    const suspected = absorbProvenance(fetched, {
+      origin: 'tool-result', toolName: 'mcp:mail:read', provenance: 'third-party', rule: 'provenance.mcp-tool',
+      injectionSuspected: true, findings: ['pi-ignore-instructions'],
+    });
+    expect(describeConversationTaint(suspected, 'third-party')).toContain('network actions are refused');
+  });
+
+  const arbitraryRecord = fc.record({
+    level: fc.constantFrom(...PROVENANCE_ORDER),
+    injectionSuspected: fc.boolean(),
+    sources: fc.array(fc.record({
+      origin: fc.constantFrom('tool-result' as const, 'workspace-file' as const, 'session-context' as const),
+      toolName: fc.string({ maxLength: 8 }),
+      provenance: fc.constantFrom(...PROVENANCE_ORDER),
+      rule: fc.string({ maxLength: 8 }),
+      injectionSuspected: fc.boolean(),
+      carried: fc.boolean(),
+    }), { maxLength: 20 }),
+    omittedSources: fc.nat(30),
+  }) as fc.Arbitrary<TurnProvenance>;
+
+  it('only ever raises a conversation, and drops the carried mark from its own record', () => {
+    fc.assert(fc.property(arbitraryRecord, arbitraryRecord, (earlier, later) => {
+      const raised = raiseProvenance(earlier, later);
+      expect(provenanceRank(raised.level)).toBeGreaterThanOrEqual(Math.max(provenanceRank(earlier.level), provenanceRank(later.level)));
+      if (earlier.injectionSuspected || later.injectionSuspected) { expect(raised.injectionSuspected).toBe(true); }
+      expect(raised.sources.some(entry => entry.carried)).toBe(false);
+      expect(raised.omittedSources).toBeGreaterThanOrEqual(Math.max(earlier.omittedSources, later.omittedSources));
+    }));
+  });
+
+  it('does not count the conversation\'s own overflow again on every turn', () => {
+    let conversation: TurnProvenance = { ...fetched, omittedSources: 3 };
+    for (let turn = 0; turn < 5; turn += 1) {
+      conversation = raiseProvenance(conversation, seedTurnFromConversation(conversation).current);
+    }
+    expect(conversation.omittedSources).toBe(3);
+    expect(conversation.sources).toHaveLength(1);
   });
 });

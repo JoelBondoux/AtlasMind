@@ -18,6 +18,7 @@ import type {
   ProjectRunReviewDecision,
   TaskImageAttachment,
   ToolApprovalDecision,
+  TurnProvenance,
 } from '../types.js';
 import {
   applyOperatorFrustrationAdaptation,
@@ -25,7 +26,9 @@ import {
   buildAssistantResponseMetadata,
   buildProjectResponseMetadata,
   buildWorkstationContext,
+  conversationTaintNote,
   ensureAssistantVisibleResponse,
+  openConversationProvenance,
   reconcileAssistantResponse,
   resolveAtlasChatIntent,
   resolveProjectRunProposal,
@@ -185,6 +188,12 @@ interface PreparedPromptRequest {
   imageAttachments: TaskImageAttachment[];
   policySnapshots?: Array<{ source: 'runtime' | 'personality' | 'safety' | 'project-soul'; label: string; summary: string }>;
   recoveryNotice?: ChatPanelRecoveryNotice;
+  /**
+   * What this turn's conversation has read, shared by every model call the turn
+   * makes (the answer, a managed-terminal plan, a project run) and recorded back
+   * into the session when the turn ends, however it ends.
+   */
+  provenanceCell?: { current: TurnProvenance };
 }
 
 interface ChatPanelRecoveryNotice {
@@ -1644,16 +1653,21 @@ export class ChatPanel {
       promptAttachments.length > 0 ? { promptAttachments } : undefined,
     );
     this.composerAttachments = [];
-    const preparedRequest = await this.preparePromptRequest(
-      effectivePrompt,
-      submittedAttachments,
-      effectiveMode,
-      sessionContext,
-      activeSessionId,
-      sessionContextBundle ?? undefined,
-      forcedProjectGoal,
-      workflowExecutionPolicy,
-    );
+    const preparedRequest: PreparedPromptRequest = {
+      ...await this.preparePromptRequest(
+        effectivePrompt,
+        submittedAttachments,
+        effectiveMode,
+        sessionContext,
+        activeSessionId,
+        sessionContextBundle ?? undefined,
+        forcedProjectGoal,
+        workflowExecutionPolicy,
+      ),
+      // Seeded from what earlier turns of this conversation read: their text,
+      // and the model's account of it, is in the history this turn sends.
+      provenanceCell: openConversationProvenance(this.atlas.sessionConversation, activeSessionId),
+    };
     const assistantMessageId = this.atlas.sessionConversation.appendMessage(
       'assistant',
       '',
@@ -1723,6 +1737,7 @@ export class ChatPanel {
           cancellationSource.token,
           sessionContextBundle ?? undefined,
           sessionContext || undefined,
+          preparedRequest.provenanceCell,
         );
         await this.host.webview.postMessage({ type: 'status', payload: 'Autonomous project run completed.' });
         return;
@@ -1807,6 +1822,7 @@ export class ChatPanel {
           ...preparedRequest.context,
           chatSessionId: activeSessionId,
           chatMessageId: assistantMessageId,
+          __provenanceCell: preparedRequest.provenanceCell,
         },
         constraints: {
           budget: toBudgetMode(configuration.get<string>('budgetMode')),
@@ -1873,6 +1889,7 @@ export class ChatPanel {
           ],
         }),
         ...(completedModels && completedModels.length > 1 ? { modelsUsed: completedModels } : {}),
+        ...conversationTaintMeta(preparedRequest.provenanceCell, configuration.get<unknown>('security.untrustedEscalationScope')),
       };
       const visibleTranscriptText = ensureAssistantVisibleResponse(reconciled.transcriptText, assistantMeta);
       this.atlas.sessionConversation.updateMessage(
@@ -1950,6 +1967,7 @@ export class ChatPanel {
           cancellationSource.token,
           sessionContextBundle ?? undefined,
           sessionContext || undefined,
+          preparedRequest.provenanceCell,
         );
         await this.host.webview.postMessage({ type: 'status', payload: 'Autonomous project run completed.' });
       }
@@ -1973,6 +1991,12 @@ export class ChatPanel {
         await this.host.webview.postMessage({ type: 'status', payload: `Chat request failed: ${message}` });
       }
     } finally {
+      // Whatever the turn read is the conversation's now — on every path out,
+      // a stop or a failure included, since what streamed before it stays in
+      // the transcript.
+      if (preparedRequest.provenanceCell) {
+        this.atlas.sessionConversation.recordProvenance(activeSessionId, preparedRequest.provenanceCell.current);
+      }
       // Unconditional, and before the ownership check below: this run may have
       // outlived its surface, in which case the registry is the only thing still
       // claiming it and a status bar would go on announcing finished work.
@@ -2248,6 +2272,7 @@ export class ChatPanel {
       assistantMessageId,
       directive,
       executions,
+      preparedRequest.provenanceCell,
     );
     const finalPrompt = buildManagedTerminalFinalPrompt(preparedRequest.userMessage, directive, executions);
 
@@ -2375,12 +2400,14 @@ export class ChatPanel {
     assistantMessageId: string,
     directive: ManagedTerminalDirective,
     executions: readonly ManagedTerminalExecutionResult[],
+    provenanceCell?: { current: TurnProvenance },
   ): Record<string, unknown> {
     const latestExecution = executions.at(-1);
     return {
       ...baseContext,
       chatSessionId: activeSessionId,
       chatMessageId: assistantMessageId,
+      ...(provenanceCell ? { __provenanceCell: provenanceCell } : {}),
       managedTerminal: {
         alias: directive.alias,
         displayName: directive.spec.displayName,
@@ -2414,6 +2441,7 @@ export class ChatPanel {
       assistantMessageId,
       directive,
       executions,
+      preparedRequest.provenanceCell,
     );
     const planningResult = await this.atlas.orchestrator.processTask({
       id: `${taskId}-terminal-plan`,
@@ -2437,6 +2465,7 @@ export class ChatPanel {
     token: vscode.CancellationToken,
     sessionContextBundle?: import('../types.js').SessionContextBundle,
     sessionContext?: string,
+    provenanceCell?: { current: TurnProvenance },
   ): Promise<void> {
     await this.appendAssistantMessage(
       assistantMessageId,
@@ -2494,6 +2523,7 @@ export class ChatPanel {
       sessionContextBundle,
       sessionContext,
       false,
+      provenanceCell,
     );
 
     // Stopped at the file-count gate: offer the approving prompt as one click.
@@ -5541,6 +5571,20 @@ function toSpeedMode(value: string | undefined): 'fast' | 'balanced' | 'consider
   return value === 'fast' || value === 'balanced' || value === 'considered' || value === 'auto'
     ? value
     : 'balanced';
+}
+
+/**
+ * The note a turn carries once its conversation has read content that makes
+ * writes ask again — composed on the host, rendered by the webview as text.
+ * Nothing when the conversation is clean, so a clean turn's metadata is
+ * exactly what it was.
+ */
+function conversationTaintMeta(
+  cell: { current: TurnProvenance } | undefined,
+  scopeSetting: unknown,
+): { untrustedContentNote?: string } {
+  const note = cell ? conversationTaintNote(cell.current, scopeSetting) : undefined;
+  return note ? { untrustedContentNote: note } : {};
 }
 
 function describeApprovalDecision(decision: ToolApprovalDecision): string {
