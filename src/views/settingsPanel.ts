@@ -3662,7 +3662,7 @@ export class SettingsPanel {
           box-sizing: border-box;
           color: var(--vscode-input-foreground);
           background: var(--vscode-input-background);
-          border: 1px solid var(--vscode-input-border, var(--vscode-widget-border, #444));
+          border: 1px solid var(--atlas-boundary);
           padding: 10px 12px;
           border-radius: 12px;
         }
@@ -3810,7 +3810,7 @@ export class SettingsPanel {
           border-color: color-mix(in srgb, var(--atlas-panel-warning) 55%, var(--atlas-panel-border));
         }
         .settings-card-danger {
-          border-color: var(--vscode-inputValidation-errorBorder, #d13438);
+          border-color: color-mix(in srgb, var(--vscode-errorForeground, #f48771) var(--atlas-ink-share), var(--tint-away));
           background: color-mix(in srgb, var(--vscode-inputValidation-errorBorder, #d13438) 8%, var(--atlas-panel-surface));
         }
         .agent-policy-card {
@@ -3840,7 +3840,7 @@ export class SettingsPanel {
           align-items: center;
         }
         .danger-button {
-          border-color: var(--vscode-inputValidation-errorBorder, #d13438);
+          border-color: color-mix(in srgb, var(--vscode-errorForeground, #f48771) var(--atlas-ink-share), var(--tint-away));
           background: color-mix(in srgb, var(--vscode-inputValidation-errorBorder, #d13438) 20%, var(--vscode-button-background));
         }
         .danger-button:hover,
@@ -3860,7 +3860,7 @@ export class SettingsPanel {
           box-sizing: border-box;
           color: var(--vscode-input-foreground);
           background: var(--vscode-input-background);
-          border: 1px solid var(--vscode-input-border, var(--vscode-widget-border, #444));
+          border: 1px solid var(--atlas-boundary);
           padding: 8px 10px;
           border-radius: 10px;
         }
@@ -3869,7 +3869,7 @@ export class SettingsPanel {
           box-sizing: border-box;
           color: var(--vscode-dropdown-foreground, var(--vscode-input-foreground));
           background: var(--vscode-dropdown-background, var(--vscode-input-background));
-          border: 1px solid var(--vscode-dropdown-border, var(--vscode-input-border, var(--vscode-widget-border, #444)));
+          border: 1px solid var(--atlas-boundary);
           padding: 8px 10px;
           border-radius: 10px;
         }
@@ -3899,7 +3899,7 @@ export class SettingsPanel {
           padding: 0;
           font: inherit;
           cursor: pointer;
-          color: var(--vscode-errorForeground, #f48771);
+          color: color-mix(in srgb, var(--vscode-errorForeground, #f48771) var(--atlas-ink-share), var(--tint-away));
           text-decoration: underline;
         }
         .link-button:hover { opacity: 0.8; }
@@ -4465,10 +4465,10 @@ export class SettingsPanel {
           font-size: 0.78rem;
           background: color-mix(in srgb, var(--accent-soft) 65%, transparent);
         }
-        .catalogue-badge.official { border-color: color-mix(in srgb, #4caf50 55%, var(--atlas-panel-border)); }
-        .catalogue-badge.community { border-color: color-mix(in srgb, #03a9f4 55%, var(--atlas-panel-border)); }
-        .catalogue-badge.registry { border-color: color-mix(in srgb, #ff9800 55%, var(--atlas-panel-border)); }
-        .catalogue-badge.archived { border-color: color-mix(in srgb, #9e9e9e 65%, var(--atlas-panel-border)); }
+        .catalogue-badge.official { border-color: color-mix(in srgb, color-mix(in srgb, #4caf50 var(--atlas-ink-share), var(--tint-away)) 55%, var(--atlas-panel-border)); }
+        .catalogue-badge.community { border-color: color-mix(in srgb, color-mix(in srgb, #03a9f4 var(--atlas-ink-share), var(--tint-away)) 55%, var(--atlas-panel-border)); }
+        .catalogue-badge.registry { border-color: color-mix(in srgb, color-mix(in srgb, #ff9800 var(--atlas-ink-share), var(--tint-away)) 55%, var(--atlas-panel-border)); }
+        .catalogue-badge.archived { border-color: color-mix(in srgb, color-mix(in srgb, #9e9e9e var(--atlas-ink-share), var(--tint-away)) 65%, var(--atlas-panel-border)); }
         .sr-only {
           position: absolute;
           width: 1px;
@@ -4568,7 +4568,7 @@ export class SettingsPanel {
         .ard-form select {
           background: var(--vscode-input-background);
           color: var(--vscode-input-foreground);
-          border: 1px solid var(--vscode-input-border, var(--atlas-panel-border));
+          border: 1px solid var(--atlas-boundary);
           padding: 6px 9px;
           border-radius: 6px;
           min-width: 220px;
@@ -4581,9 +4581,9 @@ export class SettingsPanel {
           border-radius: 10px;
           border: 1px solid var(--atlas-panel-border);
         }
-        .ard-status-success { border-color: color-mix(in srgb, #4caf50 55%, var(--atlas-panel-border)); }
+        .ard-status-success { border-color: color-mix(in srgb, color-mix(in srgb, #4caf50 var(--atlas-ink-share), var(--tint-away)) 55%, var(--atlas-panel-border)); }
         .ard-status-warning { border-color: var(--atlas-panel-warning); }
-        .ard-status-error { border-color: color-mix(in srgb, #f44336 60%, var(--atlas-panel-border)); }
+        .ard-status-error { border-color: color-mix(in srgb, color-mix(in srgb, #f44336 var(--atlas-ink-share), var(--tint-away)) 60%, var(--atlas-panel-border)); }
         .ard-status-info { border-color: var(--atlas-panel-accent); }
         .ard-results { display: flex; flex-direction: column; gap: 10px; }
         .ard-result-card {
@@ -4608,9 +4608,9 @@ export class SettingsPanel {
           font-size: 0.78rem;
         }
         .badge.ard-type { background: var(--atlas-panel-surface-strong); color: var(--vscode-foreground); }
-        .badge.ard-score { background: var(--vscode-charts-blue, #36c); color: #fff; }
-        .badge.ard-trust { background: var(--vscode-charts-purple, #93c); color: #fff; }
-        .badge.ard-warn { background: var(--atlas-panel-warning); color: #1a1a1a; }
+        .badge.ard-score { background: var(--vscode-charts-blue, #36c); color: var(--tint-toward); }
+        .badge.ard-trust { background: var(--vscode-charts-purple, #93c); color: var(--tint-toward); }
+        .badge.ard-warn { background: var(--atlas-panel-warning); color: var(--tint-toward); }
         .ard-table th, .ard-table td { vertical-align: top; }
       `,
       scriptContent:
@@ -6468,7 +6468,7 @@ function renderTestingPageStyles(): string {
        mid-edit — the matrix is a form, not a read-only list. */
     .methodology-search-row { display: flex; align-items: center; gap: 10px; margin-bottom: 10px; flex-wrap: wrap; }
     .methodology-search { flex: 1 1 260px; min-width: 220px; padding: 6px 10px; border-radius: 8px;
-      border: 1px solid var(--vscode-widget-border, rgba(127,127,127,0.4));
+      border: 1px solid var(--atlas-boundary);
       background: var(--vscode-input-background); color: var(--vscode-input-foreground); font: inherit; }
     .methodology-search:focus-visible { outline: 1px solid var(--vscode-focusBorder); outline-offset: 1px; }
     .methodology-row.is-filtered-out { display: none; }
@@ -6476,14 +6476,14 @@ function renderTestingPageStyles(): string {
     .methodology-category-group.is-filtered-out { display: none; }
     .methodology-row { transition: background 0.15s; }
     .methodology-row:hover { background: color-mix(in srgb, var(--vscode-list-hoverBackground) 40%, transparent); }
-    .methodology-row.methodology-enabled .methodology-name-cell strong { color: var(--vscode-testing-iconPassed); }
+    .methodology-row.methodology-enabled .methodology-name-cell strong { color: color-mix(in srgb, var(--vscode-testing-iconPassed) var(--atlas-ink-share), var(--tint-away)); }
     .methodology-name-cell .methodology-desc { font-size: 0.82em; color: var(--vscode-descriptionForeground); margin-top: 2px; }
     .col-toggle { width: 48px; }
     .col-name { min-width: 160px; }
     .col-agent { min-width: 160px; }
     .col-model { min-width: 160px; }
     .col-notes { min-width: 120px; }
-    .compact-select, .compact-input { font-size: 0.85em; padding: 3px 6px; border-radius: 3px; border: 1px solid var(--vscode-input-border); background: var(--vscode-input-background); color: var(--vscode-input-foreground); width: 100%; }
+    .compact-select, .compact-input { font-size: 0.85em; padding: 3px 6px; border-radius: 3px; border: 1px solid var(--atlas-boundary); background: var(--vscode-input-background); color: var(--vscode-input-foreground); width: 100%; }
     .compact-input::placeholder { color: var(--vscode-input-placeholderForeground); }
     .full-width-card { grid-column: 1 / -1; }
     /* Toggle switch */
@@ -6497,7 +6497,7 @@ function renderTestingPageStyles(): string {
     .methodology-name-row { display: flex; align-items: center; gap: 6px; }
     .methodology-info-btn { background: none; border: none; cursor: pointer; color: var(--vscode-textLink-foreground); font-size: 0.95em; padding: 0 2px; line-height: 1; opacity: 0.7; transition: opacity 0.15s; }
     .methodology-info-btn:hover, .methodology-info-btn--open { opacity: 1; }
-    .methodology-info-btn--open { color: var(--vscode-testing-iconPassed); }
+    .methodology-info-btn--open { color: color-mix(in srgb, var(--vscode-testing-iconPassed) var(--atlas-ink-share), var(--tint-away)); }
     .methodology-info-row td { padding: 0; }
     .methodology-info-cell { padding: 10px 10px 14px !important; background: color-mix(in srgb, var(--vscode-editor-background) 80%, var(--vscode-sideBar-background) 20%); border-bottom: 2px solid color-mix(in srgb, var(--vscode-textLink-foreground) 30%, transparent); }
     .methodology-info-grid { display: grid; grid-template-columns: repeat(2, minmax(0, 1fr)); gap: 14px; }
@@ -6505,9 +6505,9 @@ function renderTestingPageStyles(): string {
     .info-block-label { font-size: 0.74em; font-weight: 700; text-transform: uppercase; letter-spacing: 0.06em; color: var(--vscode-descriptionForeground); display: flex; align-items: center; gap: 6px; }
     .info-block-body { font-size: 0.85em; color: var(--vscode-foreground); line-height: 1.5; }
     .token-impact-badge { display: inline-block; font-size: 0.8em; font-weight: 700; letter-spacing: 0.04em; padding: 1px 6px; border-radius: 3px; text-transform: uppercase; }
-    .token-impact-low { background: color-mix(in srgb, var(--vscode-testing-iconPassed) 20%, transparent); color: var(--vscode-testing-iconPassed); }
-    .token-impact-medium { background: color-mix(in srgb, var(--vscode-problemsWarningIcon-foreground) 20%, transparent); color: var(--vscode-problemsWarningIcon-foreground); }
-    .token-impact-high { background: color-mix(in srgb, var(--vscode-testing-iconFailed) 20%, transparent); color: var(--vscode-testing-iconFailed); }`;
+    .token-impact-low { background: color-mix(in srgb, var(--vscode-testing-iconPassed) 20%, transparent); color: color-mix(in srgb, var(--vscode-testing-iconPassed) var(--atlas-ink-share), var(--tint-away)); }
+    .token-impact-medium { background: color-mix(in srgb, var(--vscode-problemsWarningIcon-foreground) 20%, transparent); color: color-mix(in srgb, var(--vscode-problemsWarningIcon-foreground) var(--atlas-ink-share), var(--tint-away)); }
+    .token-impact-high { background: color-mix(in srgb, var(--vscode-testing-iconFailed) 20%, transparent); color: color-mix(in srgb, var(--vscode-testing-iconFailed) var(--atlas-ink-share), var(--tint-away)); }`;
 }
 
 function renderTestingStatCard(label: string, value: string, meta: string): string {

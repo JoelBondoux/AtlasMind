@@ -226,14 +226,14 @@ function buildTestMapHtml(cspSource: string): string {
         padding: 14px; border: 1px solid var(--lens-border);
         border-radius: var(--lens-radius); background: var(--lens-surface);
       }
-      .selected-column { border-color: color-mix(in srgb, var(--vscode-charts-green, #89d185) 50%, var(--lens-border)); }
+      .selected-column { border-color: color-mix(in srgb, color-mix(in srgb, var(--vscode-charts-green, #89d185) var(--atlas-ink-share), var(--tint-away)) 50%, var(--lens-border)); }
       .test-map h2 {
         margin: 0 0 11px; color: var(--lens-muted); font-size: .74rem; font-weight: 700;
         text-transform: uppercase; letter-spacing: .09em;
       }
       .test-counts { display: flex; flex-wrap: wrap; gap: 7px; margin-bottom: 12px; }
       .count-badge { border: 1px solid var(--lens-border); border-radius: 999px; padding: 3px 9px; color: var(--lens-muted); font-size: .72rem; }
-      .count-badge[data-empty="false"] { color: var(--vscode-foreground); border-color: color-mix(in srgb, var(--vscode-charts-green, #89d185) 50%, var(--lens-border)); }
+      .count-badge[data-empty="false"] { color: var(--vscode-foreground); border-color: color-mix(in srgb, color-mix(in srgb, var(--vscode-charts-green, #89d185) var(--atlas-ink-share), var(--tint-away)) 50%, var(--lens-border)); }
       .test-items { display: grid; grid-template-columns: repeat(auto-fit, minmax(255px, 1fr)); gap: 10px; }
       .test-card[data-kind="unit"] { --lens-accent: var(--vscode-charts-green, #89d185); }
       .test-card[data-kind="integration"] { --lens-accent: var(--vscode-charts-blue, #75beff); }

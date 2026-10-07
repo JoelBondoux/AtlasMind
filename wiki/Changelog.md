@@ -19,6 +19,21 @@ Older entries below describe the software as it was at the time and are delibera
 
 ---
 
+## v0.484.0 -- Dashboards you can read at a glance
+
+Every card, chip, chat bubble, badge and field on every dashboard now has an edge that stands off the
+page. Before, a card's outline was about 1.1:1 against the background, so you had to work out where one
+box ended and the next began. Edges are now derived from your own theme's text and background colours,
+and in high contrast they use the theme's contrast border. They clear the 3:1 that WCAG asks of a
+component boundary in Dark Modern, Light Modern and both high-contrast themes.
+
+Light themes also look like light themes now: the page and the cards no longer shade toward grey, and
+status colours (errors, warnings, passed tests) are deepened until they read as text on white. In high
+contrast, active chips, selected tabs and accent edges no longer disappear black on black. All text on
+every dashboard is now held to 4.5:1 in all four theme kinds by the test suite, and every edge to 3:1.
+
+---
+
 ## v0.483.0 -- Local CI for organisation repositories
 
 Local CI can now lend its runner to a repository an organisation owns. Such a repository has no owner

@@ -1166,7 +1166,7 @@ const MCP_EXTRA_CSS = `
   .hero-badge-button:hover::after, .hero-badge-button:focus-visible::after { opacity: 1; }
   .search-shell { display: grid; gap: 6px; margin: 0 0 18px; }
   .search-label { font-weight: 600; }
-  .search-shell input { width: 100%; box-sizing: border-box; color: var(--vscode-input-foreground); background: var(--vscode-input-background); border: 1px solid var(--vscode-input-border, var(--atlas-border)); padding: 10px 12px; border-radius: 12px; }
+  .search-shell input { width: 100%; box-sizing: border-box; color: var(--vscode-input-foreground); background: var(--vscode-input-background); border: 1px solid var(--atlas-boundary); padding: 10px 12px; border-radius: 12px; }
   .panel-layout { display: grid; grid-template-columns: minmax(220px, 240px) minmax(0, 1fr); gap: 18px; align-items: start; }
   .panel-nav { position: sticky; top: 20px; display: grid; gap: 8px; padding: 16px; border: 1px solid var(--atlas-border); border-radius: 18px; background: linear-gradient(180deg, var(--atlas-surface-strong), var(--atlas-surface)); }
   .nav-link { width: 100%; text-align: left; border: 1px solid transparent; border-radius: 12px; padding: 11px 12px; background: transparent; color: var(--vscode-foreground); font-weight: 600; }
@@ -1209,7 +1209,7 @@ const MCP_EXTRA_CSS = `
   .status-error      { background: #f44336; }
   .status-disconnected { background: var(--vscode-descriptionForeground, #888); }
   .server-error-row { display: flex; align-items: flex-start; justify-content: space-between; gap: 10px; flex-wrap: wrap; margin-top: 6px; }
-  .error-msg { color: var(--vscode-errorForeground, #f44336); font-size: 0.85em; flex: 1 1 320px; min-width: min(100%, 220px); }
+  .error-msg { color: color-mix(in srgb, var(--vscode-errorForeground, #f44336) var(--atlas-ink-share), var(--tint-away)); font-size: 0.85em; flex: 1 1 320px; min-width: min(100%, 220px); }
   .status-discussion-row { display: flex; align-items: flex-start; gap: 10px; flex-wrap: wrap; }
   .status-discussion-row .status-banner { flex: 1 1 320px; min-width: min(100%, 220px); }
   .mcp-status-discuss[hidden] { display: none; }
@@ -1226,7 +1226,7 @@ const MCP_EXTRA_CSS = `
   .field-row select {
     background: var(--vscode-input-background);
     color: var(--vscode-input-foreground);
-    border: 1px solid var(--vscode-input-border, #555);
+    border: 1px solid var(--atlas-boundary);
     padding: 6px 8px;
     border-radius: 10px;
     font-size: 0.9em;
@@ -1246,10 +1246,10 @@ const MCP_EXTRA_CSS = `
     color: var(--vscode-foreground);
     background: color-mix(in srgb, var(--atlas-accent) 10%, transparent);
   }
-  .provenance-official { border-color: color-mix(in srgb, #4caf50 55%, var(--atlas-border)); }
-  .provenance-community { border-color: color-mix(in srgb, #03a9f4 55%, var(--atlas-border)); }
-  .provenance-registry { border-color: color-mix(in srgb, #ff9800 55%, var(--atlas-border)); }
-  .provenance-archived { border-color: color-mix(in srgb, #9e9e9e 65%, var(--atlas-border)); }
+  .provenance-official { border-color: color-mix(in srgb, color-mix(in srgb, #4caf50 var(--atlas-ink-share), var(--tint-away)) 55%, var(--atlas-border)); }
+  .provenance-community { border-color: color-mix(in srgb, color-mix(in srgb, #03a9f4 var(--atlas-ink-share), var(--tint-away)) 55%, var(--atlas-border)); }
+  .provenance-registry { border-color: color-mix(in srgb, color-mix(in srgb, #ff9800 var(--atlas-ink-share), var(--tint-away)) 55%, var(--atlas-border)); }
+  .provenance-archived { border-color: color-mix(in srgb, color-mix(in srgb, #9e9e9e var(--atlas-ink-share), var(--tint-away)) 65%, var(--atlas-border)); }
   .preset-links { display: flex; flex-wrap: wrap; gap: 12px; margin-bottom: 8px; }
   .preset-links a { color: var(--atlas-accent); }
   /* Guided-setup handholding: "what you'll need" + credential how-to. */
@@ -1257,7 +1257,7 @@ const MCP_EXTRA_CSS = `
     margin: 8px 0 12px; padding: 8px 12px; border-radius: 6px; font-size: 0.9em;
     color: var(--vscode-inputValidation-warningForeground, inherit);
     background: color-mix(in srgb, #ff9800 14%, transparent);
-    border: 1px solid color-mix(in srgb, #ff9800 55%, var(--atlas-border));
+    border: 1px solid color-mix(in srgb, color-mix(in srgb, #ff9800 var(--atlas-ink-share), var(--tint-away)) 55%, var(--atlas-border));
   }
   .wiz-guided-card {
     margin: 0 0 12px; padding: 10px 14px; border-radius: 8px;
@@ -1300,9 +1300,9 @@ const MCP_EXTRA_CSS = `
     background: color-mix(in srgb, var(--atlas-accent) 10%, transparent);
   }
   .status-info { border-color: color-mix(in srgb, var(--atlas-accent) 45%, var(--atlas-border)); }
-  .status-success { border-color: color-mix(in srgb, #4caf50 55%, var(--atlas-border)); }
-  .status-warning { border-color: color-mix(in srgb, #ff9800 55%, var(--atlas-border)); }
-  .status-error { border-color: color-mix(in srgb, #f44336 55%, var(--atlas-border)); }
+  .status-success { border-color: color-mix(in srgb, color-mix(in srgb, #4caf50 var(--atlas-ink-share), var(--tint-away)) 55%, var(--atlas-border)); }
+  .status-warning { border-color: color-mix(in srgb, color-mix(in srgb, #ff9800 var(--atlas-ink-share), var(--tint-away)) 55%, var(--atlas-border)); }
+  .status-error { border-color: color-mix(in srgb, color-mix(in srgb, #f44336 var(--atlas-ink-share), var(--tint-away)) 55%, var(--atlas-border)); }
   .radio-group { display: flex; gap: 16px; }
   .actions { margin-top: 8px; display: flex; gap: 8px; align-items: center; flex-wrap: wrap; }
   .btn-small {

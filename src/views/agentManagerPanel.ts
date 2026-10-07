@@ -1076,7 +1076,7 @@ export class AgentManagerPanel {
       .sidebar-heading h2 { margin: 0; font-size: 1rem; }
       .search-shell { display: grid; gap: 5px; }
       .search-label { font-weight: 600; }
-      .search-shell input { width: 100%; box-sizing: border-box; border: 1px solid var(--vscode-input-border, var(--atlas-border)); padding: 8px 10px; border-radius: 8px; }
+      .search-shell input { width: 100%; box-sizing: border-box; border: 1px solid var(--atlas-boundary); padding: 8px 10px; border-radius: 8px; }
       .search-status { min-height: 1.2em; margin: 0; color: var(--atlas-muted); font-size: 0.8rem; }
       .filter-row { display: flex; flex-wrap: wrap; gap: 5px; }
       .filter-chip { padding: 3px 8px; border: 1px solid var(--atlas-border); border-radius: 999px; background: transparent; color: var(--atlas-muted); font-size: 0.78rem; }
@@ -1093,7 +1093,7 @@ export class AgentManagerPanel {
       .status-dot.enabled { background: var(--vscode-testing-iconPassed, #73c991); }
       .automation-card { display: grid; gap: 6px; padding-top: 12px; border-top: 1px solid var(--atlas-border); }
       .automation-card label { font-weight: 600; }
-      .automation-card select { width: 100%; padding: 6px 8px; border: 1px solid var(--vscode-input-border, var(--atlas-border)); border-radius: 7px; }
+      .automation-card select { width: 100%; padding: 6px 8px; border: 1px solid var(--atlas-boundary); border-radius: 7px; }
       .related-links { display: flex; flex-wrap: wrap; gap: 10px; }
       .editor-card { min-width: 0; border: 1px solid var(--atlas-border); border-radius: 14px; padding: 18px; background: linear-gradient(180deg, var(--atlas-surface), var(--vscode-editor-background)); }
       .editor-heading { display: flex; justify-content: space-between; align-items: flex-start; gap: 14px; margin-bottom: 12px; }
@@ -1110,17 +1110,17 @@ export class AgentManagerPanel {
       .field-grid label { padding-top: 6px; font-weight: 500; }
       .field-grid input[type="text"],
       .field-grid input[type="number"],
-      .field-grid textarea { width: 100%; box-sizing: border-box; border: 1px solid var(--vscode-input-border, #444); padding: 6px 8px; border-radius: 5px; font-family: inherit; font-size: inherit; }
+      .field-grid textarea { width: 100%; box-sizing: border-box; border: 1px solid var(--atlas-boundary); padding: 6px 8px; border-radius: 5px; font-family: inherit; font-size: inherit; }
       .field-grid textarea { resize: vertical; }
       .field-grid input[readonly], .field-grid textarea[readonly] { opacity: 0.72; }
       .hint { font-size: 0.8rem; color: var(--atlas-muted); margin-top: 3px; }
-      .req { color: var(--vscode-charts-red, #f48771); }
+      .req { color: color-mix(in srgb, var(--vscode-charts-red, #f48771) var(--atlas-ink-share), var(--tint-away)); }
       .btn-sm { padding: 5px 10px; font-size: 0.85em; background: var(--vscode-button-background); color: var(--vscode-button-foreground); }
       .btn-sm:hover:not(:disabled) { background: var(--vscode-button-hoverBackground); }
       .btn-muted-outline { background: transparent; border: 1px solid var(--atlas-border); color: var(--atlas-muted); }
-      .btn-danger-outline { padding: 5px 9px; border: 1px solid var(--vscode-inputValidation-errorBorder, #be1100); background: transparent; color: var(--vscode-errorForeground, #f48771); }
+      .btn-danger-outline { padding: 5px 9px; border: 1px solid color-mix(in srgb, var(--vscode-errorForeground, #f48771) var(--atlas-ink-share), var(--tint-away)); background: transparent; color: color-mix(in srgb, var(--vscode-errorForeground, #f48771) var(--atlas-ink-share), var(--tint-away)); }
       .button-row { display: flex; flex-wrap: wrap; gap: 8px; margin-top: 14px; }
-      .form-error { background: var(--vscode-inputValidation-errorBackground, #5a1d1d); border: 1px solid var(--vscode-inputValidation-errorBorder, #be1100); color: var(--vscode-inputValidation-errorForeground, #f48771); padding: 8px 10px; margin-bottom: 10px; border-radius: 6px; }
+      .form-error { background: var(--vscode-inputValidation-errorBackground, #5a1d1d); border: 1px solid color-mix(in srgb, var(--vscode-errorForeground, #f48771) var(--atlas-ink-share), var(--tint-away)); color: var(--vscode-inputValidation-errorForeground, var(--vscode-foreground)); padding: 8px 10px; margin-bottom: 10px; border-radius: 6px; }
       .built-in-notice { background: color-mix(in srgb, var(--vscode-textBlockQuote-background, var(--atlas-surface)) 80%, transparent); border: 1px solid var(--atlas-border); border-radius: 7px; padding: 8px 10px; margin-bottom: 10px; font-size: 0.84rem; color: var(--atlas-muted); }
       .skill-auto-label, .checkbox-line { display: flex; align-items: center; gap: 6px; font-weight: normal; cursor: pointer; }
       .skill-list { display: flex; flex-wrap: wrap; gap: 6px 16px; margin-top: 8px; }
@@ -1129,20 +1129,20 @@ export class AgentManagerPanel {
       .methodology-chip { display: inline-block; padding: 2px 10px; border-radius: 999px; border: 1px solid var(--atlas-border); background: color-mix(in srgb, var(--atlas-accent) 14%, transparent); font-size: 0.82em; }
       .override-row { display: grid; grid-template-columns: 140px 1fr; gap: 6px; align-items: center; margin-bottom: 4px; }
       .override-label { font-size: 0.88em; color: var(--atlas-muted); }
-      .override-model-input { width: 100%; box-sizing: border-box; background: var(--vscode-input-background); color: var(--vscode-input-foreground); border: 1px solid var(--vscode-input-border, #444); padding: 3px 7px; border-radius: 2px; font-family: inherit; font-size: inherit; }
+      .override-model-input { width: 100%; box-sizing: border-box; background: var(--vscode-input-background); color: var(--vscode-input-foreground); border: 1px solid var(--atlas-boundary); padding: 3px 7px; border-radius: 2px; font-family: inherit; font-size: inherit; }
       .btn-link { background: none; border: none; color: var(--atlas-accent); cursor: pointer; padding: 0; font: inherit; font-size: 0.88em; text-decoration: underline; }
       /* Assignable models, so a provider you enabled is discoverable here rather
          than something you have to already know the id of. */
       .model-chip-row { display: flex; flex-wrap: wrap; gap: 6px; margin-top: 8px; }
       .model-chip {
-        border: 1px solid var(--vscode-widget-border, rgba(127,127,127,0.35));
+        border: 1px solid var(--atlas-boundary);
         background: transparent; color: var(--vscode-foreground);
         border-radius: 999px; padding: 3px 10px; font: inherit; font-size: 0.8em; cursor: pointer;
       }
       .model-chip:hover { border-color: var(--atlas-accent); }
       .model-chip-subscription {
         border-style: dashed;
-        border-color: color-mix(in srgb, var(--atlas-accent) 60%, var(--vscode-widget-border, #444));
+        border-color: color-mix(in srgb, var(--atlas-accent) 60%, var(--atlas-boundary));
       }
       .inline-link { margin-top: 5px; }
       .empty-editor { display: grid; place-items: center; min-height: 320px; border: 1px dashed var(--atlas-border); border-radius: 14px; color: var(--atlas-muted); text-align: center; }

@@ -4901,7 +4901,7 @@ const IDEATION_CSS = `${QUICK_REPLY_CSS}
   .media-pill,
   .attachment-pill,
   .file-pill {
-    border: 1px solid var(--vscode-widget-border, #444);
+    border: 1px solid var(--atlas-boundary);
     border-radius: 14px;
     background: color-mix(in srgb, var(--vscode-editorWidget-background, var(--vscode-sideBar-background)) 88%, transparent);
     color: inherit;
@@ -5005,7 +5005,7 @@ const IDEATION_CSS = `${QUICK_REPLY_CSS}
     padding: 12px 14px;
     font: inherit;
     border-radius: 16px;
-    border: 1px solid var(--vscode-input-border, var(--vscode-widget-border, #444));
+    border: 1px solid var(--atlas-boundary);
     background: var(--vscode-input-background);
     color: var(--vscode-input-foreground);
     resize: vertical;
@@ -5047,7 +5047,7 @@ const IDEATION_CSS = `${QUICK_REPLY_CSS}
     gap: 10px;
     padding: 12px 14px;
     border-radius: 16px;
-    border: 1px solid var(--vscode-widget-border, #444);
+    border: 1px solid var(--atlas-boundary);
     background: color-mix(in srgb, var(--vscode-editorWidget-background, var(--vscode-sideBar-background)) 90%, transparent);
   }
   .ideation-shortcut-grid {
@@ -5066,7 +5066,7 @@ const IDEATION_CSS = `${QUICK_REPLY_CSS}
     font-size: 12px;
     padding: 2px 7px;
     border-radius: 6px;
-    border: 1px solid var(--vscode-widget-border, #444);
+    border: 1px solid var(--atlas-boundary);
     background: var(--vscode-editor-background);
     white-space: nowrap;
   }
@@ -5159,7 +5159,7 @@ const IDEATION_CSS = `${QUICK_REPLY_CSS}
     gap: 4px;
     padding: 3px;
     border-radius: 999px;
-    border: 1px solid var(--vscode-widget-border, #444);
+    border: 1px solid var(--atlas-boundary);
   }
   .segmented button {
     font: inherit;
@@ -5176,7 +5176,7 @@ const IDEATION_CSS = `${QUICK_REPLY_CSS}
     background: var(--vscode-list-activeSelectionBackground);
   }
   .action-link.danger {
-    color: var(--vscode-errorForeground, #d05f5f);
+    color: color-mix(in srgb, var(--vscode-errorForeground, #d05f5f) var(--atlas-ink-share), var(--tint-away));
   }
   /* Starter frames, offered on an empty board only. */
   .ideation-template-grid {
@@ -5195,7 +5195,7 @@ const IDEATION_CSS = `${QUICK_REPLY_CSS}
     font: inherit;
     color: var(--vscode-foreground);
     background: var(--vscode-editorWidget-background);
-    border: 1px solid var(--vscode-panel-border);
+    border: 1px solid var(--atlas-boundary);
     border-radius: 8px;
   }
   .ideation-template-card:hover { border-color: var(--vscode-focusBorder); }
@@ -5219,7 +5219,7 @@ const IDEATION_CSS = `${QUICK_REPLY_CSS}
   }
   .ideation-readiness-item {
     padding: 10px 12px;
-    border: 1px solid var(--vscode-panel-border);
+    border: 1px solid var(--atlas-boundary);
     border-left: 3px solid var(--vscode-panel-border);
     border-radius: 6px;
   }
@@ -5250,7 +5250,7 @@ const IDEATION_CSS = `${QUICK_REPLY_CSS}
   .dashboard-empty {
     padding: 18px;
     border-radius: 22px;
-    border: 1px solid var(--vscode-widget-border, #444);
+    border: 1px solid var(--atlas-boundary);
     background: color-mix(in srgb, var(--vscode-editorWidget-background, var(--vscode-sideBar-background)) 90%, transparent);
     box-shadow: 0 18px 38px rgba(0, 0, 0, 0.14);
   }
@@ -5266,7 +5266,7 @@ const IDEATION_CSS = `${QUICK_REPLY_CSS}
     max-width: min(340px, 72vw);
     padding: 10px 12px;
     border-radius: 12px;
-    border: 1px solid var(--vscode-editorHoverWidget-border, var(--vscode-widget-border, #444));
+    border: 1px solid var(--vscode-editorHoverWidget-border, var(--atlas-boundary));
     background: var(--vscode-editorHoverWidget-background, var(--vscode-editor-background));
     color: var(--vscode-editorHoverWidget-foreground, var(--vscode-foreground));
     box-shadow: 0 12px 28px rgba(0, 0, 0, 0.22);
@@ -5309,7 +5309,7 @@ const IDEATION_CSS = `${QUICK_REPLY_CSS}
     min-width: 170px;
     padding: 9px 12px;
     border-radius: 12px;
-    border: 1px solid var(--vscode-input-border, var(--vscode-widget-border, #444));
+    border: 1px solid var(--atlas-boundary);
     background: var(--vscode-input-background);
     color: var(--vscode-input-foreground);
   }
@@ -5349,7 +5349,7 @@ const IDEATION_CSS = `${QUICK_REPLY_CSS}
     gap: 10px;
     padding: 12px 14px;
     border-radius: 18px;
-    border: 1px solid color-mix(in srgb, #d29a2a 42%, var(--vscode-widget-border, #444));
+    border: 1px solid color-mix(in srgb, color-mix(in srgb, #d29a2a var(--atlas-ink-share), var(--tint-away)) 42%, var(--atlas-boundary));
     background: color-mix(in srgb, #d29a2a 8%, var(--vscode-editor-background) 92%);
   }
   .ideation-analytics-suggestion-grid {
@@ -5368,7 +5368,7 @@ const IDEATION_CSS = `${QUICK_REPLY_CSS}
     cursor: pointer;
     color: inherit;
     border-radius: 16px;
-    border: 1px solid var(--vscode-widget-border, #444);
+    border: 1px solid var(--atlas-boundary);
     background: color-mix(in srgb, var(--vscode-editorWidget-background, var(--vscode-sideBar-background)) 90%, transparent);
   }
   .ideation-analytics-suggestion strong {
@@ -5385,7 +5385,7 @@ const IDEATION_CSS = `${QUICK_REPLY_CSS}
     width: 100%;
     box-sizing: border-box;
     border-radius: 16px;
-    border: 1px solid var(--vscode-input-border, var(--vscode-widget-border, #444));
+    border: 1px solid var(--atlas-boundary);
     background: var(--vscode-input-background);
     color: var(--vscode-input-foreground);
   }
@@ -5395,7 +5395,7 @@ const IDEATION_CSS = `${QUICK_REPLY_CSS}
   }
   .ideation-dropzone.dragover,
   .ideation-board-stage.dragover {
-    border-color: var(--vscode-focusBorder, var(--vscode-button-background));
+    border-color: var(--vscode-focusBorder, var(--atlas-edge-accent));
     background: color-mix(in srgb, var(--vscode-button-background) 12%, transparent);
   }
   .ideation-prompt,
@@ -5444,7 +5444,7 @@ const IDEATION_CSS = `${QUICK_REPLY_CSS}
     max-width: min(520px, 48%);
     padding: 10px 12px;
     border-radius: 14px;
-    border: 1px solid color-mix(in srgb, var(--vscode-widget-border, #444) 78%, transparent);
+    border: 1px solid var(--atlas-boundary);
     background: color-mix(in srgb, var(--vscode-editor-background) 88%, transparent);
     color: var(--vscode-descriptionForeground);
     font-size: 12px;
@@ -5466,7 +5466,7 @@ const IDEATION_CSS = `${QUICK_REPLY_CSS}
     gap: 8px;
     padding: 7px 10px;
     border-radius: 999px;
-    border: 1px solid color-mix(in srgb, var(--vscode-widget-border, #444) 78%, transparent);
+    border: 1px solid var(--atlas-boundary);
     background: color-mix(in srgb, var(--vscode-editor-background) 88%, transparent);
     color: var(--vscode-descriptionForeground);
     font-size: 11px;
@@ -5480,27 +5480,27 @@ const IDEATION_CSS = `${QUICK_REPLY_CSS}
     position: relative;
   }
   .ideation-relation-legend-item.relation-supports {
-    color: color-mix(in srgb, #6bb2d7 70%, var(--tint-away) 14%);
+    color: color-mix(in srgb, color-mix(in srgb, #6bb2d7 70%, var(--tint-away) 14%) var(--atlas-ink-share), var(--tint-away));
   }
   .ideation-relation-legend-item.relation-causal {
-    color: color-mix(in srgb, #4ea8de 78%, var(--tint-away) 16%);
+    color: color-mix(in srgb, color-mix(in srgb, #4ea8de 78%, var(--tint-away) 16%) var(--atlas-ink-share), var(--tint-away));
   }
   .ideation-relation-legend-item.relation-causal .ideation-relation-legend-line,
   .ideation-relation-legend-item.relation-opportunity .ideation-relation-legend-line {
     border-top-style: solid;
   }
   .ideation-relation-legend-item.relation-dependency {
-    color: color-mix(in srgb, #d4a373 76%, var(--tint-away) 16%);
+    color: color-mix(in srgb, color-mix(in srgb, #d4a373 76%, var(--tint-away) 16%) var(--atlas-ink-share), var(--tint-away));
   }
   .ideation-relation-legend-item.relation-dependency .ideation-relation-legend-line,
   .ideation-relation-legend-item.relation-contradiction .ideation-relation-legend-line {
     border-top-style: solid;
   }
   .ideation-relation-legend-item.relation-contradiction {
-    color: color-mix(in srgb, #d97787 82%, var(--tint-away) 16%);
+    color: color-mix(in srgb, color-mix(in srgb, #d97787 82%, var(--tint-away) 16%) var(--atlas-ink-share), var(--tint-away));
   }
   .ideation-relation-legend-item.relation-opportunity {
-    color: color-mix(in srgb, #52b788 76%, var(--tint-away) 16%);
+    color: color-mix(in srgb, color-mix(in srgb, #52b788 76%, var(--tint-away) 16%) var(--atlas-ink-share), var(--tint-away));
   }
   .ideation-board-world {
     position: absolute;
@@ -5523,7 +5523,7 @@ const IDEATION_CSS = `${QUICK_REPLY_CSS}
     fill: none;
     stroke: color-mix(in srgb, var(--vscode-button-background) 60%, white 20%);
     stroke-width: 2.2;
-    color: color-mix(in srgb, var(--vscode-button-background) 60%, var(--tint-away) 20%);
+    color: var(--dash-accent-strong);
     stroke-linecap: round;
     stroke-linejoin: round;
     transition: opacity 120ms ease, filter 120ms ease, stroke-width 120ms ease;
@@ -5536,21 +5536,21 @@ const IDEATION_CSS = `${QUICK_REPLY_CSS}
   }
   .ideation-link-group.relation-supports .ideation-link {
     stroke: color-mix(in srgb, #6bb2d7 70%, white 14%);
-    color: color-mix(in srgb, #6bb2d7 70%, var(--tint-away) 14%);
+    color: color-mix(in srgb, color-mix(in srgb, #6bb2d7 70%, var(--tint-away) 14%) var(--atlas-ink-share), var(--tint-away));
   }
   .ideation-link-label.relation-supports {
     fill: color-mix(in srgb, #6bb2d7 70%, white 14%);
   }
   .ideation-link-group.relation-causal .ideation-link {
     stroke: color-mix(in srgb, #4ea8de 78%, white 16%);
-    color: color-mix(in srgb, #4ea8de 78%, var(--tint-away) 16%);
+    color: color-mix(in srgb, color-mix(in srgb, #4ea8de 78%, var(--tint-away) 16%) var(--atlas-ink-share), var(--tint-away));
   }
   .ideation-link-label.relation-causal {
     fill: color-mix(in srgb, #4ea8de 78%, white 16%);
   }
   .ideation-link-group.relation-dependency .ideation-link {
     stroke: color-mix(in srgb, #d4a373 76%, white 16%);
-    color: color-mix(in srgb, #d4a373 76%, var(--tint-away) 16%);
+    color: color-mix(in srgb, color-mix(in srgb, #d4a373 76%, var(--tint-away) 16%) var(--atlas-ink-share), var(--tint-away));
     stroke-width: 2.2;
   }
   .ideation-link-label.relation-dependency {
@@ -5558,7 +5558,7 @@ const IDEATION_CSS = `${QUICK_REPLY_CSS}
   }
   .ideation-link-group.relation-contradiction .ideation-link {
     stroke: color-mix(in srgb, #d97787 82%, white 16%);
-    color: color-mix(in srgb, #d97787 82%, var(--tint-away) 16%);
+    color: color-mix(in srgb, color-mix(in srgb, #d97787 82%, var(--tint-away) 16%) var(--atlas-ink-share), var(--tint-away));
     stroke-width: 2.3;
   }
   .ideation-link-label.relation-contradiction {
@@ -5566,7 +5566,7 @@ const IDEATION_CSS = `${QUICK_REPLY_CSS}
   }
   .ideation-link-group.relation-opportunity .ideation-link {
     stroke: color-mix(in srgb, #52b788 76%, white 16%);
-    color: color-mix(in srgb, #52b788 76%, var(--tint-away) 16%);
+    color: color-mix(in srgb, color-mix(in srgb, #52b788 76%, var(--tint-away) 16%) var(--atlas-ink-share), var(--tint-away));
   }
   .ideation-link-label.relation-opportunity {
     fill: color-mix(in srgb, #52b788 76%, white 16%);
@@ -5655,7 +5655,7 @@ const IDEATION_CSS = `${QUICK_REPLY_CSS}
     transform: scale(0.985);
   }
   .ideation-card.focused {
-    border-color: color-mix(in srgb, #3a9a5b 64%, white 16%);
+    border-color: color-mix(in srgb, color-mix(in srgb, #3a9a5b var(--atlas-ink-share), var(--tint-away)) 64%, var(--tint-away) 16%);
   }
   .ideation-card.selection-source,
   .ideation-card.selection-target {
@@ -5717,7 +5717,7 @@ const IDEATION_CSS = `${QUICK_REPLY_CSS}
     max-width: calc(50% - 4px);
     padding: 3px 8px;
     border-radius: 999px;
-    border: 1px solid color-mix(in srgb, var(--vscode-widget-border, #444) 84%, transparent);
+    border: 1px solid var(--atlas-boundary);
     background: color-mix(in srgb, var(--vscode-editor-background) 88%, transparent);
     color: var(--vscode-descriptionForeground);
     font-size: 11px;
@@ -5728,13 +5728,13 @@ const IDEATION_CSS = `${QUICK_REPLY_CSS}
   }
   .selection-source .ideation-card-indicator-left,
   .selection-target .ideation-card-indicator-left {
-    border-color: color-mix(in srgb, var(--vscode-focusBorder, var(--vscode-button-background)) 58%, transparent);
+    border-color: color-mix(in srgb, var(--vscode-focusBorder, var(--atlas-edge-accent)) 58%, var(--atlas-boundary));
     color: var(--vscode-foreground);
   }
   .focused .ideation-card-indicator-right,
   .selected .ideation-card-indicator-right {
-    border-color: color-mix(in srgb, #3a9a5b 42%, var(--vscode-widget-border, #444));
-    color: color-mix(in srgb, #3a9a5b 78%, var(--tint-away) 22%);
+    border-color: color-mix(in srgb, color-mix(in srgb, #3a9a5b var(--atlas-ink-share), var(--tint-away)) 42%, var(--atlas-boundary));
+    color: color-mix(in srgb, color-mix(in srgb, #3a9a5b 78%, var(--tint-away) 22%) var(--atlas-ink-share), var(--tint-away));
   }
   .ideation-card-compact .ideation-card-body,
   .ideation-card-minimal .ideation-card-body {
@@ -5770,7 +5770,7 @@ const IDEATION_CSS = `${QUICK_REPLY_CSS}
     max-height: 110px;
     object-fit: cover;
     border-radius: 12px;
-    border: 1px solid color-mix(in srgb, var(--vscode-widget-border, #444) 80%, transparent);
+    border: 1px solid var(--atlas-boundary);
   }
   .media-pill,
   .attachment-pill,
@@ -5788,16 +5788,16 @@ const IDEATION_CSS = `${QUICK_REPLY_CSS}
     word-break: normal;
   }
   .tag {
-    border: 1px solid var(--vscode-widget-border, #444);
+    border: 1px solid var(--atlas-boundary);
     background: color-mix(in srgb, var(--vscode-editor-background) 84%, transparent);
   }
   .tag-good {
-    border-color: color-mix(in srgb, #3a9a5b 64%, white 16%);
-    color: color-mix(in srgb, #3a9a5b 78%, var(--tint-away) 22%);
+    border-color: color-mix(in srgb, color-mix(in srgb, #3a9a5b var(--atlas-ink-share), var(--tint-away)) 64%, var(--tint-away) 16%);
+    color: color-mix(in srgb, color-mix(in srgb, #3a9a5b 78%, var(--tint-away) 22%) var(--atlas-ink-share), var(--tint-away));
   }
   .tag-warn {
-    border-color: color-mix(in srgb, #d29a2a 64%, white 16%);
-    color: color-mix(in srgb, #d29a2a 82%, var(--tint-away) 18%);
+    border-color: color-mix(in srgb, color-mix(in srgb, #d29a2a var(--atlas-ink-share), var(--tint-away)) 64%, var(--tint-away) 16%);
+    color: color-mix(in srgb, color-mix(in srgb, #d29a2a 82%, var(--tint-away) 18%) var(--atlas-ink-share), var(--tint-away));
   }
   .ideation-card-sun { background: linear-gradient(180deg, color-mix(in srgb, #e9c46a 16%, var(--vscode-editorWidget-background)) 0%, color-mix(in srgb, var(--vscode-editorWidget-background) 92%, transparent) 100%); }
   .ideation-card-sea { background: linear-gradient(180deg, color-mix(in srgb, #4ea8de 16%, var(--vscode-editorWidget-background)) 0%, color-mix(in srgb, var(--vscode-editorWidget-background) 92%, transparent) 100%); }
@@ -5827,7 +5827,7 @@ const IDEATION_CSS = `${QUICK_REPLY_CSS}
     white-space: pre-wrap;
     padding: 14px;
     border-radius: 16px;
-    border: 1px solid var(--vscode-widget-border, #444);
+    border: 1px solid var(--atlas-boundary);
     background: color-mix(in srgb, var(--vscode-editor-background) 86%, transparent);
     line-height: 1.6;
   }
@@ -5846,7 +5846,7 @@ const IDEATION_CSS = `${QUICK_REPLY_CSS}
     box-sizing: border-box;
     font: inherit;
     border-radius: 12px;
-    border: 1px solid var(--vscode-input-border, var(--vscode-widget-border, #444));
+    border: 1px solid var(--atlas-boundary);
     background: var(--vscode-input-background);
     color: var(--vscode-input-foreground);
     padding: 10px 12px;

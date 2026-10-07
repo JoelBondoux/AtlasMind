@@ -28216,7 +28216,7 @@ const DASHBOARD_CSS = `
   .dashboard-button-primary {
     background: var(--vscode-button-background);
     color: var(--vscode-button-foreground);
-    border-color: var(--vscode-button-background);
+    border-color: var(--atlas-edge-accent);
     font-weight: 600;
   }
   .dashboard-button-primary:hover {
@@ -28763,7 +28763,7 @@ const DASHBOARD_CSS = `
     font-weight: 700;
     letter-spacing: 0.11em;
     text-transform: uppercase;
-    color: color-mix(in srgb, var(--dash-muted) 88%, transparent);
+    color: var(--dash-muted);
     padding-left: 4px;
   }
 
@@ -29062,7 +29062,7 @@ const DASHBOARD_CSS = `
   .action-link:hover,
   .action-link:focus-visible {
     background: color-mix(in srgb, var(--dash-accent) 84%, transparent);
-    border-color: color-mix(in srgb, var(--dash-accent) 80%, white 20%);
+    border-color: color-mix(in srgb, var(--atlas-edge-accent) 80%, var(--tint-away) 20%);
   }
 
   /* ── Refresh, split ───────────────────────────────────────────────────
@@ -29108,7 +29108,7 @@ const DASHBOARD_CSS = `
 
   .refresh-cadence-toggle:hover,
   .refresh-cadence-toggle[aria-expanded="true"] {
-    border-color: color-mix(in srgb, var(--dash-accent) 80%, white 20%);
+    border-color: color-mix(in srgb, var(--atlas-edge-accent) 80%, var(--tint-away) 20%);
     color: var(--vscode-foreground);
   }
 
@@ -29185,7 +29185,7 @@ const DASHBOARD_CSS = `
 
   /* The chosen one is marked by a tick and a border, not by colour alone. */
   .refresh-cadence-item.is-current {
-    border-color: color-mix(in srgb, var(--dash-accent-strong) 55%, transparent);
+    border-color: color-mix(in srgb, var(--dash-accent-strong) 55%, var(--atlas-boundary));
   }
 
   .refresh-cadence-item-label {
@@ -29216,7 +29216,7 @@ const DASHBOARD_CSS = `
   }
 
   .nav-tab:hover {
-    border-color: color-mix(in srgb, var(--dash-accent) 60%, var(--dash-border));
+    border-color: color-mix(in srgb, var(--atlas-edge-accent) 60%, var(--dash-border));
     background: color-mix(in srgb, var(--dash-panel) 96%, transparent);
   }
 
@@ -29226,7 +29226,7 @@ const DASHBOARD_CSS = `
      ring and an underline marker, none of which are colour-dependent. */
   .page-nav button[aria-selected="true"] {
     background: color-mix(in srgb, var(--dash-accent) 84%, transparent);
-    border-color: color-mix(in srgb, var(--dash-accent) 80%, white 20%);
+    border-color: color-mix(in srgb, var(--atlas-edge-accent) 80%, var(--tint-away) 20%);
     color: var(--vscode-button-foreground, var(--vscode-foreground));
     font-weight: 700;
     box-shadow: 0 0 0 1px color-mix(in srgb, var(--dash-accent-strong) 55%, transparent), 0 6px 16px color-mix(in srgb, var(--dash-accent) 26%, transparent);
@@ -29276,7 +29276,7 @@ const DASHBOARD_CSS = `
      read as black text. A translucent tint of the tone over the panel surface
      keeps the badge legible whichever way the theme goes. */
   .nav-badge-critical {
-    background: color-mix(in srgb, var(--dash-critical) 24%, transparent);
+    background: color-mix(in srgb, var(--dash-critical) 16%, transparent);
     color: var(--dash-critical);
     box-shadow: 0 0 0 1px color-mix(in srgb, var(--dash-critical) 45%, transparent);
   }
@@ -29288,7 +29288,7 @@ const DASHBOARD_CSS = `
   }
 
   .nav-badge-accent {
-    background: color-mix(in srgb, var(--dash-accent-strong) 22%, transparent);
+    background: color-mix(in srgb, var(--dash-accent-strong) 16%, transparent);
     color: var(--dash-accent-strong);
     box-shadow: 0 0 0 1px color-mix(in srgb, var(--dash-accent-strong) 40%, transparent);
   }
@@ -29343,7 +29343,7 @@ const DASHBOARD_CSS = `
     align-items: flex-start;
     gap: 8px;
     padding: 8px;
-    border: 1px solid var(--vscode-panel-border, rgba(255,255,255,0.1));
+    border: 1px solid var(--atlas-boundary);
     border-radius: 6px;
     cursor: pointer;
     flex-wrap: wrap;
@@ -29378,7 +29378,7 @@ const DASHBOARD_CSS = `
   .privacy-rule-form select {
     background: var(--vscode-input-background);
     color: var(--vscode-input-foreground);
-    border: 1px solid var(--vscode-input-border, transparent);
+    border: 1px solid var(--atlas-boundary);
     border-radius: 4px;
     padding: 4px 6px;
   }
@@ -29392,13 +29392,13 @@ const DASHBOARD_CSS = `
   }
   .privacy-rule-value { flex: 1 1 160px; word-break: break-all; }
   .privacy-warn,
-  .privacy-test-hit { color: var(--vscode-editorWarning-foreground, #cca700); }
+  .privacy-test-hit { color: color-mix(in srgb, var(--vscode-editorWarning-foreground, #cca700) var(--atlas-ink-share), var(--tint-away)); }
   .privacy-test-clear { opacity: 0.75; }
 
   .privacy-span { grid-column: 1 / -1; }
   .privacy-tree { display: flex; flex-direction: column; gap: 6px; max-height: 360px; overflow-y: auto; }
   .privacy-tree-provider {
-    border: 1px solid var(--vscode-panel-border, rgba(255,255,255,0.1));
+    border: 1px solid var(--atlas-boundary);
     border-radius: 6px;
     padding: 6px 8px;
   }
@@ -29495,10 +29495,10 @@ const DASHBOARD_CSS = `
   .review-card:hover,
   .review-card:focus-visible {
     transform: translateY(-2px);
-    border-color: color-mix(in srgb, var(--dash-accent) 60%, white 40%);
+    border-color: color-mix(in srgb, var(--atlas-edge-accent) 60%, var(--tint-away) 40%);
   }
 
-  .tone-accent { border-color: color-mix(in srgb, var(--dash-accent) 45%, var(--dash-border)); }
+  .tone-accent { border-color: color-mix(in srgb, var(--atlas-edge-accent) 45%, var(--dash-border)); }
   .tone-good { border-color: color-mix(in srgb, var(--dash-good) 45%, var(--dash-border)); }
   .tone-warn { border-color: color-mix(in srgb, var(--dash-warn) 45%, var(--dash-border)); }
   .tone-critical { border-color: color-mix(in srgb, var(--dash-critical) 55%, var(--dash-border)); }
@@ -29922,7 +29922,7 @@ const DASHBOARD_CSS = `
     border-radius: 50%;
     margin-right: 6px;
     vertical-align: middle;
-    border: 1px solid color-mix(in srgb, var(--dash-border) 70%, transparent);
+    border: 1px solid var(--dash-border);
   }
 
   .wf-notes {
@@ -30042,7 +30042,7 @@ const DASHBOARD_CSS = `
   .edition-import-matches label { min-width: 0; overflow-wrap: anywhere; }
   .edition-editor .stage-edit-field input[type="date"] {
     width: 100%; box-sizing: border-box; padding: 7px 9px; border-radius: 6px;
-    border: 1px solid var(--vscode-input-border, var(--dash-border));
+    border: 1px solid var(--atlas-boundary);
     background: var(--vscode-input-background); color: var(--vscode-input-foreground); font: inherit;
   }
   .edition-insight-grid { grid-template-columns: minmax(0, 0.9fr) minmax(0, 1.1fr); }
@@ -30722,7 +30722,7 @@ const DASHBOARD_CSS = `
     cursor: pointer;
   }
   .ci-test-row-link:hover {
-    border-color: var(--dash-accent);
+    border-color: var(--atlas-edge-accent);
     background: var(--dash-panel-strong);
   }
   .ci-test-row-link:focus-visible {
@@ -30730,7 +30730,7 @@ const DASHBOARD_CSS = `
     outline-offset: 2px;
   }
   .ci-test-row-go { color: var(--dash-muted); flex: 0 0 auto; }
-  .ci-test-row-link:hover .ci-test-row-go { color: var(--dash-accent); }
+  .ci-test-row-link:hover .ci-test-row-go { color: var(--dash-accent-strong); }
   .ci-subject-group { display: grid; gap: 6px; margin-bottom: 10px; }
   .ci-subject-head {
     display: flex;
@@ -32216,7 +32216,7 @@ const DASHBOARD_CSS = `
     color: var(--branch-chip-color);
     background: color-mix(
       in srgb,
-      var(--branch-chip-color) 16%,
+      var(--branch-chip-color) 11%,
       transparent
     );
     font-size: 14px;
@@ -32590,7 +32590,7 @@ const DASHBOARD_CSS = `
     font-size: 11px;
     cursor: pointer;
   }
-  button.tag:hover { border-color: var(--dash-accent); color: var(--dash-heading); }
+  button.tag:hover { border-color: var(--atlas-edge-accent); color: var(--dash-heading); }
   button.tag:focus-visible { outline: 2px solid var(--dash-accent); outline-offset: 2px; }
 
   .tag-good {
@@ -32717,7 +32717,7 @@ const DASHBOARD_CSS = `
     /* Was var(--dash-fg), which is not defined — the whole declaration was
        invalid at computed-value time, so the handle inherited body colour and
        never read as a de-emphasised affordance. */
-    color: color-mix(in srgb, var(--vscode-foreground) 45%, transparent);
+    color: color-mix(in srgb, var(--vscode-foreground) 72%, transparent);
     font-size: 14px;
     line-height: 1;
     letter-spacing: -2px;
@@ -32805,7 +32805,7 @@ const DASHBOARD_CSS = `
   }
 
   .rm-emphasis-label {
-    color: color-mix(in srgb, var(--vscode-foreground) 60%, transparent);
+    color: color-mix(in srgb, var(--vscode-foreground) 72%, transparent);
   }
 
   .rm-emphasis-control select {
@@ -32956,7 +32956,7 @@ const DASHBOARD_CSS = `
     top: 6px;
     bottom: 6px;
     border-radius: 2px;
-    border: 1px dashed color-mix(in srgb, var(--vscode-foreground) 28%, transparent);
+    border: 1px dashed var(--atlas-boundary);
     border-left: none;
   }
 
@@ -33162,7 +33162,7 @@ const DASHBOARD_CSS = `
     gap: 7px;
     padding: 6px 14px;
     border-radius: 999px;
-    border: 1px solid color-mix(in srgb, var(--dash-accent-strong) 80%, white 20%);
+    border: 1px solid color-mix(in srgb, var(--dash-accent-strong) 80%, var(--tint-away) 20%);
     background: color-mix(in srgb, var(--dash-accent) 84%, transparent);
     color: var(--vscode-button-foreground, var(--vscode-foreground));
     font: inherit;
@@ -33674,7 +33674,7 @@ const DASHBOARD_CSS = `
     position: absolute;
     pointer-events: none;
     border-radius: 12px;
-    border: 1px dashed color-mix(in srgb, var(--dash-border) 80%, transparent);
+    border: 1px dashed var(--dash-border);
     background: color-mix(in srgb, var(--dash-border) 8%, transparent);
   }
   .rm-lane.is-unassigned { border-style: dotted; background: transparent; }
@@ -33984,7 +33984,7 @@ const DASHBOARD_CSS = `
 
   button.metric-pill:hover,
   button.metric-pill:focus-visible {
-    border-color: color-mix(in srgb, var(--dash-accent) 50%, var(--dash-border));
+    border-color: color-mix(in srgb, var(--atlas-edge-accent) 50%, var(--dash-border));
   }
 
   /* Tone status dots shared by pills, intro chips, governance pills */
@@ -34153,7 +34153,7 @@ const DASHBOARD_CSS = `
   button.risk-cell:focus-visible { outline: 2px solid var(--dash-accent); outline-offset: 2px; }
 
   .risk-cell.is-active {
-    border-color: var(--dash-accent);
+    border-color: var(--atlas-edge-accent);
     box-shadow: inset 0 0 0 1px var(--dash-accent);
   }
 
@@ -34193,7 +34193,7 @@ const DASHBOARD_CSS = `
     color: var(--dash-muted);
   }
 
-  .risk-tag--ethics { border-color: color-mix(in srgb, var(--dash-accent) 50%, var(--dash-border)); }
+  .risk-tag--ethics { border-color: color-mix(in srgb, var(--atlas-edge-accent) 50%, var(--dash-border)); }
   .risk-tag--legal { border-color: color-mix(in srgb, var(--dash-critical) 45%, var(--dash-border)); }
   .risk-tag--commercial { border-color: color-mix(in srgb, var(--dash-good) 45%, var(--dash-border)); }
 
@@ -34311,7 +34311,7 @@ const DASHBOARD_CSS = `
   }
 
   .delta-row--missing .delta-badge {
-    background: color-mix(in srgb, var(--dash-critical) 22%, transparent);
+    background: color-mix(in srgb, var(--dash-critical) 16%, transparent);
     color: var(--dash-critical);
     border-color: color-mix(in srgb, var(--dash-critical) 40%, var(--dash-border));
   }
@@ -34493,19 +34493,19 @@ const DASHBOARD_CSS = `
   .artifact-status--ok {
     color: var(--dash-good);
     background: color-mix(in srgb, var(--dash-good) 14%, transparent);
-    border: 1px solid color-mix(in srgb, var(--dash-good) 36%, transparent);
+    border: 1px solid color-mix(in srgb, var(--dash-good) 36%, var(--atlas-boundary));
   }
 
   .artifact-status--warn {
     color: var(--dash-warn);
     background: color-mix(in srgb, var(--dash-warn) 14%, transparent);
-    border: 1px solid color-mix(in srgb, var(--dash-warn) 36%, transparent);
+    border: 1px solid color-mix(in srgb, var(--dash-warn) 36%, var(--atlas-boundary));
   }
 
   .artifact-status--info {
     color: var(--dash-muted);
     background: color-mix(in srgb, var(--dash-muted) 10%, transparent);
-    border: 1px solid color-mix(in srgb, var(--dash-muted) 25%, transparent);
+    border: 1px solid color-mix(in srgb, var(--dash-muted) 25%, var(--atlas-boundary));
   }
 
   .artifact-header {
@@ -34526,13 +34526,13 @@ const DASHBOARD_CSS = `
     border-radius: 999px;
     color: var(--dash-warn);
     background: color-mix(in srgb, var(--dash-warn) 14%, transparent);
-    border: 1px solid color-mix(in srgb, var(--dash-warn) 36%, transparent);
+    border: 1px solid color-mix(in srgb, var(--dash-warn) 36%, var(--atlas-boundary));
   }
 
   .artifact-attention-badge.good {
     color: color-mix(in srgb, var(--dash-good) 90%, var(--tint-away));
     background: color-mix(in srgb, var(--dash-good) 14%, transparent);
-    border-color: color-mix(in srgb, var(--dash-good) 36%, transparent);
+    border-color: color-mix(in srgb, var(--dash-good) 36%, var(--atlas-boundary));
   }
 
   .signal-grid {
@@ -34548,7 +34548,7 @@ const DASHBOARD_CSS = `
   .signal-card.is-actionable:focus-visible,
   .action-card.score-recommendation-item.is-actionable:hover,
   .action-card.score-recommendation-item.is-actionable:focus-visible {
-    border-color: color-mix(in srgb, var(--dash-accent) 45%, var(--dash-border));
+    border-color: color-mix(in srgb, var(--atlas-edge-accent) 45%, var(--dash-border));
     transform: translateY(-1px);
   }
 
@@ -34618,7 +34618,7 @@ const DASHBOARD_CSS = `
 
   .score-component-row.is-actionable:hover,
   .score-component-row.is-actionable:focus-visible {
-    border-color: color-mix(in srgb, var(--dash-accent) 45%, var(--dash-border));
+    border-color: color-mix(in srgb, var(--atlas-edge-accent) 45%, var(--dash-border));
     transform: translateY(-1px);
   }
 
@@ -34699,7 +34699,7 @@ const DASHBOARD_CSS = `
   .ideation-status-card {
     padding: 14px;
     border-radius: 18px;
-    border: 1px solid color-mix(in srgb, var(--dash-accent) 34%, var(--dash-border));
+    border: 1px solid color-mix(in srgb, var(--atlas-edge-accent) 34%, var(--dash-border));
     background: color-mix(in srgb, var(--dash-accent) 10%, transparent);
   }
 
@@ -34793,7 +34793,7 @@ const DASHBOARD_CSS = `
   }
 
   .ideation-card.selected {
-    border-color: color-mix(in srgb, var(--dash-accent) 78%, white 22%);
+    border-color: color-mix(in srgb, var(--atlas-edge-accent) 78%, var(--tint-away) 22%);
     box-shadow: 0 0 0 1px color-mix(in srgb, var(--dash-accent) 60%, transparent), 0 20px 36px rgba(0, 0, 0, 0.28);
   }
 
@@ -34996,7 +34996,7 @@ const DASHBOARD_CSS = `
      six-column grid is the thin-panel problem in its worst form. */
   .policy-grid { display: grid; grid-template-columns: repeat(auto-fill, minmax(min(100%, 380px), 1fr)); gap: 10px; margin-top: 12px; align-items: start; }
   .policy-card.is-expanded { grid-column: 1 / -1; }
-  .policy-card { display: flex; flex-direction: column; gap: 6px; padding: 10px 12px; border-radius: 10px; border: 1px solid var(--vscode-widget-border, rgba(127,127,127,0.28)); background: var(--vscode-editorWidget-background, rgba(127,127,127,0.06)); border-left-width: 3px; border-left-style: solid; }
+  .policy-card { display: flex; flex-direction: column; gap: 6px; padding: 10px 12px; border-radius: 10px; border: 1px solid var(--atlas-boundary); background: var(--vscode-editorWidget-background, rgba(127,127,127,0.06)); border-left-width: 3px; border-left-style: solid; }
   .policy-card.status-covered { border-left-color: var(--dash-good, #4ec9b0); }
   .policy-card.status-tooling-only { border-left-color: var(--dash-warn); }
   .policy-card.status-missing { border-left-color: var(--dash-critical); }
@@ -35096,10 +35096,10 @@ const DASHBOARD_CSS = `
   /* An indeterminate progress element says "working" without pretending the
      routed task has a knowable percentage complete. The update list contains
      only actual orchestrator activity, not a timer-driven approximation. */
-  .testing-fix-activity { margin-top: 12px; padding: 11px 12px; border: 1px solid var(--vscode-widget-border, rgba(127,127,127,0.32)); border-radius: 10px; background: var(--vscode-editorWidget-background, rgba(127,127,127,0.06)); }
-  .testing-fix-activity.running { border-color: color-mix(in srgb, var(--vscode-charts-blue, #4daafc) 55%, transparent); }
-  .testing-fix-activity.completed { border-color: color-mix(in srgb, var(--vscode-editorWarning-foreground, #cca700) 52%, transparent); }
-  .testing-fix-activity.failed { border-color: color-mix(in srgb, var(--vscode-errorForeground, #f14c4c) 58%, transparent); }
+  .testing-fix-activity { margin-top: 12px; padding: 11px 12px; border: 1px solid var(--atlas-boundary); border-radius: 10px; background: var(--vscode-editorWidget-background, rgba(127,127,127,0.06)); }
+  .testing-fix-activity.running { border-color: color-mix(in srgb, var(--vscode-charts-blue, #4daafc) 55%, var(--atlas-boundary)); }
+  .testing-fix-activity.completed { border-color: color-mix(in srgb, color-mix(in srgb, var(--vscode-editorWarning-foreground, #cca700) var(--atlas-ink-share), var(--tint-away)) 52%, var(--atlas-boundary)); }
+  .testing-fix-activity.failed { border-color: color-mix(in srgb, color-mix(in srgb, var(--vscode-errorForeground, #f14c4c) var(--atlas-ink-share), var(--tint-away)) 58%, var(--atlas-boundary)); }
   .testing-fix-heading { display: flex; align-items: baseline; justify-content: space-between; gap: 8px; flex-wrap: wrap; }
   .testing-fix-current { margin: 7px 0 0; font-size: 0.86em; line-height: 1.4; }
   .testing-fix-progress { display: block; width: 100%; height: 7px; margin: 10px 0 2px; accent-color: var(--vscode-charts-blue, #4daafc); }
@@ -35121,19 +35121,19 @@ const DASHBOARD_CSS = `
   .delivery-guide-header h3 { margin-bottom: 5px; }
   .delivery-guide-header .section-copy { max-width: 820px; margin: 0; }
   .delivery-guide-phases { display: grid; grid-template-columns: repeat(auto-fit, minmax(260px, 1fr)); gap: 12px; margin-top: 14px; align-items: start; }
-  .delivery-guide-phase { min-width: 0; border: 1px solid var(--vscode-widget-border, rgba(127,127,127,0.28)); border-radius: 12px; background: var(--vscode-editorWidget-background, rgba(127,127,127,0.05)); overflow: hidden; }
-  .delivery-guide-phase.phase-good { border-color: color-mix(in srgb, var(--dash-good) 55%, var(--vscode-widget-border, transparent)); }
-  .delivery-guide-phase.phase-accent { border-color: color-mix(in srgb, var(--dash-accent-strong) 55%, var(--vscode-widget-border, transparent)); }
-  .delivery-guide-phase.phase-warn { border-color: color-mix(in srgb, var(--dash-warn) 60%, var(--vscode-widget-border, transparent)); }
-  .delivery-guide-phase.phase-critical { border-color: color-mix(in srgb, var(--dash-critical) 65%, var(--vscode-widget-border, transparent)); }
+  .delivery-guide-phase { min-width: 0; border: 1px solid var(--atlas-boundary); border-radius: 12px; background: var(--vscode-editorWidget-background, rgba(127,127,127,0.05)); overflow: hidden; }
+  .delivery-guide-phase.phase-good { border-color: color-mix(in srgb, var(--dash-good) 55%, var(--atlas-boundary)); }
+  .delivery-guide-phase.phase-accent { border-color: color-mix(in srgb, var(--dash-accent-strong) 55%, var(--atlas-boundary)); }
+  .delivery-guide-phase.phase-warn { border-color: color-mix(in srgb, var(--dash-warn) 60%, var(--atlas-boundary)); }
+  .delivery-guide-phase.phase-critical { border-color: color-mix(in srgb, var(--dash-critical) 65%, var(--atlas-boundary)); }
   .delivery-guide-phase-head { display: flex; align-items: flex-start; gap: 9px; padding: 12px 13px; cursor: pointer; list-style: none; }
   .delivery-guide-phase-head::-webkit-details-marker { display: none; }
   .delivery-guide-phase-head::after { content: '›'; flex: 0 0 auto; margin: 2px 0 0 2px; color: var(--vscode-descriptionForeground); font-size: 1.1em; line-height: 1; transform: rotate(0deg); transition: transform 120ms ease; }
   .delivery-guide-phase[open] > .delivery-guide-phase-head::after { transform: rotate(90deg); }
   .delivery-guide-phase-head:focus-visible { outline: 2px solid var(--vscode-focusBorder); outline-offset: -2px; }
   .delivery-guide-phase-copy { flex: 1 1 auto; }
-  .delivery-guide-number { display: inline-flex; align-items: center; justify-content: center; flex: 0 0 25px; width: 25px; height: 25px; border-radius: 50%; background: color-mix(in srgb, var(--dash-accent-strong) 22%, transparent); color: var(--dash-accent-strong); font-weight: 800; font-size: 0.78em; }
-  .delivery-guide-number.status-good { background: color-mix(in srgb, var(--dash-good) 20%, transparent); color: var(--dash-good); }
+  .delivery-guide-number { display: inline-flex; align-items: center; justify-content: center; flex: 0 0 25px; width: 25px; height: 25px; border-radius: 50%; background: color-mix(in srgb, var(--dash-accent-strong) 16%, transparent); color: var(--dash-accent-strong); font-weight: 800; font-size: 0.78em; }
+  .delivery-guide-number.status-good { background: color-mix(in srgb, var(--dash-good) 14%, transparent); color: var(--dash-good); }
   .delivery-guide-number.status-warn { background: color-mix(in srgb, var(--dash-warn) 22%, transparent); color: var(--dash-warn); }
   .delivery-guide-number.status-critical { background: color-mix(in srgb, var(--dash-critical) 20%, transparent); color: var(--dash-critical); }
   .delivery-guide-phase h4 { margin: 1px 0 3px; font-size: 0.98em; }
@@ -35141,7 +35141,7 @@ const DASHBOARD_CSS = `
   .delivery-guide-phase-status { flex: 0 0 auto; margin: 2px 0 0 auto; }
   .delivery-guide-phase-actions { display: flex; justify-content: flex-end; padding: 0 13px 8px; }
   .delivery-guide-steps { display: flex; flex-direction: column; gap: 8px; padding: 0 13px 13px; }
-  .delivery-guide-step { padding: 9px 10px; border: 1px solid var(--vscode-widget-border, rgba(127,127,127,0.24)); border-left-width: 3px; border-radius: 8px; background: color-mix(in srgb, var(--vscode-editor-background) 82%, transparent); min-width: 0; }
+  .delivery-guide-step { padding: 9px 10px; border: 1px solid var(--atlas-boundary); border-left-width: 3px; border-radius: 8px; background: color-mix(in srgb, var(--vscode-editor-background) 82%, transparent); min-width: 0; }
   .delivery-guide-step.status-good { border-left-color: var(--dash-good); }
   .delivery-guide-step.status-accent { border-left-color: var(--dash-accent-strong); }
   .delivery-guide-step.status-warn { border-left-color: var(--dash-warn); }
@@ -35157,7 +35157,7 @@ const DASHBOARD_CSS = `
   /* Visible without a hover, because a touch or keyboard user never hovers and
      an affordance that only appears on hover is one half the room cannot find. */
   .delivery-guide-command-actions { position: absolute; top: 4px; right: 4px; display: flex; gap: 3px; }
-  .code-icon-btn { display: inline-flex; align-items: center; justify-content: center; min-width: 19px; height: 19px; padding: 0 4px; border: 1px solid var(--vscode-widget-border, rgba(127,127,127,0.3)); border-radius: 5px; background: var(--vscode-editor-background); color: var(--vscode-descriptionForeground); font-family: var(--vscode-editor-font-family, Consolas, monospace); font-size: 0.68em; line-height: 1; cursor: pointer; opacity: 0.75; }
+  .code-icon-btn { display: inline-flex; align-items: center; justify-content: center; min-width: 19px; height: 19px; padding: 0 4px; border: 1px solid var(--atlas-boundary); border-radius: 5px; background: var(--vscode-editor-background); color: var(--vscode-descriptionForeground); font-family: var(--vscode-editor-font-family, Consolas, monospace); font-size: 0.68em; line-height: 1; cursor: pointer; opacity: 0.75; }
   .code-icon-btn:hover { opacity: 1; color: var(--dash-accent-strong); border-color: var(--dash-accent-strong); }
   .code-icon-btn:focus-visible { outline: 1px solid var(--vscode-focusBorder); outline-offset: 1px; opacity: 1; }
   .delivery-guide-run { margin-left: auto; flex: 0 0 auto; align-self: flex-start; padding: 3px 8px; border: 1px solid var(--dash-accent-strong); border-radius: 999px; background: color-mix(in srgb, var(--dash-accent-strong) 14%, transparent); color: var(--dash-accent-strong); font-size: 0.72em; font-weight: 700; white-space: nowrap; cursor: pointer; }
@@ -35181,7 +35181,7 @@ const DASHBOARD_CSS = `
   .delivery-difference { margin-bottom: 14px; }
   .delivery-difference .section-copy { max-width: 820px; }
   .delivery-difference-list { display: flex; flex-direction: column; gap: 8px; margin-top: 12px; }
-  .delivery-difference-row { display: flex; align-items: flex-start; gap: 9px; padding: 9px 11px; border: 1px solid var(--vscode-widget-border, rgba(127,127,127,0.24)); border-left-width: 3px; border-radius: 8px; background: color-mix(in srgb, var(--vscode-editor-background) 82%, transparent); }
+  .delivery-difference-row { display: flex; align-items: flex-start; gap: 9px; padding: 9px 11px; border: 1px solid var(--atlas-boundary); border-left-width: 3px; border-radius: 8px; background: color-mix(in srgb, var(--vscode-editor-background) 82%, transparent); }
   .delivery-difference-row.tone-warn { border-left-color: var(--dash-warn); }
   .delivery-difference-row.tone-critical { border-left-color: var(--dash-critical); }
   .delivery-difference-icon { display: inline-flex; align-items: center; justify-content: center; width: 18px; font-weight: 800; color: var(--vscode-descriptionForeground); }
@@ -35191,7 +35191,7 @@ const DASHBOARD_CSS = `
   .delivery-difference-was { font-style: italic; }
   .delivery-difference-rule { opacity: 0.72; font-size: 0.73em !important; }
   .delivery-requirement-list { display: grid; grid-template-columns: repeat(auto-fit, minmax(240px, 1fr)); gap: 8px; margin-top: 12px; }
-  .delivery-requirement { padding: 8px 10px; border: 1px solid var(--vscode-widget-border, rgba(127,127,127,0.2)); border-left-width: 3px; border-radius: 8px; }
+  .delivery-requirement { padding: 8px 10px; border: 1px solid var(--atlas-boundary); border-left-width: 3px; border-radius: 8px; }
   .delivery-requirement.kind-gate { border-left-color: var(--dash-accent-strong); }
   .delivery-requirement.kind-data { border-left-color: var(--dash-warn); }
   .delivery-requirement.kind-reach { border-left-color: var(--dash-critical); }
@@ -35216,13 +35216,13 @@ const DASHBOARD_CSS = `
   .stage-pipeline-header .tag-row { margin-top: 6px; }
   .stage-seeded-note { font-size: 0.82em; color: var(--vscode-descriptionForeground); margin: 4px 0 0; }
   .delivery-review-banner { display: flex; align-items: flex-start; justify-content: space-between; gap: 12px; flex-wrap: wrap; padding: 10px 12px; border-radius: 10px; margin-bottom: 14px; }
-  .delivery-review-banner.warn { border: 1px solid var(--vscode-editorWarning-foreground, #cca700); background: color-mix(in srgb, var(--vscode-editorWarning-foreground, #cca700) 10%, transparent); }
-  .delivery-review-banner.ok { border: 1px solid var(--vscode-widget-border, rgba(127,127,127,0.25)); color: var(--vscode-descriptionForeground); font-size: 0.84em; padding: 6px 12px; }
+  .delivery-review-banner.warn { border: 1px solid color-mix(in srgb, var(--vscode-editorWarning-foreground, #cca700) var(--atlas-ink-share), var(--tint-away)); background: color-mix(in srgb, var(--vscode-editorWarning-foreground, #cca700) 10%, transparent); }
+  .delivery-review-banner.ok { border: 1px solid var(--atlas-boundary); color: var(--vscode-descriptionForeground); font-size: 0.84em; padding: 6px 12px; }
   .delivery-review-body strong { font-size: 0.9em; }
   .delivery-review-body ul { margin: 6px 0 0; padding-left: 18px; display: flex; flex-direction: column; gap: 3px; }
   .delivery-review-body li { font-size: 0.83em; line-height: 1.4; }
   .pipeline-flow { display: flex; flex-wrap: wrap; align-items: stretch; gap: 8px; margin: 4px 0 16px; }
-  .flow-node { display: flex; flex-direction: column; gap: 2px; padding: 8px 12px; border-radius: 10px; border: 1px solid var(--vscode-widget-border, rgba(127,127,127,0.3)); background: var(--vscode-editorWidget-background, rgba(127,127,127,0.06)); min-width: 130px; }
+  .flow-node { display: flex; flex-direction: column; gap: 2px; padding: 8px 12px; border-radius: 10px; border: 1px solid var(--atlas-boundary); background: var(--vscode-editorWidget-background, rgba(127,127,127,0.06)); min-width: 130px; }
   .flow-node.current { border-color: var(--vscode-focusBorder, #4daafc); box-shadow: 0 0 0 1px var(--vscode-focusBorder, #4daafc) inset; }
   .flow-node.kind-production { border-left: 3px solid var(--vscode-charts-red, #f14c4c); }
   .flow-node.kind-staging { border-left: 3px solid var(--vscode-charts-yellow, #cca700); }
@@ -35232,7 +35232,7 @@ const DASHBOARD_CSS = `
   .flow-ver { font-size: 0.78em; }
   .flow-arrow { display: flex; align-items: center; font-size: 1.2em; color: var(--vscode-descriptionForeground); }
   .stage-row { display: grid; grid-template-columns: repeat(auto-fit, minmax(240px, 1fr)); gap: 12px; align-items: stretch; margin-bottom: 18px; }
-  .stage-card { display: flex; flex-direction: column; gap: 10px; padding: 14px; border-radius: 12px; border: 1px solid var(--vscode-widget-border, rgba(127,127,127,0.25)); background: var(--vscode-editorWidget-background, rgba(127,127,127,0.06)); }
+  .stage-card { display: flex; flex-direction: column; gap: 10px; padding: 14px; border-radius: 12px; border: 1px solid var(--atlas-boundary); background: var(--vscode-editorWidget-background, rgba(127,127,127,0.06)); }
   .stage-card.is-current { border-color: var(--vscode-focusBorder, #4daafc); box-shadow: 0 0 0 1px var(--vscode-focusBorder, #4daafc) inset; }
   .stage-card.kind-production { background: linear-gradient(180deg, rgba(220,80,80,0.10), transparent 60%); }
   .stage-card.kind-staging { background: linear-gradient(180deg, rgba(220,170,60,0.10), transparent 60%); }
@@ -35240,35 +35240,35 @@ const DASHBOARD_CSS = `
   .stage-head { display: flex; align-items: center; gap: 8px; }
   .stage-rank { display: inline-flex; align-items: center; justify-content: center; width: 22px; height: 22px; border-radius: 50%; font-size: 0.78em; font-weight: 700; background: var(--vscode-badge-background); color: var(--vscode-badge-foreground); flex: 0 0 auto; }
   .stage-head h4 { margin: 0; font-size: 1.02em; }
-  .stage-kind-badge { font-size: 0.7em; text-transform: uppercase; letter-spacing: 0.06em; padding: 2px 7px; border-radius: 999px; border: 1px solid var(--vscode-widget-border, rgba(127,127,127,0.3)); color: var(--vscode-descriptionForeground); }
+  .stage-kind-badge { font-size: 0.7em; text-transform: uppercase; letter-spacing: 0.06em; padding: 2px 7px; border-radius: 999px; border: 1px solid var(--atlas-boundary); color: var(--vscode-descriptionForeground); }
   .stage-lock { margin-left: auto; font-size: 0.95em; }
-  .stage-current-tag { font-size: 0.68em; text-transform: uppercase; letter-spacing: 0.06em; color: var(--vscode-focusBorder, #4daafc); font-weight: 700; }
+  .stage-current-tag { font-size: 0.68em; text-transform: uppercase; letter-spacing: 0.06em; color: var(--dash-accent-strong); font-weight: 700; }
   .stage-desc { margin: 0; font-size: 0.86em; color: var(--vscode-descriptionForeground); line-height: 1.45; }
   .stage-facts { display: grid; grid-template-columns: 1fr; gap: 4px; margin: 2px 0; }
   .stage-fact { display: flex; justify-content: space-between; gap: 10px; font-size: 0.82em; padding: 3px 0; border-bottom: 1px dashed var(--vscode-widget-border, rgba(127,127,127,0.18)); }
   .stage-fact span { color: var(--vscode-descriptionForeground); }
   .stage-fact b { font-weight: 600; text-align: right; word-break: break-word; }
-  .stage-fact .missing-ref { color: var(--vscode-errorForeground, #f14c4c); }
+  .stage-fact .missing-ref { color: color-mix(in srgb, var(--vscode-errorForeground, #f14c4c) var(--atlas-ink-share), var(--tint-away)); }
   .stage-security { list-style: none; margin: 4px 0 0; padding: 0; display: flex; flex-direction: column; gap: 6px; }
   .stage-security li { position: relative; padding-left: 18px; font-size: 0.8em; line-height: 1.4; color: var(--vscode-foreground); }
   .stage-security li::before { content: "🛡"; position: absolute; left: 0; top: 0; font-size: 0.85em; opacity: 0.85; }
-  .stage-security li.warn { color: var(--vscode-editorWarning-foreground, #cca700); }
+  .stage-security li.warn { color: color-mix(in srgb, var(--vscode-editorWarning-foreground, #cca700) var(--atlas-ink-share), var(--tint-away)); }
   .stage-security li.warn::before { content: "⚠"; }
   .stage-card .action-link { align-self: flex-start; }
 
   .promotion-list { display: grid; grid-template-columns: repeat(auto-fit, minmax(280px, 1fr)); gap: 12px; }
-  .promotion-card { display: flex; flex-direction: column; gap: 10px; padding: 14px; border-radius: 12px; border: 1px solid var(--vscode-widget-border, rgba(127,127,127,0.25)); background: var(--vscode-editorWidget-background, rgba(127,127,127,0.06)); }
-  .promotion-card.blocked { border-color: var(--vscode-editorWarning-foreground, #cca700); }
+  .promotion-card { display: flex; flex-direction: column; gap: 10px; padding: 14px; border-radius: 12px; border: 1px solid var(--atlas-boundary); background: var(--vscode-editorWidget-background, rgba(127,127,127,0.06)); }
+  .promotion-card.blocked { border-color: color-mix(in srgb, var(--vscode-editorWarning-foreground, #cca700) var(--atlas-ink-share), var(--tint-away)); }
   .promotion-head { display: flex; align-items: baseline; justify-content: space-between; gap: 10px; flex-wrap: wrap; }
   .promotion-head h4 { margin: 0; font-size: 0.98em; }
   .promotion-head .version-delta { font-family: var(--vscode-editor-font-family, monospace); font-size: 0.8em; color: var(--vscode-descriptionForeground); }
-  .via-pr-badge { font-size: 0.68em; font-weight: 700; text-transform: uppercase; letter-spacing: 0.05em; padding: 1px 7px; border-radius: 999px; border: 1px solid var(--vscode-charts-purple, #b180d7); color: var(--vscode-charts-purple, #b180d7); white-space: nowrap; }
+  .via-pr-badge { font-size: 0.68em; font-weight: 700; text-transform: uppercase; letter-spacing: 0.05em; padding: 1px 7px; border-radius: 999px; border: 1px solid var(--vscode-charts-purple, #b180d7); color: color-mix(in srgb, var(--vscode-charts-purple, #b180d7) var(--atlas-ink-share), var(--tint-away)); white-space: nowrap; }
   .guardrail-list { margin: 0; padding-left: 18px; display: flex; flex-direction: column; gap: 4px; }
   .guardrail-list li { font-size: 0.82em; line-height: 1.4; }
   .gate-row { display: flex; flex-wrap: wrap; gap: 6px; align-items: center; font-size: 0.8em; color: var(--vscode-descriptionForeground); }
-  .promotion-block-note { font-size: 0.8em; color: var(--vscode-editorWarning-foreground, #cca700); margin: 0; display: flex; gap: 6px; }
+  .promotion-block-note { font-size: 0.8em; color: color-mix(in srgb, var(--vscode-editorWarning-foreground, #cca700) var(--atlas-ink-share), var(--tint-away)); margin: 0; display: flex; gap: 6px; }
   .promotion-actions { display: flex; flex-wrap: wrap; gap: 8px; align-items: center; margin-top: 2px; }
-  .promotion-ghost-btn { font-size: 0.8em; padding: 5px 10px; border-radius: 7px; border: 1px dashed var(--vscode-widget-border, rgba(127,127,127,0.4)); background: transparent; color: var(--vscode-descriptionForeground); cursor: not-allowed; }
+  .promotion-ghost-btn { font-size: 0.8em; padding: 5px 10px; border-radius: 7px; border: 1px dashed var(--atlas-boundary); background: transparent; color: var(--vscode-descriptionForeground); cursor: not-allowed; }
   .promotion-last { font-size: 0.78em; color: var(--vscode-descriptionForeground); margin: 0; }
 
   /* ── Delivery: stage / promotion editors (Phase 2) ────────────── */
@@ -35276,7 +35276,7 @@ const DASHBOARD_CSS = `
   .promotion-section-head { display: flex; align-items: center; justify-content: space-between; gap: 10px; flex-wrap: wrap; }
   .action-link.primary { font-weight: 700; color: var(--vscode-button-foreground, #fff); background: var(--vscode-button-background, #0e639c); padding: 5px 12px; border-radius: 7px; border: none; }
   .action-link.primary:hover { background: var(--vscode-button-hoverBackground, #1177bb); }
-  .action-link.danger { color: var(--vscode-errorForeground, #f14c4c); }
+  .action-link.danger { color: color-mix(in srgb, var(--vscode-errorForeground, #f14c4c) var(--atlas-ink-share), var(--tint-away)); }
   .stage-editor, .path-editor { grid-column: 1 / -1; margin: 6px 0 12px; border-color: var(--vscode-focusBorder, #4daafc); }
   /* The hidden attribute must actually hide. Any author rule that sets a
      display value (every .stage-edit-grid, .tag-row, flex or grid container
@@ -35288,7 +35288,7 @@ const DASHBOARD_CSS = `
   .director-link-row { align-items: end; }
   /* The agent binding is a checklist, not one choice: a correspondent can span
      more than one specialism. Collapsed by default so the form stays readable. */
-  .director-agent-picker { border: 1px solid var(--vscode-input-border, var(--vscode-widget-border, rgba(127,127,127,0.4)));
+  .director-agent-picker { border: 1px solid var(--atlas-boundary);
     border-radius: 6px; background: var(--vscode-input-background); padding: 4px 7px; }
   .director-agent-picker > summary { cursor: pointer; padding: 2px 0; color: var(--vscode-input-foreground); }
   .director-agent-options { display: flex; flex-direction: column; gap: 3px; max-height: 190px; overflow-y: auto; padding: 6px 0 2px; }
@@ -35297,7 +35297,7 @@ const DASHBOARD_CSS = `
   .stage-edit-field > span { color: var(--vscode-descriptionForeground); }
   .stage-edit-field input[type="text"], .stage-edit-field input[type="number"], .stage-edit-field textarea, .stage-edit-field select {
     width: 100%; box-sizing: border-box; padding: 5px 7px; border-radius: 6px;
-    border: 1px solid var(--vscode-input-border, var(--vscode-widget-border, rgba(127,127,127,0.4)));
+    border: 1px solid var(--atlas-boundary);
     background: var(--vscode-input-background); color: var(--vscode-input-foreground);
     font-family: inherit; font-size: 1em;
   }
@@ -35307,13 +35307,13 @@ const DASHBOARD_CSS = `
   .stage-edit-group { margin: 12px 0 2px; font-size: 0.74em; font-weight: 700; text-transform: uppercase; letter-spacing: 0.06em; color: var(--vscode-descriptionForeground); border-top: 1px solid var(--vscode-widget-border, rgba(127,127,127,0.18)); padding-top: 8px; }
   .stage-edit-group small { font-weight: 400; text-transform: none; letter-spacing: 0; margin-left: 6px; opacity: 0.85; }
   .stage-edit-actions { display: flex; flex-wrap: wrap; align-items: center; gap: 10px; margin-top: 12px; }
-  .stage-remove-confirm { font-size: 0.82em; color: var(--vscode-editorWarning-foreground, #cca700); display: inline-flex; gap: 6px; align-items: center; flex-wrap: wrap; }
-  .reimport-confirm { font-size: 0.82em; color: var(--vscode-editorWarning-foreground, #cca700); display: inline-flex; gap: 6px; align-items: center; flex-wrap: wrap; }
-  .rollback-input { padding: 3px 6px; border-radius: 5px; border: 1px solid var(--vscode-input-border, var(--vscode-widget-border, rgba(127,127,127,0.4))); background: var(--vscode-input-background); color: var(--vscode-input-foreground); font-size: 0.95em; }
+  .stage-remove-confirm { font-size: 0.82em; color: color-mix(in srgb, var(--vscode-editorWarning-foreground, #cca700) var(--atlas-ink-share), var(--tint-away)); display: inline-flex; gap: 6px; align-items: center; flex-wrap: wrap; }
+  .reimport-confirm { font-size: 0.82em; color: color-mix(in srgb, var(--vscode-editorWarning-foreground, #cca700) var(--atlas-ink-share), var(--tint-away)); display: inline-flex; gap: 6px; align-items: center; flex-wrap: wrap; }
+  .rollback-input { padding: 3px 6px; border-radius: 5px; border: 1px solid var(--atlas-boundary); background: var(--vscode-input-background); color: var(--vscode-input-foreground); font-size: 0.95em; }
   .stage-card-foot { gap: 10px; }
   .history-row { display: flex; align-items: baseline; justify-content: space-between; gap: 10px; flex-wrap: wrap; font-size: 0.82em; padding: 4px 0; border-bottom: 1px dashed var(--vscode-widget-border, rgba(127,127,127,0.18)); }
-  .history-row.good > span:first-child { color: var(--vscode-charts-green, #89d185); }
-  .history-row.bad > span:first-child { color: var(--vscode-errorForeground, #f14c4c); }
+  .history-row.good > span:first-child { color: color-mix(in srgb, var(--vscode-charts-green, #89d185) var(--atlas-ink-share), var(--tint-away)); }
+  .history-row.bad > span:first-child { color: color-mix(in srgb, var(--vscode-errorForeground, #f14c4c) var(--atlas-ink-share), var(--tint-away)); }
   .history-row .list-meta { color: var(--vscode-descriptionForeground); }
 
   /* ── Delivery: promotion execution modal (Phase 3) ────────────── */
@@ -35323,14 +35323,14 @@ const DASHBOARD_CSS = `
      checks the project had and meant the primary button was only reachable by
      scrolling past everything else. */
   .promo-overlay { position: fixed; inset: 0; background: rgba(0,0,0,0.55); display: flex; align-items: center; justify-content: center; padding: 32px 16px; z-index: 1000; }
-  .promo-modal { width: min(680px, 100%); max-height: min(88vh, 900px); display: flex; flex-direction: column; background: var(--vscode-editorWidget-background, var(--vscode-editor-background)); border: 1px solid var(--vscode-widget-border, rgba(127,127,127,0.4)); border-radius: 14px; box-shadow: 0 18px 50px rgba(0,0,0,0.45); overflow: hidden; }
+  .promo-modal { width: min(680px, 100%); max-height: min(88vh, 900px); display: flex; flex-direction: column; background: var(--vscode-editorWidget-background, var(--vscode-editor-background)); border: 1px solid var(--atlas-boundary); border-radius: 14px; box-shadow: 0 18px 50px rgba(0,0,0,0.45); overflow: hidden; }
   .promo-head { padding: 18px 22px 12px; border-bottom: 1px solid var(--vscode-widget-border, rgba(127,127,127,0.25)); }
   .promo-head h3 { margin: 0; font-size: 1.1em; }
   .promo-body { padding: 4px 22px 16px; overflow-y: auto; flex: 1 1 auto; }
   .promo-foot { display: flex; align-items: center; justify-content: space-between; gap: 12px; flex-wrap: wrap; padding: 12px 22px 16px; border-top: 1px solid var(--vscode-widget-border, rgba(127,127,127,0.25)); background: var(--vscode-editorWidget-background, var(--vscode-editor-background)); }
   .promo-foot .stage-edit-actions { margin: 0; }
   .promo-readiness { font-size: 0.82em; color: var(--vscode-descriptionForeground); }
-  .promo-readiness.is-ready { color: var(--vscode-charts-green, #89d185); font-weight: 600; }
+  .promo-readiness.is-ready { color: color-mix(in srgb, var(--vscode-charts-green, #89d185) var(--atlas-ink-share), var(--tint-away)); font-weight: 600; }
 
   /* Section meters. A bar and a count, not a ring: three rings would push the
      controls further down the dialog people are already scrolling. */
@@ -35339,46 +35339,46 @@ const DASHBOARD_CSS = `
   .promo-meter { display: inline-flex; align-items: center; gap: 8px; font-size: 0.74em; color: var(--vscode-descriptionForeground); white-space: nowrap; }
   .promo-meter-bar { width: 68px; height: 5px; border-radius: 999px; background: var(--vscode-widget-border, rgba(127,127,127,0.28)); overflow: hidden; }
   .promo-meter-fill { display: block; height: 100%; border-radius: 999px; background: currentColor; transition: width 140ms ease; }
-  .promo-meter.tone-good { color: var(--vscode-charts-green, #89d185); }
-  .promo-meter.tone-warn { color: var(--vscode-charts-yellow, #d7ba7d); }
-  .promo-meter.tone-critical { color: var(--vscode-errorForeground, #f14c4c); }
+  .promo-meter.tone-good { color: color-mix(in srgb, var(--vscode-charts-green, #89d185) var(--atlas-ink-share), var(--tint-away)); }
+  .promo-meter.tone-warn { color: color-mix(in srgb, var(--vscode-charts-yellow, #d7ba7d) var(--atlas-ink-share), var(--tint-away)); }
+  .promo-meter.tone-critical { color: color-mix(in srgb, var(--vscode-errorForeground, #f14c4c) var(--atlas-ink-share), var(--tint-away)); }
   .promo-meter.tone-muted { color: var(--vscode-descriptionForeground); }
   .promo-meter-label { font-variant-numeric: tabular-nums; }
 
-  .promo-detach-note { font-size: 0.82em; margin: 10px 0 0; padding: 9px 11px; border-radius: 8px; color: var(--vscode-foreground); border: 1px solid color-mix(in srgb, var(--vscode-charts-blue, #4daafc) 40%, transparent); background: color-mix(in srgb, var(--vscode-charts-blue, #4daafc) 10%, transparent); }
-  .promo-detached { display: flex; align-items: center; justify-content: space-between; gap: 12px; flex-wrap: wrap; font-size: 0.85em; margin: 10px 0 0; padding: 9px 12px; border-radius: 8px; border: 1px solid var(--vscode-widget-border, rgba(127,127,127,0.3)); }
-  .promo-detached.running { border-color: color-mix(in srgb, var(--vscode-charts-blue, #4daafc) 45%, transparent); }
-  .promo-detached.good { border-color: color-mix(in srgb, var(--vscode-charts-green, #89d185) 45%, transparent); }
-  .promo-detached.bad { border-color: color-mix(in srgb, var(--vscode-errorForeground, #f14c4c) 45%, transparent); }
+  .promo-detach-note { font-size: 0.82em; margin: 10px 0 0; padding: 9px 11px; border-radius: 8px; color: var(--vscode-foreground); border: 1px solid color-mix(in srgb, var(--vscode-charts-blue, #4daafc) 40%, var(--atlas-boundary)); background: color-mix(in srgb, var(--vscode-charts-blue, #4daafc) 10%, transparent); }
+  .promo-detached { display: flex; align-items: center; justify-content: space-between; gap: 12px; flex-wrap: wrap; font-size: 0.85em; margin: 10px 0 0; padding: 9px 12px; border-radius: 8px; border: 1px solid var(--atlas-boundary); }
+  .promo-detached.running { border-color: color-mix(in srgb, var(--vscode-charts-blue, #4daafc) 45%, var(--atlas-boundary)); }
+  .promo-detached.good { border-color: color-mix(in srgb, color-mix(in srgb, var(--vscode-charts-green, #89d185) var(--atlas-ink-share), var(--tint-away)) 45%, var(--atlas-boundary)); }
+  .promo-detached.bad { border-color: color-mix(in srgb, color-mix(in srgb, var(--vscode-errorForeground, #f14c4c) var(--atlas-ink-share), var(--tint-away)) 45%, var(--atlas-boundary)); }
   .promo-detached-actions { display: inline-flex; gap: 10px; }
   .promo-section { margin: 14px 0; }
   .promo-section > h4 { margin: 0 0 6px; font-size: 0.78em; text-transform: uppercase; letter-spacing: 0.06em; color: var(--vscode-descriptionForeground); }
   .promo-plan-list { list-style: none; margin: 0; padding: 0; display: flex; flex-direction: column; gap: 8px; }
-  .promo-plan-step { padding: 8px 10px; border-radius: 8px; border: 1px solid var(--vscode-widget-border, rgba(127,127,127,0.2)); background: var(--vscode-editor-background); }
+  .promo-plan-step { padding: 8px 10px; border-radius: 8px; border: 1px solid var(--atlas-boundary); background: var(--vscode-editor-background); }
   .promo-plan-step-head { display: flex; align-items: center; gap: 8px; }
-  .promo-step-badge { font-size: 0.66em; text-transform: uppercase; letter-spacing: 0.05em; padding: 1px 6px; border-radius: 999px; border: 1px solid var(--vscode-widget-border, rgba(127,127,127,0.35)); color: var(--vscode-descriptionForeground); }
-  .promo-step-badge.managed { color: var(--vscode-charts-blue, #4daafc); border-color: currentColor; }
+  .promo-step-badge { font-size: 0.66em; text-transform: uppercase; letter-spacing: 0.05em; padding: 1px 6px; border-radius: 999px; border: 1px solid var(--atlas-boundary); color: var(--vscode-descriptionForeground); }
+  .promo-step-badge.managed { color: color-mix(in srgb, var(--vscode-charts-blue, #4daafc) var(--atlas-ink-share), var(--tint-away)); border-color: currentColor; }
   .promo-plan-step-detail { font-size: 0.8em; color: var(--vscode-descriptionForeground); margin-top: 3px; }
   .promo-cmd { margin: 6px 0 0; padding: 6px 8px; border-radius: 6px; background: var(--vscode-textCodeBlock-background, rgba(127,127,127,0.12)); font-family: var(--vscode-editor-font-family, monospace); font-size: 0.78em; white-space: pre-wrap; word-break: break-word; }
   .promo-check-list { list-style: none; margin: 0; padding: 0; display: flex; flex-direction: column; gap: 6px; }
   .promo-check { font-size: 0.84em; display: flex; gap: 6px; align-items: baseline; flex-wrap: wrap; }
   .promo-check small { color: var(--vscode-descriptionForeground); width: 100%; padding-left: 18px; }
-  .promo-check.pass { color: var(--vscode-charts-green, #89d185); }
-  .promo-check.fail { color: var(--vscode-errorForeground, #f14c4c); }
+  .promo-check.pass { color: color-mix(in srgb, var(--vscode-charts-green, #89d185) var(--atlas-ink-share), var(--tint-away)); }
+  .promo-check.fail { color: color-mix(in srgb, var(--vscode-errorForeground, #f14c4c) var(--atlas-ink-share), var(--tint-away)); }
   .promo-check.manual { color: var(--vscode-foreground); }
   .promo-check.manual label { display: inline-flex; gap: 7px; align-items: center; cursor: pointer; }
-  .promo-fix-tag { font-size: 0.66em; font-weight: 700; text-transform: uppercase; letter-spacing: 0.05em; padding: 1px 6px; border-radius: 999px; border: 1px solid var(--vscode-charts-blue, #4daafc); color: var(--vscode-charts-blue, #4daafc); white-space: nowrap; }
-  .promo-remediation { font-size: 0.82em; margin: 10px 0 0; padding: 9px 11px; border-radius: 8px; border: 1px solid color-mix(in srgb, var(--vscode-charts-blue, #4daafc) 45%, transparent); background: color-mix(in srgb, var(--vscode-charts-blue, #4daafc) 10%, transparent); display: flex; flex-direction: column; gap: 3px; }
+  .promo-fix-tag { font-size: 0.66em; font-weight: 700; text-transform: uppercase; letter-spacing: 0.05em; padding: 1px 6px; border-radius: 999px; border: 1px solid var(--vscode-charts-blue, #4daafc); color: color-mix(in srgb, var(--vscode-charts-blue, #4daafc) var(--atlas-ink-share), var(--tint-away)); white-space: nowrap; }
+  .promo-remediation { font-size: 0.82em; margin: 10px 0 0; padding: 9px 11px; border-radius: 8px; border: 1px solid color-mix(in srgb, var(--vscode-charts-blue, #4daafc) 45%, var(--atlas-boundary)); background: color-mix(in srgb, var(--vscode-charts-blue, #4daafc) 10%, transparent); display: flex; flex-direction: column; gap: 3px; }
   .promo-remediation small { color: var(--vscode-descriptionForeground); }
   .promo-progress-list { list-style: none; margin: 0; padding: 0; display: flex; flex-direction: column; gap: 5px; }
   .promo-step { font-size: 0.84em; }
-  .promo-step.done { color: var(--vscode-charts-green, #89d185); }
-  .promo-step.failed { color: var(--vscode-errorForeground, #f14c4c); }
-  .promo-step.running { color: var(--vscode-charts-blue, #4daafc); }
+  .promo-step.done { color: color-mix(in srgb, var(--vscode-charts-green, #89d185) var(--atlas-ink-share), var(--tint-away)); }
+  .promo-step.failed { color: color-mix(in srgb, var(--vscode-errorForeground, #f14c4c) var(--atlas-ink-share), var(--tint-away)); }
+  .promo-step.running { color: color-mix(in srgb, var(--vscode-charts-blue, #4daafc) var(--atlas-ink-share), var(--tint-away)); }
   .promo-step-out { font-family: var(--vscode-editor-font-family, monospace); font-size: 0.82em; color: var(--vscode-descriptionForeground); margin: 2px 0 0 18px; white-space: pre-wrap; word-break: break-word; }
   .promo-step-fix { margin: 6px 0 0 18px; }
-  .promo-result.good > h4 { color: var(--vscode-charts-green, #89d185); }
-  .promo-result.bad > h4 { color: var(--vscode-errorForeground, #f14c4c); }
+  .promo-result.good > h4 { color: color-mix(in srgb, var(--vscode-charts-green, #89d185) var(--atlas-ink-share), var(--tint-away)); }
+  .promo-result.bad > h4 { color: color-mix(in srgb, var(--vscode-errorForeground, #f14c4c) var(--atlas-ink-share), var(--tint-away)); }
 
   /* ── Reduced motion ───────────────────────────────────────────────────
      The stylesheet had no prefers-reduced-motion handling at all. Every
@@ -35465,39 +35465,39 @@ const DASHBOARD_CSS = `
   .website-delivery .wd-card-head { display: flex; align-items: flex-start; justify-content: space-between; gap: 12px; flex-wrap: wrap; }
   .website-delivery .wd-card-head h3, .website-delivery .wd-card-head h4 { margin: 2px 0; }
   .website-delivery .wd-frameworks { display: grid; grid-template-columns: repeat(auto-fill, minmax(220px, 1fr)); gap: 10px; margin-top: 12px; }
-  .website-delivery .wd-framework { display: grid; gap: 4px; text-align: left; padding: 12px; border-radius: 12px; border: 1px solid var(--vscode-widget-border, rgba(127,127,127,0.25)); background: var(--vscode-editorWidget-background, rgba(127,127,127,0.06)); color: var(--vscode-foreground); cursor: pointer; font: inherit; }
+  .website-delivery .wd-framework { display: grid; gap: 4px; text-align: left; padding: 12px; border-radius: 12px; border: 1px solid var(--atlas-boundary); background: var(--vscode-editorWidget-background, rgba(127,127,127,0.06)); color: var(--vscode-foreground); cursor: pointer; font: inherit; }
   .website-delivery .wd-framework:hover { background: var(--vscode-list-hoverBackground); }
   .website-delivery .wd-framework.selected { border-color: var(--vscode-focusBorder); box-shadow: inset 0 0 0 1px var(--vscode-focusBorder); }
   .website-delivery .wd-framework[disabled] { opacity: .6; cursor: default; }
   .website-delivery .wd-framework-name { font-weight: 600; }
   .website-delivery .wd-framework-badge { font-size: .72rem; text-transform: uppercase; letter-spacing: .04em; opacity: .8; }
-  .website-delivery .compat-unsupported .wd-framework-badge { color: var(--vscode-errorForeground); }
-  .website-delivery .compat-workable .wd-framework-badge { color: var(--vscode-editorWarning-foreground, #d29922); }
-  .website-delivery .compat-ideal .wd-framework-badge { color: var(--vscode-testing-iconPassed, #3fb950); }
+  .website-delivery .compat-unsupported .wd-framework-badge { color: color-mix(in srgb, var(--vscode-errorForeground) var(--atlas-ink-share), var(--tint-away)); }
+  .website-delivery .compat-workable .wd-framework-badge { color: color-mix(in srgb, var(--vscode-editorWarning-foreground, #d29922) var(--atlas-ink-share), var(--tint-away)); }
+  .website-delivery .compat-ideal .wd-framework-badge { color: color-mix(in srgb, var(--vscode-testing-iconPassed, #3fb950) var(--atlas-ink-share), var(--tint-away)); }
   .website-delivery .wd-framework-desc, .website-delivery .wd-framework-reason, .website-delivery .wd-framework-meta { font-size: .8rem; opacity: .85; }
   .website-delivery .wd-summary { display: grid; grid-template-columns: auto 1fr; gap: 6px 14px; margin: 12px 0 0; padding-top: 10px; border-top: 1px solid var(--vscode-widget-border, rgba(127,127,127,0.25)); font-size: .85rem; }
   .website-delivery .wd-summary dt { font-weight: 600; opacity: .8; }
   .website-delivery .wd-summary dd { margin: 0; }
-  .website-delivery .wd-instep { color: var(--vscode-testing-iconPassed, #3fb950); }
-  .website-delivery .wd-drift { color: var(--vscode-editorWarning-foreground, #d29922); }
+  .website-delivery .wd-instep { color: color-mix(in srgb, var(--vscode-testing-iconPassed, #3fb950) var(--atlas-ink-share), var(--tint-away)); }
+  .website-delivery .wd-drift { color: color-mix(in srgb, var(--vscode-editorWarning-foreground, #d29922) var(--atlas-ink-share), var(--tint-away)); }
   .website-delivery .wd-environments { display: grid; grid-template-columns: repeat(auto-fit, minmax(260px, 1fr)); gap: 12px; }
   .website-delivery .wd-platforms, .website-delivery .wd-automations { display: grid; grid-template-columns: repeat(auto-fill, minmax(280px, 1fr)); gap: 12px; }
-  .website-delivery .wd-card { display: grid; gap: 8px; padding: 14px; border-radius: 12px; border: 1px solid var(--vscode-widget-border, rgba(127,127,127,0.25)); background: var(--vscode-editorWidget-background, rgba(127,127,127,0.06)); }
+  .website-delivery .wd-card { display: grid; gap: 8px; padding: 14px; border-radius: 12px; border: 1px solid var(--atlas-boundary); background: var(--vscode-editorWidget-background, rgba(127,127,127,0.06)); }
   .website-delivery .wd-field { display: grid; gap: 4px; font-size: .82rem; }
   .website-delivery .wd-field span { font-weight: 600; }
-  .website-delivery .wd-field input, .website-delivery .wd-field select, .website-delivery .wd-field textarea { width: 100%; box-sizing: border-box; padding: 6px 8px; border-radius: 6px; border: 1px solid var(--vscode-input-border, var(--vscode-widget-border, rgba(127,127,127,0.35))); background: var(--vscode-input-background); color: var(--vscode-input-foreground); font: inherit; }
+  .website-delivery .wd-field input, .website-delivery .wd-field select, .website-delivery .wd-field textarea { width: 100%; box-sizing: border-box; padding: 6px 8px; border-radius: 6px; border: 1px solid var(--atlas-boundary); background: var(--vscode-input-background); color: var(--vscode-input-foreground); font: inherit; }
   .website-delivery .wd-pair { display: grid; grid-template-columns: repeat(auto-fit, minmax(160px, 1fr)); gap: 8px; }
   .website-delivery .wd-locked { display: grid; gap: 4px; font-size: .82rem; }
   .website-delivery .wd-locked span { font-weight: 600; }
-  .website-delivery .wd-locked strong { padding: 6px 8px; border: 1px dashed var(--vscode-widget-border, rgba(127,127,127,0.35)); border-radius: 6px; font-weight: 500; }
-  .website-delivery .wd-pill, .website-delivery .wd-guard { display: inline-block; padding: 2px 8px; border-radius: 999px; border: 1px solid var(--vscode-widget-border, rgba(127,127,127,0.35)); font-size: .72rem; text-transform: uppercase; letter-spacing: .04em; }
-  .website-delivery .wd-pill.ready { border-color: var(--vscode-testing-iconPassed, #3fb950); color: var(--vscode-testing-iconPassed, #3fb950); }
-  .website-delivery .wd-pill.needs-setup { border-color: var(--vscode-editorWarning-foreground, #d29922); color: var(--vscode-editorWarning-foreground, #d29922); }
-  .website-delivery .wd-pill.blocked { border-color: var(--vscode-errorForeground); color: var(--vscode-errorForeground); }
+  .website-delivery .wd-locked strong { padding: 6px 8px; border: 1px dashed var(--atlas-boundary); border-radius: 6px; font-weight: 500; }
+  .website-delivery .wd-pill, .website-delivery .wd-guard { display: inline-block; padding: 2px 8px; border-radius: 999px; border: 1px solid var(--atlas-boundary); font-size: .72rem; text-transform: uppercase; letter-spacing: .04em; }
+  .website-delivery .wd-pill.ready { border-color: color-mix(in srgb, var(--vscode-testing-iconPassed, #3fb950) var(--atlas-ink-share), var(--tint-away)); color: color-mix(in srgb, var(--vscode-testing-iconPassed, #3fb950) var(--atlas-ink-share), var(--tint-away)); }
+  .website-delivery .wd-pill.needs-setup { border-color: color-mix(in srgb, var(--vscode-editorWarning-foreground, #d29922) var(--atlas-ink-share), var(--tint-away)); color: color-mix(in srgb, var(--vscode-editorWarning-foreground, #d29922) var(--atlas-ink-share), var(--tint-away)); }
+  .website-delivery .wd-pill.blocked { border-color: color-mix(in srgb, var(--vscode-errorForeground) var(--atlas-ink-share), var(--tint-away)); color: color-mix(in srgb, var(--vscode-errorForeground) var(--atlas-ink-share), var(--tint-away)); }
   .website-delivery .wd-guard { justify-self: start; }
-  .website-delivery .wd-issues { margin: 0; padding-left: 18px; font-size: .8rem; color: var(--vscode-editorWarning-foreground, #d29922); }
-  .website-delivery .wd-clear { margin: 0; font-size: .8rem; color: var(--vscode-testing-iconPassed, #3fb950); }
+  .website-delivery .wd-issues { margin: 0; padding-left: 18px; font-size: .8rem; color: color-mix(in srgb, var(--vscode-editorWarning-foreground, #d29922) var(--atlas-ink-share), var(--tint-away)); }
+  .website-delivery .wd-clear { margin: 0; font-size: .8rem; color: color-mix(in srgb, var(--vscode-testing-iconPassed, #3fb950) var(--atlas-ink-share), var(--tint-away)); }
   .website-delivery .wd-primary { display: flex; align-items: center; gap: 6px; font-size: .8rem; }
-  .website-delivery .action-link.danger { color: var(--vscode-errorForeground); }
+  .website-delivery .action-link.danger { color: color-mix(in srgb, var(--vscode-errorForeground) var(--atlas-ink-share), var(--tint-away)); }
 
 `;

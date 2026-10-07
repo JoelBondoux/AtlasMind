@@ -6,6 +6,65 @@ The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/),
 
 ## [Unreleased]
 
+## [0.484.0] - 2026-10-07
+
+### Changed
+
+- **Every card, chip, bubble, badge and field on every dashboard now has an edge you can see.** The
+  report was that the boxes were "a very similar colour to the background", and measured they were: a
+  card's edge was the theme's widget border at 70%, which is **1.1:1** against the page on Dark Modern
+  and 1.3:1 on Light Modern, and its fill was a few percent off the background. WCAG 1.4.11 asks 3:1
+  between a component's boundary and what surrounds it. The shared shell now declares one token,
+  `--atlas-boundary`, derived from the active theme's own editor foreground mixed into its editor
+  background (52% on a dark theme, 62% on a light one, because sRGB mixing is not linear in luminance)
+  and, in high contrast, the theme's own `contrastBorder`. `--dash-border` and every legacy alias
+  (`--atlas-border`, `--run-border`, `--studio-border`, `--lens-border`, `--atlas-panel-border`) route
+  through it, and the panels that drew raw `--vscode-widget-border`, `--vscode-panel-border` or input
+  borders now draw it too. Dividers inside a card stay diluted on purpose: a row rule is not a
+  component boundary.
+- **A tone tints an edge; it no longer thins it.** Status chips, banners and accent states mixed their
+  colour into `transparent`, which fades toward the page — every status edge landed at 1.3–2.5:1. They
+  now mix into the boundary instead.
+- **Light themes stop being a dark theme with the lights on.** Surface tokens shaded toward a literal
+  black, so on Light Modern the page top was `#dbdbdb` and the card surface `#dadada`: a card the colour
+  of the page it sat on. Surfaces now shade toward `--tint-toward` and accents lift away with
+  `--tint-away`, both of which resolve to exactly the old literals on a dark theme. Those branches are
+  now declared on the document (`:root:has(> body.vscode-light)`) rather than on `body`: VS Code puts
+  the theme class on the body element and the colours on the html element, and a custom property
+  resolves where it is declared, so a branch on `body` never reached the shared tokens and the light
+  theme had been rendering the dark one.
+- **Status colours are inked for the page they are on.** VS Code's light themes ship pastel status
+  colours — Light Modern's error foreground is 3.4:1 on white and its passed-test green 1.9:1 — and
+  AtlasMind used them as text. `--atlas-ink-share` (100% on dark, 55% on light) deepens a status colour
+  toward the text colour only where it needs it; a dark theme renders exactly as before.
+- **High contrast keeps its accents.** High contrast paints buttons black, so every accent derived from
+  the button colour was black on black: active chips, selected tabs, link-buttons and accent edges
+  vanished. Accent text now takes the theme's active-contrast colour (its link colour on high-contrast
+  light), and accent edges take `--atlas-edge-accent`, which is the contrast border in high contrast.
+  The Atlas mark is no longer inverted to white on high-contrast light's white page.
+- Individual fixes the measurement found: white text on chart-coloured badges (2.6:1) now takes the page
+  colour; solid buttons start their gradient at the button colour rather than a lightened one; tinted
+  count badges use a lighter tint; the roadmap drag handle and emphasis label are darker; the Personality
+  Profile keeps its warm palette with its gold inked on light themes, its solid button starting deeper,
+  and high contrast taking the theme's own muted colour.
+
+### Added
+
+- `tests/views/surfaceBoundaries.test.ts` measures the boundary tokens against the page, the page
+  gradient and both panel surfaces, and every edge every panel draws (edge or fill must clear 3:1), in
+  Dark Modern, Light Modern and both high-contrast themes. For the themes nobody can enumerate it
+  asserts the mechanism instead — the edge is derived from the theme's own colours — plus a property
+  test stating where the guarantee holds: any neutral dark theme with editor text at 9.2:1 or more, any
+  neutral light theme at 7.6:1. It also refuses a tone mixed into `transparent` on a full border.
+- `tests/views/themeContrast.test.ts` now holds all text to WCAG 1.4.3's 4.5:1 in all four theme kinds
+  with no panel exempt. It used to check one dark theme against a 2.4:1 floor, which passed a light
+  theme nobody had looked at.
+- `tests/fixtures/vscodeThemeTokens.ts` transcribes the four theme kinds from VS Code's own theme files
+  and colour registry. A colour the registry resolves to `null` is recorded as absent, so the panel's
+  fallback is what is measured, and any other unrecorded `--vscode-*` colour is unknown rather than
+  replaced by a fallback that would never render.
+- `tests/helpers/cssContrast.ts` is the one resolver both tests share.
+
 ## [0.483.0] - 2026-09-30
 
 ### Added

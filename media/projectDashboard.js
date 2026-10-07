@@ -18421,7 +18421,7 @@
     const stk = cfg.stakeholders.find(s => s.contactId === contact.id);
     const team = cfg.teamMembers.find(t => t.contactId === contact.id);
     const badges = [];
-    if (isSelf) { badges.push('<span class="tag" style="background:var(--vscode-badge-background)">you</span>'); }
+    if (isSelf) { badges.push('<span class="tag" style="background:var(--vscode-badge-background);color:var(--vscode-badge-foreground)">you</span>'); }
     if (stk) { badges.push('<span class="tag">' + escapeHtml(stk.category) + ' · ' + escapeHtml(stk.influence) + '/' + escapeHtml(stk.interest) + '</span>'); }
     if (team) { badges.push('<span class="tag mono">' + escapeHtml(team.discipline) + '</span>'); }
     const buzzLink = (contact.links || []).find(l => l.kind === 'buzz');
@@ -19212,7 +19212,7 @@
     });
 
     const gdprBanner = (d.storesRawPii && !d.piiAcknowledged) ? `
-      <article class="panel-card" style="border-color:var(--vscode-inputValidation-warningBorder,#c90)">
+      <article class="panel-card" style="border-color:color-mix(in srgb, var(--vscode-inputValidation-warningBorder,#c90) var(--atlas-ink-share), var(--tint-away))">
         <p class="section-kicker">Personal data</p>
         <h3>This roster holds personal data (GDPR)</h3>
         <p class="section-copy">Names and contact details are personal data. AtlasMind will classify them as confidential so they never reach an un-trusted model. Prefer referencing people in Microsoft 365 / Slack over storing raw details. Acknowledge to persist the roster to disk.</p>

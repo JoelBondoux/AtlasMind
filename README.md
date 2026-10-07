@@ -4,7 +4,7 @@
 
 <h1 align="center">AtlasMind</h1>
 
-<p align="center"><sub> · <strong>Current source version: 0.483.0</strong> · </sub></p>
+<p align="center"><sub> · <strong>Current source version: 0.484.0</strong> · </sub></p>
 
 
 <p align="center">
@@ -175,6 +175,13 @@ allow-list, redaction and file-withholding behaviour, retained metadata, provide
 important limits on overrides and compliance claims.
 
 ---
+
+## What's new in 0.484.0
+
+Cards, chips, chat bubbles and fields on every dashboard now have an edge you can see. Each one used to
+be outlined at about 1.1:1 against the page, so a card was a region you had to infer. They are now
+outlined at 3:1 or better in Dark Modern, Light Modern and both high-contrast themes. Light themes no
+longer grey out the page, status text is legible on white, and high contrast keeps its accents.
 
 ## What's new in 0.483.0
 

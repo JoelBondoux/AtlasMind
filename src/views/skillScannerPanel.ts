@@ -229,7 +229,7 @@ export class SkillScannerPanel {
 
 <!-- Edit modal -->
 <div id="edit-modal" style="display:none; position:fixed; inset:0; background:rgba(0,0,0,0.55); z-index:100; align-items:center; justify-content:center;">
-  <div style="background:var(--vscode-editor-background); border:1px solid var(--vscode-widget-border); padding:24px; width:min(560px,90vw); border-radius:4px;">
+  <div style="background:var(--vscode-editor-background); border:1px solid var(--atlas-boundary); padding:24px; width:min(560px,90vw); border-radius:4px;">
     <h2 id="modal-title" style="margin-top:0">Edit Rule</h2>
     <div class="field-group">
       <label>ID <input id="f-id" placeholder="e.g. no-eval" /></label>
@@ -398,8 +398,8 @@ export class SkillScannerPanel {
       .rule-disabled td { opacity: 0.45; }
       /* Themed foreground, not a fixed one: the backgrounds here follow the
          theme, so salmon-on-pink was the light-mode result of pinning the text. */
-      .badge-error { background: var(--vscode-inputValidation-errorBackground, #5a1d1d); color: var(--vscode-errorForeground, #f48771); border: 1px solid var(--vscode-inputValidation-errorBorder, transparent); }
-      .badge-warning { background: var(--vscode-inputValidation-warningBackground, #352a05); color: var(--vscode-editorWarning-foreground, #cca700); border: 1px solid var(--vscode-inputValidation-warningBorder, transparent); }
+      .badge-error { background: var(--vscode-inputValidation-errorBackground, #5a1d1d); color: var(--vscode-inputValidation-errorForeground, var(--vscode-foreground)); border: 1px solid color-mix(in srgb, var(--vscode-errorForeground, #f48771) var(--atlas-ink-share), var(--tint-away)); }
+      .badge-warning { background: var(--vscode-inputValidation-warningBackground, #352a05); color: color-mix(in srgb, var(--vscode-editorWarning-foreground, #cca700) var(--atlas-ink-share), var(--tint-away)); border: 1px solid color-mix(in srgb, var(--vscode-inputValidation-warningBorder, #b89500) var(--atlas-ink-share), var(--tint-away)); }
       .pattern-cell { font-size: 0.8em; word-break: break-all; }
       .msg-cell { font-size: 0.9em; }
       .actions-cell { white-space: nowrap; }
@@ -407,20 +407,20 @@ export class SkillScannerPanel {
       .btn-icon:hover { background: var(--vscode-button-secondaryHoverBackground, rgba(90,93,94,0.31)); }
       /* Was var(--vscode-charts.blue) — a dot is not valid in a custom-property
          name, so the declaration was dropped and only the fallback ever applied. */
-      .reset-btn { color: var(--vscode-charts-blue, #40a6ff); }
-      .delete-btn { color: var(--vscode-errorForeground, #f48771); }
+      .reset-btn { color: color-mix(in srgb, var(--vscode-charts-blue, #40a6ff) var(--atlas-ink-share), var(--tint-away)); }
+      .delete-btn { color: color-mix(in srgb, var(--vscode-errorForeground, #f48771) var(--atlas-ink-share), var(--tint-away)); }
       .toolbar-actions { display: flex; gap: 8px; margin-bottom: 12px; align-items: center; flex-wrap: wrap; }
       .confirm-strip { display: inline-flex; align-items: center; gap: 8px; font-size: 0.88em; padding: 4px 10px; border-radius: 6px;
-        border: 1px solid var(--vscode-inputValidation-warningBorder, #cca700); background: var(--vscode-inputValidation-warningBackground, #352a05); }
+        border: 1px solid color-mix(in srgb, var(--vscode-inputValidation-warningBorder, #cca700) var(--atlas-ink-share), var(--tint-away)); background: var(--vscode-inputValidation-warningBackground, #352a05); }
       .confirm-strip[hidden] { display: none; }
-      .danger-btn { background: var(--vscode-inputValidation-errorBackground, #5a1d1d); color: var(--vscode-errorForeground, #f48771); }
+      .danger-btn { background: var(--vscode-inputValidation-errorBackground, #5a1d1d); color: var(--vscode-inputValidation-errorForeground, var(--vscode-foreground)); }
       .secondary-btn { background: var(--vscode-button-secondaryBackground); color: var(--vscode-button-secondaryForeground); }
       .secondary-btn:hover { background: var(--vscode-button-secondaryHoverBackground); }
       .field-group { display: flex; gap: 12px; margin-bottom: 8px; }
       .field-group label { flex: 1; }
       label input, label select { display: block; width: 100%; margin-top: 4px;
         background: var(--vscode-input-background); color: var(--vscode-input-foreground);
-        border: 1px solid var(--vscode-input-border, #555); padding: 4px 6px; border-radius: 2px; }
+        border: 1px solid var(--atlas-boundary); padding: 4px 6px; border-radius: 2px; }
     `;
 
     // Rules travel on a data-* attribute of a hidden <div>. An attribute value

@@ -180,7 +180,7 @@ function buildConfigHtml(cspSource: string): string {
       .status-badge {
         align-self: flex-start; border: 1px solid var(--lens-border); border-radius: 999px;
         padding: 2px 9px; font-size: .68rem; color: var(--lens-accent);
-        border-color: color-mix(in srgb, var(--lens-accent) 45%, transparent);
+        border-color: color-mix(in srgb, var(--lens-accent) 45%, var(--atlas-boundary));
       }
       #source-list { padding-left: 20px; display: grid; gap: 4px; }
       @media (max-width: 640px) { .source-chain { gap: 24px; } }

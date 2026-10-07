@@ -192,7 +192,7 @@ export function getWebsitePreviewHtml(cspSource: string, previewUrl: string, por
       font-size: .8rem;
       color: var(--vscode-foreground);
       background: transparent;
-      border: 1px solid var(--vscode-widget-border, rgba(127,127,127,.35));
+      border: 1px solid var(--atlas-boundary);
       border-radius: 6px;
       padding: 3px 10px;
       cursor: pointer;
@@ -215,7 +215,7 @@ export function getWebsitePreviewHtml(cspSource: string, previewUrl: string, por
     iframe {
       width: 100%;
       height: 100%;
-      border: 1px solid var(--vscode-widget-border, rgba(127,127,127,.35));
+      border: 1px solid var(--atlas-boundary);
       border-radius: 6px;
       background: #fff;
       transition: max-width 120ms ease;

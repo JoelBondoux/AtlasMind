@@ -1416,6 +1416,16 @@ surfaces — card, header, nav, button, input, table — *after*. The ordering i
 its layout, which it legitimately owns, and loses its private palette, which it never decided on. The
 Personality Profile is the one deliberate exception; its warm palette is a choice, not drift.
 
+**Every surface has an edge you can see, in every theme.** The shell declares one boundary token,
+`--atlas-boundary`, that every card, chip, chat bubble, badge and field is outlined with. It is derived
+from the active theme's own text colour mixed into its background — or, in high contrast, the theme's
+own contrast border — so it moves with whatever theme is installed instead of being tuned for one. It
+clears the 3:1 WCAG asks of a component boundary in Dark Modern, Light Modern and both high-contrast
+themes; before, a card's outline was about 1.1:1 and its fill a few percent off the page. Status colours
+used as text are deepened on light themes, where VS Code's own are pastel, and accents fall back to the
+contrast colours in high contrast, where the button colour is black. The test suite measures every text
+colour (4.5:1) and every edge (3:1) on every panel, in all four theme kinds.
+
 ---
 
 ## Some structural rules
