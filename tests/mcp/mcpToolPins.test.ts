@@ -6,6 +6,7 @@ import { describe, expect, it } from 'vitest';
 
 import {
   HELD_TOOL_ID_PATTERN,
+  MCP_TOOL_PIN_STORE_VERSION,
   MODEL_DESCRIPTION_CAP,
   PIN_RULES,
   SCHEMA_WALK_LIMITS,
@@ -251,10 +252,26 @@ describe('evaluateMcpToolPins', () => {
     expect(second.decisions[1]).toMatchObject({ rule: 'pin.new-tool', action: 'hold' });
   });
 
-  it('records nothing for a server that offered no tools', () => {
-    const evaluation = evaluateMcpToolPins({ serverId: SERVER, tools: [], pins: undefined, now: NOW });
-    expect(evaluation.changed).toBe(false);
-    expect(evaluation.nextPins).toBeUndefined();
+  it('records a server whose first listing was empty, so a tool it lists later is held, not first sight', () => {
+    // The delayed rug pull: list nothing on the day the server is enabled,
+    // add the real tools later, and have them trusted as first sight.
+    const first = evaluateMcpToolPins({ serverId: SERVER, tools: [], pins: undefined, now: NOW });
+    expect(first.changed).toBe(true);
+    expect(first.nextPins).toEqual({ serverId: SERVER, firstPinnedAt: NOW, unverifiable: false, tools: [] });
+
+    const later = decide([read, write], first.nextPins);
+    expect(later.decisions.map(decision => [decision.rule, decision.action])).toEqual([
+      ['pin.new-tool', 'hold'],
+      ['pin.new-tool', 'hold'],
+    ]);
+    expect(later.changed).toBe(false);
+  });
+
+  it('spends first sight once — a second empty listing changes nothing', () => {
+    const first = evaluateMcpToolPins({ serverId: SERVER, tools: [], pins: undefined, now: NOW });
+    const second = decide([], first.nextPins);
+    expect(second.changed).toBe(false);
+    expect(second.nextPins).toBe(first.nextPins);
   });
 
   it('pin.match — registers an unchanged tool', () => {
@@ -422,6 +439,61 @@ describe('pin properties', () => {
     ));
   });
 
+  it('once a server has listed its tools, no later listing registers a tool nobody reviewed', () => {
+    // Without a user approval, the only versions that may ever register are the
+    // ones pinned by the server's first successful listing — however small that
+    // listing was, including empty.
+    const variant = fc.record({
+      name: fc.constantFrom('read_file', 'write_file', 'list_dir', 'status'),
+      description: fc.constantFrom(...BENIGN_TOOL_DESCRIPTIONS.slice(0, 4)),
+      extraArg: fc.boolean(),
+    }).map(({ name, description, extraArg }) => tool(name, description, extraArg
+      ? { ...FILE_SCHEMA, properties: { ...FILE_SCHEMA.properties, recursive: { type: 'boolean' } } }
+      : FILE_SCHEMA));
+    const listing = fc.uniqueArray(variant, { selector: entry => entry.name, maxLength: 4 });
+
+    fc.assert(fc.property(listing, fc.array(listing, { minLength: 1, maxLength: 6 }), (firstListing, laterListings) => {
+      const first = evaluateMcpToolPins({ serverId: SERVER, tools: firstListing, pins: undefined, now: NOW });
+      expect(first.nextPins).toBeDefined();
+      const seen = first.nextPins!;
+      const reviewed = new Set(seen.tools.map(pin => `${pin.toolName}|${pin.descriptionHash}|${pin.schemaHash}`));
+
+      let pins: McpServerPins | undefined = seen;
+      for (const later of laterListings) {
+        const evaluation = decide(later, pins);
+        for (const decision of evaluation.decisions) {
+          if (decision.action === 'register') {
+            expect(reviewed.has(`${decision.tool.name}|${decision.descriptionHash}|${decision.schemaHash}`)).toBe(true);
+          }
+          expect(decision.rule).not.toBe('pin.first-sight');
+        }
+        pins = evaluation.nextPins;
+        // Only an approval adds a pin after first sight.
+        expect(pins).toBe(seen);
+      }
+    }));
+  });
+
+  it('a seen server never treats a tool it did not list as first sight, whatever its record looks like', () => {
+    const fresh = tool('write_file', BENIGN_TOOL_DESCRIPTIONS[2]!);
+    const read = tool('read_file', BENIGN_TOOL_DESCRIPTIONS[0]!);
+    const poisoned = tool('add', POISONED[0]!.description);
+    const shapes: Array<[string, McpServerPins | undefined]> = [
+      ['first listing was empty', pinnedAt([])],
+      ['first listing had other tools', pinnedAt([read])],
+      ['first listing was all flagged', pinnedAt([poisoned])],
+      ['store could not be read', sanitizeMcpToolPinStore('garbage', [SERVER]).servers.get(SERVER)],
+      ['store was v1 with no record', sanitizeMcpToolPinStore({ version: 1, servers: [] }, [SERVER]).servers.get(SERVER)],
+      ['store was written by a newer build', sanitizeMcpToolPinStore({ version: MCP_TOOL_PIN_STORE_VERSION + 1, servers: [] }, [SERVER]).servers.get(SERVER)],
+    ];
+    for (const [label, pins] of shapes) {
+      expect(pins, label).toBeDefined();
+      const decision = decide([fresh], pins).decisions[0]!;
+      expect([label, decision.action]).toEqual([label, 'hold']);
+      expect(['pin.new-tool', 'pin.unverifiable'], label).toContain(decision.rule);
+    }
+  });
+
   it('a snippet never carries an invisible character back into the page', () => {
     fc.assert(fc.property(fc.string({ maxLength: 200, unit: 'binary' }), text => {
       const snippet = visibleSnippet(text);
@@ -552,7 +624,7 @@ describe('sanitizeMcpToolPinStore', () => {
     ['a string', 'garbage'],
     ['an array', [1, 2, 3]],
     ['the wrong version', { version: 0, servers: [] }],
-    ['servers that are not a list', { version: 1, servers: {} }],
+    ['servers that are not a list', { version: MCP_TOOL_PIN_STORE_VERSION, servers: {} }],
   ] as const)('marks every known server unverifiable when the store is %s', (_label, raw) => {
     const store = sanitizeMcpToolPinStore(raw, [SERVER, 'server-2']);
     expect([...store.servers.values()].map(entry => [entry.serverId, entry.unverifiable, entry.tools.length])).toEqual([
@@ -563,8 +635,62 @@ describe('sanitizeMcpToolPinStore', () => {
     expect(decide([read], store.servers.get(SERVER)).decisions[0]?.rule).toBe('pin.unverifiable');
   });
 
+  it('writes the current version, and round-trips a server recorded as seen with no tools', () => {
+    const store = sanitizeMcpToolPinStore(undefined, []);
+    store.servers.set(SERVER, { serverId: SERVER, firstPinnedAt: NOW, unverifiable: false, tools: [] });
+    const written = JSON.parse(JSON.stringify(serializeMcpToolPinStore(store)));
+    expect(written.version).toBe(MCP_TOOL_PIN_STORE_VERSION);
+    const reread = sanitizeMcpToolPinStore(written, [SERVER]);
+    expect(reread.servers.get(SERVER)).toEqual({ serverId: SERVER, firstPinnedAt: NOW, unverifiable: false, tools: [] });
+    expect(reread.migratedFrom).toBeUndefined();
+    expect(decide([read], reread.servers.get(SERVER)).decisions[0]?.rule).toBe('pin.new-tool');
+  });
+
+  it('reads a current-version store with no entry for a server as never seen', () => {
+    const store = sanitizeMcpToolPinStore({ version: MCP_TOOL_PIN_STORE_VERSION, servers: [] }, [SERVER]);
+    expect(store.servers.has(SERVER)).toBe(false);
+    expect(decide([read], store.servers.get(SERVER)).decisions[0]?.rule).toBe('pin.first-sight');
+  });
+
+  describe('upgrading a v1 store', () => {
+    const v1 = (servers: unknown[]) => ({ version: 1, servers });
+
+    it('keeps v1 entries, so pinned tools still match', () => {
+      const written = serializeMcpToolPinStore({ servers: new Map([[SERVER, pinnedAt([read])]]), readOnly: false });
+      const store = sanitizeMcpToolPinStore(v1(written.servers), [SERVER]);
+      expect(store.migratedFrom).toBe(1);
+      expect(store.servers.get(SERVER)?.unverifiable).toBe(false);
+      expect(decide([read], store.servers.get(SERVER)).decisions[0]?.rule).toBe('pin.match');
+    });
+
+    it('marks a known server v1 had no record of unverifiable — it may have listed nothing', () => {
+      // v1 wrote no entry for a server whose first listing was empty, so here
+      // "absent" cannot be read as "never seen".
+      const store = sanitizeMcpToolPinStore(v1([]), [SERVER, 'server-2']);
+      expect(store.migratedFrom).toBe(1);
+      expect(store.readOnly).toBe(false);
+      expect(store.servers.get(SERVER)).toMatchObject({ unverifiable: true, tools: [] });
+      expect(store.servers.get('server-2')).toMatchObject({ unverifiable: true, tools: [] });
+      expect(decide([read], store.servers.get(SERVER)).decisions[0]).toMatchObject({ rule: 'pin.unverifiable', action: 'hold' });
+    });
+
+    it('leaves a server added after the upgrade to first sight', () => {
+      const store = sanitizeMcpToolPinStore(v1([]), [SERVER]);
+      expect(store.servers.has('added-later')).toBe(false);
+    });
+
+    it('writes back as the current version', () => {
+      const store = sanitizeMcpToolPinStore(v1([]), [SERVER]);
+      const written = serializeMcpToolPinStore(store);
+      expect(written.version).toBe(MCP_TOOL_PIN_STORE_VERSION);
+      const reread = sanitizeMcpToolPinStore(JSON.parse(JSON.stringify(written)), [SERVER]);
+      expect(reread.migratedFrom).toBeUndefined();
+      expect(reread.servers.get(SERVER)?.unverifiable).toBe(true);
+    });
+  });
+
   it('reads a newer version as unverifiable and refuses to overwrite it', () => {
-    const store = sanitizeMcpToolPinStore({ version: 2, servers: [] }, [SERVER]);
+    const store = sanitizeMcpToolPinStore({ version: MCP_TOOL_PIN_STORE_VERSION + 1, servers: [] }, [SERVER]);
     expect(store.readOnly).toBe(true);
     expect(store.servers.get(SERVER)?.unverifiable).toBe(true);
   });
@@ -579,13 +705,13 @@ describe('sanitizeMcpToolPinStore', () => {
   });
 
   it('marks known servers unverifiable when an entry cannot be attributed to any server', () => {
-    const store = sanitizeMcpToolPinStore({ version: 1, servers: [{ tools: [] }] }, [SERVER]);
+    const store = sanitizeMcpToolPinStore({ version: MCP_TOOL_PIN_STORE_VERSION, servers: [{ tools: [] }] }, [SERVER]);
     expect(store.servers.get(SERVER)?.unverifiable).toBe(true);
   });
 
   it('refuses a pin that claims to belong to another server', () => {
     const good = serializeMcpToolPinStore({ servers: new Map([[SERVER, pinnedAt([read])]]), readOnly: false });
-    const raw = { version: 1, servers: [{ ...good.servers[0]!, serverId: 'server-2' }] };
+    const raw = { version: MCP_TOOL_PIN_STORE_VERSION, servers: [{ ...good.servers[0]!, serverId: 'server-2' }] };
     const store = sanitizeMcpToolPinStore(raw, []);
     expect(store.servers.get('server-2')).toMatchObject({ unverifiable: true, tools: [] });
   });

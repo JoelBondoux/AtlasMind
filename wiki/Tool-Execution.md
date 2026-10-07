@@ -129,9 +129,14 @@ Conservative where it's unsure, practical where it isn't.
 
 Risk grading assumes the tool is the one you agreed to. Pinning makes sure of it. Every MCP tool is
 pinned on its first connect, and a tool whose description or schema has changed since, a tool the server
-didn't have before, or a tool the description scan flags is **held**. It isn't registered, so no approval
+didn't have before, or a tool the description scan flags is **held**. "Didn't have before" counts from the
+server's first successful listing even when that listing was empty, so a server can't list nothing when
+you enable it and add tools later to skip the review. It isn't registered, so no approval
 mode, Bypass or Autopilot can reach it. It waits under **Review changed tools** in the MCP panel until you
 approve that exact version. See [[Skills]] for what the scan looks for.
+
+When a server disconnects its skills are *suspended*, not disabled as though you had switched them off,
+and they come back on when it reconnects. A skill you disabled yourself stays disabled.
 
 ### Context is not authority
 

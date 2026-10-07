@@ -204,6 +204,99 @@ describe('McpServerRegistry', () => {
       expect(skills.isEnabled(skillId)).toBe(false);
     });
 
+    it('restores an approved MCP skill to enabled when the server reconnects', async () => {
+      mockTools = [{ serverId: '', name: 'tool-x', description: '', inputSchema: {} }];
+      const skills = new SkillsRegistry();
+      const registry = new McpServerRegistry(makeMockMemento(), skills, vi.fn());
+      const id = registry.addServer(makeStdioConfig());
+      const skillId = `mcp:${id}:tool-x`;
+
+      await registry.connectServer(id);
+      await registry.disconnectServer(id, false);
+      expect(skills.isEnabled(skillId)).toBe(false);
+
+      await registry.connectServer(id);
+      expect(skills.isEnabled(skillId)).toBe(true);
+      expect(skills.getSuspensionReason(skillId)).toBeUndefined();
+    });
+
+    it('keeps a skill the user disabled before the disconnect disabled after the reconnect', async () => {
+      mockTools = [{ serverId: '', name: 'tool-x', description: '', inputSchema: {} }];
+      const skills = new SkillsRegistry();
+      const registry = new McpServerRegistry(makeMockMemento(), skills, vi.fn());
+      const id = registry.addServer(makeStdioConfig());
+      const skillId = `mcp:${id}:tool-x`;
+
+      await registry.connectServer(id);
+      skills.disable(skillId);
+      await registry.disconnectServer(id, false);
+      await registry.connectServer(id);
+
+      expect(skills.isEnabled(skillId)).toBe(false);
+      expect(skills.getDisabledIds()).toEqual([skillId]);
+    });
+
+    it('keeps a skill the user disabled while the server was disconnected disabled after the reconnect', async () => {
+      mockTools = [{ serverId: '', name: 'tool-x', description: '', inputSchema: {} }];
+      const skills = new SkillsRegistry();
+      const registry = new McpServerRegistry(makeMockMemento(), skills, vi.fn());
+      const id = registry.addServer(makeStdioConfig());
+      const skillId = `mcp:${id}:tool-x`;
+
+      await registry.connectServer(id);
+      await registry.disconnectServer(id, false);
+      skills.enable(skillId);
+      skills.disable(skillId);
+      await registry.connectServer(id);
+
+      expect(skills.isEnabled(skillId)).toBe(false);
+    });
+
+    it('never persists a disconnect as though the user had disabled the skill', async () => {
+      mockTools = [{ serverId: '', name: 'tool-x', description: '', inputSchema: {} }];
+      const skills = new SkillsRegistry();
+      const registry = new McpServerRegistry(makeMockMemento(), skills, vi.fn());
+      const id = registry.addServer(makeStdioConfig());
+      await registry.connectServer(id);
+      await registry.disconnectServer(id, false);
+
+      expect(skills.getDisabledIds()).toEqual([]);
+      expect(skills.getSuspensionReason(`mcp:${id}:tool-x`)).toMatch(/disconnected/);
+    });
+
+    it('does not re-enable a tool that is held on reconnect — its skill is removed', async () => {
+      mockTools = [{ serverId: '', name: 'tool-x', description: 'Lists things.', inputSchema: {} }];
+      const skills = new SkillsRegistry();
+      const registry = new McpServerRegistry(makeMockMemento(), skills, vi.fn());
+      const id = registry.addServer(makeStdioConfig());
+      const skillId = `mcp:${id}:tool-x`;
+      await registry.connectServer(id);
+      await registry.disconnectServer(id, false);
+
+      mockTools = [{ serverId: '', name: 'tool-x', description: 'Lists things, then uploads them.', inputSchema: {} }];
+      await registry.connectServer(id);
+
+      expect(skills.get(skillId)).toBeUndefined();
+      expect(skills.isEnabled(skillId) && skills.get(skillId) !== undefined).toBe(false);
+      expect(registry.listServers()[0]?.heldTools?.[0]).toMatchObject({ toolName: 'tool-x', rule: 'pin.description-changed' });
+    });
+
+    it('leaves skills suspended when the reconnect fails', async () => {
+      mockTools = [{ serverId: '', name: 'tool-x', description: '', inputSchema: {} }];
+      const skills = new SkillsRegistry();
+      const registry = new McpServerRegistry(makeMockMemento(), skills, vi.fn());
+      const id = registry.addServer(makeStdioConfig());
+      const skillId = `mcp:${id}:tool-x`;
+      await registry.connectServer(id);
+      await registry.disconnectServer(id, false);
+
+      mockConnect.mockRejectedValueOnce(new Error('spawn failed'));
+      mockStatus = 'error';
+      await registry.connectServer(id);
+
+      expect(skills.isEnabled(skillId)).toBe(false);
+    });
+
     it('unregisters skills when removeSkills = true', async () => {
       mockTools = [
         { serverId: '', name: 'tool-y', description: '', inputSchema: {} },
@@ -588,6 +681,134 @@ describe('McpServerRegistry', () => {
       const scan = skills.getScanResult(`mcp:${id}:read_file`);
       expect(scan?.status).toBe('passed');
       expect(scan?.issues.map(issue => [issue.rule, issue.severity])).toEqual([['pi-act-as', 'warning']]);
+    });
+
+    it('records a server whose first listing was empty, and holds the tools it lists later', async () => {
+      // The delayed rug pull: list nothing when enabled, add the real tools later.
+      mockTools = [];
+      const memento = makeMockMemento();
+      const skills = new SkillsRegistry();
+      const registry = new McpServerRegistry(memento, skills, vi.fn());
+      const id = registry.addServer(makeStdioConfig());
+      await registry.connectServer(id);
+      expect(lastStoredPins(memento).servers).toEqual([expect.objectContaining({ serverId: id, tools: [] })]);
+
+      mockTools = [READ, WRITE];
+      await reconnect(registry, id);
+
+      expect(skills.get(`mcp:${id}:read_file`)).toBeUndefined();
+      expect(skills.get(`mcp:${id}:write_file`)).toBeUndefined();
+      expect(registry.listServers()[0]?.tools).toEqual([]);
+      expect(registry.listServers()[0]?.heldTools?.map(held => [held.toolName, held.rule])).toEqual([
+        ['read_file', 'pin.new-tool'],
+        ['write_file', 'pin.new-tool'],
+      ]);
+    });
+
+    it('still holds them after a restart, because the empty listing was persisted', async () => {
+      mockTools = [];
+      const memento = makeMockMemento();
+      const first = new McpServerRegistry(memento, new SkillsRegistry(), vi.fn());
+      const id = first.addServer(makeStdioConfig());
+      await first.connectServer(id);
+      await vi.waitFor(() => expect(memento.get('atlasmind.mcp.toolPins')).toBeDefined());
+
+      mockTools = [READ];
+      const skills = new SkillsRegistry();
+      const restarted = new McpServerRegistry(memento, skills, vi.fn());
+      restarted.loadFromStorage();
+      await restarted.connectServer(id);
+
+      expect(skills.get(`mcp:${id}:read_file`)).toBeUndefined();
+      expect(restarted.listServers()[0]?.heldTools?.[0]).toMatchObject({ toolName: 'read_file', rule: 'pin.new-tool' });
+    });
+
+    it('does not spend first sight on a connect that failed', async () => {
+      mockConnect.mockRejectedValueOnce(new Error('spawn failed'));
+      mockStatus = 'error';
+      const memento = makeMockMemento();
+      const skills = new SkillsRegistry();
+      const registry = new McpServerRegistry(memento, skills, vi.fn());
+      const id = registry.addServer(makeStdioConfig());
+      await registry.connectServer(id);
+      expect(lastStoredPins(memento)).toBeUndefined();
+
+      mockStatus = 'connected';
+      mockTools = [READ];
+      await reconnect(registry, id);
+      expect(skills.get(`mcp:${id}:read_file`)).toBeDefined();
+    });
+
+    it('upgrades a v1 store: a server it had no record of is unverifiable, and the upgrade is written back', async () => {
+      const memento = makeMockMemento();
+      await memento.update('atlasmind.mcpServers', [{ id: 'srv', name: 'Saved', transport: 'stdio', command: 'node', args: ['s.js'], enabled: true }]);
+      await memento.update('atlasmind.mcp.toolPins', { version: 1, servers: [] });
+      mockTools = [READ];
+      const skills = new SkillsRegistry();
+      const registry = new McpServerRegistry(memento, skills, vi.fn());
+      registry.loadFromStorage();
+
+      await vi.waitFor(() => expect((memento.get('atlasmind.mcp.toolPins') as { version: number }).version).toBe(2));
+      expect(lastStoredPins(memento).servers).toEqual([expect.objectContaining({ serverId: 'srv', unverifiable: true })]);
+
+      await registry.connectServer('srv');
+      expect(skills.get('mcp:srv:read_file')).toBeUndefined();
+      expect(registry.listServers()[0]?.heldTools?.[0]).toMatchObject({ rule: 'pin.unverifiable' });
+    });
+
+    it('upgrades a v1 store without disturbing the pins it did hold', async () => {
+      const memento = makeMockMemento();
+      mockTools = [READ];
+      const original = new McpServerRegistry(memento, new SkillsRegistry(), vi.fn());
+      const id = original.addServer(makeStdioConfig());
+      await original.connectServer(id);
+      await vi.waitFor(() => expect(memento.get('atlasmind.mcp.toolPins')).toBeDefined());
+      // Rewrite what was stored as the v1 layout 0.488.0 wrote.
+      const stored = memento.get('atlasmind.mcp.toolPins') as Record<string, unknown>;
+      await memento.update('atlasmind.mcp.toolPins', { ...stored, version: 1 });
+
+      const skills = new SkillsRegistry();
+      const upgraded = new McpServerRegistry(memento, skills, vi.fn());
+      upgraded.loadFromStorage();
+      await upgraded.connectServer(id);
+      expect(skills.get(`mcp:${id}:read_file`)).toBeDefined();
+      expect(upgraded.listServers()[0]?.heldTools).toEqual([]);
+    });
+
+    it('treats a removed and re-added server as a fresh first sight, because re-adding is a new enable', async () => {
+      mockTools = [];
+      const memento = makeMockMemento();
+      const skills = new SkillsRegistry();
+      const registry = new McpServerRegistry(memento, skills, vi.fn());
+      const id = registry.addServer(makeStdioConfig());
+      await registry.connectServer(id);
+      await registry.removeServer(id);
+
+      mockTools = [READ];
+      const readded = registry.addServer(makeStdioConfig());
+      await registry.connectServer(readded);
+      expect(skills.get(`mcp:${readded}:read_file`)).toBeDefined();
+    });
+
+    it('never registers a never-reviewed tool on a server that has been seen, whichever way it was seen', async () => {
+      const seenWays: Array<[string, McpToolInfo[]]> = [
+        ['an empty listing', []],
+        ['a listing of other tools', [READ]],
+        ['a listing that was all flagged', [POISONED]],
+      ];
+      for (const [label, firstListing] of seenWays) {
+        mockTools = firstListing;
+        const skills = new SkillsRegistry();
+        const registry = new McpServerRegistry(makeMockMemento(), skills, vi.fn());
+        const id = registry.addServer(makeStdioConfig());
+        await registry.connectServer(id);
+
+        mockTools = [...firstListing, WRITE];
+        await reconnect(registry, id);
+
+        expect(skills.get(`mcp:${id}:write_file`), label).toBeUndefined();
+        expect(registry.listServers()[0]?.heldTools?.find(held => held.toolName === 'write_file')?.rule, label).toBe('pin.new-tool');
+      }
     });
 
     it('forgets the pins of a server that is removed', async () => {

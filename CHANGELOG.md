@@ -6,6 +6,34 @@ The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/),
 
 ## [Unreleased]
 
+## [0.488.1] - 2026-10-07
+
+### Fixed
+
+- **An MCP server that lists no tools when you enable it can no longer add them later unreviewed.** In
+  0.488.0, first-sight trust was recorded only when a server's first listing had at least one tool. A server
+  could list nothing on the day you enabled it and add its real tools a week later, and they would be
+  trusted as first sight — a rug pull with the approval step skipped. First sight is now spent by the
+  server's **first successful tool listing, whatever its size**: an empty listing records the server as seen
+  with an empty pin set, so any tool it lists afterwards is held as `pin.new-tool`. A connect that fails
+  spends nothing. The pin store moves to **v2**, which promises that a server with no entry has never
+  completed a listing. A v1 store (written by 0.488.0) could not promise that, so it is migrated on load: its
+  pins carry over unchanged, and every configured server it had **no** record of is marked unverifiable,
+  because in v1 "no record" may mean "listed nothing". Those servers' tools are held once, for review, on
+  their next connect. The upgrade is written back immediately, so its reading of "no record" applies only to
+  the servers configured at that moment. A corrupt store and a store from a newer AtlasMind are read as
+  before. Removing a server still deletes its pins, and adding it again is a fresh first sight, because
+  re-adding is a new enable.
+- **Approved MCP skills come back on when their server reconnects.** Disconnecting a server disabled its MCP
+  skills, and reconnecting re-registered them without re-enabling them, so they stayed off for the rest of the
+  session. Worse, the disconnect was recorded exactly like a user's disable, so toggling any other skill
+  persisted it, and the MCP skills came back disabled after a restart too. `SkillsRegistry` now keeps a
+  **suspension** separate from a user's disable: a disconnect suspends, a reconnect lifts the suspension for
+  the tools the pin rules registered, and a suspension is never persisted. A skill you disabled yourself —
+  before the disconnect or while the server was away — stays disabled. A held tool is never re-enabled; its
+  skill is removed. Disabled ids persisted by the old behaviour cannot be told apart from your own and are
+  left as they are.
+
 ## [0.488.0] - 2026-10-07
 
 ### Added

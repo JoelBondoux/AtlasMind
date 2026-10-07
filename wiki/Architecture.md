@@ -290,14 +290,18 @@ Perforce boundary as `not-visible` rather than zero.
 | **Local GPU arbiter** | Decides which local model requests may run, so several at once cannot over-fill one graphics card |
 
 **MCP tools are pinned.** A connect decides every tool a server offers against a published rule table in
-`src/mcp/mcpToolPins.ts`. A server seen for the first time is trusted on first use. A tool whose
+`src/mcp/mcpToolPins.ts`. A server seen for the first time is trusted on first use, and that trust is
+spent by its first successful tool listing even when the listing is empty. A tool whose
 description or schema changed since it was approved, a tool a pinned server did not have before, a tool
 whose pin cannot be read, and a tool the description scan flags (even on first sight) are held instead of
 registered. Held tools live in `McpServerState.heldTools`, never in `tools`. The MCP panel's **Review
 changed tools** view shows the approved and offered text side by side. Approving posts two opaque ids,
 and the registry re-hashes the live tool before it pins and registers anything. Pins are stored in
-`globalState` under `atlasmind.mcp.toolPins`. The shared types are `McpToolVerdict`, `McpToolScanFinding`,
-`McpToolPin` and `McpHeldTool` in `src/types.ts`.
+`globalState` under `atlasmind.mcp.toolPins` (store v2; a v1 store from 0.488.0 is migrated, and a
+configured server it has no record of is unverifiable). The shared types are `McpToolVerdict`,
+`McpToolScanFinding`, `McpToolPin` and `McpHeldTool` in `src/types.ts`. A disconnect **suspends** a server's
+skills in `SkillsRegistry` rather than disabling them, and a reconnect lifts the suspension; a skill the user
+disabled stays disabled, and a suspension is never persisted.
 
 The approval gate makes a Bypass/Autopilot click and its runtime scope one atomic transition. It settles
 concurrent pending cards only when the scope covers them, the card offered that decision, and the tool is

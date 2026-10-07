@@ -28,10 +28,16 @@
  *    is a tool the user has already approved *with these exact findings in
  *    front of them*: the pin records which flag rules were acknowledged, and a
  *    rule they did not see holds the tool again.
- * 2. **First sight is trust on first use.** A server with no pins at all is one
- *    the user has just enabled (or this is the first run after the upgrade), and
- *    the enable is the approval — asking them to approve thirty tools one by one
- *    on the way in would teach them to click Approve without reading.
+ * 2. **First sight is trust on first use, and it is spent once.** A server with
+ *    no record at all is one the user has just enabled (or this is the first run
+ *    after pinning arrived), and the enable is the approval — asking them to
+ *    approve thirty tools one by one on the way in would teach them to click
+ *    Approve without reading. The trust is consumed by the server's **first
+ *    successful tool listing, whatever its size**: a server that lists nothing
+ *    is still recorded as seen, with an empty pin set. Otherwise a server could
+ *    list zero tools on the day it is enabled and add its real ones a week later
+ *    to have them waved through as first sight — a rug pull with the approval
+ *    step skipped.
  * 3. **An exact match registers.**
  * 4. **A changed description or schema is held, and the skill registered from
  *    the old one is removed** — not merely disabled, since a disabled skill can
@@ -74,7 +80,16 @@ import type {
 // ── Storage ──────────────────────────────────────────────────────
 
 export const MCP_TOOL_PIN_STORAGE_KEY = 'atlasmind.mcp.toolPins';
-export const MCP_TOOL_PIN_STORE_VERSION = 1;
+/**
+ * v2 means "a server with no entry has never completed a tool listing". v1
+ * could not promise that: it recorded nothing for a server whose first listing
+ * was empty, so in a v1 store a configured server with no entry is either never
+ * seen or seen-with-nothing, and the two cannot be told apart. See
+ * `sanitizeMcpToolPinStore` for how that is read.
+ */
+export const MCP_TOOL_PIN_STORE_VERSION = 2;
+/** The v1 layout, written by 0.488.0. Same shape; weaker meaning of an absent entry. */
+const MCP_TOOL_PIN_STORE_V1 = 1;
 
 /** How much approved text a pin keeps for the review view. Hashes cover the whole thing. */
 export const PIN_TEXT_CAP = 4000;
@@ -83,6 +98,10 @@ export const MODEL_DESCRIPTION_CAP = 1000;
 
 export interface McpServerPins {
   serverId: string;
+  /**
+   * When the server's first successful tool listing was recorded — empty or
+   * not. The entry's existence is the "seen" marker; `tools` may be empty.
+   */
   firstPinnedAt: string;
   /**
    * Something stored for this server could not be read. Every tool without a
@@ -101,6 +120,13 @@ export interface McpToolPinStore {
    * whatever the newer build recorded.
    */
   readOnly: boolean;
+  /**
+   * The stored value was an older layout and was read through a migration. The
+   * registry writes it back at once, so the migration's reading of "absent" is
+   * fixed at the moment it was made rather than re-applied to servers added
+   * afterwards.
+   */
+  migratedFrom?: number;
 }
 
 function emptyMcpToolPinStore(): McpToolPinStore {
@@ -145,12 +171,19 @@ function sanitizePin(raw: unknown, serverId: string): McpToolPin | undefined {
  * valid one.
  *
  * - `undefined` is a first run: an empty store, and every server is first sight.
- * - Anything else that is not a v1 store — garbage, or a newer version — cannot
+ * - Anything else that is not a v1 or v2 store — garbage, or a newer version — cannot
  *   say which servers it pinned, so **every server the registry knows about** is
  *   recorded as pinned-but-unverifiable. Without that, a corrupted store would
  *   read as "nothing pinned yet" and wave every tool through as first sight.
  * - An entry whose server id cannot be read has the same problem one level down,
  *   so every known server without a readable entry is marked the same way.
+ * - A **v1** store (0.488.0) is read, then migrated: its entries carry over, and
+ *   every known server *without* an entry is marked unverifiable. v1 did not
+ *   record a server whose first listing was empty, so for those servers "no
+ *   entry" may mean "seen, listed nothing" — and reading it as first sight is
+ *   exactly the hole v2 closes. The cost is that a server v1 never connected has
+ *   its tools held once, for review; the alternative cost is trusting a tool
+ *   nobody approved. Unknown is not clear.
  * - A single malformed tool pin marks its server unverifiable; its tools that
  *   do have readable pins still match.
  */
@@ -174,9 +207,10 @@ export function sanitizeMcpToolPinStore(raw: unknown, knownServerIds: readonly s
   if (typeof version === 'number' && Number.isInteger(version) && version > MCP_TOOL_PIN_STORE_VERSION) {
     return unverifiableEverywhere(true);
   }
-  if (version !== MCP_TOOL_PIN_STORE_VERSION || !Array.isArray(document['servers'])) {
+  if ((version !== MCP_TOOL_PIN_STORE_VERSION && version !== MCP_TOOL_PIN_STORE_V1) || !Array.isArray(document['servers'])) {
     return unverifiableEverywhere(false);
   }
+  const fromV1 = version === MCP_TOOL_PIN_STORE_V1;
 
   const servers = new Map<string, McpServerPins>();
   let unattributable = false;
@@ -215,14 +249,16 @@ export function sanitizeMcpToolPinStore(raw: unknown, knownServerIds: readonly s
     servers.set(serverId, { serverId, firstPinnedAt, unverifiable, tools });
   }
 
-  if (unattributable) {
+  if (unattributable || fromV1) {
     for (const serverId of knownServerIds) {
       if (!servers.has(serverId)) {
         servers.set(serverId, { serverId, firstPinnedAt: '', unverifiable: true, tools: [] });
       }
     }
   }
-  return { servers, readOnly: false };
+  return fromV1
+    ? { servers, readOnly: false, migratedFrom: MCP_TOOL_PIN_STORE_V1 }
+    : { servers, readOnly: false };
 }
 
 /** The JSON-shaped value written to globalState. */
@@ -589,7 +625,7 @@ export const PIN_RULES: readonly PinRule[] = [
     verdict: 'first-sight',
     action: 'register',
     removesExistingSkill: false,
-    reason: 'First time this server has been seen — you enabled it, so its tools are pinned as they are now.',
+    reason: 'This is the first tool listing this server has completed — you enabled it, so its tools are pinned as they are now. A server is recorded as seen even when that listing is empty.',
   },
   {
     id: 'pin.match',
@@ -617,7 +653,7 @@ export const PIN_RULES: readonly PinRule[] = [
     verdict: 'unverifiable',
     action: 'hold',
     removesExistingSkill: true,
-    reason: 'The stored pin for this server could not be read, so there is nothing this tool can be matched against. Unknown is not clear.',
+    reason: 'What is stored for this server cannot vouch for this tool: the stored pins could not be read, or were written by a version (0.488.0) that did not record a server whose first listing was empty. There is nothing to match it against, and unknown is not clear.',
   },
   {
     id: 'pin.new-tool',
@@ -732,9 +768,10 @@ export function evaluateMcpToolPins(input: {
     });
   }
 
-  if (firstSight && tools.length > 0) {
-    // The entry is created even when every tool was flagged: the server has
-    // now been seen, and a tool it adds later is a new tool, not first sight.
+  if (firstSight) {
+    // The entry is created whatever the listing held — every tool flagged, or
+    // no tools at all. The server has now been seen, and first sight is spent:
+    // a tool it lists later is a new tool, held for review, not first sight.
     return {
       decisions,
       nextPins: { serverId, firstPinnedAt: now, unverifiable: false, tools: newPins },

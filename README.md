@@ -4,7 +4,7 @@
 
 <h1 align="center">AtlasMind</h1>
 
-<p align="center"><sub> · <strong>Current source version: 0.488.0</strong> · </sub></p>
+<p align="center"><sub> · <strong>Current source version: 0.488.1</strong> · </sub></p>
 
 
 <p align="center">
@@ -175,6 +175,13 @@ allow-list, redaction and file-withholding behaviour, retained metadata, provide
 important limits on overrides and compliance claims.
 
 ---
+
+## What's new in 0.488.1
+
+Two MCP fixes. A server that lists no tools when you enable it can no longer add tools later and have them
+trusted as first sight: the first successful listing is what you approved, even when it is empty, so a tool
+that appears afterwards waits for review. And approved MCP skills switch back on when their server
+reconnects, instead of staying off until you re-enable each one. A skill you turned off yourself stays off.
 
 ## What's new in 0.488.0
 

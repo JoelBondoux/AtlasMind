@@ -122,9 +122,12 @@ It's handled in layers:
   instruction, so it is the obvious place to hide one. Every MCP tool's description and input schema is
   scanned for tool-poisoning text: instruction tags, claims over other tools, hiding things from you,
   credential paths, hidden characters and encoded blobs. Every tool is also pinned to the version you
-  approved. A flagged tool is held even on first sight. A tool that changes after approval is held, and
+  approved. A flagged tool is held even on first sight. First sight is spent by the server's first
+  successful tool listing, **even an empty one**, so a server can't list nothing when you enable it and add
+  its real tools later to have them trusted unreviewed. A tool that changes after approval is held, and
   the skill made from its old version is removed. A pin that can't be read is treated as unverifiable, never
-  as "nothing pinned yet". Approving a held tool in the MCP panel pins exactly the version you reviewed.
+  as "nothing pinned yet" — and so is a server the 0.488.0 pin store has no record of, since that build
+  didn't record a server whose first listing was empty. Approving a held tool in the MCP panel pins exactly the version you reviewed.
   The panel sends an opaque id bound to that version's hashes, and the extension re-checks the live tool
   before it registers anything
 

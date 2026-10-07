@@ -5,7 +5,8 @@
  *  - Persist server configurations to VS Code globalState.
  *  - Create and manage McpClient instances keyed by server ID.
  *  - Register MCP tools as SkillDefinition objects in the SkillsRegistry when a server connects.
- *  - Unregister (or disable) those skill entries when a server disconnects.
+ *  - Unregister (or suspend) those skill entries when a server disconnects, and
+ *    lift exactly those suspensions when it reconnects.
  *  - Emit a refresh event so UI surfaces update in real time.
  *
  * MCP tool skill IDs follow the pattern: `mcp:<serverId>:<toolName>`
@@ -367,13 +368,17 @@ export class McpServerRegistry {
 
     const state = this.states.get(id);
     if (state) {
-      // Disable (or unregister) skills that were registered by this server
+      // Suspend (or unregister) skills that were registered by this server.
+      // Suspended, not disabled: a disable is the user's choice and is
+      // persisted as one, and a reconnect could not tell it apart from this.
+      // A suspension is lifted on reconnect without touching a skill the user
+      // turned off themselves.
       for (const tool of state.tools) {
         const skillId = mcpSkillId(id, tool.name);
         if (removeSkills) {
           this.skillsRegistry.unregister(skillId);
         } else {
-          this.skillsRegistry.disable(skillId);
+          this.skillsRegistry.suspend(skillId, `${state.config.name} is disconnected.`);
         }
       }
       // A held tool was never registered, but a skill from an earlier approved
@@ -472,7 +477,14 @@ export class McpServerRegistry {
     // Read the pins now that the known servers are: a corrupt store marks every
     // one of them unverifiable rather than none of them.
     this.pinStore = undefined;
-    this.pins();
+    const store = this.pins();
+    if (store.migratedFrom !== undefined && !store.readOnly) {
+      // Written back at once: the migration read "no entry" for the servers
+      // known *now*, and re-reading the old layout next session would apply
+      // that reading to servers added in between.
+      this.outputChannel?.appendLine(`[mcp] Upgraded stored tool pins from v${store.migratedFrom}; servers it had no record of are held for review on their next connect.`);
+      void this.persistPins();
+    }
   }
 
   // ── Private helpers ──────────────────────────────────────────
@@ -530,6 +542,12 @@ export class McpServerRegistry {
       scan: decision.scan,
       approvedDespiteFlags: decision.rule === 'pin.flagged-approved',
     })));
+    // Lift the disconnect's suspension, for registered tools only. A held
+    // tool's skill was unregistered above, so it has nothing to lift; and
+    // `resume` never touches a skill the user disabled themselves.
+    for (const decision of registered) {
+      this.skillsRegistry.resume(mcpSkillId(serverId, decision.tool.name));
+    }
 
     if (state.heldTools.length > 0) {
       for (const entry of state.heldTools) {

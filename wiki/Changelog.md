@@ -19,6 +19,23 @@ Older entries below describe the software as it was at the time and are delibera
 
 ---
 
+## v0.488.1 -- An empty first listing is still a first listing
+
+Two fixes to MCP pinning and the skills it registers.
+
+- **First sight is spent once, even on an empty listing.** A server that listed no tools when you enabled
+  it used to leave no record, so tools it added later were trusted as first sight. Now the first successful
+  listing records the server as seen whatever it held, and a tool that appears afterwards is held for
+  review. A failed connect records nothing.
+- **Upgrading from 0.488.0 is careful.** 0.488.0 kept no record of a server that listed nothing, so a
+  configured server it has no record of is treated as unverifiable: its tools are held once, for you to
+  approve. Pins it did record carry over unchanged.
+- **Reconnecting brings approved MCP skills back.** A disconnect now *suspends* a server's skills instead
+  of disabling them as if you had, and a reconnect lifts the suspension. A skill you disabled yourself
+  stays disabled, a held tool is never switched on, and a suspension is never saved.
+
+---
+
 ## v0.488.0 -- MCP tools are pinned, and a changed tool waits for you
 
 Enabling an MCP server used to trust every tool it would ever list. Each tool became a skill, its
