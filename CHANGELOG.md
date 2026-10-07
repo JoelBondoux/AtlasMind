@@ -6,6 +6,51 @@ The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/),
 
 ## [Unreleased]
 
+## [0.487.0] - 2026-10-07
+
+### Added
+
+- **Find candidates for a release gate.** Declaring a gate takes one click. Filling it meant tagging the
+  backlog one chip at a time, so most gates stayed nearly empty while the items that belonged on them sat
+  in the list below. Every gate now has a **Find candidates** action, carrying the AtlasMind mark: beside
+  the gate selector on the backlog view, and beside the Gate picker on the canvas once a gate is
+  highlighted. It lists the backlog items that may belong on that gate. Each item shows the rule that
+  matched it and what it matched on, and you pick the ones you agree with. **Add to gate** shows a
+  confirmation listing every item and the `#tag` it gains, then adds only the tag.
+
+### Design
+
+- **A declared rule table, not a model** (`roadmapGateCandidates.ts`). Six published rules, ranked by
+  consequence:
+  1. *Something on this gate waits on it.* Declared links only, followed transitively. Suggested links
+     never count.
+  2. *Names the release.* Distinctive words from the gate's label and id. Short or numbered tags such as
+     `v2` match as whole words, and generic words like "version" are ignored.
+  3. *Foundational work.* MVP only.
+  4. *Same subject as work on this gate.* Two shared words that also cover a quarter of the shorter
+     item. Measured on this repository's roadmap, two shared words alone between two long paragraphs
+     proposed items for sharing "bring" and "keeps".
+  5. *Waits on work on this gate.* Corroborates only.
+  6. *The gate's usual kind of work.* Corroborates only.
+- **Ranked by the most consequential rule, then score, then backlog order.** An item the gate cannot ship
+  without comes before one that only shares its vocabulary, and the list cannot shuffle between renders.
+  At most twelve candidates are shown, and the rest are counted.
+- **The MVP heuristic is one function, generalised rather than copied.** `isFoundationalRoadmapWork` is
+  now the single definition. The suggested MVP route reads it, and the scan's MVP rule reads it, so the two
+  cannot disagree. It stays MVP-only, as before: foundational work says nothing about a later release.
+- **Could-not-assess is not none-found.** A scan reports *candidates*, *nothing matched*, *nothing to scan*
+  (every outstanding item is already on the gate) or *could not assess*. A gate called "Next release"
+  with nothing tagged yet has no word to look for, so it says that instead of showing an empty list.
+  Every rule that could not run is listed with its reason. Unreadable links show as *not assessed*, not as
+  *no prerequisites*.
+- **The page names items; the host decides.** The scan for every gate comes with the snapshot, so
+  opening, picking and closing it send no message. **Add to gate** posts a gate id and the picked durable
+  item ids, validated rather than cleaned. The host runs the same scan again from disk and refuses any id
+  that is no longer a candidate. It checks each item's text as well as its position, so an insert between
+  render and click cannot move the tag to the wrong item, and it writes through the one roadmap writer,
+  keeping every gate an item is already on. Delivered items and items already on the gate are never
+  proposed.
+
 ## [0.486.0] - 2026-10-07
 
 ### Added

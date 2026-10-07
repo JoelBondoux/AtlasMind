@@ -1209,7 +1209,15 @@ remembers the choice per editor. **Release-gate dots** mark every roadmap card w
 coloured by `assignRoadmapGateColors` (`roadmapGates.ts`) from each gate's declared position — never a
 hash, so two gates never share a colour and every machine agrees — with a colour key beside the Gate
 picker. The host ships the colour, the webview only draws it, each dot is named by its gate, and pressing
-a dot or a key sets the same offline highlight the picker does. **Calculate tree**, carrying the AtlasMind mark, works the
+a dot or a key sets the same offline highlight the picker does. **Find candidates**, also carrying the
+AtlasMind mark, is the gate scan (`roadmapGateCandidates.ts`): per declared gate it lists the backlog
+items that may belong on it, each naming the published rule that matched — what the gate already waits
+on through declared links, the gate's name, the MVP foundation heuristic (MVP only, the same function the
+suggested MVP route uses), shared subject with work already on the gate — ranked by the most
+consequential rule, capped with the remainder stated, and saying *could not assess* rather than showing
+an empty list when no rule could run. The scan ships with the snapshot; **Add to gate** posts a gate id
+and item ids only, and the host re-runs the scan, refuses anything that is no longer a candidate, and
+names every item in a modal before the one roadmap writer adds the tag. **Calculate tree**, carrying the AtlasMind mark, works the
 whole dependency tree out from the wording of the backlog and offers it behind one confirmation naming
 how many links it would add.
 

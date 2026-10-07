@@ -2495,6 +2495,22 @@ The release milestones a roadmap item can be tagged for. The Roadmap page only e
 
 The panel computes one route per gate up front (`buildGateRoutes`) so switching gates in the UI is instant and cannot fail on a message round trip. The heuristic "suggested foundations" fallback remains **MVP-only**: recognising foundational work is not a claim about which release something belongs to, so a user-created gate with nothing tagged is reported as empty rather than filled with a guess.
 
+### RoadmapGateCandidates (`src/core/roadmapGateCandidates.ts`)
+
+The AtlasMind gate scan: which backlog items look as if they belong on one release gate. A gate is declared in one click and then sits nearly empty, because tagging forty items one chip at a time is the step nobody finishes. `scanRoadmapGateCandidates` reads the backlog against one gate and lists the items worth a second look; it is mostly about what it refuses to claim.
+
+**Candidates come from a declared rule table, never a model.** `GATE_CANDIDATE_RULES` holds six rules. Every candidate names each rule that matched and what it matched on, and the table is published beside the list. In ranking order: *something on this gate waits on it* (declared links only, transitively, cycle-safe; suggested links never count), *names the release* (distinctive words from the gate's label and id, with short or numbered tags such as `v2` or `mvp` matched as whole words, and generic words like "version" ignored), *foundational work* (MVP only), *same subject as work on this gate* (at least two shared distinctive words covering at least `SHARED_SUBJECT_MIN_OVERLAP` of the shorter item), *waits on work on this gate*, and *the gate's usual kind of work*.
+
+**Ranked by consequence, not by score.** The most consequential rule that matched decides the order, so an item the gate cannot ship without outranks one that only shares its vocabulary. Score (the matched rules' weights) breaks ties, then backlog order, then id. The list is capped at `GATE_CANDIDATE_CAP` and the remainder is stated.
+
+**The MVP heuristic is one row, generalised rather than duplicated.** `isFoundationalRoadmapWork` is the single definition of foundational work: the backlog prioritiser's `mvpCandidate` (which feeds the suggested MVP route) now calls it, and the scan's `mvp-foundation` rule uses the same function. It stays scoped to the MVP gate, because recognising foundational work is not a claim about a later release.
+
+**A weak signal never lists an item on its own.** *Waits on work on this gate* and *the gate's usual kind of work* only corroborate; alone, either would list half the backlog.
+
+**Could-not-assess is not none-found.** The report's `status` is `candidates`, `none` (rules ran, nothing matched), `nothing-eligible` (every outstanding item is already on the gate), or `unassessable` (no rule that can list an item could run: for example a gate called "Next release" with nothing tagged yet). Every rule that could not run is listed in `skipped` with its reason, and unreadable links are reported as not assessed rather than as "no prerequisites".
+
+**Nothing here writes.** Delivered items and items already on the gate are never proposed. `resolveGateCandidateSelection` accepts only ids the report proposed. The dashboard computes one report per gate with the snapshot (`buildGateCandidatesView`, keyed by durable graph node id), so **Find candidates** is a way of looking. Picking is local. **Add to gate** posts a gate id and the picked ids; the host runs the same function again from disk, refuses any id that is no longer a candidate, checks each item's text as well as its position, shows a modal that names every item and its `#tag`, and writes through the one roadmap writer, keeping every gate an item already has.
+
 ### RegisterHandoff (`src/core/registerHandoff.ts`)
 
 Turning a register finding into planned work. AtlasMind keeps three registers of things somebody found and wrote down — the gap analysis, the tech-debt register and the risk register. All three fed the operational score and the attention band, and none of them could become work: the Gap Analysis page's own nav strip said *"Turn a gap into planned work"* and routed to the Roadmap, where you retyped it by hand with no link in either direction. A P1 gap is the most concrete "somebody wrote down that something is wrong" signal on the dashboard, and it was the one that dead-ended. Pure, `vscode`-free, unit-tested.

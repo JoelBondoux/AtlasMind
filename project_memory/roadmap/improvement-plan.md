@@ -7,7 +7,7 @@ This file is the developer-facing backlog AtlasMind should absorb into SSOT and 
 - [x] On all the roadmap pages have a button to toggle visiblity of completed items (so the canvas would also show them - but colour coded accordingly. #mvp <!-- rm:on-all-the-roadmap-pages-hav -->
 - [x] AM dashboard visual identity has the boxes, bubbles etc of a very similar colour to the background sometimes making it difficult to read the various parse. Perhaps run a visual accessibiliy on all the dashboards. #mvp #critical <!-- rm:am-dashboard-visual-identity -->
 - [x] Roadmap nodes should have a row of dots in them to represent the various Gates that item is included in. Each gate is auto assigned a colour, but it would also mean keeping the gate selector buttons on the dash screen of the canvas pages. #mvp <!-- rm:roadmap-nodes-should-have-a -->
-- [ ] Roadmap Gates should have a function where there is an AM scan of the roadmap items against the Gate name and items are listed as potential candidates for inclusion. #mvp <!-- rm:roadmap-gates-should-have-a -->
+- [x] Roadmap Gates should have a function where there is an AM scan of the roadmap items against the Gate name and items are listed as potential candidates for inclusion. #mvp <!-- rm:roadmap-gates-should-have-a -->
 - [ ] Roadmap canvas for the delivered page needs the same node management controls as the other canvas pages. #mvp <!-- rm:roadmap-canvas-for-the-deliv -->
 - [ ] Roadmap AutoTree doesn't bring nodes together enough and keeps many spread out off screen. #mvp <!-- rm:roadmap-autotree-doesn-t-bri -->
 - [ ] Team management surface to manage workload, estimated work times, rotas, and integrate with common rota management applications. <!-- rm:team-management-surface-to-m -->

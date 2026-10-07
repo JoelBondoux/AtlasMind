@@ -19,6 +19,22 @@ Older entries below describe the software as it was at the time and are delibera
 
 ---
 
+## v0.487.0 -- Find candidates for a release gate
+
+Every release gate on the Roadmap page now has a **Find candidates** action: beside the gate selector on
+the backlog, and beside the Gate picker on the canvas once a gate is highlighted. AtlasMind reads the
+backlog against the gate and lists the items that may belong on it. Each item names the rule that
+matched it: something already on the gate waits on it, it names the release, it is foundational work (MVP
+only), or it shares a subject with work already there. Candidates are ranked by how much the gate depends
+on them, with at most twelve shown and the rest counted.
+
+Pick the items you agree with and press **Add**. A confirmation lists every item and the tag it gains, and
+only the tag is written. Items already on the gate and delivered items are never proposed. A gate the scan
+cannot assess, such as a new gate with a generic name and nothing on it yet, says so instead of showing an
+empty list.
+
+---
+
 ## v0.486.0 -- Release gates on every roadmap card
 
 Each card on the Roadmap page now carries a row of coloured dots, one for every release gate it is on, so

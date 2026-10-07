@@ -621,6 +621,15 @@ import {
   type RoadmapGateColor,
 } from '../core/roadmapGates.js';
 import {
+  GATE_CANDIDATE_CAP,
+  GATE_CANDIDATE_RULES,
+  isFoundationalRoadmapWork,
+  resolveGateCandidateSelection,
+  scanRoadmapGateCandidates,
+  type GateCandidateRule,
+  type RoadmapGateCandidateReport,
+} from '../core/roadmapGateCandidates.js';
+import {
   ROADMAP_EDGE_RULES,
   buildRoadmapCompletedOverlay,
   edgeKey,
@@ -1304,6 +1313,13 @@ type ProjectDashboardMessage =
   | { type: 'scanReleaseMatrixDocuments' }
   | { type: 'applyReleaseMatrixImport'; payload: { previewId: string; selections: ReleaseDesignImportSelection[] } }
   | { type: 'deleteRoadmapGate'; payload: string }
+  /**
+   * Put items the gate scan proposed on a gate. Carries a gate id and the
+   * candidates' durable ids, nothing else: the host re-runs the scan from disk,
+   * refuses any id that is not a candidate now, and names every item in a modal
+   * before the one roadmap writer runs.
+   */
+  | { type: 'includeRoadmapGateCandidates'; payload: { gateId: string; itemIds: string[] } }
   | { type: 'refreshIssues' }
   /**
    * Read CI on its own, without the four other `gh` calls the issues refresh
@@ -2992,6 +3008,20 @@ interface DashboardRoadmapSnapshot {
   gateRoutes: Record<string, DashboardMvpSnapshot>;
   /** The dependency canvas: what has to happen before what. */
   graph: DashboardRoadmapGraphView;
+  /**
+   * The AtlasMind gate scan: per declared gate, the backlog items that may
+   * belong on it and the rule that matched each. Computed with the snapshot, so
+   * "Find candidates" is a way of looking rather than a round trip — and the
+   * include action re-derives it from disk before anything is written.
+   */
+  gateCandidates: DashboardGateCandidatesView;
+}
+
+interface DashboardGateCandidatesView {
+  /** The declared rule table, published beside every list. */
+  rules: readonly GateCandidateRule[];
+  /** One report per declared gate, keyed by gate id. */
+  reports: Record<string, RoadmapGateCandidateReport>;
 }
 
 /**
@@ -6234,6 +6264,9 @@ export class ProjectDashboardPanel {
         return;
       case 'deleteRoadmapGate':
         await this.handleDeleteRoadmapGate(message.payload);
+        return;
+      case 'includeRoadmapGateCandidates':
+        await this.handleIncludeRoadmapGateCandidates(message.payload);
         return;
       case 'refreshIssues':
         await this.handleRefreshIssues();
@@ -13311,6 +13344,102 @@ ${buildCardEvidenceSection(source, derivation)}`;
     await this.writeRoadmapDocument(context, items, gates);
   }
 
+  /**
+   * Put the items the gate scan proposed on a gate.
+   *
+   * The page names a gate and some candidate ids; everything else is decided
+   * here. The scan is run again from disk through the same function the page
+   * was drawn from, and an id that is not a candidate *now* — the page was
+   * stale, or the message was crafted — is refused and named, never tagged.
+   * The modal lists every item and the exact `#tag` it gains, and the write
+   * goes through the roadmap's one writer: nothing is reworded, reordered or
+   * removed, and an item keeps every gate it already had.
+   */
+  private async handleIncludeRoadmapGateCandidates(payload: { gateId: string; itemIds: string[] }): Promise<void> {
+    const context = await this.readRoadmapDocument();
+    if (!context) {
+      return;
+    }
+    const gate = context.gates.find(entry => entry.id === payload.gateId);
+    if (!gate) {
+      void vscode.window.showWarningMessage('That release gate is no longer declared. Refresh the dashboard and scan again.');
+      return;
+    }
+    const roadmap = await collectRoadmapSnapshot(context.workspaceRoot, context.ssotPath);
+    const report = roadmap.gateCandidates.reports[gate.id];
+    if (!report) {
+      return;
+    }
+    const { accepted, refused } = resolveGateCandidateSelection(report, payload.itemIds);
+    // Positional ids from the same read the writer will use, with the text
+    // checked as well: an insert between the two reads renumbers positions, and
+    // tagging whatever now sits at `roadmap-7` would tag the wrong item.
+    const nodeToItem = new Map<string, string>();
+    for (const node of [...roadmap.graph.active, ...roadmap.graph.completed]) {
+      nodeToItem.set(node.id, node.itemId);
+    }
+    const targets = accepted
+      .map(candidate => {
+        const itemId = nodeToItem.get(candidate.id) ?? candidate.id;
+        const item = context.items.find(entry => entry.id === itemId);
+        return item !== undefined && normalizeRoadmapNodeText(item.text) === normalizeRoadmapNodeText(candidate.text)
+          ? { candidate, itemId }
+          : undefined;
+      })
+      .filter((entry): entry is { candidate: (typeof accepted)[number]; itemId: string } => entry !== undefined);
+    const stale = accepted.length - targets.length;
+
+    if (targets.length === 0) {
+      void vscode.window.showWarningMessage(
+        `None of the selected items is a candidate for ${gate.label} any more, so nothing was tagged. The roadmap may have changed since the scan was drawn — refresh and scan again.`,
+      );
+      return;
+    }
+
+    const confirmation = await vscode.window.showWarningMessage(
+      `Put ${targets.length} item${targets.length === 1 ? '' : 's'} on ${gate.label}?`,
+      {
+        modal: true,
+        detail: formatRoadmapDialogSections([
+          {
+            heading: `Add #${gate.id} to`,
+            lines: targets.map(({ candidate }) => {
+              const rule = GATE_CANDIDATE_RULES.find(entry => entry.id === candidate.leadingRule);
+              return `${candidate.text}\n(${rule?.label ?? candidate.leadingRule}: ${candidate.matches[0]?.evidence ?? ''})`;
+            }),
+          },
+          {
+            heading: 'Not included',
+            lines: [
+              ...(refused.length > 0 ? [`${refused.length} selected item${refused.length === 1 ? ' is' : 's are'} not a candidate for ${gate.label} any more and will not be tagged.`] : []),
+              ...(stale > 0 ? [`${stale} selected item${stale === 1 ? '' : 's'} changed since the scan and will not be tagged.`] : []),
+            ],
+          },
+          {
+            heading: 'Roadmap change',
+            lines: [
+              `Write ${path.relative(context.workspaceRoot, context.filePath).replace(/\\/g, '/')}`,
+              'Only the gate tag is added. No item is reworded, reordered, completed or removed, and every gate an item is already on is kept.',
+            ],
+          },
+        ]),
+      },
+      'Add to gate',
+    );
+    if (confirmation !== 'Add to gate') {
+      return;
+    }
+
+    const include = new Set(targets.map(target => target.itemId));
+    const items = context.items.map(item => (
+      include.has(item.id) && !item.gates.includes(gate.id)
+        ? { ...item, gates: [...item.gates, gate.id] }
+        : item
+    ));
+    await this.writeRoadmapDocument(context, items, context.gates);
+    void vscode.window.showInformationMessage(`${targets.length} item${targets.length === 1 ? '' : 's'} added to ${gate.label}.`);
+  }
+
   /** Read the roadmap document once, with its gates and items already parsed. */
   // ── Registers → planned work ────────────────────────────────────
 
@@ -18367,6 +18496,10 @@ export function isProjectDashboardMessage(message: unknown): message is ProjectD
     return typeof candidate['payload'] === 'string' && slugifyGateId(candidate['payload']).length > 0;
   }
 
+  if (candidate['type'] === 'includeRoadmapGateCandidates') {
+    return isGateCandidateIncludePayload(candidate['payload']);
+  }
+
   if ((candidate['type'] === 'openCommand' || candidate['type'] === 'openSettingKey' || candidate['type'] === 'openFile' || candidate['type'] === 'openRun' || candidate['type'] === 'openRunWithGoal' || candidate['type'] === 'openSession' || candidate['type'] === 'addressGap' || candidate['type'] === 'resolveGapItem' || candidate['type'] === 'resolveGapGroup' || candidate['type'] === 'openGapFiles' || candidate['type'] === 'copyContact' || candidate['type'] === 'copyDeliveryCommand' || candidate['type'] === 'sendDeliveryCommandToTerminal' || candidate['type'] === 'runDeliveryGuidePhase' || candidate['type'] === 'discussDeliveryGuideStep' || candidate['type'] === 'discussArtifactSignal' || candidate['type'] === 'createShelfFolder') && typeof candidate['payload'] === 'string') {
     return candidate['payload'].trim().length > 0;
   }
@@ -18647,6 +18780,28 @@ function isDataPrivacyConfigPayload(payload: unknown): payload is import('../typ
   return (p['rules'] as unknown[]).every(validRule)
     && (p['compliancePacks'] as unknown[]).every(id => typeof id === 'string')
     && (p['trustedModelIds'] as unknown[]).every(id => typeof id === 'string');
+}
+
+/**
+ * A gate id and a short list of item ids — the whole of what the page may say.
+ *
+ * Validated, never cleaned: an id with a character a graph id cannot hold is
+ * refused rather than trimmed into one that might name a different item. The
+ * cap is the scan's own, doubled for slack; a page cannot have offered more.
+ */
+function isGateCandidateIncludePayload(payload: unknown): payload is { gateId: string; itemIds: string[] } {
+  if (typeof payload !== 'object' || payload === null || Array.isArray(payload)) {
+    return false;
+  }
+  const record = payload as Record<string, unknown>;
+  const gateId = record['gateId'];
+  const itemIds = record['itemIds'];
+  return typeof gateId === 'string'
+    && slugifyGateId(gateId) === gateId
+    && Array.isArray(itemIds)
+    && itemIds.length > 0
+    && itemIds.length <= GATE_CANDIDATE_CAP * 2
+    && itemIds.every(id => typeof id === 'string' && /^[a-z0-9][a-z0-9-]{0,79}$/i.test(id));
 }
 
 function isDashboardRoadmapSavePayload(payload: unknown): payload is DashboardRoadmapSavePayload {
@@ -25895,6 +26050,7 @@ async function collectRoadmapSnapshot(workspaceRoot: string | undefined, ssotPat
       gates: buildGateViews(gates, []),
       gateRoutes: buildGateRoutes(gates, []),
       graph: emptyRoadmapGraphView(filePath),
+      gateCandidates: buildGateCandidatesView(gates, [], emptyRoadmapGraphView(filePath)),
       // Filled by `withIdeationOrigins`; nothing here has read the board.
       boardBacklog: { total: 0, needsAttention: 0 },
     };
@@ -25904,6 +26060,7 @@ async function collectRoadmapSnapshot(workspaceRoot: string | undefined, ssotPat
   const content = await fs.readFile(absolutePath, 'utf-8').catch(() => '');
   const gates = parseRoadmapGates(content);
   const items = prioritizeDashboardRoadmapItems(parseDashboardRoadmapItems(content, gates));
+  const graph = buildRoadmapGraphView(workspaceRoot, ssotPath, filePath, items, gates);
 
   return {
     filePath,
@@ -25914,7 +26071,8 @@ async function collectRoadmapSnapshot(workspaceRoot: string | undefined, ssotPat
     mvp: buildMvpSnapshot(items, MVP_GATE_ID),
     gates: buildGateViews(gates, items),
     gateRoutes: buildGateRoutes(gates, items),
-    graph: buildRoadmapGraphView(workspaceRoot, ssotPath, filePath, items, gates),
+    graph,
+    gateCandidates: buildGateCandidatesView(gates, items, graph),
     // Filled by `withIdeationOrigins`; nothing here has read the board.
     boardBacklog: { total: 0, needsAttention: 0 },
   };
@@ -26195,6 +26353,50 @@ function buildGateRoutes(gates: RoadmapGate[], items: DashboardRoadmapItem[]): R
   return routes;
 }
 
+/**
+ * The gate scan for every declared gate, from the same items and graph the page
+ * draws.
+ *
+ * Candidates are addressed by the graph's durable node id, because that is the
+ * id that survives an insert above the item between the render and the click.
+ * When the canvas could not be built, so there is no durable id for every item,
+ * the positional ids are used and the links are reported as unreadable — the
+ * dependency rules then say "not assessed" rather than "no prerequisites".
+ *
+ * Shared by the render and by the include handler, which calls it again from
+ * disk: the list somebody picked from and the list the write is checked against
+ * are produced by one function.
+ */
+function buildGateCandidatesView(
+  gates: RoadmapGate[],
+  items: readonly DashboardRoadmapItem[],
+  graph: Pick<DashboardRoadmapGraphView, 'active' | 'completed' | 'edges'>,
+): DashboardGateCandidatesView {
+  const nodeIdByItemId = new Map<string, string>();
+  for (const node of [...graph.active, ...graph.completed]) {
+    nodeIdByItemId.set(node.itemId, node.id);
+  }
+  const durable = items.every(item => nodeIdByItemId.has(item.id));
+  const scanItems = items.map((item, index) => ({
+    id: durable ? nodeIdByItemId.get(item.id) as string : item.id,
+    text: item.text,
+    completed: item.completed,
+    gates: item.gates,
+    focus: item.focus,
+    // Backlog order is the file's order, recovered from the positional id —
+    // `items` arrives sorted by priority, which is not an order anybody chose.
+    order: Number(item.id.replace(/^roadmap-/, '')) || index,
+  }));
+  const edges = items.length === 0
+    ? []
+    : durable ? graph.edges.map(edge => ({ from: edge.from, to: edge.to })) : undefined;
+  const reports: Record<string, RoadmapGateCandidateReport> = {};
+  for (const gate of normalizeGates(gates).slice(0, MAX_ROADMAP_GATES)) {
+    reports[gate.id] = scanRoadmapGateCandidates({ gate, items: scanItems, edges });
+  }
+  return { rules: GATE_CANDIDATE_RULES, reports };
+}
+
 function parseDashboardRoadmapItems(content: string, gates: RoadmapGate[]): Array<{ id: string; text: string; completed: boolean; isMvp: boolean; gates: string[]; nodeId?: string }> {
   const region = extractRoadmapItemsRegion(content);
   const seen = new Set<string>();
@@ -26270,9 +26472,9 @@ function prioritizeDashboardRoadmapItems(items: Array<{ id: string; text: string
         reasons.push('critical/blocking wording');
       }
 
-      const foundational = focus === 'security'
-        || focus === 'architecture'
-        || /\b(core|auth|foundation|foundational|baseline|essential|launch|ship|release|minimum viable|mvp|must|critical|first)\b/i.test(normalized);
+      // One definition of "foundational", shared with the gate-candidate scan's
+      // MVP rule, so the suggested route and the scan cannot disagree about it.
+      const foundational = isFoundationalRoadmapWork(normalized, focus);
 
       const gates = Array.isArray(item.gates) ? [...item.gates] : [];
       if (item.isMvp === true && !gates.includes(MVP_GATE_ID)) {
@@ -33717,6 +33919,18 @@ const DASHBOARD_CSS = `
   button.rm-gate-key:hover { color: var(--dash-heading); }
   button.rm-gate-key.is-on { border-color: var(--dash-accent-strong); color: var(--dash-heading); }
   button.rm-gate-key:focus-visible { outline: 2px solid var(--vscode-focusBorder); outline-offset: 1px; }
+
+  /* The gate scan carries the AtlasMind mark, as Calculate tree does: it is
+     AtlasMind concluding something about the backlog, not a filter you set. */
+  .rm-gate-scan-action {
+    border-color: color-mix(in srgb, var(--dash-accent-strong) 55%, var(--dash-border));
+  }
+  .rm-gate-scan-action.is-on { border-color: var(--dash-accent-strong); }
+  .rm-gate-scan { margin: 12px 0; display: grid; gap: 8px; }
+  .rm-gate-candidate.is-picked { border-color: var(--dash-accent-strong); }
+  .rm-gate-candidate-matches,
+  .rm-gate-rule-table { margin: 4px 0 0; padding-left: 18px; display: grid; gap: 2px; font-size: 12px; }
+  .rm-gate-rule { font-weight: 600; color: var(--dash-heading); }
 
   .rm-node-title {
     display: -webkit-box;

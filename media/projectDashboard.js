@@ -479,6 +479,14 @@
     roadmapEmphasisGate: '',
     roadmapEmphasisPerson: '',
     /**
+     * The gate the AtlasMind candidate scan is showing, and what has been
+     * picked from it. The scan itself arrives with the snapshot, so opening it
+     * is a way of looking; only "Add to gate" posts, and only ids.
+     */
+    roadmapGateScan: '',
+    roadmapGateScanPicks: [],
+    roadmapGateScanRules: false,
+    /**
      * Emphasise the chain the finish date rests on.
      *
      * A lens rather than a filter, like the other two: the items *not* on the
@@ -1197,6 +1205,16 @@
       }
       if (state.roadmapEditingNodeId && !roadmapNodeIds.has(state.roadmapEditingNodeId)) {
         state.roadmapEditingNodeId = '';
+      }
+      // A pick that is no longer a candidate — tagged since, delivered, or the
+      // gate was removed — is dropped rather than carried into the next post.
+      const scanReport = roadmapGateScanReport();
+      if (!scanReport) {
+        state.roadmapGateScan = '';
+        state.roadmapGateScanPicks = [];
+      } else {
+        const offered = new Set((scanReport.candidates || []).map(candidate => candidate.id));
+        state.roadmapGateScanPicks = state.roadmapGateScanPicks.filter(id => offered.has(id));
       }
       const liveIds = new Set(((message.payload && message.payload.branches && message.payload.branches.items) || []).map(branch => branch.id));
       state.branchCompareIds = state.branchCompareIds.filter(id => liveIds.has(id)).slice(0, 2);
@@ -2273,6 +2291,49 @@
     }
     if (action === 'roadmap-gate-delete') {
       vscode.postMessage({ type: 'deleteRoadmapGate', payload: payload });
+      return;
+    }
+    // ── Gate candidate scan ──────────────────────────────────────
+    // Opening, picking and closing are ways of looking: the scan arrived with
+    // the snapshot. Only "Add to gate" posts — a gate id and the picked ids,
+    // which the host checks against a fresh scan before it asks to write.
+    if (action === 'roadmap-gate-scan') {
+      const known = getRoadmapGates().some(gate => gate.id === payload);
+      state.roadmapGateScan = known && state.roadmapGateScan !== payload ? payload : '';
+      state.roadmapGateScanPicks = [];
+      render();
+      return;
+    }
+    if (action === 'roadmap-gate-scan-close') {
+      state.roadmapGateScan = '';
+      state.roadmapGateScanPicks = [];
+      render();
+      return;
+    }
+    if (action === 'roadmap-gate-scan-rules') {
+      state.roadmapGateScanRules = !state.roadmapGateScanRules;
+      render();
+      return;
+    }
+    if (action === 'roadmap-gate-candidate-pick') {
+      const report = roadmapGateScanReport();
+      const offered = report ? (report.candidates || []).some(candidate => candidate.id === payload) : false;
+      if (offered) {
+        state.roadmapGateScanPicks = state.roadmapGateScanPicks.indexOf(payload) >= 0
+          ? state.roadmapGateScanPicks.filter(id => id !== payload)
+          : [...state.roadmapGateScanPicks, payload];
+        render();
+      }
+      return;
+    }
+    if (action === 'roadmap-gate-candidates-include') {
+      const report = roadmapGateScanReport();
+      if (report && state.roadmapGateScanPicks.length > 0) {
+        vscode.postMessage({
+          type: 'includeRoadmapGateCandidates',
+          payload: { gateId: report.gateId, itemIds: state.roadmapGateScanPicks.slice() },
+        });
+      }
       return;
     }
     // ── Issues ────────────────────────────────────────────────────
@@ -13902,6 +13963,7 @@
       return `
         ${pageSectionOpen('roadmap')}
           ${renderRoadmapViewBar(roadmap)}
+          ${renderGateCandidatePanel()}
           ${renderRoadmapTimeline()}
         </section>`;
     }
@@ -13909,6 +13971,7 @@
       return `
         ${pageSectionOpen('roadmap')}
           ${renderRoadmapViewBar(roadmap)}
+          ${renderGateCandidatePanel()}
           ${renderRoadmapBoard()}
         </section>`;
     }
@@ -13916,6 +13979,7 @@
       return `
         ${pageSectionOpen('roadmap')}
           ${renderRoadmapViewBar(roadmap)}
+          ${state.roadmapView === 'completed' ? '' : renderGateCandidatePanel()}
           ${renderRoadmapCanvas()}
         </section>`;
     }
@@ -13941,6 +14005,7 @@
       ${pageSectionOpen('roadmap')}
         ${renderRoadmapViewBar(roadmap)}
         ${renderMvpSection(roadmap)}
+        ${renderGateCandidatePanel()}
         <div class="panel-grid">
           <article class="panel-card">
             <p class="section-kicker">Developer roadmap</p>
@@ -14078,6 +14143,7 @@
             <span class="gate-chip-count">${escapeHtml(`${gate.completedCount}/${gate.totalCount}`)}</span>
           </button>`).join('')}
         <button type="button" class="gate-chip gate-chip--add" data-action="roadmap-gate-new" title="Declare another release gate, e.g. a public beta or v2">+ New gate</button>
+        ${renderGateScanButton(active)}
         ${!active.builtIn ? `<button type="button" class="action-link danger" data-action="roadmap-gate-delete" data-payload="${escapeAttr(active.id)}" title="Remove this gate. No backlog item is deleted.">Remove ${escapeHtml(active.label)}</button>` : ''}
       </div>
     `;
@@ -14643,7 +14709,13 @@
       ? `<span class="list-meta rm-emphasis-count">${escapeHtml(`${emphasis.matches} of ${totalCount} match ${roadmapEmphasisLabels(emphasis)}`)}</span>`
         + `<button type="button" class="rm-chip-clear" data-action="roadmap-emphasis-clear" aria-label="Show the whole plan at full strength">×</button>`
       : '';
-    return `${gateSelect}${renderRoadmapGateLegend(true)}${personSelect}${criticalToggle}${count}`;
+    // The scan for the gate being looked at, beside the picker that chose it.
+    // Not on the delivered record: nothing is added to a record of what shipped.
+    const emphasisedGate = state.roadmapEmphasisGate && !delivered
+      ? gates.find(gate => gate.id === state.roadmapEmphasisGate)
+      : null;
+    const scanButton = emphasisedGate ? renderGateScanButton(emphasisedGate) : '';
+    return `${gateSelect}${renderRoadmapGateLegend(true)}${scanButton}${personSelect}${criticalToggle}${count}`;
   }
 
   /** What the active lenses are called, for a message that names them. */
@@ -14750,6 +14822,127 @@
           title="${escapeAttr('Highlight every item on ' + gate.label + '. The rest of the plan stays drawn and dimmed.')}"><span ${rmGateDotAttrs(gate)} aria-hidden="true"></span>${escapeHtml(gate.label)}</button>`
       : `<span class="rm-gate-key"><span ${rmGateDotAttrs(gate)} aria-hidden="true"></span>${escapeHtml(gate.label)}</span>`);
     return `<span class="rm-gate-legend" role="group" aria-label="Release gate colours">${keys.join('')}</span>`;
+  }
+
+  /** The scan report for the gate the candidate panel is showing, or null. */
+  function roadmapGateScanReport() {
+    const gateId = String(state.roadmapGateScan || '');
+    const view = state.snapshot && state.snapshot.roadmap ? state.snapshot.roadmap.gateCandidates : null;
+    const reports = view && view.reports && typeof view.reports === 'object' ? view.reports : null;
+    if (!gateId || !reports || !Object.prototype.hasOwnProperty.call(reports, gateId)) {
+      return null;
+    }
+    return reports[gateId] || null;
+  }
+
+  /**
+   * “Find candidates” for one gate.
+   *
+   * Carries the AtlasMind mark, like Calculate tree: it is AtlasMind reading
+   * the backlog and reaching a conclusion, not a filter you set. Pressing it
+   * again closes the list.
+   */
+  function renderGateScanButton(gate) {
+    if (!gate || !gate.id) { return ''; }
+    const open = state.roadmapGateScan === gate.id;
+    const title = `Scan the backlog for items that may belong on ${gate.label}. Every candidate names the rule that matched it; nothing is tagged until you pick items and confirm.`;
+    return `<button type="button" class="atlas-discuss-action rm-gate-scan-action${open ? ' is-on' : ''}" data-action="roadmap-gate-scan"
+      data-payload="${escapeAttr(gate.id)}" aria-pressed="${open ? 'true' : 'false'}" title="${escapeAttr(title)}"
+      aria-label="${escapeAttr(`Find candidates for ${gate.label} with AtlasMind`)}"><img src="${escapeAttr(atlasDiscussIconUri)}" alt="" aria-hidden="true" /><span class="atlas-discuss-glyph" aria-hidden="true">⌘</span><span class="atlas-discuss-label">Find candidates</span></button>`;
+  }
+
+  /**
+   * The AtlasMind gate scan: what may belong on one gate, and why.
+   *
+   * Four properties, each a way this list could mislead:
+   * - every candidate shows the rule that matched and what it matched on, and
+   *   the rule table is one click away, so a candidate can be argued with;
+   * - "could not assess" and "nothing matched" read differently, and every
+   *   rule that was not applied says why;
+   * - the remainder past the cap is stated;
+   * - nothing is tagged from here. Picking is local; "Add to gate" posts the
+   *   gate id and the picked ids, and the host names every item in a modal.
+   */
+  function renderGateCandidatePanel() {
+    const report = roadmapGateScanReport();
+    if (!report) { return ''; }
+    const view = state.snapshot.roadmap.gateCandidates;
+    const rules = Array.isArray(view.rules) ? view.rules : [];
+    const ruleLabel = id => {
+      const rule = rules.find(entry => entry.id === id);
+      return rule ? rule.label : id;
+    };
+    const gates = getRoadmapGates();
+    const gateName = id => {
+      const gate = gates.find(entry => entry.id === id);
+      return gate ? gate.label : id;
+    };
+    const candidates = Array.isArray(report.candidates) ? report.candidates : [];
+    const skipped = Array.isArray(report.skipped) ? report.skipped : [];
+    const picks = state.roadmapGateScanPicks;
+    // "Could not assess" is the warning, not "nothing matched": a gate nobody
+    // could scan must not look as settled as one that was scanned and is clear.
+    const toneClass = report.status === 'unassessable' ? ' tag-warn' : report.status === 'candidates' ? '' : ' tag-muted';
+    const statusLabel = {
+      candidates: 'Candidates found',
+      none: 'Nothing matched',
+      'nothing-eligible': 'Nothing to scan',
+      unassessable: 'Could not assess',
+    }[report.status] || 'Not assessed';
+    const rows = candidates.map(candidate => {
+      const picked = picks.indexOf(candidate.id) >= 0;
+      const matches = Array.isArray(candidate.matches) ? candidate.matches : [];
+      const others = Array.isArray(candidate.otherGates) ? candidate.otherGates : [];
+      return `
+        <div class="recent-item rm-gate-candidate${picked ? ' is-picked' : ''}">
+          <div class="row-head">
+            <button type="button" class="gate-toggle${picked ? ' is-on' : ''}" data-action="roadmap-gate-candidate-pick"
+              data-payload="${escapeAttr(candidate.id)}" aria-pressed="${picked ? 'true' : 'false'}"
+              aria-label="${escapeAttr((picked ? 'Unpick “' : 'Pick “') + candidate.text + '” for ' + report.gateLabel)}">${picked ? '✓ Picked' : 'Pick'}</button>
+            <strong>${escapeHtml(candidate.text)}</strong>
+            <span class="tag-group">
+              <span class="tag" title="${escapeAttr('The most consequential rule that matched. It decides the ranking; the score only breaks ties.')}">${escapeHtml(ruleLabel(candidate.leadingRule))}</span>
+              <span class="tag" title="${escapeAttr('Sum of the matched rules’ weights, from the published table.')}">${escapeHtml(`score ${candidate.score}`)}</span>
+            </span>
+          </div>
+          <ul class="rm-gate-candidate-matches">
+            ${matches.map(match => `<li><span class="rm-gate-rule">${escapeHtml(ruleLabel(match.rule))}</span> — ${escapeHtml(match.evidence)}</li>`).join('')}
+          </ul>
+          ${others.length > 0 ? `<div class="list-meta">${escapeHtml(`Already on ${others.map(gateName).join(', ')}. Adding it here keeps those.`)}</div>` : ''}
+        </div>`;
+    }).join('');
+    return `
+      <section class="panel-card rm-gate-scan" aria-label="${escapeAttr(`AtlasMind candidates for ${report.gateLabel}`)}">
+        <div class="row-head">
+          <div>
+            <p class="section-kicker">AtlasMind gate scan</p>
+            <h3>${escapeHtml(`Candidates for ${report.gateLabel}`)}</h3>
+          </div>
+          <span class="tag-group">
+            <span class="tag${toneClass}">${escapeHtml(statusLabel)}</span>
+            <button type="button" class="rm-chip-clear" data-action="roadmap-gate-scan-close" aria-label="Close the candidate scan">×</button>
+          </span>
+        </div>
+        <div class="stat-detail">${escapeHtml(report.summary || '')}</div>
+        <div class="list-meta">${escapeHtml(`Read ${report.scannedCount} outstanding item${report.scannedCount === 1 ? '' : 's'}; left out ${report.excluded.onGate} already on the gate and ${report.excluded.completed} delivered.`)}</div>
+        ${rows ? `<div class="stack-list">${rows}</div>` : ''}
+        ${report.remainder > 0 ? `<div class="list-meta">${escapeHtml(`${report.remainder} more candidate${report.remainder === 1 ? '' : 's'} not shown. Tag some of these and scan again to see them.`)}</div>` : ''}
+        ${skipped.length > 0 ? `
+          <p class="section-kicker">Not assessed</p>
+          <ul class="rm-gate-candidate-matches">
+            ${skipped.map(skip => `<li><span class="rm-gate-rule">${escapeHtml(ruleLabel(skip.rule))}</span> — ${escapeHtml(skip.reason)}</li>`).join('')}
+          </ul>` : ''}
+        <div class="tag-row">
+          ${candidates.length > 0 ? `<button type="button" class="dashboard-button dashboard-button-primary" data-action="roadmap-gate-candidates-include"${picks.length === 0 ? ' disabled' : ''}
+            title="${escapeAttr('Asks before writing: the confirmation lists every item and the tag it gains.')}">${escapeHtml(picks.length === 0 ? `Pick items to add to ${report.gateLabel}` : `Add ${picks.length} to ${report.gateLabel}…`)}</button>` : ''}
+          <button type="button" class="action-link" data-action="roadmap-gate-scan-rules" aria-expanded="${state.roadmapGateScanRules ? 'true' : 'false'}">${state.roadmapGateScanRules ? 'Hide the rules' : 'How candidates are found'}</button>
+        </div>
+        ${state.roadmapGateScanRules ? `
+          <ol class="rm-gate-rule-table">
+            ${rules.map(rule => `<li><strong>${escapeHtml(rule.label)}</strong>${rule.standalone ? '' : ' <span class="list-meta">(corroborates only)</span>'} — ${escapeHtml(rule.detail)}</li>`).join('')}
+          </ol>
+          <div class="list-meta">${escapeHtml('Ranked by the most consequential rule that matched, then by score, then by backlog order. Delivered items and items already on the gate are never proposed.')}</div>` : ''}
+      </section>`;
   }
 
   function renderRoadmapViewBar(roadmap) {

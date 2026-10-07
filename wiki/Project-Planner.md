@@ -163,6 +163,19 @@ Gate picker; on the canvases pressing a key, or a dot on a card, highlights that
 clear). Gates are coloured in the order you declared them, MVP first, so everybody sees the same colours,
 and each dot is named by its gate, so a screen reader hears "MVP", not a colour.
 
+**Find candidates for a gate.** Beside the gate selector on the backlog, and beside the Gate picker on
+the canvas once a gate is highlighted, **Find candidates** (with the AtlasMind mark) scans the backlog for
+items that may belong on that release. Each candidate says which rule matched it and what it matched on:
+something already on the gate waits on it (through links you drew), it names the release ("beta" for
+*Public beta*, or a tag such as `v2` as a whole word), it is foundational work (MVP only — the same rule
+behind the suggested MVP route), or it shares its subject with work already on the gate. Two weaker
+signals — waiting on work on the gate, and being the gate's usual kind of work — only strengthen a match
+and never list an item alone. Candidates are ranked by the most consequential rule, at most twelve are
+shown with the rest counted, and items already on the gate or delivered are never proposed. If nothing
+could be assessed — a gate called "Next release" with nothing on it yet has no word to look for — the scan
+says so instead of showing an empty list. Pick the items you agree with and press **Add**: a confirmation
+lists every item and the tag it gains, and only the tag is written.
+
 **The three lenses combine rather than replace each other.** A card is highlighted only if it satisfies
 every lens that is on, so "MVP items assigned to Sam" is a question you can ask; letting the second
 control cancel the first is what makes a filter feel broken. One button clears all three. Neither picker
