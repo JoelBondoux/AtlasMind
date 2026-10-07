@@ -6,6 +6,66 @@ The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/),
 
 ## [Unreleased]
 
+## [0.489.0] - 2026-10-07
+
+### Added
+
+- **After a task reads someone else's text, a change or a network call asks you again — and Autopilot
+  cannot answer for you.** Prompt injection has no parsing fix: a fetched page, an issue body or an MCP
+  server's answer can contain text addressed to the agent, and no filter reliably tells it apart from text
+  addressed to you. What can be recognised is the dangerous moment — untrusted text went in, and an action
+  that changes something or leaves your machine is about to come out. The new pure module
+  `src/core/contextProvenance.ts` classes every prompt message and tool result as *operator*, *AtlasMind*,
+  *workspace* or *third-party* from two exhaustive tables, so a new origin or risk category does not compile
+  until somebody classifies it, and a task keeps the highest class it has read for the rest of its life.
+  Third-party means a fetched page, a search result, an MCP answer, `gh` output, a network command such as
+  `curl` or `npm view`, another agent's answer — and the output of **any tool AtlasMind cannot identify**.
+  Once a task has read third-party content:
+  - *Reads stay free.* Files, search, git history and test runs are never escalated, so research is not
+    slowed down.
+  - *A write, a commit or a terminal command needs a fresh approval*, naming what was read and the rule.
+    Autopilot and Bypass Approvals were granted before the content was read, so they cannot answer it.
+    The dialog offers **Allow for this task — I've seen the source**, which releases that one kind of
+    action for the rest of the task. It is not offered under the ceiling no bypass can reach, and a card
+    that did not offer it refuses it.
+  - *A network call needs a fresh approval*, and if the content contained an instruction override
+    ("ignore previous instructions") it is **refused** for the rest of the task. The content itself is
+    kept with a `[SECURITY]` note, never dropped: it is still the page you asked about. Only the
+    instruction-override phrases count, because pages about prompts say "system prompt:" and "developer
+    mode" constantly, and the jailbreak rule matches the name *Dan*.
+  - *Third-party results are fenced* by a new shared `fenceReportedContent`, whose numbered marker is
+    chosen so the content cannot close the fence and continue in AtlasMind's voice.
+  - *A denied fetch read nothing*, so it taints nothing. Calls running side by side in one round are
+    judged against what the model had read when it asked.
+  - *A dependent subtask starts from what its dependencies read* (`SubTaskResult.provenance`), because
+    their output is part of its prompt. A dependency with nothing recorded — a run resumed from history —
+    counts as third-party.
+  - *A tainted task is not handed to a subscription agent's own tools* (`taint.acp-delegation`): AtlasMind
+    cannot see what those tools read, so it could not ask you before they acted on it. `find-tool` stops
+    searching Resource Discovery once a task is tainted, since the query is model-written text sent off
+    your machine.
+- **Setting `atlasmind.security.untrustedEscalationScope`.** `third-party` (default), or
+  `workspace-and-third-party` to also escalate after repository files, attachments and editor chat context.
+  There is no `off`; a value that is set but not recognised is read as the stricter scope.
+- **CLI flag `--allow-untrusted-escalation`.** The CLI has nobody to ask, so after a task reads third-party
+  content it refuses writes and network calls and names the source. The flag lets `--allow-writes` and
+  `--allow-commands` decide as usual instead; it grants nothing on its own.
+
+### Changed
+
+- `toolApprovalGate` takes an optional fourth argument, `ToolApprovalGateMeta`, passed only when a call
+  needs a fresh approval. An untainted turn calls the gate with three arguments and passes local tool
+  results to the model byte-for-byte, as before — asserted by test. With no gate wired, a fresh approval is
+  refused (`taint.no-gate`). `ToolApprovalDecision` gains `acknowledge-source`. When AtlasMind is itself the
+  agent behind an ACP client, the per-call permission request names the source after untrusted content.
+
+### Not yet
+
+- Taint lives for one task and does not carry into the next turn of the same conversation; a resumed run
+  records nothing about what its finished subtasks read; and large third-party results still reach the
+  model whole — the quarantined, tool-less reader is the next slice, so the prompt-injection roadmap item
+  stays open.
+
 ## [0.488.1] - 2026-10-07
 
 ### Fixed

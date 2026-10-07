@@ -309,7 +309,96 @@ export interface ToolInvocationPolicy {
   summary: string;
 }
 
-export type ToolApprovalDecision = 'allow-once' | 'bypass-task' | 'autopilot' | 'deny';
+/**
+ * `acknowledge-source` is the release valve on an approval raised because the
+ * turn has read untrusted content: "allow this category for the rest of this
+ * task, I have seen where the content came from". It is only ever offered on
+ * such a request, and the manager refuses it on a request that did not list it
+ * — an ordinary approval card cannot be answered with it.
+ */
+export type ToolApprovalDecision = 'allow-once' | 'bypass-task' | 'autopilot' | 'acknowledge-source' | 'deny';
+
+/**
+ * Where a piece of prompt content came from.
+ *
+ * Deliberately a closed union with no `string` escape hatch: an origin somebody
+ * invents at a call site is exactly the unlabelled context the egress boundary
+ * (`src/core/modelEgress.ts`, which re-exports this) exists to refuse.
+ */
+export type ModelContextOrigin =
+  | 'user-prompt'
+  | 'system-prompt'
+  | 'session-context'
+  | 'native-chat-context'
+  | 'attachment'
+  | 'workspace-file'
+  | 'tool-result'
+  | 'project-memory'
+  | 'background-memory'
+  | 'generated-instruction'
+  | 'image-attachment';
+
+/**
+ * Who could have written a piece of text the model has read, ordered from most
+ * to least trusted. A turn's provenance is the **maximum** over everything it
+ * has absorbed, and it never decreases: a model that has read a fetched page
+ * cannot un-read it. See `src/core/contextProvenance.ts`.
+ */
+export type ProvenanceClass = 'operator' | 'atlasmind' | 'workspace' | 'third-party';
+
+/**
+ * Which provenance levels make an outward or mutating action need a fresh
+ * approval. There is deliberately no `off`: the escape hatch is the per-task
+ * acknowledgement on the approval itself.
+ */
+export type UntrustedEscalationScope = 'third-party' | 'workspace-and-third-party';
+
+/** One thing the turn absorbed that was not written by the operator. */
+export interface ProvenanceSource {
+  origin: ModelContextOrigin;
+  /** The tool whose result this was, when the origin is a tool result. */
+  toolName?: string;
+  provenance: ProvenanceClass;
+  /** The declared rule that classified it. */
+  rule: string;
+  /** The result was scanned and contained an instruction-override pattern. */
+  injectionSuspected: boolean;
+  /** Scanner rule ids that fired, when `injectionSuspected`. */
+  findings?: string[];
+}
+
+/** What the model has read so far this turn. Monotone: `level` and `injectionSuspected` only ever rise. */
+export interface TurnProvenance {
+  level: ProvenanceClass;
+  injectionSuspected: boolean;
+  /** Distinct sources at `workspace` or above, capped; `omittedSources` counts the rest. */
+  sources: ProvenanceSource[];
+  omittedSources: number;
+}
+
+export type TaintDecision = 'free' | 'fresh-approval' | 'refuse';
+
+/** The orchestrator's verdict on one tool call, given what the turn has read. */
+export interface TaintEscalation {
+  decision: TaintDecision;
+  /** The declared rule that decided it. */
+  rule: string;
+  category: ToolRiskCategory;
+  scope: UntrustedEscalationScope;
+  level: ProvenanceClass;
+  injectionSuspected: boolean;
+  /** The sources that put the turn in scope — what a dialog names. */
+  sources: ProvenanceSource[];
+}
+
+/**
+ * Optional fourth argument to `toolApprovalGate`. Present only when the turn
+ * has read untrusted content and the call needs a fresh approval; an untainted
+ * turn calls the gate with three arguments exactly as before.
+ */
+export interface ToolApprovalGateMeta {
+  escalation: TaintEscalation;
+}
 
 export interface PendingToolApprovalRequest {
   id: string;
@@ -1391,11 +1480,19 @@ export interface OrchestratorHooks {
    */
   onSerialisedWriters?: (count: number) => void;
 
-  /** Gate function that determines whether a tool invocation should proceed. */
+  /**
+   * Gate function that determines whether a tool invocation should proceed.
+   *
+   * `meta` is passed only when the turn has read untrusted content and the call
+   * needs a **fresh** approval — one that autopilot, a task bypass or a category
+   * bypass granted before the taint cannot answer. A gate that cannot ask a
+   * person must refuse it.
+   */
   toolApprovalGate?: (
     taskId: string,
     toolName: string,
     args: Record<string, unknown>,
+    meta?: ToolApprovalGateMeta,
   ) => Promise<{ approved: boolean; reason?: string }>;
 
   /** Gate function for warning-level auto-generated skills before in-process execution. */
@@ -4585,6 +4682,13 @@ export interface SubTaskResult {
   suggestedIterationLimit?: number;
   /** Orchestrator-suggested higher `maxToolCallsPerTurn` value the user can apply to resume this subtask. */
   suggestedToolCallsPerTurnLimit?: number;
+  /**
+   * What this subtask (and everything it depended on) read. Dependents are
+   * seeded from it, because a dependency's output reaches them as part of their
+   * own prompt. Absent means *unrecorded*, which a dependent treats as
+   * third-party — unknown is not clear.
+   */
+  provenance?: TurnProvenance;
 }
 
 /** A decomposed project plan ready for parallel execution. */

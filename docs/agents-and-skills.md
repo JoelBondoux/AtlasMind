@@ -391,6 +391,8 @@ Delegation is capped at three deep and cannot loop back to an agent already in t
 
 The delegate's answer returns fenced and labelled as another agent's opinion — it is model output feeding another model's reasoning, and it has not earned the credence a tool result gets.
 
+For the same reason its answer is **third-party** to the provenance taint (`provenance.agent-handoff`): what the delegate read is not carried back with it, so a write after a handoff needs a fresh approval — see *Provenance taint and fresh approvals*.
+
 ## Ephemeral Sub-Agents (Project Execution)
 
 When a `/project` command is executed, the orchestrator synthesises temporary `AgentDefinition` objects on the fly from each `SubTask.role` — these agents are never registered in the `AgentRegistry`. Supported roles and their system prompts:
@@ -538,6 +540,37 @@ The execution path is intentionally split so extending AtlasMind does not requir
 - `ToolWebhookDispatcher` emits external audit events without becoming a hard dependency of the core tool loop.
 
 That separation is the current answer to scaling the number of agents and tools: operational metadata and extension points stay in their own services, while orchestration only composes them.
+
+### Provenance taint and fresh approvals (`src/core/contextProvenance.ts`)
+
+Prompt injection has no parsing fix, so AtlasMind gates the moment it becomes dangerous instead: **untrusted text went in, and an action that changes something or leaves the machine is about to come out.** Every prompt message is classified by its `ModelContextOrigin` through `ORIGIN_PROVENANCE` (an exhaustive `Record`, so a new origin does not compile until it is classified), and every tool result by `TOOL_RESULT_PROVENANCE_RULES`, first match wins. A turn's `TurnProvenance` is the maximum over everything absorbed — `operator` < `atlasmind` < `workspace` < `third-party` — and never decreases.
+
+| Tool-result rule | Class | Matches |
+|---|---|---|
+| `provenance.tool-unnamed` | third-party | A tool result with no tool name. (The operator's own Lens selection, attached to a request as a tool result, is named and seeded as `workspace` by `provenance.lens-selection` — only while seeding, never for a tool the model calls) |
+| `provenance.mcp-tool` | third-party | Any `mcp:*` tool |
+| `provenance.network-skill` | third-party | `web-fetch`, `http-request`, `exa-search`, `discover-resources`, `simple-browser` |
+| `provenance.agent-handoff` | third-party | Another agent's answer — what it read is not carried back |
+| `provenance.find-tool-external` | third-party | `find-tool` after it searched Resource Discovery |
+| `provenance.gh-command` | third-party | `terminal-run gh …` — issue, PR and review text |
+| `provenance.network-command` | third-party | `terminal-run` of a network client (`curl`, `wget`, `Invoke-WebRequest`, `ssh`…) or a registry read (`npm view`, `pip show`…) |
+| `provenance.atlasmind-tool` | atlasmind | `specialist-guidance`, `atlasmind-open`, local `find-tool` |
+| `provenance.local-tool` | workspace | Every other built-in tool, listed by id (a test fails when a new built-in is not classified) |
+| `provenance.unlisted-tool` | third-party | Anything else — a workspace-scanned or synthesised skill. Unknown is not clear |
+
+A call that never executed (refused, denied, invalid) is `provenance.not-executed` and taints nothing. A third-party result is scanned with the memory scanner's transient rules and wrapped by the shared `fenceReportedContent(source, text)`, whose numbered marker is chosen so the text cannot close the fence. Only the instruction-override family (`SUSPECTED_INJECTION_RULE_IDS`: ignore / disregard / forget previous instructions, "your new instructions") makes a result **suspected**; `pi-jailbreak` and `pi-system-prompt-override` are left out because pages about prompts trip them constantly (and `pi-jailbreak` matches the name *Dan*). A suspected result is kept, with a `[SECURITY]` note.
+
+Before each tool call the orchestrator asks `evaluateTaintEscalation(provenance, policy, scope)`, decided against what the turn had read when the round began. `TAINT_ESCALATION` is exhaustive over `ToolRiskCategory`:
+
+| Category | Tainted | Suspected |
+|---|---|---|
+| `read`, `git-read`, `terminal-read` | free | free |
+| `workspace-write`, `git-write`, `terminal-write` | fresh approval | fresh approval |
+| `network-read`, `network`, `audio-input`, `audio-output` | fresh approval | **refuse** |
+
+`free` is exactly the old path: the gate is called with three arguments and a local result reaches the model byte-for-byte. `refuse` is enforced by the orchestrator without calling the gate. `fresh-approval` calls the gate with a fourth argument, `ToolApprovalGateMeta` (`{ escalation }`), and is refused as `taint.no-gate` when no gate is wired. The extension gate asks before the approval mode and before any bypass — Autopilot, task bypass and category bypass were all granted before the taint — offering *Allow Once*, *Deny* and `acknowledge-source` (*Allow for this task — I've seen the source*), which `ToolApprovalManager.acknowledgeTaint(taskId, category)` records and `clearTask` clears. It is not offered under the non-bypassable ceiling, and the manager refuses it on a card that did not list it. The CLI gate refuses unless `--allow-untrusted-escalation`; the ACP agent's broker asks the client per call (as it always does) and names the source in the request title.
+
+Three further wirings: a dependent subtask is seeded from its dependencies' recorded `SubTaskResult.provenance` (an unrecorded one is `provenance.dependency-unrecorded`, third-party); a tainted turn is not delegated to an ACP agent's own tools (`taint.acp-delegation`), because their results cannot be absorbed; and `find-tool` does not search Resource Discovery once the turn is tainted. The project synthesizer runs without tools, so there is nothing for it to escalate. `atlasmind.security.untrustedEscalationScope` chooses `third-party` (default) or `workspace-and-third-party`; there is no `off`, and an unrecognised value reads as the stricter scope. Not yet covered: taint does not cross into the next turn of a conversation, a resumed run records nothing for its finished subtasks, and large third-party results are not yet routed through a quarantined, tool-less reader.
 
 ### Skill Assignment
 

@@ -137,6 +137,8 @@ fastest way to confirm your keys are visible before running anything that costs 
 --model <provider/model>        Pin one specific model
 --allow-writes                  Permit changes (see Safety below)
 --allow-commands                Permit terminal reads (npm test, build, lint) that run repo-defined scripts
+--allow-untrusted-escalation    After a task reads third-party content, let the flags above decide
+                                writes and network calls instead of refusing them (grants nothing itself)
 --budget <cheap|balanced|expensive|auto>
 --speed <fast|balanced|considered|auto>
 --daily-limit-usd <n>
@@ -165,6 +167,13 @@ There's no panel to click "approve" in, so the defaults are stricter:
 repository's `package.json` says it does. They were permitted unconditionally until v0.405.0, which
 meant read-only mode could run arbitrary code from the checkout it was aimed at. It is a separate flag
 from `--allow-writes` on purpose: running a test suite should not also grant the ability to edit files.
+
+**After a task reads third-party content, writes and network calls are refused.** In the editor,
+AtlasMind would stop and ask you — a fetched page, an MCP answer or `gh` output can carry instructions
+aimed at the agent, and Autopilot was granted before the content was read. The CLI has nobody to ask,
+and your flags were chosen before the content existed, so it refuses and names the source and the rule.
+`--allow-untrusted-escalation` lets `--allow-writes` and `--allow-commands` decide as usual instead. It
+grants nothing on its own. Reads are never affected.
 
 ---
 

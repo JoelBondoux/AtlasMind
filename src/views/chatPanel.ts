@@ -5551,6 +5551,8 @@ function describeApprovalDecision(decision: ToolApprovalDecision): string {
       return 'Bypassing approvals for the rest of this task.';
     case 'autopilot':
       return 'AtlasMind Autopilot enabled for this session.';
+    case 'acknowledge-source':
+      return 'Allowed this kind of action for the rest of this task, having seen the untrusted source.';
     case 'deny':
       return 'Denied the pending request.';
   }

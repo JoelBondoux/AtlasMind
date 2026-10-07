@@ -395,6 +395,8 @@ describe('isChatPanelMessage', () => {
     expect(isChatPanelMessage({ type: 'removeAttachment', payload: 'file:src/extension.ts' })).toBe(true);
     expect(isChatPanelMessage({ type: 'resolveToolApproval', payload: { requestId: 'approval-1', decision: 'allow-once' } })).toBe(true);
     expect(isChatPanelMessage({ type: 'resolveToolApproval', payload: { requestId: 'approval-1', decision: 'deny' } })).toBe(true);
+    // The taint release valve is a valid message; whether a card offered it is the manager's decision.
+    expect(isChatPanelMessage({ type: 'resolveToolApproval', payload: { requestId: 'approval-1', decision: 'acknowledge-source' } })).toBe(true);
     expect(isChatPanelMessage({ type: 'resolveProjectRunProposal', payload: { entryId: 'msg-1', decision: 'start' } })).toBe(true);
     expect(isChatPanelMessage({ type: 'resolveProjectRunProposal', payload: { entryId: 'msg-1', decision: 'save' } })).toBe(true);
     expect(isChatPanelMessage({ type: 'resolveProjectRunProposal', payload: { entryId: 'msg-1', decision: 'cancel' } })).toBe(true);

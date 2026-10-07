@@ -280,6 +280,7 @@ Perforce boundary as `not-visible` rather than zero.
 |---|---|
 | **Egress boundary** | The one path to a model. Labels each piece of context, redacts what needs it, caps its size, and asks before sending a credential you typed |
 | **Approval gate** | Classifies every tool call, consults your approval mode, and holds a ceiling no bypass can waive |
+| **Provenance taint** | Tracks what each task has read. After third-party content, a write or network call needs a fresh approval Autopilot cannot answer; reads stay free |
 | **Routine planner** | Works out the exact commands a routine will run, so they can be shown to you before they are |
 | **Commit message drafter** | Describes your staged diff in the Source Control box. Writes text; never commits |
 | **Provider adapters** | One per model provider, behind a shared contract |
@@ -302,6 +303,20 @@ configured server it has no record of is unverifiable). The shared types are `Mc
 `McpToolScanFinding`, `McpToolPin` and `McpHeldTool` in `src/types.ts`. A disconnect **suspends** a server's
 skills in `SkillsRegistry` rather than disabling them, and a reconnect lifts the suspension; a skill the user
 disabled stays disabled, and a suspension is never persisted.
+
+**What a task has read decides what it may do next.** `src/core/contextProvenance.ts` classes every prompt
+message and tool result as `operator`, `atlasmind`, `workspace` or `third-party` (exhaustive tables over
+`ModelContextOrigin` and the tool list; an unidentified tool is third-party), and a task keeps the highest
+class it has read. Third-party results are scanned and fenced with `fenceReportedContent`, whose numbered
+marker the content cannot close; an instruction override keeps the text and adds a `[SECURITY]` note.
+Before each call the orchestrator decides `free`, `fresh-approval` or `refuse` from `TAINT_ESCALATION`
+(exhaustive over `ToolRiskCategory`): `free` calls the gate exactly as before, `refuse` never reaches it,
+and `fresh-approval` passes a fourth argument, `ToolApprovalGateMeta`, which the VS Code gate answers before
+any bypass and the CLI refuses without `--allow-untrusted-escalation`. `SubTaskResult.provenance` seeds
+dependent subtasks, and a tainted turn is not delegated to an ACP agent's own tools. The scope is
+`atlasmind.security.untrustedEscalationScope`. Shared types: `ProvenanceClass`, `ProvenanceSource`,
+`TurnProvenance`, `UntrustedEscalationScope`, `TaintDecision`, `TaintEscalation` and `ToolApprovalGateMeta`;
+`ToolApprovalDecision` gains `acknowledge-source`.
 
 The approval gate makes a Bypass/Autopilot click and its runtime scope one atomic transition. It settles
 concurrent pending cards only when the scope covers them, the card offered that decision, and the tool is
@@ -1511,6 +1526,7 @@ never accepted.
 | `src/core/releaseMatrix.ts` | Pure schema, bounded mutations, roadmap relationship keys, and coverage/readiness metrics for the planned Editions matrix |
 | `src/core/releaseMatrixImport.ts` | Pure bounded design-document ranking/parsing, roadmap and Issue matching, and preservation-first reviewed merge for Editions |
 | `src/core/capabilitySearch.ts` | What chat does when no installed tool fits: asks only the Agent Finders you switched on, with a short redacted query, and offers what comes back for you to review and install |
+| `src/core/contextProvenance.ts` | What a task has read, and which writes and network calls need a fresh approval after it — the tables, the shared REPORTED CONTENT fence, and the release valve's rules |
 | `src/runtime/` | The built-in agents and how the runtime is composed |
 | `src/providers/` | Provider adapters, catalogues, health, local model discovery, `modelRole.ts` (what a model is *for*), and the local-GPU support layer that measures VRAM and reads what each runtime has loaded |
 | `src/skills/` | Built-in tools and skill handlers |

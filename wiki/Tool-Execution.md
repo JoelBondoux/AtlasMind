@@ -138,6 +138,53 @@ approve that exact version. See [[Skills]] for what the scan looks for.
 When a server disconnects its skills are *suspended*, not disabled as though you had switched them off,
 and they come back on when it reconnects. A skill you disabled yourself stays disabled.
 
+### After it reads someone else's text, it asks again
+
+Prompt injection has no parsing fix: a fetched page, an issue body or an MCP answer can contain text
+addressed to the agent, and no filter reliably tells it apart from text addressed to you. What can be
+recognised is the dangerous moment — **untrusted text went in, and an action that changes something or
+leaves your machine is about to come out.** AtlasMind tracks what each task has read and puts you in
+front of that moment.
+
+Everything the model reads carries a provenance class — *operator* (you), *AtlasMind*, *workspace*
+(repository files, attachments, editor chat context), or *third-party* (a fetched page, a search result,
+an MCP server's answer, `gh` output, another agent's answer, a network command such as `curl`, and the
+output of **any tool AtlasMind cannot identify**). A task's level is the highest it has read, and it
+never goes down. Once the task has read third-party content:
+
+| What the model asks for next | What happens |
+|---|---|
+| A read — files, search, git history, `npm test` | Nothing new. **Reads stay free**, so research is not slowed down |
+| A write, a commit, a terminal command | A **fresh approval**, naming what was read and the rule |
+| A network call, including an MCP read | A fresh approval — or, if the content looked like an instruction, **refused** |
+
+A fresh approval is one **Autopilot and Bypass Approvals cannot answer**: both were given before the task
+read the content, and "stop asking me" was never an answer to "the page you fetched asked for this". The
+dialog offers *Allow Once*, *Deny*, and **Allow for this task — I've seen the source**, which releases that
+one kind of action for the rest of the task. It is not offered where nothing may be pre-approved (the
+ceiling above).
+
+Third-party results reach the model inside a numbered `REPORTED CONTENT` fence it cannot close from the
+inside. If one contains an instruction override ("ignore previous instructions"), it is **kept** — it is
+still the page you asked about — with a `[SECURITY]` note, and for the rest of the task the model may not
+reach the network at all. Only the instruction-override phrases count: pages *about* prompts say "system
+prompt:" and "developer mode" all the time.
+
+- A fetch you **denied** read nothing, so it taints nothing.
+- A subtask starts from what its dependencies read, because their output is part of its prompt.
+- A task that has read untrusted content is **not handed to a subscription agent's own tools**
+  (`taint.acp-delegation`): AtlasMind cannot see what those tools read, so it could not ask you before
+  they acted on it.
+- `find-tool` does not search Resource Discovery once the task is tainted — the query would be
+  model-written text sent off your machine with nobody asked.
+- Calls in the *same* round run side by side, so each is judged against what the model had read when it
+  asked — which is what it actually knew.
+
+`atlasmind.security.untrustedEscalationScope` widens this to repository content too
+(`workspace-and-third-party`). There is no `off`. The rule tables are in
+`src/core/contextProvenance.ts`. An earlier turn's taint does not yet carry into the next turn of the
+same conversation; see [[Security]].
+
 ### Context is not authority
 
 A rolling chat summary is accepted only when its recorded transcript revision matches the transcript
@@ -453,6 +500,11 @@ inside the other agent's own state, where AtlasMind could neither show it to you
 Server commands the client declares are never started, and MCP servers are shared only from a list you
 named — never one holding stored credentials.
 
+A task that has already read third-party content is not delegated to a subscription agent's own tools at
+all (`taint.acp-delegation`) — see *After it reads someone else's text* above. When AtlasMind itself is
+the agent behind an ACP client, every non-read operation is already asked per call; after untrusted
+content the request title says so and names the source.
+
 ---
 
 ## Remote sessions get no shortcuts
@@ -507,6 +559,11 @@ report it. Every one executes whatever the repository's own `package.json` defin
 mode could still run arbitrary code out of the checkout it was pointed at. `--allow-commands` is
 deliberately separate from `--allow-writes`: running a test suite is not a reason to also be able to
 change files.
+
+**After a task reads third-party content, a write is refused** rather than asked about — there is
+nobody to ask, and the flags were chosen before the content was read. `--allow-untrusted-escalation`
+lets the flags above decide instead; it grants nothing on its own, so a write still needs
+`--allow-writes`.
 
 ---
 

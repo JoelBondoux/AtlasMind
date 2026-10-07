@@ -19,6 +19,34 @@ Older entries below describe the software as it was at the time and are delibera
 
 ---
 
+## v0.489.0 -- After it reads someone else's text, it asks again
+
+A fetched page, an issue body or an MCP server's answer can contain text aimed at the agent rather than at
+you, and nothing can reliably tell the two apart. So AtlasMind now watches for the moment it matters: the
+task has read someone else's text, and the next thing it wants to do changes something or leaves your
+machine.
+
+- **It tracks what each task has read.** Your words, AtlasMind's own, your repository, or third-party —
+  a fetched page, a search result, an MCP answer, `gh` output, another agent's answer, or any tool
+  AtlasMind can't identify. A task keeps the highest of these for the rest of its life.
+- **Reads stay free.** Files, search, git history and test runs never ask again because of this.
+- **Changes and network calls ask again, even with Autopilot on.** The dialog names what was read and the
+  rule. **Allow for this task — I've seen the source** releases that kind of action until the task ends.
+- **Content that tries to give orders is kept and flagged.** If a page says "ignore previous
+  instructions", you still see it, marked `[SECURITY]`, and the task can't reach the network at all.
+- **Fetched text is fenced** so it can't close its own fence and carry on in AtlasMind's voice.
+- **Subtasks inherit** what the steps they depend on read, and a tainted task is not handed to a
+  subscription agent's own tools, which AtlasMind can't see.
+- **New setting:** `atlasmind.security.untrustedEscalationScope` — `third-party` (default) or
+  `workspace-and-third-party`. There is no off.
+- **New CLI flag:** `--allow-untrusted-escalation`. The CLI refuses instead of asking; the flag lets
+  `--allow-writes` decide as usual, and grants nothing itself.
+
+Not yet: this does not carry across turns of a conversation, and very large fetched results still reach
+the model whole.
+
+---
+
 ## v0.488.1 -- An empty first listing is still a first listing
 
 Two fixes to MCP pinning and the skills it registers.

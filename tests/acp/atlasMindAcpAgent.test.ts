@@ -240,6 +240,30 @@ describe('AcpPermissionBroker', () => {
     );
   });
 
+  it('asks the client for a fresh approval after untrusted content, naming the source and rule', async () => {
+    const broker = new AcpPermissionBroker();
+    const { client } = createClient();
+    broker.register('task-1', 'session-1', client);
+
+    await broker.authorize('task-1', 'file-write', { path: path.resolve('C:/workspace/file.txt'), content: 'x' }, {
+      escalation: {
+        decision: 'fresh-approval',
+        rule: 'taint.workspace-write.tainted',
+        category: 'workspace-write',
+        scope: 'third-party',
+        level: 'third-party',
+        injectionSuspected: false,
+        sources: [{ origin: 'tool-result', toolName: 'web-fetch', provenance: 'third-party', rule: 'provenance.network-skill', injectionSuspected: false }],
+      },
+    });
+
+    const [, params] = vi.mocked(client.request).mock.calls[0]!;
+    const title = (params as { toolCall: { title: string } }).toolCall.title;
+    expect(title).toContain('untrusted content');
+    expect(title).toContain('web-fetch');
+    expect(title).toContain('taint.workspace-write.tainted');
+  });
+
   it('never treats allow-always or malformed outcomes as authority', async () => {
     const broker = new AcpPermissionBroker();
     const client: AtlasMindAcpClient = {

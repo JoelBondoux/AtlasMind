@@ -19,8 +19,9 @@ import type {
   ToolKind,
 } from '@agentclientprotocol/sdk' with { 'resolution-mode': 'import' };
 import type { AtlasRuntime } from '../runtime/core.js';
-import type { AgentDefinition, TaskRequest, ToolInvocationPolicy } from '../types.js';
+import type { AgentDefinition, TaskRequest, ToolApprovalGateMeta, ToolInvocationPolicy } from '../types.js';
 import { classifyToolInvocation } from '../core/toolPolicy.js';
+import { describeEscalationSources } from '../core/contextProvenance.js';
 import type { AcpReplyPublisher } from './buzzReplyPublisher.js';
 
 export const ATLASMIND_ACP_PROTOCOL_VERSION = 1;
@@ -61,6 +62,11 @@ interface ActivePermissionContext {
  * network, audio, or unknown action needs a one-turn grant. `allow_always` is
  * never offered or accepted because it would persist authority outside
  * AtlasMind's revocation model.
+ *
+ * Every grant here is already a fresh, per-call approval from the person at
+ * the client, so a call the orchestrator marks as needing one after the task
+ * read untrusted content is simply asked — never answered from the read-only
+ * shortcut — with the reason and the rule in the request title.
  */
 export class AcpPermissionBroker {
   private readonly active = new Map<string, ActivePermissionContext>();
@@ -77,6 +83,7 @@ export class AcpPermissionBroker {
     taskId: string,
     toolName: string,
     args: Record<string, unknown>,
+    meta?: ToolApprovalGateMeta,
   ): Promise<{ approved: boolean; reason?: string }> {
     const context = this.active.get(taskId);
     if (!context) {
@@ -87,14 +94,18 @@ export class AcpPermissionBroker {
     }
 
     const policy = classifyToolInvocation(toolName, args);
-    if (READ_ONLY_CATEGORIES.has(policy.category)) {
+    const freshApproval = meta?.escalation?.decision === 'fresh-approval';
+    if (!freshApproval && READ_ONLY_CATEGORIES.has(policy.category)) {
       return { approved: true };
     }
 
     const toolCallId = `atlasmind-${randomUUID()}`;
+    const title = freshApproval && meta
+      ? `${policy.summary} — after this task read untrusted content: ${describeEscalationSources(meta.escalation)} (${meta.escalation.rule})`
+      : policy.summary;
     const toolCall = {
       toolCallId,
-      title: policy.summary.slice(0, 300),
+      title: title.slice(0, 300),
       name: toolName.slice(0, 200),
       kind: toAcpToolKind(policy, toolName),
       status: 'pending' as const,
@@ -152,8 +163,9 @@ export class AtlasMindAcpAgent {
     taskId: string,
     toolName: string,
     args: Record<string, unknown>,
+    meta?: ToolApprovalGateMeta,
   ) => Promise<{ approved: boolean; reason?: string }> {
-    return (taskId, toolName, args) => this.permissionBroker.authorize(taskId, toolName, args);
+    return (taskId, toolName, args, meta) => this.permissionBroker.authorize(taskId, toolName, args, meta);
   }
 
   async initialize(_params: InitializeRequest): Promise<InitializeResponse> {

@@ -92,7 +92,7 @@ import { configureCurrencyFormatter, syncExchangeRates } from './core/currencyFo
 import { syncLocalModels, isLocalSyncStale, LOCAL_MODEL_SYNC_CACHE_KEY, type LocalModelSyncResult } from './providers/localModelSync.js';
 import { shouldSyncDownloadableCatalogue, syncLocalModelCatalog } from './providers/localModelCatalogSync.js';
 import type { DiscoveredModel } from './providers/adapter.js';
-import type { AgentDefinition, MemoryEntry, ModelInfo, ModelStruggleState, ProviderConfig, ProviderId, SkillDefinition, SkillExecutionContext, SkillScanResult, SpecialistDomain } from './types.js';
+import type { AgentDefinition, MemoryEntry, ModelInfo, ModelStruggleState, ProviderConfig, ProviderId, SkillDefinition, SkillExecutionContext, SkillScanResult, SpecialistDomain, ToolApprovalGateMeta } from './types.js';
 import { ToolApprovalManager } from './core/toolApprovalManager.js';
 import { RemoteControlServer } from './remote/remoteControlServer.js';
 
@@ -2517,7 +2517,12 @@ async function bootstrapAtlasMind(
     }
 
     const toolApprovalManager = new ToolApprovalManager();
-    const toolApprovalGate = async (taskId: string, toolName: string, args: Record<string, unknown>) => {
+    const toolApprovalGate = async (
+      taskId: string,
+      toolName: string,
+      args: Record<string, unknown>,
+      meta?: ToolApprovalGateMeta,
+    ) => {
       const configuration = vscode.workspace.getConfiguration('atlasmind');
       const mode = startupModules.getToolApprovalMode(configuration.get<string>('toolApprovalMode'));
       const policy = startupModules.classifyToolInvocation(toolName, args);
@@ -2526,6 +2531,43 @@ async function bootstrapAtlasMind(
         return {
           approved: false,
           reason: 'Terminal write commands are disabled. Enable atlasmind.allowTerminalWrite to permit them.',
+        };
+      }
+
+      // The turn has read untrusted content and this call changes something or
+      // leaves the machine. Decided before the approval mode and before any
+      // bypass, because both were chosen before the taint: "stop asking me" was
+      // never an answer to "the page you fetched asked for this". Only the
+      // per-task acknowledgement, given on a dialog that named the source, may.
+      if (meta?.escalation?.decision === 'fresh-approval'
+        && !toolApprovalManager.hasAcknowledgedTaint(taskId, policy.category)) {
+        const { describeTaintEscalation } = await import('./core/contextProvenance.js');
+        const ceilingReason = startupModules.toolBypassCeiling(policy);
+        void import('./views/chatPanel.js').then(({ revealPreferredChatSurface }) => revealPreferredChatSurface({ preserveFocus: true }));
+        const taintChoice = await toolApprovalManager.requestApproval({
+          taskId,
+          toolName,
+          category: policy.category,
+          risk: policy.risk,
+          summary: policy.summary,
+          title: 'Approval needed after untrusted content',
+          detail: describeTaintEscalation(meta.escalation)
+            + (ceilingReason ? ` This action also always requires explicit approval: ${ceilingReason}` : ''),
+          // The acknowledgement is a per-task category grant, so it is not
+          // offered where no grant may reach (the non-bypassable ceiling).
+          allowedDecisions: ceilingReason ? ['allow-once', 'deny'] : ['allow-once', 'acknowledge-source', 'deny'],
+          decisionLabels: {
+            'allow-once': 'Allow Once',
+            'acknowledge-source': 'Allow for this task — I’ve seen the source',
+            deny: 'Deny',
+          },
+        });
+        if (taintChoice === 'allow-once' || taintChoice === 'acknowledge-source') {
+          return { approved: true };
+        }
+        return {
+          approved: false,
+          reason: `User denied ${policy.summary} after this task read untrusted content (${meta.escalation.rule}).`,
         };
       }
 

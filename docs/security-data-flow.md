@@ -192,6 +192,19 @@ others are not yet traced — see gaps below.
 | Agent auto-updater (`agentAutoUpdater.ts:109`) | Agent definitions | Routed provider | Either | **No** | Not verified | Not verified | Not verified | Not verified |
 | Skill auto-assigner (`skillAutoAssigner.ts:113`) | Skill catalogue | Routed provider | Either | **No** | Not verified | No | Via MCP callback (`extension.ts:2661`) | Not verified |
 
+> **Added in v0.489.0 — what a turn has read now changes what it may do next.** The *Chat turn* row's
+> "Approval: per tool" is no longer the whole answer. Inside the tool loop, every prompt message and tool
+> result is classified by `src/core/contextProvenance.ts` (`operator` < `atlasmind` < `workspace` <
+> `third-party`), and the turn keeps the maximum. Third-party tool results — MCP, `web-fetch`,
+> `http-request`, `exa-search`, `gh` and network commands, another agent's answer, and any tool the module
+> cannot identify — are scanned and fenced before they reach the model. Once a turn has read them, a
+> write, command or network call needs a **fresh** approval through the gate's fourth argument
+> (`ToolApprovalGateMeta`), which Autopilot and bypass cannot answer, and after a suspected injection the
+> outward categories are refused by the orchestrator itself. Data still flows **in** unchanged: nothing
+> third-party is dropped. What changes is that it can no longer flow **out** again — as a write, a
+> command or a request — without a person seeing it first. Not covered: taint across conversation
+> turns, resumed project runs (treated as third-party), and a quarantined reader for large results.
+
 ---
 
 ## 7. What this pass did **not** verify

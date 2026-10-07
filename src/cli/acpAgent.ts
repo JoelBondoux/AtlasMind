@@ -132,8 +132,8 @@ export async function runAcpAgent(
     skillContext,
     providerAdapters: adapters,
     hooks: {
-      toolApprovalGate: (taskId, toolName, args) =>
-        permissionBroker.authorize(taskId, toolName, args),
+      toolApprovalGate: (taskId, toolName, args, meta) =>
+        permissionBroker.authorize(taskId, toolName, args, meta),
     },
   });
   syncProviderAvailability(runtime.modelRouter, adapters);

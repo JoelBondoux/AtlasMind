@@ -1714,7 +1714,8 @@
           || (decision === 'allow-once' ? 'Allow Once'
             : decision === 'bypass-task' ? 'Bypass Approvals'
               : decision === 'autopilot' ? 'Autopilot'
-                : 'Deny');
+                : decision === 'acknowledge-source' ? 'Allow for this task — I’ve seen the source'
+                  : 'Deny');
         actions.appendChild(createApprovalButton(label, request.id, decision, decision === 'deny' ? 'danger' : undefined));
       }
       card.appendChild(actions);

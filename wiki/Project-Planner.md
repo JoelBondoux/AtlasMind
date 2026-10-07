@@ -412,6 +412,14 @@ skipped and you get honest counts rather than a false "8/8 completed".
 If a tool-capable model refuses mid-run, AtlasMind hands the step to a different tool-capable model
 before it accepts a reasoning-only answer.
 
+### A step inherits what its dependencies read
+
+A step's prompt includes the output of the steps it depends on, so it also inherits what they **read**.
+If a research step fetched a web page, the step that writes the result to disk asks for a fresh approval
+before it changes anything — even under Autopilot — exactly as it would if it had fetched the page
+itself. See [Tool Execution](Tool-Execution.md) for the rules. A step resumed from an earlier run has no
+record of what it read, so its dependents are treated as having read third-party content.
+
 ### The temporary specialists
 
 | Role | Focus |

@@ -16,6 +16,7 @@ import { NodeMemoryManager } from './nodeMemoryManager.js';
 import { createNodeSkillExecutionContext } from './nodeSkillContext.js';
 import { NodeCostTracker } from './nodeCostTracker.js';
 import { classifyToolInvocation } from '../core/toolPolicy.js';
+import { describeEscalationSources } from '../core/contextProvenance.js';
 
 const AZURE_OPENAI_API_VERSION = '2024-10-21';
 const DEFAULT_SSOT_PATH = 'project_memory';
@@ -59,6 +60,7 @@ export interface ParsedCliArgs {
     model?: string;
     allowWrites: boolean;
     allowCommands: boolean;
+    allowUntrustedEscalation: boolean;
     budget: BudgetMode;
     speed: SpeedMode;
     json: boolean;
@@ -75,6 +77,7 @@ export function parseCliArgs(argv: string[]): ParsedCliArgs {
   const options: ParsedCliArgs['options'] = {
     allowWrites: false,
     allowCommands: false,
+    allowUntrustedEscalation: false,
     budget: 'balanced',
     speed: 'balanced',
     json: false,
@@ -148,6 +151,9 @@ export function parseCliArgs(argv: string[]): ParsedCliArgs {
         break;
       case '--allow-commands':
         options.allowCommands = true;
+        break;
+      case '--allow-untrusted-escalation':
+        options.allowUntrustedEscalation = true;
         break;
       case '--budget':
         {
@@ -279,6 +285,7 @@ async function main(): Promise<number> {
     hooks: createCliRuntimeHooks({
       allowWrites: parsed.options.allowWrites,
       allowCommands: parsed.options.allowCommands,
+      allowUntrustedEscalation: parsed.options.allowUntrustedEscalation,
     }),
   });
   const cliRuntime: AtlasCliRuntime = {
@@ -622,12 +629,13 @@ export function createCliProviderAdapters(): ProviderAdapter[] {
 }
 
 export function createCliRuntimeHooks(
-  options?: { allowWrites?: boolean; allowCommands?: boolean },
+  options?: { allowWrites?: boolean; allowCommands?: boolean; allowUntrustedEscalation?: boolean },
 ): OrchestratorHooks {
   return {
     toolApprovalGate: createCliToolApprovalGate(
       options?.allowWrites ?? false,
       options?.allowCommands ?? false,
+      options?.allowUntrustedEscalation ?? false,
     ),
   };
 }
@@ -646,13 +654,32 @@ export function createCliRuntimeHooks(
  * made it look safe. It now needs `--allow-commands`, kept separate from
  * `--allow-writes` so running a test suite does not also grant the ability to
  * change files.
+ *
+ * A call that needs a **fresh** approval — the task has read untrusted content
+ * and this one changes something or leaves the machine — is refused before any
+ * of that: the CLI has nobody to ask, and the flags were chosen before the
+ * content was read. `--allow-untrusted-escalation` lets it fall through to the
+ * ordinary checks; it grants nothing on its own, so a write still needs
+ * `--allow-writes`.
  */
 export function createCliToolApprovalGate(
   allowWrites = false,
   allowCommands = false,
+  allowUntrustedEscalation = false,
 ): OrchestratorHooks['toolApprovalGate'] {
-  return async (_taskId, toolName, args) => {
+  return async (_taskId, toolName, args, meta) => {
     const policy = classifyToolInvocation(toolName, args);
+
+    if (meta?.escalation?.decision === 'fresh-approval' && !allowUntrustedEscalation) {
+      return {
+        approved: false,
+        reason:
+          `CLI blocked "${toolName}" (${policy.summary}) because this task has read untrusted content — `
+          + `${describeEscalationSources(meta.escalation)} — and a ${policy.category} action after that needs a `
+          + `fresh approval (${meta.escalation.rule}) that the CLI cannot ask for. Re-run with `
+          + '--allow-untrusted-escalation if you have checked the source and want the usual flags to decide.',
+      };
+    }
 
     switch (policy.category) {
       case 'read':
@@ -800,6 +827,8 @@ function printHelp(): void {
     '  --ssot <relative-path>    Override the SSOT path (default: project_memory when present)',
     '  --allow-writes            Permit write-capable workspace and git tools in CLI mode',
     '  --allow-commands          Permit terminal reads (npm test, build, lint) that run repo-defined scripts',
+    '  --allow-untrusted-escalation  After a task reads third-party content, let the flags above decide',
+    '                            writes and network calls instead of refusing them (grants nothing itself)',
     '  --budget <mode>           cheap | balanced | expensive | auto',
     '  --speed <mode>            fast | balanced | considered | auto',
     '  --daily-limit-usd <n>     Block requests when the CLI budget would be exceeded',

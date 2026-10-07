@@ -247,6 +247,14 @@ restricted generated-skill reviews therefore remain pending. Resolvers are insta
 a card, so even a synchronous host answer cannot become a lost click. Ceilinged cards carry the policy's
 reason into chat instead of looking like Autopilot was ignored.
 
+Before the gate, the agentic loop asks `contextProvenance.evaluateTaintEscalation` what the call needs given
+what the turn has read (see *ContextProvenance* below). `free` calls the gate with its usual three
+arguments; `refuse` is answered by the orchestrator without calling it; `fresh-approval` passes a fourth
+argument, `ToolApprovalGateMeta`, and is refused as `taint.no-gate` when no gate is wired. The VS Code gate
+handles that case before the approval mode and before `shouldBypass`, offering only *Allow Once*, *Deny* and
+`acknowledge-source`; the last is recorded by `ToolApprovalManager.acknowledgeTaint(taskId, category)`,
+refused on any card that did not list it, and cleared by `clearTask` and `reset`.
+
 Tool-backed ACP execution is a separate execution shape, not an emulation of AtlasMind function calling. When the live `atlasmind.acp.toolsEnabled` setting is true, the Orchestrator adds `RoutingConstraints.allowDelegatedToolExecution`; the router may then admit an ACP `ModelInfo` that declares `delegatedToolExecution`. If that ACP model is selected, the Orchestrator passes an empty AtlasMind tool-schema list and stamps that exact provider request with `allowDelegatedToolExecution: true`. The adapter requires both the global setting and this request authority; missing request authority means isolated completion-only execution with no shared MCP servers or permission policy. Every readable native operation still returns through `AcpPermission`, where the live setting automatically authorizes only an `allow_once` response and the action is logged; a non-ACP failover receives the original AtlasMind tool definitions again.
 
 Execution is bounded across all routing paths, but **escalation and failover draw on separate budgets**. Failover — what keeps a turn alive when an endpoint dies — has `MAX_TASK_FAILOVER_ATTEMPTS` (3); escalation — the discretionary upgrade when an answer was merely not good enough — stays at one; `MAX_TASK_MODEL_ATTEMPTS` (5) is a spend backstop across every path rather than the operative policy. One shared counter previously let an escalation consume the budget an outage would need, leaving a single attempt to survive a provider failure. When a turn does stop, the message names the limit actually reached — failover budget, absolute ceiling, or simply no other configured provider — because reporting a ceiling that was never hit sends the reader to raise the wrong limit.
@@ -449,13 +457,17 @@ The rule table (`ROUTINE_EXECUTION_RULES`) travels in the payload so a surface e
 
 The single guarded path to a model provider. Every prompt-bearing call in `src/` goes through `dispatchGuardedCompletion`, and `tests/security/modelEgressBoundary.test.ts` fails when one does not. Before this existed there were 21 such call sites across 8 files and exactly one referenced the redactor — a convention every caller had to remember, already forgotten seven times.
 
-**Context is labelled, not inferred.** `ModelContextOrigin` declares eleven kinds and `ORIGIN_POLICY` states what each one costs: whether it is redacted, whether a secret stops and asks, and how many characters may be transmitted. The label is carried on the message (`ChatMessage.origin`) rather than in a parallel array, because the agentic loop grows, reprompts and evicts from the middle of its history in eleven places — two arrays kept in step by hand desynchronise on the first eviction, and a desynchronised origin *mislabels* content rather than failing to label it. The field is never sent to a model. Inferring from `role` is refused outright: `buildMessages()` emits four consecutive `role: 'user'` messages and only the last is what the operator typed.
+**Context is labelled, not inferred.** `ModelContextOrigin` (declared in `types.ts` since 0.489.0, so the provenance types can name it without pulling this module into the web build, and re-exported here) declares eleven kinds and `ORIGIN_POLICY` states what each one costs: whether it is redacted, whether a secret stops and asks, and how many characters may be transmitted. The label is carried on the message (`ChatMessage.origin`) rather than in a parallel array, because the agentic loop grows, reprompts and evicts from the middle of its history in eleven places — two arrays kept in step by hand desynchronise on the first eviction, and a desynchronised origin *mislabels* content rather than failing to label it. The field is never sent to a model. Inferring from `role` is refused outright: `buildMessages()` emits four consecutive `role: 'user'` messages and only the last is what the operator typed.
 
 **Repository-derived context is redacted; user-authored prompts are never silently rewritten.** A secret-shaped value in a prompt somebody typed has two honest outcomes — ask, or refuse — and which one happens depends on whether there is anybody to ask. `Orchestrator.setEgressSecretConfirmer()` supplies a confirmer on the interactive path only; background work has none and therefore refuses, which is the correct outcome rather than an inconvenience. A local destination is never asked about, since nothing left the machine.
 
 **Unlabelled fails closed, two ways.** Under the test runner (or with `ATLASMIND_STRICT_EGRESS=1`) an unlabelled part throws and names the call site. In a shipped extension it is clamped to the most restrictive class instead — redacted, confirmed on secret, 8 000 characters. The default is deliberately not keyed on `NODE_ENV`, which VS Code leaves unset in the extension host, so a `!== 'production'` test would arm the developer tripwire for every user.
 
 `EgressDestination` also declares an optional `streamComplete`, so a streaming caller never has to reach past the boundary to get one — that was the commonest unlabelled path and also the most important, the main chat turn. Clearing produces a **fresh message array per dispatch**, so what a provider was handed is a snapshot of that moment rather than a reference to an array the loop keeps mutating. Audit lines carry origin, provider, model, redaction counts and rule names, and never a matched value or a prompt body.
+
+### ContextProvenance (`src/core/contextProvenance.ts`)
+
+What the model has read this turn, and what that means for the next thing it asks to do. Prompt injection has no parsing fix — no filter reliably tells text addressed to the agent from text addressed to the reader — so the module names the dangerous *moment* instead: untrusted text went in, and an action that changes something or leaves the machine is about to come out. `ORIGIN_PROVENANCE` (exhaustive over `ModelContextOrigin`) and `TOOL_RESULT_PROVENANCE_RULES` (first match wins, the last rule catching everything as `third-party`) classify every message and tool result as `operator` < `atlasmind` < `workspace` < `third-party`; `absorbProvenance` folds a source into a `TurnProvenance` by max and or, so the level and `injectionSuspected` only rise. `prepareToolResultForModel` passes a local result through byte-for-byte, and scans and fences a third-party one with the shared `fenceReportedContent` — numbered so the content cannot close it — adding a `[SECURITY]` note, never deleting the text, when `SUSPECTED_INJECTION_RULE_IDS` (the memory scanner's instruction-override rules, imported by id) fire. A call that never executed taints nothing. `TAINT_ESCALATION` (exhaustive over `ToolRiskCategory`) decides `free` / `fresh-approval` / `refuse` once the turn is in the configured scope (`atlasmind.security.untrustedEscalationScope`; no `off`, an unrecognised value reads as the stricter scope): reads stay free, writes and commands need a fresh approval, outward categories need one when tainted and are refused when suspected. In the Orchestrator the cell is shared by every attempt of a request (`__provenanceCell`), seeded from the initial messages, absorbed after each tool round, and decided against the round's starting state; dependent subtasks are seeded from `SubTaskResult.provenance` via `provenanceFromDependencies` (unrecorded = third-party); `evaluateAcpDelegation` refuses to hand a tainted turn to an ACP agent's own tools; and `find-tool` skips Resource Discovery once tainted. Pure, unit-tested with fast-check properties (monotone; once in scope no write or outward category is free), plus orchestrator wiring tests asserting an untainted turn calls the gate with three arguments and passes local results through unchanged.
 
 ### DataPrivacyManager (`src/core/dataPrivacyManager.ts`)
 
@@ -3280,6 +3292,7 @@ extension.ts
         ├── core/planner.ts
         ├── core/taskScheduler.ts
         ├── core/toolWebhookDispatcher.ts
+        ├── core/contextProvenance.ts      (provenance taint + escalation table, pure)
         ├── memory/memoryManager.ts
         │     └── memory/memoryScanner.ts
         ├── mcp/mcpServerRegistry.ts
@@ -3319,6 +3332,8 @@ native/acp-private-desktop/
   └── src/main.rs                    (Windows private-desktop process helper)
 
 tests/core/
+  ├── contextProvenance.test.ts
+  ├── orchestrator.provenance.test.ts
   ├── modelRouter.test.ts
   ├── costTracker.test.ts
   ├── websiteWorkspaceManager.test.ts
@@ -3367,7 +3382,7 @@ All shared types live in `src/types.ts`. See the [type definitions](../src/types
 | `ModelStruggleKind` | A way a model under-performed on a turn: `timeout`, `empty`, `tool-call-as-text`, `error-finish`, `user-correction` |
 | `ModelStruggleState` | Persistent decaying de-weight for a model on a task signature: `penalty`, `lastUpdated`, `hits`, `lastKind` |
 | `SubTask` | Unit of work in a project plan: id, title, role, skills, `dependsOn` edges |
-| `SubTaskResult` | Execution outcome: `status` (`completed` / `failed` / `needs-input`), output, costUsd, durationMs, error, and (when capped) `iterationLimitHit` + suggested raised limits |
+| `SubTaskResult` | Execution outcome: `status` (`completed` / `failed` / `needs-input`), output, costUsd, durationMs, error, (when capped) `iterationLimitHit` + suggested raised limits, and `provenance` — what the subtask and its dependencies read, which seeds its dependents (absent = unrecorded = third-party) |
 | `ProjectPlan` | Decomposed goal: id, goal, `subTasks[]` DAG |
 | `ProjectResult` | Full execution outcome: subtask results, synthesis, totals |
 | `ProjectProgressUpdate` | Discriminated progress event: `planned \| subtask-start \| subtask-done \| synthesizing \| error` |
@@ -3383,6 +3398,14 @@ All shared types live in `src/types.ts`. See the [type definitions](../src/types
 | `McpToolScanFinding` | One description-scan finding: rule, `flag`/`note`, location (`description` or `schema:<path>`), visible snippet, message |
 | `McpToolPin` | The approved shape of a tool: description and schema SHA-256, the approved text (capped), when, `first-sight`/`user`, and the flag rules the user acknowledged |
 | `McpHeldTool` | A held tool for the review view: opaque version-bound id, verdict, rule, findings, offered text, and the previously approved text when there was one |
+| `ModelContextOrigin` | Where a piece of prompt content came from — the closed eleven-kind union the egress boundary and the provenance taint both key on. Declared here, re-exported by `modelEgress.ts` |
+| `ProvenanceClass` | Who could have written a piece of context: `operator` < `atlasmind` < `workspace` < `third-party` |
+| `ProvenanceSource` | One absorbed source: origin, tool name, class, the rule that classified it, `injectionSuspected` and the scanner rules that fired |
+| `TurnProvenance` | What a turn has read: max `level`, sticky `injectionSuspected`, capped `sources` at `workspace` or above, `omittedSources` |
+| `UntrustedEscalationScope` | `third-party` (default) or `workspace-and-third-party` — which levels escalate. No `off` |
+| `TaintDecision` / `TaintEscalation` | `free` / `fresh-approval` / `refuse` for one call, with the deciding rule, category, scope, level and the in-scope sources a dialog names |
+| `ToolApprovalGateMeta` | Optional fourth argument to `toolApprovalGate`, present only for a `fresh-approval`: `{ escalation }` |
+| `ToolApprovalDecision` | `allow-once`, `bypass-task`, `autopilot`, `acknowledge-source` (allow this category for the rest of the task after seeing the untrusted source — only accepted on a card that offered it), `deny` |
 | `PromotionPlan` | Assembled promotion: ordered guarded steps, preflight `checks`, blockers, gate flags, and an optional `remediation` |
 | `PromotionRemediation` | "Resolve & run" offer for fixable failing checks: `resolves`, assessed `targetVersion`/`bumpLevel`/`bumpReason`, `editsChangelog`, `commits`, `summary` |
 

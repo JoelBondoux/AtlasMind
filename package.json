@@ -2,7 +2,7 @@
   "name": "atlasmind",
   "displayName": "AtlasMind",
   "description": "AI project management for VS Code: roadmap, risk, tech debt, compliance, testing and release tracked from your own repository — with a multi-agent AI team, or the AI coding tool you already use.",
-  "version": "0.488.1",
+  "version": "0.489.0",
   "publisher": "JoelBondoux",
   "preview": false,
   "license": "SEE LICENSE IN OSMFEULA.txt",
@@ -2057,6 +2057,20 @@
           "default": false,
           "description": "Allow write-capable terminal subprocesses such as installs and commits after explicit approval.",
           "markdownDescription": "Allow write-capable terminal subprocesses such as installs and commits after explicit approval. This controls whether AtlasMind may use terminal-based commands that can mutate the workspace or repository.\n\nExamples:\n- Investigation-only mode: `false`\n- Developer sandbox where installs and generators are expected: `true`\n\nKeep this off in repositories where package installation, generated files, or git history changes must go through separate review controls."
+        },
+        "atlasmind.security.untrustedEscalationScope": {
+          "type": "string",
+          "default": "third-party",
+          "enum": [
+            "third-party",
+            "workspace-and-third-party"
+          ],
+          "enumDescriptions": [
+            "Escalate after the task reads third-party content: a fetched page, an MCP result, GitHub issue text, another agent's answer, or the output of any tool AtlasMind cannot identify.",
+            "Also escalate after it reads repository content, attachments or editor chat context — text other people may have written into the workspace."
+          ],
+          "description": "After a task reads untrusted content, which changes and outward calls need a fresh approval that Autopilot and Bypass Approvals cannot answer. Reads stay free. There is no off value; the release valve is 'Allow for this task, I've seen the source' on the approval itself.",
+          "markdownDescription": "After a task has read untrusted content, a tool call that **changes something or leaves the machine** needs a *fresh* approval — one that Autopilot and Bypass Approvals, granted before the content was read, cannot answer. Reads stay free, so research is not slowed down.\n\n- `third-party` (default): escalate after the task reads a fetched page, an MCP server's answer, GitHub issue or review text, another agent's answer, or the output of any tool AtlasMind cannot identify.\n- `workspace-and-third-party`: also escalate after it reads repository files, attachments or the editor's chat context — text other people may have committed or pasted.\n\nThere is deliberately no `off`. The approval itself offers **Allow for this task — I've seen the source**, which releases that kind of action for the rest of the task. If fetched content contains text shaped like an instruction (\"ignore previous instructions\"), the content is kept and flagged, and the task may no longer reach the network at all.\n\nA value that is set but not recognised is read as the stricter scope."
         },
         "atlasmind.autoVerifyAfterWrite": {
           "type": "boolean",

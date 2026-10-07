@@ -130,6 +130,21 @@ It's handled in layers:
   didn't record a server whose first listing was empty. Approving a held tool in the MCP panel pins exactly the version you reviewed.
   The panel sends an opaque id bound to that version's hashes, and the extension re-checks the live tool
   before it registers anything
+- **What a task has read decides what it may do next without asking.** Every message and tool result is
+  classed *operator*, *AtlasMind*, *workspace* or *third-party*, and a task keeps the highest class it has
+  read for the rest of its life. Once it has read third-party content — a fetched page, an MCP answer, `gh`
+  output, another agent's answer, any tool AtlasMind can't identify — a write, a commit, a command or a
+  network call needs a **fresh** approval that Autopilot and Bypass cannot answer, because both were given
+  before the content was read. Reads stay free. If the content contained an instruction override, it is
+  kept and flagged rather than dropped, and the task may not reach the network at all. Third-party results
+  are fenced with a numbered marker the content cannot close. The rule tables are in
+  `src/core/contextProvenance.ts`; detail in [Tool Execution](Tool-Execution.md)
+
+**What this does not cover yet.** Taint lives for one task: a later turn of the same conversation does not
+inherit an earlier turn's third-party reads, so content the model paraphrased into its own answer can come
+back as conversation. A run resumed from history records nothing about what its finished subtasks read, so
+their dependents are treated as having read third-party content. And a large third-party result still
+reaches the model whole — a quarantined reader that extracts facts from it without tools is the next step.
 
 ---
 
@@ -911,6 +926,7 @@ into a broader source. No proposed import is written until its confirmation is a
 | Prompt injection via memory | Scanner blocks the write |
 | Prompt injection via chat history or attachments | Transient-context scanning, untrusted-context isolation, priority guardrails |
 | Tool poisoning and MCP rug pulls | Description and schema scanning, per-tool pins, hold-on-change, version-bound approval |
+| Injected instructions in fetched or tool content | Provenance taint, fresh approval Autopilot cannot answer, network refused after a suspected injection, unclosable fences |
 | Credential exposure | OS keychain, write gate, dispatch-time redaction |
 | Path traversal | Workspace sandboxing on every file operation |
 | Shell injection | No shell, allow-list, operator blocking |

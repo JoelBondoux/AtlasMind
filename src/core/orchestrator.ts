@@ -1,4 +1,4 @@
-import type { AgentDefinition, ArdDiscoveredResource, BudgetMode, ProjectTestingConfig, DataPrivacyMatch, MemoryEntry, ModelCapability, ModelStruggleKind, OrchestratorConfig, OrchestratorHooks, PricingModel, ProjectPlan, ProjectProgressUpdate, ProjectResult, ProviderId, RoutingConstraints, SkillDefinition, SkillExecutionContext, SubTask, SubTaskExecutionArtifacts, SubTaskResult, SubTaskStatus, TaskModelAttempt, TaskProfile, TaskRequest, TaskResult, TestingMethodologyId, ToolExecutionArtifact } from '../types.js';
+import type { AgentDefinition, ArdDiscoveredResource, TurnProvenance, UntrustedEscalationScope, BudgetMode, ProjectTestingConfig, DataPrivacyMatch, MemoryEntry, ModelCapability, ModelStruggleKind, OrchestratorConfig, OrchestratorHooks, PricingModel, ProjectPlan, ProjectProgressUpdate, ProjectResult, ProviderId, RoutingConstraints, SkillDefinition, SkillExecutionContext, SubTask, SubTaskExecutionArtifacts, SubTaskResult, SubTaskStatus, TaskModelAttempt, TaskProfile, TaskRequest, TaskResult, TestingMethodologyId, ToolExecutionArtifact } from '../types.js';
 import type { AgentAutoUpdater } from './agentAutoUpdater.js';
 import { describeCapabilityOutcome, prepareCapabilityQuery, type ExternalCapabilitySearch } from './capabilitySearch.js';
 import { buildDebtMarkerGuidance, parseCustomDebtMarkers } from './debtRegister.js';
@@ -37,6 +37,20 @@ import type { TaskProfiler } from './taskProfiler.js';
 import { scanMemoryEntry, scanTransientContext } from '../memory/memoryScanner.js';
 import { discoverTools, shouldOfferToolDiscovery, TOOL_DISCOVERY_SKILL_ID } from './toolDiscovery.js';
 import { classifyToolInvocation } from './toolPolicy.js';
+import {
+  absorbMessageOrigins,
+  absorbProvenance,
+  describeTaintRefusal,
+  emptyTurnProvenance,
+  evaluateAcpDelegation,
+  evaluateTaintEscalation,
+  LENS_SELECTION_SOURCE,
+  mergeProvenance,
+  prepareToolResultForModel,
+  provenanceFromDependencies,
+  readRecordedProvenance,
+  readUntrustedEscalationScope,
+} from './contextProvenance.js';
 import { buildAutoSynthesisPrompt, extractGeneratedSkillCode, loadSkillFromSource, toSuggestedSkillId } from './skillDrafting.js';
 import { buildAgentSynthesisPrompt, extractAgentJson, toSuggestedAgentId, validateSynthesizedAgent } from './agentDrafting.js';
 import { scanSkillSource } from './skillScanner.js';
@@ -521,6 +535,13 @@ interface TaskAttemptContext {
    * exactly as long as the calls that use it.
    */
   worktreePath?: string;
+  /**
+   * What this task has read so far, shared by every attempt of one task (and
+   * seeded by the caller for a dependent subtask). A cell rather than a value
+   * because the loop updates it as tool results arrive and the caller reads it
+   * back afterwards. Monotone — see `contextProvenance`.
+   */
+  provenance?: { current: TurnProvenance };
 }
 
 interface TaskExecutionAttempt {
@@ -829,6 +850,39 @@ export class Orchestrator {
     } catch {
       return fallback;
     }
+  }
+
+  /**
+   * The provenance cell every attempt of one request shares — the main attempt,
+   * its failovers and the self-recovery pass. A caller that seeds one (a
+   * dependent subtask) has it used as given; otherwise it is created here and
+   * kept on the request, the precedent `__turnCapabilityEnvelope` set. A value
+   * that is not a readable cell is replaced, never trusted.
+   */
+  private provenanceCellFor(request: TaskRequest): { current: TurnProvenance } {
+    const existing = request.context['__provenanceCell'];
+    if (existing && typeof existing === 'object' && readRecordedProvenance((existing as { current?: unknown }).current)) {
+      return existing as { current: TurnProvenance };
+    }
+    // Something was there and could not be read: whatever it recorded is now
+    // unknown, and unknown is not clear.
+    const cell = {
+      current: existing === undefined
+        ? emptyTurnProvenance()
+        : absorbProvenance(emptyTurnProvenance(), {
+          origin: 'generated-instruction',
+          provenance: 'third-party',
+          rule: 'provenance.cell-unreadable',
+          injectionSuspected: false,
+        }),
+    };
+    request.context['__provenanceCell'] = cell;
+    return cell;
+  }
+
+  /** Which provenance levels make an outward or mutating call need a fresh approval. */
+  private readUntrustedEscalationScope(): UntrustedEscalationScope {
+    return readUntrustedEscalationScope(this.readSetting<unknown>('security.untrustedEscalationScope', undefined));
   }
 
   getExecutionLimits(): Pick<OrchestratorConfig, 'maxToolIterations' | 'maxToolCallsPerTurn'> {
@@ -1370,6 +1424,7 @@ export class Orchestrator {
             signal: request.signal,
             turnCapabilities,
             allowDelegatedToolExecution: recoveryUsesDelegatedTools,
+            provenance: this.provenanceCellFor(request),
           },
           onTextChunk,
           onProgress,
@@ -2111,6 +2166,7 @@ export class Orchestrator {
               // model plans around one it can never call.
               discoverableSkills: eligibleAgentSkills,
               allowDelegatedToolExecution: usesDelegatedAcpTools,
+              provenance: this.provenanceCellFor(request),
               ...(typeof request.context['__worktreePath'] === 'string'
                 ? { worktreePath: request.context['__worktreePath'] }
                 : {}),
@@ -2746,6 +2802,12 @@ export class Orchestrator {
     //    a time where two subtasks would write the same tree.
     const scheduler = new TaskScheduler();
     const isolation = this.startWorktreeIsolation(plan.id, onProgress);
+    // What each finished subtask read, so its dependents start from it. A
+    // resumed result brings whatever it recorded; one that recorded nothing is
+    // seeded as third-party by `provenanceFromDependencies`.
+    const provenanceBySubTask = new Map<string, unknown>(
+      (options?.resumeFromResults ?? []).map(result => [result.subTaskId, result.provenance]),
+    );
     let subTaskResults: SubTaskResult[];
     try {
       subTaskResults = await scheduler.execute(
@@ -2771,7 +2833,9 @@ export class Orchestrator {
             options?.sessionContext,
             goalCapabilities,
             isolation.worktreeFor(task.id),
+            provenanceFromDependencies(task.dependsOn, id => provenanceBySubTask.get(id)),
           );
+          provenanceBySubTask.set(task.id, result.provenance);
           // Propagate billing abort as a thrown error so the scheduler's
           // Promise.all immediately rejects and no further batches execute.
           if (result.billingAbort) {
@@ -2838,8 +2902,36 @@ export class Orchestrator {
     });
   }
 
-  /** Execute a single subtask with an ephemeral role-based agent. */
+  /**
+   * Execute a single subtask, seeded with what its dependencies read and
+   * reporting what it read in turn. The seed matters because a dependency's
+   * output is spliced into this subtask's prompt as if the operator had typed
+   * it — without it, a fetch in step one would launder into "user prompt" by
+   * step two.
+   */
   private async executeSubTask(
+    task: SubTask,
+    depOutputs: Record<string, string>,
+    constraints: RoutingConstraints,
+    onProgress?: (update: ProjectProgressUpdate) => void,
+    projectGoal: string = '',
+    signal?: AbortSignal,
+    sessionContextBundle?: import('../types.js').SessionContextBundle,
+    sessionContext?: string,
+    inheritedCapabilities?: TurnCapabilityEnvelope,
+    worktreePath?: string,
+    seedProvenance?: TurnProvenance,
+  ): Promise<SubTaskResult> {
+    const provenanceCell = { current: seedProvenance ?? emptyTurnProvenance() };
+    const result = await this.executeSubTaskBody(
+      task, depOutputs, constraints, onProgress, projectGoal, signal, sessionContextBundle, sessionContext,
+      inheritedCapabilities, worktreePath, provenanceCell,
+    );
+    return { ...result, provenance: provenanceCell.current };
+  }
+
+  /** Execute a single subtask with an ephemeral role-based agent. */
+  private async executeSubTaskBody(
     task: SubTask,
     depOutputs: Record<string, string>,
     constraints: RoutingConstraints,
@@ -2864,6 +2956,7 @@ export class Orchestrator {
      * outlives the subtask and leak one run's resolution root into another.
      */
     worktreePath?: string,
+    provenanceCell?: { current: TurnProvenance },
   ): Promise<SubTaskResult> {
     const startMs = Date.now();
     const userMessage = buildProjectSubTaskMessage(task, depOutputs, projectGoal);
@@ -2916,6 +3009,7 @@ export class Orchestrator {
           ...(subTaskMethodologyId ? { __testingMethodologyHint: buildMethodologySystemPromptHint(subTaskMethodologyId) } : {}),
           ...(inheritedCapabilities ? { __inheritedCapabilityEnvelope: inheritedCapabilities } : {}),
           ...(worktreePath ? { __worktreePath: worktreePath } : {}),
+          ...(provenanceCell ? { __provenanceCell: provenanceCell } : {}),
         },
         constraints,
         timestamp: new Date().toISOString(),
@@ -3127,6 +3221,9 @@ export class Orchestrator {
     // differently would mean the race were fixed depending on which surface
     // started the work.
     const isolation = this.startWorktreeIsolation(plan.id, onProgress);
+    // Seeded from what the planning turn itself had read, then per dependency.
+    const requestProvenance = this.provenanceCellFor(request).current;
+    const provenanceBySubTask = new Map<string, unknown>();
     const subTaskResults = await scheduler.execute(
       plan,
       async (task, depOutputs) => {
@@ -3135,7 +3232,9 @@ export class Orchestrator {
           task, depOutputs, request.constraints, onProgress,
           '', undefined, undefined, undefined, requestCapabilities,
           isolation.worktreeFor(task.id),
+          mergeProvenance(requestProvenance, provenanceFromDependencies(task.dependsOn, id => provenanceBySubTask.get(id))),
         );
+        provenanceBySubTask.set(task.id, result.provenance);
         if (result.billingAbort) {
           throw new Error(result.error ?? 'Provider billing limit reached.');
         }
@@ -3321,6 +3420,25 @@ export class Orchestrator {
     let readonlyExplorationNudged = false;
     let lastToolResults: Array<{ toolCall: ToolCall; result: string; isFailure?: boolean }> = [];
     const projectTddState = initializeProjectTddState(context.projectTddPolicy);
+    // What the model has read this turn: seeded from the prompt it starts with,
+    // then grown as tool results arrive. Nothing below changes an untainted
+    // turn — the escalation is `free`, the gate is called exactly as before and
+    // local tool results reach the model byte-for-byte.
+    const escalationScope = this.readUntrustedEscalationScope();
+    const provenanceCell = context.provenance ?? { current: emptyTurnProvenance() };
+    provenanceCell.current = absorbMessageOrigins(provenanceCell.current, messages);
+    if (context.allowDelegatedToolExecution) {
+      // An ACP agent runs tools AtlasMind cannot see, so their results cannot
+      // be absorbed and what they do next cannot be gated. Refused rather than
+      // delegated once the turn is tainted.
+      const delegation = evaluateAcpDelegation(provenanceCell.current, escalationScope, model);
+      if (delegation.refused) {
+        onProgress?.(delegation.message);
+        return {
+          completion: { content: delegation.message, model, inputTokens: 0, outputTokens: 0, finishReason: 'stop' },
+        };
+      }
+    }
 
     for (let i = 0; i < this.cfg.maxToolIterations; i++) {
       if (context.signal?.aborted) {
@@ -3649,7 +3767,15 @@ export class Orchestrator {
             }
             let discoveryMessage = discovery.message;
             const externalQuery = discovery.granted.length === 0 ? prepareCapabilityQuery(query) : '';
-            if (externalQuery && this.externalCapabilitySearch) {
+            // The search query is model-composed text sent off the machine, so
+            // once the turn is tainted it is the same exfiltration channel as a
+            // network read — and nobody is asked here. Skipped, and said so.
+            const externalEscalation = evaluateTaintEscalation(provenanceCell.current, { category: 'network-read' }, escalationScope);
+            if (externalQuery && this.externalCapabilitySearch && externalEscalation.decision !== 'free') {
+              discoveryMessage = `${discovery.message}\n\nResource Discovery was not searched (${externalEscalation.rule}): `
+                + 'this task has read untrusted content, and a search would send model-written text off the machine '
+                + 'without anyone being asked. Use one of the tools you have, or tell the user what is missing.';
+            } else if (externalQuery && this.externalCapabilitySearch) {
               onProgress?.(`Nothing installed can do that; searching Resource Discovery for "${externalQuery}"…`);
               let outcome: Awaited<ReturnType<ExternalCapabilitySearch>>;
               try {
@@ -3674,6 +3800,10 @@ export class Orchestrator {
               durationMs: Date.now() - startedAt,
               checkpointed: false,
               shouldVerify: false,
+              executed: true,
+              ...(externalQuery && this.externalCapabilitySearch && externalEscalation.decision === 'free'
+                ? { reachedNetwork: true }
+                : {}),
             };
           }
 
@@ -3707,6 +3837,7 @@ export class Orchestrator {
             tools.push(...buildToolDefinitions([skill]));
           }
 
+          let executionStarted = false;
           try {
             let checkpointed = false;
             if (!isJsonObject(toolCall.arguments)) {
@@ -3760,8 +3891,35 @@ export class Orchestrator {
               return { toolCall, result: tddGateMessage, durationMs: 0, checkpointed: false, shouldVerify: false };
             }
 
+            // Decided against what the turn had read when this round began:
+            // results from calls running alongside this one are absorbed after
+            // the round, which is also when the model first sees them.
+            const escalation = evaluateTaintEscalation(
+              provenanceCell.current,
+              classifyToolInvocation(toolCall.name, toolCall.arguments),
+              escalationScope,
+            );
+            if (escalation.decision === 'refuse' || (escalation.decision === 'fresh-approval' && !this.toolApprovalGate)) {
+              const refusal = describeTaintRefusal(toolCall.name, escalation, escalation.decision !== 'refuse');
+              await this.toolWebhookDispatcher?.emit({
+                event: 'tool.failed',
+                timestamp: new Date().toISOString(),
+                taskId: context.taskId,
+                agentId: context.agentId,
+                model,
+                toolName: toolCall.name,
+                toolCallId: toolCall.id,
+                status: 'failed',
+                durationMs: Date.now() - startedAt,
+                error: refusal,
+              });
+              return { toolCall, result: refusal, durationMs: Date.now() - startedAt, checkpointed: false, shouldVerify: false };
+            }
+
             if (this.toolApprovalGate) {
-              const approval = await this.toolApprovalGate(context.taskId, toolCall.name, toolCall.arguments);
+              const approval = escalation.decision === 'fresh-approval'
+                ? await this.toolApprovalGate(context.taskId, toolCall.name, toolCall.arguments, { escalation })
+                : await this.toolApprovalGate(context.taskId, toolCall.name, toolCall.arguments);
               if (!approval.approved) {
                 const deniedMessage = approval.reason || `Tool "${toolCall.name}" was denied by policy.`;
                 await this.toolWebhookDispatcher?.emit({
@@ -3790,6 +3948,7 @@ export class Orchestrator {
               context.sideEffectsStarted.push(classifyToolInvocation(toolCall.name, toolCall.arguments).summary);
             }
             const effectiveTimeout = skill.timeoutMs ?? this.cfg.toolExecutionTimeoutMs;
+            executionStarted = true;
             const result = await withTimeout(
               skill.execute(toolCall.arguments, skillContext),
               effectiveTimeout,
@@ -3819,6 +3978,7 @@ export class Orchestrator {
               checkpointed,
               shouldVerify: requiresPostToolVerification(toolCall.name) && !resultIsFailure,
               isFailure: resultIsFailure,
+              executed: true,
             };
           } catch (err) {
             const failure = `Skill "${toolCall.name}" failed: ${err instanceof Error ? err.message : String(err)}`;
@@ -3834,7 +3994,7 @@ export class Orchestrator {
               durationMs: Date.now() - startedAt,
               error: err instanceof Error ? err.message : String(err),
             });
-            return { toolCall, result: failure, durationMs: Date.now() - startedAt, checkpointed: false, shouldVerify: false };
+            return { toolCall, result: failure, durationMs: Date.now() - startedAt, checkpointed: false, shouldVerify: false, executed: executionStarted };
           }
         },
       );
@@ -3894,13 +4054,23 @@ export class Orchestrator {
         }
       }
 
-      for (const { toolCall, result } of toolResults) {
+      for (const { toolCall, result, executed, reachedNetwork } of toolResults) {
+        // Data Privacy fail-safe first (withhold/redact confidential file reads
+        // and classified content when the running model is not trusted), then
+        // provenance: a third-party result is scanned and fenced, anything else
+        // passes through byte-for-byte.
+        const prepared = prepareToolResultForModel({
+          toolName: toolCall.name,
+          args: isJsonObject(toolCall.arguments) ? toolCall.arguments : {},
+          text: this.redactToolResultForModel(toolCall, result, model),
+          executed: executed === true,
+          facts: { reachedNetwork: reachedNetwork === true },
+        });
+        provenanceCell.current = absorbProvenance(provenanceCell.current, prepared.source);
         messages.push({
           role: 'tool',
           origin: 'tool-result',
-          // Data Privacy fail-safe: withhold/redact confidential file reads and
-          // classified content when the running model is not trusted.
-          content: this.redactToolResultForModel(toolCall, result, model),
+          content: prepared.content,
           toolCallId: toolCall.id,
           toolName: toolCall.name,
         });
@@ -5383,6 +5553,10 @@ export class Orchestrator {
         // A reading taken off a live third-party service: untrusted text with
         // an authoritative-looking source, which is the tool-result case.
         origin: 'tool-result',
+        // Named so the provenance taint can tell the operator's own Lens
+        // selection from an anonymous tool result (which it treats as
+        // third-party). Never sent to a model as a tool name.
+        toolName: LENS_SELECTION_SOURCE,
         content: lensContextMessage,
       });
     }
@@ -5586,6 +5760,14 @@ interface ToolExecutionEntry {
    * PASSING verification run into a phantom "tool-execution problem" dump.
    */
   isFailure?: boolean;
+  /**
+   * The skill actually ran (or threw while running). A call refused, denied or
+   * rejected before execution produced AtlasMind's own text and read nothing,
+   * so it taints nothing.
+   */
+  executed?: boolean;
+  /** `find-tool` went on to search Resource Discovery off the machine. */
+  reachedNetwork?: boolean;
 }
 
 /**
