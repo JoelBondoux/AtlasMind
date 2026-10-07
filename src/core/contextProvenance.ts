@@ -214,6 +214,13 @@ function commandArgs(args: Record<string, unknown>): string[] {
 const isTerminalTool = (toolName: string): boolean => toolName === 'terminal-run';
 
 /**
+ * The tool that releases a quarantined result's full text, by handle. Named
+ * here rather than in `quarantinedReader.ts` because its result is classified
+ * here, and that module already depends on this one.
+ */
+export const QUARANTINE_RELEASE_TOOL = 'quarantine-read';
+
+/**
  * How a tool's result is classified, first match wins. The last rule catches
  * everything, so classification is total — and what it catches is
  * `third-party`.
@@ -236,6 +243,12 @@ export const TOOL_RESULT_PROVENANCE_RULES: readonly ToolResultProvenanceRule[] =
     provenance: 'third-party',
     reason: 'The tool exists to bring back text from off the machine.',
     matches: toolName => NETWORK_SKILLS.has(toolName),
+  },
+  {
+    id: 'provenance.quarantine-release',
+    provenance: 'third-party',
+    reason: 'The full text of a quarantined third-party result. Releasing it after an approval does not change who wrote it.',
+    matches: toolName => toolName === QUARANTINE_RELEASE_TOOL,
   },
   {
     id: 'provenance.agent-handoff',

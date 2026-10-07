@@ -202,6 +202,35 @@ conversation includes third-party content and that writes will ask.
   that one, *Bypass Approvals* for a task, a category bypass — is now dropped the moment its task ends,
   however it ends.
 
+#### …and a long page is read by a model that can't do anything
+
+A fence tells the model the text is data; it doesn't stop the model reading every sentence of a
+50,000-character page, and every sentence is another chance to be taken as an instruction. So since
+0.490.0, a **third-party result over 8,000 characters** — a fetched page, an MCP answer, `gh pr diff`,
+another agent's long answer — never reaches the agent that holds the tools:
+
+1. AtlasMind keeps the full text aside under a handle (`q1`, `q2`, …) for the rest of the task.
+2. A **separate model with no tools** — the cheapest fast one available — gets three things: its
+   extraction rules, your request as the question, and the text, fenced and redacted. Not the agent's
+   prompt, not project memory, not a single tool.
+3. Its answer must be one JSON object: up to **20 one-line facts** (300 characters each), **`https` URLs
+   copied from the text**, and up to **5 exact quotes**. Anything else is refused whole. A URL the text
+   never contained, a "quote" it never said, or a fact shaped like an instruction is withheld and counted.
+4. The agent receives that extract, fenced, with the handle — and still marked third-party. Reading it
+   taints the task exactly as reading the page would, and if the page contained "ignore previous
+   instructions" the task still can't reach the network.
+
+| What happens | What the agent sees |
+|---|---|
+| The extract validates | The fenced extract, what was withheld, the handle, and a `[SECURITY]` note if the page held an instruction override |
+| No model available, the call fails, or the answer doesn't validate | The **first 2,000 characters**, fenced, with a `[SECURITY]` note naming the rule. Never the whole page |
+| The agent calls `quarantine-read` with the handle | A **fresh approval**, even under Autopilot. Approved: up to 20,000 characters per call, fenced and still third-party. Denied: nothing |
+
+Results under 8,000 characters, and everything from your own machine, reach the agent exactly as before.
+Each reader call costs one cheap model request, recorded as `quarantined-reader` in the cost dashboard.
+`atlasmind.security.quarantineReader: off` turns it off — large results then arrive whole and fenced, and
+the asking-again rule above still applies. The rules are in `src/core/quarantinedReader.ts`.
+
 ### Context is not authority
 
 A rolling chat summary is accepted only when its recorded transcript revision matches the transcript
@@ -580,7 +609,8 @@ change files.
 **After a task reads third-party content, a write is refused** rather than asked about — there is
 nobody to ask, and the flags were chosen before the content was read. `--allow-untrusted-escalation`
 lets the flags above decide instead; it grants nothing on its own, so a write still needs
-`--allow-writes`.
+`--allow-writes`. The same goes for `quarantine-read`: releasing a quarantined result's full text is
+refused in the CLI unless you pass `--allow-untrusted-escalation`.
 
 ---
 

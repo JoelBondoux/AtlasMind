@@ -6,6 +6,62 @@ The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/),
 
 ## [Unreleased]
 
+## [0.490.0] - 2026-10-07
+
+### Added
+
+- **A long third-party result is read by a model that can do nothing, and the agent reads only what it
+  extracted.** The provenance taint from 0.489 decides *when* an action after untrusted text needs a
+  person; it could not stop the text being read, and a 50,000-character page reached the tool-using loop
+  whole — 50,000 characters of chances to be taken as an instruction. The new pure module
+  `src/core/quarantinedReader.ts` applies the dual-LLM pattern to that case. An executed tool result the
+  provenance table classifies *third-party* (a fetched page, an MCP answer, `gh` output, another agent's
+  answer, an unidentified tool) **and longer than 8,000 characters** is held under a per-task handle and
+  read by a **second completion with no tools**: its whole system prompt is the extraction rules, it gets
+  the operator's request as its question and the text fenced and re-redacted for its own model, and it
+  sees no agent prompt, no memory and no tool definitions. It is routed to the cheapest fast model the
+  router has, through the existing `ModelRouter` with a declared profile and the existing
+  `dispatchGuardedCompletion` egress boundary, and its spend is recorded through `CostTracker` under the
+  agent id `quarantined-reader`.
+- **Its answer is validated, never repaired.** One JSON object: at most 20 single-line facts of at most 300
+  characters, `https` URLs, and at most 5 exact quotes. Anything structurally wrong — not JSON, an unknown
+  field, a 21st entry, a fact too long, an answer over 16,000 characters — is refused whole. A URL that is
+  not well-formed `https`, carries credentials or **does not appear in the text**, a quote the text never
+  said, and a fact shaped like an instruction override are withheld and counted, and the agent is told how
+  many.
+- **The extract does not launder provenance.** It reaches the agent inside the shared `REPORTED CONTENT`
+  fence, with the handle, and the task absorbs it as third-party under the original tool's rule — and as
+  *suspected* if the raw text held an instruction override, so writes still ask for a fresh approval and
+  network calls are still refused exactly as if the page had been shown.
+- **Every fallback is stated, and none is the full text.** No model available (or only the local echo
+  placeholder), a failed or timed-out call, a refused egress, or an answer that does not validate each
+  fall back to the first 2,000 characters, fenced, with a `[SECURITY]` note naming the rule
+  (`quarantine.no-model`, `quarantine.call-failed`, `quarantine.egress-refused`,
+  `quarantine.output-oversized`, `quarantine.output-not-json`, `quarantine.output-invalid`) and a progress
+  line.
+- **The raw text comes back only by approval.** The new `quarantine-read` tool, offered once a result is
+  held and answered inside the tool loop so no registered skill of that name can stand in for it, releases
+  up to 20,000 characters per call by handle. It always reaches the approval gate as a fresh approval
+  (`quarantine.raw-release`) that Autopilot and Bypass cannot answer; with no gate it is refused, the CLI
+  refuses it unless `--allow-untrusted-escalation`, and the ACP broker asks per call. What it returns is
+  fenced, scanned and still third-party (`provenance.quarantine-release`).
+- **New setting:** `atlasmind.security.quarantineReader` — `on` (default) or `off`. On by default because
+  the safety-first reading is that the agent should not read a long untrusted page at all, and the cost is
+  bounded: one call to the cheapest fast model, only for third-party results over the threshold. `off`
+  restores the 0.489 behaviour (fenced, whole, scanned); the untrusted-content escalation applies either
+  way. An unrecognised value reads as `on`.
+
+### Unchanged
+
+- Results of 8,000 characters or fewer, and every local or AtlasMind result, reach the model byte-for-byte
+  as before — asserted by test against `prepareToolResultForModel`.
+
+### Not yet
+
+- `rm:prompt-injection-tool-poison` stays open: its text also asks for a guardrail-model check before
+  destructive and external actions, signed (not only pinned) MCP tool definitions, and a written injection
+  threat model formalising the deny-by-default posture.
+
 ## [0.489.1] - 2026-10-07
 
 ### Fixed

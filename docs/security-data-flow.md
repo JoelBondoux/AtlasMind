@@ -202,8 +202,7 @@ others are not yet traced — see gaps below.
 > (`ToolApprovalGateMeta`), which Autopilot and bypass cannot answer, and after a suspected injection the
 > outward categories are refused by the orchestrator itself. Data still flows **in** unchanged: nothing
 > third-party is dropped. What changes is that it can no longer flow **out** again — as a write, a
-> command or a request — without a person seeing it first. Not covered: a quarantined reader for large
-> results.
+> command or a request — without a person seeing it first. (Large results: see v0.490.0 below.)
 >
 > **Added in v0.489.1 — and it lasts for the conversation.** A turn's text, and the model's account of it,
 > is in the history the next turn sends, so each chat session (panel and native) and each ACP session keeps
@@ -213,6 +212,21 @@ others are not yet traced — see gaps below.
 > record, reads as third-party. It only rises, and resets only when a conversation is cleared or a new one
 > is started. Project runs started from chat are seeded from it, and run records now keep each subtask's
 > provenance, so a resumed run no longer has to treat every finished subtask as third-party.
+>
+> **Added in v0.490.0 — a large third-party result no longer reaches the tool-using loop raw.** A
+> third-party tool result over 8,000 characters is held under a per-loop handle and read by a **second,
+> tool-less completion** (`src/core/quarantinedReader.ts`, dispatched by the orchestrator through
+> `dispatchGuardedCompletion`, routed to the cheapest fast model with the declared
+> `QUARANTINE_ROUTING_PROFILE`). New egress: the raw text — re-redacted for the reader's model, labelled
+> `tool-result`, capped below that origin's limit — plus the operator's request as `user-prompt` and the
+> extraction rules as `system-prompt`. Nothing else: no agent prompt, no memory, no tool definitions. The
+> reader's answer is untrusted output, validated against a closed schema (≤20 single-line facts of ≤300
+> characters, `https` URLs that appear in the source, ≤5 exact quotes) and withheld item by item where it
+> fails; the privileged loop gets the fenced extract and a handle, and the turn is still tainted
+> third-party (suspected if the raw text was). Any failure falls back to a 2,000-character fenced excerpt,
+> never the full text. The full text re-enters only through `quarantine-read`, which is always a fresh
+> approval. The reader's spend is recorded as `quarantined-reader`. `atlasmind.security.quarantineReader:
+> off` restores the 0.489 behaviour (fenced, whole, still tainted).
 
 ---
 

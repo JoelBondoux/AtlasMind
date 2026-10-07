@@ -4,7 +4,7 @@
 
 <h1 align="center">AtlasMind</h1>
 
-<p align="center"><sub> · <strong>Current source version: 0.489.1</strong> · </sub></p>
+<p align="center"><sub> · <strong>Current source version: 0.490.0</strong> · </sub></p>
 
 
 <p align="center">
@@ -175,6 +175,18 @@ allow-list, redaction and file-withholding behaviour, retained metadata, provide
 important limits on overrides and compliance claims.
 
 ---
+
+## What's new in 0.490.0
+
+A long page is now read by a model that can't do anything. When a tool brings back more than 8,000
+characters of someone else's text — a fetched page, an MCP answer, `gh` output — a separate model with no
+tools reads it and hands the agent a short, checked extract instead: one-line facts, links that really are
+in the text, and a few exact quotes. The agent never reads the page itself, so there is far less room for
+text hidden in it to be taken as an instruction — and the extract still counts as third-party, so writes
+still ask you again. If the reader can't produce a valid extract, the agent gets a short excerpt with a
+warning, never the whole page. The full text comes back only through `quarantine-read`, which always asks
+you first. Each reader call costs one cheap model request, shown as `quarantined-reader` in the cost
+dashboard; `atlasmind.security.quarantineReader: off` turns it off.
 
 ## What's new in 0.489.1
 
@@ -863,6 +875,7 @@ Everything is in the AtlasMind Settings panel, or under `atlasmind.*` in VS Code
 | `toolApprovalMode` | `ask-on-write` | How often AtlasMind asks before acting |
 | `allowTerminalWrite` | `false` | Whether approved terminal commands may change things |
 | `security.untrustedEscalationScope` | `third-party` | After a task reads untrusted content, writes and network calls need a fresh approval Autopilot cannot answer. Reads stay free; there is no off |
+| `security.quarantineReader` | `on` | A third-party result over 8,000 characters is read by a separate tool-less model; the agent gets a checked extract, and the full text only after you approve releasing it |
 | `skillAutoSynthesisEnabled` | `false` | Let a model write a new skill and run it when a tool does not exist. Off; every synthesis is scanned and shown to you first |
 | `cli.addToTerminalPath` | `false` | Put the `atlasmind` launchers on the PATH of new integrated terminals. Off, because it persistently changes your shell |
 | `autoVerifyAfterWrite` | `true` | Run your checks automatically after a change |
@@ -887,6 +900,7 @@ All 163 settings are documented in the [Configuration reference](wiki/Configurat
 | `src/core/releaseMatrix.ts` | Pure schema, sanitization, mutation and metrics for the planned Editions feature-by-offering matrix; filesystem writes stay in the Project Dashboard host |
 | `src/core/releaseMatrixImport.ts` | Pure, bounded design-document discovery, Markdown/JSON parsing, conservative roadmap/Issue matching, and reviewed non-destructive merge planning for Editions |
 | `src/core/contextProvenance.ts` | What a task has read, and what that means for the next thing it asks to do: a provenance class for every message and tool result, the shared REPORTED CONTENT fence the content cannot close, and the published table deciding which writes and network calls need a fresh approval Autopilot cannot answer |
+| `src/core/quarantinedReader.ts` | The quarantined reader: a third-party tool result over 8,000 characters is read by a separate, tool-less model, and the agent gets a schema-checked extract and a handle instead of the raw text — the routing rules, the extraction prompt, the validator, the fallbacks and the approval-gated release |
 | `src/core/capabilitySearch.ts` | When `find-tool` finds no installed skill: sends the redacted, clamped query to the Agent Finders you enabled and returns up to five candidates to review and install — searching installs and grants nothing |
 | `src/runtime/` | Built-in agents and runtime composition |
 | `src/providers/` | Model provider adapters, catalogs, health, `modelRole.ts` (what a model is *for*), and the local-GPU support layer — `gpuProbe.ts`, `localFootprint.ts`, `localRuntimeClient.ts` |

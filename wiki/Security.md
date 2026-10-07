@@ -154,8 +154,18 @@ comes back into it), to AtlasMind as an ACP agent (per ACP session), and to run 
 what each finished subtask read so a resumed run seeds its dependents from it rather than assuming the
 worst.
 
-**What this does not cover yet.** A large third-party result still reaches the model whole — a quarantined
-reader that extracts facts from it without tools is the next step.
+**A long page is read by a model that can't do anything.** Since 0.490.0, a third-party result over 8,000
+characters never reaches the agent that holds the tools. A separate model with **no tools**, no agent
+prompt and no project memory reads it and returns a small extract — at most 20 one-line facts, `https`
+URLs that actually appear in the text, and a few exact quotes — answering what you asked. The extract is
+checked against that schema: anything that isn't one JSON object of those fields is refused whole, and a
+URL the text never contained, a "quote" it never said, or a fact shaped like an instruction is withheld and
+counted. The agent gets the fenced extract and a handle. The extract is **still third-party content**, so
+the task is still tainted, and if the page held an instruction override the task still can't reach the
+network. If no model is available or its answer doesn't validate, the agent gets a short fenced excerpt
+with a `[SECURITY]` note — never the whole page. The full text comes back only through `quarantine-read`,
+which always asks you first. The reader's calls are recorded as `quarantined-reader` in the cost
+dashboard. `atlasmind.security.quarantineReader: off` turns the reader off; the taint still applies.
 
 ---
 

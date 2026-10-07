@@ -1,4 +1,4 @@
-import type { AgentDefinition, ArdDiscoveredResource, TurnProvenance, UntrustedEscalationScope, BudgetMode, ProjectTestingConfig, DataPrivacyMatch, MemoryEntry, ModelCapability, ModelStruggleKind, OrchestratorConfig, OrchestratorHooks, PricingModel, ProjectPlan, ProjectProgressUpdate, ProjectResult, ProviderId, RoutingConstraints, SkillDefinition, SkillExecutionContext, SubTask, SubTaskExecutionArtifacts, SubTaskResult, SubTaskStatus, TaskModelAttempt, TaskProfile, TaskRequest, TaskResult, TestingMethodologyId, ToolExecutionArtifact } from '../types.js';
+import type { AgentDefinition, ArdDiscoveredResource, ProvenanceSource, TurnProvenance, UntrustedEscalationScope, BudgetMode, ProjectTestingConfig, DataPrivacyMatch, MemoryEntry, ModelCapability, ModelStruggleKind, OrchestratorConfig, OrchestratorHooks, PricingModel, ProjectPlan, ProjectProgressUpdate, ProjectResult, ProviderId, RoutingConstraints, SkillDefinition, SkillExecutionContext, SubTask, SubTaskExecutionArtifacts, SubTaskResult, SubTaskStatus, TaskModelAttempt, TaskProfile, TaskRequest, TaskResult, TestingMethodologyId, ToolExecutionArtifact } from '../types.js';
 import type { AgentAutoUpdater } from './agentAutoUpdater.js';
 import { describeCapabilityOutcome, prepareCapabilityQuery, type ExternalCapabilitySearch } from './capabilitySearch.js';
 import { buildDebtMarkerGuidance, parseCustomDebtMarkers } from './debtRegister.js';
@@ -17,7 +17,7 @@ import { resolveAgentSkillPolicy, type SkillsRegistry } from './skillsRegistry.j
 import type { ModelRouter } from './modelRouter.js';
 import { estimateCacheablePrefixRatio } from './modelRouter.js';
 import type { EgressSecretConfirmer, ModelContextOrigin } from './modelEgress.js';
-import { dispatchGuardedCompletion, originsFromMessages } from './modelEgress.js';
+import { dispatchGuardedCompletion, ModelEgressRefused, originsFromMessages } from './modelEgress.js';
 import { isLocalProviderId } from './backgroundMemoryPolicy.js';
 import { gradeExecutionQuality } from './executionQuality.js';
 import type { MemoryManager } from '../memory/memoryManager.js';
@@ -48,10 +48,33 @@ import {
   mergeProvenance,
   prepareToolResultForModel,
   provenanceFromDependencies,
+  QUARANTINE_RELEASE_TOOL,
   raiseProvenance,
   readRecordedProvenance,
   readUntrustedEscalationScope,
+  scanForInjection,
 } from './contextProvenance.js';
+import {
+  buildQuarantineExtractionRequest,
+  buildRawReleaseEscalation,
+  decideQuarantine,
+  describeReleaseWithoutGate,
+  emptyQuarantineStore,
+  holdQuarantinedResult,
+  lookupQuarantineRelease,
+  QUARANTINE_COST_AGENT_ID,
+  QUARANTINE_LIMITS,
+  QUARANTINE_RELEASE_DEFINITION,
+  QUARANTINE_ROUTING_PROFILE,
+  readQuarantineReaderMode,
+  renderQuarantinedExtract,
+  renderQuarantineFallback,
+  renderQuarantineRelease,
+  validateQuarantinedExtract,
+  type QuarantineFallbackRule,
+  type QuarantineReaderMode,
+  type QuarantineStore,
+} from './quarantinedReader.js';
 import { buildAutoSynthesisPrompt, extractGeneratedSkillCode, loadSkillFromSource, toSuggestedSkillId } from './skillDrafting.js';
 import { buildAgentSynthesisPrompt, extractAgentJson, toSuggestedAgentId, validateSynthesizedAgent } from './agentDrafting.js';
 import { scanSkillSource } from './skillScanner.js';
@@ -888,6 +911,10 @@ export class Orchestrator {
     return readUntrustedEscalationScope(this.readSetting<unknown>('security.untrustedEscalationScope', undefined));
   }
 
+  private readQuarantineReaderMode(): QuarantineReaderMode {
+    return readQuarantineReaderMode(this.readSetting<unknown>('security.quarantineReader', undefined));
+  }
+
   getExecutionLimits(): Pick<OrchestratorConfig, 'maxToolIterations' | 'maxToolCallsPerTurn'> {
     return {
       maxToolIterations: this.cfg.maxToolIterations,
@@ -967,6 +994,153 @@ export class Orchestrator {
 [AtlasMind] ${redaction.redactedCount} credential-shaped value(s) in this ` +
       'result were replaced with [REDACTED] before you saw them. The real values are still on disk. ' +
       'Do not write [REDACTED] back into any file, and do not treat it as the literal content.';
+  }
+
+  /**
+   * Read one large third-party result in quarantine (the dual-LLM pattern).
+   *
+   * The raw text is held for this loop under a handle and never returned. A
+   * separate completion with no tools, no agent persona and only the extraction
+   * rules reads it and answers the task's stated question; what comes back is
+   * validated against the declared schema and rendered, fenced, as the tool
+   * message. The source the turn absorbs is still third-party under the
+   * original tool's rule, and suspected if the raw text or the extract held an
+   * instruction override — the extract narrows what the agent reads, it does
+   * not make it trustworthy.
+   *
+   * Every failure falls back to a short fenced excerpt and says which rule
+   * fired; none falls back to the full text. The reader's spend is recorded
+   * like any other call, under its own agent id.
+   */
+  private async readQuarantined(input: {
+    store: QuarantineStore;
+    toolCall: ToolCall;
+    rawResult: string;
+    /** The result as the agent's own model would have received it. */
+    redacted: string;
+    provenanceRule: string;
+    context: TaskAttemptContext;
+    onProgress?: (message: string) => void;
+  }): Promise<{ content: string; source: ProvenanceSource }> {
+    const { toolCall, context, onProgress } = input;
+    const rawFindings = scanForInjection(`tool-result:${toolCall.name}`, input.redacted);
+    const entry = holdQuarantinedResult(input.store, {
+      toolName: toolCall.name,
+      text: input.redacted,
+      source: {
+        origin: 'tool-result',
+        toolName: toolCall.name,
+        provenance: 'third-party',
+        rule: input.provenanceRule,
+        injectionSuspected: rawFindings.length > 0,
+        ...(rawFindings.length > 0 ? { findings: rawFindings } : {}),
+      },
+    });
+    const fallback = (rule: QuarantineFallbackRule, detail?: string): { content: string; source: ProvenanceSource } => {
+      onProgress?.(`Quarantined reader: could not extract ${toolCall.name}'s result (${rule}); the agent sees a ${QUARANTINE_LIMITS.fallbackExcerptChars}-character excerpt, never the full text.`);
+      return { content: renderQuarantineFallback({ entry, rule, detail, findings: rawFindings }), source: entry.source };
+    };
+
+    onProgress?.(`Quarantined reader: ${toolCall.name} returned ${entry.text.length} characters of third-party text; a separate model with no tools is extracting what this task needs.`);
+
+    const taskProfile = this.taskProfiler.profileTask({
+      userMessage: context.userMessage ?? toolCall.name,
+      phase: QUARANTINE_ROUTING_PROFILE.phase,
+      requiresTools: false,
+    });
+    const readerModel = this.router.selectBestModel(QUARANTINE_ROUTING_PROFILE.constraints, undefined, taskProfile);
+    if (!readerModel) {
+      return fallback('quarantine.no-model');
+    }
+    const providerId = resolveProviderIdForModel(readerModel, this.router, 'local');
+    const provider = this.providers.get(providerId);
+    if (!provider) {
+      return fallback('quarantine.no-model');
+    }
+    // Redacted again for the reader's own model: the privacy policy may trust
+    // the agent's model and not this one.
+    const readerText = this.redactToolResultForModel(toolCall, input.rawResult, readerModel);
+    const extraction = buildQuarantineExtractionRequest({
+      toolName: toolCall.name,
+      question: context.userMessage,
+      text: readerText,
+    });
+    let response: CompletionResponse;
+    try {
+      response = await withTimeout(
+        dispatchGuardedCompletion({
+          provider,
+          origins: originsFromMessages(extraction.messages),
+          external: !isLocalProviderId(providerId),
+          request: {
+            model: readerModel,
+            messages: extraction.messages,
+            maxTokens: QUARANTINE_ROUTING_PROFILE.maxTokens,
+            temperature: QUARANTINE_ROUTING_PROFILE.temperature,
+            signal: context.signal,
+          },
+        }),
+        this.cfg.providerTimeoutMs,
+        `The quarantined reader timed out after ${this.cfg.providerTimeoutMs}ms.`,
+      );
+    } catch (error) {
+      return error instanceof ModelEgressRefused
+        ? fallback('quarantine.egress-refused', error.message)
+        : fallback('quarantine.call-failed');
+    }
+    this.recordQuarantineCost(context.taskId, readerModel, response);
+    if (response.content.trimStart().startsWith(LOCAL_ECHO_RESPONSE_PREFIX)) {
+      return fallback('quarantine.no-model');
+    }
+    const validation = validateQuarantinedExtract(response.content, readerText.slice(0, extraction.coveredChars));
+    if (validation.status === 'invalid') {
+      return fallback(validation.rule, validation.reason);
+    }
+    const findings = [...new Set([...rawFindings, ...validation.findings])].sort();
+    return {
+      content: renderQuarantinedExtract({
+        entry,
+        extract: validation.extract,
+        withheld: validation.withheld,
+        coveredChars: extraction.coveredChars,
+        findings,
+      }),
+      source: {
+        ...entry.source,
+        injectionSuspected: findings.length > 0,
+        ...(findings.length > 0 ? { findings } : {}),
+      },
+    };
+  }
+
+  /** The reader's call is spend like any other, recorded under its own agent id. */
+  private recordQuarantineCost(taskId: string, model: string, response: CompletionResponse): void {
+    const estimate = this.estimateCostBreakdown(model, response.inputTokens, response.outputTokens);
+    this.costs.record({
+      taskId,
+      agentId: QUARANTINE_COST_AGENT_ID,
+      model,
+      ...(estimate.providerId ? { providerId: estimate.providerId } : {}),
+      ...(estimate.pricingModel ? { pricingModel: estimate.pricingModel } : {}),
+      billingCategory: estimate.billingCategory,
+      inputTokens: response.inputTokens,
+      outputTokens: response.outputTokens,
+      ...(estimate.unpriced ? { unpriced: true as const } : {}),
+      costUsd: estimate.costUsd,
+      budgetCostUsd: estimate.budgetCostUsd,
+      timestamp: new Date().toISOString(),
+    });
+    if (
+      estimate.pricingModel === 'subscription'
+      && estimate.providerId
+      && (estimate.billingCategory === 'subscription-included' || estimate.billingCategory === 'subscription-overflow')
+    ) {
+      const premiumUnits = this.router.getModelInfo(model)?.premiumRequestMultiplier ?? 1;
+      const spent = this.router.consumeSubscriptionUnits(model, premiumUnits);
+      if (spent) {
+        this.onQuotaUpdated?.(spent.scope, spent.remainingRequests, spent.totalRequests);
+      }
+    }
   }
 
   private redactToolResultForModel(toolCall: ToolCall, result: string, modelId: string): string {
@@ -3475,6 +3649,11 @@ export class Orchestrator {
     const escalationScope = this.readUntrustedEscalationScope();
     const provenanceCell = context.provenance ?? { current: emptyTurnProvenance() };
     provenanceCell.current = absorbMessageOrigins(provenanceCell.current, messages);
+    // Large third-party results are read by a separate, tool-less model and the
+    // loop receives its extract; the raw text is held here, for this loop only,
+    // and released by handle after a person approves. See quarantinedReader.ts.
+    const quarantineMode = this.readQuarantineReaderMode();
+    const quarantineStore = emptyQuarantineStore();
     if (context.allowDelegatedToolExecution) {
       // An ACP agent runs tools AtlasMind cannot see, so their results cannot
       // be absorbed and what they do next cannot be gated. Refused rather than
@@ -3796,6 +3975,50 @@ export class Orchestrator {
               isFailure: true,
             };
           }
+          if (toolCall.name === QUARANTINE_RELEASE_TOOL) {
+            // Answered here, like find-tool: the held text belongs to this loop,
+            // and no registered skill — nor one a workspace or a server could
+            // add under this name — may stand in for it.
+            const lookup = lookupQuarantineRelease(quarantineStore, toolArguments);
+            if (lookup.status === 'refused') {
+              return { toolCall, result: lookup.message, durationMs: Date.now() - startedAt, checkpointed: false, shouldVerify: false, isFailure: true };
+            }
+            if (!this.toolApprovalGate) {
+              return {
+                toolCall,
+                result: describeReleaseWithoutGate(lookup.entry.handle),
+                durationMs: Date.now() - startedAt,
+                checkpointed: false,
+                shouldVerify: false,
+                isFailure: true,
+              };
+            }
+            // Always a fresh approval, whatever the approval mode or Autopilot
+            // says: releasing this text is the decision the quarantine exists
+            // to put in front of a person.
+            const approval = await this.toolApprovalGate(context.taskId, toolCall.name, toolArguments, {
+              escalation: buildRawReleaseEscalation(lookup.entry, provenanceCell.current, escalationScope),
+            });
+            if (!approval.approved) {
+              return {
+                toolCall,
+                result: approval.reason || `Releasing quarantined result "${lookup.entry.handle}" was denied. Work from the extract.`,
+                durationMs: Date.now() - startedAt,
+                checkpointed: false,
+                shouldVerify: false,
+              };
+            }
+            const released = renderQuarantineRelease(lookup.entry, lookup.offset);
+            return {
+              toolCall,
+              result: released.content,
+              durationMs: Date.now() - startedAt,
+              checkpointed: false,
+              shouldVerify: false,
+              executed: true,
+              quarantineRelease: released.source,
+            };
+          }
           if (toolCall.name === TOOL_DISCOVERY_SKILL_ID) {
             // Answered here rather than by a registered skill, because the pool
             // being searched is this turn's, and a skill has no way to see it.
@@ -4102,15 +4325,51 @@ export class Orchestrator {
         }
       }
 
-      for (const { toolCall, result, executed, reachedNetwork } of toolResults) {
+      for (const { toolCall, result, executed, reachedNetwork, quarantineRelease } of toolResults) {
+        if (quarantineRelease) {
+          // Already fenced and labelled from text that was redacted when it was
+          // held; what a person released is still third-party.
+          provenanceCell.current = absorbProvenance(provenanceCell.current, quarantineRelease);
+          messages.push({ role: 'tool', origin: 'tool-result', content: result, toolCallId: toolCall.id, toolName: toolCall.name });
+          continue;
+        }
         // Data Privacy fail-safe first (withhold/redact confidential file reads
         // and classified content when the running model is not trusted), then
         // provenance: a third-party result is scanned and fenced, anything else
         // passes through byte-for-byte.
+        const toolArgs = isJsonObject(toolCall.arguments) ? toolCall.arguments : {};
+        const redacted = this.redactToolResultForModel(toolCall, result, model);
+        const routing = decideQuarantine({
+          toolName: toolCall.name,
+          args: toolArgs,
+          facts: { reachedNetwork: reachedNetwork === true },
+          textLength: redacted.length,
+          executed: executed === true,
+          mode: quarantineMode,
+        });
+        if (routing.action === 'quarantine') {
+          // The large third-party result never enters the loop: a tool-less
+          // model reads it and the loop gets the extract and a handle.
+          const quarantined = await this.readQuarantined({
+            store: quarantineStore,
+            toolCall,
+            rawResult: result,
+            redacted,
+            provenanceRule: routing.provenanceRule,
+            context,
+            onProgress,
+          });
+          provenanceCell.current = absorbProvenance(provenanceCell.current, quarantined.source);
+          if (!tools.some(definition => definition.name === QUARANTINE_RELEASE_TOOL)) {
+            tools.push(QUARANTINE_RELEASE_DEFINITION);
+          }
+          messages.push({ role: 'tool', origin: 'tool-result', content: quarantined.content, toolCallId: toolCall.id, toolName: toolCall.name });
+          continue;
+        }
         const prepared = prepareToolResultForModel({
           toolName: toolCall.name,
-          args: isJsonObject(toolCall.arguments) ? toolCall.arguments : {},
-          text: this.redactToolResultForModel(toolCall, result, model),
+          args: toolArgs,
+          text: redacted,
           executed: executed === true,
           facts: { reachedNetwork: reachedNetwork === true },
         });
@@ -5816,6 +6075,11 @@ interface ToolExecutionEntry {
   executed?: boolean;
   /** `find-tool` went on to search Resource Discovery off the machine. */
   reachedNetwork?: boolean;
+  /**
+   * A person released a quarantined result's text: `result` is already fenced
+   * and labelled, and this is what the turn absorbs for it.
+   */
+  quarantineRelease?: ProvenanceSource;
 }
 
 /**

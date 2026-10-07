@@ -19,6 +19,32 @@ Older entries below describe the software as it was at the time and are delibera
 
 ---
 
+## v0.490.0 -- A long page is read by a model that can't do anything
+
+A fence tells the agent fetched text is data; it doesn't stop the agent reading every sentence of a long
+page. Now it doesn't have to.
+
+- **Long third-party results are read in quarantine.** Over 8,000 characters of someone else's text — a
+  fetched page, an MCP answer, `gh` output, another agent's answer — goes to a separate model with **no
+  tools**, no agent prompt and no project memory, which extracts what answers your request.
+- **The extract is checked, not trusted.** One JSON object with at most 20 one-line facts, `https` links
+  and 5 exact quotes. Anything else is refused whole; a link the page never contained, a quote it never
+  said, or a fact shaped like an instruction is withheld and counted.
+- **It still counts as someone else's text.** Reading the extract taints the task exactly as reading the
+  page would, so writes ask again and, after an injected page, the network stays off-limits.
+- **Failures are stated.** No model, a failed call or an answer that doesn't validate gives the agent a
+  2,000-character fenced excerpt with a `[SECURITY]` note — never the whole page.
+- **The full text only with your say-so.** `quarantine-read` releases it by handle and always asks you
+  first, even with Autopilot on. The CLI refuses it unless `--allow-untrusted-escalation`.
+- **Short and local results are untouched.**
+- **New setting:** `atlasmind.security.quarantineReader` — `on` (default) or `off`. Each reader call is one
+  cheap model request, recorded as `quarantined-reader`.
+
+Still to come on this roadmap item: a guardrail-model check before destructive and external actions,
+signed MCP tool definitions, and a written injection threat model.
+
+---
+
 ## v0.489.1 -- It remembers for the rest of the conversation
 
 In 0.489.0 the "ask again" rule lasted one turn, so a page read in one message could steer a write in the

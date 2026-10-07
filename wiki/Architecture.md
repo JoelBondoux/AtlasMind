@@ -328,6 +328,20 @@ provenance (`ProjectRunSubTaskArtifact.provenance`, `ProjectRunSeedResult.proven
 chat footer shows `SessionTranscriptMetadata.untrustedContentNote` once a conversation is in scope, and
 `OrchestratorHooks.onTaskSettled` makes `ToolApprovalManager.clearTask` run when a task ends.
 
+**A long third-party result is read in quarantine (0.490.0).** `src/core/quarantinedReader.ts` (pure) routes
+an executed tool result that `contextProvenance` classifies third-party and that is longer than 8,000
+characters to a second, **tool-less** completion: the orchestrator holds the raw text under a per-loop
+handle, picks the cheapest fast model with `ModelRouter.selectBestModel` and the declared
+`QUARANTINE_ROUTING_PROFILE`, and sends only the extraction rules, the operator's question and the fenced,
+re-redacted text through `dispatchGuardedCompletion`. `validateQuarantinedExtract` checks the answer against
+a closed schema (facts, `https` URLs present in the source, exact quotes) and withholds and counts what
+fails item by item; the privileged loop receives the fenced extract and the handle, absorbed as third-party
+under the original tool's rule (suspected if the raw text was). Every failure falls back to a fenced
+2,000-character excerpt, never the full text. The raw text is released only by `quarantine-read`, answered
+inline by the orchestrator and always sent to the gate as a fresh approval (`quarantine.raw-release`). The
+reader's cost is recorded as `quarantined-reader`; `atlasmind.security.quarantineReader` (`on` default,
+`off`) switches it.
+
 The approval gate makes a Bypass/Autopilot click and its runtime scope one atomic transition. It settles
 concurrent pending cards only when the scope covers them, the card offered that decision, and the tool is
 below the non-waivable ceiling. Protected remote actions remain pending and carry the reason they still
@@ -1537,6 +1551,7 @@ never accepted.
 | `src/core/releaseMatrixImport.ts` | Pure bounded design-document ranking/parsing, roadmap and Issue matching, and preservation-first reviewed merge for Editions |
 | `src/core/capabilitySearch.ts` | What chat does when no installed tool fits: asks only the Agent Finders you switched on, with a short redacted query, and offers what comes back for you to review and install |
 | `src/core/contextProvenance.ts` | What a task has read, and which writes and network calls need a fresh approval after it — the tables, the shared REPORTED CONTENT fence, and the release valve's rules |
+| `src/core/quarantinedReader.ts` | How a long third-party result is read by a model with no tools, what its extract must look like to be believed, and how the raw text is released only after you approve |
 | `src/runtime/` | The built-in agents and how the runtime is composed |
 | `src/providers/` | Provider adapters, catalogues, health, local model discovery, `modelRole.ts` (what a model is *for*), and the local-GPU support layer that measures VRAM and reads what each runtime has loaded |
 | `src/skills/` | Built-in tools and skill handlers |

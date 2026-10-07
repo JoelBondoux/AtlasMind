@@ -175,6 +175,10 @@ and your flags were chosen before the content existed, so it refuses and names t
 `--allow-untrusted-escalation` lets `--allow-writes` and `--allow-commands` decide as usual instead. It
 grants nothing on its own. Reads are never affected.
 
+A third-party result over 8,000 characters is read by a separate model with no tools, in the CLI as in the
+editor, and the agent gets its extract (see [Tool Execution](Tool-Execution.md)). Releasing the full text
+with `quarantine-read` is refused in the CLI unless you pass `--allow-untrusted-escalation`.
+
 ---
 
 ## Letting other tools drive AtlasMind
