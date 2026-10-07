@@ -281,6 +281,7 @@ reports evidence it didn't inspect as *unassessed* rather than as absent.
 | Command | What it does |
 |---------|-------------|
 | `AtlasMind: Toggle Autopilot` | Turn the session-wide approval bypass on or off, no reload needed |
+| `AtlasMind: Toggle Dry Run` | Turn dry run on or off (`atlasmind.dryRun.enabled`, a user setting). While it is on, every tool call that would write, run a command, change git or reach the network is answered with a description instead of running; only AtlasMind's built-in local reads run, and the reply ends with a summary of what would have happened. On applies to the next tool call; off waits for the next turn. Also reachable from the *Dry run* status bar item, shown only while it is on |
 | `AtlasMind: Toggle Keep Computer Awake` | Stop the machine sleeping while something needs to stay online. Off by default, mains-power only, auto-releasing |
 | `AtlasMind: Tool Webhooks` | Configure outbound webhooks for tool events |
 | `AtlasMind: Enable / Disable Remote Control` | Start or stop the local server so a browser can drive this instance |

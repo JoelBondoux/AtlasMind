@@ -6,6 +6,74 @@ The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/),
 
 ## [Unreleased]
 
+## [0.491.0] - 2026-10-08
+
+### Added
+
+- **Dry run: show me what would happen, and do none of it.** `atlasmind.dryRun.enabled` (default `false`),
+  the **AtlasMind: Toggle Dry Run** command (`atlasmind.toggleDryRun`), a warning-coloured *Dry run* status
+  bar item shown while it is on, and `--dry-run` for the CLI's `chat` and `project`. While it is on the agent
+  plans and calls tools as usual, but every call that would write a file, run a subprocess, change git or
+  reach the network is answered with `[DRY RUN — nothing was executed] Would have: …` — the action, its
+  category and risk, the rule that decided, whether it would have asked for approval (and whether the
+  untrusted-content gate would have refused it or needed a fresh approval), and the arguments redacted —
+  telling the model to plan as if it succeeded without claiming it did. The reply ends with a summary of
+  everything that would have happened, and each record goes to the **AtlasMind Dry Run** output channel.
+- **Execute is the exception, and it is named.** The new pure module `src/core/dryRun.ts` decides each call
+  with published first-match rules (`DRY_RUN_RULES`). A call runs only when it is a *built-in* skill the
+  exhaustive `DRY_RUN_BUILTIN_TABLE` grades `local-read` — file reads and searches, directory listings,
+  `git status`/`diff`/`log`, diagnostics, symbols, framework detection, terminal output already on screen,
+  memory queries — or `args` with arguments that classify as a read (`atlasmind-settings get`), or one of the
+  two tools the loop answers from what it already holds: `quarantine-read` (releasing held text reaches
+  nothing new, and still asks first) and `find-tool` with its Resource Discovery fallback skipped. Simulated:
+  MCP tools, workspace-scanned and synthesised skills, a custom skill registered under a built-in id, a
+  built-in with no table row, and a name nothing registered — before skill synthesis, since writing a skill
+  to see what it would do is itself running new code. The table is conservative: `terminal-run` is simulated
+  whole, `npm test` included, because a "read" command runs repository code; `git-blame`, `npm-scripts` and
+  the list actions of `git-branch`/`git-stash`/`git-worktree` start a subprocess and are simulated; network
+  reads are simulated because a GET carries model-chosen text off the machine; and `agent-handoff` is
+  simulated because the delegate's own tools cannot be proven to inherit the dry run.
+- **A backstop under the table.** A skill allowed to run gets `createDryRunSkillContext`, built member by
+  member from `DRY_RUN_CONTEXT_METHODS` — exhaustive over `SkillExecutionContext` by type, with a *mixed*
+  method such as `gitBranch` counted as an effect — so every member that can change something throws
+  `DryRunBlocked` instead, and is reported in the summary as a gap in the table.
+- **A simulated call never happened.** It is decided after the pure checks (turn envelope, schema, TDD gate)
+  and before the taint refusal and the approval gate; it raises no approval, takes no checkpoint, is not
+  recorded as a started side effect, runs no post-tool verifier, is not quarantined and is not learned as a
+  successful tool resolution; it is pushed as `generated-instruction`, so a simulated fetch taints nothing.
+  **No tool webhook fires during a dry call at all**, executed reads included — a webhook is a request to
+  somebody else's endpoint.
+- **Sticky for the turn.** A `DryRunTurn` cell, shared by every attempt, recovery pass and subtask of a turn,
+  is latched on per call and never off: switching on applies to the next tool call, switching off waits for
+  the next turn, so a run planned dry cannot finish half-real. A dry turn routes with ACP tool delegation off
+  (and a delegated round is refused if dry run is switched on mid-turn), and project and multi-step runs make
+  no worktrees. The setting is `scope: application`, so a repository's workspace settings cannot switch it
+  off, and a value that is neither `true` nor `false` reads as **on**.
+- **Model calls are not actions.** The loop's completions and the quarantined reader still run and still
+  cost money — they are how a turn decides what it would do. Dry run means nothing executes, not nothing is
+  spent.
+- `OrchestratorHooks.onDryRunRecord` carries each record (a fingerprint and a redacted preview of the
+  arguments, never the arguments) to the extension's 500-entry in-memory `DryRunLedger`, and to stderr in the
+  CLI.
+
+### Not yet covered
+
+- Paths outside the tool loop — routines and `/ship`, the promotion and delivery runners, panel buttons that
+  call a skill directly, Director and Buzz sends, post-turn project-memory writes — are the next slice
+  (`rm:safe-by-default-sandbox-dry` stays open).
+
+### Tests
+
+- `tests/core/dryRun.orchestrator.test.ts` walks **every** built-in skill (asserted equal to the table's
+  keys), plus an MCP read, an MCP write, a workspace-scanned skill and an unknown name, with representative
+  arguments covering every tool risk category, through a real `Orchestrator` with dry run on, and asserts no
+  effect method on the skill context, no MCP `callTool`, no Resource Discovery call, no approval gate for a
+  simulated call, no checkpoint, no verifier, no webhook and no backstop hit; plus sticky toggling both
+  ways, an unreadable setting, no provenance from a simulated fetch, the taint decision described without a
+  prompt, `find-tool` without Resource Discovery, no ACP delegation and no worktrees. `tests/core/dryRun.test.ts`
+  covers each rule, the backstop over every context member, the summary and ledger, and the property
+  *execute ⇒ a built-in local read*.
+
 ## [0.490.2] - 2026-10-07
 
 ### Fixed

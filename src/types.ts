@@ -1437,6 +1437,30 @@ export interface DataPrivacyActivityEvent {
  * tool-approval, checkpointing, webhook dispatch, and post-tool
  * verification without inflating the constructor parameter list.
  */
+/**
+ * One tool call a dry run answered with a description instead of running it,
+ * or a context method its backstop refused (`rule: 'dry-run.backstop'`). Holds
+ * a fingerprint and a redacted, truncated preview of the arguments — never the
+ * arguments — because it goes to an output channel and a model wrote them.
+ * Built by `buildDryRunRecord` in `src/core/dryRun.ts`.
+ */
+export interface DryRunRecord {
+  at: string;
+  taskId: string;
+  toolName: string;
+  category: ToolRiskCategory;
+  risk: ToolInvocationPolicy['risk'];
+  /** The `DRY_RUN_RULES` id that simulated it, or `dry-run.backstop`. */
+  rule: string;
+  summary: string;
+  /** Whether the call would have reached a person under the approval mode (bypasses aside). */
+  wouldHaveAsked: boolean;
+  /** A fingerprint of the arguments — comparable across runs, reveals nothing. */
+  argsFingerprint: string;
+  /** Redacted and truncated. */
+  argsPreview: string;
+}
+
 export interface OrchestratorHooks {
   /**
    * Host-owned settings reader. The core orchestrator has no direct dependency
@@ -1507,6 +1531,15 @@ export interface OrchestratorHooks {
    * grant cannot outlive the task it was given for.
    */
   onTaskSettled?: (taskId: string) => void;
+
+  /**
+   * Dry run answered a tool call with a description instead of running it, or
+   * its context backstop refused a method a skill reached for. The record holds
+   * a fingerprint and a redacted preview of the arguments, never the arguments.
+   * The host files it in its in-memory ledger and output channel; a host that
+   * throws does not fail the turn. See `src/core/dryRun.ts`.
+   */
+  onDryRunRecord?: (record: DryRunRecord) => void;
 
   /** Gate function for warning-level auto-generated skills before in-process execution. */
   generatedSkillApprovalGate?: (

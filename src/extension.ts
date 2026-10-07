@@ -1,6 +1,7 @@
 import { EnvironmentManager } from './core/environmentManager.js';
 import { resolveWithinWorkspace } from './core/workspaceBoundary.js';
 import { egressFetch, toSkillHttpResult } from './core/egressFetch.js';
+import { DryRunLedger, formatDryRunLedgerLine, readDryRunSetting } from './core/dryRun.js';
 import * as vscode from 'vscode';
 import * as path from 'path';
 import * as os from 'os';
@@ -2518,6 +2519,18 @@ async function bootstrapAtlasMind(
     }
 
     const toolApprovalManager = new ToolApprovalManager();
+    // What dry runs would have done this session: memory only, fingerprints and
+    // redacted previews, mirrored into an output channel created on first use so
+    // somebody who never turns dry run on never sees an empty one.
+    const dryRunLedger = new DryRunLedger();
+    let dryRunChannel: vscode.OutputChannel | undefined;
+    context.subscriptions.push({ dispose: () => dryRunChannel?.dispose() });
+    context.subscriptions.push({
+      dispose: dryRunLedger.onRecord(record => {
+        dryRunChannel ??= vscode.window.createOutputChannel('AtlasMind Dry Run');
+        dryRunChannel.appendLine(formatDryRunLedgerLine(record));
+      }),
+    });
     const toolApprovalGate = async (
       taskId: string,
       toolName: string,
@@ -2696,6 +2709,7 @@ async function bootstrapAtlasMind(
         // source" — end with the task. They were per task in name and lived
         // until the window closed in fact.
         onTaskSettled: taskId => toolApprovalManager.clearTask(taskId),
+        onDryRunRecord: record => dryRunLedger.record(record),
         generatedSkillApprovalGate,
         writeCheckpointHook,
         postToolVerifier,
@@ -3626,6 +3640,15 @@ async function bootstrapAtlasMind(
     autopilotStatusBar.command = 'atlasmind.toggleAutopilot';
     updateAutopilotStatusBar(autopilotStatusBar, toolApprovalManager);
     context.subscriptions.push(autopilotStatusBar);
+    const dryRunStatusBar = vscode.window.createStatusBarItem(vscode.StatusBarAlignment.Right, 48);
+    dryRunStatusBar.command = 'atlasmind.toggleDryRun';
+    updateDryRunStatusBar(dryRunStatusBar);
+    context.subscriptions.push(dryRunStatusBar);
+    context.subscriptions.push(vscode.workspace.onDidChangeConfiguration(event => {
+      if (event.affectsConfiguration('atlasmind.dryRun.enabled')) {
+        updateDryRunStatusBar(dryRunStatusBar);
+      }
+    }));
     context.subscriptions.push({
       dispose: toolApprovalManager.onAutopilotChange(() => {
         updateAutopilotStatusBar(autopilotStatusBar, toolApprovalManager);
@@ -4910,6 +4933,21 @@ function updateAutopilotStatusBar(
 
   statusBar.text = '$(rocket) Atlas Autopilot';
   statusBar.tooltip = 'AtlasMind Autopilot is enabled for this session. Click to disable it.';
+  statusBar.backgroundColor = new vscode.ThemeColor('statusBarItem.warningBackground');
+  statusBar.show();
+}
+
+/**
+ * Shown only while dry run is on, in the warning colour Autopilot uses: both
+ * change what a turn will do, and somebody who forgot either is surprised.
+ */
+function updateDryRunStatusBar(statusBar: vscode.StatusBarItem): void {
+  if (!readDryRunSetting(vscode.workspace.getConfiguration('atlasmind').get<unknown>('dryRun.enabled', false))) {
+    statusBar.hide();
+    return;
+  }
+  statusBar.text = '$(beaker) Dry run';
+  statusBar.tooltip = 'AtlasMind dry run is on: tool calls that would write, run commands or reach the network are described, not run. Click to turn it off from the next turn.';
   statusBar.backgroundColor = new vscode.ThemeColor('statusBarItem.warningBackground');
   statusBar.show();
 }

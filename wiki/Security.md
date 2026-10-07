@@ -197,6 +197,29 @@ also rejects a forged webview decision that was never offered on that card.
 
 ---
 
+## Dry run means nothing acts
+
+`atlasmind.dryRun.enabled` turns every tool call that would write, run a subprocess, change git or reach
+the network into a description of it. The rule is an allowlist, not a blocklist: a call runs only when it is
+one of AtlasMind's own built-in skills that a published table (`DRY_RUN_BUILTIN_TABLE`) grades as a local
+read. MCP tools, workspace-scanned and model-written skills, unrecognised names, and a custom skill
+registered under a built-in's name are always described. The table is tested to have exactly one row per
+built-in skill, so a new skill fails the build until somebody decides what it is.
+
+Under the table sits a second line: a skill allowed to run is handed a skill context built member by member
+from an exhaustive list of what `SkillExecutionContext` offers, with every method that can change something
+— including mixed ones like `gitBranch`, which lists or deletes depending on its arguments — replaced by one
+that refuses. A test walks every built-in skill, plus an MCP tool, a workspace skill and an unknown name,
+through a real orchestrator and asserts that no effect method, no MCP call, no approval prompt for a
+described call, no checkpoint, no verifier and no webhook is reached.
+
+Network **reads** are described too: a GET changes nothing locally and still carries model-written text
+off the machine. A repository cannot switch dry run off for you (it is a user-only setting), and a value
+AtlasMind cannot read counts as on. Model calls are not actions and still run. Paths outside the tool loop
+are the next slice and are not yet covered. Full detail in [Tool Execution](Tool-Execution.md).
+
+---
+
 ## Routines are shown to you before they run
 
 A routine is a shell script you wrote, stored as a `.md` file in `project_memory/routines/`. `/ship`

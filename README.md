@@ -4,7 +4,7 @@
 
 <h1 align="center">AtlasMind</h1>
 
-<p align="center"><sub> · <strong>Current source version: 0.490.2</strong> · </sub></p>
+<p align="center"><sub> · <strong>Current source version: 0.491.0</strong> · </sub></p>
 
 
 <p align="center">
@@ -176,6 +176,19 @@ allow-list, redaction and file-withholding behaviour, retained metadata, provide
 important limits on overrides and compliance claims.
 
 ---
+
+## What's new in 0.491.0
+
+Dry run: see what a turn would do, with nothing actually done. Turn it on with **AtlasMind: Toggle Dry
+Run** (or `atlasmind.dryRun.enabled`) and the agent plans as usual — but every tool call that would write
+a file, run a command, change git or reach the network is answered with a description of what it would
+have done instead of being done: the action, how risky it is, whether it would have asked you, and the
+arguments with secrets taken out. Only AtlasMind's own local reads actually run, so the plan is grounded in
+your real code. MCP tools and custom skills are always described, never run. The reply ends with a list of
+everything that would have happened, and the **AtlasMind Dry Run** output channel keeps the session's
+record. A *Dry run* item (a beaker) sits in the status bar while it's on. Turning it on applies straight
+away; turning it off waits for the next message, so a run never finishes half-real. Model calls still run
+and still cost money. In the CLI, `--dry-run` does the same for `chat` and `project`.
 
 ## What's new in 0.490.2
 
@@ -875,6 +888,8 @@ Type these in the AtlasMind chat panel as `/<command>`, or in the VS Code chat v
 
 The same reviewed-PR operations are also available as **AtlasMind: Patch This Repository for Local CI** and **AtlasMind: Run a Reviewed Pull Request on Local CI** in the Command Palette.
 
+**AtlasMind: Toggle Dry Run** (Command Palette, or the *Dry run* status bar item while it is on) switches dry run on and off — tool calls that would write, run commands or reach the network are described instead of run. On applies at once; off from the next turn.
+
 Full behaviour and the Command Palette list are in [Chat Commands](wiki/Chat-Commands.md).
 
 ---
@@ -897,6 +912,7 @@ Everything is in the AtlasMind Settings panel, or under `atlasmind.*` in VS Code
 | `toolApprovalMode` | `ask-on-write` | How often AtlasMind asks before acting |
 | `allowTerminalWrite` | `false` | Whether approved terminal commands may change things |
 | `security.untrustedEscalationScope` | `third-party` | After a task reads untrusted content, writes and network calls need a fresh approval Autopilot cannot answer. Reads stay free; there is no off |
+| `dryRun.enabled` | `false` | Dry run: every tool call that would write, run a subprocess or reach the network is described instead of run; only built-in local reads run. Model calls still run. On applies at once, off from the next turn. User settings only |
 | `security.quarantineReader` | `on` | A third-party result over 8,000 characters is read by a separate tool-less model; the agent gets a checked extract, and the full text only after you approve releasing it. The reader counts toward the task's cost cap and the daily limit |
 | `skillAutoSynthesisEnabled` | `false` | Let a model write a new skill and run it when a tool does not exist. Off; every synthesis is scanned and shown to you first |
 | `cli.addToTerminalPath` | `false` | Put the `atlasmind` launchers on the PATH of new integrated terminals. Off, because it persistently changes your shell |
@@ -910,7 +926,7 @@ Everything is in the AtlasMind Settings panel, or under `atlasmind.*` in VS Code
 | `testing.resourceShare` | `50` | Sliding scale for local test execution: the percentage of this computer tests may use, across every path AtlasMind runs or composes; the OS always keeps ≥25% (≥2 CPUs / 8 GB); machine-scoped |
 | `execution.worktreeIsolation` | `false` | Give each file-writing step of a job its own git worktree so a batch can write in parallel. Off means writers run one at a time — this setting buys back speed, it is not what makes the run safe |
 
-All 163 settings are documented in the [Configuration reference](wiki/Configuration.md).
+All 165 settings are documented in the [Configuration reference](wiki/Configuration.md).
 
 ---
 
@@ -924,6 +940,7 @@ All 163 settings are documented in the [Configuration reference](wiki/Configurat
 | `src/core/contextProvenance.ts` | What a task has read, and what that means for the next thing it asks to do: a provenance class for every message and tool result, the shared REPORTED CONTENT fence the content cannot close, and the published table deciding which writes and network calls need a fresh approval Autopilot cannot answer |
 | `src/core/egressDestinationPolicy.ts` | Where a model-initiated fetch may go: the URL screen, the published private and reserved address ranges judged by numeric value, and the rule that every address a name resolves to must pass |
 | `src/core/egressFetch.ts` | The connection that honours that decision: pinned to the vetted addresses so DNS cannot change the answer, redirects followed by hand and screened hop by hop, credentials dropped across origins |
+| `src/core/dryRun.ts` | Dry run: the published table grading every built-in skill as a local read, an argument-dependent one or an effect, the rules deciding execute-or-simulate, the context backstop that refuses every method able to change something, the simulated result the model gets, and the session ledger behind the output channel |
 | `src/core/quarantinedReader.ts` | The quarantined reader: a third-party tool result over 8,000 characters is read by a separate, tool-less model, and the agent gets a schema-checked extract and a handle instead of the raw text — the routing rules, the extraction prompt, the validator, the fallbacks and the approval-gated release |
 | `src/core/capabilitySearch.ts` | When `find-tool` finds no installed skill: sends the redacted, clamped query to the Agent Finders you enabled and returns up to five candidates to review and install — searching installs and grants nothing |
 | `src/runtime/` | Built-in agents and runtime composition |

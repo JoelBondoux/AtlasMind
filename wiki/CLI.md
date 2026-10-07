@@ -143,6 +143,8 @@ fastest way to confirm your keys are visible before running anything that costs 
 --speed <fast|balanced|considered|auto>
 --daily-limit-usd <n>
 --json                          Machine-readable output
+--dry-run                       chat/project: describe every tool call that would act instead of running it;
+                                build: print the build command without running it
 --help
 --version
 ```
@@ -178,6 +180,12 @@ grants nothing on its own. Reads are never affected.
 A third-party result over 8,000 characters is read by a separate model with no tools, in the CLI as in the
 editor, and the agent gets its extract (see [Tool Execution](Tool-Execution.md)). Releasing the full text
 with `quarantine-read` is refused in the CLI unless you pass `--allow-untrusted-escalation`.
+
+**`--dry-run` shows what `chat` or `project` would do, and does none of it** — the editor's dry run
+(see [Tool Execution](Tool-Execution.md)). Every tool call that would write, run a command, change git or
+reach the network is described to the model instead of run, even with `--allow-writes`; only AtlasMind's
+built-in local reads run. Each described call is printed to stderr as `[dry run] …`, and the answer ends
+with a summary. Model calls still run and still cost money.
 
 ---
 

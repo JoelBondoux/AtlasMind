@@ -332,6 +332,65 @@ This is enforced when tools are resolved, not requested in a prompt. **The tools
 offered.** The reasoning is separation of duties: something that reviews whether a change *should* ship
 shouldn't also be the thing that ships it.
 
+## Dry run: see what would happen, with nothing done
+
+Turn on **AtlasMind: Toggle Dry Run** (`atlasmind.dryRun.enabled`) and the agent works exactly as it
+would — it reads, plans and calls tools — but **nothing that acts is run**. A call that would write a
+file, run a command, change git or reach the network gets back a description instead of a result:
+
+```text
+[DRY RUN — nothing was executed]
+Would have: modify workspace files using file-write.
+Tool: file-write · category workspace-write · risk high · rule dry-run.default.
+Would have asked for approval: yes.
+Arguments (redacted): {"path":"src/app.ts","content":"…"}
+Plan as if this succeeded, but do not claim that it happened …
+```
+
+The reply ends with a list of everything that would have happened, in order, and the **AtlasMind Dry
+Run** output channel keeps the session's record (memory only: a fingerprint and a redacted preview of the
+arguments, never the arguments themselves).
+
+**What still runs.** Only AtlasMind's own built-in skills that the published table grades as **local
+reads** — file reads, searches, directory listings, `git status`/`diff`/`log`, diagnostics, symbols,
+framework detection, terminal output already on screen, memory queries — so the plan is grounded in your
+real workspace. `atlasmind-settings` runs for `get` and is described for `set`. Everything else is
+described:
+
+- **Commands, including "read" ones.** `npm test`, `eslint` and `git blame` all start a subprocess, and
+  `npm test` runs whatever your `package.json` says. A dry run starts no subprocess.
+- **Network reads.** A fetch changes nothing here, but it carries a model-chosen URL or query off the
+  machine — the same channel the untrusted-content rules guard.
+- **MCP tools, workspace and model-written skills, and names nothing registered.** AtlasMind cannot grade
+  code it did not write, and it does not write a skill to find out what one would do.
+- **Asking another agent.** The delegate runs its own tools, and a dry run cannot prove the delegate
+  inherits it.
+
+**What a described call does not do.** It asks nobody, takes no checkpoint, starts no verification, fires
+no tool webhook, and is not counted as something the agent has read — a described fetch read no page, so
+it does not make the next write ask again. If the call *would* have been refused or needed a fresh approval
+because the task had read untrusted content, the description says so.
+
+**Underneath the table.** A built-in allowed to run gets a skill context in which every method that can
+change something — write, delete, run a command, fetch, apply a patch, start a debug session — throws
+instead. A local read that reached one would be a bug in the table; the context turns that bug into a
+refusal (reported in the summary) rather than a write.
+
+**Also off for a dry turn:** worktree isolation (making a worktree is itself a write), handing the turn to
+a subscription agent's own tools (they run where nothing can be described), and the Resource Discovery
+search `find-tool` can fall back to.
+
+**What it does not stop.** Model calls still run and still cost money — including the quarantined reader —
+because they are how the turn decides what it would do. Paths outside the tool loop — routines, the
+delivery and promotion runners, panel buttons that run a skill directly, messages sent from the Director —
+are not yet covered; that is the next slice of this work.
+
+**On and off.** Turning it on applies to the very next tool call. Turning it off waits for the next
+message, so a run planned dry cannot finish half-real. It is a user setting only — a repository's
+workspace settings cannot turn it off for you — and a value AtlasMind cannot read counts as **on**. While
+it is on, a *Dry run* item with a beaker sits in the status bar in the warning colour; click it to turn dry
+run off. In the CLI, `--dry-run` does the same for `chat` and `project`.
+
 ---
 
 ## Before anything is written

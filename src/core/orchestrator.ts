@@ -36,7 +36,21 @@ import { commandSignal } from './capabilityOffer.js';
 import type { TaskProfiler } from './taskProfiler.js';
 import { scanMemoryEntry, scanTransientContext } from '../memory/memoryScanner.js';
 import { discoverTools, shouldOfferToolDiscovery, TOOL_DISCOVERY_SKILL_ID } from './toolDiscovery.js';
-import { classifyToolInvocation } from './toolPolicy.js';
+import { classifyToolInvocation, getToolApprovalMode } from './toolPolicy.js';
+import {
+  buildDryRunRecord,
+  createDryRunSkillContext,
+  createDryRunTurn,
+  decideDryRun,
+  describeSimulatedResult,
+  isDryRunTurn,
+  latchDryRun,
+  readDryRunSetting,
+  recordDryRun,
+  summarizeDryRun,
+  type DryRunRecord,
+  type DryRunTurn,
+} from './dryRun.js';
 import {
   absorbMessageOrigins,
   absorbProvenance,
@@ -576,6 +590,13 @@ interface TaskAttemptContext {
    * never to the task's own cost record, which would count them twice.
    */
   quarantineSpend?: { costUsd: number };
+  /**
+   * The turn's dry-run state, shared by every attempt and subtask of it. A cell
+   * because the loop latches it on (sticky for the turn) and appends what it
+   * simulated, and the caller summarises it afterwards. Absent ⇒ the loop reads
+   * the setting itself, so no path into the loop can skip the check.
+   */
+  dryRun?: DryRunTurn;
 }
 
 interface TaskExecutionAttempt {
@@ -703,6 +724,7 @@ export class Orchestrator {
   private runGitHook?: OrchestratorHooks['runGit'];
   private onSerialisedWritersHook?: OrchestratorHooks['onSerialisedWriters'];
   private onTaskSettledHook?: OrchestratorHooks['onTaskSettled'];
+  private onDryRunRecordHook?: OrchestratorHooks['onDryRunRecord'];
 
   constructor(
     private agents: AgentRegistry,
@@ -733,6 +755,7 @@ export class Orchestrator {
     this.runGitHook = hooks?.runGit;
     this.onSerialisedWritersHook = hooks?.onSerialisedWriters;
     this.onTaskSettledHook = hooks?.onTaskSettled;
+    this.onDryRunRecordHook = hooks?.onDryRunRecord;
     this.classifier = new ClassifierService(router, providers, taskProfiler);
     this.cfg = { ...defaultConfig, ...config };
 
@@ -923,6 +946,39 @@ export class Orchestrator {
 
   private readQuarantineReaderMode(): QuarantineReaderMode {
     return readQuarantineReaderMode(this.readSetting<unknown>('security.quarantineReader', undefined));
+  }
+
+  /** `atlasmind.dryRun.enabled`, read live. A malformed value reads as on — see `readDryRunSetting`. */
+  private dryRunLive(): boolean {
+    return readDryRunSetting(this.readSetting<unknown>('dryRun.enabled', false));
+  }
+
+  /**
+   * The dry-run cell every attempt and subtask of one request shares, created
+   * here and kept on the request the way the provenance cell is. Something on
+   * the request that is not a readable cell is replaced by one that is **on**:
+   * whatever it recorded is unknown, and the safe reading of an unknown dry-run
+   * state is the dry one.
+   */
+  private dryRunTurnFor(request: TaskRequest): DryRunTurn {
+    const existing = request.context['__dryRunTurn'];
+    if (isDryRunTurn(existing)) {
+      latchDryRun(existing, this.dryRunLive());
+      return existing;
+    }
+    const turn = createDryRunTurn(existing !== undefined || this.dryRunLive());
+    request.context['__dryRunTurn'] = turn;
+    return turn;
+  }
+
+  /** Tell the host about a dry-run record; a host that fails must not fail the turn. */
+  private noteDryRunRecord(turn: DryRunTurn, record: DryRunRecord): void {
+    recordDryRun(turn, record);
+    try {
+      this.onDryRunRecordHook?.(record);
+    } catch {
+      // The record is already on the turn; the summary still reports it.
+    }
   }
 
   getExecutionLimits(): Pick<OrchestratorConfig, 'maxToolIterations' | 'maxToolCallsPerTurn'> {
@@ -1580,6 +1636,7 @@ export class Orchestrator {
       allowDelegatedToolExecution: recoveryNeedsToolExecution
         && turnCapabilities.writesAllowed
         && turnCapabilities.commandsAllowed
+        && !this.dryRunTurnFor(request).active
         && this.readSetting<boolean>('acp.toolsEnabled', false),
     };
     const escalatedModel = this.selectEscalatedModel(
@@ -1637,6 +1694,7 @@ export class Orchestrator {
             turnCapabilities,
             allowDelegatedToolExecution: recoveryUsesDelegatedTools,
             provenance: this.provenanceCellFor(request),
+            dryRun: this.dryRunTurnFor(request),
           },
           onTextChunk,
           onProgress,
@@ -1808,8 +1866,14 @@ export class Orchestrator {
     onProgress?: (message: string) => void,
     onModelSelected?: (model: string) => void,
   ): Promise<TaskResult> {
+    // The request that creates the dry-run cell owns its summary. A subtask or
+    // a retry arrives carrying its parent's cell and says nothing of its own,
+    // so the operator reads one summary per turn rather than one per attempt.
+    const ownsDryRun = !isDryRunTurn(request.context['__dryRunTurn']);
+    const dryRun = this.dryRunTurnFor(request);
     try {
-      return await this.runTaskWithAgent(request, agent, onTextChunk, onProgress, onModelSelected);
+      const result = await this.runTaskWithAgent(request, agent, onTextChunk, onProgress, onModelSelected);
+      return ownsDryRun ? withDryRunSummary(result, dryRun) : result;
     } finally {
       // Every task id the gate can have been asked about for this request: the
       // attempt and its self-recovery pass. A synthesised-specialist retry and a
@@ -1901,9 +1965,13 @@ export class Orchestrator {
       activeAgentSkills.length > 0
       || request.constraints.requiredCapabilities?.includes('function_calling') === true
     );
+    // A delegated ACP agent runs tools AtlasMind never sees, so none of them
+    // could be simulated: off for a dry turn, whatever the setting says.
+    const dryRunTurn = this.dryRunTurnFor(request);
     const acpDelegatedToolsEnabled = taskRequiresToolExecution
       && turnCapabilities.writesAllowed
       && turnCapabilities.commandsAllowed
+      && !dryRunTurn.active
       && this.readSetting<boolean>('acp.toolsEnabled', false);
 
     const skillPolicy = resolveAgentSkillPolicy(agent);
@@ -2409,6 +2477,7 @@ export class Orchestrator {
               allowDelegatedToolExecution: usesDelegatedAcpTools,
               provenance: this.provenanceCellFor(request),
               quarantineSpend,
+              dryRun: dryRunTurn,
               ...(typeof request.context['__worktreePath'] === 'string'
                 ? { worktreePath: request.context['__worktreePath'] }
                 : {}),
@@ -3056,7 +3125,11 @@ export class Orchestrator {
     // 2. Execute subtasks in waves — parallel where nothing can collide, one at
     //    a time where two subtasks would write the same tree.
     const scheduler = new TaskScheduler();
-    const isolation = this.startWorktreeIsolation(plan.id, onProgress);
+    // One dry-run cell for the whole run, read before the first subtask: every
+    // subtask carries it, so the run cannot be half-dry, and the summary is the
+    // run's rather than each subtask's.
+    const dryRunTurn = createDryRunTurn(this.dryRunLive());
+    const isolation = this.startWorktreeIsolation(plan.id, onProgress, dryRunTurn.active);
     // What each finished subtask read, so its dependents start from it. A
     // resumed result brings whatever it recorded; one that recorded nothing is
     // seeded as third-party by `provenanceFromDependencies`.
@@ -3094,6 +3167,7 @@ export class Orchestrator {
             conversationProvenance
               ? mergeProvenance(conversationProvenance, provenanceFromDependencies(task.dependsOn, id => provenanceBySubTask.get(id)))
               : provenanceFromDependencies(task.dependsOn, id => provenanceBySubTask.get(id)),
+            dryRunTurn,
           );
           provenanceBySubTask.set(task.id, result.provenance);
           if (options?.provenance) {
@@ -3133,11 +3207,12 @@ export class Orchestrator {
     const totalInputTokens = subTaskResults.reduce((sum, r) => sum + (r.inputTokens ?? 0), 0) + synthesis.inputTokens;
     const totalOutputTokens = subTaskResults.reduce((sum, r) => sum + (r.outputTokens ?? 0), 0) + synthesis.outputTokens;
 
+    const dryRunSummary = summarizeDryRun(dryRunTurn);
     return {
       id: plan.id,
       goal,
       subTaskResults,
-      synthesis: synthesis.content,
+      synthesis: dryRunSummary ? `${synthesis.content}\n\n${dryRunSummary}` : synthesis.content,
       totalCostUsd: subTaskResults.reduce((sum, r) => sum + r.costUsd, 0),
       totalDurationMs: Date.now() - startMs,
       totalInputTokens,
@@ -3156,13 +3231,18 @@ export class Orchestrator {
   private startWorktreeIsolation(
     runId: string,
     onProgress?: (update: ProjectProgressUpdate) => void,
+    /**
+     * A dry run makes no worktrees. Creating one is itself a write to `.git/`,
+     * and there is nothing for it to isolate when no subtask writes.
+     */
+    dryRun = false,
   ): WorktreeRun {
     return startWorktreeRun({
       runId,
       workspaceRoot: this.skillContext.workspaceRootPath,
       runGit: this.runGitHook,
       canRerootSkillContext: typeof this.skillContext.withResolutionRoot === 'function',
-      isolationEnabled: this.readSetting<boolean>('execution.worktreeIsolation', false) === true,
+      isolationEnabled: !dryRun && this.readSetting<boolean>('execution.worktreeIsolation', false) === true,
       onNotice: message => onProgress?.({ type: 'notice', message }),
       ...(this.onSerialisedWritersHook ? { onSerialisedWriters: this.onSerialisedWritersHook } : {}),
     });
@@ -3187,11 +3267,12 @@ export class Orchestrator {
     inheritedCapabilities?: TurnCapabilityEnvelope,
     worktreePath?: string,
     seedProvenance?: TurnProvenance,
+    dryRunTurn?: DryRunTurn,
   ): Promise<SubTaskResult> {
     const provenanceCell = { current: seedProvenance ?? emptyTurnProvenance() };
     const result = await this.executeSubTaskBody(
       task, depOutputs, constraints, onProgress, projectGoal, signal, sessionContextBundle, sessionContext,
-      inheritedCapabilities, worktreePath, provenanceCell,
+      inheritedCapabilities, worktreePath, provenanceCell, dryRunTurn,
     );
     return { ...result, provenance: provenanceCell.current };
   }
@@ -3223,6 +3304,8 @@ export class Orchestrator {
      */
     worktreePath?: string,
     provenanceCell?: { current: TurnProvenance },
+    /** The run's dry-run cell, carried so every subtask is as dry as the run. */
+    dryRunTurn?: DryRunTurn,
   ): Promise<SubTaskResult> {
     const startMs = Date.now();
     const userMessage = buildProjectSubTaskMessage(task, depOutputs, projectGoal);
@@ -3276,6 +3359,7 @@ export class Orchestrator {
           ...(inheritedCapabilities ? { __inheritedCapabilityEnvelope: inheritedCapabilities } : {}),
           ...(worktreePath ? { __worktreePath: worktreePath } : {}),
           ...(provenanceCell ? { __provenanceCell: provenanceCell } : {}),
+          ...(dryRunTurn ? { __dryRunTurn: dryRunTurn } : {}),
         },
         constraints,
         timestamp: new Date().toISOString(),
@@ -3486,7 +3570,8 @@ export class Orchestrator {
     // the same working tree and loses writes the same way; scheduling this one
     // differently would mean the race were fixed depending on which surface
     // started the work.
-    const isolation = this.startWorktreeIsolation(plan.id, onProgress);
+    const dryRunTurn = this.dryRunTurnFor(request);
+    const isolation = this.startWorktreeIsolation(plan.id, onProgress, dryRunTurn.active);
     // Seeded from what the planning turn itself had read, then per dependency.
     const requestProvenance = this.provenanceCellFor(request).current;
     const provenanceBySubTask = new Map<string, unknown>();
@@ -3499,6 +3584,7 @@ export class Orchestrator {
           '', undefined, undefined, undefined, requestCapabilities,
           isolation.worktreeFor(task.id),
           mergeProvenance(requestProvenance, provenanceFromDependencies(task.dependsOn, id => provenanceBySubTask.get(id))),
+          dryRunTurn,
         );
         provenanceBySubTask.set(task.id, result.provenance);
         if (result.billingAbort) {
@@ -3542,7 +3628,12 @@ export class Orchestrator {
     }
 
     const failedCount = subTaskResults.filter(r => r.status === 'failed').length;
-    const response = synthesisResult.content.trim() || subTaskResults.map(r => `**${r.title}**: ${r.output || r.error || ''}`).join('\n\n');
+    const synthesised = synthesisResult.content.trim() || subTaskResults.map(r => `**${r.title}**: ${r.output || r.error || ''}`).join('\n\n');
+    const dryRunSummary = summarizeDryRun(dryRunTurn);
+    if (dryRunSummary) {
+      onTextChunk?.(`\n\n${dryRunSummary}`);
+    }
+    const response = dryRunSummary ? `${synthesised}\n\n${dryRunSummary}` : synthesised;
 
     return {
       id: request.id,
@@ -3675,6 +3766,25 @@ export class Orchestrator {
     const skillContext = context.worktreePath
       ? this.skillContext.withResolutionRoot?.(context.worktreePath) ?? this.skillContext
       : this.skillContext;
+    // Dry run: read per call, latched for the turn (on applies at once, off
+    // waits for the next turn). A loop entered without a cell reads the
+    // setting itself, so no route into the loop skips the check.
+    const dryRunTurn = context.dryRun ?? createDryRunTurn(this.dryRunLive());
+    const dryRunNow = (): boolean => latchDryRun(dryRunTurn, this.dryRunLive());
+    // What a skill allowed to run during a dry run is handed: every method that
+    // can change something replaced by a recorder that refuses. The backstop
+    // under the table, not the gate — see `dryRun.ts`.
+    const dryRunSkillContext = createDryRunSkillContext(skillContext, method => {
+      this.noteDryRunRecord(dryRunTurn, buildDryRunRecord({
+        at: new Date().toISOString(),
+        taskId: context.taskId,
+        toolName: `context.${String(method)}`,
+        args: {},
+        rule: 'dry-run.backstop',
+        policy: { category: 'workspace-write', risk: 'high', summary: `call ${String(method)} on the skill context` },
+        wouldHaveAsked: false,
+      }));
+    });
     const workspaceToolBias = getWorkspaceToolBias(messages, tools);
     const forceWorkspaceToolBackedInvestigation = workspaceToolBias !== 'none';
     let workspaceRepromptCount = 0;
@@ -3729,6 +3839,18 @@ export class Orchestrator {
         const abortError = new Error('The operation was aborted.');
         abortError.name = 'AbortError';
         throw abortError;
+      }
+      // Checked every round, not once: dry run switched on mid-turn must stop a
+      // delegated ACP agent before its next prompt, because nothing it does
+      // with its own tools can be simulated from here.
+      if (context.allowDelegatedToolExecution && dryRunNow()) {
+        const message = 'Dry run is on, and this turn would have handed its tools to an ACP agent that runs them '
+          + 'where AtlasMind cannot see or simulate them. Nothing was delegated. Ask again with dry run on to see '
+          + 'the plan with AtlasMind’s own tools, or turn dry run off to let the agent act.';
+        onProgress?.(message);
+        return {
+          completion: { content: message, model, inputTokens: totalInputTokens, outputTokens: totalOutputTokens, finishReason: 'stop' },
+        };
       }
       // A reader call can only have been admitted if its worst case fit, but its
       // real token count is the provider's, not the estimate's. If it landed the
@@ -3986,7 +4108,34 @@ export class Orchestrator {
         MAX_PARALLEL_TOOL_EXECUTIONS,
         async (toolCall): Promise<ToolExecutionEntry> => {
           const startedAt = Date.now();
-          await this.toolWebhookDispatcher?.emit({
+          // Decided once per call. A dry run emits no webhook at all: a webhook
+          // is a request to somebody else's endpoint, and "nothing executes"
+          // has to include the notification that something did.
+          const dryRunActive = dryRunNow();
+          const webhooks = dryRunActive ? undefined : this.toolWebhookDispatcher;
+          const simulate = (decision: ReturnType<typeof decideDryRun>, args: Record<string, unknown>): ToolExecutionEntry => {
+            const record = buildDryRunRecord({
+              at: new Date().toISOString(),
+              taskId: context.taskId,
+              toolName: toolCall.name,
+              args,
+              rule: decision.rule,
+              policy: decision.policy,
+              wouldHaveAsked: decision.wouldHaveAsked,
+            });
+            this.noteDryRunRecord(dryRunTurn, record);
+            onProgress?.(`Dry run: simulated ${toolCall.name} — ${decision.policy.summary}.`);
+            return {
+              toolCall,
+              result: describeSimulatedResult(toolCall.name, decision, record.argsPreview),
+              durationMs: Date.now() - startedAt,
+              checkpointed: false,
+              shouldVerify: false,
+              isFailure: false,
+              dryRunSimulated: true,
+            };
+          };
+          await webhooks?.emit({
             event: 'tool.started',
             timestamp: new Date().toISOString(),
             taskId: context.taskId,
@@ -4015,7 +4164,7 @@ export class Orchestrator {
               + 'which is a per-turn choice and not a repository-wide policy. Re-send the request with writes '
               + 'enabled for the turn if that is what you want. Do not conclude that every write is forbidden — '
               + 'read-only tools, and any route that does not write locally, are unaffected.';
-            await this.toolWebhookDispatcher?.emit({
+            await webhooks?.emit({
               event: 'tool.failed',
               timestamp: new Date().toISOString(),
               taskId: context.taskId,
@@ -4103,7 +4252,13 @@ export class Orchestrator {
             // once the turn is tainted it is the same exfiltration channel as a
             // network read — and nobody is asked here. Skipped, and said so.
             const externalEscalation = evaluateTaintEscalation(provenanceCell.current, { category: 'network-read' }, escalationScope);
-            if (externalQuery && this.externalCapabilitySearch && externalEscalation.decision !== 'free') {
+            const searchExternally = !dryRunActive && externalEscalation.decision === 'free';
+            if (externalQuery && this.externalCapabilitySearch && dryRunActive) {
+              // dry-run.find-tool-local: the local pool was searched; the
+              // registry search would send the query off the machine.
+              discoveryMessage = `${discovery.message}\n\n[DRY RUN] Resource Discovery was not searched: it would send `
+                + `"${externalQuery}" off the machine. Plan with the tools you have, and say what is missing.`;
+            } else if (externalQuery && this.externalCapabilitySearch && externalEscalation.decision !== 'free') {
               discoveryMessage = `${discovery.message}\n\nResource Discovery was not searched (${externalEscalation.rule}): `
                 + 'this task has read untrusted content, and a search would send model-written text off the machine '
                 + 'without anyone being asked. Use one of the tools you have, or tell the user what is missing.';
@@ -4133,12 +4288,17 @@ export class Orchestrator {
               checkpointed: false,
               shouldVerify: false,
               executed: true,
-              ...(externalQuery && this.externalCapabilitySearch && externalEscalation.decision === 'free'
+              ...(externalQuery && this.externalCapabilitySearch && searchExternally
                 ? { reachedNetwork: true }
                 : {}),
             };
           }
 
+          if (!skill && dryRunActive) {
+            // dry-run.unknown-skill: synthesising a skill to find out what it
+            // would do is itself writing and running new code.
+            return simulate(decideDryRun({ toolName: toolCall.name, args: toolArguments, skill: undefined }), toolArguments);
+          }
           if (!skill) {
             const args = isJsonObject(toolCall.arguments) ? toolCall.arguments : {};
             const synthesisResult = await this.synthesizeSkillForTool(
@@ -4150,7 +4310,7 @@ export class Orchestrator {
             );
             if (typeof synthesisResult === 'string') {
               const unknownMessage = synthesisResult;
-              await this.toolWebhookDispatcher?.emit({
+              await webhooks?.emit({
                 event: 'tool.failed',
                 timestamp: new Date().toISOString(),
                 taskId: context.taskId,
@@ -4174,7 +4334,7 @@ export class Orchestrator {
             let checkpointed = false;
             if (!isJsonObject(toolCall.arguments)) {
               const invalidArgs = `Invalid arguments for tool "${toolCall.name}": expected a JSON object.`;
-              await this.toolWebhookDispatcher?.emit({
+              await webhooks?.emit({
                 event: 'tool.failed',
                 timestamp: new Date().toISOString(),
                 taskId: context.taskId,
@@ -4191,7 +4351,7 @@ export class Orchestrator {
 
             const schemaError = validateToolArguments(skill, toolCall.arguments);
             if (schemaError) {
-              await this.toolWebhookDispatcher?.emit({
+              await webhooks?.emit({
                 event: 'tool.failed',
                 timestamp: new Date().toISOString(),
                 taskId: context.taskId,
@@ -4208,7 +4368,7 @@ export class Orchestrator {
 
             const tddGateMessage = evaluateProjectTddWriteGate(toolCall.name, toolCall.arguments, projectTddState);
             if (tddGateMessage) {
-              await this.toolWebhookDispatcher?.emit({
+              await webhooks?.emit({
                 event: 'tool.failed',
                 timestamp: new Date().toISOString(),
                 taskId: context.taskId,
@@ -4231,9 +4391,24 @@ export class Orchestrator {
               classifyToolInvocation(toolCall.name, toolCall.arguments),
               escalationScope,
             );
+            // Before the taint refusal and the approval gate: a simulated call
+            // never runs, so it asks nobody and is refused by nothing — it says
+            // what the gate would have decided instead.
+            if (dryRunActive) {
+              const decision = decideDryRun({
+                toolName: toolCall.name,
+                args: toolCall.arguments,
+                skill,
+                approvalMode: getToolApprovalMode(this.readSetting<string | undefined>('toolApprovalMode', undefined)),
+                escalation,
+              });
+              if (decision.action === 'simulate') {
+                return simulate(decision, toolCall.arguments);
+              }
+            }
             if (escalation.decision === 'refuse' || (escalation.decision === 'fresh-approval' && !this.toolApprovalGate)) {
               const refusal = describeTaintRefusal(toolCall.name, escalation, escalation.decision !== 'refuse');
-              await this.toolWebhookDispatcher?.emit({
+              await webhooks?.emit({
                 event: 'tool.failed',
                 timestamp: new Date().toISOString(),
                 taskId: context.taskId,
@@ -4254,7 +4429,7 @@ export class Orchestrator {
                 : await this.toolApprovalGate(context.taskId, toolCall.name, toolCall.arguments);
               if (!approval.approved) {
                 const deniedMessage = approval.reason || `Tool "${toolCall.name}" was denied by policy.`;
-                await this.toolWebhookDispatcher?.emit({
+                await webhooks?.emit({
                   event: 'tool.failed',
                   timestamp: new Date().toISOString(),
                   taskId: context.taskId,
@@ -4270,24 +4445,27 @@ export class Orchestrator {
               }
             }
 
-            if (this.writeCheckpointHook && requiresWriteCheckpoint(toolCall.name, toolCall.arguments)) {
+            if (!dryRunActive && this.writeCheckpointHook && requiresWriteCheckpoint(toolCall.name, toolCall.arguments)) {
               await this.writeCheckpointHook(context.taskId, toolCall.name, toolCall.arguments);
               checkpointed = true;
               checkpointedTools.add(toolCall.name);
             }
 
-            if (context.sideEffectsStarted && isSideEffectingToolCall(toolCall.name, toolCall.arguments)) {
+            if (!dryRunActive && context.sideEffectsStarted && isSideEffectingToolCall(toolCall.name, toolCall.arguments)) {
               context.sideEffectsStarted.push(classifyToolInvocation(toolCall.name, toolCall.arguments).summary);
             }
             const effectiveTimeout = skill.timeoutMs ?? this.cfg.toolExecutionTimeoutMs;
             executionStarted = true;
+            if (dryRunActive) {
+              dryRunTurn.executedReads += 1;
+            }
             const result = await withTimeout(
-              skill.execute(toolCall.arguments, skillContext),
+              skill.execute(toolCall.arguments, dryRunActive ? dryRunSkillContext : skillContext),
               effectiveTimeout,
               `Tool "${toolCall.name}" timed out after ${effectiveTimeout}ms.`,
             );
             updateProjectTddStateAfterToolResult(projectTddState, toolCall.name, toolCall.arguments, result);
-            await this.toolWebhookDispatcher?.emit({
+            await webhooks?.emit({
               event: 'tool.completed',
               timestamp: new Date().toISOString(),
               taskId: context.taskId,
@@ -4314,7 +4492,7 @@ export class Orchestrator {
             };
           } catch (err) {
             const failure = `Skill "${toolCall.name}" failed: ${err instanceof Error ? err.message : String(err)}`;
-            await this.toolWebhookDispatcher?.emit({
+            await webhooks?.emit({
               event: 'tool.failed',
               timestamp: new Date().toISOString(),
               taskId: context.taskId,
@@ -4355,7 +4533,7 @@ export class Orchestrator {
       }
 
       if (context.userMessage) {
-        this.rememberSuccessfulToolResolutions(context.userMessage, toolResults);
+        this.rememberSuccessfulToolResolutions(context.userMessage, toolResults.filter(entry => !entry.dryRunSimulated));
       }
 
       // Not for an isolated subtask. The verifier reads the editor's own
@@ -4363,7 +4541,9 @@ export class Orchestrator {
       // isolated subtask edited a different copy, so the answer would be about
       // a file it never touched. "No problems" about the wrong file is the
       // worst result available here: a pass nobody earned.
-      if (this.postToolVerifier && !context.worktreePath) {
+      // Nor during a dry run: the verifier runs the project's checks, which is
+      // executing repository code, and there is nothing new to verify anyway.
+      if (this.postToolVerifier && !context.worktreePath && !dryRunTurn.active) {
         const verificationTargets = toolResults
           .filter(result => result.shouldVerify)
           .map(result => ({
@@ -4386,7 +4566,14 @@ export class Orchestrator {
         }
       }
 
-      for (const { toolCall, result, executed, reachedNetwork, quarantineRelease } of toolResults) {
+      for (const { toolCall, result, executed, reachedNetwork, quarantineRelease, dryRunSimulated } of toolResults) {
+        if (dryRunSimulated) {
+          // AtlasMind's own description of the model's own proposed call: not a
+          // tool result, so it is labelled as generated text, which absorbs
+          // nothing — a simulated web-fetch read no web page.
+          messages.push({ role: 'tool', origin: 'generated-instruction', content: result, toolCallId: toolCall.id, toolName: toolCall.name });
+          continue;
+        }
         if (quarantineRelease) {
           // Already fenced and labelled from text that was redacted when it was
           // held; what a person released is still third-party.
@@ -6143,6 +6330,11 @@ interface ToolExecutionEntry {
    * and labelled, and this is what the turn absorbs for it.
    */
   quarantineRelease?: ProvenanceSource;
+  /**
+   * Dry run answered this call with a description instead of running it.
+   * Nothing happened, so nothing is absorbed, verified or remembered for it.
+   */
+  dryRunSimulated?: boolean;
 }
 
 /**
@@ -7194,6 +7386,19 @@ export function intersectTurnCapabilities(
     commandsAllowed,
     ...(reason ? { reason } : {}),
   };
+}
+
+/**
+ * The reply with the dry-run summary after it. Appended rather than rewritten,
+ * so a surface that streamed the answer can show the summary as the tail of
+ * what it already rendered.
+ */
+function withDryRunSummary<T extends { response: string }>(result: T, turn: DryRunTurn): T {
+  const summary = summarizeDryRun(turn);
+  if (!summary) {
+    return result;
+  }
+  return { ...result, response: result.response ? `${result.response}\n\n${summary}` : summary };
 }
 
 export function isToolAllowedByTurnEnvelope(

@@ -345,6 +345,18 @@ the daily limit: `decideQuarantineBudget` checks its worst case before dispatch 
 `TaskResult.costUsd`. `atlasmind.security.quarantineReader` (`on` default, `off`) switches it. The written
 threat model is [[Prompt Injection Threat Model]].
 
+**Dry run describes what a turn would do and does none of it (0.491.0).** `src/core/dryRun.ts` (pure)
+decides each tool call in `runAgenticLoop` when `atlasmind.dryRun.enabled` is on: only built-ins the published
+`DRY_RUN_BUILTIN_TABLE` grades as local reads run (plus `quarantine-read` and a local-only `find-tool`);
+everything else — writes, subprocesses, network reads, MCP and custom skills, unknown names — is answered
+with a `[DRY RUN — nothing was executed]` description and raises no approval, checkpoint, verifier, webhook
+or provenance. A skill allowed to run gets a context whose every effect method throws (`DRY_RUN_CONTEXT_METHODS`
+is exhaustive over `SkillExecutionContext`). The per-turn `DryRunTurn` cell is sticky (on at once, off next
+turn), carried to subtasks, and turns off ACP tool delegation and worktree isolation. The reply ends with a
+summary; records reach `OrchestratorHooks.onDryRunRecord` → `DryRunLedger` → the *AtlasMind Dry Run* output
+channel, and `atlasmind.toggleDryRun` plus a status bar item switch it. The CLI's `--dry-run` sets it for
+`chat` and `project`.
+
 **A model-initiated fetch goes only where it was checked to go (0.490.2).**
 `src/core/egressDestinationPolicy.ts` (pure) screens a URL — `https` only, no credentials, no name that is
 local by definition — and judges every literal or resolved address by its numeric value against published
@@ -1567,6 +1579,7 @@ never accepted.
 | `src/core/contextProvenance.ts` | What a task has read, and which writes and network calls need a fresh approval after it — the tables, the shared REPORTED CONTENT fence, and the release valve's rules |
 | `src/core/egressDestinationPolicy.ts` | Where a fetch a model asked for may go — the URL rules and the private and reserved address ranges, judged by value |
 | `src/core/egressFetch.ts` | The connection that goes only there: pinned to the checked addresses, redirects checked hop by hop |
+| `src/core/dryRun.ts` | Dry run: which tool calls still run (built-in local reads only), the description the rest get instead, the context that refuses every effect, and the session's record |
 | `src/core/quarantinedReader.ts` | How a long third-party result is read by a model with no tools, what its extract must look like to be believed, and how the raw text is released only after you approve |
 | `src/runtime/` | The built-in agents and how the runtime is composed |
 | `src/providers/` | Provider adapters, catalogues, health, local model discovery, `modelRole.ts` (what a model is *for*), and the local-GPU support layer that measures VRAM and reads what each runtime has loaded |

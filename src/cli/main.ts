@@ -17,6 +17,7 @@ import { createNodeSkillExecutionContext } from './nodeSkillContext.js';
 import { NodeCostTracker } from './nodeCostTracker.js';
 import { classifyToolInvocation } from '../core/toolPolicy.js';
 import { describeEscalationSources } from '../core/contextProvenance.js';
+import { formatDryRunLedgerLine } from '../core/dryRun.js';
 
 const AZURE_OPENAI_API_VERSION = '2024-10-21';
 const DEFAULT_SSOT_PATH = 'project_memory';
@@ -286,6 +287,7 @@ async function main(): Promise<number> {
       allowWrites: parsed.options.allowWrites,
       allowCommands: parsed.options.allowCommands,
       allowUntrustedEscalation: parsed.options.allowUntrustedEscalation,
+      dryRun: parsed.options.dryRun,
     }),
   });
   const cliRuntime: AtlasCliRuntime = {
@@ -628,8 +630,17 @@ export function createCliProviderAdapters(): ProviderAdapter[] {
   return adapters;
 }
 
+/**
+ * `--dry-run` means the same thing for `chat` and `project` that
+ * `atlasmind.dryRun.enabled` means in the editor: the orchestrator answers every
+ * tool call that would act with a description of it, and the reply ends with a
+ * summary. It is the CLI's only setting, so the hook answers that one key and
+ * leaves every other default where it was. Each simulated call is also written
+ * to stderr, which is where the CLI reports what it did rather than what it said.
+ */
 export function createCliRuntimeHooks(
-  options?: { allowWrites?: boolean; allowCommands?: boolean; allowUntrustedEscalation?: boolean },
+  options?: { allowWrites?: boolean; allowCommands?: boolean; allowUntrustedEscalation?: boolean; dryRun?: boolean },
+  writeDiagnostic: (line: string) => void = line => { process.stderr.write(line); },
 ): OrchestratorHooks {
   return {
     toolApprovalGate: createCliToolApprovalGate(
@@ -637,6 +648,12 @@ export function createCliRuntimeHooks(
       options?.allowCommands ?? false,
       options?.allowUntrustedEscalation ?? false,
     ),
+    ...(options?.dryRun
+      ? {
+        readSetting: <T>(key: string, fallback: T): T => (key === 'dryRun.enabled' ? true as T : fallback),
+        onDryRunRecord: record => writeDiagnostic(`[dry run] ${formatDryRunLedgerLine(record)}\n`),
+      } satisfies Pick<OrchestratorHooks, 'readSetting' | 'onDryRunRecord'>
+      : {}),
   };
 }
 
@@ -813,8 +830,8 @@ function printHelp(): void {
     'AtlasMind CLI',
     '',
     'Usage:',
-    '  atlasmind chat <prompt> [--provider <id>] [--model <provider/model>]',
-    '  atlasmind project <goal> [--provider <id>]',
+    '  atlasmind chat <prompt> [--provider <id>] [--model <provider/model>] [--dry-run]',
+    '  atlasmind project <goal> [--provider <id>] [--dry-run]',
     '  atlasmind memory list',
     '  atlasmind memory query <query>',
     '  atlasmind providers list',
@@ -833,7 +850,9 @@ function printHelp(): void {
     '  --speed <mode>            fast | balanced | considered | auto',
     '  --daily-limit-usd <n>     Block requests when the CLI budget would be exceeded',
     '  --json                    Emit machine-readable JSON for supported commands',
-    '  --dry-run                 Preview build command without executing (used with build)',
+    '  --dry-run                 chat/project: describe every tool call that would write, run a command or',
+    '                            reach the network instead of running it; only local reads run.',
+    '                            build: print the build command without running it',
     '  --fix                     Auto-fix lint issues (used with lint)',
     '  --watch                   Run tests in watch mode (used with test)',
     '  --help                    Show this help text',

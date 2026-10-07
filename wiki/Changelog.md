@@ -19,6 +19,28 @@ Older entries below describe the software as it was at the time and are delibera
 
 ---
 
+## v0.491.0 -- Dry run: see what would happen, with nothing done
+
+- **One switch, and nothing acts.** **AtlasMind: Toggle Dry Run** (or `atlasmind.dryRun.enabled`) lets the
+  agent plan and call tools as usual, but every call that would write a file, run a command, change git or
+  reach the network gets a description back instead: what it would have done, how risky it is, whether it
+  would have asked you, and the arguments with secrets taken out. The reply ends with a list of everything
+  that would have happened, and the **AtlasMind Dry Run** output channel keeps the session's record.
+- **Only AtlasMind's own local reads run** — file reads, searches, `git status`/`diff`/`log`, diagnostics,
+  symbols — so the plan is grounded in your real code. MCP tools and custom skills are always described,
+  and so are commands like `npm test`, which run your repository's code, and web fetches, which send text
+  off your machine.
+- **Nothing described asks you anything**, takes a checkpoint, runs checks or fires a webhook, and a
+  described fetch doesn't count as the agent having read someone else's text.
+- **On applies straight away; off waits for the next message**, so a run never finishes half-real. A
+  *Dry run* item sits in the status bar while it's on. A repository can't switch it off for you.
+- **Model calls still run and still cost money** — they're how the agent works out what it would do.
+- **In the CLI**, `--dry-run` now does the same for `chat` and `project`.
+- Not yet covered: things that happen outside a chat turn's tools — routines, promotions, panel buttons,
+  Director messages. That's next.
+
+---
+
 ## v0.490.2 -- A fetch goes only where it was checked to go
 
 - **Fetching a URL can no longer reach your machine or your network by a side door.** `web-fetch` and

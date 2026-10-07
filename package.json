@@ -2,7 +2,7 @@
   "name": "atlasmind",
   "displayName": "AtlasMind",
   "description": "AI project management for VS Code: roadmap, risk, tech debt, compliance, testing and release tracked from your own repository — with a multi-agent AI team, or the AI coding tool you already use.",
-  "version": "0.490.2",
+  "version": "0.491.0",
   "publisher": "JoelBondoux",
   "preview": false,
   "license": "SEE LICENSE IN OSMFEULA.txt",
@@ -417,6 +417,11 @@
         "command": "atlasmind.toggleAutopilot",
         "title": "AtlasMind: Toggle Autopilot",
         "icon": "$(rocket)"
+      },
+      {
+        "command": "atlasmind.toggleDryRun",
+        "title": "AtlasMind: Toggle Dry Run",
+        "icon": "$(beaker)"
       },
       {
         "command": "atlasmind.togglePresence",
@@ -2071,6 +2076,13 @@
           ],
           "description": "After a task reads untrusted content, which changes and outward calls need a fresh approval that Autopilot and Bypass Approvals cannot answer. Reads stay free. There is no off value; the release valve is 'Allow for this task, I've seen the source' on the approval itself.",
           "markdownDescription": "After a task has read untrusted content, a tool call that **changes something or leaves the machine** needs a *fresh* approval — one that Autopilot and Bypass Approvals, granted before the content was read, cannot answer. Reads stay free, so research is not slowed down.\n\n- `third-party` (default): escalate after the task reads a fetched page, an MCP server's answer, GitHub issue or review text, another agent's answer, or the output of any tool AtlasMind cannot identify.\n- `workspace-and-third-party`: also escalate after it reads repository files, attachments or the editor's chat context — text other people may have committed or pasted.\n\nThere is deliberately no `off`. The approval itself offers **Allow for this task — I've seen the source**, which releases that kind of action for the rest of the task. If fetched content contains text shaped like an instruction (\"ignore previous instructions\"), the content is kept and flagged, and the task may no longer reach the network at all.\n\nA value that is set but not recognised is read as the stricter scope."
+        },
+        "atlasmind.dryRun.enabled": {
+          "type": "boolean",
+          "default": false,
+          "scope": "application",
+          "description": "Dry run: show what a turn would do and do none of it. Tool calls that would write, run a subprocess or reach the network are answered with a description instead of running; only local reads run. Switching it on applies at once; switching it off applies from the next turn.",
+          "markdownDescription": "**Dry run** — show me what would happen; nothing executes.\n\nWhile this is on, the agent still plans and still calls tools, but every call that would **write a file, run a subprocess, change git, or reach the network** is answered with a description of what it would have done — the action, its risk category, whether it would have asked for approval, and the redacted arguments — instead of being run. Only AtlasMind's own built-in **local reads** (file reads, searches, `git status`/`diff`/`log`, diagnostics, symbols) actually run, so the plan is grounded in the real workspace.\n\n- MCP tools, workspace and synthesised skills are always simulated — AtlasMind cannot grade code it did not write.\n- Network reads are simulated too: a request can carry model-chosen text off the machine.\n- Nothing simulated asks for approval, takes a checkpoint, runs verification or fires a tool webhook.\n- Worktree isolation and ACP agent tool delegation are off for a dry turn.\n- Model calls still run and still cost money — they are how the turn decides what it would do.\n\nThe reply ends with a summary of what was simulated, and every record goes to the **AtlasMind Dry Run** output channel. Switching it **on** applies to the next tool call; switching it **off** waits for the next turn, so a run cannot finish half-real. User settings only — a repository's workspace settings cannot switch it off for you. Use **AtlasMind: Toggle Dry Run** or the status bar item."
         },
         "atlasmind.security.quarantineReader": {
           "type": "string",

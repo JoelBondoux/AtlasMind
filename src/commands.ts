@@ -15,6 +15,7 @@ import { getSelectedSessionRenameTarget, postSidebarSummaryToChat } from './view
 import { checkStarterRuntime, runRuntimeInstallPlan } from './mcp/mcpRuntime.js';
 import type { AcpBridgeTreeItem, ChatSessionTreeItem, DiscoveryFinderItem, McpServerTreeItem, ModelProviderTreeItem, ModelTreeItem, SessionFolderTreeItem, SkillFolderTreeItem, SkillTreeItem } from './views/treeViews.js';
 import { parseCustomDebtMarkers } from './core/debtRegister.js';
+import { readDryRunSetting } from './core/dryRun.js';
 import { describeInstallPlan } from './ard/ardInstaller.js';
 import { hideModelSidebarEntry, type ModelSidebarHiddenEntry } from './views/modelSidebarVisibility.js';
 import { resolveAgentSkillPolicy } from './core/skillsRegistry.js';
@@ -1095,6 +1096,22 @@ export function registerCommands(
         enabled
           ? 'AtlasMind Autopilot enabled for this session.'
           : 'AtlasMind Autopilot disabled.',
+      );
+    }),
+
+    // Writes the user setting rather than session state, unlike Autopilot: a
+    // dry run is something somebody wants to stay on across a reload until
+    // they have read the plan, and a setting is what the CLI, the status bar
+    // and the orchestrator all read. Application-scoped, so a repository's
+    // workspace settings cannot switch it off underneath you.
+    vscode.commands.registerCommand('atlasmind.toggleDryRun', async () => {
+      const configuration = vscode.workspace.getConfiguration('atlasmind');
+      const enabled = !readDryRunSetting(configuration.get<unknown>('dryRun.enabled', false));
+      await configuration.update('dryRun.enabled', enabled, vscode.ConfigurationTarget.Global);
+      void vscode.window.showInformationMessage(
+        enabled
+          ? 'AtlasMind dry run is on: tool calls that would write, run commands or reach the network are described, not run. Model calls still run.'
+          : 'AtlasMind dry run is off from the next turn. A turn already running stays dry until it finishes.',
       );
     }),
 
