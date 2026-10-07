@@ -9,7 +9,7 @@ This file is the developer-facing backlog AtlasMind should absorb into SSOT and 
 - [x] Roadmap nodes should have a row of dots in them to represent the various Gates that item is included in. Each gate is auto assigned a colour, but it would also mean keeping the gate selector buttons on the dash screen of the canvas pages. #mvp <!-- rm:roadmap-nodes-should-have-a -->
 - [x] Roadmap Gates should have a function where there is an AM scan of the roadmap items against the Gate name and items are listed as potential candidates for inclusion. #mvp <!-- rm:roadmap-gates-should-have-a -->
 - [ ] Roadmap canvas for the delivered page needs the same node management controls as the other canvas pages. #mvp <!-- rm:roadmap-canvas-for-the-deliv -->
-- [ ] Roadmap AutoTree doesn't bring nodes together enough and keeps many spread out off screen. #mvp <!-- rm:roadmap-autotree-doesn-t-bri -->
+- [x] Roadmap AutoTree doesn't bring nodes together enough and keeps many spread out off screen. #mvp <!-- rm:roadmap-autotree-doesn-t-bri -->
 - [ ] Team management surface to manage workload, estimated work times, rotas, and integrate with common rota management applications. <!-- rm:team-management-surface-to-m -->
 - [ ] expand baseline comparrison features. #mvp <!-- rm:expand-baseline-comparrison -->
 - [ ] When onboarding a new project an early stage user prompt should be given to write in their own words the outline, outcome or ambition of the project. This can then be parsed by AM to the Ideation board, and then to a roadmap filling out all the associated files as well. #mvp <!-- rm:when-onboarding-a-new-projec -->

@@ -711,6 +711,15 @@ describe('show completed is a way of looking, not a change', () => {
     expect(toggleBranch()).not.toContain('postMessage');
   });
 
+  it('re-fits every canvas, because delivered work now appears beside the plan', () => {
+    // Delivered work used to fill holes inside the plan, so the dependency
+    // canvas kept its viewport. The plan is now laid out without those holes
+    // and delivered work in its own blocks beside it — past the edge of a
+    // viewport fitted to the plan — so keeping the viewport would make the
+    // toggle look as if it did nothing.
+    expect(toggleBranch()).toContain('state.roadmapFitAfterRender = true;');
+  });
+
   it('is remembered beside snap-to-grid, in webview state', () => {
     expect(toggleBranch()).toContain('persistRoadmapCanvasPreferences()');
     expect(scriptFunction('persistRoadmapCanvasPreferences')).toContain('roadmapShowCompleted: state.roadmapShowCompleted');

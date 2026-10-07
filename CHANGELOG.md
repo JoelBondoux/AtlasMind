@@ -6,6 +6,67 @@ The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/),
 
 ## [Unreleased]
 
+## [0.487.1] - 2026-10-07
+
+### Fixed
+
+- **The roadmap's Auto tree keeps the plan together and on screen.** The report was that it "doesn't bring
+  nodes together enough and keeps many spread out off screen", and measured it did. On this repository's
+  roadmap the outstanding plan was drawn 9,210 × 2,360px top to bottom, so Fit all wanted 12%, stopped at
+  its 35% floor, and showed 7 of 46 cards; left to right it was 2,170 × 10,280px and Fit all wanted 5%.
+  It is now 4,330 × 1,640px (Fit all 25%) and 3,570 × 1,760px (30%), and every card is in view. Four
+  causes, each fixed where it happened:
+  - *A slot for every finished card.* The tree laid out delivered work with the plan, then hid it, so a
+    roadmap 56/96 delivered was drawn with a hole for each one. The plan is now laid out on its own, and
+    delivered work gets its own blocks beside it.
+  - *One strip of blocks.* Unrelated sub-plans followed one another in a single line, so thirty two-item
+    sub-plans drew 18,810 × 560px (Fit all 6%). Blocks now pack into strips shaped for the canvas, largest
+    first, and a block thinner than its strip stacks under the one before it: 4,210 × 2,240px (23%).
+  - *Layers as wide as their item count.* One item unlocking forty made a layer forty cards wide
+    (12,730 × 560px, 9%). A layer too wide for the frame now folds into sub-rows, column by column, so the
+    order the crossing sweeps chose still reads across: 3,130 × 1,640px (32%).
+  - *Spacing that only ever pushed one way.* Centring children under parents could move a card further
+    along but never back, so collisions compounded layer by layer: this repository's 26-item plan, eight
+    cards at its widest layer, was drawn fourteen wide. Each layer is now placed as close to where its
+    links want it as order and spacing allow in both directions (isotonic regression): about ten wide.
+- **Fit all fits.** Its floor drops from 35% to 20%. At 35% a 620px frame shows about 1,500px of plan,
+  which even a tightly packed 46-item plan exceeds, so Fit all announced it had fitted the plan while
+  leaving half of it off screen.
+- **Show completed re-fits the dependency canvas.** Delivered work now appears beside the plan rather than
+  in gaps inside it, so keeping the viewport would have shown nothing new. Nothing already on screen moves.
+
+### Design
+
+- **Shaped for the frame it is drawn in.** `ROADMAP_REFERENCE_FRAME` is the canvas as the dashboard draws
+  it, 1200 × 620; the height is pinned against the `.rm-frame` rule so the two cannot drift. Folding,
+  strip length and the parked block's shape are each chosen as the option whose result best fits it, in
+  a fixed order where a tie keeps the simpler arrangement, so two people opening one roadmap still see
+  one picture.
+- **Nothing is reshaped that already fits.** Folding a layer and wrapping blocks both cost a reader the
+  simplest order, so neither happens while the plan fits two frames (`ROADMAP_FOLD_THRESHOLD`). A small
+  plan is drawn exactly as before, apart from the tighter gap between blocks.
+- **One definition of retained.** The layout and `partitionRoadmapCompletion` share
+  `holdsOutstandingWork`, so the canvas cannot draw a delivered card where the layout left a gap, or
+  leave one where it expected a card.
+- **Unchanged rules.** One placement rule with its axes swapped for both orientations; blocks never
+  interleave; every coordinate stays a multiple of `ROADMAP_GRID_SIZE`, including the new 120px
+  `ROADMAP_BLOCK_GAP` that replaces a whole empty slot between blocks; and a stored position still
+  always wins. One deliberate change: a dragged card no longer pulls its unpinned neighbours after it.
+  Blocks are laid out in their own coordinates and then packed, so a drag moves the card you dragged and
+  nothing else.
+
+### Tests
+
+- `tests/core/roadmapLayoutPacking.test.ts` measures rather than describes. It runs a snapshot of this
+  repository's roadmap shape, with the before numbers in comments, and checks the plan fits the
+  webview's real Fit all floor, read from the script. It runs the shapes that used to run off screen. Its
+  property tests check that no two cards ever share a slot, every card is on the grid, layout is
+  deterministic, blocks never overlap, no block is stranded, and the plan never spans more than two and a
+  half times the frame its cards and longest chain need.
+- `tests/core/roadmapGraph.test.ts`: the parked-block test asserted the old near-square grid (four
+  items on two lines). It now asserts the frame-shaped one (ten items on two lines of five). Separation
+  from the plan, reading-axis-first filling and its place after the plan are asserted unchanged.
+
 ## [0.487.0] - 2026-10-07
 
 ### Added

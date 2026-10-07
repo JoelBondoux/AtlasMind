@@ -4,7 +4,7 @@
 
 <h1 align="center">AtlasMind</h1>
 
-<p align="center"><sub> · <strong>Current source version: 0.487.0</strong> · </sub></p>
+<p align="center"><sub> · <strong>Current source version: 0.487.1</strong> · </sub></p>
 
 
 <p align="center">
@@ -175,6 +175,15 @@ allow-list, redaction and file-withholding behaviour, retained metadata, provide
 important limits on overrides and compliance claims.
 
 ---
+
+## What's new in 0.487.1
+
+The roadmap's Auto tree keeps the plan together and on screen. On this repository's roadmap the
+outstanding plan used to be drawn 9,210px wide, and Fit all could show 7 of its 46 cards. Now it fits
+in a quarter of that and Fit all shows all of them. Finished work is no longer laid out as holes inside
+the plan; it gets its own blocks beside it when you ask to see it. Small sub-plans pack into strips instead
+of one long row, and a layer too wide for the canvas folds. A plan that already fits is drawn exactly as
+before.
 
 ## What's new in 0.487.0
 

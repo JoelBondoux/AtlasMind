@@ -19,6 +19,26 @@ Older entries below describe the software as it was at the time and are delibera
 
 ---
 
+## v0.487.1 -- The Auto tree keeps the plan on screen
+
+The roadmap's dependency canvas used to spread the plan far wider than the screen. On this repository's
+roadmap the outstanding plan was 9,210px wide, and Fit all could show only 7 of its 46 cards. It is now
+4,330 × 1,640px, and Fit all shows every card.
+
+- **Finished work no longer leaves holes.** It used to be laid out inside the plan and then hidden. It now
+  gets its own blocks beside the plan, and **Show completed** re-fits the view so you can see them.
+- **Sub-plans pack into strips** shaped for the canvas, instead of one long row.
+- **A layer too wide for the canvas folds** into sub-rows. One item that unlocks forty no longer makes a
+  row forty cards wide.
+- **Cards settle closer to their links** in both directions, instead of being pushed further along at
+  every collision.
+- **Fit all's floor drops from 35% to 20%**, so it can show the whole plan instead of half of it.
+
+A plan that already fits is drawn exactly as before. A card you drag still stays where you put it, and it
+no longer pulls its neighbours after it.
+
+---
+
 ## v0.487.0 -- Find candidates for a release gate
 
 Every release gate on the Roadmap page now has a **Find candidates** action: beside the gate selector on

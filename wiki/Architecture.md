@@ -1166,8 +1166,12 @@ is a compact Sugiyama pipeline: a prerequisite sits one step before the earliest
 (longest-path alone put every parentless item in one first row wider than the plan), unrelated sub-plans
 lay out as separate blocks that never interleave, alternating barycentre sweeps take the crossings out,
 coordinates settle children under parents so a chain reads as one straight line, and items with no links
-park in a near-square block of their own — they carry no arrows, so the block cannot be misread as
-dependency. Edges anchor to each card's measured height, so an arrow enters a tall card at its middle
+park in a block of their own — they carry no arrows, so the block cannot be misread as dependency. The
+layout is shaped for the canvas it is drawn in (`ROADMAP_REFERENCE_FRAME`, 620px tall like the frame):
+the outstanding plan is laid out without slots for delivered work, which gets its own blocks beside it; a
+layer too wide for the frame folds into sub-rows; and blocks pack into strips rather than one long row.
+Nothing is folded or wrapped while the plan already fits two frames. On this repository's roadmap that
+took the outstanding plan from 9,210 × 2,360px, where Fit all wanted 12%, to 4,330 × 1,640px at 25%. Edges anchor to each card's measured height, so an arrow enters a tall card at its middle
 rather than above it. **→** and **↓**
 beside it choose the direction, which is stored in the committed plan because which way a graph reads
 best depends on its shape rather than on who is looking; snap-to-grid is remembered per editor, because
@@ -1203,8 +1207,9 @@ contact is gone — deleting somebody from the roster is not a statement that th
 unassigned — and validated against the live roster in the host rather than trusted from the webview.
 **Show completed** brings finished work back onto any roadmap view that leaves it off, and is a way of
 looking rather than a change: `buildRoadmapCompletedOverlay` ships positions only — where the tree
-already put each delivered item, and a by-person layout that includes them — built after the critical
-path, routes and timeline, none of which read it. The webview filters client-side, posts nothing, and
+already put each delivered item (in blocks beside the plan, so nothing on screen moves), and a by-person
+layout that includes them — built after the critical path, routes and timeline, none of which read it.
+Toggling it re-fits the view, because the delivered blocks sit past the edge of a plan-sized viewport. The webview filters client-side, posts nothing, and
 remembers the choice per editor. **Release-gate dots** mark every roadmap card with the gates it is on,
 coloured by `assignRoadmapGateColors` (`roadmapGates.ts`) from each gate's declared position — never a
 hash, so two gates never share a colour and every machine agrees — with a colour key beside the Gate

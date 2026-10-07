@@ -2095,14 +2095,17 @@
      * schedules were worked out from the whole graph before the snapshot left
      * the host, and finished work only changes which cards are drawn.
      *
-     * The by-person view re-fits, because including finished work re-lays its
-     * lanes and every card moves. The dependency canvas does not: delivered
-     * work fills the gaps it left in the tree and nothing already on screen
-     * moves, so keeping the viewport is what lets you see what appeared.
+     * Both canvases re-fit. The by-person view does because including
+     * finished work re-lays its lanes and every card moves. The dependency
+     * canvas moves nothing already on screen, but delivered work is laid out
+     * in its own blocks *beside* the plan rather than in gaps inside it — the
+     * plan is no longer drawn with a hole for every finished card — so it
+     * appears past the edge of a viewport fitted to the plan, and keeping that
+     * viewport would make the toggle read as a button that did nothing.
      */
     if (action === 'roadmap-completed-toggle') {
       state.roadmapShowCompleted = !state.roadmapShowCompleted;
-      state.roadmapFitAfterRender = state.roadmapView === 'people';
+      state.roadmapFitAfterRender = true;
       persistRoadmapCanvasPreferences();
       render();
       return;
@@ -14437,7 +14440,16 @@
 
   const RM_NODE_WIDTH = 250;
   const RM_NODE_HEIGHT = 132;
-  const RM_MIN_ZOOM = 0.35;
+  /**
+   * How far out the canvas zooms, and so the floor under Fit all.
+   *
+   * Was 35%, which is where Fit all stopped fitting: at that floor a 620px
+   * frame shows about 1,500px of plan, and this repository's 46 outstanding
+   * items need roughly a quarter-size view even packed as tightly as the
+   * layout's pitch allows. A floor above the zoom the plan needs makes the
+   * button leave half the plan off screen while saying it fitted it.
+   */
+  const RM_MIN_ZOOM = 0.2;
   const RM_MAX_ZOOM = 1.6;
   /**
    * The canvas grid, mirroring `ROADMAP_GRID_SIZE` in `roadmapGraph.ts`.
@@ -14491,8 +14503,8 @@
    * The canvas with delivered work included — *Show completed* on.
    *
    * The dependency canvas keeps every outstanding card exactly where it was and
-   * adds finished work at the positions the tree layout already gave it, so it
-   * fills the gaps it left. The by-person view cannot do that: finished work
+   * adds finished work at the positions the tree layout already gave it, in its
+   * own blocks beside the plan. The by-person view cannot do that: finished work
    * changes how deep its person's band is, so the whole arrangement comes from
    * the overlay's own lane layout, and a snapshot without one keeps the
    * outstanding lanes rather than drawing a mixture of two arrangements.
