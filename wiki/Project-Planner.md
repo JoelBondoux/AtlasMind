@@ -157,6 +157,12 @@ with no gates and nobody assigned gets neither control instead of two empty menu
 offered as a person, because it is a real answer to "whose is this?" and the most useful one on a plan
 nobody has divided up yet.
 
+**Every card shows the release gates it is on** as a row of coloured dots — on the dependency canvas,
+By person, Delivered and the board — with four shown and a "+N" for the rest. A colour key sits beside the
+Gate picker; on the canvases pressing a key, or a dot on a card, highlights that gate (press again to
+clear). Gates are coloured in the order you declared them, MVP first, so everybody sees the same colours,
+and each dot is named by its gate, so a screen reader hears "MVP", not a colour.
+
 **The three lenses combine rather than replace each other.** A card is highlighted only if it satisfies
 every lens that is on, so "MVP items assigned to Sam" is a question you can ask; letting the second
 control cancel the first is what makes a filter feel broken. One button clears all three. Neither picker

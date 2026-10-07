@@ -734,3 +734,40 @@ describe('show completed is a way of looking, not a change', () => {
     expect(HOST_PANEL).toContain('completedOverlay: buildRoadmapCompletedOverlay(graph, partition, people)');
   });
 });
+
+describe('release gate dots are drawn, never decided, by the page', () => {
+  it('takes each gate colour from the host, which assigns it from the declared order', () => {
+    expect(HOST_PANEL).toMatch(/function buildGateViews[\s\S]*?assignRoadmapGateColors\(gates\)/);
+    // The webview holds no palette of its own: two would eventually disagree.
+    expect(canvasSource()).not.toMatch(/ROADMAP_GATE_PALETTE|#f8022a/);
+  });
+
+  it('interpolates a colour only after checking it is exactly #rrggbb', () => {
+    const attrs = namedFunction('rmGateDotAttrs');
+    expect(attrs).toContain('rmGateColor(gate)');
+    expect(namedFunction('rmGateColor')).toContain('RM_GATE_HEX.test(gate.color)');
+    expect(canvasSource()).toContain('const RM_GATE_HEX = /^#[0-9a-f]{6}$/;');
+  });
+
+  it('escapes every gate label and id it draws', () => {
+    for (const name of ['renderRoadmapGateDots', 'renderRoadmapGateLegend']) {
+      const source = namedFunction(name);
+      expect(source, name).not.toMatch(/\$\{\s*gate\.(label|id)\s*\}/);
+    }
+    expect(namedFunction('renderRoadmapGateLegend')).toContain('escapeHtml(gate.label)');
+    expect(namedFunction('renderRoadmapGateDots')).toContain('escapeAttr(gate.id)');
+  });
+
+  it('puts the colour key with the Gate picker, on every canvas that has one', () => {
+    expect(namedFunction('renderRoadmapEmphasisControls')).toContain('${gateSelect}${renderRoadmapGateLegend(true)}');
+  });
+
+  it('draws dots on the canvas card and the board card, describing each by its gates', () => {
+    const node = namedFunction('renderRoadmapNode');
+    expect(node).toContain('renderRoadmapGateDots(node.gates, { interactive: true');
+    expect(node).toContain('aria-describedby');
+    const board = namedFunction('renderRoadmapBoardCard');
+    expect(board).toContain('renderRoadmapGateDots(card.gates, { interactive: false');
+    expect(board).toContain('aria-describedby');
+  });
+});

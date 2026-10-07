@@ -6,6 +6,42 @@ The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/),
 
 ## [Unreleased]
 
+## [0.486.0] - 2026-10-07
+
+### Added
+
+- **Every roadmap card shows the release gates it is on, as a row of coloured dots.** The canvas could
+  highlight one gate at a time and could not answer the question you ask of a single card — *which
+  releases is this on?* — without picking every gate in turn. Each card on the dependency canvas, By
+  person, Delivered, the finished work *Show completed* adds, and the board now carries one dot per gate,
+  in the declared order, capped at four with a "+N" for the rest.
+- **A colour key beside the Gate picker.** Every declared gate, its dot and its name, in the canvas
+  toolbar where the selector already is, so a colour can always be looked up where it is used. On the
+  canvases each key — and each dot on a card — is also a button for that gate's highlight, the same lens
+  the picker sets, so the gate selector stays on the canvas itself; pressing the highlighted gate again
+  turns it off. On the board, which has no lens and whose cards carry no actions, dots and key are plain.
+
+### Design
+
+- **A colour belongs to a position, not a name.** `assignRoadmapGateColors` in `roadmapGates.ts` colours
+  gates by their declared position (MVP first) from a declared twelve-colour palette — one per gate the
+  roadmap can declare. The order lives in the committed roadmap file, so every machine and session
+  agrees; hashing the id would be as stable and would eventually give two gates on one plan the same
+  colour. The trade is stated: removing a gate moves the gates after it onto the next colours, as it
+  moves them up the list. Past the palette colours repeat and are drawn hollow, so no two gates share
+  both colour and shape; with the cap at twelve that cannot happen today.
+- **Legible on the card, in every theme kind.** Every colour sits at a relative luminance of about 0.2,
+  which clears WCAG 1.4.11's 3:1 against the canvas card, the board card, the page and the panel
+  surfaces in Dark Modern, Light Modern and both high-contrast themes — measured from the dashboard's own
+  stylesheet by the 0.484.0 contrast resolver. Equal luminance means the colours differ by hue alone, so
+  they are spread as far apart as hue allows and every pair is at least ΔE 30 apart.
+- **Colour is never the only cue (WCAG 1.4.1).** Each dot is named by its gate's label, the row names
+  every gate including those past the "+N", and the card's accessible description points at that row.
+- **Drawn, never decided, by the page.** The host ships each gate's colour in the snapshot; the webview
+  holds no palette, interpolates a colour only after checking it is exactly `#rrggbb`, escapes every
+  label and id, and posts nothing when a dot or key is pressed. The timeline and the backlog list are
+  unchanged: the backlog already names each gate in text, and a timeline bar is not a card.
+
 ## [0.485.0] - 2026-10-07
 
 ### Added

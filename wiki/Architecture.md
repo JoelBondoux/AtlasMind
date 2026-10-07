@@ -1205,7 +1205,11 @@ unassigned — and validated against the live roster in the host rather than tru
 looking rather than a change: `buildRoadmapCompletedOverlay` ships positions only — where the tree
 already put each delivered item, and a by-person layout that includes them — built after the critical
 path, routes and timeline, none of which read it. The webview filters client-side, posts nothing, and
-remembers the choice per editor. **Calculate tree**, carrying the AtlasMind mark, works the
+remembers the choice per editor. **Release-gate dots** mark every roadmap card with the gates it is on,
+coloured by `assignRoadmapGateColors` (`roadmapGates.ts`) from each gate's declared position — never a
+hash, so two gates never share a colour and every machine agrees — with a colour key beside the Gate
+picker. The host ships the colour, the webview only draws it, each dot is named by its gate, and pressing
+a dot or a key sets the same offline highlight the picker does. **Calculate tree**, carrying the AtlasMind mark, works the
 whole dependency tree out from the wording of the backlog and offers it behind one confirmation naming
 how many links it would add.
 

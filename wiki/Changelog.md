@@ -19,6 +19,20 @@ Older entries below describe the software as it was at the time and are delibera
 
 ---
 
+## v0.486.0 -- Release gates on every roadmap card
+
+Each card on the Roadmap page now carries a row of coloured dots, one for every release gate it is on, so
+"which releases is this on?" is answered on the card instead of by picking each gate in turn. The dots
+appear on the dependency canvas, By person, Delivered, the finished work *Show completed* adds, and the
+board; a busy card shows four and a "+N".
+
+A colour key sits beside the Gate picker on the canvas toolbar. On the canvases each key, and each dot on a
+card, highlights that gate's items — press it again to clear. Gates are coloured in the order you declared
+them, MVP first, so everybody sees the same colours; every colour stands out against the card in Dark
+Modern, Light Modern and both high-contrast themes, and every dot is named by its gate for screen readers.
+
+---
+
 ## v0.485.0 -- Show completed on every roadmap view
 
 The Roadmap page now has a **Show completed** toggle, in the row every view shares. Switched on, delivered

@@ -4,7 +4,7 @@
 
 <h1 align="center">AtlasMind</h1>
 
-<p align="center"><sub> · <strong>Current source version: 0.485.0</strong> · </sub></p>
+<p align="center"><sub> · <strong>Current source version: 0.486.0</strong> · </sub></p>
 
 
 <p align="center">
@@ -175,6 +175,14 @@ allow-list, redaction and file-withholding behaviour, retained metadata, provide
 important limits on overrides and compliance claims.
 
 ---
+
+## What's new in 0.486.0
+
+Every roadmap card now shows the release gates it is on as a row of coloured dots — on the dependency
+canvas, By person, Delivered and the board. A colour key sits beside the Gate picker, and on the canvases
+each key and each dot highlights that gate's items. Every gate gets its own colour from the order you
+declared them, readable in every built-in theme, and each dot is named by its gate, so colour is never the
+only cue.
 
 ## What's new in 0.485.0
 

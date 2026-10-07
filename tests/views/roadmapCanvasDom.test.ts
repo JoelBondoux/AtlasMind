@@ -1674,3 +1674,205 @@ describe('show completed', () => {
     expect(ids(reopened)).toEqual(['alpha', 'beta', 'gamma']);
   });
 });
+
+/**
+ * Release-gate dots, executed.
+ *
+ * Each roadmap card carries a dot per release gate it is on, coloured by the
+ * host from the gate's declared position. The properties worth holding: the
+ * dots are on every view that draws a roadmap card (the dependency canvas,
+ * by-person, Delivered, *Show completed*, the board), each is named by its
+ * gate rather than by its colour, the legend sits with the Gate picker, and
+ * nothing about any of it ever talks to the host.
+ */
+describe('release gate dots', () => {
+  const GATES = [
+    { id: 'mvp', label: 'MVP', color: '#f8022a', colorIndex: 0, hollow: false },
+    { id: 'beta', label: 'Public <b>beta</b>', color: '#1571fe', colorIndex: 1, hollow: false },
+    { id: 'v1', label: 'v1.0', color: '#009126', colorIndex: 2, hollow: false },
+    { id: 'v2', label: 'v2', color: '#e018a4', colorIndex: 3, hollow: false },
+    { id: 'v3', label: 'v3', color: '#02859b', colorIndex: 4, hollow: false },
+    { id: 'v4', label: 'v4', color: 'red;background:url(x)', colorIndex: 5, hollow: false },
+  ].map((gate, order) => ({ ...gate, order, builtIn: gate.id === 'mvp', totalCount: 1, completedCount: 0, progressPercent: 0 }));
+
+  /** Alpha on two gates (listed out of order, plus one nobody declared), beta on all six, gamma delivered on MVP. */
+  function withGates() {
+    const alphaGates = ['beta', 'nobody-declared-this', 'mvp'];
+    const allGates = GATES.map(gate => gate.id);
+    const snap = snapshot({
+      active: [
+        node('alpha', { position: { x: 80, y: 80 }, gates: alphaGates }),
+        node('beta', { position: { x: 400, y: 80 }, gates: allGates }),
+      ],
+      completed: [node('gamma', {
+        completed: true, completedAt: '2026-05-04T09:00:00.000Z', gates: ['mvp'],
+        schedule: { state: 'done', routeDays: 0, reason: 'Delivered.' },
+      })],
+      completedOverlay: {
+        planPositions: { gamma: { x: 720, y: 400 } },
+        byPersonPositions: { alpha: { x: 80, y: 80 }, beta: { x: 400, y: 80 }, gamma: { x: 80, y: 440 } },
+        byPersonLanes: [{ id: '', label: 'Unassigned', count: 3, outstandingDays: 6, unresolved: false, offset: 80, extent: 720 }],
+      },
+      lanes: [{ id: '', label: 'Unassigned', count: 2, outstandingDays: 6, unresolved: false, offset: 80, extent: 360 }],
+      byPerson: [
+        node('alpha', { position: { x: 80, y: 80 }, gates: alphaGates }),
+        node('beta', { position: { x: 400, y: 80 }, gates: allGates }),
+      ],
+    });
+    const roadmap = snap.payload.roadmap as unknown as {
+      gates: unknown[];
+      graph: { board: { columns: Array<{ id: string; cards: Array<Record<string, unknown>> }> } };
+    };
+    roadmap.gates = GATES;
+    roadmap.graph = { ...roadmap.graph, board: JSON.parse(JSON.stringify(roadmap.graph.board)) };
+    for (const column of roadmap.graph.board.columns) {
+      for (const card of column.cards) {
+        card.gates = card.nodeId === 'alpha' ? alphaGates : allGates;
+      }
+    }
+    return snap;
+  }
+
+  const open = (view: string, initialState?: Record<string, unknown>) => {
+    const harness = mount(initialState);
+    harness.send(withGates());
+    if (view !== 'canvas') {
+      harness.click(`[data-action="roadmap-view"][data-payload="${view}"]`);
+    }
+    return harness;
+  };
+  const card = (harness: Harness, id: string) => harness.root().querySelector(`[data-rm-node="${id}"]`);
+  const dotsOf = (element: Mounted) => [...element.querySelectorAll('.rm-gate-dot')] as Mounted[];
+
+  it('draws one dot per gate, in declared order, each named by its gate', () => {
+    const harness = open('canvas');
+    const alpha = card(harness, 'alpha');
+    const dots = dotsOf(alpha);
+    // Declared order, not the order the item listed them; an undeclared id is
+    // dropped rather than drawn as a dot nobody can name.
+    expect(dots.map(dot => dot.getAttribute('aria-label'))).toEqual(['MVP', 'Public <b>beta</b>']);
+    expect(dots.map(dot => dot.getAttribute('title'))).toEqual([
+      'MVP — highlight every item on this release',
+      'Public <b>beta</b> — highlight every item on this release',
+    ]);
+    expect(dots[0].getAttribute('style')).toBe('--rm-gate-color:#f8022a');
+    expect(dots[1].getAttribute('style')).toBe('--rm-gate-color:#1571fe');
+    // The label is text, never markup.
+    expect(alpha.querySelector('.rm-gate-dots b')).toBeNull();
+  });
+
+  it('describes the card by every gate it is on', () => {
+    const harness = open('canvas');
+    const alpha = card(harness, 'alpha');
+    const describedBy = alpha.getAttribute('aria-describedby');
+    expect(describedBy).toBeTruthy();
+    const row = harness.window.document.getElementById(describedBy);
+    expect(row).not.toBeNull();
+    expect(alpha.contains(row)).toBe(true);
+    expect(row.getAttribute('role')).toBe('group');
+    expect(row.getAttribute('aria-label')).toBe('Release gates: MVP, Public <b>beta</b>');
+  });
+
+  it('caps a crowded row with "+N", and still names every gate', () => {
+    const harness = open('canvas');
+    const beta = card(harness, 'beta');
+    expect(dotsOf(beta)).toHaveLength(4);
+    const more = beta.querySelector('.rm-gate-more');
+    expect(more?.textContent).toBe('+2');
+    expect(more?.getAttribute('aria-label')).toBe('and 2 more: v3, v4');
+    expect(beta.querySelector('.rm-gate-dots').getAttribute('aria-label'))
+      .toBe('Release gates: MVP, Public <b>beta</b>, v1.0, v2, v3, v4');
+  });
+
+  it('draws no colour it was not sent exactly, and no dot row on an untagged card', () => {
+    const harness = open('canvas');
+    // v4's colour is not a hex value: the key draws a neutral ring, never the string.
+    const key = harness.root().querySelector('.rm-gate-key[data-payload="v4"] .rm-gate-dot');
+    expect(key.getAttribute('style')).toBeNull();
+    expect(key.classList.contains('is-uncoloured')).toBe(true);
+    expect(harness.html()).not.toContain('url(x)');
+
+    const bare = mount();
+    bare.send(snapshot());
+    const alpha = card(bare, 'alpha');
+    expect(alpha.querySelector('.rm-gate-dots')).toBeNull();
+    expect(alpha.getAttribute('aria-describedby')).toBeNull();
+  });
+
+  it('keeps the legend beside the Gate picker on the canvas', () => {
+    const harness = open('canvas');
+    const toolbar = harness.root().querySelector('.rm-canvas-card .rm-toolbar');
+    const legend = toolbar.querySelector('.rm-gate-legend');
+    expect(legend).not.toBeNull();
+    expect(toolbar.querySelector('[data-action="roadmap-emphasis-gate"]')).not.toBeNull();
+    expect(legend.getAttribute('aria-label')).toBe('Release gate colours');
+    const keys = [...legend.querySelectorAll('.rm-gate-key')] as Mounted[];
+    expect(keys.map(key => key.getAttribute('data-payload'))).toEqual(GATES.map(gate => gate.id));
+    expect(keys[1].textContent).toBe('Public <b>beta</b>');
+    expect(keys.every(key => key.tagName === 'BUTTON' && key.getAttribute('type') === 'button')).toBe(true);
+    // The key's dot is the same colour the cards use.
+    expect(keys[0].querySelector('.rm-gate-dot').getAttribute('style')).toBe('--rm-gate-color:#f8022a');
+  });
+
+  it('switches the gate lens from a key or a dot, offline, and off again on a second press', () => {
+    const harness = open('canvas');
+    harness.posted.length = 0;
+    const classOf = (id: string) => card(harness, id)?.className ?? '';
+
+    harness.click('.rm-gate-key[data-payload="v1"]');
+    expect(classOf('beta')).toContain('is-search-match');
+    expect(classOf('alpha')).toContain('is-search-dim');
+    expect(harness.root().querySelector('.rm-gate-key[data-payload="v1"]').getAttribute('aria-pressed')).toBe('true');
+    // The picker and the legend are one lens, so they agree.
+    expect(harness.root().querySelector('[data-action="roadmap-emphasis-gate"]').value).toBe('v1');
+
+    harness.click('.rm-gate-key[data-payload="v1"]');
+    expect(classOf('alpha')).not.toContain('is-search-dim');
+
+    harness.click('[data-rm-node="alpha"] .rm-gate-dot[data-payload="mvp"]');
+    expect(classOf('alpha')).toContain('is-search-match');
+    expect(card(harness, 'alpha').querySelector('.rm-gate-dot[data-payload="mvp"]').getAttribute('aria-pressed')).toBe('true');
+    expect(harness.posted).toEqual([]);
+  });
+
+  it('draws the dots on the by-person view and on Delivered', () => {
+    const people = open('people');
+    expect(dotsOf(card(people, 'alpha'))).toHaveLength(2);
+    expect(people.root().querySelector('.rm-gate-legend')).not.toBeNull();
+
+    const delivered = open('completed');
+    const gamma = card(delivered, 'gamma');
+    expect(dotsOf(gamma).map(dot => dot.getAttribute('aria-label'))).toEqual(['MVP']);
+    expect(gamma.getAttribute('aria-describedby')).toBeTruthy();
+  });
+
+  it('draws the dots on finished work shown on the plan', () => {
+    for (const view of ['canvas', 'people']) {
+      const harness = open(view);
+      expect(card(harness, 'gamma')).toBeNull();
+      harness.click('[data-action="roadmap-completed-toggle"]');
+      const gamma = card(harness, 'gamma');
+      expect(gamma, view).not.toBeNull();
+      expect(dotsOf(gamma).map(dot => dot.getAttribute('aria-label')), view).toEqual(['MVP']);
+    }
+  });
+
+  it('draws the dots on the board as images, with a plain key, and no actions on the card', () => {
+    const harness = open('board');
+    const cardlets = [...harness.root().querySelectorAll('.rm-board-cardlet')] as Mounted[];
+    expect(cardlets.length).toBeGreaterThan(0);
+    const alpha = cardlets.find(cardlet => cardlet.textContent.includes('Item alpha'));
+    const dots = dotsOf(alpha);
+    expect(dots.map(dot => dot.tagName)).toEqual(['SPAN', 'SPAN']);
+    expect(dots.map(dot => dot.getAttribute('role'))).toEqual(['img', 'img']);
+    expect(dots.map(dot => dot.getAttribute('aria-label'))).toEqual(['MVP', 'Public <b>beta</b>']);
+    const describedBy = alpha.getAttribute('aria-describedby');
+    expect(harness.window.document.getElementById(describedBy)?.getAttribute('aria-label'))
+      .toBe('Release gates: MVP, Public <b>beta</b>');
+    const legend = harness.root().querySelector('.rm-board-card .rm-gate-legend');
+    expect(legend).not.toBeNull();
+    expect(legend.querySelectorAll('.rm-gate-key')).toHaveLength(GATES.length);
+    // The board's own rule: a card reports where the work is and offers nothing.
+    expect(harness.root().querySelector('.rm-board-card [data-action]')).toBeNull();
+  });
+});

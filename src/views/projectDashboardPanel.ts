@@ -607,6 +607,7 @@ import {
   MAX_ROADMAP_GATES,
   MVP_GATE_ID,
   ROADMAP_GATES_START,
+  assignRoadmapGateColors,
   extractItemGates,
   formatItemGateTags,
   normalizeGates,
@@ -614,8 +615,10 @@ import {
   sanitizeGateSelection,
   slugifyGateId,
   stripRoadmapGatesBlock,
+  roadmapGateColorAt,
   upsertRoadmapGatesBlock,
   type RoadmapGate,
+  type RoadmapGateColor,
 } from '../core/roadmapGates.js';
 import {
   ROADMAP_EDGE_RULES,
@@ -2506,7 +2509,12 @@ interface DashboardRoadmapItem {
   mvpCandidate: boolean;
 }
 
-interface DashboardRoadmapGateView extends RoadmapGate {
+/**
+ * A declared gate as the webview receives it. The colour is decided here, from
+ * the declared order, and shipped — the webview draws it and never picks one,
+ * so the dot on a card, the legend and every other surface cannot disagree.
+ */
+interface DashboardRoadmapGateView extends RoadmapGate, RoadmapGateColor {
   totalCount: number;
   completedCount: number;
   progressPercent: number;
@@ -26158,11 +26166,13 @@ function buildRoadmapGraphView(
 
 /** Per-gate progress, so the gate selector can show it without a route walk. */
 function buildGateViews(gates: RoadmapGate[], items: DashboardRoadmapItem[]): DashboardRoadmapGateView[] {
-  return gates.map(gate => {
+  const colors = assignRoadmapGateColors(gates);
+  return gates.map((gate, index) => {
     const tagged = items.filter(item => item.gates.includes(gate.id));
     const completedCount = tagged.filter(item => item.completed).length;
     return {
       ...gate,
+      ...(colors.get(gate.id) ?? roadmapGateColorAt(index)),
       totalCount: tagged.length,
       completedCount,
       progressPercent: tagged.length > 0 ? Math.round((completedCount / tagged.length) * 100) : 0,
@@ -33652,6 +33662,61 @@ const DASHBOARD_CSS = `
   }
 
   .rm-node-head:active { cursor: grabbing; }
+
+  /* Release-gate dots. The head becomes a row so the dots sit beside the title
+     rather than adding a line to a card whose height the layout assumes. The
+     fill is the colour the host assigned (assignRoadmapGateColors), which
+     clears 3:1 against the card in every built-in theme kind; the name is the
+     gate's label, never the colour, so colour is not the only cue. */
+  .rm-node-head { display: flex; align-items: flex-start; gap: 6px; }
+  .rm-node-head .rm-node-title { flex: 1 1 auto; min-width: 0; }
+  .rm-gate-dots {
+    display: inline-flex;
+    flex: none;
+    flex-wrap: wrap;
+    align-items: center;
+    gap: 3px;
+    margin-top: 3px;
+  }
+  .rm-board-cardlet-meta .rm-gate-dots { margin-top: 0; }
+  .rm-gate-dot {
+    display: inline-block;
+    width: 10px;
+    height: 10px;
+    flex: none;
+    box-sizing: border-box;
+    border-radius: 50%;
+    background: var(--rm-gate-color);
+    border: 1px solid var(--rm-gate-color);
+  }
+  /* A dot on a canvas card is a shortcut to the gate lens. Small on purpose —
+     the same lens has full-size targets in the legend beside the Gate picker,
+     which is the equivalent control WCAG 2.5.8 accepts. */
+  button.rm-gate-dot { padding: 0; border-radius: 50%; cursor: pointer; }
+  button.rm-gate-dot[aria-pressed="true"] { outline: 2px solid var(--dash-accent-strong); outline-offset: 1px; }
+  button.rm-gate-dot:focus-visible { outline: 2px solid var(--vscode-focusBorder); outline-offset: 1px; }
+  /* Past the palette the colours repeat; the repeat is a ring, not a disc, so
+     no two gates share both colour and shape. */
+  .rm-gate-dot.is-hollow { background: transparent; border-width: 2px; }
+  /* No colour arrived (a snapshot from an older build): a neutral ring, never a guessed colour. */
+  .rm-gate-dot.is-uncoloured { background: transparent; border-color: var(--dash-border); }
+  .rm-gate-more { font-size: 10px; line-height: 1; color: var(--dash-muted); }
+  .rm-gate-legend { display: inline-flex; flex-wrap: wrap; align-items: center; gap: 4px; }
+  .rm-gate-key {
+    display: inline-flex;
+    align-items: center;
+    gap: 5px;
+    padding: 2px 8px;
+    border-radius: 999px;
+    border: 1px solid var(--dash-border);
+    color: var(--dash-muted);
+    font-size: 10.5px;
+    font-weight: 600;
+  }
+  button.rm-gate-key { padding: 2px 8px; background: transparent; color: var(--dash-muted); cursor: pointer; }
+  button.rm-gate-key:hover { color: var(--dash-heading); }
+  button.rm-gate-key.is-on { border-color: var(--dash-accent-strong); color: var(--dash-heading); }
+  button.rm-gate-key:focus-visible { outline: 2px solid var(--vscode-focusBorder); outline-offset: 1px; }
 
   .rm-node-title {
     display: -webkit-box;

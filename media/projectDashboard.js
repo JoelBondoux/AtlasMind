@@ -1966,6 +1966,18 @@
       vscode.postMessage({ type: 'dismissCapabilityOffer', payload: payload });
       return;
     }
+    if (action === 'roadmap-gate-dot') {
+      // A gate's dot or its legend key: the same lens the Gate picker sets, so
+      // the two can never disagree about which gate is highlighted. Pressing
+      // the highlighted gate again turns the lens off. A way of looking —
+      // nothing is posted, and the id is only compared against declared gates.
+      const known = getRoadmapGates().some(gate => gate.id === payload);
+      state.roadmapEmphasisGate = !known || state.roadmapEmphasisGate === payload ? '' : payload;
+      state.roadmapFitAfterRender = true;
+      state.roadmapFitScope = 'emphasis';
+      render();
+      return;
+    }
     if (action === 'roadmap-emphasis-clear') {
       // Clears every lens at once. Three separate clears is three clicks to get
       // back to a plan you can read, and the state people want is "show me
@@ -14631,7 +14643,7 @@
       ? `<span class="list-meta rm-emphasis-count">${escapeHtml(`${emphasis.matches} of ${totalCount} match ${roadmapEmphasisLabels(emphasis)}`)}</span>`
         + `<button type="button" class="rm-chip-clear" data-action="roadmap-emphasis-clear" aria-label="Show the whole plan at full strength">×</button>`
       : '';
-    return `${gateSelect}${personSelect}${criticalToggle}${count}`;
+    return `${gateSelect}${renderRoadmapGateLegend(true)}${personSelect}${criticalToggle}${count}`;
   }
 
   /** What the active lenses are called, for a message that names them. */
@@ -14650,6 +14662,94 @@
     }
     if (emphasis.critical) { parts.push('the critical path'); }
     return parts.join(' + ');
+  }
+
+  // ── Release-gate dots ──────────────────────────────────────────
+  //
+  // Which releases an item is on, as a row of coloured dots on its card. The
+  // colour is chosen host-side from the gate's declared position
+  // (`assignRoadmapGateColors`) and only drawn here, so the dot on a card and
+  // the key in the legend cannot disagree. Colour is never the only cue: every
+  // dot carries its gate's label as its name, the row names all of them, and
+  // the legend says which colour is which.
+
+  /** Dots a card draws before the rest are counted as "+N". */
+  const RM_GATE_DOTS_MAX = 4;
+  /** A colour is drawn only if it is exactly what the host sends; anything else is no colour. */
+  const RM_GATE_HEX = /^#[0-9a-f]{6}$/;
+
+  function rmGateColor(gate) {
+    return gate && typeof gate.color === 'string' && RM_GATE_HEX.test(gate.color) ? gate.color : '';
+  }
+
+  /** The dot itself: class and colour, without its element or name. */
+  function rmGateDotAttrs(gate) {
+    const color = rmGateColor(gate);
+    const classes = ['rm-gate-dot', gate.hollow === true ? 'is-hollow' : '', color ? '' : 'is-uncoloured'].filter(Boolean).join(' ');
+    return `class="${classes}"${color ? ` style="--rm-gate-color:${color}"` : ''}`;
+  }
+
+  /** The declared gates an item is on, in declared order. An undeclared id is dropped. */
+  function rmItemGates(gateIds) {
+    const on = new Set(Array.isArray(gateIds) ? gateIds : []);
+    return getRoadmapGates().filter(gate => on.has(gate.id));
+  }
+
+  /** What a card's gate row is called — every gate, never the capped few. */
+  function rmGateRowLabel(gates) {
+    return `Release gate${gates.length === 1 ? '' : 's'}: ${gates.map(gate => gate.label).join(', ')}`;
+  }
+
+  /**
+   * One card's row of gate dots, in declared order, capped with "+N".
+   *
+   * `interactive` dots are buttons that switch the gate lens on — the canvases,
+   * where the lens exists. On the board they are images: that card has no lens
+   * to switch, and a board card carries no actions at all by its own rule.
+   * `id` is what the card points its accessible description at, so the card is
+   * described by every gate it is on, not by however many dots fitted.
+   */
+  function renderRoadmapGateDots(gateIds, options) {
+    const gates = rmItemGates(gateIds);
+    if (gates.length === 0) { return ''; }
+    const interactive = !!(options && options.interactive);
+    const id = options && options.id ? ` id="${escapeAttr(options.id)}"` : '';
+    const shown = gates.slice(0, RM_GATE_DOTS_MAX);
+    const rest = gates.slice(RM_GATE_DOTS_MAX);
+    const dots = shown.map(gate => interactive
+      ? `<button type="button" ${rmGateDotAttrs(gate)} data-action="roadmap-gate-dot" data-payload="${escapeAttr(gate.id)}"
+          aria-pressed="${state.roadmapEmphasisGate === gate.id ? 'true' : 'false'}" aria-label="${escapeAttr(gate.label)}"
+          title="${escapeAttr(gate.label + ' — highlight every item on this release')}"></button>`
+      : `<span ${rmGateDotAttrs(gate)} role="img" aria-label="${escapeAttr(gate.label)}" title="${escapeAttr(gate.label)}"></span>`);
+    const more = rest.length === 0 ? '' : `<span class="rm-gate-more" role="img"
+      aria-label="${escapeAttr(`and ${rest.length} more: ${rest.map(gate => gate.label).join(', ')}`)}"
+      title="${escapeAttr(`Also on ${rest.map(gate => gate.label).join(', ')}`)}">+${rest.length}</span>`;
+    return `<span class="rm-gate-dots"${id} role="group" aria-label="${escapeAttr(rmGateRowLabel(gates))}">${dots.join('')}${more}</span>`;
+  }
+
+  /** The id a card's gate row carries, for the card's `aria-describedby`. */
+  function rmGateRowId(prefix, nodeId) {
+    return `${prefix}-${String(nodeId || '').replace(/[^A-Za-z0-9_-]/g, '_')}`;
+  }
+
+  /**
+   * The colour key, beside the Gate picker.
+   *
+   * Every declared gate, in declared order, with its dot and its name — so a
+   * colour on a card can always be looked up where the selector already is.
+   * On the canvases each key is also a button for that gate's lens, which keeps
+   * the gate selector buttons on the canvas itself; on the board, which has no
+   * lens, it is a plain key.
+   */
+  function renderRoadmapGateLegend(interactive) {
+    const gates = getRoadmapGates();
+    if (gates.length === 0) { return ''; }
+    const keys = gates.map(gate => interactive
+      ? `<button type="button" class="rm-gate-key${state.roadmapEmphasisGate === gate.id ? ' is-on' : ''}" data-action="roadmap-gate-dot"
+          data-payload="${escapeAttr(gate.id)}" aria-pressed="${state.roadmapEmphasisGate === gate.id ? 'true' : 'false'}"
+          title="${escapeAttr('Highlight every item on ' + gate.label + '. The rest of the plan stays drawn and dimmed.')}"><span ${rmGateDotAttrs(gate)} aria-hidden="true"></span>${escapeHtml(gate.label)}</button>`
+      : `<span class="rm-gate-key"><span ${rmGateDotAttrs(gate)} aria-hidden="true"></span>${escapeHtml(gate.label)}</span>`);
+    return `<span class="rm-gate-legend" role="group" aria-label="Release gate colours">${keys.join('')}</span>`;
   }
 
   function renderRoadmapViewBar(roadmap) {
@@ -14975,6 +15075,7 @@
             ${summary ? `<p class="section-copy">${escapeHtml(summary)}</p>` : ''}
           </div>
           <div class="rm-chip-row">
+            ${renderRoadmapGateLegend(false)}
             <span class="tag${board.branchEvidence === 'gathered' ? '' : ' tag-warn'}">branches ${escapeHtml(board.branchEvidence === 'gathered' ? 'read' : 'not read')}</span>
             <span class="tag${board.pullRequestEvidence === 'gathered' ? '' : ' tag-warn'}">pull requests ${escapeHtml(board.pullRequestEvidence === 'gathered' ? 'read' : 'not read')}</span>
           </div>
@@ -15011,10 +15112,13 @@
 
   function renderRoadmapBoardCard(card, delivered) {
     const person = roadmapPersonName(card.assigneeId);
+    const gateRowId = rmGateRowId('rm-board-gates', card.nodeId);
+    const gateDots = renderRoadmapGateDots(card.gates, { interactive: false, id: gateRowId });
     return `
-      <li class="rm-board-cardlet rm-focus-${escapeAttr(card.focus)}${delivered ? ' is-done' : ''}">
+      <li class="rm-board-cardlet rm-focus-${escapeAttr(card.focus)}${delivered ? ' is-done' : ''}"${gateDots ? ` aria-describedby="${escapeAttr(gateRowId)}"` : ''}>
         <p class="rm-board-cardlet-text" title="${escapeAttr(card.text)}">${delivered ? '<span class="rm-done-mark" aria-hidden="true">✓</span><span class="sr-only">Delivered: </span>' : ''}${escapeHtml(card.text)}</p>
         <div class="rm-board-cardlet-meta">
+          ${gateDots}
           ${card.waitingOnCount > 0
     // Carried in every column, not only Blocked: an item can be started and
     // still waiting, and dropping either half misreports one of them.
@@ -15547,13 +15651,17 @@
       search && !search.matchIds.has(node.id) ? 'is-search-dim' : '',
       state.roadmapSelection.indexOf(node.id) >= 0 ? 'is-selected' : '',
     ].filter(Boolean).join(' ');
+    // Which releases this item is on — on outstanding and delivered cards
+    // alike, since "which of the MVP has landed" is asked of the record too.
+    const gateRowId = rmGateRowId('rm-gates', node.id);
+    const gateDots = renderRoadmapGateDots(node.gates, { interactive: true, id: gateRowId });
 
     return `
       <div class="${classes}" data-rm-node="${escapeAttr(node.id)}" data-rm-drag="${escapeAttr(node.id)}"
         style="left:${position.x}px;top:${position.y}px;width:${RM_NODE_WIDTH}px;"
-        data-dashboard-focus-kind="roadmap" data-dashboard-focus-id="${escapeAttr(node.itemId)}">
+        data-dashboard-focus-kind="roadmap" data-dashboard-focus-id="${escapeAttr(node.itemId)}"${gateDots ? ` aria-describedby="${escapeAttr(gateRowId)}"` : ''}>
         <div class="rm-node-head" title="Drag to reposition. Position is saved.">
-          ${node.completed ? '<span class="rm-done-mark" aria-hidden="true">✓</span><span class="sr-only">Delivered: </span>' : ''}<span class="rm-node-title">${escapeHtml(node.text)}</span>
+          ${node.completed ? '<span class="rm-done-mark" aria-hidden="true">✓</span><span class="sr-only">Delivered: </span>' : ''}<span class="rm-node-title">${escapeHtml(node.text)}</span>${gateDots}
         </div>
         <div class="rm-node-meta">
           ${node.branch ? `<span class="rm-branch" title="${escapeAttr(node.branchSource === 'declared' ? 'Branch name set by hand.' : 'Branch name derived from the item. Edit the node to override it.')}">${escapeHtml(node.branch)}</span>` : '<span class="rm-branch rm-branch-none" title="No branch name could be derived from this item’s wording. Edit the node to set one.">no branch name</span>'}
