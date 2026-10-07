@@ -125,6 +125,14 @@ MCP servers bring tools AtlasMind knows nothing about. Rather than treating ever
 
 Conservative where it's unsure, practical where it isn't.
 
+### An MCP tool has to match what you approved
+
+Risk grading assumes the tool is the one you agreed to. Pinning makes sure of it. Every MCP tool is
+pinned on its first connect, and a tool whose description or schema has changed since, a tool the server
+didn't have before, or a tool the description scan flags is **held**. It isn't registered, so no approval
+mode, Bypass or Autopilot can reach it. It waits under **Review changed tools** in the MCP panel until you
+approve that exact version. See [[Skills]] for what the scan looks for.
+
 ### Context is not authority
 
 A rolling chat summary is accepted only when its recorded transcript revision matches the transcript

@@ -118,6 +118,15 @@ It's handled in layers:
   as reported content, so an issue reading "ignore your instructions" can't become one
 - **The trust boundary is structural.** Untrusted content never enters the part of the prompt that
   carries authority, whatever it says about itself
+- **MCP tool descriptions are scanned and pinned.** A tool description is text the model reads as
+  instruction, so it is the obvious place to hide one. Every MCP tool's description and input schema is
+  scanned for tool-poisoning text: instruction tags, claims over other tools, hiding things from you,
+  credential paths, hidden characters and encoded blobs. Every tool is also pinned to the version you
+  approved. A flagged tool is held even on first sight. A tool that changes after approval is held, and
+  the skill made from its old version is removed. A pin that can't be read is treated as unverifiable, never
+  as "nothing pinned yet". Approving a held tool in the MCP panel pins exactly the version you reviewed.
+  The panel sends an opaque id bound to that version's hashes, and the extension re-checks the live tool
+  before it registers anything
 
 ---
 
@@ -898,6 +907,7 @@ into a broader source. No proposed import is written until its confirmation is a
 | Malicious model output | Approval gate, parameter validation, sandbox |
 | Prompt injection via memory | Scanner blocks the write |
 | Prompt injection via chat history or attachments | Transient-context scanning, untrusted-context isolation, priority guardrails |
+| Tool poisoning and MCP rug pulls | Description and schema scanning, per-tool pins, hold-on-change, version-bound approval |
 | Credential exposure | OS keychain, write gate, dispatch-time redaction |
 | Path traversal | Workspace sandboxing on every file operation |
 | Shell injection | No shell, allow-list, operator blocking |

@@ -19,6 +19,31 @@ Older entries below describe the software as it was at the time and are delibera
 
 ---
 
+## v0.488.0 -- MCP tools are pinned, and a changed tool waits for you
+
+Enabling an MCP server used to trust every tool it would ever list. Each tool became a skill, its
+description went to the model as written, and nothing asked you again when the server changed. Now every
+tool is **pinned** when it is first approved: a hash of its description and input schema, kept with the
+text you agreed to.
+
+- **A server you just enabled is trusted on first use.** Its tools are pinned as they are, so you are not
+  asked about each one on the way in.
+- **A tool that changes is held.** If a description or schema changes, or a pinned server adds a tool,
+  the tool does not reach your agents until you approve it. The skill made from the old version is
+  removed, not just disabled.
+- **Tool descriptions are scanned.** Instruction tags such as `<IMPORTANT>`, "before using any other
+  tool", asking the agent to hide something from you, credential paths like `~/.ssh` or `.env`, hidden
+  characters and base64 blobs flag a tool. A flagged tool is held even on first sight. The scan reads the
+  input schema too, including its defaults and enum values.
+- **Review changed tools** in the MCP panel shows the approved and offered text side by side, with the
+  rule that held the tool and what the scan found. **Approve and pin** registers exactly the version you
+  reviewed. A flagged tool asks you to confirm in a dialog that lists the findings.
+- **A pin store that cannot be read holds tools instead of trusting them.**
+
+There is no setting to turn this off. The way through is approving one tool at a time.
+
+---
+
 ## v0.487.1 -- The Auto tree keeps the plan on screen
 
 The roadmap's dependency canvas used to spread the plan far wider than the screen. On this repository's

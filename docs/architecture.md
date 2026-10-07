@@ -2942,9 +2942,13 @@ For audited bundled starters it also resolves `${extensionPath}` plus the three 
 
 ### McpServerRegistry (`src/mcp/mcpServerRegistry.ts`)
 
-Manages `McpServerConfig` persistence (key: `atlasmind.mcpServers` in `globalState`) and live `McpClient` instances. On `connectServer()`: instantiates a client, calls `connect()`, then registers each discovered tool as a `SkillDefinition` in `SkillsRegistry` (ID: `mcp:<serverId>:<toolName>`) with auto-approved scan status. On `disconnectServer()`: disables or unregisters the corresponding skills. `connectAll()` is called non-blocking on activation; `disposeAll()` is called on deactivation.
+Manages `McpServerConfig` persistence (key: `atlasmind.mcpServers` in `globalState`) and live `McpClient` instances. On `connectServer()`: instantiates a client, calls `connect()`, then decides every discovered tool against its pin (`mcpToolPins.evaluateMcpToolPins`) and registers only the ones the pin rules allow as a `SkillDefinition` in `SkillsRegistry` (ID: `mcp:<serverId>:<toolName>`). The skill records the real description-scan result, and the model is shown a cleaned description capped at 1,000 characters. Every other tool lands in `McpServerState.heldTools`, and any skill registered from an earlier version of it is **unregistered**, not disabled. `approveHeldTool(serverId, heldId)` re-hashes the live tool against the reviewed version before it pins and registers anything. An optional sixth constructor argument, `onToolsHeld`, tells the extension so it can raise a notification. Pins live in `globalState` under `atlasmind.mcp.toolPins`, and are read after `loadFromStorage()` so a corrupt store can name the configured servers. They are not written back when a newer AtlasMind wrote them, and a server's pins are deleted with the server. On `disconnectServer()`: disables or unregisters the corresponding skills and clears the held list. `connectAll()` is called non-blocking on activation; `disposeAll()` is called on deactivation.
 
 Credentials are kept out of `globalState`: env vars listed in `McpServerConfig.secretEnvKeys` have their **values** stored in VS Code `SecretStorage` (key `atlasmind.mcp.<serverId>.<KEY>`, injected via the constructor's optional `secrets` param), resolved and merged into the process env only inside `connectServer()`, and deleted on `removeServer()`. `setServerSecrets()` writes them; the persisted config holds only the key names. `detectAvailableServers()` scans the local environment and returns only servers whose launch runtime is actually present (each with a `reason`), for the guided setup wizard's **Scan my computer** step.
+
+### McpToolPins (`src/mcp/mcpToolPins.ts`)
+
+What an MCP tool looked like when the user agreed to it, and what happens when it changes. Before this, enabling a server registered every tool it listed with its description passed to the model verbatim and a hard-coded `passed` scan. That left **tool poisoning** open: a description is text the model reads as instruction. It also left the **rug pull** open: a server that changes a tool after it was approved. Each tool is pinned as a full SHA-256 of its raw description and of the canonical (key-sorted, via `workflowAuditRecord.canonicalJson`) JSON of its input schema, with the approved text kept, capped, for the review view. The hash is deliberately not `fingerprint()`, which is truncated to 64 bits because it is "not a security boundary". `PIN_RULES` is evaluated first match wins, and every decision names its rule. `pin.flagged-approved` registers a flagged tool only when the user approved those exact hashes with those exact flag rules acknowledged. `pin.flagged` holds a flagged tool, even on first sight. `pin.first-sight` is trust on first use for a server with no pins. `pin.match` registers an unchanged tool. `pin.description-changed` and `pin.schema-changed` hold the tool and remove the old skill. `pin.unverifiable` holds a tool on a server whose pins could not be read. `pin.new-tool` holds a tool a pinned server did not have before. `scanMcpToolDescription` applies `TOOL_DESCRIPTION_RULES`: eight tool-poisoning rules plus the memory scanner's `TRANSIENT_SCAN_RULES`, imported rather than copied. It runs to the description and to every string in the input schema, keys included, walked within `SCHEMA_WALK_LIMITS`. A bound hit, a non-object schema or a non-string description is a `flag` finding, never an empty scan. `sanitizeMcpToolPinStore` validates and never coerces. A first run is an empty store. Garbage marks every known server unverifiable, so it cannot read as "nothing pinned yet". A newer version does the same and sets `readOnly`, so the registry never overwrites it. A held tool's id is a hash bound to its description and schema hashes, so an approval names a version, not a tool. There is no setting and no off switch. Pure apart from `node:crypto`, and unit-tested, including fast-check properties: any description or schema change is never a match, key reordering always matches, and a flagged tool is never registered unless approved.
 
 ### McpEnvironmentScanner (`src/mcp/mcpEnvironmentScanner.ts`)
 
@@ -3279,6 +3283,7 @@ extension.ts
         │     └── memory/memoryScanner.ts
         ├── mcp/mcpServerRegistry.ts
         │     ├── mcp/mcpClient.ts
+        │     ├── mcp/mcpToolPins.ts
         │     ├── mcp/mcpRuntime.ts
         │     └── mcp/mcpEnvironmentScanner.ts
         ├── mcp/buzzCommsServer.ts
@@ -3340,6 +3345,7 @@ tests/memory/
   └── memoryScanner.test.ts
 tests/mcp/
   ├── mcpClient.test.ts
+  ├── mcpToolPins.test.ts
   └── mcpServerRegistry.test.ts
 tests/skills/
   └── gitApplyPatch.test.ts
@@ -3371,7 +3377,11 @@ All shared types live in `src/types.ts`. See the [type definitions](../src/types
 | `McpServerConfig` | MCP server id, name, transport (stdio/http), command/args/env or url, enabled, `secretEnvKeys` (env var names whose values live in SecretStorage) |
 | `McpConnectionStatus` | `'disconnected' \| 'connecting' \| 'connected' \| 'error'` |
 | `McpToolInfo` | Server id, tool name, description, input JSON Schema |
-| `McpServerState` | Live snapshot: config + status + error + discovered tools |
+| `McpServerState` | Live snapshot: config + status + error + the tools registered as skills + `heldTools` (tools held for review; never in `tools`) |
+| `McpToolVerdict` | What the pin rules concluded about one tool: `pinned-match`, `first-sight`, `new-tool`, `description-changed`, `schema-changed`, `flagged`, `unverifiable` |
+| `McpToolScanFinding` | One description-scan finding: rule, `flag`/`note`, location (`description` or `schema:<path>`), visible snippet, message |
+| `McpToolPin` | The approved shape of a tool: description and schema SHA-256, the approved text (capped), when, `first-sight`/`user`, and the flag rules the user acknowledged |
+| `McpHeldTool` | A held tool for the review view: opaque version-bound id, verdict, rule, findings, offered text, and the previously approved text when there was one |
 | `PromotionPlan` | Assembled promotion: ordered guarded steps, preflight `checks`, blockers, gate flags, and an optional `remediation` |
 | `PromotionRemediation` | "Resolve & run" offer for fixable failing checks: `resolves`, assessed `targetVersion`/`bumpLevel`/`bumpReason`, `editsChangelog`, `commits`, `summary` |
 

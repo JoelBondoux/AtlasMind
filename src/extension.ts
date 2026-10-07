@@ -3085,6 +3085,19 @@ async function bootstrapAtlasMind(
       },
       outputChannel,
       context.secrets,
+      (serverName, held) => {
+        // A held tool is one an agent can no longer call, and it says so where
+        // the user will see it rather than only in the MCP panel.
+        const noun = held.length === 1 ? `1 tool from ${serverName} is` : `${held.length} tools from ${serverName} are`;
+        void vscode.window.showWarningMessage(
+          `AtlasMind: ${noun} held for review — new, changed since you approved it, or flagged by the description scan. Agents cannot call it until you approve it.`,
+          'Review changed tools',
+        ).then(choice => {
+          if (choice === 'Review changed tools') {
+            void vscode.commands.executeCommand('atlasmind.openMcpServers');
+          }
+        });
+      },
     );
     mcpServerRegistry.loadFromStorage();
 

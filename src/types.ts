@@ -5204,7 +5204,98 @@ export interface McpServerState {
   status: McpConnectionStatus;
   /** Set when status is 'error'. */
   error?: string;
+  /**
+   * The tools this connection exposes **as skills** — registered because their
+   * pin matched, or because the server was being seen for the first time. A
+   * tool held for review is never in this list (see `heldTools`).
+   */
   tools: McpToolInfo[];
+  /**
+   * Tools the server offered that were *not* registered: new since the server
+   * was pinned, changed since it was pinned, flagged by the description scan, or
+   * unverifiable because their pin could not be read. Each waits for an explicit
+   * approval in the MCP panel. Cleared on disconnect.
+   */
+  heldTools?: McpHeldTool[];
+}
+
+/**
+ * What `mcpToolPins` concluded about one tool a server offered.
+ *
+ * - `pinned-match` — description and schema are byte-identical (canonically) to the approved pin.
+ * - `first-sight` — the server had no pins at all; the user's enable is the approval.
+ * - `new-tool` — the server is pinned, but not this tool.
+ * - `description-changed` / `schema-changed` — the tool changed since it was approved (a rug pull, until shown otherwise).
+ * - `flagged` — the description scan found tool-poisoning text; held even at first sight.
+ * - `unverifiable` — the stored pin could not be read, so nothing can be matched against it.
+ */
+export type McpToolVerdict =
+  | 'pinned-match'
+  | 'first-sight'
+  | 'new-tool'
+  | 'description-changed'
+  | 'schema-changed'
+  | 'flagged'
+  | 'unverifiable';
+
+/** One thing the MCP tool-description scan found, naming the rule that found it. */
+export interface McpToolScanFinding {
+  rule: string;
+  /** `flag` holds the tool; `note` is recorded on the skill but does not hold it. */
+  severity: 'flag' | 'note';
+  /** `description`, or `schema:<json path>` for a string inside the input schema. */
+  location: string;
+  /** The matched text with invisible characters made visible, at most 120 characters. */
+  snippet: string;
+  message: string;
+}
+
+/**
+ * The approved shape of one MCP tool. Persisted in globalState under
+ * `atlasmind.mcp.toolPins`; hashes are full SHA-256 over the raw description and
+ * the canonical (key-sorted) JSON of the input schema.
+ */
+export interface McpToolPin {
+  serverId: string;
+  toolName: string;
+  descriptionHash: string;
+  schemaHash: string;
+  /** The description that was approved, capped, so a change can be shown against it. */
+  approvedDescription: string;
+  /** Canonical JSON of the approved schema, capped, for the same reason. */
+  approvedSchema: string;
+  pinnedAt: string;
+  /** `first-sight` when pinned because the server was new; `user` when approved in the review view. */
+  approvedBy: 'first-sight' | 'user';
+  /** Flag rules the user saw and approved anyway. A rule not in this list holds the tool again. */
+  acknowledgedRules: string[];
+}
+
+/** A tool held for review, with everything the review view needs to show what changed. */
+export interface McpHeldTool {
+  /** Opaque id bound to this exact description and schema; an approval names it and nothing else. */
+  id: string;
+  serverId: string;
+  toolName: string;
+  verdict: McpToolVerdict;
+  /** The `PIN_RULES` id that decided to hold it. */
+  rule: string;
+  reason: string;
+  findings: McpToolScanFinding[];
+  /** The description now offered, capped. */
+  description: string;
+  /** Canonical JSON of the schema now offered, capped. */
+  schemaPreview: string;
+  descriptionHash: string;
+  schemaHash: string;
+  /** What was approved before, when there was a pin. */
+  previous?: {
+    description: string;
+    schemaPreview: string;
+    pinnedAt: string;
+    approvedBy: 'first-sight' | 'user';
+  };
+  heldAt: string;
 }
 
 // ── Agentic Resource Discovery (ARD) ─────────────────────────────

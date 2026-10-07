@@ -16,7 +16,20 @@ import type * as vscode from 'vscode';
 import { randomUUID } from 'crypto';
 import { McpClient, findCommandExecutable } from './mcpClient.js';
 import type { SkillsRegistry } from '../core/skillsRegistry.js';
-import type { McpServerConfig, McpServerState, McpToolInfo, SkillDefinition } from '../types.js';
+import type { McpHeldTool, McpServerConfig, McpServerState, McpToolInfo, SkillDefinition, SkillScanIssue } from '../types.js';
+import {
+  MCP_TOOL_PIN_STORAGE_KEY,
+  evaluateMcpToolPins,
+  hashToolDescription,
+  hashToolSchema,
+  pinApprovedTool,
+  sanitizeMcpToolPinStore,
+  serializeMcpToolPinStore,
+  toHeldTool,
+  toModelFacingToolDescription,
+  type McpToolPinStore,
+  type McpToolScanResult,
+} from './mcpToolPins.js';
 
 const STORAGE_KEY = 'atlasmind.mcpServers';
 const LEGACY_RECOMMENDED_GIT_PACKAGE = '@modelcontextprotocol/server-git';
@@ -37,6 +50,11 @@ export interface McpServerImportResult {
   failedConnections: Array<{ name: string; message: string }>;
 }
 
+/** The outcome of approving a held tool in the review view. */
+export type McpHeldToolApproval =
+  | { ok: true; toolName: string }
+  | { ok: false; reason: string };
+
 /** A server discovered by scanning the local environment, with why it was surfaced. */
 export interface DetectedMcpServer {
   config: Omit<McpServerConfig, 'id'>;
@@ -47,6 +65,8 @@ export interface DetectedMcpServer {
 export class McpServerRegistry {
   private clients = new Map<string, McpClient>();
   private states = new Map<string, McpServerState>();
+  /** Loaded on first use (after `loadFromStorage`, so a corrupt store can name the known servers). */
+  private pinStore: McpToolPinStore | undefined;
 
   constructor(
     private readonly globalState: vscode.Memento,
@@ -54,6 +74,8 @@ export class McpServerRegistry {
     private readonly onRefresh: () => void,
     private readonly outputChannel?: vscode.OutputChannel,
     private readonly secrets?: vscode.SecretStorage,
+    /** Told when a connect held tools for review, so the user hears about it without opening the panel. */
+    private readonly onToolsHeld?: (serverName: string, held: readonly McpHeldTool[]) => void,
   ) {}
 
   // ── Secrets ─────────────────────────────────────────────────
@@ -212,6 +234,10 @@ export class McpServerRegistry {
     if (config) {
       await this.deleteServerSecrets(config);
     }
+    const pins = this.pins();
+    if (pins.servers.delete(id)) {
+      void this.persistPins();
+    }
     this.states.delete(id);
     void this.persist();
     this.onRefresh();
@@ -306,8 +332,7 @@ export class McpServerRegistry {
             this.clients.set(id, sseFallbackClient);
             state.status = 'connected';
             state.error = undefined;
-            state.tools = sseFallbackClient.tools;
-            this.registerToolsAsSkills(state.config, sseFallbackClient.tools);
+            this.applyDiscoveredTools(state, sseFallbackClient.tools);
             void this.persist();
             this.onRefresh();
             return;
@@ -320,14 +345,14 @@ export class McpServerRegistry {
       state.status = client.status;
       state.error = client.error;
       state.tools = [];
+      state.heldTools = [];
       this.onRefresh();
       return;
     }
 
     state.status = 'connected';
     state.error = undefined;
-    state.tools = client.tools;
-    this.registerToolsAsSkills(state.config, client.tools);
+    this.applyDiscoveredTools(state, client.tools);
     void this.persist();
     this.onRefresh();
   }
@@ -351,11 +376,59 @@ export class McpServerRegistry {
           this.skillsRegistry.disable(skillId);
         }
       }
+      // A held tool was never registered, but a skill from an earlier approved
+      // version may still be; removing it again is idempotent.
+      for (const held of state.heldTools ?? []) {
+        this.skillsRegistry.unregister(mcpSkillId(id, held.toolName));
+      }
       state.status = 'disconnected';
       state.tools = [];
+      state.heldTools = [];
     }
 
     this.onRefresh();
+  }
+
+  /**
+   * Approve a tool held for review: pin exactly the version that was reviewed
+   * and register it. The id is bound to the description and schema hashes, and
+   * the live tool must still hash the same — an approval cannot land on a
+   * version nobody saw.
+   */
+  approveHeldTool(serverId: string, heldId: string): McpHeldToolApproval {
+    const state = this.states.get(serverId);
+    if (!state) {
+      return { ok: false, reason: 'That server is no longer configured.' };
+    }
+    const held = (state.heldTools ?? []).find(entry => entry.id === heldId);
+    if (!held) {
+      return { ok: false, reason: 'That tool is no longer waiting for review. It may have changed again — reconnect the server and review it afresh.' };
+    }
+    const client = this.clients.get(serverId);
+    if (!client || client.status !== 'connected') {
+      return { ok: false, reason: `${state.config.name} is not connected, so the tool cannot be checked against what you reviewed.` };
+    }
+    const live = client.tools.find(tool => tool.name === held.toolName);
+    if (!live
+      || hashToolDescription(typeof live.description === 'string' ? live.description : '') !== held.descriptionHash
+      || hashToolSchema(live.inputSchema) !== held.schemaHash) {
+      return { ok: false, reason: `${held.toolName} no longer matches what you reviewed. Reconnect the server and review it again.` };
+    }
+
+    const store = this.pins();
+    store.servers.set(serverId, pinApprovedTool(store.servers.get(serverId), serverId, live, held, new Date().toISOString()));
+    void this.persistPins();
+
+    state.heldTools = (state.heldTools ?? []).filter(entry => entry.id !== heldId);
+    state.tools = [...state.tools.filter(tool => tool.name !== live.name), live];
+    this.registerToolsAsSkills(state.config, [{
+      tool: live,
+      scan: { flagged: held.findings.some(finding => finding.severity === 'flag'), findings: held.findings },
+      approvedDespiteFlags: true,
+    }]);
+    this.outputChannel?.appendLine(`[mcp] Approved ${held.toolName} from ${state.config.name} (${held.verdict}, rule ${held.rule}); pinned and registered.`);
+    this.onRefresh();
+    return { ok: true, toolName: held.toolName };
   }
 
   /** Connect all enabled servers (called on extension activation). */
@@ -382,7 +455,8 @@ export class McpServerRegistry {
 
   /** Load persisted server configurations from globalState on activation. */
   loadFromStorage(): void {
-    const raw = this.globalState.get<McpServerConfig[]>(STORAGE_KEY, []);
+    const stored = this.globalState.get<unknown>(STORAGE_KEY, []);
+    const raw: unknown[] = Array.isArray(stored) ? stored : [];
     const configs = raw.filter(isValidServerConfig);
     let mutated = false;
     for (const config of configs) {
@@ -395,6 +469,10 @@ export class McpServerRegistry {
     if (mutated) {
       void this.persist();
     }
+    // Read the pins now that the known servers are: a corrupt store marks every
+    // one of them unverifiable rather than none of them.
+    this.pinStore = undefined;
+    this.pins();
   }
 
   // ── Private helpers ──────────────────────────────────────────
@@ -402,6 +480,63 @@ export class McpServerRegistry {
   private async persist(): Promise<void> {
     const configs = [...this.states.values()].map(s => s.config);
     await this.globalState.update(STORAGE_KEY, configs);
+  }
+
+  private pins(): McpToolPinStore {
+    if (!this.pinStore) {
+      this.pinStore = sanitizeMcpToolPinStore(
+        this.globalState.get<unknown>(MCP_TOOL_PIN_STORAGE_KEY),
+        [...this.states.keys()],
+      );
+      if (this.pinStore.readOnly) {
+        this.outputChannel?.appendLine('[mcp] Stored tool pins were written by a newer AtlasMind; every pinned tool is held, and this version will not overwrite them.');
+      }
+    }
+    return this.pinStore;
+  }
+
+  private async persistPins(): Promise<void> {
+    const store = this.pins();
+    if (store.readOnly) { return; }
+    await this.globalState.update(MCP_TOOL_PIN_STORAGE_KEY, serializeMcpToolPinStore(store));
+  }
+
+  /**
+   * Decide every tool a connection offered against its pins, register only the
+   * ones the pin rules allow, and hold the rest for review.
+   */
+  private applyDiscoveredTools(state: McpServerState, tools: McpToolInfo[]): void {
+    const serverId = state.config.id;
+    const store = this.pins();
+    const now = new Date().toISOString();
+    const evaluation = evaluateMcpToolPins({ serverId, tools, pins: store.servers.get(serverId), now });
+    if (evaluation.changed && evaluation.nextPins) {
+      store.servers.set(serverId, evaluation.nextPins);
+      void this.persistPins();
+    }
+
+    const registered = evaluation.decisions.filter(decision => decision.action === 'register');
+    const held = evaluation.decisions.filter(decision => decision.action === 'hold');
+    for (const decision of held) {
+      // Removed rather than disabled: a disabled skill can be re-enabled from
+      // the Skills view, and its execute would call the tool as it is *now*.
+      this.skillsRegistry.unregister(mcpSkillId(serverId, decision.tool.name));
+    }
+
+    state.tools = registered.map(decision => decision.tool);
+    state.heldTools = held.map(decision => toHeldTool(serverId, decision, now));
+    this.registerToolsAsSkills(state.config, registered.map(decision => ({
+      tool: decision.tool,
+      scan: decision.scan,
+      approvedDespiteFlags: decision.rule === 'pin.flagged-approved',
+    })));
+
+    if (state.heldTools.length > 0) {
+      for (const entry of state.heldTools) {
+        this.outputChannel?.appendLine(`[mcp] Held ${entry.toolName} from ${state.config.name} for review: ${entry.verdict} (rule ${entry.rule}).`);
+      }
+      this.onToolsHeld?.(state.config.name, state.heldTools);
+    }
   }
 
   private findMatchingServer(config: Omit<McpServerConfig, 'id'>): McpServerConfig | undefined {
@@ -434,23 +569,30 @@ export class McpServerRegistry {
   }
 
   /**
-   * Register each MCP tool as a SkillDefinition in the SkillsRegistry.
+   * Register each allowed MCP tool as a SkillDefinition in the SkillsRegistry.
    * MCP tools use a synthetic skill ID: `mcp:<serverId>:<toolName>`.
-   * They are auto-approved (user explicitly configured the server = implicit trust).
+   *
+   * Only tools the pin rules allowed reach here. The model is shown a cleaned,
+   * capped description (control and invisible characters removed); the scan
+   * result recorded on the skill is the real one, not a hard-coded pass.
    */
-  private registerToolsAsSkills(config: McpServerConfig, tools: McpToolInfo[]): void {
-    for (const tool of tools) {
+  private registerToolsAsSkills(
+    config: McpServerConfig,
+    entries: ReadonlyArray<{ tool: McpToolInfo; scan: McpToolScanResult; approvedDespiteFlags: boolean }>,
+  ): void {
+    for (const { tool, scan, approvedDespiteFlags } of entries) {
       const skillId = mcpSkillId(config.id, tool.name);
       const clientRef = this.clients.get(config.id);
+      const modelDescription = toModelFacingToolDescription(typeof tool.description === 'string' ? tool.description : '');
 
       const skill: SkillDefinition = {
         id: skillId,
         name: `[MCP] ${tool.name}`,
-        description: `${config.name} › ${tool.description || tool.name}`,
+        description: `${config.name} › ${modelDescription || tool.name}`,
         parameters: tool.inputSchema,
         source: `mcp://${config.id}/${tool.name}`,
         builtIn: false,
-        routingHints: inferMcpRoutingHints(config.name, tool.name, tool.description),
+        routingHints: inferMcpRoutingHints(config.name, tool.name, modelDescription),
         execute: async (params) => {
           const client = clientRef ?? this.clients.get(config.id);
           if (!client || client.status !== 'connected') {
@@ -465,12 +607,24 @@ export class McpServerRegistry {
 
       this.skillsRegistry.register(skill);
 
-      // Auto-approve: mark as 'passed' (external process, not in-process code to scan)
+      // The scan ran; what it found travels with the skill. A registered tool
+      // never carries an unacknowledged flag (the pin rules hold those), so the
+      // status is `passed` — with the findings, and with any flag the user
+      // approved recorded as such rather than quietly dropped.
+      const issues: SkillScanIssue[] = scan.findings.map(finding => ({
+        rule: finding.rule,
+        severity: finding.severity === 'flag' ? 'error' : 'warning',
+        line: 0,
+        snippet: finding.snippet,
+        message: finding.severity === 'flag' && approvedDespiteFlags
+          ? `${finding.message} (Approved by you in the MCP review view; location: ${finding.location}.)`
+          : `${finding.message} (Location: ${finding.location}.)`,
+      }));
       this.skillsRegistry.setScanResult({
         skillId,
         status: 'passed',
         scannedAt: new Date().toISOString(),
-        issues: [],
+        issues,
       });
     }
   }

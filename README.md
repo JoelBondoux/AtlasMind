@@ -4,7 +4,7 @@
 
 <h1 align="center">AtlasMind</h1>
 
-<p align="center"><sub> · <strong>Current source version: 0.487.1</strong> · </sub></p>
+<p align="center"><sub> · <strong>Current source version: 0.488.0</strong> · </sub></p>
 
 
 <p align="center">
@@ -175,6 +175,16 @@ allow-list, redaction and file-withholding behaviour, retained metadata, provide
 important limits on overrides and compliance claims.
 
 ---
+
+## What's new in 0.488.0
+
+MCP tools are pinned. When you enable a server, its tools are recorded exactly as they are. If a tool's
+description or schema changes later, or the server adds a tool, AtlasMind holds it instead of handing it
+to your agents, and **Review changed tools** in the MCP panel shows the old and new text side by side.
+Approve it there, and exactly that version is pinned. Tool descriptions are also scanned for
+tool-poisoning text: instruction tags, "before using any other tool", hiding things from you, credential
+paths, hidden characters. A flagged tool is held even on a server you just enabled. There is no setting to
+turn this off; the escape hatch is approving one tool at a time.
 
 ## What's new in 0.487.1
 
@@ -854,7 +864,7 @@ All 162 settings are documented in the [Configuration reference](wiki/Configurat
 | `src/chat/` | The chat participant and interaction protocol |
 | `src/views/` | Settings, dashboards, editors and sidebar surfaces, including the shared reviewed-PR local-CI action allowlist and host commands (`localCiSurfaceActions.ts`, `reviewedPrLocalCiCommands.ts`) |
 | `src/acp/` and `src/cli/` | Subscription-agent sessions and the headless CLI |
-| `src/mcp/` and `src/ard/` | MCP servers and agentic resource discovery |
+| `src/mcp/` and `src/ard/` | MCP servers and agentic resource discovery, including tool pinning and the tool-description scan — what a tool looked like when you agreed to it, and what happens when it changes (`mcpToolPins.ts`) |
 | `src/voice/` and `src/remote/` | Voice backends and opt-in remote control |
 | `.github/workflows/` | Hosted release CI plus the separately gated trusted local-runner workflow |
 | `tests/` | Unit, integration, webview, security and regression coverage |

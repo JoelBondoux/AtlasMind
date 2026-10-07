@@ -748,7 +748,22 @@ AtlasMind can connect to any [Model Context Protocol](https://modelcontextprotoc
 **Skill ID pattern**: `mcp:<serverId>:<toolName>`  
 **Source field**: `mcp://<serverId>/<toolName>`
 
-MCP skills are registered in `SkillsRegistry` when a server connects and automatically marked as scan-passed (external process; trust is delegated to the server operator by the user who explicitly configured the connection). They can be individually disabled from the Skills view.
+MCP skills are registered in `SkillsRegistry` when a server connects, but **only the tools the pin rules allow** (`src/mcp/mcpToolPins.ts`). They can be individually disabled from the Skills view.
+
+**Tool pinning and description scanning.** Enabling a server is trust in that server as it is now. It is not trust in whatever it lists later. Every tool is pinned when it is first approved: a SHA-256 of its raw description and of its canonical (key-sorted) input schema, kept with the approved text. On each connect, `PIN_RULES` decides each tool, first match wins:
+
+| Rule | Action | When |
+|---|---|---|
+| `pin.flagged-approved` | register | The scan flags it, and you approved these exact hashes with these exact flag rules shown |
+| `pin.flagged` | hold | The description scan flags it — **even on first sight** |
+| `pin.first-sight` | register + pin | The server has no pins yet (you just enabled it, or first run after upgrading): your enable is the approval |
+| `pin.match` | register | Description and schema match the pin |
+| `pin.description-changed` | hold, remove old skill | The description changed since approval |
+| `pin.schema-changed` | hold, remove old skill | The input schema changed since approval |
+| `pin.unverifiable` | hold | The server's stored pins could not be read |
+| `pin.new-tool` | hold | A pinned server lists a tool it did not have |
+
+A held tool's skill is **unregistered**, not disabled. A disabled skill could be re-enabled from the Skills view, and its `execute` would call the tool as it is now. The scan (`TOOL_DESCRIPTION_RULES`) has eight tool-poisoning rules. They catch instruction tags (`<IMPORTANT>`, `<instructions>`, `<system>`…), claims over "any other tool", asking the agent to keep something from the user, directions to a different tool, credential or agent-config paths, "pass the contents of …", zero-width, bidirectional and tag characters, and long base64 blobs. The scan also applies the memory scanner's prompt-injection rules, imported rather than copied: an `error` there is a `flag` here, and a `warning` is a `note`. It reads the description and every string in the input schema, keys, defaults and enum values included. A schema that is not an object, is nested past 16 levels, has more than 4,000 entries or carries more than 64,000 characters is flagged `schema-unreadable`. A registered skill records the real scan result, and the model sees the description with control and invisible characters removed, capped at 1,000 characters. Held tools appear in the MCP panel under **Review changed tools**. **Approve and pin** pins exactly the reviewed version. A flagged tool needs a modal confirmation that lists the findings, and the pin records the flag rules you acknowledged, so a rule you never saw holds it again. There is no setting to turn pinning off. The registry does not yet handle `notifications/tools/list_changed`: tools are re-read on connect, so a change takes effect, and is held, on the next reconnect.
 
 ### ACP process lifetime does not widen ACP authority
 
@@ -855,6 +870,7 @@ VS Code SecretStorage credentials are never copied to Buzz.
 
 **Security notes**:
 - MCP tools execute in a separate process or remote service — they are not sandboxed within the extension.
+- MCP tool descriptions and schemas are third-party text the model reads as instruction. They are scanned and pinned, and a tool that is new, changed or flagged is held until you approve it (see *Tool pinning and description scanning* above).
 - The URL field must use `http://` or `https://`; other schemes are rejected.
 - Env vars for stdio servers are merged with the extension host environment. Secrets entered through the Guided Setup wizard are stored in VS Code SecretStorage (via `McpServerConfig.secretEnvKeys`), never in `globalState`, and injected only at connect time; if you use the Advanced form's raw `env` field, prefer the server's native secret management for sensitive values.
 - The bundled Buzz bridge adds a second boundary inside stdio: it calls the CLI without a shell, sends message text over stdin, validates channel/event/pubkey identifiers, caps process time and output, and redacts the Buzz key/authorization grant from errors. Remote relays require both explicit `allowRemoteRelay` consent and TLS.

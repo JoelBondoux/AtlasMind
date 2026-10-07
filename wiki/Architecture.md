@@ -284,10 +284,20 @@ Perforce boundary as `not-visible` rather than zero.
 | **Commit message drafter** | Describes your staged diff in the Source Control box. Writes text; never commits |
 | **Provider adapters** | One per model provider, behind a shared contract |
 | **ACP adapter** | Drives a subscription coding agent as a model provider |
-| **MCP registry** | Connects external tool servers and dispatches their tools |
+| **MCP registry** | Connects external tool servers and dispatches their tools. Every tool is pinned; a tool that is new, changed, or flagged by the description scan is held until you approve it |
 | **Resource discovery** | Finds new servers, agents and skills — from Settings, or from chat when no installed tool fits |
 | **Voice** | Speech in and out — cloud, your OS, or fully on-device |
 | **Local GPU arbiter** | Decides which local model requests may run, so several at once cannot over-fill one graphics card |
+
+**MCP tools are pinned.** A connect decides every tool a server offers against a published rule table in
+`src/mcp/mcpToolPins.ts`. A server seen for the first time is trusted on first use. A tool whose
+description or schema changed since it was approved, a tool a pinned server did not have before, a tool
+whose pin cannot be read, and a tool the description scan flags (even on first sight) are held instead of
+registered. Held tools live in `McpServerState.heldTools`, never in `tools`. The MCP panel's **Review
+changed tools** view shows the approved and offered text side by side. Approving posts two opaque ids,
+and the registry re-hashes the live tool before it pins and registers anything. Pins are stored in
+`globalState` under `atlasmind.mcp.toolPins`. The shared types are `McpToolVerdict`, `McpToolScanFinding`,
+`McpToolPin` and `McpHeldTool` in `src/types.ts`.
 
 The approval gate makes a Bypass/Autopilot click and its runtime scope one atomic transition. It settles
 concurrent pending cards only when the scope covers them, the card offered that decision, and the tool is
@@ -1503,7 +1513,7 @@ never accepted.
 | `src/memory/` | Memory retrieval, scanning, redaction, persistence |
 | `src/chat/` | The chat participant and interaction protocol |
 | `src/views/` | Settings, dashboards, editors and sidebar surfaces |
-| `src/mcp/` and `src/ard/` | MCP connectivity and resource discovery |
+| `src/mcp/` and `src/ard/` | MCP connectivity and resource discovery, including tool pinning and the tool-description scan (`mcpToolPins.ts`) |
 | `src/voice/` and `src/remote/` | Voice backends and remote control |
 | `src/cli/` | The command-line tool and the agent endpoint |
 | `src/acp/` | Agent-side sessions and permission brokering |
