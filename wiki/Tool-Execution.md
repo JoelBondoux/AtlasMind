@@ -223,11 +223,15 @@ another agent's long answer — never reaches the agent that holds the tools:
 | What happens | What the agent sees |
 |---|---|
 | The extract validates | The fenced extract, what was withheld, the handle, and a `[SECURITY]` note if the page held an instruction override |
-| No model available, the call fails, or the answer doesn't validate | The **first 2,000 characters**, fenced, with a `[SECURITY]` note naming the rule. Never the whole page |
+| No model available, the call fails, the read would pass a cost cap, or the answer doesn't validate | The **first 2,000 characters**, fenced, with a `[SECURITY]` note naming the rule. Never the whole page |
 | The agent calls `quarantine-read` with the handle | A **fresh approval**, even under Autopilot. Approved: up to 20,000 characters per call, fenced and still third-party. Denied: nothing |
 
 Results under 8,000 characters, and everything from your own machine, reach the agent exactly as before.
 Each reader call costs one cheap model request, recorded as `quarantined-reader` in the cost dashboard.
+It answers to the same caps as the agent: the task's cost cap and the daily limit are checked against
+the reader's worst case **before** it is sent, and a read that would pass either isn't made — the agent
+gets the 2,000-character excerpt, with `quarantine.task-budget` or `quarantine.daily-budget` named. What
+the reader spent counts toward the task's cap from then on, and toward the cost the task reports.
 `atlasmind.security.quarantineReader: off` turns it off — large results then arrive whole and fenced, and
 the asking-again rule above still applies. The rules are in `src/core/quarantinedReader.ts`.
 

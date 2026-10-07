@@ -19,6 +19,25 @@ Older entries below describe the software as it was at the time and are delibera
 
 ---
 
+## v0.490.1 -- The long-page reader stays inside your budget
+
+- **The reader counts toward your cost caps.** In 0.490.0 the separate model that reads long pages was
+  recorded in the cost dashboard but not counted toward the task's cost cap, the daily limit or the cost
+  the task reported, so a task reading many long pages could spend past a cap meant to stop it. Each read
+  is now checked against both limits **before** it is sent, using its worst case; one that would go over
+  isn't made, and the agent gets the short excerpt with the reason named. What it spends counts toward the
+  cap from then on, and appears in the task's cost exactly once.
+- **A written prompt-injection threat model.** The new [[Prompt Injection Threat Model]] page sets out what
+  an attacker would be after, who AtlasMind treats as having written what, which control answers which
+  attack — and a full section on what is **not** defended: MCP tools are pinned rather than signed, there
+  is no AI guardrail before actions (your fresh approval stands in for it, and the page says why), ACP
+  agents' own tools are invisible to it, and more.
+
+Still to come on this roadmap item: a guardrail-model check before destructive and external actions, and
+signed MCP tool definitions.
+
+---
+
 ## v0.490.0 -- A long page is read by a model that can't do anything
 
 A fence tells the agent fetched text is data; it doesn't stop the agent reading every sentence of a long

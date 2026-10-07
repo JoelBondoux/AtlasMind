@@ -171,6 +171,7 @@ AtlasMind/
 │   ├── website-studio.md Website Studio workflow and safety boundary
 │   ├── ui-studio-builder-plan.md Approved visual-builder PRD and phased delivery plan
 │   ├── github-workflow.md GitHub process standards
+│   ├── threat-model-prompt-injection.md Prompt-injection threat model: assets, boundaries, controls, residual risk
 │   └── development.md    This file
 ├── media/
 │   ├── icon.svg          Activity bar icon

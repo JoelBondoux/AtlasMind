@@ -165,7 +165,12 @@ the task is still tainted, and if the page held an instruction override the task
 network. If no model is available or its answer doesn't validate, the agent gets a short fenced excerpt
 with a `[SECURITY]` note — never the whole page. The full text comes back only through `quarantine-read`,
 which always asks you first. The reader's calls are recorded as `quarantined-reader` in the cost
-dashboard. `atlasmind.security.quarantineReader: off` turns the reader off; the taint still applies.
+dashboard, and since 0.490.1 they count toward the task's cost cap and the daily limit like any other
+call: a read whose worst case would go over either isn't made, and the agent gets the short excerpt
+instead. `atlasmind.security.quarantineReader: off` turns the reader off; the taint still applies.
+
+The full picture — assets, trust boundaries, every entry point, which control answers which attack, and
+what is **not** defended — is in [[Prompt Injection Threat Model]].
 
 ---
 
@@ -941,6 +946,9 @@ into a broader source. No proposed import is written until its confirmation is a
 
 ## Threat model, briefly
 
+This is the short form. The prompt-injection part, including what is **not** defended, is written out in
+[[Prompt Injection Threat Model]].
+
 | Threat | What stops it |
 |--------|-----------|
 | Malicious model output | Approval gate, parameter validation, sandbox |
@@ -948,6 +956,8 @@ into a broader source. No proposed import is written until its confirmation is a
 | Prompt injection via chat history or attachments | Transient-context scanning, untrusted-context isolation, priority guardrails |
 | Tool poisoning and MCP rug pulls | Description and schema scanning, per-tool pins, hold-on-change, version-bound approval |
 | Injected instructions in fetched or tool content | Provenance taint, fresh approval Autopilot cannot answer, network refused after a suspected injection, unclosable fences |
+| Injected instructions hidden in a long page | Quarantined reader: a tool-less model reads it, the agent gets a checked extract, the raw text only on a fresh approval |
+| A sub-call spending past a cap | The quarantined reader is checked against the task cap and the daily limit before it runs, and counted toward both |
 | Credential exposure | OS keychain, write gate, dispatch-time redaction |
 | Path traversal | Workspace sandboxing on every file operation |
 | Shell injection | No shell, allow-list, operator blocking |
@@ -966,6 +976,7 @@ into a broader source. No proposed import is written until its confirmation is a
 
 ## Related
 
+- [[Prompt Injection Threat Model]] — assets, trust boundaries, controls, and residual risk
 - [[Tool Execution]] — approvals, allow-lists and gates in detail
 - [[Memory System]] — the write gate and redaction boundary
 - [[Delivery]] — production protection

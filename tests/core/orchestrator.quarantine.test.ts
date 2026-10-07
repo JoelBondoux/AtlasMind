@@ -127,26 +127,30 @@ function makeProvider(responses: CompletionResponse[], reader: Reader = readerAn
   return { provider, privileged, quarantined };
 }
 
+/** Low enough that the router still counts the model as cheap, so the reader can be routed to it. */
+const PRICE_PER_1K = 0.0005;
+
 function makeOrchestrator(
   provider: ProviderAdapter,
   skills: SkillDefinition[],
   gate: Gate | undefined,
   readSetting?: <T>(key: string, fallback: T) => T,
+  options: { pricingModel?: 'free' | 'pay-per-token' } = {},
 ): { orchestrator: Orchestrator; costs: CostTracker } {
   const router = new ModelRouter();
   router.registerProvider({
     id: 'local',
     displayName: 'Local',
     apiKeySettingKey: '',
-    pricingModel: 'free',
+    pricingModel: options.pricingModel ?? 'free',
     enabled: true,
     models: [{
       id: 'local/echo-1',
       provider: 'local',
       name: 'Local Echo',
       contextWindow: 64_000,
-      inputPricePer1k: 0.01,
-      outputPricePer1k: 0.01,
+      inputPricePer1k: PRICE_PER_1K,
+      outputPricePer1k: PRICE_PER_1K,
       capabilities: ['chat', 'code', 'function_calling'],
       enabled: true,
     }],
@@ -183,12 +187,12 @@ const AGENT = (skills: string[]): AgentDefinition => ({
   skills,
 });
 
-async function run(orchestrator: Orchestrator, skills: string[]) {
+async function run(orchestrator: Orchestrator, skills: string[], maxCostUsd?: number) {
   return orchestrator.processTaskWithAgent({
     id: 'task-quarantine',
     userMessage: 'What does the 2.0 release change? Update notes.md.',
     context: {},
-    constraints: { budget: 'balanced', speed: 'balanced' },
+    constraints: { budget: 'balanced', speed: 'balanced', ...(maxCostUsd !== undefined ? { maxCostUsd } : {}) },
     timestamp: new Date().toISOString(),
   }, AGENT(skills));
 }
@@ -447,5 +451,82 @@ describe('releasing the raw text', () => {
 
     expect(impostor.execute).not.toHaveBeenCalled();
     expect(toolMessage(privileged, QUARANTINE_RELEASE_TOOL)).toContain('denied');
+  });
+});
+
+describe("the reader's spend counts toward the caps the loop enforces", () => {
+  // Priced at PRICE_PER_1K each way. The reader's worst case on the large page is
+  // several thousand prompt tokens plus its 2,000-token allowance — about $0.003 —
+  // while one agent round of 10 + 5 tokens costs well under a thousandth of that.
+  const priced = { pricingModel: 'pay-per-token' as const };
+
+  it('does not run the reader when its worst case would pass the task cap, and falls back to the stated excerpt', async () => {
+    const fetch = skill('web-fetch', largePage());
+    const { provider, privileged, quarantined } = makeProvider([toolRound({ name: 'web-fetch', arguments: { url: 'https://example.com' } }), DONE]);
+    const { orchestrator, costs } = makeOrchestrator(provider, [fetch], approveAll(), undefined, priced);
+
+    await run(orchestrator, ['web-fetch'], 0.001);
+
+    expect(quarantined).toHaveLength(0);
+    expect(costs.getRecords().filter(record => record.agentId === QUARANTINE_COST_AGENT_ID)).toHaveLength(0);
+    const content = toolMessage(privileged, 'web-fetch') ?? '';
+    expect(content).toContain('quarantine.task-budget');
+    expect(content).toContain(BODY_MARKER);
+    expect(content).not.toContain(TAIL_SENTINEL);
+    expect(content).not.toContain(INJECTION);
+  });
+
+  it('does not run the reader when the daily limit would be passed', async () => {
+    const fetch = skill('web-fetch', largePage());
+    const { provider, privileged, quarantined } = makeProvider([toolRound({ name: 'web-fetch', arguments: { url: 'https://example.com' } }), DONE]);
+    const { orchestrator, costs } = makeOrchestrator(provider, [fetch], approveAll(), undefined, priced);
+    const blocked = { limitUsd: 1, todayCostUsd: 0.99, remainingUsd: 0.01, projectedTotalUsd: 1.05, blocked: true, reason: 'over' };
+    // The task's own pre-flight check passes; the reader's, made later in the turn, does not.
+    vi.spyOn(costs, 'getDailyBudgetStatus').mockReturnValueOnce(undefined).mockReturnValue(blocked);
+
+    await run(orchestrator, ['web-fetch']);
+
+    expect(quarantined).toHaveLength(0);
+    expect(toolMessage(privileged, 'web-fetch') ?? '').toContain('quarantine.daily-budget');
+  });
+
+  it('runs the reader under a cap it fits, and the task reports its spend without recording it twice', async () => {
+    const fetch = skill('web-fetch', largePage());
+    const { provider, quarantined } = makeProvider([toolRound({ name: 'web-fetch', arguments: { url: 'https://example.com' } }), DONE]);
+    const { orchestrator, costs } = makeOrchestrator(provider, [fetch], approveAll(), undefined, priced);
+
+    const result = await run(orchestrator, ['web-fetch'], 5);
+
+    expect(quarantined).toHaveLength(1);
+    const readerRecords = costs.getRecords().filter(record => record.agentId === QUARANTINE_COST_AGENT_ID);
+    expect(readerRecords).toHaveLength(1);
+    // 900 in + 60 out.
+    expect(readerRecords[0].costUsd).toBeCloseTo((960 / 1000) * PRICE_PER_1K, 9);
+    const taskRecords = costs.getRecords().filter(record => record.agentId !== QUARANTINE_COST_AGENT_ID);
+    const recordedTotal = costs.getRecords().reduce((sum, record) => sum + record.costUsd, 0);
+    // What a mission cap or project total sums includes the reader…
+    expect(result.costUsd).toBeCloseTo(recordedTotal, 9);
+    expect(result.costUsd).toBeGreaterThan(readerRecords[0].costUsd);
+    // …and the task's own record does not carry it a second time.
+    expect(taskRecords.reduce((sum, record) => sum + record.costUsd, 0)).toBeCloseTo(result.costUsd - readerRecords[0].costUsd, 9);
+  });
+
+  it("stops before the next model call when the reader's real cost landed the task over its cap", async () => {
+    const fetch = skill('web-fetch', largePage());
+    // Admitted on its worst-case estimate, but the provider reports far more.
+    const expensiveReader: Reader = () => Promise.resolve({
+      content: VALID_EXTRACT, model: 'local/echo-1', inputTokens: 200_000, outputTokens: 60, finishReason: 'stop',
+    });
+    const { provider, privileged, quarantined } = makeProvider(
+      [toolRound({ name: 'web-fetch', arguments: { url: 'https://example.com' } }), DONE],
+      expensiveReader,
+    );
+    const { orchestrator } = makeOrchestrator(provider, [fetch], approveAll(), undefined, priced);
+
+    const result = await run(orchestrator, ['web-fetch'], 0.05);
+
+    expect(quarantined).toHaveLength(1);
+    expect(privileged).toHaveLength(1);
+    expect(result.response).toContain('exceeded the configured budget cap');
   });
 });

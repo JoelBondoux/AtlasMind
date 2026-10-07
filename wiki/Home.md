@@ -140,6 +140,7 @@ code, get checked against your repository, and report honestly when nobody has l
 | Page | What's on it |
 |------|--------------|
 | [[Security]] | The security model, boundaries, and how to report a problem |
+| [[Prompt Injection Threat Model]] | What AtlasMind defends against when it reads someone else's text, and what it doesn't |
 | [[Tool Execution]] | Approvals, allow-lists, checkpoints and verification |
 
 ### The project

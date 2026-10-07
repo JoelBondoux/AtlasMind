@@ -4,7 +4,7 @@
 
 <h1 align="center">AtlasMind</h1>
 
-<p align="center"><sub> · <strong>Current source version: 0.490.0</strong> · </sub></p>
+<p align="center"><sub> · <strong>Current source version: 0.490.1</strong> · </sub></p>
 
 
 <p align="center">
@@ -167,7 +167,8 @@ Ambitious automation is only worth having if you can trust it. AtlasMind is buil
 - **Everything untrusted is treated as untrusted** — issue text, web pages, model output, files. None of it
   can quietly become an instruction.
 
-Full detail in the [Security model](wiki/Security.md) and [Tool Execution](wiki/Tool-Execution.md).
+Full detail in the [Security model](wiki/Security.md), the [prompt-injection threat model](wiki/Prompt-Injection-Threat-Model.md)
+and [Tool Execution](wiki/Tool-Execution.md).
 
 Personal and classified project context has a separate, opt-in boundary. The
 [Data privacy and GDPR guide](wiki/Data-Privacy-and-GDPR.md) explains the detector pack, trusted-model
@@ -175,6 +176,17 @@ allow-list, redaction and file-withholding behaviour, retained metadata, provide
 important limits on overrides and compliance claims.
 
 ---
+
+## What's new in 0.490.1
+
+The reader that handles long pages now stays inside your budget. In 0.490.0 its model calls were
+recorded in the cost dashboard but not counted toward the task's cost cap, the daily limit, or the cost
+the task reported — so a task reading a lot of long pages could spend past a cap that was supposed to stop
+it. Now each read is checked against both limits before it is sent; if it would go over, it isn't made,
+and the agent gets the short excerpt instead with the reason named. What the reader spends counts toward
+the cap from then on. There is also a written
+[prompt-injection threat model](wiki/Prompt-Injection-Threat-Model.md): what AtlasMind defends against when it
+reads someone else's text, which code does it, and — just as plainly — what it doesn't defend.
 
 ## What's new in 0.490.0
 
@@ -875,7 +887,7 @@ Everything is in the AtlasMind Settings panel, or under `atlasmind.*` in VS Code
 | `toolApprovalMode` | `ask-on-write` | How often AtlasMind asks before acting |
 | `allowTerminalWrite` | `false` | Whether approved terminal commands may change things |
 | `security.untrustedEscalationScope` | `third-party` | After a task reads untrusted content, writes and network calls need a fresh approval Autopilot cannot answer. Reads stay free; there is no off |
-| `security.quarantineReader` | `on` | A third-party result over 8,000 characters is read by a separate tool-less model; the agent gets a checked extract, and the full text only after you approve releasing it |
+| `security.quarantineReader` | `on` | A third-party result over 8,000 characters is read by a separate tool-less model; the agent gets a checked extract, and the full text only after you approve releasing it. The reader counts toward the task's cost cap and the daily limit |
 | `skillAutoSynthesisEnabled` | `false` | Let a model write a new skill and run it when a tool does not exist. Off; every synthesis is scanned and shown to you first |
 | `cli.addToTerminalPath` | `false` | Put the `atlasmind` launchers on the PATH of new integrated terminals. Off, because it persistently changes your shell |
 | `autoVerifyAfterWrite` | `true` | Run your checks automatically after a change |
@@ -931,9 +943,9 @@ profile for testing AtlasMind's Copilot-provider path. See the [development guid
 
 **Using it well:** [Agents](wiki/Agents.md) · [Skills](wiki/Skills.md) · [Model Routing](wiki/Model-Routing.md) · [Memory System](wiki/Memory-System.md) · [Project Planner](wiki/Project-Planner.md) · [Ideation](wiki/Ideation.md) · [GitHub Workflow](wiki/GitHub-Workflow.md) · [Delivery](wiki/Delivery.md) · [UI Studio](wiki/Website-Studio.md) · [UI Studio builder plan](wiki/UI-Studio-Builder-Plan.md) · [CLI](wiki/CLI.md)
 
-**Trust and safety:** [Security](wiki/Security.md) · [Tool Execution](wiki/Tool-Execution.md)
+**Trust and safety:** [Security](wiki/Security.md) · [Prompt-injection threat model](wiki/Prompt-Injection-Threat-Model.md) · [Tool Execution](wiki/Tool-Execution.md)
 
-**Under the hood:** [Architecture](docs/architecture.md) · [Development](docs/development.md) · [Chat reliability and capability broker plan](docs/chat-reliability-capability-broker-plan.md) · [Local CI and safe runners](docs/local-ci-and-safe-runners.md) · [Roadmap](docs/roadmap.md) · [Contributing](CONTRIBUTING.md)
+**Under the hood:** [Architecture](docs/architecture.md) · [Development](docs/development.md) · [Prompt-injection threat model (engineering)](docs/threat-model-prompt-injection.md) · [Chat reliability and capability broker plan](docs/chat-reliability-capability-broker-plan.md) · [Local CI and safe runners](docs/local-ci-and-safe-runners.md) · [Roadmap](docs/roadmap.md) · [Contributing](CONTRIBUTING.md)
 
 ---
 

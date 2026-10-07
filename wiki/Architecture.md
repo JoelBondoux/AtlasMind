@@ -339,8 +339,11 @@ fails item by item; the privileged loop receives the fenced extract and the hand
 under the original tool's rule (suspected if the raw text was). Every failure falls back to a fenced
 2,000-character excerpt, never the full text. The raw text is released only by `quarantine-read`, answered
 inline by the orchestrator and always sent to the gate as a fresh approval (`quarantine.raw-release`). The
-reader's cost is recorded as `quarantined-reader`; `atlasmind.security.quarantineReader` (`on` default,
-`off`) switches it.
+reader's cost is recorded as `quarantined-reader` and, since 0.490.1, counted toward the task's cost cap and
+the daily limit: `decideQuarantineBudget` checks its worst case before dispatch (`quarantine.task-budget`,
+`quarantine.daily-budget` fall back to the excerpt), and its spend joins the loop's cap check and
+`TaskResult.costUsd`. `atlasmind.security.quarantineReader` (`on` default, `off`) switches it. The written
+threat model is [[Prompt Injection Threat Model]].
 
 The approval gate makes a Bypass/Autopilot click and its runtime scope one atomic transition. It settles
 concurrent pending cards only when the scope covers them, the card offered that decision, and the tool is

@@ -227,6 +227,12 @@ others are not yet traced — see gaps below.
 > never the full text. The full text re-enters only through `quarantine-read`, which is always a fresh
 > approval. The reader's spend is recorded as `quarantined-reader`. `atlasmind.security.quarantineReader:
 > off` restores the 0.489 behaviour (fenced, whole, still tainted).
+>
+> **Fixed in v0.490.1 — the reader's spend was outside the caps.** It was recorded, but not counted toward
+> the per-task cap the loop enforces, checked against the daily limit, or included in the task's reported
+> cost (which mission and project totals sum). `decideQuarantineBudget` now checks the reader's worst case
+> against both caps before dispatch, and its spend joins the loop's cap check and the task's reported cost.
+> The written threat model is `docs/threat-model-prompt-injection.md`.
 
 ---
 

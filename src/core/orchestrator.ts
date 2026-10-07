@@ -58,6 +58,7 @@ import {
   buildQuarantineExtractionRequest,
   buildRawReleaseEscalation,
   decideQuarantine,
+  decideQuarantineBudget,
   describeReleaseWithoutGate,
   emptyQuarantineStore,
   holdQuarantinedResult,
@@ -566,6 +567,15 @@ interface TaskAttemptContext {
    * back afterwards. Monotone — see `contextProvenance`.
    */
   provenance?: { current: TurnProvenance };
+  /**
+   * What the quarantined reader has spent on this task, shared by every attempt
+   * of it. A cell for the same reason as `provenance`: the loop adds to it as the
+   * reader runs and the caller reads it back to report the task's whole cost.
+   * The reader's calls are recorded in `CostTracker` on their own, so this is
+   * only ever *added to what the task reports* and to the cap the loop checks —
+   * never to the task's own cost record, which would count them twice.
+   */
+  quarantineSpend?: { costUsd: number };
 }
 
 interface TaskExecutionAttempt {
@@ -1020,6 +1030,10 @@ export class Orchestrator {
     redacted: string;
     provenanceRule: string;
     context: TaskAttemptContext;
+    /** What the task has spent before this read: the agent model's calls plus earlier reader calls. */
+    taskSpentUsd: number;
+    /** Where the reader's own spend is added, so the loop's cap check counts it. */
+    spend: { costUsd: number };
     onProgress?: (message: string) => void;
   }): Promise<{ content: string; source: ProvenanceSource }> {
     const { toolCall, context, onProgress } = input;
@@ -1065,6 +1079,23 @@ export class Orchestrator {
       question: context.userMessage,
       text: readerText,
     });
+    // The reader spends on the task's behalf, so it answers to the same caps the
+    // loop enforces — checked against its worst case before it is sent, since a
+    // sent call cannot be un-made. A refusal is one more stated fallback.
+    const readerWorstCase = this.estimateCostBreakdown(
+      readerModel,
+      estimateCompletionRequestInputTokens(extraction.messages, []),
+      QUARANTINE_ROUTING_PROFILE.maxTokens,
+    );
+    const budget = decideQuarantineBudget({
+      taskCapUsd: context.budgetCapUsd,
+      taskSpentUsd: input.taskSpentUsd,
+      readerEstimate: { costUsd: readerWorstCase.costUsd, ...(readerWorstCase.unpriced ? { unpriced: true } : {}) },
+      daily: this.costs.getDailyBudgetStatus(readerWorstCase.budgetCostUsd),
+    });
+    if (!budget.allowed) {
+      return fallback(budget.rule, budget.detail);
+    }
     let response: CompletionResponse;
     try {
       response = await withTimeout(
@@ -1088,7 +1119,7 @@ export class Orchestrator {
         ? fallback('quarantine.egress-refused', error.message)
         : fallback('quarantine.call-failed');
     }
-    this.recordQuarantineCost(context.taskId, readerModel, response);
+    input.spend.costUsd += this.recordQuarantineCost(context.taskId, readerModel, response);
     if (response.content.trimStart().startsWith(LOCAL_ECHO_RESPONSE_PREFIX)) {
       return fallback('quarantine.no-model');
     }
@@ -1113,8 +1144,11 @@ export class Orchestrator {
     };
   }
 
-  /** The reader's call is spend like any other, recorded under its own agent id. */
-  private recordQuarantineCost(taskId: string, model: string, response: CompletionResponse): void {
+  /**
+   * The reader's call is spend like any other, recorded under its own agent id.
+   * Returns what it cost, in the same unit the task cap is checked in.
+   */
+  private recordQuarantineCost(taskId: string, model: string, response: CompletionResponse): number {
     const estimate = this.estimateCostBreakdown(model, response.inputTokens, response.outputTokens);
     this.costs.record({
       taskId,
@@ -1141,6 +1175,7 @@ export class Orchestrator {
         this.onQuotaUpdated?.(spent.scope, spent.remainingRequests, spent.totalRequests);
       }
     }
+    return estimate.costUsd;
   }
 
   private redactToolResultForModel(toolCall: ToolCall, result: string, modelId: string): string {
@@ -2169,6 +2204,8 @@ export class Orchestrator {
     let finalAttempt: TaskExecutionAttempt;
     let modelUsed = previewModel;
     let aggregateCostUsd = 0;
+    // The quarantined reader's spend, across every attempt of this task.
+    const quarantineSpend = { costUsd: 0 };
     let aggregateInputTokens = 0;
     let aggregateOutputTokens = 0;
     let aggregateCachedInputTokens = 0;
@@ -2371,6 +2408,7 @@ export class Orchestrator {
               discoverableSkills: eligibleAgentSkills,
               allowDelegatedToolExecution: usesDelegatedAcpTools,
               provenance: this.provenanceCellFor(request),
+              quarantineSpend,
               ...(typeof request.context['__worktreePath'] === 'string'
                 ? { worktreePath: request.context['__worktreePath'] }
                 : {}),
@@ -2765,7 +2803,13 @@ export class Orchestrator {
     }
 
     const durationMs = Date.now() - startMs;
-    const costUsd = aggregateCostUsd || finalAttempt.costUsd;
+    const modelCostUsd = aggregateCostUsd || finalAttempt.costUsd;
+    // The quarantined reader's calls are recorded on their own, under their own
+    // agent id, so they join what the task *reports* — the figure a mission cap
+    // and a project total sum — and not this task's cost record below, which
+    // would count them twice. Leaving them out of the report is how a cap a
+    // sub-call could walk past stayed invisible.
+    const costUsd = modelCostUsd + quarantineSpend.costUsd;
     const inputTokens = aggregateInputTokens || completion.inputTokens;
     const outputTokens = aggregateOutputTokens || completion.outputTokens;
     const cachedInputTokens = aggregateCachedInputTokens || (completion.cachedInputTokens ?? 0);
@@ -2847,7 +2891,7 @@ export class Orchestrator {
       ...(cachedInputTokens > 0 ? { cachedInputTokens } : {}),
       ...(cacheWriteTokens !== undefined ? { cacheWriteTokens } : {}),
       ...(finalCost.unpriced ? { unpriced: true as const } : {}),
-      costUsd: costUsd,
+      costUsd: modelCostUsd,
       budgetCostUsd: finalCost.budgetCostUsd,
       compressionSavingsUsd: estimatedCompressionSavingsUsd,
       ...(finalCost.cacheSavingsUsd ? { cacheSavingsUsd: finalCost.cacheSavingsUsd } : {}),
@@ -3654,6 +3698,19 @@ export class Orchestrator {
     // and released by handle after a person approves. See quarantinedReader.ts.
     const quarantineMode = this.readQuarantineReaderMode();
     const quarantineStore = emptyQuarantineStore();
+    // The reader spends on this task's behalf, so the cap below counts it.
+    const quarantineSpend = context.quarantineSpend ?? { costUsd: 0 };
+    const loopCostUsd = (): number =>
+      this.estimateCostBreakdown(model, totalInputTokens, totalOutputTokens).costUsd + quarantineSpend.costUsd;
+    const budgetCapStop = (cumulativeCost: number, cap: number): CompletionResponse => ({
+      content:
+        `Execution stopped: estimated cost ${formatCost(cumulativeCost, 4)} exceeded the configured budget cap ` +
+        `of ${formatCost(cap, 4)}.`,
+      model,
+      inputTokens: totalInputTokens,
+      outputTokens: totalOutputTokens,
+      finishReason: 'error',
+    });
     if (context.allowDelegatedToolExecution) {
       // An ACP agent runs tools AtlasMind cannot see, so their results cannot
       // be absorbed and what they do next cannot be gated. Refused rather than
@@ -3672,6 +3729,17 @@ export class Orchestrator {
         const abortError = new Error('The operation was aborted.');
         abortError.name = 'AbortError';
         throw abortError;
+      }
+      // A reader call can only have been admitted if its worst case fit, but its
+      // real token count is the provider's, not the estimate's. If it landed the
+      // task over the cap, stop before the next model call spends any more.
+      if (quarantineSpend.costUsd > 0 && typeof context.budgetCapUsd === 'number' && context.budgetCapUsd > 0) {
+        const spentSoFar = loopCostUsd();
+        if (spentSoFar > context.budgetCapUsd) {
+          completion = budgetCapStop(spentSoFar, context.budgetCapUsd);
+          loopCapped = false;
+          break;
+        }
       }
       onProgress?.(`Tool round ${i + 1}: asking the model to inspect the current workspace evidence.`);
       const loopModelInfo = this.router.getModelInfo(model);
@@ -3695,19 +3763,12 @@ export class Orchestrator {
       totalInputTokens += completion.inputTokens;
       totalOutputTokens += completion.outputTokens;
 
-      // Enforce per-task / per-agent budget caps using cumulative token usage.
+      // Enforce per-task / per-agent budget caps using cumulative token usage,
+      // the quarantined reader's spend included.
       if (typeof context.budgetCapUsd === 'number' && context.budgetCapUsd > 0) {
-        const cumulativeCost = this.estimateCostBreakdown(model, totalInputTokens, totalOutputTokens).costUsd;
+        const cumulativeCost = loopCostUsd();
         if (cumulativeCost > context.budgetCapUsd) {
-          completion = {
-            content:
-              `Execution stopped: estimated cost ${formatCost(cumulativeCost, 4)} exceeded the configured budget cap ` +
-              `of ${formatCost(context.budgetCapUsd, 4)}.`,
-            model,
-            inputTokens: totalInputTokens,
-            outputTokens: totalOutputTokens,
-            finishReason: 'error',
-          };
+          completion = budgetCapStop(cumulativeCost, context.budgetCapUsd);
           loopCapped = false;
           break;
         }
@@ -4357,6 +4418,8 @@ export class Orchestrator {
             redacted,
             provenanceRule: routing.provenanceRule,
             context,
+            taskSpentUsd: loopCostUsd(),
+            spend: quarantineSpend,
             onProgress,
           });
           provenanceCell.current = absorbProvenance(provenanceCell.current, quarantined.source);

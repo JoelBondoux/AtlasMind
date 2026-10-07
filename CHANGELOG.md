@@ -6,6 +6,56 @@ The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/),
 
 ## [Unreleased]
 
+## [0.490.1] - 2026-10-07
+
+### Fixed
+
+- **The quarantined reader's spend now counts toward the caps the agentic loop enforces.** In 0.490.0 the
+  reader's model call was recorded through `CostTracker` as `quarantined-reader`, but it was not counted
+  toward the per-task cap (`maxCostUsd` / an agent's `costLimitUsd`) the tool loop checks, was not checked
+  against the daily limit before it was sent, and was not part of the task's reported `costUsd` — the
+  figure mission and project caps sum. A cost control a sub-call can walk past is not a cost control, and
+  the reader is the call that runs most when a turn reads a lot of third-party text. The new pure
+  `decideQuarantineBudget` (`src/core/quarantinedReader.ts`) checks the reader's **worst case** — its
+  prompt estimate plus its full 2,000-token output allowance, priced on the model it was routed to —
+  before dispatch: a daily limit that is or would be reached refuses it (`quarantine.daily-budget`), as
+  does spend-so-far plus that worst case passing the task cap, or a reader model with no known price while
+  a cap is set, since an unpriced zero would let any call fit any cap (`quarantine.task-budget`). Both are
+  new declared `QUARANTINE_FALLBACK_RULES` entries and fall back to the same fenced 2,000-character
+  excerpt as every other failure — never the full text. A read that lands exactly on the cap runs,
+  matching the loop, which stops only past it.
+- **After it runs, the reader's cost is the task's cost.** Its spend goes into a per-task cell
+  (`TaskAttemptContext.quarantineSpend`, shared by every attempt) that the loop's cap check includes, with
+  one more check before the next model call, because the provider's token count can exceed the estimate
+  the read was admitted on. It is added to `TaskResult.costUsd` and **not** to the task's own cost record,
+  since the reader's record already holds it and adding it twice would double the dashboard's total.
+
+### Added
+
+- **A written prompt-injection threat model.** `docs/threat-model-prompt-injection.md` sets out the assets,
+  the four trust boundaries from `contextProvenance` (operator, AtlasMind, workspace, third-party), every
+  entry point of untrusted text (web fetch, MCP results and tool definitions, issue and PR bodies, imported
+  tracker text, repository files, another agent's answer, model output, webview messages, discovery
+  manifests), the attacker goals (exfiltration, unauthorised writes, tool poisoning, rug pulls,
+  persistence through project memory, approval fatigue, spend), and each control mapped to the threat it
+  mitigates with its file and rule table — MCP tool pinning, the provenance taint and escalation table,
+  the quarantined reader, `REPORTED CONTENT` fencing, the egress boundary's `ORIGIN_POLICY`, the memory
+  scanner, the `NEVER_BYPASSABLE_TOOLS` ceiling, servers seeded disabled, and deny-by-default settings. Its
+  residual-risk section is the same length as its controls: MCP tool definitions are pinned by hash, not
+  signed, because MCP has no signature standard; there is no guardrail model before destructive or
+  external actions, and why a person's fresh approval stands in for one; MCP tools are graded by name; ACP
+  agents' own tools are invisible to the taint; `tools/list_changed` is not observed mid-session; the
+  8,000-character threshold's trade-off for short injections and large diffs; repository content does not
+  escalate under the default scope; approved memory returns as workspace content; injection detection is
+  four phrases; and `web-fetch`'s private-address screen is by host name. The user-facing version is the
+  new wiki page *Prompt Injection Threat Model*, linked from the sidebar, Home, Security and the README.
+
+### Not yet
+
+- `rm:prompt-injection-tool-poison` stays open. The written threat model is now delivered; a
+  guardrail-model check before destructive and external actions and signed (not only pinned) MCP tool
+  definitions are not, and the threat model says why each is absent rather than implying it is covered.
+
 ## [0.490.0] - 2026-10-07
 
 ### Added

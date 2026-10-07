@@ -31,7 +31,9 @@
  *    withheld and **counted** — dropping evidence silently would read as an
  *    extract that found less.
  * 4. **Every fallback is stated, and none is the full text.** No model, a
- *    failed call, a refused egress or an unusable answer each fall back to a
+ *    failed call, a refused egress, a cost cap the call would breach
+ *    (`decideQuarantineBudget` — the reader answers to the task's and the day's
+ *    caps like any other call) or an unusable answer each fall back to a
  *    short fenced excerpt with a `[SECURITY]` note naming the rule — never to
  *    the raw text, which would make the quarantine a no-op exactly when the
  *    reader had been confused by what it read.
@@ -227,6 +229,8 @@ export type QuarantineFallbackRule =
   | 'quarantine.no-model'
   | 'quarantine.call-failed'
   | 'quarantine.egress-refused'
+  | 'quarantine.task-budget'
+  | 'quarantine.daily-budget'
   | 'quarantine.output-oversized'
   | 'quarantine.output-not-json'
   | 'quarantine.output-invalid';
@@ -236,10 +240,85 @@ export const QUARANTINE_FALLBACK_RULES: Readonly<Record<QuarantineFallbackRule, 
   'quarantine.no-model': 'No model was available to read it (or only the local echo placeholder).',
   'quarantine.call-failed': 'The reader\'s model call failed or timed out.',
   'quarantine.egress-refused': 'The model egress boundary refused to send it — usually a credential in the request.',
+  'quarantine.task-budget': 'Reading it would take this task past its cost cap (or the reader\'s price is unknown while a cap is set), so the reader was not run.',
+  'quarantine.daily-budget': 'Reading it would take today\'s spend past the daily cost limit, so the reader was not run.',
   'quarantine.output-oversized': `The reader answered with more than ${QUARANTINE_LIMITS.maxOutputChars} characters.`,
   'quarantine.output-not-json': 'The reader did not answer with a single JSON object.',
   'quarantine.output-invalid': 'The reader\'s JSON did not match the declared extract schema.',
 };
+
+// ── Budget ───────────────────────────────────────────────────────
+
+/**
+ * Whether the reader may spend, decided before it is dispatched.
+ *
+ * The reader's call is spend on the task's behalf, so it answers to the same
+ * caps the agentic loop enforces: the per-task cap (`maxCostUsd` / an agent's
+ * `costLimitUsd`) and the daily limit. A cost control a sub-call can walk past
+ * is not a cost control — and the reader is exactly the call that runs most
+ * when a turn reads a lot of third-party text, which is when a cap matters.
+ *
+ * The check is against the reader's **worst case** (its prompt plus its whole
+ * output allowance), not a guess at what it will probably cost, because the
+ * call cannot be un-made once it is sent. Refusing does not show the agent more:
+ * it falls back to the same stated excerpt as every other failure, never to the
+ * full text.
+ */
+export interface QuarantineBudgetInput {
+  /** The task's cap in USD; absent or not positive means no task cap is set. */
+  taskCapUsd?: number;
+  /** What the task has spent so far: the agent model's calls plus any earlier reader calls. */
+  taskSpentUsd: number;
+  /** The reader's worst-case cost on the model it was routed to. */
+  readerEstimate: { costUsd: number; unpriced?: boolean };
+  /** The daily limit's answer for that worst case; absent when no daily limit is set. */
+  daily?: { blocked: boolean };
+}
+
+export type QuarantineBudgetDecision =
+  | { allowed: true; rule: 'quarantine.budget-ok' }
+  | { allowed: false; rule: 'quarantine.task-budget' | 'quarantine.daily-budget'; detail: string };
+
+/**
+ * First refusal wins; the daily limit is checked first because it is the
+ * operator's ceiling over every task, not just this one.
+ *
+ * Two readings are deliberately strict. A reader whose model has **no known
+ * price** is refused while a task cap is set: an unpriced cost is recorded as a
+ * placeholder zero, and "zero" would let any call fit any cap — unknown is not
+ * cheap. And a spend that would land **exactly on** the cap is allowed, matching
+ * the loop, which stops only once cumulative cost *exceeds* the cap.
+ */
+export function decideQuarantineBudget(input: QuarantineBudgetInput): QuarantineBudgetDecision {
+  if (input.daily?.blocked) {
+    return { allowed: false, rule: 'quarantine.daily-budget', detail: 'The daily limit is reached or would be by this call.' };
+  }
+  const cap = input.taskCapUsd;
+  if (typeof cap !== 'number' || !Number.isFinite(cap) || cap <= 0) {
+    return { allowed: true, rule: 'quarantine.budget-ok' };
+  }
+  if (input.readerEstimate.unpriced) {
+    return { allowed: false, rule: 'quarantine.task-budget', detail: `No price is known for the reader's model; cap ${usd(cap)}.` };
+  }
+  const spent = Math.max(0, finiteOr(input.taskSpentUsd, 0));
+  const estimate = Math.max(0, finiteOr(input.readerEstimate.costUsd, Number.POSITIVE_INFINITY));
+  if (spent + estimate > cap) {
+    return {
+      allowed: false,
+      rule: 'quarantine.task-budget',
+      detail: `Spent ${usd(spent)} + reader up to ${usd(estimate)} > cap ${usd(cap)}.`,
+    };
+  }
+  return { allowed: true, rule: 'quarantine.budget-ok' };
+}
+
+function finiteOr(value: number, fallback: number): number {
+  return Number.isFinite(value) ? value : fallback;
+}
+
+function usd(value: number): string {
+  return Number.isFinite(value) ? `$${value.toFixed(4)}` : 'an unknown amount';
+}
 
 // ── The extraction request ───────────────────────────────────────
 

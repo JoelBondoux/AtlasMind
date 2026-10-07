@@ -4,6 +4,7 @@ import {
   buildQuarantineExtractionRequest,
   buildRawReleaseEscalation,
   decideQuarantine,
+  decideQuarantineBudget,
   describeReleaseWithoutGate,
   emptyQuarantineStore,
   holdQuarantinedResult,
@@ -470,5 +471,78 @@ describe('holding and releasing the raw text', () => {
     expect(classifyToolResultProvenance(QUARANTINE_RELEASE_TOOL)).toEqual({
       provenance: 'third-party', rule: 'provenance.quarantine-release',
     });
+  });
+});
+
+describe("the reader answers to the task's and the day's caps", () => {
+  it('runs when no cap is set and the day is not blocked', () => {
+    expect(decideQuarantineBudget({ taskSpentUsd: 99, readerEstimate: { costUsd: 99 } })).toEqual({ allowed: true, rule: 'quarantine.budget-ok' });
+    expect(decideQuarantineBudget({ taskCapUsd: 0, taskSpentUsd: 99, readerEstimate: { costUsd: 99 } }).allowed).toBe(true);
+    expect(decideQuarantineBudget({ taskSpentUsd: 0, readerEstimate: { costUsd: 1 }, daily: { blocked: false } }).allowed).toBe(true);
+  });
+
+  it('does not run when the daily limit is blocked, with or without a task cap', () => {
+    expect(decideQuarantineBudget({ taskSpentUsd: 0, readerEstimate: { costUsd: 0.001 }, daily: { blocked: true } }))
+      .toMatchObject({ allowed: false, rule: 'quarantine.daily-budget' });
+    expect(decideQuarantineBudget({ taskCapUsd: 10, taskSpentUsd: 0, readerEstimate: { costUsd: 0.001 }, daily: { blocked: true } }))
+      .toMatchObject({ allowed: false, rule: 'quarantine.daily-budget' });
+  });
+
+  it('does not run when spend so far plus its worst case would pass the task cap', () => {
+    const refused = decideQuarantineBudget({ taskCapUsd: 0.05, taskSpentUsd: 0.03, readerEstimate: { costUsd: 0.03 } });
+    expect(refused).toMatchObject({ allowed: false, rule: 'quarantine.task-budget' });
+    expect(refused.allowed === false && refused.detail).toContain('$0.0500');
+  });
+
+  it('runs when it lands exactly on the cap, as the loop only stops past it', () => {
+    expect(decideQuarantineBudget({ taskCapUsd: 0.5, taskSpentUsd: 0.25, readerEstimate: { costUsd: 0.25 } }).allowed).toBe(true);
+  });
+
+  it('treats an unpriced reader as unknown, not free, while a cap is set', () => {
+    expect(decideQuarantineBudget({ taskCapUsd: 10, taskSpentUsd: 0, readerEstimate: { costUsd: 0, unpriced: true } }))
+      .toMatchObject({ allowed: false, rule: 'quarantine.task-budget' });
+    expect(decideQuarantineBudget({ taskSpentUsd: 0, readerEstimate: { costUsd: 0, unpriced: true } }).allowed).toBe(true);
+  });
+
+  it('treats a non-finite estimate as unaffordable rather than zero', () => {
+    expect(decideQuarantineBudget({ taskCapUsd: 10, taskSpentUsd: 0, readerEstimate: { costUsd: Number.NaN } }).allowed).toBe(false);
+  });
+
+  it('every refusal names a declared fallback rule, and the excerpt it falls back to says so', () => {
+    for (const rule of ['quarantine.task-budget', 'quarantine.daily-budget'] as const) {
+      expect(QUARANTINE_FALLBACK_RULES[rule]).toMatch(/not run/);
+      const rendered = renderQuarantineFallback({ entry: entry('x'.repeat(QUARANTINE_THRESHOLD_CHARS * 2)), rule, findings: [] });
+      expect(rendered).toContain(rule);
+      expect(rendered.length).toBeLessThan(QUARANTINE_LIMITS.fallbackExcerptChars + 2_500);
+    }
+  });
+
+  it('property: it runs only if no cap is set or the worst case fits under it, and never on a blocked day', () => {
+    const money = fc.double({ min: 0, max: 100, noNaN: true });
+    fc.assert(fc.property(
+      fc.option(fc.double({ min: -1, max: 100, noNaN: true }), { nil: undefined }),
+      money,
+      money,
+      fc.boolean(),
+      fc.option(fc.boolean(), { nil: undefined }),
+      (cap, spent, estimate, unpriced, dailyBlocked) => {
+        const decision = decideQuarantineBudget({
+          taskCapUsd: cap,
+          taskSpentUsd: spent,
+          readerEstimate: { costUsd: estimate, unpriced },
+          ...(dailyBlocked === undefined ? {} : { daily: { blocked: dailyBlocked } }),
+        });
+        const capped = typeof cap === 'number' && cap > 0;
+        if (decision.allowed) {
+          expect(dailyBlocked).not.toBe(true);
+          if (capped) {
+            expect(unpriced).toBe(false);
+            expect(spent + estimate).toBeLessThanOrEqual(cap);
+          }
+        } else {
+          expect(Object.keys(QUARANTINE_FALLBACK_RULES)).toContain(decision.rule);
+        }
+      },
+    ));
   });
 });
