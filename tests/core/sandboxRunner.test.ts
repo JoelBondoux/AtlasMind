@@ -37,6 +37,7 @@ import {
   hostExecutionRefusal,
   installSandboxHost,
   installedSandboxHost,
+  isSandboxDependencyRefusal,
   selectSandboxOrphans,
   type SandboxCommandRequest,
   type SandboxHostDeps,
@@ -115,6 +116,7 @@ function harness(options: {
   config?: SandboxConfiguration;
   probeResult?: () => Promise<SandboxProbeReport>;
   readMode?: () => SandboxMode;
+  dependencies?: SandboxHostDeps['dependencies'] | null;
 } = {}): Harness {
   let mode: SandboxMode = options.mode ?? 'require';
   let now = NOW;
@@ -149,6 +151,11 @@ function harness(options: {
     now: () => now,
     realpath: async target => target,
     randomHex: () => 'deadbeef',
+    // A folder with no package.json unless a test says otherwise: these tests
+    // are about the container, and `sandboxDependencies` has its own.
+    ...(options.dependencies === null
+      ? {}
+      : { dependencies: options.dependencies ?? (async root => ({ status: 'not-a-node-project' as const, root, reason: 'No package.json.' })) }),
   };
   return {
     host: new SandboxHost(deps),
@@ -711,5 +718,80 @@ describe('createSandboxProcessRunner', () => {
     const outcome = await createSandboxProcessRunner(posix)('bash' as SandboxEngine, ['-c', 'x'], { timeoutMs: 1 });
     expect(outcome.kind).toBe('error');
     expect(childProcess.execFile).not.toHaveBeenCalled();
+  });
+});
+
+describe('installed dependencies', () => {
+  const VOLUME = 'atlasmind-deps-0123456789abcdef';
+  const READY = {
+    status: 'ready' as const, root: ROOT, volume: VOLUME, key: '0123456789abcdef'.repeat(4), manager: 'npm',
+    lockfile: 'package-lock.json', installScripts: false, preparedAt: '2026-10-08T11:00:00.000Z',
+  };
+
+  it('refuses a command that loads packages when none are prepared — exit 126, no engine call, and a scheduled run can tell why', async () => {
+    const h = harness({
+      dependencies: async root => ({ status: 'not-prepared', root, rule: 'prepared', reason: 'No dependencies are prepared for this package-lock.json.' }),
+    });
+    const result = await h.host.runCommand(request());
+    expect(result).toMatchObject({ ok: false, exitCode: SANDBOX_REFUSED_EXIT_CODE });
+    expect(result.stderr).toMatch(/^Not run: dependencies not prepared — No dependencies are prepared/);
+    expect(result.stderr).toContain('[rule: dependencies/dependencies-not-prepared');
+    expect(isSandboxDependencyRefusal(result.stderr)).toBe(true);
+    expect(h.calls).toEqual([]);
+    expect(childProcess.execFile).not.toHaveBeenCalled();
+    expect(childProcess.exec).not.toHaveBeenCalled();
+  });
+
+  it('mounts the ready volume over node_modules, read for the folder the command mounts', async () => {
+    const reader = vi.fn(async () => READY);
+    const h = harness({ dependencies: reader });
+    const result = await h.host.runCommand(request());
+    expect(result.ok).toBe(true);
+    expect(reader).toHaveBeenCalledWith(ROOT, expect.objectContaining({ status: 'confirmed' }));
+    expect(h.calls[0]!.argv).toContain(`type=volume,source=${VOLUME},target=/work/node_modules`);
+  });
+
+  it('with no reader, the state is not assessed: packages are refused, other commands still run', async () => {
+    const h = harness({ dependencies: null });
+    expect((await h.host.runCommand(request())).stderr).toContain('dependencies/dependencies-not-assessed');
+    expect((await h.host.runCommand(request({ executable: 'make', args: ['lint'] }))).ok).toBe(true);
+  });
+
+  it('a reader that throws is not ready, and says so', async () => {
+    const h = harness({ dependencies: async () => { throw new Error('disk gone'); } });
+    const result = await h.host.runCommand(request());
+    expect(result.stderr).toContain('dependencies not prepared');
+    expect(result.stderr).toContain('disk gone');
+    expect(h.calls).toEqual([]);
+  });
+
+  it('a bound session carries the state it was opened with; another folder\'s state does not count', async () => {
+    const h = harness({ dependencies: async root => ({ ...READY, root }) });
+    const session = await h.host.openSession(ROOT);
+    expect(session.dependencies).toMatchObject({ status: 'ready', root: ROOT });
+    expect(Object.isFrozen(session.dependencies)).toBe(true);
+    const elsewhere = await h.host.runCommand(request({ root: '/home/joel/dev/other', cwd: '/home/joel/dev/other' }), session);
+    expect(elsewhere.stderr).toContain('dependencies/dependencies-not-assessed');
+    expect((await h.host.runCommand(request(), session)).ok).toBe(true);
+  });
+
+  it('isSandboxDependencyRefusal reads only the refusal itself', () => {
+    expect(isSandboxDependencyRefusal('npm ERR! [rule: dependencies/x]')).toBe(false);
+    expect(isSandboxDependencyRefusal('Not run: sandbox unavailable — x [rule: attestation/probed; atlasmind.sandbox.mode is require]')).toBe(false);
+  });
+
+  it('a scheduled run whose test step needs dependencies reports "not prepared", never a failed test', async () => {
+    const h = harness({
+      dependencies: async root => ({ status: 'not-prepared', root, rule: 'prepared', reason: 'No dependencies are prepared.' }),
+    });
+    uninstall.push(installSandboxHost(h.host));
+    const routine: RoutineDefinition = {
+      id: 'nightly', name: 'Nightly', description: '', steps: [{ id: 'test', label: 'Run the tests', run: 'npm test', on_fail: 'abort' }],
+    };
+    const history = { upsertRun: vi.fn() };
+    const result = await new RoutineRunner(history as never).run(routine, planRoutineExecution(routine, {}), ROOT, vi.fn(), vi.fn());
+    expect(result.succeeded).toBe(false);
+    expect(isSandboxDependencyRefusal(result.steps[0]!.stderr)).toBe(true);
+    expect(childProcess.exec).not.toHaveBeenCalled();
   });
 });

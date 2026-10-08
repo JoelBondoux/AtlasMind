@@ -19,6 +19,22 @@ Older entries below describe the software as it was at the time and are delibera
 
 ---
 
+## v0.503.0 -- Sandboxed commands get their dependencies from a volume you prepared
+
+- Under `atlasmind.sandbox.mode = require`, a command that loads installed packages (`npm test`, `vitest`,
+  `tsc`, `node`…) runs only with a **dependency volume** prepared for the folder's current lockfile, mounted
+  over `node_modules`. Your own `node_modules` — Windows or macOS binaries a Linux container cannot load — is
+  never used there, and without a volume the command is refused: *dependencies not prepared*.
+- **AtlasMind: Prepare Sandbox Dependencies** is the sandbox's one network-on step. It shows every command and
+  what network access means first, mounts only `package.json` and the lockfile read-only, writes only into the
+  volume, and skips install scripts unless you confirm a second warning. npm, pnpm and Yarn 1; a symlinked
+  lockfile, workspaces, Bun and Yarn 2+ are refused with the reason. A changed lockfile needs preparing again.
+- **AtlasMind: Remove Sandbox Dependency Volumes** cleans up the volumes that accumulate, on request.
+- Scheduled routines can now run tests unattended against a prepared volume; without one they stop and report
+  that dependencies are not prepared. They still never install anything.
+- Fixed: the sandbox probe could not start Docker on Windows, because it picked Docker Desktop's extensionless
+  WSL script over `docker.exe`.
+
 ## v0.502.0 -- A game profile the team declares
 
 - **`domain/game.json`** (with a readable `game.md`) holds what only the team knows about a game: engine,

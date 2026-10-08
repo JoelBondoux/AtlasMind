@@ -41,8 +41,15 @@ import {
   type SandboxSettingInspection,
   type SandboxSettingKey,
 } from '../core/sandboxProbe.js';
-import type { SandboxHostFacts } from '../core/sandboxPlan.js';
+import type { SandboxAttestation, SandboxDependencyState, SandboxHostFacts } from '../core/sandboxPlan.js';
 import { readRelaxTerminalApprovalsSetting } from '../core/sandboxApprovalRelaxation.js';
+import {
+  SANDBOX_DEPENDENCY_RECORDS_KEY,
+  createSandboxDependencyReader,
+  sanitizeSandboxDependencyRecords,
+  type SandboxDependencyRecord,
+} from '../core/sandboxDependencies.js';
+import { createSandboxProcessRunner } from '../core/sandboxRunner.js';
 import { defaultWorkspaceRootPath } from '../utils/workspaceRoots.js';
 
 export interface SandboxCheckDeps {
@@ -53,10 +60,15 @@ export interface SandboxCheckDeps {
   canaryRoot: () => string | undefined;
   now: () => Date;
   dryRun: () => boolean;
+  /** The preparations this machine recorded (the editor's global state). */
+  records: () => readonly SandboxDependencyRecord[];
+  /** Whether a dependency volume is ready for a folder — the reader the runner uses. */
+  dependencies?: (root: string, attestation: SandboxAttestation) => Promise<SandboxDependencyState>;
 }
 
 function defaultDeps(): SandboxCheckDeps {
   return {
+    records: () => [],
     runner: createSandboxEngineRunner(),
     cache: sharedSandboxProbeCache(),
     host: readSandboxHostFacts(),
@@ -90,8 +102,15 @@ export function inspectSandboxRelaxSetting(): SandboxSettingInspection | undefin
 }
 
 /** Run the check, start to finish. Returns the rendered report so a test can read what was shown. */
-export async function checkExecutionSandbox(overrides: Partial<SandboxCheckDeps> = {}): Promise<string> {
-  const deps = { ...defaultDeps(), ...overrides };
+export async function checkExecutionSandbox(
+  overrides: Partial<SandboxCheckDeps> = {},
+  store?: { get(key: string): unknown },
+): Promise<string> {
+  const deps: SandboxCheckDeps = {
+    ...defaultDeps(),
+    ...(store ? { records: () => sanitizeSandboxDependencyRecords(store.get(SANDBOX_DEPENDENCY_RECORDS_KEY)) } : {}),
+    ...overrides,
+  };
   const reading = readSandboxConfiguration(inspectSandboxSetting);
   const mode = readSandboxModeSetting(inspectSandboxSetting('mode'));
   let report: SandboxProbeReport | undefined;
@@ -118,6 +137,18 @@ export async function checkExecutionSandbox(overrides: Partial<SandboxCheckDeps>
       rule: 'probed' as const,
       reason: 'The sandbox settings could not be used, so nothing was probed.',
     };
+  // The same reader the runner uses, so the report and the next command agree
+  // about whether dependencies are ready for this folder's lockfile.
+  const canaryRoot = deps.canaryRoot();
+  let dependencyState: SandboxDependencyState | undefined;
+  if (reading.configuration && canaryRoot) {
+    const readDependencies = deps.dependencies ?? createSandboxDependencyReader({
+      host: deps.host,
+      records: deps.records,
+      run: createSandboxProcessRunner(),
+    });
+    dependencyState = await readDependencies(canaryRoot, attestation).catch(() => undefined);
+  }
   const markdown = renderSandboxCheckReport({
     reading,
     ...(report ? { report } : {}),
@@ -126,6 +157,7 @@ export async function checkExecutionSandbox(overrides: Partial<SandboxCheckDeps>
     dryRun: deps.dryRun(),
     now,
     mode,
+    dependencies: { ...(dependencyState ? { state: dependencyState } : {}), records: deps.records() },
     relaxation: {
       setting: readRelaxTerminalApprovalsSetting(inspectSandboxRelaxSetting()),
       allowTerminalWrite: vscode.workspace.getConfiguration('atlasmind').get<boolean>('allowTerminalWrite', false) === true,

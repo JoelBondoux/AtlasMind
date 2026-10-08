@@ -21,6 +21,7 @@ import {
   selectSandboxEnv,
   type SandboxAttestation,
   type SandboxConfiguration,
+  type SandboxDependencyState,
   type SandboxHostFacts,
   type SandboxInvocation,
   type SandboxProbe,
@@ -59,6 +60,19 @@ function configuration(overrides: Partial<SandboxConfiguration> = {}): SandboxCo
 }
 
 const LINUX_HOST: SandboxHostFacts = { os: 'linux', user: { uid: 1000, gid: 1000 }, homeDir: '/home/joel' };
+/** The mounted folder has no package.json, so no dependency volume is needed — what these tests assumed before volumes existed. */
+const NOT_NODE: SandboxDependencyState = { status: 'not-a-node-project', root: '/home/joel/dev/app', reason: 'No package.json.' };
+const VOLUME = 'atlasmind-deps-0123456789abcdef';
+const READY: SandboxDependencyState = {
+  status: 'ready',
+  root: '/home/joel/dev/app',
+  volume: VOLUME,
+  key: '0123456789abcdef'.repeat(4),
+  manager: 'npm',
+  lockfile: 'package-lock.json',
+  installScripts: false,
+  preparedAt: '2026-10-08T11:00:00.000Z',
+};
 const DARWIN_HOST: SandboxHostFacts = { os: 'darwin', homeDir: '/Users/joel' };
 const WIN_HOST: SandboxHostFacts = { os: 'win32', homeDir: 'C:\\Users\\joel' };
 
@@ -455,7 +469,7 @@ describe('sandboxPlan: mode and plan', () => {
 
   it('plans the sandbox under require when everything holds', () => {
     const attestation = confirmed();
-    const plan = planExecution(invocation({ env: { CI: 'true' } }), attestation, configuration(), LINUX_HOST, NOW);
+    const plan = planExecution(invocation({ env: { CI: 'true' } }), attestation, configuration(), LINUX_HOST, NOW, NOT_NODE);
     expect(plan).toMatchObject({ route: 'sandbox', rule: 'sandboxed', command: 'docker', rejectedEnv: [] });
     expect(plan.route === 'sandbox' && plan.attestationId).toBe(attestation.status === 'confirmed' ? attestation.id : '');
   });
@@ -468,7 +482,7 @@ describe('sandboxPlan: mode and plan', () => {
     const unavailable = assessSandboxAttestation(probe({ serverOs: 'windows' }), configuration(), NOW);
     expect(planExecution(invocation(), unavailable, configuration(), LINUX_HOST, NOW))
       .toMatchObject({ route: 'refuse', stage: 'attestation', rule: 'linux-engine' });
-    expect(planExecution(invocation({ executable: '/usr/bin/npm' }), confirmed(), configuration(), LINUX_HOST, NOW))
+    expect(planExecution(invocation({ executable: '/usr/bin/npm' }), confirmed(), configuration(), LINUX_HOST, NOW, NOT_NODE))
       .toMatchObject({ route: 'refuse', stage: 'argv', rule: 'executable' });
   });
 
@@ -497,7 +511,7 @@ describe('sandboxPlan: mode and plan', () => {
 
 describe('sandboxPlan: what a sandbox does not change', () => {
   it('dry run wins: the engine launch is graded an effect, so a dry run records it and runs nothing', () => {
-    const plan = planExecution(invocation(), confirmed(), configuration(), LINUX_HOST, NOW);
+    const plan = planExecution(invocation(), confirmed(), configuration(), LINUX_HOST, NOW, NOT_NODE);
     expect(plan.route).toBe('sandbox');
     if (plan.route === 'sandbox') {
       expect(classifyHostCommand(plan.command, plan.argv).kind).toBe('effect');
@@ -509,7 +523,7 @@ describe('sandboxPlan: what a sandbox does not change', () => {
     // The sandbox rests on this row staying where it is; it has no input that could lower it.
     expect(TAINT_ESCALATION['terminal-write']).toMatchObject({ tainted: 'fresh-approval', suspected: 'fresh-approval' });
     expect(SANDBOX_INTERACTION_RULES.map(rule => rule.id)).toEqual(
-      expect.arrayContaining(['taint-not-relaxed', 'unattended-unchanged', 'approvals-relaxed-only-by-opt-in']),
+      expect.arrayContaining(['taint-not-relaxed', 'unattended-uses-prepared-dependencies', 'approvals-relaxed-only-by-opt-in']),
     );
   });
 
@@ -552,17 +566,26 @@ describe('sandboxPlan: properties', () => {
     fc.assert(fc.property(
       hostArb, fc.constantFrom('docker', 'podman'), argsArb, envArb,
       fc.constantFrom('npm', 'node', './node_modules/.bin/vitest', 'pytest'),
-      ([host, root], engine, args, env, executable) => {
-        const result = buildSandboxArgv(spec({ engine, rootless: engine === 'podman', host, root, cwd: root, args, env, executable }));
+      fc.option(fc.constantFrom(VOLUME, 'atlasmind-deps-ffffffffffffffff'), { nil: undefined }),
+      ([host, root], engine, args, env, executable, dependencyVolume) => {
+        const result = buildSandboxArgv(spec({
+          engine, rootless: engine === 'podman', host, root, cwd: root, args, env, executable,
+          ...(dependencyVolume ? { dependencyVolume } : {}),
+        }));
         if (!result.ok) {
           return;
         }
         const options = optionSection(result.argv);
         expect(options).not.toContain('--privileged');
         expect(options.some(arg => arg.includes('docker.sock') || arg.includes('podman.sock'))).toBe(false);
-        expect(options.filter(arg => arg === '--mount')).toHaveLength(1);
         expect(options.some(arg => arg === '-v' || arg === '--volume' || arg.startsWith('--volume=') || arg === '--volumes-from')).toBe(false);
-        expect(options[options.indexOf('--mount') + 1]).toBe(`type=bind,source=${root},target=/work`);
+        // Exactly one bind mount — the folder — and at most the one dependency
+        // volume, at exactly /work/node_modules. Never home, never a socket.
+        const mounts = options.flatMap((arg, index) => (arg === '--mount' ? [options[index + 1] ?? ''] : []));
+        expect(mounts.filter(mount => mount.startsWith('type=bind,'))).toEqual([`type=bind,source=${root},target=/work`]);
+        expect(mounts.filter(mount => !mount.startsWith('type=bind,')))
+          .toEqual(dependencyVolume ? [`type=volume,source=${dependencyVolume},target=/work/node_modules`] : []);
+        expect(mounts.some(mount => mount.includes('/home/joel,') || mount.endsWith('source=/home/joel'))).toBe(false);
         expect(options.filter(arg => arg === '--network')).toHaveLength(1);
         expect(options[options.indexOf('--network') + 1]).toBe('none');
         expect(options.some(arg => arg.startsWith('--network=') || arg === '--net' || arg.startsWith('--net='))).toBe(false);
@@ -610,5 +633,109 @@ describe('sandboxPlan: properties', () => {
         expect(plan.route).not.toBe('host');
       },
     ), { numRuns: 400 });
+  });
+});
+
+describe('sandboxPlan: installed dependencies', () => {
+  const NOT_PREPARED: SandboxDependencyState = {
+    status: 'not-prepared', root: '/home/joel/dev/app', rule: 'prepared', reason: 'No dependencies are prepared for this package-lock.json.',
+  };
+
+  it('mounts a ready volume over node_modules, right after the folder, and names it in the plan', () => {
+    const plan = planExecution(invocation(), confirmed(), configuration(), LINUX_HOST, NOW, READY);
+    expect(plan).toMatchObject({ route: 'sandbox', dependencyVolume: VOLUME });
+    if (plan.route === 'sandbox') {
+      const at = plan.argv.indexOf(`type=bind,source=/home/joel/dev/app,target=/work`);
+      expect(plan.argv.slice(at + 1, at + 3)).toEqual(['--mount', `type=volume,source=${VOLUME},target=/work/node_modules`]);
+    }
+  });
+
+  it('a ready volume is mounted for every command in that folder, so they all see one node_modules', () => {
+    expect(planExecution(invocation({ executable: 'make', args: ['build'] }), confirmed(), configuration(), LINUX_HOST, NOW, READY))
+      .toMatchObject({ route: 'sandbox', dependencyVolume: VOLUME });
+  });
+
+  it.each([
+    ['npm', ['test']],
+    ['node', ['scripts/check.mjs']],
+    ['./node_modules/.bin/vitest', ['run']],
+    ['sh', ['-c', 'npm run build && echo done']],
+    ['bash', ['-lc', 'npx --no-install tsc']],
+  ])('refuses %s %j when dependencies are not prepared — never the host node_modules instead', (executable, args) => {
+    const plan = planExecution(
+      invocation({ executable, args, root: 'C:\\Users\\joel\\dev\\app', cwd: 'C:\\Users\\joel\\dev\\app' }),
+      confirmed(), configuration(), WIN_HOST, NOW, { ...NOT_PREPARED, root: 'C:\\Users\\joel\\dev\\app' },
+    );
+    // `bash -lc "npx …"` is an install by the shared vocabulary, so it is refused for that first.
+    expect(plan.route).toBe('refuse');
+    if (plan.route === 'refuse' && plan.stage !== 'eligibility') {
+      expect(plan).toMatchObject({ stage: 'dependencies', rule: 'dependencies-not-prepared' });
+      expect(plan.reason).toContain('No dependencies are prepared');
+      expect(plan.reason).toContain('Prepare Sandbox Dependencies');
+    }
+  });
+
+  it('runs a command that loads no packages without a volume when none is ready', () => {
+    const plan = planExecution(invocation({ executable: 'make', args: ['lint'] }), confirmed(), configuration(), LINUX_HOST, NOW, NOT_PREPARED);
+    expect(plan.route).toBe('sandbox');
+    expect(plan.route === 'sandbox' && plan.argv.some(arg => arg.startsWith('type=volume,'))).toBe(false);
+  });
+
+  it('a state nobody assessed, or one for another folder, is not ready', () => {
+    expect(planExecution(invocation(), confirmed(), configuration(), LINUX_HOST, NOW))
+      .toMatchObject({ route: 'refuse', stage: 'dependencies', rule: 'dependencies-not-assessed' });
+    const other = planExecution(invocation(), confirmed(), configuration(), LINUX_HOST, NOW, { ...READY, root: '/home/joel/dev/other' });
+    expect(other).toMatchObject({ route: 'refuse', rule: 'dependencies-not-assessed' });
+    expect(other.route === 'refuse' && other.reason).toContain('different folder');
+    expect(planExecution(invocation({ executable: 'make' }), confirmed(), configuration(), LINUX_HOST, NOW).route).toBe('sandbox');
+  });
+
+  it('attestation and eligibility still come first: the root cause is reported', () => {
+    expect(planExecution(invocation(), undefined, configuration(), LINUX_HOST, NOW, NOT_PREPARED))
+      .toMatchObject({ stage: 'attestation', rule: 'probed' });
+    expect(planExecution(invocation({ executable: 'npm', args: ['ci'] }), confirmed(), configuration(), LINUX_HOST, NOW, READY))
+      .toMatchObject({ stage: 'eligibility', rule: 'installs-packages' });
+  });
+
+  it('never mounts a volume name AtlasMind did not make', () => {
+    for (const dependencyVolume of ['/var/run/docker.sock', 'atlasmind-deps-XYZ', 'atlasmind-deps-0123456789abcdef,target=/', 'pgdata', '']) {
+      expect(buildSandboxArgv(spec({ dependencyVolume })), dependencyVolume).toMatchObject({ ok: false, rule: 'dependency-volume' });
+    }
+    const forged = planExecution(invocation(), confirmed(), configuration(), LINUX_HOST, NOW, { ...READY, volume: '/home/joel' });
+    expect(forged).toMatchObject({ route: 'refuse', stage: 'dependencies', rule: 'dependencies-not-prepared' });
+  });
+
+  it('Windows host, golden: the volume shadows the host\'s Windows node_modules', () => {
+    const result = buildSandboxArgv(spec({
+      host: WIN_HOST, root: 'C:\\Users\\joel\\dev\\app', cwd: 'C:\\Users\\joel\\dev\\app', dependencyVolume: VOLUME, env: {},
+    }));
+    expect(result).toEqual({
+      ok: true,
+      command: 'docker',
+      argv: [
+        ...COMMON_HEAD,
+        '--mount', 'type=bind,source=C:\\Users\\joel\\dev\\app,target=/work',
+        '--mount', `type=volume,source=${VOLUME},target=/work/node_modules`,
+        '--workdir', '/work',
+        '--env', 'HOME=/tmp', '--env', 'TMPDIR=/tmp',
+        IMAGE, 'npm', 'run', 'test',
+      ],
+      rejectedEnv: [],
+    });
+  });
+
+  it('property: a command that needs packages never reaches the sandbox without a ready volume for its folder', () => {
+    const states: Array<SandboxDependencyState | undefined> = [
+      undefined, NOT_PREPARED, { ...READY, root: '/elsewhere' },
+      { status: 'not-prepared', root: '/home/joel/dev/app', rule: 'lockfile-present', reason: 'No lockfile.' },
+    ];
+    fc.assert(fc.property(
+      fc.constantFrom(...states),
+      fc.constantFrom<[string, string[]]>(['npm', ['test']], ['node', ['x.js']], ['vitest', ['run']], ['sh', ['-c', 'yarn test']], ['./node_modules/.bin/jest', []]),
+      (state, [executable, args]) => {
+        const plan = planExecution(invocation({ executable, args }), confirmed(), configuration(), LINUX_HOST, NOW, state);
+        expect(plan.route).toBe('refuse');
+      },
+    ), { numRuns: 100 });
   });
 });

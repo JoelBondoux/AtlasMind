@@ -6,6 +6,79 @@ The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/),
 
 ## [Unreleased]
 
+## [0.503.0] - 2026-10-08
+
+### Added
+
+- **Sandboxed commands can load the project's packages — from a volume you prepared, never from your
+  machine.** Under `atlasmind.sandbox.mode = require` the container mounted your folder's `node_modules`
+  as-is, which on Windows and macOS holds binaries a Linux container cannot load, and a scheduled run's fresh
+  worktree has none at all. Now a command that loads installed packages runs only with a **dependency volume**
+  prepared for the folder's current lockfile, mounted at `/work/node_modules` over the host's copy. Roadmap
+  slice B5 of sandboxed execution.
+  - **`src/core/sandboxDependencies.ts`** (pure apart from an injected runner and file reader).
+    `detectSandboxDependencies` reads a constant list of root files and, by the declared
+    `SANDBOX_DEPENDENCY_RULES`, finds exactly one supported lockfile — npm (`npm-shrinkwrap.json` before
+    `package-lock.json`), pnpm, Yarn 1 — or refuses: no lockfile, two managers, Bun, Yarn 2+ (Plug'n'Play has
+    no `node_modules`), workspaces, or a manifest or lockfile that is a **symlink** (refused, not followed: the
+    engine follows a symlink it mounts, and a lockfile pointing at `~/.aws/credentials` would hand it to a
+    network-on container). `deriveSandboxDependencyKey` hashes the lockfile's bytes, the image digest, the
+    manager, the engine, `linux/<arch>`, the owner (`uid:gid` on a Linux host) and whether install scripts ran
+    into `atlasmind-deps-<16 hex>`; a changed lockfile is a different volume. **Ready** needs a recorded
+    preparation for that key (the editor's global state, sanitized on read) *and* `volume inspect` showing the
+    volume carries it — a crash mid-install is not ready, and neither is a volume removed behind AtlasMind's
+    back.
+  - **`planExecution` takes the folder's dependency state.** A ready volume is mounted for every command in that
+    folder; otherwise a command that loads packages (`classifyDependencyNeed`, now shared by
+    `scheduledRoutinePolicy` and `sandboxPlan`: node, npm/pnpm/yarn, the common JS tools, a `./node_modules/`
+    path, a shell `-c` script naming one) is refused at stage `dependencies` — `dependencies-not-prepared`, or
+    `dependencies-not-assessed` when nothing read the state or it is for another folder. The argv rule
+    `dependency-volume` mounts only a name AtlasMind makes, only at `/work/node_modules`; the argv property is
+    now exactly one bind mount plus at most that one volume. `SandboxHost` reads the state per session and
+    freezes it in; the sandbox-relaxed terminal approval reads the same state, so a command the runner would
+    refuse is not relaxed.
+  - **AtlasMind: Prepare Sandbox Dependencies** (`src/views/sandboxDependenciesCommand.ts`) — the sandbox's
+    one network-on step, only on request and only in a trusted workspace. `planSandboxDependencyPreparation`
+    composes every engine command first and the modal shows them, network marked, with a disclosure of what
+    network access means: remove any earlier volume (a volume still in use stops it), create it labelled with
+    its key, on a Linux host make it yours in a container with `--network none` and only `CHOWN`, then the
+    install — `npm ci --no-audit --no-fund --no-update-notifier --loglevel=error --ignore-scripts`,
+    `pnpm install --frozen-lockfile`, or `yarn install --frozen-lockfile` — with every capability dropped,
+    `package.json` and the lockfile bind-mounted **read-only** as single files, and the volume the only
+    writable mount: not the source, not `.npmrc`, not the environment. **Install scripts are off**; running
+    them is a second button and a second warning, keyed to its own volume. A dry run records it and starts
+    nothing; a failed install removes the volume, a timed-out one its container by name; only a finished
+    install is recorded.
+  - **AtlasMind: Remove Sandbox Dependency Volumes** lists the engine's AtlasMind-labelled volumes beside what
+    this machine recorded and removes the ones you pick after a modal, with `volume rm` and no `--force`, so a
+    volume a running command uses stays. Volumes accumulate as lockfiles change; this is the clean-up, on
+    request only.
+  - **Check Execution Sandbox** gains a *Dependencies* section from the reader the runner uses.
+  - **Scheduled routines can run tests unattended, and still install nothing.** Under `require`, a scheduled
+    step that loads packages runs against the volume prepared for the lockfile the run checked out. Without one
+    the step is refused and the run is reported as needing you — *dependencies are not prepared* — not as a
+    failed test (`isSandboxDependencyRefusal`). The unattended approval dialog says so whenever a step needs
+    dependencies (`UNATTENDED_DEPENDENCY_NOTE`). `SANDBOX_INTERACTION_RULES`' `unattended-unchanged` becomes
+    `unattended-uses-prepared-dependencies`.
+  - `classifyHostCommand` grades `volume inspect` and `volume ls` as reads; create, run and rm stay effects.
+  - Checked against Docker Desktop on a Windows host: the probe confirmed, the preparation ran with these
+    exact argvs, readiness read the labelled volume, a sandboxed `node` saw it at `/work/node_modules`, a
+    prebuilt native package (esbuild) loaded from it, and a failed install removed its volume.
+
+### Fixed
+
+- **The sandbox could not find Docker on Windows.** Docker Desktop puts `resources\bin\docker` (a script for
+  WSL) beside `docker.exe`, and `resolveWorkspaceCommand` took the extensionless script, which Windows cannot
+  start without a shell, so every probe stopped at `cli-present`. An extensionless hit with a real `.exe` or
+  `.com` image beside it now starts that image directly, as Windows itself would; a `.cmd` beside it is still a
+  shim and is bypassed or refused as before.
+
+### Changed
+
+- Tests that planned `npm` commands now pass the folder's dependency state, because a command that loads
+  packages with no assessed state is refused; the runner tests' harness supplies a folder with no
+  `package.json` by default. The interaction-rule id assertion follows its rename.
+
 ## [0.502.0] - 2026-10-08
 
 ### Added

@@ -31,6 +31,11 @@ import {
   readSandboxModeSetting,
   sharedSandboxProbeCache,
 } from './core/sandboxProbe.js';
+import {
+  SANDBOX_DEPENDENCY_RECORDS_KEY,
+  createSandboxDependencyReader,
+  sanitizeSandboxDependencyRecords,
+} from './core/sandboxDependencies.js';
 import { inspectSandboxRelaxSetting, inspectSandboxSetting } from './views/sandboxCheckCommand.js';
 import {
   describeSandboxRelaxationState,
@@ -2642,6 +2647,7 @@ async function bootstrapAtlasMind(
     // Under `atlasmind.sandbox.mode = off` it starts nothing: the sweep returns
     // before touching an engine, and `isRequired` is the only thing asked.
     const sandboxHostFacts = readSandboxHostFacts();
+    const sandboxProcessRunner = createSandboxProcessRunner();
     const sandboxHost = new SandboxHost({
       readMode: () => readSandboxModeSetting(inspectSandboxSetting('mode')),
       readConfiguration: () => readSandboxConfiguration(inspectSandboxSetting),
@@ -2653,10 +2659,18 @@ async function bootstrapAtlasMind(
         runner: createSandboxEngineRunner(),
         now: () => new Date(),
       }),
-      run: createSandboxProcessRunner(),
+      run: sandboxProcessRunner,
       host: sandboxHostFacts,
       now: () => new Date(),
       realpath: target => fs.realpath(target),
+      // Which prepared dependency volume, if any, a folder's lockfile has
+      // (`sandboxDependencies.ts`). Read per session; preparing one is only
+      // ever AtlasMind: Prepare Sandbox Dependencies.
+      dependencies: createSandboxDependencyReader({
+        host: sandboxHostFacts,
+        records: () => sanitizeSandboxDependencyRecords(context.globalState.get(SANDBOX_DEPENDENCY_RECORDS_KEY)),
+        run: sandboxProcessRunner,
+      }),
       log: line => outputChannel.appendLine(line),
     });
     context.subscriptions.push({ dispose: installSandboxHost(sandboxHost) });

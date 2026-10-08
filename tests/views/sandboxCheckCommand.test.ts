@@ -163,6 +163,31 @@ describe('AtlasMind: Check Execution Sandbox', () => {
     expect(markdown).toMatch(/`image-pinned` \| \*\*failed\*\*/);
   });
 
+  it('shows whether dependencies are prepared for the checked folder, through the reader the runner uses', async () => {
+    settings({ 'atlasmind.sandbox.image': { globalValue: IMAGE }, 'atlasmind.sandbox.mode': { globalValue: 'require' } });
+    const reader = vi.fn(async (root: string) => ({
+      status: 'not-prepared' as const, root, rule: 'prepared', reason: 'No dependencies are prepared for this package-lock.json with this image.',
+    }));
+    const markdown = await checkExecutionSandbox({
+      runner: runner().run, cache: new SandboxProbeCache(), host: HOST, now: () => NOW, dryRun: () => false, dependencies: reader,
+    });
+    expect(reader).toHaveBeenCalledWith('/home/joel/dev/app', expect.objectContaining({ status: 'confirmed' }));
+    expect(markdown).toContain('## Dependencies');
+    expect(markdown).toContain('**Not prepared** — rule `prepared`');
+    expect(markdown).toContain('Prepare Sandbox Dependencies');
+    expect(markdown).toContain('see *Dependencies* below');
+  });
+
+  it('reads the recorded preparations from the store it is given', async () => {
+    settings({ 'atlasmind.sandbox.image': { globalValue: IMAGE } });
+    const get = vi.fn(() => []);
+    await checkExecutionSandbox({
+      runner: runner().run, cache: new SandboxProbeCache(), host: HOST, now: () => NOW, dryRun: () => false,
+      dependencies: async root => ({ status: 'not-a-node-project', root, reason: 'No package.json.' }),
+    }, { get });
+    expect(get).toHaveBeenCalledWith('atlasmind.sandbox.dependencyVolumes');
+  });
+
   it('probes nothing when a setting cannot be used', async () => {
     settings({ 'atlasmind.sandbox.engine': { globalValue: 'dokcer' } });
     const fake = runner();

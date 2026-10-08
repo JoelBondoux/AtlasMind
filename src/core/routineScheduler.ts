@@ -56,6 +56,7 @@ import {
   type ScheduledRunReportInput,
 } from './scheduledRoutinePolicy.js';
 import { worktreePathFor, type WorktreeGitRunner } from './worktreeManager.js';
+import { isSandboxDependencyRefusal } from './sandboxRunner.js';
 
 export interface RoutineSchedulerDeps {
   listRoutines: () => RoutineDefinition[];
@@ -335,12 +336,17 @@ export class RoutineScheduler {
       };
     }
 
-    const outcome: ScheduledRunReportInput['outcome'] = !result.succeeded
-      ? 'failed'
-      : stoppedAt ? 'needs-a-person' : 'completed';
-    const failedStep = result.failedStep
-      ? result.steps.find(step => step.stepId === result!.failedStep)?.label ?? result.failedStep
+    const failed = result.failedStep ? result.steps.find(step => step.stepId === result!.failedStep) : undefined;
+    const failedStep = result.failedStep ? failed?.label ?? result.failedStep : undefined;
+    // The sandbox refused a step for want of prepared dependencies: that needs
+    // a person (preparing them is a network-on install), it is not a failure
+    // of the code under test.
+    const dependenciesNotPrepared = !result.succeeded && failed && isSandboxDependencyRefusal(failed.stderr)
+      ? { step: failedStep ?? failed.stepId }
       : undefined;
+    const outcome: ScheduledRunReportInput['outcome'] = dependenciesNotPrepared
+      ? 'needs-a-person'
+      : !result.succeeded ? 'failed' : stoppedAt ? 'needs-a-person' : 'completed';
     return {
       ...memoBase,
       ...place,
@@ -350,6 +356,7 @@ export class RoutineScheduler {
         outcome,
         ...(failedStep ? { failedStep } : {}),
         ...(stoppedAt ? { stoppedAt } : {}),
+        ...(dependenciesNotPrepared ? { dependenciesNotPrepared } : {}),
         ...place,
       }),
     };

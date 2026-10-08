@@ -336,7 +336,7 @@ the engine can be checked with **AtlasMind: Check Execution Sandbox** (0.499.0),
 runner is wired (`src/core/sandboxRunner.ts`). With `atlasmind.sandbox.mode` set to **`require`**, every
 command an agent asks for runs in the container or is **refused, with the rule that stopped it** — never run
 on your machine instead. With it **`off`** (the default) nothing changes: commands run on your machine
-exactly as before (with the environment rules above), and AtlasMind starts no container engine process at all. Three things decide where a
+exactly as before (with the environment rules above), and AtlasMind starts no container engine process at all. Four things decide where a
 command runs:
 
 1. **Is it a command that can be sandboxed?** git, `gh`, `docker`/`podman`/`kubectl`, network tools
@@ -349,10 +349,18 @@ command runs:
    within the last ten minutes. A command that finds no fresh reading takes one — once, shared by commands
    that arrive together, and abandoned after three minutes — and a fresh reading that says *unavailable* is
    not taken again until it is ten minutes old.
-3. **Does the run itself pass?** One mount of the project or worktree folder — refused if it is or contains
-   your home folder, a credentials folder, the engine socket or the ssh agent — a working directory inside
-   it, an executable named the way the container knows it (`npm`, `./node_modules/.bin/vitest`; never a
-   path on your machine), and limits that can be stated.
+3. **Are its dependencies prepared? (0.503.0)** A command that loads installed packages — `node`, `npm`,
+   `pnpm`, `yarn`, `vitest`, `tsc` and the other common JavaScript tools, anything under `./node_modules/`,
+   or a `sh -c` step naming one — runs only with a **dependency volume** prepared for the folder's current
+   lockfile. Your own `node_modules` is never used in the container: on Windows and macOS it holds binaries a
+   Linux container cannot load, and a scheduled run's fresh worktree has none. Without a volume the command is
+   refused — *dependencies not prepared* — and **AtlasMind: Prepare Sandbox Dependencies** is the fix. A
+   changed lockfile needs preparing again. A command that loads no packages runs either way.
+4. **Does the run itself pass?** One mount of the project or worktree folder — refused if it is or contains
+   your home folder, a credentials folder, the engine socket or the ssh agent — plus, when one is ready, the
+   dependency volume at `/work/node_modules` and nowhere else; a working directory inside the folder, an
+   executable named the way the container knows it (`npm`, `./node_modules/.bin/vitest`; never a path on your
+   machine), and limits that can be stated.
 
 The container has no network, no capabilities, no privilege escalation, a read-only system and a bounded
 `/tmp`, and only allowlisted environment variables; provider keys never cross. A variable on the allowlist
@@ -396,6 +404,23 @@ different reading, never asked about after the fact. **What you are trusting:** 
 the mounted folder without asking. It cannot reach the network, your credentials or anything outside that folder.
 A status bar item shows *Sandboxed writes* while it is active (or *Writes ask*, with the reason), and **Check
 Execution Sandbox** lists the rules.
+
+**Preparing dependencies (0.503.0).** **AtlasMind: Prepare Sandbox Dependencies** installs the folder's
+lockfile into a volume named for it (`atlasmind-deps-<16 hex>`, from the lockfile's bytes, the image digest,
+the package manager, the engine, the platform, the user and whether install scripts ran). It runs only when you
+ask, only in a trusted workspace, and shows every engine command and what network access means before anything
+starts. It is the sandbox's **one network-on container**: it sees only `package.json` and the lockfile, mounted
+read-only — not your source, not `.npmrc`, not your environment — and writes only into the volume, with every
+capability dropped. Install scripts are **not** run (`--ignore-scripts`); a package that builds native code in
+an install step may not work, while prebuilt-binary packages such as esbuild, rollup and swc do. Running them is
+a separate button and a separate warning: they are arbitrary code from every package in the lockfile, with
+network access. On a Linux host a container with no network, holding only the right to change ownership, first
+makes the empty volume yours. npm, pnpm and Yarn 1 are supported; Bun, Yarn 2+, workspaces, a symlinked
+manifest or lockfile, several lockfiles or none are refused with the rule. A dry run records it and starts
+nothing; a scheduled routine never prepares — it stops at the step and reports *dependencies not prepared*.
+Volumes accumulate as lockfiles change: **AtlasMind: Remove Sandbox Dependency Volumes** lists AtlasMind's and
+removes the ones you pick (never one a running command still uses). *Check Execution Sandbox* shows whether
+the open folder's dependencies are ready.
 
 **Checking the sandbox (0.499.0).** *Check Execution Sandbox* runs only when you ask. It runs
 `docker`/`podman` `--version`, `info` and `image inspect` of the pinned image — reads, which a dry run lets

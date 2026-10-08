@@ -41,6 +41,14 @@
  * (`contextProvenance` has nothing to see). A spend-cap setting here would be a
  * switch that gates nothing — offering one would suggest the run can spend.
  *
+ * **Installed dependencies are prepared by a person, never on the night.** A
+ * fresh worktree has no `node_modules`. Under the execution sandbox's
+ * `require`, a step that loads installed packages (`classifyDependencyNeed`,
+ * the vocabulary `sandboxPlan` shares) runs against a dependency volume
+ * somebody prepared for that lockfile; with none, the sandbox refuses the step
+ * and the run is reported as needing a person. Preparing one is an install, and
+ * stays refused here by `installs-packages`.
+ *
  * Pure. Nothing here runs a command or touches git.
  */
 
@@ -127,6 +135,85 @@ export function classifyUnattendedStep(command: string): UnattendedStepRule | un
   }
   return undefined;
 }
+
+// ── Installed dependencies ───────────────────────────────────────
+
+/**
+ * Executables that load a project's installed JavaScript dependencies. A
+ * declared list, deliberately literal: it decides whether a command needs a
+ * `node_modules`, and a command it misses runs exactly as it did before the
+ * dependency volume existed — so a miss costs a confusing failure, never a
+ * weaker boundary. Shared with `sandboxPlan` so the sandbox and the unattended
+ * approval cannot disagree about which steps need dependencies.
+ */
+export const NODE_DEPENDENCY_TOOLS: ReadonlySet<string> = new Set([
+  'node', 'npm', 'pnpm', 'yarn', 'corepack',
+  'tsc', 'tsx', 'ts-node', 'vitest', 'jest', 'mocha', 'ava', 'c8', 'nyc',
+  'eslint', 'prettier', 'biome', 'playwright', 'cypress',
+  'vite', 'webpack', 'rollup', 'esbuild', 'swc', 'next', 'nuxt', 'astro', 'ng', 'nx', 'turbo', 'lerna',
+  'cross-env', 'node-gyp', 'electron', 'vsce',
+]);
+
+const SHELLS: ReadonlySet<string> = new Set(['sh', 'bash', 'dash', 'zsh', 'ash']);
+
+const NODE_TOOL_IN_TEXT = new RegExp(
+  `(?<![\\w./-])(?:${[...NODE_DEPENDENCY_TOOLS].map(tool => tool.replace(/[-]/g, '\\-')).join('|')})(?![\\w-])|node_modules`,
+);
+
+export type DependencyNeedRuleId = 'node-tooling' | 'node-modules-path' | 'shell-runs-node-tooling' | 'no-node-tooling';
+
+/** Evaluated in order; the first that matches is the one reported. */
+export const DEPENDENCY_NEED_RULES: ReadonlyArray<{ id: DependencyNeedRuleId; needed: boolean; description: string }> = [
+  { id: 'node-tooling', needed: true, description: 'The executable is a JavaScript runtime, package manager or tool that loads installed packages.' },
+  { id: 'node-modules-path', needed: true, description: 'The executable lives under ./node_modules — it is an installed package.' },
+  {
+    id: 'shell-runs-node-tooling',
+    needed: true,
+    description: 'A shell runs a script (`-c`) that names one of those tools or node_modules — a routine step is exactly this shape.',
+  },
+  {
+    id: 'no-node-tooling',
+    needed: false,
+    description: 'Nothing in the command names a tool that loads installed packages. It runs as before; if it needed them after all, it fails the way it did before.',
+  },
+];
+
+function toolBaseName(executable: string): string {
+  const base = String(executable ?? '').trim().split(/[\\/]/).pop() ?? '';
+  return base.toLowerCase().replace(/\.(?:exe|cmd|bat|ps1)$/, '');
+}
+
+/** Whether a command loads the project's installed dependencies, and the rule that says so. */
+export function classifyDependencyNeed(
+  executable: string,
+  args: readonly string[],
+): { needed: boolean; rule: DependencyNeedRuleId } {
+  const raw = String(executable ?? '').trim();
+  const name = toolBaseName(raw);
+  if (NODE_DEPENDENCY_TOOLS.has(name)) {
+    return { needed: true, rule: 'node-tooling' };
+  }
+  if (/^(?:\.\/)?node_modules\//.test(raw.replace(/\\/g, '/'))) {
+    return { needed: true, rule: 'node-modules-path' };
+  }
+  if (SHELLS.has(name)) {
+    const list = (args ?? []).map(arg => String(arg ?? ''));
+    const script = list.findIndex(arg => /^-[a-z]*c[a-z]*$/i.test(arg));
+    if (script !== -1 && NODE_TOOL_IN_TEXT.test(list.slice(script + 1).join(' '))) {
+      return { needed: true, rule: 'shell-runs-node-tooling' };
+    }
+  }
+  return { needed: false, rule: 'no-node-tooling' };
+}
+
+/**
+ * Said in the unattended approval when a step needs installed dependencies,
+ * so what somebody agrees to is what the scheduled run will do with them.
+ */
+export const UNATTENDED_DEPENDENCY_NOTE = 'Steps that need installed dependencies run, under atlasmind.sandbox.mode require, in the execution '
+  + 'sandbox against the dependency volume you prepared for this lockfile with AtlasMind: Prepare Sandbox Dependencies. If none is '
+  + 'prepared for the lockfile the run checks out, the run stops at that step and reports that dependencies are not prepared. '
+  + 'Nothing is installed unattended. Under mode off they run in the fresh worktree, which has no installed dependencies.';
 
 export interface UnattendedRunPlan {
   /** The prefix of the plan that may run. Possibly empty. */
@@ -240,6 +327,9 @@ export function describeUnattendedApproval(
   if (unattended.wouldHaveAsked.length > 0) {
     lines.push('', `If ${unattended.wouldHaveAsked.map(step => step.label).join(', ')} fails, the run stops instead of asking.`);
   }
+  if (unattended.runnable.some(step => classifyDependencyNeed('sh', ['-c', step.command]).needed)) {
+    lines.push('', UNATTENDED_DEPENDENCY_NOTE);
+  }
   lines.push('', 'Editing any step afterwards withdraws this approval until you give it again.');
   return lines.join('\n');
 }
@@ -254,6 +344,12 @@ export interface ScheduledRunReportInput {
   /** Present only when the worktree was kept. */
   worktreePath?: string;
   refusedReason?: string;
+  /**
+   * The step the execution sandbox refused because no dependency volume is
+   * prepared for this lockfile. Reported as needing a person: preparing one is
+   * a network-on install, which never happens unattended.
+   */
+  dependenciesNotPrepared?: { step: string };
 }
 
 /** The report a scheduled run leaves behind, in one or two sentences. */
@@ -261,6 +357,11 @@ export function describeScheduledRunReport(input: ScheduledRunReportInput): stri
   const where = input.worktreePath && input.branch
     ? ` Its changes are on \`${input.branch}\` in ${input.worktreePath}; merging them is your decision.`
     : '';
+  if (input.dependenciesNotPrepared) {
+    return `Scheduled run of "${input.routineName}" stopped at "${input.dependenciesNotPrepared.step}": dependencies are not prepared `
+      + 'in the execution sandbox for the lockfile this run checked out. Run AtlasMind: Prepare Sandbox Dependencies yourself — '
+      + `a scheduled run never installs anything.${where}`;
+  }
   switch (input.outcome) {
     case 'refused':
       return `Scheduled run of "${input.routineName}" did not start: ${input.refusedReason ?? 'it was refused before any step ran.'}`;

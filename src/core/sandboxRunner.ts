@@ -57,6 +57,7 @@ import {
   planExecution,
   type SandboxAttestation,
   type SandboxConfiguration,
+  type SandboxDependencyState,
   type SandboxEngine,
   type SandboxExecutionPlan,
   type SandboxHostFacts,
@@ -91,6 +92,16 @@ export const SANDBOX_ORPHAN_MIN_AGE_MS = 10 * 60 * 1000;
 export const SANDBOX_SWEEP_MAX = 64;
 /** The exit code of a refused command: "found, but cannot be executed". */
 export const SANDBOX_REFUSED_EXIT_CODE = 126;
+/**
+ * What every refusal for unprepared dependencies carries, so a scheduled run
+ * can report "dependencies not prepared" rather than a failed test.
+ */
+export const SANDBOX_DEPENDENCIES_REFUSAL_TAG = '[rule: dependencies/';
+
+/** Whether a command's output is the sandbox refusing it for want of prepared dependencies. */
+export function isSandboxDependencyRefusal(stderr: string): boolean {
+  return String(stderr ?? '').startsWith('Not run: ') && String(stderr).includes(SANDBOX_DEPENDENCIES_REFUSAL_TAG);
+}
 
 /** `r` + nine base-36 digits of the start time in ms + eight hex — so the name carries its own age. */
 const RUN_ID = /^r([0-9a-z]{9})([0-9a-f]{8})$/;
@@ -186,6 +197,12 @@ export interface SandboxSession extends SandboxSessionHandle {
   readonly configuration?: Readonly<SandboxConfiguration>;
   /** Absent under `off`, and when the settings could not be used. */
   readonly attestation?: SandboxAttestation;
+  /**
+   * What is known about the session's folder's installed dependencies, read
+   * when it was opened for a folder. Absent is *not assessed*: a command that
+   * loads installed packages is then refused. See `sandboxDependencies.ts`.
+   */
+  readonly dependencies?: SandboxDependencyState;
   /** Why the settings could not be used. */
   readonly problems: readonly string[];
   readonly host: SandboxHostFacts;
@@ -238,6 +255,12 @@ export interface SandboxHostDeps {
   host: SandboxHostFacts;
   now: () => Date;
   realpath: (target: string) => Promise<string>;
+  /**
+   * Reads whether a dependency volume is ready for a folder's lockfile
+   * (`readSandboxDependencyState`). Absent, every folder's state is *not
+   * assessed*, so commands that load installed packages are refused.
+   */
+  dependencies?: (root: string, attestation: SandboxAttestation | undefined) => Promise<SandboxDependencyState>;
   randomHex?: (bytes: number) => string;
   log?: (line: string) => void;
 }
@@ -254,6 +277,7 @@ const STAGE_LEADS: Readonly<Record<Extract<SandboxExecutionPlan, { route: 'refus
   eligibility: 'never run in the sandbox',
   attestation: 'sandbox unavailable',
   plan: 'sandbox unavailable',
+  dependencies: 'dependencies not prepared',
   argv: 'the sandbox cannot run it as asked',
 };
 
@@ -416,6 +440,7 @@ export class SandboxHost {
       session.configuration,
       session.host,
       this.deps.now(),
+      session.dependencies,
     );
     if (plan.route === 'refuse') {
       return refused(describeSandboxRefusal(plan));
@@ -501,6 +526,7 @@ export class SandboxHost {
       ...session,
       problems: Object.freeze([...session.problems]),
       ...(session.configuration ? { configuration: Object.freeze({ ...session.configuration }) } : {}),
+      ...(session.dependencies ? { dependencies: Object.freeze({ ...session.dependencies }) } : {}),
     });
     this.opened.add(frozen);
     return frozen;
@@ -525,13 +551,28 @@ export class SandboxHost {
       await this.reprobe(configuration, root);
     }
     const now = this.deps.now();
+    const attestation = this.deps.cache.attestation(configuration, now);
+    const dependencies = root ? await this.readDependencies(root, attestation) : undefined;
     return this.freeze({
       ...base,
       configuration,
-      attestation: this.deps.cache.attestation(configuration, now),
+      attestation,
+      ...(dependencies ? { dependencies } : {}),
       problems: [],
       openedAt: now.toISOString(),
     });
+  }
+
+  /** The folder's dependency state, or `undefined` (not assessed) when nothing can read it. A reader that throws is not ready. */
+  private async readDependencies(root: string, attestation: SandboxAttestation): Promise<SandboxDependencyState | undefined> {
+    if (!this.deps.dependencies) {
+      return undefined;
+    }
+    try {
+      return await this.deps.dependencies(root, attestation);
+    } catch (error) {
+      return { status: 'not-prepared', root, rule: 'assessed', reason: `The dependency state could not be read (${messageOf(error)}).` };
+    }
   }
 
   /** No reading young enough, or one taken of a different image or engine. */

@@ -893,6 +893,9 @@ function classifyGhCommand(args: readonly string[]): HostCommandGrade {
 const DOCKER_READ_COMMANDS: ReadonlySet<string> = new Set(['version', 'info', 'ps', 'images', 'inspect']);
 const DOCKER_READ_PAIRS: ReadonlySet<string> = new Set([
   'image inspect', 'image ls', 'container ls', 'container inspect', 'desktop version', 'desktop status', 'context ls', 'context show',
+  // The sandbox's dependency volumes are read before a command runs; creating
+  // or removing one stays an effect.
+  'volume inspect', 'volume ls',
 ]);
 
 /**

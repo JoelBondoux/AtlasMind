@@ -56,7 +56,14 @@
  * injected. No `vscode`.
  */
 
-import { planExecution, type SandboxAttestation, type SandboxConfiguration, type SandboxHostFacts, type SandboxMode } from './sandboxPlan.js';
+import {
+  planExecution,
+  type SandboxAttestation,
+  type SandboxConfiguration,
+  type SandboxDependencyState,
+  type SandboxHostFacts,
+  type SandboxMode,
+} from './sandboxPlan.js';
 import type { SandboxSettingInspection } from './sandboxProbe.js';
 import { redactSecrets } from '../utils/secretRedactor.js';
 import type { ToolApprovalAudit, ToolInvocationPolicy } from '../types.js';
@@ -204,6 +211,8 @@ export interface SandboxRelaxationSession {
   readonly mode: SandboxMode;
   readonly configuration?: Readonly<SandboxConfiguration>;
   readonly attestation?: SandboxAttestation;
+  /** The folder's dependency state, so a command the runner would refuse for want of them is not relaxed either. */
+  readonly dependencies?: SandboxDependencyState;
   readonly host: SandboxHostFacts;
 }
 
@@ -396,6 +405,7 @@ export async function evaluateSandboxApprovalRelaxation<S extends SandboxRelaxat
     session.configuration,
     session.host,
     deps.now(),
+    session.dependencies,
   );
   if (plan.route !== 'sandbox') {
     return notRelaxed(

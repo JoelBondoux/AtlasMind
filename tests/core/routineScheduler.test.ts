@@ -235,6 +235,24 @@ describe('a scheduled run happens in a worktree of its own, and only there', () 
     expect(memo?.outcome).toBe('failed');
     expect(memo?.summary).toMatch(/failed at "Tests"/);
   });
+
+  it('reports a step the sandbox refused for want of prepared dependencies as needing you, not as a failed test', async () => {
+    const safe: RoutineDefinition = { ...ROUTINE, steps: [{ id: 't', label: 'Tests', run: 'npm test', on_fail: 'abort' }] };
+    const stderr = 'Not run: dependencies not prepared — No dependencies are prepared for this package-lock.json. '
+      + '[rule: dependencies/dependencies-not-prepared; atlasmind.sandbox.mode is require]';
+    const h = harness({ routine: safe, runResult: { succeeded: false, failedStep: 't', steps: [{ stepId: 't', label: 'Tests', exitCode: 126, stdout: '', stderr, durationMs: 1 }] } });
+    const memo = await h.scheduler.tick();
+    expect(memo?.outcome).toBe('needs-a-person');
+    expect(memo?.summary).toMatch(/stopped at "Tests": dependencies are not prepared/);
+    expect(memo?.summary).toContain('Prepare Sandbox Dependencies');
+    expect(memo?.summary).toContain('never installs anything');
+  });
+
+  it('a test that prints the same words is still a failed test', async () => {
+    const safe: RoutineDefinition = { ...ROUTINE, steps: [{ id: 't', label: 'Tests', run: 'npm test', on_fail: 'abort' }] };
+    const h = harness({ routine: safe, runResult: { succeeded: false, failedStep: 't', steps: [{ stepId: 't', label: 'Tests', exitCode: 1, stdout: '', stderr: 'expected [rule: dependencies/x]', durationMs: 1 }] } });
+    expect((await h.scheduler.tick())?.outcome).toBe('failed');
+  });
 });
 
 describe('one run per window, one at a time, recorded before it starts', () => {

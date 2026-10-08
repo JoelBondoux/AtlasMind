@@ -460,6 +460,20 @@ Orchestrator binds the call to it with `withSandbox` or refuses it, and the runn
 an expiry in between is a refusal, never a run elsewhere. Each skipped prompt is audited
 (`ToolApprovalAudit`, written to the output channel and `ToolExecutionArtifact.approval`).
 
+**Installed dependencies come from a prepared volume (0.503.0).** A host's `node_modules` was built for the
+host — Windows or macOS binaries a Linux container cannot load — and a fresh worktree has none, so under
+`require` a command that loads installed packages (`classifyDependencyNeed`, shared with
+`scheduledRoutinePolicy`) runs only with a dependency volume prepared for the folder's current lockfile, mounted
+at `/work/node_modules`; without one it is refused with `dependencies-not-prepared`, never run against the host's
+copy. `src/core/sandboxDependencies.ts` detects exactly one supported lockfile (npm, pnpm, Yarn 1 — symlinks,
+workspaces, Bun, Yarn 2+ and several managers refused by a named rule), keys the volume
+`atlasmind-deps-<16 hex>` to lockfile bytes, image digest, manager, engine, platform, owner and the scripts choice,
+and calls it ready only when a recorded preparation and the engine's labelled volume agree. **AtlasMind: Prepare
+Sandbox Dependencies** (`src/views/sandboxDependenciesCommand.ts`) is the only network-on step: shown in full
+first, `--ignore-scripts` unless a second confirmation says otherwise, only `package.json` and the lockfile
+mounted read-only, writing only into the volume; dry run holds it and a scheduled routine never runs it — it
+reports "dependencies not prepared" instead. **AtlasMind: Remove Sandbox Dependency Volumes** cleans up on request.
+
 **A model-initiated fetch goes only where it was checked to go (0.490.2).**
 `src/core/egressDestinationPolicy.ts` (pure) screens a URL — `https` only, no credentials, no name that is
 local by definition — and judges every literal or resolved address by its numeric value against published
@@ -1739,13 +1753,14 @@ never accepted.
 | `src/core/sandboxProbe.ts` | Reads the container engine for the sandbox on request — engine order, the pinned image present locally (never pulled), a canary in the real argv — plus the settings reader that keeps the image machine-scoped, and the rule-by-rule report |
 | `src/core/sandboxApprovalRelaxation.ts` | Whether a terminal write bound for a confirmed sandbox may skip its approval prompt — your opt-in, `require`, a confirmed attestation, this exact command routed to the container — below dry run, the terminal-write ceiling, taint and the never-bypassable list; decided on the session that will run it, and audited. Pure |
 | `src/core/sandboxRunner.ts` | Under `atlasmind.sandbox.mode = require`, runs an agent's command in the container or refuses it — never on the host: one frozen session per decision, a bounded single-flight re-probe, dry run first, removal by name on a timeout or deactivation, and an orphan sweep that never touches another window's live command |
+| `src/core/sandboxDependencies.ts` | The dependency volume a sandboxed command loads installed packages from: lockfile detection by named rule, the content-addressed key, readiness from a record and a labelled volume that agree, and the one network-on preparation planned in full before it runs |
 | `src/core/quarantinedReader.ts` | How a long third-party result is read by a model with no tools, what its extract must look like to be believed, and how the raw text is released only after you approve |
 | `src/runtime/` | The built-in agents and how the runtime is composed |
 | `src/providers/` | Provider adapters, catalogues, health, local model discovery, `modelRole.ts` (what a model is *for*), and the local-GPU support layer that measures VRAM and reads what each runtime has loaded |
 | `src/skills/` | Built-in tools and skill handlers |
 | `src/memory/` | Memory retrieval, scanning, redaction, persistence |
 | `src/chat/` | The chat participant and interaction protocol |
-| `src/views/` | Settings, dashboards, editors and sidebar surfaces, and the Check Execution Sandbox report (`sandboxCheckCommand.ts`) |
+| `src/views/` | Settings, dashboards, editors and sidebar surfaces, the Check Execution Sandbox report (`sandboxCheckCommand.ts`) and the Prepare / Remove Sandbox Dependencies commands (`sandboxDependenciesCommand.ts`) |
 | `src/mcp/` and `src/ard/` | MCP connectivity and resource discovery, including tool pinning and the tool-description scan (`mcpToolPins.ts`) |
 | `src/voice/` and `src/remote/` | Voice backends and remote control |
 | `src/cli/` | The command-line tool and the agent endpoint |

@@ -7,7 +7,10 @@ import fc from 'fast-check';
 import {
   DEPENDENCY_CHECK_ROUTINE_FILE,
   DEPENDENCY_CHECK_ROUTINE_TEMPLATE,
+  DEPENDENCY_NEED_RULES,
+  UNATTENDED_DEPENDENCY_NOTE,
   UNATTENDED_STEP_RULES,
+  classifyDependencyNeed,
   classifyUnattendedStep,
   describeScheduledRunReport,
   describeUnattendedApproval,
@@ -29,6 +32,58 @@ function ready(routine: RoutineDefinition) {
 }
 
 const step = (id: string, run: string, on_fail: 'abort' | 'prompt' | 'continue' = 'abort') => ({ id, label: id, run, on_fail });
+
+describe('which commands need installed dependencies', () => {
+  it.each([
+    ['npm', ['test'], 'node-tooling'],
+    ['node', ['x.js'], 'node-tooling'],
+    ['vitest', ['run'], 'node-tooling'],
+    ['npm.cmd', ['run', 'build'], 'node-tooling'],
+    ['./node_modules/.bin/custom-cli', ['.'], 'node-modules-path'],
+    ['node_modules\\.bin\\custom-cli', [], 'node-modules-path'],
+    ['sh', ['-c', 'npm test'], 'shell-runs-node-tooling'],
+    ['bash', ['-lc', 'cd web && pnpm build'], 'shell-runs-node-tooling'],
+    ['sh', ['-c', 'ls node_modules'], 'shell-runs-node-tooling'],
+  ] as const)('%s %j needs them (%s)', (executable, args, rule) => {
+    expect(classifyDependencyNeed(executable, args)).toEqual({ needed: true, rule });
+  });
+
+  it.each([
+    ['make', ['build']],
+    ['pytest', []],
+    ['sh', ['-c', 'echo nodes > notes.txt']],
+    ['sh', ['-c', 'cat ./src/node.ts']],
+    ['sh', ['script-mentioning-npm.sh']],
+    ['cargo', ['test']],
+  ] as const)('%s %j does not', (executable, args) => {
+    expect(classifyDependencyNeed(executable, args)).toEqual({ needed: false, rule: 'no-node-tooling' });
+  });
+
+  it('declares each rule once, and only the last says not needed', () => {
+    expect(DEPENDENCY_NEED_RULES.map(rule => rule.id)).toEqual(['node-tooling', 'node-modules-path', 'shell-runs-node-tooling', 'no-node-tooling']);
+    expect(DEPENDENCY_NEED_RULES.filter(rule => !rule.needed).map(rule => rule.id)).toEqual(['no-node-tooling']);
+  });
+
+  it('the unattended approval says how dependency-needing steps run, and only when there is one', () => {
+    const tests = ready({ id: 'r', name: 'R', description: '', steps: [step('lint', 'make lint'), step('test', 'npm test')] });
+    expect(describeUnattendedApproval({ name: 'R' }, 'Daily at 02:00', tests)).toContain(UNATTENDED_DEPENDENCY_NOTE);
+    const plain = ready({ id: 'p', name: 'P', description: '', steps: [step('lint', 'make lint')] });
+    expect(describeUnattendedApproval({ name: 'P' }, 'Daily at 02:00', plain)).not.toContain(UNATTENDED_DEPENDENCY_NOTE);
+    expect(UNATTENDED_DEPENDENCY_NOTE).toContain('Nothing is installed unattended');
+  });
+
+  it('a report for unprepared dependencies needs you, and says nothing was installed', () => {
+    const text = describeScheduledRunReport({ routineName: 'R', outcome: 'needs-a-person', dependenciesNotPrepared: { step: 'Run the tests' } });
+    expect(text).toMatch(/stopped at "Run the tests": dependencies are not prepared/);
+    expect(text).toContain('never installs anything');
+  });
+
+  it('preparing dependencies is still an install, so a scheduled run never does it', () => {
+    for (const command of ['npm ci --ignore-scripts', 'pnpm install --frozen-lockfile', 'yarn install --frozen-lockfile']) {
+      expect(classifyUnattendedStep(command)?.id, command).toBe('installs-packages');
+    }
+  });
+});
 
 describe('an unattended run stops at propose', () => {
   it.each([

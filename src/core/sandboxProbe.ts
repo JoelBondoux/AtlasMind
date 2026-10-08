@@ -91,6 +91,8 @@ import {
   describeSandboxRelaxationState,
   type RelaxTerminalApprovalsReading,
 } from './sandboxApprovalRelaxation.js';
+import { renderSandboxDependencySection, type SandboxDependencyRecord } from './sandboxDependencies.js';
+import type { SandboxDependencyState } from './sandboxPlan.js';
 import { redactSecrets } from '../utils/secretRedactor.js';
 
 // ── Constants ────────────────────────────────────────────────────
@@ -723,6 +725,11 @@ export interface SandboxCheckReportInput {
    * Absent, the report says nothing about relaxation rather than guessing.
    */
   relaxation?: { setting: RelaxTerminalApprovalsReading; allowTerminalWrite: boolean };
+  /**
+   * Whether a dependency volume is ready for the checked folder's lockfile, and
+   * what this machine recorded. Absent, the report says nothing about it.
+   */
+  dependencies?: { state?: SandboxDependencyState; records: readonly SandboxDependencyRecord[] };
 }
 
 function cell(value: string): string {
@@ -751,7 +758,8 @@ export function renderSandboxCheckReport(input: SandboxCheckReportInput): string
     mode === 'require'
       ? '> **Enforced.** The mode is `require`: every agent command runs in this sandbox or is refused, with the rule that '
         + 'stopped it — never on your machine instead. git, and anything that installs, publishes or reaches the network, '
-        + 'is refused rather than run. Approvals are unchanged unless you opted in to relaxed terminal approvals — '
+        + 'is refused rather than run, and a command that loads installed packages runs only with dependencies prepared for '
+        + 'the lockfile — see *Dependencies* below. Approvals are unchanged unless you opted in to relaxed terminal approvals — '
         + 'see *Approval relaxation* below.'
       : '> **Off.** The mode is `off`, so agent commands run on your machine, behind the same approvals as always. '
         + 'Set `atlasmind.sandbox.mode` to `require` to run them in this sandbox or refuse them.',
@@ -809,6 +817,10 @@ export function renderSandboxCheckReport(input: SandboxCheckReportInput): string
     if (steps.length > 0) {
       lines.push('## What to do', '', ...steps.map((step, index) => `${index + 1}. ${step}`), '');
     }
+  }
+
+  if (input.dependencies) {
+    lines.push(...renderSandboxDependencySection(input.dependencies.state, input.dependencies.records));
   }
 
   if (input.relaxation) {

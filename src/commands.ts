@@ -1847,11 +1847,26 @@ export function registerCommands(
     }),
 
     // Read the container engine on request and say, rule by rule, whether the
-    // execution sandbox would be available. Probes only when asked; nothing is
-    // routed through the sandbox yet.
+    // execution sandbox is available — and whether dependencies are prepared
+    // for this folder's lockfile. Probes only when asked.
     vscode.commands.registerCommand('atlasmind.checkExecutionSandbox', async () => {
       const { checkExecutionSandbox } = await import('./views/sandboxCheckCommand.js');
-      await checkExecutionSandbox();
+      await checkExecutionSandbox({}, context.globalState);
+    }),
+
+    // The execution sandbox's one network-on step: install this folder's
+    // lockfile into a dependency volume, after a modal that shows every engine
+    // command. Only on request — never on a timer or for a scheduled routine.
+    vscode.commands.registerCommand('atlasmind.prepareSandboxDependencies', async () => {
+      const { prepareSandboxDependencies } = await import('./views/sandboxDependenciesCommand.js');
+      await prepareSandboxDependencies(context.globalState);
+    }),
+
+    // Dependency volumes accumulate as lockfiles change; list them and remove
+    // the ones you pick.
+    vscode.commands.registerCommand('atlasmind.removeSandboxDependencyVolumes', async () => {
+      const { removeSandboxDependencyVolumes } = await import('./views/sandboxDependenciesCommand.js');
+      await removeSandboxDependencyVolumes(context.globalState);
     }),
 
     // Scheduled routines: approve a routine's steps to run on their own while

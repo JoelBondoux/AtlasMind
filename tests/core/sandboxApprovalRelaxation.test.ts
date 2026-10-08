@@ -655,3 +655,24 @@ describe('purity', () => {
     expect(runtimeImports.sort()).toEqual(['../utils/secretRedactor.js', './sandboxPlan.js']);
   });
 });
+
+describe('installed dependencies at the gate', () => {
+  it('does not relax a command the runner would refuse for want of prepared dependencies', async () => {
+    const notPrepared = session({ dependencies: { status: 'not-prepared', root: ROOT, rule: 'prepared', reason: 'No dependencies.' } });
+    const decision = await evaluateSandboxApprovalRelaxation(facts({}, 'node', ['scripts/build.mjs']), deps(notPrepared));
+    expect(decision).toMatchObject({ outcome: 'ask', rule: 'route-not-sandbox' });
+    expect(decision.reason).toContain('dependencies/dependencies-not-prepared');
+  });
+
+  it('relaxes it once a volume is ready for that folder, and a command that loads no packages either way', async () => {
+    const ready = session({
+      dependencies: {
+        status: 'ready', root: ROOT, volume: 'atlasmind-deps-0123456789abcdef', key: '0123456789abcdef'.repeat(4),
+        manager: 'npm', lockfile: 'package-lock.json', installScripts: false, preparedAt: NOW.toISOString(),
+      },
+    });
+    expect((await evaluateSandboxApprovalRelaxation(facts({}, 'node', ['scripts/build.mjs']), deps(ready))).outcome).toBe('relaxed');
+    const notPrepared = session({ dependencies: { status: 'not-prepared', root: ROOT, rule: 'prepared', reason: 'No dependencies.' } });
+    expect((await evaluateSandboxApprovalRelaxation(facts(), deps(notPrepared))).outcome).toBe('relaxed');
+  });
+});

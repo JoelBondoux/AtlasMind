@@ -54,17 +54,28 @@
  *    installs — the vocabulary `scheduledRoutinePolicy` already uses, reused so
  *    the two cannot disagree about what an install is. Under `require` they are
  *    refused, not run on the host.
- * 7. **A sandbox changes where a command runs, not whether it is allowed.**
+ * 7. **Installed dependencies come from a prepared volume, never the host.**
+ *    A host's `node_modules` was built for the host — Windows or macOS binaries
+ *    a Linux container cannot load — so a command that loads installed packages
+ *    (`classifyDependencyNeed`, the vocabulary `scheduledRoutinePolicy` shares)
+ *    runs only with a dependency volume prepared for the folder's current
+ *    lockfile, mounted at `/work/node_modules` and shadowing whatever the host
+ *    has there. Without one it is refused with `dependencies-not-prepared`; a
+ *    state nobody assessed is `dependencies-not-assessed`, never "probably
+ *    fine". `sandboxDependencies.ts` decides readiness and prepares volumes —
+ *    a separate, approved, network-on step this plan never takes.
+ * 8. **A sandbox changes where a command runs, not whether it is allowed.**
  *    `SANDBOX_INTERACTION_RULES` states what this slice leaves untouched: dry
  *    run still wins (a sandboxed run is still an effect), provenance taint is
- *    not relaxed, unattended routines are not unlocked, and approvals loosen
- *    only through the separate opt-in `sandboxApprovalRelaxation` enforces.
+ *    not relaxed, unattended routines still install nothing (they use only
+ *    dependencies somebody prepared), and approvals loosen only through the
+ *    separate opt-in `sandboxApprovalRelaxation` enforces.
  *
  * Pure: no `vscode`, no `child_process`, no I/O, clock injected.
  */
 
 import * as path from 'node:path';
-import { classifyUnattendedStep, type UnattendedStepRuleId } from './scheduledRoutinePolicy.js';
+import { classifyDependencyNeed, classifyUnattendedStep, type UnattendedStepRuleId } from './scheduledRoutinePolicy.js';
 import type { LocalCiCapacity } from './localCiRunner.js';
 
 // ── Vocabulary ───────────────────────────────────────────────────
@@ -150,6 +161,25 @@ export interface SandboxInvocation {
   env: Readonly<Record<string, string | undefined>>;
 }
 
+/**
+ * What is known about one mounted folder's installed dependencies, read by
+ * `sandboxDependencies.readSandboxDependencyState` and frozen into a session.
+ * `rule` on `not-prepared` names a row of `SANDBOX_DEPENDENCY_RULES` there.
+ */
+export type SandboxDependencyState =
+  | { status: 'not-a-node-project'; root: string; reason: string }
+  | {
+    status: 'ready';
+    root: string;
+    volume: string;
+    key: string;
+    manager: string;
+    lockfile: string;
+    installScripts: boolean;
+    preparedAt: string;
+  }
+  | { status: 'not-prepared'; root: string; rule: string; reason: string };
+
 // ── Constants ────────────────────────────────────────────────────
 
 export const SANDBOX_MOUNT_TARGET = '/work';
@@ -163,6 +193,16 @@ export const SANDBOX_TMPFS = '/tmp:rw,nosuid,nodev,size=512m';
 export const SANDBOX_PROBE_MAX_AGE_MS = 10 * 60 * 1000;
 export const SANDBOX_CPU_RANGE = { min: 0.25, max: 64 } as const;
 export const SANDBOX_MEMORY_GB_RANGE = { min: 0.5, max: 256 } as const;
+/** Where a prepared dependency volume is mounted: over the mounted folder's own `node_modules`. */
+export const SANDBOX_DEPENDENCY_TARGET = `${SANDBOX_MOUNT_TARGET}/node_modules`;
+/** Every dependency volume AtlasMind names starts with this, followed by 16 hex characters of its key. */
+export const SANDBOX_DEPENDENCY_VOLUME_PREFIX = 'atlasmind-deps-';
+const DEPENDENCY_VOLUME_NAME = /^atlasmind-deps-[0-9a-f]{16}$/;
+
+/** Whether a value is a dependency volume name AtlasMind would have made — validated, never cleaned. */
+export function isSandboxDependencyVolumeName(value: unknown): value is string {
+  return typeof value === 'string' && DEPENDENCY_VOLUME_NAME.test(value);
+}
 
 /**
  * Set by AtlasMind, never passed through: the root is read-only, so a tool that
@@ -268,7 +308,7 @@ export const SANDBOX_ELIGIBILITY_RULES: ReadonlyArray<SandboxRule<SandboxEligibi
   {
     id: 'installs-packages',
     description: 'Installs or updates packages. What an install runs is decided by the registry, and the sandbox has no network; '
-      + 'a separately approved dependency step is a later slice.',
+      + 'dependencies are prepared separately, with your approval, by AtlasMind: Prepare Sandbox Dependencies.',
   },
 ];
 
@@ -282,7 +322,8 @@ export type SandboxArgvRuleId =
   | 'mount-root'
   | 'mount-sensitive'
   | 'working-directory'
-  | 'executable';
+  | 'executable'
+  | 'dependency-volume';
 
 /** What a sandbox argv must satisfy before it is built. A failure refuses; nothing is cleaned into shape. */
 export const SANDBOX_ARGV_RULES: ReadonlyArray<SandboxRule<SandboxArgvRuleId>> = [
@@ -309,6 +350,11 @@ export const SANDBOX_ARGV_RULES: ReadonlyArray<SandboxRule<SandboxArgvRuleId>> =
     id: 'executable',
     description: 'The executable is a bare name or a ./relative path — the requested command, never a host path the container does not have.',
   },
+  {
+    id: 'dependency-volume',
+    description: 'A dependency volume, when one is mounted, is a name AtlasMind made (atlasmind-deps-<16 hex>), mounted at /work/node_modules '
+      + 'and nowhere else. It is the only mount besides the folder, and never a host path.',
+  },
 ];
 
 export type SandboxPlanRuleId =
@@ -316,6 +362,8 @@ export type SandboxPlanRuleId =
   | 'require-never-host'
   | 'attestation-expired'
   | 'attestation-for-other-configuration'
+  | 'dependencies-not-assessed'
+  | 'dependencies-not-prepared'
   | 'sandboxed';
 
 export const SANDBOX_PLAN_RULES: ReadonlyArray<SandboxRule<SandboxPlanRuleId>> = [
@@ -329,13 +377,23 @@ export const SANDBOX_PLAN_RULES: ReadonlyArray<SandboxRule<SandboxPlanRuleId>> =
     id: 'attestation-for-other-configuration',
     description: 'The attestation vouches for a different image or engine than the settings now name.',
   },
+  {
+    id: 'dependencies-not-assessed',
+    description: 'The command loads installed packages, and nobody read whether dependencies are prepared for this folder. '
+      + 'Not assessed is not ready, so it is refused.',
+  },
+  {
+    id: 'dependencies-not-prepared',
+    description: 'The command loads installed packages, and no dependency volume is ready for this folder\'s lockfile. The host\'s own '
+      + 'node_modules is never used in its place. Run AtlasMind: Prepare Sandbox Dependencies — a separate, approved step with network access.',
+  },
   { id: 'sandboxed', description: 'Eligible, attested, and the argv passed every rule: the command runs in the sandbox.' },
 ];
 
 export type SandboxInteractionRuleId =
   | 'dry-run-wins'
   | 'taint-not-relaxed'
-  | 'unattended-unchanged'
+  | 'unattended-uses-prepared-dependencies'
   | 'approvals-relaxed-only-by-opt-in';
 
 /**
@@ -356,9 +414,10 @@ export const SANDBOX_INTERACTION_RULES: ReadonlyArray<SandboxRule<SandboxInterac
       + 'A terminal write after untrusted content still needs the fresh approval `contextProvenance` requires; a sandbox is not a release valve.',
   },
   {
-    id: 'unattended-unchanged',
-    description: 'Scheduled routines keep refusing what `scheduledRoutinePolicy` refuses. A later dependency volume could let tests run unattended '
-      + 'without an install, but nothing here changes that policy, and installs stay refused by the same vocabulary.',
+    id: 'unattended-uses-prepared-dependencies',
+    description: 'Scheduled routines keep refusing what `scheduledRoutinePolicy` refuses, installs included. Under require, a scheduled '
+      + 'step that needs installed dependencies runs against a volume somebody prepared for that lockfile, and stops with '
+      + '"dependencies not prepared" when there is none. Preparing one is network-on and approved, so it never happens unattended.',
   },
   {
     id: 'approvals-relaxed-only-by-opt-in',
@@ -438,6 +497,8 @@ export type SandboxAttestation =
     image: string;
     digest: string;
     rootless: boolean;
+    /** The engine's architecture as it reported it, when it did. A dependency volume is keyed to it. */
+    arch?: string;
     probedAt: string;
     expiresAt: string;
     rules: readonly SandboxAttestationRuleId[];
@@ -534,6 +595,7 @@ export function assessSandboxAttestation(
     image: image.reference,
     digest: image.digest,
     rootless: probe.rootless,
+    ...(typeof probe.arch === 'string' && probe.arch ? { arch: probe.arch } : {}),
     probedAt,
     expiresAt: new Date(probedAtMs + SANDBOX_PROBE_MAX_AGE_MS).toISOString(),
     rules: SANDBOX_ATTESTATION_RULES.map(rule => rule.id),
@@ -612,6 +674,8 @@ export interface SandboxRunSpec {
   root: string;
   cwd: string;
   env: Readonly<Record<string, string | undefined>>;
+  /** A prepared dependency volume to mount at `/work/node_modules`. Validated, never cleaned. */
+  dependencyVolume?: string;
 }
 
 export type SandboxArgvResult =
@@ -729,6 +793,72 @@ function validId(value: number): boolean {
   return Number.isInteger(value) && value >= 0 && value <= 0x7fffffff;
 }
 
+/** `--cpus`, `--memory` and `--memory-swap`, or `undefined` when either limit cannot be stated. Shared with the dependency step. */
+export function sandboxLimitArgs(cpus: number, memoryGb: number): string[] | undefined {
+  const formatted = formatCpus(cpus);
+  const memory = memoryMb(memoryGb);
+  if (formatted === undefined || memory === undefined) {
+    return undefined;
+  }
+  return ['--cpus', formatted, '--memory', `${memory}m`, '--memory-swap', `${memory}m`];
+}
+
+/**
+ * How the command's user is mapped: on a Linux host, the editor's own
+ * `uid:gid` (with keep-id under rootless Podman), never root; elsewhere the
+ * engine's VM owns the files and nothing is passed. Shared with the dependency
+ * step, so a volume is prepared as the user that will read it.
+ */
+export function sandboxUserArgs(
+  engine: SandboxEngine,
+  rootless: boolean,
+  host: SandboxHostFacts,
+): { ok: true; args: string[] } | { ok: false; reason: string } {
+  if (host?.os !== 'linux') {
+    return { ok: true, args: [] };
+  }
+  const user = host.user;
+  if (!user || !validId(user.uid) || !validId(user.gid)) {
+    return { ok: false, reason: 'On a Linux host the editor\'s uid and gid must be known, or files written in the sandbox could not be yours.' };
+  }
+  if (user.uid === 0) {
+    return { ok: false, reason: 'The editor is running as root. A sandboxed command never runs as host root.' };
+  }
+  if (rootless !== (engine === 'podman')) {
+    return {
+      ok: false,
+      reason: engine === 'docker'
+        ? 'Rootless Docker maps users through a subordinate range, so --user would write files your account cannot own.'
+        : 'Rootful Podman runs containers as host root; only rootless Podman with keep-id is used.',
+    };
+  }
+  // Rootless Podman (the only Podman attested) maps the host user to itself.
+  return { ok: true, args: [...(engine === 'podman' ? ['--userns', 'keep-id'] : []), '--user', `${user.uid}:${user.gid}`] };
+}
+
+/**
+ * Whether a folder may be mounted at all: absolute, in normal form, not a
+ * filesystem root, and neither the home directory, a credential folder, an
+ * engine socket nor the ssh agent. `undefined` when it may. Shared with the
+ * dependency step, which mounts two files from the same folder.
+ */
+export function checkSandboxMountRoot(
+  root: string,
+  host: SandboxHostFacts,
+): { rule: 'host-os' | 'mount-root' | 'mount-sensitive'; reason: string } | undefined {
+  const hostOs = host?.os;
+  if (typeof hostOs !== 'string' || !isHostOs(hostOs)) {
+    return { rule: 'host-os', reason: `A Linux engine is not reachable from ${String(hostOs || 'this host')} in a way AtlasMind supports.` };
+  }
+  const api = pathApiFor(hostOs);
+  const rootProblem = checkRoot(api, hostOs, root);
+  if (rootProblem) {
+    return { rule: 'mount-root', reason: rootProblem };
+  }
+  const sensitive = checkSensitive(api, hostOs, root, host);
+  return sensitive ? { rule: 'mount-sensitive', reason: sensitive } : undefined;
+}
+
 /**
  * Filter the candidate environment through the allowlist. Returned sorted, so
  * the same inputs always produce the same argv.
@@ -777,26 +907,12 @@ export function buildSandboxArgv(spec: SandboxRunSpec): SandboxArgvResult {
   if (typeof hostOs !== 'string' || !isHostOs(hostOs)) {
     return refuseArgv('host-os', `A Linux engine is not reachable from ${String(hostOs || 'this host')} in a way AtlasMind supports.`);
   }
-  const user = spec.host.user;
-  if (hostOs === 'linux') {
-    if (!user || !validId(user.uid) || !validId(user.gid)) {
-      return refuseArgv('host-user', 'On a Linux host the editor\'s uid and gid must be known, or files written in the sandbox could not be yours.');
-    }
-    if (user.uid === 0) {
-      return refuseArgv('host-user', 'The editor is running as root. A sandboxed command never runs as host root.');
-    }
-    if (spec.rootless !== (engine === 'podman')) {
-      return refuseArgv(
-        'host-user',
-        engine === 'docker'
-          ? 'Rootless Docker maps users through a subordinate range, so --user would write files your account cannot own.'
-          : 'Rootful Podman runs containers as host root; only rootless Podman with keep-id is used.',
-      );
-    }
+  const userArgs = sandboxUserArgs(engine, spec.rootless, spec.host);
+  if (!userArgs.ok) {
+    return refuseArgv('host-user', userArgs.reason);
   }
-  const cpus = formatCpus(spec.cpus);
-  const memory = memoryMb(spec.memoryGb);
-  if (cpus === undefined || memory === undefined) {
+  const limits = sandboxLimitArgs(spec.cpus, spec.memoryGb);
+  if (limits === undefined) {
     return refuseArgv(
       'limits',
       `CPU must be ${SANDBOX_CPU_RANGE.min}–${SANDBOX_CPU_RANGE.max} (two decimals at most) and memory ${SANDBOX_MEMORY_GB_RANGE.min}–${SANDBOX_MEMORY_GB_RANGE.max} GB.`,
@@ -827,6 +943,9 @@ export function buildSandboxArgv(spec: SandboxRunSpec): SandboxArgvResult {
       'The executable must be a bare command name or a ./relative path. A host path names a file the container does not have.',
     );
   }
+  if (spec.dependencyVolume !== undefined && !isSandboxDependencyVolumeName(spec.dependencyVolume)) {
+    return refuseArgv('dependency-volume', 'The dependency volume is not a name AtlasMind makes (atlasmind-deps-<16 hex>), so it is not mounted.');
+  }
   const { pairs, rejected } = selectSandboxEnv(spec.env ?? {});
 
   const argv: string[] = [
@@ -839,21 +958,16 @@ export function buildSandboxArgv(spec: SandboxRunSpec): SandboxArgvResult {
     '--read-only',
     '--tmpfs', SANDBOX_TMPFS,
     '--pids-limit', String(SANDBOX_PIDS_LIMIT),
-    '--cpus', cpus,
-    '--memory', `${memory}m`,
-    '--memory-swap', `${memory}m`,
-  ];
-  if (hostOs === 'linux' && user) {
-    if (engine === 'podman') {
-      // Rootless Podman (the only Podman attested) maps the host user to itself.
-      argv.push('--userns', 'keep-id');
-    }
-    argv.push('--user', `${user.uid}:${user.gid}`);
-  }
-  argv.push(
+    ...limits,
+    ...userArgs.args,
     '--mount', `type=bind,source=${spec.root},target=${SANDBOX_MOUNT_TARGET}`,
-    '--workdir', workdir,
-  );
+  ];
+  if (spec.dependencyVolume !== undefined) {
+    // Mounted over the folder's own node_modules: the engine orders mounts by
+    // target, so the volume shadows whatever the host has there.
+    argv.push('--mount', `type=volume,source=${spec.dependencyVolume},target=${SANDBOX_DEPENDENCY_TARGET}`);
+  }
+  argv.push('--workdir', workdir);
   for (const [name, value] of SANDBOX_FIXED_ENV) {
     argv.push('--env', `${name}=${value}`);
   }
@@ -878,11 +992,13 @@ export type SandboxExecutionPlan =
     argv: string[];
     attestationId: string;
     rejectedEnv: string[];
+    /** The dependency volume mounted at `/work/node_modules`, when one was ready. */
+    dependencyVolume?: string;
   }
   | {
     route: 'refuse';
-    /** Which table the refusing rule comes from. */
-    stage: 'eligibility' | 'attestation' | 'plan' | 'argv';
+    /** Which table the refusing rule comes from. `dependencies` refusals use `SANDBOX_PLAN_RULES`. */
+    stage: 'eligibility' | 'attestation' | 'plan' | 'dependencies' | 'argv';
     rule: SandboxEligibilityRuleId | SandboxAttestationRuleId | SandboxPlanRuleId | SandboxArgvRuleId;
     reason: string;
   };
@@ -892,10 +1008,46 @@ function planRule(id: SandboxPlanRuleId): string {
 }
 
 /**
+ * Which dependency volume, if any, this command mounts — or why it may not run.
+ *
+ * A ready volume for the same folder is mounted for every command there, so
+ * all of them see one `node_modules`. Otherwise a command that loads installed
+ * packages is refused: `not-a-node-project` needs nothing, a state for another
+ * folder or none at all is not assessed, and anything else is not prepared.
+ */
+function decideDependencies(
+  invocation: SandboxInvocation,
+  dependencies: SandboxDependencyState | undefined,
+): { volume?: string } | { refuse: 'dependencies-not-assessed' | 'dependencies-not-prepared'; detail: string } {
+  const state = dependencies && dependencies.root === invocation.root ? dependencies : undefined;
+  if (state?.status === 'ready' && isSandboxDependencyVolumeName(state.volume)) {
+    return { volume: state.volume };
+  }
+  if (state?.status === 'not-a-node-project') {
+    return {};
+  }
+  const need = classifyDependencyNeed(invocation?.executable ?? '', invocation?.args ?? []);
+  if (!need.needed) {
+    return {};
+  }
+  if (!state) {
+    return {
+      refuse: 'dependencies-not-assessed',
+      detail: dependencies ? 'The dependency state on hand is for a different folder.' : '',
+    };
+  }
+  return { refuse: 'dependencies-not-prepared', detail: state.status === 'not-prepared' ? state.reason : '' };
+}
+
+/**
  * Where one command runs. `off` → the host, unchanged. Anything else is read as
  * `require`, and then the answer is the sandbox or a refusal naming the rule —
  * never the host. Nothing is started: the caller gets an argv to hand to the
  * engine, or a reason to show.
+ *
+ * `dependencies` is what `sandboxDependencies` read about the mounted folder.
+ * Absent is *not assessed*: a command that loads installed packages is refused
+ * rather than run against a host `node_modules` built for another platform.
  */
 export function planExecution(
   invocation: SandboxInvocation,
@@ -903,6 +1055,7 @@ export function planExecution(
   configuration: SandboxConfiguration,
   host: SandboxHostFacts,
   now: Date,
+  dependencies?: SandboxDependencyState,
 ): SandboxExecutionPlan {
   if (readSandboxMode(configuration?.mode) === 'off') {
     return { route: 'host', rule: 'sandbox-off', reason: planRule('sandbox-off') };
@@ -941,6 +1094,15 @@ export function planExecution(
       reason: planRule('attestation-for-other-configuration'),
     };
   }
+  const deps = decideDependencies(invocation, dependencies);
+  if ('refuse' in deps) {
+    return {
+      route: 'refuse',
+      stage: 'dependencies',
+      rule: deps.refuse,
+      reason: [deps.detail, planRule(deps.refuse), planRule('require-never-host')].filter(Boolean).join(' '),
+    };
+  }
   const built = buildSandboxArgv({
     engine: attestation.engine,
     image: configuration.image,
@@ -954,6 +1116,7 @@ export function planExecution(
     root: invocation.root,
     cwd: invocation.cwd,
     env: invocation.env,
+    ...(deps.volume ? { dependencyVolume: deps.volume } : {}),
   });
   if (!built.ok) {
     return { route: 'refuse', stage: 'argv', rule: built.rule, reason: `${built.reason} ${planRule('require-never-host')}` };
@@ -965,5 +1128,6 @@ export function planExecution(
     argv: built.argv,
     attestationId: attestation.id,
     rejectedEnv: built.rejectedEnv,
+    ...(deps.volume ? { dependencyVolume: deps.volume } : {}),
   };
 }

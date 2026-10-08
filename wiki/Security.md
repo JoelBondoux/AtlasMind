@@ -169,6 +169,16 @@ container engine process. What the sandbox promises:
 - **It does not loosen anything else.** Without that opt-in, approvals are unchanged. Dry run still runs nothing — not even a
   probe. A command after the agent has read someone else's text still needs a fresh approval. Scheduled
   routines refuse what they refused before.
+- **Dependencies come from a volume you prepared, never from your machine (0.503.0).** A command that loads
+  installed packages runs only with a dependency volume prepared for the folder's current lockfile; your own
+  `node_modules` (built for your machine) is never used in the container, and a changed lockfile is refused
+  until prepared again. Preparing — **AtlasMind: Prepare Sandbox Dependencies** — is the sandbox's one
+  network-on step, and you see every command first. That container sees only `package.json` and the lockfile,
+  read-only (not your source, `.npmrc` or environment), writes only into the volume, and does not run install
+  scripts unless you confirm a second, separate warning — they are arbitrary code from every package, with
+  network access, and what they leave in the volume runs whenever a sandboxed command loads it. A symlinked
+  manifest or lockfile is refused rather than followed, so it cannot hand that container another file. A dry
+  run, an agent and a scheduled routine never prepare dependencies.
 - **What it does not contain.** Commands you start yourself, tools of MCP servers you connected, a
   model-written skill (off by default and reviewed first), and the `atlasmind` CLI.
 

@@ -526,6 +526,14 @@ notification (**Open Run Center**, **Mark reviewed**), and appears on the Overvi
 you mark it reviewed. A worktree that holds changes is kept and named; an empty one is removed. In a dry
 run, a due routine is recorded, not run.
 
+**Tests on their own need prepared dependencies (0.503.0).** A fresh worktree has no `node_modules`, and a
+scheduled run installs nothing. With `atlasmind.sandbox.mode` on `require`, a step that loads installed
+packages (`npm test`, `vitest`, `tsc`…) runs in the execution sandbox against the dependency volume you
+prepared for that lockfile with **AtlasMind: Prepare Sandbox Dependencies** — so scheduled tests can now run
+unattended. If none is prepared for the lockfile the run checked out, it stops at that step and the report says
+*dependencies are not prepared* (needing you, not a failed test). The approval dialog says this whenever a step
+needs dependencies. With the mode `off`, such steps run in the bare worktree as before.
+
 **The nightly dependency check** (**AtlasMind: Add Nightly Dependency Check Routine**) is the built-in
 example. Unattended, it runs `npm outdated` and stops before `npm update`, so the report tells you what is
 out of date and that the update is waiting for you. `/ship dependency-check` does all of it, attended.

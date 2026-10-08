@@ -2,7 +2,7 @@
   "name": "atlasmind",
   "displayName": "AtlasMind",
   "description": "AI project management for VS Code: roadmap, risk, tech debt, compliance, testing and release tracked from your own repository — with a multi-agent AI team, or the AI coding tool you already use.",
-  "version": "0.502.0",
+  "version": "0.503.0",
   "publisher": "JoelBondoux",
   "preview": false,
   "license": "SEE LICENSE IN OSMFEULA.txt",
@@ -649,6 +649,16 @@
         "command": "atlasmind.checkExecutionSandbox",
         "title": "AtlasMind: Check Execution Sandbox",
         "icon": "$(shield)"
+      },
+      {
+        "command": "atlasmind.prepareSandboxDependencies",
+        "title": "AtlasMind: Prepare Sandbox Dependencies",
+        "icon": "$(package)"
+      },
+      {
+        "command": "atlasmind.removeSandboxDependencyVolumes",
+        "title": "AtlasMind: Remove Sandbox Dependency Volumes",
+        "icon": "$(trash)"
       },
       {
         "command": "atlasmind.manageScheduledRoutines",
