@@ -452,6 +452,17 @@ server only after `confirmAndStartDevServer`'s resolve → modal → dry-run →
 the built-in browser at the printed loopback address. The host posts back `surfaceRenderState` with the
 sentence `describeUiSurfaceRender` composed, which the browser shows with `textContent`. Only a static
 render starts automatically when a surface is opened from the rail; the dev server stops with the Studio.
+A static page's card also carries **Select & edit elements…** (`data-edit-surface`), and every other kind
+**Open in editor** (`data-open-surface-source`); both post the same scan-derived id and nothing else, and
+`handleEditSurfaceElements` / `handleOpenSurfaceSource` resolve it against a fresh scan, with whether a file
+may be edited taken from `UI_SURFACE_EDIT_SUPPORT`. Editing opens a third webview panel
+(`src/views/uiSurfaceEditHost.ts`, view type `atlasmind.uiSurfaceEdit`) with `enableScripts: true`,
+`enableForms: false` and the page's folder as its only resource root, rendering `buildEditableSurfaceDocument`'s
+output: the file's markup with its scripts, handlers and script URLs left out, each element labelled with its
+`htmlSourceMap` id, and AtlasMind's nonce'd selection script the only one the policy runs. That page posts
+`selectElement` / `insertAt` / `listElements` with ids only (`isUiSurfaceEditMessage`); the host asks for every
+value in QuickPicks and InputBoxes, plans with `uiSurfaceElementEdit.ts`, and writes through
+`confirmAndApplyHtmlEdit` — modal with before/after, dry run, divergence re-check, then `writeFileSync`.
 
 Website delivery — the framework, hosting environments, platform targets and n8n automations — is
 rendered by the Project Dashboard's Delivery page (`renderWebsiteDelivery` in `media/projectDashboard.js`)
@@ -599,7 +610,7 @@ Tests live in `tests/core/website*.test.ts`, `tests/core/uiDesignGraph.test.ts`,
 path resolution, exact selection payload/revision checks, loopback token isolation, plus exhaustive walks for the setup planner and CI templates), with panel coverage in
 `tests/views/websiteStudioPanel.test.ts` / `tests/views/websitePreviewPanel.test.ts`, the shell's rail,
 views and brand actions in `tests/views/uiStudioShellSurface.test.ts`, the emitters and patch-by-anchor
-write-back in `tests/core/uiSurfaceEmit.test.ts`, the Emit card in `tests/views/uiEmitSurface.test.ts`, the render rules, static policy, dev-server plan and routes in `tests/core/uiSurfaceRender.test.ts`, the dev-server start order in `tests/views/uiSurfaceRenderHost.test.ts`, and the Rendered output card in `tests/views/uiSurfaceRenderSurface.test.ts`. The three executable
+write-back in `tests/core/uiSurfaceEmit.test.ts`, the Emit card in `tests/views/uiEmitSurface.test.ts`, the render rules, static policy, dev-server plan and routes in `tests/core/uiSurfaceRender.test.ts`, the dev-server start order in `tests/views/uiSurfaceRenderHost.test.ts`, the Rendered output card in `tests/views/uiSurfaceRenderSurface.test.ts`, the source-offset parser (checked against jsdom) in `tests/core/htmlSourceMap.test.ts`, the containment table, allowlist, edit planner and its splice properties in `tests/core/uiSurfaceElementEdit.test.ts`, the editable document and its executed selection script in `tests/core/uiSurfaceEditDocument.test.ts`, the write order in `tests/views/uiSurfaceEditHost.test.ts`, and the edit card and host boundary in `tests/views/uiSurfaceEditSurface.test.ts`. The three executable
 cross-target foundation scenarios are declared in `tests/fixtures/uiStudioReferenceProjects.ts` and run by
 `tests/core/uiStudioReferenceProjects.test.ts`; keep migration, reopening, edit/history, selection, full
 preview, and graph-neutrality coverage aligned when the shared graph contract changes.

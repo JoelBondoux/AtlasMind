@@ -644,7 +644,8 @@ export type DryRunHostEffectKind =
   | 'network'
   | 'message'
   | 'terminal'
-  | 'auto-write';
+  | 'auto-write'
+  | 'source-edit';
 
 export interface DryRunHostEffectRow {
   rule: string;
@@ -695,6 +696,12 @@ export const DRY_RUN_HOST_EFFECTS: Readonly<Record<DryRunHostEffectKind, DryRunH
     category: 'workspace-write',
     risk: 'medium',
     description: 'A write AtlasMind makes on its own (on a timer, when a page loads, or as a side effect after a turn) rather than the thing somebody pressed a button to save.',
+  },
+  'source-edit': {
+    rule: 'dry-run.host-source-edit',
+    category: 'workspace-write',
+    risk: 'medium',
+    description: 'Changes a project source file from a panel — a UI Studio element edit. It is the change a workspace-write tool call would make, so a dry run holds it the same way, after the confirmation that shows it.',
   },
 };
 

@@ -6,6 +6,59 @@ The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/),
 
 ## [Unreleased]
 
+## [0.495.0] - 2026-10-08
+
+### Added
+
+- **Select and edit the elements of a found HTML page, in the real file.** A picked-up static page's
+  **Rendered output** card now has **Select & edit elements…**, which opens the page in its own panel beside
+  the Studio with every element selectable. Click one (or use **List elements…**) and VS Code offers what can
+  be done to it, each available or with the reason it is not: change its text, set or remove an attribute
+  from an allowlist, insert an element from the Studio's palette before it, inside it or after it, move it
+  past a sibling, remove it, or open it in the editor at its line. **Show where elements can go** outlines
+  every element that can take a new one, and a selected element shows its own **+ before / + inside / +
+  after** points.
+  - **The page is mapped by its bytes, not re-serialised.** `src/core/htmlSourceMap.ts` is a tolerant HTML
+    parser whose output is source offsets — each element's start tag, attributes, end tag, how it ended
+    (`explicit`, `void`, `self-closed`, `implied`, `unclosed`) and an id built from its position and offset.
+    It follows the browser's tokenizer and the tree-construction rules that decide which element a tag
+    belongs to, never invents an element the file does not contain, and is checked against jsdom on
+    generated pages.
+  - **Where an element may go is a declared table** (`HTML_CONTAINMENT_RULES` in
+    `src/core/uiSurfaceElementEdit.ts`), claiming every element in the HTML index (asserted by test): flow
+    containers take blocks and inline content, paragraphs and headings inline content only, lists list items
+    only; void, raw-text, table and form-control structure, `html`/`head`, SVG and MathML, custom elements and
+    anything undeclared take nothing. The palette is the Studio's blocks as the one-line element each stands
+    for, plus a list item and a form field, with the ancestors each may not sit inside (no link in a link, no
+    form in a form).
+  - **Every edit is one splice against the file's offsets**, so every other byte — indentation, quoting, line
+    endings — is the file as it was (a property test walks it, and re-parsing finds the edited element where
+    the edit put it). A new element copies the indentation already there; a removal takes the whole line only
+    when the element had it to itself; a move swaps two siblings and leaves the whitespace between them in
+    place.
+  - **Framework components are not edited in place, and say so.** A React, Vue or Svelte component's card
+    states that element editing is not supported — UI Studio does not parse JSX or single-file-component
+    templates, and an edit it could not check against the source would be a guess — and offers **Open in
+    editor**. The same declared table (`UI_SURFACE_EDIT_SUPPORT`) answers for every render rule.
+
+### Security
+
+- **The edit page runs one script, and it is AtlasMind's.** The page shown is built from the file with its
+  `<script>` elements, `on…` handlers, `srcdoc` and `javascript:`/`vbscript:`/`data:text/html` URLs left out,
+  under a policy that admits a script only with that render's nonce; the selection script is a constant that
+  draws its outline in a closed shadow root and swallows every click, so no link or form in the page acts.
+  The plain render stays scripts-off.
+- **The page posts an element id or an insertion point id and nothing else** (`isUiSurfaceEditMessage`), and
+  the Studio posts a scan-derived surface id. Every value for an edit is asked for host-side in VS Code's own
+  pickers, validated there and again by the planner. Attributes come only from an allowlist — `class`, `id`,
+  `alt`, `title`, `aria-*`; `href` on a link, https or relative; `src` on an image or media source, relative —
+  never an event handler, `style`, or `src` on a script or frame.
+- **Nothing is written without a confirmation that shows the lines before and after** (control and
+  bidirectional characters made visible), and a write is refused if the file changed since it was parsed —
+  checked before asking and again after — if an editor holds unsaved changes to it, or if it is not valid
+  UTF-8. Edits are held by dry run under a new host effect kind, `source-edit` (`dry-run.host-source-edit`),
+  and `views/uiSurfaceEditHost.ts` is classified in `tests/security/dryRunCoverage.test.ts`.
+
 ## [0.494.0] - 2026-10-08
 
 ### Added

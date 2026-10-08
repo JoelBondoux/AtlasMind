@@ -1099,6 +1099,18 @@ Next.js, SvelteKit or Nuxt routing makes one verifiable; a webview script, a tok
 engine file say why not (*cannot render in the editor*, beside Launch). The webview posts a
 scan-derived id and nothing else, and the full preview says it is the Studio's draft.
 
+A found static page can also be **edited element by element** (`src/core/htmlSourceMap.ts`,
+`src/core/uiSurfaceElementEdit.ts`, `src/core/uiSurfaceEditDocument.ts` + `src/views/uiSurfaceEditHost.ts`,
+0.495.0). A tolerant parser maps the file to source offsets — every element's tags, attributes, how it ended
+and an id from its position — and the page opens in its own panel with its scripts, handlers and script URLs
+left out, each element labelled with that id, and AtlasMind's nonce'd selection script the only one that runs.
+Where an element may go comes from a declared containment table over the whole HTML element index; the
+palette is the Studio's blocks plus a list item and a form field; attributes come from an allowlist. Each
+edit — text, attribute, insert, remove, move — is one splice against the file's offsets, confirmed with the
+lines before and after, held by dry run (`source-edit`), and refused if the file changed since it was
+parsed. The page posts element ids only; values are asked for in VS Code's own pickers. A framework component
+is not edited in place and says so, with **Open in editor**.
+
 Website delivery — the framework, the three hosting environments, the platform targets and the n8n
 map — is a card on the Project Dashboard's Delivery page since 0.474.0, not a Studio view:
 `buildWebsiteDeliveryView` grades, assesses readiness and checks drift against the pipeline on every

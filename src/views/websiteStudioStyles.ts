@@ -60,6 +60,7 @@ export const WEBSITE_STUDIO_CSS = `  /* Palette, page frame and hero come from t
   .surface-render .render-statement { margin:0; font-size:12px; line-height:1.45; overflow-wrap:anywhere; }
   .surface-render .render-emit { display:grid; gap:4px; padding-top:6px; border-top:1px solid var(--studio-border); font-size:12px; }
   .surface-render .render-emit p { margin:0; overflow-wrap:anywhere; }
+  .surface-render .render-edit-note { margin:0; font-size:12px; line-height:1.45; color:var(--vscode-descriptionForeground); overflow-wrap:anywhere; }
   .preview-draft-label { font-size:12px; }
   .view-strip { display:flex; flex-wrap:wrap; gap:6px; padding-bottom:12px; margin-bottom:14px; border-bottom:1px solid var(--studio-border); }
   .view-strip .nav-button { padding:6px 12px; border-radius:999px; }

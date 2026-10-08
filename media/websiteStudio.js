@@ -1921,6 +1921,12 @@
     vscode.postMessage({ type: 'renderSurface', payload: { surfaceId: button.dataset.renderSurface } })));
   qsa('[data-stop-dev-server]').forEach(button => button.addEventListener('click', () =>
     vscode.postMessage({ type: 'stopSurfaceDevServer' })));
+  // Element editing: the same id, a different question. The host decides
+  // whether the file may be edited; the browser only names which file.
+  qsa('[data-edit-surface]').forEach(button => button.addEventListener('click', () =>
+    vscode.postMessage({ type: 'editSurfaceElements', payload: { surfaceId: button.dataset.editSurface } })));
+  qsa('[data-open-surface-source]').forEach(button => button.addEventListener('click', () =>
+    vscode.postMessage({ type: 'openSurfaceSource', payload: { surfaceId: button.dataset.openSurfaceSource } })));
 
   function applySurfaceRenderState(message) {
     const surfaceId = typeof message.surfaceId === 'string' ? message.surfaceId : '';

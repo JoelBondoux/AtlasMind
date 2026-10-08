@@ -202,6 +202,11 @@ const DRY_RUN_COVERED: Readonly<Record<string, Covered>> = {
     covers: "Starting the project's dev server to render a component, held after the confirmation that shows the exact argv.",
     leaves: `Rendering a static page as itself in a scripts-off webview (${READS}); stopping the dev server this panel itself started, which ends only what a confirmed start began.`,
   },
+  'views/uiSurfaceEditHost.ts': {
+    guards: ['interceptDryRun'],
+    covers: 'Writing a UI Studio element edit into a project HTML file, held after the confirmation that shows the lines before and after.',
+    leaves: `Rendering the page for selection and re-reading it to check it has not changed (${READS}).`,
+  },
   'views/websiteStackSetupHost.ts': {
     guards: ['interceptDryRun', 'guardHostCommand', 'execFileAsync'],
     covers: 'The whole setup run, held after the confirmation; its scaffold commands are guarded again at execFileInDirectory.',

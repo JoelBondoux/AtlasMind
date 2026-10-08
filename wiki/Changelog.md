@@ -19,6 +19,20 @@ Older entries below describe the software as it was at the time and are delibera
 
 ---
 
+## v0.495.0 -- Select and edit the elements of a real page
+
+- **Select & edit elements…** opens a found HTML page with every element selectable. Click one, or pick it
+  from a list, and VS Code offers what can be done: change its text, set or remove an allowlisted attribute,
+  insert a block from the Studio's palette before, inside or after it, move it, remove it, or open it in the
+  editor at its line. **Show where elements can go** outlines everything that can take a new element.
+- **Only the bytes you changed change.** Each edit is one minimal change to the file, shown before and after
+  and written only when you confirm; your indentation, quoting and line endings stay as they were. If the
+  file changed since it was shown, nothing is written.
+- **Where an element may go follows HTML's own rules**, from a published table: list items into lists,
+  inline content into paragraphs, nothing into an image, a table row or an SVG.
+- **Components say so.** A React, Vue or Svelte component is not edited in place — UI Studio does not parse
+  their templates — and its card offers **Open in editor** instead.
+
 ## v0.494.0 -- UI Studio shows the real surface, not only its draft
 
 - **Pick up a found HTML page and it renders as the real file** beside the canvas — scripts off, only files

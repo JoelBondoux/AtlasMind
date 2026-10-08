@@ -219,7 +219,7 @@ AtlasMind cannot read counts as on. Model calls are not actions and still run.
 
 **Outside the tool loop, the same switch holds.** Routines, promotions, rollbacks, dashboard git and
 GitHub writes, Director and Buzz messages, webhooks, MCP calls from any panel, terminal sends, installers,
-live-service probes and the writes AtlasMind makes on its own are refused by one host service
+live-service probes, UI Studio element edits to a project file and the writes AtlasMind makes on its own are refused by one host service
 (`src/core/dryRunHost.ts`) and recorded in the same output channel; a button you pressed tells you dry run
 stopped it rather than appearing to do nothing. The guard sits at each effect's own boundary wherever there
 is one — the `gh` client, the shared process helper, the promotion and routine runners, the MCP registry —
@@ -228,6 +228,22 @@ so a surface added later inherits it. Commands are graded by an allowlist of rea
 any program asked for more than its version are all effects. A source scan fails the build when a file that
 can act is neither guarded nor exempted with a written reason. Full detail in
 [Tool Execution](Tool-Execution.md).
+
+---
+
+## Editing a real page runs only AtlasMind's script
+
+UI Studio's element editing (0.495.0) shows a project's own HTML page with its elements selectable. The page
+is built from the file with every `<script>` element, `on…` handler attribute, `srcdoc` and
+`javascript:`/`vbscript:`/`data:text/html` URL left out, under a Content-Security-Policy that admits a script
+only with that render's random nonce — carried by AtlasMind's selection script, a constant that never reads
+the page's markup into code, draws in a closed shadow root and swallows every click so no link or form acts.
+The page can post only an element id or an insertion point id; every value for an edit is asked for in VS
+Code's own pickers and validated twice. Attributes come from an allowlist (`class`, `id`, `alt`, `title`,
+`aria-*`; `href` https or relative on links; `src` relative on images and media) — never an event handler,
+`style`, or `src` on a script or frame. Each edit is one splice shown before and after (control and
+bidirectional characters made visible), refused if the file changed since it was parsed, if an editor holds
+unsaved changes to it, or if it is not valid UTF-8, and held by dry run.
 
 ---
 
