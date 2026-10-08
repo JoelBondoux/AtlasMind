@@ -6,6 +6,46 @@ The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/),
 
 ## [Unreleased]
 
+## [0.497.2] - 2026-10-08
+
+### Changed
+
+- **One module now asks VS Code which folders are open, and the execution boundary asks it first** — slice
+  A1 of multi-root workspace awareness (`rm:monorepo-multi-root-workspac`; A2–A6 remain). AtlasMind is
+  single-root by construction, and the tail kept growing: recounted with comments excluded, v0.497.1 had
+  **229 direct reads of `vscode.workspace.workspaceFolders` in 44 files, 203 taking `[0]` on the spot**,
+  against 130/123 when `docs/project-composition.md` was written at v0.213.0 — with nothing to stop the next.
+  - **`src/utils/workspaceRoots.ts` is the only module permitted to read the folder list, and decides
+    nothing.** `defaultWorkspaceFolder()` delegates to `defaultWorkspaceFolderOf` in `workspaceScope.ts` —
+    now the single statement of the first-folder rule, used by `resolveWorkspaceScope`'s default branch and
+    a `.` component location too — and `resolveScope()` hands the probed folders to `resolveWorkspaceScope`.
+    The readability probe moved here from the Project Dashboard unchanged (`fs.access` on `file` and
+    `vscode-remote`; any other scheme is unreadable rather than probed). Nothing is cached: folders open and
+    close while the extension runs, and every replaced call site re-read the live list.
+  - **Identical behaviour, by design.** `docs/project-composition.md` §8 keeps default resolution at exactly
+    `workspaceFolders[0]`, so this moves where the question is asked and never the answer. A fast-check
+    property holds it for any folder list: the default folder is `folders[0]` (the host's own object), and
+    the scope label and roots are unchanged.
+  - **Migrated by consequence, not by count — 25 reads.** The execution boundary first, because a wrong root
+    there does damage rather than shows a wrong number: the skill execution context's `workspaceRootPath`,
+    `listDirectory`, `runCommand`, git status/diff/log/branch and patch, debug configs and launch, and
+    `assertInsideWorkspace`. Then the Project Dashboard's scope resolution and its register/config getters,
+    and the reads this branch had added (brief chain, roadmap context, routine scheduling).
+    `BuzzInboundService` now takes its root as an injected resolver, asked when there is something to record,
+    so `src/core/` reads the host's folders nowhere.
+  - **The rest is ratcheted, not rewritten.** `tests/baselines/workspaceFolderReads.test.ts` ceilings the
+    remaining **204 reads (182 taking `[0]`) in 42 files** per file, the two-way pattern of
+    `testTypecheck.test.ts`: a rise fails and names the file, a fall fails until the ceiling is lowered, an
+    unlisted file must have none, and `src/core/**` must have none without a written reason. Comments are
+    stripped by a small scanner first, so prose about the API is not counted; the guard's own tests prove a
+    new file with a read fails. A mechanical rewrite of every `[0]` remains an explicit non-goal.
+  - One existing assertion moved with the code: `tests/views/workflowSurface.test.ts` checked that the
+    dashboard source names `resolveWorkspaceScope(`; it now checks the dashboard calls the adapter's
+    `resolveScope(composition` and that the adapter delegates to `resolveWorkspaceScope`.
+  - Docs: `docs/project-composition.md` §0.2, §1 (recount) and new §8.1; `docs/architecture.md`,
+    `docs/development.md`, `wiki/Architecture.md`, README's *Where things live*; the census note in
+    `project_memory/roadmap/game-engine-integration.md`.
+
 ## [0.497.1] - 2026-10-08
 
 ### Fixed

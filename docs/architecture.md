@@ -1688,6 +1688,27 @@ later edits. The hybrid content component records only `perforce`, with no depot
 engine-fork component records the boundary but leaves `upstream` absent until the team supplies a real
 remote/ref. Persisted draft values are checked against the closed preset ids before a builder runs.
 
+### WorkspaceRoots (`src/utils/workspaceRoots.ts`)
+
+The host adapter for the folder question, and the only module permitted to read
+`vscode.workspace.workspaceFolders`. It owns no rule: `defaultWorkspaceFolder()` delegates to
+`defaultWorkspaceFolderOf` in `workspaceScope.ts` — the single statement of the first-folder rule, which
+`resolveWorkspaceScope`'s default branch and a `.` component location also use — and `resolveScope()`
+passes the probed folder list to `resolveWorkspaceScope`. `workspaceFolderReferences()` probes each folder
+once with `fs.access` on the `file` and `vscode-remote` schemes and reports any other scheme unreadable
+rather than probing a path that is not on this machine. Nothing is cached, because folders open and close
+while the extension runs and every replaced call site re-read the live list.
+
+Slice A1 of multi-root awareness migrated the execution boundary through it with identical behaviour: the
+skill execution context's `workspaceRootPath`, `listDirectory`, `runCommand`, the git status/diff/log/branch
+and patch tools, debug configuration and launch, and `assertInsideWorkspace`; the Project Dashboard's scope
+resolution and its register/config getters; and `BuzzInboundService`, which now takes the root as an
+injected resolver so no core module reads the host's folders. The remaining direct reads (204 at v0.497.2,
+182 taking `[0]`) are ceilinged per file by `tests/baselines/workspaceFolderReads.test.ts`, a two-way
+ratchet: a rise fails, a fall fails until the ceiling is lowered, an unlisted file must have none, and
+`src/core/**` must have none without a written reason. Locating the SSOT home, a component picker and
+component routing are later slices (`docs/project-composition.md` §8.1).
+
 ### UpstreamDivergence (`src/core/upstreamDivergence.ts`)
 
 The generic, read-only measure of distance from a component's declared Git upstream. It accepts a

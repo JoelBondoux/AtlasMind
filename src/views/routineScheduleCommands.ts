@@ -24,6 +24,7 @@ import * as vscode from 'vscode';
 import * as path from 'node:path';
 import { mkdir, writeFile } from 'node:fs/promises';
 
+import { defaultWorkspaceRootPath } from '../utils/workspaceRoots.js';
 import type { AtlasMindContext } from '../extension.js';
 import type { RoutineScheduleEntry } from '../core/routineSchedule.js';
 import { planRoutineExecution } from '../core/routineExecutionPolicy.js';
@@ -70,7 +71,7 @@ function entryDetail(entry: RoutineScheduleEntry): string {
 }
 
 export async function manageScheduledRoutines(atlas: AtlasMindContext): Promise<void> {
-  const root = vscode.workspace.workspaceFolders?.[0]?.uri.fsPath;
+  const root = defaultWorkspaceRootPath();
   const scheduler = atlas.routineScheduler;
   if (!root || !scheduler) {
     void vscode.window.showWarningMessage('Open a workspace folder to schedule its routines.');
@@ -184,7 +185,7 @@ export async function manageScheduledRoutines(atlas: AtlasMindContext): Promise<
 
 /** Write the built-in template, create-only, and open it. */
 export async function addDependencyCheckRoutine(atlas: AtlasMindContext): Promise<void> {
-  const root = vscode.workspace.workspaceFolders?.[0]?.uri.fsPath;
+  const root = defaultWorkspaceRootPath();
   if (!root) {
     void vscode.window.showWarningMessage('Open a workspace folder to add a routine to it.');
     return;

@@ -168,6 +168,11 @@ by count: the surfaces where single-root is actively wrong (asset inventory, bui
 scan, CI) move first; the rest follow when touched for other reasons. A sweeping mechanical rewrite
 of 123 sites would be unreviewable and would land its bugs everywhere at once.
 
+Status, 2026-10-08 (v0.497.2): the count had grown to 229 direct reads (203 taking `[0]`) by
+v0.497.1. Slice A1 added `src/utils/workspaceRoots.ts` as the only permitted reader, routed the
+execution boundary through it, and ceilinged the remaining 204 reads (182 `[0]`) per file in
+`tests/baselines/workspaceFolderReads.test.ts`. See `docs/project-composition.md` §8.1.
+
 ## Separation of concerns — the governing contract
 
 | Concern | Owner | Never |

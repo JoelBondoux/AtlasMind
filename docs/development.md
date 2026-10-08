@@ -213,7 +213,7 @@ AtlasMind/
 │   │   ├── lensDatabaseReading.ts Catalog rows into contracts, metrics, latency and plans
 │   │   ├── lensSchemaImpact.ts Bounded proposed field-change impact ranking
 │   │   └── lensContractRelations.ts Relationship trust boundary and endpoint resolution
-│   ├── utils/            Shared helpers: `secretRedactor.ts`, `aiInstructionSync.ts` (inbound import), `aiInstructionMerge.ts` (two-way instruction-set sync), `managedBlock.ts` (shared delimited-block upsert/strip), `testingProtocolSync.ts` (outbound sync of four managed blocks: roadmap SSOT, testing protocols, debt markers, workflow), `instructionSyncCheck.ts` (vscode-free staleness check the pre-commit hook calls), `terminalOutput.ts` (ANSI/control-sequence sanitizer for captured tool output)
+│   ├── utils/            Shared helpers: `secretRedactor.ts`, `aiInstructionSync.ts` (inbound import), `aiInstructionMerge.ts` (two-way instruction-set sync), `managedBlock.ts` (shared delimited-block upsert/strip), `testingProtocolSync.ts` (outbound sync of four managed blocks: roadmap SSOT, testing protocols, debt markers, workflow), `instructionSyncCheck.ts` (vscode-free staleness check the pre-commit hook calls), `terminalOutput.ts` (ANSI/control-sequence sanitizer for captured tool output), `workspaceRoots.ts` (the one module that reads `vscode.workspace.workspaceFolders`; default root is exactly the first folder, ratcheted per file by `tests/baselines/workspaceFolderReads.test.ts`)
 │   ├── mcp/              MCP client/registry, tool pinning and description scanning (`mcpToolPins.ts`), plus bundled Buzz CLI communications bridge/server
 │   ├── ard/              Agentic Resource Discovery: `ardClient.ts`, `ardRegistry.ts`, `ardInstaller.ts`, `ardCatalogExporter.ts`
 │   ├── memory/           SSOT memory manager
@@ -1007,6 +1007,12 @@ partly invalid declaration by dropping entries, persist topology, or make a dete
 `workspaceScope.ts` accepts host-provided opened-folder descriptors and remains `vscode`-free; its omitted
 target must keep returning only the first folder. Migrate consumers explicitly and in consequence order,
 with tests that assert scope labels and unknown roots before replacing a direct `workspaceFolders[0]` read.
+
+`src/utils/workspaceRoots.ts` is the only module that may read `vscode.workspace.workspaceFolders`. New
+code asks it (`defaultWorkspaceRootPath()`, `defaultWorkspaceFolder()`, `openWorkspaceFolders()`,
+`resolveScope()`); a core service takes the root injected instead. The remaining direct reads are
+ceilinged per file by `tests/baselines/workspaceFolderReads.test.ts`: when you migrate one, lower that
+file's ceiling in the same commit — the test fails until you do — and never raise one.
 
 The Shopify bootstrap composition test is the non-game conformance case. Keep the theme/app/extension
 picker multi-select and test both the pure canonical mapping and the VS Code-backed JSON/Markdown write.

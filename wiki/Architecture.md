@@ -211,6 +211,12 @@ composition, so existing behaviour does not move underneath callers. A surface t
 home, one component, or all components receives only opened roots, plus labelled missing/unreadable/ambiguous
 entries; AtlasMind never substitutes another directory or reaches outside the opened workspace set.
 
+The host side of that rule lives in `src/utils/workspaceRoots.ts`, the one module allowed to read VS Code's
+folder list. It decides nothing — the first-folder rule is stated once, in `workspaceScope.ts` — and caches
+nothing, so a migrated call site gets exactly the answer it got before. The execution boundary (the skill
+context's root, `runCommand`, the git tools, the workspace-containment check) asks it first; every other
+direct read is ceilinged per file by a two-way ratchet test, so the single-root tail can shrink but not grow.
+
 The Project Dashboard is the first all-component consumer. Repository status and local CI are read only for
 declared Git components; issue-tracker support, debt-scan coverage, and observed-change baselines carry the
 same component inventory. Detailed GitHub data stays explicitly scoped to the home component. Missing,

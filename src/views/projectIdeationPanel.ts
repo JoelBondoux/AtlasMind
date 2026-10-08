@@ -28,6 +28,7 @@ import {
   readBriefDocumentBody,
   renderBriefDocument,
 } from '../core/projectBrief.js';
+import { defaultWorkspaceRootPath } from '../utils/workspaceRoots.js';
 import { detectProjectArchetype } from '../core/projectArchetype.js';
 import {
   collectCardConnectionSources,
@@ -1668,7 +1669,7 @@ export class ProjectIdeationPanel {
    * since — is answered with what the files say rather than acted on.
    */
   private async advanceBriefChain(stepId: BriefChainStepId): Promise<void> {
-    const workspaceRoot = vscode.workspace.workspaceFolders?.[0]?.uri.fsPath;
+    const workspaceRoot = defaultWorkspaceRootPath();
     if (!workspaceRoot) {
       await this.postMessage({ type: 'ideationStatus', payload: 'No workspace folder is open, so there is nowhere to keep a brief.' });
       return;

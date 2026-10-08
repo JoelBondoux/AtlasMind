@@ -27,6 +27,13 @@ architecture presets seed editable component sets without persisting a governing
 divergence is now a read-only, engine-agnostic core reading with bounded evidence and comparable
 snapshots; applying it to domain surfaces remains Phase 2 work.
 
+Multi-root slice A1 adds the host adapter `src/utils/workspaceRoots.ts` — the one module permitted to
+read `vscode.workspace.workspaceFolders` — and routes the execution boundary through it (the skill
+execution context, `runCommand`, the git tools and the workspace-containment check), together with the
+Project Dashboard's scope resolution and register getters and the Buzz inbound service's root. Behaviour
+is identical: the adapter's default is the same first folder (§8). Locating the SSOT home in a
+multi-root workspace, a component picker and component routing are later slices.
+
 ### 0.3 Non-goals
 
 - Replacing VS Code's own multi-root workspace mechanism. AtlasMind reads it; it does not manage it.
@@ -48,6 +55,12 @@ one answer, so the error propagates into every downstream surface.
 `src/`, of which 123 take `[0]`**. One comment acknowledges multi-root
 (`workflowAutomation.ts:101`); nothing handles it. `docs/roadmap.md` lists multi-root awareness as an
 open gap.
+
+The tail kept growing after this was written. Recounted at v0.497.1 with comments excluded, there were
+**229 direct reads of `vscode.workspace.workspaceFolders` in 44 files, 203 of them taking `[0]` on the
+spot** — roughly 60% more than at v0.213.0, with no mechanism to stop the next one. v0.497.2 routed 25
+of them through the adapter (§8) and left **204 reads, 182 taking `[0]`, in 42 files**, each file
+ceilinged by `tests/baselines/workspaceFolderReads.test.ts`.
 
 **3. The gap is already live in the most-invested domain.** The bootstrap project-type picker is a
 single-select `showQuickPick` writing one `intake.projectType` string
@@ -278,8 +291,28 @@ Surfaces migrate **by consequence, not by count**. Those where single-root is ac
 first — asset inventory, build, git status, debt scan, CI, observed delta. The rest follow when
 touched for other reasons.
 
-A mechanical rewrite of all 123 sites is an explicit non-goal: it would be unreviewable, and it would
-land its bugs everywhere simultaneously.
+A mechanical rewrite of every remaining site (204 direct reads at v0.497.2, 182 taking `[0]`) is an
+explicit non-goal: it would be unreviewable, and it would land its bugs everywhere simultaneously.
+
+### 8.1 The host adapter and the ratchet
+
+`src/utils/workspaceRoots.ts` is the only module that may read `vscode.workspace.workspaceFolders`
+from now on. It decides nothing: `defaultWorkspaceFolder()` delegates to
+`defaultWorkspaceFolderOf` in `workspaceScope.ts`, which is the single statement of the first-folder
+rule, and `resolveScope()` hands the probed folder list to `resolveWorkspaceScope`. It caches nothing,
+because folders open and close while the extension runs and every replaced call site re-read the live
+list. A migrated call site therefore gives byte-for-byte the answer it gave before; the migration moves
+the question, never the answer.
+
+The execution boundary migrated first, because it is where a wrong root does damage rather than shows
+a wrong number: the skill execution context's root, directory listing, `runCommand`, the git status,
+diff, log, branch and patch tools, debug launch, and `assertInsideWorkspace`. A core service MUST NOT
+read the host's folders; it takes the root injected (`BuzzInboundService` now does).
+
+Every other direct read is ceilinged per file by `tests/baselines/workspaceFolderReads.test.ts`, the
+two-way ratchet `testTypecheck.test.ts` uses: a file whose count rises fails, a file whose count falls
+fails until its ceiling is lowered, an unlisted file must have none, and `src/core/**` must have none
+unless its entry carries a written reason. ESLint cannot ratchet per file, which is why this is a test.
 
 ## §9 Conformance
 

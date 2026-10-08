@@ -419,7 +419,8 @@ import {
   type WorkflowConfigEdit,
   type WorkflowConfigProblem,
 } from '../core/workflowConfig.js';
-import { resolveWorkspaceScope, type WorkspaceScope } from '../core/workspaceScope.js';
+import type { WorkspaceScope } from '../core/workspaceScope.js';
+import { defaultWorkspaceFolder, defaultWorkspaceRootPath, openWorkspaceFolders, resolveScope } from '../utils/workspaceRoots.js';
 import type { ProjectComposition, ProjectComponentVcs } from '../core/projectComposition.js';
 import {
   buildReviewCommentPrompt,
@@ -5595,7 +5596,7 @@ export class ProjectDashboardPanel {
    */
   private get portalHosting(): PortalHostingManager {
     this.portalHostingInstance ??= new PortalHostingManager(
-      vscode.workspace.workspaceFolders?.[0]?.uri.fsPath,
+      defaultWorkspaceRootPath(),
     );
     this.portalHostingInstance.reload();
     return this.portalHostingInstance;
@@ -5613,7 +5614,7 @@ export class ProjectDashboardPanel {
 
   private get debtManager(): DebtRegisterManager {
     this.debtManagerInstance ??= new DebtRegisterManager(
-      vscode.workspace.workspaceFolders?.[0]?.uri.fsPath,
+      defaultWorkspaceRootPath(),
     );
     return this.debtManagerInstance;
   }
@@ -5629,7 +5630,7 @@ export class ProjectDashboardPanel {
    */
   private get defectManager(): DefectRegisterManager {
     this.defectManagerInstance ??= new DefectRegisterManager(
-      vscode.workspace.workspaceFolders?.[0]?.uri.fsPath,
+      defaultWorkspaceRootPath(),
     );
     this.defectManagerInstance.reload();
     return this.defectManagerInstance;
@@ -5637,14 +5638,14 @@ export class ProjectDashboardPanel {
 
   private get auditLedger(): WorkflowAuditLedger {
     this.auditLedgerInstance ??= new WorkflowAuditLedger(
-      vscode.workspace.workspaceFolders?.[0]?.uri.fsPath,
+      defaultWorkspaceRootPath(),
     );
     return this.auditLedgerInstance;
   }
 
   private get workflowConfig(): WorkflowConfigManager {
     this.workflowConfigManager ??= new WorkflowConfigManager(
-      vscode.workspace.workspaceFolders?.[0]?.uri.fsPath,
+      defaultWorkspaceRootPath(),
     );
     return this.workflowConfigManager;
   }
@@ -5745,7 +5746,7 @@ export class ProjectDashboardPanel {
 
   private get ciRouting(): CiRoutingConfigManager {
     this.ciRoutingManager ??= new CiRoutingConfigManager(
-      vscode.workspace.workspaceFolders?.[0]?.uri.fsPath,
+      defaultWorkspaceRootPath(),
     );
     return this.ciRoutingManager;
   }
@@ -19766,22 +19767,9 @@ export function parseGhReleaseList(raw: string): MetricReleaseInput[] {
 
 /** Resolve the declaration once so every migrated surface sees the same roots. */
 async function collectDashboardWorkspaceScope(composition?: ProjectComposition): Promise<WorkspaceScope> {
-  const folders = await Promise.all((vscode.workspace.workspaceFolders ?? []).map(async folder => {
-    const supportedScheme = folder.uri.scheme === 'file' || folder.uri.scheme === 'vscode-remote';
-    const readable = supportedScheme
-      ? await fs.access(folder.uri.fsPath).then(() => true).catch(() => false)
-      : false;
-    return {
-      name: folder.name,
-      fsPath: folder.uri.fsPath,
-      readable,
-    };
-  }));
-  return resolveWorkspaceScope(
-    folders,
-    composition,
-    composition ? { kind: 'all' } : { kind: 'default' },
-  );
+  // The folder probe lives in the adapter now, so this surface and every later
+  // one resolve the same folders the same way.
+  return resolveScope(composition, composition ? { kind: 'all' } : { kind: 'default' });
 }
 
 function describeMissingComponent(reason: 'not-open' | 'unreadable' | 'ambiguous'): string {
@@ -20165,7 +20153,7 @@ async function collectDashboardSnapshot(
   // and the reason probing `gh` on a render path is not worth it.
   portalVisibility: RepositoryVisibility = 'unknown',
 ): Promise<DashboardSnapshot> {
-  const firstWorkspaceFolder = vscode.workspace.workspaceFolders?.[0];
+  const firstWorkspaceFolder = defaultWorkspaceFolder();
   const declaredComposition = workflowConfigManager?.getConfig()?.composition;
   const declaredScope = await collectDashboardWorkspaceScope(declaredComposition);
   const homeComponentId = declaredComposition?.components.find(component => component.home)?.id;
@@ -20176,7 +20164,7 @@ async function collectDashboardSnapshot(
   // is missing would silently read a different component's SSOT and counts.
   const workspaceRoot = declaredComposition ? homeScopeRoot?.fsPath : firstWorkspaceFolder?.uri.fsPath;
   const websiteDelivery = collectWebsiteDelivery(workspaceRoot);
-  const workspaceFolder = (vscode.workspace.workspaceFolders ?? [])
+  const workspaceFolder = openWorkspaceFolders()
     .find(folder => folder.uri.fsPath === workspaceRoot) ?? firstWorkspaceFolder;
   const workspaceName = firstWorkspaceFolder?.name ?? 'No Workspace';
   const configuration = vscode.workspace.getConfiguration('atlasmind');
@@ -26982,7 +26970,7 @@ async function readExternalRoadmapContext(): Promise<{
   reconciled: ReturnType<typeof resolveRoadmapItemIds>['reconciled'];
   ids: string[];
 } | undefined> {
-  const workspaceRoot = vscode.workspace.workspaceFolders?.[0]?.uri.fsPath;
+  const workspaceRoot = defaultWorkspaceRootPath();
   if (!workspaceRoot) {
     return undefined;
   }

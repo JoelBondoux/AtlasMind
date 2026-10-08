@@ -19,6 +19,15 @@ Older entries below describe the software as it was at the time and are delibera
 
 ---
 
+## v0.497.2 -- One place asks which folder is open
+
+- A structural step toward multi-root workspaces, with no behaviour change. AtlasMind asked VS Code which
+  folder is open in over two hundred places; `src/utils/workspaceRoots.ts` is now the one place that asks,
+  and its answer is the same first folder as before.
+- Where a wrong folder would do damage — running commands, reading git, checking a path is inside the
+  workspace — now goes through it. The remaining 204 direct reads are each capped per file by a test, so the
+  count can fall but not rise.
+
 ## v0.497.1 -- Current Claude models answer again, and deep thinking gets time to think
 
 - Newer Claude models (Opus 4.7 and later, Sonnet 5 and later, Fable, Haiku 5.5) reject a `temperature`

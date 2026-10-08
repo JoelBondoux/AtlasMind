@@ -4,7 +4,7 @@
 
 <h1 align="center">AtlasMind</h1>
 
-<p align="center"><sub> · <strong>Current source version: 0.497.1</strong> · </sub></p>
+<p align="center"><sub> · <strong>Current source version: 0.497.2</strong> · </sub></p>
 
 
 <p align="center">
@@ -176,6 +176,16 @@ allow-list, redaction and file-withholding behaviour, retained metadata, provide
 important limits on overrides and compliance claims.
 
 ---
+
+## What's new in 0.497.2
+
+A structural change with no behaviour change, and the first step of multi-root workspace support. AtlasMind
+asked VS Code "which folder is open?" in over two hundred places, each answering for itself with the first
+folder. There is now one place that asks — `src/utils/workspaceRoots.ts` — and the parts where a wrong
+answer does damage rather than show a wrong number go through it first: where tools run commands, read git
+and check that a path is inside the workspace. The answer is the same first folder as before. The other 204
+direct reads stay for now, but each file's count is fixed by a test, so the single-root tail can shrink and
+can no longer grow.
 
 ## What's new in 0.497.1
 
@@ -1039,6 +1049,7 @@ All 166 settings are documented in the [Configuration reference](wiki/Configurat
 | `src/memory/` | Project memory: retrieval, scanning, redaction, persistence |
 | `src/chat/` | The chat participant and interaction protocol |
 | `src/views/` | Settings, dashboards, editors and sidebar surfaces, including the shared reviewed-PR local-CI action allowlist and host commands (`localCiSurfaceActions.ts`, `reviewedPrLocalCiCommands.ts`) and UI Studio's render host — a found surface shown as itself in a scripts-off panel or through the project's confirmed dev server (`uiSurfaceRenderHost.ts`) and its element-edit host — the page made selectable under AtlasMind's own nonce script, every edit confirmed before and after and held by dry run (`uiSurfaceEditHost.ts`) |
+| `src/utils/workspaceRoots.ts` | The one place AtlasMind asks VS Code which folders are open. Its default is exactly the first folder, as before; every other direct read is ceilinged per file by a ratchet test so the single-root tail can only shrink |
 | `src/acp/` and `src/cli/` | Subscription-agent sessions and the headless CLI |
 | `src/mcp/` and `src/ard/` | MCP servers and agentic resource discovery, including tool pinning and the tool-description scan — what a tool looked like when you agreed to it, and what happens when it changes (`mcpToolPins.ts`) |
 | `src/voice/` and `src/remote/` | Voice backends and opt-in remote control |

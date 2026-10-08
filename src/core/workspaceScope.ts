@@ -48,12 +48,27 @@ export interface WorkspaceScope {
   complete: boolean;
 }
 
+/**
+ * The default-resolution rule, stated once: the first folder VS Code reports.
+ *
+ * Generic so the adapter in `src/utils/workspaceRoots.ts` can hand back the
+ * host's own folder object rather than a copy matched up again by path, and so
+ * that the `[0]` every default caller depends on lives here and nowhere else.
+ * `docs/project-composition.md` §8 requires this to stay exactly the first
+ * folder until a surface opts in to home/component resolution; changing it here
+ * would change every default caller at once, which is the point of having one.
+ */
+export function defaultWorkspaceFolderOf<T>(folders: readonly T[]): T | undefined {
+  return folders[0];
+}
+
 function componentFolderMatches(
   component: ProjectComponent,
   folders: readonly WorkspaceFolderReference[],
 ): WorkspaceFolderReference[] {
   if (component.location === '.') {
-    return folders.slice(0, 1);
+    const first = defaultWorkspaceFolderOf(folders);
+    return first ? [first] : [];
   }
   return folders.filter(folder => {
     const tokens = [
@@ -116,7 +131,7 @@ export function resolveWorkspaceScope(
   target: WorkspaceScopeTarget = { kind: 'default' },
 ): WorkspaceScope {
   if (target.kind === 'default') {
-    const first = folders[0];
+    const first = defaultWorkspaceFolderOf(folders);
     return {
       target,
       label: first?.name ?? 'No workspace',

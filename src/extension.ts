@@ -16,6 +16,7 @@ import { execFile } from 'child_process';
 import { promisify } from 'util';
 import { pathToFileURL } from 'url';
 import { sanitizeTerminalOutput } from './utils/terminalOutput.js';
+import { defaultWorkspaceFolder, defaultWorkspaceRootPath, openWorkspaceFolders } from './utils/workspaceRoots.js';
 import { PresenceManager } from './core/presenceManager.js';
 import {
   LOCAL_GPU_ADMISSION_WAIT_MS,
@@ -3911,6 +3912,7 @@ async function bootstrapAtlasMind(
   const buzzInbound = new BuzzInboundService({
     secrets: context.secrets,
     presence: presenceManager,
+    workspaceRoot: defaultWorkspaceRootPath,
     log: (message) => outputChannel.appendLine(`[buzz] ${message}`),
   });
   // Exposed so surfaces can offer the identities it has observed. Assigned
@@ -5676,7 +5678,7 @@ function buildSkillExecutionContext(
 ): SkillExecutionContext {
   const context: SkillExecutionContext = {
     get workspaceRootPath() {
-      return resolutionRoot ?? vscode.workspace.workspaceFolders?.[0]?.uri.fsPath;
+      return resolutionRoot ?? defaultWorkspaceRootPath();
     },
 
     withResolutionRoot(root) {
@@ -5772,7 +5774,7 @@ function buildSkillExecutionContext(
     },
 
     async listDirectory(absolutePath) {
-      const workspaceRoot = vscode.workspace.workspaceFolders?.[0]?.uri.fsPath;
+      const workspaceRoot = defaultWorkspaceRootPath();
       if (!workspaceRoot) {
         throw new Error('listDirectory: no workspace folder is open.');
       }
@@ -5794,7 +5796,7 @@ function buildSkillExecutionContext(
     },
 
     async runCommand(executable, args, options) {
-      const workspaceRoot = vscode.workspace.workspaceFolders?.[0]?.uri.fsPath;
+      const workspaceRoot = defaultWorkspaceRootPath();
       if (!workspaceRoot) {
         throw new Error('runCommand: no workspace folder is open.');
       }
@@ -5881,7 +5883,7 @@ function buildSkillExecutionContext(
     },
 
     async getGitStatus() {
-      const workspaceRoot = vscode.workspace.workspaceFolders?.[0]?.uri.fsPath;
+      const workspaceRoot = defaultWorkspaceRootPath();
       if (!workspaceRoot) {
         throw new Error('getGitStatus: no workspace folder is open.');
       }
@@ -5894,7 +5896,7 @@ function buildSkillExecutionContext(
     },
 
     async getGitDiff(options) {
-      const workspaceRoot = vscode.workspace.workspaceFolders?.[0]?.uri.fsPath;
+      const workspaceRoot = defaultWorkspaceRootPath();
       if (!workspaceRoot) {
         throw new Error('getGitDiff: no workspace folder is open.');
       }
@@ -5942,7 +5944,7 @@ function buildSkillExecutionContext(
     },
 
     async applyGitPatch(patch, options) {
-      const workspaceRoot = vscode.workspace.workspaceFolders?.[0]?.uri.fsPath;
+      const workspaceRoot = defaultWorkspaceRootPath();
       if (!workspaceRoot) {
         throw new Error('A workspace folder must be open to apply a git patch.');
       }
@@ -5992,7 +5994,7 @@ function buildSkillExecutionContext(
     },
 
     async getGitLog(options) {
-      const workspaceRoot = vscode.workspace.workspaceFolders?.[0]?.uri.fsPath;
+      const workspaceRoot = defaultWorkspaceRootPath();
       if (!workspaceRoot) {
         throw new Error('getGitLog: no workspace folder is open.');
       }
@@ -6014,7 +6016,7 @@ function buildSkillExecutionContext(
     },
 
     async gitBranch(action, name) {
-      const workspaceRoot = vscode.workspace.workspaceFolders?.[0]?.uri.fsPath;
+      const workspaceRoot = defaultWorkspaceRootPath();
       if (!workspaceRoot) {
         throw new Error('gitBranch: no workspace folder is open.');
       }
@@ -6308,8 +6310,8 @@ function buildSkillExecutionContext(
     },
 
     async getDebugConfigs() {
-      const folders = vscode.workspace.workspaceFolders;
-      if (!folders || folders.length === 0) { return []; }
+      const folders = openWorkspaceFolders();
+      if (folders.length === 0) { return []; }
       const configs: Array<{ name: string; type: string; request: string }> = [];
       for (const folder of folders) {
         const launchConfig = vscode.workspace.getConfiguration('launch', folder.uri);
@@ -6328,8 +6330,7 @@ function buildSkillExecutionContext(
     },
 
     async launchDebugSession(configName) {
-      const folders = vscode.workspace.workspaceFolders;
-      const folder = folders?.[0];
+      const folder = defaultWorkspaceFolder();
       try {
         const started = await vscode.debug.startDebugging(folder, configName);
         if (started) {
@@ -6721,7 +6722,7 @@ async function assertInsideWorkspace(
    */
   resolveFrom?: string,
 ): Promise<string> {
-  const workspaceRoot = vscode.workspace.workspaceFolders?.[0]?.uri.fsPath;
+  const workspaceRoot = defaultWorkspaceRootPath();
   if (!workspaceRoot) {
     throw new Error(`${operation}: no workspace folder is open.`);
   }

@@ -1,7 +1,8 @@
 import { describe, expect, it } from 'vitest';
+import fc from 'fast-check';
 import { sanitizeProjectComposition, type ProjectComposition } from '../../src/core/projectComposition.ts';
 import path from 'node:path';
-import { resolveWorkspaceScope, type WorkspaceFolderReference } from '../../src/core/workspaceScope.ts';
+import { defaultWorkspaceFolderOf, resolveWorkspaceScope, type WorkspaceFolderReference } from '../../src/core/workspaceScope.ts';
 
 /**
  * A workspace path in the host's own separator.
@@ -81,5 +82,27 @@ describe('resolveWorkspaceScope', () => {
     expect(resolveWorkspaceScope(folders(), undefined, { kind: 'all' })).toMatchObject({
       label: 'Composition not declared', roots: [], complete: false,
     });
+  });
+});
+
+describe('defaultWorkspaceFolderOf', () => {
+  it('is exactly the first element, for any list, and is the rule the default scope uses', () => {
+    const folderArb = fc.record({ name: fc.string({ maxLength: 10 }), fsPath: fc.string({ maxLength: 20 }) });
+    fc.assert(fc.property(fc.array(folderArb, { maxLength: 6 }), list => {
+      expect(defaultWorkspaceFolderOf(list)).toBe(list[0]);
+      const scope = resolveWorkspaceScope(list);
+      expect(scope.label).toBe(list[0]?.name ?? 'No workspace');
+      expect(scope.roots).toEqual(list[0] ? [{ name: list[0].name, fsPath: list[0].fsPath }] : []);
+    }));
+  });
+
+  it('still anchors a "." component to the first folder until the SSOT home is located (a later slice)', () => {
+    const single = sanitizeProjectComposition({
+      components: [
+        { id: 'root', label: 'Root', location: '.', role: 'application', archetype: { archetype: 'generic', traits: [] }, vcs: 'git', home: true },
+      ],
+    })!;
+    expect(resolveWorkspaceScope(folders(), single, { kind: 'home' }).roots.map(root => root.name)).toEqual(['Gameplay']);
+    expect(resolveWorkspaceScope([], single, { kind: 'home' }).unknown).toEqual([expect.objectContaining({ reason: 'not-open' })]);
   });
 });
