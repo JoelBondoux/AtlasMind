@@ -294,6 +294,41 @@ The refusal anchors on `gh`'s own namespace names rather than argument positions
 value — `gh --hostname github.com auth token` — cannot slip past by shifting the arguments along. It is
 not a substring search: `gh pr comment --body "see the auth token docs"` is an ordinary comment and runs.
 
+### What a command can see of your environment (0.500.1)
+
+An agent's command on your machine is started with the environment `planHostCommandEnvironment`
+(`src/core/hostCommandEnvironment.ts`) returns — not the editor's whole environment, which used to hand it
+every provider key and token your shell exported. Each variable goes through `HOST_COMMAND_ENV_RULES` in
+order, and the first rule that matches names the outcome:
+
+| Rule | Looks at | Effect |
+|---|---|---|
+| `atlasmind-secret-store` | `ATLASMIND_PROVIDER_*`, `ATLASMIND_INTEGRATION_*`, `ATLASMIND_SPECIALIST_*` — where the CLI reads its keys | withheld |
+| `named-credential` | `CREDENTIAL_ENV_NAMES`: the variables AtlasMind's adapters read (`AWS_*` keys, `BUZZ_PRIVATE_KEY`), vendor keys, `GITHUB_TOKEN`, `GH_TOKEN`, `NPM_TOKEN`, `NODE_AUTH_TOKEN`, `HF_TOKEN`, `GOOGLE_APPLICATION_CREDENTIALS`, `VSCE_PAT`… | withheld |
+| `credential-name-suffix` | A name ending `_API_KEY`, `_TOKEN`, `_SECRET`, `_SECRET_KEY`, `_ACCESS_KEY(_ID)`, `_PRIVATE_KEY`, `_PASSWORD`, `_PASSWD`, `_PASSPHRASE`, `_CREDENTIALS`, `_PAT`, `_DSN`, `_CONNECTION_STRING`, `_AUTH`, or an account/storage/signing key | withheld |
+| `credential-name-word` | `AUTH_TOKEN`, `API_KEY`, `SECRET_KEY`, `PRIVATE_KEY`, `CLIENT_SECRET`, `PASSWORD`, or a `TOKEN_`/`SECRET_` segment elsewhere in the name | withheld |
+| `proxy-userinfo` | A `*_PROXY` URL with `user:password@` | passed with the userinfo removed |
+| `proxy-unreadable` | A `*_PROXY` value with `@` that is not a URL | withheld — editing it would be guessing |
+| `secret-shaped-value` | A value `secretRedactor`'s detectors recognise, under any name | withheld |
+
+Names are matched case-insensitively. A name in `atlasmind.terminal.passEnvironment` (machine-scoped, user
+value only, exact names validated rather than cleaned) passes unchanged — exactly on macOS and Linux, in any
+casing on Windows. Everything else — `PATH`, the Windows system variables, `HOME`, toolchain homes,
+`NODE_OPTIONS`, `SSH_AUTH_SOCK` (a socket grants use, not disclosure) — passes as it was. When a command
+fails, one line is added to its stderr naming the withheld variables and their rules, never a value.
+
+Covered (`HOST_COMMAND_ENV_COVERED_PATHS`, each checked by a test against its file): `runCommand` under
+sandbox mode `off`, the CLI's `runCommand` (pass-through from `ATLASMIND_PASS_ENVIRONMENT`), and the ACP agent
+process (pass-through plus the agent's declared `env`; the list is part of its settings stamp, so changing it
+replaces a live agent). Unchanged (`HOST_COMMAND_ENV_UNCHANGED_PATHS`): the sandbox (stricter — an
+allowlist), what you start yourself (terminals, routines, Delivery, promotions, local CI), MCP servers (their
+own rule), and two model-chosen paths it cannot reach — the managed-terminal follow-up, which runs in your own
+shell, and a debug launch, whose environment comes from the launch configuration. Both are refused under
+`require`.
+
+A model-requested command that relied on a token from the editor's environment now fails until its name is
+passed through.
+
 ### Running commands in a sandbox (`atlasmind.sandbox.mode`)
 
 The rules for running an agent's command inside a container are in `src/core/sandboxPlan.ts` (0.498.3),
@@ -301,7 +336,7 @@ the engine can be checked with **AtlasMind: Check Execution Sandbox** (0.499.0),
 runner is wired (`src/core/sandboxRunner.ts`). With `atlasmind.sandbox.mode` set to **`require`**, every
 command an agent asks for runs in the container or is **refused, with the rule that stopped it** — never run
 on your machine instead. With it **`off`** (the default) nothing changes: commands run on your machine
-exactly as before, and AtlasMind starts no container engine process at all. Three things decide where a
+exactly as before (with the environment rules above), and AtlasMind starts no container engine process at all. Three things decide where a
 command runs:
 
 1. **Is it a command that can be sandboxed?** git, `gh`, `docker`/`podman`/`kubectl`, network tools

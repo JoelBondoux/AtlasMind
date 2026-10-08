@@ -5,6 +5,7 @@ import { interceptDryRun } from '../core/dryRunHost.js';
 import { describeReasoningDecision } from '../core/reasoningBudget.js';
 import * as path from 'node:path';
 import * as vscode from 'vscode';
+import { readPassEnvironmentSetting } from '../core/hostCommandEnvironment.js';
 import type { AtlasMindContext } from '../extension.js';
 import type {
   SessionComposerPrefill,
@@ -2424,6 +2425,9 @@ export async function collectAcpSetupSteps(atlas: AtlasMindContext): Promise<imp
       agents,
       ...(workspaceRoot ? { cwd: workspaceRoot } : {}),
       hideConsoleWindows,
+      // The probe launches the agent the way the routed adapter will, so it
+      // reports the sign-in state that adapter will actually see.
+      passEnvironment: () => readPassEnvironmentSetting(vscode.workspace.getConfiguration('atlasmind').inspect<unknown>('terminal.passEnvironment')).names,
     });
     probe = await adapter.probe().catch(() => undefined);
   }

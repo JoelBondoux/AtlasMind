@@ -154,6 +154,19 @@ Neither surface passes through a common capability decision. That is Phase 4's s
 > above reach destinations the user or AtlasMind configured (providers, Lens endpoints from a reviewed
 > file, the tool webhook), which a model cannot choose; they are still outside any common decision.
 
+> **And what a subprocess inherits (0.500.1).** The processes a *model* starts on the host —
+> `SkillExecutionContext.runCommand` in `extension.ts` (sandbox mode `off`) and `cli/nodeSkillContext.ts`,
+> and the ACP agent process in `providers/acp.ts`, which runs its model's commands under
+> `atlasmind.acp.toolsEnabled` — inherited the extension host's whole `process.env`: provider keys,
+> `GITHUB_TOKEN`, `AWS_*`, npm tokens, whatever the user's shell exported, readable by `env`. They are now
+> started with `planHostCommandEnvironment` (`src/core/hostCommandEnvironment.ts`): every credential-shaped
+> name and every value `secretRedactor`'s detectors recognise is withheld by a named rule, a `*_PROXY` loses
+> its userinfo, and only names the user lists in the machine-scoped `atlasmind.terminal.passEnvironment`
+> (CLI: `ATLASMIND_PASS_ENVIRONMENT`) pass regardless. Processes an operator starts — routines, the
+> Delivery run plan, promotions, local CI, their own terminals — keep the operator's environment
+> (`HOST_COMMAND_ENV_UNCHANGED_PATHS`), as do two model-chosen paths it cannot reach: the managed-terminal
+> follow-up (the operator's own shell) and a debug launch (the launch configuration's environment).
+
 ---
 
 ## 5. Activation-time behaviour

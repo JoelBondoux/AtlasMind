@@ -54,6 +54,7 @@ writing doesn't reset it: a model that read a page and then wrote a plan hasn't 
 | Spend | The tool-less reader answers to your task cost cap and daily limit like any other call; if it would go over, it isn't run |
 | Reaching your network through a fetch | Every URL a model asks to fetch is `https` only; the name is looked up and every address it points to is checked against private, link-local (cloud metadata) and reserved ranges; the connection goes only to those addresses; every redirect is checked the same way |
 | Secrets in prompts | Every model call goes through one gate that labels each part of the prompt, redacts what came from files and tools, and caps its size |
+| Reading your keys out of the environment | A command an agent runs — and an ACP agent's own process — is started without your credentials: anything named or shaped like a key or token is withheld, so `env` or `printenv` has nothing to show. You pass one through by exact name in `atlasmind.terminal.passEnvironment`, which a repository cannot set |
 
 ## What is *not* defended
 
@@ -67,6 +68,11 @@ Read this part. A threat model that sounds complete is the same mistake as a tes
   approval stands in for it, which means it's only as good as your reading of the dialog.
 - **MCP tools are judged by name.** A tool called `get_weather` starts out graded as a harmless read,
   whatever it actually does.
+- **Two model-chosen commands keep your environment.** The one follow-up a model picks in the managed
+  terminal runs in *your* terminal, and a debug session takes its environment from the launch
+  configuration, so neither gets the credential filter. Both ask first, and both are refused when the
+  sandbox is required. A name you pass through is readable by every agent command, and a key under an
+  ordinary-looking name in a format AtlasMind doesn't recognise still crosses.
 - **ACP agents' own tools are invisible.** With `atlasmind.acp.toolsEnabled` on (off by default), an agent
   driven over ACP runs its own tools, allowed automatically and logged. AtlasMind won't hand it a task
   that has *already* read third-party content, but it can't track what the agent reads after that.

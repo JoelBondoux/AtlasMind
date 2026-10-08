@@ -401,6 +401,14 @@ the MCP registry around `callTool`), and commands are graded by `classifyHostCom
 (`tests/security/dryRunCoverage.test.ts`) fails on a file that can act and is neither guarded nor exempted
 with a reason. The CLI and the ACP agent (`atlasmind-acp --dry-run`) install a host of their own.
 
+**An agent's command does not inherit your credentials (0.500.1).** `src/core/hostCommandEnvironment.ts` decides
+the environment a model-requested command is started with on the host — `runCommand` (extension host and CLI)
+and the ACP agent process. `HOST_COMMAND_ENV_RULES` withholds every credential-shaped name (AtlasMind's CLI
+secret-store names, the variables its adapters read, `*_API_KEY`/`*_TOKEN`/`*_SECRET`/… case-insensitively) and
+every value the secret redactor recognises, strips `user:password@` from a proxy, and names the rule for each.
+Only names in the machine-scoped `atlasmind.terminal.passEnvironment` pass regardless. What you start yourself
+keeps your environment (`HOST_COMMAND_ENV_UNCHANGED_PATHS`).
+
 **Sandboxed execution has a pure core (0.498.3).** `src/core/sandboxPlan.ts` decides where an agent command
 runs; since 0.500.0 the runner below acts on it. An attestation
 (`SANDBOX_ATTESTATION_RULES`) needs a Linux engine, a known user mapping, an image pinned by `sha256` digest
@@ -1707,6 +1715,7 @@ never accepted.
 | `src/core/egressFetch.ts` | The connection that goes only there: pinned to the checked addresses, redirects checked hop by hop |
 | `src/core/dryRun.ts` | Dry run: which tool calls still run (built-in local reads only), the description the rest get instead, the context that refuses every effect, and the session's record |
 | `src/core/dryRunHost.ts` | Dry run outside the tool loop: the host every routine, promotion, panel button, message, terminal send and automatic write asks, recording what it stopped in the same output |
+| `src/core/hostCommandEnvironment.ts` | What an agent's command inherits on the host — every credential-shaped variable withheld by a declared rule, a proxy's password removed, a named one passed only when you list it in `atlasmind.terminal.passEnvironment`. Pure |
 | `src/core/sandboxPlan.ts` | Where an agent command runs — the sandbox attestation, the commands never sandboxed, the constant-shaped engine argv, and the rule that `require` never falls back to the host. Pure |
 | `src/core/sandboxProbe.ts` | Reads the container engine for the sandbox on request — engine order, the pinned image present locally (never pulled), a canary in the real argv — plus the settings reader that keeps the image machine-scoped, and the rule-by-rule report |
 | `src/core/sandboxRunner.ts` | Under `atlasmind.sandbox.mode = require`, runs an agent's command in the container or refuses it — never on the host: one frozen session per decision, a bounded single-flight re-probe, dry run first, removal by name on a timeout or deactivation, and an orphan sweep that never touches another window's live command |

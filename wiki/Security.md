@@ -86,9 +86,44 @@ quoting has to know whether the template already quotes the placeholder, and gue
 ordinary messages or leaves the hole open. The template itself is not treated as suspect; it is a reviewed
 file in your repository, and a routine that pipes on purpose keeps working.
 
+### Your keys stay out of agent commands — `atlasmind.terminal.passEnvironment`
+
+Until **0.500.1**, a command an agent ran on your machine inherited the editor's whole environment — and
+that is whatever your shell exported when the editor started: `ANTHROPIC_API_KEY`, `OPENAI_API_KEY`,
+`GITHUB_TOKEN`, `AWS_*` keys, an npm token. A model, possibly steered by a page it was asked to read, could
+run `env` or `printenv` and read them back. Output redaction would catch some of the shapes; it was never the
+boundary. Now the value never reaches the command:
+
+- **A credential-shaped name is withheld** — `*_API_KEY`, `*_TOKEN`, `*_SECRET`, `*_PASSWORD`,
+  `*_PRIVATE_KEY`, `*_CREDENTIALS`, `*_PAT`, `*_DSN`, the keys AtlasMind's own adapters and CLI read, and a
+  list of well-known names. Matched without regard to case.
+- **A secret-shaped value is withheld under any name**, using the same detectors as the output redactor, so
+  the two cannot disagree about what a key looks like.
+- **A proxy keeps working**: `HTTPS_PROXY=http://user:pass@proxy:8080` is passed as `http://proxy:8080`.
+- **Every withheld variable names its rule**, and a command that fails is told which names were withheld —
+  never a value.
+- **You pass one through by name.** List an exact name in `atlasmind.terminal.passEnvironment` when a task
+  needs it. Only your user setting counts — a repository that could add `GITHUB_TOKEN` there would be a
+  repository that could read it.
+
+It covers the agent's command runner (terminal and test runs, npm scripts, formatting, the git and docker
+skills, the check after a write), an ACP agent's own process — which runs its model's commands under
+`atlasmind.acp.toolsEnabled` — and the `atlasmind` CLI (`ATLASMIND_PASS_ENVIRONMENT` there). It does **not**
+change what you start yourself: your terminals, a routine you were shown and ran, the Delivery run plan and
+promotions keep your environment, because a publish step you chose may legitimately need your token. Two
+model-chosen paths are not covered and are stated rather than implied: the managed terminal's follow-up
+command runs in your own terminal, whose shell environment AtlasMind cannot rewrite, and a debug session
+takes its environment from the launch configuration. Both are behind approval, and both are refused under
+`atlasmind.sandbox.mode = require`.
+
+**This can break a command** that relied on a token from the editor's environment — `gh` authenticated only
+through `GH_TOKEN`, an `npm publish` reading `NPM_TOKEN`, an ACP agent signing in from an API key variable.
+Add the name to `atlasmind.terminal.passEnvironment` and it works as before.
+
 ### A sandbox for commands — `atlasmind.sandbox.mode`
 
-By default an approved command runs on your machine, with everything your editor can reach. Since
+By default an approved command runs on your machine, with what your editor can reach — minus the credentials
+withheld above. Since
 **0.500.0** you can require a container sandbox instead: set `atlasmind.sandbox.mode` to `require`, and
 every command an agent asks for — terminal and test runs, npm scripts, routine steps, the check after a
 write — runs in the container or is refused. Run **AtlasMind: Check Execution Sandbox** first to see whether
@@ -1085,7 +1120,7 @@ This is the short form. The prompt-injection part, including what is **not** def
 | Injected instructions in fetched or tool content | Provenance taint, fresh approval Autopilot cannot answer, network refused after a suspected injection, unclosable fences |
 | Injected instructions hidden in a long page | Quarantined reader: a tool-less model reads it, the agent gets a checked extract, the raw text only on a fresh approval |
 | A sub-call spending past a cap | The quarantined reader is checked against the task cap and the daily limit before it runs, and counted toward both |
-| Credential exposure | OS keychain, write gate, dispatch-time redaction |
+| Credential exposure | OS keychain, write gate, dispatch-time redaction, credential-shaped environment variables withheld from every agent command |
 | Path traversal | Workspace sandboxing on every file operation |
 | Shell injection | No shell, allow-list, operator blocking |
 | Server-side request forgery | `https` only; local names refused; every resolved address judged by value against private, link-local (cloud metadata) and reserved ranges; the connection pinned to the checked addresses; every redirect re-checked |

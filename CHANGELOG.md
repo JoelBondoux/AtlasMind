@@ -6,6 +6,61 @@ The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/),
 
 ## [Unreleased]
 
+## [0.500.1] - 2026-10-08
+
+### Security
+
+- **An agent's command no longer inherits the editor's credentials.** With `atlasmind.sandbox.mode` at `off`
+  (the default), `SkillExecutionContext.runCommand` handed every command a model asked for the extension
+  host's whole `process.env` — whatever the user's shell exported, so `ANTHROPIC_API_KEY`, `OPENAI_API_KEY`,
+  `GITHUB_TOKEN`, `AWS_*`, npm tokens — and `env`, `printenv` or `node -e "console.log(process.env)"` read them
+  back. Output redaction caught some of the shapes; it was never the boundary. 0.500.0 recorded this and left
+  it; this closes it.
+  - **`src/core/hostCommandEnvironment.ts`** (pure) is the one home of "which environment names are
+    credentials". `planHostCommandEnvironment` walks `HOST_COMMAND_ENV_RULES` for every variable and the first
+    match names the outcome: `atlasmind-secret-store` (`ATLASMIND_PROVIDER_*`, `_INTEGRATION_*`,
+    `_SPECIALIST_*` — where the CLI reads its keys), `named-credential` (`CREDENTIAL_ENV_NAMES`: the variables
+    AtlasMind's adapters read — `AWS_ACCESS_KEY_ID`, `AWS_SECRET_ACCESS_KEY`, `AWS_SESSION_TOKEN`,
+    `BUZZ_PRIVATE_KEY` — plus vendor keys, `GITHUB_TOKEN`, `GH_TOKEN`, `NPM_TOKEN`, `NODE_AUTH_TOKEN`,
+    `HF_TOKEN`, `GOOGLE_APPLICATION_CREDENTIALS`, `VSCE_PAT`…), `credential-name-suffix` and
+    `credential-name-word` (`*_API_KEY`, `*_TOKEN`, `*_SECRET`, `*_PASSWORD`, `*_PRIVATE_KEY`,
+    `*_CREDENTIALS`, `*_PAT`, `*_DSN`, `CLIENT_SECRET`…, case-insensitive), then the value rules —
+    `proxy-userinfo` (a `*_PROXY` URL passed with `user:password@` removed), `proxy-unreadable` (a proxy with
+    `@` that is not a URL is withheld, not edited) and `secret-shaped-value` (`secretRedactor`'s detectors,
+    under any name). It returns a plain object, never `process.env`, and every withheld or rewritten name with
+    its rule.
+  - **Applied to every host path that runs a model-requested command** (`HOST_COMMAND_ENV_COVERED_PATHS`, each
+    checked by a test against its file): `runCommand` in the extension host — terminal-run, test-run, npm
+    scripts, code formatting, the docker and git skills, the post-write verification; `runCommand` in the CLI
+    context, where the CLI's own `ATLASMIND_PROVIDER_*` keys now stay out too; and the **ACP agent process**,
+    which runs its model's commands under `atlasmind.acp.toolsEnabled` — started with the plan plus its
+    declared `env`, the pass-through list folded into its settings stamp and probe key so a change replaces a
+    live agent. The sandbox path is unchanged (already an allowlist).
+  - **A failed command says why it may have failed**: one stderr line names the withheld variables and their
+    rules — never a value — and how to pass one. A sign-in failure from an ACP agent says the same.
+  - **Operator-started surfaces are not changed** (`HOST_COMMAND_ENV_UNCHANGED_PATHS`): your own terminals and
+    the managed terminal's own command, routines you were shown and ran (`/ship`, the Run Center, schedules),
+    the Delivery run plan, promotions, local CI and website setup keep your environment — a publish step you
+    chose may legitimately need your token. MCP servers keep their own rule. Two model-chosen paths are not
+    covered and say so: the managed terminal's follow-up command runs in your own shell, and a debug session
+    takes its environment from the launch configuration; both stay behind approval and are refused under
+    `require`.
+
+### Added
+
+- **`atlasmind.terminal.passEnvironment`** (`string[]`, default `[]`, `scope: machine`): exact names to pass
+  to agent commands although they are credential-shaped. Only the user value is read
+  (`readPassEnvironmentSetting`) — a workspace or folder value is ignored, so a repository cannot choose which
+  of your credentials an agent command receives. Entries are validated as plain names and reported, never
+  cleaned into one; matched exactly on macOS and Linux and in any casing on Windows. The CLI reads the same
+  list from `ATLASMIND_PASS_ENVIRONMENT` (comma-separated).
+
+### Changed
+
+- **Behaviour change:** a model-requested command that relied on a token from the editor's environment —
+  `gh` authenticated only through `GH_TOKEN`, an `npm publish` reading `NPM_TOKEN`, an ACP agent signing in
+  from an API-key variable — now fails until that name is added to `atlasmind.terminal.passEnvironment`.
+
 ## [0.500.0] - 2026-10-08
 
 ### Added

@@ -269,6 +269,18 @@ To find a digest: pull the image by its tag once (`docker pull node:22-bookworm-
 your project's tools — your choice), then run `docker image inspect --format "{{index .RepoDigests 0}}"
 node:22-bookworm-slim` and paste what it prints into `atlasmind.sandbox.image` in your **user** settings.
 
+### What an agent's command can see
+
+Since 0.500.1 a command an agent runs on your machine — and an ACP agent's own process — is started **without**
+your credentials: any variable whose name looks like one (`*_API_KEY`, `*_TOKEN`, `*_SECRET`, `*_PASSWORD`,
+`AWS_*` keys, `GITHUB_TOKEN`, the provider keys AtlasMind reads) or whose value looks like one is withheld, and
+a proxy URL loses its `user:password@`. A command that fails tells you which names were withheld, never their
+values. Your own terminals, routines and the Delivery and promotion buttons are not affected.
+
+| Setting | Default | What it does |
+|---------|---------|-------------|
+| `atlasmind.terminal.passEnvironment` | `[]` | Exact names to pass to agent commands anyway, e.g. `["NPM_TOKEN"]`. A name that is not a plain variable name is reported and ignored. Machine-scoped: only your user value counts, so a repository cannot add a name. The `atlasmind` CLI reads the same list from `ATLASMIND_PASS_ENVIRONMENT` |
+
 ---
 
 ## The GitHub workflow

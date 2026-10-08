@@ -6,10 +6,11 @@
  * Every agent-issued command reaches one choke point — `runCommand` in
  * `extension.ts` — and that point runs it on the host: no shell (the
  * `windowsShimBypass` rule), inside the workspace (`assertInsideWorkspace`,
- * rooted through `utils/workspaceRoots.ts`), at below-normal priority, and with
- * the editor's **entire** environment, provider keys included. An approval
- * dialog is therefore the only thing between a model-chosen command and
- * everything the editor can reach. A sandbox is a second, structural answer:
+ * rooted through `utils/workspaceRoots.ts`), at below-normal priority, and —
+ * since 0.500.1 — with credential-shaped variables withheld
+ * (`hostCommandEnvironment.ts`). Everything else the editor can reach, it can
+ * reach, so an approval dialog is the only thing between a model-chosen
+ * command and the machine. A sandbox is a second, structural answer:
  * the command runs, but in a container that has no network, no capabilities,
  * no host credentials and exactly one folder of the host's filesystem.
  *

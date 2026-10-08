@@ -363,6 +363,24 @@ canary container built by `buildSandboxArgv` around the constant command `test -
 execution root. The three reads pass a dry run; the canary is an effect, so a dry run records it, does not start
 it, and the sandbox reads as unavailable. A reading counts for ten minutes and lives in memory only.
 
+## Agent command environment
+
+Since 0.500.1 a command an agent runs on the host — `SkillExecutionContext.runCommand` under sandbox mode `off`,
+the CLI's `runCommand`, and an ACP agent's own process — is started with the environment
+`planHostCommandEnvironment` (`src/core/hostCommandEnvironment.ts`) returns, not the editor's whole
+`process.env`. Every variable a rule in `HOST_COMMAND_ENV_RULES` matches is withheld: the CLI secret-store names
+(`ATLASMIND_PROVIDER_*`, `ATLASMIND_INTEGRATION_*`, `ATLASMIND_SPECIALIST_*`), `CREDENTIAL_ENV_NAMES` (the
+variables AtlasMind's adapters read and the common vendor, forge and registry names), credential-shaped names
+(`*_API_KEY`, `*_TOKEN`, `*_SECRET`, `*_PASSWORD`, `*_PRIVATE_KEY`, `*_CREDENTIALS`, `*_PAT`, `*_DSN`, …,
+case-insensitive), and any value `secretRedactor`'s detectors recognise. A `*_PROXY` URL is passed with its
+userinfo removed. A command that fails gets one extra stderr line naming what was withheld — names and rules,
+never values. Your own terminals, routines, the Delivery run plan and promotions are unchanged
+(`HOST_COMMAND_ENV_UNCHANGED_PATHS`).
+
+| Setting | Type | Default | Description |
+|---|---|---|---|
+| `atlasmind.terminal.passEnvironment` | `string[]` | `[]` | Exact names to pass unchanged although they are credential-shaped, e.g. `["NPM_TOKEN"]`. Each entry must be a plain variable name (`^[A-Za-z_][A-Za-z0-9_]{0,127}$`); anything else is reported and ignored, never cleaned into a name (`parsePassEnvironmentList`). Matched exactly on macOS and Linux, case-insensitively on Windows. `scope: machine`, and only the user value is read (`readPassEnvironmentSetting`) — a workspace or folder value is ignored, so a repository cannot choose which of your credentials an agent command receives. Also handed to the ACP agent process, and part of its settings stamp, so a change replaces a live agent rather than reusing it. The CLI reads the same list from `ATLASMIND_PASS_ENVIRONMENT` (comma-separated). |
+
 ## Guided GitHub workflow
 
 The workflow is a **committed file** (`project_memory/operations/workflow.json`), not a setting: a change to how a team works should arrive as a diff with a reviewer. These settings are the *ceiling* over that file, and the two are combined as a minimum — a stage can request `auto` and still only `observe`. All four capability switches default closed. Guided bootstrap can write an explicitly selected Shopify theme/app/extension composition into this file, but it never infers that declaration or replaces an existing/future workflow document.

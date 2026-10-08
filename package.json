@@ -2,7 +2,7 @@
   "name": "atlasmind",
   "displayName": "AtlasMind",
   "description": "AI project management for VS Code: roadmap, risk, tech debt, compliance, testing and release tracked from your own repository — with a multi-agent AI team, or the AI coding tool you already use.",
-  "version": "0.500.0",
+  "version": "0.500.1",
   "publisher": "JoelBondoux",
   "preview": false,
   "license": "SEE LICENSE IN OSMFEULA.txt",
@@ -2189,6 +2189,18 @@
           "maximum": 256,
           "description": "Memory limit in GB for one sandboxed command (0.5–256); swap is not added on top. Machine-scoped.",
           "markdownDescription": "Memory limit in GB for one sandboxed command, passed as `--memory` with `--memory-swap` set to the same value so no swap is added on top. 0.5–256; a value outside that is refused rather than clamped. Machine-scoped."
+        },
+        "atlasmind.terminal.passEnvironment": {
+          "type": "array",
+          "scope": "machine",
+          "default": [],
+          "items": {
+            "type": "string",
+            "pattern": "^[A-Za-z_][A-Za-z0-9_]{0,127}$",
+            "patternErrorMessage": "One exact environment variable name: letters, digits and underscores, not starting with a digit."
+          },
+          "description": "Environment variables to pass to agent commands even though they look like credentials. AtlasMind withholds every credential-shaped variable (API keys, tokens, secrets, passwords, provider keys) from the commands an agent runs on this machine and from ACP agent processes; list an exact name here when a task genuinely needs one. Machine-scoped: only your user value is read.",
+          "markdownDescription": "Environment variables to pass to **agent** commands even though they look like credentials.\n\nA command an agent runs on this machine — terminal and test runs, npm scripts, formatting, the git and docker skills, the check after a write — and an ACP agent's own process are started **without** the editor's credentials: every variable whose name looks like one (`*_API_KEY`, `*_TOKEN`, `*_SECRET`, `*_PASSWORD`, `*_PRIVATE_KEY`, `AWS_*` keys, `GITHUB_TOKEN`, the provider keys AtlasMind itself reads, …) or whose value looks like one is withheld, and a proxy URL loses its `user:password@`. A command that fails says which names were withheld — never their values.\n\nList an **exact** name here (e.g. `NPM_TOKEN`) when a task genuinely needs it. A name that is not a plain variable name is reported, not cleaned.\n\nYour own terminals, routines you run, and the Delivery and promotion buttons are not affected.\n\nMachine-scoped: only your user value is read, so a repository cannot choose which of your credentials an agent command receives."
         },
         "atlasmind.security.quarantineReader": {
           "type": "string",

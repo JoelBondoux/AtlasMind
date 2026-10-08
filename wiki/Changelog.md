@@ -19,6 +19,19 @@ Older entries below describe the software as it was at the time and are delibera
 
 ---
 
+## v0.500.1 -- Agent commands no longer see your keys
+
+- A command an agent runs on your machine used to inherit everything the editor was started with, so `env`
+  or `printenv` could read your provider keys, `GITHUB_TOKEN`, `AWS_*` keys or npm token back. Now every
+  variable whose name or value looks like a credential is withheld, and a proxy URL loses its
+  `user:password@`. `PATH` and everything else a build needs still arrive.
+- The same applies to an ACP agent's own process and to the `atlasmind` CLI.
+- A command that fails says which names were withheld — never their values.
+- **New setting `atlasmind.terminal.passEnvironment`**: list an exact name when a task genuinely needs it.
+  User settings only — a repository cannot add to it.
+- **This can break a command** that relied on a token from the editor's environment, until you pass it
+  through. Your own terminals, the routines you run and the Delivery and promotion buttons are unchanged.
+
 ## v0.500.0 -- Agent commands run in the sandbox, or not at all
 
 - Set `atlasmind.sandbox.mode` to `require` and every command an agent asks for — terminal and test runs,

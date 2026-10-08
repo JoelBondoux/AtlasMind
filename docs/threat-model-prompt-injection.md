@@ -110,6 +110,7 @@ laundered the page.
 | **Egress boundary** | `src/core/modelEgress.ts` (`ORIGIN_POLICY`, `dispatchGuardedCompletion`); `tests/security/modelEgressBoundary.test.ts` | Exfiltration to a model provider | Every prompt-bearing call goes through one gate: each part is labelled with its origin and redacted, capped and confirmed by that origin's rule (`tool-result`: redacted, 40,000 chars). An unknown origin is treated as the most sensitive class. The architectural test fails if a call bypasses it |
 | **Egress destination screen** (0.490.2) | `src/core/egressDestinationPolicy.ts` (`EGRESS_DESTINATION_RULES`, `BLOCKED_IPV4_RANGES`, `BLOCKED_IPV6_RANGES`); `src/core/egressFetch.ts`; enforced in `SkillExecutionContext.fetchUrl`/`httpRequest` (extension host and CLI) and `ArdClient` | Using this machine to reach the loopback, the local network or cloud instance metadata (SSRF) | `https` only; credentials in the URL and names local by definition refused; every literal or resolved address judged by numeric value against the declared ranges (IPv4-mapped, NAT64 and 6to4 by the IPv4 they carry); every address a name resolves to must pass and an unresolved name is refused; the connection is pinned to the vetted addresses (DNS rebinding); redirects followed by hand, every hop re-screened, at most five; credentials not forwarded across origins. Below the approval gate, so no mode or release turns it off |
 | **Secret redaction in tool results** | `redactToolResultSecrets` (orchestrator), `src/utils/secretRedactor.ts` | Credential exposure | Credential-shaped values are replaced before the model sees a result, and the model is told not to write `[REDACTED]` back |
+| **Credentials withheld from agent commands** (0.500.1) | `src/core/hostCommandEnvironment.ts` (`HOST_COMMAND_ENV_RULES`, `planHostCommandEnvironment`); applied in `runCommand` (extension host and CLI) and the ACP agent process | Exfiltration of the editor's own credentials | A model-requested command used to inherit the editor's whole environment, so `env` could read every provider key and token back. Now every credential-shaped name, AtlasMind's own secret-store names and any value the redactor's detectors recognise are withheld before spawning, and a proxy loses its userinfo; each withholding names its rule. Pass-through is by exact name in the machine-scoped `atlasmind.terminal.passEnvironment`, user value only. Redaction of output stays as a second line, not the boundary |
 | **Data-privacy gate** | `src/core/dataPrivacyManager.ts` | Classified data reaching an untrusted model | Classified spans are redacted, and classified file reads withheld, for models outside the trusted list |
 | **Memory scanner** | `src/memory/memoryScanner.ts`; `MemoryManager.upsert` (`src/memory/memoryManager.ts`) | Persistence | Instruction-override phrases block a memory write outright; blocked entries are excluded from retrieval. `memory-write` is `workspace-write`, so after taint it needs a fresh approval |
 | **Transient-context scanner** | `scanTransientContext` | Injection via chat history and attachments | Carried conversation, summaries and text attachments are scanned before they reach a model; blocked content is dropped |
@@ -156,6 +157,15 @@ the rule to make that reading possible, but a person who approves without readin
 **MCP tools are classified by name.** `classifyUnknownToolName` grades an MCP tool from its name: one
 named `get_weather` is `network-read`/`low` whatever it does. A server's own naming decides its starting
 risk grade, and that name is trusted at first sight.
+
+**Two model-chosen commands keep the operator's environment.** Since 0.500.1 credential-shaped
+variables are withheld from what an agent runs (§5), but the managed terminal's one model-chosen follow-up
+runs in the operator's own terminal, whose shell environment AtlasMind cannot rewrite, and a debug session
+the model starts takes its environment from the launch configuration. Both are behind approval and refused
+under `atlasmind.sandbox.mode = require`. A name the operator passes through in
+`atlasmind.terminal.passEnvironment` is, by their choice, readable by every agent command. The policy reads
+variable names and value shapes: a credential under an innocuous name in a format the detectors do not know
+still crosses.
 
 **ACP agents run tools AtlasMind cannot see.** With `atlasmind.acp.toolsEnabled` on (default off), an ACP
 agent's own operations are allowed automatically and logged; AtlasMind answers `allow_once` only and never
@@ -222,6 +232,7 @@ provider itself.
 | Egress boundary | `tests/core/modelEgress.test.ts`, `tests/security/modelEgressBoundary.test.ts`, `tests/security/egressLabelling.test.ts` |
 | Egress destination screen | `tests/core/egressDestinationPolicy.test.ts` (every range and encoding, fast-check over every blocked CIDR), `tests/core/egressFetch.test.ts` (pinning, DNS rebinding, redirects), `tests/skills/webFetch.test.ts`, `tests/skills/httpRequest.test.ts`, `tests/ard/ardClient.test.ts` |
 | Memory scanner | `tests/memory/memoryScanner.test.ts` |
+| Credentials withheld from agent commands | `tests/core/hostCommandEnvironment.test.ts` (a table per rule; fast-check that no credential-shaped name or secret-shaped value survives unless passed; each covered file read), `tests/cli/nodeSkillContextEnvironment.test.ts` (a real child process cannot read a fake key), `tests/providers/acpAdapter.test.ts` (pass-through reaches the launch and replaces a live agent) |
 
 ## 8. Keeping this current
 

@@ -32,6 +32,11 @@ import {
   sharedSandboxProbeCache,
 } from './core/sandboxProbe.js';
 import { inspectSandboxSetting } from './views/sandboxCheckCommand.js';
+import {
+  describeWithheldEnvironment,
+  planHostCommandEnvironment,
+  readPassEnvironmentSetting,
+} from './core/hostCommandEnvironment.js';
 import { defaultWorkspaceFolder, defaultWorkspaceRootPath, openWorkspaceFolders, ssotHomeRoot } from './utils/workspaceRoots.js';
 import { PresenceManager } from './core/presenceManager.js';
 import {
@@ -2425,6 +2430,9 @@ async function bootstrapAtlasMind(
         },
         hideConsoleWindows: () => vscode.workspace.getConfiguration('atlasmind')
           .get<boolean>('acp.hideConsoleWindows', false),
+        // Credential-shaped variables the user chose to give the agent process;
+        // everything else credential-shaped is withheld from it.
+        passEnvironment: () => readHostCommandPassThrough(),
         // Read on every use, not captured once. This adapter lives as long as
         // the extension host, so a snapshot here meant an agent added to
         // settings after activation was invisible to routing and to the health
@@ -5991,13 +5999,23 @@ function buildSkillExecutionContext(
         return { ok: false, exitCode: 1, stdout: '', stderr: resolution.reason };
       }
 
+      // The command a model asked for never sees the editor's credentials.
+      // This used to inherit the whole editor environment — provider keys, GitHub
+      // and npm tokens, cloud credentials — so `env` or `printenv` read them
+      // back. `planHostCommandEnvironment` withholds every credential-shaped
+      // variable by a declared rule; the user passes a named one through with
+      // atlasmind.terminal.passEnvironment. See `hostCommandEnvironment.ts`.
+      const environmentPlan = planHostCommandEnvironment(process.env, {
+        passThrough: readHostCommandPassThrough(),
+        platform: process.platform,
+      });
       // A test command inherits the machine's testing resource budget: every
       // Node child (Jest/Vitest workers included) gets a heap cap through
       // NODE_OPTIONS. Opt-in via options.testResources — the same cap on a
       // production build would be a limit nobody asked for.
       const env = options?.testResources
-        ? withTestResourceEnv(process.env, readTestResourceBudget())
-        : undefined;
+        ? withTestResourceEnv(environmentPlan.env, readTestResourceBudget())
+        : environmentPlan.env;
 
       try {
         const pending = execFileAsync(resolution.command, resolution.args, {
@@ -6009,7 +6027,7 @@ function buildSkillExecutionContext(
           // that no test produced. The tail is kept rather than the head
           // because runners print their failures last.
           maxBuffer: 4 * 1024 * 1024,
-          ...(env ? { env: env as NodeJS.ProcessEnv } : {}),
+          env: env as NodeJS.ProcessEnv,
           // Never a shell: the arguments are model-generated, and a shell would
           // run the metacharacters among them. `resolution` has already turned a
           // Windows shim into a spawnable image or a Node entry point.
@@ -6030,11 +6048,15 @@ function buildSkillExecutionContext(
         return { ok: true, exitCode: 0, stdout: clipCommandOutput(stdout), stderr: clipCommandOutput(stderr) };
       } catch (error) {
         const maybe = error as { code?: number | string; stdout?: string; stderr?: string; message?: string };
+        // A command that failed may have failed for want of a withheld token;
+        // say which names were withheld (never their values) and how to pass one.
+        const withheldNote = describeWithheldEnvironment(environmentPlan);
+        const stderr = clipCommandOutput(String(maybe.stderr ?? maybe.message ?? ''));
         return {
           ok: false,
           exitCode: typeof maybe.code === 'number' ? maybe.code : 1,
           stdout: clipCommandOutput(String(maybe.stdout ?? '')),
-          stderr: clipCommandOutput(String(maybe.stderr ?? maybe.message ?? '')),
+          stderr: withheldNote ? [stderr, withheldNote].filter(part => part.length > 0).join('\n') : stderr,
         };
       }
     },
@@ -6661,6 +6683,20 @@ function clampInteger(value: number | undefined, fallback: number, min: number, 
     return fallback;
   }
   return Math.min(max, Math.max(min, Math.floor(value)));
+}
+
+/**
+ * The names the user asked to pass to agent commands unchanged. Only the user
+ * value of the machine-scoped setting is read — see `readPassEnvironmentSetting`.
+ */
+function readHostCommandPassThrough(): string[] {
+  try {
+    const inspection = vscode.workspace.getConfiguration('atlasmind').inspect<unknown>('terminal.passEnvironment');
+    return readPassEnvironmentSetting(inspection).names;
+  } catch {
+    // An unreadable setting passes nothing through: withholding is the safe direction.
+    return [];
+  }
 }
 
 /**

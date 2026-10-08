@@ -1,4 +1,5 @@
 import * as vscode from 'vscode';
+import { readPassEnvironmentSetting } from '../core/hostCommandEnvironment.js';
 import type { AtlasMindContext } from '../extension.js';
 import type { ProviderId, SubscriptionQuota } from '../types.js';
 import {
@@ -1497,6 +1498,7 @@ export async function useSubscriptionForProvider(atlas: AtlasMindContext, provid
     agents: [candidate],
     ...(workspaceRoot ? { cwd: workspaceRoot } : {}),
     hideConsoleWindows: configuration.get<boolean>('acp.hideConsoleWindows', false),
+    passEnvironment: () => readPassEnvironmentSetting(vscode.workspace.getConfiguration('atlasmind').inspect<unknown>('terminal.passEnvironment')).names,
   }).probe().catch(() => undefined);
 
   // Not installed — the expected first answer, and the reason this button
@@ -1871,6 +1873,7 @@ async function configureAcpProvider(atlas: AtlasMindContext): Promise<void> {
     agents: next,
     ...(workspaceRoot ? { cwd: workspaceRoot } : {}),
     hideConsoleWindows: configuration.get<boolean>('acp.hideConsoleWindows', false),
+    passEnvironment: () => readPassEnvironmentSetting(vscode.workspace.getConfiguration('atlasmind').inspect<unknown>('terminal.passEnvironment')).names,
   }).probe().catch(() => undefined);
 
   if (!probe?.installed) {
@@ -1914,6 +1917,7 @@ export async function isProviderConfigured(
     const probe = await new AcpAdapter({
       agents,
       hideConsoleWindows: configuration.get<boolean>('acp.hideConsoleWindows', false),
+      passEnvironment: () => readPassEnvironmentSetting(vscode.workspace.getConfiguration('atlasmind').inspect<unknown>('terminal.passEnvironment')).names,
     }).probe().catch(() => undefined);
     return Boolean(probe?.installed && probe.authenticated);
   }
