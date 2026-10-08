@@ -2,7 +2,7 @@
   "name": "atlasmind",
   "displayName": "AtlasMind",
   "description": "AI project management for VS Code: roadmap, risk, tech debt, compliance, testing and release tracked from your own repository — with a multi-agent AI team, or the AI coding tool you already use.",
-  "version": "0.497.0",
+  "version": "0.497.1",
   "publisher": "JoelBondoux",
   "preview": false,
   "license": "SEE LICENSE IN OSMFEULA.txt",
@@ -2553,8 +2553,8 @@
           "type": "number",
           "default": 30000,
           "minimum": 5000,
-          "description": "Maximum time in milliseconds to wait for a model provider response.",
-          "markdownDescription": "Maximum time in milliseconds to wait for a model provider response. This covers the provider round-trip, not local tool execution.\n\nExamples:\n- Fast local or LAN-hosted models: `15000`\n- Default cloud-provider balance: `30000`\n- Slower premium reasoning models or distant regions: `45000` to `60000`\n\nUse a higher timeout when you intentionally allow slower reasoning models through `speedMode` or provider-specific routing."
+          "description": "Base time in milliseconds to wait for a model provider response. Deep-thinking requests and streamed answers get more, never less.",
+          "markdownDescription": "Base time in milliseconds to wait for a model provider response. This covers the provider round-trip, not local tool execution.\n\nIt is a base, not a cap: a hosted call planned to write more than 4,096 output tokens (thinking included) gets 20s more per extra 1,000 tokens, up to 10 minutes, and a streamed hosted call restarts the budget every time text arrives. Local and ACP calls scale from it by their own rules.\n\nExamples:\n- Fast local or LAN-hosted models: `15000`\n- Default cloud-provider balance: `30000`\n- Slower premium reasoning models or distant regions: `45000` to `60000`\n\nUse a higher timeout when you intentionally allow slower reasoning models through `speedMode` or provider-specific routing."
         },
         "atlasmind.remote.enabled": {
           "type": "boolean",

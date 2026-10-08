@@ -71,13 +71,15 @@ describe('Anthropic: output_config.effort', () => {
     expect(captured[0]['output_config']).toEqual({ effort: 'high' });
     expect(captured[0]).not.toHaveProperty('thinking');
     expect(captured[0]['max_tokens']).toBe(26_976);
+    // No `temperature`: Opus 5.5 rejects a non-default sampling parameter with
+    // a 400 (see anthropicSampling.test.ts). This snapshot listed it until
+    // 0.497.1, which is the request that failed.
     expect(Object.keys(captured[0]).sort()).toMatchInlineSnapshot(`
       [
         "max_tokens",
         "messages",
         "model",
         "output_config",
-        "temperature",
       ]
     `);
   });

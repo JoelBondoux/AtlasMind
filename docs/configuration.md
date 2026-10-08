@@ -284,7 +284,7 @@ resident and never evicted, which is enforced in the eviction policy rather than
 | `atlasmind.maxToolIterations` | `number` | `10` | Maximum tool-call loop iterations per agent turn (1–50). |
 | `atlasmind.maxToolCallsPerTurn` | `number` | `8` | Maximum parallel tool calls the model may issue in a single turn (1–30). |
 | `atlasmind.toolExecutionTimeoutMs` | `number` | `15000` | Per-tool execution timeout in milliseconds (minimum 1000). |
-| `atlasmind.providerTimeoutMs` | `number` | `30000` | Maximum time to wait for a model provider response in milliseconds (minimum 5000). |
+| `atlasmind.providerTimeoutMs` | `number` | `30000` | Base time to wait for a model provider response in milliseconds (minimum 5000). A hosted call planned to write more than 4,096 output tokens (thinking included) gets 20 s more per extra 1,000, up to 10 minutes; a streamed hosted call restarts this budget on every chunk. Local and ACP calls scale from it by their own rules. Never lowered below the value you set. |
 
 ## Mission Loop
 

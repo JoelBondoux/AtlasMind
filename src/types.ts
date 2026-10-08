@@ -5240,6 +5240,12 @@ export interface TaskModelAttempt {
   outputTokens: number;
   /** Bounded diagnostic text for failed or superseded attempts. */
   reason?: string;
+  /**
+   * For a timed-out attempt, the declared rule that sized its budget and the
+   * arithmetic it applied (`planProviderTimeout`), so a failure explanation can
+   * say *why* that long rather than only how long.
+   */
+  timeoutBudget?: string;
 }
 
 export interface TaskResult {

@@ -4,7 +4,7 @@
 
 <h1 align="center">AtlasMind</h1>
 
-<p align="center"><sub> · <strong>Current source version: 0.497.0</strong> · </sub></p>
+<p align="center"><sub> · <strong>Current source version: 0.497.1</strong> · </sub></p>
 
 
 <p align="center">
@@ -176,6 +176,16 @@ allow-list, redaction and file-withholding behaviour, retained metadata, provide
 important limits on overrides and compliance claims.
 
 ---
+
+## What's new in 0.497.1
+
+Two fixes for the reasoning dial 0.497.0 added. Newer Claude models — Opus 4.7 and later, Sonnet 5 and
+later, Fable, Haiku 5.5 — refuse a `temperature` setting outright, and AtlasMind sent one on every Anthropic
+request, so those models failed before they saw the prompt. It is now sent only to the older Claude models
+listed as accepting it; anything else, including a model released after the list, uses Anthropic's default.
+And a hosted model thinking hard is no longer called a timeout at 30 seconds: the wait grows with how much the
+request may write, thinking included (up to 10 minutes), a streaming reply's clock restarts every time text
+arrives, and when something does time out the report says which rule set the deadline.
 
 ## What's new in 0.497.0
 

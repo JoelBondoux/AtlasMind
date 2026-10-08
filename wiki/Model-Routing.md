@@ -178,7 +178,15 @@ and returns them where Google puts them.
 
 ## How long AtlasMind waits
 
-A hosted API call gets 30 seconds. Two cases need more, and both used to fail for the wrong reason:
+A hosted API call gets 30 seconds for an ordinary answer. Three cases need more, and all of them used to fail
+for the wrong reason:
+
+- **Deep thinking on a hosted model.** Thinking is output the model writes before you see anything, and a
+  deep turn can plan for ~27,000 tokens of it. The wait now grows with how much the request may write — 20
+  seconds per extra 1,000 tokens, up to 10 minutes — so a model that is thinking hard is no longer called a
+  timeout at 30 seconds. When a reply is **streaming**, the clock restarts every time text arrives, so a long
+  answer is never cut off halfway (with a 30-minute ceiling). When something does time out, the report says
+  which rule set the deadline and how it was worked out.
 
 - **Subscription agents (ACP)** have to start a process and shake hands before they see your prompt.
   Their deadline now covers all of that plus the prompt itself. Previously the outer limit and the
@@ -230,6 +238,10 @@ The third dial, beside budget and speed: how hard the model should *think*.
 | **minimal** | Think as little as the model allows | Mechanical edits, quick answers |
 | **standard** | A middle level | Everyday implementation |
 | **deep** | Think hard, and prefer models that can be asked to | Architecture reviews, hard debugging |
+
+Newer Claude models (Opus 4.7 and later, Sonnet 5 and later, Fable, Haiku 5.5) refuse a `temperature`
+setting outright, so AtlasMind sends one only to the older Claude models listed as accepting it — anything
+else, including a model released after this list, gets none and simply uses Anthropic's default.
 
 A level becomes a request parameter only for models whose provider has a verified control: Anthropic
 (`output_config.effort`), OpenAI (`reasoning_effort`) and Gemini (`reasoning_effort`), each on the models

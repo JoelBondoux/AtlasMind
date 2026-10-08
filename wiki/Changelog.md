@@ -19,6 +19,19 @@ Older entries below describe the software as it was at the time and are delibera
 
 ---
 
+## v0.497.1 -- Current Claude models answer again, and deep thinking gets time to think
+
+- Newer Claude models (Opus 4.7 and later, Sonnet 5 and later, Fable, Haiku 5.5) reject a `temperature`
+  setting, and AtlasMind sent one on every direct Anthropic request — so those models failed before they saw
+  the prompt. It is now sent only to the older Claude models listed as accepting it; any other model, including
+  one released after the list, simply uses Anthropic's default. Claude on Bedrock follows the same list.
+- A hosted model's deadline now grows with how much the request may write, thinking included — 20 seconds per
+  extra 1,000 tokens above 4,096, up to 10 minutes — so a deep-thinking turn is no longer called a timeout at
+  30 seconds while it works.
+- A streaming reply's deadline restarts every time text arrives, so a long answer is never cut off halfway
+  (30-minute ceiling).
+- When an attempt does time out, the failure report says which rule set the deadline and how it was worked out.
+
 ## v0.497.0 -- How hard to think, as a routing dial
 
 - A third routing dial beside budget and speed: **Reasoning mode** (`atlasmind.reasoningMode`). `auto` reads the

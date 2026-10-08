@@ -128,7 +128,7 @@ nothing is forced in and nothing is discarded.
 
 | Part | What it does |
 |---|---|
-| **Orchestrator** | The centre of everything. Routes a task: agent → memory → model → tools → execution → cost |
+| **Orchestrator** | The centre of everything. Routes a task: agent → memory → model → tools → execution → cost. Each model call gets a deadline sized by a declared rule — a hosted call's grows with the output it may write, thinking included, and a streamed one restarts with every chunk — and a timed-out attempt records the rule that set it (`TaskModelAttempt.timeoutBudget`) |
 | **Agent Registry** | Who the specialists are, which are enabled, and how they've performed |
 | **Skills Registry** | What tools exist and which an agent may use |
 | **Model Router** | Picks a model by budget, speed, capability, health and past outcomes |

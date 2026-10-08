@@ -106,6 +106,10 @@ import {
   LOCAL_TIMEOUT_MS_PER_1K_PROMPT_TOKENS,
   LOCAL_COLD_START_TIMEOUT_MS,
   LOCAL_PROVIDER_MAX_TIMEOUT_MS,
+  HOSTED_TIMEOUT_COVERED_OUTPUT_TOKENS,
+  HOSTED_TIMEOUT_MS_PER_1K_OUTPUT_TOKENS,
+  HOSTED_PROVIDER_MAX_TIMEOUT_MS,
+  HOSTED_STREAM_CEILING_MS,
   MAX_PROVIDER_RETRIES,
   MAX_TASK_MODEL_ATTEMPTS,
   MAX_TASK_FAILOVER_ATTEMPTS,
@@ -2711,6 +2715,7 @@ export class Orchestrator {
             inputTokens: 0,
             outputTokens: 0,
             reason: boundedAttemptReason(failureMessage),
+            ...(error instanceof ProviderTimeoutError ? { timeoutBudget: error.budget } : {}),
           });
           // A capacity deferral means the local GPU budget was committed and the
           // request was never sent. The model did not fail — it was not asked —
@@ -4954,10 +4959,11 @@ export class Orchestrator {
    * allowance would leave a genuinely stalled endpoint holding the turn open for
    * a minute longer than it needs to.
    */
-  private resolveAttemptTimeoutMs(providerId: string, request: ProviderCompletionRequest): number {
-    return getProviderTimeoutMs(providerId, this.cfg.providerTimeoutMs, request.model, {
+  private resolveAttemptTimeout(providerId: string, request: ProviderCompletionRequest): ProviderTimeoutPlan {
+    return planProviderTimeout(providerId, this.cfg.providerTimeoutMs, request.model, {
       promptTokens: estimateCompletionRequestInputTokens(request.messages, request.tools),
       warmedUp: this.warmLocalModels.has(request.model),
+      ...(typeof request.maxTokens === 'number' ? { outputTokens: request.maxTokens } : {}),
       ...(providerId === 'local' && this.localAdmissionBudgetMs !== undefined
         ? { admissionBudgetMs: this.localAdmissionBudgetMs }
         : {}),
@@ -5014,7 +5020,7 @@ export class Orchestrator {
     request: ProviderCompletionRequest,
     onTextChunk?: (chunk: string) => void,
   ): Promise<CompletionResponse> {
-    const timeoutMs = this.resolveAttemptTimeoutMs(provider.providerId, request);
+    const timeout = this.resolveAttemptTimeout(provider.providerId, request);
     // An ACP prompt is stateful and can continue running after a transport
     // timeout. Retrying it on a fresh session can spend twice and execute tools
     // twice, so uncertainty is terminal for this attempt. The adapter still
@@ -5038,8 +5044,8 @@ export class Orchestrator {
         });
         const completion = await withTimeout(
           execute,
-          timeoutMs,
-          `Provider timed out after ${timeoutMs}ms.`,
+          timeout.timeoutMs,
+          () => new ProviderTimeoutError(timeout.timeoutMs, timeout.describes, 'total'),
         );
         this.markModelWarm(provider.providerId, request.model);
         return completion;
@@ -5067,23 +5073,39 @@ export class Orchestrator {
     request: ProviderCompletionRequest,
     onTextChunk: (chunk: string) => void,
   ): Promise<CompletionResponse> {
-    const timeoutMs = this.resolveAttemptTimeoutMs(provider.providerId, request);
+    const timeout = this.resolveAttemptTimeout(provider.providerId, request);
+    const inactivity = usesStreamInactivityBudget(provider.providerId);
+    const ceilingMs = Math.max(timeout.timeoutMs, HOSTED_STREAM_CEILING_MS);
     const maxRetries = provider.providerId === 'acp' ? 0 : MAX_PROVIDER_RETRIES;
     for (let attempt = 0; attempt <= maxRetries; attempt += 1) {
       const scoped = createProviderAttemptRequest(request, shouldAbortSupersededRequest(provider.providerId));
       try {
-        const completion = await withTimeout(
-          dispatchGuardedCompletion({
-            provider,
-            origins: originsFromMessages(scoped.request.messages),
-            external: !isLocalProviderId(provider.providerId),
-            request: scoped.request,
-            onTextChunk,
-            ...(this.egressSecretConfirmer ? { confirmSecret: this.egressSecretConfirmer } : {}),
-          }),
-          timeoutMs,
-          `Provider timed out after ${timeoutMs}ms.`,
-        );
+        const dispatch = (onChunk: (chunk: string) => void): Promise<CompletionResponse> => dispatchGuardedCompletion({
+          provider,
+          origins: originsFromMessages(scoped.request.messages),
+          external: !isLocalProviderId(provider.providerId),
+          request: scoped.request,
+          onTextChunk: onChunk,
+          ...(this.egressSecretConfirmer ? { confirmSecret: this.egressSecretConfirmer } : {}),
+        });
+        // A hosted stream's budget restarts on every chunk, so the long answer
+        // the output allowance was sized for is never cut off mid-delivery. The
+        // first chunk still gets the whole planned budget, because thinking
+        // streams nothing visible before it. The ceiling catches a stream that
+        // never ends.
+        const completion = inactivity
+          ? await withInactivityTimeout(
+            touch => dispatch(chunk => { touch(); onTextChunk(chunk); }),
+            timeout.timeoutMs,
+            ceilingMs,
+            () => new ProviderTimeoutError(timeout.timeoutMs, timeout.describes, 'inactivity'),
+            () => new ProviderTimeoutError(ceilingMs, HOSTED_STREAM_CEILING_RULE, 'stream-ceiling'),
+          )
+          : await withTimeout(
+            dispatch(onTextChunk),
+            timeout.timeoutMs,
+            () => new ProviderTimeoutError(timeout.timeoutMs, timeout.describes, 'total'),
+          );
         this.markModelWarm(provider.providerId, request.model);
         return completion;
       } catch (err) {
@@ -7931,7 +7953,8 @@ export function summarizeAttemptFailures(attempts: TaskModelAttempt[]): AttemptF
   const lines = failed.map(attempt => {
     const seconds = Math.max(1, Math.round(attempt.durationMs / 1000));
     if (attempt.status === 'timeout') {
-      return `- \`${attempt.model}\` — timed out after ${seconds}s`;
+      const budget = attempt.timeoutBudget ? ` (budget ${attempt.timeoutBudget})` : '';
+      return `- \`${attempt.model}\` — timed out after ${seconds}s${budget}`;
     }
     const reason = attempt.reason ? `: ${attempt.reason}` : '';
     return `- \`${attempt.model}\` — failed after ${seconds}s${reason}`;
@@ -8010,6 +8033,41 @@ export interface ProviderTimeoutInputs {
    * inputs widen the budget or leave it alone.
    */
   admissionBudgetMs?: number;
+  /**
+   * The output this attempt is planned to produce: the request's `max_tokens`,
+   * which already includes the thinking a reasoning directive made room for
+   * (`reasoningMaxTokens`). Absent means not known and leaves a hosted budget
+   * at its base — it never narrows it.
+   */
+  outputTokens?: number;
+}
+
+/** The declared rules a provider attempt's budget can come from. */
+export type ProviderTimeoutRule =
+  | 'acp-enclosing'
+  | 'local-scaled'
+  | 'hosted-flat'
+  | 'hosted-output-allowance'
+  | 'hosted-output-capped';
+
+/**
+ * Every rule, as a sentence. Published so a failure explanation can name the
+ * rule that sized the budget rather than a bare number of milliseconds.
+ */
+export const PROVIDER_TIMEOUT_RULES: Readonly<Record<ProviderTimeoutRule, string>> = {
+  'acp-enclosing': 'an ACP turn gets the adapter\'s prompt ceiling plus handshake headroom',
+  'local-scaled': 'a local model gets the base plus allowances for its size, the prompt, a cold start and GPU admission',
+  'hosted-flat': `a hosted call planned to write at most ${HOSTED_TIMEOUT_COVERED_OUTPUT_TOKENS.toLocaleString('en-US')} output tokens gets the flat base`,
+  'hosted-output-allowance': `a hosted call gets the base plus ${HOSTED_TIMEOUT_MS_PER_1K_OUTPUT_TOKENS / 1000}s per 1,000 planned output tokens above ${HOSTED_TIMEOUT_COVERED_OUTPUT_TOKENS.toLocaleString('en-US')}, thinking included`,
+  'hosted-output-capped': `the output allowance reached the ${HOSTED_PROVIDER_MAX_TIMEOUT_MS / 60_000}-minute hosted ceiling`,
+};
+
+/** How long an attempt may take, and the declared rule that decided it. */
+export interface ProviderTimeoutPlan {
+  timeoutMs: number;
+  rule: ProviderTimeoutRule;
+  /** The rule applied to this attempt's numbers, composed here so no caller restates it. */
+  describes: string;
 }
 
 /**
@@ -8036,11 +8094,32 @@ export function getProviderTimeoutMs(
   modelId?: string,
   inputs?: ProviderTimeoutInputs,
 ): number {
+  return planProviderTimeout(providerId, defaultTimeoutMs, modelId, inputs).timeoutMs;
+}
+
+/**
+ * `getProviderTimeoutMs` with its reason attached.
+ *
+ * The hosted rule is the one added for deep reasoning: thinking is output that
+ * has to be generated before anything visible arrives, so the budget grows with
+ * the planned output — `max_tokens`, which a reasoning directive has already
+ * raised to cover the thinking — at a declared 50 tokens/s floor above the
+ * output the base covers, clamped to `HOSTED_PROVIDER_MAX_TIMEOUT_MS`. It never
+ * falls below the configured base: a user who set 60s keeps 60s for a one-line
+ * answer.
+ */
+export function planProviderTimeout(
+  providerId: string,
+  defaultTimeoutMs: number,
+  modelId?: string,
+  inputs?: ProviderTimeoutInputs,
+): ProviderTimeoutPlan {
   if (providerId === 'acp') {
-    return Math.max(defaultTimeoutMs, ACP_PROVIDER_TIMEOUT_MS);
+    const timeoutMs = Math.max(defaultTimeoutMs, ACP_PROVIDER_TIMEOUT_MS);
+    return { timeoutMs, rule: 'acp-enclosing', describes: `rule acp-enclosing: ${PROVIDER_TIMEOUT_RULES['acp-enclosing']} = ${timeoutMs}ms` };
   }
   if (providerId !== 'local') {
-    return defaultTimeoutMs;
+    return planHostedTimeout(defaultTimeoutMs, inputs?.outputTokens);
   }
 
   const parametersBillions = modelId ? inferParametersBillions(modelId) : undefined;
@@ -8052,11 +8131,64 @@ export function getProviderTimeoutMs(
   const coldStartAllowance = inputs?.warmedUp === true ? 0 : LOCAL_COLD_START_TIMEOUT_MS;
   const admissionAllowance = Math.max(0, inputs?.admissionBudgetMs ?? 0);
 
-  return Math.min(
+  const timeoutMs = Math.min(
     LOCAL_PROVIDER_MAX_TIMEOUT_MS,
     defaultTimeoutMs + sizeAllowance + promptAllowance + coldStartAllowance + admissionAllowance,
   );
+  return { timeoutMs, rule: 'local-scaled', describes: `rule local-scaled: ${PROVIDER_TIMEOUT_RULES['local-scaled']} = ${timeoutMs}ms` };
 }
+
+function planHostedTimeout(baseMs: number, outputTokens: number | undefined): ProviderTimeoutPlan {
+  const planned = typeof outputTokens === 'number' && Number.isFinite(outputTokens) ? Math.max(0, Math.floor(outputTokens)) : 0;
+  const excess = Math.max(0, planned - HOSTED_TIMEOUT_COVERED_OUTPUT_TOKENS);
+  if (excess === 0) {
+    return { timeoutMs: baseMs, rule: 'hosted-flat', describes: `rule hosted-flat: ${PROVIDER_TIMEOUT_RULES['hosted-flat']} = ${baseMs}ms` };
+  }
+  const allowance = Math.round((excess / 1000) * HOSTED_TIMEOUT_MS_PER_1K_OUTPUT_TOKENS);
+  const uncapped = baseMs + allowance;
+  const timeoutMs = Math.max(baseMs, Math.min(HOSTED_PROVIDER_MAX_TIMEOUT_MS, uncapped));
+  const arithmetic = `${baseMs}ms base + ${allowance}ms for ${planned.toLocaleString('en-US')} planned output tokens`;
+  return uncapped > timeoutMs
+    ? { timeoutMs, rule: 'hosted-output-capped', describes: `rule hosted-output-capped: ${arithmetic}, but ${PROVIDER_TIMEOUT_RULES['hosted-output-capped']} = ${timeoutMs}ms` }
+    : { timeoutMs, rule: 'hosted-output-allowance', describes: `rule hosted-output-allowance: ${PROVIDER_TIMEOUT_RULES['hosted-output-allowance']}; ${arithmetic} = ${timeoutMs}ms` };
+}
+
+/**
+ * Whether a streamed attempt's budget is an inactivity budget.
+ *
+ * A hosted stream that keeps delivering chunks is working, and a total-duration
+ * timer would cut off exactly the long answer the output allowance was sized
+ * for. ACP keeps its own inactivity timer inside the adapter, and a local
+ * stream stays on its total budget, which the GPU arbiter's admission
+ * accounting is sized against.
+ */
+export function usesStreamInactivityBudget(providerId: string): boolean {
+  return providerId !== 'acp' && providerId !== 'local';
+}
+
+/**
+ * A provider attempt that ran out of its planned budget. Structural, so the
+ * attempt record can carry the rule that sized the budget; the message still
+ * says "timed out", which is what every existing timeout classifier reads, so
+ * the failover path is unchanged.
+ */
+export class ProviderTimeoutError extends Error {
+  constructor(
+    readonly timeoutMs: number,
+    readonly budget: string,
+    readonly kind: 'total' | 'inactivity' | 'stream-ceiling',
+  ) {
+    super(kind === 'inactivity'
+      ? `Provider timed out after ${timeoutMs}ms with nothing streamed (inactivity budget, restarted on every chunk; ${budget}).`
+      : kind === 'stream-ceiling'
+        ? `Provider timed out after ${timeoutMs}ms in total while still streaming (${budget}).`
+        : `Provider timed out after ${timeoutMs}ms (${budget}).`);
+    this.name = 'ProviderTimeoutError';
+  }
+}
+
+/** The ceiling a streamed hosted attempt hits, stated as a rule like the others. */
+export const HOSTED_STREAM_CEILING_RULE = 'rule hosted-stream-ceiling: a streamed hosted call may not run longer than this in total, however busy it is';
 
 function buildPromptBudget(
   contextWindow: number | undefined,
@@ -9238,11 +9370,14 @@ function isModelDeprecatedError(err: unknown): boolean {
 async function withTimeout<T>(
   promise: Promise<T>,
   timeoutMs: number,
-  timeoutMessage: string,
+  timeoutMessage: string | (() => Error),
 ): Promise<T> {
   let timeoutHandle: unknown;
   const timeoutPromise = new Promise<never>((_, reject) => {
-    timeoutHandle = getTimerGlobals().setTimeout(() => reject(new Error(timeoutMessage)), timeoutMs);
+    timeoutHandle = getTimerGlobals().setTimeout(
+      () => reject(typeof timeoutMessage === 'string' ? new Error(timeoutMessage) : timeoutMessage()),
+      timeoutMs,
+    );
   });
 
   try {
@@ -9251,6 +9386,47 @@ async function withTimeout<T>(
     if (timeoutHandle !== undefined) {
       getTimerGlobals().clearTimeout(timeoutHandle);
     }
+  }
+}
+
+/**
+ * Race `start` against an inactivity timer it can restart and an absolute
+ * ceiling it cannot. `start` receives `touch`, which re-arms the inactivity
+ * timer; the caller calls it on every sign of progress (a streamed chunk).
+ */
+export async function withInactivityTimeout<T>(
+  start: (touch: () => void) => Promise<T>,
+  idleMs: number,
+  ceilingMs: number,
+  onIdle: () => Error,
+  onCeiling: () => Error,
+): Promise<T> {
+  const timers = getTimerGlobals();
+  let idleHandle: unknown;
+  let settled = false;
+  let fail: (error: Error) => void = () => {};
+  const guard = new Promise<never>((_, reject) => { fail = reject; });
+  const arm = (): void => {
+    if (idleHandle !== undefined) {
+      timers.clearTimeout(idleHandle);
+    }
+    idleHandle = timers.setTimeout(() => fail(onIdle()), idleMs);
+  };
+  const touch = (): void => {
+    if (!settled) {
+      arm();
+    }
+  };
+  arm();
+  const ceilingHandle = timers.setTimeout(() => fail(onCeiling()), ceilingMs);
+  try {
+    return await Promise.race([start(touch), guard]);
+  } finally {
+    settled = true;
+    if (idleHandle !== undefined) {
+      timers.clearTimeout(idleHandle);
+    }
+    timers.clearTimeout(ceilingHandle);
   }
 }
 

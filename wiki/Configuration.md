@@ -78,7 +78,7 @@ A reasonable starting `settings.json`:
 | `atlasmind.planningModelId` | `""` | Pin a specific model for planning. Empty routes normally |
 | `atlasmind.synthesisModelId` | `""` | Pin a model for summarising results |
 | `atlasmind.draftModelId` | `""` | Pin a fast, cheap model for mechanical work. It escalates automatically if the model struggles |
-| `atlasmind.providerTimeoutMs` | `30000` | How long to wait for a provider before giving up |
+| `atlasmind.providerTimeoutMs` | `30000` | The base wait for a provider before giving up; deep-thinking requests and long streamed answers get more, never less |
 
 ### Connecting providers
 

@@ -237,6 +237,8 @@ Central coordinator. Receives a `TaskRequest` and:
 8. Builds a context bundle and dispatches execution, enforcing incomplete-delivery and verification gates.
 9. Records cost and an evidence-backed execution-quality outcome via `CostTracker` and `ModelRouter`.
 
+Every provider attempt runs under a budget from `planProviderTimeout`, which returns the milliseconds **and** the declared rule behind them (`PROVIDER_TIMEOUT_RULES`: `acp-enclosing`, `local-scaled`, `hosted-flat`, `hosted-output-allowance`, `hosted-output-capped`). A hosted budget grows with the request's planned output (`max_tokens`, thinking included) above `HOSTED_TIMEOUT_COVERED_OUTPUT_TOKENS`, capped at `HOSTED_PROVIDER_MAX_TIMEOUT_MS`; a streamed hosted attempt uses it as an inactivity budget restarted by each chunk (`withInactivityTimeout`), bounded by `HOSTED_STREAM_CEILING_MS`. Expiry raises `ProviderTimeoutError` — its message still reads "timed out", so the failover, circuit and struggle paths are unchanged — and its rule lands on `TaskModelAttempt.timeoutBudget` (`types.ts`), which `summarizeAttemptFailures` prints beside the attempt. See [model-routing.md](model-routing.md).
+
 Host-specific settings enter through `OrchestratorHooks.readSetting`. The VS Code host supplies a configuration reader; CLI and ACP hosts receive safe defaults. This keeps the core importable without loading the `vscode` module in a headless process.
 
 The VS Code tool-approval gate delegates runtime scope to `ToolApprovalManager`. A card decision and its

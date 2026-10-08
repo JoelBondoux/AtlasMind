@@ -6,6 +6,49 @@ The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/),
 
 ## [Unreleased]
 
+## [0.497.1] - 2026-10-08
+
+### Fixed
+
+- **Direct-Anthropic requests to current Claude models no longer fail with a 400 over `temperature`.** The
+  Anthropic adapter sent `temperature: 0.2` on every request, and every Claude model from Opus 4.7 on — Fable
+  5/5.1, Mythos 5/5.1/Preview, Opus 5.5/5/4.8/4.7, Sonnet 5.5/5, Haiku 5.5 — rejects a non-default
+  `temperature`, `top_p` or `top_k` on every request, whether or not thinking is used (Anthropic's Thinking
+  page, *Sampling parameters*, read 2026-10-08 — `ANTHROPIC_SAMPLING_VERIFIED_AT`). So Opus 5.5, the model the
+  0.497.0 reasoning axis prefers for deep work, failed before it saw the prompt.
+  - **An allowlist, not a denylist.** `ANTHROPIC_SAMPLING_ACCEPTING_MODELS` lists the models known to accept
+    `temperature` (Opus/Sonnet 4.6, the 4.5 family, Opus 4.1, Opus/Sonnet 4, Claude 3.x), anchored so
+    `claude-opus-4` never matches `claude-opus-4-7`. Every other model — including one released after the
+    table — is sent no sampling parameter: omitting it is valid everywhere, so a stale table costs a request
+    sampled at the API default rather than a 400. `top_p` and `top_k` are never sent.
+  - **Effort does not interact.** On the older models the restriction applies only while thinking is on;
+    AtlasMind never sends `thinking`, and on every allowlisted model omitting it means thinking is off, so
+    `output_config.effort` leaves `temperature` valid there.
+  - **Bedrock gets the same table for Claude.** `inferenceConfig.temperature` maps onto the model's own field,
+    and the rule is the model's, so `bedrockSamplingFields` applies it to Claude ids (`us.anthropic.claude-…`)
+    and leaves Llama, Nova and the rest alone. Copilot- and OpenRouter-hosted Claude are unchanged: what those
+    gateways forward was not verified.
+  - Pinned by request-body snapshots per model class and a property test that no request to a model outside
+    the table carries `temperature`, `top_p` or `top_k` (`tests/providers/anthropicSampling.test.ts`). The
+    0.497.0 request-shape snapshot that listed `temperature` for Opus 5.5 was the failing request and now
+    does not.
+- **A deep-reasoning turn on a hosted model is no longer timed out while it is thinking.** Hosted providers
+  had a flat 30-second budget while 0.497.0 lets a deep turn plan for ~27k output tokens, most of them
+  thinking generated before anything visible arrives — so a working model was recorded as a timeout and a
+  failover was spent on the next model at the same depth.
+  - **The budget scales with the planned output, by a declared rule.** `planProviderTimeout` gives a hosted
+    call the configured base for up to 4,096 planned output tokens (`max_tokens`, thinking included), plus 20s
+    per 1,000 above that — a 50 tokens/s planning floor — capped at 10 minutes, the Anthropic SDKs' own default
+    request timeout, and never below the configured base. A deep turn now gets ~8 minutes. Rules:
+    `hosted-flat`, `hosted-output-allowance`, `hosted-output-capped`.
+  - **A streamed call uses an inactivity budget.** Every streamed chunk restarts it, so a long answer that
+    keeps arriving is never cut off mid-delivery; a 30-minute ceiling catches one that never ends. ACP and
+    local keep their own rules.
+  - **The rule is named in the failure.** A timeout raises `ProviderTimeoutError`, whose message still reads
+    "timed out" — so failover, the endpoint circuit and struggle memory treat it exactly as before — and whose
+    rule is recorded on `TaskModelAttempt.timeoutBudget` and printed beside the attempt in the failure report.
+  - `atlasmind.providerTimeoutMs` is now described as the base it always was for local and ACP calls.
+
 ## [0.497.0] - 2026-10-08
 
 ### Added
