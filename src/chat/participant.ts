@@ -57,6 +57,7 @@ import { answerConversationRecall, parseConversationRecallRequest } from '../cor
 import { deriveSessionFitSuggestions } from '../core/sessionFitSuggestions.js';
 import { buildCapabilityIndex } from '../core/capabilityIndex.js';
 import { assessIdeationReadiness } from '../core/ideationReadiness.js';
+import { ssotHomeRoot } from '../utils/workspaceRoots.js';
 import { extractItemGates, parseRoadmapGates, stripRoadmapGatesBlock } from '../core/roadmapGates.js';
 import {
   absorbProvenance,
@@ -3490,7 +3491,14 @@ interface IdeationCommandBoard {
  * it is describing.
  */
 async function handleIdeateCommand(stream: vscode.ChatResponseStream): Promise<void> {
-  const workspaceRoot = vscode.workspace.workspaceFolders?.[0]?.uri.fsPath;
+  // The board lives in project memory, so it is read from the SSOT home. An
+  // ambiguous home is said so, rather than read from whichever folder is first.
+  const home = ssotHomeRoot();
+  if (home.refusal) {
+    stream.markdown(`### Ideation\n\n${escapeMd(home.refusal)}`);
+    return;
+  }
+  const workspaceRoot = home.fsPath;
   if (!workspaceRoot) {
     stream.markdown('### Ideation\n\nOpen a workspace folder to inspect the active ideation board.');
     stream.button({ command: 'atlasmind.openProjectIdeation', title: 'Open canvas' });
@@ -6067,7 +6075,11 @@ export async function saveOperatorFeedbackDraft(atlas: AtlasMindContext): Promis
     return 'There is no operator-feedback note waiting to be saved.';
   }
 
-  const ssotRoot = getSsotRootUri();
+  const located = getSsotRootUri();
+  if ('refusal' in located) {
+    return `${located.refusal} The note was not saved.`;
+  }
+  const ssotRoot = located.uri;
   if (!ssotRoot) {
     return 'No project memory folder is available in this workspace, so the note was not saved.';
   }
@@ -6174,19 +6186,31 @@ function isFrustrationSettingsSnapshot(value: unknown): value is FrustrationSett
     && typeof candidate['lastFrustrationAt'] === 'string';
 }
 
-function getSsotRootUri(): vscode.Uri | undefined {
-  const workspaceFolder = vscode.workspace.workspaceFolders?.[0]?.uri;
+/**
+ * The project-memory folder in the SSOT home — or why there is none to write.
+ *
+ * In a multi-root workspace the home is located, not assumed to be the first
+ * folder; an ambiguous home is a refusal naming the candidates, because a note
+ * written into whichever repository is listed first is a note the team reading
+ * the other one never sees.
+ */
+function getSsotRootUri(): { uri: vscode.Uri | undefined } | { refusal: string } {
+  const home = ssotHomeRoot();
+  if (home.refusal) {
+    return { refusal: home.refusal };
+  }
+  const workspaceFolder = home.folder?.uri;
   if (!workspaceFolder) {
-    return undefined;
+    return { uri: undefined };
   }
 
   const configured = vscode.workspace.getConfiguration('atlasmind').get<string>('ssotPath', DEFAULT_SSOT_PATH) ?? DEFAULT_SSOT_PATH;
   const normalized = configured.replace(/\\+/g, '/').trim();
   if (!normalized || normalized.startsWith('/') || /^[A-Za-z]:/.test(normalized) || normalized.includes('..')) {
-    return undefined;
+    return { uri: undefined };
   }
 
-  return vscode.Uri.joinPath(workspaceFolder, ...normalized.split('/').filter(Boolean));
+  return { uri: vscode.Uri.joinPath(workspaceFolder, ...normalized.split('/').filter(Boolean)) };
 }
 
 function buildOperatorFeedbackMarkdown(
@@ -6391,7 +6415,13 @@ export async function buildRoadmapStatusResult(
     return undefined;
   }
 
-  const workspaceRoot = vscode.workspace.workspaceFolders?.[0]?.uri.fsPath;
+  // The roadmap is project memory: read from the SSOT home, and never from a
+  // folder picked because it is first when the home is ambiguous.
+  const home = ssotHomeRoot();
+  if (home.refusal) {
+    return { markdown: `### Roadmap Status\n\n${home.refusal}`, questions: [], prefills: [] };
+  }
+  const workspaceRoot = home.fsPath;
   if (!workspaceRoot) {
     return { markdown: '### Roadmap Status\n\nOpen a workspace to inspect the live roadmap files.', questions: [], prefills: [] };
   }

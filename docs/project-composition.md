@@ -31,8 +31,13 @@ Multi-root slice A1 adds the host adapter `src/utils/workspaceRoots.ts` — the 
 read `vscode.workspace.workspaceFolders` — and routes the execution boundary through it (the skill
 execution context, `runCommand`, the git tools and the workspace-containment check), together with the
 Project Dashboard's scope resolution and register getters and the Buzz inbound service's root. Behaviour
-is identical: the adapter's default is the same first folder (§8). Locating the SSOT home in a
-multi-root workspace, a component picker and component routing are later slices.
+is identical: the adapter's default is the same first folder (§8).
+
+Slice A2 locates the SSOT home in a multi-root workspace (§2.6, §8.2) and fixes `.` to resolve against
+the folder the composition was read from. Behaviour changes only for a multi-root workspace whose home is
+not the first folder, and for one whose home is ambiguous. A component picker (A3), component routing
+(A4), binding the domain studios to a component (A5) and ratcheting the remaining reads down (A6+) are
+later slices.
 
 ### 0.3 Non-goals
 
@@ -156,6 +161,10 @@ would fragment the one thing the SSOT exists to unify.
 Facts that genuinely are per-component — git status, pull requests, CI runs, build results, asset
 inventory — MUST be scoped to their component and MUST be labelled with it on any surface that shows
 them (§6.2).
+
+In a multi-root workspace the home's folder MUST be located, not assumed to be the first (§8.2). Where it
+cannot be located without guessing, project memory MUST NOT be written anywhere, and the surface MUST name
+the candidate folders and say how to declare the home.
 
 ## §3 Invariants
 
@@ -291,7 +300,7 @@ Surfaces migrate **by consequence, not by count**. Those where single-root is ac
 first — asset inventory, build, git status, debt scan, CI, observed delta. The rest follow when
 touched for other reasons.
 
-A mechanical rewrite of every remaining site (204 direct reads at v0.497.2, 182 taking `[0]`) is an
+A mechanical rewrite of every remaining site (198 direct reads at v0.498.0, 176 taking `[0]`) is an
 explicit non-goal: it would be unreviewable, and it would land its bugs everywhere simultaneously.
 
 ### 8.1 The host adapter and the ratchet
@@ -314,6 +323,40 @@ two-way ratchet `testTypecheck.test.ts` uses: a file whose count rises fails, a 
 fails until its ceiling is lowered, an unlisted file must have none, and `src/core/**` must have none
 unless its entry carries a written reason. ESLint cannot ratchet per file, which is why this is a test.
 
+### 8.2 Locating the SSOT home
+
+`locateSsotHome(folders, probe)` in `workspaceScope.ts` is pure; the adapter's `ssotHomeRoot()` supplies
+the probe (does `<ssotPath>/` exist here, and does this folder's own `workflow.json` declare a
+composition) and turns the answer back into the host's folder. `SSOT_HOME_RULES`, first match wins:
+
+| Rule | Applies when | Home |
+|---|---|---|
+| `no-folder` | No folder is open | none |
+| `single-root` | One folder is open — nothing is probed | that folder |
+| `declared-home` | Exactly one folder's valid `workflow.json` places the home component in that folder | that folder |
+| `ambiguous` | More than one folder declares itself home, or none does and more than one holds `<ssotPath>/` | **unknown** |
+| `sole-ssot` | Exactly one folder holds the configured `<ssotPath>/` | that folder |
+| `no-ssot-first-folder` | Nothing declares a home or holds project memory | the first folder, where bootstrap writes |
+
+A declaration outranks a directory because declaring the home is the documented way to settle an
+ambiguity; a folder whose composition places its home somewhere else is not a declaration of itself. A
+folder that could not be looked inside (a virtual scheme, an unreadable path, or past the 32-folder probe
+cap) is reported as `unprobed`, never read as empty. An `ambiguous` result returns no folder:
+`describeSsotHomeRefusal` composes the one sentence every surface shows, naming the candidates and the
+fix, and AtlasMind neither loads nor writes project memory until it is settled.
+
+A component at `.` resolves against the **anchor** — the folder the composition was read from
+(`WorkspaceScopeOptions.anchorFsPath`). Before A2 it resolved against folder 0 while the composition was
+also read from folder 0, so a home that was not first could not find itself.
+
+Surfaces opted in at A2: the workflow file (`WorkflowConfigManager`, which with a refusal reads nothing,
+will not seed, and throws on save rather than silently doing nothing), the Project Dashboard's scope
+resolution and SSOT reads, the root project memory is loaded from at activation, the project soul quoted
+in system prompts, operator-feedback writes, and the `/ideate` and roadmap-status reads in chat.
+Workspace **identity** — the cost-tracker key and the machine-private cost-history hash — deliberately
+stays on the first folder: re-keying it would orphan every spend record already written under it. Other
+SSOT readers keep the first folder until migrated, and the ratchet records each move.
+
 ## §9 Conformance
 
 An implementation conforms when:
@@ -326,3 +369,4 @@ An implementation conforms when:
 - [x] `upstreamDivergence` has no engine-specific symbol in it.
 - [ ] No write path to any non-git version control system exists.
 - [x] A single-root workspace behaves exactly as it did at v0.213.0; default scope remains the first folder.
+- [x] A multi-root workspace locates its SSOT home by a declared rule, and an ambiguous home is refused, never picked.

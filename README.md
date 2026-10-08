@@ -4,7 +4,7 @@
 
 <h1 align="center">AtlasMind</h1>
 
-<p align="center"><sub> · <strong>Current source version: 0.497.2</strong> · </sub></p>
+<p align="center"><sub> · <strong>Current source version: 0.498.0</strong> · </sub></p>
 
 
 <p align="center">
@@ -176,6 +176,19 @@ allow-list, redaction and file-withholding behaviour, retained metadata, provide
 important limits on overrides and compliance claims.
 
 ---
+
+## What's new in 0.498.0
+
+Project memory is found where it lives in a multi-root workspace, instead of being assumed to be in the
+first folder. With several folders open, AtlasMind looks for the home: a folder whose own `workflow.json`
+declares itself the home, otherwise the one folder holding `project_memory/`, otherwise the first folder.
+Memory, the project soul, the workflow file and the dashboard's project-memory pages follow it. If two
+folders both look like the home, AtlasMind does not guess — it loads and writes no project memory, and the
+Project Dashboard shows a banner naming the folders and how to declare the home. Single-folder workspaces,
+and multi-root ones whose first folder is the home, behave exactly as before. A component at `.` in a
+declared composition now means the folder the composition was read from, which is what lets a home that is
+not first find itself. Cost history stays keyed on the first folder on purpose, so nothing already recorded
+is orphaned.
 
 ## What's new in 0.497.2
 

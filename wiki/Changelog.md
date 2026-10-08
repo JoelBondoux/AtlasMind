@@ -19,6 +19,16 @@ Older entries below describe the software as it was at the time and are delibera
 
 ---
 
+## v0.498.0 -- Project memory is found where it lives
+
+- In a multi-root workspace AtlasMind now looks for the folder holding project memory instead of assuming
+  it is the first: a folder whose own `workflow.json` declares itself the home wins, then the one folder
+  with `project_memory/`, then the first folder.
+- If two folders both look like the home, nothing is guessed: no project memory is loaded or written, and
+  the Project Dashboard names the folders and says how to declare the home.
+- A `.` component location now means the folder the composition was read from. Single-folder workspaces
+  are unchanged, and cost history stays keyed on the first folder so none of it is orphaned.
+
 ## v0.497.2 -- One place asks which folder is open
 
 - A structural step toward multi-root workspaces, with no behaviour change. AtlasMind asked VS Code which

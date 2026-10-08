@@ -16,7 +16,7 @@ import { execFile } from 'child_process';
 import { promisify } from 'util';
 import { pathToFileURL } from 'url';
 import { sanitizeTerminalOutput } from './utils/terminalOutput.js';
-import { defaultWorkspaceFolder, defaultWorkspaceRootPath, openWorkspaceFolders } from './utils/workspaceRoots.js';
+import { defaultWorkspaceFolder, defaultWorkspaceRootPath, openWorkspaceFolders, ssotHomeRoot } from './utils/workspaceRoots.js';
 import { PresenceManager } from './core/presenceManager.js';
 import {
   LOCAL_GPU_ADMISSION_WAIT_MS,
@@ -559,8 +559,14 @@ function buildProjectSoulPrompt(options?: WorkspaceIdentityPromptOptions): strin
   return lines.length > 0 ? lines.join('\n') : undefined;
 }
 
+/**
+ * The project soul lives in project memory, so it is read from the SSOT home.
+ *
+ * An ambiguous home yields no path at all — the prompt goes without a soul
+ * rather than quoting one repository's as though it were the project's.
+ */
 function resolveProjectSoulFilePath(options?: WorkspaceIdentityPromptOptions): string | undefined {
-  const workspaceFolder = options?.workspaceFolders?.[0] ?? vscode.workspace.workspaceFolders?.[0];
+  const workspaceFolder = options?.workspaceFolders?.[0] ?? ssotHomeRoot().folder;
   if (!workspaceFolder?.uri.fsPath) {
     return undefined;
   }
@@ -3803,7 +3809,16 @@ async function bootstrapAtlasMind(
   atlasStartupState.detail = undefined;
   outputChannel.appendLine(`AtlasMind activated in ${Date.now() - atlasStartupState.startedAt}ms ✓`);
 
-  const workspaceFolder = vscode.workspace.workspaceFolders?.[0];
+  // Project memory loads from the SSOT home, which in a multi-root workspace is
+  // located rather than assumed to be the first folder (SSOT_HOME_RULES). An
+  // ambiguous home loads nothing and says why: memory read from whichever
+  // folder is listed first would be the wrong project's half the time.
+  const ssotHome = ssotHomeRoot();
+  if (ssotHome.refusal) {
+    outputChannel.appendLine(`[activate] loadSsotFromDisk skipped: ${ssotHome.refusal}`);
+    void vscode.window.showWarningMessage(ssotHome.refusal);
+  }
+  const workspaceFolder = ssotHome.folder;
   if (workspaceFolder) {
     registerProjectMemoryAutoRefresh(context, workspaceFolder, outputChannel);
     registerMemorySelfHealing(context, workspaceFolder, outputChannel);

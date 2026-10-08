@@ -1178,11 +1178,33 @@ export class WorkflowConfigManager {
   private preserveExisting = false;
   private notice: string | undefined;
 
-  constructor(private readonly workspaceRoot: string | undefined) {
+  /**
+   * @param workspaceRoot The folder holding project memory — the SSOT home.
+   * @param refusal Why this workspace's project memory may not be read or
+   *   written, when its home is ambiguous. A refused manager reads nothing,
+   *   reports the refusal as its notice, will not seed, and **throws** on
+   *   save: a save that quietly did nothing would read exactly like one that
+   *   worked, into a file the team was about to review.
+   */
+  constructor(
+    private readonly workspaceRoot: string | undefined,
+    private readonly refusal?: string,
+  ) {
     this.applyRead();
   }
 
+  /** The folder this manager reads and writes, so a composition read here can be anchored here. */
+  getWorkspaceRoot(): string | undefined {
+    return this.refusal ? undefined : this.workspaceRoot;
+  }
+
   private applyRead(): void {
+    if (this.refusal) {
+      this.config = undefined;
+      this.preserveExisting = true;
+      this.notice = this.refusal;
+      return;
+    }
     if (!this.workspaceRoot) {
       this.config = undefined;
       this.preserveExisting = false;
@@ -1236,6 +1258,9 @@ export class WorkflowConfigManager {
   }
 
   async save(config: WorkflowConfig): Promise<void> {
+    if (this.refusal) {
+      throw new Error(this.refusal);
+    }
     this.config = config;
     if (this.workspaceRoot) {
       await writeWorkflowConfig(this.workspaceRoot, config);

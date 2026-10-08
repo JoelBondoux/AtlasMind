@@ -6,6 +6,49 @@ The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/),
 
 ## [Unreleased]
 
+## [0.498.0] - 2026-10-08
+
+### Changed
+
+- **Project memory is located in a multi-root workspace, and an ambiguous home is refused rather than
+  picked** — slice A2 of multi-root workspace awareness (`rm:monorepo-multi-root-workspac`; A3–A6 remain).
+  `docs/project-composition.md` §2.6 says there is one SSOT, in the home component; until now the home's
+  folder was simply assumed to be the first one VS Code lists, so a workspace whose memory lived in its
+  second folder read and wrote the wrong repository's.
+  - **`locateSsotHome(folders, probe)` in `src/core/workspaceScope.ts` decides, from a declared table.**
+    `SSOT_HOME_RULES`, first match wins, each result naming its rule: `no-folder`; `single-root` (one folder
+    is the home and nothing is probed); `declared-home` (exactly one folder's own valid `workflow.json`
+    places the home component in that folder); `ambiguous` (two such declarations, or none and more than one
+    folder holding `<ssotPath>/`); `sole-ssot` (exactly one folder holds the configured `<ssotPath>/`); and
+    `no-ssot-first-folder` (nothing found — the first folder, where bootstrap writes). A declaration
+    outranks a directory because declaring the home is the documented way to settle an ambiguity.
+  - **Ambiguous is a result, never a coin toss.** No folder is returned, and `describeSsotHomeRefusal`
+    composes the one sentence every surface shows — the candidate folders and how to declare the home.
+    Project memory is not loaded at activation (with a warning), `WorkflowConfigManager` reads nothing,
+    will not seed and **throws on save** rather than silently doing nothing, operator-feedback notes are
+    refused, the project soul is left out of prompts, `/ideate` and roadmap status say why, and the Project
+    Dashboard shows a banner on every page naming the folders.
+  - **The probe is injected and bounded.** `ssotHomeRoot()` in `src/utils/workspaceRoots.ts` supplies one
+    `stat` of the configured `atlasmind.ssotPath` and one read of `workflow.json` per folder, for at most 32
+    folders, never for a virtual-scheme folder, and never in a single-root workspace (which reads neither
+    the disk nor the settings). A folder that could not be looked inside is reported as `unprobed`, never
+    read as empty.
+  - **`.` resolves against its anchor.** A component at `.` meant folder 0, while the composition was also
+    read from folder 0 — so a home that was not first could not find itself. `resolveWorkspaceScope` takes
+    an optional `anchorFsPath` (the folder the composition was read from) and the dashboard passes the
+    workflow manager's root; with no anchor the old answer stands.
+  - **Opted in:** the workflow file, the dashboard's scope resolution and project-memory reads, the root
+    project memory loads from (with freshness and self-healing), the project soul, operator feedback, and
+    the `/ideate` and roadmap-status reads. Six direct folder reads went with them; the ratchet now stands at
+    **198 reads (176 taking `[0]`)**.
+  - **Workspace identity deliberately stays on the first folder** — the cost-tracker key and the
+    machine-private cost-history hash — because re-keying would orphan every spend record already written.
+    A test pins it.
+  - **Identical where it should be.** A single-root workspace, and a multi-root one whose first folder is
+    the home, get byte-for-byte the folder they got before; fast-check properties hold that, that the
+    decision is deterministic, that a returned home always satisfies the rule that named it, and that
+    `ambiguous` never names one.
+
 ## [0.497.2] - 2026-10-08
 
 ### Changed

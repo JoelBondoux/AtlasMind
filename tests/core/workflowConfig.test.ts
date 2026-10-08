@@ -1,5 +1,10 @@
+import { existsSync, mkdtempSync, rmSync } from 'node:fs';
+import os from 'node:os';
+import path from 'node:path';
 import { describe, it, expect } from 'vitest';
 import {
+  WorkflowConfigManager,
+  writeWorkflowConfig,
   seedWorkflowConfig,
   sanitizeWorkflowConfig,
   applyWorkflowConfigEdit,
@@ -404,5 +409,48 @@ describe('workflow config — versioning policy', () => {
   it('says nothing about versioning when no policy is declared', () => {
     const problems = validateWorkflowConfig(seeded(), { knownBranches: ['main'] });
     expect(problems.some(problem => problem.detail.toLowerCase().includes('channel'))).toBe(false);
+  });
+});
+
+describe('WorkflowConfigManager — a refused home reads nothing and writes nothing', () => {
+  const refusal = 'Project memory has no single home: "alpha" and "beta" each hold a project_memory/ folder.';
+
+  it('carries the refusal as its notice, offers no root to anchor against, and will not seed', async () => {
+    const root = mkdtempSync(path.join(os.tmpdir(), 'atlasmind-workflow-refused-'));
+    try {
+      await writeWorkflowConfig(root, seeded());
+      const manager = new WorkflowConfigManager(root, refusal);
+      expect(manager.getConfig()).toBeUndefined();
+      expect(manager.getNotice()).toBe(refusal);
+      expect(manager.getWorkspaceRoot()).toBeUndefined();
+      expect(await manager.create({ profile: 'solo' })).toBeUndefined();
+      expect(manager.reload()).toBeUndefined();
+    } finally {
+      rmSync(root, { recursive: true, force: true });
+    }
+  });
+
+  it('throws on save rather than reporting a write that did not happen', async () => {
+    const root = mkdtempSync(path.join(os.tmpdir(), 'atlasmind-workflow-refused-'));
+    try {
+      const manager = new WorkflowConfigManager(root, refusal);
+      await expect(manager.save(seeded())).rejects.toThrow(refusal);
+      expect(existsSync(path.join(root, 'project_memory', 'operations', 'workflow.json'))).toBe(false);
+    } finally {
+      rmSync(root, { recursive: true, force: true });
+    }
+  });
+
+  it('is unchanged without a refusal: it reads the file and names the root it read', async () => {
+    const root = mkdtempSync(path.join(os.tmpdir(), 'atlasmind-workflow-home-'));
+    try {
+      await writeWorkflowConfig(root, { ...seeded(), composition: composition() });
+      const manager = new WorkflowConfigManager(root);
+      expect(manager.getConfig()?.composition?.components.map(component => component.id)).toEqual(['home', 'content']);
+      expect(manager.getNotice()).toBeUndefined();
+      expect(manager.getWorkspaceRoot()).toBe(root);
+    } finally {
+      rmSync(root, { recursive: true, force: true });
+    }
   });
 });

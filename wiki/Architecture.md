@@ -217,6 +217,16 @@ nothing, so a migrated call site gets exactly the answer it got before. The exec
 context's root, `runCommand`, the git tools, the workspace-containment check) asks it first; every other
 direct read is ceilinged per file by a two-way ratchet test, so the single-root tail can shrink but not grow.
 
+Project memory is the one place the adapter departs from "first folder". `ssotHomeRoot()` locates the
+**SSOT home** — the folder holding `project_memory/` — through a declared rule table, first match wins: one
+folder is the home without looking; a folder whose own `workflow.json` declares the home there wins; two
+such declarations, or none and two memory folders, are **ambiguous**; one memory folder wins; nothing found
+means the first folder, where bootstrap writes. Ambiguous is never resolved by picking: the workflow file,
+memory loading, the project soul and operator-feedback writes all refuse with one sentence naming the
+candidates and how to declare the home, and the Project Dashboard shows it as a banner on every page. A
+component at `.` now means the folder the composition was read from, not folder 0. The cost-tracker key
+stays on the first folder deliberately, so existing spend history is not orphaned.
+
 The Project Dashboard is the first all-component consumer. Repository status and local CI are read only for
 declared Git components; issue-tracker support, debt-scan coverage, and observed-change baselines carry the
 same component inventory. Detailed GitHub data stays explicitly scoped to the home component. Missing,

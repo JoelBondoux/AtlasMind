@@ -1,4 +1,4 @@
-import { mkdtempSync, rmSync } from 'node:fs';
+import { mkdirSync, mkdtempSync, rmSync, writeFileSync } from 'node:fs';
 import os from 'node:os';
 import path from 'node:path';
 import fc from 'fast-check';
@@ -16,12 +16,20 @@ interface FakeFolder {
   uri: { scheme: string; fsPath: string };
 }
 
-const host = vi.hoisted(() => ({ workspaceFolders: undefined as FakeFolder[] | undefined }));
+const host = vi.hoisted(() => ({
+  workspaceFolders: undefined as FakeFolder[] | undefined,
+  settings: {} as Record<string, unknown>,
+  configurationReads: 0,
+}));
 
 vi.mock('vscode', () => ({
   workspace: {
     get workspaceFolders() {
       return host.workspaceFolders;
+    },
+    getConfiguration: () => {
+      host.configurationReads += 1;
+      return { get: (key: string, fallback?: unknown) => host.settings[key] ?? fallback };
     },
   },
 }));
@@ -31,9 +39,11 @@ const {
   defaultWorkspaceRootPath,
   openWorkspaceFolders,
   resolveScope,
+  ssotHomeRoot,
   workspaceFolderReferences,
 } = await import('../../src/utils/workspaceRoots.ts');
 const { sanitizeProjectComposition } = await import('../../src/core/projectComposition.ts');
+const { seedWorkflowConfig } = await import('../../src/core/workflowConfig.ts');
 
 const scratch = mkdtempSync(path.join(os.tmpdir(), 'atlasmind-workspace-roots-'));
 afterAll(() => rmSync(scratch, { recursive: true, force: true }));
@@ -44,6 +54,8 @@ function folder(name: string, fsPath: string, scheme = 'file', index = 0): FakeF
 
 beforeEach(() => {
   host.workspaceFolders = undefined;
+  host.settings = {};
+  host.configurationReads = 0;
 });
 
 describe('workspaceRoots — no folder open', () => {
@@ -132,5 +144,110 @@ describe('workspaceRoots — readability is probed, never assumed', () => {
     expect(scope.roots.map(root => root.componentId)).toEqual(['app']);
     expect(scope.unknown).toEqual([expect.objectContaining({ componentId: 'api', reason: 'not-open' })]);
     expect(scope.complete).toBe(false);
+  });
+});
+
+describe('workspaceRoots — ssotHomeRoot locates project memory on disk', () => {
+  let counter = 0;
+
+  /** A fresh folder under the scratch directory, optionally holding a memory folder and a workflow.json. */
+  function makeFolder(options: { ssot?: string; declaresHomeHere?: boolean } = {}): string {
+    counter += 1;
+    const dir = path.join(scratch, `home-${counter}`);
+    mkdirSync(dir, { recursive: true });
+    if (options.ssot) {
+      mkdirSync(path.join(dir, ...options.ssot.split('/')), { recursive: true });
+    }
+    if (options.declaresHomeHere) {
+      mkdirSync(path.join(dir, 'project_memory', 'operations'), { recursive: true });
+      writeFileSync(path.join(dir, 'project_memory', 'operations', 'workflow.json'), JSON.stringify({
+        ...seedWorkflowConfig({ profile: 'solo' }),
+        composition: {
+          components: [
+            { id: 'root', label: 'Root', location: '.', role: 'application', archetype: { archetype: 'generic', traits: [] }, vcs: 'git', home: true },
+          ],
+        },
+      }));
+    }
+    return dir;
+  }
+
+  it('answers a single folder with that folder without reading the disk or the settings', () => {
+    const only = folder('only', path.join(scratch, 'never-created'));
+    host.workspaceFolders = [only];
+    const home = ssotHomeRoot();
+    expect(home.folder).toBe(only);
+    expect(home.fsPath).toBe(only.uri.fsPath);
+    expect(home.location.rule).toBe('single-root');
+    expect(home.refusal).toBeUndefined();
+    expect(host.configurationReads).toBe(0);
+  });
+
+  it('is the default folder for any single-folder workspace, on any scheme, existing or not', () => {
+    fc.assert(fc.property(
+      fc.string({ maxLength: 12 }),
+      fc.stringMatching(/^[a-z][a-z0-9-]{0,10}$/),
+      fc.constantFrom('file', 'vscode-remote', 'vscode-vfs', 'memfs'),
+      (name, segment, scheme) => {
+        host.workspaceFolders = [folder(name, path.join(scratch, 'maybe', segment), scheme)];
+        const home = ssotHomeRoot();
+        expect(home.folder).toBe(defaultWorkspaceFolder());
+        expect(home.fsPath).toBe(defaultWorkspaceRootPath());
+        expect(home.refusal).toBeUndefined();
+      },
+    ), { numRuns: 60 });
+    expect(host.configurationReads).toBe(0);
+  });
+
+  it('answers no folder with no home and no refusal', () => {
+    expect(ssotHomeRoot()).toMatchObject({ location: { rule: 'no-folder' } });
+    expect(ssotHomeRoot().folder).toBeUndefined();
+    expect(ssotHomeRoot().refusal).toBeUndefined();
+  });
+
+  it('is unchanged in a multi-root workspace whose first folder holds the memory', () => {
+    const first = folder('first', makeFolder({ ssot: 'project_memory' }), 'file', 0);
+    host.workspaceFolders = [first, folder('second', makeFolder(), 'file', 1)];
+    expect(ssotHomeRoot().folder).toBe(first);
+    expect(ssotHomeRoot().folder).toBe(defaultWorkspaceFolder());
+  });
+
+  it('finds the memory in a later folder, honouring the configured ssotPath', () => {
+    host.settings = { ssotPath: 'docs/memory' };
+    const second = folder('second', makeFolder({ ssot: 'docs/memory' }), 'file', 1);
+    host.workspaceFolders = [folder('first', makeFolder({ ssot: 'project_memory' }), 'file', 0), second];
+    const home = ssotHomeRoot();
+    expect(home.location.rule).toBe('sole-ssot');
+    expect(home.folder).toBe(second);
+  });
+
+  it('lets a workflow.json declaring its own folder the home settle two memory folders', () => {
+    const declared = folder('declared', makeFolder({ ssot: 'project_memory', declaresHomeHere: true }), 'file', 1);
+    host.workspaceFolders = [folder('first', makeFolder({ ssot: 'project_memory' }), 'file', 0), declared];
+    const home = ssotHomeRoot();
+    expect(home.location.rule).toBe('declared-home');
+    expect(home.folder).toBe(declared);
+  });
+
+  it('refuses rather than picks when two folders hold memory and neither declares, naming both', () => {
+    host.workspaceFolders = [
+      folder('alpha', makeFolder({ ssot: 'project_memory' }), 'file', 0),
+      folder('beta', makeFolder({ ssot: 'project_memory' }), 'file', 1),
+    ];
+    const home = ssotHomeRoot();
+    expect(home.location.rule).toBe('ambiguous');
+    expect(home.folder).toBeUndefined();
+    expect(home.fsPath).toBeUndefined();
+    expect(home.refusal).toContain('"alpha" and "beta"');
+  });
+
+  it('never probes a virtual folder, and falls back to the default path for an unsafe setting', () => {
+    host.settings = { ssotPath: '../outside' };
+    const local = folder('local', makeFolder({ ssot: 'project_memory' }), 'file', 1);
+    host.workspaceFolders = [folder('virtual', makeFolder({ ssot: 'project_memory' }), 'vscode-vfs', 0), local];
+    const home = ssotHomeRoot();
+    expect(home.location.rule).toBe('sole-ssot');
+    expect(home.folder).toBe(local);
+    expect(home.location.unprobed.map(reference => reference.name)).toEqual(['virtual']);
   });
 });

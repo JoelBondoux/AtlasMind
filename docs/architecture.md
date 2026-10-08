@@ -1665,7 +1665,7 @@ The project boundary for software that lives in more than one repository, worksp
 
 Topology is derived and never persisted. `deriveProjectTopologies` can state `multi-repo` or `multi-root` only when the caller supplies the corresponding git-root/workspace evidence; `hybrid` comes from a declared non-git VCS. A detector's proposed composition remains a separate value in `selectEffectiveProjectComposition`: declared state wins, otherwise the existing single-workspace fallback remains effective. Inference never becomes team-owned truth merely by being plausible.
 
-`resolveWorkspaceScope` is the opt-in resolver. With no target it returns exactly the first workspace folder and does not consult composition, preserving every existing caller until deliberately migrated. Explicit home, component, and all-component requests match only opened workspace roots; missing, unreadable, and ambiguous roots remain labelled unknown entries. The resolver never fabricates a replacement root and never reaches outside VS Code's opened folder set.
+`resolveWorkspaceScope` is the opt-in resolver. With no target it returns exactly the first workspace folder and does not consult composition, preserving every existing caller until deliberately migrated. Explicit home, component, and all-component requests match only opened workspace roots; missing, unreadable, and ambiguous roots remain labelled unknown entries. The resolver never fabricates a replacement root and never reaches outside VS Code's opened folder set. A component at `.` resolves against the optional `anchorFsPath` — the folder the composition was read from — and only without one against the first folder. `locateSsotHome` (same file) decides which folder is the SSOT home in a multi-root workspace; see WorkspaceRoots below.
 
 The Project Dashboard is the first scoped consumer. One collection pass resolves the declared component
 set, then produces per-component Git and local-CI readings, issue-tracker visibility, debt-scan coverage,
@@ -1706,8 +1706,30 @@ resolution and its register/config getters; and `BuzzInboundService`, which now 
 injected resolver so no core module reads the host's folders. The remaining direct reads (204 at v0.497.2,
 182 taking `[0]`) are ceilinged per file by `tests/baselines/workspaceFolderReads.test.ts`, a two-way
 ratchet: a rise fails, a fall fails until the ceiling is lowered, an unlisted file must have none, and
-`src/core/**` must have none without a written reason. Locating the SSOT home, a component picker and
-component routing are later slices (`docs/project-composition.md` §8.1).
+`src/core/**` must have none without a written reason.
+
+Slice A2 adds `ssotHomeRoot()`, the one deliberate departure from the first-folder default — and only for
+project memory. It gathers what is on disk and `locateSsotHome` in `workspaceScope.ts` decides, through the
+declared, first-match-wins `SSOT_HOME_RULES`: `no-folder`; `single-root` (one folder is the home and nothing
+is probed, which keeps single-root byte-for-byte unchanged); `declared-home` (exactly one folder's own valid
+`workflow.json` places the home component in that folder); `ambiguous` (two such declarations, or none and
+more than one folder holding `<ssotPath>/`); `sole-ssot` (exactly one folder holds the configured
+`<ssotPath>/`); and `no-ssot-first-folder` (nothing found — the first folder, where bootstrap writes). A
+declaration outranks a directory because it is the documented way to settle an ambiguity, and an ambiguous
+home is a **result, not a coin toss**: no folder is returned, and `describeSsotHomeRefusal` composes the one
+sentence every surface shows, naming the candidates and the fix. Probing is synchronous and bounded — one
+`stat` and one small read per folder, at most `SSOT_HOME_MAX_PROBED_FOLDERS` (32), never for a virtual
+folder, and never in a single-root workspace — and a folder nobody could look inside is reported as
+`unprobed`, never read as empty. The same slice fixes `.`: a component at `.` now resolves against the
+**anchor** — the folder the composition was read from, passed as `WorkspaceScopeOptions.anchorFsPath` —
+instead of folder 0, which is why a home that was not first could not find itself. With no anchor the old
+first-folder answer stands. Opted in: `WorkflowConfigManager` (constructed with the home and, when it is
+ambiguous, a refusal that makes it read nothing, refuse to seed and **throw** on save), the dashboard's
+scope resolution and SSOT reads, operator-feedback writes and the `/ideate` and roadmap-status reads in chat,
+the project soul in system prompts, and the root `MemoryManager` loads from at activation. Workspace
+**identity** deliberately stays on the first folder — the cost-tracker key and the cost-history hash —
+because re-keying would orphan every spend record already written. A component picker and component
+routing are later slices (`docs/project-composition.md` §8.1).
 
 ### UpstreamDivergence (`src/core/upstreamDivergence.ts`)
 

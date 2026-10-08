@@ -41,6 +41,18 @@ completion or reopen be synchronized without mistaking a local edit for upstream
 The `misadventures/` folder is the one people underestimate. Recording what *didn't* work saves more
 time than recording what did, because the failed approach is the one somebody will try again.
 
+### More than one folder open?
+
+A project has **one** memory, kept in its home folder. With a single folder open, that is the folder.
+With several, AtlasMind looks for it: a folder whose own `workflow.json` declares itself the home wins;
+otherwise the one folder holding `project_memory/`; otherwise the first folder, which is where a new
+project's memory is created.
+
+If two folders both look like the home, AtlasMind **does not guess**. It loads no memory and writes none,
+and the Project Dashboard shows a banner naming the folders. To fix it, declare the home: in the folder
+that should own the memory, add a composition to `project_memory/operations/workflow.json` whose home
+component has location `.` — that declaration settles it.
+
 ---
 
 ## Filling it up

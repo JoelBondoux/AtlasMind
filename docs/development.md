@@ -1014,6 +1014,14 @@ code asks it (`defaultWorkspaceRootPath()`, `defaultWorkspaceFolder()`, `openWor
 ceilinged per file by `tests/baselines/workspaceFolderReads.test.ts`: when you migrate one, lower that
 file's ceiling in the same commit — the test fails until you do — and never raise one.
 
+Code that reads or writes **project memory** asks `ssotHomeRoot()` instead of the default folder: it
+returns the located SSOT home (`SSOT_HOME_RULES` in `workspaceScope.ts`), or no folder and a `refusal`
+when the home is ambiguous. Refuse with that sentence — never fall back to the first folder for a write.
+Pass the folder a composition was read from as `anchorFsPath` when resolving it, so `.` means that
+folder. Webview surfaces show the refusal as host-composed text (the Project Dashboard's
+`renderSsotHomeNotice` banner); they post nothing and offer no control that picks a folder. Workspace
+identity keys (cost tracking) stay on the first folder by design.
+
 The Shopify bootstrap composition test is the non-game conformance case. Keep the theme/app/extension
 picker multi-select and test both the pure canonical mapping and the VS Code-backed JSON/Markdown write.
 The bootstrap adapter must call the shared workflow document interpreter before writing: existing

@@ -5210,6 +5210,7 @@
         </section>
 
         ${renderHostConnectionBanner()}
+        ${renderSsotHomeNotice(snapshot)}
         ${renderOverview(snapshot)}
         ${renderScore(snapshot)}
         ${renderGapAnalysis(snapshot)}
@@ -5519,6 +5520,28 @@
           <p class="stat-detail">Close this tab and reopen it — <strong>AtlasMind: Open Project Dashboard</strong> from the Command Palette — or reload the window.</p>
         </div>
         <button type="button" class="action-link primary" data-action="host-retry">Try again</button>
+      </div>`;
+  }
+
+  /**
+   * Project memory with no single home, in a multi-root workspace.
+   *
+   * On every page rather than one, because every page reads project memory and
+   * none of them may silently be reading the wrong folder's. The sentence is
+   * composed by the host — the same one the chat and the workflow file refusal
+   * use — and only the candidate names are added here.
+   */
+  function renderSsotHomeNotice(snapshot) {
+    const home = snapshot && snapshot.ssotHome;
+    if (!home || !home.notice) {
+      return '';
+    }
+    const candidates = Array.isArray(home.candidates) ? home.candidates : [];
+    return `
+      <div class="inline-notice warning ssot-home-notice" role="alert">
+        <strong>Project memory has no single home in this workspace</strong>
+        <p class="stat-detail">${escapeHtml(home.notice)}</p>
+        ${candidates.length ? `<ul class="branch-notices">${candidates.map(name => `<li>${escapeHtml(name)}</li>`).join('')}</ul>` : ''}
       </div>`;
   }
 

@@ -419,8 +419,15 @@ import {
   type WorkflowConfigEdit,
   type WorkflowConfigProblem,
 } from '../core/workflowConfig.js';
-import type { WorkspaceScope } from '../core/workspaceScope.js';
-import { defaultWorkspaceFolder, defaultWorkspaceRootPath, openWorkspaceFolders, resolveScope } from '../utils/workspaceRoots.js';
+import type { SsotHomeRuleId, WorkspaceScope } from '../core/workspaceScope.js';
+import {
+  defaultWorkspaceFolder,
+  defaultWorkspaceRootPath,
+  openWorkspaceFolders,
+  resolveScope,
+  ssotHomeRoot,
+  type SsotHomeRoot,
+} from '../utils/workspaceRoots.js';
 import type { ProjectComposition, ProjectComponentVcs } from '../core/projectComposition.js';
 import {
   buildReviewCommentPrompt,
@@ -3387,9 +3394,26 @@ interface DashboardGapAnalysisSnapshot {
   lastRun: string | null;
 }
 
+/**
+ * Where project memory was found, for the banner a multi-root workspace needs.
+ *
+ * `notice` is composed host-side from `describeSsotHomeRefusal`, so the
+ * dashboard says exactly what the chat and the workflow file refusal say.
+ */
+interface DashboardSsotHome {
+  rule: SsotHomeRuleId;
+  /** The home folder's name; absent when there is no folder or the home is ambiguous. */
+  homeName?: string;
+  /** For an ambiguous home, the folders a person must choose between. */
+  candidates: string[];
+  /** Shown as a banner when present: why nothing is being written, and how to settle it. */
+  notice?: string;
+}
+
 interface DashboardSnapshot {
   generatedAt: string;
   ssotPresent: boolean;
+  ssotHome: DashboardSsotHome;
   workspaceName: string;
   workspaceRootLabel: string;
   repositoryLabel: string;
@@ -5643,10 +5667,17 @@ export class ProjectDashboardPanel {
     return this.auditLedgerInstance;
   }
 
+  /**
+   * The committed workflow file, read from the SSOT home rather than the first
+   * folder: in a multi-root workspace the composition lives wherever project
+   * memory does. An ambiguous home yields a manager that reads nothing, says
+   * why, and refuses to save.
+   */
   private get workflowConfig(): WorkflowConfigManager {
-    this.workflowConfigManager ??= new WorkflowConfigManager(
-      defaultWorkspaceRootPath(),
-    );
+    if (!this.workflowConfigManager) {
+      const home = ssotHomeRoot();
+      this.workflowConfigManager = new WorkflowConfigManager(home.fsPath, home.refusal);
+    }
     return this.workflowConfigManager;
   }
 
@@ -10951,7 +10982,7 @@ export class ProjectDashboardPanel {
       );
       const composition = this.workflowConfig.getConfig()?.composition;
       const homeComponentId = composition?.components.find(component => component.home)?.id;
-      const declaredScope = await collectDashboardWorkspaceScope(composition);
+      const declaredScope = await collectDashboardWorkspaceScope(composition, this.workflowConfig.getWorkspaceRoot());
       const markerCandidates: import('../core/debtRegister.js').DebtScanCandidate[] = [];
       const scannedPaths: import('../core/debtRegister.js').DebtScannedPath[] = [];
       const scanCoverage: DebtScanScope[] = [];
@@ -11137,7 +11168,7 @@ export class ProjectDashboardPanel {
     let workspaceRoot = vscode.workspace.workspaceFolders?.[0]?.uri.fsPath;
     if (entry.componentId) {
       const composition = this.workflowConfig.getConfig()?.composition;
-      const scope = await collectDashboardWorkspaceScope(composition);
+      const scope = await collectDashboardWorkspaceScope(composition, this.workflowConfig.getWorkspaceRoot());
       workspaceRoot = scope.roots.find(root => root.componentId === entry.componentId)?.fsPath;
       if (!workspaceRoot) {
         void vscode.window.showWarningMessage(
@@ -12356,8 +12387,9 @@ ${buildCardEvidenceSection(source, derivation)}`;
    * be putting words in their mouth in a file other people review.
    */
   private async handleCreateWorkflowConfig(payload: unknown): Promise<void> {
-    const workspaceRoot = vscode.workspace.workspaceFolders?.[0]?.uri.fsPath;
-    if (!workspaceRoot) {
+    // The file is written into the SSOT home. An ambiguous home is refused by
+    // the manager's notice just below, naming the candidates.
+    if (ssotHomeRoot().location.rule === 'no-folder') {
       void vscode.window.showWarningMessage('Open a workspace folder before declaring a workflow.');
       return;
     }
@@ -19765,11 +19797,41 @@ export function parseGhReleaseList(raw: string): MetricReleaseInput[] {
   return out;
 }
 
-/** Resolve the declaration once so every migrated surface sees the same roots. */
-async function collectDashboardWorkspaceScope(composition?: ProjectComposition): Promise<WorkspaceScope> {
+/**
+ * Resolve the declaration once so every migrated surface sees the same roots.
+ *
+ * `anchorFsPath` is the folder the composition was read from — the SSOT home —
+ * so a component at `.` resolves to that folder rather than to whichever one
+ * VS Code lists first.
+ */
+async function collectDashboardWorkspaceScope(
+  composition?: ProjectComposition,
+  anchorFsPath?: string,
+): Promise<WorkspaceScope> {
   // The folder probe lives in the adapter now, so this surface and every later
   // one resolve the same folders the same way.
-  return resolveScope(composition, composition ? { kind: 'all' } : { kind: 'default' });
+  const options = anchorFsPath === undefined ? {} : { anchorFsPath };
+  return resolveScope(composition, composition ? { kind: 'all' } : { kind: 'default' }, options);
+}
+
+/**
+ * The snapshot's account of the SSOT home. Only an ambiguous home carries a
+ * notice: a located one is a fact worth no banner, and a single folder is the
+ * home by definition.
+ */
+function describeDashboardSsotHome(home: SsotHomeRoot, firstFolderName: string | undefined): DashboardSsotHome {
+  const candidates = home.location.candidates.map(folder => folder.name);
+  if (!home.refusal) {
+    return {
+      rule: home.location.rule,
+      ...(home.folder ? { homeName: home.folder.name } : {}),
+      candidates,
+    };
+  }
+  const shown = firstFolderName
+    ? ` The pages below read "${firstFolderName}" only because VS Code lists it first — that is not a decision about where project memory lives.`
+    : '';
+  return { rule: home.location.rule, candidates, notice: `${home.refusal}${shown}` };
 }
 
 function describeMissingComponent(reason: 'not-open' | 'unreadable' | 'ambiguous'): string {
@@ -20154,15 +20216,21 @@ async function collectDashboardSnapshot(
   portalVisibility: RepositoryVisibility = 'unknown',
 ): Promise<DashboardSnapshot> {
   const firstWorkspaceFolder = defaultWorkspaceFolder();
+  const ssotHome = ssotHomeRoot();
   const declaredComposition = workflowConfigManager?.getConfig()?.composition;
-  const declaredScope = await collectDashboardWorkspaceScope(declaredComposition);
+  const declaredScope = await collectDashboardWorkspaceScope(declaredComposition, workflowConfigManager?.getWorkspaceRoot());
   const homeComponentId = declaredComposition?.components.find(component => component.home)?.id;
   const homeScopeRoot = homeComponentId
     ? declaredScope.roots.find(root => root.componentId === homeComponentId)
     : declaredScope.roots[0];
   // A declared home is authoritative. Falling back to the first folder when it
   // is missing would silently read a different component's SSOT and counts.
-  const workspaceRoot = declaredComposition ? homeScopeRoot?.fsPath : firstWorkspaceFolder?.uri.fsPath;
+  // Undeclared, the located SSOT home is read — the first folder in a
+  // single-root workspace and wherever folder 0 is the home. An ambiguous home
+  // has none, so the first folder is shown and the banner says why.
+  const workspaceRoot = declaredComposition
+    ? homeScopeRoot?.fsPath
+    : ssotHome.fsPath ?? firstWorkspaceFolder?.uri.fsPath;
   const websiteDelivery = collectWebsiteDelivery(workspaceRoot);
   const workspaceFolder = openWorkspaceFolders()
     .find(folder => folder.uri.fsPath === workspaceRoot) ?? firstWorkspaceFolder;
@@ -20692,6 +20760,7 @@ async function collectDashboardSnapshot(
   const snapshot: Omit<DashboardSnapshot, 'attention' | 'workAssignments' | 'vitalFiles'> = {
     generatedAt: new Date().toISOString(),
     ssotPresent: ssotSnapshot.totalFiles > 0 || memoryEntries.length > 0,
+    ssotHome: describeDashboardSsotHome(ssotHome, firstWorkspaceFolder?.name),
     workspaceName,
     workspaceRootLabel,
     repositoryLabel: repoLabel,

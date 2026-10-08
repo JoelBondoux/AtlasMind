@@ -25,6 +25,34 @@ project_memory/
 
 `sessions/` is managed by the Memory Agent for chat continuity and is intentionally excluded from normal SSOT query/index retrieval so runtime conversation state does not pollute durable project knowledge.
 
+### Which folder holds it in a multi-root workspace
+
+There is one SSOT per project, in the **home** component (`docs/project-composition.md` §2.6). In a
+single-folder workspace that folder is the home and nothing is probed. With several folders open,
+`ssotHomeRoot()` (`src/utils/workspaceRoots.ts`) looks inside each one — does it hold the configured
+`atlasmind.ssotPath`, and does its own `operations/workflow.json` declare a composition — and
+`locateSsotHome` (`src/core/workspaceScope.ts`) applies `SSOT_HOME_RULES`, first match wins:
+
+1. **`declared-home`** — exactly one folder's valid `workflow.json` places the home component in that folder.
+2. **`ambiguous`** — two folders declare themselves home, or none does and two hold project memory.
+3. **`sole-ssot`** — exactly one folder holds the project-memory folder.
+4. **`no-ssot-first-folder`** — nothing found; the first folder, which is where bootstrap writes.
+
+An ambiguous home is **never resolved by picking one**. Project memory is not loaded at activation, the
+workflow file reads nothing and refuses to save, operator-feedback notes are not written, the project soul
+is left out of prompts, `/ideate` and roadmap status say why, and the Project Dashboard shows a banner on
+every page naming the candidate folders. The fix is to declare the home: give one folder's
+`<ssotPath>/operations/workflow.json` a composition whose home component has location `.` (or, where two
+folders already declare it, remove the declaration from all but one). A folder AtlasMind could not look
+inside — a virtual file system, an unreadable path, or past the 32-folder probe cap — is reported, never
+read as empty.
+
+The located home is used for memory loading, freshness and self-healing, the project soul, the workflow
+file, operator feedback, and the dashboard's project-memory reads. Workspace identity — the cost-tracker
+key and the machine-private cost-history hash — stays on the first folder deliberately, so cost history
+already recorded is not orphaned. Other readers of the SSOT still use the first folder until they are
+migrated (`tests/baselines/workspaceFolderReads.test.ts` records each one).
+
 ## Session Context (Memory Agent)
 
 Each session gets its own subfolder: `sessions/<session-id>/`. The Memory Agent maintains a single unified `context.md` file there, updated after every chat turn:
