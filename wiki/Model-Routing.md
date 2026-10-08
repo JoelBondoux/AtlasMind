@@ -220,6 +220,26 @@ In `auto`, high-reasoning tasks get the mid and premium tiers; everything else g
 A model is **fast** if it has no reasoning capability and a context window up to 128K, **considered** if
 it has reasoning and 200K or more, and **balanced** otherwise.
 
+## Reasoning modes
+
+The third dial, beside budget and speed: how hard the model should *think*.
+
+| Mode | What happens | Good for |
+|------|--------------|----------|
+| **auto** | Low-reasoning tasks get minimal, medium get standard, planning/architecture/root-cause/review get deep *(default)* | Mixed work |
+| **minimal** | Think as little as the model allows | Mechanical edits, quick answers |
+| **standard** | A middle level | Everyday implementation |
+| **deep** | Think hard, and prefer models that can be asked to | Architecture reviews, hard debugging |
+
+A level becomes a request parameter only for models whose provider has a verified control: Anthropic
+(`output_config.effort`), OpenAI (`reasoning_effort`) and Gemini (`reasoning_effort`), each on the models
+their own docs list. Every other model is still used — it just isn't sent anything, and it isn't preferred
+for deep work on a guess.
+
+Thinking is billed as output, so deeper costs more and the estimates say so. If a task has a cost cap that
+deep thinking would break, AtlasMind steps the level down and tells you which rule did it. Every answer's
+routing summary has a line like *Reasoning: auto → deep (rule: auto-high); sent output_config.effort=high*.
+
 ---
 
 ## It learns what works

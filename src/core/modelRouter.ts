@@ -1,4 +1,5 @@
-import type { BudgetMode, ModelCapability, ModelInfo, ModelStruggleKind, ModelStruggleState, ProviderConfig, RoutingConstraints, SpeedMode, SubscriptionQuota, TaskProfile } from '../types.js';
+import type { BudgetMode, ModelCapability, ModelInfo, ModelStruggleKind, ModelStruggleState, ProviderConfig, ReasoningLevel, RoutingConstraints, SpeedMode, SubscriptionQuota, TaskProfile } from '../types.js';
+import { reasoningOutputMultiplier, resolveReasoningLevel, scoreReasoningFit } from './reasoningBudget.js';
 import {
   BUDGET_TIER_CHEAP_THRESHOLD_USD,
   BUDGET_TIER_BALANCED_THRESHOLD_USD,
@@ -1001,7 +1002,10 @@ export class ModelRouter {
     const provider = this.providers.get(model.provider);
     const parallelSlots = constraints.parallelSlots ?? 1;
 
-    const effectiveCost = this.effectiveCostPer1k(model, provider, parallelSlots, constraints.cacheablePrefixRatio);
+    // The reasoning axis acts only when the caller set it; absent leaves every
+    // score exactly as it was before the axis existed.
+    const reasoningLevel = constraints.reasoning ? resolveReasoningLevel(constraints.reasoning, taskProfile).level : undefined;
+    const effectiveCost = this.effectiveCostPer1k(model, provider, parallelSlots, constraints.cacheablePrefixRatio, reasoningLevel);
     const cheapness = this.scoreCheapness(effectiveCost);
 
     const speedProxy = scoreSpeedTier(this.classifySpeedTier(model));
@@ -1021,8 +1025,9 @@ export class ModelRouter {
     const zeroMarginalCostBonus = this.scoreZeroMarginalCostAdequacy(model, taskProfile);
     const outcomeBias = this.scoreOutcomeBias(model.id, taskProfile);
     const strugglePenalty = this.scoreStrugglePenalty(model.id, taskProfile);
+    const reasoningFit = scoreReasoningFit(model, reasoningLevel);
 
-    return (cheapness * budgetWeight) + (speedProxy * speedWeight) + (qualityProxy * qualityWeight) + taskFit + healthWeight + preferenceBias + localBonus + residencyBonus + subscriptionBonus + zeroMarginalCostBonus + outcomeBias - strugglePenalty;
+    return (cheapness * budgetWeight) + (speedProxy * speedWeight) + (qualityProxy * qualityWeight) + taskFit + healthWeight + preferenceBias + localBonus + residencyBonus + subscriptionBonus + zeroMarginalCostBonus + outcomeBias + reasoningFit - strugglePenalty;
   }
 
   /**
@@ -1251,12 +1256,15 @@ export class ModelRouter {
     provider: ProviderConfig | undefined,
     parallelSlots: number,
     cacheablePrefixRatio?: number,
+    reasoningLevel?: ReasoningLevel,
   ): number {
     const pricing = provider?.pricingModel ?? 'pay-per-token';
     // Account for extended-thinking models that emit large scratchpad token volumes:
     // thinkingTokenMultiplier scales the output cost so the router projects a
-    // realistic total rather than just the visible output tokens.
-    const thinkingMultiplier = model.thinkingTokenMultiplier ?? 1;
+    // realistic total rather than just the visible output tokens. A model with a
+    // declared reasoning control thinks more as the requested level rises, and
+    // thinking is billed as output, so the level raises the projection too.
+    const thinkingMultiplier = reasoningOutputMultiplier(model, reasoningLevel);
     const projectedInput = this.projectedInputPricePer1k(model, cacheablePrefixRatio);
     const listedCost = projectedInput + (model.outputPricePer1k * thinkingMultiplier);
     const multiplier = model.premiumRequestMultiplier ?? 1;

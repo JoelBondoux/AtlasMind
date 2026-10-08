@@ -1,4 +1,4 @@
-import type { AgentDefinition, ArdDiscoveredResource, ProvenanceSource, TurnProvenance, UntrustedEscalationScope, BudgetMode, ProjectTestingConfig, DataPrivacyMatch, MemoryEntry, ModelCapability, ModelStruggleKind, OrchestratorConfig, OrchestratorHooks, PricingModel, ProjectPlan, ProjectProgressUpdate, ProjectResult, ProviderId, RoutingConstraints, SkillDefinition, SkillExecutionContext, SubTask, SubTaskExecutionArtifacts, SubTaskResult, SubTaskStatus, TaskModelAttempt, TaskProfile, TaskRequest, TaskResult, TestingMethodologyId, ToolExecutionArtifact } from '../types.js';
+import type { AgentDefinition, ArdDiscoveredResource, ProvenanceSource, TurnProvenance, UntrustedEscalationScope, BudgetMode, ProjectTestingConfig, DataPrivacyMatch, MemoryEntry, ModelCapability, ModelStruggleKind, OrchestratorConfig, OrchestratorHooks, PricingModel, ProjectPlan, ProjectProgressUpdate, ProjectResult, ProviderId, ReasoningDirective, ReasoningLevel, RoutingConstraints, SkillDefinition, SkillExecutionContext, SubTask, SubTaskExecutionArtifacts, SubTaskResult, SubTaskStatus, TaskModelAttempt, TaskProfile, TaskRequest, TaskResult, TestingMethodologyId, ToolExecutionArtifact } from '../types.js';
 import type { AgentAutoUpdater } from './agentAutoUpdater.js';
 import { describeCapabilityOutcome, prepareCapabilityQuery, type ExternalCapabilitySearch } from './capabilitySearch.js';
 import { buildDebtMarkerGuidance, parseCustomDebtMarkers } from './debtRegister.js';
@@ -130,6 +130,16 @@ import {
 import type { DataPrivacyManager } from './dataPrivacyManager.js';
 import { readProjectTestingConfig, inferTestingMethodologyForSubTask, resolveTestingModelOverride, buildMethodologySystemPromptHint, buildTestingObligationGuidance } from './testingConfigLoader.js';
 import { scanTestingSubjects, uncoveredTestingSubjects } from './testingSubjectScan.js';
+import {
+  buildReasoningDecision,
+  describeReasoningDecision,
+  fitReasoningLevelToBudget,
+  planReasoningRequest,
+  projectedThinkingTokens,
+  reasoningMaxTokens,
+  resolveReasoningLevel,
+  sanitizeReasoningPreference,
+} from './reasoningBudget.js';
 import { TESTING_METHODOLOGY_DEFINITIONS } from '../types.js';
 
 const defaultConfig: OrchestratorConfig = {
@@ -553,6 +563,12 @@ interface TaskAttemptContext {
   signal?: AbortSignal;
   cacheStablePrefix?: boolean;
   allowDelegatedToolExecution?: boolean;
+  /**
+   * The reasoning level decided for this turn. Each model call plans its own
+   * directive from it, so a failover to a model with no declared control sends
+   * nothing rather than inheriting the previous model's parameter.
+   */
+  reasoningLevel?: ReasoningLevel;
   turnCapabilities?: TurnCapabilityEnvelope;
   /**
    * Every skill this agent *may* use, whether or not its schema was sent.
@@ -650,6 +666,8 @@ type ProviderCompletionRequest = {
   signal?: AbortSignal;
   cacheStablePrefix?: boolean;
   allowDelegatedToolExecution?: boolean;
+  /** Built per model by `planReasoningRequest`; absent for a model with no declared control. */
+  reasoning?: ReasoningDirective;
 };
 
 const READONLY_EXPLORATION_NUDGE_AFTER = 3;
@@ -2095,6 +2113,13 @@ export class Orchestrator {
       routingConstraints = { ...routingConstraints, cacheablePrefixRatio };
     }
 
+    // The third routing axis. A caller that set it explicitly keeps its choice;
+    // otherwise the operator's `atlasmind.reasoningMode` applies, sanitized,
+    // because a setting is untrusted input and anything unrecognised is `auto`.
+    const reasoningPreference = request.constraints.reasoning
+      ?? sanitizeReasoningPreference(this.readSetting<unknown>('reasoningMode', 'auto'));
+    routingConstraints = { ...routingConstraints, reasoning: reasoningPreference };
+
     // For mechanical low-overhead tasks on auto budget, constrain to cheap/fast models.
     // This prevents routine git ops, script runs, and narrow test generation from consuming
     // expensive subscription quota or pay-per-token credits when cheaper models are sufficient.
@@ -2251,7 +2276,34 @@ export class Orchestrator {
     const previewTools = previewUsesDelegatedAcpTools ? [] : tools;
     const initialMessages = this.buildMessages(agent, retrievalContext, request.userMessage, request.context, previewModel, previewTools);
     const estimatedPromptTokens = estimateCompletionRequestInputTokens(initialMessages, previewTools);
-    const estimatedMinimumCostUsd = this.estimateCostBreakdown(previewModel, estimatedPromptTokens, 256).budgetCostUsd;
+    // Thinking is billed as output, so a request is priced with the thinking its
+    // level is projected to add — a deep turn must not pass the daily limit or a
+    // task cap on an estimate that assumed a one-paragraph answer. A level whose
+    // projected cost breaches the task cap steps down, and says so.
+    const previewModelInfo = this.router.getModelInfo(previewModel);
+    const reasoningCapUsd = [request.constraints.maxCostUsd, agent.costLimitUsd]
+      .filter((value): value is number => typeof value === 'number' && value > 0)
+      .reduce<number | undefined>((min, value) => min === undefined ? value : Math.min(min, value), undefined);
+    const fittedReasoning = fitReasoningLevelToBudget(
+      resolveReasoningLevel(reasoningPreference, baseTaskProfile),
+      level => this.estimateCostBreakdown(
+        previewModel,
+        estimatedPromptTokens,
+        256 + projectedThinkingTokens(planReasoningRequest(previewModelInfo, level)),
+      ).costUsd,
+      reasoningCapUsd,
+    );
+    const previewReasoningPlan = planReasoningRequest(previewModelInfo, fittedReasoning.level);
+    if (initialModel) {
+      onProgress?.(describeReasoningDecision(
+        buildReasoningDecision(reasoningPreference, fittedReasoning, previewModel, previewReasoningPlan),
+      ));
+    }
+    const estimatedMinimumCostUsd = this.estimateCostBreakdown(
+      previewModel,
+      estimatedPromptTokens,
+      256 + projectedThinkingTokens(previewReasoningPlan),
+    ).budgetCostUsd;
     const dailyBudget = this.costs.getDailyBudgetStatus(estimatedMinimumCostUsd);
 
     const startMs = Date.now();
@@ -2475,6 +2527,7 @@ export class Orchestrator {
               // model plans around one it can never call.
               discoverableSkills: eligibleAgentSkills,
               allowDelegatedToolExecution: usesDelegatedAcpTools,
+              reasoningLevel: fittedReasoning.level,
               provenance: this.provenanceCellFor(request),
               quarantineSpend,
               dryRun: dryRunTurn,
@@ -2929,6 +2982,16 @@ export class Orchestrator {
       ...(estimatedCompressionSavingsUsd > 0 ? { contextCompressionSavingsUsd: estimatedCompressionSavingsUsd } : {}),
       durationMs,
       ...(modelAttempts.length > 0 ? { modelAttempts } : {}),
+      ...(initialModel
+        ? {
+          reasoning: buildReasoningDecision(
+            reasoningPreference,
+            fittedReasoning,
+            modelUsed,
+            planReasoningRequest(this.router.getModelInfo(modelUsed), fittedReasoning.level),
+          ),
+        }
+        : {}),
       ...(turnDiscoveredResources.length > 0 ? { discoveredResources: turnDiscoveredResources } : {}),
       ...(artifactsWithDelegated ? { artifacts: artifactsWithDelegated } : {}),
       ...(autoDisabledProvider ? { autoDisabledProvider } : {}),
@@ -3870,14 +3933,21 @@ export class Orchestrator {
         ? Math.max(256, loopModelInfo.contextWindow - inputTokenEstimate - CONTEXT_SAFE_OUTPUT_MARGIN)
         : DEFAULT_CHAT_MAX_TOKENS;
       const clampedMaxTokens = Math.min(DEFAULT_CHAT_MAX_TOKENS, safeMaxTokens);
+      // Planned against *this* model: a failover lands here with a different id,
+      // and a model with no declared control is sent nothing.
+      const reasoningPlan = context.reasoningLevel ? planReasoningRequest(loopModelInfo, context.reasoningLevel) : undefined;
+      const reasoningDirective = reasoningPlan?.kind === 'applied' ? reasoningPlan.directive : undefined;
       completion = await this.completeUntilStop(provider, {
         requestId: `${context.taskId}:tool-round:${i}`,
         model,
         messages,
         tools,
         temperature: 0.2,
-        maxTokens: clampedMaxTokens,
+        // Thinking counts against the output ceiling, so a directive makes room
+        // for it — bounded by what the context window can still hold.
+        maxTokens: reasoningMaxTokens(reasoningDirective, clampedMaxTokens, safeMaxTokens),
         signal: context.signal,
+        ...(reasoningDirective ? { reasoning: reasoningDirective } : {}),
         ...(context.cacheStablePrefix ? { cacheStablePrefix: true } : {}),
         ...(context.allowDelegatedToolExecution ? { allowDelegatedToolExecution: true } : {}),
       }, forceWorkspaceToolBackedInvestigation && workspaceRepromptCount === 0 ? undefined : onTextChunk);

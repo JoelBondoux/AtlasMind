@@ -6,6 +6,48 @@ The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/),
 
 ## [Unreleased]
 
+## [0.497.0] - 2026-10-08
+
+### Added
+
+- **Reasoning budget: a third routing axis, beside budget and speed.** `atlasmind.reasoningMode`
+  (`auto` | `minimal` | `standard` | `deep`, default `auto`) says how hard the model should think, and the
+  Settings → Overview page gains a **Reasoning mode** card beside Budget and Speed that publishes the rules
+  behind it (`src/core/reasoningBudget.ts`, pure).
+  - **The level comes from a declared table, never a model.** `auto` maps the TaskProfiler's tier through
+    `AUTO_REASONING_RULES` (`low` → minimal, `medium` → standard, `high` → deep; no profile → standard, never
+    deep). Every resolution names its rule, and every answer's routing summary carries a line such as
+    *Reasoning: auto → deep (rule: auto-high); sent output_config.effort=high to anthropic/claude-opus-5-5.*
+  - **A parameter is sent only to a model declared capable on its own provider.** The declaration is a new
+    provider-scoped table, `REASONING_CONTROL_CATALOG` in `modelCatalog.ts`, with no cross-provider fallback —
+    Claude through Copilot or Bedrock is not a model that accepts Anthropic's field there. Each row cites the
+    vendor page it was read from (verified 2026-10-08): Anthropic `output_config.effort` (Opus 4.5–5.5,
+    Sonnet 4.6–5.5, Haiku 5.5, Fable/Mythos; Haiku 4.5 and Sonnet 4.5 reject it and are not declared), OpenAI
+    `reasoning_effort` (GPT-5.4, 5.5, 5.6 Terra/Luna, GPT-6 Astra, GPT-6.1 Sol) and Gemini `reasoning_effort` on
+    the OpenAI-compatible endpoint (Gemini 2.5, 3 Flash, 3.1 Pro/Flash-Lite). Only `low`/`medium`/`high` are
+    used, because they are the values every declared model accepts. Anthropic's `thinking` field is never
+    touched: effort shapes every output token with or without thinking, and turning thinking on would oblige the
+    tool loop to round-trip thinking blocks it does not keep.
+  - **Unknown is routable, never preferred.** A model with no declared control stays a candidate and is sent
+    nothing; only a declared model earns the deep-reasoning bonus. The axis changes no score at all unless
+    `RoutingConstraints.reasoning` is set, so every helper call that never set it routes exactly as before.
+  - **Thinking is output, and the estimates say so.** A declared model's projected output price rises with the
+    level (×1.25 / ×2 / ×4); the daily-limit pre-flight adds the level's projected thinking (1,024 / 8,192 /
+    24,576 tokens — Gemini 2.5's published budgets); and a per-task cap that cannot afford the requested level
+    steps it **down** under the named `budget-cap-step-down` rule. Budget gates still use listed prices, so
+    `deep` cannot unlock a tier the budget excludes.
+  - **`max_tokens` makes room for the thinking.** A directive raises the request's ceiling to the projected
+    thinking plus a reply, bounded by the context window; thinking counts against it on every vendor wired here.
+  - **Failover re-plans.** The directive is built per model call, so a failover to a model with no declared
+    control sends nothing rather than inheriting the previous model's parameter.
+
+### Fixed
+
+- **Gemini thinking tokens were missing from the billed output count.** Google bills thinking at the output
+  rate, but its OpenAI-compatible layer leaves thinking out of `completion_tokens` while keeping it in
+  `total_tokens`. The adapter now reads billed output as the larger of the two for Gemini, so a budget cap is
+  checked against what was actually spent.
+
 ## [0.496.0] - 2026-10-08
 
 ### Added

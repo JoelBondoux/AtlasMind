@@ -115,6 +115,17 @@ export interface ModelInfo {
    */
   thinkingTokenMultiplier?: number;
   /**
+   * Which vendor parameter, if any, adjusts how hard this model thinks.
+   *
+   * **Declared, never inferred.** Set only from the provider-scoped table in
+   * `modelCatalog.ts` (`lookupReasoningControl`), whose rows were read from each
+   * vendor's published request shape; a model whose name merely sounds like a
+   * reasoner gets nothing here. Absent means *unknown*, and an unknown model is
+   * still routable — it is simply never preferred for deep reasoning and never
+   * sent a reasoning parameter (`reasoningBudget.ts`).
+   */
+  reasoningControl?: ReasoningControlId;
+  /**
    * ISO 8601 date (YYYY-MM-DD) on or after which this model should be treated
    * as deprecated.  The router will skip deprecated models during candidate
    * selection and emit a one-time "model deprecated" notification to the user
@@ -212,9 +223,63 @@ export type TaskPhase = 'planning' | 'execution' | 'synthesis' | 'maintenance';
 export type TaskModality = 'text' | 'code' | 'vision' | 'mixed';
 export type TaskReasoning = 'low' | 'medium' | 'high';
 
+/**
+ * The third routing axis, beside budget and speed: how hard the model should
+ * think. `auto` derives a level from the task profile through a declared table
+ * (`AUTO_REASONING_RULES` in `src/core/reasoningBudget.ts`); the other three are
+ * an explicit choice.
+ */
+export type ReasoningPreference = 'auto' | 'minimal' | 'standard' | 'deep';
+/** A resolved reasoning level — what `auto` becomes once the task is known. */
+export type ReasoningLevel = Exclude<ReasoningPreference, 'auto'>;
+/**
+ * A vendor request parameter that adjusts thinking depth, verified against that
+ * vendor's published docs (`REASONING_CONTROLS`). Deliberately closed: a control
+ * nobody verified cannot be named, so it cannot be sent.
+ */
+export type ReasoningControlId = 'anthropic-effort' | 'openai-reasoning-effort' | 'gemini-reasoning-effort';
+
+/**
+ * What one request is asked to do about thinking depth, already mapped onto the
+ * vendor's wire value. Built only by `planReasoningRequest`, and only for a model
+ * whose declared control matches its provider; an adapter applies it only when
+ * `control` is one it implements, and ignores it otherwise.
+ */
+export interface ReasoningDirective {
+  control: ReasoningControlId;
+  level: ReasoningLevel;
+  /** The vendor's own value for this level, from the declared table. */
+  value: 'low' | 'medium' | 'high';
+  /** The declared rule that chose `value`. */
+  rule: string;
+}
+
+/**
+ * How a turn's reasoning axis was decided, carried on the result so the routing
+ * explanation can say it. `parameter` is present only when one was sent.
+ */
+export interface TaskReasoningDecision {
+  preference: ReasoningPreference;
+  level: ReasoningLevel;
+  /** The declared rule that resolved the level (auto table, explicit choice, or a budget step-down). */
+  levelRule: string;
+  model: string;
+  outcome: 'applied' | 'not-sent';
+  /** Why nothing was sent, when nothing was — e.g. no declared control for the model. */
+  notSentRule?: string;
+  /** The wire parameter and value, when one was sent, e.g. `output_config.effort=high`. */
+  parameter?: string;
+}
+
 export interface RoutingConstraints {
   budget: BudgetMode;
   speed: SpeedMode;
+  /**
+   * How hard the model should think. Absent leaves the router exactly as it was
+   * before the axis existed — the orchestrator's main turn sets it from
+   * `atlasmind.reasoningMode`; helper calls that never set it are unaffected.
+   */
+  reasoning?: ReasoningPreference;
   maxCostUsd?: number;
   preferredProvider?: ProviderId;
   /**
@@ -5189,6 +5254,8 @@ export interface TaskResult {
   durationMs: number;
   /** Every model endpoint actually invoked, in order. Selection previews are excluded. */
   modelAttempts?: TaskModelAttempt[];
+  /** How the reasoning axis was decided for the model that answered, and what (if anything) was sent. */
+  reasoning?: TaskReasoningDecision;
   /**
    * Third-party tools Resource Discovery found when nothing installed could do
    * part of this task. Offered to the user to review and install; never installed.

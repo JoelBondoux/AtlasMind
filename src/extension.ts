@@ -74,7 +74,7 @@ import type { RiskOversightManager } from './core/riskOversightManager.js';
 import type { ResearchRegisterManager } from './core/researchRegister.js';
 import type { MissionRegistry } from './core/missionRegistry.js';
 import { ACP_PROBE_TIMEOUT_MS, ACP_PROVIDER_ID, getConfiguredLocalEndpoints, type ProviderRegistry } from './providers/index.js';
-import { getModelInfoUrl, getProviderInfoUrl, lookupCatalog } from './providers/modelCatalog.js';
+import { getModelInfoUrl, getProviderInfoUrl, lookupCatalog, lookupReasoningControl } from './providers/modelCatalog.js';
 import { inferContextWindow, inferCapabilities, inferSpecialistDomains, inferPricing } from './providers/modelMetadataInference.js';
 import {
   fetchCopilotMultipliers,
@@ -5435,8 +5435,14 @@ function mergeProviderModels(
         // immediately rather than being frozen from first discovery.
         // Priority: API hint > live pricing sync > static catalog > existing cached value.
         const specialistDomains = mergeSpecialistDomains(existing.specialistDomains, hint?.specialistDomains);
+        // Re-read on every refresh, never carried over: the table is the only
+        // source, so a row removed from it must stop the parameter being sent.
+        const reasoningControl = lookupReasoningControl(provider.id, modelId);
+        const { reasoningControl: _previousReasoningControl, ...existingWithoutReasoningControl } = existing;
+        void _previousReasoningControl;
         return {
-          ...existing,
+          ...existingWithoutReasoningControl,
+          ...(reasoningControl ? { reasoningControl } : {}),
           contextWindow: liveMeta?.contextWindow ?? hint?.contextWindow ?? dynamicPricing?.contextWindow ?? catalogEntry?.contextWindow ?? existing.contextWindow,
           name: liveMeta?.name ?? hint?.name ?? catalogEntry?.name ?? existing.name,
           capabilities: liveMeta?.capabilities ?? hint?.capabilities ?? catalogEntry?.capabilities ?? existing.capabilities,
@@ -5531,6 +5537,11 @@ export function inferModelMetadata(
   // on this session, not of a model name anybody could enumerate in advance.
   const reasoningDepth = catalogEntry?.reasoningDepth ?? hint?.reasoningDepth;
   const latencyClass = catalogEntry?.latencyClass;
+  // Which thinking-depth parameter this model accepts on *this* provider. A
+  // provider-scoped declared table, never the cross-provider catalog fallback:
+  // Claude through another vendor's endpoint is not a model that accepts
+  // Anthropic's request field there.
+  const reasoningControl = lookupReasoningControl(providerId, modelId);
   // Cache capability is dynamic — providers change model capabilities over time.
   // Prefer the runtime discovery hint and live pricing scrape over the static
   // catalog so the router tracks those changes; an explicit hint `false`
@@ -5557,6 +5568,7 @@ export function inferModelMetadata(
       : {}),
     ...(reasoningDepth !== undefined ? { reasoningDepth } : {}),
     ...(latencyClass !== undefined ? { latencyClass } : {}),
+    ...(reasoningControl !== undefined ? { reasoningControl } : {}),
     ...(supportsPromptCaching !== undefined ? { supportsPromptCaching } : {}),
     ...(cachedInputPricePer1k !== undefined ? { cachedInputPricePer1k } : {}),
   };

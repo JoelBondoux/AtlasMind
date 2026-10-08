@@ -147,6 +147,35 @@ Specialist routing has **no override setting**. `atlasmind.specialistRoutingOver
 | **Considered** | Prefer models with strong reasoning, even if slower |
 | **Auto** | Assess whether the task needs deep reasoning or a quick answer |
 
+## Reasoning Modes
+
+The third axis (`atlasmind.reasoningMode`): how hard the model should **think**, as opposed to which model or how fast. Implemented in `src/core/reasoningBudget.ts`.
+
+| Mode | Behaviour |
+|---|---|
+| **Auto** *(default)* | Resolve a level from the task profile through `AUTO_REASONING_RULES`: `low` → minimal, `medium` → standard, `high` → deep. No profile → standard, never deep |
+| **Minimal** | Ask a declared model to think as little as it allows |
+| **Standard** | A middle level |
+| **Deep** | Ask for the most thinking, and prefer models that declare a reasoning control |
+
+Every resolution names its rule (`auto-low`, `auto-medium`, `auto-high`, `auto-unprofiled`, `explicit-preference`, `budget-cap-step-down`), and the routing summary on each answer states the level, the rule and what was sent (`Reasoning: auto → deep (rule: auto-high); sent output_config.effort=high to anthropic/claude-opus-5-5.`).
+
+**Which models get a parameter.** Only a model whose provider declares a verified control in `REASONING_CONTROL_CATALOG` (`src/providers/modelCatalog.ts`, provider-scoped with no cross-provider fallback), and only when that control belongs to the model's provider (`REASONING_CONTROLS`). Verified 2026-10-08 against each vendor's docs:
+
+| Control | Providers | Wire field | minimal / standard / deep | Source |
+|---|---|---|---|---|
+| `anthropic-effort` | `anthropic` | `output_config.effort` | `low` / `medium` / `high` | platform.claude.com effort page — Opus 4.5–5.5, Sonnet 4.6–5.5, Haiku 5.5, Fable/Mythos. Haiku 4.5 and Sonnet 4.5 are not declared (they reject effort) |
+| `openai-reasoning-effort` | `openai` | `reasoning_effort` | `low` / `medium` / `high` | OpenAI reasoning guide — GPT-5.4, 5.5, 5.6 Terra/Luna, GPT-6 Astra, GPT-6.1 Sol |
+| `gemini-reasoning-effort` | `google` | `reasoning_effort` | `low` / `medium` / `high` | Gemini OpenAI-compatibility page — Gemini 2.5, 3 Flash, 3.1 Pro / Flash-Lite. Never combined with `thinking_config` |
+
+Only `low`/`medium`/`high` are used because they are the only values every declared model of each vendor accepts. Anthropic's `thinking` field is never touched: effort shapes every output token with or without thinking, and enabling thinking would oblige the tool loop to round-trip thinking blocks it does not keep. Everything else — Copilot, Bedrock, OpenRouter, ACP, local, DeepSeek and the rest — is **routable and sent nothing**; unknown capability is never preferred and never guessed.
+
+**Routing.** The axis changes nothing unless `RoutingConstraints.reasoning` is set (the orchestrator's main turn sets it; helper calls do not). When set: a declared model earns `DEEP_REASONING_CAPABLE_BONUS` only at `deep`, and its projected output price is multiplied by the level's `outputMultiplier` (1.25 / 2 / 4) because thinking is billed as output on every vendor wired here. Budget gates still use listed prices, so `deep` cannot unlock a tier the budget excludes.
+
+**Cost and budget.** The pre-flight daily-limit estimate adds the level's `projectedThinkingTokens` (1,024 / 8,192 / 24,576 — Gemini 2.5's published budgets, the only vendor that publishes numbers). When a per-task cap (`maxCostUsd` or an agent's `costLimitUsd`) cannot afford the requested level's projection, the level steps **down** under `budget-cap-step-down`; if even minimal does not fit, minimal is kept and the existing cap stops the loop. A directive raises `max_tokens` to at least the projected thinking plus 2,400 tokens of reply, bounded by the context window. Gemini's OpenAI-compatible layer omits thinking from `completion_tokens`, so its billed output is read as the larger of that and `total_tokens − prompt_tokens`.
+
+**Failover.** The directive is planned per model call, so a failover to a model with no declared control sends nothing rather than inheriting the previous model's parameter.
+
 ## Selection Algorithm
 
 ```
@@ -798,6 +827,10 @@ Current behavior:
 - Orchestrator computes per-request cost from model pricing and token usage reported by the provider adapter.
 - Local fallback models use deterministic estimates because no upstream provider usage API exists.
 - If a model is unknown to the router, cost is treated as `0` for safety.
+
+### Reasoning directives
+
+`CompletionRequest.reasoning` carries a `ReasoningDirective` (`control`, `level`, vendor `value`, `rule`) built by `planReasoningRequest`. An adapter applies it only when `control` is one it implements — `anthropicReasoningFields` in `anthropic.ts`, `openAiCompatibleReasoningEffort` in `openai-compatible.ts` (keyed by provider id, so DeepSeek, Mistral and the other providers on the shared adapter are sent nothing) — and ignores it otherwise. Wiring a new vendor means verifying its request shape from published docs, adding a control to `REASONING_CONTROLS`, rows to `REASONING_CONTROL_CATALOG` with their source URL, and a request-shape test in `tests/providers/reasoningRequestShape.test.ts`.
 
 ## Adding a New Provider
 

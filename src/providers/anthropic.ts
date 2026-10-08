@@ -12,6 +12,26 @@ const ANTHROPIC_API_VERSION = process.env['ANTHROPIC_API_VERSION'] ?? '2023-06-0
 
 const ANTHROPIC_TOOL_NAME_PATTERN = /^[A-Za-z0-9_-]{1,128}$/;
 
+/**
+ * When the effort request shape below was last read against
+ * https://platform.claude.com/docs/en/build-with-claude/effort — GA, no beta
+ * header, `output_config: { effort: 'low' | 'medium' | 'high' | ... }`. Effort
+ * shapes every output token with or without thinking, so the `thinking` field is
+ * deliberately left alone: turning thinking on would oblige the tool loop to
+ * round-trip thinking blocks it does not keep, and on several models
+ * (`budget_tokens` on 4.7+) the older shape is a 400.
+ */
+export const ANTHROPIC_EFFORT_VERIFIED_AT = '2026-10-08';
+
+/**
+ * The request fields for a reasoning directive. Only `anthropic-effort` is
+ * implemented here; any other control is ignored rather than translated, so a
+ * directive meant for another vendor can never reach this endpoint as a guess.
+ */
+export function anthropicReasoningFields(directive: CompletionRequest['reasoning']): { output_config?: { effort: 'low' | 'medium' | 'high' } } {
+  return directive?.control === 'anthropic-effort' ? { output_config: { effort: directive.value } } : {};
+}
+
 interface AnthropicMessagesResponse {
   id: string;
   model: string;
@@ -68,6 +88,7 @@ export class AnthropicAdapter implements ProviderAdapter {
       messages,
       stop_sequences: request.stop,
       tools: cached.tools,
+      ...anthropicReasoningFields(request.reasoning),
     };
 
     const result = await this.withRetries(async () => {
@@ -154,6 +175,7 @@ export class AnthropicAdapter implements ProviderAdapter {
       stop_sequences: request.stop,
       stream: true,
       tools: cached.tools,
+      ...anthropicReasoningFields(request.reasoning),
     };
 
     const response = await fetch(this.apiUrl, {

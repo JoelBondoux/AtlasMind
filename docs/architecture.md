@@ -1417,6 +1417,10 @@ The Cost Dashboard keeps period/style controls in a toolbar before the daily plo
 
 Infers a `TaskProfile` from the current phase and request text. It classifies modality (`text`, `code`, `vision`, `mixed`), reasoning intensity (`low`, `medium`, `high`), and any hard or soft capability needs used by the router.
 
+### ReasoningBudget (`src/core/reasoningBudget.ts`)
+
+The third routing axis, beside budget and speed: how hard the model should think. Pure. `resolveReasoningLevel` turns `atlasmind.reasoningMode` (`ReasoningPreference`: `auto` | `minimal` | `standard` | `deep`) into a `ReasoningLevel`, with `auto` mapped from the profiler's tier through the declared `AUTO_REASONING_RULES` and every resolution naming its rule. `planReasoningRequest` builds a `ReasoningDirective` only for a model whose `ModelInfo.reasoningControl` is declared (from the provider-scoped `REASONING_CONTROL_CATALOG` in `modelCatalog.ts`) **and** implemented by that model's provider (`REASONING_CONTROLS`); anything else is `not-sent` with a named reason, so unknown capability stays routable and is never sent a guessed parameter. The router uses `scoreReasoningFit` (a bonus for a declared model only at `deep`) and `reasoningOutputMultiplier` (thinking is billed as output, so a declared model's projected output grows with the level) — and only when `RoutingConstraints.reasoning` is set. The Orchestrator resolves the level once per turn, steps it down under `fitReasoningLevelToBudget` when a per-task cap cannot afford its projection, adds `projectedThinkingTokens` to the daily-limit pre-flight, plans a directive per model call (so a failover re-plans), raises `max_tokens` via `reasoningMaxTokens`, emits a progress line, and carries a `TaskReasoningDecision` on `TaskResult.reasoning` for the routing summary.
+
 ### SkillScanner (`src/core/skillScanner.ts`)
 
 Static security scanner that checks skill source code against configurable rules. Exports `BUILTIN_SCAN_RULES` (12 rules), `resolveRules(config)` (merges overrides and custom rules), `scanSkillSource(id, source, config?)`, and `scanSkillFile(id, path, config?)`. Returns a `SkillScanResult` with per-issue details (rule, severity, line, snippet, message).
@@ -3363,6 +3367,7 @@ extension.ts
         ├── core/modelRouter.ts
         ├── core/skillDrafting.ts
         ├── core/taskProfiler.ts
+        ├── core/reasoningBudget.ts      (the reasoning axis: level table, declared controls, per-model directive, pure)
         ├── core/costTracker.ts
         ├── core/skillScanner.ts
         ├── core/scannerRulesManager.ts

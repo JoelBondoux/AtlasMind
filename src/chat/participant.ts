@@ -2,6 +2,7 @@
 import { execFile } from 'node:child_process';
 import { describeHostDryRunNotice } from '../core/dryRun.js';
 import { interceptDryRun } from '../core/dryRunHost.js';
+import { describeReasoningDecision } from '../core/reasoningBudget.js';
 import * as path from 'node:path';
 import * as vscode from 'vscode';
 import type { AtlasMindContext } from '../extension.js';
@@ -5474,7 +5475,7 @@ export function buildQuickReplyPayload(responseText: string | undefined): Webvie
 
 export function buildAssistantResponseMetadata(
   prompt: string,
-  result: Pick<TaskResult, 'agentId' | 'modelUsed' | 'costUsd' | 'inputTokens' | 'outputTokens' | 'modelAttempts' | 'artifacts' | 'autoDisabledProvider' | 'contextCompressionSavingsUsd' | 'iterationLimitHit' | 'suggestedIterationLimit' | 'suggestedToolCallsPerTurnLimit'> & Partial<Pick<TaskResult, 'discoveredResources'>>,
+  result: Pick<TaskResult, 'agentId' | 'modelUsed' | 'costUsd' | 'inputTokens' | 'outputTokens' | 'modelAttempts' | 'artifacts' | 'autoDisabledProvider' | 'contextCompressionSavingsUsd' | 'iterationLimitHit' | 'suggestedIterationLimit' | 'suggestedToolCallsPerTurnLimit'> & Partial<Pick<TaskResult, 'discoveredResources' | 'reasoning'>>,
   options?: { hasSessionContext?: boolean; imageAttachments?: TaskImageAttachment[]; routingContext?: Record<string, unknown>; policies?: SessionPolicySnapshot[]; responseText?: string },
 ): SessionTranscriptMetadata {
   const toolCallCount = result.artifacts?.toolCallCount ?? 0;
@@ -5578,6 +5579,12 @@ export function buildAssistantResponseMetadata(
 
   if (result.artifacts?.verificationSummary) {
     bullets.push(`Verified: ${result.artifacts.verificationSummary}.`);
+  }
+
+  // The reasoning axis, in the module's own words — the level, the rule that
+  // chose it, and whether a parameter was actually sent to the model that answered.
+  if (result.reasoning) {
+    bullets.push(describeReasoningDecision(result.reasoning));
   }
 
   if (typeof result.contextCompressionSavingsUsd === 'number' && result.contextCompressionSavingsUsd > 0) {

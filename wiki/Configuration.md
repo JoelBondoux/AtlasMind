@@ -73,6 +73,7 @@ A reasonable starting `settings.json`:
 |---------|---------|-------------|
 | `atlasmind.budgetMode` | `balanced` | `cheap`, `balanced`, `expensive` or `auto` |
 | `atlasmind.speedMode` | `balanced` | `fast`, `balanced`, `considered` or `auto` |
+| `atlasmind.reasoningMode` | `auto` | How hard the model should think: `auto`, `minimal`, `standard` or `deep`. Only sent to models with a verified reasoning control; everything else is still routable |
 | `atlasmind.feedbackRoutingWeight` | `1` | How much your thumbs up/down affect future routing. `0` turns it off; up to `2` for stronger influence |
 | `atlasmind.planningModelId` | `""` | Pin a specific model for planning. Empty routes normally |
 | `atlasmind.synthesisModelId` | `""` | Pin a model for summarising results |

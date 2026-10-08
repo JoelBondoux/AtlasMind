@@ -19,6 +19,19 @@ Older entries below describe the software as it was at the time and are delibera
 
 ---
 
+## v0.497.0 -- How hard to think, as a routing dial
+
+- A third routing dial beside budget and speed: **Reasoning mode** (`atlasmind.reasoningMode`). `auto` reads the
+  level from the task — planning, architecture, root-cause and review work gets deep — or fix it at `minimal`,
+  `standard` or `deep` on the Settings page.
+- The level is sent only where a vendor publishes the control: Anthropic `output_config.effort`, and
+  `reasoning_effort` for OpenAI and Gemini, each on the models their docs list. Every other model is still used
+  and sent nothing, and is never preferred for deep work on a guess.
+- Thinking is billed as output, so a deeper level raises the cost estimate, the daily limit counts it, and a task
+  cost cap steps the level down instead of letting it through. Each answer's routing summary names the level,
+  the rule that chose it, and what was sent.
+- Fixed: Gemini's thinking tokens are now counted in the billed output, so cost caps see them.
+
 ## v0.496.0 -- Routines that run on their own, and report back
 
 - A routine can declare `schedule: daily at 02:00` (or weekly, or every N hours). Once scheduled routines are

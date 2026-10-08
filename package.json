@@ -2,7 +2,7 @@
   "name": "atlasmind",
   "displayName": "AtlasMind",
   "description": "AI project management for VS Code: roadmap, risk, tech debt, compliance, testing and release tracked from your own repository — with a multi-agent AI team, or the AI coding tool you already use.",
-  "version": "0.496.0",
+  "version": "0.497.0",
   "publisher": "JoelBondoux",
   "preview": false,
   "license": "SEE LICENSE IN OSMFEULA.txt",
@@ -1828,6 +1828,24 @@
           ],
           "description": "Speed preference for model selection.",
           "markdownDescription": "Speed preference for model selection.\n\nUse `fast` to bias toward quick-response models, `balanced` for a normal tradeoff, `considered` to allow slower reasoning-heavy models, or `auto` to let AtlasMind choose based on task complexity.\n\nExamples:\n- Tight feedback loops while editing: `fast`\n- General coding and chat: `balanced`\n- Root-cause analysis or long-form planning: `considered`\n- Teams switching between support, coding, and review: `auto`"
+        },
+        "atlasmind.reasoningMode": {
+          "type": "string",
+          "default": "auto",
+          "enum": [
+            "auto",
+            "minimal",
+            "standard",
+            "deep"
+          ],
+          "enumDescriptions": [
+            "Derive the level from the task: low-reasoning tasks get minimal, medium get standard, high (planning, architecture, root cause, review) get deep.",
+            "Think as little as the model allows. Cheapest and fastest.",
+            "A middle level of thinking for everyday work.",
+            "Think hard. Prefers models with a declared reasoning control and projects the extra thinking into cost estimates."
+          ],
+          "description": "How hard the model should think — the third routing axis beside budget and speed.",
+          "markdownDescription": "How hard the model should think — the third routing axis beside `#atlasmind.budgetMode#` and `#atlasmind.speedMode#`.\n\n`auto` derives the level from the task profile through a declared table; `minimal`, `standard` and `deep` fix it. A level becomes a request parameter only for a model whose provider declares a verified reasoning control (Anthropic `output_config.effort`, OpenAI `reasoning_effort`, Gemini `reasoning_effort`); every other model is still routable and is sent nothing. Thinking is billed as output, so a deeper level raises the projected cost, and a per-task budget cap steps the level down rather than letting a deep request slip past it.\n\nExamples:\n- Mixed workloads: `auto`\n- Bulk mechanical edits on a tight budget: `minimal`\n- Architecture reviews and hard debugging: `deep`"
         },
         "atlasmind.feedbackRoutingWeight": {
           "type": "number",

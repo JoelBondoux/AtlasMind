@@ -37,6 +37,7 @@ import { TESTING_METHODOLOGY_DEFINITIONS } from '../types.js';
 import { deriveTestingPolicyCoverage, parseJUnitReport, type TestingPolicyCoverage, type TestingPolicyTestFile } from '../core/testingPolicyCoverage.js';
 import { complianceCatalogFor } from '../core/complianceControlCatalog.js';
 import { gatherComplianceStackSignals } from '../core/complianceStackSignals.js';
+import { AUTO_REASONING_RULES, REASONING_CONTROLS, REASONING_CONTROLS_VERIFIED_AT, REASONING_LEVELS, REASONING_PREFERENCES, sanitizeReasoningPreference } from '../core/reasoningBudget.js';
 import {
   emptyEvidenceLibrary,
   readComplianceEvidenceFile,
@@ -92,6 +93,7 @@ const execFileAsync = promisify(execFile);
 
 const BUDGET_MODES = ['cheap', 'balanced', 'expensive', 'auto'] as const;
 const SPEED_MODES = ['fast', 'balanced', 'considered', 'auto'] as const;
+const REASONING_MODES = REASONING_PREFERENCES;
 const BUDGET_MODE_HELP = {
   cheap: 'Excludes expensive model tiers and strongly favors the lowest-cost eligible options. Best for quick edits, light investigation, and scratchpad work where cost matters more than peak capability.',
   balanced: 'Keeps a practical middle ground between price and capability. This is the safest day-to-day default for most coding, debugging, and review work.',
@@ -103,6 +105,12 @@ const SPEED_MODE_HELP = {
   balanced: 'Keeps a middle ground between responsiveness and reasoning depth. This is the most stable default when you want solid results without over-tuning.',
   considered: 'Allows slower, deeper reasoning routes and longer deliberation. Best for ambiguous debugging, design work, and other problems that benefit from more thought.',
   auto: 'Lets the task profiler infer the speed level from the current request. Use this when some tasks need instant turnaround and others need deeper reasoning.',
+} as const;
+const REASONING_MODE_HELP = {
+  auto: 'Derives the level from the task through a declared table: low-reasoning tasks get minimal, medium get standard, and planning, architecture, root-cause and review work gets deep.',
+  minimal: 'Asks a model with a declared reasoning control to think as little as it allows. Cheapest and fastest for mechanical edits and quick answers.',
+  standard: 'A middle level of thinking for everyday implementation, explanation and fixes.',
+  deep: 'Asks for the most thinking and prefers models that declare a reasoning control. Thinking is billed as output, so cost estimates rise with it, and a per-task budget cap steps the level down rather than letting it slip past.',
 } as const;
 const DEPENDENCY_MONITORING_PROVIDERS = ['dependabot', 'renovate', 'snyk', 'azure-devops'] as const;
 const DEPENDENCY_MONITORING_SCHEDULES = ['daily', 'weekly', 'monthly'] as const;
@@ -123,6 +131,7 @@ const SETTINGS_HELP = {
   dailyCostLimitUsd: 'Daily cost cap in USD. Use 0 to disable it. Examples: 5 for an individual guardrail, 20 for a shared team budget, or 0 for unrestricted experimentation.',
   displayCurrency: 'Currency used for all cost displays. Auto detects from your OS locale. Examples: EUR for European teams, GBP for UK users, or JPY for Japan. Underlying costs are always stored in USD; exchange rates are fetched at startup with a 24-hour cache.',
   speedMode: 'Speed preference for model selection. Examples: fast for tight feedback loops, balanced for normal work, considered for deeper reasoning, and auto when workloads vary.',
+  reasoningMode: 'How hard the model should think — the third routing axis. A level is sent only to models whose provider declares a verified reasoning control; every other model is still routable and is sent nothing.',
   showImportProjectAction: 'Controls whether the Memory toolbar keeps the Import Existing Project action visible. Keep it on during onboarding and turn it off in already standardized repos.',
   chatSessionTurnLimit: 'How many recent chat turns AtlasMind carries forward. Examples: 4 for short task chats, 6 for the default balance, or 10 when long debugging context matters.',
   chatSessionContextChars: 'Maximum characters reserved for summarized carry-forward context. Examples: 1200 for lightweight carry-forward, 2500 for default use, or 4000+ for complex multi-step work.',
@@ -174,6 +183,7 @@ const SETTINGS_HELP = {
 
 type BudgetMode = (typeof BUDGET_MODES)[number];
 type SpeedMode = (typeof SPEED_MODES)[number];
+type ReasoningPreference = (typeof REASONING_MODES)[number];
 type DependencyMonitoringProvider = (typeof DEPENDENCY_MONITORING_PROVIDERS)[number];
 type DependencyMonitoringSchedule = (typeof DEPENDENCY_MONITORING_SCHEDULES)[number];
 type DisplayCurrency = (typeof DISPLAY_CURRENCIES)[number];
@@ -374,6 +384,7 @@ export interface SettingsPanelTarget {
 type SettingsMessage =
   | { type: 'setBudgetMode'; payload: BudgetMode }
   | { type: 'setSpeedMode'; payload: SpeedMode }
+  | { type: 'setReasoningMode'; payload: ReasoningPreference }
   | { type: 'setFeedbackRoutingWeight'; payload: number }
   | { type: 'setLocalOpenAiBaseUrl'; payload: string }
   | { type: 'setLocalOpenAiEndpoints'; payload: LocalEndpointConfig[] }
@@ -933,6 +944,10 @@ export class SettingsPanel {
 
       case 'setSpeedMode':
         await configuration.update('speedMode', message.payload, vscode.ConfigurationTarget.Workspace);
+        return;
+
+      case 'setReasoningMode':
+        await configuration.update('reasoningMode', message.payload, vscode.ConfigurationTarget.Workspace);
         return;
 
       case 'setFeedbackRoutingWeight':
@@ -2350,6 +2365,7 @@ export class SettingsPanel {
     const builtInAgentCount = registeredAgents.length - customAgentCount;
     const selectedBudget = getBudgetMode(configuration.get<string>('budgetMode'));
     const selectedSpeed = getSpeedMode(configuration.get<string>('speedMode'));
+    const selectedReasoning = sanitizeReasoningPreference(configuration.get<string>('reasoningMode'));
     const feedbackRoutingWeight = getRangedNumber(configuration.get<number>('feedbackRoutingWeight'), 1, 0, 2, 2);
     const localOpenAiEndpoints = getConfiguredLocalEndpoints({
       getEndpoints: () => configuration.get<unknown>('localOpenAiEndpoints'),
@@ -2666,6 +2682,21 @@ export class SettingsPanel {
                   <input id="feedbackRoutingWeight" type="number" min="0" max="2" step="0.05" value="${feedbackRoutingWeight}" />
                   <p class="info-note">Set <code>0</code> to ignore thumbs history in routing. Higher values amplify the bias, but AtlasMind still caps the effect so votes cannot override hard capability or provider-health checks.</p>
                 </div>
+              </article>
+
+              <article class="settings-card" id="reasoningModeCard">
+                <div class="card-header">
+                  <p class="card-kicker">Routing</p>
+                  <h3>${renderHeadingWithHelp('Reasoning mode', 'reasoningMode')}</h3>
+                </div>
+                <p class="card-copy">Decide how hard the model should think. This is the third axis beside budget and speed.</p>
+                <div class="choice-cluster" role="radiogroup" aria-label="Reasoning mode">
+                  ${renderRoutingChoicePill('reasoning', 'auto', 'Auto', selectedReasoning === 'auto', REASONING_MODE_HELP.auto)}
+                  ${renderRoutingChoicePill('reasoning', 'minimal', 'Minimal', selectedReasoning === 'minimal', REASONING_MODE_HELP.minimal)}
+                  ${renderRoutingChoicePill('reasoning', 'standard', 'Standard', selectedReasoning === 'standard', REASONING_MODE_HELP.standard)}
+                  ${renderRoutingChoicePill('reasoning', 'deep', 'Deep', selectedReasoning === 'deep', REASONING_MODE_HELP.deep)}
+                </div>
+                ${renderReasoningRulesTable()}
               </article>
             </div>
           </section>
@@ -5140,6 +5171,16 @@ export class SettingsPanel {
             });
           });
 
+          document.querySelectorAll('input[name="reasoning"]').forEach(element => {
+            element.addEventListener('change', event => {
+              const target = event.target;
+              if (!(target instanceof HTMLInputElement)) {
+                return;
+              }
+              vscode.postMessage({ type: 'setReasoningMode', payload: target.value });
+            });
+          });
+
           const localEndpointsList = document.getElementById('localEndpointsList');
           const addLocalEndpointButton = document.getElementById('addLocalEndpoint');
           localEndpointRows = Array.isArray(initialLocalOpenAiEndpoints)
@@ -7595,6 +7636,10 @@ export function isSettingsMessage(value: unknown): value is SettingsMessage {
     return typeof message.payload === 'string' && SPEED_MODES.includes(message.payload as SpeedMode);
   }
 
+  if (message.type === 'setReasoningMode') {
+    return typeof message.payload === 'string' && REASONING_MODES.includes(message.payload as ReasoningPreference);
+  }
+
   if (message.type === 'setFeedbackRoutingWeight') {
     return typeof message.payload === 'number'
       && Number.isFinite(message.payload)
@@ -8034,7 +8079,24 @@ function renderHeadingWithHelp(text: string, helpId: SettingsHelpId): string {
   return `<span class="heading-with-help"><span>${escapeHtml(text)}</span>${renderHelpIndicator(helpId)}</span>`;
 }
 
-function renderRoutingChoicePill(group: 'budget' | 'speed', value: string, label: string, checked: boolean, description: string): string {
+/**
+ * The declared tables behind the reasoning axis, published on the card that
+ * sets it — the rules that actually resolve `auto` and the controls that
+ * actually reach a vendor, rendered from the module rather than restated.
+ */
+function renderReasoningRulesTable(): string {
+  const autoRows = AUTO_REASONING_RULES
+    .map(rule => `<li><code>${escapeHtml(rule.when)}</code> task → <strong>${escapeHtml(rule.level)}</strong> <span class="muted">(${escapeHtml(rule.id)})</span></li>`)
+    .join('');
+  const controlRows = Object.entries(REASONING_CONTROLS)
+    .map(([id, spec]) => `<li><strong>${escapeHtml(spec.providers.join(', '))}</strong>: <code>${escapeHtml(spec.wire)}</code> = ${escapeHtml(REASONING_LEVELS.map(level => `${level}→${spec.values[level]}`).join(', '))} <span class="muted">(${escapeHtml(id)})</span></li>`)
+    .join('');
+  return `<div class="info-band"><strong>Auto rules:</strong><ul>${autoRows}</ul>`
+    + `<strong>Sent only to declared models</strong> (verified ${escapeHtml(REASONING_CONTROLS_VERIFIED_AT)}):<ul>${controlRows}</ul>`
+    + '<p class="info-note">Any other model stays routable and is sent no reasoning parameter. The level and the rule that chose it appear in each answer’s routing summary.</p></div>';
+}
+
+function renderRoutingChoicePill(group: 'budget' | 'speed' | 'reasoning', value: string, label: string, checked: boolean, description: string): string {
   const escapedDescription = escapeHtml(description);
   return `<label class="choice-pill" data-tooltip="${escapedDescription}" title="${escapedDescription}"><input type="radio" name="${escapeHtml(group)}" value="${escapeHtml(value)}" ${checked ? 'checked' : ''} aria-label="${escapeHtml(`${label}. ${description}`)}"><span>${escapeHtml(label)}</span></label>`;
 }
