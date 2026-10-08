@@ -73,6 +73,11 @@ Read this part. A threat model that sounds complete is the same mistake as a tes
   configuration, so neither gets the credential filter. Both ask first, and both are refused when the
   sandbox is required. A name you pass through is readable by every agent command, and a key under an
   ordinary-looking name in a format AtlasMind doesn't recognise still crosses.
+- **A relaxed terminal write changes your project folder without asking.** If you switch on
+  `atlasmind.sandbox.relaxTerminalApprovals` (off by default), a command bound for a confirmed sandbox runs
+  without a prompt. It can't reach the network, your keys or anything outside the mounted folder — but inside
+  that folder it can change anything, and those changes travel with whatever you do next on your machine. It
+  never applies once the agent has read someone else's text.
 - **ACP agents' own tools are invisible.** With `atlasmind.acp.toolsEnabled` on (off by default), an agent
   driven over ACP runs its own tools, allowed automatically and logged. AtlasMind won't hand it a task
   that has *already* read third-party content, but it can't track what the agent reads after that.

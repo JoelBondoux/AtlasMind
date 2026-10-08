@@ -85,6 +85,12 @@ import {
   resolveWorkspaceCommand,
   type WorkspaceCommandProbe,
 } from './windowsShimBypass.js';
+import {
+  RELAX_TERMINAL_APPROVALS_SETTING_RULE,
+  SANDBOX_RELAXATION_RULES,
+  describeSandboxRelaxationState,
+  type RelaxTerminalApprovalsReading,
+} from './sandboxApprovalRelaxation.js';
 import { redactSecrets } from '../utils/secretRedactor.js';
 
 // ── Constants ────────────────────────────────────────────────────
@@ -712,6 +718,11 @@ export interface SandboxCheckReportInput {
    * must still be reported as one.
    */
   mode?: SandboxMode;
+  /**
+   * Your opt-in to relaxed terminal approvals and the ceiling it sits under.
+   * Absent, the report says nothing about relaxation rather than guessing.
+   */
+  relaxation?: { setting: RelaxTerminalApprovalsReading; allowTerminalWrite: boolean };
 }
 
 function cell(value: string): string {
@@ -740,7 +751,8 @@ export function renderSandboxCheckReport(input: SandboxCheckReportInput): string
     mode === 'require'
       ? '> **Enforced.** The mode is `require`: every agent command runs in this sandbox or is refused, with the rule that '
         + 'stopped it — never on your machine instead. git, and anything that installs, publishes or reaches the network, '
-        + 'is refused rather than run. Approvals are unchanged: a command still asks where it asked before.'
+        + 'is refused rather than run. Approvals are unchanged unless you opted in to relaxed terminal approvals — '
+        + 'see *Approval relaxation* below.'
       : '> **Off.** The mode is `off`, so agent commands run on your machine, behind the same approvals as always. '
         + 'Set `atlasmind.sandbox.mode` to `require` to run them in this sandbox or refuse them.',
     '',
@@ -799,10 +811,32 @@ export function renderSandboxCheckReport(input: SandboxCheckReportInput): string
     }
   }
 
+  if (input.relaxation) {
+    const view = describeSandboxRelaxationState({
+      setting: input.relaxation.setting,
+      mode,
+      allowTerminalWrite: input.relaxation.allowTerminalWrite,
+      attestation,
+    });
+    lines.push('## Approval relaxation', '', `**${view.headline}** (\`${view.state}\`). ${view.detail}`, '');
+    if (input.relaxation.setting.problem) {
+      lines.push(`- ${input.relaxation.setting.problem}`, '');
+    }
+    lines.push(
+      'A terminal write skips its prompt only when every rule below lets it; the first that decides is the one that applies.',
+      '',
+      '| Rule | Outcome | Why |',
+      '|---|---|---|',
+      ...SANDBOX_RELAXATION_RULES.map(rule => `| \`${rule.id}\` | ${rule.outcome} | ${cell(rule.description)} |`),
+      '',
+    );
+  }
+
   lines.push(
     '## How the settings are read',
     '',
     ...(Object.keys(SANDBOX_SETTING_RULES) as SandboxSettingKey[]).map(key => `- \`atlasmind.sandbox.${key}\` — ${SANDBOX_SETTING_RULES[key]}`),
+    ...(input.relaxation ? [`- \`atlasmind.sandbox.relaxTerminalApprovals\` — ${RELAX_TERMINAL_APPROVALS_SETTING_RULE}`] : []),
     '',
   );
   return lines.join('\n');

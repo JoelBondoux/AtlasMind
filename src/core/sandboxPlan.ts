@@ -57,8 +57,8 @@
  * 7. **A sandbox changes where a command runs, not whether it is allowed.**
  *    `SANDBOX_INTERACTION_RULES` states what this slice leaves untouched: dry
  *    run still wins (a sandboxed run is still an effect), provenance taint is
- *    not relaxed, unattended routines are not unlocked, and approvals are not
- *    loosened.
+ *    not relaxed, unattended routines are not unlocked, and approvals loosen
+ *    only through the separate opt-in `sandboxApprovalRelaxation` enforces.
  *
  * Pure: no `vscode`, no `child_process`, no I/O, clock injected.
  */
@@ -336,7 +336,7 @@ export type SandboxInteractionRuleId =
   | 'dry-run-wins'
   | 'taint-not-relaxed'
   | 'unattended-unchanged'
-  | 'approvals-unchanged';
+  | 'approvals-relaxed-only-by-opt-in';
 
 /**
  * How the sandbox meets features that already decide whether a command runs.
@@ -361,8 +361,11 @@ export const SANDBOX_INTERACTION_RULES: ReadonlyArray<SandboxRule<SandboxInterac
       + 'without an install, but nothing here changes that policy, and installs stay refused by the same vocabulary.',
   },
   {
-    id: 'approvals-unchanged',
-    description: 'Tool approvals are not relaxed by the sandbox in this slice. Any relaxation is a later, separate opt-in that also requires a confirmed attestation.',
+    id: 'approvals-relaxed-only-by-opt-in',
+    description: 'Running in the sandbox does not by itself change an approval. Only `atlasmind.sandbox.relaxTerminalApprovals`, set in your '
+      + 'user settings, lets a terminal write skip its prompt — and only under require, with a confirmed attestation, for a command '
+      + 'routed to the sandbox, bound to the session that was checked, below dry run, taint and the terminal-write ceiling. '
+      + 'See `sandboxApprovalRelaxation`.',
   },
 ];
 

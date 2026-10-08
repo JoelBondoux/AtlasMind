@@ -490,7 +490,13 @@ describe('the sandbox settings in package.json', () => {
     expect(properties['atlasmind.sandbox.image']).toMatchObject({ default: '' });
     expect(properties['atlasmind.sandbox.cpus']).toMatchObject({ default: 2, minimum: 0.25, maximum: 64 });
     expect(properties['atlasmind.sandbox.memoryGb']).toMatchObject({ default: 4, minimum: 0.5, maximum: 256 });
-    expect(properties['atlasmind.sandbox.relaxTerminalApprovals']).toBeUndefined();
+  });
+
+  it('declares the approval relaxation off by default and readable only from your user settings', () => {
+    // 0.501.0 added it (this test used to assert its absence, before the
+    // relaxation existed). Off, and machine-scoped so a repository's value is
+    // never the one that loosens your approvals.
+    expect(properties['atlasmind.sandbox.relaxTerminalApprovals']).toMatchObject({ type: 'boolean', default: false, scope: 'machine' });
   });
 
   it('machine-scopes everything a repository must not choose', () => {

@@ -1,4 +1,4 @@
-import type { AgentDefinition, ArdDiscoveredResource, ProvenanceSource, TurnProvenance, UntrustedEscalationScope, BudgetMode, ProjectTestingConfig, DataPrivacyMatch, MemoryEntry, ModelCapability, ModelStruggleKind, OrchestratorConfig, OrchestratorHooks, PricingModel, ProjectPlan, ProjectProgressUpdate, ProjectResult, ProviderId, ReasoningDirective, ReasoningLevel, RoutingConstraints, SkillDefinition, SkillExecutionContext, SubTask, SubTaskExecutionArtifacts, SubTaskResult, SubTaskStatus, TaskModelAttempt, TaskProfile, TaskRequest, TaskResult, TestingMethodologyId, ToolExecutionArtifact } from '../types.js';
+import type { AgentDefinition, ArdDiscoveredResource, ProvenanceSource, TurnProvenance, UntrustedEscalationScope, BudgetMode, ProjectTestingConfig, DataPrivacyMatch, MemoryEntry, ModelCapability, ModelStruggleKind, OrchestratorConfig, OrchestratorHooks, PricingModel, ProjectPlan, ProjectProgressUpdate, ProjectResult, ProviderId, ReasoningDirective, ReasoningLevel, RoutingConstraints, SkillDefinition, SkillExecutionContext, SubTask, SubTaskExecutionArtifacts, SubTaskResult, SubTaskStatus, TaskModelAttempt, TaskProfile, TaskRequest, TaskResult, TestingMethodologyId, ToolApprovalAudit, ToolExecutionArtifact } from '../types.js';
 import type { AgentAutoUpdater } from './agentAutoUpdater.js';
 import { describeCapabilityOutcome, prepareCapabilityQuery, type ExternalCapabilitySearch } from './capabilitySearch.js';
 import { buildDebtMarkerGuidance, parseCustomDebtMarkers } from './debtRegister.js';
@@ -4407,6 +4407,8 @@ export class Orchestrator {
           let executionStarted = false;
           try {
             let checkpointed = false;
+            let sandboxBoundContext: SkillExecutionContext | undefined;
+            let approvalAudit: ToolApprovalAudit | undefined;
             if (!isJsonObject(toolCall.arguments)) {
               const invalidArgs = `Invalid arguments for tool "${toolCall.name}": expected a JSON object.`;
               await webhooks?.emit({
@@ -4518,6 +4520,33 @@ export class Orchestrator {
                 });
                 return { toolCall, result: deniedMessage, durationMs: Date.now() - startedAt, checkpointed: false, shouldVerify: false };
               }
+              // An approval that holds only inside a sandbox session — the gate
+              // skipped the prompt because the command will run in a container it
+              // checked. The call is bound to that exact session, so the runner
+              // plans on the reading the gate used; a context that cannot be
+              // bound, or a session that is not `require`, is a refusal, never a
+              // run on whatever this context would otherwise do.
+              if (approval.sandboxSession) {
+                if (approval.sandboxSession.mode !== 'require' || typeof skillContext.withSandbox !== 'function') {
+                  const unbound = `Tool "${toolCall.name}" was approved only to run in the execution sandbox, and this call `
+                    + 'could not be bound to that sandbox session, so it was not run.';
+                  await webhooks?.emit({
+                    event: 'tool.failed',
+                    timestamp: new Date().toISOString(),
+                    taskId: context.taskId,
+                    agentId: context.agentId,
+                    model,
+                    toolName: toolCall.name,
+                    toolCallId: toolCall.id,
+                    status: 'failed',
+                    durationMs: Date.now() - startedAt,
+                    error: unbound,
+                  });
+                  return { toolCall, result: unbound, durationMs: Date.now() - startedAt, checkpointed: false, shouldVerify: false, isFailure: true };
+                }
+                sandboxBoundContext = skillContext.withSandbox(approval.sandboxSession);
+                approvalAudit = approval.audit;
+              }
             }
 
             if (!dryRunActive && this.writeCheckpointHook && requiresWriteCheckpoint(toolCall.name, toolCall.arguments)) {
@@ -4535,7 +4564,7 @@ export class Orchestrator {
               dryRunTurn.executedReads += 1;
             }
             const result = await withTimeout(
-              skill.execute(toolCall.arguments, dryRunActive ? dryRunSkillContext : skillContext),
+              skill.execute(toolCall.arguments, dryRunActive ? dryRunSkillContext : (sandboxBoundContext ?? skillContext)),
               effectiveTimeout,
               `Tool "${toolCall.name}" timed out after ${effectiveTimeout}ms.`,
             );
@@ -4564,6 +4593,7 @@ export class Orchestrator {
               shouldVerify: requiresPostToolVerification(toolCall.name) && !resultIsFailure,
               isFailure: resultIsFailure,
               executed: true,
+              ...(approvalAudit ? { approvalAudit } : {}),
             };
           } catch (err) {
             const failure = `Skill "${toolCall.name}" failed: ${err instanceof Error ? err.message : String(err)}`;
@@ -4604,6 +4634,7 @@ export class Orchestrator {
           checkpointed: entry.checkpointed,
           resultPreview: toTextPreview(entry.result),
           ...(commandName === undefined ? {} : { commandName }),
+          ...(entry.approvalAudit ? { approval: entry.approvalAudit } : {}),
         });
       }
 
@@ -6427,6 +6458,8 @@ interface ToolExecutionEntry {
    * Nothing happened, so nothing is absorbed, verified or remembered for it.
    */
   dryRunSimulated?: boolean;
+  /** The call ran without a prompt; this cites what stood in for it (a sandbox attestation). */
+  approvalAudit?: ToolApprovalAudit;
 }
 
 /**

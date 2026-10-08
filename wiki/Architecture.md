@@ -350,6 +350,8 @@ dependent subtasks, and a tainted turn is not delegated to an ACP agent's own to
 `atlasmind.security.untrustedEscalationScope`. Shared types: `ProvenanceClass`, `ProvenanceSource`,
 `TurnProvenance`, `UntrustedEscalationScope`, `TaintDecision`, `TaintEscalation` and `ToolApprovalGateMeta`;
 `ToolApprovalDecision` gains `acknowledge-source`.
+Since 0.501.0 the gate answers with `ToolApprovalGateResult`, which may carry a `sandboxSession` the call must be
+bound to and a `ToolApprovalAudit`, recorded on `ToolExecutionArtifact.approval`.
 
 Since 0.489.1 it lasts for the **conversation**: `SessionConversationRecord.provenance` (persisted with the
 transcript) seeds every turn through `seedTurnFromConversation`, each source marked `carried` so a dialog
@@ -417,8 +419,8 @@ runs; since 0.500.0 the runner below acts on it. An attestation
 root, pid/CPU/memory limits, never a pull, exactly one `--mount` of the worktree root (never home, a
 credential folder, an engine socket or the ssh agent), an allowlisted environment — and `planExecution`
 under `require` returns the sandbox or a refusal, never the host. There is no `prefer` mode.
-`SANDBOX_INTERACTION_RULES`: dry run still wins, taint is not relaxed, scheduled routines and approvals are
-unchanged.
+`SANDBOX_INTERACTION_RULES`: dry run still wins, taint is not relaxed, scheduled routines are unchanged, and
+approvals loosen only through the opt-in below (0.501.0).
 
 **The engine can be checked (0.499.0).** `src/core/sandboxProbe.ts` takes one reading on
 request — **AtlasMind: Check Execution Sandbox** (`src/views/sandboxCheckCommand.ts`): Docker then Podman under
@@ -440,6 +442,16 @@ is re-taken once, shared, within three minutes. Dry run wins before anything is 
 removed by its own name, closing the window removes live ones, and the activation sweep removes only labelled
 containers older than any command may run. `SANDBOX_HOST_PATHS` says what stays on the host and why: git tools,
 operator-started surfaces, MCP tools, model-written skills and the CLI.
+
+**Approvals loosen only for a confirmed sandbox, and only if you opt in (0.501.0).**
+`src/core/sandboxApprovalRelaxation.ts` decides whether a terminal write may skip its approval prompt:
+`atlasmind.sandbox.relaxTerminalApprovals` on in your user settings, `require`, a confirmed attestation, and
+`planExecution` routing this exact command to the container. `SANDBOX_RELAXATION_RULES` puts dry run, the
+`allowTerminalWrite` ceiling, provenance taint and the never-bypassable list above it, so none of them can be
+loosened. The gate returns the very `SandboxSession` it checked (`ToolApprovalGateResult.sandboxSession`), the
+Orchestrator binds the call to it with `withSandbox` or refuses it, and the runner plans on that frozen reading —
+an expiry in between is a refusal, never a run elsewhere. Each skipped prompt is audited
+(`ToolApprovalAudit`, written to the output channel and `ToolExecutionArtifact.approval`).
 
 **A model-initiated fetch goes only where it was checked to go (0.490.2).**
 `src/core/egressDestinationPolicy.ts` (pure) screens a URL — `https` only, no credentials, no name that is
@@ -1718,6 +1730,7 @@ never accepted.
 | `src/core/hostCommandEnvironment.ts` | What an agent's command inherits on the host — every credential-shaped variable withheld by a declared rule, a proxy's password removed, a named one passed only when you list it in `atlasmind.terminal.passEnvironment`. Pure |
 | `src/core/sandboxPlan.ts` | Where an agent command runs — the sandbox attestation, the commands never sandboxed, the constant-shaped engine argv, and the rule that `require` never falls back to the host. Pure |
 | `src/core/sandboxProbe.ts` | Reads the container engine for the sandbox on request — engine order, the pinned image present locally (never pulled), a canary in the real argv — plus the settings reader that keeps the image machine-scoped, and the rule-by-rule report |
+| `src/core/sandboxApprovalRelaxation.ts` | Whether a terminal write bound for a confirmed sandbox may skip its approval prompt — your opt-in, `require`, a confirmed attestation, this exact command routed to the container — below dry run, the terminal-write ceiling, taint and the never-bypassable list; decided on the session that will run it, and audited. Pure |
 | `src/core/sandboxRunner.ts` | Under `atlasmind.sandbox.mode = require`, runs an agent's command in the container or refuses it — never on the host: one frozen session per decision, a bounded single-flight re-probe, dry run first, removal by name on a timeout or deactivation, and an orphan sweep that never touches another window's live command |
 | `src/core/quarantinedReader.ts` | How a long third-party result is read by a model with no tools, what its extract must look like to be believed, and how the raw text is released only after you approve |
 | `src/runtime/` | The built-in agents and how the runtime is composed |

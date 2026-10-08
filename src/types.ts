@@ -470,6 +470,41 @@ export interface ToolApprovalGateMeta {
   escalation: TaintEscalation;
 }
 
+/**
+ * Why an approval was granted without asking anybody, recorded with the call.
+ * Today only `sandbox-relaxation/relaxed` produces one — a terminal write that
+ * ran in a confirmed sandbox under `atlasmind.sandbox.relaxTerminalApprovals`
+ * (`core/sandboxApprovalRelaxation.ts`) — and it cites what the decision rested
+ * on, so a reader can tell which attestation stood in for the prompt.
+ */
+export interface ToolApprovalAudit {
+  /** The declared rule, `<table>/<rule id>`. */
+  rule: string;
+  /** One line for the output channel; secrets redacted, no newlines. */
+  line: string;
+  sandboxSessionId: string;
+  attestationId: string;
+  probedAt: string;
+  expiresAt: string;
+  /** The digest-pinned image reference. */
+  image: string;
+  /** `sha256:<hex>`. */
+  digest: string;
+}
+
+/**
+ * What `toolApprovalGate` answers. `sandboxSession` makes the approval
+ * conditional: it holds only for execution bound to that session, so the
+ * Orchestrator binds the call's context with `withSandbox` — and refuses the
+ * call when it cannot, rather than running it unbound.
+ */
+export interface ToolApprovalGateResult {
+  approved: boolean;
+  reason?: string;
+  sandboxSession?: SandboxSessionHandle;
+  audit?: ToolApprovalAudit;
+}
+
 export interface PendingToolApprovalRequest {
   id: string;
   taskId: string;
@@ -1587,7 +1622,7 @@ export interface OrchestratorHooks {
     toolName: string,
     args: Record<string, unknown>,
     meta?: ToolApprovalGateMeta,
-  ) => Promise<{ approved: boolean; reason?: string }>;
+  ) => Promise<ToolApprovalGateResult>;
 
   /**
    * A task id the gate may have been asked about has finished — on every path,
@@ -4793,6 +4828,11 @@ export interface ToolExecutionArtifact {
    * whose executable could not be read.
    */
   commandName?: string;
+  /**
+   * Present when the approval was granted without asking — today only a
+   * sandbox-relaxed terminal write — citing the attestation it rested on.
+   */
+  approval?: ToolApprovalAudit;
 }
 
 export interface SubTaskExecutionArtifacts {

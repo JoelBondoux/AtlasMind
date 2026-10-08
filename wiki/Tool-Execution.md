@@ -376,10 +376,26 @@ removes any container still running for it. When a window opens with the mode on
 labelled containers older than ten minutes — older than any command may run, so never another window's
 live command.
 
-It **does not change approvals**: a command still asks where it asked before. Dry run wins — a sandboxed
-command in a dry run is recorded, and nothing is probed or started. A command after untrusted content still
-needs a fresh approval, and scheduled routines keep refusing installs. Loosening approvals for sandboxed
-commands is a later, separate opt-in.
+By itself it **does not change approvals**: a command still asks where it asked before. Dry run wins — a
+sandboxed command in a dry run is recorded, and nothing is probed or started. A command after untrusted content
+still needs a fresh approval, and scheduled routines keep refusing installs. Loosening approvals for sandboxed
+commands is the separate opt-in below.
+
+**Sandboxed terminal writes can stop asking (0.501.0).** Switch on `atlasmind.sandbox.relaxTerminalApprovals`
+in your **user** settings (a repository's value is ignored) and a terminal write skips its approval prompt when
+every one of these holds for that call: the mode is `require`, the sandbox attestation is confirmed, and this
+exact command would run in the container. It runs there without asking, and the output channel and the run
+record say so, citing the rule, the sandbox session, the attestation id and when it was probed, the image and its
+digest. Above it, in order, and never loosened by it: dry run (nothing runs), `atlasmind.allowTerminalWrite`
+(off still refuses), a turn that read untrusted content (still asks — even after *I've seen the source*), and
+the never-bypassable list. Only `terminal-run` is covered; file writes, git, network calls and `test-run` ask as
+before, and so does a command the sandbox would not run (git, an install, a network tool — which `require` then
+refuses anyway). The approval is tied to the exact sandbox session that was checked: if its ten-minute reading
+expires before the command starts, the command is refused — never run on your machine, never re-probed onto a
+different reading, never asked about after the fact. **What you are trusting:** the model may change any file in
+the mounted folder without asking. It cannot reach the network, your credentials or anything outside that folder.
+A status bar item shows *Sandboxed writes* while it is active (or *Writes ask*, with the reason), and **Check
+Execution Sandbox** lists the rules.
 
 **Checking the sandbox (0.499.0).** *Check Execution Sandbox* runs only when you ask. It runs
 `docker`/`podman` `--version`, `info` and `image inspect` of the pinned image — reads, which a dry run lets

@@ -1,7 +1,8 @@
 /**
  * AtlasMind: Check Execution Sandbox — the thin half of `sandboxProbe`.
  *
- * Reads the five sandbox settings, takes one reading of the container engine
+ * Reads the five sandbox settings (and whether you opted in to relaxed
+ * terminal approvals), takes one reading of the container engine
  * on request, keeps it in the in-memory cache, and opens the result as a
  * markdown document: every attestation rule with its result and reason, every
  * probe step, the exact canary argv, and what to do about the rule that
@@ -41,6 +42,7 @@ import {
   type SandboxSettingKey,
 } from '../core/sandboxProbe.js';
 import type { SandboxHostFacts } from '../core/sandboxPlan.js';
+import { readRelaxTerminalApprovalsSetting } from '../core/sandboxApprovalRelaxation.js';
 import { defaultWorkspaceRootPath } from '../utils/workspaceRoots.js';
 
 export interface SandboxCheckDeps {
@@ -76,6 +78,15 @@ export function inspectSandboxSetting(key: SandboxSettingKey): SandboxSettingIns
     case 'memoryGb': return configuration.inspect('sandbox.memoryGb');
     default: return undefined;
   }
+}
+
+/**
+ * `atlasmind.sandbox.relaxTerminalApprovals`, per scope. Read separately from
+ * the five above because it is not part of what the probe needs; only its user
+ * value counts (`readRelaxTerminalApprovalsSetting`).
+ */
+export function inspectSandboxRelaxSetting(): SandboxSettingInspection | undefined {
+  return vscode.workspace.getConfiguration('atlasmind').inspect('sandbox.relaxTerminalApprovals');
 }
 
 /** Run the check, start to finish. Returns the rendered report so a test can read what was shown. */
@@ -115,6 +126,10 @@ export async function checkExecutionSandbox(overrides: Partial<SandboxCheckDeps>
     dryRun: deps.dryRun(),
     now,
     mode,
+    relaxation: {
+      setting: readRelaxTerminalApprovalsSetting(inspectSandboxRelaxSetting()),
+      allowTerminalWrite: vscode.workspace.getConfiguration('atlasmind').get<boolean>('allowTerminalWrite', false) === true,
+    },
   });
 
   const document = await vscode.workspace.openTextDocument({ language: 'markdown', content: markdown });

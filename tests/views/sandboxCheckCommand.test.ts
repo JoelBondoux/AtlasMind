@@ -18,7 +18,14 @@ vi.mock('vscode', () => ({
   ProgressLocation: { Notification: 15 },
   window: { withProgress, showTextDocument, showInformationMessage, showWarningMessage },
   workspace: {
-    getConfiguration: (section: string) => ({ inspect: (key: string) => inspect(`${section}.${key}`) }),
+    getConfiguration: (section: string) => ({
+      inspect: (key: string) => inspect(`${section}.${key}`),
+      // The effective value, as VS Code resolves it: the narrowest scope that sets one.
+      get: (key: string, fallback: unknown) => {
+        const scopes = inspect(`${section}.${key}`) as Record<string, unknown> | undefined;
+        return scopes?.['workspaceFolderValue'] ?? scopes?.['workspaceValue'] ?? scopes?.['globalValue'] ?? fallback;
+      },
+    }),
     openTextDocument,
   },
 }));
@@ -95,6 +102,35 @@ describe('AtlasMind: Check Execution Sandbox', () => {
     expect(markdown).toContain('Mode: **require**');
     expect(markdown).toContain('**Enforced.**');
     expect(showInformationMessage).toHaveBeenCalledWith(expect.stringContaining('run in it or are refused'));
+  });
+
+  it('shows the approval relaxation as active only from your own opt-in, under require, with a confirmed sandbox', async () => {
+    settings({
+      'atlasmind.sandbox.image': { globalValue: IMAGE },
+      'atlasmind.sandbox.mode': { globalValue: 'require' },
+      'atlasmind.sandbox.relaxTerminalApprovals': { globalValue: true },
+      'atlasmind.allowTerminalWrite': { globalValue: true },
+    });
+    const markdown = await checkExecutionSandbox({
+      runner: runner().run, cache: new SandboxProbeCache(), host: HOST, now: () => NOW, dryRun: () => false,
+    });
+    expect(markdown).toContain('## Approval relaxation');
+    expect(markdown).toContain('**Terminal writes run sandboxed without asking** (`active`)');
+    expect(markdown).toContain('see *Approval relaxation* below');
+  });
+
+  it("ignores a repository's attempt to loosen your approvals, and says so in the report", async () => {
+    settings({
+      'atlasmind.sandbox.image': { globalValue: IMAGE },
+      'atlasmind.sandbox.mode': { globalValue: 'require' },
+      'atlasmind.sandbox.relaxTerminalApprovals': { workspaceValue: true },
+      'atlasmind.allowTerminalWrite': { globalValue: true },
+    });
+    const markdown = await checkExecutionSandbox({
+      runner: runner().run, cache: new SandboxProbeCache(), host: HOST, now: () => NOW, dryRun: () => false,
+    });
+    expect(markdown).toContain('(`setting-ignored`)');
+    expect(markdown).not.toContain('(`active`)');
   });
 
   it('reports require as require even when another setting is unusable', async () => {

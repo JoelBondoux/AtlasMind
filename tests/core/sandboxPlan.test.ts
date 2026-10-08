@@ -509,7 +509,7 @@ describe('sandboxPlan: what a sandbox does not change', () => {
     // The sandbox rests on this row staying where it is; it has no input that could lower it.
     expect(TAINT_ESCALATION['terminal-write']).toMatchObject({ tainted: 'fresh-approval', suspected: 'fresh-approval' });
     expect(SANDBOX_INTERACTION_RULES.map(rule => rule.id)).toEqual(
-      expect.arrayContaining(['taint-not-relaxed', 'unattended-unchanged', 'approvals-unchanged']),
+      expect.arrayContaining(['taint-not-relaxed', 'unattended-unchanged', 'approvals-relaxed-only-by-opt-in']),
     );
   });
 

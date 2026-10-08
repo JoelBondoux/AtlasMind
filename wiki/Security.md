@@ -159,7 +159,14 @@ container engine process. What the sandbox promises:
 - **The check never pulls.** It looks for the pinned image on your machine and tells you the `docker pull`
   to run if it is missing. Its one container — a canary that runs `test -d /work` with no network — is not
   started during a dry run, so a dry run can never report the sandbox as confirmed.
-- **It does not loosen anything else.** Approvals are unchanged. Dry run still runs nothing — not even a
+- **Approvals loosen only if you opt in (0.501.0).** `atlasmind.sandbox.relaxTerminalApprovals`, in your user
+  settings only, lets a terminal write that will run in a confirmed sandbox skip its prompt. The trust shift:
+  such a command still cannot reach the network, your keys or anything outside the mounted folder, but it can
+  change any file in that folder without asking. It never applies after the agent has read someone else's text,
+  never lifts `atlasmind.allowTerminalWrite`, never covers file writes, git or network calls, and is tied to the
+  exact sandbox reading that was checked — an expired one refuses the command. Every skipped prompt is recorded
+  with the attestation and image digest it rested on.
+- **It does not loosen anything else.** Without that opt-in, approvals are unchanged. Dry run still runs nothing — not even a
   probe. A command after the agent has read someone else's text still needs a fresh approval. Scheduled
   routines refuse what they refused before.
 - **What it does not contain.** Commands you start yourself, tools of MCP servers you connected, a

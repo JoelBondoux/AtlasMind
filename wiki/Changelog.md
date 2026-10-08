@@ -19,6 +19,19 @@ Older entries below describe the software as it was at the time and are delibera
 
 ---
 
+## v0.501.0 -- Sandboxed terminal writes can stop asking
+
+- **New setting `atlasmind.sandbox.relaxTerminalApprovals`** (off; your user settings only). With the sandbox
+  required and confirmed, a terminal write that will run in the container skips its approval prompt.
+- It still asks after the agent has read someone else's text, still refuses when terminal writes are off,
+  still simulates in a dry run, and never applies to file writes, git or network calls — or to a command the
+  sandbox would not run.
+- The run is tied to the exact sandbox reading that was checked: if it expires first, the command is refused,
+  never run on your machine and never asked about afterwards.
+- Every skipped prompt is recorded in the output channel and the run record with the attestation, image digest
+  and rule it rested on. A status bar item says whether it is active, and **Check Execution Sandbox** shows the
+  rules.
+
 ## v0.500.1 -- Agent commands no longer see your keys
 
 - A command an agent runs on your machine used to inherit everything the editor was started with, so `env`

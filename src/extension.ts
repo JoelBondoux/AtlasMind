@@ -31,7 +31,12 @@ import {
   readSandboxModeSetting,
   sharedSandboxProbeCache,
 } from './core/sandboxProbe.js';
-import { inspectSandboxSetting } from './views/sandboxCheckCommand.js';
+import { inspectSandboxRelaxSetting, inspectSandboxSetting } from './views/sandboxCheckCommand.js';
+import {
+  describeSandboxRelaxationState,
+  evaluateSandboxApprovalRelaxation,
+  readRelaxTerminalApprovalsSetting,
+} from './core/sandboxApprovalRelaxation.js';
 import {
   describeWithheldEnvironment,
   planHostCommandEnvironment,
@@ -2658,6 +2663,8 @@ async function bootstrapAtlasMind(
     void sandboxHost.sweepOrphans().catch(error => {
       outputChannel.appendLine(`[sandbox] orphan sweep failed: ${error instanceof Error ? error.message : String(error)}`);
     });
+    // Filled in once the status bar exists, further down this step.
+    let refreshSandboxRelaxationStatus: () => void = () => { /* no-op until wired */ };
     const toolApprovalGate = async (
       taskId: string,
       toolName: string,
@@ -2710,6 +2717,45 @@ async function bootstrapAtlasMind(
           approved: false,
           reason: `User denied ${policy.summary} after this task read untrusted content (${meta.escalation.rule}).`,
         };
+      }
+
+      // A terminal write that will run in a confirmed sandbox may skip its
+      // prompt — your opt-in, `require`, a confirmed attestation and this exact
+      // command routed to the container (`sandboxApprovalRelaxation.ts`). Below
+      // the ceiling and taint above, both of which it can never relax. The
+      // session it was decided on travels with the approval and the
+      // Orchestrator binds the call to it, so the runner plans on the same
+      // reading: an attestation that expires in between is a refusal, never a
+      // run elsewhere.
+      if (policy.category === 'terminal-write') {
+        const sandboxHost = installedSandboxHost();
+        const relaxation = await evaluateSandboxApprovalRelaxation({
+          taskId,
+          toolName,
+          args,
+          policy,
+          dryRun: isDryRunActive(),
+          allowTerminalWrite: configuration.get<boolean>('allowTerminalWrite', false) === true,
+          tainted: meta?.escalation !== undefined,
+          bypassCeiling: startupModules.toolBypassCeiling(policy),
+          relaxSetting: readRelaxTerminalApprovalsSetting(inspectSandboxRelaxSetting()),
+        }, {
+          ...(sandboxHost ? { openSession: (root: string) => sandboxHost.openSession(root) } : {}),
+          resolveFolders: async cwd => {
+            const root = defaultWorkspaceRootPath();
+            if (!root) {
+              return undefined;
+            }
+            const realRoot = await fs.realpath(root);
+            return { root: realRoot, cwd: cwd ? await fs.realpath(path.resolve(realRoot, cwd)) : realRoot };
+          },
+          now: () => new Date(),
+        });
+        refreshSandboxRelaxationStatus();
+        if (relaxation.outcome === 'relaxed') {
+          outputChannel.appendLine(relaxation.audit.line);
+          return { approved: true, sandboxSession: relaxation.session, audit: relaxation.audit };
+        }
       }
 
       if (!startupModules.requiresToolApproval(mode, policy)) {
@@ -3868,6 +3914,20 @@ async function bootstrapAtlasMind(
     context.subscriptions.push(vscode.workspace.onDidChangeConfiguration(event => {
       if (event.affectsConfiguration('atlasmind.dryRun.enabled')) {
         updateDryRunStatusBar(dryRunStatusBar);
+      }
+    }));
+    // Shown while you have opted in to sandbox-relaxed terminal approvals, so a
+    // turn that stops asking is never a surprise. Refreshed when a setting
+    // changes and whenever the gate decides a terminal write — never on a
+    // timer, and never by probing: it reads the attestation already in memory.
+    const sandboxRelaxationStatusBar = vscode.window.createStatusBarItem(vscode.StatusBarAlignment.Right, 47);
+    sandboxRelaxationStatusBar.command = 'atlasmind.checkExecutionSandbox';
+    updateSandboxRelaxationStatusBar(sandboxRelaxationStatusBar);
+    context.subscriptions.push(sandboxRelaxationStatusBar);
+    refreshSandboxRelaxationStatus = () => updateSandboxRelaxationStatusBar(sandboxRelaxationStatusBar);
+    context.subscriptions.push(vscode.workspace.onDidChangeConfiguration(event => {
+      if (event.affectsConfiguration('atlasmind.sandbox') || event.affectsConfiguration('atlasmind.allowTerminalWrite')) {
+        updateSandboxRelaxationStatusBar(sandboxRelaxationStatusBar);
       }
     }));
     context.subscriptions.push({
@@ -5214,6 +5274,30 @@ function updateDryRunStatusBar(statusBar: vscode.StatusBarItem): void {
   statusBar.text = '$(beaker) Dry run';
   statusBar.tooltip = 'AtlasMind dry run is on: tool calls that would write, run commands or reach the network are described, not run. Click to turn it off from the next turn.';
   statusBar.backgroundColor = new vscode.ThemeColor('statusBarItem.warningBackground');
+  statusBar.show();
+}
+
+/**
+ * Shown only while `atlasmind.sandbox.relaxTerminalApprovals` is on in your
+ * user settings: either "Terminal writes run sandboxed without asking" or the
+ * reason they still ask. Reads the in-memory attestation and never probes.
+ */
+function updateSandboxRelaxationStatusBar(statusBar: vscode.StatusBarItem): void {
+  const setting = readRelaxTerminalApprovalsSetting(inspectSandboxRelaxSetting());
+  if (!setting.enabled) {
+    statusBar.hide();
+    return;
+  }
+  const reading = readSandboxConfiguration(inspectSandboxSetting);
+  const view = describeSandboxRelaxationState({
+    setting,
+    mode: readSandboxModeSetting(inspectSandboxSetting('mode')),
+    allowTerminalWrite: vscode.workspace.getConfiguration('atlasmind').get<boolean>('allowTerminalWrite', false) === true,
+    ...(reading.configuration ? { attestation: sharedSandboxProbeCache().attestation(reading.configuration, new Date()) } : {}),
+  });
+  statusBar.text = view.active ? '$(shield) Sandboxed writes' : '$(shield) Writes ask';
+  statusBar.tooltip = `${view.headline}. ${view.detail} Click to check the execution sandbox.`;
+  statusBar.backgroundColor = view.active ? new vscode.ThemeColor('statusBarItem.warningBackground') : undefined;
   statusBar.show();
 }
 

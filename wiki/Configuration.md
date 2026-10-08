@@ -263,6 +263,7 @@ machine, rule by rule. With `mode` at `off` (the default) nothing changes. See [
 | `atlasmind.sandbox.engine` | `auto` | `auto` tries Docker, then Podman. Machine-scoped: a repository's value is ignored |
 | `atlasmind.sandbox.image` | *(empty)* | The image, pinned by digest: `name@sha256:<digest>`. A tag like `node:22` is refused. AtlasMind never pulls it — you do. Machine-scoped, so a repository can never pick the image your commands run in |
 | `atlasmind.sandbox.cpus` | `2` | CPU limit per command (0.25–64). Machine-scoped |
+| `atlasmind.sandbox.relaxTerminalApprovals` | `false` | Let a terminal write skip its approval prompt when it will run in a confirmed sandbox under `require`. Never after untrusted content, never when terminal writes are off, never for file writes, git, network calls or a command the sandbox would not run. Every skipped prompt is recorded with the attestation it rested on. Machine-scoped: only your user value counts |
 | `atlasmind.sandbox.memoryGb` | `4` | Memory limit per command in GB (0.5–256), with no swap on top. Machine-scoped |
 
 To find a digest: pull the image by its tag once (`docker pull node:22-bookworm-slim`, or whichever image has

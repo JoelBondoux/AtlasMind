@@ -2,7 +2,7 @@
   "name": "atlasmind",
   "displayName": "AtlasMind",
   "description": "AI project management for VS Code: roadmap, risk, tech debt, compliance, testing and release tracked from your own repository — with a multi-agent AI team, or the AI coding tool you already use.",
-  "version": "0.500.1",
+  "version": "0.501.0",
   "publisher": "JoelBondoux",
   "preview": false,
   "license": "SEE LICENSE IN OSMFEULA.txt",
@@ -2144,7 +2144,7 @@
           ],
           "default": "off",
           "description": "Whether agent-issued commands must run in the container sandbox. Under require, every command an agent asks for runs in the sandbox or is refused with the rule that stopped it, never on your machine instead; git, installs, publishes and network clients are refused. AtlasMind: Check Execution Sandbox shows whether the sandbox is available. The tightest value in any scope wins, so a workspace can ask for require but cannot switch it off.",
-          "markdownDescription": "Whether agent commands must run in the container sandbox. Run **AtlasMind: Check Execution Sandbox** to see whether it is available on this machine, rule by rule.\n\n- `off` (default): commands run on your machine, behind the same approvals as always.\n- `require`: every command an agent asks for — terminal and test runs, npm scripts, routine steps, the check after a write — runs in the sandbox (no network, no host credentials, one folder mounted) or is **refused** with the rule that stopped it. It is never run on your machine instead. git, `gh`, installs, publishes and network clients are refused rather than run; a debug launch, an ACP agent's command and a managed-terminal follow-up are refused because they would run outside it. There is deliberately no `prefer` mode — that is where a silent fallback to your machine would hide.\n\nApprovals are unchanged either way. The **tightest** value across your user settings, the workspace and any folder is used: a repository may ask for the sandbox, and can never switch it off for you."
+          "markdownDescription": "Whether agent commands must run in the container sandbox. Run **AtlasMind: Check Execution Sandbox** to see whether it is available on this machine, rule by rule.\n\n- `off` (default): commands run on your machine, behind the same approvals as always.\n- `require`: every command an agent asks for — terminal and test runs, npm scripts, routine steps, the check after a write — runs in the sandbox (no network, no host credentials, one folder mounted) or is **refused** with the rule that stopped it. It is never run on your machine instead. git, `gh`, installs, publishes and network clients are refused rather than run; a debug launch, an ACP agent's command and a managed-terminal follow-up are refused because they would run outside it. There is deliberately no `prefer` mode — that is where a silent fallback to your machine would hide.\n\nApprovals are unchanged unless you also switch on `atlasmind.sandbox.relaxTerminalApprovals` in your user settings. The **tightest** value across your user settings, the workspace and any folder is used: a repository may ask for the sandbox, and can never switch it off for you."
         },
         "atlasmind.sandbox.engine": {
           "type": "string",
@@ -2189,6 +2189,13 @@
           "maximum": 256,
           "description": "Memory limit in GB for one sandboxed command (0.5–256); swap is not added on top. Machine-scoped.",
           "markdownDescription": "Memory limit in GB for one sandboxed command, passed as `--memory` with `--memory-swap` set to the same value so no swap is added on top. 0.5–256; a value outside that is refused rather than clamped. Machine-scoped."
+        },
+        "atlasmind.sandbox.relaxTerminalApprovals": {
+          "type": "boolean",
+          "scope": "machine",
+          "default": false,
+          "description": "Let a terminal write skip its approval prompt when it will run in the execution sandbox: only under atlasmind.sandbox.mode require, with a confirmed attestation, for a command the sandbox would run, below dry run, untrusted-content approvals and atlasmind.allowTerminalWrite. Every skipped prompt is recorded with the attestation it rested on. Machine-scoped: only your user value is read, so a repository can never loosen your approvals.",
+          "markdownDescription": "Let a **terminal write** skip its approval prompt when it will run in the execution sandbox. Off by default.\n\nThe prompt is skipped only when **all** of these hold for that call: `atlasmind.sandbox.mode` is `require`; the sandbox attestation is **confirmed** (see **AtlasMind: Check Execution Sandbox**); and this exact command would be routed to the container (git, installs, publishes and network clients never are). The call is then bound to the sandbox session that was checked — if the attestation expires before it starts, it is **refused**, never run on your machine and never asked about afterwards.\n\nIt never overrides: dry run (nothing runs), a turn that read untrusted content (that still asks), `atlasmind.allowTerminalWrite` (still refuses when off), or anything that is not a terminal write — file writes, git writes and network calls ask exactly as before.\n\nWhat changes is what you trust: a skipped prompt means the model may change any file in the mounted folder without asking. It cannot reach the network, your credentials or anything outside that folder. Every skipped prompt is written to the AtlasMind output channel and the run record with the attestation, image digest and rule it rested on.\n\nMachine-scoped: only your user value is read. A repository may require the sandbox; it can never loosen your approvals."
         },
         "atlasmind.terminal.passEnvironment": {
           "type": "array",

@@ -6,6 +6,65 @@ The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/),
 
 ## [Unreleased]
 
+## [0.501.0] - 2026-10-08
+
+### Added
+
+- **A terminal write that will run in a confirmed sandbox may skip its approval prompt — when you opt in.**
+  `atlasmind.sandbox.relaxTerminalApprovals` (boolean, default `false`, `scope: machine`, read from your user
+  settings only) is the "approvals can safely loosen as autonomy grows" half of sandboxed execution. A
+  `terminal-run` call skips its prompt only when **all** hold for that call: the tightest-scope
+  `atlasmind.sandbox.mode` is `require`; you opted in; the session's attestation is **confirmed**; and
+  `planExecution` routes **this exact command** to the sandbox. Every skipped prompt is written to the
+  AtlasMind output channel and the run record, citing the rule, the sandbox session, the attestation id and
+  probe time, the image and its digest.
+  - **`src/core/sandboxApprovalRelaxation.ts`** (pure apart from an injected `openSession` and folder
+    resolution; clock injected). `SANDBOX_RELAXATION_RULES` is the precedence table, first decisive rule
+    reported: `dry-run` (simulate) → `terminal-write-ceiling` (refuse) → `taint` → `never-bypassable` →
+    `terminal-write-only` → `relaxation-off` → `invocation-unreadable` → `session-unavailable` →
+    `mode-not-require` → `attestation-unconfirmed` → `route-not-sandbox` → `relaxed`. The ceiling sits
+    above taint because a refusal is stricter than a fresh approval and the gate already checked it first;
+    all of them sit above the relaxation, so none can be loosened by it. `SANDBOX_RELAXABLE_TOOLS` is
+    `terminal-run` alone — the one tool whose exact command the gate can read. A session is opened only once
+    every rule above the session has passed, so a person who never opted in gets no probe from this.
+  - **The gate and the runner read one session.** The extension's approval gate opens a `SandboxSession`
+    through the installed host and, when it relaxes, returns that same object as
+    `ToolApprovalGateResult.sandboxSession`; the Orchestrator binds the call's context with
+    `withSandbox(session)` and **refuses** the call when the context cannot be bound or the session is not
+    `require`. The runner then plans on the frozen reading the gate used: an attestation that expires in
+    between is a refusal (`plan/attestation-expired`) — never a prompt after the fact, never a re-probe onto
+    another reading, never the host.
+  - **Status and report.** While you have opted in, a status bar item reads *Sandboxed writes* (or *Writes
+    ask*, with the reason) and opens **Check Execution Sandbox**, whose report gains an *Approval relaxation*
+    section: the current state (`active`, `waiting-for-attestation`, `mode-off`, `terminal-writes-blocked`,
+    `setting-ignored`, `off`) and every rule in order. The status bar reads the attestation in memory and is
+    refreshed on a settings change and whenever the gate decides a terminal write — never on a timer, never
+    by probing.
+- `types.ts`: `ToolApprovalAudit`, `ToolApprovalGateResult` (the gate's answer, now able to carry a sandbox
+  session and an audit), and `ToolExecutionArtifact.approval`, so a run record says which attestation stood
+  in for a prompt.
+
+### Changed
+
+- `SANDBOX_INTERACTION_RULES`' `approvals-unchanged` is now `approvals-relaxed-only-by-opt-in`, describing the
+  opt-in rather than promising it would come later. The `atlasmind.sandbox.mode` description and the check
+  report's *Enforced* line say approvals change only under the new setting.
+- Two tests changed because what they asserted is no longer true: `tests/core/sandboxProbe.test.ts` asserted
+  `atlasmind.sandbox.relaxTerminalApprovals` was not declared (it now asserts it is declared off and
+  machine-scoped), and `tests/core/sandboxPlan.test.ts` names the renamed interaction rule.
+
+### Security
+
+- **The trust shift, stated.** A terminal write asked because a command can do anything the editor can. In a
+  confirmed sandbox it cannot reach the network, your credentials or anything outside the one mounted folder
+  — but it can still change every file in that folder without asking. That is what opting in trusts, which is
+  why it is off by default, user-only (a repository's value is ignored and named: a repository may require
+  the sandbox, never loosen your approvals), and never reached by a turn that read untrusted content (a
+  tainted turn asks even after "I've seen the source").
+- The CLI and the ACP agent gate are unchanged: neither installs a sandbox host, so neither can relax.
+- `test-run` is not relaxed: the unknown-tool fallback grades it `network`/`high` (its name contains
+  "run"), which puts it on the never-bypassable list. Recorded, not changed here.
+
 ## [0.500.1] - 2026-10-08
 
 ### Security
