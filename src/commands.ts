@@ -1023,6 +1023,22 @@ export function registerCommands(
       await vscode.commands.executeCommand('setContext', MEMORY_NEEDS_UPDATE_CONTEXT_KEY, false);
     }),
 
+    vscode.commands.registerCommand('atlasmind.describeProject', async () => {
+      const workspaceFolder = await pickWorkspaceFolder();
+      if (!workspaceFolder) {
+        vscode.window.showWarningMessage('Open a folder first to describe the project.');
+        return;
+      }
+      const { getValidatedSsotPath } = await import('./bootstrap/bootstrapper.js');
+      const ssotRelPath = getValidatedSsotPath(vscode.workspace.getConfiguration('atlasmind').get<string>('ssotPath', 'project_memory'));
+      if (!ssotRelPath) {
+        vscode.window.showErrorMessage('AtlasMind SSOT path must be a safe relative path inside the workspace.');
+        return;
+      }
+      const { describeProjectInOwnWords } = await import('./bootstrap/projectBriefOnboarding.js');
+      await describeProjectInOwnWords(workspaceFolder.uri, ssotRelPath);
+    }),
+
     vscode.commands.registerCommand('atlasmind.importProject', async () => {
       const workspaceFolder = await pickWorkspaceFolder();
       if (!workspaceFolder) {

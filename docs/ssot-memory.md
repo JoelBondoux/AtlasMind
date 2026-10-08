@@ -64,6 +64,11 @@ for a rebuild before submitting their replacement prompt.
 ### `project_soul.md`
 The identity document. Contains project type, vision, principles, and links to key decisions. Created by the bootstrapper and updated as the project evolves.
 
+The brief chain on the Ideation board can add one more section: **"In the owner's words"**, the project brief block-quoted verbatim under the marker `<!-- atlasmind:project-brief -->`. It is optional and confirmed, with the exact insertion shown first. It is **appended** to an existing soul — the bytes already in the file are never part of the write — or the soul is created with it when there is none; the soul is re-read at write time and nothing is written if it changed while the dialog was open. The marker's presence is what "done" means, so AtlasMind adds the section once and never edits it; if the brief changes later, the chain says the soul quotes an earlier version rather than rewriting it.
+
+### `project-brief.md`
+The project in the owner's own words, kept **verbatim** — AtlasMind never edits, summarises or tidies it. Written by the first question `/bootstrap` asks (create-only), by **AtlasMind: Describe the Project in Your Own Words**, or from the Ideation board; replacing one that exists always asks first. A skipped brief is recorded as *not given* in `operations/bootstrap-intake.md` and nothing is written in its place. Distinct from `domain/project-brief.md`, which is the bootstrap's model-drafted analysis: this file is the one everything read out of the brief is checked against — a card is offered for the roadmap only when the words it quotes are in this file as it is now.
+
 AtlasMind now reads a compact summary of `project_soul.md` into the always-on workspace identity prompt for every chat turn. That summary is paired with the saved Atlas Personality Profile so the project identity and operator preferences are both present even when the current request does not explicitly mention memory.
 
 When Atlas detects explicit operator frustration during chat, it updates the saved workspace Personality Profile — `workspaceState`, local to the machine — and **drafts** a note for `operations/operator-feedback.md` without writing it. The turn offers a "Save this feedback rule" chip carrying an exact prompt, and only that prompt performs the write, replying with the full stored text. Until v0.327.0 the write was automatic: a git-tracked file containing a 180-character excerpt of the operator's own prompt, produced on any cue match and announced only as "Learned from friction". That is the same shape as the settings write removed in v0.310.4, one file over, and it is resolved the same way — the signal still shapes the live turn, and no longer records the operator in order to do it. The save prompt is matched literally rather than interpreted, because a model deciding whether a sentence granted permission would reinstate the automatic write in a different form.
@@ -230,7 +235,8 @@ The `bootstrapProject()` function in `src/bootstrap/bootstrapper.ts`:
 4. Creates only missing files and folders so existing memory is preserved.
 5. Optionally initialises a Git repository.
 6. Creates `project_soul.md` with starter template.
-7. Prompts for project type and injects it into the soul file.
+7. In a guided intake, asks first for the project in the owner's own words and writes it verbatim, create-only, to `project-brief.md` — or records it as not given. It is never passed to the model that drafts the other bootstrap documents.
+8. Prompts for project type and injects it into the soul file.
 
 If governance scaffolding is enabled and `atlasmind.projectDependencyMonitoringEnabled` is on, bootstrap also adds starter dependency-governance memory entries under `operations/dependency-monitoring.md` and `decisions/dependency-policy.md`. Those files are meant for rationale, exceptions, and review history rather than live automation state.
 

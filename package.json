@@ -2,7 +2,7 @@
   "name": "atlasmind",
   "displayName": "AtlasMind",
   "description": "AI project management for VS Code: roadmap, risk, tech debt, compliance, testing and release tracked from your own repository — with a multi-agent AI team, or the AI coding tool you already use.",
-  "version": "0.492.0",
+  "version": "0.493.0",
   "publisher": "JoelBondoux",
   "preview": false,
   "license": "SEE LICENSE IN OSMFEULA.txt",
@@ -393,6 +393,10 @@
       {
         "command": "atlasmind.bootstrapProject",
         "title": "AtlasMind: Bootstrap Project"
+      },
+      {
+        "command": "atlasmind.describeProject",
+        "title": "AtlasMind: Describe the Project in Your Own Words"
       },
       {
         "command": "atlasmind.importProject",
@@ -1320,7 +1324,7 @@
       {
         "id": "atlasmind.getStarted",
         "title": "Get Started with AtlasMind",
-        "description": "Set up your first AI-powered multi-agent workspace in six steps.",
+        "description": "Set up your first AI-powered multi-agent workspace in seven steps.",
         "steps": [
           {
             "id": "configureProvider",
@@ -1344,6 +1348,17 @@
             "completionEvents": [
               "onCommand:atlasmind.bootstrapProject",
               "onCommand:atlasmind.importProject"
+            ]
+          },
+          {
+            "id": "describeProject",
+            "title": "Describe the project in your own words",
+            "description": "Who it is for, what it should do, and what should be true once it works. Saved exactly as you write it, and skippable. From there the Ideation board walks the brief onto the board and the roadmap one confirmed step at a time.\n[Describe the Project](command:atlasmind.describeProject)\n[Open Project Ideation](command:atlasmind.openProjectIdeation)",
+            "media": {
+              "markdown": "media/walkthrough/describe-project.md"
+            },
+            "completionEvents": [
+              "onCommand:atlasmind.describeProject"
             ]
           },
           {

@@ -7,13 +7,25 @@ import { buildAssistantResponseMetadata, buildQuickReplyPayload, buildWorkstatio
 import { resolvePickedImageAttachments } from '../chat/imageAttachments.js';
 import { getWebviewHtmlShell, QUICK_REPLY_CSS } from './webviewUtils.js';
 import { addRoadmapItemFromExternalSurface } from './projectDashboardPanel.js';
+import { fileRoadmapPlansFromExternalSurface, readRoadmapItemsForExternalSurface } from './projectDashboardPanel.js';
+import { promptForProjectBrief } from '../bootstrap/projectBriefOnboarding.js';
+import {
+  BRIEF_CHAIN_STEP_IDS,
+  planBriefChain,
+  type BriefChainPlan,
+  type BriefChainStepId,
+} from '../core/projectBriefChain.js';
 import { assessIdeationReadiness, type IdeationReadiness } from '../core/ideationReadiness.js';
 import { findBoardTemplate, suggestBoardTemplates, type IdeationBoardTemplate } from '../core/ideationBoardTemplates.js';
 import {
   assessBrief,
+  BRIEF_CARD_TAG,
+  BRIEF_TEMPLATE_ID,
   briefToBoardTemplate,
   buildBriefParsePrompt,
   parseBriefProposal,
+  PROJECT_BRIEF_FILENAME,
+  readBriefDocumentBody,
   renderBriefDocument,
 } from '../core/projectBrief.js';
 import { detectProjectArchetype } from '../core/projectArchetype.js';
@@ -321,6 +333,7 @@ type ProjectIdeationMessage =
   | { type: 'captureProjectBrief'; payload: string }
   | { type: 'deriveFromProjectBrief' }
   | { type: 'openProjectBrief' }
+  | { type: 'advanceBriefChain'; payload: BriefChainStepId }
   | { type: 'runDeepBoardAnalysis' }
   | { type: 'generateReviewCheckpoint'; payload: { cardId: string } };
 
@@ -378,6 +391,17 @@ interface IdeationSnapshot {
    * exists.
    */
   brief: { captured: boolean; excerpt?: string };
+  /**
+   * From the brief to the roadmap: each step, what it would do, and which one
+   * is next. Planned from the files on every sync — never stored — so the
+   * chain resumes wherever the files say it is.
+   */
+  briefChain: {
+    steps: Array<{ id: BriefChainStepId; label: string; required: boolean; state: string; says: string }>;
+    next?: BriefChainStepId;
+    nextSays: string;
+    rules: Array<{ id: string; describes: string }>;
+  };
   updatedAt: string;
   updatedRelative: string;
 }
@@ -536,6 +560,9 @@ export class ProjectIdeationPanel {
         return;
       case 'openProjectBrief':
         await this.openProjectBrief();
+        return;
+      case 'advanceBriefChain':
+        await this.advanceBriefChain(message.payload);
         return;
       case 'archiveCard':
         await this.archiveCard(message.payload.cardId, message.payload.archive);
@@ -744,6 +771,7 @@ export class ProjectIdeationPanel {
         roadmapItems: await this.readRoadmapItems(workspaceRoot, ssotPath),
       }),
       brief: await this.collectBriefSummary(workspaceRoot),
+      briefChain: summarizeBriefChain(await this.planBriefChainFromFiles(workspaceRoot, ssotPath)),
       templates: board.cards.some(card => !card.archivedAt)
         ? []
         : (await this.suggestTemplates(workspaceRoot)).map(template => ({
@@ -1556,17 +1584,14 @@ export class ProjectIdeationPanel {
     const ssotPath = normalizeSsotPath(
       vscode.workspace.getConfiguration('atlasmind').get<string>('ssotPath', 'project_memory'),
     );
-    return path.join(workspaceRoot, ssotPath, 'project-brief.md');
+    return path.join(workspaceRoot, ssotPath, PROJECT_BRIEF_FILENAME);
   }
 
   /** The brief as written, with the document's own header removed. */
   private async readProjectBrief(workspaceRoot: string): Promise<string | undefined> {
     try {
-      const raw = await fs.readFile(this.projectBriefPath(workspaceRoot), 'utf-8');
-      const marker = raw.indexOf('---');
-      const body = marker >= 0 ? raw.slice(marker + 3) : raw;
-      const text = body.trim();
-      return text.length > 0 ? text : undefined;
+      // One parser for the document, beside the renderer that writes it.
+      return readBriefDocumentBody(await fs.readFile(this.projectBriefPath(workspaceRoot), 'utf-8'));
     } catch {
       return undefined;
     }
@@ -1583,6 +1608,288 @@ export class ProjectIdeationPanel {
     } catch {
       await this.postMessage({ type: 'ideationStatus', payload: 'No brief is recorded yet.' });
     }
+  }
+
+  // ── From the brief to the roadmap ──────────────────────────────
+
+  /**
+   * The chain, planned from the files as they are now.
+   *
+   * Every board in every ideation workspace is read, because a card read out of
+   * the brief is still that card after somebody switches workspace — and a
+   * chain that forgot it would offer to seed the board a second time.
+   */
+  private async planBriefChainFromFiles(workspaceRoot: string | undefined, ssotPath: string): Promise<BriefChainPlan> {
+    const brief = workspaceRoot ? await this.readProjectBrief(workspaceRoot) : undefined;
+    const registry = await loadIdeationWorkspaceRegistry(workspaceRoot, ssotPath);
+    const cards: Parameters<typeof planBriefChain>[0]['cards'][number][] = [];
+    const connections: NonNullable<Parameters<typeof planBriefChain>[0]['connections']>[number][] = [];
+    for (const workspace of registry.workspaces) {
+      const board = await loadIdeationBoard(workspaceRoot, ssotPath, workspace);
+      for (const card of board.cards) {
+        cards.push({
+          id: card.id,
+          title: card.title,
+          body: card.body,
+          kind: card.kind,
+          tags: card.tags,
+          ...(card.archivedAt ? { archived: true } : {}),
+          ...(card.derived ? { derived: { roadmapNormalized: card.derived.roadmapNormalized } } : {}),
+        });
+      }
+      connections.push(...board.connections.map(connection => ({
+        fromCardId: connection.fromCardId,
+        toCardId: connection.toCardId,
+        relation: connection.relation,
+        direction: connection.direction,
+      })));
+    }
+    const roadmap = workspaceRoot ? await readRoadmapItemsForExternalSurface() : undefined;
+    const soul = workspaceRoot
+      ? await fs.readFile(path.join(workspaceRoot, ssotPath, 'project_soul.md'), 'utf-8').catch(() => undefined)
+      : undefined;
+    return planBriefChain({
+      ssotPath,
+      brief,
+      cards,
+      connections,
+      roadmap: roadmap?.items,
+      roadmapGraphWritable: roadmap?.graphWritable ?? false,
+      soul,
+      now: new Date(),
+    });
+  }
+
+  /**
+   * Run one step of the chain, if the files say it may run.
+   *
+   * The webview names a step and nothing else. The plan is rebuilt here, so a
+   * stale button — a step already done in another window, a brief rewritten
+   * since — is answered with what the files say rather than acted on.
+   */
+  private async advanceBriefChain(stepId: BriefChainStepId): Promise<void> {
+    const workspaceRoot = vscode.workspace.workspaceFolders?.[0]?.uri.fsPath;
+    if (!workspaceRoot) {
+      await this.postMessage({ type: 'ideationStatus', payload: 'No workspace folder is open, so there is nowhere to keep a brief.' });
+      return;
+    }
+    const ssotPath = normalizeSsotPath(vscode.workspace.getConfiguration('atlasmind').get<string>('ssotPath', 'project_memory'));
+    const plan = await this.planBriefChainFromFiles(workspaceRoot, ssotPath);
+    const step = plan.steps.find(candidate => candidate.id === stepId);
+    if (!step || step.state !== 'ready') {
+      await this.postMessage({ type: 'ideationStatus', payload: step ? step.says : plan.nextSays });
+      await this.syncState();
+      return;
+    }
+    switch (stepId) {
+      case 'brief':
+        await this.captureBriefFromChain();
+        return;
+      case 'board':
+        // The existing reading, with its own confirmation listing every card.
+        await this.deriveFromProjectBrief();
+        return;
+      case 'roadmap':
+        await this.raiseBriefCardsAsWork(workspaceRoot, ssotPath, plan);
+        return;
+      case 'plans':
+        await this.fileBriefRoadmapPlans(workspaceRoot, ssotPath, plan);
+        return;
+      case 'soul':
+        await this.quoteBriefInSoul(workspaceRoot, ssotPath, plan);
+        return;
+    }
+  }
+
+  /** The brief step from a board that already has cards on it: the same prompt onboarding uses. */
+  private async captureBriefFromChain(): Promise<void> {
+    const outcome = await promptForProjectBrief();
+    if (outcome.status === 'not-given') {
+      await this.postMessage({ type: 'ideationStatus', payload: 'Nothing was saved. The brief is still not given, and nothing is filled in for you.' });
+      return;
+    }
+    // Through the one capture path, which confirms before replacing a brief.
+    await this.captureProjectBrief(outcome.text);
+  }
+
+  /**
+   * Raise the cards that quote the brief as roadmap items.
+   *
+   * Three gates, in order: the plan offers only cards whose quote is in the
+   * brief now; the person picks which (none pre-ticked); the exact lines are
+   * shown before the roadmap is touched. Then the plan is rebuilt and only
+   * proposals still offered, with the same text, are written — through the one
+   * roadmap writer — and each card records what it became only after its line
+   * was written.
+   */
+  private async raiseBriefCardsAsWork(workspaceRoot: string, ssotPath: string, plan: BriefChainPlan): Promise<void> {
+    const picks = await vscode.window.showQuickPick(
+      plan.raise.map(proposal => ({
+        label: proposal.text,
+        description: proposal.cardTitle === proposal.text ? '' : `from "${proposal.cardTitle}"`,
+        detail: `Quoting your brief: "${proposal.quote}"`,
+        picked: false,
+        cardId: proposal.cardId,
+      })),
+      {
+        title: 'Raise cards from your brief',
+        placeHolder: `Tick the cards to put on the roadmap.${plan.heldBack.questions > 0 ? ` ${plan.heldBack.questions} question${plan.heldBack.questions === 1 ? '' : 's'} stay on the board.` : ''}`,
+        canPickMany: true,
+        ignoreFocusOut: true,
+      },
+    );
+    if (!picks || picks.length === 0) {
+      return;
+    }
+    const chosen = plan.raise.filter(proposal => picks.some(pick => pick.cardId === proposal.cardId));
+    const detail = [
+      ...chosen.flatMap(proposal => [
+        `• ${proposal.text}`,
+        `    quoting: "${proposal.quote}"`,
+        ...(proposal.contradicted ? ['    another card contradicts this one; raising it does not settle that'] : []),
+      ]),
+      '',
+      ...(plan.heldBack.questions > 0
+        ? [`${plan.heldBack.questions} question${plan.heldBack.questions === 1 ? '' : 's'} from your brief stay on the board until somebody answers ${plan.heldBack.questions === 1 ? 'it' : 'them'}.`]
+        : []),
+      'The roadmap is a tracked file, so this will show up as a change to commit.',
+    ].join('\n');
+    const confirmed = await vscode.window.showInformationMessage(
+      `Add ${chosen.length} item${chosen.length === 1 ? '' : 's'} to the roadmap?`,
+      { modal: true, detail },
+      'Add to roadmap',
+    );
+    if (confirmed !== 'Add to roadmap') {
+      return;
+    }
+
+    // Re-planned after the dialog: a file can change while it is open, and
+    // what is written must be what the files still support.
+    const fresh = await this.planBriefChainFromFiles(workspaceRoot, ssotPath);
+    const stillOffered = chosen.filter(proposal => fresh.raise.some(candidate => candidate.cardId === proposal.cardId && candidate.text === proposal.text));
+    const derivedByCard = new Map<string, IdeationDerivedRecord>();
+    for (const proposal of stillOffered) {
+      const written = await addRoadmapItemFromExternalSurface(this.atlas, proposal.text);
+      if (!written) {
+        break;
+      }
+      derivedByCard.set(proposal.cardId, { roadmapText: written.text, roadmapNormalized: written.normalized, derivedAt: new Date().toISOString() });
+    }
+
+    // Recorded only after each write succeeded, on whichever board holds the card.
+    if (derivedByCard.size > 0) {
+      const registry = await loadIdeationWorkspaceRegistry(workspaceRoot, ssotPath);
+      for (const workspace of registry.workspaces) {
+        const board = await loadIdeationBoard(workspaceRoot, ssotPath, workspace);
+        let touched = false;
+        for (const card of board.cards) {
+          const derived = derivedByCard.get(card.id);
+          if (derived) {
+            card.derived = derived;
+            card.revision += 1;
+            card.updatedAt = derived.derivedAt;
+            touched = true;
+          }
+        }
+        if (touched) {
+          board.updatedAt = new Date().toISOString();
+          const current = await loadIdeationWorkspaceRegistry(workspaceRoot, ssotPath);
+          await this.persistWorkspaceBoard(workspaceRoot, ssotPath, current, workspace, board);
+        }
+      }
+    }
+
+    const skipped = chosen.length - derivedByCard.size;
+    await this.postMessage({
+      type: 'ideationStatus',
+      payload: `Added ${derivedByCard.size} item${derivedByCard.size === 1 ? '' : 's'} to the roadmap.${skipped > 0 ? ` ${skipped} ${skipped === 1 ? 'was' : 'were'} not written — the files changed while the dialog was open, or the roadmap could not be written.` : ''}`,
+    });
+    await this.syncState();
+  }
+
+  /** Optional: an empty, create-only plan file for each item raised from the brief. */
+  private async fileBriefRoadmapPlans(workspaceRoot: string, ssotPath: string, plan: BriefChainPlan): Promise<void> {
+    const confirmed = await vscode.window.showInformationMessage(
+      `Create ${plan.plans.length} plan file${plan.plans.length === 1 ? '' : 's'}?`,
+      {
+        modal: true,
+        detail: [
+          ...plan.plans.map(proposal => `• ${proposal.relPath}\n    for: ${proposal.text}`),
+          '',
+          'Each is an empty frame of questions — objective, approach, steps, verification, completion criteria — with nothing decided in it. A file that already exists is linked and never overwritten.',
+        ].join('\n'),
+      },
+      'Create them',
+    );
+    if (confirmed !== 'Create them') {
+      return;
+    }
+    const fresh = await this.planBriefChainFromFiles(workspaceRoot, ssotPath);
+    const nodeIds = plan.plans
+      .filter(proposal => fresh.plans.some(candidate => candidate.nodeId === proposal.nodeId))
+      .map(proposal => proposal.nodeId);
+    const result = await fileRoadmapPlansFromExternalSurface(nodeIds);
+    if (!result) {
+      await this.postMessage({ type: 'ideationStatus', payload: 'No plan was filed: the roadmap graph could not be written from here.' });
+      return;
+    }
+    const created = result.filed.filter(entry => entry.created).length;
+    await this.postMessage({
+      type: 'ideationStatus',
+      payload: `Filed ${created} plan${created === 1 ? '' : 's'}${result.filed.length > created ? `; ${result.filed.length - created} already existed and ${result.filed.length - created === 1 ? 'was' : 'were'} linked, not replaced` : ''}${result.missing.length > 0 ? `; ${result.missing.length} item${result.missing.length === 1 ? ' is' : 's are'} no longer on the roadmap` : ''}. Open the Project Dashboard → Roadmap to draft one with Atlas.`,
+    });
+    await this.syncState();
+  }
+
+  /**
+   * Optional: the brief, quoted, in the project soul.
+   *
+   * Append-only, or create when there is no soul. The insertion is shown in
+   * full before anything is written, and the soul is re-read at write time: if
+   * it changed while the dialog was open, nothing is written.
+   */
+  private async quoteBriefInSoul(workspaceRoot: string, ssotPath: string, plan: BriefChainPlan): Promise<void> {
+    const proposal = plan.soul;
+    if (!proposal) {
+      return;
+    }
+    const heading = proposal.mode === 'create'
+      ? `Create ${proposal.relPath}?`
+      : `Append your brief to ${proposal.relPath}?`;
+    const lead = proposal.mode === 'create'
+      ? 'There is no project soul yet. This creates it with exactly the text below:'
+      : 'This adds exactly the text below to the end of the file. Nothing already in it changes:';
+    let choice = await vscode.window.showInformationMessage(
+      heading,
+      { modal: true, detail: `${lead}\n\n${clampForDialog(proposal.insertion)}` },
+      'Write it',
+      'Preview first',
+    );
+    if (choice === 'Preview first') {
+      // The dialog may be too small for a long brief. The editor is not.
+      await vscode.window.showTextDocument(await vscode.workspace.openTextDocument({ language: 'markdown', content: proposal.insertion }), { preview: true });
+      choice = await vscode.window.showInformationMessage(heading, { modal: true, detail: lead }, 'Write it');
+    }
+    if (choice !== 'Write it') {
+      return;
+    }
+    const soulPath = path.join(workspaceRoot, ssotPath, 'project_soul.md');
+    const current = await fs.readFile(soulPath, 'utf-8').catch(() => undefined);
+    if (current !== proposal.basis) {
+      await this.postMessage({ type: 'ideationStatus', payload: 'The project soul changed while the dialog was open, so nothing was written. Look at it again and retry.' });
+      await this.syncState();
+      return;
+    }
+    if (proposal.mode === 'create') {
+      await fs.mkdir(path.dirname(soulPath), { recursive: true });
+      // `wx`: create-only, so a soul written in the meantime is never replaced.
+      await fs.writeFile(soulPath, proposal.insertion, { encoding: 'utf-8', flag: 'wx' });
+    } else {
+      // Appended, so the bytes already in the file are never part of the write.
+      await fs.appendFile(soulPath, proposal.insertion, 'utf-8');
+    }
+    await this.postMessage({ type: 'ideationStatus', payload: `Your brief is quoted in ${proposal.relPath}.` });
+    await this.syncState();
   }
 
   private async seedBoardTemplate(source: string | IdeationBoardTemplate): Promise<void> {
@@ -1618,7 +1925,8 @@ export class ProjectIdeationPanel {
         color: ideationColorForKind(templateCard.kind),
         imageSources: [],
         media: [],
-        tags: ['starter-frame'],
+        // A brief-derived card says so, so the chain can find it from the file.
+        tags: template.id === BRIEF_TEMPLATE_ID ? ['starter-frame', BRIEF_CARD_TAG] : ['starter-frame'],
         syncTargets: [],
         confidence: defaultConfidenceForKind(templateCard.kind),
         evidenceStrength: defaultEvidenceStrengthForKind(templateCard.kind),
@@ -1884,6 +2192,13 @@ export function isProjectIdeationMessage(message: unknown): message is ProjectId
 
   if (candidate['type'] === 'seedBoardTemplate') {
     return typeof candidate['payload'] === 'string';
+  }
+  if (candidate['type'] === 'advanceBriefChain') {
+    // A step id from the declared list and nothing else. The host re-plans the
+    // chain from the files and decides whether that step may run; the message
+    // can only ask.
+    return typeof candidate['payload'] === 'string'
+      && (BRIEF_CHAIN_STEP_IDS as readonly string[]).includes(candidate['payload']);
   }
   if (candidate['type'] === 'archiveCard') {
     return typeof candidate['payload'] === 'object'
@@ -2430,6 +2745,24 @@ function touchIdeationWorkspace(registry: IdeationWorkspaceRegistry, workspaceId
     activeWorkspaceId: workspaceId,
     workspaces: registry.workspaces.map(item => item.id === workspaceId ? { ...item, updatedAt } : item),
   };
+}
+
+/** The chain as the webview needs it: no proposals, only what each step says. */
+function summarizeBriefChain(plan: BriefChainPlan): IdeationSnapshot['briefChain'] {
+  return {
+    steps: plan.steps.map(step => ({ id: step.id, label: step.label, required: step.required, state: step.state, says: step.says })),
+    ...(plan.next === undefined ? {} : { next: plan.next }),
+    nextSays: plan.nextSays,
+    rules: plan.rules.map(rule => ({ id: rule.id, describes: rule.describes })),
+  };
+}
+
+/** A modal cannot scroll on every platform; past this, the preview carries the rest. */
+function clampForDialog(text: string): string {
+  const limit = 1500;
+  return text.length <= limit
+    ? text
+    : `${text.slice(0, limit)}\n\n… ${text.length - limit} more characters — the rest of your brief, quoted the same way. Choose "Preview first" to read all of it.`;
 }
 
 async function loadIdeationWorkspaceRegistry(workspaceRoot: string | undefined, ssotPath: string): Promise<IdeationWorkspaceRegistry> {
@@ -4997,6 +5330,33 @@ const IDEATION_CSS = `${QUICK_REPLY_CSS}
   }
   .ideation-rail .ideation-prompt {
     min-height: 96px;
+  }
+  .ideation-chain-steps {
+    list-style: none;
+    margin: 8px 0;
+    padding: 0;
+    display: grid;
+    gap: 6px;
+  }
+  .ideation-chain-step {
+    padding: 8px 10px;
+    border-radius: 12px;
+    border: 1px solid var(--atlas-boundary);
+    border-left-width: 3px;
+  }
+  .ideation-chain-step.is-next {
+    border-left-color: var(--vscode-focusBorder);
+  }
+  .ideation-chain-step.is-blocked,
+  .ideation-chain-step.is-nothing-to-do {
+    opacity: 0.75;
+  }
+  .ideation-chain-step .section-copy {
+    margin: 4px 0 0;
+  }
+  .ideation-chain-rules {
+    margin: 8px 0 0;
+    padding-left: 18px;
   }
   .ideation-brief-input {
     width: 100%;

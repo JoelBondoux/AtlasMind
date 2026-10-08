@@ -30,7 +30,7 @@ Two nice touches: a mistyped command gets **corrected rather than answered** (`/
 
 | Command | What it does |
 |---------|-------------|
-| `/bootstrap` | Create project memory and optional governance; declare Shopify composition or choose a game architecture seed |
+| `/bootstrap` | Create project memory and optional governance; declare Shopify composition or choose a game architecture seed. Asks first for the project in your own words — saved exactly as written, skippable, and never filled in for you |
 | `/import` | Read an existing repository and populate project memory from it |
 | `/setup` | Every setup guide and how far along each one is. `/setup acp` jumps straight into one |
 | `/acp` | Guided setup for using a Claude, ChatGPT, Copilot, Gemini or Qwen subscription |
@@ -227,6 +227,7 @@ The session drawer above the transcript starts closed and remembers your choice 
 | Command | What it does |
 |---------|-------------|
 | `AtlasMind: Bootstrap Project` · `Import Existing Project` | Same as `/bootstrap` and `/import` |
+| `AtlasMind: Describe the Project in Your Own Words` | Who it is for, what it should do, what should be true once it works — saved exactly as written to `project_memory/project-brief.md`. Asks before replacing one that exists. Reading it into cards is a separate step on the Ideation board, whose **From your brief** card walks it onto the roadmap |
 | `AtlasMind: Update Project Memory` | Refresh imported memory from the current state of your code |
 
 ### Testing

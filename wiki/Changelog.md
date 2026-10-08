@@ -19,6 +19,20 @@ Older entries below describe the software as it was at the time and are delibera
 
 ---
 
+## v0.493.0 -- The project in your own words, asked first and walked onto the roadmap
+
+- **`/bootstrap` asks first.** Before any specific question: who the project is for, what it should do,
+  and what should be true once it works. Saved exactly as you wrote it to `project_memory/project-brief.md`.
+  Skip it and it is recorded as not given — nothing is filled in for you.
+- **AtlasMind: Describe the Project in Your Own Words**, and a Get Started walkthrough step for it. It asks
+  before replacing a brief you already wrote.
+- **A "From your brief" card on the Ideation board** shows the chain: read the brief into cards, raise the
+  cards that quote it as roadmap items, and optionally file a plan for each and quote the brief in the
+  project soul. It says what each step would write and which is next, and picks up wherever your files say.
+- **Only a card that quotes your brief can become work.** Questions stay on the board. Every step shows
+  exactly what it writes and waits for you; plan files are created only where none exists, and the soul is
+  appended to, never rewritten.
+
 ## v0.492.0 -- Dry run: nothing AtlasMind does runs, not just the agent's tools
 
 - **The one switch now covers everything.** With **AtlasMind: Toggle Dry Run** on, AtlasMind's own actions

@@ -103,6 +103,7 @@ import { seedWorkflowConfig } from '../../src/core/workflowConfig.ts';
 import type { MemoryEntry } from '../../src/types.ts';
 
 const ROOT = { path: '/workspace', fsPath: '/workspace' };
+const OWN_WORDS_BRIEF = 'An onboarding portal for B2B customers who stall during setup. It works when a new customer reaches their first report on day one without a call.';
 const COMMERCE_BOOTSTRAP_FEATURE = readFileSync(
   new URL('../features/commerce-bootstrap.feature', import.meta.url),
   'utf-8',
@@ -718,6 +719,8 @@ describe('bootstrapProject', () => {
       .mockResolvedValueOnce('Weekly');
 
     showInputBox
+      // The first question: the project in the owner's own words.
+      .mockResolvedValueOnce(OWN_WORDS_BRIEF)
       .mockResolvedValueOnce('Atlas Launchpad')
       .mockResolvedValueOnce('A polished onboarding portal for B2B customers.')
       .mockResolvedValueOnce('Reduce time-to-value during customer onboarding.')
@@ -772,6 +775,68 @@ describe('bootstrapProject', () => {
     expect(executeCommand).toHaveBeenCalledWith('git.init');
     expect(atlas.memoryManager.loadFromDisk).toHaveBeenCalled();
     expect(atlas.memoryRefresh.fire).toHaveBeenCalled();
+
+    // The own-words brief is written verbatim to the one path every surface
+    // reads, and is never handed to the model that drafts the other documents.
+    const ownWords = Buffer.from(fileResponses.get('/workspace/project_memory/project-brief.md') ?? []).toString('utf-8');
+    expect(ownWords).toContain(OWN_WORDS_BRIEF);
+    expect(ownWords).toContain('AtlasMind does not edit this file');
+    const prompts = (atlas.orchestrator.completeBootstrap as ReturnType<typeof vi.fn>).mock.calls.map(call => String(call[1]));
+    expect(prompts.length).toBeGreaterThan(0);
+    for (const prompt of prompts) {
+      expect(prompt).not.toContain(OWN_WORDS_BRIEF);
+    }
+  });
+
+  it('asks for the project in the owner\'s own words before any specific question', async () => {
+    showQuickPick.mockResolvedValueOnce({ intakeMode: 'guided' });
+    showInputBox.mockResolvedValueOnce(OWN_WORDS_BRIEF);
+    const reported: string[] = [];
+
+    await bootstrapProject(ROOT as any, makeAtlas(), { markdown: (value: string) => { reported.push(value); } } as any);
+
+    const firstInput = showInputBox.mock.calls[0]?.[0] as { title?: string } | undefined;
+    expect(firstInput?.title).toBe('The project in your own words');
+    const text = reported.join('\n');
+    expect(text.indexOf('In Your Own Words')).toBeGreaterThan(-1);
+    expect(text.indexOf('In Your Own Words')).toBeLessThan(text.indexOf('#### Product Brief'));
+    expect(text).toContain('**In your own words:** Given');
+  });
+
+  it('records a skipped brief as not given and fills nothing in', async () => {
+    showQuickPick.mockResolvedValueOnce({ intakeMode: 'guided' });
+    showInputBox
+      .mockResolvedValueOnce('')
+      .mockResolvedValueOnce('Atlas Launchpad')
+      .mockResolvedValueOnce('A polished onboarding portal for B2B customers who lose track of setup.');
+    const reported: string[] = [];
+
+    await bootstrapProject(ROOT as any, makeAtlas(), { markdown: (value: string) => { reported.push(value); } } as any);
+
+    // Not written, and not synthesised from the product summary either.
+    expect(fileResponses.has('/workspace/project_memory/project-brief.md')).toBe(false);
+    const intakeLog = Buffer.from(fileResponses.get('/workspace/project_memory/operations/bootstrap-intake.md') ?? []).toString('utf-8');
+    expect(intakeLog).toContain('- In your own words: Not given (skipped)');
+    expect(reported.join('\n')).toContain('**In your own words:** Not given (skipped). Nothing was filled in.');
+  });
+
+  it('does not ask again, or overwrite, when a brief is already written', async () => {
+    const existing = '# Project brief\n\n---\n\nAn earlier description, written by the owner, of a booking tool for groomers.\n';
+    fileResponses.set('/workspace/project_memory/project-brief.md', Buffer.from(existing, 'utf-8'));
+    showQuickPick.mockResolvedValueOnce({ intakeMode: 'guided' });
+    showInputBox.mockResolvedValueOnce('Atlas Launchpad');
+
+    await bootstrapProject(ROOT as any, makeAtlas());
+
+    const firstInput = showInputBox.mock.calls[0]?.[0] as { title?: string } | undefined;
+    expect(firstInput?.title).not.toBe('The project in your own words');
+    expect(Buffer.from(fileResponses.get('/workspace/project_memory/project-brief.md') ?? []).toString('utf-8')).toBe(existing);
+  });
+
+  it('does not ask a minimal bootstrap for a brief', async () => {
+    showQuickPick.mockResolvedValueOnce({ intakeMode: 'minimal' });
+    await bootstrapProject(ROOT as any, makeAtlas());
+    expect(showInputBox.mock.calls.some(call => (call[0] as { title?: string } | undefined)?.title === 'The project in your own words')).toBe(false);
   });
 
   it('supports a minimal bootstrap where all project questions are skipped', async () => {
@@ -876,6 +941,8 @@ describe('bootstrapProject', () => {
       .mockResolvedValueOnce('No');
 
     showInputBox
+      // The own-words brief, skipped.
+      .mockResolvedValueOnce(undefined)
       .mockResolvedValueOnce('Atlas Launchpad')
       .mockResolvedValueOnce('Summary: A polished onboarding portal. Audience: B2B customers. Builders: a three-person platform team. Timeline: 8 weeks. Budget: lean MVP. Stack: TypeScript, React, Node.js, PostgreSQL. Tools: Stripe, GitHub Actions, Sentry. No online repo yet. Repo host: GitHub. Repo location: acme/platform/atlas-launchpad. Atlas speed mode: fast feedback.')
       .mockResolvedValueOnce('Reduce onboarding time and improve activation rate.');
@@ -904,9 +971,11 @@ describe('bootstrapProject', () => {
     expect(intakeLog).toContain('Captured online repo status from project brief.');
     expect(repositoryPlan).toContain('acme/platform/atlas-launchpad');
     expect(storedProfile?.answers?.rememberLongTerm).toContain('Audience: B2B customers');
-    // Project name, the dense summary, and the primary outcome are supplied;
-    // only success metrics remains uninferred and needs one additional prompt.
-    expect(showInputBox).toHaveBeenCalledTimes(4);
+    // The own-words brief (skipped), then project name, the dense summary and
+    // the primary outcome; only success metrics remains uninferred and needs
+    // one additional prompt. A skipped brief is not inferred from anything.
+    expect(showInputBox).toHaveBeenCalledTimes(5);
+    expect(fileResponses.has('/workspace/project_memory/project-brief.md')).toBe(false);
   }, 30000);
 
   it('captures where a missing online repo should be created when the project is not yet hosted', async () => {
@@ -920,6 +989,7 @@ describe('bootstrapProject', () => {
       .mockResolvedValueOnce('No');
 
     showInputBox
+      .mockResolvedValueOnce(undefined)
       .mockResolvedValueOnce('Ops API')
       .mockResolvedValueOnce('An internal operations API for field scheduling.')
       .mockResolvedValueOnce('Reduce manual dispatch coordination.')

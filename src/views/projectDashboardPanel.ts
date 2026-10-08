@@ -26845,6 +26845,158 @@ export async function addRoadmapItemFromExternalSurface(
 }
 
 /**
+ * The roadmap as another surface needs it in order to plan against it: each
+ * item's text, whether it is done, the durable id the roadmap resolves it to,
+ * and its filed plan.
+ *
+ * **Read-only.** Ids are resolved with `resolveRoadmapItemIds` — the one
+ * resolution the canvas and every write share — so the id returned here is the
+ * id a later write lands on, and nothing is minted onto disk to get it. An
+ * absent backlog is an empty one; a backlog that exists and cannot be read is
+ * `undefined`, because "could not look" must not read as "nothing raised".
+ */
+export async function readRoadmapItemsForExternalSurface(): Promise<{
+  items: Array<{ text: string; completed: boolean; nodeId: string; planPath?: string }>;
+  /** False when the graph file was written by a newer AtlasMind and must not be touched. */
+  graphWritable: boolean;
+} | undefined> {
+  const context = await readExternalRoadmapContext();
+  if (context === undefined) {
+    return undefined;
+  }
+  const { parsed, read, reconciled, ids } = context;
+  return {
+    items: parsed.map((item, index) => {
+      const nodeId = ids[index] as string;
+      const planPath = reconciled.document.nodes.find(node => node.id === nodeId)?.planPath;
+      return { text: item.text, completed: item.completed, nodeId, ...(planPath === undefined ? {} : { planPath }) };
+    }),
+    graphWritable: !read.preserveExisting,
+  };
+}
+
+/**
+ * File a plan for each named roadmap item, from a surface other than the
+ * Roadmap page — the brief chain's optional step.
+ *
+ * The same filing the Plan pill does, and nothing more: the scaffold is
+ * `buildRoadmapPlanScaffold` (deterministic, no model text), the write is
+ * **create-only** (`wx`, so a plan somebody wrote survives), and the graph
+ * record gains the `planPath` every surface links. Items are named by durable
+ * id and resolved against the backlog as it is now; an id the backlog no longer
+ * has is reported, never guessed at. A graph written by a newer AtlasMind is
+ * left alone and nothing is filed.
+ */
+export async function fileRoadmapPlansFromExternalSurface(nodeIds: readonly string[]): Promise<{
+  filed: Array<{ nodeId: string; relPath: string; created: boolean }>;
+  missing: string[];
+} | undefined> {
+  const context = await readExternalRoadmapContext();
+  if (context === undefined || context.read.preserveExisting) {
+    return undefined;
+  }
+  const { workspaceRoot, ssotPath, filePath, existing, gates, parsed, reconciled, ids } = context;
+  if (parsed.some((item, index) => item.nodeId !== ids[index])) {
+    // The same anchoring the canvas does before any write: a plan is filed
+    // against a durable id, so the line must carry it.
+    await fs.mkdir(path.dirname(filePath), { recursive: true });
+    await fs.writeFile(
+      filePath,
+      serializeDashboardRoadmapDocument(
+        existing,
+        parsed.map((item, index) => ({ text: item.text, completed: item.completed, gates: item.gates, nodeId: ids[index] as string })),
+        gates,
+      ),
+      'utf-8',
+    );
+  }
+
+  let document = reconciled.document;
+  const filed: Array<{ nodeId: string; relPath: string; created: boolean }> = [];
+  const missing: string[] = [];
+  for (const nodeId of nodeIds) {
+    const index = ids.indexOf(nodeId);
+    const item = index >= 0 ? parsed[index] : undefined;
+    if (item === undefined) {
+      missing.push(nodeId);
+      continue;
+    }
+    const recorded = document.nodes.find(node => node.id === nodeId)?.planPath;
+    if (recorded !== undefined) {
+      filed.push({ nodeId, relPath: recorded, created: false });
+      continue;
+    }
+    const relPath = roadmapPlanRelPath(ssotPath, nodeId, item.text);
+    const absolute = path.join(workspaceRoot, relPath);
+    const focus = prioritizeDashboardRoadmapItems([{ id: item.id, text: item.text, completed: item.completed }])[0]?.focus ?? 'feature';
+    await fs.mkdir(path.dirname(absolute), { recursive: true });
+    let created = true;
+    await fs.writeFile(
+      absolute,
+      buildRoadmapPlanScaffold({ nodeId, itemId: item.id, text: item.text, completed: item.completed, focus }, new Date()),
+      { encoding: 'utf-8', flag: 'wx' },
+    ).catch((error: NodeJS.ErrnoException) => {
+      if (error.code !== 'EEXIST') {
+        throw error;
+      }
+      // Somebody's file is already there. It is linked, never replaced.
+      created = false;
+    });
+    const nodes = document.nodes.map(node => ({ ...node }));
+    let record = nodes.find(node => node.id === nodeId);
+    if (record === undefined) {
+      record = { id: nodeId, normalizedText: normalizeRoadmapNodeText(item.text) };
+      nodes.push(record);
+    }
+    record.normalizedText = normalizeRoadmapNodeText(item.text);
+    record.planPath = relPath;
+    document = { ...document, nodes };
+    filed.push({ nodeId, relPath, created });
+  }
+  if (filed.some(entry => entry.created) || document !== reconciled.document) {
+    await writeRoadmapGraph(workspaceRoot, ssotPath, document);
+  }
+  return { filed, missing };
+}
+
+/** The backlog and its graph overlay, resolved once for the two functions above. */
+async function readExternalRoadmapContext(): Promise<{
+  workspaceRoot: string;
+  ssotPath: string;
+  filePath: string;
+  existing: string;
+  gates: RoadmapGate[];
+  parsed: ReturnType<typeof parseDashboardRoadmapItems>;
+  read: ReturnType<typeof readRoadmapGraphFile>;
+  reconciled: ReturnType<typeof resolveRoadmapItemIds>['reconciled'];
+  ids: string[];
+} | undefined> {
+  const workspaceRoot = vscode.workspace.workspaceFolders?.[0]?.uri.fsPath;
+  if (!workspaceRoot) {
+    return undefined;
+  }
+  const ssotPath = normalizeSsotPath(vscode.workspace.getConfiguration('atlasmind').get<string>('ssotPath', 'project_memory'));
+  const filePath = path.join(workspaceRoot, ssotPath, 'roadmap', 'improvement-plan.md');
+  let existing: string;
+  try {
+    existing = await fs.readFile(filePath, 'utf-8');
+  } catch (error) {
+    if ((error as NodeJS.ErrnoException).code !== 'ENOENT') {
+      return undefined;
+    }
+    existing = '';
+  }
+  const gates = parseRoadmapGates(existing);
+  const parsed = parseDashboardRoadmapItems(existing, gates);
+  const read = readRoadmapGraphFile(workspaceRoot, ssotPath);
+  const { reconciled, ids } = resolveRoadmapItemIds(
+    read.config ?? seedRoadmapGraphDocument(),
+    parsed.map(item => ({ ...(item.nodeId === undefined ? {} : { nodeId: item.nodeId }), text: item.text, completed: item.completed })),
+  );
+  return { workspaceRoot, ssotPath, filePath, existing, gates, parsed, read, reconciled, ids };
+}
+
+/**
  * Attach each roadmap item's ideation origin, and count what is still on the
  * board.
  *

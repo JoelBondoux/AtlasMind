@@ -17,6 +17,7 @@ Project memory lives in `project_memory/` by default (change it with `atlasmind.
 ```
 project_memory/
 ├── project_soul.md    What this project is, and what it's for
+├── project-brief.md   The project in your own words, kept exactly as you wrote it
 ├── architecture/      How the system is built
 ├── roadmap/           Goals, milestones, what's planned
 ├── decisions/         Why you decided things the way you did
@@ -73,6 +74,11 @@ Or explicitly:
 - Development guardrails, release history, and an import catalogue
 
 If `project_soul.md` still has placeholder text in it, import upgrades it into something usable.
+
+**`project-brief.md` is yours, word for word.** `/bootstrap` asks for it first, and **AtlasMind: Describe
+the Project in Your Own Words** asks any time after; AtlasMind never edits it. From the Ideation board you
+can optionally have it quoted in `project_soul.md` under *In the owner's words* — appended once, shown to
+you first, and never rewritten; nothing else in the soul changes.
 
 ### It keeps itself current
 

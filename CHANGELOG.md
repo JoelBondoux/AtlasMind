@@ -6,6 +6,54 @@ The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/),
 
 ## [Unreleased]
 
+## [0.493.0] - 2026-10-08
+
+### Added
+
+- **Onboarding asks for the project in your own words, first.** `/bootstrap` (chat and the Bootstrap
+  Project command) now opens a guided intake with one question before any specific one: who the project is
+  for, what it should do, and what should be true once it works. The answer passes `assessBrief` and is
+  written verbatim and **create-only** to `project_memory/project-brief.md` with `renderBriefDocument` — the
+  same file the Ideation board reads. Blank or Escape is recorded as *not given* in
+  `operations/bootstrap-intake.md` and the completion summary; nothing is filled in from the product summary,
+  the README or a model. A thin answer is refused with the reason and asked again holding what was typed;
+  after three it is recorded as not given. An existing brief is not asked for again and never overwritten.
+  The brief is deliberately **not** handed to the model that drafts the other bootstrap documents.
+- **AtlasMind: Describe the Project in Your Own Words** (`atlasmind.describeProject`), and a matching
+  *Describe the project in your own words* step in the Get Started walkthrough (now seven steps). It asks
+  the same question, asks before replacing an existing brief (modal, naming what is lost), and offers the
+  Ideation board as the separate next step.
+- **The brief chain** (`src/core/projectBriefChain.ts`): a pure planner that reads the brief, every ideation
+  board, the roadmap and the project soul and returns each step's state, what it would do, which is next, and
+  the exact writes — write the brief → read it into cards → raise grounded cards as roadmap items → *(optional)*
+  file a plan for each raised item → *(optional)* quote the brief in `project_soul.md`. State is derived from
+  the files and never stored, so the chain resumes wherever they say it is. A card is offered for the roadmap
+  only when its quote is found in the brief **as it is on disk now** (re-checked, not trusted from the
+  board); questions stay on the board; every proposal carries its quote. A roadmap that cannot be read stops
+  the chain rather than reading as empty. Published `BRIEF_CHAIN_RULES`.
+- **From your brief** card on the Project Ideation board (once it has cards): every step with its state and
+  sentence, a button only for a step that can run, and the rules on request. The webview posts a step id
+  from `BRIEF_CHAIN_STEP_IDS` and nothing else; the host re-plans from the files before acting. Raising shows
+  a pick list with nothing pre-ticked and each line's quote, confirms the exact roadmap lines, re-plans after
+  the dialog and writes only what is still offered, through `addRoadmapItemFromExternalSurface`, recording a
+  card's provenance only after its line exists. Plan files are filed create-only through the new
+  `fileRoadmapPlansFromExternalSurface` (the Plan pill's `wx` scaffold and `planPath` record). The soul
+  section — the brief block-quoted under `<!-- atlasmind:project-brief -->` — is shown in full first,
+  refused if the soul changed while the dialog was open, and written with `wx` or `appendFile`: never a
+  rewrite of an existing soul.
+- `readRoadmapItemsForExternalSurface` — the roadmap's items with their durable ids (through the shared
+  `resolveRoadmapItemIds`) and filed plans, read-only. `PROJECT_BRIEF_FILENAME`, `readBriefDocumentBody`,
+  `briefContainsQuote`, `isBriefDerivedCard`, `readBriefCardQuote` and `BRIEF_CARD_TAG` in `projectBrief.ts`;
+  cards seeded from the brief now carry the `from-brief` tag (older seeds are still recognised by their
+  provenance line).
+
+### Changed
+
+- The *project brief* tests in `tests/bootstrap/bootstrapProject.test.ts` that feed the guided intake answer
+  the new first question (one skips it, one gives a brief and asserts it is written verbatim and kept out of
+  every model prompt). The dry-run coverage table lists `src/bootstrap/projectBriefOnboarding.ts` as an
+  operator save.
+
 ## [0.492.0] - 2026-10-08
 
 ### Added

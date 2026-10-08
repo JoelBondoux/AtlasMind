@@ -216,6 +216,7 @@ const PUBLIC_METADATA = `Reads public model or pricing metadata; sends nothing o
 const SCRIPT_TEXT = 'The match is inside script text this module generates for another runtime (a preview page, a CI runner); the extension host never runs it.';
 
 const DRY_RUN_EXEMPT: Readonly<Record<string, string>> = {
+  'bootstrap/projectBriefOnboarding.ts': `Writes the project brief the operator has just typed: create-only from /bootstrap, which a dry run refuses at its entry, and from the Describe the Project command, which asks before replacing an existing brief (${OPERATOR_SAVE}).`,
   'cli/nodeMemoryManager.ts': 'The CLI and ACP memory store. It persists only when upsert is called, which happens through the upsertMemory skill-context member: in a dry turn B1 simulates memory-write and its context backstop refuses that member.',
   'cli/nodeSkillContext.ts': "The CLI and ACP agent's SkillExecutionContext. It is reached only through the tool loop, where B1's decideDryRun decides each call and createDryRunSkillContext refuses every effect member of a call allowed to run.",
   'core/agentEvalHarness.ts': `Writes an eval baseline only when an operator confirms recording one (${OPERATOR_SAVE}).`,
@@ -274,7 +275,7 @@ const DRY_RUN_EXEMPT: Readonly<Record<string, string>> = {
   'views/lensDeclarationGuidePanel.ts': `Writes a starter declaration the operator asked for, create-only (${OPERATOR_SAVE}).`,
   'views/lensDeclarationSetup.ts': `Writes a starter declaration the operator asked for, create-only (${OPERATOR_SAVE}).`,
   'views/personalityProfilePanel.ts': REGISTER,
-  'views/projectIdeationPanel.ts': REGISTER,
+  'views/projectIdeationPanel.ts': `${REGISTER} The brief chain's roadmap lines, plan files and soul section are each written after a confirmation that shows them, by the operator pressing the step.`,
   'views/websitePreviewHost.ts': "Renders the preview the operator opened into AtlasMind's preview folder and serves it locally; nothing leaves the machine.",
   'voice/hostSpeechSynthesizer.ts': "Speaks text aloud with the operating system's own engine; changes nothing and sends nothing.",
   'voice/localTranscriber.ts': "Downloads AtlasMind's pinned, SHA-256-verified speech assets into extension storage and transcribes the operator's own audio locally; it acts on nothing in the workspace and sends nothing of the project.",
