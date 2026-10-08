@@ -2,7 +2,7 @@
   "name": "atlasmind",
   "displayName": "AtlasMind",
   "description": "AI project management for VS Code: roadmap, risk, tech debt, compliance, testing and release tracked from your own repository — with a multi-agent AI team, or the AI coding tool you already use.",
-  "version": "0.498.3",
+  "version": "0.499.0",
   "publisher": "JoelBondoux",
   "preview": false,
   "license": "SEE LICENSE IN OSMFEULA.txt",
@@ -644,6 +644,11 @@
         "command": "atlasmind.buildAndPublishPortal",
         "title": "AtlasMind: Build and Publish Producer Portal",
         "icon": "$(cloud-upload)"
+      },
+      {
+        "command": "atlasmind.checkExecutionSandbox",
+        "title": "AtlasMind: Check Execution Sandbox",
+        "icon": "$(shield)"
       },
       {
         "command": "atlasmind.manageScheduledRoutines",
@@ -2126,6 +2131,64 @@
           "scope": "application",
           "description": "Dry run: show what AtlasMind would do and do none of it. Tool calls that would write, run a subprocess or reach the network are answered with a description instead of running, and AtlasMind's own actions outside a turn (routines and /ship, promotions, dashboard git and GitHub writes, connector and Buzz sends, webhooks, terminal sends, automatic memory writes) are recorded instead of done. Only reads run. Switching it on applies at once; switching it off applies from the next turn.",
           "markdownDescription": "**Dry run** — show me what would happen; nothing executes.\n\nWhile this is on, the agent still plans and still calls tools, but every call that would **write a file, run a subprocess, change git, or reach the network** is answered with a description of what it would have done — the action, its risk category, whether it would have asked for approval, and the redacted arguments — instead of being run. Only AtlasMind's own built-in **local reads** (file reads, searches, `git status`/`diff`/`log`, diagnostics, symbols) actually run, so the plan is grounded in the real workspace.\n\n- MCP tools, workspace and synthesised skills are always simulated — AtlasMind cannot grade code it did not write.\n- Network reads are simulated too: a request can carry model-chosen text off the machine.\n- Nothing simulated asks for approval, takes a checkpoint, runs verification or fires a tool webhook.\n- **Outside a chat turn too:** routines and `/ship`, promotions and rollbacks, git and GitHub writes from the dashboard, Director and Buzz sends, webhooks, terminal sends, installers and AtlasMind's automatic memory writes are recorded in the same output channel instead of done, and a button you press says plainly that dry run stopped it. Reads still run, and so does a save you press a button to make.\n- Worktree isolation and ACP agent tool delegation are off for a dry turn.\n- Model calls still run and still cost money — they are how the turn decides what it would do.\n\nThe reply ends with a summary of what was simulated, and every record goes to the **AtlasMind Dry Run** output channel. Switching it **on** applies to the next tool call; switching it **off** waits for the next turn, so a run cannot finish half-real. User settings only — a repository's workspace settings cannot switch it off for you. Use **AtlasMind: Toggle Dry Run** or the status bar item."
+        },
+        "atlasmind.sandbox.mode": {
+          "type": "string",
+          "enum": [
+            "off",
+            "require"
+          ],
+          "enumDescriptions": [
+            "Agent commands run on your machine, as they always have.",
+            "Agent commands may run only in the container sandbox; one it cannot run is refused, never run on your machine instead. Not enforced yet."
+          ],
+          "default": "off",
+          "description": "Whether agent-issued commands must run in the container sandbox. NOT ENFORCED YET: in this version no command is routed through the sandbox, whatever this says; AtlasMind: Check Execution Sandbox shows whether it would be available. The tightest value in any scope wins, so a workspace can ask for require but cannot switch it off.",
+          "markdownDescription": "**Not enforced yet.** In this version no command is routed through the sandbox whatever this says — every agent command still runs on your machine, behind the same approvals. Run **AtlasMind: Check Execution Sandbox** to see whether the sandbox *would* be available, rule by rule.\n\n- `off` (default): commands run on your machine.\n- `require`: once the runner lands, a command may run only in the sandbox; one it cannot run is refused and the reason names the rule. There is deliberately no `prefer` mode — that is where a silent fallback to your machine would hide.\n\nThe **tightest** value across your user settings, the workspace and any folder is used: a repository may ask for the sandbox, and can never switch it off for you."
+        },
+        "atlasmind.sandbox.engine": {
+          "type": "string",
+          "scope": "machine",
+          "enum": [
+            "auto",
+            "docker",
+            "podman"
+          ],
+          "enumDescriptions": [
+            "Try Docker, then Podman, and use the first whose engine answers.",
+            "Use Docker only.",
+            "Use Podman only (rootless)."
+          ],
+          "default": "auto",
+          "description": "Which container engine the execution sandbox uses. Machine-scoped: only your user value is read.",
+          "markdownDescription": "Which container engine the execution sandbox uses. `auto` tries Docker, then Podman, and takes the first whose engine answers; naming one means only that one is tried. The engine must run **Linux** containers, and must be rootful Docker or rootless Podman.\n\nMachine-scoped: which engine runs commands is a fact about this computer, so a workspace value is ignored."
+        },
+        "atlasmind.sandbox.image": {
+          "type": "string",
+          "scope": "machine",
+          "default": "",
+          "pattern": "^$|^(?:[^@\\s/]+/)*[^@\\s:/]+@sha256:[a-f0-9]{64}$",
+          "patternErrorMessage": "Pin the image by digest alone: name@sha256:<64 lowercase hex>. A tag is refused, alone or beside a digest.",
+          "description": "The container image the execution sandbox runs commands in, pinned by digest (name@sha256:<64 hex>). Empty means no image, so the sandbox is unavailable. Machine-scoped: only your user value is read. AtlasMind never pulls it.",
+          "markdownDescription": "The image the execution sandbox runs commands in, **pinned by digest**: `name@sha256:<64 lowercase hex>`. Empty (the default) means no image, so the sandbox is unavailable.\n\nA tag such as `node:22` is **refused**, not looked up: a tag is a pointer whoever controls the registry can move. A tag beside a digest is refused too. AtlasMind **never pulls** the image — pull it yourself (`docker pull name@sha256:…`) and **AtlasMind: Check Execution Sandbox** confirms it is present. To find a digest: pull by tag once, then `docker image inspect --format \"{{index .RepoDigests 0}}\" <name>:<tag>`.\n\nMachine-scoped: a repository must never choose the image your commands run in, so a workspace value is ignored."
+        },
+        "atlasmind.sandbox.cpus": {
+          "type": "number",
+          "scope": "machine",
+          "default": 2,
+          "minimum": 0.25,
+          "maximum": 64,
+          "description": "CPU limit for one sandboxed command (0.25–64, at most two decimals). Machine-scoped.",
+          "markdownDescription": "CPU limit for one sandboxed command, passed to the engine as `--cpus`. 0.25–64, at most two decimal places; a value outside that is refused rather than clamped. Machine-scoped: how much of this computer a command may take is a fact about the computer."
+        },
+        "atlasmind.sandbox.memoryGb": {
+          "type": "number",
+          "scope": "machine",
+          "default": 4,
+          "minimum": 0.5,
+          "maximum": 256,
+          "description": "Memory limit in GB for one sandboxed command (0.5–256); swap is not added on top. Machine-scoped.",
+          "markdownDescription": "Memory limit in GB for one sandboxed command, passed as `--memory` with `--memory-swap` set to the same value so no swap is added on top. 0.5–256; a value outside that is refused rather than clamped. Machine-scoped."
         },
         "atlasmind.security.quarantineReader": {
           "type": "string",

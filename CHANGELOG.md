@@ -6,6 +6,48 @@ The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/),
 
 ## [Unreleased]
 
+## [0.499.0] - 2026-10-08
+
+### Added
+
+- **AtlasMind: Check Execution Sandbox — whether your agent's commands *could* run in a container here,
+  rule by rule.** Still not enforced: no command is routed through the sandbox, and every agent command
+  runs on the host exactly as in 0.498.3. The check reads the engine on request and opens a report.
+  - **`src/core/sandboxProbe.ts`** fills the `SandboxProbe` `sandboxPlan` judges, through an injected engine
+    runner. `auto` tries Docker, then Podman (`SANDBOX_ENGINE_ORDER`), and takes the first whose engine
+    answers. It runs `--version`, `info` (read by `localCiRunner`'s own `parseDockerInfo`, extended to
+    Podman's nested `host` shape rather than copied, and the new `parseContainerEngineSecurity`, which leaves
+    rootless **unknown** when the engine does not say), `image inspect` of the configured reference **only
+    after it parsed as digest-pinned**, and a **canary**: `buildSandboxArgv` around the constant
+    `test -d /work`, mounting the default execution root, so the real shape is what is proved.
+  - **It never pulls.** An absent image is a failed step, and the report gives the `pull` to run yourself.
+  - **The canary runs only when it could prove something** — every rule before `canary-passed` must already
+    pass, asked of `assessSandboxAttestation` itself. A timed-out canary is removed by its `atlasmind-sbx-`
+    name and nothing else.
+  - **A dry run reads and does not start.** `classifyHostCommand` now grades `podman` like `docker`, so the
+    reads pass and the canary `run` is an effect: recorded, not started, and the sandbox reads unavailable —
+    never confirmed by a canary that did not happen.
+  - **The report lists every attestation rule** — passed above the failure, the failure with its reason,
+    *not evaluated* below it — plus each probe step, the exact canary argv, and per-rule remediation: install
+    an engine, start it, switch to Linux containers, choose an image and read its digest with
+    `image inspect --format "{{index .RepoDigests 0}}"`, pull the pinned reference. An image is suggested
+    only as text; no digest is ever named for you.
+  - Readings live in memory only (`SandboxProbeCache`), dated when they start, and are fresh for exactly the
+    attestation's ten minutes (property-tested to agree).
+- **Five settings, closed by default.** `atlasmind.sandbox.mode` (`off` | `require`, default `off`, **not
+  enforced yet**), `engine` (`auto`), `image` (empty — no image, so unavailable), `cpus` (2) and `memoryGb`
+  (4). `engine`, `image`, `cpus` and `memoryGb` are **machine-scoped and only your user value is read** — a
+  workspace value is ignored and named in the report, because a repository must never choose the image your
+  commands run in. `mode` takes the **tightest** value from any scope: a repository may require the sandbox
+  and can never switch it off. A wrong-typed value is refused, not coerced, and nothing is probed.
+
+### Changed
+
+- `classifyHostCommand` grades `podman` with docker's read shapes (`info`, `image inspect`, `ps`, `version`…);
+  previously every podman command but `--version` was an effect.
+- `parseDockerInfo` also reads Podman's `info --format json` shape; Docker readings are unchanged and are
+  never completed from a `host` object.
+
 ## [0.498.3] - 2026-10-08
 
 ### Added

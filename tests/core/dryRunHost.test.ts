@@ -171,6 +171,9 @@ describe('classifyHostCommand', () => {
     ['docker', ['info', '--format', '{{json .}}']],
     ['docker', ['image', 'inspect', 'x']],
     ['docker', ['logs', 'runner']],
+    ['podman', ['info', '--format', 'json']],
+    ['podman', ['image', 'inspect', '--format', '{{json .RepoDigests}}', 'x@sha256:abc']],
+    ['podman', ['--version']],
     ['node', ['--version']],
     ['hugo', ['version']],
     ['C:\\Program Files\\Git\\cmd\\git.exe', ['status']],
@@ -205,6 +208,8 @@ describe('classifyHostCommand', () => {
     ['docker', ['rm', '--force', 'x'], 'process'],
     ['docker', ['logs', '--follow', 'x'], 'process'],
     ['docker', ['desktop', 'start'], 'process'],
+    ['podman', ['run', '--rm', 'x'], 'process'],
+    ['podman', ['machine', 'start'], 'process'],
     ['npm', ['run', 'build'], 'process'],
     ['npm', ['test'], 'process'],
     ['winget', ['install', 'GitHub.cli'], 'process'],
@@ -222,7 +227,7 @@ describe('classifyHostCommand', () => {
 
   it('grades any executable it does not know as an effect unless asked only for a version', () => {
     fc.assert(fc.property(
-      fc.stringMatching(/^[a-z][a-z0-9-]{0,12}$/).filter(name => !['git', 'gh', 'docker'].includes(name)),
+      fc.stringMatching(/^[a-z][a-z0-9-]{0,12}$/).filter(name => !['git', 'gh', 'docker', 'podman'].includes(name)),
       fc.array(fc.string({ maxLength: 12 }), { minLength: 1, maxLength: 4 }),
       (command, args) => {
         const grade = classifyHostCommand(command, args);

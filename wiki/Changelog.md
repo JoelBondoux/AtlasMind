@@ -19,6 +19,18 @@ Older entries below describe the software as it was at the time and are delibera
 
 ---
 
+## v0.499.0 -- Check whether the command sandbox would work here
+
+- New **AtlasMind: Check Execution Sandbox**: asks Docker or Podman whether it runs Linux containers, looks
+  for your digest-pinned image on this machine (it never pulls one), and starts one throwaway container with
+  no network to prove the sandbox shape works. The report lists every rule with its result and tells you
+  what to do about the one that failed.
+- New `atlasmind.sandbox.*` settings for the mode, engine, image, CPU and memory. The image, engine and
+  limits are machine settings, so a repository can never choose what your commands run in; a repository can
+  turn the sandbox on but never off.
+- **Not enforced yet** — commands still run on your machine. In a dry run the check reads the engine but does
+  not start its container.
+
 ## v0.498.3 -- The sandbox rules, written down before they are switched on
 
 - Nothing changes yet: every command still runs on your machine as before.

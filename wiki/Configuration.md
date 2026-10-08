@@ -250,6 +250,27 @@ evidence even on Windows or macOS; native platform checks still need native runn
 
 ---
 
+## Execution sandbox
+
+**Not switched on yet.** These settings describe the container sandbox AtlasMind is building for agent
+commands. Today they are read by **AtlasMind: Check Execution Sandbox**, which tells you whether the sandbox
+*would* be available on this machine — but every agent command still runs on your machine, whatever `mode`
+says.
+
+| Setting | Default | What it does |
+|---------|---------|-------------|
+| `atlasmind.sandbox.mode` | `off` | `off` or `require`. Once the runner lands, `require` means a command runs in the sandbox or is refused — never quietly on your machine. The strictest value wins: a repository can ask for `require`, never switch it `off` for you |
+| `atlasmind.sandbox.engine` | `auto` | `auto` tries Docker, then Podman. Machine-scoped: a repository's value is ignored |
+| `atlasmind.sandbox.image` | *(empty)* | The image, pinned by digest: `name@sha256:<digest>`. A tag like `node:22` is refused. AtlasMind never pulls it — you do. Machine-scoped, so a repository can never pick the image your commands run in |
+| `atlasmind.sandbox.cpus` | `2` | CPU limit per command (0.25–64). Machine-scoped |
+| `atlasmind.sandbox.memoryGb` | `4` | Memory limit per command in GB (0.5–256), with no swap on top. Machine-scoped |
+
+To find a digest: pull the image by its tag once (`docker pull node:22-bookworm-slim`, or whichever image has
+your project's tools — your choice), then run `docker image inspect --format "{{index .RepoDigests 0}}"
+node:22-bookworm-slim` and paste what it prints into `atlasmind.sandbox.image` in your **user** settings.
+
+---
+
 ## The GitHub workflow
 
 All off by default. See [[GitHub Workflow]].

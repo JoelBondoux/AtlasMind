@@ -894,23 +894,28 @@ const DOCKER_READ_PAIRS: ReadonlySet<string> = new Set([
   'image inspect', 'image ls', 'container ls', 'container inspect', 'desktop version', 'desktop status', 'context ls', 'context show',
 ]);
 
-function classifyDockerCommand(args: readonly string[]): HostCommandGrade {
+/**
+ * docker, and podman — whose CLI is docker's for every shape listed here
+ * (`info`, `image inspect`, `ps`, `version`…), so the sandbox probe's reads of
+ * either engine pass a dry run and its canary `run` does not.
+ */
+function classifyDockerCommand(args: readonly string[], engine: 'docker' | 'podman' = 'docker'): HostCommandGrade {
   const positional = args.map(arg => arg.trim().toLowerCase()).filter(arg => arg && !arg.startsWith('-'));
   const first = positional[0] ?? '';
   if (DOCKER_READ_COMMANDS.has(first)) {
-    return { kind: 'read', reason: `docker ${first} reads` };
+    return { kind: 'read', reason: `${engine} ${first} reads` };
   }
   // `docker logs --follow` stays attached to a container; reading is the snapshot.
   if (first === 'logs' && !args.some(arg => arg === '--follow' || arg === '-f')) {
-    return { kind: 'read', reason: 'docker logs reads' };
+    return { kind: 'read', reason: `${engine} logs reads` };
   }
   if (positional.length >= 2 && DOCKER_READ_PAIRS.has(`${first} ${positional[1]}`)) {
-    return { kind: 'read', reason: `docker ${first} ${positional[1]} reads` };
+    return { kind: 'read', reason: `${engine} ${first} ${positional[1]} reads` };
   }
   if (!first && isVersionProbe(args)) {
-    return { kind: 'read', reason: 'docker version probe' };
+    return { kind: 'read', reason: `${engine} version probe` };
   }
-  return { kind: 'effect', effect: 'process', reason: `docker ${first || 'command'} can start, stop or change containers` };
+  return { kind: 'effect', effect: 'process', reason: `${engine} ${first || 'command'} can start, stop or change containers` };
 }
 
 const VERSION_PROBE_ARGS: ReadonlySet<string> = new Set(['--version', '-v', '-V', 'version', '--help', '-h']);
@@ -929,8 +934,8 @@ function executableName(command: string): string {
  *
  * Deny by default: a command this does not recognise is an effect, because the
  * failure on that side is a preview that shows one action too many, and on the
- * other it is a dry run that pushed a branch. Only git, gh and docker are read
- * at all, through allowlists of their read shapes; any other executable reads
+ * other it is a dry run that pushed a branch. Only git, gh, docker and podman
+ * are read at all, through allowlists of their read shapes; any other executable reads
  * only when it is asked for its version and nothing else.
  */
 export function classifyHostCommand(command: string, args: readonly string[]): HostCommandGrade {
@@ -941,8 +946,8 @@ export function classifyHostCommand(command: string, args: readonly string[]): H
   if (name === 'gh') {
     return classifyGhCommand(args);
   }
-  if (name === 'docker') {
-    return classifyDockerCommand(args);
+  if (name === 'docker' || name === 'podman') {
+    return classifyDockerCommand(args, name);
   }
   if (isVersionProbe(args)) {
     return { kind: 'read', reason: `${name || 'command'} version probe` };

@@ -322,6 +322,25 @@ interface DockerInfoShape {
   ServerVersion?: unknown;
   Runtimes?: unknown;
   DefaultRuntime?: unknown;
+  SecurityOptions?: unknown;
+  /** Podman's `info --format json` nests the same facts under `host`. Docker never sends it. */
+  host?: unknown;
+}
+
+/** The fields of Podman's `host` object this file reads; everything else is ignored. */
+interface PodmanHostShape {
+  os?: unknown;
+  arch?: unknown;
+  cpus?: unknown;
+  memTotal?: unknown;
+  security?: unknown;
+  ociRuntime?: unknown;
+}
+
+function podmanHost(value: DockerInfoShape): PodmanHostShape | undefined {
+  return value.host && typeof value.host === 'object' && !Array.isArray(value.host)
+    ? value.host as PodmanHostShape
+    : undefined;
 }
 
 interface QueuedRunShape {
@@ -523,13 +542,27 @@ export function localCiRunnerEnvArgs(resources: Pick<LocalCiResourcePlan, 'cpus'
   ];
 }
 
+/**
+ * The engine's own capacity, OS and architecture from `<engine> info` JSON.
+ *
+ * Docker's shape is read first. Podman's `info --format json` carries the same
+ * four facts under `host` (`os`, `arch`, `cpus`, `memTotal`), and is read only
+ * when Docker's top-level fields are absent — one parser for both engines, so
+ * the sandbox probe and the local CI runner cannot disagree about what an
+ * engine reported. A reading missing any of the four is `undefined`, never a
+ * partial capacity.
+ */
 export function parseDockerInfo(raw: string): LocalCiCapacity | undefined {
   try {
     const value = JSON.parse(raw) as DockerInfoShape;
-    const cpuCount = finitePositive(value.NCPU);
-    const memoryBytes = finitePositive(value.MemTotal);
-    const dockerOs = bounded(value.OSType, 40).toLowerCase();
-    const arch = normalizeLocalCiArch(bounded(value.Architecture, 40));
+    if (!value || typeof value !== 'object') {
+      return undefined;
+    }
+    const host = value.OSType === undefined ? podmanHost(value) : undefined;
+    const cpuCount = finitePositive(host ? host.cpus : value.NCPU);
+    const memoryBytes = finitePositive(host ? host.memTotal : value.MemTotal);
+    const dockerOs = bounded(host ? host.os : value.OSType, 40).toLowerCase();
+    const arch = normalizeLocalCiArch(bounded(host ? host.arch : value.Architecture, 40));
     if (!cpuCount || !memoryBytes || !dockerOs || arch === 'unknown') {
       return undefined;
     }
@@ -541,6 +574,48 @@ export function parseDockerInfo(raw: string): LocalCiCapacity | undefined {
     };
   } catch {
     return undefined;
+  }
+}
+
+/**
+ * How an engine maps users, and which runtimes it offers, from the same `info`
+ * JSON `parseDockerInfo` reads.
+ *
+ * `rootless` is `undefined` when the reading does not say — never `false`. The
+ * sandbox's user mapping depends on it, and guessing would either write files
+ * the host user cannot own or run a command as host root. Docker says so in
+ * `SecurityOptions` (an entry `name=rootless`); a `SecurityOptions` list
+ * without one is a rootful daemon. Podman says so directly in
+ * `host.security.rootless`.
+ */
+export function parseContainerEngineSecurity(raw: string): { rootless?: boolean; runtimes: string[] } {
+  try {
+    const value = JSON.parse(raw) as DockerInfoShape;
+    if (!value || typeof value !== 'object') {
+      return { runtimes: [] };
+    }
+    const host = value.OSType === undefined ? podmanHost(value) : undefined;
+    if (host) {
+      const security = host.security && typeof host.security === 'object' && !Array.isArray(host.security)
+        ? host.security as { rootless?: unknown }
+        : undefined;
+      const runtime = host.ociRuntime && typeof host.ociRuntime === 'object' && !Array.isArray(host.ociRuntime)
+        ? bounded((host.ociRuntime as { name?: unknown }).name, 40).toLowerCase()
+        : '';
+      return {
+        ...(typeof security?.rootless === 'boolean' ? { rootless: security.rootless } : {}),
+        runtimes: /^[a-z0-9._-]{1,40}$/.test(runtime) ? [runtime] : [],
+      };
+    }
+    const options = Array.isArray(value.SecurityOptions)
+      ? value.SecurityOptions.filter((entry): entry is string => typeof entry === 'string').slice(0, 40)
+      : undefined;
+    return {
+      ...(options ? { rootless: options.some(entry => /(?:^|,)name=rootless(?:,|$)/.test(entry.trim())) } : {}),
+      runtimes: parseDockerGpuRuntimes(raw).dockerRuntimes,
+    };
+  } catch {
+    return { runtimes: [] };
   }
 }
 

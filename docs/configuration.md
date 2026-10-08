@@ -342,6 +342,26 @@ The executor is host-portable across Windows, macOS and Linux where Docker is av
 is deliberately labelled **Linux container x64/arm64**. It is not native Windows/macOS evidence. See
 [Local CI and safe runners](local-ci-and-safe-runners.md) for the trust boundary and installation guide.
 
+## Execution sandbox
+
+**Not enforced yet.** These settings are read by **AtlasMind: Check Execution Sandbox** (`src/views/sandboxCheckCommand.ts`,
+`src/core/sandboxProbe.ts`), which reports whether the container sandbox for agent commands *would* be available. No
+command is routed through the sandbox in this version: every agent command still runs on the host, whatever
+`mode` says. How each value is read is published as `SANDBOX_SETTING_RULES` and shown at the foot of the report.
+
+| Setting | Type | Default | Description |
+|---|---|---|---|
+| `atlasmind.sandbox.mode` | `string` | `"off"` | `off` or `require`. **Not enforced yet.** Once the runner lands, `require` means a command runs in the sandbox or is refused, never on the host; there is deliberately no `prefer`. Read as the **tightest** value across user, workspace and folder scopes (`readSandboxConfiguration`): a repository may ask for `require` and can never switch it `off`. An unrecognised value reads as `require` (`readSandboxMode`). |
+| `atlasmind.sandbox.engine` | `string` | `"auto"` | `auto`, `docker` or `podman`. `auto` tries Docker, then Podman (`SANDBOX_ENGINE_ORDER`), and takes the first whose engine answers. `scope: machine`, and only the user value is read — a workspace value is ignored and the report says so. Any other value is refused and nothing is probed. |
+| `atlasmind.sandbox.image` | `string` | `""` | The image, pinned as `name@sha256:<64 lowercase hex>`. Empty means no image, so the sandbox is unavailable. A tag-only reference, or a tag beside a digest, is refused rather than resolved (`parseSandboxImageReference`); only a reference that passes is ever handed to `image inspect`. AtlasMind **never pulls** it. `scope: machine`, user value only, so a repository can never choose what your commands run in. |
+| `atlasmind.sandbox.cpus` | `number` | `2` | `--cpus` for one sandboxed command: 0.25–64, two decimals at most; outside that the argv is refused (`limits`), not clamped. `scope: machine`, user value only. |
+| `atlasmind.sandbox.memoryGb` | `number` | `4` | `--memory` (and the same `--memory-swap`, so no swap on top) for one sandboxed command: 0.5–256 GB, refused outside that. `scope: machine`, user value only. |
+
+The check runs `<engine> --version`, `<engine> info`, `<engine> image inspect` of the pinned reference and one
+canary container built by `buildSandboxArgv` around the constant command `test -d /work`, mounting the default
+execution root. The three reads pass a dry run; the canary is an effect, so a dry run records it, does not start
+it, and the sandbox reads as unavailable. A reading counts for ten minutes and lives in memory only.
+
 ## Guided GitHub workflow
 
 The workflow is a **committed file** (`project_memory/operations/workflow.json`), not a setting: a change to how a team works should arrive as a diff with a reviewer. These settings are the *ceiling* over that file, and the two are combined as a minimum — a stage can request `auto` and still only `observe`. All four capability switches default closed. Guided bootstrap can write an explicitly selected Shopify theme/app/extension composition into this file, but it never infers that declaration or replaces an existing/future workflow document.

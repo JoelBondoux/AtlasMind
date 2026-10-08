@@ -297,8 +297,10 @@ not a substring search: `gh pr comment --body "see the auth token docs"` is an o
 ### Planned: running commands in a sandbox (not wired yet)
 
 The rules for running an agent's command inside a container are written and tested in
-`src/core/sandboxPlan.ts` (0.498.3), **but nothing calls them yet** — there is no setting, and every command
-above still runs on your machine. When it is wired, three things decide where a command runs:
+`src/core/sandboxPlan.ts` (0.498.3), and since 0.499.0 the engine can be checked — **AtlasMind: Check
+Execution Sandbox** and the `atlasmind.sandbox.*` settings — **but the runner is not wired**: every command
+above still runs on your machine, whatever `atlasmind.sandbox.mode` says. When it is wired, three things
+decide where a command runs:
 
 1. **Is it a command that can be sandboxed?** git, `gh`, `docker`/`podman`/`kubectl`, network tools
    (`curl`, `ssh`, `rsync`…), and anything that publishes, changes history or installs packages — the same
@@ -317,6 +319,13 @@ system and a bounded `/tmp`, and only allowlisted environment variables; provide
 It **does not change approvals**: dry run still records the run and executes nothing (starting a container
 is an effect), a command after untrusted content still needs a fresh approval, and scheduled routines keep
 refusing installs. Loosening approvals for sandboxed commands would be a later, separate opt-in.
+
+**Checking the sandbox (0.499.0).** *Check Execution Sandbox* runs only when you ask. It runs
+`docker`/`podman` `--version`, `info` and `image inspect` of the pinned image — reads, which a dry run lets
+through — and then one canary container, built with exactly the argv a sandboxed command would get, running
+`test -d /work` with no network and your project folder mounted. The canary is an effect, so in a dry run it is
+not started and the sandbox reads unavailable rather than confirmed. Nothing is pulled; the report says which
+rule failed and gives you the commands to fix it. A reading is kept in memory for ten minutes.
 
 ---
 

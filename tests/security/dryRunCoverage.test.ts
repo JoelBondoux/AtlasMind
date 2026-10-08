@@ -111,6 +111,11 @@ const DRY_RUN_COVERED: Readonly<Record<string, Covered>> = {
     covers: 'Every docker and git command through execCommand; the container start, which spawns docker directly; the registration-token POST through the gh boundary.',
     leaves: `Inspection (docker info, ps, image inspect; git and gh reads) and following the logs of a container already running (${READS}).`,
   },
+  'core/sandboxProbe.ts': {
+    guards: ['guardHostCommand'],
+    covers: 'Every engine command, in the default runner, before it is resolved or started: the canary `run` and the cleanup `rm` of a timed-out canary are effects, so a dry run refuses them and the reading records the canary as not run — the attestation is unavailable, never confirmed by a canary that did not happen.',
+    leaves: `\`docker\`/\`podman\` \`--version\`, \`info\` and \`image inspect\` — reading the engine's state (${READS}).`,
+  },
   'core/orchestrator.ts': {
     guards: ['decideDryRun', 'createDryRunSkillContext'],
     covers: 'The tool loop (slice B1): every tool call is decided by decideDryRun, and a call allowed to run gets the backstopped skill context. The `.execute(` matches are skill.execute in that loop and the subtask scheduler; the `fetch(` match is inside a regular expression.',

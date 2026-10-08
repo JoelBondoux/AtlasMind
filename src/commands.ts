@@ -1846,6 +1846,14 @@ export function registerCommands(
       await buildAndPublishPortal();
     }),
 
+    // Read the container engine on request and say, rule by rule, whether the
+    // execution sandbox would be available. Probes only when asked; nothing is
+    // routed through the sandbox yet.
+    vscode.commands.registerCommand('atlasmind.checkExecutionSandbox', async () => {
+      const { checkExecutionSandbox } = await import('./views/sandboxCheckCommand.js');
+      await checkExecutionSandbox();
+    }),
+
     // Scheduled routines: approve a routine's steps to run on their own while
     // the editor is open, or add the built-in nightly dependency check.
     vscode.commands.registerCommand('atlasmind.manageScheduledRoutines', async () => {

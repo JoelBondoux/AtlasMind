@@ -90,8 +90,10 @@ file in your repository, and a routine that pipes on purpose keeps working.
 
 Today an approved command runs on your machine, with everything your editor can reach. AtlasMind is
 building a container sandbox for those commands, and the rules it will follow are already written and
-tested (0.498.3) — but **nothing uses them yet**, there is no setting for it, and every command still runs
-on the host exactly as described above. What the sandbox will promise, when it is wired:
+tested (0.498.3). Since 0.499.0 you can run **AtlasMind: Check Execution Sandbox** to see whether the sandbox
+*would* be available here, and `atlasmind.sandbox.*` holds its settings — but **nothing routes a command
+through it yet**: every command still runs on the host exactly as described above, whatever
+`atlasmind.sandbox.mode` says. What the sandbox will promise, when it is wired:
 
 - **It refuses rather than falls back.** With the sandbox required, a command it cannot run is refused and
   the reason names the rule. It is never quietly run on your machine instead, and there will be no
@@ -106,6 +108,12 @@ on the host exactly as described above. What the sandbox will promise, when it i
   your ssh agent. Your API keys do not cross: only a short list of harmless variables does.
 - **Some commands never go in it** — git, `gh`, Docker itself, network tools, and anything that publishes
   or installs. With the sandbox required, those are refused.
+- **A repository cannot pick the image.** The image, the engine and the limits are machine settings: only
+  your own user value is read, and a value a workspace sets is ignored and named in the check's report. A
+  repository can turn the sandbox *on* (`require`), never off.
+- **The check never pulls.** It looks for the pinned image on your machine and tells you the `docker pull`
+  to run if it is missing. Its one container — a canary that runs `test -d /work` with no network — is not
+  started during a dry run, so a dry run can never report the sandbox as confirmed.
 - **It does not loosen anything else.** Dry run still runs nothing. A command after the agent has read
   someone else's text still needs a fresh approval. Scheduled routines refuse what they refused before.
 
