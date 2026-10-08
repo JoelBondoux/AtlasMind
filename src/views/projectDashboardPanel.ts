@@ -419,13 +419,15 @@ import {
   type WorkflowConfigEdit,
   type WorkflowConfigProblem,
 } from '../core/workflowConfig.js';
-import type { SsotHomeRuleId, WorkspaceScope } from '../core/workspaceScope.js';
+import { SsotHomeRefusalError, type SsotHomeRuleId, type WorkspaceScope } from '../core/workspaceScope.js';
 import {
   defaultWorkspaceFolder,
   defaultWorkspaceRootPath,
   openWorkspaceFolders,
+  requireSsotHomeForWrite,
   resolveScope,
   ssotHomeRoot,
+  ssotHomeRootPath,
   type SsotHomeRoot,
 } from '../utils/workspaceRoots.js';
 import type { ProjectComposition, ProjectComponentVcs } from '../core/projectComposition.js';
@@ -5565,6 +5567,17 @@ export class ProjectDashboardPanel {
   /** The tech-debt register, and whether a scan is currently running. */
   private debtManagerInstance: DebtRegisterManager | undefined;
 
+  /**
+   * The SSOT home the cached register managers below were bound to.
+   *
+   * Every one of them reads and writes project memory, so each is bound to the
+   * home `ssotHomeRoot()` locates — never to the first folder — and they are
+   * dropped together when the home moves (a folder added, an ambiguity settled
+   * by a declaration), so no manager keeps writing into the folder the home
+   * used to be while the page reads the one it is now.
+   */
+  private ssotBindingKey: string | undefined;
+
   private debtScanning = false;
 
   /**
@@ -5619,9 +5632,8 @@ export class ProjectDashboardPanel {
    * arriving through a pull must not be overwritten by a stale copy.
    */
   private get portalHosting(): PortalHostingManager {
-    this.portalHostingInstance ??= new PortalHostingManager(
-      defaultWorkspaceRootPath(),
-    );
+    const home = this.ssotBinding();
+    this.portalHostingInstance ??= new PortalHostingManager(home.fsPath, home.refusal);
     this.portalHostingInstance.reload();
     return this.portalHostingInstance;
   }
@@ -5637,9 +5649,8 @@ export class ProjectDashboardPanel {
   private portalRepoVisibility: RepositoryVisibility = 'unknown';
 
   private get debtManager(): DebtRegisterManager {
-    this.debtManagerInstance ??= new DebtRegisterManager(
-      defaultWorkspaceRootPath(),
-    );
+    const home = this.ssotBinding();
+    this.debtManagerInstance ??= new DebtRegisterManager(home.fsPath, home.refusal);
     return this.debtManagerInstance;
   }
 
@@ -5653,18 +5664,40 @@ export class ProjectDashboardPanel {
    * status change made against a register this panel read an hour ago.
    */
   private get defectManager(): DefectRegisterManager {
-    this.defectManagerInstance ??= new DefectRegisterManager(
-      defaultWorkspaceRootPath(),
-    );
+    const home = this.ssotBinding();
+    this.defectManagerInstance ??= new DefectRegisterManager(home.fsPath, home.refusal);
     this.defectManagerInstance.reload();
     return this.defectManagerInstance;
   }
 
   private get auditLedger(): WorkflowAuditLedger {
-    this.auditLedgerInstance ??= new WorkflowAuditLedger(
-      defaultWorkspaceRootPath(),
-    );
+    const home = this.ssotBinding();
+    this.auditLedgerInstance ??= new WorkflowAuditLedger(home.fsPath, home.refusal);
     return this.auditLedgerInstance;
+  }
+
+  /**
+   * The SSOT home, re-located on each access, with every cached register
+   * manager dropped when it has moved since they were built.
+   *
+   * Cheap: a single-root workspace never touches the disk, and a multi-root one
+   * costs one bounded probe per folder (`ssotHomeRoot`).
+   */
+  private ssotBinding(): SsotHomeRoot {
+    const home = ssotHomeRoot();
+    const key = `${home.fsPath ?? ''}\u0000${home.refusal ?? ''}`;
+    if (key !== this.ssotBindingKey) {
+      this.ssotBindingKey = key;
+      this.portalHostingInstance = undefined;
+      this.debtManagerInstance = undefined;
+      this.defectManagerInstance = undefined;
+      this.auditLedgerInstance = undefined;
+      this.workflowConfigManager = undefined;
+      this.ciRoutingManager = undefined;
+      this.approvalManagerInstance = undefined;
+      this.testCaseManagerInstance = undefined;
+    }
+    return home;
   }
 
   /**
@@ -5674,8 +5707,8 @@ export class ProjectDashboardPanel {
    * why, and refuses to save.
    */
   private get workflowConfig(): WorkflowConfigManager {
+    const home = this.ssotBinding();
     if (!this.workflowConfigManager) {
-      const home = ssotHomeRoot();
       this.workflowConfigManager = new WorkflowConfigManager(home.fsPath, home.refusal);
     }
     return this.workflowConfigManager;
@@ -5776,9 +5809,8 @@ export class ProjectDashboardPanel {
   }
 
   private get ciRouting(): CiRoutingConfigManager {
-    this.ciRoutingManager ??= new CiRoutingConfigManager(
-      defaultWorkspaceRootPath(),
-    );
+    const home = this.ssotBinding();
+    this.ciRoutingManager ??= new CiRoutingConfigManager(home.fsPath, home.refusal);
     return this.ciRoutingManager;
   }
 
@@ -5920,6 +5952,12 @@ export class ProjectDashboardPanel {
       // outcome worse than an error message.
       void this.handleMessage(message).catch((error: unknown) => {
         const detail = error instanceof Error ? error.message : String(error);
+        if (error instanceof SsotHomeRefusalError) {
+          // A refusal is a decision, not a failure: project memory has no single
+          // home, and the sentence says which folders and how to settle it.
+          void vscode.window.showWarningMessage(detail);
+          return;
+        }
         const kind = typeof (message as { type?: unknown } | undefined)?.type === 'string'
           ? (message as { type: string }).type
           : 'unknown';
@@ -6461,7 +6499,8 @@ export class ProjectDashboardPanel {
 
       case 'saveTestingConfig':
         {
-          const workspaceRoot = vscode.workspace.workspaceFolders?.[0]?.uri.fsPath;
+          // The testing matrix is project memory: the SSOT home, or a refusal.
+          const workspaceRoot = requireSsotHomeForWrite();
           if (workspaceRoot) {
             // Through the shared path, not a bare write. This toggle used to
             // persist the file alone, so turning a methodology off here left
@@ -6479,7 +6518,7 @@ export class ProjectDashboardPanel {
         return;
       case 'saveDataPrivacyConfig':
         {
-          const workspaceRoot = vscode.workspace.workspaceFolders?.[0]?.uri.fsPath;
+          const workspaceRoot = requireSsotHomeForWrite();
           if (workspaceRoot) {
             await writeDataPrivacyConfig(workspaceRoot, message.payload);
             // Apply immediately to the live policy so enforcement reflects the
@@ -6787,8 +6826,11 @@ export class ProjectDashboardPanel {
         return;
       case 'testDataPrivacy':
         {
+          // The policy is project memory (the SSOT home); the path being tested
+          // is a workspace path, relative to the first folder as before.
           const workspaceRoot = vscode.workspace.workspaceFolders?.[0]?.uri.fsPath;
-          const config = workspaceRoot ? readDataPrivacyConfig(workspaceRoot) : undefined;
+          const policyRoot = ssotHomeRootPath();
+          const config = policyRoot ? readDataPrivacyConfig(policyRoot) : undefined;
           // Force-enable a throwaway manager so the test works even while the
           // policy master switch is off in the editor.
           const tester = new DataPrivacyManager({ ...(config ?? defaultDataPrivacyConfig()), enabled: true });
@@ -6922,7 +6964,7 @@ export class ProjectDashboardPanel {
         return;
       case 'addressGap':
         {
-          const workspaceRoot = vscode.workspace.workspaceFolders?.[0]?.uri.fsPath;
+          const workspaceRoot = requireSsotHomeForWrite();
           if (!workspaceRoot || message.payload.trim().length === 0) {
             return;
           }
@@ -7058,8 +7100,13 @@ export class ProjectDashboardPanel {
   // ── Website delivery ──────────────────────────────────────────
 
   private websiteManager(): WebsiteWorkspaceManager | undefined {
-    const workspaceRoot = vscode.workspace.workspaceFolders?.[0]?.uri.fsPath;
-    return workspaceRoot ? new WebsiteWorkspaceManager(workspaceRoot) : undefined;
+    // website.json is project memory: bound to the SSOT home, refusing writes
+    // while the home is ambiguous.
+    const home = ssotHomeRoot();
+    if (home.refusal) {
+      return new WebsiteWorkspaceManager(undefined, home.refusal);
+    }
+    return home.fsPath ? new WebsiteWorkspaceManager(home.fsPath) : undefined;
   }
 
   /**
@@ -7227,7 +7274,9 @@ export class ProjectDashboardPanel {
       const ssotPath = normalizeSsotPath(
         vscode.workspace.getConfiguration('atlasmind').get<string>('ssotPath', 'project_memory'),
       );
-      const roadmap = await collectRoadmapSnapshot(workspaceRoot, ssotPath);
+      // The roadmap is project memory (the SSOT home); the branch is the first
+      // folder's, as everything else here is.
+      const roadmap = await collectRoadmapSnapshot(ssotHomeRoot().fsPath, ssotPath);
       const branchDashboard = deriveBranchDashboard({
         branches: [branch],
         ...(this.pullRequestsState === undefined ? {} : { pullRequests: this.pullRequestsState }),
@@ -7958,7 +8007,8 @@ export class ProjectDashboardPanel {
   }
 
   private async saveIdeationBoard(payload: IdeationBoardPayload): Promise<void> {
-    const workspaceRoot = vscode.workspace.workspaceFolders?.[0]?.uri.fsPath;
+    // A write of project memory: the SSOT home, or a refusal naming the candidates.
+    const workspaceRoot = requireSsotHomeForWrite();
     const ssotPath = normalizeSsotPath(vscode.workspace.getConfiguration('atlasmind').get<string>('ssotPath', 'project_memory'));
     const activeWorkspace = await loadActiveIdeationWorkspace(workspaceRoot, ssotPath);
     const stored = await loadIdeationBoard(workspaceRoot, ssotPath, activeWorkspace);
@@ -8112,7 +8162,8 @@ export class ProjectDashboardPanel {
   }
 
   private async saveRoadmap(payload: DashboardRoadmapSavePayload): Promise<void> {
-    const workspaceRoot = vscode.workspace.workspaceFolders?.[0]?.uri.fsPath;
+    // A write of project memory: the SSOT home, or a refusal naming the candidates.
+    const workspaceRoot = requireSsotHomeForWrite();
     if (!workspaceRoot) {
       return;
     }
@@ -10711,7 +10762,8 @@ export class ProjectDashboardPanel {
    * the page is rendering.
    */
   private async handleReconcileTestingPolicy(): Promise<void> {
-    const workspaceRoot = vscode.workspace.workspaceFolders?.[0]?.uri.fsPath;
+    // A write of project memory: the SSOT home, or a refusal naming the candidates.
+    const workspaceRoot = requireSsotHomeForWrite();
     if (!workspaceRoot) {
       return;
     }
@@ -11238,7 +11290,8 @@ export class ProjectDashboardPanel {
    * steps rather than one, because the alternative is a button that publishes.
    */
   private async handleDraftIssueFromRoadmap(payload: { itemId: string }): Promise<void> {
-    const workspaceRoot = vscode.workspace.workspaceFolders?.[0]?.uri.fsPath;
+    // Project memory: the SSOT home, never assumed to be the first folder.
+    const workspaceRoot = ssotHomeRootPath();
     const ssotPath = normalizeSsotPath(vscode.workspace.getConfiguration('atlasmind').get<string>('ssotPath', 'project_memory'));
     const roadmap = await collectRoadmapSnapshot(workspaceRoot, ssotPath);
     const item = roadmap.items.find(entry => entry.id === payload.itemId);
@@ -11336,7 +11389,8 @@ export class ProjectDashboardPanel {
     if (cardId === undefined) {
       return body;
     }
-    const workspaceRoot = vscode.workspace.workspaceFolders?.[0]?.uri.fsPath;
+    // Project memory: the SSOT home, never assumed to be the first folder.
+    const workspaceRoot = ssotHomeRootPath();
     const ssotPath = normalizeSsotPath(vscode.workspace.getConfiguration('atlasmind').get<string>('ssotPath', 'project_memory'));
     const activeWorkspace = await loadActiveIdeationWorkspace(workspaceRoot, ssotPath);
     const board = await loadIdeationBoard(workspaceRoot, ssotPath, activeWorkspace);
@@ -11881,9 +11935,8 @@ ${buildCardEvidenceSection(source, derivation)}`;
    * ago.
    */
   private get approvalManager(): ApprovalRegisterManager {
-    this.approvalManagerInstance ??= new ApprovalRegisterManager(
-      vscode.workspace.workspaceFolders?.[0]?.uri.fsPath,
-    );
+    const home = this.ssotBinding();
+    this.approvalManagerInstance ??= new ApprovalRegisterManager(home.fsPath, home.refusal);
     this.approvalManagerInstance.reload();
     return this.approvalManagerInstance;
   }
@@ -11901,10 +11954,12 @@ ${buildCardEvidenceSection(source, derivation)}`;
     if (!snapshot) {
       return new Map();
     }
+    // Tracked documents are listed in project memory and resolved against the
+    // folder that list belongs to: the SSOT home.
     return collectApprovalSubjects(
       snapshot.roadmap,
       snapshot.documents,
-      vscode.workspace.workspaceFolders?.[0]?.uri.fsPath,
+      ssotHomeRoot().fsPath,
     );
   }
 
@@ -12097,9 +12152,8 @@ ${buildCardEvidenceSection(source, derivation)}`;
 
   /** Reloaded on every access, for the reason the other two registers are. */
   private get testCaseManager(): TestCaseRegisterManager {
-    this.testCaseManagerInstance ??= new TestCaseRegisterManager(
-      vscode.workspace.workspaceFolders?.[0]?.uri.fsPath,
-    );
+    const home = this.ssotBinding();
+    this.testCaseManagerInstance ??= new TestCaseRegisterManager(home.fsPath, home.refusal);
     this.testCaseManagerInstance.reload();
     return this.testCaseManagerInstance;
   }
@@ -12809,7 +12863,8 @@ ${buildCardEvidenceSection(source, derivation)}`;
     filePath: string;
     document: ReleaseMatrixDocument;
   } | undefined> {
-    const workspaceRoot = vscode.workspace.workspaceFolders?.[0]?.uri.fsPath;
+    // The editions matrix is project memory: the SSOT home, or a refusal.
+    const workspaceRoot = requireSsotHomeForWrite();
     if (workspaceRoot === undefined) return undefined;
     const ssotPath = normalizeSsotPath(
       vscode.workspace.getConfiguration('atlasmind').get<string>('ssotPath', 'project_memory'),
@@ -13536,7 +13591,8 @@ ${buildCardEvidenceSection(source, derivation)}`;
       return;
     }
 
-    const workspaceRoot = vscode.workspace.workspaceFolders?.[0]?.uri.fsPath;
+    // A write of project memory: the SSOT home, or a refusal naming the candidates.
+    const workspaceRoot = requireSsotHomeForWrite();
     const ssotPath = normalizeSsotPath(vscode.workspace.getConfiguration('atlasmind').get<string>('ssotPath', 'project_memory'));
     if (workspaceRoot === undefined) {
       return;
@@ -13791,7 +13847,8 @@ ${buildCardEvidenceSection(source, derivation)}`;
    */
   private async ensureRoadmapAnchors(): Promise<void> {
     try {
-      const workspaceRoot = vscode.workspace.workspaceFolders?.[0]?.uri.fsPath;
+      // Project memory: the SSOT home, never assumed to be the first folder.
+      const workspaceRoot = ssotHomeRootPath();
       if (workspaceRoot === undefined) {
         return;
       }
@@ -13838,6 +13895,12 @@ ${buildCardEvidenceSection(source, derivation)}`;
    * missing source entries remain untouched.
    */
   private async ensureRoadmapSynchronization(): Promise<void> {
+    // Automatic, on open: an ambiguous home writes nothing here and the page's
+    // banner already says why — throwing would stall every handler queued
+    // behind this promise.
+    if (ssotHomeRoot().refusal) {
+      return;
+    }
     const context = await this.readRoadmapDocument();
     if (context === undefined) {
       return;
@@ -13991,7 +14054,8 @@ ${buildCardEvidenceSection(source, derivation)}`;
    * full sync when there is nothing yet to patch, or when the patch fails.
    */
   private async syncRoadmapState(): Promise<void> {
-    const workspaceRoot = vscode.workspace.workspaceFolders?.[0]?.uri.fsPath;
+    // Project memory: the SSOT home, never assumed to be the first folder.
+    const workspaceRoot = ssotHomeRootPath();
     if (this.lastSnapshot === undefined || workspaceRoot === undefined) {
       await this.syncState();
       return;
@@ -15244,7 +15308,8 @@ ${buildCardEvidenceSection(source, derivation)}`;
     gates: RoadmapGate[];
     items: Array<{ id: string; text: string; completed: boolean; gates: string[]; nodeId?: string }>;
   } | undefined> {
-    const workspaceRoot = vscode.workspace.workspaceFolders?.[0]?.uri.fsPath;
+    // A write of project memory: the SSOT home, or a refusal naming the candidates.
+    const workspaceRoot = requireSsotHomeForWrite();
     if (!workspaceRoot) {
       return undefined;
     }
@@ -15280,7 +15345,8 @@ ${buildCardEvidenceSection(source, derivation)}`;
     }
 
     const configuration = vscode.workspace.getConfiguration('atlasmind');
-    const workspaceRoot = vscode.workspace.workspaceFolders?.[0]?.uri.fsPath;
+    // A write of project memory: the SSOT home, or a refusal naming the candidates.
+    const workspaceRoot = requireSsotHomeForWrite();
     const ssotPath = normalizeSsotPath(configuration.get<string>('ssotPath', 'project_memory'));
     const activeWorkspace = await loadActiveIdeationWorkspace(workspaceRoot, ssotPath);
     const board = await loadIdeationBoard(workspaceRoot, ssotPath, activeWorkspace);
@@ -15376,7 +15442,8 @@ ${buildCardEvidenceSection(source, derivation)}`;
   }
 
   private async openIdeationPromptInChat(prompt: string): Promise<void> {
-    const workspaceRoot = vscode.workspace.workspaceFolders?.[0]?.uri.fsPath;
+    // Project memory: the SSOT home, never assumed to be the first folder.
+    const workspaceRoot = ssotHomeRootPath();
     const ssotPath = normalizeSsotPath(vscode.workspace.getConfiguration('atlasmind').get<string>('ssotPath', 'project_memory'));
     const activeWorkspace = await loadActiveIdeationWorkspace(workspaceRoot, ssotPath);
     const board = await loadIdeationBoard(workspaceRoot, ssotPath, activeWorkspace);
@@ -15403,7 +15470,8 @@ ${buildCardEvidenceSection(source, derivation)}`;
    * the user marks the pipeline reviewed and (implicitly) when they save edits.
    */
   private async storeDeliveryReviewBaseline(): Promise<void> {
-    const workspaceRoot = vscode.workspace.workspaceFolders?.[0]?.uri.fsPath;
+    // Reviewed against the pipeline the page drew: the SSOT home's.
+    const workspaceRoot = ssotHomeRootPath();
     const config = this.atlas.deliveryManager?.getConfig();
     if (!workspaceRoot || !config) {
       return;
@@ -15425,7 +15493,8 @@ ${buildCardEvidenceSection(source, derivation)}`;
    * to refresh an already-seeded project after its real protocol has moved on.
    */
   private async handleReimportDelivery(): Promise<void> {
-    const workspaceRoot = vscode.workspace.workspaceFolders?.[0]?.uri.fsPath;
+    // Re-seeds delivery.json, which is project memory: the SSOT home, or a refusal.
+    const workspaceRoot = requireSsotHomeForWrite();
     if (!workspaceRoot || !this.atlas.deliveryManager) {
       return;
     }
@@ -15511,7 +15580,8 @@ ${buildCardEvidenceSection(source, derivation)}`;
    * of the policy silently.
    */
   private async enableGdprPiiPack(): Promise<{ policyTurnedOn: boolean }> {
-    const workspaceRoot = vscode.workspace.workspaceFolders?.[0]?.uri.fsPath;
+    // A write of project memory: the SSOT home, or a refusal naming the candidates.
+    const workspaceRoot = requireSsotHomeForWrite();
     if (!workspaceRoot) {
       return { policyTurnedOn: false };
     }
@@ -15645,7 +15715,8 @@ ${buildCardEvidenceSection(source, derivation)}`;
 
   /** Re-seed the roster from repository signals (git users, CODEOWNERS, package author, website intake). */
   private async handleSeedDirector(): Promise<void> {
-    const workspaceRoot = vscode.workspace.workspaceFolders?.[0]?.uri.fsPath;
+    // A write of project memory: the SSOT home, or a refusal naming the candidates.
+    const workspaceRoot = requireSsotHomeForWrite();
     if (!workspaceRoot || !this.atlas.projectDirectorManager) {
       return;
     }
@@ -15721,7 +15792,9 @@ ${buildCardEvidenceSection(source, derivation)}`;
    * user is told what was created so a filing decision never happens invisibly.
    */
   private async ensureShelfFolders(relPaths: string[]): Promise<void> {
-    const workspaceRoot = vscode.workspace.workspaceFolders?.[0]?.uri.fsPath;
+    // The shelves are declared in documents.json and live in the repository that
+    // holds it: the SSOT home.
+    const workspaceRoot = requireSsotHomeForWrite();
     if (!workspaceRoot || relPaths.length === 0) {
       return;
     }
@@ -15737,7 +15810,8 @@ ${buildCardEvidenceSection(source, derivation)}`;
   }
 
   private async handleSeedDocuments(): Promise<void> {
-    const workspaceRoot = vscode.workspace.workspaceFolders?.[0]?.uri.fsPath;
+    // Seeds documents.json (project memory) from the home repository's own files.
+    const workspaceRoot = requireSsotHomeForWrite();
     if (!workspaceRoot || !this.atlas.documentsManager) {
       return;
     }
@@ -15764,7 +15838,8 @@ ${buildCardEvidenceSection(source, derivation)}`;
    * surprising cost spike from one click, and sequential progress is legible.
    */
   private async handleRunRiskAnalysis(domain: RiskDomain | 'all'): Promise<void> {
-    const workspaceRoot = vscode.workspace.workspaceFolders?.[0]?.uri.fsPath;
+    // A write of project memory: the SSOT home, or a refusal naming the candidates.
+    const workspaceRoot = requireSsotHomeForWrite();
     if (!workspaceRoot || !this.atlas.riskOversightManager) {
       return;
     }
@@ -15865,7 +15940,8 @@ ${buildCardEvidenceSection(source, derivation)}`;
     register: ComplianceRegimeRegister;
     readOnly: boolean;
   } | undefined {
-    const workspaceRoot = vscode.workspace.workspaceFolders?.[0]?.uri.fsPath;
+    // Project memory: the SSOT home, never assumed to be the first folder.
+    const workspaceRoot = ssotHomeRootPath();
     const catalog = complianceCatalogFor(regimeId);
     if (!workspaceRoot || !catalog) {
       return undefined;
@@ -16533,7 +16609,8 @@ ${buildCardEvidenceSection(source, derivation)}`;
   }
 
   private async handleOpenComplianceEvidence(payload: { evidenceId: string }): Promise<void> {
-    const workspaceRoot = vscode.workspace.workspaceFolders?.[0]?.uri.fsPath;
+    // Project memory: the SSOT home, never assumed to be the first folder.
+    const workspaceRoot = ssotHomeRootPath();
     if (!workspaceRoot) {
       return;
     }
@@ -16567,7 +16644,8 @@ ${buildCardEvidenceSection(source, derivation)}`;
   }
 
   private async handleRenewComplianceEvidence(payload: { evidenceId: string }): Promise<void> {
-    const workspaceRoot = vscode.workspace.workspaceFolders?.[0]?.uri.fsPath;
+    // A write of project memory: the SSOT home, or a refusal naming the candidates.
+    const workspaceRoot = requireSsotHomeForWrite();
     if (!workspaceRoot) {
       return;
     }
@@ -16654,7 +16732,8 @@ ${buildCardEvidenceSection(source, derivation)}`;
 
   /** Create-only, then open. A notes file that exists is never rewritten. */
   private async handleOpenComplianceNotes(payload: { regimeId: string }): Promise<void> {
-    const workspaceRoot = vscode.workspace.workspaceFolders?.[0]?.uri.fsPath;
+    // The notes live in project memory: created in the SSOT home, or refused.
+    const workspaceRoot = requireSsotHomeForWrite();
     const catalog = complianceCatalogFor(payload.regimeId as TestingMethodologyId);
     if (!workspaceRoot || !catalog) {
       return;
@@ -16683,7 +16762,8 @@ ${buildCardEvidenceSection(source, derivation)}`;
   }
 
   private async handleSetRiskFindingStatus(payload: { findingId: string; status: RiskStatus; note?: string }): Promise<void> {
-    const workspaceRoot = vscode.workspace.workspaceFolders?.[0]?.uri.fsPath;
+    // Project memory: the SSOT home, never assumed to be the first folder.
+    const workspaceRoot = ssotHomeRootPath();
     const manager = this.atlas.riskOversightManager;
     const config = manager?.getConfig();
     if (!manager || !config) {
@@ -16732,7 +16812,9 @@ ${buildCardEvidenceSection(source, derivation)}`;
   private async resolveDeliveryGuide(
     options: { includeWorkingTree?: boolean } = {},
   ): Promise<{ runbooks: DeliveryStageRunbookSet; workspaceRoot: string } | undefined> {
-    const workspaceRoot = vscode.workspace.workspaceFolders?.[0]?.uri.fsPath;
+    // Rebuilt from the same root the page drew it from — the SSOT home when there
+    // is one — so an id posted by the page resolves to the command it showed.
+    const workspaceRoot = ssotHomeRoot().fsPath ?? defaultWorkspaceRootPath();
     if (!workspaceRoot) {
       return undefined;
     }
@@ -17505,7 +17587,8 @@ ${buildCardEvidenceSection(source, derivation)}`;
     try {
       await skill.execute(args, this.atlas.skillContext);
       void vscode.window.showInformationMessage(`Sent ${intent} to ${contact.name} via ${capability.serverName}.`);
-      const workspaceRoot = vscode.workspace.workspaceFolders?.[0]?.uri.fsPath;
+      // Project memory: the SSOT home, never assumed to be the first folder.
+      const workspaceRoot = ssotHomeRootPath();
       if (workspaceRoot) {
         await appendProjectDirectorHistory(workspaceRoot, {
           id: `out-${skillId}-${new Date().toISOString()}`,
@@ -17539,7 +17622,8 @@ ${buildCardEvidenceSection(source, derivation)}`;
   }
 
   private async handlePromotionPlanRequest(pathId: string, mode: 'execute' | 'runbook'): Promise<void> {
-    const workspaceRoot = vscode.workspace.workspaceFolders?.[0]?.uri.fsPath;
+    // The pipeline being planned is project memory: the SSOT home, as the run uses.
+    const workspaceRoot = requireSsotHomeForWrite();
     const config = this.atlas.deliveryManager.getConfig();
     if (!workspaceRoot || !config) {
       await this.postMessage({ type: 'promotionError', payload: 'No delivery pipeline is available.' });
@@ -17580,7 +17664,10 @@ ${buildCardEvidenceSection(source, derivation)}`;
   }
 
   private async handleRunPromotion(payload: { pathId: string; attestations: string[]; confirmText: string }): Promise<void> {
-    const workspaceRoot = vscode.workspace.workspaceFolders?.[0]?.uri.fsPath;
+    // The pipeline, its routines, the lock and the history are all project
+    // memory, so the promotion runs in the SSOT home — the repository whose
+    // branches delivery.json describes — or is refused when that is ambiguous.
+    const workspaceRoot = requireSsotHomeForWrite();
     const config = this.atlas.deliveryManager.getConfig();
     if (!workspaceRoot || !config) {
       await this.postMessage({ type: 'promotionError', payload: 'No delivery pipeline is available.' });
@@ -17684,7 +17771,10 @@ ${buildCardEvidenceSection(source, derivation)}`;
    * the edit/commit and the promotion are atomic with respect to other runs.
    */
   private async handleResolveAndRunPromotion(payload: { pathId: string; attestations: string[]; confirmText: string }): Promise<void> {
-    const workspaceRoot = vscode.workspace.workspaceFolders?.[0]?.uri.fsPath;
+    // The pipeline, its routines, the lock and the history are all project
+    // memory, so the promotion runs in the SSOT home — the repository whose
+    // branches delivery.json describes — or is refused when that is ambiguous.
+    const workspaceRoot = requireSsotHomeForWrite();
     const config = this.atlas.deliveryManager.getConfig();
     if (!workspaceRoot || !config) {
       await this.postMessage({ type: 'promotionError', payload: 'No delivery pipeline is available.' });
@@ -17796,7 +17886,10 @@ ${buildCardEvidenceSection(source, derivation)}`;
    * (protected stages require the typed stage name). Records an audit entry.
    */
   private async handleRollbackStage(payload: { stageId: string; confirmText: string }): Promise<void> {
-    const workspaceRoot = vscode.workspace.workspaceFolders?.[0]?.uri.fsPath;
+    // The pipeline, its routines, the lock and the history are all project
+    // memory, so the promotion runs in the SSOT home — the repository whose
+    // branches delivery.json describes — or is refused when that is ambiguous.
+    const workspaceRoot = requireSsotHomeForWrite();
     const config = this.atlas.deliveryManager?.getConfig();
     if (!workspaceRoot || !config) {
       await this.postMessage({ type: 'rollbackResult', payload: { ok: false, summary: 'No delivery pipeline is available.' } });
@@ -19828,9 +19921,12 @@ function describeDashboardSsotHome(home: SsotHomeRoot, firstFolderName: string |
       candidates,
     };
   }
+  // Project-memory sections are left empty rather than filled from a folder
+  // picked for being first; repository facts (git, CI, files) still come from
+  // the first folder, and the banner says so, so neither reads as the other.
   const shown = firstFolderName
-    ? ` The pages below read "${firstFolderName}" only because VS Code lists it first — that is not a decision about where project memory lives.`
-    : '';
+    ? ` Until then the sections built from project memory are left empty rather than filled from one candidate; git, CI and file facts on these pages are read from "${firstFolderName}", the first folder VS Code lists.`
+    : ' Until then the sections built from project memory are left empty rather than filled from one candidate.';
   return { rule: home.location.rule, candidates, notice: `${home.refusal}${shown}` };
 }
 
@@ -20223,15 +20319,23 @@ async function collectDashboardSnapshot(
   const homeScopeRoot = homeComponentId
     ? declaredScope.roots.find(root => root.componentId === homeComponentId)
     : declaredScope.roots[0];
-  // A declared home is authoritative. Falling back to the first folder when it
-  // is missing would silently read a different component's SSOT and counts.
-  // Undeclared, the located SSOT home is read — the first folder in a
-  // single-root workspace and wherever folder 0 is the home. An ambiguous home
-  // has none, so the first folder is shown and the banner says why.
-  const workspaceRoot = declaredComposition
+  // Two roots, kept apart on purpose. `ssotRoot` is where project memory is
+  // read from: a declared home is authoritative (falling back to the first
+  // folder when it is missing would silently read a different component's
+  // SSOT), and undeclared it is the located SSOT home. An ambiguous home has
+  // **none**, so every section built from project memory comes back empty
+  // rather than presenting the first folder's registers as the project's —
+  // the banner says why, and what to do.
+  //
+  // `workspaceRoot` is the repository the page's git, CI and file facts are
+  // read from: the same folder whenever there is a home, and the first folder
+  // when the home is ambiguous, because those facts are about a repository,
+  // not about project memory, and are labelled with the folder they came from.
+  const ssotRoot = declaredComposition
     ? homeScopeRoot?.fsPath
-    : ssotHome.fsPath ?? firstWorkspaceFolder?.uri.fsPath;
-  const websiteDelivery = collectWebsiteDelivery(workspaceRoot);
+    : ssotHome.fsPath;
+  const workspaceRoot = ssotRoot ?? (declaredComposition ? undefined : firstWorkspaceFolder?.uri.fsPath);
+  const websiteDelivery = collectWebsiteDelivery(ssotRoot);
   const workspaceFolder = openWorkspaceFolders()
     .find(folder => folder.uri.fsPath === workspaceRoot) ?? firstWorkspaceFolder;
   const workspaceName = firstWorkspaceFolder?.name ?? 'No Workspace';
@@ -20245,7 +20349,7 @@ async function collectDashboardSnapshot(
       ? workspaceRoot
       : undefined,
   );
-  const activeIdeationWorkspace = await loadActiveIdeationWorkspace(workspaceRoot, ssotPath);
+  const activeIdeationWorkspace = await loadActiveIdeationWorkspace(ssotRoot, ssotPath);
 
   const componentGitPromise = declaredComposition
     ? collectComponentGitReadings(declaredScope, declaredComposition)
@@ -20281,12 +20385,12 @@ async function collectDashboardSnapshot(
     gitSnapshotPromise,
     collectPackageSnapshot(workspaceRoot),
     workflowSnapshotPromise,
-    collectSsotSnapshot(workspaceRoot, ssotPath),
-    loadIdeationBoard(workspaceRoot, ssotPath, activeIdeationWorkspace),
-    collectRoadmapSnapshot(workspaceRoot, ssotPath),
+    collectSsotSnapshot(ssotRoot, ssotPath),
+    loadIdeationBoard(ssotRoot, ssotPath, activeIdeationWorkspace),
+    collectRoadmapSnapshot(ssotRoot, ssotPath),
   ]);
   const editionsSnapshot = await collectReleaseMatrixSnapshot(
-    workspaceRoot,
+    ssotRoot,
     ssotPath,
     roadmapSnapshot,
     issues.status === 'ready' ? issues.issues : undefined,
@@ -20296,7 +20400,9 @@ async function collectDashboardSnapshot(
     workflowConfigManager?.getConfig()?.branches.protected ?? [],
   );
   const versionSnapshot = await collectVersionSnapshot(workspaceRoot, gitSnapshot.currentBranch, packageSnapshot.version);
-  const stagePipeline = await collectDeliveryStagePipeline(atlas, workspaceRoot, gitSnapshot.currentBranch, workflowSnapshot.map(workflow => workflow.name));
+  // The pipeline is declared in project memory, so it is drawn only where
+  // project memory has a home.
+  const stagePipeline = await collectDeliveryStagePipeline(atlas, ssotRoot, gitSnapshot.currentBranch, workflowSnapshot.map(workflow => workflow.name));
   const deliveryRunbooks = await collectProjectDeliveryRunbooks(
     atlas,
     workspaceRoot,
@@ -20380,10 +20486,12 @@ async function collectDashboardSnapshot(
     configuredServerIds: atlas.mcpServerRegistry?.listServers?.().map(server => server.config.id) ?? [],
     refusedServerIds: readRefusedCapabilityOffers(atlas.extensionContext),
   });
-  const directorSnapshot = await collectDirectorSnapshot(atlas, workspaceRoot, gitSnapshot.currentBranch, runs);
-  const documentsSnapshot = await collectDocumentsSnapshot(atlas, workspaceRoot);
-  const riskSnapshot = collectRiskSnapshot(atlas, workspaceRoot);
-  const complianceSnapshot = collectComplianceSnapshot(atlas, workspaceRoot);
+  // The Director roster, the document shelves, the risk register and the
+  // compliance registers are project memory: the SSOT home's, or empty.
+  const directorSnapshot = await collectDirectorSnapshot(atlas, ssotRoot, gitSnapshot.currentBranch, runs);
+  const documentsSnapshot = await collectDocumentsSnapshot(atlas, ssotRoot);
+  const riskSnapshot = collectRiskSnapshot(atlas, ssotRoot);
+  const complianceSnapshot = collectComplianceSnapshot(atlas, ssotRoot);
   const runtimeTdd = summarizeRuntimeTdd(runs);
   const contributorBreakdown = buildContributorSeries(gitSnapshot.commitLog, SERIES_DAY_RANGE);
   const costSummary = atlas.costTracker.getSummary();
@@ -20481,8 +20589,8 @@ async function collectDashboardSnapshot(
     { label: 'Issue templates', ok: issueTemplateCount > 0 },
     { label: 'CHANGELOG', ok: changelogPresent },
   ];
-  const outcomeCompleteness = await collectOutcomeCompleteness(workspaceRoot, ssotPath, runs, ciSignals);
-  const ssotDelta = await collectSsotDelta(workspaceRoot, ssotPath, agents.length, memoryEntries, securityPolicyPresent, blockedEntries);
+  const outcomeCompleteness = await collectOutcomeCompleteness(ssotRoot, ssotPath, runs, ciSignals);
+  const ssotDelta = await collectSsotDelta(ssotRoot, ssotPath, agents.length, memoryEntries, securityPolicyPresent, blockedEntries);
   // Built before the score rather than inline in the snapshot below: the score
   // now has a Data privacy component, so both need the same single evaluation.
   const privacySnapshot = await buildPrivacySnapshot(atlas);
@@ -20651,11 +20759,11 @@ async function collectDashboardSnapshot(
   });
   const researchSnapshot = collectResearchSnapshot(atlas);
   const scheduledRoutineAttention = atlas.routineScheduler?.attentionInput();
-  const gapAnalysis = await collectGapAnalysisSnapshot(workspaceRoot, ssotPath, heuristicGapItems);
+  const gapAnalysis = await collectGapAnalysisSnapshot(ssotRoot, ssotPath, heuristicGapItems);
   // Stage 0 reads the registers that already own these questions. It does not
   // start a security review, risk analysis, debt scan, or test discovery just
   // because someone opened the Ideation page.
-  const securityReview = workspaceRoot ? readSecurityReviewConfig(workspaceRoot) : undefined;
+  const securityReview = ssotRoot ? readSecurityReviewConfig(ssotRoot) : undefined;
   const securityFindings = securityReview ? openSecurityFindings(securityReview) : [];
   const roadmapWithIdeation = withIdeationOrigins(roadmapSnapshot, ideationBoard);
   const issueComponentReadings = homeComponentId
@@ -20909,7 +21017,7 @@ async function collectDashboardSnapshot(
       // the page and the panel's own writes cannot disagree about what is on
       // disk. `readDefectRegister` never throws — a corrupt file yields an
       // empty register and the page says so.
-      const register = workspaceRoot ? readDefectRegister(workspaceRoot) : { version: 1 as const, entries: [] };
+      const register = ssotRoot ? readDefectRegister(ssotRoot) : { version: 1 as const, entries: [] };
       return {
         path: DEFECT_SSOT_PATH,
         entries: sortDefectEntries(register.entries),
@@ -21032,19 +21140,19 @@ async function collectDashboardSnapshot(
     },
     utilities: collectUtilitiesSnapshot(archetypeEvidence),
     portalHosting: collectPortalHostingSnapshot(
-      workspaceRoot,
+      ssotRoot,
       directorSnapshot.config ?? undefined,
       // The same reading `/portal` uses, and unknown is treated as public.
       portalVisibility,
     ),
     testCases: collectTestCasesSnapshot(
-      workspaceRoot,
+      ssotRoot,
       directorSnapshot.config ?? undefined,
       testingSnapshot.policyCoverage?.rows ?? [],
       Date.now(),
     ),
     approvals: collectApprovalsSnapshot(
-      workspaceRoot,
+      ssotRoot,
       directorSnapshot.config ?? undefined,
       roadmapWithBoard,
       documentsSnapshot,
@@ -26880,7 +26988,9 @@ export async function addRoadmapItemFromExternalSurface(
   atlas: AtlasMindContext,
   text: string,
 ): Promise<{ normalized: string; text: string } | undefined> {
-  const workspaceRoot = vscode.workspace.workspaceFolders?.[0]?.uri.fsPath;
+  // The backlog is project memory: written into the SSOT home, or refused with
+  // the sentence naming the candidates — never into whichever folder is first.
+  const workspaceRoot = requireSsotHomeForWrite();
   const trimmed = text.trim();
   if (!workspaceRoot || trimmed === '') {
     return undefined;
@@ -26959,6 +27069,8 @@ export async function fileRoadmapPlansFromExternalSurface(nodeIds: readonly stri
   filed: Array<{ nodeId: string; relPath: string; created: boolean }>;
   missing: string[];
 } | undefined> {
+  // A write: refused, with the reason, when the home is ambiguous.
+  requireSsotHomeForWrite();
   const context = await readExternalRoadmapContext();
   if (context === undefined || context.read.preserveExisting) {
     return undefined;
@@ -27039,7 +27151,9 @@ async function readExternalRoadmapContext(): Promise<{
   reconciled: ReturnType<typeof resolveRoadmapItemIds>['reconciled'];
   ids: string[];
 } | undefined> {
-  const workspaceRoot = defaultWorkspaceRootPath();
+  // Read from the SSOT home; an ambiguous home has no backlog to report, which
+  // the caller states rather than reading the first folder's as the project's.
+  const workspaceRoot = ssotHomeRootPath();
   if (!workspaceRoot) {
     return undefined;
   }

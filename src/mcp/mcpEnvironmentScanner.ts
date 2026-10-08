@@ -28,6 +28,7 @@ import { existsSync, readFileSync } from 'node:fs';
 import { writeFile, mkdir } from 'node:fs/promises';
 import { interceptDryRun } from '../core/dryRunHost.js';
 import type { ImportedMcpServer, McpEnvironmentScan, McpServerConfig } from '../types.js';
+import { SsotHomeRefusalError } from '../core/workspaceScope.js';
 
 export const MCP_ENV_SSOT_PATH = 'project_memory/operations/mcp-environment.json';
 export const MCP_ENV_SUMMARY_SSOT_PATH = 'project_memory/operations/mcp-environment.md';
@@ -459,7 +460,19 @@ export function renderMcpEnvironmentMarkdown(scan: McpEnvironmentScan): string {
 export class McpEnvironmentScanner {
   private cached: McpEnvironmentScan | undefined;
 
-  constructor(private readonly workspaceRoot: string | undefined) {
+  /**
+   * @param workspaceRoot The SSOT home — the folder holding project memory,
+   *   from `ssotHomeRoot()`, never assumed to be the first folder.
+   * @param refusal Why project memory may not be read or written here, when
+   *   the home is ambiguous. A refused manager reads nothing and **throws** on
+   *   every write: a write that quietly did nothing would read exactly like one
+   *   that worked, and one sent to the first folder instead would land in a
+   *   repository nobody was looking at.
+   */
+  constructor(
+    private readonly workspaceRoot: string | undefined,
+    private readonly refusal?: string,
+  ) {
     this.cached = workspaceRoot ? readMcpEnvironmentScan(workspaceRoot) : undefined;
   }
 
@@ -475,6 +488,9 @@ export class McpEnvironmentScanner {
 
   /** Run a fresh scan, cache it to SSOT (best-effort), and return it. */
   async scan(): Promise<McpEnvironmentScan> {
+    if (this.refusal) {
+      throw new SsotHomeRefusalError(this.refusal);
+    }
     const scan = scanMcpEnvironment(this.workspaceRoot);
     this.cached = scan;
     // The cache is refreshed when the panel opens and when a config file

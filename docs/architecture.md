@@ -499,7 +499,7 @@ Where a model-initiated request may go, and the connection that goes only there.
 
 ### DataPrivacyManager (`src/core/dataPrivacyManager.ts`)
 
-Project-scoped data-privacy policy that ensures confidential, proprietary, or regulated content is only ever sent to user-selected **trusted** models. Classifies text (literal terms and regexes) and file/folder paths (traversal-safe globs), maintains the trusted-model allow-list, and redacts classified spans (`[CONFIDENTIAL]`) for un-trusted models via `redactForModel()`. **Deny-by-default**: an empty trusted list trusts nothing, so enabling the policy with no trusted model redacts classified content for every model until one is selected. The policy lives at `project_memory/operations/data-privacy.json` (`readDataPrivacyConfig`/`writeDataPrivacyConfig`); the live policy is reloaded on file change.
+Project-scoped data-privacy policy that ensures confidential, proprietary, or regulated content is only ever sent to user-selected **trusted** models. Classifies text (literal terms and regexes) and file/folder paths (traversal-safe globs), maintains the trusted-model allow-list, and redacts classified spans (`[CONFIDENTIAL]`) for un-trusted models via `redactForModel()`. **Deny-by-default**: an empty trusted list trusts nothing, so enabling the policy with no trusted model redacts classified content for every model until one is selected. The policy lives at `project_memory/operations/data-privacy.json` (`readDataPrivacyConfig`/`writeDataPrivacyConfig`) in the SSOT home; the live policy is reloaded on file change. When a multi-root workspace's home is ambiguous, `strictestDataPrivacyConfig` combines every candidate folder's policy — rules and compliance packs unioned, trusted models intersected, disabled policies contributing nothing — because reading no policy would switch redaction off rather than refuse.
 
 Built-in **compliance packs** (`src/core/compliancePacks.ts`) contribute curated regulated-data detectors when enabled — GDPR (personal data), HIPAA (PHI), PCI-DSS (cardholder data, Luhn-validated), CCPA/CPRA, and Financial (IBAN mod-97). These are heuristic aids, not a compliance certification.
 
@@ -1730,6 +1730,36 @@ the project soul in system prompts, and the root `MemoryManager` loads from at a
 **identity** deliberately stays on the first folder — the cost-tracker key and the cost-history hash —
 because re-keying would orphan every spend record already written. A component picker and component
 routing are later slices (`docs/project-composition.md` §8.1).
+
+0.498.1 closes the split brain A2 left behind. A2 moved *some* readers to the home while every register
+manager built from `defaultWorkspaceRootPath()` kept the first folder, so with project memory in the
+second folder the dashboard read a register from the home and its manager wrote the change into folder 0
+— where the write "worked", the page never showed it, and a stray `project_memory/` made the home
+ambiguous at the next probe. Now **every reader and writer of project memory resolves through
+`ssotHomeRoot()`**, so a read and a write can never land in different folders. Every register manager
+(`Debt`, `Defect`, `WorkflowAuditLedger`, `PortalHosting`, `CiRoutingConfig`, `ApprovalRegister`,
+`TestCaseRegister`, `Delivery`, `Documents`, `ProjectDirector`, `RiskOversight`, `SecurityReview`,
+`ResearchRegister`, `MissionRegistry`, `McpEnvironmentScanner`, `WebsiteWorkspace`, `WorkflowConfig`)
+takes `(home, refusal)`: a refused manager reads nothing and every write throws
+`SsotHomeRefusalError` carrying `describeSsotHomeRefusal`'s sentence — a decision, not a failure, so the
+Project Dashboard shows it as a warning rather than "that action failed". The dashboard's cached managers
+are rebound together when the home moves. Host writes ask `ssotHomeForWrite(noFolderMessage)` (a folder,
+or the sentence to show) or `requireSsotHomeForWrite()` (throws the refusal); reads ask
+`ssotHomeRootPath()`, which is empty when the home is ambiguous. Bootstrap, import, update, describe and
+purge go to the home (a person chooses only when no folder holds memory yet); the dashboard's
+project-memory sections are **left empty** while the home is ambiguous rather than filled from one
+candidate, with git/CI/file facts still read from the first folder and the banner saying both. Two
+consequences worth knowing: promotions run in the home — the repository whose branches `delivery.json`
+describes — and the Website Studio and preview read `website.json` and the emit manifests from the home
+while content, surfaces and emitted engine files stay on the first folder (binding the site to a
+component is A5). The data-privacy policy is the one read an ambiguous home does not blank:
+`strictestDataPrivacyConfig` applies every candidate's policy at once (rules and packs unioned, trusted
+models intersected), because "read nothing" there would switch the redaction boundary off.
+`tests/baselines/ssotHomeResolution.test.ts` guards it statically: a TypeScript-AST taint scan that fails
+when a first-folder value (`defaultWorkspaceRootPath()`, `workspaceFolders[0]`…) reaches a project-memory
+sink — a path joined with the SSOT path, or any function, method or class *derived* from the source as
+touching project memory and taking the root first — with an allowlist that must carry reasons (one entry
+today: the run report, whose configurable folder decides between the home and the first folder). The ratchet census fell to 119 direct reads, 93 taking `[0]`.
 
 ### UpstreamDivergence (`src/core/upstreamDivergence.ts`)
 

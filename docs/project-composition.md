@@ -35,7 +35,8 @@ is identical: the adapter's default is the same first folder (§8).
 
 Slice A2 locates the SSOT home in a multi-root workspace (§2.6, §8.2) and fixes `.` to resolve against
 the folder the composition was read from. Behaviour changes only for a multi-root workspace whose home is
-not the first folder, and for one whose home is ambiguous. A component picker (A3), component routing
+not the first folder, and for one whose home is ambiguous. 0.498.1 finishes it: every reader and writer
+of project memory now resolves through the same home, and a static guard keeps it so (§8.2). A component picker (A3), component routing
 (A4), binding the domain studios to a component (A5) and ratcheting the remaining reads down (A6+) are
 later slices.
 
@@ -165,6 +166,10 @@ them (§6.2).
 In a multi-root workspace the home's folder MUST be located, not assumed to be the first (§8.2). Where it
 cannot be located without guessing, project memory MUST NOT be written anywhere, and the surface MUST name
 the candidate folders and say how to declare the home.
+
+Every read and every write of project memory MUST resolve the home the same way, so the two can never land
+in different folders; a surface that reads project memory while its home is ambiguous MUST NOT present one
+candidate's files as the project's.
 
 ## §3 Invariants
 
@@ -300,7 +305,7 @@ Surfaces migrate **by consequence, not by count**. Those where single-root is ac
 first — asset inventory, build, git status, debt scan, CI, observed delta. The rest follow when
 touched for other reasons.
 
-A mechanical rewrite of every remaining site (198 direct reads at v0.498.0, 176 taking `[0]`) is an
+A mechanical rewrite of every remaining site (119 direct reads at v0.498.1, 93 taking `[0]`) is an
 explicit non-goal: it would be unreviewable, and it would land its bugs everywhere simultaneously.
 
 ### 8.1 The host adapter and the ratchet
@@ -349,13 +354,46 @@ A component at `.` resolves against the **anchor** — the folder the compositio
 (`WorkspaceScopeOptions.anchorFsPath`). Before A2 it resolved against folder 0 while the composition was
 also read from folder 0, so a home that was not first could not find itself.
 
-Surfaces opted in at A2: the workflow file (`WorkflowConfigManager`, which with a refusal reads nothing,
-will not seed, and throws on save rather than silently doing nothing), the Project Dashboard's scope
-resolution and SSOT reads, the root project memory is loaded from at activation, the project soul quoted
-in system prompts, operator-feedback writes, and the `/ideate` and roadmap-status reads in chat.
+A2 opted in the workflow file, the dashboard's scope and SSOT reads, memory loading, the project soul,
+operator feedback and two chat reads — and left every register manager on the first folder. That was a
+split brain: with the home in the second folder, the dashboard read a register from the home while its
+manager wrote the change into folder 0, so the write vanished from the page and a stray `project_memory/`
+in folder 0 then made the home ambiguous by itself. 0.498.1 moves **every** reader and writer of
+project memory onto the one resolution:
+
+- **Register managers** take `(home, refusal)` from `ssotHomeRoot()`. A refused manager reads nothing and
+  every write throws `SsotHomeRefusalError` with the one sentence; the dashboard shows it as a warning, not
+  as a failed action, and rebinds its cached managers when the home moves.
+- **Host writes** ask `ssotHomeForWrite()` (a folder, or the sentence to show) or
+  `requireSsotHomeForWrite()` (throws it); **reads** ask `ssotHomeRootPath()`, empty when ambiguous.
+  Automatic writes (a run report, a gap-analysis reply, the roadmap anchors on open) are skipped and
+  logged rather than shown.
+- **Bootstrap, import, update, describe and purge** go to the home; a person picks a folder only when none
+  holds project memory yet, which is the choice the probe finds afterwards.
+- **The Project Dashboard** leaves project-memory sections empty while the home is ambiguous, and its
+  banner says so and names the folder its git, CI and file facts are read from.
+- **Promotions** run in the home, the repository `delivery.json` describes. The Website Studio and preview
+  read `website.json` and emit manifests from the home and keep content, surfaces and emitted files on
+  the first folder until the site is bound to a component (A5).
+- **The data-privacy policy** is the exception to "read nothing": an ambiguous home applies the strictest
+  combination of every candidate's policy, because no policy at all would switch redaction off.
+
 Workspace **identity** — the cost-tracker key and the machine-private cost-history hash — deliberately
-stays on the first folder: re-keying it would orphan every spend record already written under it. Other
-SSOT readers keep the first folder until migrated, and the ratchet records each move.
+stays on the first folder: re-keying it would orphan every spend record already written under it. The
+*committed* cost-history copy (`cost.historyLocation: repository`) is project memory and moves to the home.
+
+`tests/baselines/ssotHomeResolution.test.ts` holds this statically. It walks `src/` with the TypeScript
+AST, taints values that come from the first folder, derives the set of functions, methods and classes
+that touch project memory and take the root first, and fails when a tainted value reaches one — or is
+joined with the SSOT path. Its allowlist must give a reason per entry; its one entry is the project run
+report, whose configurable folder sends it to the home when it is inside project memory and to the first
+folder otherwise.
+
+**Known inconsistency, reported rather than fixed here.** The presence probe follows `atlasmind.ssotPath`,
+but every register, the workflow file included, lives at a fixed `project_memory/...` path. The refusal's
+way out therefore names `project_memory/operations/workflow.json` (`SSOT_HOME_DECLARATION_PATH`, pinned
+equal to `WORKFLOW_SSOT_PATH`) rather than a path built from the setting. Making the registers follow the
+setting touches some thirty modules and is its own change.
 
 ## §9 Conformance
 
@@ -370,3 +408,4 @@ An implementation conforms when:
 - [ ] No write path to any non-git version control system exists.
 - [x] A single-root workspace behaves exactly as it did at v0.213.0; default scope remains the first folder.
 - [x] A multi-root workspace locates its SSOT home by a declared rule, and an ambiguous home is refused, never picked.
+- [x] Every reader and writer of project memory resolves the home the same way, held by a static guard.

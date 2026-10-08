@@ -19,6 +19,17 @@ Older entries below describe the software as it was at the time and are delibera
 
 ---
 
+## v0.498.1 -- Project memory is read and written in the same place
+
+- In a multi-root workspace, everything that reads or writes project memory now uses the same home folder.
+  Before, some registers (tech debt, defects, approvals and others) still wrote into the first folder while
+  the dashboard read them from the home, so a change could seem to vanish.
+- If two folders both look like the home, every write is refused with the same message naming the folders,
+  and the dashboard leaves its project-memory sections empty instead of showing one folder's as the
+  project's. Data-privacy rules keep applying meanwhile, using the strictest combination of the candidates'.
+- Bootstrap, import and the other project-memory commands go to the home; you choose a folder only when none
+  has project memory yet.
+
 ## v0.498.0 -- Project memory is found where it lives
 
 - In a multi-root workspace AtlasMind now looks for the folder holding project memory instead of assuming

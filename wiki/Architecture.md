@@ -227,6 +227,15 @@ candidates and how to declare the home, and the Project Dashboard shows it as a 
 component at `.` now means the folder the composition was read from, not folder 0. The cost-tracker key
 stays on the first folder deliberately, so existing spend history is not orphaned.
 
+Since 0.498.1 that applies to **every** reader and writer of project memory, not a selection: each
+register manager is constructed with the home and its refusal, reads nothing and throws
+`SsotHomeRefusalError` on every write while the home is ambiguous, and the dashboard leaves its
+project-memory sections empty rather than filling them from one candidate. A static guard
+(`tests/baselines/ssotHomeResolution.test.ts`) walks the TypeScript AST and fails any change that lets a
+first-folder value reach a project-memory path. The data-privacy policy is the deliberate exception: an
+ambiguous home applies the strictest combination of every candidate's policy, so redaction never switches
+off because two folders disagree.
+
 The Project Dashboard is the first all-component consumer. Repository status and local CI are read only for
 declared Git components; issue-tracker support, debt-scan coverage, and observed-change baselines carry the
 same component inventory. Detailed GitHub data stays explicitly scoped to the home component. Missing,

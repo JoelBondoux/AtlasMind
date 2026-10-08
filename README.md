@@ -4,7 +4,7 @@
 
 <h1 align="center">AtlasMind</h1>
 
-<p align="center"><sub> · <strong>Current source version: 0.498.0</strong> · </sub></p>
+<p align="center"><sub> · <strong>Current source version: 0.498.1</strong> · </sub></p>
 
 
 <p align="center">
@@ -176,6 +176,17 @@ allow-list, redaction and file-withholding behaviour, retained metadata, provide
 important limits on overrides and compliance claims.
 
 ---
+
+## What's new in 0.498.1
+
+Project memory is now read and written in the same folder, always. 0.498.0 found the home folder in a
+multi-root workspace but left the registers — tech debt, defects, approvals, delivery, the Director and the
+rest — writing into the first folder, so a change made on the dashboard could land in a repository nobody
+was looking at and never show up. Every reader and writer now asks for the same home. If two folders both
+look like the home, every write is refused with one message naming them, and the dashboard leaves its
+project-memory sections empty rather than showing one folder's as the project's; your data-privacy rules
+keep applying, using the strictest combination of the candidates' policies. Bootstrap and import go to the
+home, and a test now fails any change that would join project memory onto the first folder again.
 
 ## What's new in 0.498.0
 

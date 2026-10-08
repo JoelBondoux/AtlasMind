@@ -21,6 +21,7 @@
  */
 
 import * as vscode from 'vscode';
+import { ssotHomeForWrite } from '../utils/workspaceRoots.js';
 import {
   buildPortalPublishPlan,
   describePortalPublishCommands,
@@ -62,12 +63,16 @@ function refusalMessage(plan: PortalPublishPlan): string {
 }
 
 export async function buildAndPublishPortal(): Promise<void> {
-  const folder = vscode.workspace.workspaceFolders?.[0];
-  if (!folder) {
-    void vscode.window.showWarningMessage('Open a workspace folder before publishing the portal.');
+  // The report, the prepared site, the hosting record and the audience are all
+  // project memory, so the portal is built from — and deployed out of — the
+  // SSOT home. An ambiguous home refuses rather than publishing one folder's
+  // report as the project's.
+  const target = ssotHomeForWrite('Open a workspace folder before publishing the portal.');
+  if ('message' in target) {
+    void vscode.window.showWarningMessage(target.message);
     return;
   }
-  const root = folder.uri.fsPath;
+  const root = target.fsPath;
   const config = vscode.workspace.getConfiguration('atlasmind');
   const ssotPath = config.get<string>('ssotPath', 'project_memory');
 
@@ -142,8 +147,8 @@ export async function buildAndPublishPortal(): Promise<void> {
   const commands = describePortalPublishCommands(plan);
   const confirmed = await vscode.window.showWarningMessage(
     plan.atlasCanDeploy
-      ? `Build and publish the producer portal for ${folder.name}?`
-      : `Build the producer portal for ${folder.name}?`,
+      ? `Build and publish the producer portal for ${target.folder.name}?`
+      : `Build the producer portal for ${target.folder.name}?`,
     {
       modal: true,
       detail: [

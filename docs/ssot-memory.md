@@ -42,16 +42,27 @@ An ambiguous home is **never resolved by picking one**. Project memory is not lo
 workflow file reads nothing and refuses to save, operator-feedback notes are not written, the project soul
 is left out of prompts, `/ideate` and roadmap status say why, and the Project Dashboard shows a banner on
 every page naming the candidate folders. The fix is to declare the home: give one folder's
-`<ssotPath>/operations/workflow.json` a composition whose home component has location `.` (or, where two
+`project_memory/operations/workflow.json` a composition whose home component has location `.` (or, where two
 folders already declare it, remove the declaration from all but one). A folder AtlasMind could not look
 inside — a virtual file system, an unreadable path, or past the 32-folder probe cap — is reported, never
 read as empty.
 
-The located home is used for memory loading, freshness and self-healing, the project soul, the workflow
-file, operator feedback, and the dashboard's project-memory reads. Workspace identity — the cost-tracker
-key and the machine-private cost-history hash — stays on the first folder deliberately, so cost history
-already recorded is not orphaned. Other readers of the SSOT still use the first folder until they are
-migrated (`tests/baselines/workspaceFolderReads.test.ts` records each one).
+**Every** reader and writer of project memory uses the located home — memory loading, the soul, every
+register (debt, defects, the workflow audit ledger, portal hosting, CI routing, approvals, test cases,
+delivery, documents, the Director, risk, security review, research, missions, the MCP environment cache,
+the website plan, the workflow file), the roadmap and ideation board, bootstrap and import, the testing
+matrix and compliance registers, and the committed cost-history copy — so a read and a write can never
+land in different folders. While the home is ambiguous each register reads nothing and refuses every
+write with the same sentence; automatic writes are skipped and logged; the Project Dashboard leaves its
+project-memory sections empty rather than filling them from one candidate. The one exception is the
+data-privacy policy, where an ambiguous home applies the strictest combination of every candidate's
+policy, since no policy at all would switch redaction off. `tests/baselines/ssotHomeResolution.test.ts`
+fails any change that joins project memory onto the first folder.
+
+Workspace identity — the cost-tracker key and the machine-private cost-history hash — stays on the first
+folder deliberately, so cost history already recorded is not orphaned. The probe looks for the folder
+named by `atlasmind.ssotPath`, but the registers themselves live at fixed `project_memory/...` paths; a
+non-default `ssotPath` is not yet followed by them.
 
 ## Session Context (Memory Agent)
 

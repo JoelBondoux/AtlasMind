@@ -2,6 +2,7 @@ import * as vscode from 'vscode';
 import type { AtlasMindContext } from '../extension.js';
 import { escapeHtml, getWebviewHtmlShell } from './webviewUtils.js';
 import { formatCost, getDisplayCurrency } from '../core/currencyFormatter.js';
+import { ssotHomeRoot } from '../utils/workspaceRoots.js';
 
 const PROJECT_PERSONALITY_PROFILE_STORAGE_KEY = 'atlasmind.personalityProfile';
 const GLOBAL_PERSONALITY_PROFILE_STORAGE_KEY = 'atlasmind.globalPersonalityProfile';
@@ -989,7 +990,15 @@ export class PersonalityProfilePanel {
   }
 
   private async resolveSsotRoot(): Promise<vscode.Uri | undefined> {
-    const workspaceFolder = vscode.workspace.workspaceFolders?.[0];
+    // The profile's artifacts are project memory, so they go to the SSOT home.
+    // An ambiguous home writes none and says why; the answers are still kept in
+    // workspace state, which the status line reports.
+    const home = ssotHomeRoot();
+    if (home.refusal) {
+      void vscode.window.showWarningMessage(home.refusal);
+      return undefined;
+    }
+    const workspaceFolder = home.folder;
     if (!workspaceFolder) {
       return undefined;
     }

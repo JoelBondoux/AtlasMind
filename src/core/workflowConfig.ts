@@ -54,6 +54,7 @@ import {
   validateProjectComposition,
   type ProjectComposition,
 } from './projectComposition.js';
+import { SsotHomeRefusalError } from './workspaceScope.js';
 
 export const WORKFLOW_SSOT_PATH = 'project_memory/operations/workflow.json';
 export const WORKFLOW_SUMMARY_SSOT_PATH = 'project_memory/operations/workflow.md';
@@ -1259,7 +1260,7 @@ export class WorkflowConfigManager {
 
   async save(config: WorkflowConfig): Promise<void> {
     if (this.refusal) {
-      throw new Error(this.refusal);
+      throw new SsotHomeRefusalError(this.refusal);
     }
     this.config = config;
     if (this.workspaceRoot) {

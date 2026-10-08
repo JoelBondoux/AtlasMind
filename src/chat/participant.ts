@@ -57,7 +57,7 @@ import { answerConversationRecall, parseConversationRecallRequest } from '../cor
 import { deriveSessionFitSuggestions } from '../core/sessionFitSuggestions.js';
 import { buildCapabilityIndex } from '../core/capabilityIndex.js';
 import { assessIdeationReadiness } from '../core/ideationReadiness.js';
-import { ssotHomeRoot } from '../utils/workspaceRoots.js';
+import { defaultWorkspaceFolder, ssotHomeRoot } from '../utils/workspaceRoots.js';
 import { extractItemGates, parseRoadmapGates, stripRoadmapGatesBlock } from '../core/roadmapGates.js';
 import {
   absorbProvenance,
@@ -1059,7 +1059,8 @@ async function buildWorkflowNoticeForChat(
     if (mode === 'off') {
       return undefined;
     }
-    const workspaceRoot = vscode.workspace.workspaceFolders?.[0]?.uri.fsPath;
+    // The workflow file is project memory: the SSOT home's, or none at all.
+    const workspaceRoot = ssotHomeRoot().fsPath;
     if (!workspaceRoot) {
       return undefined;
     }
@@ -1092,7 +1093,7 @@ export async function resolveWorkflowStageLevelsForRun(): Promise<
         import('../core/workflowAutomation.js'),
         import('../core/workflowConfig.js'),
       ]);
-    const workspaceRoot = vscode.workspace.workspaceFolders?.[0]?.uri.fsPath;
+    const workspaceRoot = ssotHomeRoot().fsPath;
     if (workspaceRoot === undefined) {
       return undefined;
     }
@@ -2539,7 +2540,10 @@ async function collectProducerPortalSteps(): Promise<import('../core/setupWalkth
     import('node:path'),
   ]);
 
-  const folder = vscode.workspace.workspaceFolders?.[0];
+  // The report and the prepared site are project memory, so the repository
+  // asked about is the SSOT home. An ambiguous home has none: every check
+  // below is then unknown, which the plan renders as blocked with its reason.
+  const folder = ssotHomeRoot().folder;
   const config = vscode.workspace.getConfiguration('atlasmind');
   const ssotPath = config.get<string>('ssotPath', 'project_memory');
   const sitePath = `${ssotPath}/operations/producer-site`;
@@ -2707,7 +2711,8 @@ async function collectComplianceSetupState(): Promise<
     import('node:fs'),
     import('node:path'),
   ]);
-  const workspaceRoot = vscode.workspace.workspaceFolders?.[0]?.uri.fsPath;
+  // Every register read here is project memory, so the SSOT home's.
+  const workspaceRoot = ssotHomeRoot().fsPath;
   const empty = {
     declaredRegimes: [] as never[],
     registeredRegimes: [] as never[],
@@ -2821,7 +2826,12 @@ async function handleComplianceCommand(
   const state = await collectComplianceSetupState();
   const steps = plan.buildComplianceSetupPlan(state);
   const wanted = (argument ?? '').trim().toLowerCase();
-  const workspaceRoot = vscode.workspace.workspaceFolders?.[0]?.uri.fsPath;
+  const home = ssotHomeRoot();
+  if (home.refusal) {
+    stream.markdown(`### Compliance\n\n${escapeMd(home.refusal)}`);
+    return;
+  }
+  const workspaceRoot = home.fsPath;
 
   const openBoard = (): void => {
     stream.button({
@@ -3916,7 +3926,14 @@ async function handleBootstrapCommand(
   stream: vscode.ChatResponseStream,
   atlas: AtlasMindContext,
 ): Promise<void> {
-  const workspaceFolder = vscode.workspace.workspaceFolders?.[0];
+  // Bootstrap writes project memory, so it goes to the SSOT home — never to a
+  // folder that would become a second, competing home.
+  const home = ssotHomeRoot();
+  if (home.refusal) {
+    stream.markdown(escapeMd(home.refusal));
+    return;
+  }
+  const workspaceFolder = home.folder;
   if (!workspaceFolder) {
     stream.markdown('Open a workspace folder first, then run `/bootstrap` again.');
     return;
@@ -3951,7 +3968,13 @@ async function handleSyncInstructionsCommand(
   stream: vscode.ChatResponseStream,
   atlas: AtlasMindContext,
 ): Promise<void> {
-  const workspaceFolder = vscode.workspace.workspaceFolders?.[0];
+  // The merged instruction set is written into project memory: the SSOT home.
+  const home = ssotHomeRoot();
+  if (home.refusal) {
+    stream.markdown(escapeMd(home.refusal));
+    return;
+  }
+  const workspaceFolder = home.folder;
   if (!workspaceFolder) {
     stream.markdown('Open a workspace folder first, then run `/sync-instructions` again.');
     return;
@@ -4138,7 +4161,13 @@ async function handleImportCommand(
   stream: vscode.ChatResponseStream,
   atlas: AtlasMindContext,
 ): Promise<void> {
-  const workspaceFolder = vscode.workspace.workspaceFolders?.[0];
+  // Import populates project memory: the SSOT home, or a refusal.
+  const home = ssotHomeRoot();
+  if (home.refusal) {
+    stream.markdown(escapeMd(home.refusal));
+    return;
+  }
+  const workspaceFolder = home.folder;
   if (!workspaceFolder) {
     stream.markdown('Open a workspace folder first, then run `/import` again.');
     return;
@@ -7524,7 +7553,25 @@ export async function writeProjectRunSummaryReport(
   report: ProjectRunSummary,
   reportFolder: string,
 ): Promise<vscode.Uri | undefined> {
-  const workspaceFolder = vscode.workspace.workspaceFolders?.[0];
+  const safeFolder = reportFolder.replace(/\\/g, '/').replace(/^\/+/, '').trim() || DEFAULT_PROJECT_RUN_REPORT_FOLDER;
+  // A report folder inside project memory (the default) goes to the SSOT home
+  // with everything else there; one elsewhere is an ordinary repository folder
+  // and stays on the first. Written automatically, so an ambiguous home is
+  // logged rather than shown — and the report is not written anywhere.
+  const ssotPath = (vscode.workspace.getConfiguration('atlasmind').get<string>('ssotPath', DEFAULT_SSOT_PATH) ?? DEFAULT_SSOT_PATH)
+    .replace(/\\/g, '/').replace(/^\/+|\/+$/g, '').trim() || DEFAULT_SSOT_PATH;
+  const insideSsot = safeFolder === ssotPath || safeFolder.startsWith(`${ssotPath}/`);
+  let workspaceFolder: vscode.WorkspaceFolder | undefined;
+  if (insideSsot) {
+    const home = ssotHomeRoot();
+    if (home.refusal) {
+      console.warn(`[AtlasMind] Project run report not written: ${home.refusal}`);
+      return undefined;
+    }
+    workspaceFolder = home.folder;
+  } else {
+    workspaceFolder = defaultWorkspaceFolder();
+  }
   if (!workspaceFolder) {
     return undefined;
   }
@@ -7540,7 +7587,6 @@ export async function writeProjectRunSummaryReport(
     return undefined;
   }
 
-  const safeFolder = reportFolder.replace(/\\/g, '/').replace(/^\/+/, '').trim() || DEFAULT_PROJECT_RUN_REPORT_FOLDER;
   const folderUri = vscode.Uri.joinPath(workspaceFolder.uri, ...safeFolder.split('/').filter(Boolean));
   await vscode.workspace.fs.createDirectory(folderUri);
 

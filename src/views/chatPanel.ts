@@ -55,6 +55,7 @@ import { extractSessionCarryForwardImages, resolvePickedImageAttachments } from 
 import { buildChatWebviewHtml } from './chatWebviewMarkup.js';
 import { hasAiInstructionSyncFile, scanAiInstructionFiles, syncAiInstructionFiles } from '../utils/aiInstructionSync.js';
 import { stripAnsiSequences } from '../utils/terminalOutput.js';
+import { ssotHomeRoot } from '../utils/workspaceRoots.js';
 import { answerConversationRecall, parseConversationRecallRequest } from '../core/conversationRecall.js';
 import { collectPickableModels, resolveModelOverride, type ModelOverride, type PickableModel } from './modelPickerShared.js';
 import { estimateTokens } from '../core/orchestrator.js';
@@ -1135,7 +1136,14 @@ export class ChatPanel {
   }
 
   private async handleSyncAiInstructionNudge(): Promise<void> {
-    const workspaceRoot = vscode.workspace.workspaceFolders?.[0]?.uri.fsPath;
+    // The merged set is written into project memory, so the SSOT home's
+    // instruction files are the ones read and merged.
+    const home = ssotHomeRoot();
+    if (home.refusal) {
+      await this.host.webview.postMessage({ type: 'status', payload: home.refusal });
+      return;
+    }
+    const workspaceRoot = home.fsPath;
     if (!workspaceRoot) {
       return;
     }
@@ -1161,7 +1169,8 @@ export class ChatPanel {
   }
 
   private checkAiInstructionNudge(): void {
-    const workspaceRoot = vscode.workspace.workspaceFolders?.[0]?.uri.fsPath;
+    // No nudge while the home is ambiguous: the sync it offers would be refused.
+    const workspaceRoot = ssotHomeRoot().fsPath;
     if (!workspaceRoot || this.atlas.extensionContext?.workspaceState?.get<boolean>(ChatPanel.NUDGE_DISMISSED_KEY) === true) {
       return;
     }
@@ -2046,7 +2055,14 @@ export class ChatPanel {
       return;
     }
 
-    const workspaceRoot = vscode.workspace.workspaceFolders?.[0]?.uri.fsPath;
+    // The gap analysis is project memory. Persisting it is automatic (the reply
+    // arriving, not a button), so an ambiguous home is logged and skipped.
+    const home = ssotHomeRoot();
+    if (home.refusal) {
+      console.warn(`[AtlasMind] Gap analysis not saved: ${home.refusal}`);
+      return;
+    }
+    const workspaceRoot = home.fsPath;
     if (!workspaceRoot) {
       return;
     }
@@ -3210,15 +3226,18 @@ export class ChatPanel {
       if (mode === 'off') {
         return { stop: false };
       }
+      // The declared workflow is project memory (the SSOT home); the branch is
+      // whatever the person is working on, in the first folder as before.
       const workspaceRoot = vscode.workspace.workspaceFolders?.[0]?.uri.fsPath;
-      if (!workspaceRoot) {
+      const ssotRoot = ssotHomeRoot().fsPath;
+      if (!workspaceRoot || !ssotRoot) {
         return { stop: false };
       }
       const branch = await readCurrentBranch(workspaceRoot);
       notice = buildWorkflowChatNotice({
         prompt,
         mode,
-        config: readWorkflowConfig(workspaceRoot),
+        config: readWorkflowConfig(ssotRoot),
         ...(branch ? { currentBranch: branch } : {}),
       });
     } catch {

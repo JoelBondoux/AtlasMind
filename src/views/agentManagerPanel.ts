@@ -5,6 +5,7 @@ import { TESTING_METHODOLOGY_DEFINITIONS } from '../types.js';
 import { escapeHtml, getWebviewHtmlShell } from './webviewUtils.js';
 import { readProjectTestingConfig } from './settingsPanel.js';
 import { resolveAgentSkillPolicy } from '../core/skillsRegistry.js';
+import { ssotHomeRoot } from '../utils/workspaceRoots.js';
 
 // ── Globalstate key for persisted user agents ────────────────────
 const STORAGE_KEY = 'atlasmind.userAgents';
@@ -649,7 +650,8 @@ export class AgentManagerPanel {
       }).join('');
 
       // ── Testing Roles ─────────────────────────────────────────────
-      const workspaceRoot = vscode.workspace.workspaceFolders?.[0]?.uri.fsPath;
+      // The testing matrix is project memory, so it is read from the SSOT home.
+      const workspaceRoot = ssotHomeRoot().fsPath;
       const testingConfig = workspaceRoot ? readProjectTestingConfig(workspaceRoot) : undefined;
       const agentIdForRoles = isNew ? '' : (agent?.id ?? '');
       const assignedMethodologyIds = testingConfig?.methodologies

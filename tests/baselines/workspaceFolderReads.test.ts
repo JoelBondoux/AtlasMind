@@ -57,13 +57,13 @@ const WORKSPACE_FOLDER_READ_CEILINGS: Readonly<Record<string, ReadCeiling>> = {
     reason: 'The adapter itself: the one sanctioned reader. The `[0]` rule lives in core/workspaceScope.ts, not here.',
   },
   'src/chat/imageAttachments.ts': { total: 2, first: 2 },
-  'src/chat/participant.ts': { total: 15, first: 14 },
-  'src/commands.ts': { total: 9, first: 8 },
-  'src/extension.ts': { total: 10, first: 9 },
+  'src/chat/participant.ts': { total: 6, first: 5 },
+  'src/commands.ts': { total: 2, first: 1 },
+  'src/extension.ts': { total: 4, first: 3 },
   'src/mcp/mcpClient.ts': { total: 2, first: 2 },
   'src/utils/workspacePicker.ts': { total: 1, first: 0 },
-  'src/views/agentManagerPanel.ts': { total: 2, first: 1 },
-  'src/views/chatPanel.ts': { total: 13, first: 13 },
+  'src/views/agentManagerPanel.ts': { total: 1, first: 0 },
+  'src/views/chatPanel.ts': { total: 10, first: 10 },
   'src/views/codebaseIndexCommands.ts': { total: 1, first: 1 },
   'src/views/commitMessageCommand.ts': { total: 1, first: 1 },
   'src/views/lensChangeStoryCommand.ts': { total: 1, first: 0 },
@@ -83,21 +83,16 @@ const WORKSPACE_FOLDER_READ_CEILINGS: Readonly<Record<string, ReadCeiling>> = {
   'src/views/lensStateCommand.ts': { total: 1, first: 0 },
   'src/views/lensStatePanel.ts': { total: 1, first: 0 },
   'src/views/lensTestPanel.ts': { total: 1, first: 0 },
-  'src/views/mcpPanel.ts': { total: 2, first: 2 },
   'src/views/modelProviderPanel.ts': { total: 2, first: 2 },
-  'src/views/personalityProfilePanel.ts': { total: 1, first: 1 },
-  'src/views/portalPublishCommand.ts': { total: 1, first: 1 },
-  'src/views/projectDashboardPanel.ts': { total: 73, first: 72 },
-  'src/views/projectIdeationPanel.ts': { total: 12, first: 12 },
+  'src/views/projectDashboardPanel.ts': { total: 35, first: 34 },
+  'src/views/projectIdeationPanel.ts': { total: 2, first: 2 },
   'src/views/projectRunCenterPanel.ts': { total: 2, first: 2 },
   'src/views/reviewedPrLocalCiCommands.ts': { total: 1, first: 0 },
-  'src/views/settingsPanel.ts': { total: 14, first: 14 },
-  'src/views/treeViews.ts': { total: 3, first: 3 },
+  'src/views/settingsPanel.ts': { total: 7, first: 7 },
   'src/views/visionPanel.ts': { total: 2, first: 2 },
-  'src/views/websitePreviewHost.ts': { total: 2, first: 2 },
-  'src/views/websiteReviewHost.ts': { total: 2, first: 2 },
+  'src/views/websitePreviewHost.ts': { total: 1, first: 1 },
   'src/views/websiteStackSetupHost.ts': { total: 1, first: 1 },
-  'src/views/websiteStudioPanel.ts': { total: 3, first: 3 },
+  'src/views/websiteStudioPanel.ts': { total: 2, first: 2 },
 };
 
 /**
@@ -286,8 +281,10 @@ describe('direct reads of vscode.workspace.workspaceFolders are ratcheted per fi
   it('found something to measure, rather than passing because the scan is broken', () => {
     const totals = sourceFiles.map(file => countWorkspaceFolderReads(file.text));
     expect(sourceFiles.length).toBeGreaterThan(100);
-    expect(totals.reduce((sum, count) => sum + count.total, 0)).toBeGreaterThan(100);
-    expect(totals.reduce((sum, count) => sum + count.first, 0)).toBeGreaterThan(100);
+    // Floors, not targets: 0.498.1 moved every project-memory read onto the
+    // SSOT home and the census fell below a hundred. Still far from empty.
+    expect(totals.reduce((sum, count) => sum + count.total, 0)).toBeGreaterThan(50);
+    expect(totals.reduce((sum, count) => sum + count.first, 0)).toBeGreaterThan(50);
   });
 });
 

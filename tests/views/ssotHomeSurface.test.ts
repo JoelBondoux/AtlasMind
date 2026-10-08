@@ -129,6 +129,82 @@ describe('the surfaces that read and write project memory ask for the home', () 
     expect(EXTENSION).toContain('costTracker.setWorkspaceKey(vscode.workspace.workspaceFolders?.[0]?.uri.fsPath);');
     const costHistory = functionSource(EXTENSION, 'async function attachCostHistoryStore(');
     expect(costHistory).toContain('vscode.workspace.workspaceFolders?.[0]');
-    expect(costHistory).not.toContain('ssotHomeRoot');
+    // The machine-private copy is keyed by the first folder's path — identity.
+    expect(costHistory).toMatch(/createHash\('sha256'\)\.update\(folder\.uri\.fsPath/);
+    // The committed copy is project memory, so since 0.498.1 it lives in the
+    // home with every other register: written into folder 0 it would create a
+    // second project_memory/ and make the home ambiguous by itself.
+    const repositoryBranch = costHistory.slice(costHistory.indexOf("if (location === 'repository')"), costHistory.indexOf('const key ='));
+    expect(repositoryBranch).toContain('ssotHomeRoot().fsPath');
+    expect(repositoryBranch).not.toContain('folder.uri.fsPath');
+  });
+});
+
+/**
+ * 0.498.1: no split brain. The type checker cannot see which folder a register
+ * was handed, and the static guard (`tests/baselines/ssotHomeResolution.test.ts`)
+ * says only that nothing reaches the first folder — these say what each surface
+ * does instead.
+ */
+describe('every reader and writer of project memory, on the same home', () => {
+  it('binds every cached dashboard register to the home and its refusal, rebinding when the home moves', () => {
+    for (const [getter, manager] of [
+      ['private get portalHosting()', 'PortalHostingManager'],
+      ['private get debtManager()', 'DebtRegisterManager'],
+      ['private get defectManager()', 'DefectRegisterManager'],
+      ['private get auditLedger()', 'WorkflowAuditLedger'],
+      ['private get ciRouting()', 'CiRoutingConfigManager'],
+      ['private get approvalManager()', 'ApprovalRegisterManager'],
+      ['private get testCaseManager()', 'TestCaseRegisterManager'],
+    ] as const) {
+      const body = DASHBOARD.slice(DASHBOARD.indexOf(getter), DASHBOARD.indexOf(getter) + 400);
+      expect(body, getter).toContain('this.ssotBinding()');
+      expect(body, getter).toContain(`new ${manager}(home.fsPath, home.refusal)`);
+      expect(body, getter).not.toContain('defaultWorkspaceRootPath');
+    }
+    const binding = DASHBOARD.slice(DASHBOARD.indexOf('private ssotBinding(): SsotHomeRoot {'));
+    expect(binding.slice(0, 900)).toMatch(/if \(key !== this\.ssotBindingKey\)[\s\S]*this\.debtManagerInstance = undefined/);
+  });
+
+  it('binds the activation-time registers to the home, and the run-history identity to the first folder', () => {
+    for (const manager of ['DeliveryManager', 'ProjectDirectorManager', 'DocumentsManager', 'RiskOversightManager', 'ResearchRegisterManager', 'MissionRegistry']) {
+      expect(EXTENSION, manager).toContain(`new startupModules.${manager}(ssotRootPath, ssotRefusal)`);
+    }
+    expect(EXTENSION).toContain('workspaceKey: workspaceRootPath,');
+  });
+
+  it('shows a refusal as a warning naming why, not as a failed action', () => {
+    const dispatcher = DASHBOARD.slice(DASHBOARD.indexOf('void this.handleMessage(message).catch('), DASHBOARD.indexOf('void this.handleMessage(message).catch(') + 900);
+    expect(dispatcher).toMatch(/error instanceof SsotHomeRefusalError[\s\S]*showWarningMessage\(detail\)[\s\S]*return;/);
+  });
+
+  it('leaves project-memory sections empty while the home is ambiguous, and says so', () => {
+    const snapshot = functionSource(DASHBOARD, 'async function collectDashboardSnapshot(');
+    expect(snapshot).toContain('const ssotRoot = declaredComposition');
+    for (const call of [
+      'collectSsotSnapshot(ssotRoot, ssotPath)',
+      'collectRoadmapSnapshot(ssotRoot, ssotPath)',
+      'loadIdeationBoard(ssotRoot, ssotPath, activeIdeationWorkspace)',
+      'collectGapAnalysisSnapshot(ssotRoot, ssotPath, heuristicGapItems)',
+      'collectDirectorSnapshot(atlas, ssotRoot,',
+      'collectRiskSnapshot(atlas, ssotRoot)',
+      'collectDeliveryStagePipeline(atlas, ssotRoot,',
+    ]) {
+      expect(snapshot, call).toContain(call);
+    }
+    // No fallback from project memory to the first folder.
+    expect(snapshot).not.toMatch(/ssotHome\.fsPath \?\? firstWorkspaceFolder/);
+    const composer = functionSource(DASHBOARD, 'function describeDashboardSsotHome(');
+    expect(composer).toContain('left empty rather than filled from one candidate');
+  });
+
+  it('routes the run report by where it is written: project memory to the home, anything else to the first folder', () => {
+    const report = functionSource(PARTICIPANT, 'export async function writeProjectRunSummaryReport(');
+    expect(report).toMatch(/if \(insideSsot\) \{[\s\S]*ssotHomeRoot\(\)[\s\S]*home\.refusal[\s\S]*return undefined;[\s\S]*\} else \{[\s\S]*defaultWorkspaceFolder\(\)/);
+  });
+
+  it('applies the strictest combination of every candidate privacy policy rather than none', () => {
+    expect(EXTENSION).toContain('startupModules.strictestDataPrivacyConfig(');
+    expect(EXTENSION).toContain('ssotHomeAtActivation.location.candidates');
   });
 });

@@ -332,9 +332,15 @@ async function attachCostHistoryStore(
   const resolvePath = (location: 'machine-private' | 'repository'): string | undefined => {
     const segments = costHistoryPaths(location).segments;
     if (location === 'repository') {
-      if (!folder) { return undefined; }
+      // The committed copy is project memory, so it lives in the SSOT home
+      // beside every other register — written into folder 0 instead, it would
+      // create a second project_memory/ and make the home ambiguous by itself.
+      // An ambiguous home has no repository copy at all. The machine-private
+      // key below is workspace *identity*, and stays on the first folder.
+      const home = ssotHomeRoot().fsPath;
+      if (!home) { return undefined; }
       const ssotPath = vscode.workspace.getConfiguration('atlasmind').get<string>('ssotPath', 'project_memory');
-      return path.join(folder.uri.fsPath, ssotPath, ...segments);
+      return path.join(home, ssotPath, ...segments);
     }
     const key = folder ? createHash('sha256').update(folder.uri.fsPath.toLowerCase()).digest('hex').slice(0, 16) : 'no-workspace';
     return path.join(context.globalStorageUri.fsPath, 'cost-history', key, ...segments);
@@ -2017,6 +2023,7 @@ async function bootstrapAtlasMind(
       MissionRegistry: missionRegistryModule.MissionRegistry,
       DataPrivacyManager: dataPrivacyModule.DataPrivacyManager,
       readDataPrivacyConfig: dataPrivacyModule.readDataPrivacyConfig,
+      strictestDataPrivacyConfig: dataPrivacyModule.strictestDataPrivacyConfig,
       ArdClient: ardClientModule.ArdClient,
       ArdRegistry: ardRegistryModule.ArdRegistry,
       ArdInstaller: ardInstallerModule.ArdInstaller,
@@ -2056,18 +2063,27 @@ async function bootstrapAtlasMind(
     const sessionContextManager = new startupModules.SessionContextManager(
       (sys: string, user: string) => maintenanceCompleter(sys, user),
     );
+    // The first folder is the workspace's *identity* (the run-history key) and
+    // the working directory; it is not where project memory lives. Every
+    // register below is project memory, so each is bound to the SSOT home —
+    // located, never assumed — and an ambiguous home binds them to nothing,
+    // with the refusal sentence, so a write throws rather than landing in a
+    // repository nobody chose (docs/project-composition.md §2.6).
     const workspaceRootPath = vscode.workspace.workspaceFolders?.[0]?.uri.fsPath;
+    const ssotHomeAtActivation = ssotHomeRoot();
+    const ssotRootPath = ssotHomeAtActivation.fsPath;
+    const ssotRefusal = ssotHomeAtActivation.refusal;
     const routinesRefresh = new vscode.EventEmitter<void>();
     const routineRegistry = new startupModules.RoutineRegistry();
-    if (workspaceRootPath) {
-      void routineRegistry.reload(workspaceRootPath);
+    if (ssotRootPath) {
+      void routineRegistry.reload(ssotRootPath);
     }
-    const deliveryManager = new startupModules.DeliveryManager(workspaceRootPath);
-    if (workspaceRootPath) {
+    const deliveryManager = new startupModules.DeliveryManager(ssotRootPath, ssotRefusal);
+    if (ssotRootPath) {
       // Keep the Delivery dashboard current when delivery.json changes outside the
       // dashboard editor (hand edits, a teammate's change via git pull, a script).
       const deliveryWatcher = vscode.workspace.createFileSystemWatcher(
-        new vscode.RelativePattern(workspaceRootPath, 'project_memory/operations/delivery.json'),
+        new vscode.RelativePattern(ssotRootPath, 'project_memory/operations/delivery.json'),
       );
       const reloadDelivery = () => { deliveryManager.reload(); deliveryRefresh.fire(); };
       deliveryWatcher.onDidChange(reloadDelivery);
@@ -2075,12 +2091,12 @@ async function bootstrapAtlasMind(
       deliveryWatcher.onDidDelete(reloadDelivery);
       context.subscriptions.push(deliveryWatcher);
     }
-    const projectDirectorManager = new startupModules.ProjectDirectorManager(workspaceRootPath);
-    if (workspaceRootPath) {
+    const projectDirectorManager = new startupModules.ProjectDirectorManager(ssotRootPath, ssotRefusal);
+    if (ssotRootPath) {
       // Keep the Director dashboard current when project-director.json changes
       // outside the dashboard editor (hand edits, a teammate's change via git pull).
       const directorWatcher = vscode.workspace.createFileSystemWatcher(
-        new vscode.RelativePattern(workspaceRootPath, 'project_memory/operations/project-director.json'),
+        new vscode.RelativePattern(ssotRootPath, 'project_memory/operations/project-director.json'),
       );
       const reloadDirector = () => { projectDirectorManager.reload(); projectDirectorRefresh.fire(); };
       directorWatcher.onDidChange(reloadDirector);
@@ -2088,12 +2104,12 @@ async function bootstrapAtlasMind(
       directorWatcher.onDidDelete(reloadDirector);
       context.subscriptions.push(directorWatcher);
     }
-    const documentsManager = new startupModules.DocumentsManager(workspaceRootPath);
-    if (workspaceRootPath) {
+    const documentsManager = new startupModules.DocumentsManager(ssotRootPath, ssotRefusal);
+    if (ssotRootPath) {
       // Keep the Documents dashboard current when documents.json changes outside
       // the dashboard editor (hand edits, a teammate's change via git pull).
       const documentsWatcher = vscode.workspace.createFileSystemWatcher(
-        new vscode.RelativePattern(workspaceRootPath, 'project_memory/operations/documents.json'),
+        new vscode.RelativePattern(ssotRootPath, 'project_memory/operations/documents.json'),
       );
       const reloadDocuments = () => { documentsManager.reload(); documentsRefresh.fire(); };
       documentsWatcher.onDidChange(reloadDocuments);
@@ -2101,12 +2117,12 @@ async function bootstrapAtlasMind(
       documentsWatcher.onDidDelete(reloadDocuments);
       context.subscriptions.push(documentsWatcher);
     }
-    const riskOversightManager = new startupModules.RiskOversightManager(workspaceRootPath);
-    if (workspaceRootPath) {
+    const riskOversightManager = new startupModules.RiskOversightManager(ssotRootPath, ssotRefusal);
+    if (ssotRootPath) {
       // Keep the Risk dashboard current when risk-oversight.json changes outside the
       // dashboard (hand edits to a finding's status, a teammate's change via git pull).
       const riskWatcher = vscode.workspace.createFileSystemWatcher(
-        new vscode.RelativePattern(workspaceRootPath, 'project_memory/operations/risk-oversight.json'),
+        new vscode.RelativePattern(ssotRootPath, 'project_memory/operations/risk-oversight.json'),
       );
       const reloadRisk = () => { riskOversightManager.reload(); riskOversightRefresh.fire(); };
       riskWatcher.onDidChange(reloadRisk);
@@ -2114,12 +2130,12 @@ async function bootstrapAtlasMind(
       riskWatcher.onDidDelete(reloadRisk);
       context.subscriptions.push(riskWatcher);
     }
-    const researchRegisterManager = new startupModules.ResearchRegisterManager(workspaceRootPath);
-    if (workspaceRootPath) {
+    const researchRegisterManager = new startupModules.ResearchRegisterManager(ssotRootPath, ssotRefusal);
+    if (ssotRootPath) {
       // The register is committed, so a teammate's `git pull` is a normal way for
       // it to change under a running editor.
       const researchWatcher = vscode.workspace.createFileSystemWatcher(
-        new vscode.RelativePattern(workspaceRootPath, 'project_memory/analysis/research.json'),
+        new vscode.RelativePattern(ssotRootPath, 'project_memory/analysis/research.json'),
       );
       const reloadResearch = () => { researchRegisterManager.reload(); researchRefresh.fire(); };
       researchWatcher.onDidChange(reloadResearch);
@@ -2168,7 +2184,9 @@ async function bootstrapAtlasMind(
     const ambientService = new startupModules.AmbientTriggerService({
       observe: async () => {
         const subjects: Partial<Record<string, string[]>> = {};
-        if (workspaceRootPath) {
+        // Project memory, so the SSOT home; an ambiguous home observes none of
+        // the three and they are reported not-observed, never quiet.
+        if (ssotRootPath) {
           try {
             const [defects, approvals, testCases] = await Promise.all([
               import('./core/defectRegister.js'),
@@ -2176,15 +2194,15 @@ async function bootstrapAtlasMind(
               import('./core/testCaseRegister.js'),
             ]);
             subjects['blocker-defect'] = defects
-              .openBlockers(defects.readDefectRegister(workspaceRootPath))
+              .openBlockers(defects.readDefectRegister(ssotRootPath))
               .map(entry => entry.id);
             const selfContactId = projectDirectorManager.getConfig()?.selfContactId;
             if (selfContactId) {
               subjects['approval-awaiting-you'] = approvals
-                .approvalsAwaiting(approvals.readApprovalRegister(workspaceRootPath), selfContactId)
+                .approvalsAwaiting(approvals.readApprovalRegister(ssotRootPath), selfContactId)
                 .map(request => request.id);
             }
-            const register = testCases.readTestCaseRegister(workspaceRootPath);
+            const register = testCases.readTestCaseRegister(ssotRootPath);
             subjects['test-case-failed'] = testCases.runnableCases(register)
               .filter(entry => testCases.testCaseStanding(entry, register.executions).state === 'fail')
               .map(entry => entry.id);
@@ -2245,7 +2263,7 @@ async function bootstrapAtlasMind(
     // experience that gets a feature like this switched off again.
     ambientService.start(ambientIntervalMinutes * 60_000);
     context.subscriptions.push({ dispose: () => ambientService.dispose() });
-    const missionRegistry = new startupModules.MissionRegistry(workspaceRootPath);
+    const missionRegistry = new startupModules.MissionRegistry(ssotRootPath, ssotRefusal);
     const projectRunHistory = new startupModules.ProjectRunHistory(context.workspaceState, {
       workspaceKey: workspaceRootPath,
       legacyState: context.globalState,
@@ -3075,7 +3093,8 @@ async function bootstrapAtlasMind(
       router: runtime.modelRouter,
       providers: runtime.providerRegistry,
       profiler: runtime.taskProfiler,
-      workspaceRoot: () => vscode.workspace.workspaceFolders?.[0]?.uri.fsPath,
+      // Golden cases and the baseline are project memory, so the SSOT home.
+      workspaceRoot: () => ssotHomeRoot().fsPath,
     });
     const agentAutoUpdater = new startupModules.AgentAutoUpdater(
       runtime.agentRegistry,
@@ -3102,10 +3121,27 @@ async function bootstrapAtlasMind(
     // Data Privacy: load the project policy (project_memory/operations/data-privacy.json)
     // and inject it so the orchestrator gates routing to trusted models and
     // redacts confidential / regulated content for everything else.
-    const dataPrivacyRoot = vscode.workspace.workspaceFolders?.[0]?.uri.fsPath;
-    const dataPrivacyManager = new startupModules.DataPrivacyManager(
-      dataPrivacyRoot ? startupModules.readDataPrivacyConfig(dataPrivacyRoot) : undefined,
-    );
+    //
+    // The policy is project memory, so it is read from the SSOT home. An
+    // ambiguous home is the one place a refusal must not mean "no policy": that
+    // would turn the redaction boundary off because two folders disagree. So
+    // every candidate's policy is read and the strictest combination applies
+    // until the home is settled — the direction that keeps a secret.
+    const dataPrivacyRoot = ssotRootPath;
+    const readActiveDataPrivacyConfig = (): import('./types.js').DataPrivacyConfig | undefined => {
+      if (dataPrivacyRoot) {
+        return startupModules.readDataPrivacyConfig(dataPrivacyRoot);
+      }
+      if (!ssotRefusal) {
+        return undefined;
+      }
+      return startupModules.strictestDataPrivacyConfig(
+        ssotHomeAtActivation.location.candidates
+          .map(candidate => startupModules.readDataPrivacyConfig(candidate.fsPath))
+          .filter((config): config is import('./types.js').DataPrivacyConfig => config !== undefined),
+      );
+    };
+    const dataPrivacyManager = new startupModules.DataPrivacyManager(readActiveDataPrivacyConfig());
     // Restore prior catch activity (workspace-scoped telemetry powering the
     // Privacy dashboard charts) and persist new catches as they are recorded.
     const storedPrivacyActivity = context.workspaceState.get<import('./types.js').DataPrivacyActivityEvent[]>('atlasmind.dataPrivacyActivity', []);
@@ -3118,7 +3154,7 @@ async function bootstrapAtlasMind(
     orchestrator.setDataPrivacyManager(dataPrivacyManager);
     const reloadDataPrivacyConfig = () => {
       if (!dataPrivacyRoot) { return; }
-      const next = startupModules.readDataPrivacyConfig(dataPrivacyRoot);
+      const next = readActiveDataPrivacyConfig();
       if (next) { dataPrivacyManager.setConfig(next); }
     };
     if (dataPrivacyRoot) {
@@ -3971,7 +4007,8 @@ async function bootstrapAtlasMind(
 
   /** Roadmap item text, normalized, for the severity rule that asks about overlap. */
   const readRoadmapTitles = async (): Promise<Set<string>> => {
-    const root = vscode.workspace.workspaceFolders?.[0]?.uri.fsPath;
+    // The roadmap is project memory: read from the SSOT home, or not at all.
+    const root = ssotHomeRoot().fsPath;
     if (!root) { return new Set(); }
     try {
       const { normalizeForRoadmapMatch } = await import('./core/ideationDerivation.js');
@@ -4354,7 +4391,13 @@ async function bootstrapAtlasMind(
      */
     vscode.commands.registerCommand('atlasmind.research.runScan', async (requestedScanId?: string) => {
       const atlas = atlasContext;
-      const root = vscode.workspace.workspaceFolders?.[0]?.uri.fsPath;
+      // A scan records into the research register, which is project memory.
+      const home = ssotHomeRoot();
+      if (home.refusal) {
+        void vscode.window.showWarningMessage(home.refusal);
+        return;
+      }
+      const root = home.fsPath;
       if (!atlas || !root) {
         void vscode.window.showWarningMessage('Open a workspace folder before running a research scan.');
         return;
@@ -4473,7 +4516,12 @@ async function bootstrapAtlasMind(
     }),
 
     vscode.commands.registerCommand('atlasmind.research.openRegister', async () => {
-      const root = vscode.workspace.workspaceFolders?.[0]?.uri.fsPath;
+      const home = ssotHomeRoot();
+      if (home.refusal) {
+        void vscode.window.showWarningMessage(home.refusal);
+        return;
+      }
+      const root = home.fsPath;
       if (!root) { return; }
       const { RESEARCH_SUMMARY_SSOT_PATH } = await import('./core/researchRegister.js');
       const nodePath = await import('node:path');
@@ -4491,7 +4539,13 @@ async function bootstrapAtlasMind(
 
     vscode.commands.registerCommand('atlasmind.research.openDigest', async () => {
       const atlas = atlasContext;
-      const root = vscode.workspace.workspaceFolders?.[0]?.uri.fsPath;
+      // The digest is written into project memory, beside the register it reads.
+      const home = ssotHomeRoot();
+      if (home.refusal) {
+        void vscode.window.showWarningMessage(home.refusal);
+        return;
+      }
+      const root = home.fsPath;
       if (!atlas || !root) { return; }
       const [
         { buildResearchDigest, renderResearchDigestMarkdown },

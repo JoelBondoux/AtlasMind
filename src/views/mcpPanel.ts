@@ -24,6 +24,7 @@ import { PANEL_NAV_JS } from './panelNav.js';
 import type { McpServerRegistry, DetectedMcpServer } from '../mcp/mcpServerRegistry.js';
 import type { McpHeldTool, McpServerConfig, McpServerState, McpToolVerdict } from '../types.js';
 import { HELD_TOOL_ID_PATTERN } from '../mcp/mcpToolPins.js';
+import { ssotHomeRoot } from '../utils/workspaceRoots.js';
 
 // ── Validated message types from the webview ─────────────────────
 
@@ -129,7 +130,11 @@ export class McpPanel {
   ) {
     this.panel = panel;
     this.currentTarget = target;
-    this.envScanner = new McpEnvironmentScanner(vscode.workspace.workspaceFolders?.[0]?.uri.fsPath);
+    // The scan is cached in project memory, so it is bound to the SSOT home — the
+    // folder it reads and the folder its cache is written to are the same one.
+    // An ambiguous home refuses the scan rather than caching it somewhere else.
+    const home = ssotHomeRoot();
+    this.envScanner = new McpEnvironmentScanner(home.fsPath, home.refusal);
     this.panel.webview.html = this.buildHtml();
 
     this.panel.onDidDispose(() => this.dispose(), null, this.disposables);
@@ -147,7 +152,7 @@ export class McpPanel {
 
     // Auto-refresh the scan when a workspace MCP config file changes (home-dir
     // configs are picked up on the next explicit Rescan).
-    const workspaceRoot = vscode.workspace.workspaceFolders?.[0]?.uri.fsPath;
+    const workspaceRoot = home.fsPath;
     if (workspaceRoot) {
       const watcher = vscode.workspace.createFileSystemWatcher(
         new vscode.RelativePattern(workspaceRoot, '{.vscode/mcp.json,.cursor/mcp.json,.mcp.json,mcp.json}'),
@@ -404,7 +409,13 @@ export class McpPanel {
 
   private async handleRescanEnvironment(): Promise<void> {
     await this.panel.webview.postMessage({ type: 'status', payload: { kind: 'info', text: 'Rescanning your machine and workspace for MCP setups…' } });
-    await this.envScanner.scan();
+    try {
+      await this.envScanner.scan();
+    } catch (error) {
+      // The refusal sentence when the SSOT home is ambiguous: said, not swallowed.
+      await this.panel.webview.postMessage({ type: 'status', payload: { kind: 'warning', text: error instanceof Error ? error.message : String(error) } });
+      return;
+    }
     this.panel.webview.html = this.buildHtml();
   }
 

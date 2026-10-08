@@ -115,6 +115,7 @@ import { UiSurfaceRenderHost } from './uiSurfaceRenderHost.js';
 import { UiSurfaceEditHost } from './uiSurfaceEditHost.js';
 import { UI_SURFACE_EDIT_SUPPORT, uiSurfaceEditSupport } from '../core/uiSurfaceEditDocument.js';
 import { HTML_CONTAINMENT_RULES, HTML_EDIT_RULES } from '../core/uiSurfaceElementEdit.js';
+import { ssotHomeRoot } from '../utils/workspaceRoots.js';
 
 /**
  * The views. Not steps: three earlier layouts numbered these one to eight and
@@ -447,6 +448,14 @@ export class WebsiteStudioPanel {
   private readonly manager: WebsiteWorkspaceManager;
   private readonly contentManager: WebsiteContentManager;
   private readonly workspaceRoot: string | undefined;
+  /**
+   * The SSOT home: where `website.json` and the emit manifests live. Kept apart
+   * from `workspaceRoot` — which holds the content, the surfaces and the emitted
+   * engine files — because the plan is project memory and the site is not.
+   * Absent when the home is ambiguous; `ssotRefusal` then says why.
+   */
+  private readonly ssotRoot: string | undefined;
+  private readonly ssotRefusal: string | undefined;
   private config: WebsiteWorkspaceConfig;
   private editSession: UiEditSession;
   private activePage: WebsiteStudioPage;
@@ -463,7 +472,10 @@ export class WebsiteStudioPanel {
     private readonly context: vscode.ExtensionContext,
   ) {
     this.workspaceRoot = vscode.workspace.workspaceFolders?.[0]?.uri.fsPath;
-    this.manager = new WebsiteWorkspaceManager(this.workspaceRoot);
+    const home = ssotHomeRoot();
+    this.ssotRoot = home.fsPath;
+    this.ssotRefusal = home.refusal;
+    this.manager = new WebsiteWorkspaceManager(this.ssotRoot, this.ssotRefusal);
     this.contentManager = new WebsiteContentManager(
       this.workspaceRoot,
       vscode.workspace.getConfiguration('atlasmind').get<string>('website.content.directory'),
@@ -541,6 +553,20 @@ export class WebsiteStudioPanel {
 
   // ── Emitted surfaces ──────────────────────────────────────────
 
+  /**
+   * The SSOT home for a write of project memory, or the refusal sentence as an
+   * error — the panel's message handler shows it, as it does every other.
+   */
+  private requireSsotRoot(): string {
+    if (this.ssotRefusal) {
+      throw new Error(this.ssotRefusal);
+    }
+    if (!this.ssotRoot) {
+      throw new Error('Open a workspace folder first.');
+    }
+    return this.ssotRoot;
+  }
+
   /** The prior emit for a screen and target, and the current text of every file it names. */
   private emitStateFor(screenId: string, targetId: UiEmitTargetId): { manifest?: UiEmitManifest; files: Map<string, string | undefined> } {
     const files = new Map<string, string | undefined>();
@@ -556,7 +582,7 @@ export class WebsiteStudioPanel {
   }
 
   private readEmitManifest(relativePath: string): UiEmitManifest | undefined {
-    const text = this.workspaceRoot ? readWorkspaceText(this.workspaceRoot, relativePath) : undefined;
+    const text = this.ssotRoot ? readWorkspaceText(this.ssotRoot, relativePath) : undefined;
     if (!text) {
       return undefined;
     }
@@ -574,12 +600,13 @@ export class WebsiteStudioPanel {
    */
   private collectEmittedSurfaces(): EmittedSurfaceView[] {
     const root = this.workspaceRoot;
-    if (!root) {
+    const manifestRoot = this.ssotRoot;
+    if (!root || !manifestRoot) {
       return [];
     }
     let names: string[];
     try {
-      names = nodeFs.readdirSync(path.join(root, UI_EMIT_MANIFEST_DIR)).filter(name => name.endsWith('.json')).sort().slice(0, 60);
+      names = nodeFs.readdirSync(path.join(manifestRoot, UI_EMIT_MANIFEST_DIR)).filter(name => name.endsWith('.json')).sort().slice(0, 60);
     } catch {
       return [];
     }
@@ -633,6 +660,9 @@ export class WebsiteStudioPanel {
    */
   private async handleEmitSurface(payload: { screenId: string; targetId: UiEmitTargetId; outputRoot?: string; discardEngineLayout?: boolean }): Promise<void> {
     this.refuseIfReadOnly();
+    // Refused before anything is planned: an emit whose manifest cannot be
+    // recorded would leave engine files nobody could later push copy into.
+    this.requireSsotRoot();
     const root = this.workspaceRoot;
     if (!root) {
       throw new Error('Open a workspace folder to emit a surface.');
@@ -702,7 +732,8 @@ export class WebsiteStudioPanel {
       nodeFs.mkdirSync(path.dirname(absolute), { recursive: true });
       nodeFs.writeFileSync(absolute, file.contents, 'utf8');
     }
-    const manifestAbsolute = path.join(root, ...plan.manifestPath.split('/'));
+    // The manifest is project memory: written to the SSOT home, beside the plan.
+    const manifestAbsolute = path.join(this.requireSsotRoot(), ...plan.manifestPath.split('/'));
     nodeFs.mkdirSync(path.dirname(manifestAbsolute), { recursive: true });
     nodeFs.writeFileSync(manifestAbsolute, `${JSON.stringify(plan.manifest, null, 2)}\n`, 'utf8');
     this.render('handoff');
@@ -719,6 +750,7 @@ export class WebsiteStudioPanel {
    */
   private async handlePushSurfaceContent(screenId: string, targetId: UiEmitTargetId): Promise<void> {
     this.refuseIfReadOnly();
+    this.requireSsotRoot();
     const root = this.workspaceRoot;
     if (!root) {
       throw new Error('Open a workspace folder to update an emitted surface.');
@@ -759,7 +791,7 @@ export class WebsiteStudioPanel {
     for (const file of plan.files) {
       nodeFs.writeFileSync(path.join(root, ...file.path.split('/')), file.contents, 'utf8');
     }
-    nodeFs.writeFileSync(path.join(root, ...uiEmitManifestPath(screen.id, target.id).split('/')), `${JSON.stringify(plan.manifest, null, 2)}\n`, 'utf8');
+    nodeFs.writeFileSync(path.join(this.requireSsotRoot(), ...uiEmitManifestPath(screen.id, target.id).split('/')), `${JSON.stringify(plan.manifest, null, 2)}\n`, 'utf8');
     this.render('handoff');
     await this.panel.webview.postMessage({
       type: 'notice', tone: plan.refusals.length > 0 ? 'error' : 'success',
@@ -1450,7 +1482,9 @@ export class WebsiteStudioPanel {
           const relativePath = input.payload === 'json'
             ? WEBSITE_WORKSPACE_SSOT_PATH
             : WEBSITE_WORKSPACE_SUMMARY_SSOT_PATH;
-          const workspace = vscode.workspace.workspaceFolders?.[0];
+          // website.json is project memory: opened from the SSOT home.
+          const workspace = ssotHomeRoot().folder;
+          this.requireSsotRoot();
           if (!workspace) {
             throw new Error('Open a workspace folder first.');
           }

@@ -315,6 +315,12 @@ unrelated task.
 
 The allow-list is **deny-by-default**: an empty list trusts nothing.
 
+**An unsettled workspace does not switch the policy off.** The policy lives in project memory, and when a
+multi-root workspace has two folders that both look like its home, AtlasMind reads and writes no project
+memory until you declare one. For this one file that would mean *no* policy — redaction off because two
+folders disagree — so instead every candidate folder's policy applies at once: every rule and compliance
+pack any of them enables, and only the models every one of them trusts.
+
 **What gets scanned is the whole context, including the session bundle.** A long-running session keeps a
 compressed `context.md` and AtlasMind sends that structured bundle *instead of* the raw transcript — the
 two are alternatives, never both. Until v0.294.0 the scan looked only at the raw transcript string, so

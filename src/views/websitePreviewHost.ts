@@ -42,6 +42,7 @@ import { injectUiPreviewRuntime, type UiPreviewSelectionEvent } from '../core/ui
 import { UI_DESIGN_GRAPH_MAX_REVISION } from '../core/uiDesignGraph.js';
 import { describeGenerationRun, runWebsiteGeneration } from '../core/websiteGenerationRunner.js';
 import { WebsitePreviewPanel } from './websitePreviewPanel.js';
+import { ssotHomeRoot } from '../utils/workspaceRoots.js';
 
 let server: WebsitePreviewServer | undefined;
 let lifecycleRegistered = false;
@@ -77,10 +78,25 @@ function configuredPort(): number {
   return Number.isInteger(value) && value >= 1024 && value <= 65_535 ? value : 0;
 }
 
+/**
+ * Where `website.json` is read from: the SSOT home. Absent when the home is
+ * ambiguous, in which case the plan reads as the default rather than as one
+ * folder's plan presented as the project's.
+ */
+function websitePlanRoot(): string | undefined {
+  return ssotHomeRoot().fsPath;
+}
+
 function previewRootFor(workspaceRoot: string): string {
   return path.join(workspaceRoot, ...WEBSITE_PREVIEW_ROOT.split('/'));
 }
 
+/**
+ * The folder the website's content and preview output live in — the first
+ * folder, as before. The *plan* (`website.json`) and the review record are
+ * project memory and are read from the SSOT home instead (`websitePlanRoot`);
+ * binding the site itself to a component is a later slice.
+ */
 function requireWorkspaceRoot(): string | undefined {
   const root = vscode.workspace.workspaceFolders?.[0]?.uri.fsPath;
   if (!root) {
@@ -115,18 +131,18 @@ async function ensureWebsitePreview(context: vscode.ExtensionContext): Promise<R
       .update('website.preview.enabled', true, vscode.ConfigurationTarget.Workspace);
   }
 
-  const workspaceRoot = requireWorkspaceRoot();
-  if (!workspaceRoot) {
+  const siteFolder = requireWorkspaceRoot();
+  if (!siteFolder) {
     return;
   }
-  const root = previewRootFor(workspaceRoot);
+  const root = previewRootFor(siteFolder);
   await mkdir(root, { recursive: true });
 
   // Render the wireframes before starting. Without this, opening the preview
   // before anything has been generated served the 404 — a white page with one
   // line of grey text, which is exactly what it looked like. These are
   // deterministic, cost nothing, and mean the preview always shows the drawing.
-  const rendered = await writeWireframePreviews(workspaceRoot, root);
+  const rendered = await writeWireframePreviews(siteFolder, root);
 
   try {
     if (!server?.running) {
@@ -140,7 +156,7 @@ async function ensureWebsitePreview(context: vscode.ExtensionContext): Promise<R
           .get<boolean>('website.review.includeOverlayInBuild', false),
         allowLiveRuntime: true,
         initialRevision: rendered.revision ?? previewRenderRevision,
-        onSelection: event => dispatchPreviewSelection(workspaceRoot, event),
+        onSelection: event => dispatchPreviewSelection(event),
       });
       await server.start();
     }
@@ -215,12 +231,12 @@ interface RenderedWireframePreview {
 }
 
 async function writeWireframePreviews(
-  workspaceRoot: string,
+  siteFolder: string,
   root: string,
 ): Promise<RenderedWireframePreview> {
   let config;
   try {
-    config = new WebsiteWorkspaceManager(workspaceRoot).load();
+    config = new WebsiteWorkspaceManager(websitePlanRoot()).load();
   } catch {
     // No workspace file yet. Nothing to draw, and the server will answer
     // honestly rather than this failing the whole open.
@@ -235,7 +251,7 @@ async function writeWireframePreviews(
     await mkdir(path.join(root, '_wireframe'), { recursive: true });
     const contentDirectory = vscode.workspace.getConfiguration('atlasmind')
       .get<string>('website.content.directory', 'content');
-    const contents = new WebsiteContentManager(workspaceRoot, contentDirectory).read(config.pages);
+    const contents = new WebsiteContentManager(siteFolder, contentDirectory).read(config.pages);
 
     await writeFile(
       path.join(root, WIREFRAME_INDEX_PATH),
@@ -316,12 +332,12 @@ export async function refreshRunningWebsitePreview(): Promise<void> {
   if (!server?.running) {
     return;
   }
-  const workspaceRoot = requireWorkspaceRoot();
-  if (!workspaceRoot) {
+  const siteFolder = requireWorkspaceRoot();
+  if (!siteFolder) {
     return;
   }
-  const root = previewRootFor(workspaceRoot);
-  const rendered = await writeWireframePreviews(workspaceRoot, root);
+  const root = previewRootFor(siteFolder);
+  const rendered = await writeWireframePreviews(siteFolder, root);
   if (rendered.revision !== undefined) {
     server.publishRevision(rendered.revision);
     WebsitePreviewPanel.currentPanel?.refresh();
@@ -333,16 +349,12 @@ export function selectWebsitePreviewTarget(pageId: string, nodeId: string): bool
   if (!server?.running) {
     return false;
   }
-  const workspaceRoot = vscode.workspace.workspaceFolders?.[0]?.uri.fsPath;
-  if (!workspaceRoot) {
-    return false;
-  }
-  const selection = resolveSavedPreviewSelection(workspaceRoot, pageId, nodeId);
+  const selection = resolveSavedPreviewSelection(pageId, nodeId);
   return selection ? server.publishSelection(selection.pageId, selection.nodeId) : false;
 }
 
-function dispatchPreviewSelection(workspaceRoot: string, event: UiPreviewSelectionEvent): boolean {
-  const selection = resolveSavedPreviewSelection(workspaceRoot, event.screenId, event.nodeId);
+function dispatchPreviewSelection(event: UiPreviewSelectionEvent): boolean {
+  const selection = resolveSavedPreviewSelection(event.screenId, event.nodeId);
   if (!selection) {
     return false;
   }
@@ -358,12 +370,15 @@ function dispatchPreviewSelection(workspaceRoot: string, event: UiPreviewSelecti
 }
 
 function resolveSavedPreviewSelection(
-  workspaceRoot: string,
   pageId: string,
   nodeId: string,
 ): WebsitePreviewSelection | undefined {
+  const planRoot = websitePlanRoot();
+  if (!planRoot) {
+    return undefined;
+  }
   try {
-    const config = new WebsiteWorkspaceManager(workspaceRoot).load();
+    const config = new WebsiteWorkspaceManager(planRoot).load();
     const screen = config.designGraph.screens.find(candidate => candidate.pageId === pageId);
     if (!screen || !screen.nodes.some(node => node.id === nodeId)) {
       return undefined;
@@ -406,11 +421,11 @@ export async function generateWebsiteFromPlan(
     return;
   }
 
-  const workspaceRoot = requireWorkspaceRoot();
-  if (!workspaceRoot) {
+  const siteFolder = requireWorkspaceRoot();
+  if (!siteFolder) {
     return;
   }
-  const root = previewRootFor(workspaceRoot);
+  const root = previewRootFor(siteFolder);
 
   const orchestrator = atlas.orchestrator as Orchestrator;
   const result = await vscode.window.withProgress(
@@ -440,7 +455,7 @@ export async function generateWebsiteFromPlan(
   // The model contributes only the inert `data-atlas-element` attributes; the
   // script, the styling and the policy come from constants here, which is what
   // lets the script be frozen and reviewable.
-  await injectReviewOverlayIfEnabled(workspaceRoot, root, result.written);
+  await injectReviewOverlayIfEnabled(root, result.written);
 
   // Omissions are shown with the success, not instead of it. A partial result
   // reported as a whole one is the failure mode the plan's `omitted` list exists
@@ -461,7 +476,6 @@ export async function generateWebsiteFromPlan(
  * unset setting means export, never a fallback destination.
  */
 async function injectReviewOverlayIfEnabled(
-  workspaceRoot: string,
   root: string,
   writtenPaths: readonly string[],
 ): Promise<void> {
@@ -471,8 +485,10 @@ async function injectReviewOverlayIfEnabled(
   }
 
   const endpoint = sanitizeEndpoint(settings.get<string>('website.review.webhookUrl', ''));
-  const config = new WebsiteWorkspaceManager(workspaceRoot).load();
-  const reviewRound = new WebsiteReviewManager(workspaceRoot).load().currentRound;
+  // The plan and the review round are project memory: the SSOT home's.
+  const planRoot = websitePlanRoot();
+  const config = new WebsiteWorkspaceManager(planRoot).load();
+  const reviewRound = new WebsiteReviewManager(planRoot).load().currentRound;
 
   // The script is written once, as its own file, so the page's `script-src
   // 'self'` needs no `unsafe-inline`.

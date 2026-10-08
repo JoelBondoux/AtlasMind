@@ -28,7 +28,7 @@ import {
   readBriefDocumentBody,
   renderBriefDocument,
 } from '../core/projectBrief.js';
-import { defaultWorkspaceRootPath } from '../utils/workspaceRoots.js';
+import { requireSsotHomeForWrite, ssotHomeRoot } from '../utils/workspaceRoots.js';
 import { detectProjectArchetype } from '../core/projectArchetype.js';
 import {
   collectCardConnectionSources,
@@ -449,14 +449,31 @@ export class ProjectIdeationPanel {
 
     this.panel.onDidDispose(() => this.dispose(), null, this.disposables);
     this.panel.webview.onDidReceiveMessage(message => {
-      void this.handleMessage(message);
+      // A refused write — project memory with no single home — arrives here as
+      // an error carrying the refusal sentence, and is said rather than lost.
+      void this.handleMessage(message).catch(error => this.reportFailure(error));
     }, null, this.disposables);
 
     this.atlas.memoryRefresh.event(() => { void this.syncState(); }, null, this.disposables);
     this.atlas.projectRunsRefresh.event(() => { void this.syncState(); }, null, this.disposables);
     this.atlas.sessionConversation.onDidChange(() => { void this.syncState(); }, null, this.disposables);
 
-    void this.applyOpenTarget(target);
+    void this.applyOpenTarget(target).catch(error => this.reportFailure(error));
+  }
+
+  private async reportFailure(error: unknown): Promise<void> {
+    const detail = error instanceof Error ? error.message : String(error);
+    void vscode.window.showWarningMessage(detail);
+    await this.postMessage({ type: 'ideationStatus', payload: detail });
+  }
+
+  /**
+   * The board lives in project memory, so every write goes to the SSOT home.
+   * An ambiguous home throws the refusal sentence, which the message handler
+   * shows — never a quiet no-op, and never a write into the first folder.
+   */
+  private ssotWriteRoot(): string | undefined {
+    return requireSsotHomeForWrite();
   }
 
   private async applyOpenTarget(target?: ProjectIdeationOpenTarget): Promise<void> {
@@ -469,7 +486,7 @@ export class ProjectIdeationPanel {
       if (target.feedbackMode === 'new-thread') {
         const configuration = vscode.workspace.getConfiguration('atlasmind');
         const ssotPath = normalizeSsotPath(configuration.get<string>('ssotPath', 'project_memory'));
-        const workspaceRoot = vscode.workspace.workspaceFolders?.[0]?.uri.fsPath;
+        const workspaceRoot = this.ssotWriteRoot();
         const run = await this.atlas.projectRunHistory.getRunAsync(target.importRunId);
         const workspace = await createIdeationWorkspace(workspaceRoot, ssotPath, run ? `Feedback: ${clampText(run.title, 48)}` : 'New ideation thread');
         this.activeIdeationWorkspaceId = workspace.id;
@@ -611,7 +628,8 @@ export class ProjectIdeationPanel {
     workspace: IdeationWorkspaceRecord;
     board: IdeationBoardRecord;
   }> {
-    const workspaceRoot = vscode.workspace.workspaceFolders?.[0]?.uri.fsPath;
+    // The SSOT home's board; none at all when the home is ambiguous.
+    const workspaceRoot = ssotHomeRoot().fsPath;
     const ssotPath = normalizeSsotPath(vscode.workspace.getConfiguration('atlasmind').get<string>('ssotPath', 'project_memory'));
     let registry = await loadIdeationWorkspaceRegistry(workspaceRoot, ssotPath);
     const workspace = registry.workspaces.find(item => item.id === this.activeIdeationWorkspaceId)
@@ -641,6 +659,7 @@ export class ProjectIdeationPanel {
     workspace: IdeationWorkspaceRecord,
     board: IdeationBoardRecord,
   ): Promise<void> {
+    this.ssotWriteRoot();
     await persistIdeationBoard(workspaceRoot, ssotPath, board, workspace);
     await persistIdeationWorkspaceRegistry(workspaceRoot, ssotPath, touchIdeationWorkspace(registry, workspace.id, board.updatedAt));
   }
@@ -657,7 +676,7 @@ export class ProjectIdeationPanel {
 
     const configuration = vscode.workspace.getConfiguration('atlasmind');
     const ssotPath = normalizeSsotPath(configuration.get<string>('ssotPath', 'project_memory'));
-    const workspaceRoot = vscode.workspace.workspaceFolders?.[0]?.uri.fsPath;
+    const workspaceRoot = this.ssotWriteRoot();
     const workspace = await createIdeationWorkspace(workspaceRoot, ssotPath, title.trim());
     this.activeIdeationWorkspaceId = workspace.id;
     this.promptAttachments = [];
@@ -673,7 +692,7 @@ export class ProjectIdeationPanel {
 
     const configuration = vscode.workspace.getConfiguration('atlasmind');
     const ssotPath = normalizeSsotPath(configuration.get<string>('ssotPath', 'project_memory'));
-    const workspaceRoot = vscode.workspace.workspaceFolders?.[0]?.uri.fsPath;
+    const workspaceRoot = this.ssotWriteRoot();
     const registry = await loadIdeationWorkspaceRegistry(workspaceRoot, ssotPath);
     if (!registry.workspaces.some(item => item.id === trimmedId)) {
       return;
@@ -694,7 +713,7 @@ export class ProjectIdeationPanel {
 
     const configuration = vscode.workspace.getConfiguration('atlasmind');
     const ssotPath = normalizeSsotPath(configuration.get<string>('ssotPath', 'project_memory'));
-    const workspaceRoot = vscode.workspace.workspaceFolders?.[0]?.uri.fsPath;
+    const workspaceRoot = this.ssotWriteRoot();
     const registry = await loadIdeationWorkspaceRegistry(workspaceRoot, ssotPath);
     if (registry.workspaces.length <= 1) {
       await this.postMessage({ type: 'ideationStatus', payload: 'Keep at least one ideation workspace. Create a replacement before deleting the last one.' });
@@ -1454,7 +1473,7 @@ export class ProjectIdeationPanel {
       await this.postMessage({ type: 'ideationStatus', payload: assessment.refusal ?? 'That brief could not be used.' });
       return;
     }
-    const workspaceRoot = vscode.workspace.workspaceFolders?.[0]?.uri.fsPath;
+    const workspaceRoot = this.ssotWriteRoot();
     if (!workspaceRoot) {
       return;
     }
@@ -1495,7 +1514,7 @@ export class ProjectIdeationPanel {
    * Nothing is written until the proposal has been shown and agreed to.
    */
   private async deriveFromProjectBrief(): Promise<void> {
-    const workspaceRoot = vscode.workspace.workspaceFolders?.[0]?.uri.fsPath;
+    const workspaceRoot = this.ssotWriteRoot();
     if (!workspaceRoot) {
       return;
     }
@@ -1599,7 +1618,7 @@ export class ProjectIdeationPanel {
   }
 
   private async openProjectBrief(): Promise<void> {
-    const workspaceRoot = vscode.workspace.workspaceFolders?.[0]?.uri.fsPath;
+    const workspaceRoot = this.ssotWriteRoot();
     if (!workspaceRoot) {
       return;
     }
@@ -1669,7 +1688,7 @@ export class ProjectIdeationPanel {
    * since — is answered with what the files say rather than acted on.
    */
   private async advanceBriefChain(stepId: BriefChainStepId): Promise<void> {
-    const workspaceRoot = defaultWorkspaceRootPath();
+    const workspaceRoot = this.ssotWriteRoot();
     if (!workspaceRoot) {
       await this.postMessage({ type: 'ideationStatus', payload: 'No workspace folder is open, so there is nowhere to keep a brief.' });
       return;
@@ -1972,7 +1991,7 @@ export class ProjectIdeationPanel {
   }
 
   private async raiseCardAsWork(cardId: string): Promise<void> {
-    const workspaceRoot = vscode.workspace.workspaceFolders?.[0]?.uri.fsPath;
+    const workspaceRoot = this.ssotWriteRoot();
     if (!workspaceRoot) {
       await this.postMessage({ type: 'ideationStatus', payload: 'No workspace folder found, so there is no roadmap to add to.' });
       return;
@@ -2051,7 +2070,7 @@ export class ProjectIdeationPanel {
   }
 
   private async syncCardToSsot(cardId: string): Promise<void> {
-    const workspaceRoot = vscode.workspace.workspaceFolders?.[0]?.uri.fsPath;
+    const workspaceRoot = this.ssotWriteRoot();
     if (!workspaceRoot) {
       await this.postMessage({ type: 'ideationStatus', payload: 'No workspace folder found for SSOT sync.' });
       return;

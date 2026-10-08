@@ -50,6 +50,7 @@ import {
   describeSsotHomeRefusal,
   locateSsotHome,
   resolveWorkspaceScope,
+  SsotHomeRefusalError,
   type SsotHomeLocation,
   type SsotHomeProbe,
   type WorkspaceFolderReference,
@@ -213,4 +214,59 @@ export function ssotHomeRoot(): SsotHomeRoot {
     ...(folder ? { folder, fsPath: folder.uri.fsPath } : {}),
     ...(refusal ? { refusal } : {}),
   };
+}
+
+/** Where a project-memory write may go — or the sentence to show instead. */
+export type SsotHomeForWrite =
+  | { folder: vscode.WorkspaceFolder; fsPath: string }
+  | {
+    /** Shown to the person: the refusal when `refused`, otherwise `noFolderMessage`. */
+    message: string;
+    /** True when the home is ambiguous — a refusal, not merely an empty window. */
+    refused: boolean;
+  };
+
+/**
+ * The SSOT home for a write somebody asked for, or why there is none.
+ *
+ * Every user-initiated write of project memory asks this, so an ambiguous home
+ * produces the same refusal sentence everywhere — `describeSsotHomeRefusal`'s,
+ * naming the candidates and the fix — and never a write into whichever folder
+ * happens to be first. `noFolderMessage` is the caller's own words for a window
+ * with no folder open, which is a different and more ordinary situation.
+ */
+export function ssotHomeForWrite(noFolderMessage: string): SsotHomeForWrite {
+  const home = ssotHomeRoot();
+  if (home.refusal) {
+    return { message: home.refusal, refused: true };
+  }
+  if (!home.folder || !home.fsPath) {
+    return { message: noFolderMessage, refused: false };
+  }
+  return { folder: home.folder, fsPath: home.fsPath };
+}
+
+/**
+ * The SSOT home's path for a read: absent when no folder is open **or** the
+ * home is ambiguous. A reader that gets nothing back shows nothing, rather than
+ * presenting the first folder's files as the project's.
+ */
+export function ssotHomeRootPath(): string | undefined {
+  return ssotHomeRoot().fsPath;
+}
+
+/**
+ * The SSOT home's path for a write, throwing when the home is ambiguous.
+ *
+ * For surfaces whose message handler already turns a thrown error into a
+ * message: the `SsotHomeRefusalError` carries the refusal sentence, so the
+ * person sees exactly why nothing was written. `undefined` means no folder is
+ * open, which callers already handle in their own words.
+ */
+export function requireSsotHomeForWrite(): string | undefined {
+  const home = ssotHomeRoot();
+  if (home.refusal) {
+    throw new SsotHomeRefusalError(home.refusal);
+  }
+  return home.fsPath;
 }

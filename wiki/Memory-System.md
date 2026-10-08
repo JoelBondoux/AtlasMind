@@ -48,10 +48,16 @@ With several, AtlasMind looks for it: a folder whose own `workflow.json` declare
 otherwise the one folder holding `project_memory/`; otherwise the first folder, which is where a new
 project's memory is created.
 
-If two folders both look like the home, AtlasMind **does not guess**. It loads no memory and writes none,
-and the Project Dashboard shows a banner naming the folders. To fix it, declare the home: in the folder
+If two folders both look like the home, AtlasMind **does not guess**. It loads no memory and writes none —
+every register, the roadmap, the ideation board, bootstrap and import all refuse with one sentence naming
+the folders — and the Project Dashboard shows a banner and leaves its project-memory sections empty rather
+than showing one folder's as the project's. Your data-privacy rules still apply meanwhile: AtlasMind uses
+the strictest combination of every candidate folder's policy. To fix it, declare the home: in the folder
 that should own the memory, add a composition to `project_memory/operations/workflow.json` whose home
 component has location `.` — that declaration settles it.
+
+Everything that reads or writes memory finds the home the same way, so a change can never be written to
+one folder and read back from another.
 
 ---
 

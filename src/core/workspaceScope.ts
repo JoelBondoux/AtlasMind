@@ -375,6 +375,29 @@ export function locateSsotHome(
 }
 
 /**
+ * Where the home probe reads a folder's composition from. The registers —
+ * the workflow file among them — live at fixed `project_memory/...` paths
+ * whatever `atlasmind.ssotPath` says, so this is that fixed path rather than
+ * one built from the setting; telling somebody to declare the home in a file
+ * the probe never reads would leave the ambiguity in place. Pinned equal to
+ * `WORKFLOW_SSOT_PATH` by test (it is not imported, to keep this module free
+ * of a cycle with `workflowConfig.ts`, which imports from here).
+ */
+export const SSOT_HOME_DECLARATION_PATH = 'project_memory/operations/workflow.json';
+
+/**
+ * A write of project memory refused because its home is ambiguous.
+ *
+ * Every refused writer throws this — the register managers, the workflow file,
+ * the host's write paths — so a surface can tell the refusal apart from a
+ * failure: it is a decision AtlasMind made on purpose, shown as the one
+ * sentence `describeSsotHomeRefusal` composed, not as "that action failed".
+ */
+export class SsotHomeRefusalError extends Error {
+  override readonly name = 'SsotHomeRefusalError';
+}
+
+/**
  * Why project memory may not be read or written, when it may not — one
  * sentence for every surface, naming the candidates and the way out.
  *
@@ -397,7 +420,7 @@ export function describeSsotHomeRefusal(
     : `${listed} each hold a ${ssotPath}/ folder and none declares itself the home`;
   const fix = location.ambiguity === 'declared-home'
     ? 'Keep the home declaration in one folder\'s workflow.json and remove it from the others.'
-    : `Declare the home: in the folder that should own project memory, add a composition to ${ssotPath}/operations/workflow.json whose home component has location ".".`;
+    : `Declare the home: in the folder that should own project memory, add a composition to ${SSOT_HOME_DECLARATION_PATH} whose home component has location ".".`;
   return `Project memory has no single home: ${competing}. `
     + `AtlasMind will not load or write project memory until that is settled, rather than pick one. ${fix}`;
 }

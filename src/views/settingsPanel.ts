@@ -67,6 +67,7 @@ import {
   evaluateTechnicalControls,
   policiesWithTechnicalControls,
   summarizeTechnicalControls,
+  type ComplianceStackSignals,
   type TechnicalControlResult,
   type TechnicalControlSummary,
 } from '../core/complianceTechnicalControls.js';
@@ -82,6 +83,7 @@ import {
   seedPortalHostingConfig,
 } from '../core/portalHosting.js';
 import { inspectLensDeclarations, lensDeclarationStatusLabel } from '../core/lensDeclarations.js';
+import { ssotHomeForWrite, ssotHomeRoot } from '../utils/workspaceRoots.js';
 import {
   modelSidebarHiddenEntryKey,
   readHiddenModelSidebarEntries,
@@ -1543,7 +1545,9 @@ export class SettingsPanel {
   }
 
   private async handleScanAiInstructions(): Promise<void> {
-    const workspaceRoot = vscode.workspace.workspaceFolders?.[0]?.uri.fsPath;
+    // The merged set lands in project memory, so the instruction files merged
+    // are the SSOT home's; an ambiguous home lists none.
+    const workspaceRoot = ssotHomeRoot().fsPath;
     if (!workspaceRoot) {
       await this.panel.webview.postMessage({ type: 'aiInstructionScanResult', payload: [] });
       return;
@@ -1553,14 +1557,15 @@ export class SettingsPanel {
   }
 
   private async handleSyncAiInstructions(selectedPaths: unknown): Promise<void> {
-    const workspaceRoot = vscode.workspace.workspaceFolders?.[0]?.uri.fsPath;
-    if (!workspaceRoot) {
+    const target = ssotHomeForWrite('No workspace folder is open.');
+    if ('message' in target) {
       await this.panel.webview.postMessage({
         type: 'aiInstructionSyncResult',
-        payload: { success: false, summary: 'No workspace folder is open.' },
+        payload: { success: false, summary: target.message },
       });
       return;
     }
+    const workspaceRoot = target.fsPath;
 
     if (!Array.isArray(selectedPaths) || selectedPaths.length === 0) {
       await this.panel.webview.postMessage({
@@ -1643,10 +1648,15 @@ export class SettingsPanel {
   }
 
   private async saveTestingConfig(config: import('../types.js').ProjectTestingConfig): Promise<void> {
-    const workspaceRoot = vscode.workspace.workspaceFolders?.[0]?.uri.fsPath;
-    if (!workspaceRoot) {
+    // The testing matrix is project memory: saved into the SSOT home, or refused.
+    const target = ssotHomeForWrite('No workspace open — open a folder first.');
+    if ('message' in target) {
+      if (target.refused) {
+        void vscode.window.showWarningMessage(target.message);
+      }
       return;
     }
+    const workspaceRoot = target.fsPath;
     try {
       const { syncSummary } = await persistTestingConfig(
         workspaceRoot,
@@ -1664,11 +1674,12 @@ export class SettingsPanel {
   }
 
   private async runSyncTestingProtocols(): Promise<void> {
-    const workspaceRoot = vscode.workspace.workspaceFolders?.[0]?.uri.fsPath;
-    if (!workspaceRoot) {
-      void vscode.window.showInformationMessage('No workspace open — open a folder first.');
+    const target = ssotHomeForWrite('No workspace open — open a folder first.');
+    if ('message' in target) {
+      void (target.refused ? vscode.window.showWarningMessage(target.message) : vscode.window.showInformationMessage(target.message));
       return;
     }
+    const workspaceRoot = target.fsPath;
     const config = readProjectTestingConfig(workspaceRoot);
     if (!config) {
       void vscode.window.showInformationMessage('No testing configuration saved yet — save the Testing matrix first.');
@@ -1742,11 +1753,14 @@ export class SettingsPanel {
   }
 
   private async runAutoAssessTestingConfig(): Promise<void> {
-    const workspaceRoot = vscode.workspace.workspaceFolders?.[0]?.uri.fsPath;
-    if (!workspaceRoot) {
-      void vscode.window.showInformationMessage('No workspace open — open a folder first.');
+    // Reads the project's evidence and writes the matrix into project memory:
+    // both the SSOT home's, so the assessment and the file it changes agree.
+    const target = ssotHomeForWrite('No workspace open — open a folder first.');
+    if ('message' in target) {
+      void (target.refused ? vscode.window.showWarningMessage(target.message) : vscode.window.showInformationMessage(target.message));
       return;
     }
+    const workspaceRoot = target.fsPath;
 
     // Evidence the repository can already show, from the same coverage
     // derivation the Testing page renders — so what arrives ticked here and
@@ -2293,7 +2307,13 @@ export class SettingsPanel {
    */
   private async handleSetPortalHost(host: string): Promise<void> {
     const chosen = PORTAL_HOST_CAPABILITIES.find(capability => capability.host === host);
-    const folder = vscode.workspace.workspaceFolders?.[0];
+    // portal-hosting.json is project memory: recorded in the SSOT home.
+    const home = ssotHomeRoot();
+    if (chosen && home.refusal) {
+      void vscode.window.showWarningMessage(home.refusal);
+      return;
+    }
+    const folder = home.folder;
     const root = folder?.uri.scheme === 'file' || folder?.uri.scheme === 'vscode-remote'
       ? folder.uri.fsPath
       : undefined;
@@ -2330,8 +2350,10 @@ export class SettingsPanel {
     );
     // The portal host declaration. Read, never seeded: writing a committed file
     // because somebody opened a settings tab would put words in their mouth.
-    const portalWorkspaceRoot = lensWorkspace?.uri.scheme === 'file' || lensWorkspace?.uri.scheme === 'vscode-remote'
-      ? lensWorkspace.uri.fsPath
+    // Project memory, so the SSOT home's; an ambiguous home shows the default.
+    const portalHome = ssotHomeRoot().folder;
+    const portalWorkspaceRoot = portalHome?.uri.scheme === 'file' || portalHome?.uri.scheme === 'vscode-remote'
+      ? portalHome.uri.fsPath
       : undefined;
     const portalConfig = (portalWorkspaceRoot ? readPortalHostingConfig(portalWorkspaceRoot) : undefined)
       ?? seedPortalHostingConfig();
@@ -6652,11 +6674,15 @@ export async function persistTestingConfig(
 export async function runTestingScaffoldWithSync(
   atlasContext?: import('../extension.js').AtlasMindContext,
 ): Promise<void> {
-  const workspaceRoot = vscode.workspace.workspaceFolders?.[0]?.uri.fsPath;
-  if (!workspaceRoot) {
-    void vscode.window.showInformationMessage('No workspace open — open a folder first.');
+  // The matrix and the testing playbook are project memory, and the scaffold is
+  // laid down beside them: the SSOT home, so the strategy and the files it
+  // describes cannot end up in different repositories.
+  const target = ssotHomeForWrite('No workspace open — open a folder first.');
+  if ('message' in target) {
+    void (target.refused ? vscode.window.showWarningMessage(target.message) : vscode.window.showInformationMessage(target.message));
     return;
   }
+  const workspaceRoot = target.fsPath;
   const config = readProjectTestingConfig(workspaceRoot);
   if (!config) {
     void vscode.window.showInformationMessage('No testing configuration saved yet — open Settings → Testing and save the matrix first.');
@@ -6950,7 +6976,11 @@ export function collectTestingDashboardSnapshot(
     };
   }
 
-  const projectTestingConfig = readProjectTestingConfig(workspaceRoot);
+  // The matrix, the compliance registers and the delivery/workflow facts the
+  // stack signals read are project memory: the SSOT home's. Test files and
+  // coverage are the first folder's, as before.
+  const ssotRoot = ssotHomeRoot().fsPath;
+  const projectTestingConfig = ssotRoot ? readProjectTestingConfig(ssotRoot) : undefined;
 
   let packageScripts: string[] = [];
   let frameworkLabel = 'Workspace tests';
@@ -7088,7 +7118,9 @@ export function collectTestingDashboardSnapshot(
   // not disagree about whether a certificate expired between them.
   const now = new Date();
   const firstPass = deriveTestingPolicyCoverage(coverageInput);
-  const complianceSignals = gatherComplianceStackSignals(workspaceRoot, {
+  // No signals at all when the SSOT home is ambiguous: every one is then
+  // unknown, which is what it is, rather than read from whichever folder is first.
+  const complianceSignals: ComplianceStackSignals = !ssotRoot ? {} : gatherComplianceStackSignals(ssotRoot, {
     dependencies: dependencyNames,
     scripts: allScriptNames,
     coverage: firstPass,
@@ -7125,8 +7157,8 @@ export function collectTestingDashboardSnapshot(
 
   // The register is read, never seeded. Twenty-four regimes; rendering a page
   // must not put committed files in somebody's repository.
-  const evidenceRead = readComplianceEvidenceFile(workspaceRoot);
-  const evidenceLibrary = evidenceRead.config
+  const evidenceRead = ssotRoot ? readComplianceEvidenceFile(ssotRoot) : undefined;
+  const evidenceLibrary = evidenceRead?.config
     ? sanitizeComplianceEvidenceLibrary(evidenceRead.config, now)
     : emptyEvidenceLibrary(now);
 
@@ -7137,7 +7169,7 @@ export function collectTestingDashboardSnapshot(
     if (!catalog) {
       continue;
     }
-    const stored = readComplianceRegimeFile(workspaceRoot, catalog.policyId).config;
+    const stored = ssotRoot ? readComplianceRegimeFile(ssotRoot, catalog.policyId).config : undefined;
     const register = stored
       ? sanitizeComplianceRegimeRegister(stored, catalog.policyId, evidenceLibrary, now).register
       : undefined;
@@ -7230,7 +7262,8 @@ export function collectTestingDashboardSnapshot(
     methodologyDefinitions: TESTING_METHODOLOGY_DEFINITIONS,
     policyCoverage,
     policyDetails: deriveTestingPolicyDetails(policyCoverage, {
-      scaffoldable: scaffoldableMethodologies(workspaceRoot, policyCoverage.rows.map(row => row.id)),
+      // Scaffolding writes beside the testing playbook, in the SSOT home.
+      scaffoldable: ssotRoot ? scaffoldableMethodologies(ssotRoot, policyCoverage.rows.map(row => row.id)) : new Set(),
       subjects: policySubjects.byPolicy,
     }),
     policySubjects: toTestingSubjectView(policySubjects),

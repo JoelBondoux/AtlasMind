@@ -352,7 +352,11 @@ describe('describeSsotHomeRefusal', () => {
     }));
     const text = describeSsotHomeRefusal(ssot, 'docs/memory')!;
     expect(text).toContain('"Tools", "Game" and "Assets"');
-    expect(text).toContain('docs/memory/operations/workflow.json');
+    // The presence probe follows the configured path; the declaration is read
+    // from the fixed workflow file, so the fix names that file — not one built
+    // from the setting, which the probe would never read.
+    expect(text).toContain('a docs/memory/ folder');
+    expect(text).toContain('project_memory/operations/workflow.json');
     expect(text).toMatch(/will not load or write project memory/);
 
     const declared = locateSsotHome(three(), probesFrom({

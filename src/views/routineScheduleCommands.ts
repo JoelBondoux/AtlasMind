@@ -24,7 +24,7 @@ import * as vscode from 'vscode';
 import * as path from 'node:path';
 import { mkdir, writeFile } from 'node:fs/promises';
 
-import { defaultWorkspaceRootPath } from '../utils/workspaceRoots.js';
+import { ssotHomeForWrite, ssotHomeRoot } from '../utils/workspaceRoots.js';
 import type { AtlasMindContext } from '../extension.js';
 import type { RoutineScheduleEntry } from '../core/routineSchedule.js';
 import { planRoutineExecution } from '../core/routineExecutionPolicy.js';
@@ -71,7 +71,13 @@ function entryDetail(entry: RoutineScheduleEntry): string {
 }
 
 export async function manageScheduledRoutines(atlas: AtlasMindContext): Promise<void> {
-  const root = defaultWorkspaceRootPath();
+  // Routines live in project memory, so they are read from the SSOT home.
+  const home = ssotHomeRoot();
+  if (home.refusal) {
+    void vscode.window.showWarningMessage(home.refusal);
+    return;
+  }
+  const root = home.fsPath;
   const scheduler = atlas.routineScheduler;
   if (!root || !scheduler) {
     void vscode.window.showWarningMessage('Open a workspace folder to schedule its routines.');
@@ -185,11 +191,13 @@ export async function manageScheduledRoutines(atlas: AtlasMindContext): Promise<
 
 /** Write the built-in template, create-only, and open it. */
 export async function addDependencyCheckRoutine(atlas: AtlasMindContext): Promise<void> {
-  const root = defaultWorkspaceRootPath();
-  if (!root) {
-    void vscode.window.showWarningMessage('Open a workspace folder to add a routine to it.');
+  // A routine is project memory: written into the SSOT home, or refused.
+  const target = ssotHomeForWrite('Open a workspace folder to add a routine to it.');
+  if ('message' in target) {
+    void vscode.window.showWarningMessage(target.message);
     return;
   }
+  const root = target.fsPath;
   const folder = path.join(root, 'project_memory', 'routines');
   const file = path.join(folder, DEPENDENCY_CHECK_ROUTINE_FILE);
   let created = true;

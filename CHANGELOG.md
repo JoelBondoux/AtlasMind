@@ -6,6 +6,54 @@ The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/),
 
 ## [Unreleased]
 
+## [0.498.1] - 2026-10-08
+
+### Fixed
+
+- **Project memory is read and written in the same folder, always** — the split brain 0.498.0 left behind.
+  0.498.0 located the SSOT home in a multi-root workspace and moved *some* surfaces to it; every register
+  manager built from the first folder kept writing there. With project memory in the second folder, the
+  dashboard read a register from the home while its manager wrote the change into folder 0 — the write
+  "worked", the page never showed it, and the stray `project_memory/` it created made the home ambiguous at
+  the next probe. In the ambiguous case, bootstrap, the commands, the ideation board, the settings panel and
+  other writers still wrote to folder 0.
+  - **Every reader and writer of project memory resolves through `ssotHomeRoot()`.** The register managers —
+    tech debt, defects, the workflow audit ledger, portal hosting, CI routing, approvals, test cases,
+    delivery, documents, the Director, risk, security review, research, missions, the MCP environment
+    cache, the website plan and the workflow file — take `(home, refusal)`; the roadmap, the ideation board,
+    the testing matrix, compliance registers, data privacy, routines, golden eval cases, the gap analysis,
+    the producer report and portal, the release matrix, the AI-instruction sync and the committed
+    cost-history copy follow the same home. Bootstrap, import, update, describe and purge go to the home; a
+    person picks a folder only when none holds project memory yet.
+  - **An ambiguous home refuses every write with the one sentence.** A refused manager reads nothing and
+    throws `SsotHomeRefusalError` carrying `describeSsotHomeRefusal`'s text; user-initiated writes show it
+    (the Project Dashboard as a warning, not "that action failed"), automatic ones — the run report, a
+    gap-analysis reply, roadmap anchoring on open — are skipped and logged. New host helpers:
+    `ssotHomeForWrite()`, `requireSsotHomeForWrite()` and `ssotHomeRootPath()`.
+  - **The dashboard no longer presents one candidate's memory as the project's.** While the home is
+    ambiguous its project-memory sections are left empty and the banner says so, naming the first folder
+    its git, CI and file facts are still read from. Its cached register managers are rebound together when
+    the home moves.
+  - **The data-privacy policy does not switch off.** "Read nothing" would disable redaction, so an
+    ambiguous home applies `strictestDataPrivacyConfig` over every candidate's policy — rules and packs
+    unioned, trusted models intersected.
+  - **Two consequences of "the home owns it":** promotions run in the home, the repository whose branches
+    `delivery.json` describes; the Website Studio and preview read `website.json` and emit manifests from the
+    home, while content, surfaces and emitted engine files stay on the first folder until the site is bound
+    to a component (A5). Workspace identity — the cost-tracker key and the machine-private cost-history hash
+    — stays on the first folder.
+  - **A static guard.** `tests/baselines/ssotHomeResolution.test.ts` walks `src/` with the TypeScript AST and
+    fails when a first-folder value reaches project memory — a join with the SSOT path (under any name), or
+    any function, method or class derived as touching project memory and taking the root first. Its
+    allowlist carries one entry, with its reason. A table test writes through every register in a
+    multi-root workspace whose home is the second folder, an ambiguous one and a single root.
+  - **The refusal's way out names the file the probe reads.** The registers live at fixed
+    `project_memory/...` paths whatever `atlasmind.ssotPath` says, so the sentence now names
+    `project_memory/operations/workflow.json` rather than a path built from the setting. Making the
+    registers follow a non-default `ssotPath` is a separate change.
+  - The direct-read ratchet fell to 119 reads, 93 taking `[0]` (from 198 and 176). Not a roadmap tick:
+    slices A3–A6 remain.
+
 ## [0.498.0] - 2026-10-08
 
 ### Changed

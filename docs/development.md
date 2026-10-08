@@ -1016,7 +1016,13 @@ file's ceiling in the same commit — the test fails until you do — and never 
 
 Code that reads or writes **project memory** asks `ssotHomeRoot()` instead of the default folder: it
 returns the located SSOT home (`SSOT_HOME_RULES` in `workspaceScope.ts`), or no folder and a `refusal`
-when the home is ambiguous. Refuse with that sentence — never fall back to the first folder for a write.
+when the home is ambiguous. Refuse with that sentence — never fall back to the first folder, for a write
+*or* a read. Construct a register manager with `(home.fsPath, home.refusal)`; use `ssotHomeForWrite()` or
+`requireSsotHomeForWrite()` for a host write (the latter throws `SsotHomeRefusalError`, which the
+dashboard shows as a warning) and `ssotHomeRootPath()` for a read. A function that takes a root and
+touches project memory is a *sink* to `tests/baselines/ssotHomeResolution.test.ts`, which fails if a
+first-folder value reaches one; a root that means a component's own files is a different parameter and
+should be named for what it is.
 Pass the folder a composition was read from as `anchorFsPath` when resolving it, so `.` means that
 folder. Webview surfaces show the refusal as host-composed text (the Project Dashboard's
 `renderSsotHomeNotice` banner); they post nothing and offer no control that picks a folder. Workspace

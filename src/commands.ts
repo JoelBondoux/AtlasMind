@@ -10,6 +10,7 @@ import { RECOMMENDED_MCP_SERVERS, getRecommendedMcpStarterDetails } from './cons
 import { buildSkillDraftPrompt, extractGeneratedSkillCode, toSuggestedSkillId } from './core/skillDrafting.js';
 import { formatCostAdaptive } from './core/currencyFormatter.js';
 import { pickWorkspaceFolder } from './utils/workspacePicker.js';
+import { ssotHomeForWrite, ssotHomeRoot } from './utils/workspaceRoots.js';
 import { hasAiInstructionSyncFile, scanAiInstructionFiles, syncAiInstructionFiles } from './utils/aiInstructionSync.js';
 import { getSelectedSessionRenameTarget, postSidebarSummaryToChat } from './views/treeViews.js';
 import { checkStarterRuntime, runRuntimeInstallPlan } from './mcp/mcpRuntime.js';
@@ -288,11 +289,13 @@ export function registerCommands(
   const generateProducerReport = async (): Promise<void> => {
     const atlas = requireAtlas();
     if (!atlas) { return; }
-    const folder = vscode.workspace.workspaceFolders?.[0];
-    if (!folder) {
-      void vscode.window.showInformationMessage('Open a project folder before generating a producer report.');
+    // The report is read from and written into project memory: the SSOT home.
+    const target = ssotHomeForWrite('Open a project folder before generating a producer report.');
+    if ('message' in target) {
+      void (target.refused ? vscode.window.showWarningMessage(target.message) : vscode.window.showInformationMessage(target.message));
       return;
     }
+    const folder = target.folder;
 
     const [{ buildProducerReportInput }, { buildProducerReport }, fs, path] = await Promise.all([
       import('./core/producerReportGather.js'),
@@ -396,11 +399,12 @@ export function registerCommands(
   const publishProducerReport = async (): Promise<void> => {
     const atlas = requireAtlas();
     if (!atlas) { return; }
-    const folder = vscode.workspace.workspaceFolders?.[0];
-    if (!folder) {
-      void vscode.window.showInformationMessage('Open a project folder before publishing a producer report.');
+    const target = ssotHomeForWrite('Open a project folder before publishing a producer report.');
+    if ('message' in target) {
+      void (target.refused ? vscode.window.showWarningMessage(target.message) : vscode.window.showInformationMessage(target.message));
       return;
     }
+    const folder = target.folder;
 
     const config = vscode.workspace.getConfiguration('atlasmind');
     const [{ decidePublication, buildPublishableReport }, { renderProducerReportHtml, renderProducerReportMarkdown }, fs, path] =
@@ -498,11 +502,14 @@ export function registerCommands(
    * nothing, and each publication stays an act.
    */
   const addProducerPortalWorkflow = async (): Promise<void> => {
-    const folder = vscode.workspace.workspaceFolders?.[0];
-    if (!folder) {
-      void vscode.window.showInformationMessage('Open a project folder first.');
+    // The workflow uploads a folder inside project memory, so it belongs to the
+    // repository that holds project memory — the SSOT home.
+    const home = ssotHomeForWrite('Open a project folder first.');
+    if ('message' in home) {
+      void (home.refused ? vscode.window.showWarningMessage(home.message) : vscode.window.showInformationMessage(home.message));
       return;
     }
+    const folder = home.folder;
     const [{ producerPortalWorkflow, PRODUCER_PORTAL_WORKFLOW_PATH }, fs, path] = await Promise.all([
       import('./core/producerPortalPlan.js'),
       import('node:fs/promises'),
@@ -597,11 +604,14 @@ export function registerCommands(
     }),
 
     vscode.commands.registerCommand('atlasmind.syncTestingProtocols', async () => {
-      const workspaceRoot = vscode.workspace.workspaceFolders?.[0]?.uri.fsPath;
-      if (!workspaceRoot) {
-        void vscode.window.showInformationMessage('No workspace open — open a folder first.');
+      // The testing matrix and the workflow are project memory, so they are read
+      // from — and the managed blocks written into — the SSOT home.
+      const target = ssotHomeForWrite('No workspace open — open a folder first.');
+      if ('message' in target) {
+        void (target.refused ? vscode.window.showWarningMessage(target.message) : vscode.window.showInformationMessage(target.message));
         return;
       }
+      const workspaceRoot = target.fsPath;
       const { readProjectTestingConfig } = await import('./core/testingConfigLoader.js');
       const config = readProjectTestingConfig(workspaceRoot);
       if (!config) {
@@ -1012,7 +1022,8 @@ export function registerCommands(
     vscode.commands.registerCommand('atlasmind.bootstrapProject', async () => {
       const atlas = requireAtlas();
       if (!atlas) { return; }
-      const workspaceFolder = await pickWorkspaceFolder();
+      const workspaceFolder = await pickSsotHomeFolder();
+      if (workspaceFolder === null) { return; }
       if (!workspaceFolder) {
         vscode.window.showWarningMessage('Open a folder first to bootstrap a project.');
         return;
@@ -1024,7 +1035,8 @@ export function registerCommands(
     }),
 
     vscode.commands.registerCommand('atlasmind.describeProject', async () => {
-      const workspaceFolder = await pickWorkspaceFolder();
+      const workspaceFolder = await pickSsotHomeFolder();
+      if (workspaceFolder === null) { return; }
       if (!workspaceFolder) {
         vscode.window.showWarningMessage('Open a folder first to describe the project.');
         return;
@@ -1040,7 +1052,8 @@ export function registerCommands(
     }),
 
     vscode.commands.registerCommand('atlasmind.importProject', async () => {
-      const workspaceFolder = await pickWorkspaceFolder();
+      const workspaceFolder = await pickSsotHomeFolder();
+      if (workspaceFolder === null) { return; }
       if (!workspaceFolder) {
         vscode.window.showWarningMessage('Open a folder first to import a project.');
         return;
@@ -1049,7 +1062,8 @@ export function registerCommands(
     }),
 
     vscode.commands.registerCommand('atlasmind.updateProjectMemory', async () => {
-      const workspaceFolder = await pickWorkspaceFolder();
+      const workspaceFolder = await pickSsotHomeFolder();
+      if (workspaceFolder === null) { return; }
       if (!workspaceFolder) {
         vscode.window.showWarningMessage('Open a folder first to update project memory.');
         return;
@@ -1060,7 +1074,8 @@ export function registerCommands(
     vscode.commands.registerCommand('atlasmind.purgeProjectMemory', async () => {
       const atlas = requireAtlas();
       if (!atlas) { return; }
-      const workspaceFolder = await pickWorkspaceFolder();
+      const workspaceFolder = await pickSsotHomeFolder();
+      if (workspaceFolder === null) { return; }
       if (!workspaceFolder) {
         vscode.window.showWarningMessage('Open a folder first to purge project memory.');
         return;
@@ -1800,7 +1815,8 @@ export function registerCommands(
         agents: atlas.agentRegistry,
         router: atlas.modelRouter,
         providers: atlas.providerRegistry,
-        workspaceRoot: () => vscode.workspace.workspaceFolders?.[0]?.uri.fsPath,
+        // Golden cases and the baseline are project memory.
+        workspaceRoot: () => ssotHomeRoot().fsPath,
       });
     }),
 
@@ -1808,11 +1824,13 @@ export function registerCommands(
     // Nothing is fetched: a calendar feed URL is a credential, so the person
     // downloads the file and picks it here.
     vscode.commands.registerCommand('atlasmind.importRota', async () => {
-      const root = vscode.workspace.workspaceFolders?.[0]?.uri.fsPath;
-      if (!root) {
-        void vscode.window.showWarningMessage('Open a workspace folder before importing a rota.');
+      // The rota lives in project-director.json, which is project memory.
+      const target = ssotHomeForWrite('Open a workspace folder before importing a rota.');
+      if ('message' in target) {
+        void vscode.window.showWarningMessage(target.message);
         return;
       }
+      const root = target.fsPath;
       const [{ importRotaFromCalendar }, director] = await Promise.all([
         import('./views/rotaImportCommand.js'),
         import('./core/projectDirectorManager.js'),
@@ -1918,7 +1936,7 @@ export function registerCommands(
         : undefined;
       const config = supplied && typeof supplied === 'object'
         ? supplied as import('./types.js').WebsiteWorkspaceConfig
-        : new WebsiteWorkspaceManager(vscode.workspace.workspaceFolders?.[0]?.uri.fsPath).load();
+        : new WebsiteWorkspaceManager(ssotHomeRoot().fsPath).load();
       await setUpWebsiteStack(config);
     }),
   );
@@ -2747,6 +2765,32 @@ async function promptForAgentAssignments(
   }
 
   return new Set(selected.map(item => item.agentId));
+}
+
+/**
+ * The folder a project-memory command acts on: the SSOT home.
+ *
+ * Bootstrap, import, update, describe and purge all write project memory, so
+ * they go where it lives (`ssotHomeRoot()`), never to a folder picked for the
+ * occasion — a bootstrap into the second folder of a workspace whose memory is
+ * in the first would create a second `project_memory/` and make the home
+ * ambiguous by itself. The one exception is a workspace with no project memory
+ * anywhere yet: there the person chooses where it begins, which is the decision
+ * the probe will find afterwards.
+ *
+ * `null` means the home is ambiguous and the refusal has been shown;
+ * `undefined` means no folder is open (or the pick was dismissed).
+ */
+async function pickSsotHomeFolder(): Promise<vscode.WorkspaceFolder | undefined | null> {
+  const home = ssotHomeRoot();
+  if (home.refusal) {
+    void vscode.window.showWarningMessage(home.refusal);
+    return null;
+  }
+  if (home.location.rule === 'no-ssot-first-folder') {
+    return pickWorkspaceFolder();
+  }
+  return home.folder;
 }
 
 // ── Skill add helpers ────────────────────────────────────────────
