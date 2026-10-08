@@ -2,7 +2,7 @@ import { EnvironmentManager } from './core/environmentManager.js';
 import { resolveWithinWorkspace } from './core/workspaceBoundary.js';
 import { egressFetch, toSkillHttpResult } from './core/egressFetch.js';
 import { DryRunLedger, formatDryRunLedgerLine, readDryRunSetting } from './core/dryRun.js';
-import { DryRunHost, installDryRunHost, interceptDryRun } from './core/dryRunHost.js';
+import { DryRunHost, installDryRunHost, interceptDryRun, isDryRunActive } from './core/dryRunHost.js';
 import * as vscode from 'vscode';
 import * as path from 'path';
 import * as os from 'os';
@@ -66,6 +66,7 @@ import type { ArdInstaller } from './ard/ardInstaller.js';
 import type { CheckpointManager } from './core/checkpointManager.js';
 import type { ProjectRunHistory } from './core/projectRunHistory.js';
 import type { RoutineRegistry } from './core/routineRegistry.js';
+import type { RoutineScheduler } from './core/routineScheduler.js';
 import type { DeliveryManager } from './core/deliveryManager.js';
 import type { ProjectDirectorManager } from './core/projectDirectorManager.js';
 import type { DocumentsManager } from './core/documentsManager.js';
@@ -245,6 +246,12 @@ export interface AtlasMindContext {
   memoryRefresh: vscode.EventEmitter<void>;
   routineRegistry: RoutineRegistry;
   routinesRefresh: vscode.EventEmitter<void>;
+  /**
+   * Scheduled routines — ambient, not background: they run only while the
+   * editor is open, one at a time, each in its own worktree. Assigned
+   * immediately after context creation; absent without a workspace folder.
+   */
+  routineScheduler?: RoutineScheduler;
   /** Deployment-stage pipeline (local → staging → production) and promotion edges. */
   deliveryManager: DeliveryManager;
   /** Fires when delivery.json changes on disk, so the dashboard can re-sync. */
@@ -3503,6 +3510,61 @@ async function bootstrapAtlasMind(
         agentsRefresh.fire();
       },
     };
+
+    // ── Scheduled routines ───────────────────────────────────────────────────
+    // Ambient, not background: an extension does not run with the editor
+    // closed, so a routine "scheduled for 02:00" runs at 02:00 only if the
+    // editor is open then, and otherwise once when it next opens — never once
+    // per missed night. Deny by default three times over (the master setting,
+    // this developer's approval of the exact steps, a trusted workspace), one
+    // run at a time, each in a new worktree on its own branch, and it never
+    // pushes, merges or opens anything. The tick is cheap and pure until
+    // something is due, so it runs every minute regardless of the switch.
+    if (workspaceRootPath) {
+      const scheduledRoot = workspaceRootPath;
+      const ROUTINE_SCHEDULE_STATE_KEY = 'atlasmind.routines.scheduleState';
+      const { RoutineScheduler: RoutineSchedulerClass } = await import('./core/routineScheduler.js');
+      const routineScheduler = new RoutineSchedulerClass({
+        listRoutines: () => routineRegistry.list(),
+        isEnabled: () => vscode.workspace.getConfiguration('atlasmind').get<boolean>('routines.scheduling.enabled', false) === true,
+        isWorkspaceTrusted: () => vscode.workspace.isTrusted,
+        workspaceRoot: () => scheduledRoot,
+        readState: () => context.workspaceState.get<unknown>(ROUTINE_SCHEDULE_STATE_KEY),
+        writeState: async state => { await context.workspaceState.update(ROUTINE_SCHEDULE_STATE_KEY, state); },
+        // git with an argument vector and no shell. Every argument list is
+        // composed in routineScheduler; nothing a routine file says reaches it.
+        runGit: async (args, cwd) => {
+          const { stdout } = await execFileAsync('git', [...args], {
+            cwd,
+            windowsHide: true,
+            maxBuffer: 8 * 1024 * 1024,
+          });
+          return String(stdout);
+        },
+        runRoutine: async (routine, plan, cwd, options) => {
+          const { RoutineRunner } = await import('./core/routineRunner.js');
+          // Nobody is present to answer "retry, skip or abort?", so the answer
+          // is abort, and the run record says the step would have asked.
+          return new RoutineRunner(projectRunHistory).run(routine, plan, cwd, () => undefined, async () => 'abort', options);
+        },
+        report: (message, _memo, routineId) => {
+          projectRunsRefresh.fire();
+          const actions = ['Open Run Center', 'Mark reviewed'];
+          void vscode.window.showInformationMessage(message, ...actions).then(choice => {
+            if (choice === 'Open Run Center') {
+              void vscode.commands.executeCommand('atlasmind.openProjectRunCenter');
+            } else if (choice === 'Mark reviewed') {
+              void routineScheduler.markReviewed(routineId);
+            }
+          });
+        },
+        isDryRunActive: () => isDryRunActive(),
+        timeZone: Intl.DateTimeFormat().resolvedOptions().timeZone,
+      });
+      atlasContext.routineScheduler = routineScheduler;
+      routineScheduler.start(60_000);
+      context.subscriptions.push({ dispose: () => routineScheduler.dispose() });
+    }
 
     // ── Remote control (desktop server) ──────────────────────────────────────
     const remoteOutput = vscode.window.createOutputChannel('AtlasMind Remote');

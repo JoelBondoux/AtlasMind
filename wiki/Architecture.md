@@ -1186,6 +1186,19 @@ window is not a backlog**, **a source that could not be read is reported as not 
 quiet**, and **spend defaults to nothing** while reporting is never capped. Nothing runs unattended:
 the service returns a plan, and the notification offers a draft.
 
+**Scheduled routines** (`src/core/routineSchedule.ts`, `src/core/scheduledRoutinePolicy.ts`,
+`src/core/routineScheduler.ts`) let a routine that declares `schedule: daily at 02:00` run on its own and
+report back. Ambient again, not background: it runs only while the editor is open, and a missed window is
+caught up **once**, never once per missed night. The schedule is a three-form grammar, validated rather than
+coerced, in local time with the zone always stated; cron is refused by name. **The file asks; three other
+facts decide** — a master setting (off, user-scope only), your approval of the exact steps (a fingerprint, so
+editing a step withdraws it) and a trusted workspace — and approvals live in your workspace state, never in
+the committed memory. **The ceiling is `propose`**: each run happens in a new worktree on its own
+`chore/scheduled-…` branch, never your working tree; a step that pushes, publishes, changes git history or
+installs packages stops the run and is reported as needing you, never auto-approved. No worktree means no
+run. A dry run is recorded, not executed. The executor holds no model, so an unattended run spends nothing.
+It reports through the Run Center, a notification and the Overview's attention band.
+
 A sixth register (`src/core/testCaseRegister.ts`, rendered as a card on Dashboard → **Testing**)
 holds the manual half of testing. Everything else AtlasMind knows about tests is derived from files,
 which is the half a machine can answer; exploratory testing, an accessibility pass with a screen

@@ -27,6 +27,24 @@ export type RoutineFailureCallback = (
   result: RoutineStepResult,
 ) => Promise<'retry' | 'skip' | 'abort'>;
 
+/**
+ * How a run is written to run history, for a caller that is not a person at a
+ * prompt. `/ship` and the Run Center pass nothing.
+ */
+export interface RoutineRunRecordOptions {
+  /** Replaces `Routine` in the run-history title, e.g. `Scheduled routine`. */
+  titlePrefix?: string;
+  /** Lines logged after the steps: where the run happened and what it left behind. */
+  notes?: string[];
+  /**
+   * Steps deliberately not run, with why. A run whose executed steps all passed
+   * is still recorded as not finished when this is non-empty: a routine that
+   * stopped before half its steps did not complete, and recording it as
+   * `completed` would say it had.
+   */
+  notRun?: Array<{ label: string; reason: string }>;
+}
+
 export class RoutineRunner {
   constructor(private readonly runHistory: ProjectRunHistory) {}
 
@@ -49,6 +67,7 @@ export class RoutineRunner {
     workspaceRoot: string,
     onProgress: RoutineProgressCallback,
     onFailure: RoutineFailureCallback,
+    recordOptions: RoutineRunRecordOptions = {},
   ): Promise<RoutineRunResult> {
     const startedAt = Date.now();
     const stepResults: RoutineStepResult[] = [];
@@ -74,7 +93,7 @@ export class RoutineRunner {
         durationMs: Date.now() - startedAt,
         refusedReason: reason,
       };
-      await this.persistResult(routine, result);
+      await this.persistResult(routine, result, recordOptions);
       return result;
     }
 
@@ -150,7 +169,7 @@ export class RoutineRunner {
       durationMs: Date.now() - startedAt,
     };
 
-    await this.persistResult(routine, result);
+    await this.persistResult(routine, result, recordOptions);
     return result;
   }
 
@@ -191,15 +210,20 @@ export class RoutineRunner {
     }
   }
 
-  private async persistResult(routine: RoutineDefinition, result: RoutineRunResult): Promise<void> {
+  private async persistResult(
+    routine: RoutineDefinition,
+    result: RoutineRunResult,
+    options: RoutineRunRecordOptions,
+  ): Promise<void> {
     const now = new Date().toISOString();
     const runId = `routine-${routine.id}-${Date.now()}`;
+    const notRun = options.notRun ?? [];
 
     const record: ProjectRunRecord = {
       id: runId,
-      title: `Routine: ${routine.name}`,
+      title: `${options.titlePrefix ?? 'Routine'}: ${routine.name}`,
       goal: routine.description || routine.name,
-      status: result.succeeded ? 'completed' : 'failed',
+      status: result.succeeded && notRun.length === 0 ? 'completed' : 'failed',
       createdAt: now,
       updatedAt: now,
       estimatedFiles: 0,
@@ -209,9 +233,12 @@ export class RoutineRunner {
       totalSubtaskCount: routine.steps.length,
       currentBatch: 1,
       totalBatches: 1,
-      failedSubtaskTitles: result.failedStep
-        ? [result.steps.find(s => s.stepId === result.failedStep)?.label ?? result.failedStep]
-        : [],
+      failedSubtaskTitles: [
+        ...(result.failedStep
+          ? [result.steps.find(s => s.stepId === result.failedStep)?.label ?? result.failedStep]
+          : []),
+        ...notRun.map(step => `${step.label} (not run: ${step.reason})`),
+      ],
       subTaskArtifacts: [],
       executionOptions: {
         autonomousMode: true,
@@ -222,13 +249,21 @@ export class RoutineRunner {
       requireBatchApproval: false,
       paused: false,
       awaitingBatchApproval: false,
-      logs: result.steps.map(s => ({
-        timestamp: now,
-        level: s.exitCode === 0 ? 'info' as const : 'error' as const,
-        message: s.skipped
-          ? `[${s.label}] skipped`
-          : `[${s.label}] exit ${s.exitCode}${s.stderr ? `\n${s.stderr}` : ''}${s.stdout ? `\n${s.stdout}` : ''}`,
-      })),
+      logs: [
+        ...result.steps.map(s => ({
+          timestamp: now,
+          level: s.exitCode === 0 ? 'info' as const : 'error' as const,
+          message: s.skipped
+            ? `[${s.label}] skipped`
+            : `[${s.label}] exit ${s.exitCode}${s.stderr ? `\n${s.stderr}` : ''}${s.stdout ? `\n${s.stdout}` : ''}`,
+        })),
+        ...notRun.map(step => ({
+          timestamp: now,
+          level: 'warning' as const,
+          message: `[${step.label}] not run: ${step.reason}`,
+        })),
+        ...(options.notes ?? []).map(note => ({ timestamp: now, level: 'info' as const, message: note })),
+      ],
     };
 
     try {

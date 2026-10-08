@@ -262,6 +262,16 @@ fixed by validating harder — it is fixed by putting the commands in front of y
 A placeholder with no value is refused rather than becoming an empty string, so a routine cannot
 quietly run a different command from the one it describes.
 
+### A scheduled routine runs only what you approved, and only so far
+
+Scheduling is off until you switch it on in **user** settings (a repository's workspace settings cannot),
+and each routine also needs your approval of its exact steps — stored as a fingerprint in your own workspace
+state, never in the committed memory, so one person's approval cannot run code on a colleague's machine.
+Editing a step withdraws the approval. Unattended, a run may not push, publish, deploy, change git history
+or install packages: it stops at the first such step and reports that it needs you. It runs in a fresh git
+worktree on its own branch and refuses to run at all if one cannot be made, so it never touches your working
+tree. An untrusted workspace blocks it, and a dry run records it instead of running it.
+
 ---
 
 ## Everything on its way to a model goes through one gate

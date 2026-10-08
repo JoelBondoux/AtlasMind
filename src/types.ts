@@ -1880,6 +1880,15 @@ export interface RoutineDefinition {
   /** When true this routine is selected by /ship when no routine ID is specified. */
   default?: boolean;
   steps: RoutineStep[];
+  /**
+   * When the routine asks to run on its own, exactly as written in the file —
+   * `daily at 02:00`, `weekly on monday at 09:30`, `every 6 hours`. Kept raw and
+   * validated by `routineSchedule.parseRoutineSchedule`, never coerced here: a
+   * schedule the parser refuses is reported with its reason rather than read as
+   * some other time. Declaring one asks; it does not schedule anything — that
+   * takes the master setting and the developer's own approval of these steps.
+   */
+  schedule?: string;
   /** Absolute path to the source .md file. Absent for built-in routines. */
   source?: string;
   builtIn?: boolean;

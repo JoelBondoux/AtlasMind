@@ -153,6 +153,14 @@ export interface AttentionInput {
    * a disabled feature raise items forever.
    */
   research?: { due: number; neverScanned: number; blocked: number };
+  /**
+   * Scheduled routines, and — like research — **only when scheduling is
+   * switched on**: absent means decided against, not overlooked. Counts cover
+   * routines this developer approved, and a report somebody marked reviewed
+   * stops counting. Built by `scheduledRoutineAttentionInput`, which owns that
+   * decision so no caller can pass a zeroed group for a disabled feature.
+   */
+  scheduledRoutines?: { failed: number; needsYou: number; changed: number };
 }
 
 /**
@@ -222,6 +230,22 @@ const RULES: readonly AttentionRule[] = [
         label: `${input.defects.openBlockers} blocker defect${input.defects.openBlockers === 1 ? '' : 's'} open`,
         detail: 'Graded blocker because it loses work, exposes something, or breaks a path most people take — never because somebody called it urgent.',
         count: input.defects.openBlockers,
+      }
+      : undefined),
+  },
+  {
+    // A run nobody watched, failing. With the other failures, below the ones a
+    // whole team feels: it is one developer's routine on one machine.
+    id: 'scheduled-run-failed',
+    urgency: 'now',
+    rule: 'the latest unattended run of an approved scheduled routine failed or was interrupted, and nobody has reviewed it',
+    pageTarget: 'workflow',
+    evaluate: input => (input.scheduledRoutines && input.scheduledRoutines.failed > 0
+      ? {
+        label: `${input.scheduledRoutines.failed} scheduled run${input.scheduledRoutines.failed === 1 ? '' : 's'} failed`,
+        detail: 'A routine that ran on its own while you were elsewhere did not finish. Its output is in the Run Center; '
+          + 'AtlasMind: Manage Scheduled Routines marks it reviewed.',
+        count: input.scheduledRoutines.failed,
       }
       : undefined),
   },
@@ -482,6 +506,35 @@ const RULES: readonly AttentionRule[] = [
       : undefined),
   },
 
+  {
+    id: 'scheduled-run-needs-you',
+    urgency: 'soon',
+    rule: 'the latest unattended run stopped at a step that needs a person, was refused, or left work on a branch, and nobody has reviewed it',
+    pageTarget: 'workflow',
+    evaluate: input => (input.scheduledRoutines && input.scheduledRoutines.needsYou > 0
+      ? {
+        label: `${input.scheduledRoutines.needsYou} scheduled run${input.scheduledRoutines.needsYou === 1 ? '' : 's'} waiting for you`,
+        detail: 'Stopped before an install or a step past propose, or left changes on a chore/scheduled-… branch. '
+          + 'Nothing was pushed or merged; what happens next is your decision.',
+        count: input.scheduledRoutines.needsYou,
+      }
+      : undefined),
+  },
+  {
+    id: 'scheduled-routine-changed',
+    urgency: 'soon',
+    rule: 'an approved scheduled routine has been edited since it was approved, so it is not running',
+    pageTarget: 'workflow',
+    evaluate: input => (input.scheduledRoutines && input.scheduledRoutines.changed > 0
+      ? {
+        label: `${input.scheduledRoutines.changed} scheduled routine${input.scheduledRoutines.changed === 1 ? '' : 's'} paused by an edit`,
+        detail: 'A step changed after you approved it, so the steps that would run are not the ones you read. It stays '
+          + 'paused until you approve it again.',
+        count: input.scheduledRoutines.changed,
+      }
+      : undefined),
+  },
+
   // ── unassessed: nobody looked, which is not the same as fine ──────
   {
     id: 'research-no-source',
@@ -637,6 +690,7 @@ export function buildAttentionFeed(input: AttentionInput): AttentionFeed {
       // `defects` is supplied only once something has been recorded, so an
       // unused register cannot help the page claim it is clear.
       input.research, input.capacity, input.defects, input.approvals, input.testCases,
+      input.scheduledRoutines,
     ].filter(group => group !== undefined).length;
     feed.emptyState = assessed >= 4 ? 'clear' : 'unexamined';
   }

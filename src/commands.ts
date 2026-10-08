@@ -1828,6 +1828,22 @@ export function registerCommands(
       await buildAndPublishPortal();
     }),
 
+    // Scheduled routines: approve a routine's steps to run on their own while
+    // the editor is open, or add the built-in nightly dependency check.
+    vscode.commands.registerCommand('atlasmind.manageScheduledRoutines', async () => {
+      const atlas = requireAtlas();
+      if (!atlas) { return; }
+      const { manageScheduledRoutines } = await import('./views/routineScheduleCommands.js');
+      await manageScheduledRoutines(atlas);
+    }),
+
+    vscode.commands.registerCommand('atlasmind.addDependencyCheckRoutine', async () => {
+      const atlas = requireAtlas();
+      if (!atlas) { return; }
+      const { addDependencyCheckRoutine } = await import('./views/routineScheduleCommands.js');
+      await addDependencyCheckRoutine(atlas);
+    }),
+
     vscode.commands.registerCommand('atlasmind.buildCodebaseIndex', async () => {
       const atlas = requireAtlas();
       if (!atlas) { return; }

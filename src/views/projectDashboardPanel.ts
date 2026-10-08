@@ -3698,6 +3698,11 @@ interface DashboardSnapshot {
   gapAnalysis: DashboardGapAnalysisSnapshot;
   privacy: DashboardPrivacySnapshot;
   /**
+   * Scheduled routines' reports, for the attention band only — and only when
+   * scheduling is switched on. Absent means decided against, the research rule.
+   */
+  scheduledRoutines?: { failed: number; needsYou: number; changed: number };
+  /**
    * What needs a person, gathered from the pages above onto the Overview.
    *
    * Derived from this same snapshot rather than collected separately, so the
@@ -20589,6 +20594,7 @@ async function collectDashboardSnapshot(
     runtimeTdd,
   });
   const researchSnapshot = collectResearchSnapshot(atlas);
+  const scheduledRoutineAttention = atlas.routineScheduler?.attentionInput();
   const gapAnalysis = await collectGapAnalysisSnapshot(workspaceRoot, ssotPath, heuristicGapItems);
   // Stage 0 reads the registers that already own these questions. It does not
   // start a security review, risk analysis, debt scan, or test discovery just
@@ -21016,6 +21022,9 @@ async function collectDashboardSnapshot(
     },
     gapAnalysis,
     privacy: privacySnapshot,
+    // Read from this developer's own scheduler: approvals and last runs live
+    // in workspace state, never in project memory.
+    ...(scheduledRoutineAttention ? { scheduledRoutines: scheduledRoutineAttention } : {}),
   };
 
   const snapshotWithAssignments: Omit<DashboardSnapshot, 'attention'> = {
@@ -21308,6 +21317,8 @@ function buildAttentionInput(
         ? {}
         : { degraded: pickCapacityFinding(snapshot.runtime.capacity, 'degraded') }),
     },
+    // Same rule as research: supplied only when scheduling is switched on.
+    ...(snapshot.scheduledRoutines ? { scheduledRoutines: snapshot.scheduledRoutines } : {}),
     // Research is supplied only when it is switched on. `researchAttentionInput`
     // owns that decision so no caller can accidentally pass a zeroed group and
     // turn a disabled feature into a permanent nag.

@@ -555,6 +555,20 @@ setting twice.
 
 ---
 
+## A scheduled routine asks once, and stops where it would ask again
+
+A routine that runs on a schedule has a person present exactly once — when they approve it — and never
+again. So the approval is of **the exact steps shown**, recorded as a fingerprint: editing any step
+withdraws it. And three kinds of step are refused unattended by declaration, whatever the routine says:
+anything that leaves the machine (push, publish, deploy), anything that changes git history or acts on a
+pull request, and anything that installs packages. Nothing that would need an approval is auto-approved —
+the run stops at that step and reports that it needs you. A step whose failure would have asked you
+(`on_fail: prompt`) stops instead. Every run is in its own worktree, never your working tree, and the
+scheduler holds no model, so there is no tool call to approve and no untrusted text in any model's context.
+See [[Project-Planner|Routines that run on their own]].
+
+---
+
 ## A half-finished task is not started over elsewhere
 
 If a model fails partway through a task, AtlasMind normally hands the task to another model. That means

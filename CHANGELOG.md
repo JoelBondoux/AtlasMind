@@ -6,6 +6,48 @@ The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/),
 
 ## [Unreleased]
 
+## [0.496.0] - 2026-10-08
+
+### Added
+
+- **Scheduled routines: routines that run on their own and report back.** A routine in
+  `project_memory/routines/` may declare `schedule: daily at 02:00`, `weekly on monday at 09:30` or
+  `every 6 hours`. Nothing runs until `atlasmind.routines.scheduling.enabled` is on and the developer
+  approves the routine's exact steps with **AtlasMind: Manage Scheduled Routines**.
+  - **Ambient, not background.** A VS Code extension does not run with the editor closed, so a scheduled
+    routine runs while the editor is open, and a missed window is caught up **once** — six closed nights are
+    one run, never six (`src/core/routineSchedule.ts`, property-tested over arbitrary open/close patterns).
+    An attempt closes its window whatever it produced, so a failing nightly run reports once a night rather
+    than once a minute, and the attempt is recorded before the first step, so a crash reads *interrupted*
+    instead of replaying on every restart.
+  - **A small declared grammar, validated never coerced.** Three forms; `every N hours` only for divisors of
+    24; `2:00` refused rather than read as `02:00`; cron refused by name. Local time, and every description
+    names the zone.
+  - **The file asks; three other facts decide.** The master setting (default off, `application` scope so a
+    repository's workspace settings cannot switch it on), this developer's approval — a SHA-256 of the
+    schedule and every step, so editing any step withdraws it while renaming the routine does not — and a
+    trusted workspace. Approvals and last runs live in workspace state, never `project_memory/`.
+  - **The ceiling is `propose`** (`src/core/scheduledRoutinePolicy.ts`). Every run is in a new git worktree
+    on its own `chore/scheduled-<routine>-<date>` branch, never the working tree, and never pushes, merges
+    or opens a pull request. `UNATTENDED_STEP_RULES` refuses by declaration a step that leaves the machine,
+    changes git history or installs packages — an install's effect is chosen by the registry on the night,
+    not by the command somebody approved — so the run stops there and reports that it needs a person, never
+    auto-approving. The steps before it run; the rest are listed as not run with the rule. `on_fail: prompt`
+    aborts. No worktree, no run.
+  - **Reports back** (`src/core/routineScheduler.ts`): a `Scheduled routine:` record in the Run Center (a run
+    that stopped early is recorded as not finished), a notification with **Open Run Center** and **Mark
+    reviewed**, and the Overview's attention band (`scheduled-run-failed`, `scheduled-run-needs-you`,
+    `scheduled-routine-changed`, supplied only when scheduling is on). A worktree holding changes is kept and
+    named; an empty one is removed with `git branch -d`. One run at a time; a dry run is recorded, not run,
+    before any branch exists.
+  - **Spend is zero by construction.** The scheduler holds no model, so there is no spend to cap and no model
+    context for injection taint to reach — asserted by an import test rather than offered as a setting that
+    would gate nothing.
+  - **AtlasMind: Add Nightly Dependency Check Routine** writes the built-in example, create-only. Unattended
+    it runs `npm outdated` and stops before `npm update`; `/ship dependency-check` runs all of it attended.
+- `RoutineDefinition.schedule` (raw, validated by `parseRoutineSchedule`) and `RoutineRunRecordOptions` on
+  `RoutineRunner.run` for a run-history title, notes and the steps deliberately not run.
+
 ## [0.495.0] - 2026-10-08
 
 ### Added

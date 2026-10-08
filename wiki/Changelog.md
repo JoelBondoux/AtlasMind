@@ -19,6 +19,17 @@ Older entries below describe the software as it was at the time and are delibera
 
 ---
 
+## v0.496.0 -- Routines that run on their own, and report back
+
+- A routine can declare `schedule: daily at 02:00` (or weekly, or every N hours). Once scheduled routines are
+  switched on and you approve the routine's exact steps in **AtlasMind: Manage Scheduled Routines**, it runs
+  on its own — while the editor is open. A missed night is caught up once, never repeated.
+- Each run happens in a new git worktree on its own `chore/scheduled-…` branch. It never touches your working
+  tree and never pushes, merges or opens a pull request. A step that would, or that installs packages, stops
+  the run, and the report says it needs you. Editing a step withdraws your approval.
+- Reports land in the Run Center, a notification and the Overview's attention band. **AtlasMind: Add Nightly
+  Dependency Check Routine** adds a worked example that lists what is outdated and leaves the update for you.
+
 ## v0.495.0 -- Select and edit the elements of a real page
 
 - **Select & edit elements…** opens a found HTML page with every element selectable. Click one, or pick it

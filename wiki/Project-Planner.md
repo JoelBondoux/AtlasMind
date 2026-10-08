@@ -492,6 +492,44 @@ runner itself, so every way of starting a routine gets it. Promotions behave the
 back as the record, every step marked *Dry run: would have run …*, and nothing is recorded as having
 shipped.
 
+### Routines that run on their own
+
+A routine can ask to run on a schedule by adding one line to its file:
+
+```yaml
+schedule: daily at 02:00        # or: weekly on monday at 09:30, or: every 6 hours
+```
+
+Three forms, nothing else — `every N hours` takes 1, 2, 3, 4, 6, 8 or 12 so runs land on the same clock
+times every day, and a cron string is refused by name rather than half-understood. Times are **local**,
+and every description says which zone.
+
+**It is ambient, not background.** VS Code does not run extensions with the editor closed, so a routine
+scheduled for 02:00 runs at 02:00 if the editor is open then — and otherwise once, when you next open it.
+Six missed nights are one catch-up run, never six.
+
+**The file asks; you decide.** Nothing runs until `atlasmind.routines.scheduling.enabled` is on (a user
+setting only — a repository cannot switch it on for you) *and* you approve the routine with **AtlasMind:
+Manage Scheduled Routines**. The approval dialog shows exactly which steps will run unattended and where
+the run will stop. Edit any step afterwards and the approval is withdrawn until you give it again, because
+the steps that would run are no longer the ones you read. Approvals live in your own workspace state, not
+in the committed memory.
+
+**It stops at propose.** Each run happens in a new git worktree on its own `chore/scheduled-<routine>-<date>`
+branch. It never touches your working tree, and it never pushes, merges or opens a pull request. A step
+that would — or that installs packages, whose effect is decided by the registry on the night rather than
+by the command you approved — stops the run there, and the report says it needs you. The steps before it
+ran; the ones from it on did not. If no worktree can be made, nothing runs.
+
+**It reports back.** Every scheduled run is in the Run Center as *Scheduled routine: …*, raises a
+notification (**Open Run Center**, **Mark reviewed**), and appears on the Overview's attention band until
+you mark it reviewed. A worktree that holds changes is kept and named; an empty one is removed. In a dry
+run, a due routine is recorded, not run.
+
+**The nightly dependency check** (**AtlasMind: Add Nightly Dependency Check Routine**) is the built-in
+example. Unattended, it runs `npm outdated` and stops before `npm update`, so the report tells you what is
+out of date and that the update is waiting for you. `/ship dependency-check` does all of it, attended.
+
 ### Very large drafts get staged
 
 If a reviewed draft is too big for one run, the Run Center can break it into stages: AtlasMind executes

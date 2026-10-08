@@ -4,7 +4,7 @@
 
 <h1 align="center">AtlasMind</h1>
 
-<p align="center"><sub> · <strong>Current source version: 0.495.0</strong> · </sub></p>
+<p align="center"><sub> · <strong>Current source version: 0.496.0</strong> · </sub></p>
 
 
 <p align="center">
@@ -176,6 +176,19 @@ allow-list, redaction and file-withholding behaviour, retained metadata, provide
 important limits on overrides and compliance claims.
 
 ---
+
+## What's new in 0.496.0
+
+Routines can now run on their own and report back. Add `schedule: daily at 02:00` (or `weekly on monday
+at 09:30`, or `every 6 hours`) to a routine, switch on `atlasmind.routines.scheduling.enabled`, and approve
+it with **AtlasMind: Manage Scheduled Routines** — the dialog shows exactly which steps will run unattended
+and where it will stop. It is *ambient, not background*: VS Code does not run extensions with the editor
+closed, so a run happens while the editor is open and a missed night is caught up once, never repeated. Each
+run happens in a new git worktree on its own `chore/scheduled-…` branch, never your working tree, and never
+pushes, merges or opens a pull request; a step that would, or that installs packages, stops the run and is
+reported as needing you. Reports land in the Run Center, a notification and the Overview's attention band.
+**AtlasMind: Add Nightly Dependency Check Routine** adds the worked example, honest about its limit:
+unattended it lists what is outdated and leaves the update for you.
 
 ## What's new in 0.495.0
 
@@ -976,8 +989,9 @@ Everything is in the AtlasMind Settings panel, or under `atlasmind.*` in VS Code
 | `ci.localRunner.shutdownPolicy` | `ifStartedByAtlasMind` | Keep Docker open, close it only when AtlasMind opened it, or always close when no other container runs |
 | `testing.resourceShare` | `50` | Sliding scale for local test execution: the percentage of this computer tests may use, across every path AtlasMind runs or composes; the OS always keeps ≥25% (≥2 CPUs / 8 GB); machine-scoped |
 | `execution.worktreeIsolation` | `false` | Give each file-writing step of a job its own git worktree so a batch can write in parallel. Off means writers run one at a time — this setting buys back speed, it is not what makes the run safe |
+| `routines.scheduling.enabled` | `false` | Let routines that declare a `schedule:` run on their own while the editor is open, each in its own worktree, once you approve their exact steps. Never pushes, merges or installs unattended |
 
-All 165 settings are documented in the [Configuration reference](wiki/Configuration.md).
+All 166 settings are documented in the [Configuration reference](wiki/Configuration.md).
 
 ---
 

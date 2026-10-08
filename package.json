@@ -2,7 +2,7 @@
   "name": "atlasmind",
   "displayName": "AtlasMind",
   "description": "AI project management for VS Code: roadmap, risk, tech debt, compliance, testing and release tracked from your own repository — with a multi-agent AI team, or the AI coding tool you already use.",
-  "version": "0.495.0",
+  "version": "0.496.0",
   "publisher": "JoelBondoux",
   "preview": false,
   "license": "SEE LICENSE IN OSMFEULA.txt",
@@ -644,6 +644,16 @@
         "command": "atlasmind.buildAndPublishPortal",
         "title": "AtlasMind: Build and Publish Producer Portal",
         "icon": "$(cloud-upload)"
+      },
+      {
+        "command": "atlasmind.manageScheduledRoutines",
+        "title": "AtlasMind: Manage Scheduled Routines",
+        "icon": "$(watch)"
+      },
+      {
+        "command": "atlasmind.addDependencyCheckRoutine",
+        "title": "AtlasMind: Add Nightly Dependency Check Routine",
+        "icon": "$(package)"
       },
       {
         "command": "atlasmind.buildCodebaseIndex",
@@ -2839,6 +2849,12 @@
           "minimum": 5,
           "maximum": 480,
           "description": "How often ambient triggers are evaluated while the editor is open. A VS Code extension does not run when the editor is closed, so this is ambient rather than background: it works while you are not looking at AtlasMind."
+        },
+        "atlasmind.routines.scheduling.enabled": {
+          "type": "boolean",
+          "default": false,
+          "scope": "application",
+          "description": "Master switch for scheduled routines — a routine in project_memory/routines/ that declares a schedule (daily at HH:MM, weekly on <day> at HH:MM, every N hours) running on its own. Off by default, and switching it on runs nothing: each routine also needs your own approval of its exact steps (AtlasMind: Manage Scheduled Routines), withdrawn automatically if a step changes. Ambient, not background: routines run only while the editor is open, and a missed window is caught up once, never repeated. Each run happens in a new git worktree on a chore/scheduled-… branch, never touches your working tree, and never pushes, merges or opens a pull request; a step that would, or that installs packages, stops the run and is reported as needing you. User settings only, so a repository cannot switch it on for you."
         },
     "atlasmind.research.enabled": {
           "type": "boolean",

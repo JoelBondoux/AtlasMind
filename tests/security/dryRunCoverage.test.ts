@@ -120,6 +120,11 @@ const DRY_RUN_COVERED: Readonly<Record<string, Covered>> = {
     guards: ['interceptDryRun'],
     covers: 'runPromotion returns the plan as the record and runs no step; runRollback, applyPromotionRemediation and the health-check test run nothing.',
   },
+  'core/routineScheduler.ts': {
+    guards: ['interceptDryRun'],
+    covers: 'A due scheduled routine is recorded, not run, before any worktree or branch exists: a timer’s write, so recorded without a notification. Its steps then go through RoutineRunner, which refuses again for a switch turned on mid-run.',
+    leaves: `The per-developer schedule state in workspace state, written before each run so a crash cannot replay it (${BOOKKEEPING}).`,
+  },
   'core/routineRunner.ts': {
     guards: ['interceptDryRun'],
     covers: 'RoutineRunner.run refuses before the first step, for /ship, the Run Center and any later caller.',
@@ -131,7 +136,7 @@ const DRY_RUN_COVERED: Readonly<Record<string, Covered>> = {
   'extension.ts': {
     guards: ['installDryRunHost', 'interceptDryRun'],
     covers: 'Installs the host before any surface exists; holds the setup-terminal sends, the memory self-heal pass, the background snippet refresh and the automatic stale-memory re-import.',
-    leaves: `The SkillExecutionContext members, reached only through the tool loop, where B1 decides and its context backstop refuses every effect; the worktree runGit hook, which B1 disables in a dry turn; the research-digest and CLI-shim commands (${OPERATOR_SAVE}); git reads (${READS}).`,
+    leaves: `The SkillExecutionContext members, reached only through the tool loop, where B1 decides and its context backstop refuses every effect; the worktree runGit hook, which B1 disables in a dry turn; the scheduled-routine git runner, reached only after RoutineScheduler has asked interceptDryRun; the research-digest and CLI-shim commands (${OPERATOR_SAVE}); git reads (${READS}).`,
   },
   'mcp/buzzCliBridge.ts': {
     guards: ['guardDryRun'],
@@ -226,6 +231,7 @@ const PUBLIC_METADATA = `Reads public model or pricing metadata; sends nothing o
 const SCRIPT_TEXT = 'The match is inside script text this module generates for another runtime (a preview page, a CI runner); the extension host never runs it.';
 
 const DRY_RUN_EXEMPT: Readonly<Record<string, string>> = {
+  'views/routineScheduleCommands.ts': `Writes the built-in dependency-check routine, create-only, when an operator runs the command for it (${OPERATOR_SAVE}). Approving a routine to run on its own writes only to workspace state; the run itself is held by RoutineScheduler.`,
   'bootstrap/projectBriefOnboarding.ts': `Writes the project brief the operator has just typed: create-only from /bootstrap, which a dry run refuses at its entry, and from the Describe the Project command, which asks before replacing an existing brief (${OPERATOR_SAVE}).`,
   'cli/nodeMemoryManager.ts': 'The CLI and ACP memory store. It persists only when upsert is called, which happens through the upsertMemory skill-context member: in a dry turn B1 simulates memory-write and its context backstop refuses that member.',
   'cli/nodeSkillContext.ts': "The CLI and ACP agent's SkillExecutionContext. It is reached only through the tool loop, where B1's decideDryRun decides each call and createDryRunSkillContext refuses every effect member of a call allowed to run.",
