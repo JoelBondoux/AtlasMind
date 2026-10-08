@@ -101,6 +101,17 @@ import {
 } from '../core/uiSurfaceEmit.js';
 import { spawn } from 'node:child_process';
 import { interceptDryRun } from '../core/dryRunHost.js';
+import {
+  classifyUiSurfaceRender,
+  describeUiSurfaceRender,
+  planDevServerRender,
+  uiSurfaceRenderId,
+  DEV_SERVER_PACKAGE_MANAGERS,
+  UI_SURFACE_RENDER_FALLBACK,
+  UI_SURFACE_RENDER_RULES,
+  type UiSurfaceRenderDecision,
+} from '../core/uiSurfaceRender.js';
+import { UiSurfaceRenderHost } from './uiSurfaceRenderHost.js';
 
 /**
  * The views. Not steps: three earlier layouts numbered these one to eight and
@@ -191,7 +202,9 @@ export type WebsiteStudioMessage =
   | { type: 'extractBrandFromStylesheet'; payload: { path: string } }
   | { type: 'emitSurface'; payload: { screenId: string; targetId: UiEmitTargetId; outputRoot?: string; discardEngineLayout?: boolean } }
   | { type: 'pushSurfaceContent'; payload: { screenId: string; targetId: UiEmitTargetId } }
-  | { type: 'launchSurface'; payload: { screenId: string; targetId: UiEmitTargetId } };
+  | { type: 'launchSurface'; payload: { screenId: string; targetId: UiEmitTargetId } }
+  | { type: 'renderSurface'; payload: { surfaceId: string } }
+  | { type: 'stopSurfaceDevServer' };
 
 /**
  * Validate everything arriving from the webview.
@@ -213,7 +226,18 @@ export function isWebsiteStudioMessage(input: unknown): input is WebsiteStudioMe
     case 'refreshPreview':
     case 'stopPreview':
     case 'openDeliveryPage':
+    case 'stopSurfaceDevServer':
       return true;
+    case 'renderSurface': {
+      // An id and nothing else. The host recomputes every id over a fresh
+      // scan, so a message can choose among the files the scan found and can
+      // never name one of its own — nor a mode, a command or a route.
+      const payload = asPayload(message['payload']);
+      return payload !== undefined
+        && Object.keys(payload).length === 1
+        && typeof payload['surfaceId'] === 'string'
+        && /^uis-[0-9a-f]{16}$/.test(payload['surfaceId']);
+    }
     case 'emitSurface': {
       // A target from the declared table, a screen id, and at most a folder and
       // a flag. The folder is validated again by the planner; the flag only
@@ -421,6 +445,8 @@ export class WebsiteStudioPanel {
   private activePage: WebsiteStudioPage;
   /** Set when the file on disk was written by a newer AtlasMind. Saving is refused. */
   private readOnly = false;
+  /** Renders found surfaces as themselves; created on the first render asked for. */
+  private renderHost: UiSurfaceRenderHost | undefined;
 
   private constructor(
     private readonly panel: vscode.WebviewPanel,
@@ -463,6 +489,10 @@ export class WebsiteStudioPanel {
 
     this.panel.onDidDispose(() => {
       previewSelectionSubscription.dispose();
+      // A dev server this Studio started stops with it; nothing is left running
+      // on behalf of a panel that is gone.
+      this.renderHost?.dispose();
+      this.renderHost = undefined;
       WebsiteStudioPanel.currentPanel = undefined;
       // The preview server is owned by the preview panel, but a Studio that is
       // gone should not leave one running on its behalf.
@@ -790,6 +820,64 @@ export class WebsiteStudioPanel {
     if (this.readOnly) {
       throw new Error('This UI plan was written by a newer AtlasMind and cannot be edited here.');
     }
+  }
+
+  /**
+   * Show a found surface as itself.
+   *
+   * The id is matched against a fresh scan, so only a file the scan classified
+   * can be rendered, and the mode comes from the render rule table — never
+   * from the message. Rendering changes nothing in the project, which is why it
+   * is allowed in a read-only workspace; starting a dev server is the one act
+   * here that runs something, and it is confirmed with the exact argv and held
+   * by a dry run inside the render host.
+   */
+  private async handleRenderSurface(surfaceId: string): Promise<void> {
+    const root = this.workspaceRoot;
+    if (!root) {
+      throw new Error('Open a workspace folder to render a surface.');
+    }
+    const surface = this.scanWorkspaceUiSurfaces()?.surfaces.find(candidate => uiSurfaceRenderId(candidate.path) === surfaceId);
+    if (!surface) {
+      throw new Error('That surface is not in the current scan. Refresh UI Studio and pick it again.');
+    }
+    const decision = classifyUiSurfaceRender({ ruleId: surface.ruleId, path: surface.path });
+    this.renderHost ??= new UiSurfaceRenderHost(root, update => {
+      void this.panel.webview.postMessage({ type: 'surfaceRenderState', ...update });
+    });
+    if (decision.mode === 'static-file') {
+      this.renderHost.renderStatic({ surfaceId, path: surface.path, label: surface.label });
+      return;
+    }
+    if (decision.mode === 'dev-server') {
+      let packageJson: unknown;
+      try {
+        packageJson = JSON.parse(readWorkspaceText(root, 'package.json') ?? '');
+      } catch {
+        packageJson = undefined;
+      }
+      const lockfiles = new Set(DEV_SERVER_PACKAGE_MANAGERS
+        .map(manager => manager.lockfile)
+        .filter(lockfile => nodeFs.existsSync(path.join(root, lockfile))));
+      const plan = planDevServerRender({ packageJson, lockfiles, surfacePath: surface.path });
+      if (plan.status === 'refused') {
+        await this.panel.webview.postMessage({
+          type: 'surfaceRenderState',
+          surfaceId,
+          mode: 'not-renderable',
+          statement: describeUiSurfaceRender({ kind: 'not-renderable', path: surface.path, reason: plan.reason }),
+        });
+        return;
+      }
+      await this.renderHost.renderViaDevServer(surfaceId, surface.path, plan);
+      return;
+    }
+    await this.panel.webview.postMessage({
+      type: 'surfaceRenderState',
+      surfaceId,
+      mode: decision.mode,
+      statement: describeUiSurfaceRender({ kind: 'not-renderable', path: surface.path, reason: decision.reason }),
+    });
   }
 
   /** Save through the manager, keep the edit session in step, re-render and say so. */
@@ -1369,6 +1457,19 @@ export class WebsiteStudioPanel {
         case 'launchSurface':
           await this.handleLaunchSurface(input.payload.screenId, input.payload.targetId);
           return;
+        case 'renderSurface':
+          await this.handleRenderSurface(input.payload.surfaceId);
+          return;
+        case 'stopSurfaceDevServer': {
+          const stopped = this.renderHost?.stopDevServer() ?? false;
+          // No tone: a success notice also clears the unsaved badge, and stopping
+          // a server saves nothing.
+          await this.panel.webview.postMessage({
+            type: 'notice',
+            message: stopped ? 'Stopped the dev server UI Studio started.' : 'UI Studio has no dev server running.',
+          });
+          return;
+        }
       }
     } catch (error) {
       const detail = error instanceof Error ? error.message : String(error);
@@ -2058,6 +2159,7 @@ function renderWireframesPage(
         </div>
 
         <aside class="canvas-inspector">
+          ${renderSurfaceRenderCards(config, options)}
           <div id="wireframeInspector"></div>
           <div class="page-prompt-block">
             <p class="eyebrow">Whole page</p>
@@ -2081,6 +2183,88 @@ function renderWireframesPage(
       </div>
     </section>
   `;
+}
+
+const RENDER_MODE_LABELS: Readonly<Record<UiSurfaceRenderDecision['mode'], string>> = {
+  'static-file': 'real file · scripts off',
+  'dev-server': 'your dev server',
+  'engine-only': 'engine only',
+  'not-renderable': 'not renderable here',
+};
+
+/**
+ * The Rendered output card: one block per surface, shown for the one on the
+ * canvas. Every block says what *would* be on screen and, once something is,
+ * the host replaces the sentence with `describeUiSurfaceRender`'s — so a draft
+ * is never shown as the real thing and an app's root never as the component.
+ * The buttons carry a scan-derived id and nothing else.
+ */
+function renderSurfaceRenderCards(config: WebsiteWorkspaceConfig, options: WebsiteStudioHtmlOptions): string {
+  const scanned = new Map((options.uiSurfaces?.surfaces ?? []).map(surface => [surface.path, surface]));
+  const statement = (id: string, text: string) =>
+    `<p class="render-statement"${id ? ` data-render-statement="${escapeHtml(id)}"` : ''} role="status">${escapeHtml(text)}</p>`;
+  const cards = config.pages.map(page => {
+    let body: string;
+    if (page.source) {
+      const surface = scanned.get(page.source.path);
+      if (!options.uiSurfaces) {
+        body = statement('', `Not scanned, so ${page.source.path} cannot be rendered. Open the workspace folder.`);
+      } else if (!surface) {
+        body = statement('', describeUiSurfaceRender({ kind: 'missing', path: page.source.path }));
+      } else {
+        const id = uiSurfaceRenderId(surface.path);
+        const decision = classifyUiSurfaceRender({ ruleId: surface.ruleId, path: surface.path });
+        const actions = decision.mode === 'static-file'
+          ? `<button type="button" class="secondary" data-render-surface="${escapeHtml(id)}" data-render-auto>Render the real file</button>`
+          : decision.mode === 'dev-server'
+            ? `<button type="button" class="secondary" data-render-surface="${escapeHtml(id)}" title="Shows the exact command and asks before anything starts.">Render via your dev server…</button>
+               <button type="button" class="subtle" data-stop-dev-server>Stop dev server</button>`
+            : '';
+        body = `
+          <span class="tag render-mode">${escapeHtml(RENDER_MODE_LABELS[decision.mode])} · <code>${escapeHtml(decision.ruleId)}</code></span>
+          ${statement(id, decision.mode === 'static-file' || decision.mode === 'dev-server'
+            ? `Not rendered yet. ${decision.reason}`
+            : describeUiSurfaceRender({ kind: 'not-renderable', path: surface.path, reason: decision.reason }))}
+          ${actions ? `<div class="inspector-actions">${actions}</div>` : ''}`;
+      }
+    } else {
+      const emits = (options.emittedSurfaces ?? []).filter(view => view.manifest.pageId === page.id);
+      body = statement('', describeUiSurfaceRender({ kind: 'draft' })) + emits.map(view => {
+        const target = uiEmitTarget(view.manifest.targetId);
+        const file = view.manifest.files.find(entry => !entry.shared)?.path ?? '';
+        if (target.kind === 'handoff') {
+          return `<p class="render-emit"><strong>${escapeHtml(target.label)}</strong> — a specification for ${escapeHtml(target.engineLabel)}; there is nothing to render until somebody builds it there.</p>`;
+        }
+        const found = scanned.get(file);
+        const decision = classifyUiSurfaceRender(found ? { ruleId: found.ruleId, path: file } : { path: file });
+        const launch = view.launch.kind === 'command'
+          ? `<button type="button" class="subtle" data-launch-surface data-screen="${escapeHtml(view.manifest.screenId)}" data-target="${escapeHtml(view.manifest.targetId)}">${view.launch.manualOnly ? 'Show launch command' : `Launch in ${escapeHtml(target.engineLabel)}`}</button>`
+          : '';
+        const render = found && decision.mode === 'static-file'
+          ? `<button type="button" class="subtle" data-render-surface="${escapeHtml(uiSurfaceRenderId(file))}">Render the emitted file</button>`
+          : '';
+        const text = decision.mode === 'engine-only'
+          ? decision.reason
+          : decision.mode === 'static-file'
+            ? found ? `Not rendered yet. ${decision.reason}` : `${file} is not in the current scan, so it is not rendered here.`
+            : describeUiSurfaceRender({ kind: 'not-renderable', path: file, reason: decision.reason });
+        return `<div class="render-emit">
+          <p><strong>${escapeHtml(target.label)}</strong> · <code>${escapeHtml(file)}</code></p>
+          ${statement(found ? uiSurfaceRenderId(file) : '', text)}
+          ${render || launch ? `<div class="inspector-actions">${render}${launch}</div>` : ''}
+        </div>`;
+      }).join('');
+    }
+    return `<article class="surface-render-card" data-render-card-page="${escapeHtml(page.id)}" hidden>${body}</article>`;
+  }).join('');
+  const rules = [...UI_SURFACE_RENDER_RULES, UI_SURFACE_RENDER_FALLBACK].map(rule =>
+    `<li><code>${escapeHtml(rule.id)}</code> (${escapeHtml(RENDER_MODE_LABELS[rule.mode])}) — ${escapeHtml(rule.description)} ${escapeHtml(rule.reason)}</li>`).join('');
+  return `
+    <section class="surface-render" aria-label="Rendered output">
+      <p class="eyebrow">Rendered output</p>
+      ${cards}
+      <details class="rail-rules"><summary>How a surface is rendered</summary><ul>${rules}</ul></details>
+    </section>`;
 }
 
 /**
@@ -2227,6 +2411,7 @@ function renderPreviewCard(
           <p class="eyebrow">Canonical review surface</p>
           <h2>Open the complete design in VS Code</h2>
           <p>The full preview opens in VS Code's built-in browser at normal browser scale. Its index keeps every ${screenNoun} one click away and links separately to any model-generated visual guide.</p>
+          <p class="preview-draft-label"><strong>This is the Studio's draft of every ${screenNoun}, never a project file.</strong> A found surface's real file renders from its <em>Rendered output</em> card beside the canvas.</p>
           <p class="preview-freshness"><strong>Saved inputs:</strong> ${drawn}/${config.pages.length} drawn · ${contentReady}/${config.pages.length} with content · UI system applied globally</p>
         </div>
         <div class="preview-primary-actions">
@@ -2590,6 +2775,7 @@ function renderSurfacesRail(
           <div><strong>${escapeHtml(surface.label)}</strong><small title="${escapeHtml(surface.path)}">${escapeHtml(surface.path)}</small></div>
           <span class="tag">${escapeHtml(surface.adapterId)} · ${escapeHtml(surface.kind)}</span>
           <button type="button" class="subtle" data-pick-up="${escapeHtml(surface.path)}"${options.readOnly ? ' disabled' : ''} title="Bring this file in as a surface to design and brand here. Its layout stays the project's.">Pick up</button>
+          ${renderFoundRowRenderButton(surface)}
         </div>`).join('')
         + (found.length > shown.length
           ? `<p class="rail-empty">${found.length - shown.length} more not listed${uiSurfaces.truncated ? ' — the scan hit a cap' : ''}.</p>`
@@ -2630,6 +2816,15 @@ function renderSurfacesRail(
       <button type="button" class="secondary full" data-open-ssot="json">Open website.json</button>
       <button type="button" class="secondary full" data-open-ssot="markdown">Open website.md</button>
     </div>`;
+}
+
+/** A found file's Render button, where its render rule allows one. */
+function renderFoundRowRenderButton(surface: UiSurfaceScanReport['surfaces'][number]): string {
+  const decision = classifyUiSurfaceRender({ ruleId: surface.ruleId, path: surface.path });
+  if (decision.mode !== 'static-file' && decision.mode !== 'dev-server') {
+    return '';
+  }
+  return `<button type="button" class="subtle" data-render-surface="${escapeHtml(uiSurfaceRenderId(surface.path))}" title="${escapeHtml(decision.reason)}">${decision.mode === 'dev-server' ? 'Render…' : 'Render'}</button>`;
 }
 
 /**

@@ -197,6 +197,11 @@ const DRY_RUN_COVERED: Readonly<Record<string, Covered>> = {
     covers: 'Ollama pulls and deletes, LM Studio downloads.',
     leaves: `The Ollama version check and git shortlog (${READS}); settings, testing and instruction-file saves (${OPERATOR_SAVE}).`,
   },
+  'views/uiSurfaceRenderHost.ts': {
+    guards: ['interceptDryRun'],
+    covers: "Starting the project's dev server to render a component, held after the confirmation that shows the exact argv.",
+    leaves: `Rendering a static page as itself in a scripts-off webview (${READS}); stopping the dev server this panel itself started, which ends only what a confirmed start began.`,
+  },
   'views/websiteStackSetupHost.ts': {
     guards: ['interceptDryRun', 'guardHostCommand', 'execFileAsync'],
     covers: 'The whole setup run, held after the confirmation; its scaffold commands are guarded again at execFileInDirectory.',

@@ -19,6 +19,19 @@ Older entries below describe the software as it was at the time and are delibera
 
 ---
 
+## v0.494.0 -- UI Studio shows the real surface, not only its draft
+
+- **Pick up a found HTML page and it renders as the real file** beside the canvas — scripts off, only files
+  from its own folder loaded, refreshed when the folder changes — labelled with its path, the time it was
+  last changed, and anything that did not load.
+- **A component renders through your own dev server**, if you ask. AtlasMind recognises the project's `dev`
+  script, shows you the exact command, and starts nothing until you confirm; the page opens in VS Code's
+  browser at the address the server printed, on the route Next.js, SvelteKit or Nuxt routing gives it — or
+  at the app's root, labelled as the root, when no route can be worked out.
+- **What cannot be rendered says why.** A webview script, a token stylesheet and an engine file (*cannot
+  render in the editor* — use Launch) are named, never replaced by the Studio's draft. The full preview now
+  says it is the draft.
+
 ## v0.493.0 -- The project in your own words, asked first and walked onto the roadmap
 
 - **`/bootstrap` asks first.** Before any specific question: who the project is for, what it should do,

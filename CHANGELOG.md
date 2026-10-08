@@ -6,6 +6,42 @@ The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/),
 
 ## [Unreleased]
 
+## [0.494.0] - 2026-10-08
+
+### Added
+
+- **UI Studio renders a found surface as itself, beside the canvas.** Opening a picked-up surface from the
+  Surfaces rail now shows a **Rendered output** card in the inspector, and found files carry a **Render**
+  button. What can be shown is decided by a declared rule table (`src/core/uiSurfaceRender.ts`,
+  `UI_SURFACE_RENDER_RULES`) that claims every scan rule — asserted by test — and names the rule on the card:
+  - **A static HTML page renders as the real file** in a companion panel beside the Studio, with scripts
+    disabled at the webview *and* in a Content-Security-Policy put in front of the file's own markup (no
+    script, connection, frame or form; styles, images, fonts and media only from the page's folder), local
+    resource roots limited to that folder, the path re-resolved through `realpath` and refused outside the
+    workspace, and a 2 MB cap. It refreshes when anything in the folder changes, and the label says what it
+    is — *Real file at site/index.html, as of …* — and what did not load: scripts that did not run, remote
+    resources, references outside the folder.
+  - **A React, Vue or Svelte component renders through the project's own dev server**, opt-in. The command
+    comes from a declared table — script `dev`/`start`/`serve`/`develop` in that order, recognised as Vite,
+    Next.js, Nuxt, Astro, SvelteKit, Create React App, Vue CLI, Angular or webpack, package manager from the
+    lockfile — and anything else is refused rather than guessed. It starts only after a modal showing the
+    exact argv (resolved through `windowsShimBypass`, no shell), is held by dry run, and stops with the Studio
+    or **Stop dev server**. The page opens in VS Code's built-in browser at the loopback address the server
+    printed, plus a route derived from Next.js, SvelteKit or Nuxt file-system routing when the project
+    declares that framework; otherwise the card says the route could not be determined and that the app's root
+    is shown, not the component.
+  - **A webview script, a token stylesheet and an engine file are not rendered**, with the reason; an engine
+    emit says *cannot render in the editor* beside its existing Launch button.
+- The full preview now says plainly that it renders the Studio's draft of every surface, never a project
+  file.
+
+### Security
+
+- The webview posts a scan-derived surface id (`uis-` + 16 hex) and nothing else; the host matches it against
+  a fresh scan and takes the mode from the rule table, so a message can choose among files the scan found
+  and never name one, a mode, a command or a route. `views/uiSurfaceRenderHost.ts` is classified in
+  `tests/security/dryRunCoverage.test.ts`.
+
 ## [0.493.0] - 2026-10-08
 
 ### Added

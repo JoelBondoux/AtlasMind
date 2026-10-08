@@ -52,6 +52,15 @@ export const WEBSITE_STUDIO_CSS = `  /* Palette, page frame and hero come from t
   .rail-rules summary { cursor:pointer; }
   .rail-rules ul { padding-left:16px; margin:6px 0 0; display:grid; gap:4px; }
   .brand-rules { margin-top:12px; }
+  .surface-render { display:grid; gap:8px; padding:10px; margin-bottom:12px; border:1px solid var(--studio-border); border-radius:8px; }
+  .surface-render .eyebrow { margin:0; }
+  .surface-render-card { display:grid; gap:6px; }
+  .surface-render-card[hidden] { display:none; }
+  .surface-render .render-mode { justify-self:start; font-size:10px; padding:1px 6px; border-radius:999px; background:var(--vscode-badge-background); color:var(--vscode-badge-foreground); }
+  .surface-render .render-statement { margin:0; font-size:12px; line-height:1.45; overflow-wrap:anywhere; }
+  .surface-render .render-emit { display:grid; gap:4px; padding-top:6px; border-top:1px solid var(--studio-border); font-size:12px; }
+  .surface-render .render-emit p { margin:0; overflow-wrap:anywhere; }
+  .preview-draft-label { font-size:12px; }
   .view-strip { display:flex; flex-wrap:wrap; gap:6px; padding-bottom:12px; margin-bottom:14px; border-bottom:1px solid var(--studio-border); }
   .view-strip .nav-button { padding:6px 12px; border-radius:999px; }
   .brand-grid { display:grid; grid-template-columns:repeat(auto-fill,minmax(300px,1fr)); gap:14px; margin-bottom:16px; }

@@ -440,6 +440,18 @@ lost. `handlePushSurfaceContent` shows each region before and after beside every
 the files the plan names; `handleLaunchSurface` opens a web page externally, shows Unity's argv to copy,
 and runs Godot through `spawn` with an argument vector and no shell after a modal that shows the argv.
 Manifests are read as untrusted (`sanitizeUiEmitManifest`) through a bounded, workspace-contained read.
+The design view's inspector opens with a **Rendered output** card (`renderSurfaceRenderCards`), one block
+per surface shown for the one on the canvas, and found rows in the rail carry a **Render** button. Both post
+`renderSurface` with a scan-derived id (`uis-` + 16 hex, from `uiSurfaceRenderId`) and nothing else;
+`handleRenderSurface` recomputes every id over a fresh scan, refuses one it does not find, and takes the
+mode from `uiSurfaceRender.ts`'s rule table. A static page renders in a second webview panel
+(`src/views/uiSurfaceRenderHost.ts`, view type `atlasmind.uiSurfaceRender`) with `enableScripts: false`,
+`enableForms: false`, `localResourceRoots` limited to the page's folder and a policy placed ahead of the
+file's own markup; it re-renders when the folder changes. A component goes through the project's dev
+server only after `confirmAndStartDevServer`'s resolve → modal → dry-run → `spawn` (no shell), and opens in
+the built-in browser at the printed loopback address. The host posts back `surfaceRenderState` with the
+sentence `describeUiSurfaceRender` composed, which the browser shows with `textContent`. Only a static
+render starts automatically when a surface is opened from the rail; the dev server stops with the Studio.
 
 Website delivery — the framework, hosting environments, platform targets and n8n automations — is
 rendered by the Project Dashboard's Delivery page (`renderWebsiteDelivery` in `media/projectDashboard.js`)
@@ -587,7 +599,7 @@ Tests live in `tests/core/website*.test.ts`, `tests/core/uiDesignGraph.test.ts`,
 path resolution, exact selection payload/revision checks, loopback token isolation, plus exhaustive walks for the setup planner and CI templates), with panel coverage in
 `tests/views/websiteStudioPanel.test.ts` / `tests/views/websitePreviewPanel.test.ts`, the shell's rail,
 views and brand actions in `tests/views/uiStudioShellSurface.test.ts`, the emitters and patch-by-anchor
-write-back in `tests/core/uiSurfaceEmit.test.ts`, and the Emit card in `tests/views/uiEmitSurface.test.ts`. The three executable
+write-back in `tests/core/uiSurfaceEmit.test.ts`, the Emit card in `tests/views/uiEmitSurface.test.ts`, the render rules, static policy, dev-server plan and routes in `tests/core/uiSurfaceRender.test.ts`, the dev-server start order in `tests/views/uiSurfaceRenderHost.test.ts`, and the Rendered output card in `tests/views/uiSurfaceRenderSurface.test.ts`. The three executable
 cross-target foundation scenarios are declared in `tests/fixtures/uiStudioReferenceProjects.ts` and run by
 `tests/core/uiStudioReferenceProjects.test.ts`; keep migration, reopening, edit/history, selection, full
 preview, and graph-neutrality coverage aligned when the shared graph contract changes.

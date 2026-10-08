@@ -1087,6 +1087,18 @@ in the file as it is now, refusing a missing anchor by name and showing a hand-e
 than overwriting it. Launch plans are constant argvs filled with the workspace root and scene, run
 through `spawn` with no shell after a modal that shows them.
 
+A found surface can also be **rendered as itself** (`src/core/uiSurfaceRender.ts` +
+`src/views/uiSurfaceRenderHost.ts`, 0.494.0), in a **Rendered output** card beside the canvas. A
+declared rule table decides the mode and names the rule: an HTML page renders as the real file in a
+companion panel with scripts off (at the webview and in a policy put ahead of the file's markup),
+only its own folder loadable, refreshed on change, and labelled with its path, its time and what did
+not load; a React, Vue or Svelte component renders through the project's own dev server — the `dev`
+script recognised from a declared table, started only after a modal showing the exact argv, held by
+dry run, opened in the built-in browser at the loopback address it printed, on a route only where
+Next.js, SvelteKit or Nuxt routing makes one verifiable; a webview script, a token stylesheet and an
+engine file say why not (*cannot render in the editor*, beside Launch). The webview posts a
+scan-derived id and nothing else, and the full preview says it is the Studio's draft.
+
 Website delivery — the framework, the three hosting environments, the platform targets and the n8n
 map — is a card on the Project Dashboard's Delivery page since 0.474.0, not a Studio view:
 `buildWebsiteDeliveryView` grades, assesses readiness and checks drift against the pipeline on every

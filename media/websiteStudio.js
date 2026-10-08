@@ -1565,6 +1565,7 @@
       clearCanvasSelection();
       renderCanvas();
       renderPagePromptField();
+      syncRenderCard();
     } else if (event.target.id === 'componentDefinition') {
       const definitionId = event.target.value;
       submitDesignEdit({
@@ -1905,6 +1906,37 @@
     if (select) { select.value = activePageId; }
   }
 
+  // ── Rendered output ────────────────────────────────────────────
+  // One card per surface, rendered by the host; this only shows the one for
+  // the surface on the canvas. The host decides the mode and writes the
+  // sentence saying what is on screen — the browser never composes it.
+
+  const RENDER_MODES = ['static-file', 'dev-server', 'engine-only', 'not-renderable'];
+
+  function syncRenderCard() {
+    qsa('[data-render-card-page]').forEach(card => { card.hidden = card.dataset.renderCardPage !== activePageId; });
+  }
+
+  qsa('[data-render-surface]').forEach(button => button.addEventListener('click', () =>
+    vscode.postMessage({ type: 'renderSurface', payload: { surfaceId: button.dataset.renderSurface } })));
+  qsa('[data-stop-dev-server]').forEach(button => button.addEventListener('click', () =>
+    vscode.postMessage({ type: 'stopSurfaceDevServer' })));
+
+  function applySurfaceRenderState(message) {
+    const surfaceId = typeof message.surfaceId === 'string' ? message.surfaceId : '';
+    const statement = typeof message.statement === 'string' ? message.statement.slice(0, 1200) : '';
+    if (!/^uis-[0-9a-f]{16}$/.test(surfaceId) || !statement || !RENDER_MODES.includes(message.mode)) {
+      return;
+    }
+    const targets = qsa('[data-render-statement]').filter(node => node.dataset.renderStatement === surfaceId);
+    targets.forEach(node => { node.textContent = statement; });
+    // A found file not yet picked up has no card; the sentence still reaches
+    // the person who pressed Render.
+    if (targets.length === 0 || targets.every(node => node.closest('[hidden]'))) {
+      notice(statement, message.mode === 'not-renderable' ? 'error' : '');
+    }
+  }
+
   function renderPagePromptField() {
     const field = qs('#pageDesignPrompt');
     if (field) { field.value = activePage()?.designPrompt ?? ''; }
@@ -2040,6 +2072,14 @@
       select.dispatchEvent(new Event('change', { bubbles: true }));
     }
     showPage('design');
+    // A found static page opens with its real file rendered beside the
+    // canvas. Only the static mode is automatic: it runs nothing. A dev
+    // server waits for its own button and the host's confirmation.
+    const card = qsa('[data-render-card-page]').find(entry => entry.dataset.renderCardPage === button.dataset.openSurface);
+    const auto = card ? qs('[data-render-auto]', card) : null;
+    if (auto) {
+      vscode.postMessage({ type: 'renderSurface', payload: { surfaceId: auto.dataset.renderSurface } });
+    }
   }));
   qs('#addSurface')?.addEventListener('click', () => {
     qs('#addWebsitePage')?.click();
@@ -2868,6 +2908,8 @@
       }
     } else if (message?.type === 'designGraphUpdated' || message?.type === 'designEditRefused') {
       applyDesignGraphState(message);
+    } else if (message?.type === 'surfaceRenderState') {
+      applySurfaceRenderState(message);
     } else if (message?.type === 'previewSelection') {
       const pageId = typeof message.pageId === 'string' ? message.pageId : '';
       const nodeId = typeof message.nodeId === 'string' ? message.nodeId : '';
@@ -2881,6 +2923,7 @@
       activePageId = pageId;
       selectOnly(nodeId);
       syncPageSelect();
+      syncRenderCard();
       showPage('design');
       renderCanvas();
       renderPagePromptField();
@@ -2899,6 +2942,7 @@
   wireAssets();
   wireRepositoryMappings();
   syncPageSelect();
+  syncRenderCard();
   renderCanvas();
   renderPagePromptField();
   vscode.postMessage({ type: 'ready' });
