@@ -401,6 +401,17 @@ the MCP registry around `callTool`), and commands are graded by `classifyHostCom
 (`tests/security/dryRunCoverage.test.ts`) fails on a file that can act and is neither guarded nor exempted
 with a reason. The CLI and the ACP agent (`atlasmind-acp --dry-run`) install a host of their own.
 
+**Sandboxed execution has a pure core, not yet wired (0.498.3).** `src/core/sandboxPlan.ts` decides where an
+agent command *would* run; nothing calls it yet, so every command still runs on the host. An attestation
+(`SANDBOX_ATTESTATION_RULES`) needs a Linux engine, a known user mapping, an image pinned by `sha256` digest
+(a tag is refused, never resolved) present locally, a passing canary and a reading under ten minutes old.
+`buildSandboxArgv` emits one constant shape — no network, no capabilities, no privilege escalation, read-only
+root, pid/CPU/memory limits, never a pull, exactly one `--mount` of the worktree root (never home, a
+credential folder, an engine socket or the ssh agent), an allowlisted environment — and `planExecution`
+under `require` returns the sandbox or a refusal, never the host. There is no `prefer` mode.
+`SANDBOX_INTERACTION_RULES`: dry run still wins, taint is not relaxed, scheduled routines and approvals are
+unchanged.
+
 **A model-initiated fetch goes only where it was checked to go (0.490.2).**
 `src/core/egressDestinationPolicy.ts` (pure) screens a URL — `https` only, no credentials, no name that is
 local by definition — and judges every literal or resolved address by its numeric value against published
@@ -1675,6 +1686,7 @@ never accepted.
 | `src/core/egressFetch.ts` | The connection that goes only there: pinned to the checked addresses, redirects checked hop by hop |
 | `src/core/dryRun.ts` | Dry run: which tool calls still run (built-in local reads only), the description the rest get instead, the context that refuses every effect, and the session's record |
 | `src/core/dryRunHost.ts` | Dry run outside the tool loop: the host every routine, promotion, panel button, message, terminal send and automatic write asks, recording what it stopped in the same output |
+| `src/core/sandboxPlan.ts` | Where an agent command would run — the sandbox attestation, the commands never sandboxed, the constant-shaped engine argv, and the rule that `require` never falls back to the host. Pure; not yet wired |
 | `src/core/quarantinedReader.ts` | How a long third-party result is read by a model with no tools, what its extract must look like to be believed, and how the raw text is released only after you approve |
 | `src/runtime/` | The built-in agents and how the runtime is composed |
 | `src/providers/` | Provider adapters, catalogues, health, local model discovery, `modelRole.ts` (what a model is *for*), and the local-GPU support layer that measures VRAM and reads what each runtime has loaded |

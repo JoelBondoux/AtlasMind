@@ -6,6 +6,43 @@ The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/),
 
 ## [Unreleased]
 
+## [0.498.3] - 2026-10-08
+
+### Added
+
+- **The rules for running an agent's command in a sandbox — written down and tested, not yet switched on.**
+  `src/core/sandboxPlan.ts` is the pure core of sandboxed execution for agent-issued commands. Nothing calls
+  it yet: there is no setting, no engine probe and no runner, so every command still runs on the host
+  exactly as before. What it fixes is the shape of the guarantee, as values a test walks.
+  - **Only a digest-pinned image.** `parseSandboxImageReference` accepts `name@sha256:<64 hex>` and refuses
+    a tag-only reference rather than resolving it — a tag is a pointer somebody else can move — and refuses
+    a tag beside a digest, which the engine ignores and which therefore reads as something that is not what
+    runs. No lowercasing, trimming or resolving.
+  - **An attestation, not an assumption.** `assessSandboxAttestation` walks `SANDBOX_ATTESTATION_RULES` in
+    order: probed, CLI present, engine answering, the configured engine, **Linux containers** (Windows-container
+    mode is unavailable, not a weaker sandbox), a *known* user mapping (rootful Docker or rootless Podman),
+    the pinned image present locally (the sandbox never pulls), a canary that ran, and a reading under ten
+    minutes old and not in the future. Engine facts are typed from `localCiRunner`'s `LocalCiCapacity` by a
+    type-only import, so the later probe fills them with `parseDockerInfo` and no process spawner comes with it.
+  - **A constant-shaped argv.** `buildSandboxArgv` checks `SANDBOX_ARGV_RULES` and refuses rather than
+    normalising, then emits `--network none`, `--cap-drop ALL`, `no-new-privileges`, a read-only root with a
+    bounded `/tmp`, pid/CPU/memory limits, `--pull never`, and exactly **one** `--mount` (never `-v`) of the
+    worktree or component root — refused if it is or contains the home folder, a credential folder, an
+    engine socket or the ssh agent. `--user uid:gid` on a Linux host (and `--userns keep-id` for rootless
+    Podman); the editor running as root is refused. The environment is an allowlist with a validator per
+    name, so provider keys cannot cross; a listed name with a refused value is reported, never cleaned.
+  - **`require` never falls back to the host.** `planExecution` returns the host only when the mode is
+    `off`; otherwise it is the sandbox or a refusal naming the table and rule. There is no `prefer` mode,
+    and an unrecognised mode reads as `require`. git, `gh`, container engines, network clients and anything
+    that publishes, changes history or installs are never sandboxed — the install vocabulary is
+    `scheduledRoutinePolicy`'s, so the two cannot disagree.
+  - **What a sandbox does not change**, recorded as `SANDBOX_INTERACTION_RULES`: dry run still wins (the
+    engine launch is graded an effect by `classifyHostCommand`), provenance taint is not relaxed, scheduled
+    routines and tool approvals are unchanged.
+  - Golden argv for Linux (Docker and Podman), macOS and Windows hosts; fast-check properties that the
+    engine options never carry `--privileged`, an engine socket, a second mount, a network other than
+    `none` or an unlisted variable, and that `require` never routes to the host.
+
 ## [0.498.2] - 2026-10-08
 
 ### Fixed

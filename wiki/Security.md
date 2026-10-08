@@ -86,6 +86,29 @@ quoting has to know whether the template already quotes the placeholder, and gue
 ordinary messages or leaves the hole open. The template itself is not treated as suspect; it is a reviewed
 file in your repository, and a routine that pipes on purpose keeps working.
 
+### Planned: a sandbox for commands — not switched on yet
+
+Today an approved command runs on your machine, with everything your editor can reach. AtlasMind is
+building a container sandbox for those commands, and the rules it will follow are already written and
+tested (0.498.3) — but **nothing uses them yet**, there is no setting for it, and every command still runs
+on the host exactly as described above. What the sandbox will promise, when it is wired:
+
+- **It refuses rather than falls back.** With the sandbox required, a command it cannot run is refused and
+  the reason names the rule. It is never quietly run on your machine instead, and there will be no
+  "prefer" mode, because that is where a silent fallback hides.
+- **Only an image pinned by digest.** A tag like `node:20` can be moved by whoever controls the registry,
+  so it is refused rather than looked up. The image is never pulled on the night.
+- **Only a Linux engine,** checked within the last ten minutes. Docker in Windows-container mode counts as
+  unavailable, not as a weaker sandbox.
+- **No network, no extra privileges, one folder.** The container gets no network, no Linux capabilities, a
+  read-only system, limits on processes, CPU and memory, and exactly one folder of your machine — the
+  project or worktree. Never your home folder, a credentials folder like `~/.ssh`, the Docker socket or
+  your ssh agent. Your API keys do not cross: only a short list of harmless variables does.
+- **Some commands never go in it** — git, `gh`, Docker itself, network tools, and anything that publishes
+  or installs. With the sandbox required, those are refused.
+- **It does not loosen anything else.** Dry run still runs nothing. A command after the agent has read
+  someone else's text still needs a fresh approval. Scheduled routines refuse what they refused before.
+
 Full detail in [[Tool Execution]].
 
 ---

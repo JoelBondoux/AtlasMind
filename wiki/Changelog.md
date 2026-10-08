@@ -19,6 +19,16 @@ Older entries below describe the software as it was at the time and are delibera
 
 ---
 
+## v0.498.3 -- The sandbox rules, written down before they are switched on
+
+- Nothing changes yet: every command still runs on your machine as before.
+- The rules a future command sandbox will follow are now written and tested: only an image pinned by
+  digest (a tag is refused), only a Linux container engine checked in the last ten minutes, no network, no
+  extra privileges, one folder of your machine and never your home folder, credentials or the Docker
+  socket, and only a short list of harmless environment variables.
+- With the sandbox required, a command it cannot run is refused with the reason — never quietly run on the
+  host. Dry run, approvals after untrusted content, and scheduled routines are unaffected.
+
 ## v0.498.2 -- Unreadable project memory is not empty project memory
 
 - When two open folders both look like the project's home, AtlasMind reads no project memory — and the

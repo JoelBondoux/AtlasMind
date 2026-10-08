@@ -294,6 +294,30 @@ The refusal anchors on `gh`'s own namespace names rather than argument positions
 value — `gh --hostname github.com auth token` — cannot slip past by shifting the arguments along. It is
 not a substring search: `gh pr comment --body "see the auth token docs"` is an ordinary comment and runs.
 
+### Planned: running commands in a sandbox (not wired yet)
+
+The rules for running an agent's command inside a container are written and tested in
+`src/core/sandboxPlan.ts` (0.498.3), **but nothing calls them yet** — there is no setting, and every command
+above still runs on your machine. When it is wired, three things decide where a command runs:
+
+1. **Is it a command that can be sandboxed?** git, `gh`, `docker`/`podman`/`kubectl`, network tools
+   (`curl`, `ssh`, `rsync`…), and anything that publishes, changes history or installs packages — the same
+   list a scheduled routine refuses — are never sandboxed.
+2. **Is the sandbox attested?** A Linux container engine, a known user mapping, an image pinned by
+   `sha256` digest and already present (a tag is refused; nothing is pulled), a canary that ran, all read
+   within the last ten minutes.
+3. **Does the run itself pass?** One mount of the project or worktree folder — refused if it is or contains
+   your home folder, a credentials folder, the engine socket or the ssh agent — a working directory inside
+   it, an executable named the way the container knows it, and limits that can be stated.
+
+With the sandbox **required**, the answer is *sandbox* or *refused, and here is the rule* — never "ran on
+the host instead". The container has no network, no capabilities, no privilege escalation, a read-only
+system and a bounded `/tmp`, and only allowlisted environment variables; provider keys never cross.
+
+It **does not change approvals**: dry run still records the run and executes nothing (starting a container
+is an effect), a command after untrusted content still needs a fresh approval, and scheduled routines keep
+refusing installs. Loosening approvals for sandboxed commands would be a later, separate opt-in.
+
 ---
 
 ## Saying "read-only" actually means read-only
