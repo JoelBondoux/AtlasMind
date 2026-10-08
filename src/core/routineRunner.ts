@@ -5,6 +5,7 @@ import type { ProjectRunHistory } from './projectRunHistory.js';
 import type { RoutineExecutionPlan, RoutinePlannedStep } from './routineExecutionPolicy.js';
 import { describeHostDryRunNotice } from './dryRun.js';
 import { interceptDryRun } from './dryRunHost.js';
+import { installedSandboxHost } from './sandboxRunner.js';
 
 const execAsync = promisify(exec);
 const STEP_TIMEOUT_MS = 60_000;
@@ -181,6 +182,33 @@ export class RoutineRunner {
     // `planRoutineExecution`, so the string here is the one that was shown.
     const command = step.command;
     const stepStart = Date.now();
+
+    // Under `atlasmind.sandbox.mode = require`, the step runs in the sandbox or
+    // is refused — never through the host shell below. A step is a shell line
+    // by definition, so it runs as `sh -c <step>`: the shell is the
+    // container's, and its metacharacters act inside the container and nowhere
+    // else. The folder mounted is the one this run uses, which for a scheduled
+    // run is its own worktree. Under `off`, the path below is unchanged.
+    const sandbox = installedSandboxHost();
+    if (sandbox?.isRequired()) {
+      const result = await sandbox.runCommand({
+        executable: 'sh',
+        args: ['-c', command],
+        root: workspaceRoot,
+        cwd: workspaceRoot,
+        env: process.env,
+        timeoutMs: STEP_TIMEOUT_MS,
+        surface: 'routine',
+      });
+      return {
+        stepId: step.stepId,
+        label: step.label,
+        exitCode: result.exitCode,
+        stdout: result.stdout,
+        stderr: result.stderr,
+        durationMs: Date.now() - stepStart,
+      };
+    }
 
     try {
       const { stdout, stderr } = await execAsync(command, {

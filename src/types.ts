@@ -1699,6 +1699,19 @@ export interface OrchestratorConfig {
 }
 
 /**
+ * A sandbox session as a skill context carries it: `core/sandboxRunner.ts`'s
+ * `SandboxSession` extends this with the frozen settings and attestation. Kept
+ * to these two fields here so this module, which the web build also reads, never
+ * imports the runner. Only a session the installed host itself opened is ever
+ * honoured — an object of this shape made anywhere else is refused, so a
+ * caller cannot vouch for an attestation the host never took.
+ */
+export interface SandboxSessionHandle {
+  readonly id: string;
+  readonly mode: 'off' | 'require';
+}
+
+/**
  * Runtime context provided to skill handlers.
  * Abstracts VS Code APIs so skills remain independently testable.
  */
@@ -1721,6 +1734,16 @@ export interface SkillExecutionContext {
    * supplies a directory it has already made.
    */
   withResolutionRoot?(root: string): SkillExecutionContext;
+  /**
+   * The same context with its commands bound to one sandbox session — the
+   * settings and attestation a caller already decided something on. Under
+   * `atlasmind.sandbox.mode = require`, `runCommand` then plans and runs on that
+   * session rather than opening its own, so the decision and the execution
+   * cannot rest on two different readings. A bound session that has expired is
+   * refused, never re-probed. Optional: a host with no sandbox (the CLI) has
+   * nothing to bind.
+   */
+  withSandbox?(session: SandboxSessionHandle): SkillExecutionContext;
   /** Search the in-memory SSOT index for relevant entries. */
   queryMemory(query: string, maxResults?: number): Promise<MemoryEntry[]>;
   /** Add or update an entry in the in-memory SSOT index and optionally persist to disk. */

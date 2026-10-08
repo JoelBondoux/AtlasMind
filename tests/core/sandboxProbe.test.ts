@@ -499,9 +499,14 @@ describe('the sandbox settings in package.json', () => {
     }
   });
 
-  it('says plainly that the mode is not enforced yet', () => {
-    expect(String(properties['atlasmind.sandbox.mode']!['description'])).toContain('NOT ENFORCED YET');
-    expect(String(properties['atlasmind.sandbox.mode']!['markdownDescription'])).toContain('Not enforced yet');
+  it('says require refuses rather than falling back to your machine, and no longer calls itself unenforced', () => {
+    // 0.500.0 wired the runner: the "not enforced yet" wording this test used
+    // to require would now be false, so it is required to be gone.
+    const description = String(properties['atlasmind.sandbox.mode']!['description']);
+    const markdown = String(properties['atlasmind.sandbox.mode']!['markdownDescription']);
+    expect(description).toContain('never on your machine instead');
+    expect(markdown).toContain('**refused**');
+    expect(`${description} ${markdown}`.toLowerCase()).not.toContain('not enforced');
   });
 
   it('declares no prefer mode', () => {
@@ -569,11 +574,11 @@ describe('remediation and the report', () => {
     expect(markdown).toMatch(/`canary-passed` \| not evaluated/);
     expect(markdown).toMatch(/`probe-fresh` \| not evaluated/);
     expect(markdown).toContain('**Unavailable**');
-    expect(markdown).toContain('Not enforced yet');
+    expect(markdown).toContain('**Enforced.**');
     expect(markdown).toContain(`docker pull ${IMAGE}`);
   });
 
-  it('shows the exact canary argv when confirmed, and still says it is not enforced', async () => {
+  it('shows the exact canary argv when confirmed, and says the mode decides whether it is used', async () => {
     const { report, attestation } = await probe(HEALTHY_DOCKER);
     const markdown = renderSandboxCheckReport({
       reading: { configuration: configuration(), problems: [], ignored: [] },
@@ -585,8 +590,26 @@ describe('remediation and the report', () => {
     });
     expect(markdown).toContain('**Confirmed**');
     expect(markdown).toContain(['docker', ...report.canaryArgv!].join(' '));
-    expect(markdown).toContain('Not enforced yet');
     expect(markdown).not.toContain('**failed**');
+    // The configuration here asks for require.
+    expect(markdown).toContain('**Enforced.**');
+    expect(markdown).toContain('never on your machine instead');
+    expect(markdown.toLowerCase()).not.toContain('not enforced');
+    // Confirmed under off is a sandbox that could run commands and does not.
+    const off = renderSandboxCheckReport({
+      reading: { configuration: configuration({ mode: 'off' }), problems: [], ignored: [] },
+      report,
+      attestation,
+      hostOs: 'linux',
+      dryRun: false,
+      now: NOW,
+    });
+    expect(off).toContain('**Off.**');
+    expect(off).toContain('run on your machine');
+    // An explicit mode wins over the reading's, for settings that could not be used.
+    expect(renderSandboxCheckReport({
+      reading: { problems: ['x'], ignored: [] }, attestation, hostOs: 'linux', dryRun: false, now: NOW, mode: 'require',
+    })).toContain('Mode: **require**');
   });
 
   it('escapes table cells so engine output cannot break the table', async () => {

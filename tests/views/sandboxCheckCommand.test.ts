@@ -70,7 +70,7 @@ describe('AtlasMind: Check Execution Sandbox', () => {
     withProgress.mockReset().mockImplementation(async (_options: unknown, task: () => Promise<unknown>) => task());
   });
 
-  it('probes on request, records the reading, and opens a report that says it is not enforced yet', async () => {
+  it('probes on request, records the reading, and says plainly that under off the sandbox is not used', async () => {
     settings({ 'atlasmind.sandbox.image': { globalValue: IMAGE } });
     const cache = new SandboxProbeCache();
     const fake = runner();
@@ -80,10 +80,30 @@ describe('AtlasMind: Check Execution Sandbox', () => {
     expect(cache.attestation({ engine: 'auto', image: IMAGE }, NOW).status).toBe('confirmed');
     expect(openTextDocument).toHaveBeenCalledWith({ language: 'markdown', content: markdown });
     expect(markdown).toContain('**Confirmed**');
-    expect(markdown).toContain('Not enforced yet');
-    expect(showInformationMessage).toHaveBeenCalledWith(expect.stringContaining('Not enforced yet'));
+    expect(markdown).toContain('**Off.**');
+    expect(showInformationMessage).toHaveBeenCalledWith(expect.stringContaining('the mode is off'));
+    expect(showInformationMessage).toHaveBeenCalledWith(expect.stringContaining('still run on your machine'));
     // The canary mounts the folder commands would run in.
     expect(fake.calls.find(call => call[1] === 'run')).toContain('type=bind,source=/home/joel/dev/app,target=/work');
+  });
+
+  it('under require, says the sandbox is enforced, even when a repository asked for it', async () => {
+    settings({ 'atlasmind.sandbox.image': { globalValue: IMAGE }, 'atlasmind.sandbox.mode': { workspaceValue: 'require' } });
+    const markdown = await checkExecutionSandbox({
+      runner: runner().run, cache: new SandboxProbeCache(), host: HOST, now: () => NOW, dryRun: () => false,
+    });
+    expect(markdown).toContain('Mode: **require**');
+    expect(markdown).toContain('**Enforced.**');
+    expect(showInformationMessage).toHaveBeenCalledWith(expect.stringContaining('run in it or are refused'));
+  });
+
+  it('reports require as require even when another setting is unusable', async () => {
+    settings({ 'atlasmind.sandbox.mode': { globalValue: 'require' }, 'atlasmind.sandbox.cpus': { globalValue: 'two' } });
+    const markdown = await checkExecutionSandbox({
+      runner: runner().run, cache: new SandboxProbeCache(), host: HOST, now: () => NOW, dryRun: () => false,
+    });
+    expect(markdown).toContain('Mode: **require**');
+    expect(markdown).toContain('Nothing was probed.');
   });
 
   it('reports the failing rule and how to fix it, as a warning', async () => {
@@ -138,9 +158,18 @@ describe('AtlasMind: Check Execution Sandbox', () => {
     expect(commands).toContain("import('./views/sandboxCheckCommand.js')");
   });
 
-  it('never probes on activation or a timer — only the command starts it', () => {
+  it('never probes on activation or a timer — only the command, or a command under require that needs a reading', () => {
+    // Until 0.500.0 extension.ts never named the probe at all. The runner now
+    // re-probes for a command under require (sandboxRunner's rule 3), so the
+    // intent is asserted directly: the only probe call in extension.ts is the
+    // runner's injected dependency, and nothing sandbox-related is on a timer.
     const extension = readFileSync(path.join(ROOT_DIR, 'src', 'extension.ts'), 'utf8');
-    expect(extension).not.toContain('probeSandbox');
-    expect(extension).not.toContain('sandboxCheckCommand');
+    const calls = [...extension.matchAll(/probeSandbox\(/g)];
+    expect(calls).toHaveLength(1);
+    expect(extension.slice(calls[0]!.index! - 80, calls[0]!.index!)).toContain('probe: (configuration, canaryRoot) =>');
+    expect(extension).not.toMatch(/set(?:Interval|Timeout)\([^)]*sandbox/i);
+    // Activation sweeps orphans, which lists and removes containers and never probes.
+    expect(extension).toContain('void sandboxHost.sweepOrphans()');
+    expect(extension).not.toContain('checkExecutionSandbox(');
   });
 });

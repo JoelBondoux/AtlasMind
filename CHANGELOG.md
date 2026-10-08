@@ -6,6 +6,60 @@ The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/),
 
 ## [Unreleased]
 
+## [0.500.0] - 2026-10-08
+
+### Added
+
+- **The execution sandbox is enforced under `atlasmind.sandbox.mode = require`.** Every command an agent asks
+  for runs in the container `sandboxPlan.buildSandboxArgv` describes, or is refused with the rule that stopped
+  it — `Not run: <never run in the sandbox | sandbox unavailable | the sandbox cannot run it as asked> —
+  <reason> [rule: <stage>/<rule>]`, exit 126. It is **never run on the host instead**. Under `off` (the
+  default) nothing changes and no container engine process is started.
+  - **`src/core/sandboxRunner.ts`** — `SandboxHost`, installed once at activation beside the dry-run host;
+    every covered path asks `installedSandboxHost()`, and a process that installed none (a test, the CLI)
+    reads as `off`. `SANDBOX_COVERED_PATHS` lists what `require` covers, each row checked by a test against
+    its file: `SkillExecutionContext.runCommand` (terminal-run, test-run, the workspace command tools, npm
+    scripts, code formatting, the post-write verification, and the git skills — which the eligibility rules
+    refuse); **routine steps** (`/ship`, the Run Center, scheduled routines) as `sh -c <step>` with the run's
+    folder mounted, a scheduled run's worktree included; and, refused because they would run outside the
+    container, the managed terminal's model-chosen follow-up, an ACP agent's `terminal-write` request, and a
+    debug launch or evaluation. `SANDBOX_HOST_PATHS` names what stays on the host and why.
+  - **One session, one decision.** A `SandboxSession` freezes the settings and the attestation together; the
+    plan and the execution read only from it. `SkillExecutionContext.withSandbox(session)` binds a context's
+    commands to one, the way `withResolutionRoot` binds a worktree (they compose; graded `derive` for dry
+    run). Only a session the host opened itself is honoured — `types.ts` carries just the two-field
+    `SandboxSessionHandle`, and an object of that shape made anywhere else is refused, whatever attestation it
+    claims. A bound session that has expired is refused, never re-probed; the tighter of the session's mode and
+    the live mode wins.
+  - **A stale reading is re-taken once, within a budget** — single-flight, mounting the command's own
+    folder, abandoned after three minutes. A fresh reading that says *unavailable* is not re-taken.
+  - **Dry run wins**: it is decided before anything is probed or started, and the engine `run` is graded
+    again by `guardHostCommand` at the moment of spawning.
+  - **Nothing is left running.** A timeout, or any CLI exit that was not the command's own, removes the
+    container by its own name (`rm --force atlasmind-sbx-<id>`, which also removes one created but never
+    started); deactivation removes every live one; and under `require` the activation sweep removes labelled
+    containers older than twice the longest timeout — never a younger one, which may be another window's.
+  - Only the allowlisted environment crosses; a listed name whose value fails its check is named in the
+    command's output, never its value. Output is clipped by the same `clipCommandOutput` the host path uses,
+    now in `utils/terminalOutput.ts`.
+
+### Changed
+
+- **AtlasMind: Check Execution Sandbox** says what the mode makes of the result — *Enforced* under `require`,
+  *Off* under `off` — in the report and the notification, instead of "not enforced yet". The
+  `atlasmind.sandbox.mode` description says the same.
+- `readSandboxModeSetting` reads the mode alone by the tightest-scope rule, so a `require` beside an unusable
+  setting is still `require` — every command is refused — rather than reading as `off`.
+- `deactivate()` is now async, to remove this window's live sandbox containers.
+
+### Security
+
+- Under `require`, git through the command runner is refused (the git skills included), as `sandboxPlan`'s
+  eligibility rules already stated; AtlasMind's own git members (status, diff, log, branch, apply patch)
+  stay on the host. A host-path executable is refused, never resolved — the container has no such file.
+- The host path is unchanged and still hands the editor's whole environment, provider keys included, to an
+  agent's command under `off`. Recorded, not changed here.
+
 ## [0.499.0] - 2026-10-08
 
 ### Added

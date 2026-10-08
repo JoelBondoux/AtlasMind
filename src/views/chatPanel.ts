@@ -4,6 +4,7 @@ import * as vscode from 'vscode';
 import type { AtlasMindContext } from '../extension.js';
 import { describeHostDryRunNotice } from '../core/dryRun.js';
 import { interceptDryRun } from '../core/dryRunHost.js';
+import { hostExecutionRefusal } from '../core/sandboxRunner.js';
 import type {
   SessionComposerPrefill,
   SessionConversationSummary,
@@ -2285,7 +2286,21 @@ export class ChatPanel {
       renderManagedTerminal,
     );
 
-    if (followUpDecision.shouldRunFollowUp && followUpDecision.followUpCommand) {
+    // The follow-up is the one command here a model chose, and it would run in
+    // your own terminal on this machine. Under `atlasmind.sandbox.mode =
+    // require` it is not run; the record says so, so the analysis is not told
+    // it ran. Your own command above is yours and ran as typed.
+    const sandboxRefusal = followUpDecision.shouldRunFollowUp && followUpDecision.followUpCommand
+      ? hostExecutionRefusal('a managed-terminal follow-up command')
+      : undefined;
+    if (sandboxRefusal && followUpDecision.followUpCommand) {
+      executions.push({
+        commandLine: followUpDecision.followUpCommand,
+        statusLine: 'Not run: the execution sandbox is required.',
+        output: `[NOT RUN] ${sandboxRefusal}`,
+      });
+      await renderManagedTerminal('The Atlas-requested follow-up command was not run: the execution sandbox is required.');
+    } else if (followUpDecision.shouldRunFollowUp && followUpDecision.followUpCommand) {
       await this.ensureManagedTerminalAllowed({
         ...directive,
         commandLine: followUpDecision.followUpCommand,

@@ -344,14 +344,15 @@ is deliberately labelled **Linux container x64/arm64**. It is not native Windows
 
 ## Execution sandbox
 
-**Not enforced yet.** These settings are read by **AtlasMind: Check Execution Sandbox** (`src/views/sandboxCheckCommand.ts`,
-`src/core/sandboxProbe.ts`), which reports whether the container sandbox for agent commands *would* be available. No
-command is routed through the sandbox in this version: every agent command still runs on the host, whatever
-`mode` says. How each value is read is published as `SANDBOX_SETTING_RULES` and shown at the foot of the report.
+These settings are read by **AtlasMind: Check Execution Sandbox** (`src/views/sandboxCheckCommand.ts`,
+`src/core/sandboxProbe.ts`), which reports whether the container sandbox for agent commands is available, and since
+0.500.0 by the runner (`src/core/sandboxRunner.ts`), which under `require` runs every covered command in the sandbox
+or refuses it — never on the host. How each value is read is published as `SANDBOX_SETTING_RULES` and shown at the
+foot of the report.
 
 | Setting | Type | Default | Description |
 |---|---|---|---|
-| `atlasmind.sandbox.mode` | `string` | `"off"` | `off` or `require`. **Not enforced yet.** Once the runner lands, `require` means a command runs in the sandbox or is refused, never on the host; there is deliberately no `prefer`. Read as the **tightest** value across user, workspace and folder scopes (`readSandboxConfiguration`): a repository may ask for `require` and can never switch it `off`. An unrecognised value reads as `require` (`readSandboxMode`). |
+| `atlasmind.sandbox.mode` | `string` | `"off"` | `off` or `require`. `require` means a command runs in the sandbox or is refused, never on the host (`SANDBOX_COVERED_PATHS` lists what it covers, `SANDBOX_HOST_PATHS` what stays on the host); there is deliberately no `prefer`. Under `off` the runner reads only this value and starts nothing. Read for the runner by `readSandboxModeSetting`, so a `require` beside an unusable setting refuses every command rather than reading as `off`. Read as the **tightest** value across user, workspace and folder scopes (`readSandboxConfiguration`): a repository may ask for `require` and can never switch it `off`. An unrecognised value reads as `require` (`readSandboxMode`). |
 | `atlasmind.sandbox.engine` | `string` | `"auto"` | `auto`, `docker` or `podman`. `auto` tries Docker, then Podman (`SANDBOX_ENGINE_ORDER`), and takes the first whose engine answers. `scope: machine`, and only the user value is read — a workspace value is ignored and the report says so. Any other value is refused and nothing is probed. |
 | `atlasmind.sandbox.image` | `string` | `""` | The image, pinned as `name@sha256:<64 lowercase hex>`. Empty means no image, so the sandbox is unavailable. A tag-only reference, or a tag beside a digest, is refused rather than resolved (`parseSandboxImageReference`); only a reference that passes is ever handed to `image inspect`. AtlasMind **never pulls** it. `scope: machine`, user value only, so a repository can never choose what your commands run in. |
 | `atlasmind.sandbox.cpus` | `number` | `2` | `--cpus` for one sandboxed command: 0.25–64, two decimals at most; outside that the argv is refused (`limits`), not clamped. `scope: machine`, user value only. |

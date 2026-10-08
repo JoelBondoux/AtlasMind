@@ -401,8 +401,8 @@ the MCP registry around `callTool`), and commands are graded by `classifyHostCom
 (`tests/security/dryRunCoverage.test.ts`) fails on a file that can act and is neither guarded nor exempted
 with a reason. The CLI and the ACP agent (`atlasmind-acp --dry-run`) install a host of their own.
 
-**Sandboxed execution has a pure core, not yet wired (0.498.3).** `src/core/sandboxPlan.ts` decides where an
-agent command *would* run; nothing calls it yet, so every command still runs on the host. An attestation
+**Sandboxed execution has a pure core (0.498.3).** `src/core/sandboxPlan.ts` decides where an agent command
+runs; since 0.500.0 the runner below acts on it. An attestation
 (`SANDBOX_ATTESTATION_RULES`) needs a Linux engine, a known user mapping, an image pinned by `sha256` digest
 (a tag is refused, never resolved) present locally, a passing canary and a reading under ten minutes old.
 `buildSandboxArgv` emits one constant shape — no network, no capabilities, no privilege escalation, read-only
@@ -412,13 +412,26 @@ under `require` returns the sandbox or a refusal, never the host. There is no `p
 `SANDBOX_INTERACTION_RULES`: dry run still wins, taint is not relaxed, scheduled routines and approvals are
 unchanged.
 
-**The engine can be checked, still not enforced (0.499.0).** `src/core/sandboxProbe.ts` takes one reading on
+**The engine can be checked (0.499.0).** `src/core/sandboxProbe.ts` takes one reading on
 request — **AtlasMind: Check Execution Sandbox** (`src/views/sandboxCheckCommand.ts`): Docker then Podman under
 `auto`, `info` read by the local CI runner's own parser, the pinned image looked for **locally** (never pulled),
 and a canary built by `buildSandboxArgv` itself, so the real shape is what is proved. The canary is an effect, so
 a dry run does not start it and the sandbox reads unavailable. The image, engine and limits are machine-scoped
 (`atlasmind.sandbox.*`); `mode` takes the tightest scope. The report lists every rule — passed, failed with its
-reason, or not evaluated — and what to do. Readings live in memory for ten minutes. Commands still run on the host.
+reason, or not evaluated — and what to do. Readings live in memory for ten minutes.
+
+**Enforced under `require` (0.500.0).** `src/core/sandboxRunner.ts` is installed at activation beside the dry-run
+host, and every covered path asks it (`SANDBOX_COVERED_PATHS`): `runCommand` runs an agent's command in the
+container or refuses it, a routine step runs as `sh -c <step>` with its run's folder (a scheduled run's worktree)
+mounted, and a debug launch, an ACP agent's command and a managed-terminal follow-up are refused because they
+would run outside it. Under `off` nothing changes and no engine process starts. A `SandboxSession` freezes the
+settings and the attestation one decision rests on, and `SkillExecutionContext.withSandbox(session)` binds it the
+way `withResolutionRoot` binds a worktree; only a session the host opened itself is honoured, and an expired
+one is refused, never re-probed. A stale reading
+is re-taken once, shared, within three minutes. Dry run wins before anything is probed. A timed-out container is
+removed by its own name, closing the window removes live ones, and the activation sweep removes only labelled
+containers older than any command may run. `SANDBOX_HOST_PATHS` says what stays on the host and why: git tools,
+operator-started surfaces, MCP tools, model-written skills and the CLI.
 
 **A model-initiated fetch goes only where it was checked to go (0.490.2).**
 `src/core/egressDestinationPolicy.ts` (pure) screens a URL — `https` only, no credentials, no name that is
@@ -1694,8 +1707,9 @@ never accepted.
 | `src/core/egressFetch.ts` | The connection that goes only there: pinned to the checked addresses, redirects checked hop by hop |
 | `src/core/dryRun.ts` | Dry run: which tool calls still run (built-in local reads only), the description the rest get instead, the context that refuses every effect, and the session's record |
 | `src/core/dryRunHost.ts` | Dry run outside the tool loop: the host every routine, promotion, panel button, message, terminal send and automatic write asks, recording what it stopped in the same output |
-| `src/core/sandboxPlan.ts` | Where an agent command would run — the sandbox attestation, the commands never sandboxed, the constant-shaped engine argv, and the rule that `require` never falls back to the host. Pure; not yet wired |
+| `src/core/sandboxPlan.ts` | Where an agent command runs — the sandbox attestation, the commands never sandboxed, the constant-shaped engine argv, and the rule that `require` never falls back to the host. Pure |
 | `src/core/sandboxProbe.ts` | Reads the container engine for the sandbox on request — engine order, the pinned image present locally (never pulled), a canary in the real argv — plus the settings reader that keeps the image machine-scoped, and the rule-by-rule report |
+| `src/core/sandboxRunner.ts` | Under `atlasmind.sandbox.mode = require`, runs an agent's command in the container or refuses it — never on the host: one frozen session per decision, a bounded single-flight re-probe, dry run first, removal by name on a timeout or deactivation, and an orphan sweep that never touches another window's live command |
 | `src/core/quarantinedReader.ts` | How a long third-party result is read by a model with no tools, what its extract must look like to be believed, and how the raw text is released only after you approve |
 | `src/runtime/` | The built-in agents and how the runtime is composed |
 | `src/providers/` | Provider adapters, catalogues, health, local model discovery, `modelRole.ts` (what a model is *for*), and the local-GPU support layer that measures VRAM and reads what each runtime has loaded |

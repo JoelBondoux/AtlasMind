@@ -9,12 +9,15 @@
  *
  * Three properties live here rather than in the module.
  *
- * **It only ever runs because somebody asked.** Nothing probes on activation
- * or on a timer: the probe starts processes and, past the reads, a container.
+ * **The check only ever runs because somebody asked.** It never probes on
+ * activation or on a timer. (Under `require`, the runner re-probes on its own
+ * when a command needs a fresh reading — that is `sandboxRunner`'s rule, and
+ * it writes the same cache this reads.)
  *
- * **It says the sandbox is not enforced yet**, in the document and in the
- * notification, because a person who reads "Confirmed" in this version must
- * not conclude their agent's commands now run in a container. They do not.
+ * **It says what the mode makes of the result**, in the document and in the
+ * notification: "Confirmed" under `off` means the sandbox *could* run your
+ * commands and does not, and a person who reads it must not conclude they now
+ * run in a container.
  *
  * **The folder the canary mounts is the default execution root** — the one
  * `runCommand` resolves against — so the check proves the folder commands
@@ -28,6 +31,7 @@ import {
   probeSandbox,
   readSandboxConfiguration,
   readSandboxHostFacts,
+  readSandboxModeSetting,
   renderSandboxCheckReport,
   sharedSandboxProbeCache,
   type SandboxEngineRunner,
@@ -60,7 +64,8 @@ function defaultDeps(): SandboxCheckDeps {
   };
 }
 
-function inspectSandboxSetting(key: SandboxSettingKey): SandboxSettingInspection | undefined {
+/** One sandbox setting's per-scope values. The runner reads the settings through this too, so the two cannot disagree. */
+export function inspectSandboxSetting(key: SandboxSettingKey): SandboxSettingInspection | undefined {
   const configuration = vscode.workspace.getConfiguration('atlasmind');
   // Literal keys, so the settings-integrity check can see each one is read.
   switch (key) {
@@ -77,6 +82,7 @@ function inspectSandboxSetting(key: SandboxSettingKey): SandboxSettingInspection
 export async function checkExecutionSandbox(overrides: Partial<SandboxCheckDeps> = {}): Promise<string> {
   const deps = { ...defaultDeps(), ...overrides };
   const reading = readSandboxConfiguration(inspectSandboxSetting);
+  const mode = readSandboxModeSetting(inspectSandboxSetting('mode'));
   let report: SandboxProbeReport | undefined;
   if (reading.configuration) {
     const configuration = reading.configuration;
@@ -108,13 +114,16 @@ export async function checkExecutionSandbox(overrides: Partial<SandboxCheckDeps>
     hostOs: deps.host.os,
     dryRun: deps.dryRun(),
     now,
+    mode,
   });
 
   const document = await vscode.workspace.openTextDocument({ language: 'markdown', content: markdown });
   await vscode.window.showTextDocument(document, { preview: true });
   if (attestation.status === 'confirmed') {
     void vscode.window.showInformationMessage(
-      `AtlasMind sandbox: confirmed (${attestation.engine}). Not enforced yet — agent commands still run on your machine in this version.`,
+      mode === 'require'
+        ? `AtlasMind sandbox: confirmed (${attestation.engine}). The mode is require — agent commands run in it or are refused.`
+        : `AtlasMind sandbox: confirmed (${attestation.engine}), but the mode is off — agent commands still run on your machine. Set atlasmind.sandbox.mode to require to use it.`,
     );
   } else {
     void vscode.window.showWarningMessage(

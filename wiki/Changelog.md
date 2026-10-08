@@ -19,6 +19,19 @@ Older entries below describe the software as it was at the time and are delibera
 
 ---
 
+## v0.500.0 -- Agent commands run in the sandbox, or not at all
+
+- Set `atlasmind.sandbox.mode` to `require` and every command an agent asks for — terminal and test runs,
+  npm scripts, routine steps, the check after a write — runs in a container with no network, none of your
+  keys and only your project (or a scheduled run's worktree) mounted. One it cannot run is **refused**, and
+  the message names the rule; it is never run on your machine instead.
+- git, installs, publishes and network tools are refused under `require`; so are a debug launch, an ACP
+  agent's command and a model's managed-terminal follow-up, because they would run outside the container.
+- A command that times out has its container removed; closing the window removes any still running.
+  Approvals are unchanged, and a dry run still runs nothing — not even a check of the engine.
+- With the mode `off` (the default) nothing changes. **Check Execution Sandbox** now says which of the two
+  you are in.
+
 ## v0.499.0 -- Check whether the command sandbox would work here
 
 - New **AtlasMind: Check Execution Sandbox**: asks Docker or Podman whether it runs Linux containers, looks

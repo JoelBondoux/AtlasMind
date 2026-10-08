@@ -13,11 +13,11 @@
  * the command runs, but in a container that has no network, no capabilities,
  * no host credentials and exactly one folder of the host's filesystem.
  *
- * This slice decides; it starts nothing. Nothing here imports `vscode` or
- * `child_process`, and nothing here is wired into `runCommand` yet — the probe
- * that fills a `SandboxProbe`, the settings, and the runner that would hand
- * `argv` to an engine arrive in later slices. What is fixed now is the shape of
- * the guarantee, as values a test can walk:
+ * This module decides; it starts nothing. Nothing here imports `vscode` or
+ * `child_process`: `sandboxProbe.ts` fills a `SandboxProbe` and reads the
+ * settings, and `sandboxRunner.ts` hands `argv` to the engine from `runCommand`
+ * and the other covered paths. What is fixed here is the shape of the
+ * guarantee, as values a test can walk:
  *
  * 1. **Only a digest-pinned image runs.** `name@sha256:<64 hex>` and nothing
  *    else. A tag is a pointer somebody else can move, so a tag-only reference

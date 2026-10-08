@@ -86,18 +86,20 @@ quoting has to know whether the template already quotes the placeholder, and gue
 ordinary messages or leaves the hole open. The template itself is not treated as suspect; it is a reviewed
 file in your repository, and a routine that pipes on purpose keeps working.
 
-### Planned: a sandbox for commands — not switched on yet
+### A sandbox for commands — `atlasmind.sandbox.mode`
 
-Today an approved command runs on your machine, with everything your editor can reach. AtlasMind is
-building a container sandbox for those commands, and the rules it will follow are already written and
-tested (0.498.3). Since 0.499.0 you can run **AtlasMind: Check Execution Sandbox** to see whether the sandbox
-*would* be available here, and `atlasmind.sandbox.*` holds its settings — but **nothing routes a command
-through it yet**: every command still runs on the host exactly as described above, whatever
-`atlasmind.sandbox.mode` says. What the sandbox will promise, when it is wired:
+By default an approved command runs on your machine, with everything your editor can reach. Since
+**0.500.0** you can require a container sandbox instead: set `atlasmind.sandbox.mode` to `require`, and
+every command an agent asks for — terminal and test runs, npm scripts, routine steps, the check after a
+write — runs in the container or is refused. Run **AtlasMind: Check Execution Sandbox** first to see whether
+it is available here, rule by rule. With the mode `off` (the default), nothing changes and AtlasMind starts no
+container engine process. What the sandbox promises:
 
 - **It refuses rather than falls back.** With the sandbox required, a command it cannot run is refused and
-  the reason names the rule. It is never quietly run on your machine instead, and there will be no
-  "prefer" mode, because that is where a silent fallback hides.
+  the reason names the rule. It is never quietly run on your machine instead, and there is no "prefer"
+  mode, because that is where a silent fallback hides. Three things that would run outside it — a debug
+  session the model starts, an ACP agent's command, and a model's follow-up in the managed terminal — are
+  refused for the same reason.
 - **Only an image pinned by digest.** A tag like `node:20` can be moved by whoever controls the registry,
   so it is refused rather than looked up. The image is never pulled on the night.
 - **Only a Linux engine,** checked within the last ten minutes. Docker in Windows-container mode counts as
@@ -107,15 +109,26 @@ through it yet**: every command still runs on the host exactly as described abov
   project or worktree. Never your home folder, a credentials folder like `~/.ssh`, the Docker socket or
   your ssh agent. Your API keys do not cross: only a short list of harmless variables does.
 - **Some commands never go in it** — git, `gh`, Docker itself, network tools, and anything that publishes
-  or installs. With the sandbox required, those are refused.
+  or installs. With the sandbox required, those are refused — the git skills included. AtlasMind's own git
+  reads, branch listing and patch tool stay on your machine.
+- **One decision, one reading.** The settings and the engine reading a command rests on are frozen together
+  before it is planned, so what decided "this may run in the sandbox" and what runs it cannot disagree. A
+  reading older than ten minutes is taken again before a command runs — once, within three minutes, or the
+  command is refused.
+- **Nothing left running.** A command that times out has its container removed by name; closing the window
+  removes its live containers; a window opening under `require` removes labelled containers older than any
+  command may run.
 - **A repository cannot pick the image.** The image, the engine and the limits are machine settings: only
   your own user value is read, and a value a workspace sets is ignored and named in the check's report. A
   repository can turn the sandbox *on* (`require`), never off.
 - **The check never pulls.** It looks for the pinned image on your machine and tells you the `docker pull`
   to run if it is missing. Its one container — a canary that runs `test -d /work` with no network — is not
   started during a dry run, so a dry run can never report the sandbox as confirmed.
-- **It does not loosen anything else.** Dry run still runs nothing. A command after the agent has read
-  someone else's text still needs a fresh approval. Scheduled routines refuse what they refused before.
+- **It does not loosen anything else.** Approvals are unchanged. Dry run still runs nothing — not even a
+  probe. A command after the agent has read someone else's text still needs a fresh approval. Scheduled
+  routines refuse what they refused before.
+- **What it does not contain.** Commands you start yourself, tools of MCP servers you connected, a
+  model-written skill (off by default and reviewed first), and the `atlasmind` CLI.
 
 Full detail in [[Tool Execution]].
 

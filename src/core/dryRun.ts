@@ -168,6 +168,7 @@ export type DryRunContextMethodClass = 'read' | 'effect' | 'derive';
 export const DRY_RUN_CONTEXT_METHODS: Readonly<Record<keyof SkillExecutionContext, DryRunContextMethodClass>> = {
   workspaceRootPath: 'read',
   withResolutionRoot: 'derive',
+  withSandbox: 'derive',
   queryMemory: 'read',
   upsertMemory: 'effect',
   deleteMemory: 'effect',

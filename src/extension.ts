@@ -15,7 +15,23 @@ import * as fs from 'fs/promises';
 import { execFile } from 'child_process';
 import { promisify } from 'util';
 import { pathToFileURL } from 'url';
-import { sanitizeTerminalOutput } from './utils/terminalOutput.js';
+import { clipCommandOutput, sanitizeTerminalOutput } from './utils/terminalOutput.js';
+import {
+  SandboxHost,
+  createSandboxProcessRunner,
+  hostExecutionRefusal,
+  installSandboxHost,
+  installedSandboxHost,
+} from './core/sandboxRunner.js';
+import {
+  createSandboxEngineRunner,
+  probeSandbox,
+  readSandboxConfiguration,
+  readSandboxHostFacts,
+  readSandboxModeSetting,
+  sharedSandboxProbeCache,
+} from './core/sandboxProbe.js';
+import { inspectSandboxSetting } from './views/sandboxCheckCommand.js';
 import { defaultWorkspaceFolder, defaultWorkspaceRootPath, openWorkspaceFolders, ssotHomeRoot } from './utils/workspaceRoots.js';
 import { PresenceManager } from './core/presenceManager.js';
 import {
@@ -97,7 +113,7 @@ import { configureCurrencyFormatter, syncExchangeRates } from './core/currencyFo
 import { syncLocalModels, isLocalSyncStale, LOCAL_MODEL_SYNC_CACHE_KEY, type LocalModelSyncResult } from './providers/localModelSync.js';
 import { shouldSyncDownloadableCatalogue, syncLocalModelCatalog } from './providers/localModelCatalogSync.js';
 import type { DiscoveredModel } from './providers/adapter.js';
-import type { AgentDefinition, MemoryEntry, ModelInfo, ModelStruggleState, ProviderConfig, ProviderId, SkillDefinition, SkillExecutionContext, SkillScanResult, SpecialistDomain, ToolApprovalGateMeta } from './types.js';
+import type { AgentDefinition, MemoryEntry, ModelInfo, ModelStruggleState, ProviderConfig, ProviderId, SandboxSessionHandle, SkillDefinition, SkillExecutionContext, SkillScanResult, SpecialistDomain, ToolApprovalGateMeta } from './types.js';
 import { ToolApprovalManager } from './core/toolApprovalManager.js';
 import { RemoteControlServer } from './remote/remoteControlServer.js';
 
@@ -2608,6 +2624,32 @@ async function bootstrapAtlasMind(
         },
       })),
     });
+    // The execution sandbox (`sandboxRunner.ts`), installed beside the dry-run
+    // host so every path that executes an agent's request asks the same object.
+    // Under `atlasmind.sandbox.mode = off` it starts nothing: the sweep returns
+    // before touching an engine, and `isRequired` is the only thing asked.
+    const sandboxHostFacts = readSandboxHostFacts();
+    const sandboxHost = new SandboxHost({
+      readMode: () => readSandboxModeSetting(inspectSandboxSetting('mode')),
+      readConfiguration: () => readSandboxConfiguration(inspectSandboxSetting),
+      cache: sharedSandboxProbeCache(),
+      probe: (configuration, canaryRoot) => probeSandbox({
+        configuration,
+        host: sandboxHostFacts,
+        canaryRoot,
+        runner: createSandboxEngineRunner(),
+        now: () => new Date(),
+      }),
+      run: createSandboxProcessRunner(),
+      host: sandboxHostFacts,
+      now: () => new Date(),
+      realpath: target => fs.realpath(target),
+      log: line => outputChannel.appendLine(line),
+    });
+    context.subscriptions.push({ dispose: installSandboxHost(sandboxHost) });
+    void sandboxHost.sweepOrphans().catch(error => {
+      outputChannel.appendLine(`[sandbox] orphan sweep failed: ${error instanceof Error ? error.message : String(error)}`);
+    });
     const toolApprovalGate = async (
       taskId: string,
       toolName: string,
@@ -3302,6 +3344,17 @@ async function bootstrapAtlasMind(
       const { category, risk } = startupModules.acpToolRisk(request.toolCall.kind);
       const description = startupModules.describeAcpToolCall(request.toolCall);
       outputChannel.appendLine(`[acp] permission requested (${risk} risk, ${category}): ${description}`);
+
+      // Under `atlasmind.sandbox.mode = require`, an ACP agent's command (or a
+      // tool it cannot identify, which is graded as one) would run in the
+      // agent's own process on this machine — outside the sandbox. Declined.
+      if (category === 'terminal-write') {
+        const refusal = hostExecutionRefusal('an ACP agent\'s command');
+        if (refusal) {
+          outputChannel.appendLine(`[acp] declined: ${refusal}`);
+          return false;
+        }
+      }
 
       // The off-by-default setting is the user's standing authorization for
       // delegated ACP operations. Re-read it for every request so switching it
@@ -5156,8 +5209,11 @@ function updateDryRunStatusBar(statusBar: vscode.StatusBarItem): void {
   statusBar.show();
 }
 
-export function deactivate(): void {
+export async function deactivate(): Promise<void> {
   atlasContext = undefined;
+  // A command still running in a sandbox container is this window's; nobody
+  // will collect it once the window is gone, so it is removed by name.
+  await installedSandboxHost()?.stopOwnContainers().catch(() => undefined);
 }
 
 /** Per-provider timeout for startup model discovery, so one slow provider can't stall the rest. */
@@ -5746,6 +5802,12 @@ function buildSkillExecutionContext(
    * `assertInsideWorkspace` and `resolveWithinWorkspace`.
    */
   resolutionRoot?: string,
+  /**
+   * The sandbox session this context's commands are bound to, when a caller
+   * decided something on one (`withSandbox`). Absent, `runCommand` opens its
+   * own per call. See `sandboxRunner.ts`.
+   */
+  sandboxSession?: SandboxSessionHandle,
 ): SkillExecutionContext {
   const context: SkillExecutionContext = {
     get workspaceRootPath() {
@@ -5753,11 +5815,19 @@ function buildSkillExecutionContext(
     },
 
     withResolutionRoot(root) {
-      const derived = buildSkillExecutionContext(memoryManager, memoryRefresh, checkpointManager, secrets, root);
+      const derived = buildSkillExecutionContext(memoryManager, memoryRefresh, checkpointManager, secrets, root, sandboxSession);
       // Delegation is installed on this context by the Orchestrator once it
       // exists, so a context derived afterwards would otherwise be the one
       // agent in the run unable to hand off — for a reason that looks like
       // policy and is a missing assignment.
+      derived.runAgent = context.runAgent;
+      return derived;
+    },
+
+    withSandbox(session) {
+      // Re-rooting and binding compose: a worktree subtask bound to a session
+      // keeps both, whichever was applied first.
+      const derived = buildSkillExecutionContext(memoryManager, memoryRefresh, checkpointManager, secrets, resolutionRoot, session);
       derived.runAgent = context.runAgent;
       return derived;
     },
@@ -5874,6 +5944,26 @@ function buildSkillExecutionContext(
 
       const cwdRaw = options?.cwd?.trim() || workspaceRoot;
       const cwd = await assertInsideWorkspace(cwdRaw, 'runCommand', resolutionRoot);
+
+      // Under `atlasmind.sandbox.mode = require`, the container or a refusal —
+      // never the host path below. The requested executable crosses as asked
+      // (the container has no Windows shim to resolve), the one folder mounted
+      // is this context's root (a subtask's worktree, else the workspace), and
+      // the environment is a candidate the allowlist filters. Under `off`,
+      // `isRequired` is the only thing asked and everything below runs exactly
+      // as it always has. See `sandboxRunner.ts`.
+      const sandboxHost = installedSandboxHost();
+      if (sandboxHost?.isRequired(sandboxSession)) {
+        return sandboxHost.runCommand({
+          executable: executable.trim(),
+          args: args ?? [],
+          root: resolutionRoot ?? workspaceRoot,
+          cwd,
+          env: options?.testResources ? withTestResourceEnv(process.env, readTestResourceBudget()) : process.env,
+          timeoutMs: clampInteger(options?.timeoutMs, 30000, 1000, 300000),
+          surface: 'run-command',
+        }, sandboxSession);
+      }
 
       // Decide how to start this before starting it, and never through a shell.
       //
@@ -6267,6 +6357,12 @@ function buildSkillExecutionContext(
     },
 
     async evaluateDebugExpression(expression, frameId) {
+      // Evaluating an expression runs code in the debuggee, a program on this
+      // machine: under `require`, refused rather than run outside the sandbox.
+      const sandboxRefusal = hostExecutionRefusal('evaluating an expression in a debug session', sandboxSession);
+      if (sandboxRefusal) {
+        return `Error: ${sandboxRefusal}`;
+      }
       const session = vscode.debug.activeDebugSession;
       if (!session) {
         return 'Error: No active debug session.';
@@ -6401,6 +6497,10 @@ function buildSkillExecutionContext(
     },
 
     async launchDebugSession(configName) {
+      const sandboxRefusal = hostExecutionRefusal('a debug session', sandboxSession);
+      if (sandboxRefusal) {
+        return { ok: false, message: sandboxRefusal };
+      }
       const folder = defaultWorkspaceFolder();
       try {
         const started = await vscode.debug.startDebugging(folder, configName);
@@ -6575,21 +6675,6 @@ function readTestResourceBudget(): TestResourceBudget {
     cpuCount: Math.max(1, os.cpus().length),
     memoryGb: Math.max(1, os.totalmem() / (1024 ** 3)),
   }, clampTestResourceShare(share));
-}
-
-const COMMAND_OUTPUT_CLIP_BYTES = 64 * 1024;
-
-/**
- * Keep the tail of oversized command output. Test runners print their
- * failures last, so the tail is the half worth keeping — and an unclipped
- * multi-megabyte transcript would land verbatim in a model prompt.
- */
-function clipCommandOutput(text: string): string {
-  const trimmed = text.trim();
-  if (trimmed.length <= COMMAND_OUTPUT_CLIP_BYTES) {
-    return trimmed;
-  }
-  return `…[earlier output truncated]\n${trimmed.slice(-COMMAND_OUTPUT_CLIP_BYTES)}`;
 }
 
 async function runPostToolVerification(

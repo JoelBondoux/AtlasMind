@@ -77,6 +77,7 @@ import {
   type SandboxEngine,
   type SandboxEngineSetting,
   type SandboxHostFacts,
+  type SandboxMode,
   type SandboxProbe,
 } from './sandboxPlan.js';
 import {
@@ -478,7 +479,7 @@ export class SandboxProbeCache {
 
 let sharedCache: SandboxProbeCache | undefined;
 
-/** The one cache the check command writes and the runner (a later slice) will read. */
+/** The one cache the check command writes and `sandboxRunner` reads, so a check counts for the next command. */
 export function sharedSandboxProbeCache(): SandboxProbeCache {
   sharedCache ??= new SandboxProbeCache();
   return sharedCache;
@@ -542,6 +543,18 @@ function machineValue(
 }
 
 /**
+ * The mode alone, by the tightest-scope rule: `require` if any scope asks for
+ * it. Separate from `readSandboxConfiguration` because the mode must be known
+ * even when another setting is unusable — a `require` beside a mistyped CPU
+ * limit refuses every command, and must never read as `off`.
+ */
+export function readSandboxModeSetting(inspection: SandboxSettingInspection | undefined): SandboxMode {
+  const declared = [inspection?.globalValue, inspection?.workspaceValue, inspection?.workspaceFolderValue]
+    .filter(value => value !== undefined && value !== null);
+  return declared.some(value => readSandboxMode(value) === 'require') ? 'require' : 'off';
+}
+
+/**
  * Read the five sandbox settings from their per-scope values. Pure: the
  * caller passes `inspect()`.
  */
@@ -551,10 +564,7 @@ export function readSandboxConfiguration(
   const problems: string[] = [];
   const ignored: string[] = [];
 
-  const modeScopes = inspect('mode');
-  const declared = [modeScopes?.globalValue, modeScopes?.workspaceValue, modeScopes?.workspaceFolderValue]
-    .filter(value => value !== undefined && value !== null);
-  const mode = declared.some(value => readSandboxMode(value) === 'require') ? 'require' : 'off';
+  const mode = readSandboxModeSetting(inspect('mode'));
 
   const engine = machineValue('engine', inspect('engine'), ignored);
   if (typeof engine !== 'string' || !ENGINE_SETTINGS.includes(engine as SandboxEngineSetting)) {
@@ -696,6 +706,12 @@ export interface SandboxCheckReportInput {
   /** Whether a dry run was on when the check ran. */
   dryRun: boolean;
   now: Date;
+  /**
+   * The mode as `readSandboxModeSetting` reads it. Passed separately because
+   * unusable settings leave `reading.configuration` absent, and a `require`
+   * must still be reported as one.
+   */
+  mode?: SandboxMode;
 }
 
 function cell(value: string): string {
@@ -711,7 +727,7 @@ function cell(value: string): string {
 export function renderSandboxCheckReport(input: SandboxCheckReportInput): string {
   const { reading, report, attestation } = input;
   const lines: string[] = ['# AtlasMind execution sandbox', ''];
-  const mode = reading.configuration?.mode ?? 'off';
+  const mode = input.mode ?? reading.configuration?.mode ?? 'off';
   if (attestation.status === 'confirmed') {
     lines.push(`**Confirmed** — ${attestation.engine}, ${attestation.image}. Attestation \`${attestation.id}\`, valid until ${attestation.expiresAt}.`);
   } else {
@@ -721,9 +737,12 @@ export function renderSandboxCheckReport(input: SandboxCheckReportInput): string
     '',
     `Checked ${input.now.toISOString()}. Mode: **${mode}**.`,
     '',
-    '> **Not enforced yet.** In this version no command is routed through the sandbox, whatever the mode says: '
-      + 'every agent command still runs on your machine, behind the same approvals as before. This check shows '
-      + 'whether the sandbox *would* be available.',
+    mode === 'require'
+      ? '> **Enforced.** The mode is `require`: every agent command runs in this sandbox or is refused, with the rule that '
+        + 'stopped it — never on your machine instead. git, and anything that installs, publishes or reaches the network, '
+        + 'is refused rather than run. Approvals are unchanged: a command still asks where it asked before.'
+      : '> **Off.** The mode is `off`, so agent commands run on your machine, behind the same approvals as always. '
+        + 'Set `atlasmind.sandbox.mode` to `require` to run them in this sandbox or refuse them.',
     '',
   );
   if (input.dryRun) {

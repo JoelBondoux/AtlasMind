@@ -2,7 +2,7 @@
   "name": "atlasmind",
   "displayName": "AtlasMind",
   "description": "AI project management for VS Code: roadmap, risk, tech debt, compliance, testing and release tracked from your own repository — with a multi-agent AI team, or the AI coding tool you already use.",
-  "version": "0.499.0",
+  "version": "0.500.0",
   "publisher": "JoelBondoux",
   "preview": false,
   "license": "SEE LICENSE IN OSMFEULA.txt",
@@ -2140,11 +2140,11 @@
           ],
           "enumDescriptions": [
             "Agent commands run on your machine, as they always have.",
-            "Agent commands may run only in the container sandbox; one it cannot run is refused, never run on your machine instead. Not enforced yet."
+            "Agent commands run only in the container sandbox; one it cannot run is refused, never run on your machine instead."
           ],
           "default": "off",
-          "description": "Whether agent-issued commands must run in the container sandbox. NOT ENFORCED YET: in this version no command is routed through the sandbox, whatever this says; AtlasMind: Check Execution Sandbox shows whether it would be available. The tightest value in any scope wins, so a workspace can ask for require but cannot switch it off.",
-          "markdownDescription": "**Not enforced yet.** In this version no command is routed through the sandbox whatever this says — every agent command still runs on your machine, behind the same approvals. Run **AtlasMind: Check Execution Sandbox** to see whether the sandbox *would* be available, rule by rule.\n\n- `off` (default): commands run on your machine.\n- `require`: once the runner lands, a command may run only in the sandbox; one it cannot run is refused and the reason names the rule. There is deliberately no `prefer` mode — that is where a silent fallback to your machine would hide.\n\nThe **tightest** value across your user settings, the workspace and any folder is used: a repository may ask for the sandbox, and can never switch it off for you."
+          "description": "Whether agent-issued commands must run in the container sandbox. Under require, every command an agent asks for runs in the sandbox or is refused with the rule that stopped it, never on your machine instead; git, installs, publishes and network clients are refused. AtlasMind: Check Execution Sandbox shows whether the sandbox is available. The tightest value in any scope wins, so a workspace can ask for require but cannot switch it off.",
+          "markdownDescription": "Whether agent commands must run in the container sandbox. Run **AtlasMind: Check Execution Sandbox** to see whether it is available on this machine, rule by rule.\n\n- `off` (default): commands run on your machine, behind the same approvals as always.\n- `require`: every command an agent asks for — terminal and test runs, npm scripts, routine steps, the check after a write — runs in the sandbox (no network, no host credentials, one folder mounted) or is **refused** with the rule that stopped it. It is never run on your machine instead. git, `gh`, installs, publishes and network clients are refused rather than run; a debug launch, an ACP agent's command and a managed-terminal follow-up are refused because they would run outside it. There is deliberately no `prefer` mode — that is where a silent fallback to your machine would hide.\n\nApprovals are unchanged either way. The **tightest** value across your user settings, the workspace and any folder is used: a repository may ask for the sandbox, and can never switch it off for you."
         },
         "atlasmind.sandbox.engine": {
           "type": "string",

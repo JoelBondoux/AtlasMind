@@ -294,31 +294,57 @@ The refusal anchors on `gh`'s own namespace names rather than argument positions
 value — `gh --hostname github.com auth token` — cannot slip past by shifting the arguments along. It is
 not a substring search: `gh pr comment --body "see the auth token docs"` is an ordinary comment and runs.
 
-### Planned: running commands in a sandbox (not wired yet)
+### Running commands in a sandbox (`atlasmind.sandbox.mode`)
 
-The rules for running an agent's command inside a container are written and tested in
-`src/core/sandboxPlan.ts` (0.498.3), and since 0.499.0 the engine can be checked — **AtlasMind: Check
-Execution Sandbox** and the `atlasmind.sandbox.*` settings — **but the runner is not wired**: every command
-above still runs on your machine, whatever `atlasmind.sandbox.mode` says. When it is wired, three things
-decide where a command runs:
+The rules for running an agent's command inside a container are in `src/core/sandboxPlan.ts` (0.498.3),
+the engine can be checked with **AtlasMind: Check Execution Sandbox** (0.499.0), and since **0.500.0** the
+runner is wired (`src/core/sandboxRunner.ts`). With `atlasmind.sandbox.mode` set to **`require`**, every
+command an agent asks for runs in the container or is **refused, with the rule that stopped it** — never run
+on your machine instead. With it **`off`** (the default) nothing changes: commands run on your machine
+exactly as before, and AtlasMind starts no container engine process at all. Three things decide where a
+command runs:
 
 1. **Is it a command that can be sandboxed?** git, `gh`, `docker`/`podman`/`kubectl`, network tools
    (`curl`, `ssh`, `rsync`…), and anything that publishes, changes history or installs packages — the same
-   list a scheduled routine refuses — are never sandboxed.
+   list a scheduled routine refuses — are never sandboxed. Under `require` they are refused, which includes
+   the git skills (commit, push, branch, merge…) that run git through the command runner. AtlasMind's own
+   git tools (status, diff, log, branch listing, applying a patch) stay on your machine.
 2. **Is the sandbox attested?** A Linux container engine, a known user mapping, an image pinned by
    `sha256` digest and already present (a tag is refused; nothing is pulled), a canary that ran, all read
-   within the last ten minutes.
+   within the last ten minutes. A command that finds no fresh reading takes one — once, shared by commands
+   that arrive together, and abandoned after three minutes — and a fresh reading that says *unavailable* is
+   not taken again until it is ten minutes old.
 3. **Does the run itself pass?** One mount of the project or worktree folder — refused if it is or contains
    your home folder, a credentials folder, the engine socket or the ssh agent — a working directory inside
-   it, an executable named the way the container knows it, and limits that can be stated.
+   it, an executable named the way the container knows it (`npm`, `./node_modules/.bin/vitest`; never a
+   path on your machine), and limits that can be stated.
 
-With the sandbox **required**, the answer is *sandbox* or *refused, and here is the rule* — never "ran on
-the host instead". The container has no network, no capabilities, no privilege escalation, a read-only
-system and a bounded `/tmp`, and only allowlisted environment variables; provider keys never cross.
+The container has no network, no capabilities, no privilege escalation, a read-only system and a bounded
+`/tmp`, and only allowlisted environment variables; provider keys never cross. A variable on the allowlist
+whose value fails its check is left out and named in the command's output. Output is clipped the same way
+it is on your machine.
 
-It **does not change approvals**: dry run still records the run and executes nothing (starting a container
-is an effect), a command after untrusted content still needs a fresh approval, and scheduled routines keep
-refusing installs. Loosening approvals for sandboxed commands would be a later, separate opt-in.
+**What else `require` covers.** A routine step (`/ship`, the Run Center, a scheduled routine) runs in the
+container as `sh -c <step>` — the shell is the container's — with the folder the run uses mounted, which for
+a scheduled run is its own worktree. Three paths cannot be put in a container and are refused instead: the
+one follow-up command a model chooses after a managed-terminal command (your own command still runs), an ACP
+agent's request to execute something under `atlasmind.acp.toolsEnabled`, and the model starting or
+evaluating in a debug session.
+
+**What it does not cover.** Commands you start yourself (the managed terminal's own command, the Delivery
+run plan, promotions, local CI), tools of MCP servers you connected, a model-written skill (off by default,
+and reviewed before it runs), and the `atlasmind` CLI, which has no settings and so no mode.
+
+**Timeouts and closing the window.** A command that times out has its container removed by its own name
+(`atlasmind-sbx-…`) — `rm --force`, which also catches one created but never started. Closing the window
+removes any container still running for it. When a window opens with the mode on `require`, it removes
+labelled containers older than ten minutes — older than any command may run, so never another window's
+live command.
+
+It **does not change approvals**: a command still asks where it asked before. Dry run wins — a sandboxed
+command in a dry run is recorded, and nothing is probed or started. A command after untrusted content still
+needs a fresh approval, and scheduled routines keep refusing installs. Loosening approvals for sandboxed
+commands is a later, separate opt-in.
 
 **Checking the sandbox (0.499.0).** *Check Execution Sandbox* runs only when you ask. It runs
 `docker`/`podman` `--version`, `info` and `image inspect` of the pinned image — reads, which a dry run lets

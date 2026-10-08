@@ -116,6 +116,11 @@ const DRY_RUN_COVERED: Readonly<Record<string, Covered>> = {
     covers: 'Every engine command, in the default runner, before it is resolved or started: the canary `run` and the cleanup `rm` of a timed-out canary are effects, so a dry run refuses them and the reading records the canary as not run — the attestation is unavailable, never confirmed by a canary that did not happen.',
     leaves: `\`docker\`/\`podman\` \`--version\`, \`info\` and \`image inspect\` — reading the engine's state (${READS}).`,
   },
+  'core/sandboxRunner.ts': {
+    guards: ['interceptDryRun', 'guardHostCommand'],
+    covers: 'Every sandboxed command, before anything is probed or started (interceptDryRun), and the engine `run` again at the moment of spawning (guardHostCommand) for a switch turned on mid-call; the activation sweep\'s `rm` of orphaned containers.',
+    leaves: `The sweep's \`ps\` listing (${READS}); removing by name a container this runner itself started — on a timeout, an output overflow, or deactivation — which ends only what an allowed start began.`,
+  },
   'core/orchestrator.ts': {
     guards: ['decideDryRun', 'createDryRunSkillContext'],
     covers: 'The tool loop (slice B1): every tool call is decided by decideDryRun, and a call allowed to run gets the backstopped skill context. The `.execute(` matches are skill.execute in that loop and the subtask scheduler; the `fetch(` match is inside a regular expression.',

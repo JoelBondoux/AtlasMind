@@ -252,14 +252,14 @@ evidence even on Windows or macOS; native platform checks still need native runn
 
 ## Execution sandbox
 
-**Not switched on yet.** These settings describe the container sandbox AtlasMind is building for agent
-commands. Today they are read by **AtlasMind: Check Execution Sandbox**, which tells you whether the sandbox
-*would* be available on this machine — but every agent command still runs on your machine, whatever `mode`
-says.
+These settings run agent commands in a container sandbox (0.500.0). With `mode` set to `require`, every
+command an agent asks for runs in the sandbox or is refused, with the rule that stopped it — never on your
+machine instead. **AtlasMind: Check Execution Sandbox** tells you whether the sandbox is available on this
+machine, rule by rule. With `mode` at `off` (the default) nothing changes. See [[Tool Execution]].
 
 | Setting | Default | What it does |
 |---------|---------|-------------|
-| `atlasmind.sandbox.mode` | `off` | `off` or `require`. Once the runner lands, `require` means a command runs in the sandbox or is refused — never quietly on your machine. The strictest value wins: a repository can ask for `require`, never switch it `off` for you |
+| `atlasmind.sandbox.mode` | `off` | `off` or `require`. `require` means a command runs in the sandbox or is refused — never quietly on your machine. git, installs, publishes and network tools are refused; so are a debug launch, an ACP agent's command and a managed-terminal follow-up, which would run outside it. The strictest value wins: a repository can ask for `require`, never switch it `off` for you |
 | `atlasmind.sandbox.engine` | `auto` | `auto` tries Docker, then Podman. Machine-scoped: a repository's value is ignored |
 | `atlasmind.sandbox.image` | *(empty)* | The image, pinned by digest: `name@sha256:<digest>`. A tag like `node:22` is refused. AtlasMind never pulls it — you do. Machine-scoped, so a repository can never pick the image your commands run in |
 | `atlasmind.sandbox.cpus` | `2` | CPU limit per command (0.25–64). Machine-scoped |
