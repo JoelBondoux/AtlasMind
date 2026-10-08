@@ -1,6 +1,6 @@
 # Game Engine Integration — Phased Roadmap
 
-> **Status:** Phase 1 complete; Phase 2 in progress through C2.4; C2.5 next. **Owner:** AtlasMind core. **Created:** 2026-07-30. **Baseline:** v0.213.0.
+> **Status:** Phase 1 complete; Phase 2 in progress through C2.5; C2.6 next. **Owner:** AtlasMind core. **Created:** 2026-07-30. **Baseline:** v0.213.0.
 > This is the SSOT implementation plan. Its normative specifications are
 > [`docs/project-composition.md`](../../docs/project-composition.md) (v0.213.1) and
 > [`docs/game-engine-integration.md`](../../docs/game-engine-integration.md) (v0.213.2), both written
@@ -335,9 +335,15 @@ plugin installed and no engine running.
   returned. Only a captured exit code or version-pinned completion marker establishes the overall
   verdict, with conflicts and weak evidence withheld. Missing evidence yields **"no verdict"** plus a
   verified display-only command where available — never "0 errors" and never an extrapolated command.
-- **C2.5** `src/core/gameProfile.ts` — `project_memory/domain/game.json` plus a `game.md` mirror,
-  following `websiteWorkspaceManager`. Declared engine, platform targets, build configurations,
-  performance budgets, content roots, discipline ownership. Seeding never overwrites a newer file.
+- **C2.5** — ✅ `src/core/gameProfile.ts` persists `<ssot>/domain/game.json` plus a regenerated `game.md`
+  mirror through `interpretVersionedDocument` (kind `game` v1). Declared engine, closed platform targets
+  (a console is a label only), build configurations, finite positive per-target budgets, content roots
+  validated against the composition (unresolved reported, never dropped), discipline ownership as bounded
+  handles, and closed store targets. `GAME_PROFILE_FORBIDDEN_RULES` refuses — never redacts — absolute
+  paths, secret-shaped keys, SDK/engine-binary paths and redactor-shaped text. Invalid values are findings,
+  unknown fields survive, and the manager takes the SSOT home and its refusal. Seeding never overwrites an
+  existing or newer file; only an explicit `replaceNewer` save may. Bootstrap seeds it for a game preset
+  (engine `unknown`, preset content roots), executing nothing.
 - **C2.6** `TestingPolicyCoverage` reads a **performance report the project already wrote**, closing
   the false gap. Never runs a profiler; no report means no verdict.
 - **C2.7** `DebtRegister` gains game-shaped derived signals — assets outside LFS, unresolved import

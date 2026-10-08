@@ -1881,6 +1881,29 @@ named and omitted. Unverified versions retain only safe evidence identity and re
 specific parsing nor a guessed command. The module has no filesystem, process, engine, Git, or network
 dependency.
 
+### GameProfile (`src/core/gameProfile.ts`)
+
+The team-declared facts about a game that no file can reveal: engine (through
+`normalizeGameEngineDeclaration`), platform targets from a closed list where `console` is a user-authored label
+only, build configurations, per-target performance budgets (`frameTimeMs`, `memoryMb`, `loadTimeS`, each finite
+and positive), content roots relative to a component, discipline ownership as bounded handles, and store
+targets (`steam`, `gog`, `epic`, `itch`). Persisted at `<ssot>/domain/game.json` with a regenerated `game.md`
+mirror, schema kind `game` v1, read through `interpretVersionedDocument`.
+
+`sanitizeGameProfile` selects rather than repairs: a valid value passes through exactly, an invalid one is
+omitted and reported with its rule and JSON path, a list over its bound is invalid whole, and unknown fields
+stay where they were written. Before any of that, `GAME_PROFILE_FORBIDDEN_RULES` walks every key and string
+value and refuses the whole document on an absolute path, a secret-shaped key (a `…secretRef` key excepted),
+an SDK or engine-binary location, or text `redactSecrets` would change. `validateGameProfile` is separate and
+reports — never drops — content roots that do not resolve against the declared composition (with none, only
+the implicit home `.`) and budgets for undeclared targets.
+
+`GameProfileManager(home, refusal, ssotRelPath)` is `fs`-only. A refused manager (ambiguous SSOT home) reads
+nothing and throws `SsotHomeRefusalError` on every write. `seed` writes only when neither file exists; `save`
+refuses invalid or forbidden input, and refuses a newer-version file unless called with `replaceNewer`.
+Bootstrap seeds the profile through `buildSeedGameProfile` when a game architecture preset is chosen — engine
+`unknown`, content roots from the preset's content components — with the same never-overwrite rule.
+
 ### GameAssetInventory (`src/core/gameAssetInventory.ts`)
 
 The explicit-request filesystem boundary for declared game-content roots. A caller resolves an

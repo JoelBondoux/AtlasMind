@@ -6,6 +6,55 @@ The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/),
 
 ## [Unreleased]
 
+## [0.502.0] - 2026-10-08
+
+### Added
+
+- **A game project can write down what only the team knows about it.** Everything else AtlasMind knows about a
+  game is read from files or Git and carries a confidence. The platforms it ships to, the build configurations
+  it cares about, the budgets a frame must fit, where content lives, who owns each discipline and which stores
+  it targets exist only in the team's heads, so they now have a home: `<ssot>/domain/game.json` with a
+  regenerated `game.md` mirror, schema kind `game` (registered at v1 before anything wrote it). Roadmap
+  C2.5 of the game-engine plan.
+  - **`src/core/gameProfile.ts`** (pure, plus an `fs`-only `GameProfileManager`). The engine is a declaration
+    normalised by `normalizeGameEngineDeclaration`; `platformTargets` is a closed list (`windows`, `macos`,
+    `linux`, `ios`, `android`, `web`, `console`) where a console is a label you write and nothing else, because
+    AtlasMind asserts no console fact (spec §7.6); `buildConfigurations` carry validated ids;
+    `performanceBudgets` declare `frameTimeMs`, `memoryMb` and `loadTimeS` per target, each finite and
+    positive; `contentRoots` are `{ componentId?, location }` relative to a component; `disciplineOwnership`
+    maps a closed list of disciplines to at most eight handles (never an address); `storeTargets` is closed to
+    `steam`, `gog`, `epic` and `itch`.
+  - **Forbidden content refuses the whole document.** `GAME_PROFILE_FORBIDDEN_RULES` is a declared table walked
+    over every key and string value, unknown fields included: `absolute-path`, `secret-shaped-key` (a key
+    ending in `secretRef` is the sanctioned reference), `sdk-or-engine-binary-path`, and `would-be-redacted`
+    (anything `redactSecrets` would change). A match is refused, not redacted — the file is committed, and a
+    silently scrubbed document reports success while the secret stays wherever it was pasted from. A finding
+    names the rule and the JSON path, never the value.
+  - **An invalid value is a finding, not a repair.** Nothing is trimmed, clamped, rounded or coerced: an
+    invalid entry is left out of the typed view and reported with its rule and path, a list over its bound is
+    invalid whole rather than truncated, and `save` refuses input carrying an invalid value. Unknown fields
+    survive a round trip where they were written, so `sanitizeGameProfile` is idempotent and adds no field but
+    `version` — both asserted by property test. Absent means *not declared* and `[]` *declared none*; the
+    mirror says which, and an undeclared metric is a dash, never `0 ms`.
+  - **Unresolved is reported, never dropped.** `validateGameProfile` checks content roots against the declared
+    composition (with none declared, only the implicit home `.` resolves) and budgets against the declared
+    targets; a root naming a component the composition does not hold stays declared.
+  - **Seeding never overwrites; an explicit save may, explicitly.** A seed writes only when neither file
+    exists, so an existing, corrupt or newer profile is kept. `save` refuses a file written by a newer
+    AtlasMind unless the caller passes `replaceNewer`. The manager takes the SSOT home and its refusal like
+    every other register: bound to an ambiguous home it reads nothing and throws `SsotHomeRefusalError`. It
+    follows a configured `atlasmind.ssotPath`.
+  - **Bootstrap seeds it when you choose a game architecture preset**: engine `unknown` (nothing is detected or
+    asked), and a content root for each component the preset declares as content — the hybrid Git + Perforce
+    seed gets one, the others declare none rather than guess an engine's folder layout. Nothing is executed;
+    an existing profile is left untouched and the completion summary says which happened.
+- Tests: `tests/core/gameProfile.test.ts` (round trip, future-version refusal, newer-file and corrupt-file
+  no-overwrite, every forbidden rule, invalid-not-repaired, resolution findings, fast-check idempotence and
+  no-added-fields, ambiguous-home refusal, configured SSOT folder), a game-profile row in
+  `tests/utils/ssotHomeWrites.test.ts`, and two bootstrap cases (seeded; existing newer file kept byte for
+  byte). `core/gameProfile.ts` is classified in the dry-run coverage table as a register written on an
+  explicit save; the bootstrap seed is behind bootstrap's own dry-run refusal.
+
 ## [0.501.0] - 2026-10-08
 
 ### Added

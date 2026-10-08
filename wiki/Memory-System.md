@@ -41,6 +41,11 @@ completion or reopen be synchronized without mistaking a local edit for upstream
 The `misadventures/` folder is the one people underestimate. Recording what *didn't* work saves more
 time than recording what did, because the failed approach is the one somebody will try again.
 
+A game project also keeps `domain/game.json` (and a readable `game.md`): the platforms it ships to, build
+configurations, performance budgets, content roots, who owns each discipline and which stores it targets.
+Choosing a game preset in `/bootstrap` starts one; AtlasMind never overwrites one you already have, and refuses
+to save anything that looks like a path on your machine, an SDK location or a secret.
+
 ### More than one folder open?
 
 A project has **one** memory, kept in its home folder. With a single folder open, that is the folder.

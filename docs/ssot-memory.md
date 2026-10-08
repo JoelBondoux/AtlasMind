@@ -166,6 +166,15 @@ Domain-specific knowledge: glossary, business rules, entity relationships, exter
 
 `domain/ai-instructions-sync.md` holds the unified AI instruction set produced by the two-way sync (`/sync-instructions`, `src/utils/aiInstructionMerge.ts`): the reconciled superset of every detected tool's instructions plus AtlasMind's own, which AtlasMind also mirrors back into each tool's instruction file. It is loaded as `domain` context like any other entry.
 
+`domain/game.json` (with a regenerated `domain/game.md` mirror) is a game project's declared profile —
+engine, platform targets, build configurations, per-target performance budgets, content roots, discipline
+owners and store targets — written by `GameProfileManager` (`src/core/gameProfile.ts`), schema kind `game` v1.
+`/bootstrap` seeds it when a game architecture preset is chosen (engine `unknown`, the preset's content roots)
+and never over an existing or newer file. It may hold a secret *reference* only: an absolute path, a
+credential-shaped key, an SDK or engine-binary location, or text the redactor would change refuses the whole
+document. Unknown fields survive a save; invalid values are reported, never corrected. Like the other
+registers it lives in the SSOT home and is refused, not guessed, when the home is ambiguous.
+
 ### `analysis/`
 
 Findings *about* the project rather than statements *of* it. Two things live here:

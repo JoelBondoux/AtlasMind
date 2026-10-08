@@ -19,6 +19,18 @@ Older entries below describe the software as it was at the time and are delibera
 
 ---
 
+## v0.502.0 -- A game profile the team declares
+
+- **`domain/game.json`** (with a readable `game.md`) holds what only the team knows about a game: engine,
+  platform targets, build configurations, per-target performance budgets, content roots, discipline owners and
+  store targets.
+- Choosing a game architecture preset in `/bootstrap` seeds it — engine `unknown`, the preset's content roots —
+  and never overwrites a profile you already have, including one written by a newer AtlasMind.
+- Anything that should never be committed — an absolute path, a credential-shaped field, an SDK or engine
+  binary location, anything shaped like a secret — refuses the whole profile instead of being scrubbed. A
+  console target is a label you write; AtlasMind names no console.
+- Invalid values are reported, not corrected; fields a newer AtlasMind added survive an edit.
+
 ## v0.501.0 -- Sandboxed terminal writes can stop asking
 
 - **New setting `atlasmind.sandbox.relaxTerminalApprovals`** (off; your user settings only). With the sandbox

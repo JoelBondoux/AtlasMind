@@ -57,6 +57,7 @@ const { MissionRegistry } = await import('../../src/core/missionRegistry.ts');
 const { McpEnvironmentScanner } = await import('../../src/mcp/mcpEnvironmentScanner.ts');
 const { WebsiteWorkspaceManager, WEBSITE_WORKSPACE_SSOT_PATH, createDefaultWebsiteWorkspace } = await import('../../src/core/websiteWorkspaceManager.ts');
 const { WorkflowConfigManager, WORKFLOW_SSOT_PATH, seedWorkflowConfig } = await import('../../src/core/workflowConfig.ts');
+const { GameProfileManager, GAME_PROFILE_SSOT_PATH, buildSeedGameProfile } = await import('../../src/core/gameProfile.ts');
 
 const scratch = mkdtempSync(path.join(os.tmpdir(), 'atlasmind-ssot-home-writes-'));
 afterAll(() => rmSync(scratch, { recursive: true, force: true }));
@@ -116,6 +117,7 @@ const REGISTERS: readonly RegisterRow[] = [
   { name: 'research', file: RESEARCH_SSOT_PATH, write: (r, x) => new ResearchRegisterManager(r, x).save(seedResearchRegister(new Date(AT))) },
   { name: 'website plan', file: WEBSITE_WORKSPACE_SSOT_PATH, write: (r, x) => new WebsiteWorkspaceManager(r, x).save(createDefaultWebsiteWorkspace()) },
   { name: 'workflow file', file: WORKFLOW_SSOT_PATH, write: (r, x) => new WorkflowConfigManager(r, x).save(seedWorkflowConfig({ profile: 'solo' })) },
+  { name: 'game profile', file: GAME_PROFILE_SSOT_PATH, write: (r, x) => new GameProfileManager(r, x).save(buildSeedGameProfile('hybrid-git-perforce')) },
 ];
 
 /** Every file under a folder's project_memory/, relative to the folder. */

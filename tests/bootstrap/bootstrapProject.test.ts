@@ -704,6 +704,42 @@ describe('bootstrapProject', () => {
 
     const presetPick = showQuickPick.mock.calls.find(([, options]) => options?.title === 'Game Architecture Preset');
     expect(presetPick?.[0]).toHaveLength(4);
+
+    // The game profile is seeded beside the composition: engine unknown (nothing
+    // was detected or asked), content roots from the preset's content components.
+    const profile = JSON.parse(Buffer.from(
+      fileResponses.get('/workspace/project_memory/domain/game.json') ?? [],
+    ).toString('utf-8')) as Record<string, unknown>;
+    expect(profile).toMatchObject({
+      version: 1,
+      engine: { engine: 'unknown' },
+      contentRoots: [{ componentId: 'content', location: '.' }],
+    });
+    expect(Object.keys(profile).sort()).toEqual(['contentRoots', 'engine', 'updatedAt', 'version']);
+    expect(Buffer.from(fileResponses.get('/workspace/project_memory/domain/game.md') ?? []).toString('utf-8'))
+      .toContain('# Game Profile');
+    expect(reported.join('\n')).toContain('Seeded the game profile in `domain/game.json`');
+  });
+
+  it('never seeds over a game profile that already exists, even one from a newer AtlasMind', async () => {
+    const existing = JSON.stringify({ version: 7, engine: { engine: 'unreal', version: '5.8' }, mystery: true });
+    seedFile('/workspace/project_memory/domain/game.json', existing);
+    showWarningMessage.mockResolvedValueOnce('Continue');
+    showQuickPick
+      .mockResolvedValueOnce({ intakeMode: 'guided' })
+      .mockResolvedValueOnce({ label: 'Game', composition: 'game' })
+      .mockResolvedValueOnce({ label: 'Single-repo indie', presetId: 'single-repo-indie' });
+
+    const reported: string[] = [];
+    await bootstrapProject(
+      ROOT as any,
+      makeAtlas(),
+      { markdown: (value: unknown) => { reported.push(String(value)); } } as any,
+    );
+
+    expect(Buffer.from(fileResponses.get('/workspace/project_memory/domain/game.json') ?? []).toString('utf-8')).toBe(existing);
+    expect(fileResponses.has('/workspace/project_memory/domain/game.md')).toBe(false);
+    expect(reported.join('\n')).toContain('Left the existing game profile in `domain/game.json` untouched');
   });
 
   it('runs the guided intake and seeds SSOT, settings, and GitHub planning artifacts', async () => {

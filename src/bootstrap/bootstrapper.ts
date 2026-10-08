@@ -17,6 +17,7 @@ import {
   type ShopifyCompositionComponent,
 } from '../core/projectComposition.js';
 import { promptForProjectBrief, readProjectBriefAt, writeProjectBriefAt } from './projectBriefOnboarding.js';
+import { buildSeedGameProfile, renderGameProfileMarkdown, serializeGameProfile } from '../core/gameProfile.js';
 import {
   interpretWorkflowConfigDocument,
   renderWorkflowMarkdown,
@@ -226,6 +227,8 @@ interface BootstrapArtifacts {
   claudeMdWritten: boolean;
   websiteWorkspaceSeeded: boolean;
   compositionStatus: 'none' | 'declared' | 'preserved';
+  /** The game profile: seeded for a game preset, kept when one already exists, or not a game. */
+  gameProfileStatus: 'none' | 'seeded' | 'kept-existing';
   /** What happened to the project brief. `not-asked` is a minimal bootstrap. */
   ownWordsBrief: 'written' | 'kept-existing' | 'already-written' | 'not-given' | 'not-asked';
 }
@@ -1032,6 +1035,7 @@ async function applyBootstrapIntake(
   await writeBootstrapTestingConfig(ssotRoot, intake);
   const claudeMdWritten = await writeBootstrapClaudeMd(workspaceRoot, intake);
   const compositionStatus = await writeBootstrapComposition(ssotRoot, intake);
+  const gameProfileStatus = await seedBootstrapGameProfile(ssotRoot, intake);
   let websiteWorkspaceSeeded = false;
   if (isWebsiteBootstrapProject(intake.projectType)) {
     const { seedWebsiteWorkspace } = await import('../core/websiteWorkspaceManager.js');
@@ -1066,6 +1070,7 @@ async function applyBootstrapIntake(
     claudeMdWritten,
     websiteWorkspaceSeeded,
     compositionStatus,
+    gameProfileStatus,
     ownWordsBrief,
   };
 }
@@ -1169,6 +1174,32 @@ async function writeBootstrapComposition(
     vscode.workspace.fs.writeFile(summaryUri, Buffer.from(renderWorkflowMarkdown(updated), 'utf-8')),
   ]);
   return 'declared';
+}
+
+/**
+ * Seed `domain/game.json` and its mirror when a game architecture preset was
+ * chosen: engine `unknown`, content roots for the preset's content components,
+ * nothing detected and nothing run. Either file already present — valid,
+ * corrupt, or written by a newer AtlasMind — means nothing is written: a seed
+ * never overwrites a profile somebody has.
+ */
+async function seedBootstrapGameProfile(
+  ssotRoot: vscode.Uri,
+  intake: BootstrapProjectIntake,
+): Promise<BootstrapArtifacts['gameProfileStatus']> {
+  if (!isGameCompositionPresetId(intake.gameCompositionPreset)) {
+    return 'none';
+  }
+  const profileUri = vscode.Uri.joinPath(ssotRoot, 'domain', 'game.json');
+  const mirrorUri = vscode.Uri.joinPath(ssotRoot, 'domain', 'game.md');
+  if (await pathExists(profileUri) || await pathExists(mirrorUri)) {
+    return 'kept-existing';
+  }
+  const profile = { ...buildSeedGameProfile(intake.gameCompositionPreset), updatedAt: new Date().toISOString() };
+  await ensureParentDirectory(profileUri, ssotRoot);
+  await vscode.workspace.fs.writeFile(profileUri, Buffer.from(serializeGameProfile(profile), 'utf-8'));
+  await vscode.workspace.fs.writeFile(mirrorUri, Buffer.from(renderGameProfileMarkdown(profile), 'utf-8'));
+  return 'seeded';
 }
 
 function isWebsiteBootstrapProject(projectType: string | undefined): boolean {
@@ -2400,6 +2431,11 @@ function buildBootstrapCompletionSummary(ssotRelPath: string, intake: BootstrapP
       ? `- Declared ${formatBootstrapCompositionLabel(intake)} in \`operations/workflow.json\` and regenerated its Markdown mirror.`
       : artifacts.compositionStatus === 'preserved'
         ? '- Left the existing workflow declaration untouched; bootstrap never overwrites team-owned composition data.'
+        : '',
+    artifacts.gameProfileStatus === 'seeded'
+      ? '- Seeded the game profile in `domain/game.json` and `domain/game.md`: engine `unknown` until you declare it, content roots from the content components of the preset. Nothing was detected or run.'
+      : artifacts.gameProfileStatus === 'kept-existing'
+        ? '- Left the existing game profile in `domain/game.json` untouched; bootstrap never overwrites it.'
         : '',
   ].filter(line => line !== '');
 

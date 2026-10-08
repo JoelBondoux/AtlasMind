@@ -260,6 +260,7 @@ const DRY_RUN_EXEMPT: Readonly<Record<string, string>> = {
   'core/deliveryManager.ts': REGISTER,
   'core/documentsManager.ts': `${REGISTER} Saving a shelf creates its folder, which is the save.`,
   'core/egressFetch.ts': "The HTTP transport with no caller of its own. Its callers are gated: the skill contexts' fetchUrl and httpRequest by B1's backstop, Resource Discovery by ardClient's guard.",
+  'core/gameProfile.ts': `${REGISTER} The bootstrap seed writes through bootstrapper.ts, which a dry run refuses at its entry.`,
   'core/localCiRepositoryPatch.ts': SCRIPT_TEXT,
   'core/missionRegistry.ts': `The Mission Loop's audit trail of its iterations, which ran (${BOOKKEEPING}).`,
   'core/portalHosting.ts': REGISTER,
