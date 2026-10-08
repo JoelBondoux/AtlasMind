@@ -59,6 +59,23 @@ data-privacy policy, where an ambiguous home applies the strictest combination o
 policy, since no policy at all would switch redaction off. `tests/baselines/ssotHomeResolution.test.ts`
 fails any change that joins project memory onto the first folder.
 
+**Unread is not empty.** "Reads nothing" is right for a page that says so in a banner, and wrong for
+anything that *decides* on what it read, because an unread register and an empty one look identical to it.
+Every consumer that acts on project memory without a person in the loop is therefore told the home was
+refused, and treats it as not-assessed — never as empty, clear or passing
+(`tests/core/ambiguousSsotHomeConsumers.test.ts` builds a real ambiguous home for each):
+
+| Consumer | With an ambiguous home |
+|---|---|
+| Agent auto-update gate | The rewrite is **held** (`cases-unreadable`), never released as "no golden cases". |
+| Overview attention feed | One `now` item, *Project memory could not be read*; every project-memory group (`PROJECT_MEMORY_GROUPS`) is dropped before any rule runs, so the page never reads `clear` and states nothing about a register it did not open. |
+| Testing coverage | Derived against no methodology, never the two-default fallback an undeclared project gets, and carries `policyUnreadable`. |
+| Release gate `tests-evidenced` | `unknown`, naming the refusal — a failing report still fails. |
+
+Audited and already safe: ambient triggers report the three registers *not observed*; research due-ness
+reads every scan as never assessed; the routine scheduler lists no routine and so runs none; the
+Director's follow-up nudge stays quiet rather than claiming nothing is due.
+
 Workspace identity — the cost-tracker key and the machine-private cost-history hash — stays on the first
 folder deliberately, so cost history already recorded is not orphaned. The probe looks for the folder
 named by `atlasmind.ssotPath`, but the registers themselves live at fixed `project_memory/...` paths; a

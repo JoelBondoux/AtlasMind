@@ -19615,6 +19615,8 @@ function buildReleaseSnapshot(input: {
    * must stay distinguishable from "we checked and it was fine".
    */
   testingCoverage?: TestingPolicyCoverage;
+  /** Why the testing matrix could not be read; the gate is then `unknown`, never a pass. */
+  testingPolicyUnreadable?: string;
   loadedAt?: string;
   loadFailure?: string;
   /** The project's declared versioning policy. Absent means undeclared. */
@@ -19643,6 +19645,7 @@ function buildReleaseSnapshot(input: {
     commitSubjects: input.commitSubjects,
     workingTreeClean: input.workingTreeClean,
     ...(input.ciConclusion === undefined ? {} : { ciConclusion: input.ciConclusion }),
+    ...(input.testingPolicyUnreadable === undefined ? {} : { testingPolicyUnreadable: input.testingPolicyUnreadable }),
     // Practices are excluded, matching `testingPolicyCoverage`, which never
     // counts them as gaps: refusing a release because Exploratory Testing left
     // no file would be a gate nobody could ever satisfy.
@@ -21046,6 +21049,7 @@ async function collectDashboardSnapshot(
       // Already derived for the Testing page on this same pass, so the release
       // gate and the page it would send you to cannot disagree about a number.
       ...(testingSnapshot.policyCoverage === undefined ? {} : { testingCoverage: testingSnapshot.policyCoverage }),
+      ...(testingSnapshot.policyUnreadable === undefined ? {} : { testingPolicyUnreadable: testingSnapshot.policyUnreadable }),
       // Read from the committed workflow file, which is where a team declares
       // it. Absent means undeclared, and nothing downstream substitutes one.
       ...(workflowConfigManager?.getConfig()?.versioning === undefined
@@ -21565,6 +21569,10 @@ function buildAttentionInput(
       nextStepBlocked: blockedStage !== undefined,
       ...(blockedStage === undefined ? {} : { nextStepTitle: blockedStage.name }),
     },
+    // An ambiguous SSOT home: every register above was deliberately left unread,
+    // so their zeroes are not readings. The feed drops those groups itself and
+    // raises one item with the refusal — the notice is only ever set then.
+    ...(snapshot.ssotHome.notice ? { projectMemoryUnreadable: { reason: snapshot.ssotHome.notice } } : {}),
   };
 }
 

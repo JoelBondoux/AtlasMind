@@ -4,7 +4,7 @@
 
 <h1 align="center">AtlasMind</h1>
 
-<p align="center"><sub> · <strong>Current source version: 0.498.1</strong> · </sub></p>
+<p align="center"><sub> · <strong>Current source version: 0.498.2</strong> · </sub></p>
 
 
 <p align="center">
@@ -176,6 +176,15 @@ allow-list, redaction and file-withholding behaviour, retained metadata, provide
 important limits on overrides and compliance claims.
 
 ---
+
+## What's new in 0.498.2
+
+Nothing that acts on its own reads "couldn't read project memory" as "project memory is empty" any more.
+When two open folders both look like the project's home, 0.498.1 rightly read nothing — but the automatic
+agent refresh then saw no golden cases and let a rewritten prompt through unchecked. It is now held, and
+says why. The same mistake is closed in three more places: the Overview says project memory could not be
+read instead of "nothing needs you", the testing coverage is no longer graded against two defaults nobody
+chose, and the release gate on your testing policy reads *unknown* rather than passed.
 
 ## What's new in 0.498.1
 

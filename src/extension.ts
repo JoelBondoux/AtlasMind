@@ -3093,8 +3093,10 @@ async function bootstrapAtlasMind(
       router: runtime.modelRouter,
       providers: runtime.providerRegistry,
       profiler: runtime.taskProfiler,
-      // Golden cases and the baseline are project memory, so the SSOT home.
-      workspaceRoot: () => ssotHomeRoot().fsPath,
+      // Golden cases and the baseline are project memory, so the SSOT home —
+      // with its refusal, so an ambiguous home holds a rewrite rather than
+      // reading as an agent with no cases.
+      ssotHome: () => ssotHomeRoot(),
     });
     const agentAutoUpdater = new startupModules.AgentAutoUpdater(
       runtime.agentRegistry,

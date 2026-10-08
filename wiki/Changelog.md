@@ -19,6 +19,15 @@ Older entries below describe the software as it was at the time and are delibera
 
 ---
 
+## v0.498.2 -- Unreadable project memory is not empty project memory
+
+- When two open folders both look like the project's home, AtlasMind reads no project memory — and the
+  automatic agent refresh then saw no golden cases and let a rewritten prompt through unchecked. It is now
+  held, and the reason names the folders. A damaged cases file holds it too.
+- The Overview says project memory could not be read, instead of "nothing needs you".
+- Testing coverage is no longer graded against two default methodologies when your matrix could not be
+  read, and the release gate on your testing policy reads *unknown* rather than passed.
+
 ## v0.498.1 -- Project memory is read and written in the same place
 
 - In a multi-root workspace, everything that reads or writes project memory now uses the same home folder.

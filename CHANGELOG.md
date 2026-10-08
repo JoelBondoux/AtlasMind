@@ -6,6 +6,45 @@ The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/),
 
 ## [Unreleased]
 
+## [0.498.2] - 2026-10-08
+
+### Fixed
+
+- **Could not read project memory is no longer treated as empty project memory** — by anything that
+  decides on its own. Since 0.498.1 an ambiguous SSOT home (two folders each holding `project_memory/`,
+  neither declaring itself the home) leaves every register unread on purpose. That is right for a page,
+  which says so in a banner, and wrong for a consumer that acts on what it reads, because an unread
+  register and an empty one look the same to it — and in each case below "empty" was the answer that let
+  something through.
+  - **The unattended agent rewrite is held.** `agentAutoUpdater` gates a rewritten prompt on the agent's
+    golden cases, and an agent with no cases is released by design. With the home ambiguous the verifier
+    read nothing, counted zero cases, and released every rewrite unchecked — the gate opened precisely when
+    it could see nothing. The count is now a `DeclaredCaseCount` (`number | { unreadable }`) end to end:
+    `readGoldenCaseFile` keeps *absent* apart from *unreadable* (invalid JSON, not a list, a read error),
+    `countDeclaredCases` reports an ambiguous home as unreadable whatever any one folder holds, a count that
+    threw or is not a non-negative whole number is unreadable rather than zero, and `shouldHoldAgentUpdate`
+    holds all of them as **`cases-unreadable`**, with the refusal in the detail `heldUpdate(agentId)`
+    returns. `UPDATE_HOLD_RULES` publishes the four rules. Running the evals by hand shows the refusal or
+    the unreadable file rather than "no golden cases are declared". The `readGoldenCases` list reader is
+    removed — flattening the three states into `[]` is how "could not read" became "none".
+  - **The Overview never reads clear on unread registers.** The attention feed takes
+    `projectMemoryUnreadable`; the module itself drops every project-memory group (`PROJECT_MEMORY_GROUPS`:
+    SSOT, Director, documents, risk, debt, defects, approvals, test cases, research, scheduled routines,
+    delivery) before any rule runs and raises one `now` item, *Project memory could not be read*, carrying
+    the refusal — so zeroes from files nobody opened neither count toward `clear` nor state "risk never
+    assessed" about a register that was assessed and simply not read.
+  - **Testing coverage is not graded against defaults nobody declared.** An unread testing matrix fell back
+    to the two-methodology default an undeclared project gets, so the release gate could pass on it. It is
+    now derived against no methodology and carries `policyUnreadable`.
+  - **The release gate `tests-evidenced` reads `unknown`**, naming the refusal, when the policy could not
+    be read; a failing report still fails, since failures are counted from the report.
+  - Audited and already safe, and documented as such: ambient triggers report the three registers *not
+    observed*; research due-ness reads every scan as never assessed; the routine scheduler lists no routine
+    and runs none; the Director's follow-up nudge stays quiet rather than claiming nothing is due.
+  - `tests/core/ambiguousSsotHomeConsumers.test.ts` builds a real ambiguous home on disk for each consumer
+    and asserts held / unknown / not-clear, with a located-home control row; property tests pin that the
+    gate releases only on a count that was taken and is zero.
+
 ## [0.498.1] - 2026-10-08
 
 ### Fixed

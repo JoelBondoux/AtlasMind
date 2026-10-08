@@ -236,6 +236,13 @@ first-folder value reach a project-memory path. The data-privacy policy is the d
 ambiguous home applies the strictest combination of every candidate's policy, so redaction never switches
 off because two folders disagree.
 
+Since 0.498.2 **unread is not empty** for anything that decides on its own. The agent auto-update gate
+holds a rewrite as `cases-unreadable` (`DeclaredCaseCount` is `number | { unreadable }`), the attention feed
+drops every project-memory group and raises *Project memory could not be read* instead of reading `clear`,
+testing coverage is derived against no methodology rather than the two defaults, and the release gate
+`tests-evidenced` reads `unknown`. `tests/core/ambiguousSsotHomeConsumers.test.ts` builds a real ambiguous
+home for each.
+
 The Project Dashboard is the first all-component consumer. Repository status and local CI are read only for
 declared Git components; issue-tracker support, debt-scan coverage, and observed-change baselines carry the
 same component inventory. Detailed GitHub data stays explicitly scoped to the home component. Missing,

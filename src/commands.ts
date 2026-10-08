@@ -1816,7 +1816,7 @@ export function registerCommands(
         router: atlas.modelRouter,
         providers: atlas.providerRegistry,
         // Golden cases and the baseline are project memory.
-        workspaceRoot: () => ssotHomeRoot().fsPath,
+        ssotHome: () => ssotHomeRoot(),
       });
     }),
 

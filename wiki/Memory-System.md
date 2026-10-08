@@ -59,6 +59,10 @@ component has location `.` — that declaration settles it.
 Everything that reads or writes memory finds the home the same way, so a change can never be written to
 one folder and read back from another.
 
+While the home is unsettled, nothing that acts on its own treats the unread memory as empty: an automatic
+agent refresh is held rather than shipped unchecked, the Overview says project memory could not be read
+instead of "nothing needs you", and the release gate on your testing policy reads *unknown*, not passed.
+
 ---
 
 ## Filling it up

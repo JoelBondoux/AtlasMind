@@ -1,6 +1,7 @@
 import { describe, expect, it } from 'vitest';
 import {
   ATTENTION_VISIBLE_CAP,
+  PROJECT_MEMORY_GROUPS,
   buildAttentionFeed,
   summarizeAttention,
   type AttentionInput,
@@ -348,5 +349,44 @@ describe('recorded defects', () => {
       defects: { openBlockers: 0, awaitingVerification: 0 },
     });
     expect(withDefects.emptyState).toBe('clear');
+  });
+});
+
+describe('project memory that could not be read', () => {
+  it('drops every project-memory group before any rule sees it, so an unread finding raises nothing either way', () => {
+    const loud: AttentionInput = {
+      ...healthy,
+      director: { overdue: 5 },
+      documents: { reviewDue: 2, missing: 1 },
+      risk: { assessed: false, open: 0 },
+      debt: { scanned: false, open: 0, high: 0 },
+    };
+    const feed = buildAttentionFeed({ ...loud, projectMemoryUnreadable: { reason: 'No single home.' } });
+    expect(feed.items.map(item => item.id)).toEqual(['project-memory-unreadable']);
+    expect(feed.items[0]!.urgency).toBe('now');
+    expect(feed.items[0]!.detail).toContain('No single home.');
+  });
+
+  it('never lets an unread workspace read as clear', () => {
+    const feed = buildAttentionFeed({ ...healthy, projectMemoryUnreadable: { reason: 'r' } });
+    expect(feed.emptyState).toBeUndefined();
+    expect(feed.summary).toBe('1 needing attention now');
+  });
+
+  it('keeps the groups that are not project memory', () => {
+    const feed = buildAttentionFeed({
+      ...healthy,
+      pipeline: { loaded: true, latestFailed: true },
+      projectMemoryUnreadable: { reason: 'r' },
+    });
+    expect(feed.items.map(item => item.id)).toEqual(['project-memory-unreadable', 'ci-red']);
+  });
+
+  it('names only real groups', () => {
+    for (const group of PROJECT_MEMORY_GROUPS) {
+      expect(['testing', 'pipeline', 'issues', 'capacity', 'release', 'workflow']).not.toContain(group);
+    }
+    expect(PROJECT_MEMORY_GROUPS).toContain('director');
+    expect(PROJECT_MEMORY_GROUPS).toContain('debt');
   });
 });

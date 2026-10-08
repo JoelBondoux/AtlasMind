@@ -376,6 +376,17 @@ The Manage Agents sidebar exposes this once under **Defaults & automation**, so 
 
 The built-in check is enforced in `AgentAutoUpdater.isDue()` before any provider call, and Agent Manager renders the exclusion checked and disabled for built-ins. **Failure safety:** If the AI call fails for any reason, the original user-agent definition is used unmodified. The `lastAutoUpdated` timestamp is only written after a successful update, so the cadence clock is not advanced on failure.
 
+**The golden-case gate.** A rewrite is replayed against the agent's golden cases (`project_memory/agents/eval-cases.json`) before it is registered, and `shouldHoldAgentUpdate` decides by `UPDATE_HOLD_RULES`, first match wins:
+
+| Rule | Decision |
+|---|---|
+| `cases-unreadable` | **Held.** Whether the agent has cases could not be established — the SSOT home is ambiguous in a multi-root workspace, the cases file exists and is not valid JSON or not a list, or counting them threw. |
+| `no-cases` | Released. The cases were read and none is declared for this agent — and the decision says nothing verified it. |
+| `not-verified` | **Held.** The agent has cases and the rewrite could not be replayed against them. |
+| `regressions` | **Held.** A case that passed before the rewrite fails after it. |
+
+The first rule exists because **could not read the cases is not no cases**. In 0.498.1 an ambiguous home read nothing, nothing counted as zero cases, and zero is the one answer that releases an unattended rewrite — so the gate opened exactly when it could see nothing. The verifier now returns a `DeclaredCaseCount` (`number | { unreadable }`), `readGoldenCaseFile` keeps *absent* (none declared) apart from *unreadable*, and a count that is not a non-negative whole number is treated as unreadable rather than trusted. With no folder open at all the count is `0`, since golden cases live only in project memory. `heldUpdate(agentId)` returns the decision, so a surface can say which rule held the agent and, for an ambiguous home, the refusal naming the candidate folders.
+
 ---
 
 

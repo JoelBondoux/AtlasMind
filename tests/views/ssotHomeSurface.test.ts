@@ -208,3 +208,23 @@ describe('every reader and writer of project memory, on the same home', () => {
     expect(EXTENSION).toContain('ssotHomeAtActivation.location.candidates');
   });
 });
+
+describe('consumers that decide on project memory are told it was not read', () => {
+  // The behaviour is asserted against real ambiguous homes in
+  // tests/core/ambiguousSsotHomeConsumers.test.ts; these pin the wiring, which
+  // is where a refusal would quietly stop reaching the decision.
+  it('passes the refusal to the Overview feed, so its groups are dropped rather than read as empty', () => {
+    const mapping = functionSource(DASHBOARD, 'function buildAttentionInput(');
+    expect(mapping).toContain('projectMemoryUnreadable: { reason: snapshot.ssotHome.notice }');
+  });
+
+  it('passes the unread testing matrix to the release gate', () => {
+    expect(DASHBOARD).toContain('testingPolicyUnreadable: testingSnapshot.policyUnreadable');
+    expect(DASHBOARD).toContain('testingPolicyUnreadable: input.testingPolicyUnreadable');
+  });
+
+  it('hands the eval gate the home with its refusal, not a bare path', () => {
+    expect(EXTENSION).toContain('ssotHome: () => ssotHomeRoot(),');
+    expect(EXTENSION).not.toMatch(/workspaceRoot: \(\) => ssotHomeRoot\(\)\.fsPath,\s*\}\);\s*const agentAutoUpdater/);
+  });
+});

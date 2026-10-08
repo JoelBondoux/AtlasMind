@@ -309,6 +309,16 @@ export interface TestingDashboardSnapshot {
    */
   policyCoverage: TestingPolicyCoverage;
   /**
+   * Why the declared testing matrix could not be read, when it could not: the
+   * SSOT home is ambiguous, so `project_memory/index/testing-config.json` was
+   * left unread. Then `policyCoverage` is derived against **no** enabled
+   * methodology — never the two-default fallback an undeclared project gets,
+   * which would grade the project against a standard it did not declare — and
+   * every consumer that decides on coverage (the release gate) treats it as
+   * unknown rather than as a pass.
+   */
+  policyUnreadable?: string;
+  /**
    * Per-policy severity, drafts and chart data.
    *
    * Derived here beside the coverage it grades, so the Testing page and the
@@ -6979,7 +6989,9 @@ export function collectTestingDashboardSnapshot(
   // The matrix, the compliance registers and the delivery/workflow facts the
   // stack signals read are project memory: the SSOT home's. Test files and
   // coverage are the first folder's, as before.
-  const ssotRoot = ssotHomeRoot().fsPath;
+  const ssotHome = ssotHomeRoot();
+  const ssotRoot = ssotHome.fsPath;
+  const policyUnreadable = ssotHome.refusal;
   const projectTestingConfig = ssotRoot ? readProjectTestingConfig(ssotRoot) : undefined;
 
   let packageScripts: string[] = [];
@@ -7086,8 +7098,13 @@ export function collectTestingDashboardSnapshot(
   const parsedReport = discoveredReport ? parseJUnitReport(discoveredReport.text) : undefined;
   const coverageInput = {
     // Nothing enabled yet means the two Atlas defaults, matching what the
-    // strategy table shows in that state rather than an empty board.
-    enabledMethodologies: enabledMethodologies.length > 0 ? enabledMethodologies : ['tdd', 'unit'],
+    // strategy table shows in that state rather than an empty board. Not when
+    // the matrix could not be read at all: an unread matrix is not an empty
+    // one, and grading against defaults would let a release gate pass on a
+    // standard nobody declared.
+    enabledMethodologies: enabledMethodologies.length > 0
+      ? enabledMethodologies
+      : policyUnreadable ? [] : ['tdd', 'unit'],
     testFiles: policyTestFiles,
     dependencies: dependencyNames,
     scripts: allScriptNames,
@@ -7261,6 +7278,7 @@ export function collectTestingDashboardSnapshot(
     availableAgentSummaries,
     methodologyDefinitions: TESTING_METHODOLOGY_DEFINITIONS,
     policyCoverage,
+    ...(policyUnreadable ? { policyUnreadable } : {}),
     policyDetails: deriveTestingPolicyDetails(policyCoverage, {
       // Scaffolding writes beside the testing playbook, in the SSOT home.
       scaffoldable: ssotRoot ? scaffoldableMethodologies(ssotRoot, policyCoverage.rows.map(row => row.id)) : new Set(),
