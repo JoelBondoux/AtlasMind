@@ -42,6 +42,7 @@ import {
 } from '../core/localCiActorGuard.js';
 import { parseRepoSlug } from '../core/githubDeepLinks.js';
 import { runGhOrThrow } from '../core/ghClient.js';
+import { guardHostCommand } from '../core/dryRunHost.js';
 import { redactSecrets } from '../utils/secretRedactor.js';
 import { sanitizeTerminalOutput } from '../utils/terminalOutput.js';
 
@@ -61,6 +62,7 @@ function workspaceRoot(): string | undefined {
 }
 
 async function git(root: string, args: readonly string[]): Promise<string> {
+  guardHostCommand('local-ci', 'git', args);
   const { stdout } = await execFileAsync('git', [...args], {
     cwd: root,
     windowsHide: true,

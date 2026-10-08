@@ -26,6 +26,7 @@ import * as path from 'node:path';
 import * as os from 'node:os';
 import { existsSync, readFileSync } from 'node:fs';
 import { writeFile, mkdir } from 'node:fs/promises';
+import { interceptDryRun } from '../core/dryRunHost.js';
 import type { ImportedMcpServer, McpEnvironmentScan, McpServerConfig } from '../types.js';
 
 export const MCP_ENV_SSOT_PATH = 'project_memory/operations/mcp-environment.json';
@@ -476,7 +477,15 @@ export class McpEnvironmentScanner {
   async scan(): Promise<McpEnvironmentScan> {
     const scan = scanMcpEnvironment(this.workspaceRoot);
     this.cached = scan;
-    if (this.workspaceRoot) {
+    // The cache is refreshed when the panel opens and when a config file
+    // changes, so nobody asked for this write: a dry run serves the scan from
+    // memory and leaves the committed cache as it was.
+    if (this.workspaceRoot && !interceptDryRun({
+      surface: 'mcp-environment-scan',
+      kind: 'auto-write',
+      summary: 'refresh the cached MCP environment scan in project memory',
+      userInitiated: false,
+    })) {
       try {
         await writeMcpEnvironmentScan(this.workspaceRoot, scan);
       } catch {

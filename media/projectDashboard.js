@@ -1458,7 +1458,8 @@
         state.promotion.result = message.payload;
       }
       const succeeded = !!(message.payload && message.payload.succeeded);
-      announce(succeeded ? 'Promotion completed.' : 'Promotion failed.');
+      const dryRun = !!(message.payload && message.payload.dryRun);
+      announce(dryRun ? 'Dry run: the promotion was not run.' : succeeded ? 'Promotion completed.' : 'Promotion failed.');
       render();
       return;
     }
@@ -18020,8 +18021,9 @@
     const route = `${p.plan.fromName} → ${p.plan.toName}`;
     if (p.result) {
       const ok = p.result.succeeded;
-      return `<div class="promo-detached ${ok ? 'good' : 'bad'}">
-        <span>${ok ? '✓' : '✗'} Promotion ${ok ? 'completed' : 'failed'} — ${escapeHtml(route)}.</span>
+      const dry = !!p.result.dryRun;
+      return `<div class="promo-detached ${dry ? 'running' : ok ? 'good' : 'bad'}">
+        <span>${dry ? '•' : ok ? '✓' : '✗'} ${dry ? 'Dry run — promotion not run' : `Promotion ${ok ? 'completed' : 'failed'}`} — ${escapeHtml(route)}.</span>
         <span class="promo-detached-actions">
           <button type="button" class="action-link" data-action="promotion-reopen" data-payload="">View details</button>
           <button type="button" class="action-link" data-action="promotion-dismiss-notice" data-payload="">Dismiss</button>
@@ -18148,8 +18150,8 @@
           </div>` : ''}
           ${(runbook && manualChecks.length) ? `<div class="promo-section"><h4>Manual confirmations</h4><ul class="promo-check-list">${confirmationsHtml}</ul></div>` : ''}
           ${p.progress && p.progress.length ? `<div class="promo-section"><h4>Progress</h4><ul class="promo-progress-list">${p.progress.map(s => `<li class="promo-step ${escapeAttr(s.status)}">${promoStatusIcon(s.status)} ${escapeHtml(s.label)}${s.output ? `<div class="promo-step-out">${escapeHtml(s.output)}</div>` : ''}</li>`).join('')}</ul></div>` : ''}
-          ${done ? `<div class="promo-section promo-result ${p.result.succeeded ? 'good' : 'bad'}">
-            <h4>${p.result.succeeded ? '✓ Promotion completed' : '✗ Promotion failed'}</h4>
+          ${done ? `<div class="promo-section promo-result ${p.result.dryRun ? '' : p.result.succeeded ? 'good' : 'bad'}">
+            <h4>${p.result.dryRun ? 'Dry run — nothing was run. This is what the promotion would have done.' : p.result.succeeded ? '✓ Promotion completed' : '✗ Promotion failed'}</h4>
             <ul class="promo-progress-list">${p.result.steps.map(s => `<li class="promo-step ${s.skipped ? 'skipped' : (s.ok ? 'done' : 'failed')}">${s.skipped ? '•' : (s.ok ? '✓' : '✗')} ${escapeHtml(s.label)}${s.output ? `<div class="promo-step-out">${escapeHtml(s.output)}</div>` : ''}${(!s.ok && !s.skipped) ? `<div class="promo-step-fix"><button type="button" class="action-link" data-action="fix-promotion-step" data-payload="${escapeAttr(s.id)}">Ask Atlas to fix this</button></div>` : ''}</li>`).join('')}</ul>
             ${(p.result.rollback && (p.result.rollback.command || p.result.rollback.runbookRef)) ? `<p class="promotion-last">Recovery: ${escapeHtml(p.result.rollback.command || p.result.rollback.runbookRef)}</p>` : ''}
           </div>` : ''}

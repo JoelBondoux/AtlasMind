@@ -1,5 +1,7 @@
 ﻿import * as fs from 'node:fs/promises';
 import { execFile } from 'node:child_process';
+import { describeHostDryRunNotice } from '../core/dryRun.js';
+import { interceptDryRun } from '../core/dryRunHost.js';
 import * as path from 'node:path';
 import * as vscode from 'vscode';
 import type { AtlasMindContext } from '../extension.js';
@@ -1961,6 +1963,18 @@ async function handleShipCommand(
     },
   );
 
+  // A dry run is not a refusal about the input: the plan was fine, and the
+  // operator turned dry run on to see it without running it. Say that, and show
+  // the plan, rather than the shell-syntax explanation below.
+  if (result.dryRun) {
+    stream.markdown(
+      `\n\n**Dry run — nothing was run.** AtlasMind would have run:\n\n\`\`\`\n${describeRoutinePlan(plan)}\n\`\`\`\n\n` +
+      'It is listed in the AtlasMind Dry Run output. Turn dry run off (AtlasMind: Toggle Dry Run) and run `/ship` again to do it for real.',
+    );
+    atlas.routinesRefresh.fire();
+    return;
+  }
+
   // A refusal is not a failed step: nothing ran, so there is no step output to
   // show and no point rendering a ladder of steps that never started.
   if (result.refusedReason) {
@@ -2142,6 +2156,20 @@ async function handleBuzzSend(
     return;
   }
 
+  // A dry run says what would have been posted and posts nothing. The target is
+  // not remembered as confirmed, because nothing was sent to it.
+  const dryRun = interceptDryRun({
+    surface: 'buzz',
+    kind: 'message',
+    summary: 'post the message to Buzz',
+    details: { channel: target, characters: validation.text.length },
+    wouldHaveAsked: decision.requiresConfirmation,
+  });
+  if (dryRun) {
+    stream.markdown(`**Not sent.** ${escapeMd(describeHostDryRunNotice(dryRun))}`);
+    return;
+  }
+
   try {
     await skill.execute({ channel: target, content: validation.text }, atlas.skillContext);
     if (decision.remembersTarget) {
@@ -2247,6 +2275,18 @@ async function handleBuzzDirectMessage(
   const skill = atlas.skillsRegistry.get(skillId);
   if (!skill || !atlas.skillsRegistry.isEnabled(skill.id)) {
     stream.markdown('The Buzz DM tool is unavailable. Reconnect the server from MCP Servers.');
+    return;
+  }
+
+  const dryRun = interceptDryRun({
+    surface: 'buzz',
+    kind: 'message',
+    summary: `send the Buzz DM to ${contact.name}`,
+    details: { recipient: contact.name, characters: validation.text.length },
+    wouldHaveAsked: decision.requiresConfirmation,
+  });
+  if (dryRun) {
+    stream.markdown(`**Not sent.** ${escapeMd(describeHostDryRunNotice(dryRun))}`);
     return;
   }
 
@@ -7449,6 +7489,17 @@ export async function writeProjectRunSummaryReport(
 ): Promise<vscode.Uri | undefined> {
   const workspaceFolder = vscode.workspace.workspaceFolders?.[0];
   if (!workspaceFolder) {
+    return undefined;
+  }
+  // Written after a run, not because somebody asked for a file: in a dry run
+  // it is recorded instead. The run's own summary in the chat is unaffected.
+  if (interceptDryRun({
+    surface: 'project-run-report',
+    kind: 'auto-write',
+    summary: `write the project run report to ${reportFolder || DEFAULT_PROJECT_RUN_REPORT_FOLDER}`,
+    details: { folder: reportFolder, goal: report.goal.slice(0, 120) },
+    userInitiated: false,
+  })) {
     return undefined;
   }
 

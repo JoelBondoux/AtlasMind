@@ -357,6 +357,17 @@ summary; records reach `OrchestratorHooks.onDryRunRecord` → `DryRunLedger` →
 channel, and `atlasmind.toggleDryRun` plus a status bar item switch it. The CLI's `--dry-run` sets it for
 `chat` and `project`.
 
+**The dry run covers what AtlasMind does outside a turn (0.492.0).** `src/core/dryRunHost.ts` is the one
+service host surfaces ask: installed at activation with the same `DryRunLedger`, so a refused routine,
+promotion, dashboard git or `gh` write, connector or Buzz send, webhook, MCP call, terminal send, installer,
+live-service probe or automatic memory write is a `DryRunRecord` (rule `dry-run.host-*`) in the same output
+channel, and a button somebody pressed raises a notice saying dry run stopped it. Guards sit at each effect's
+own boundary where there is one (`GhClient`, `mcpRuntime.execFileAsync`, `RoutineRunner`, `promotionRunner`,
+the MCP registry around `callTool`), and commands are graded by `classifyHostCommand`, an allowlist of git,
+`gh` and docker read shapes. `DRY_RUN_HOST_EXEMPTIONS` publishes what still runs; a source scan
+(`tests/security/dryRunCoverage.test.ts`) fails on a file that can act and is neither guarded nor exempted
+with a reason. The CLI and the ACP agent (`atlasmind-acp --dry-run`) install a host of their own.
+
 **A model-initiated fetch goes only where it was checked to go (0.490.2).**
 `src/core/egressDestinationPolicy.ts` (pure) screens a URL — `https` only, no credentials, no name that is
 local by definition — and judges every literal or resolved address by its numeric value against published
@@ -1580,6 +1591,7 @@ never accepted.
 | `src/core/egressDestinationPolicy.ts` | Where a fetch a model asked for may go — the URL rules and the private and reserved address ranges, judged by value |
 | `src/core/egressFetch.ts` | The connection that goes only there: pinned to the checked addresses, redirects checked hop by hop |
 | `src/core/dryRun.ts` | Dry run: which tool calls still run (built-in local reads only), the description the rest get instead, the context that refuses every effect, and the session's record |
+| `src/core/dryRunHost.ts` | Dry run outside the tool loop: the host every routine, promotion, panel button, message, terminal send and automatic write asks, recording what it stopped in the same output |
 | `src/core/quarantinedReader.ts` | How a long third-party result is read by a model with no tools, what its extract must look like to be believed, and how the raw text is released only after you approve |
 | `src/runtime/` | The built-in agents and how the runtime is composed |
 | `src/providers/` | Provider adapters, catalogues, health, local model discovery, `modelRole.ts` (what a model is *for*), and the local-GPU support layer that measures VRAM and reads what each runtime has loaded |

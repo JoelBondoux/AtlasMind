@@ -381,15 +381,48 @@ a subscription agent's own tools (they run where nothing can be described), and 
 search `find-tool` can fall back to.
 
 **What it does not stop.** Model calls still run and still cost money — including the quarantined reader —
-because they are how the turn decides what it would do. Paths outside the tool loop — routines, the
-delivery and promotion runners, panel buttons that run a skill directly, messages sent from the Director —
-are not yet covered; that is the next slice of this work.
+because they are how the turn decides what it would do.
+
+### Outside a chat turn, too
+
+The same switch covers what AtlasMind does on its own account, outside the agent's tools. Each of these is
+recorded in the same **AtlasMind Dry Run** output channel, with the rule that stopped it, instead of being
+done — and when it was a button you pressed, a notification says plainly that dry run is on and names what
+was not done (with a button to open the output):
+
+| What | In a dry run |
+|---|---|
+| **Routines and `/ship`**, the Run Center | No step runs. `/ship` shows the commands it would have run; nothing is written to run history, because a routine that never ran did not fail. |
+| **Promotions, Resolve & run, rollbacks, the health-check Test button** | The promotion returns its plan as the record — every step marked *Dry run: would have run …* — and runs no command and no health check. Nothing is written to the path's last promotion or the delivery history, because nothing shipped. Resolve & run edits and commits nothing. |
+| **git and GitHub from the dashboard** | Every git command goes through one helper and every `gh` command through one boundary, each graded by a published read list: `status`, `log`, `diff`, `rev-parse`, `issue list`, `api` GET and the like still run, so the pages keep rendering; deleting or switching a branch, pulling, fetching, pushing, and creating, commenting on, closing or labelling an issue or pull request do not. |
+| **Messages** | Director emails and invites through a connector, Buzz posts and DMs, tool webhooks (the *Send test* button included) and the ACP agent's Buzz auto-reply are not sent. |
+| **MCP tool calls from anywhere** | Refused at the registry before `callTool`, whoever asked — the backstop under the tool loop and under every panel. |
+| **Terminals** | Nothing is typed into a terminal — not the delivery and local-CI *send to terminal* commands, not chat's *Send to terminal*, not the setup walkthroughs' prepared commands — and no runbook column or managed-terminal command runs, including the one follow-up command the agent can choose; the agent is told it did not run. |
+| **Processes and installs** | Installers (runtimes, the GitHub CLI, ACP agents, local models), the website stack setup, the portal deploy, launching a game engine, the local CI runner container, and `/bootstrap` (which writes a model-drafted scaffold, runs git and can create a repository) do not start. |
+| **Live services** | Lens probes — HTTP, GraphQL, SQL over HTTPS, direct database connections, MCP schema tools — and Resource Discovery searches are not sent. |
+| **Writes AtlasMind makes on its own** | The memory self-heal pass, the background snippet refresh, the automatic stale-memory re-import, the project-run report written after a run, the gap analysis saved after its turn, the roadmap anchors written when the Roadmap page loads, the roadmap rule written into agent instruction files, and the MCP environment cache are recorded, not written. |
+
+**What still runs outside a turn, and why** (published as `DRY_RUN_HOST_EXEMPTIONS` in `src/core/dryRun.ts`):
+
+- **Reads** — git and `gh` reads, version probes, local file reads. A dashboard that went blank in a dry
+  run would preview nothing.
+- **Model calls** — as in the tool loop.
+- **A save you press a button to make** — a panel form, a register entry, a template, a report, a scan's
+  findings, a starter workflow. That is you editing your own project, not AtlasMind acting.
+- **AtlasMind keeping its own records** — session state, run history, cost records, caches. A dry run
+  that could not be recorded could not be reviewed.
+
+A test (`tests/security/dryRunCoverage.test.ts`) scans the source for every call shape that can act — a
+process, a request, an MCP call, a skill execution, a file write, a terminal send, the shared process and
+`gh` helpers — and fails until each file that has one either calls a dry-run guard or is listed with a
+written reason for running anyway.
 
 **On and off.** Turning it on applies to the very next tool call. Turning it off waits for the next
 message, so a run planned dry cannot finish half-real. It is a user setting only — a repository's
 workspace settings cannot turn it off for you — and a value AtlasMind cannot read counts as **on**. While
 it is on, a *Dry run* item with a beaker sits in the status bar in the warning colour; click it to turn dry
-run off. In the CLI, `--dry-run` does the same for `chat` and `project`.
+run off. In the CLI, `--dry-run` does the same for `chat` and `project`, and the ACP agent
+(`atlasmind-acp`) takes `--dry-run` too — it runs outside the editor, so it cannot read the setting.
 
 ---
 

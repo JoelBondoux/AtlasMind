@@ -17,6 +17,8 @@ import {
   AtlasMindAcpAgent,
 } from '../acp/atlasMindAcpAgent.js';
 import { BuzzAcpReplyPublisher } from '../acp/buzzReplyPublisher.js';
+import { formatDryRunLedgerLine } from '../core/dryRun.js';
+import { DryRunHost, installDryRunHost } from '../core/dryRunHost.js';
 import {
   BuzzCliBridge,
   loadBuzzCliBridgeConfig,
@@ -33,6 +35,12 @@ interface AcpAgentCliOptions {
   ssotPath?: string;
   dailyLimitUsd: number;
   buzzAutoReply: boolean;
+  /**
+   * The ACP agent's equivalent of `atlasmind.dryRun.enabled`: it runs in its own
+   * process, launched by an editor that is not VS Code, so it cannot read the
+   * setting and takes a flag instead. On for the life of the process.
+   */
+  dryRun: boolean;
 }
 
 export function parseAcpAgentArgs(
@@ -43,6 +51,7 @@ export function parseAcpAgentArgs(
   let ssotPath: string | undefined;
   let dailyLimitUsd = 0;
   let buzzAutoReply = false;
+  let dryRun = false;
   let help = false;
   let version = false;
   const errors: string[] = [];
@@ -80,6 +89,9 @@ export function parseAcpAgentArgs(
       case '--buzz-auto-reply':
         buzzAutoReply = true;
         break;
+      case '--dry-run':
+        dryRun = true;
+        break;
       case '--help':
       case '-h':
         help = true;
@@ -100,6 +112,7 @@ export function parseAcpAgentArgs(
         ssotPath,
         dailyLimitUsd,
         buzzAutoReply,
+        dryRun,
       }
       : undefined,
     help,
@@ -126,6 +139,14 @@ export async function runAcpAgent(
   const skillContext = createNodeSkillExecutionContext(options.workspaceRoot, memoryManager);
   const adapters = createCliProviderAdapters();
   const permissionBroker = new AcpPermissionBroker();
+  // Dry-run records go to stderr, which the ACP client shows as the agent's
+  // log, never to stdout, which is the protocol stream.
+  const writeDryRunRecord = (record: Parameters<typeof formatDryRunLedgerLine>[0]): void => {
+    process.stderr.write(`[atlasmind-acp] [dry run] ${formatDryRunLedgerLine(record)}\n`);
+  };
+  if (options.dryRun) {
+    installDryRunHost(new DryRunHost({ isEnabled: () => true, record: writeDryRunRecord }));
+  }
   const runtime = createAtlasRuntime({
     memoryStore: memoryManager,
     costTracker,
@@ -134,6 +155,12 @@ export async function runAcpAgent(
     hooks: {
       toolApprovalGate: (taskId, toolName, args, meta) =>
         permissionBroker.authorize(taskId, toolName, args, meta),
+      ...(options.dryRun
+        ? {
+          readSetting: <T>(key: string, fallback: T): T => (key === 'dryRun.enabled' ? true as T : fallback),
+          onDryRunRecord: writeDryRunRecord,
+        }
+        : {}),
     },
   });
   syncProviderAvailability(runtime.modelRouter, adapters);
@@ -208,6 +235,7 @@ function printHelp(output: NodeJS.WritableStream): void {
     '  --ssot <relative-path>   Override the SSOT path (default: project_memory)',
     '  --daily-limit-usd <n>    Stop model requests at this daily cost ceiling',
     '  --buzz-auto-reply        Publish final answers through Buzz’s communication-only CLI bridge',
+    '  --dry-run                Describe every tool call and Buzz reply that would act, and run none of them',
     '  --help                   Show this help',
     '  --version                Show the AtlasMind version',
     '',

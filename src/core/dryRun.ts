@@ -2,6 +2,7 @@ import { fingerprint } from './workflowAuditRecord.js';
 import { classifyToolInvocation, requiresToolApproval, toolBypassCeiling } from './toolPolicy.js';
 import { toJsonPreview } from './toolPreview.js';
 import { redactSecrets } from '../utils/secretRedactor.js';
+import { parseGhInvocation } from '../skills/terminalRun.js';
 import type {
   DryRunRecord,
   SkillExecutionContext,
@@ -615,4 +616,393 @@ export class DryRunLedger {
     this.listeners.add(listener);
     return () => { this.listeners.delete(listener); };
   }
+}
+
+// ── Outside the tool loop ────────────────────────────────────────
+
+/**
+ * What an action outside the tool loop would have done, by kind.
+ *
+ * The tool loop is not the only place AtlasMind acts. A routine runs shell
+ * commands, a promotion deploys, the dashboard deletes branches and files
+ * issues, the Director sends mail through a connector, a timer rewrites a memory
+ * file. One switch has to mean "nothing executes" for all of them, or it means
+ * "nothing the model asked for executes", which is a smaller promise than the
+ * status bar makes. Each kind names the rule a host interception cites, so the
+ * output channel and the documentation quote the same thing.
+ *
+ * What a dry run does **not** stop, and why, is the other half of the rule and
+ * is published with it (`DRY_RUN_HOST_EXEMPTIONS`): a read changes nothing; a
+ * model completion is how a dry turn decides what it would do; and an operator
+ * pressing a button whose purpose is to save a file is a person editing their
+ * own project, which a preview switch has no business refusing.
+ */
+export type DryRunHostEffectKind =
+  | 'process'
+  | 'git'
+  | 'github'
+  | 'network'
+  | 'message'
+  | 'terminal'
+  | 'auto-write';
+
+export interface DryRunHostEffectRow {
+  rule: string;
+  category: ToolRiskCategory;
+  risk: ToolInvocationPolicy['risk'];
+  description: string;
+}
+
+export const DRY_RUN_HOST_EFFECTS: Readonly<Record<DryRunHostEffectKind, DryRunHostEffectRow>> = {
+  process: {
+    rule: 'dry-run.host-process',
+    category: 'terminal-write',
+    risk: 'high',
+    description: 'Starts a process: a routine step, a promotion or rollback command, a deploy, an installer, a container.',
+  },
+  git: {
+    rule: 'dry-run.host-git',
+    category: 'git-write',
+    risk: 'high',
+    description: 'Runs a git command that changes the repository, its refs or a remote. Reading git is not an action.',
+  },
+  github: {
+    rule: 'dry-run.host-github',
+    category: 'network',
+    risk: 'high',
+    description: 'Runs a gh command that changes something on GitHub: an issue, a label, a pull request, a run, a status. Reading GitHub is not an action.',
+  },
+  network: {
+    rule: 'dry-run.host-network',
+    category: 'network',
+    risk: 'high',
+    description: 'Sends a request off the machine: a webhook, a health check, a live-service probe, an MCP tool call, a Resource Discovery search.',
+  },
+  message: {
+    rule: 'dry-run.host-message',
+    category: 'network',
+    risk: 'high',
+    description: 'Sends a message to a person: a Director email or invite through a connector, a Buzz post or DM.',
+  },
+  terminal: {
+    rule: 'dry-run.host-terminal',
+    category: 'terminal-write',
+    risk: 'high',
+    description: 'Types into a terminal or runs a command in one, including a command left for a person to submit.',
+  },
+  'auto-write': {
+    rule: 'dry-run.host-auto-write',
+    category: 'workspace-write',
+    risk: 'medium',
+    description: 'A write AtlasMind makes on its own (on a timer, when a page loads, or as a side effect after a turn) rather than the thing somebody pressed a button to save.',
+  },
+};
+
+/** What a dry run deliberately leaves running outside the tool loop, with the reason. */
+export const DRY_RUN_HOST_EXEMPTIONS: ReadonlyArray<{ id: string; description: string }> = [
+  {
+    id: 'dry-run.exempt-read',
+    description: 'Reads: git and gh commands classifyHostCommand grades as reads, version probes, local file reads. They change nothing, and a dashboard that went blank in a dry run would preview nothing.',
+  },
+  {
+    id: 'dry-run.exempt-model-call',
+    description: 'Model completions, as in the tool loop. They are how a dry run decides what it would do; they still cost money.',
+  },
+  {
+    id: 'dry-run.exempt-operator-save',
+    description: 'An operator pressing a button whose purpose is to save something to a file: a panel form, a register entry, a template, a report, a scan result, a starter workflow. That is the person acting rather than AtlasMind, and the file is what they asked for.',
+  },
+  {
+    id: 'dry-run.exempt-own-bookkeeping',
+    description: 'AtlasMind keeping its own records: session state, run history, cost records, caches. A dry run that could not be recorded could not be reviewed.',
+  },
+];
+
+/** A command a host is about to run, graded before it runs. */
+export type HostCommandGrade =
+  | { kind: 'read'; reason: string }
+  | { kind: 'effect'; effect: DryRunHostEffectKind; reason: string };
+
+/** Subcommands that only ever read. Anything not here is an effect. */
+const GIT_READ_SUBCOMMANDS: ReadonlySet<string> = new Set([
+  'status', 'log', 'diff', 'show', 'rev-parse', 'rev-list', 'merge-base', 'for-each-ref', 'describe',
+  'ls-files', 'ls-tree', 'ls-remote', 'cat-file', 'blame', 'shortlog', 'name-rev', 'grep', 'var',
+  'version', 'count-objects', 'show-ref', 'cherry', 'check-ref-format', 'check-ignore', 'check-attr',
+  'whatchanged', 'help',
+]);
+
+/** Subcommands that read only in some shapes; `gitReadShape` decides. */
+const GIT_SHAPE_SUBCOMMANDS: ReadonlySet<string> = new Set([
+  'branch', 'tag', 'remote', 'config', 'stash', 'worktree', 'symbolic-ref',
+]);
+
+const GIT_GLOBAL_OPTIONS_WITH_VALUE: ReadonlySet<string> = new Set([
+  '-c', '-C', '--git-dir', '--work-tree', '--namespace', '--exec-path', '--config-env',
+]);
+
+/** `git branch` flags that list rather than change. */
+const GIT_BRANCH_LIST_FLAGS = [
+  '--list', '-l', '-a', '--all', '-r', '--remotes', '-v', '-vv', '--verbose', '--show-current',
+  '--format', '--sort', '--contains', '--no-contains', '--merged', '--no-merged', '--points-at',
+  '--column', '--no-column', '--color', '--no-color', '--abbrev', '--no-abbrev', '-i', '--ignore-case',
+];
+
+const GIT_CONFIG_READ_FLAGS = ['--get', '--get-all', '--get-regexp', '--list', '-l', '--show-origin'];
+const GIT_CONFIG_WRITE_FLAGS = ['--unset', '--unset-all', '--add', '--replace-all', '--edit', '-e', '--rename-section', '--remove-section'];
+
+function flagMatches(arg: string, flags: readonly string[]): boolean {
+  return flags.some(flag => arg === flag || arg.startsWith(`${flag}=`));
+}
+
+/** Read shapes of the subcommands that can also write. An unknown shape is an effect. */
+function gitReadShape(subcommand: string, rest: readonly string[]): boolean {
+  const positional = rest.filter(arg => !arg.startsWith('-'));
+  const flags = rest.filter(arg => arg.startsWith('-'));
+  switch (subcommand) {
+    case 'branch':
+      // `git branch --list 'feat/*'` reads; `git branch feat/x` creates. A
+      // positional is a pattern only after --list.
+      if (flags.some(arg => arg === '--list' || arg === '-l')) {
+        return flags.every(arg => flagMatches(arg, GIT_BRANCH_LIST_FLAGS));
+      }
+      return positional.length === 0 && flags.every(arg => flagMatches(arg, GIT_BRANCH_LIST_FLAGS));
+    case 'tag':
+      return rest.length === 0 || flags.some(arg => arg === '--list' || arg === '-l');
+    case 'remote':
+      return positional.length === 0 || positional[0] === 'get-url' || positional[0] === 'show';
+    case 'config':
+      if (flags.some(arg => flagMatches(arg, GIT_CONFIG_WRITE_FLAGS))) {
+        return false;
+      }
+      return flags.some(arg => flagMatches(arg, GIT_CONFIG_READ_FLAGS)) || positional.length === 1;
+    case 'stash':
+      return positional[0] === 'list' || positional[0] === 'show';
+    case 'worktree':
+      return positional[0] === 'list';
+    case 'symbolic-ref':
+      return positional.length === 1 && !flags.some(arg => arg === '-d' || arg === '--delete');
+    default:
+      return false;
+  }
+}
+
+function classifyGitCommand(args: readonly string[]): HostCommandGrade {
+  let index = 0;
+  while (index < args.length) {
+    const value = args[index]!.trim();
+    if (GIT_GLOBAL_OPTIONS_WITH_VALUE.has(value)) {
+      index += 2;
+      continue;
+    }
+    if (value.startsWith('-')) {
+      index += 1;
+      continue;
+    }
+    break;
+  }
+  const subcommand = (args[index] ?? '').trim().toLowerCase();
+  const rest = args.slice(index + 1).map(arg => arg.trim());
+  if (!subcommand) {
+    return { kind: 'effect', effect: 'git', reason: 'git with no subcommand a dry run can read' };
+  }
+  // `--output` writes a file wherever it points, whatever the subcommand is.
+  if (rest.some(arg => arg === '--output' || arg.startsWith('--output='))) {
+    return { kind: 'effect', effect: 'git', reason: `git ${subcommand} --output writes a file` };
+  }
+  if (GIT_READ_SUBCOMMANDS.has(subcommand)) {
+    return { kind: 'read', reason: `git ${subcommand} reads` };
+  }
+  if (GIT_SHAPE_SUBCOMMANDS.has(subcommand) && gitReadShape(subcommand, rest)) {
+    return { kind: 'read', reason: `git ${subcommand} in a listing shape reads` };
+  }
+  return { kind: 'effect', effect: 'git', reason: `git ${subcommand} can change the repository` };
+}
+
+/** gh verbs that read. `download` is absent: it writes files. */
+const GH_HOST_READ_VERBS: ReadonlySet<string> = new Set(['list', 'view', 'status', 'diff', 'checks']);
+
+const GH_API_FIELD_FLAGS = ['-f', '-F', '--field', '--raw-field', '--input'];
+
+/**
+ * `gh api` is a GET unless it is told otherwise: the CLI documents GET as the
+ * default and POST as the default the moment a field or an input is added. So a
+ * call is a read only when it names no method other than GET or HEAD and
+ * carries nothing that would turn it into a POST. `graphql` is always an effect,
+ * because a mutation and a query have the same argv shape.
+ */
+function ghApiIsRead(args: readonly string[]): boolean {
+  const trimmed = args.map(arg => arg.trim());
+  if (trimmed.some(arg => arg.toLowerCase() === 'graphql')) {
+    return false;
+  }
+  for (let index = 0; index < trimmed.length; index += 1) {
+    const arg = trimmed[index]!;
+    if (flagMatches(arg, GH_API_FIELD_FLAGS) || /^-[fF]\S/.test(arg)) {
+      return false;
+    }
+    let method: string | undefined;
+    if (arg === '-X' || arg === '--method') {
+      method = trimmed[index + 1] ?? '';
+      index += 1;
+    } else if (arg.startsWith('--method=')) {
+      method = arg.slice('--method='.length);
+    } else if (/^-X\S/.test(arg)) {
+      method = arg.slice(2);
+    }
+    if (method !== undefined && !['GET', 'HEAD'].includes(method.toUpperCase())) {
+      return false;
+    }
+  }
+  return true;
+}
+
+function classifyGhCommand(args: readonly string[]): HostCommandGrade {
+  const { namespace, verb } = parseGhInvocation(args);
+  if (namespace === 'api') {
+    return ghApiIsRead(args)
+      ? { kind: 'read', reason: 'gh api GET reads' }
+      : { kind: 'effect', effect: 'github', reason: 'gh api with a method, a field or an input can change something' };
+  }
+  if (namespace === 'auth' && verb === 'status') {
+    return { kind: 'read', reason: 'gh auth status reads' };
+  }
+  if (namespace === 'status' && !verb) {
+    return { kind: 'read', reason: 'gh status reads' };
+  }
+  if (namespace === 'search') {
+    return { kind: 'read', reason: 'gh search reads' };
+  }
+  if (namespace && GH_HOST_READ_VERBS.has(verb)) {
+    return { kind: 'read', reason: `gh ${namespace} ${verb} reads` };
+  }
+  if (!namespace && isVersionProbe(args)) {
+    return { kind: 'read', reason: 'gh version probe' };
+  }
+  const label = [namespace, verb].filter(Boolean).join(' ') || 'command';
+  return { kind: 'effect', effect: 'github', reason: `gh ${label} can change something on GitHub` };
+}
+
+const DOCKER_READ_COMMANDS: ReadonlySet<string> = new Set(['version', 'info', 'ps', 'images', 'inspect']);
+const DOCKER_READ_PAIRS: ReadonlySet<string> = new Set([
+  'image inspect', 'image ls', 'container ls', 'container inspect', 'desktop version', 'desktop status', 'context ls', 'context show',
+]);
+
+function classifyDockerCommand(args: readonly string[]): HostCommandGrade {
+  const positional = args.map(arg => arg.trim().toLowerCase()).filter(arg => arg && !arg.startsWith('-'));
+  const first = positional[0] ?? '';
+  if (DOCKER_READ_COMMANDS.has(first)) {
+    return { kind: 'read', reason: `docker ${first} reads` };
+  }
+  // `docker logs --follow` stays attached to a container; reading is the snapshot.
+  if (first === 'logs' && !args.some(arg => arg === '--follow' || arg === '-f')) {
+    return { kind: 'read', reason: 'docker logs reads' };
+  }
+  if (positional.length >= 2 && DOCKER_READ_PAIRS.has(`${first} ${positional[1]}`)) {
+    return { kind: 'read', reason: `docker ${first} ${positional[1]} reads` };
+  }
+  if (!first && isVersionProbe(args)) {
+    return { kind: 'read', reason: 'docker version probe' };
+  }
+  return { kind: 'effect', effect: 'process', reason: `docker ${first || 'command'} can start, stop or change containers` };
+}
+
+const VERSION_PROBE_ARGS: ReadonlySet<string> = new Set(['--version', '-v', '-V', 'version', '--help', '-h']);
+
+function isVersionProbe(args: readonly string[]): boolean {
+  return args.length === 1 && VERSION_PROBE_ARGS.has(args[0]!.trim());
+}
+
+function executableName(command: string): string {
+  const base = command.trim().split(/[\\/]/).pop() ?? '';
+  return base.toLowerCase().replace(/\.(?:exe|cmd|bat)$/, '');
+}
+
+/**
+ * Whether a command a host is about to run reads or acts.
+ *
+ * Deny by default: a command this does not recognise is an effect, because the
+ * failure on that side is a preview that shows one action too many, and on the
+ * other it is a dry run that pushed a branch. Only git, gh and docker are read
+ * at all, through allowlists of their read shapes; any other executable reads
+ * only when it is asked for its version and nothing else.
+ */
+export function classifyHostCommand(command: string, args: readonly string[]): HostCommandGrade {
+  const name = executableName(command);
+  if (name === 'git') {
+    return classifyGitCommand(args);
+  }
+  if (name === 'gh') {
+    return classifyGhCommand(args);
+  }
+  if (name === 'docker') {
+    return classifyDockerCommand(args);
+  }
+  if (isVersionProbe(args)) {
+    return { kind: 'read', reason: `${name || 'command'} version probe` };
+  }
+  return { kind: 'effect', effect: 'process', reason: `${name || 'a process'} is not a command a dry run can grade as a read` };
+}
+
+/** One action outside the tool loop that a host is about to take. */
+export interface DryRunHostEffect {
+  /** Where it was asked for: `routine`, `promotion`, `dashboard`, `director` and so on. */
+  surface: string;
+  /** What would have happened, phrased to follow "AtlasMind did not …". */
+  summary: string;
+  kind: DryRunHostEffectKind;
+  /** Fingerprinted and previewed redacted, never stored as given. */
+  details?: Record<string, unknown>;
+  /**
+   * Somebody pressed something and is waiting for it. Absent means yes: the
+   * cost of an unwanted notice is a click, of a missing one a person who
+   * believes a deploy happened.
+   */
+  userInitiated?: boolean;
+  /** Whether the real path would have asked a person first. */
+  wouldHaveAsked?: boolean;
+}
+
+const HOST_SURFACE_CHARS = /[^a-z0-9._:-]+/g;
+
+export function buildHostDryRunRecord(effect: DryRunHostEffect, at: string): DryRunRecord {
+  const row = DRY_RUN_HOST_EFFECTS[effect.kind];
+  const surface = effect.surface.toLowerCase().replace(HOST_SURFACE_CHARS, '-').slice(0, 60) || 'host';
+  const details = effect.details ?? {};
+  return {
+    at,
+    taskId: `host:${surface}`,
+    toolName: surface,
+    category: row.category,
+    risk: row.risk,
+    rule: row.rule,
+    summary: redactSecrets(effect.summary).text.slice(0, 300),
+    wouldHaveAsked: effect.wouldHaveAsked ?? false,
+    argsFingerprint: fingerprint(details),
+    argsPreview: previewDryRunArgs(details),
+  };
+}
+
+/** What the operator is told when a dry run stops something they asked for. */
+export function describeHostDryRunNotice(record: Pick<DryRunRecord, 'summary'>): string {
+  return `Dry run is on, so AtlasMind did not ${record.summary}. Nothing was executed; it is listed in the `
+    + 'AtlasMind Dry Run output. Turn dry run off (AtlasMind: Toggle Dry Run) to do it for real.';
+}
+
+/**
+ * Thrown where a host would otherwise have acted. Its `name` is the one the
+ * tool loop's backstop uses, so anything that already treats `DryRunBlocked`
+ * as "refused, not failed" treats this the same way.
+ */
+export class DryRunBlockedError extends Error {
+  readonly record: DryRunRecord;
+
+  constructor(record: DryRunRecord) {
+    super(describeHostDryRunNotice(record));
+    this.name = DRY_RUN_BLOCKED_ERROR_NAME;
+    this.record = record;
+  }
+}
+
+export function isDryRunBlockedError(error: unknown): error is DryRunBlockedError {
+  return error instanceof Error && error.name === DRY_RUN_BLOCKED_ERROR_NAME;
 }

@@ -6,6 +6,7 @@ import * as fs from 'node:fs/promises';
 import { existsSync } from 'node:fs';
 import { mkdirSync, readFileSync, writeFileSync } from 'node:fs';
 import { execFile } from 'node:child_process';
+import { guardHostCommand, interceptDryRun } from '../core/dryRunHost.js';
 import { promisify } from 'node:util';
 import { createHash, randomUUID } from 'node:crypto';
 import type { AtlasMindContext } from '../extension.js';
@@ -9951,6 +9952,14 @@ export class ProjectDashboardPanel {
    * it, because the command is still unsubmitted and still theirs to abandon.
    */
   private sendLocalCiCommandToTerminal(resolved: { command: string; workspaceRoot: string }): void {
+    if (interceptDryRun({
+      surface: 'dashboard-local-ci',
+      kind: 'terminal',
+      summary: `type \`${resolved.command.slice(0, 120)}\` into the ${LOCAL_CI_TERMINAL_NAME} terminal`,
+      details: { command: resolved.command },
+    })) {
+      return;
+    }
     let terminal = vscode.window.terminals.find(candidate => candidate.name === LOCAL_CI_TERMINAL_NAME);
     if (!terminal) {
       terminal = vscode.window.createTerminal({
@@ -13758,6 +13767,18 @@ ${buildCardEvidenceSection(source, derivation)}`;
       if (roadmap.items.length === 0 || roadmap.graph.anchored) {
         return;
       }
+      // Load-time, so nobody asked for it: a dry run records it and leaves the
+      // backlog as it is. The first change anchors it instead, which is the
+      // path this one was added to get ahead of.
+      if (interceptDryRun({
+        surface: 'roadmap-anchors',
+        kind: 'auto-write',
+        summary: `anchor ${roadmap.items.length} roadmap item${roadmap.items.length === 1 ? '' : 's'} in improvement-plan.md`,
+        details: { items: roadmap.items.length },
+        userInitiated: false,
+      })) {
+        return;
+      }
       // Writes the anchors as its ordinary first step; nothing else is saved.
       // No sync here — the constructor's first sync runs after this settles
       // and collects the anchored state.
@@ -16819,6 +16840,14 @@ ${buildCardEvidenceSection(source, derivation)}`;
       vscode.window.setStatusBarMessage('AtlasMind: that runbook step changed — refresh the Delivery page.', 4000);
       return;
     }
+    if (interceptDryRun({
+      surface: 'delivery-terminal',
+      kind: 'terminal',
+      summary: `type \`${resolved.command.slice(0, 120)}\` into the ${DELIVERY_RUN_TERMINAL_NAME} terminal`,
+      details: { command: resolved.command },
+    })) {
+      return;
+    }
     const terminal = this.getOrCreateDeliveryTerminal(resolved.workspaceRoot);
     terminal.show();
     terminal.sendText(resolved.command, false);
@@ -16872,6 +16901,17 @@ ${buildCardEvidenceSection(source, derivation)}`;
       return;
     }
 
+    // A dry run records the column instead of running it. After the dialog,
+    // because the dialog is the preview: it lists every command the record holds.
+    if (interceptDryRun({
+      surface: 'delivery-run-plan',
+      kind: 'terminal',
+      summary: `run the ${plan.phaseLabel} column${plan.stageLabel ? ` for ${plan.stageLabel}` : ''} (${plan.commands.length} command${plan.commands.length === 1 ? '' : 's'})`,
+      details: { lines: [...plan.lines] },
+      wouldHaveAsked: true,
+    })) {
+      return;
+    }
     const terminal = this.getOrCreateDeliveryTerminal(resolved.workspaceRoot);
     terminal.show(true);
     for (const line of plan.lines) {
@@ -17412,6 +17452,18 @@ ${buildCardEvidenceSection(source, derivation)}`;
       void vscode.window.showErrorMessage(`Connector tool "${capability.toolName}" is unavailable. Reconnect the server from MCP Servers.`);
       return;
     }
+    // After the authorization dialog, which is the preview: it names the
+    // recipient and the body the record holds. Nothing is sent and nothing is
+    // written to the Director's outbound history, because nothing went out.
+    if (interceptDryRun({
+      surface: 'director',
+      kind: 'message',
+      summary: `send the ${intent} to ${contact.name} through ${capability.serverName}`,
+      details: { connector: capability.serverName, tool: capability.toolName, recipient: contact.name, subject: draft.subject ?? null },
+      wouldHaveAsked: true,
+    })) {
+      return;
+    }
     try {
       await skill.execute(args, this.atlas.skillContext);
       void vscode.window.showInformationMessage(`Sent ${intent} to ${contact.name} via ${capability.serverName}.`);
@@ -17551,6 +17603,12 @@ ${buildCardEvidenceSection(source, derivation)}`;
         routine,
         onProgress: update => { void this.postMessage({ type: 'promotionProgress', payload: update }); },
       });
+      if (result.dryRun) {
+        // Nothing ran, so nothing is recorded as having shipped: the path's
+        // last promotion and the audit history describe deployments.
+        await this.postMessage({ type: 'promotionDone', payload: result });
+        return;
+      }
       // Record the outcome on the path and persist (updates delivery.json + delivery.md).
       const updated: DeliveryConfig = {
         ...config,
@@ -17635,6 +17693,11 @@ ${buildCardEvidenceSection(source, derivation)}`;
     try {
       await this.postMessage({ type: 'promotionProgress', payload: { stepId: 'resolve', label: 'Resolve preflight', index: 0, total: 0, status: 'running' } });
       const applied = await applyPromotionRemediation(workspaceRoot, plan.remediation);
+      if (applied.dryRun) {
+        await this.postMessage({ type: 'promotionProgress', payload: { stepId: 'resolve', label: 'Resolve preflight', index: 0, total: 0, status: 'skipped', output: applied.output } });
+        await this.postMessage({ type: 'promotionError', payload: applied.output });
+        return;
+      }
       await this.postMessage({ type: 'promotionProgress', payload: { stepId: 'resolve', label: 'Resolve preflight', index: 0, total: 0, status: applied.ok ? 'done' : 'failed', output: applied.output } });
       if (!applied.ok) {
         await this.postMessage({ type: 'promotionError', payload: `Could not auto-resolve the failing checks: ${applied.output}` });
@@ -17721,6 +17784,10 @@ ${buildCardEvidenceSection(source, derivation)}`;
     }
     try {
       const result = await runRollback(workspaceRoot, command);
+      if (result.dryRun) {
+        await this.postMessage({ type: 'rollbackResult', payload: { ok: false, summary: result.output } });
+        return;
+      }
       await appendPromotionHistory(workspaceRoot, {
         id: `rollback-${Date.now()}`,
         kind: 'rollback',
@@ -28169,6 +28236,11 @@ async function runGit(
   args: string[],
   options: { timeoutMs?: number } = {},
 ): Promise<string> {
+  // Every git call on this page goes through here. A read passes untouched, so
+  // the page keeps rendering in a dry run; a write (branch, switch, pull, push,
+  // fetch, checkout) throws DryRunBlocked, which each handler's existing error
+  // path reports, after the guard has told the operator why.
+  guardHostCommand('dashboard', 'git', args);
   const { stdout } = await execFileAsync('git', args, {
     cwd: workspaceRoot,
     windowsHide: true,

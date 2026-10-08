@@ -2,6 +2,7 @@ import { EnvironmentManager } from './core/environmentManager.js';
 import { resolveWithinWorkspace } from './core/workspaceBoundary.js';
 import { egressFetch, toSkillHttpResult } from './core/egressFetch.js';
 import { DryRunLedger, formatDryRunLedgerLine, readDryRunSetting } from './core/dryRun.js';
+import { DryRunHost, installDryRunHost, interceptDryRun } from './core/dryRunHost.js';
 import * as vscode from 'vscode';
 import * as path from 'path';
 import * as os from 'os';
@@ -1491,6 +1492,19 @@ async function autoRefreshProjectMemoryIfStale(
     return false;
   }
 
+  // Started by AtlasMind, not by anybody pressing anything: in a dry run the
+  // re-import is recorded, and project memory is left as it was.
+  if (interceptDryRun({
+    surface: 'memory-auto-refresh',
+    kind: 'auto-write',
+    summary: `re-import ${status.staleEntryCount} stale project memory entr${status.staleEntryCount === 1 ? 'y' : 'ies'}`,
+    details: { reason, staleEntryCount: status.staleEntryCount },
+    userInitiated: false,
+  })) {
+    outputChannel.appendLine(`[activate] memoryFreshness auto-refresh held: dry run is on (${reason})`);
+    return false;
+  }
+
   outputChannel.appendLine(
     `[activate] memoryFreshness auto-refresh starting after ${reason}; ${status.staleEntryCount} imported entr${status.staleEntryCount === 1 ? 'y is' : 'ies are'} stale`,
   );
@@ -1531,6 +1545,20 @@ async function runMemorySelfHealingPass(
 
   if (warnedEntries.length === 0 && blockedEntries.length === 0) {
     return { changedEntries: 0, warnedRemaining: 0, blockedRemaining: 0 };
+  }
+
+  // A self-heal pass rewrites and quarantines memory files on its own. In a dry
+  // run it is recorded and nothing is moved; what remains is reported as
+  // remaining, because it does.
+  if (interceptDryRun({
+    surface: 'memory-self-heal',
+    kind: 'auto-write',
+    summary: `self-heal ${warnedEntries.length + blockedEntries.length} project memory entr${warnedEntries.length + blockedEntries.length === 1 ? 'y' : 'ies'}`,
+    details: { reason, warned: warnedEntries.length, blocked: blockedEntries.length },
+    userInitiated: false,
+  })) {
+    outputChannel.appendLine(`[activate] memorySelfHeal pass held: dry run is on (${reason})`);
+    return { changedEntries: 0, warnedRemaining: warnedEntries.length, blockedRemaining: blockedEntries.length };
   }
 
   outputChannel.appendLine(
@@ -2531,6 +2559,23 @@ async function bootstrapAtlasMind(
         dryRunChannel.appendLine(formatDryRunLedgerLine(record));
       }),
     });
+    // The same switch for everything AtlasMind does outside the tool loop:
+    // routines, promotions, dashboard git and gh writes, connector sends,
+    // terminal sends, automatic memory writes. Same ledger, same channel, so
+    // one run has one record of what it would have done.
+    context.subscriptions.push({
+      dispose: installDryRunHost(new DryRunHost({
+        isEnabled: () => vscode.workspace.getConfiguration('atlasmind').get<unknown>('dryRun.enabled', false),
+        record: record => dryRunLedger.record(record),
+        notify: message => {
+          void vscode.window.showWarningMessage(message, 'Show Dry Run output').then(choice => {
+            if (choice === 'Show Dry Run output') {
+              dryRunChannel?.show(true);
+            }
+          });
+        },
+      })),
+    });
     const toolApprovalGate = async (
       taskId: string,
       toolName: string,
@@ -3120,7 +3165,15 @@ async function bootstrapAtlasMind(
             }
 
             const entry = memoryManager.listEntries().find(e => e.path === entryPath);
-            if (entry) {
+            // A model wrote the snippet and a timer would write it to disk:
+            // both are what a dry run holds back.
+            if (entry && !interceptDryRun({
+              surface: 'memory-snippet-refresh',
+              kind: 'auto-write',
+              summary: `refresh the snippet of ${entryPath}`,
+              details: { entryPath },
+              userInitiated: false,
+            })) {
               memoryManager.upsert({ ...entry, snippet: newSnippet });
             }
           } catch (error) {
@@ -4128,6 +4181,14 @@ async function bootstrapAtlasMind(
         void vscode.window.showWarningMessage('That is not a known AtlasMind setup command, so it was not prepared.');
         return;
       }
+      if (interceptDryRun({
+        surface: 'setup-terminal',
+        kind: 'terminal',
+        summary: `type \`${text}\` into the Buzz setup terminal`,
+        details: { command: text },
+      })) {
+        return;
+      }
       const terminal = vscode.window.terminals.find((entry) => entry.name === 'Buzz setup')
         ?? vscode.window.createTerminal({ name: 'Buzz setup' });
       // Focus follows the command: the missing newline is the gate, and it only
@@ -4154,6 +4215,14 @@ async function bootstrapAtlasMind(
       const allowed = [...BUZZ_SETUP_COMMANDS, ...ACP_SIGN_IN_COMMANDS];
       if (!text || !allowed.includes(text)) {
         void vscode.window.showWarningMessage('That is not a known AtlasMind setup command, so it was not prepared.');
+        return;
+      }
+      if (interceptDryRun({
+        surface: 'setup-terminal',
+        kind: 'terminal',
+        summary: `type \`${text}\` into the setup terminal`,
+        details: { command: text },
+      })) {
         return;
       }
       const terminal = vscode.window.terminals.find((entry) => entry.name === SETUP_TERMINAL_NAME)

@@ -19,6 +19,28 @@ Older entries below describe the software as it was at the time and are delibera
 
 ---
 
+## v0.492.0 -- Dry run: nothing AtlasMind does runs, not just the agent's tools
+
+- **The one switch now covers everything.** With **AtlasMind: Toggle Dry Run** on, AtlasMind's own actions
+  are recorded instead of done as well: routines and `/ship`, promotions and rollbacks, git and GitHub
+  changes from the dashboard (deleting or switching a branch, pulling, filing or closing an issue, labels),
+  Director emails and Buzz messages, webhooks, MCP tools called from any panel, anything typed into a
+  terminal, installers, the website setup and the portal deploy, live-service probes, and `/bootstrap`.
+- **So are the writes AtlasMind makes on its own** — memory clean-ups on a timer, the report written after a
+  project run, the gap analysis saved after its turn, and the files touched when the Roadmap page loads.
+- **You're told, not left guessing.** Press a button that dry run stops and a notification says dry run is
+  on and names what wasn't done, with a button to open the **AtlasMind Dry Run** output, where every record
+  lands — the agent's described tool calls and these, in one list.
+- **Plans come back as the record.** `/ship` shows the commands it would have run; a promotion shows each
+  step as *Dry run: would have run …*. Neither is logged as having run or shipped.
+- **What still works:** reading — so the dashboard still shows your branches, issues and pipeline — model
+  calls, and a save you press a button to make (a form, a register entry, a template, a report).
+- **The ACP agent** gets `--dry-run` too, and won't post its Buzz reply while it's on.
+- **It can't quietly fall behind.** A test scans the source for everything that can act and fails until each
+  file either asks the dry run first or says, in writing, why it doesn't need to.
+
+---
+
 ## v0.491.0 -- Dry run: see what would happen, with nothing done
 
 - **One switch, and nothing acts.** **AtlasMind: Toggle Dry Run** (or `atlasmind.dryRun.enabled`) lets the

@@ -215,8 +215,19 @@ described call, no checkpoint, no verifier and no webhook is reached.
 
 Network **reads** are described too: a GET changes nothing locally and still carries model-written text
 off the machine. A repository cannot switch dry run off for you (it is a user-only setting), and a value
-AtlasMind cannot read counts as on. Model calls are not actions and still run. Paths outside the tool loop
-are the next slice and are not yet covered. Full detail in [Tool Execution](Tool-Execution.md).
+AtlasMind cannot read counts as on. Model calls are not actions and still run.
+
+**Outside the tool loop, the same switch holds.** Routines, promotions, rollbacks, dashboard git and
+GitHub writes, Director and Buzz messages, webhooks, MCP calls from any panel, terminal sends, installers,
+live-service probes and the writes AtlasMind makes on its own are refused by one host service
+(`src/core/dryRunHost.ts`) and recorded in the same output channel; a button you pressed tells you dry run
+stopped it rather than appearing to do nothing. The guard sits at each effect's own boundary wherever there
+is one — the `gh` client, the shared process helper, the promotion and routine runners, the MCP registry —
+so a surface added later inherits it. Commands are graded by an allowlist of read shapes
+(`classifyHostCommand`): an unrecognised git subcommand, a `gh api` call carrying a method or a field, and
+any program asked for more than its version are all effects. A source scan fails the build when a file that
+can act is neither guarded nor exempted with a written reason. Full detail in
+[Tool Execution](Tool-Execution.md).
 
 ---
 

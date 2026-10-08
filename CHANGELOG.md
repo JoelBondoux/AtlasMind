@@ -6,6 +6,67 @@ The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/),
 
 ## [Unreleased]
 
+## [0.492.0] - 2026-10-08
+
+### Added
+
+- **Dry run covers everything AtlasMind does, not only a chat turn's tools.** With `atlasmind.dryRun.enabled`
+  on, AtlasMind's own actions outside the tool loop are recorded instead of done: routines and `/ship`, the
+  Run Center, promotions, Resolve & run and rollbacks, the health-check Test button, git and GitHub writes
+  from the Project Dashboard, Director connector sends, Buzz posts and DMs, tool webhooks, MCP tool calls from
+  any panel, every terminal send (delivery, local CI, chat, setup walkthroughs) and runbook column, the
+  managed terminal (including the follow-up command the agent chooses), installers, local model pulls and
+  deletes, the website stack setup, the portal deploy, engine launches, the local CI runner container,
+  `/bootstrap`, lens probes of live services and databases, and Resource Discovery searches. So are the
+  writes AtlasMind makes on its own: the memory self-heal pass, the background snippet refresh, the automatic
+  stale-memory re-import, the project-run report, the gap analysis saved after its turn, the roadmap anchors
+  written when the Roadmap page loads, the roadmap rule written into agent instruction files, and the MCP
+  environment cache.
+- **One record, and a plain answer.** The new `src/core/dryRunHost.ts` is the one service those surfaces ask.
+  It is installed at activation with the session's `DryRunLedger`, so an interception is a `DryRunRecord` in
+  the tool loop's own shape (rule `dry-run.host-*`) in the same **AtlasMind Dry Run** output channel. When the
+  action was a button somebody pressed, a notification says dry run is on and names what was not done, with a
+  button to open the output — once per press, not once per step. Automatic writes are recorded quietly.
+- **Plans come back as the record.** `/ship` replies with the commands it would have run; a promotion returns
+  every step marked *Dry run: would have run …* and the dashboard renders it as a dry run rather than a failure.
+  Neither is written to run or delivery history, because nothing ran and nothing shipped.
+- **`atlasmind-acp --dry-run`.** The ACP agent runs outside the editor and cannot read the setting, so it takes a
+  flag: tool calls are described, a Buzz auto-reply is not posted, and records go to stderr. The CLI's
+  `--dry-run` installs the same host, and `build` describes its command instead of spawning it.
+
+### Security
+
+- **Commands are graded by an allowlist of reads, deny by default.** `classifyHostCommand` (pure, in
+  `dryRun.ts`) lets through only git read subcommands and the listing shapes of the mixed ones (`branch
+  --list`, `tag --list`, `remote get-url`, `config --get`, `stash list`, `worktree list`), gh `list`, `view`,
+  `status`, `diff`, `checks`, `auth status`, `search`, and `api` with no method beyond GET or HEAD and no field
+  or input, docker's read commands, and any other program asked only for its version. An unrecognised git
+  subcommand, any `--output`, a `gh api` call carrying a method or a field, `graphql`, and everything else are
+  effects. Property tests hold the unknown cases to it.
+- **The guard sits at each effect's own boundary** wherever one exists — every `gh` call (`GhClient.exec`,
+  `pipeGhStdoutOrThrow`), the shared no-shell process helper `mcpRuntime.execFileAsync`, `RoutineRunner.run`,
+  `promotionRunner`, the MCP registry's wrapper around `callTool` (the backstop under every caller), the Buzz
+  bridge, the Resource Discovery transport, the lens transports (direct SQL connections included), webhook
+  delivery and the dashboard's single `runGit` — so a surface added later inherits it. A refused `gh` call is
+  reported as the notice, not as "the GitHub CLI failed".
+- **A static guard holds it.** `tests/security/dryRunCoverage.test.ts` scans `src/` for every call shape that can
+  act — a `child_process` import, `fetch(`, `http(s).request/get`, `.callTool(`, `.execute(`, file-system writes,
+  terminal sends, the shared `gh` and process helpers, sockets and database connections — and fails until each
+  file that has one is listed in `DRY_RUN_COVERED` (naming guards it is checked to call, with what they cover and
+  what still runs and why) or in `DRY_RUN_EXEMPT` with a written reason. A boundary counts as a guard only if it is
+  itself guarded, and a listed file that stops acting fails too. 93 files are classified: 30 covered, 63 exempt.
+- **What still runs is published** as `DRY_RUN_HOST_EXEMPTIONS`: reads (a dashboard that went blank would
+  preview nothing), model calls, a save an operator presses a button to make (a form, a register entry, a
+  template, a report, a scan's findings, a starter workflow), and AtlasMind's own bookkeeping (session state,
+  run history, cost records, caches).
+
+### Changed
+
+- `RoutineRunResult` and `PromotionRunResult` gain `dryRun?: boolean`; `runRollback` and
+  `applyPromotionRemediation` results carry it too. `tests/dead-field/unreadDeclarations.test.ts`'s ceiling falls
+  from 88 to 87: `parseAcpAgentArgs`, which nothing outside its own file named, now has tests.
+- The `atlasmind.dryRun.enabled` description now says what it covers outside a turn.
+
 ## [0.491.0] - 2026-10-08
 
 ### Added

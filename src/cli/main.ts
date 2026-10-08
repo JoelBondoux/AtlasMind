@@ -18,6 +18,7 @@ import { NodeCostTracker } from './nodeCostTracker.js';
 import { classifyToolInvocation } from '../core/toolPolicy.js';
 import { describeEscalationSources } from '../core/contextProvenance.js';
 import { formatDryRunLedgerLine } from '../core/dryRun.js';
+import { DryRunHost, installDryRunHost, isDryRunActive } from '../core/dryRunHost.js';
 
 const AZURE_OPENAI_API_VERSION = '2024-10-21';
 const DEFAULT_SSOT_PATH = 'project_memory';
@@ -278,6 +279,14 @@ async function main(): Promise<number> {
   const costTracker = new NodeCostTracker(parsed.options.dailyLimitUsd ?? 0);
   const skillContext = createNodeSkillExecutionContext(workspaceRoot, memoryManager);
   const adapters = createCliProviderAdapters();
+  // `--dry-run` covers what the CLI does outside the tool loop too, through the
+  // same host every editor surface asks.
+  if (parsed.options.dryRun) {
+    installDryRunHost(new DryRunHost({
+      isEnabled: () => true,
+      record: record => { process.stderr.write(`[dry run] ${formatDryRunLedgerLine(record)}\n`); },
+    }));
+  }
   const runtime = createAtlasRuntime({
     memoryStore: memoryManager,
     costTracker,
@@ -442,7 +451,7 @@ async function runProvidersCommand(runtime: AtlasCliRuntime, parsed: ParsedCliAr
 }
 
 async function runBuildCommand(parsed: ParsedCliArgs, workspaceRoot: string): Promise<number> {
-  if (parsed.options.dryRun) {
+  if (parsed.options.dryRun || isDryRunActive()) {
     process.stdout.write('Dry run: would execute the project build command.\n');
     process.stdout.write('Build command: npm run build (or detected build script)\n');
     return 0;

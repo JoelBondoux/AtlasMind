@@ -355,9 +355,11 @@ export class ProjectRunCenterPanel {
         },
       );
 
-      this.liveStatus = result.succeeded
-        ? `Routine '${routine.name}' completed.`
-        : `Routine '${routine.name}' failed at step: ${result.failedStep ?? 'unknown'}`;
+      this.liveStatus = result.dryRun
+        ? `Dry run — routine '${routine.name}' was not run. It is listed in the AtlasMind Dry Run output.`
+        : result.succeeded
+          ? `Routine '${routine.name}' completed.`
+          : `Routine '${routine.name}' failed at step: ${result.failedStep ?? 'unknown'}`;
 
       await this.panel.webview.postMessage({
         type: 'routineDone',

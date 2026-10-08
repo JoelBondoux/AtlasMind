@@ -65,7 +65,7 @@ precedence reads as finished rather than as permanently half-done.
 | `/project <goal>` | Break a goal into steps, preview the impact, then run it |
 | `/loop <goal>` | Keep working towards a goal inside limits you set, pausing at checkpoints |
 | `/runs` | Open the Run Center to review recent autonomous runs |
-| `/ship [routine]` | Run your project's default publish routine, or a named one. Lists the exact commands and asks first |
+| `/ship [routine]` | Run your project's default publish routine, or a named one. Lists the exact commands and asks first. In a dry run it runs nothing and shows what it would have run |
 
 ### Thinking and planning
 
@@ -281,7 +281,7 @@ reports evidence it didn't inspect as *unassessed* rather than as absent.
 | Command | What it does |
 |---------|-------------|
 | `AtlasMind: Toggle Autopilot` | Turn the session-wide approval bypass on or off, no reload needed |
-| `AtlasMind: Toggle Dry Run` | Turn dry run on or off (`atlasmind.dryRun.enabled`, a user setting). While it is on, every tool call that would write, run a command, change git or reach the network is answered with a description instead of running; only AtlasMind's built-in local reads run, and the reply ends with a summary of what would have happened. On applies to the next tool call; off waits for the next turn. Also reachable from the *Dry run* status bar item, shown only while it is on |
+| `AtlasMind: Toggle Dry Run` | Turn dry run on or off (`atlasmind.dryRun.enabled`, a user setting). While it is on, every tool call that would write, run a command, change git or reach the network is answered with a description instead of running; only AtlasMind's built-in local reads run, and the reply ends with a summary of what would have happened. It covers AtlasMind's own actions outside a turn as well — routines and `/ship`, promotions, dashboard git and GitHub writes, Director and Buzz sends, webhooks, terminal sends, installers and automatic memory writes are recorded instead of done, and a button you press tells you dry run stopped it. On applies to the next tool call; off waits for the next turn. Also reachable from the *Dry run* status bar item, shown only while it is on |
 | `AtlasMind: Toggle Keep Computer Awake` | Stop the machine sleeping while something needs to stay online. Off by default, mains-power only, auto-releasing |
 | `AtlasMind: Tool Webhooks` | Configure outbound webhooks for tool events |
 | `AtlasMind: Enable / Disable Remote Control` | Start or stop the local server so a browser can drive this instance |

@@ -3,6 +3,8 @@ import { promisify } from 'node:util';
 import type { ProjectRunRecord, RoutineDefinition, RoutineRunResult, RoutineStepResult } from '../types.js';
 import type { ProjectRunHistory } from './projectRunHistory.js';
 import type { RoutineExecutionPlan, RoutinePlannedStep } from './routineExecutionPolicy.js';
+import { describeHostDryRunNotice } from './dryRun.js';
+import { interceptDryRun } from './dryRunHost.js';
 
 const execAsync = promisify(exec);
 const STEP_TIMEOUT_MS = 60_000;
@@ -74,6 +76,29 @@ export class RoutineRunner {
       };
       await this.persistResult(routine, result);
       return result;
+    }
+
+    // A dry run stops here, at the runner rather than at its callers, so `/ship`,
+    // the Run Center and anything added later cannot reach a step by
+    // forgetting to ask. Not persisted to run history: a routine that never ran
+    // is not a failed one, and recording it as `failed` would say otherwise.
+    const dryRun = interceptDryRun({
+      surface: 'routine',
+      kind: 'process',
+      summary: `run the "${routine.name}" routine (${plan.steps.length} step${plan.steps.length === 1 ? '' : 's'})`,
+      details: { routineId: routine.id, steps: plan.steps.map(step => ({ label: step.label, command: step.command })) },
+      wouldHaveAsked: true,
+    });
+    if (dryRun) {
+      return {
+        routineId: routine.id,
+        routineName: routine.name,
+        steps: [],
+        succeeded: false,
+        durationMs: Date.now() - startedAt,
+        refusedReason: describeHostDryRunNotice(dryRun),
+        dryRun: true,
+      };
     }
 
     for (let i = 0; i < plan.steps.length; i++) {

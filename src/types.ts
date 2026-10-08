@@ -1912,6 +1912,12 @@ export interface RoutineRunResult {
    * input changes.
    */
   refusedReason?: string;
+  /**
+   * Set when a dry run stopped the routine before its first step. `steps` is
+   * empty, `refusedReason` carries the notice, and the run is not written to
+   * run history — a routine that never ran did not fail.
+   */
+  dryRun?: boolean;
 }
 
 // ── Website Studio ───────────────────────────────────────────────
@@ -3273,6 +3279,13 @@ export interface PromotionRunResult {
   durationMs: number;
   /** Recovery hint surfaced after the run (rollback command / runbook ref). */
   rollback?: { command?: string; runbookRef?: string };
+  /**
+   * Set when a dry run stopped the promotion before its first step. Every
+   * executable step is reported `skipped`, with what it would have run as its
+   * output, so the plan is the record; the caller must not log it as a
+   * promotion that happened.
+   */
+  dryRun?: boolean;
 }
 
 /**

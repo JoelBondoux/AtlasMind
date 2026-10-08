@@ -5,6 +5,7 @@ import { execFile, spawn, type ChildProcess, type ChildProcessWithoutNullStreams
 import { promisify } from 'node:util';
 import { randomUUID } from 'node:crypto';
 import { pipeGhStdoutOrThrow, runGhOrThrow } from './ghClient.js';
+import { guardDryRun, guardHostCommand } from './dryRunHost.js';
 import {
   localCiActorBlocker,
   parseLocalCiIdentity,
@@ -637,6 +638,9 @@ async function execCommand(
   timeoutMs = 15_000,
   maxBuffer = 1024 * 1024,
 ): Promise<string> {
+  // Inspection (`docker info`, `ps`, `image inspect`, `gh auth status`, git
+  // reads) runs in a dry run; starting, pulling, stopping or removing does not.
+  guardHostCommand('local-ci', command, args);
   const { stdout } = await execFileAsync(command, [...args], {
     cwd,
     windowsHide: true,
@@ -1371,6 +1375,20 @@ export class LocalCiRunnerManager {
       const plan = await this.prepare(configuration, expectedRunId);
       if (!await authorize(plan)) {
         this.update({ lifecycle: 'ready', message: 'The local runner start was cancelled.' });
+        return;
+      }
+      // After authorization, which shows the plan. The container start below
+      // spawns docker directly, outside execCommand, so it is refused here.
+      try {
+        guardDryRun({
+          surface: 'local-ci',
+          kind: 'process',
+          summary: 'start the local CI runner container',
+          details: { image: configuration.image },
+          wouldHaveAsked: true,
+        });
+      } catch (error) {
+        this.update({ lifecycle: 'ready', message: error instanceof Error ? error.message : String(error) });
         return;
       }
       this.update({ lifecycle: 'starting', message: 'Starting the isolated one-job runner…' });

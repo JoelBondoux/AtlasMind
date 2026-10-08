@@ -35,7 +35,7 @@ This file is the developer-facing backlog AtlasMind should absorb into SSOT and 
 - [ ] Community/team marketplace for agents & skills: import/export and sharing; drives adoption network effects. <!-- rm:community-team-marketplace-f -->
 - [ ] Decision/changelog provenance: link SSOT decisions to commits/PRs so the project brain is auditable across teammates. <!-- rm:decision-changelog-provenanc -->
 - [ ] "Explain this codebase / this file" onboarding mode: guided tours generated from SSOT for unfamiliar code. <!-- rm:explain-this-codebase-this-f -->
-- [ ] Safe-by-default sandbox / dry-run mode: one-toggle "show me what would happen, nothing executes." <!-- rm:safe-by-default-sandbox-dry -->
+- [x] Safe-by-default sandbox / dry-run mode: one-toggle "show me what would happen, nothing executes." <!-- rm:safe-by-default-sandbox-dry -->
 - [ ] Guardrail nudges & learning callouts: plain-language "here's why" so novices learn rather than just accept. <!-- rm:guardrail-nudges-learning-ca -->
 - [ ] **Prompt-injection & tool-poisoning defense** — highest-priority frontier item given AtlasMind combines untrusted inputs (web-fetch, MCP servers, file content, model output) with autonomous tool use. Patterns: dual-LLM/quarantine so untrusted content never reaches the privileged planner directly,… #mvp <!-- rm:prompt-injection-tool-poison -->
 - [ ] **Sandboxed execution for autonomous runs** — microVM/container/WASM isolation for terminal-write and code-run so approvals can safely loosen as autonomy grows. Pairs with git-worktree-per-agent isolation for parallel fan-out. #mvp <!-- rm:sandboxed-execution-for-auto -->

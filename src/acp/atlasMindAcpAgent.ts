@@ -28,6 +28,7 @@ import {
   seedTurnFromConversation,
 } from '../core/contextProvenance.js';
 import type { AcpReplyPublisher } from './buzzReplyPublisher.js';
+import { interceptDryRun } from '../core/dryRunHost.js';
 
 export const ATLASMIND_ACP_PROTOCOL_VERSION = 1;
 export const MAX_ACP_PROMPT_CHARS = 1_000_000;
@@ -278,7 +279,20 @@ export class AtlasMindAcpAgent {
       }
 
       session.history = appendSessionHistory(session.history, prompt, result.response);
-      if (this.options.replyPublisher) {
+      // A dry run answers the client and posts nothing to Buzz: the reply is a
+      // message to people, and the whole point of the run was not to act.
+      const dryRunReply = this.options.replyPublisher
+        ? interceptDryRun({
+          surface: 'acp-buzz-reply',
+          kind: 'message',
+          summary: 'publish the reply to Buzz',
+          details: { characters: result.response.length },
+          userInitiated: false,
+        })
+        : undefined;
+      if (dryRunReply) {
+        this.options.log?.('Dry run: the Buzz reply was not published.');
+      } else if (this.options.replyPublisher) {
         try {
           await this.options.replyPublisher.publish(prompt, result.response, abortController.signal);
         } catch (error) {

@@ -484,6 +484,14 @@ with no `channel` used to run as `npm publish --tag`. It now stops and names wha
 empty value counts as missing, since a blank field and an unsupplied one want the same thing from a
 command line.
 
+**In a dry run, nothing runs.** With **AtlasMind: Toggle Dry Run** on, a routine still asks first, then
+runs no step: `/ship` replies *Dry run — nothing was run* with the exact commands it would have run, the
+Run Center says the routine was not run, and the routine is listed in the **AtlasMind Dry Run** output.
+Nothing is written to run history — a routine that never ran did not fail. The refusal is in the routine
+runner itself, so every way of starting a routine gets it. Promotions behave the same way: the plan comes
+back as the record, every step marked *Dry run: would have run …*, and nothing is recorded as having
+shipped.
+
 ### Very large drafts get staged
 
 If a reviewed draft is too big for one run, the Run Center can break it into stages: AtlasMind executes

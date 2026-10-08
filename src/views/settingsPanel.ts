@@ -1,6 +1,7 @@
 import * as path from 'node:path';
 import * as os from 'node:os';
 import { execFile, spawn } from 'node:child_process';
+import { guardDryRun, interceptDryRun } from '../core/dryRunHost.js';
 import { promisify } from 'node:util';
 import { existsSync, readFileSync, readdirSync, statSync } from 'node:fs';
 import * as vscode from 'vscode';
@@ -2052,6 +2053,14 @@ export class SettingsPanel {
    * real reason is surfaced and the HuggingFace page is opened as a fallback.
    */
   private async runLmsGetInstall(lmsBin: string, modelId: string, hfUrl: vscode.Uri): Promise<void> {
+    if (interceptDryRun({
+      surface: 'local-model-install',
+      kind: 'process',
+      summary: `download ${modelId} with LM Studio`,
+      details: { modelId },
+    })) {
+      return;
+    }
     const channel = this.getLocalModelInstallChannel();
     channel.clear();
     channel.show(true);
@@ -8273,6 +8282,13 @@ async function installOllamaModel(
   onProgress?: (line: string) => void,
   signal?: AbortSignal,
 ): Promise<void> {
+  // Downloads gigabytes onto this machine: an action, not a read.
+  guardDryRun({
+    surface: 'local-model-install',
+    kind: 'network',
+    summary: `pull ${modelTag} into Ollama`,
+    details: { modelTag },
+  });
   const response = await fetch(`${ollamaBaseUrl.replace(/\/+$/, '')}/api/pull`, {
     method: 'POST',
     headers: { 'Content-Type': 'application/json' },
@@ -8323,6 +8339,12 @@ async function installOllamaModel(
 }
 
 async function removeOllamaModel(ollamaBaseUrl: string, modelId: string): Promise<void> {
+  guardDryRun({
+    surface: 'local-model-remove',
+    kind: 'network',
+    summary: `delete ${modelId} from Ollama`,
+    details: { modelId },
+  });
   const response = await fetch(`${ollamaBaseUrl.replace(/\/+$/, '')}/api/delete`, {
     method: 'DELETE',  // Ollama's delete endpoint requires DELETE, not POST
     headers: { 'Content-Type': 'application/json' },

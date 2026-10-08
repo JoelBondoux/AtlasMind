@@ -32,6 +32,7 @@ import {
   type RepositoryVisibility,
 } from '../core/portalHosting.js';
 import { execFileAsync } from '../mcp/mcpRuntime.js';
+import { interceptDryRun } from '../core/dryRunHost.js';
 
 /**
  * Ask GitHub how visible this repository is, now.
@@ -160,6 +161,7 @@ export async function buildAndPublishPortal(): Promise<void> {
   }
 
   const output = vscode.window.createOutputChannel('AtlasMind Portal');
+  let deployHeldByDryRun = false;
   try {
     await vscode.window.withProgress(
       { location: vscode.ProgressLocation.Notification, title: 'AtlasMind: publishing the portal', cancellable: false },
@@ -187,6 +189,20 @@ export async function buildAndPublishPortal(): Promise<void> {
         if (!deploy?.command) {
           return;
         }
+        // The page is prepared locally either way; publishing it is the act a
+        // dry run holds back. `execFileAsync` would refuse it too, but as a
+        // failure, and a dry run is not a failed publish.
+        if (interceptDryRun({
+          surface: 'portal',
+          kind: 'process',
+          summary: `publish the portal to ${hosting.host}`,
+          details: { command: deploy.command.file, args: [...deploy.command.args] },
+          wouldHaveAsked: true,
+        })) {
+          deployHeldByDryRun = true;
+          output.appendLine(`Dry run: would have run ${deploy.command.file} ${deploy.command.args.join(' ')}`);
+          return;
+        }
         progress.report({ message: `publishing to ${hosting.host}` });
         output.appendLine(`$ ${deploy.command.file} ${deploy.command.args.join(' ')}`);
         // Argv, no shell: the folder name is a folder name even when it looks
@@ -205,6 +221,10 @@ export async function buildAndPublishPortal(): Promise<void> {
     void vscode.window.showErrorMessage(
       `The portal was prepared but publishing failed: ${detail.slice(0, 300)}`,
     );
+    return;
+  }
+
+  if (deployHeldByDryRun) {
     return;
   }
 

@@ -48,6 +48,7 @@ import type {
 } from '../types.js';
 import { describeEgressRefusal, screenEgressUrl } from '../core/egressDestinationPolicy.js';
 import { egressFetch, type EgressFetchDeps } from '../core/egressFetch.js';
+import { guardDryRun } from '../core/dryRunHost.js';
 
 /** Tunables read fresh on every call so VS Code setting changes take effect immediately. */
 export interface ArdClientConfig {
@@ -107,6 +108,14 @@ export type ArdTransport = (url: string, init: ArdTransportInit) => Promise<ArdT
  */
 export function createArdTransport(egressDeps: EgressFetchDeps = {}): ArdTransport {
   return async (url, init) => {
+    // Every discovery request leaves through here, so a dry run is refused
+    // here: a search carries the operator's query to a third party.
+    guardDryRun({
+      surface: 'resource-discovery',
+      kind: 'network',
+      summary: 'send a Resource Discovery request',
+      details: { method: init.method, url },
+    });
     if (init.trustedLocal) {
       const response = await fetch(url, {
         method: init.method,

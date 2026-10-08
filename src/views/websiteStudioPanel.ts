@@ -100,6 +100,7 @@ import {
   type UiLaunchPlan,
 } from '../core/uiSurfaceEmit.js';
 import { spawn } from 'node:child_process';
+import { interceptDryRun } from '../core/dryRunHost.js';
 
 /**
  * The views. Not steps: three earlier layouts numbered these one to eight and
@@ -763,6 +764,15 @@ export class WebsiteStudioPanel {
       'Run',
     );
     if (confirmed !== 'Run') {
+      return;
+    }
+    if (interceptDryRun({
+      surface: 'ui-studio-launch',
+      kind: 'process',
+      summary: `start ${launch.command}`,
+      details: { command: launch.command, args: launch.args ?? [] },
+      wouldHaveAsked: true,
+    })) {
       return;
     }
     await new Promise<void>((resolve, reject) => {

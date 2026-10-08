@@ -16,6 +16,7 @@
 import type * as vscode from 'vscode';
 import { randomUUID } from 'crypto';
 import { McpClient, findCommandExecutable } from './mcpClient.js';
+import { guardDryRun } from '../core/dryRunHost.js';
 import type { SkillsRegistry } from '../core/skillsRegistry.js';
 import type { McpHeldTool, McpServerConfig, McpServerState, McpToolInfo, SkillDefinition, SkillScanIssue } from '../types.js';
 import {
@@ -619,6 +620,18 @@ export class McpServerRegistry {
               'Use the MCP panel to reconnect.',
             );
           }
+          // The backstop under every caller. The tool loop simulates MCP calls
+          // before they get here, and each panel that calls a connector asks
+          // first and tells the operator; anything that reaches this in a dry
+          // run is refused rather than sent, because an MCP tool runs code
+          // AtlasMind did not write and cannot grade.
+          guardDryRun({
+            surface: 'mcp',
+            kind: 'network',
+            summary: `call the MCP tool ${tool.name} on ${config.name}`,
+            details: { server: config.id, tool: tool.name },
+            userInitiated: false,
+          });
           return client.callTool(tool.name, params);
         },
       };

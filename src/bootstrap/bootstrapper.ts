@@ -6,6 +6,8 @@ import type { AtlasMindContext } from '../extension.js';
 import type { BudgetMode, MemoryDocumentClass, MemoryEntry, MemoryEvidenceType, ProjectTestingConfig, RoutineStep, SpeedMode, TestingMethodologyId } from '../types.js';
 import { formatCost } from '../core/currencyFormatter.js';
 import { GhClient, ghFailureOf, nodeGhRunner, runGhOrThrow } from '../core/ghClient.js';
+import { describeHostDryRunNotice } from '../core/dryRun.js';
+import { guardHostCommand, interceptDryRun } from '../core/dryRunHost.js';
 import {
   buildGameProjectComposition,
   buildShopifyProjectComposition,
@@ -293,6 +295,21 @@ export async function bootstrapProject(
   }
 
   const ssotRoot = vscode.Uri.joinPath(workspaceRoot, ssotRelPath);
+
+  // Bootstrap writes a scaffold whose documents a model drafts, runs git, can
+  // install the GitHub CLI and can create a GitHub repository. None of that has
+  // a useful half to run in a dry run, so it does not start: the refusal comes
+  // before the intake, not after somebody has answered it.
+  const dryRun = interceptDryRun({
+    surface: 'bootstrap',
+    kind: 'process',
+    summary: 'start the project bootstrap',
+    details: { ssotPath: ssotRelPath },
+  });
+  if (dryRun) {
+    reportBootstrapProgress(reporter, `**Not started.** ${describeHostDryRunNotice(dryRun)}`);
+    return;
+  }
 
   reportBootstrapProgress(reporter, '### Atlas Bootstrap Intake\n\nAtlas is collecting a skippable project brief to seed memory, ideation, settings, and governance scaffolding.');
 
@@ -2092,6 +2109,14 @@ async function installGitHubCli(reporter?: BootstrapPromptReporter): Promise<boo
   reportBootstrapProgress(reporter, `- Installing GitHub CLI via ${installer.label}...`);
 
   const success = await new Promise<boolean>(resolve => {
+    try {
+      // Bootstrap is refused at its entry in a dry run; this catches a switch
+      // turned on while somebody was still answering the intake.
+      guardHostCommand('bootstrap', installer.cmd[0]!, installer.cmd.slice(1));
+    } catch {
+      resolve(false);
+      return;
+    }
     cp.execFile(installer.cmd[0]!, [...installer.cmd.slice(1)], { timeout: 120_000 }, err => resolve(!err));
   });
 
@@ -2211,6 +2236,12 @@ async function ghCliAvailable(cwd: string): Promise<boolean> {
 /** One `git` invocation, no shell. Resolves to whether it succeeded. */
 function runGit(cwd: string, args: readonly string[]): Promise<boolean> {
   return new Promise<boolean>(resolve => {
+    try {
+      guardHostCommand('bootstrap', 'git', args);
+    } catch {
+      resolve(false);
+      return;
+    }
     cp.execFile('git', [...args], { cwd }, err => resolve(!err));
   });
 }

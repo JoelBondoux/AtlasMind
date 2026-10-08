@@ -2,6 +2,8 @@ import * as path from 'path';
 import * as fs from 'node:fs/promises';
 import * as vscode from 'vscode';
 import type { AtlasMindContext } from '../extension.js';
+import { describeHostDryRunNotice } from '../core/dryRun.js';
+import { interceptDryRun } from '../core/dryRunHost.js';
 import type {
   SessionComposerPrefill,
   SessionConversationSummary,
@@ -1033,6 +1035,14 @@ export class ChatPanel {
         await this.importSessionContext(message.payload);
         return;
       case 'sendToTerminal': {
+        if (interceptDryRun({
+          surface: 'chat-terminal',
+          kind: 'terminal',
+          summary: 'type the code block into the terminal',
+          details: { characters: message.payload.code.length },
+        })) {
+          return;
+        }
         const terminal = vscode.window.activeTerminal ?? vscode.window.createTerminal('AtlasMind');
         // Focus moves with the command. The withheld newline is what keeps the
         // human's keystroke the last gate on anything AtlasMind types, and that
@@ -2056,6 +2066,20 @@ export class ChatPanel {
       return;
     }
 
+    // Saved as a side effect once the turn finishes, not as the thing a button
+    // was pressed to save. In a dry run the answer in the chat is the preview,
+    // and the file the dashboard reads is left as it was. The status line below
+    // says so, so no separate notice is raised.
+    if (interceptDryRun({
+      surface: 'gap-analysis',
+      kind: 'auto-write',
+      summary: `write the ${checklistLines.length}-item gap analysis to ${path.join(ssotPath, 'analysis', 'gap-analysis.md')}`,
+      details: { items: checklistLines.length },
+      userInitiated: false,
+    })) {
+      await this.host.webview.postMessage({ type: 'status', payload: 'Gap analysis complete. Dry run is on, so the checklist was not saved to the Project Dashboard.' });
+      return;
+    }
     await fs.mkdir(path.dirname(outputPath), { recursive: true });
     await fs.writeFile(outputPath, `${checklistLines.join('\n')}\n`, 'utf8');
     this.atlas.memoryRefresh.fire();
@@ -2356,6 +2380,24 @@ export class ChatPanel {
       output: '',
     };
     executions.push(executionRecord);
+
+    // The follow-up command is one a model chose, which is exactly what a dry
+    // run exists to hold back; the operator's own command is held with it, so
+    // the analysis that follows never mixes a real result with a described one.
+    // The record stands in for the output, and says so, so the model is not
+    // told a command succeeded that never ran.
+    const dryRun = interceptDryRun({
+      surface: 'managed-terminal',
+      kind: 'terminal',
+      summary: `run \`${commandLine.slice(0, 120)}\` in the managed terminal`,
+      details: { commandLine },
+    });
+    if (dryRun) {
+      executionRecord.output = `[DRY RUN — nothing was executed] ${describeHostDryRunNotice(dryRun)}`;
+      executionRecord.statusLine = 'Not run: dry run is on.';
+      await renderManagedTerminal(`Command ${executions.length} was not run: dry run is on.`);
+      return;
+    }
     await renderManagedTerminal(`Running command ${executions.length}...`);
 
     const execution = shellIntegration.executeCommand(commandLine);

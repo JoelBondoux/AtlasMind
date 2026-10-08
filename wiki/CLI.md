@@ -185,7 +185,8 @@ with `quarantine-read` is refused in the CLI unless you pass `--allow-untrusted-
 (see [Tool Execution](Tool-Execution.md)). Every tool call that would write, run a command, change git or
 reach the network is described to the model instead of run, even with `--allow-writes`; only AtlasMind's
 built-in local reads run. Each described call is printed to stderr as `[dry run] …`, and the answer ends
-with a summary. Model calls still run and still cost money.
+with a summary. Model calls still run and still cost money. The flag covers what the CLI does outside the
+agent's tools too: `build` prints its command instead of running it.
 
 ---
 
@@ -200,7 +201,13 @@ atlasmind-acp --workspace /absolute/path/to/project
 ```
 
 It opens no network port. Options are `--workspace`, `--ssot`, `--daily-limit-usd`, `--buzz-auto-reply`,
-`--help` and `--version`.
+`--dry-run`, `--help` and `--version`.
+
+**`--dry-run` is the editor's dry run for the ACP agent.** It runs in its own process, launched by a client
+that is not VS Code, so it cannot read `atlasmind.dryRun.enabled` and takes a flag instead, on for the life
+of the process. Every tool call that would act is described instead of run, and with `--buzz-auto-reply`
+the answer goes back to the client but is not posted to Buzz. Each record is written to stderr — the
+client's agent log — as `[atlasmind-acp] [dry run] …`, never to stdout, which is the protocol stream.
 
 ### Setting it up with Buzz
 

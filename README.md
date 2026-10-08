@@ -4,7 +4,7 @@
 
 <h1 align="center">AtlasMind</h1>
 
-<p align="center"><sub> · <strong>Current source version: 0.491.0</strong> · </sub></p>
+<p align="center"><sub> · <strong>Current source version: 0.492.0</strong> · </sub></p>
 
 
 <p align="center">
@@ -176,6 +176,17 @@ allow-list, redaction and file-withholding behaviour, retained metadata, provide
 important limits on overrides and compliance claims.
 
 ---
+
+## What's new in 0.492.0
+
+Dry run now means nothing executes anywhere, not just in a chat turn's tools. With **AtlasMind: Toggle Dry
+Run** on, AtlasMind's own actions are recorded instead of done too: routines and `/ship` (which show the
+commands they would have run), promotions and rollbacks (the plan comes back as the record, and nothing is
+logged as shipped), git and GitHub changes from the dashboard, Director and Buzz messages, webhooks, MCP
+calls from any panel, terminal sends, installers, live-service probes, and the writes AtlasMind makes on its
+own. Press a button that dry run stops and a notification says so, naming what was not done. Reads keep
+working so the pages still show your project, and a save you press a button to make still happens. Every
+record lands in the same **AtlasMind Dry Run** output. The ACP agent gains `--dry-run` too.
 
 ## What's new in 0.491.0
 
@@ -888,7 +899,7 @@ Type these in the AtlasMind chat panel as `/<command>`, or in the VS Code chat v
 
 The same reviewed-PR operations are also available as **AtlasMind: Patch This Repository for Local CI** and **AtlasMind: Run a Reviewed Pull Request on Local CI** in the Command Palette.
 
-**AtlasMind: Toggle Dry Run** (Command Palette, or the *Dry run* status bar item while it is on) switches dry run on and off — tool calls that would write, run commands or reach the network are described instead of run. On applies at once; off from the next turn.
+**AtlasMind: Toggle Dry Run** (Command Palette, or the *Dry run* status bar item while it is on) switches dry run on and off — tool calls that would write, run commands or reach the network are described instead of run, and AtlasMind's own actions outside a turn (routines and `/ship`, promotions, dashboard git and GitHub writes, messages, terminal sends, installers, automatic memory writes) are recorded instead of done. On applies at once; off from the next turn.
 
 Full behaviour and the Command Palette list are in [Chat Commands](wiki/Chat-Commands.md).
 
@@ -912,7 +923,7 @@ Everything is in the AtlasMind Settings panel, or under `atlasmind.*` in VS Code
 | `toolApprovalMode` | `ask-on-write` | How often AtlasMind asks before acting |
 | `allowTerminalWrite` | `false` | Whether approved terminal commands may change things |
 | `security.untrustedEscalationScope` | `third-party` | After a task reads untrusted content, writes and network calls need a fresh approval Autopilot cannot answer. Reads stay free; there is no off |
-| `dryRun.enabled` | `false` | Dry run: every tool call that would write, run a subprocess or reach the network is described instead of run; only built-in local reads run. Model calls still run. On applies at once, off from the next turn. User settings only |
+| `dryRun.enabled` | `false` | Dry run: every tool call that would write, run a subprocess or reach the network is described instead of run, and AtlasMind's own actions outside a turn — routines, promotions, dashboard git and GitHub writes, messages, terminal sends, installers, automatic writes — are recorded instead of done; only reads run. Model calls still run. On applies at once, off from the next turn. User settings only |
 | `security.quarantineReader` | `on` | A third-party result over 8,000 characters is read by a separate tool-less model; the agent gets a checked extract, and the full text only after you approve releasing it. The reader counts toward the task's cost cap and the daily limit |
 | `skillAutoSynthesisEnabled` | `false` | Let a model write a new skill and run it when a tool does not exist. Off; every synthesis is scanned and shown to you first |
 | `cli.addToTerminalPath` | `false` | Put the `atlasmind` launchers on the PATH of new integrated terminals. Off, because it persistently changes your shell |
@@ -941,6 +952,7 @@ All 165 settings are documented in the [Configuration reference](wiki/Configurat
 | `src/core/egressDestinationPolicy.ts` | Where a model-initiated fetch may go: the URL screen, the published private and reserved address ranges judged by numeric value, and the rule that every address a name resolves to must pass |
 | `src/core/egressFetch.ts` | The connection that honours that decision: pinned to the vetted addresses so DNS cannot change the answer, redirects followed by hand and screened hop by hop, credentials dropped across origins |
 | `src/core/dryRun.ts` | Dry run: the published table grading every built-in skill as a local read, an argument-dependent one or an effect, the rules deciding execute-or-simulate, the context backstop that refuses every method able to change something, the simulated result the model gets, and the session ledger behind the output channel |
+| `src/core/dryRunHost.ts` | Dry run outside the tool loop: the host every routine, promotion, dashboard write, message, terminal send, installer and automatic write asks before acting, which records what it stopped in the same ledger and tells the person who pressed the button |
 | `src/core/quarantinedReader.ts` | The quarantined reader: a third-party tool result over 8,000 characters is read by a separate, tool-less model, and the agent gets a schema-checked extract and a handle instead of the raw text — the routing rules, the extraction prompt, the validator, the fallbacks and the approval-gated release |
 | `src/core/capabilitySearch.ts` | When `find-tool` finds no installed skill: sends the redacted, clamped query to the Agent Finders you enabled and returns up to five candidates to review and install — searching installs and grants nothing |
 | `src/runtime/` | Built-in agents and runtime composition |
