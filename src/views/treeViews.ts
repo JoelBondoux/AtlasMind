@@ -38,6 +38,7 @@ import {
   type ModelSidebarVisibilityReader,
 } from './modelSidebarVisibility.js';
 import { registerLensTreeView } from './lensTreeView.js';
+import { ssotHomeRoot } from '../utils/workspaceRoots.js';
 
 const SESSION_TREE_MIME = 'application/vnd.atlasmind.sessions';
 const PROJECT_STATE_ATTENTION_URI_STRING = 'atlasmind-project-state:/waiting-on-you';
@@ -1287,7 +1288,8 @@ function readRoadmapDependents(
 }
 
 function readRoadmapDependencyGraph(): RoadmapDependencyReading | undefined {
-  const workspaceFolder = vscode.workspace.workspaceFolders?.[0];
+  // The roadmap graph is project memory: the SSOT home's, or none.
+  const workspaceFolder = ssotHomeRoot().folder;
   if (!workspaceFolder) {
     return undefined;
   }
@@ -1793,7 +1795,9 @@ class MemoryTreeProvider implements vscode.TreeDataProvider<MemoryTreeNode> {
   private async collectFolderPaths(entries: MemoryEntry[]): Promise<string[]> {
     const folderPaths = new Set<string>();
 
-    if (vscode.workspace.workspaceFolders?.[0]) {
+    // The scaffold folders are shown only where project memory has a home; an
+    // ambiguous home shows none rather than implying one.
+    if (ssotHomeRoot().folder) {
       for (const folder of SSOT_FOLDERS) {
         if (!folder.endsWith('.md')) {
           addFolderAncestors(folderPaths, folder);
@@ -1828,7 +1832,8 @@ class MemoryTreeProvider implements vscode.TreeDataProvider<MemoryTreeNode> {
 }
 
 function resolveMemoryRootUri(): vscode.Uri | undefined {
-  const workspaceFolder = vscode.workspace.workspaceFolders?.[0];
+  // Memory entries open from the SSOT home — the folder they were loaded from.
+  const workspaceFolder = ssotHomeRoot().folder;
   if (!workspaceFolder) {
     return undefined;
   }

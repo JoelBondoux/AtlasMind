@@ -12,10 +12,14 @@
  *   - Every manifest / search response is treated as UNTRUSTED input: strict
  *     schema validation, byte + entry caps, `urn:ai:` identifier checks, and the
  *     spec's strict Value-or-Reference rule (exactly one of `url` / `data`).
- *   - Discovered and referral URLs must be HTTPS and are screened against
- *     private / loopback / link-local hosts to prevent SSRF. http/localhost is
- *     permitted only for endpoints the user explicitly marked `insecure` AND
- *     when `allowInsecureEndpoints` is enabled (e.g. the conformance demo).
+ *   - Discovered and referral URLs must be HTTPS and pass the shared egress
+ *     policy (`src/core/egressDestinationPolicy.ts`): the host name, its DNS
+ *     answer and every address it resolves to are screened, the connection is
+ *     pinned to those addresses, and every redirect is screened again
+ *     (`egressFetch`). http/localhost is permitted only for endpoints the user
+ *     explicitly marked `insecure` AND when `allowInsecureEndpoints` is enabled
+ *     (e.g. the conformance demo) — and that path refuses to follow a redirect,
+ *     since a redirect would carry the request outside what the user trusted.
  *   - Federation hops and nested-catalog expansion are depth-bounded to prevent
  *     referral loops and amplification.
  *   - The relevance `score` is surfaced verbatim but is NOT a trust/safety
@@ -42,6 +46,9 @@ import type {
   ArdSearchResult,
   ArdTrustManifest,
 } from '../types.js';
+import { describeEgressRefusal, screenEgressUrl } from '../core/egressDestinationPolicy.js';
+import { egressFetch, type EgressFetchDeps } from '../core/egressFetch.js';
+import { guardDryRun } from '../core/dryRunHost.js';
 
 /** Tunables read fresh on every call so VS Code setting changes take effect immediately. */
 export interface ArdClientConfig {
@@ -72,8 +79,88 @@ export interface ArdMultiSearchResult {
   errors: Array<{ endpoint: string; message: string }>;
 }
 
+export interface ArdTransportInit {
+  method: 'GET' | 'POST';
+  headers: Record<string, string>;
+  body?: string;
+  timeoutMs: number;
+  maxBytes: number;
+  /** The user marked this endpoint insecure and allowed insecure endpoints. */
+  trustedLocal: boolean;
+}
+
+export interface ArdTransportResponse {
+  ok: boolean;
+  status: number;
+  statusText: string;
+  text: string;
+  tooLarge: boolean;
+}
+
+/** One discovery request. Injected so tests replace the socket, not the policy. */
+export type ArdTransport = (url: string, init: ArdTransportInit) => Promise<ArdTransportResponse>;
+
+/**
+ * The transport discovery uses. Everything not explicitly trusted goes through
+ * `egressFetch`, so a referral or a nested catalog URL — both chosen by a
+ * third party — is screened by DNS, pinned, and re-screened on every redirect.
+ * `egressDeps` replaces only DNS and the socket.
+ */
+export function createArdTransport(egressDeps: EgressFetchDeps = {}): ArdTransport {
+  return async (url, init) => {
+    // Every discovery request leaves through here, so a dry run is refused
+    // here: a search carries the operator's query to a third party.
+    guardDryRun({
+      surface: 'resource-discovery',
+      kind: 'network',
+      summary: 'send a Resource Discovery request',
+      details: { method: init.method, url },
+    });
+    if (init.trustedLocal) {
+      const response = await fetch(url, {
+        method: init.method,
+        headers: init.headers,
+        ...(init.body !== undefined ? { body: init.body } : {}),
+        signal: AbortSignal.timeout(init.timeoutMs),
+        redirect: 'error',
+      });
+      const declared = Number(response.headers.get('content-length') ?? '0');
+      const text = declared > init.maxBytes ? '' : await response.text();
+      return {
+        ok: response.ok,
+        status: response.status,
+        statusText: response.statusText,
+        text,
+        tooLarge: declared > init.maxBytes || text.length > init.maxBytes,
+      };
+    }
+
+    const result = await egressFetch(url, {
+      method: init.method,
+      headers: init.headers,
+      ...(init.body !== undefined ? { body: init.body } : {}),
+      maxBytes: init.maxBytes,
+      timeoutMs: init.timeoutMs,
+    }, egressDeps);
+    if (result.kind === 'refused') {
+      throw new ArdError(`Discovery request refused. ${result.message}`);
+    }
+    const declared = Number(result.headers['content-length'] ?? '0');
+    return {
+      ok: result.ok,
+      status: result.status,
+      statusText: result.statusText,
+      text: result.body,
+      tooLarge: result.truncated || declared > init.maxBytes || result.body.length > init.maxBytes,
+    };
+  };
+}
+
 export class ArdClient {
-  constructor(private readonly getConfig: () => ArdClientConfig) {}
+  constructor(
+    private readonly getConfig: () => ArdClientConfig,
+    private readonly transport: ArdTransport = createArdTransport(),
+  ) {}
 
   // ── Public API ────────────────────────────────────────────────
 
@@ -153,7 +240,7 @@ export class ArdClient {
   ): Promise<ArdCatalog> {
     const manifestUrl = resolveManifestUrl(originOrManifestUrl);
     this.assertSafeUrl(manifestUrl, endpoint?.insecure);
-    const raw = await this.fetchJson(manifestUrl, 'GET');
+    const raw = await this.fetchJson(manifestUrl, 'GET', undefined, this.isTrustedLocal(endpoint?.insecure));
     const catalog = validateCatalog(raw);
 
     if (depth < MAX_ARD_CATALOG_DEPTH) {
@@ -192,7 +279,7 @@ export class ArdClient {
       federation: options.federation,
       pageSize: options.maxResults,
     };
-    const raw = await this.fetchJson(endpoint.url, 'POST', body);
+    const raw = await this.fetchJson(endpoint.url, 'POST', body, this.isTrustedLocal(endpoint.insecure));
     const response = validateSearchResponse(raw);
 
     const results = response.results.map(result =>
@@ -228,22 +315,26 @@ export class ArdClient {
 
   // ── Bounded fetch ─────────────────────────────────────────────
 
-  private async fetchJson(url: string, method: 'GET' | 'POST', body?: unknown): Promise<unknown> {
+  private async fetchJson(url: string, method: 'GET' | 'POST', body: unknown, trustedLocal: boolean): Promise<unknown> {
     const { timeoutMs } = this.getConfig();
-    let response: Response;
+    let response: ArdTransportResponse;
     try {
-      response = await fetch(url, {
+      response = await this.transport(url, {
         method,
         headers: {
           accept: 'application/json',
           ...(body !== undefined ? { 'content-type': 'application/json' } : {}),
         },
         ...(body !== undefined ? { body: JSON.stringify(body) } : {}),
-        signal: AbortSignal.timeout(timeoutMs),
-        redirect: 'follow',
+        timeoutMs,
+        maxBytes: MAX_ARD_RESPONSE_BYTES,
+        trustedLocal,
       });
     } catch (error) {
-      if (error instanceof Error && error.name === 'TimeoutError') {
+      if (error instanceof ArdError) {
+        throw error;
+      }
+      if (error instanceof Error && (error.name === 'TimeoutError' || error.name === 'AbortError')) {
         throw new ArdError(`Discovery request timed out after ${timeoutMs}ms.`);
       }
       throw new ArdError(`Discovery request failed: ${error instanceof Error ? error.message : String(error)}`);
@@ -253,21 +344,19 @@ export class ArdClient {
       throw new ArdError(`Discovery endpoint returned HTTP ${response.status} ${response.statusText}.`.trim());
     }
 
-    const declaredLength = Number(response.headers.get('content-length') ?? '0');
-    if (declaredLength > MAX_ARD_RESPONSE_BYTES) {
-      throw new ArdError(`Discovery response too large (${declaredLength} bytes, cap ${MAX_ARD_RESPONSE_BYTES}).`);
-    }
-
-    const raw = await response.text();
-    if (raw.length > MAX_ARD_RESPONSE_BYTES) {
-      throw new ArdError(`Discovery response too large (${raw.length} bytes, cap ${MAX_ARD_RESPONSE_BYTES}).`);
+    if (response.tooLarge) {
+      throw new ArdError(`Discovery response too large (cap ${MAX_ARD_RESPONSE_BYTES} bytes).`);
     }
 
     try {
-      return JSON.parse(raw);
+      return JSON.parse(response.text);
     } catch {
       throw new ArdError('Discovery endpoint returned malformed JSON.');
     }
+  }
+
+  private isTrustedLocal(insecure: boolean | undefined): boolean {
+    return Boolean(insecure) && this.getConfig().allowInsecureEndpoints;
   }
 
   /** Reject non-HTTPS / private-network targets unless explicitly allowed for this endpoint. */
@@ -284,9 +373,11 @@ export class ArdClient {
 
 /**
  * Returns an error string if the URL is unsafe to fetch, else undefined.
- * Mirrors the SSRF guard used by the http-request skill, extended to require
- * HTTPS for discovery traffic. `allowInsecure` relaxes both checks for a
- * user-trusted local endpoint (the conformance demo).
+ *
+ * The URL half of the shared egress policy (`screenEgressUrl`); DNS, pinning
+ * and redirects are enforced when the request is made (`createArdTransport`).
+ * `allowInsecure` relaxes both checks for a user-trusted local endpoint (the
+ * conformance demo), and only that.
  */
 export function screenDiscoveryUrl(url: string, allowInsecure: boolean): string | undefined {
   let parsed: URL;
@@ -296,32 +387,24 @@ export function screenDiscoveryUrl(url: string, allowInsecure: boolean): string 
     return 'Invalid discovery URL.';
   }
 
-  const protocol = parsed.protocol.toLowerCase();
-  if (protocol !== 'https:' && !(allowInsecure && protocol === 'http:')) {
-    return 'Discovery endpoints must use HTTPS (enable "allow insecure endpoints" for a trusted local registry).';
+  if (allowInsecure) {
+    const protocol = parsed.protocol.toLowerCase();
+    return protocol === 'https:' || protocol === 'http:'
+      ? undefined
+      : 'Discovery endpoints must use HTTPS (enable "allow insecure endpoints" for a trusted local registry).';
   }
 
-  if (allowInsecure) {
+  const screen = screenEgressUrl(url);
+  if (screen.allowed) {
     return undefined;
   }
-
-  const host = parsed.hostname.toLowerCase();
-  if (
-    host === 'localhost' ||
-    host === '127.0.0.1' ||
-    host === '::1' ||
-    host === '[::1]' ||
-    host === '0.0.0.0' ||
-    host.endsWith('.local') ||
-    host.startsWith('10.') ||
-    host.startsWith('192.168.') ||
-    /^172\.(1[6-9]|2\d|3[01])\./.test(host) ||
-    /^169\.254\./.test(host) ||
-    host === 'metadata.google.internal'
-  ) {
-    return 'Discovery requests to private / loopback / link-local addresses are not allowed.';
+  if (screen.rule === 'egress.malformed-url') {
+    return 'Invalid discovery URL.';
   }
-  return undefined;
+  if (screen.rule === 'egress.scheme') {
+    return 'Discovery endpoints must use HTTPS (enable "allow insecure endpoints" for a trusted local registry).';
+  }
+  return `Discovery URL refused. ${describeEgressRefusal(screen)}`;
 }
 
 // ── Manifest / response validation ────────────────────────────────

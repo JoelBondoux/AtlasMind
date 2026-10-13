@@ -2,6 +2,9 @@ import { randomBytes } from 'node:crypto';
 
 import * as vscode from 'vscode';
 
+import { emptyTurnProvenance, raiseProvenance, readConversationProvenance } from '../core/contextProvenance.js';
+import type { TurnProvenance } from '../types.js';
+
 /**
  * A record id: the timestamp says when, the suffix keeps two records made in
  * the same millisecond apart.
@@ -148,6 +151,12 @@ export interface SessionTranscriptMetadata {
    * key, not the record.
    */
   taskId?: string;
+  /**
+   * Shown under the turn once the conversation has read content that makes
+   * writes ask again. Composed by `describeConversationTaint` on the host —
+   * the surface renders it as text and never decides it.
+   */
+  untrustedContentNote?: string;
 }
 
 export interface SessionConversationRecord {
@@ -160,6 +169,17 @@ export interface SessionConversationRecord {
   archivedAt?: string;
   folderId?: string;
   entries: SessionTranscriptEntry[];
+  /**
+   * What this conversation's turns have read, so the next turn starts from it.
+   *
+   * Kept beside the transcript rather than in memory only, because the
+   * transcript is what comes back after a window reload — and a reload that
+   * restored the fetched page's text while forgetting it was fetched would
+   * launder the taint. Never lowered while the conversation exists; reset only
+   * when it is cleared. Read back through `readConversationProvenance`, so a
+   * conversation with history and no readable record is third-party.
+   */
+  provenance?: TurnProvenance;
 }
 
 export interface SessionFolderRecord {
@@ -524,6 +544,11 @@ export class SessionConversation {
 
     const hadEntries = session.entries.length > 0;
     session.entries = [];
+    // The one reset: with the history gone, nothing an earlier turn read is
+    // sent again. Deleting a message or rewinding does not reset it — the
+    // rolling session summary has no per-turn identity, so what those turns
+    // read can outlive the turns themselves.
+    session.provenance = emptyTurnProvenance();
     if (hadEntries) {
       advanceRevision(session);
     }
@@ -578,6 +603,37 @@ export class SessionConversation {
     this.persist();
     this.onDidChangeEmitter.fire();
     return removed;
+  }
+
+  /**
+   * What the conversation has read so far — the provenance its next turn starts
+   * from. Resolved the way `recordTurn` resolves a session, so the turn is
+   * seeded from the conversation it will be recorded into.
+   */
+  getProvenance(sessionId = this.activeSessionId): TurnProvenance {
+    const session = this.getMutableSession(sessionId) ?? this.getMutableSession(this.activeSessionId);
+    return session
+      ? readConversationProvenance(session.provenance, session.entries.length > 0)
+      : emptyTurnProvenance();
+  }
+
+  /**
+   * Fold what a turn read into its conversation. Only ever raises it: a turn
+   * starts from the conversation's provenance, so its own is never lower, and a
+   * stale or partial value merged in cannot lower what is already recorded.
+   */
+  recordProvenance(sessionId: string | undefined, provenance: TurnProvenance): void {
+    const session = this.getMutableSession(sessionId ?? this.activeSessionId) ?? this.getMutableSession(this.activeSessionId);
+    if (!session) {
+      return;
+    }
+    const before = readConversationProvenance(session.provenance, session.entries.length > 0);
+    const after = raiseProvenance(before, provenance);
+    if (JSON.stringify(after) === JSON.stringify(session.provenance)) {
+      return;
+    }
+    session.provenance = after;
+    this.persist();
   }
 
   getTranscript(sessionId = this.activeSessionId): SessionTranscriptEntry[] {
@@ -951,6 +1007,7 @@ function createSessionRecord(title?: string): SessionConversationRecord {
     updatedAt: timestamp,
     revision: 0,
     entries: [],
+    provenance: emptyTurnProvenance(),
   };
 }
 
@@ -1000,6 +1057,15 @@ function cloneSession(session: SessionConversationRecord): SessionConversationRe
       ...entry,
       ...(entry.meta ? { meta: cloneMetadata(entry.meta) } : {}),
     })),
+    // Read, never trusted: a stored value that cannot be read is third-party,
+    // and a session written before this was kept — history, no record — is too.
+    // Deliberately not part of `isSessionConversationRecord`: that check
+    // rejects the whole store on one bad record, and a malformed provenance
+    // should cost one conversation its clean state, not everyone their history.
+    provenance: readConversationProvenance(
+      (session as { provenance?: unknown }).provenance,
+      session.entries.length > 0,
+    ),
   };
 }
 
@@ -1110,6 +1176,7 @@ function isSessionTranscriptMetadata(value: unknown): value is SessionTranscript
     && (candidate['userVote'] === undefined || candidate['userVote'] === 'up' || candidate['userVote'] === 'down')
     && (candidate['votedAt'] === undefined || typeof candidate['votedAt'] === 'string')
     && (candidate['followupQuestion'] === undefined || typeof candidate['followupQuestion'] === 'string')
+    && (candidate['untrustedContentNote'] === undefined || typeof candidate['untrustedContentNote'] === 'string')
     && (candidate['iterationLimitHit'] === undefined || typeof candidate['iterationLimitHit'] === 'boolean')
     && (candidate['suggestedIterationLimit'] === undefined || typeof candidate['suggestedIterationLimit'] === 'number')
     && (candidate['suggestedToolCallsPerTurnLimit'] === undefined || typeof candidate['suggestedToolCallsPerTurnLimit'] === 'number')

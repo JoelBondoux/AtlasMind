@@ -1,4 +1,5 @@
 import * as vscode from 'vscode';
+import { guardDryRun } from '../core/dryRunHost.js';
 
 import {
   buildLensActionDraftPrompt,
@@ -395,6 +396,14 @@ function buildLiveCommandContext(
       if (!skill || !atlas.skillsRegistry.isEnabled(skill.id)) {
         throw new Error(`The MCP tool "${skillId}" is not connected. Reconnect the server from MCP Servers.`);
       }
+      // A live probe reaches a real service. In a dry run it is refused here,
+      // with a notice, before the MCP registry's own backstop would refuse it.
+      guardDryRun({
+        surface: 'lens-probe',
+        kind: 'network',
+        summary: `probe a live service through the MCP tool ${skillId}`,
+        details: { tool: skillId },
+      });
       return skill.execute(args, atlas.skillContext);
     },
   };

@@ -2,6 +2,7 @@ import * as vscode from 'vscode';
 import { createHash, createHmac } from 'node:crypto';
 import type { CompletionRequest, CompletionResponse, DiscoveredModel, ProviderAdapter, ToolCall } from './adapter.js';
 import { lookupCatalog } from './modelCatalog.js';
+import { anthropicSamplingFields } from './anthropic.js';
 
 export const BEDROCK_REGION_SETTING = 'bedrock.region';
 export const BEDROCK_MODEL_IDS_SETTING = 'bedrock.modelIds';
@@ -128,6 +129,22 @@ export function getConfiguredBedrockModelIds(): string[] {
     .filter(item => item.length > 0);
 }
 
+/**
+ * `inferenceConfig.temperature` for a Bedrock model. Converse maps it onto the
+ * model's own `temperature`, and Anthropic states its sampling rule as a
+ * property of the model "on every request" — so a Claude model reached through
+ * Bedrock gets the same accept table as the direct API
+ * (`ANTHROPIC_SAMPLING_ACCEPTING_MODELS`). A Claude model outside it is sent no
+ * temperature, which Converse accepts on every model. Non-Claude Bedrock models
+ * (Llama, Nova, Mistral …) are not Anthropic's to rule on and keep the field.
+ */
+export function bedrockSamplingFields(modelId: string, temperature: number | undefined): { temperature?: number } {
+  const id = stripProviderPrefix(modelId);
+  return /(?:^|\.)anthropic\.claude-|^claude-/i.test(id)
+    ? anthropicSamplingFields(id, temperature)
+    : { temperature: temperature ?? 0.2 };
+}
+
 function buildBedrockPayload(request: CompletionRequest): Record<string, unknown> {
   const system = request.messages
     .filter(message => message.role === 'system' && message.content.trim().length > 0)
@@ -141,7 +158,7 @@ function buildBedrockPayload(request: CompletionRequest): Record<string, unknown
     messages,
     inferenceConfig: {
       maxTokens: request.maxTokens ?? 1024,
-      temperature: request.temperature ?? 0.2,
+      ...bedrockSamplingFields(request.model, request.temperature),
       ...(request.stop?.length ? { stopSequences: request.stop } : {}),
     },
   };

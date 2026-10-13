@@ -1,6 +1,7 @@
 import * as path from 'node:path';
 import * as os from 'node:os';
 import { execFile, spawn } from 'node:child_process';
+import { guardDryRun, interceptDryRun } from '../core/dryRunHost.js';
 import { promisify } from 'node:util';
 import { existsSync, readFileSync, readdirSync, statSync } from 'node:fs';
 import * as vscode from 'vscode';
@@ -36,6 +37,7 @@ import { TESTING_METHODOLOGY_DEFINITIONS } from '../types.js';
 import { deriveTestingPolicyCoverage, parseJUnitReport, type TestingPolicyCoverage, type TestingPolicyTestFile } from '../core/testingPolicyCoverage.js';
 import { complianceCatalogFor } from '../core/complianceControlCatalog.js';
 import { gatherComplianceStackSignals } from '../core/complianceStackSignals.js';
+import { AUTO_REASONING_RULES, REASONING_CONTROLS, REASONING_CONTROLS_VERIFIED_AT, REASONING_LEVELS, REASONING_PREFERENCES, sanitizeReasoningPreference } from '../core/reasoningBudget.js';
 import {
   emptyEvidenceLibrary,
   readComplianceEvidenceFile,
@@ -65,6 +67,7 @@ import {
   evaluateTechnicalControls,
   policiesWithTechnicalControls,
   summarizeTechnicalControls,
+  type ComplianceStackSignals,
   type TechnicalControlResult,
   type TechnicalControlSummary,
 } from '../core/complianceTechnicalControls.js';
@@ -80,6 +83,7 @@ import {
   seedPortalHostingConfig,
 } from '../core/portalHosting.js';
 import { inspectLensDeclarations, lensDeclarationStatusLabel } from '../core/lensDeclarations.js';
+import { ssotHomeForWrite, ssotHomeRoot } from '../utils/workspaceRoots.js';
 import {
   modelSidebarHiddenEntryKey,
   readHiddenModelSidebarEntries,
@@ -91,6 +95,7 @@ const execFileAsync = promisify(execFile);
 
 const BUDGET_MODES = ['cheap', 'balanced', 'expensive', 'auto'] as const;
 const SPEED_MODES = ['fast', 'balanced', 'considered', 'auto'] as const;
+const REASONING_MODES = REASONING_PREFERENCES;
 const BUDGET_MODE_HELP = {
   cheap: 'Excludes expensive model tiers and strongly favors the lowest-cost eligible options. Best for quick edits, light investigation, and scratchpad work where cost matters more than peak capability.',
   balanced: 'Keeps a practical middle ground between price and capability. This is the safest day-to-day default for most coding, debugging, and review work.',
@@ -102,6 +107,12 @@ const SPEED_MODE_HELP = {
   balanced: 'Keeps a middle ground between responsiveness and reasoning depth. This is the most stable default when you want solid results without over-tuning.',
   considered: 'Allows slower, deeper reasoning routes and longer deliberation. Best for ambiguous debugging, design work, and other problems that benefit from more thought.',
   auto: 'Lets the task profiler infer the speed level from the current request. Use this when some tasks need instant turnaround and others need deeper reasoning.',
+} as const;
+const REASONING_MODE_HELP = {
+  auto: 'Derives the level from the task through a declared table: low-reasoning tasks get minimal, medium get standard, and planning, architecture, root-cause and review work gets deep.',
+  minimal: 'Asks a model with a declared reasoning control to think as little as it allows. Cheapest and fastest for mechanical edits and quick answers.',
+  standard: 'A middle level of thinking for everyday implementation, explanation and fixes.',
+  deep: 'Asks for the most thinking and prefers models that declare a reasoning control. Thinking is billed as output, so cost estimates rise with it, and a per-task budget cap steps the level down rather than letting it slip past.',
 } as const;
 const DEPENDENCY_MONITORING_PROVIDERS = ['dependabot', 'renovate', 'snyk', 'azure-devops'] as const;
 const DEPENDENCY_MONITORING_SCHEDULES = ['daily', 'weekly', 'monthly'] as const;
@@ -122,6 +133,7 @@ const SETTINGS_HELP = {
   dailyCostLimitUsd: 'Daily cost cap in USD. Use 0 to disable it. Examples: 5 for an individual guardrail, 20 for a shared team budget, or 0 for unrestricted experimentation.',
   displayCurrency: 'Currency used for all cost displays. Auto detects from your OS locale. Examples: EUR for European teams, GBP for UK users, or JPY for Japan. Underlying costs are always stored in USD; exchange rates are fetched at startup with a 24-hour cache.',
   speedMode: 'Speed preference for model selection. Examples: fast for tight feedback loops, balanced for normal work, considered for deeper reasoning, and auto when workloads vary.',
+  reasoningMode: 'How hard the model should think — the third routing axis. A level is sent only to models whose provider declares a verified reasoning control; every other model is still routable and is sent nothing.',
   showImportProjectAction: 'Controls whether the Memory toolbar keeps the Import Existing Project action visible. Keep it on during onboarding and turn it off in already standardized repos.',
   chatSessionTurnLimit: 'How many recent chat turns AtlasMind carries forward. Examples: 4 for short task chats, 6 for the default balance, or 10 when long debugging context matters.',
   chatSessionContextChars: 'Maximum characters reserved for summarized carry-forward context. Examples: 1200 for lightweight carry-forward, 2500 for default use, or 4000+ for complex multi-step work.',
@@ -173,6 +185,7 @@ const SETTINGS_HELP = {
 
 type BudgetMode = (typeof BUDGET_MODES)[number];
 type SpeedMode = (typeof SPEED_MODES)[number];
+type ReasoningPreference = (typeof REASONING_MODES)[number];
 type DependencyMonitoringProvider = (typeof DEPENDENCY_MONITORING_PROVIDERS)[number];
 type DependencyMonitoringSchedule = (typeof DEPENDENCY_MONITORING_SCHEDULES)[number];
 type DisplayCurrency = (typeof DISPLAY_CURRENCIES)[number];
@@ -296,6 +309,16 @@ export interface TestingDashboardSnapshot {
    */
   policyCoverage: TestingPolicyCoverage;
   /**
+   * Why the declared testing matrix could not be read, when it could not: the
+   * SSOT home is ambiguous, so `project_memory/index/testing-config.json` was
+   * left unread. Then `policyCoverage` is derived against **no** enabled
+   * methodology — never the two-default fallback an undeclared project gets,
+   * which would grade the project against a standard it did not declare — and
+   * every consumer that decides on coverage (the release gate) treats it as
+   * unknown rather than as a pass.
+   */
+  policyUnreadable?: string;
+  /**
    * Per-policy severity, drafts and chart data.
    *
    * Derived here beside the coverage it grades, so the Testing page and the
@@ -373,6 +396,7 @@ export interface SettingsPanelTarget {
 type SettingsMessage =
   | { type: 'setBudgetMode'; payload: BudgetMode }
   | { type: 'setSpeedMode'; payload: SpeedMode }
+  | { type: 'setReasoningMode'; payload: ReasoningPreference }
   | { type: 'setFeedbackRoutingWeight'; payload: number }
   | { type: 'setLocalOpenAiBaseUrl'; payload: string }
   | { type: 'setLocalOpenAiEndpoints'; payload: LocalEndpointConfig[] }
@@ -932,6 +956,10 @@ export class SettingsPanel {
 
       case 'setSpeedMode':
         await configuration.update('speedMode', message.payload, vscode.ConfigurationTarget.Workspace);
+        return;
+
+      case 'setReasoningMode':
+        await configuration.update('reasoningMode', message.payload, vscode.ConfigurationTarget.Workspace);
         return;
 
       case 'setFeedbackRoutingWeight':
@@ -1527,7 +1555,9 @@ export class SettingsPanel {
   }
 
   private async handleScanAiInstructions(): Promise<void> {
-    const workspaceRoot = vscode.workspace.workspaceFolders?.[0]?.uri.fsPath;
+    // The merged set lands in project memory, so the instruction files merged
+    // are the SSOT home's; an ambiguous home lists none.
+    const workspaceRoot = ssotHomeRoot().fsPath;
     if (!workspaceRoot) {
       await this.panel.webview.postMessage({ type: 'aiInstructionScanResult', payload: [] });
       return;
@@ -1537,14 +1567,15 @@ export class SettingsPanel {
   }
 
   private async handleSyncAiInstructions(selectedPaths: unknown): Promise<void> {
-    const workspaceRoot = vscode.workspace.workspaceFolders?.[0]?.uri.fsPath;
-    if (!workspaceRoot) {
+    const target = ssotHomeForWrite('No workspace folder is open.');
+    if ('message' in target) {
       await this.panel.webview.postMessage({
         type: 'aiInstructionSyncResult',
-        payload: { success: false, summary: 'No workspace folder is open.' },
+        payload: { success: false, summary: target.message },
       });
       return;
     }
+    const workspaceRoot = target.fsPath;
 
     if (!Array.isArray(selectedPaths) || selectedPaths.length === 0) {
       await this.panel.webview.postMessage({
@@ -1627,10 +1658,15 @@ export class SettingsPanel {
   }
 
   private async saveTestingConfig(config: import('../types.js').ProjectTestingConfig): Promise<void> {
-    const workspaceRoot = vscode.workspace.workspaceFolders?.[0]?.uri.fsPath;
-    if (!workspaceRoot) {
+    // The testing matrix is project memory: saved into the SSOT home, or refused.
+    const target = ssotHomeForWrite('No workspace open — open a folder first.');
+    if ('message' in target) {
+      if (target.refused) {
+        void vscode.window.showWarningMessage(target.message);
+      }
       return;
     }
+    const workspaceRoot = target.fsPath;
     try {
       const { syncSummary } = await persistTestingConfig(
         workspaceRoot,
@@ -1648,11 +1684,12 @@ export class SettingsPanel {
   }
 
   private async runSyncTestingProtocols(): Promise<void> {
-    const workspaceRoot = vscode.workspace.workspaceFolders?.[0]?.uri.fsPath;
-    if (!workspaceRoot) {
-      void vscode.window.showInformationMessage('No workspace open — open a folder first.');
+    const target = ssotHomeForWrite('No workspace open — open a folder first.');
+    if ('message' in target) {
+      void (target.refused ? vscode.window.showWarningMessage(target.message) : vscode.window.showInformationMessage(target.message));
       return;
     }
+    const workspaceRoot = target.fsPath;
     const config = readProjectTestingConfig(workspaceRoot);
     if (!config) {
       void vscode.window.showInformationMessage('No testing configuration saved yet — save the Testing matrix first.');
@@ -1726,11 +1763,14 @@ export class SettingsPanel {
   }
 
   private async runAutoAssessTestingConfig(): Promise<void> {
-    const workspaceRoot = vscode.workspace.workspaceFolders?.[0]?.uri.fsPath;
-    if (!workspaceRoot) {
-      void vscode.window.showInformationMessage('No workspace open — open a folder first.');
+    // Reads the project's evidence and writes the matrix into project memory:
+    // both the SSOT home's, so the assessment and the file it changes agree.
+    const target = ssotHomeForWrite('No workspace open — open a folder first.');
+    if ('message' in target) {
+      void (target.refused ? vscode.window.showWarningMessage(target.message) : vscode.window.showInformationMessage(target.message));
       return;
     }
+    const workspaceRoot = target.fsPath;
 
     // Evidence the repository can already show, from the same coverage
     // derivation the Testing page renders — so what arrives ticked here and
@@ -2052,6 +2092,14 @@ export class SettingsPanel {
    * real reason is surfaced and the HuggingFace page is opened as a fallback.
    */
   private async runLmsGetInstall(lmsBin: string, modelId: string, hfUrl: vscode.Uri): Promise<void> {
+    if (interceptDryRun({
+      surface: 'local-model-install',
+      kind: 'process',
+      summary: `download ${modelId} with LM Studio`,
+      details: { modelId },
+    })) {
+      return;
+    }
     const channel = this.getLocalModelInstallChannel();
     channel.clear();
     channel.show(true);
@@ -2269,7 +2317,13 @@ export class SettingsPanel {
    */
   private async handleSetPortalHost(host: string): Promise<void> {
     const chosen = PORTAL_HOST_CAPABILITIES.find(capability => capability.host === host);
-    const folder = vscode.workspace.workspaceFolders?.[0];
+    // portal-hosting.json is project memory: recorded in the SSOT home.
+    const home = ssotHomeRoot();
+    if (chosen && home.refusal) {
+      void vscode.window.showWarningMessage(home.refusal);
+      return;
+    }
+    const folder = home.folder;
     const root = folder?.uri.scheme === 'file' || folder?.uri.scheme === 'vscode-remote'
       ? folder.uri.fsPath
       : undefined;
@@ -2306,8 +2360,10 @@ export class SettingsPanel {
     );
     // The portal host declaration. Read, never seeded: writing a committed file
     // because somebody opened a settings tab would put words in their mouth.
-    const portalWorkspaceRoot = lensWorkspace?.uri.scheme === 'file' || lensWorkspace?.uri.scheme === 'vscode-remote'
-      ? lensWorkspace.uri.fsPath
+    // Project memory, so the SSOT home's; an ambiguous home shows the default.
+    const portalHome = ssotHomeRoot().folder;
+    const portalWorkspaceRoot = portalHome?.uri.scheme === 'file' || portalHome?.uri.scheme === 'vscode-remote'
+      ? portalHome.uri.fsPath
       : undefined;
     const portalConfig = (portalWorkspaceRoot ? readPortalHostingConfig(portalWorkspaceRoot) : undefined)
       ?? seedPortalHostingConfig();
@@ -2341,6 +2397,7 @@ export class SettingsPanel {
     const builtInAgentCount = registeredAgents.length - customAgentCount;
     const selectedBudget = getBudgetMode(configuration.get<string>('budgetMode'));
     const selectedSpeed = getSpeedMode(configuration.get<string>('speedMode'));
+    const selectedReasoning = sanitizeReasoningPreference(configuration.get<string>('reasoningMode'));
     const feedbackRoutingWeight = getRangedNumber(configuration.get<number>('feedbackRoutingWeight'), 1, 0, 2, 2);
     const localOpenAiEndpoints = getConfiguredLocalEndpoints({
       getEndpoints: () => configuration.get<unknown>('localOpenAiEndpoints'),
@@ -2657,6 +2714,21 @@ export class SettingsPanel {
                   <input id="feedbackRoutingWeight" type="number" min="0" max="2" step="0.05" value="${feedbackRoutingWeight}" />
                   <p class="info-note">Set <code>0</code> to ignore thumbs history in routing. Higher values amplify the bias, but AtlasMind still caps the effect so votes cannot override hard capability or provider-health checks.</p>
                 </div>
+              </article>
+
+              <article class="settings-card" id="reasoningModeCard">
+                <div class="card-header">
+                  <p class="card-kicker">Routing</p>
+                  <h3>${renderHeadingWithHelp('Reasoning mode', 'reasoningMode')}</h3>
+                </div>
+                <p class="card-copy">Decide how hard the model should think. This is the third axis beside budget and speed.</p>
+                <div class="choice-cluster" role="radiogroup" aria-label="Reasoning mode">
+                  ${renderRoutingChoicePill('reasoning', 'auto', 'Auto', selectedReasoning === 'auto', REASONING_MODE_HELP.auto)}
+                  ${renderRoutingChoicePill('reasoning', 'minimal', 'Minimal', selectedReasoning === 'minimal', REASONING_MODE_HELP.minimal)}
+                  ${renderRoutingChoicePill('reasoning', 'standard', 'Standard', selectedReasoning === 'standard', REASONING_MODE_HELP.standard)}
+                  ${renderRoutingChoicePill('reasoning', 'deep', 'Deep', selectedReasoning === 'deep', REASONING_MODE_HELP.deep)}
+                </div>
+                ${renderReasoningRulesTable()}
               </article>
             </div>
           </section>
@@ -3662,7 +3734,7 @@ export class SettingsPanel {
           box-sizing: border-box;
           color: var(--vscode-input-foreground);
           background: var(--vscode-input-background);
-          border: 1px solid var(--vscode-input-border, var(--vscode-widget-border, #444));
+          border: 1px solid var(--atlas-boundary);
           padding: 10px 12px;
           border-radius: 12px;
         }
@@ -3810,7 +3882,7 @@ export class SettingsPanel {
           border-color: color-mix(in srgb, var(--atlas-panel-warning) 55%, var(--atlas-panel-border));
         }
         .settings-card-danger {
-          border-color: var(--vscode-inputValidation-errorBorder, #d13438);
+          border-color: color-mix(in srgb, var(--vscode-errorForeground, #f48771) var(--atlas-ink-share), var(--tint-away));
           background: color-mix(in srgb, var(--vscode-inputValidation-errorBorder, #d13438) 8%, var(--atlas-panel-surface));
         }
         .agent-policy-card {
@@ -3840,7 +3912,7 @@ export class SettingsPanel {
           align-items: center;
         }
         .danger-button {
-          border-color: var(--vscode-inputValidation-errorBorder, #d13438);
+          border-color: color-mix(in srgb, var(--vscode-errorForeground, #f48771) var(--atlas-ink-share), var(--tint-away));
           background: color-mix(in srgb, var(--vscode-inputValidation-errorBorder, #d13438) 20%, var(--vscode-button-background));
         }
         .danger-button:hover,
@@ -3860,7 +3932,7 @@ export class SettingsPanel {
           box-sizing: border-box;
           color: var(--vscode-input-foreground);
           background: var(--vscode-input-background);
-          border: 1px solid var(--vscode-input-border, var(--vscode-widget-border, #444));
+          border: 1px solid var(--atlas-boundary);
           padding: 8px 10px;
           border-radius: 10px;
         }
@@ -3869,7 +3941,7 @@ export class SettingsPanel {
           box-sizing: border-box;
           color: var(--vscode-dropdown-foreground, var(--vscode-input-foreground));
           background: var(--vscode-dropdown-background, var(--vscode-input-background));
-          border: 1px solid var(--vscode-dropdown-border, var(--vscode-input-border, var(--vscode-widget-border, #444)));
+          border: 1px solid var(--atlas-boundary);
           padding: 8px 10px;
           border-radius: 10px;
         }
@@ -3899,7 +3971,7 @@ export class SettingsPanel {
           padding: 0;
           font: inherit;
           cursor: pointer;
-          color: var(--vscode-errorForeground, #f48771);
+          color: color-mix(in srgb, var(--vscode-errorForeground, #f48771) var(--atlas-ink-share), var(--tint-away));
           text-decoration: underline;
         }
         .link-button:hover { opacity: 0.8; }
@@ -4465,10 +4537,10 @@ export class SettingsPanel {
           font-size: 0.78rem;
           background: color-mix(in srgb, var(--accent-soft) 65%, transparent);
         }
-        .catalogue-badge.official { border-color: color-mix(in srgb, #4caf50 55%, var(--atlas-panel-border)); }
-        .catalogue-badge.community { border-color: color-mix(in srgb, #03a9f4 55%, var(--atlas-panel-border)); }
-        .catalogue-badge.registry { border-color: color-mix(in srgb, #ff9800 55%, var(--atlas-panel-border)); }
-        .catalogue-badge.archived { border-color: color-mix(in srgb, #9e9e9e 65%, var(--atlas-panel-border)); }
+        .catalogue-badge.official { border-color: color-mix(in srgb, color-mix(in srgb, #4caf50 var(--atlas-ink-share), var(--tint-away)) 55%, var(--atlas-panel-border)); }
+        .catalogue-badge.community { border-color: color-mix(in srgb, color-mix(in srgb, #03a9f4 var(--atlas-ink-share), var(--tint-away)) 55%, var(--atlas-panel-border)); }
+        .catalogue-badge.registry { border-color: color-mix(in srgb, color-mix(in srgb, #ff9800 var(--atlas-ink-share), var(--tint-away)) 55%, var(--atlas-panel-border)); }
+        .catalogue-badge.archived { border-color: color-mix(in srgb, color-mix(in srgb, #9e9e9e var(--atlas-ink-share), var(--tint-away)) 65%, var(--atlas-panel-border)); }
         .sr-only {
           position: absolute;
           width: 1px;
@@ -4568,7 +4640,7 @@ export class SettingsPanel {
         .ard-form select {
           background: var(--vscode-input-background);
           color: var(--vscode-input-foreground);
-          border: 1px solid var(--vscode-input-border, var(--atlas-panel-border));
+          border: 1px solid var(--atlas-boundary);
           padding: 6px 9px;
           border-radius: 6px;
           min-width: 220px;
@@ -4581,9 +4653,9 @@ export class SettingsPanel {
           border-radius: 10px;
           border: 1px solid var(--atlas-panel-border);
         }
-        .ard-status-success { border-color: color-mix(in srgb, #4caf50 55%, var(--atlas-panel-border)); }
+        .ard-status-success { border-color: color-mix(in srgb, color-mix(in srgb, #4caf50 var(--atlas-ink-share), var(--tint-away)) 55%, var(--atlas-panel-border)); }
         .ard-status-warning { border-color: var(--atlas-panel-warning); }
-        .ard-status-error { border-color: color-mix(in srgb, #f44336 60%, var(--atlas-panel-border)); }
+        .ard-status-error { border-color: color-mix(in srgb, color-mix(in srgb, #f44336 var(--atlas-ink-share), var(--tint-away)) 60%, var(--atlas-panel-border)); }
         .ard-status-info { border-color: var(--atlas-panel-accent); }
         .ard-results { display: flex; flex-direction: column; gap: 10px; }
         .ard-result-card {
@@ -4608,9 +4680,9 @@ export class SettingsPanel {
           font-size: 0.78rem;
         }
         .badge.ard-type { background: var(--atlas-panel-surface-strong); color: var(--vscode-foreground); }
-        .badge.ard-score { background: var(--vscode-charts-blue, #36c); color: #fff; }
-        .badge.ard-trust { background: var(--vscode-charts-purple, #93c); color: #fff; }
-        .badge.ard-warn { background: var(--atlas-panel-warning); color: #1a1a1a; }
+        .badge.ard-score { background: var(--vscode-charts-blue, #36c); color: var(--tint-toward); }
+        .badge.ard-trust { background: var(--vscode-charts-purple, #93c); color: var(--tint-toward); }
+        .badge.ard-warn { background: var(--atlas-panel-warning); color: var(--tint-toward); }
         .ard-table th, .ard-table td { vertical-align: top; }
       `,
       scriptContent:
@@ -5128,6 +5200,16 @@ export class SettingsPanel {
                 return;
               }
               vscode.postMessage({ type: 'setSpeedMode', payload: target.value });
+            });
+          });
+
+          document.querySelectorAll('input[name="reasoning"]').forEach(element => {
+            element.addEventListener('change', event => {
+              const target = event.target;
+              if (!(target instanceof HTMLInputElement)) {
+                return;
+              }
+              vscode.postMessage({ type: 'setReasoningMode', payload: target.value });
             });
           });
 
@@ -6468,7 +6550,7 @@ function renderTestingPageStyles(): string {
        mid-edit — the matrix is a form, not a read-only list. */
     .methodology-search-row { display: flex; align-items: center; gap: 10px; margin-bottom: 10px; flex-wrap: wrap; }
     .methodology-search { flex: 1 1 260px; min-width: 220px; padding: 6px 10px; border-radius: 8px;
-      border: 1px solid var(--vscode-widget-border, rgba(127,127,127,0.4));
+      border: 1px solid var(--atlas-boundary);
       background: var(--vscode-input-background); color: var(--vscode-input-foreground); font: inherit; }
     .methodology-search:focus-visible { outline: 1px solid var(--vscode-focusBorder); outline-offset: 1px; }
     .methodology-row.is-filtered-out { display: none; }
@@ -6476,14 +6558,14 @@ function renderTestingPageStyles(): string {
     .methodology-category-group.is-filtered-out { display: none; }
     .methodology-row { transition: background 0.15s; }
     .methodology-row:hover { background: color-mix(in srgb, var(--vscode-list-hoverBackground) 40%, transparent); }
-    .methodology-row.methodology-enabled .methodology-name-cell strong { color: var(--vscode-testing-iconPassed); }
+    .methodology-row.methodology-enabled .methodology-name-cell strong { color: color-mix(in srgb, var(--vscode-testing-iconPassed) var(--atlas-ink-share), var(--tint-away)); }
     .methodology-name-cell .methodology-desc { font-size: 0.82em; color: var(--vscode-descriptionForeground); margin-top: 2px; }
     .col-toggle { width: 48px; }
     .col-name { min-width: 160px; }
     .col-agent { min-width: 160px; }
     .col-model { min-width: 160px; }
     .col-notes { min-width: 120px; }
-    .compact-select, .compact-input { font-size: 0.85em; padding: 3px 6px; border-radius: 3px; border: 1px solid var(--vscode-input-border); background: var(--vscode-input-background); color: var(--vscode-input-foreground); width: 100%; }
+    .compact-select, .compact-input { font-size: 0.85em; padding: 3px 6px; border-radius: 3px; border: 1px solid var(--atlas-boundary); background: var(--vscode-input-background); color: var(--vscode-input-foreground); width: 100%; }
     .compact-input::placeholder { color: var(--vscode-input-placeholderForeground); }
     .full-width-card { grid-column: 1 / -1; }
     /* Toggle switch */
@@ -6497,7 +6579,7 @@ function renderTestingPageStyles(): string {
     .methodology-name-row { display: flex; align-items: center; gap: 6px; }
     .methodology-info-btn { background: none; border: none; cursor: pointer; color: var(--vscode-textLink-foreground); font-size: 0.95em; padding: 0 2px; line-height: 1; opacity: 0.7; transition: opacity 0.15s; }
     .methodology-info-btn:hover, .methodology-info-btn--open { opacity: 1; }
-    .methodology-info-btn--open { color: var(--vscode-testing-iconPassed); }
+    .methodology-info-btn--open { color: color-mix(in srgb, var(--vscode-testing-iconPassed) var(--atlas-ink-share), var(--tint-away)); }
     .methodology-info-row td { padding: 0; }
     .methodology-info-cell { padding: 10px 10px 14px !important; background: color-mix(in srgb, var(--vscode-editor-background) 80%, var(--vscode-sideBar-background) 20%); border-bottom: 2px solid color-mix(in srgb, var(--vscode-textLink-foreground) 30%, transparent); }
     .methodology-info-grid { display: grid; grid-template-columns: repeat(2, minmax(0, 1fr)); gap: 14px; }
@@ -6505,9 +6587,9 @@ function renderTestingPageStyles(): string {
     .info-block-label { font-size: 0.74em; font-weight: 700; text-transform: uppercase; letter-spacing: 0.06em; color: var(--vscode-descriptionForeground); display: flex; align-items: center; gap: 6px; }
     .info-block-body { font-size: 0.85em; color: var(--vscode-foreground); line-height: 1.5; }
     .token-impact-badge { display: inline-block; font-size: 0.8em; font-weight: 700; letter-spacing: 0.04em; padding: 1px 6px; border-radius: 3px; text-transform: uppercase; }
-    .token-impact-low { background: color-mix(in srgb, var(--vscode-testing-iconPassed) 20%, transparent); color: var(--vscode-testing-iconPassed); }
-    .token-impact-medium { background: color-mix(in srgb, var(--vscode-problemsWarningIcon-foreground) 20%, transparent); color: var(--vscode-problemsWarningIcon-foreground); }
-    .token-impact-high { background: color-mix(in srgb, var(--vscode-testing-iconFailed) 20%, transparent); color: var(--vscode-testing-iconFailed); }`;
+    .token-impact-low { background: color-mix(in srgb, var(--vscode-testing-iconPassed) 20%, transparent); color: color-mix(in srgb, var(--vscode-testing-iconPassed) var(--atlas-ink-share), var(--tint-away)); }
+    .token-impact-medium { background: color-mix(in srgb, var(--vscode-problemsWarningIcon-foreground) 20%, transparent); color: color-mix(in srgb, var(--vscode-problemsWarningIcon-foreground) var(--atlas-ink-share), var(--tint-away)); }
+    .token-impact-high { background: color-mix(in srgb, var(--vscode-testing-iconFailed) 20%, transparent); color: color-mix(in srgb, var(--vscode-testing-iconFailed) var(--atlas-ink-share), var(--tint-away)); }`;
 }
 
 function renderTestingStatCard(label: string, value: string, meta: string): string {
@@ -6602,11 +6684,15 @@ export async function persistTestingConfig(
 export async function runTestingScaffoldWithSync(
   atlasContext?: import('../extension.js').AtlasMindContext,
 ): Promise<void> {
-  const workspaceRoot = vscode.workspace.workspaceFolders?.[0]?.uri.fsPath;
-  if (!workspaceRoot) {
-    void vscode.window.showInformationMessage('No workspace open — open a folder first.');
+  // The matrix and the testing playbook are project memory, and the scaffold is
+  // laid down beside them: the SSOT home, so the strategy and the files it
+  // describes cannot end up in different repositories.
+  const target = ssotHomeForWrite('No workspace open — open a folder first.');
+  if ('message' in target) {
+    void (target.refused ? vscode.window.showWarningMessage(target.message) : vscode.window.showInformationMessage(target.message));
     return;
   }
+  const workspaceRoot = target.fsPath;
   const config = readProjectTestingConfig(workspaceRoot);
   if (!config) {
     void vscode.window.showInformationMessage('No testing configuration saved yet — open Settings → Testing and save the matrix first.');
@@ -6900,7 +6986,13 @@ export function collectTestingDashboardSnapshot(
     };
   }
 
-  const projectTestingConfig = readProjectTestingConfig(workspaceRoot);
+  // The matrix, the compliance registers and the delivery/workflow facts the
+  // stack signals read are project memory: the SSOT home's. Test files and
+  // coverage are the first folder's, as before.
+  const ssotHome = ssotHomeRoot();
+  const ssotRoot = ssotHome.fsPath;
+  const policyUnreadable = ssotHome.refusal;
+  const projectTestingConfig = ssotRoot ? readProjectTestingConfig(ssotRoot) : undefined;
 
   let packageScripts: string[] = [];
   let frameworkLabel = 'Workspace tests';
@@ -7006,8 +7098,13 @@ export function collectTestingDashboardSnapshot(
   const parsedReport = discoveredReport ? parseJUnitReport(discoveredReport.text) : undefined;
   const coverageInput = {
     // Nothing enabled yet means the two Atlas defaults, matching what the
-    // strategy table shows in that state rather than an empty board.
-    enabledMethodologies: enabledMethodologies.length > 0 ? enabledMethodologies : ['tdd', 'unit'],
+    // strategy table shows in that state rather than an empty board. Not when
+    // the matrix could not be read at all: an unread matrix is not an empty
+    // one, and grading against defaults would let a release gate pass on a
+    // standard nobody declared.
+    enabledMethodologies: enabledMethodologies.length > 0
+      ? enabledMethodologies
+      : policyUnreadable ? [] : ['tdd', 'unit'],
     testFiles: policyTestFiles,
     dependencies: dependencyNames,
     scripts: allScriptNames,
@@ -7038,7 +7135,9 @@ export function collectTestingDashboardSnapshot(
   // not disagree about whether a certificate expired between them.
   const now = new Date();
   const firstPass = deriveTestingPolicyCoverage(coverageInput);
-  const complianceSignals = gatherComplianceStackSignals(workspaceRoot, {
+  // No signals at all when the SSOT home is ambiguous: every one is then
+  // unknown, which is what it is, rather than read from whichever folder is first.
+  const complianceSignals: ComplianceStackSignals = !ssotRoot ? {} : gatherComplianceStackSignals(ssotRoot, {
     dependencies: dependencyNames,
     scripts: allScriptNames,
     coverage: firstPass,
@@ -7075,8 +7174,8 @@ export function collectTestingDashboardSnapshot(
 
   // The register is read, never seeded. Twenty-four regimes; rendering a page
   // must not put committed files in somebody's repository.
-  const evidenceRead = readComplianceEvidenceFile(workspaceRoot);
-  const evidenceLibrary = evidenceRead.config
+  const evidenceRead = ssotRoot ? readComplianceEvidenceFile(ssotRoot) : undefined;
+  const evidenceLibrary = evidenceRead?.config
     ? sanitizeComplianceEvidenceLibrary(evidenceRead.config, now)
     : emptyEvidenceLibrary(now);
 
@@ -7087,7 +7186,7 @@ export function collectTestingDashboardSnapshot(
     if (!catalog) {
       continue;
     }
-    const stored = readComplianceRegimeFile(workspaceRoot, catalog.policyId).config;
+    const stored = ssotRoot ? readComplianceRegimeFile(ssotRoot, catalog.policyId).config : undefined;
     const register = stored
       ? sanitizeComplianceRegimeRegister(stored, catalog.policyId, evidenceLibrary, now).register
       : undefined;
@@ -7179,8 +7278,10 @@ export function collectTestingDashboardSnapshot(
     availableAgentSummaries,
     methodologyDefinitions: TESTING_METHODOLOGY_DEFINITIONS,
     policyCoverage,
+    ...(policyUnreadable ? { policyUnreadable } : {}),
     policyDetails: deriveTestingPolicyDetails(policyCoverage, {
-      scaffoldable: scaffoldableMethodologies(workspaceRoot, policyCoverage.rows.map(row => row.id)),
+      // Scaffolding writes beside the testing playbook, in the SSOT home.
+      scaffoldable: ssotRoot ? scaffoldableMethodologies(ssotRoot, policyCoverage.rows.map(row => row.id)) : new Set(),
       subjects: policySubjects.byPolicy,
     }),
     policySubjects: toTestingSubjectView(policySubjects),
@@ -7584,6 +7685,10 @@ export function isSettingsMessage(value: unknown): value is SettingsMessage {
 
   if (message.type === 'setSpeedMode') {
     return typeof message.payload === 'string' && SPEED_MODES.includes(message.payload as SpeedMode);
+  }
+
+  if (message.type === 'setReasoningMode') {
+    return typeof message.payload === 'string' && REASONING_MODES.includes(message.payload as ReasoningPreference);
   }
 
   if (message.type === 'setFeedbackRoutingWeight') {
@@ -8025,7 +8130,24 @@ function renderHeadingWithHelp(text: string, helpId: SettingsHelpId): string {
   return `<span class="heading-with-help"><span>${escapeHtml(text)}</span>${renderHelpIndicator(helpId)}</span>`;
 }
 
-function renderRoutingChoicePill(group: 'budget' | 'speed', value: string, label: string, checked: boolean, description: string): string {
+/**
+ * The declared tables behind the reasoning axis, published on the card that
+ * sets it — the rules that actually resolve `auto` and the controls that
+ * actually reach a vendor, rendered from the module rather than restated.
+ */
+function renderReasoningRulesTable(): string {
+  const autoRows = AUTO_REASONING_RULES
+    .map(rule => `<li><code>${escapeHtml(rule.when)}</code> task → <strong>${escapeHtml(rule.level)}</strong> <span class="muted">(${escapeHtml(rule.id)})</span></li>`)
+    .join('');
+  const controlRows = Object.entries(REASONING_CONTROLS)
+    .map(([id, spec]) => `<li><strong>${escapeHtml(spec.providers.join(', '))}</strong>: <code>${escapeHtml(spec.wire)}</code> = ${escapeHtml(REASONING_LEVELS.map(level => `${level}→${spec.values[level]}`).join(', '))} <span class="muted">(${escapeHtml(id)})</span></li>`)
+    .join('');
+  return `<div class="info-band"><strong>Auto rules:</strong><ul>${autoRows}</ul>`
+    + `<strong>Sent only to declared models</strong> (verified ${escapeHtml(REASONING_CONTROLS_VERIFIED_AT)}):<ul>${controlRows}</ul>`
+    + '<p class="info-note">Any other model stays routable and is sent no reasoning parameter. The level and the rule that chose it appear in each answer’s routing summary.</p></div>';
+}
+
+function renderRoutingChoicePill(group: 'budget' | 'speed' | 'reasoning', value: string, label: string, checked: boolean, description: string): string {
   const escapedDescription = escapeHtml(description);
   return `<label class="choice-pill" data-tooltip="${escapedDescription}" title="${escapedDescription}"><input type="radio" name="${escapeHtml(group)}" value="${escapeHtml(value)}" ${checked ? 'checked' : ''} aria-label="${escapeHtml(`${label}. ${description}`)}"><span>${escapeHtml(label)}</span></label>`;
 }
@@ -8273,6 +8395,13 @@ async function installOllamaModel(
   onProgress?: (line: string) => void,
   signal?: AbortSignal,
 ): Promise<void> {
+  // Downloads gigabytes onto this machine: an action, not a read.
+  guardDryRun({
+    surface: 'local-model-install',
+    kind: 'network',
+    summary: `pull ${modelTag} into Ollama`,
+    details: { modelTag },
+  });
   const response = await fetch(`${ollamaBaseUrl.replace(/\/+$/, '')}/api/pull`, {
     method: 'POST',
     headers: { 'Content-Type': 'application/json' },
@@ -8323,6 +8452,12 @@ async function installOllamaModel(
 }
 
 async function removeOllamaModel(ollamaBaseUrl: string, modelId: string): Promise<void> {
+  guardDryRun({
+    surface: 'local-model-remove',
+    kind: 'network',
+    summary: `delete ${modelId} from Ollama`,
+    details: { modelId },
+  });
   const response = await fetch(`${ollamaBaseUrl.replace(/\/+$/, '')}/api/delete`, {
     method: 'DELETE',  // Ollama's delete endpoint requires DELETE, not POST
     headers: { 'Content-Type': 'application/json' },

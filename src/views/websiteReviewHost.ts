@@ -19,16 +19,20 @@ import { WebsiteWorkspaceManager } from '../core/websiteWorkspaceManager.js';
 import { WebsiteReviewManager } from '../core/websiteContentManager.js';
 import { describeImport, importReviewFeedback } from '../core/websiteReviewBundle.js';
 import { WEBSITE_REVIEW_SUMMARY_SSOT_PATH } from '../core/websiteReviewComments.js';
+import { ssotHomeForWrite } from '../utils/workspaceRoots.js';
 
 /** Anything larger is not a feedback file. */
 const MAX_FEEDBACK_BYTES = 2 * 1024 * 1024;
 
 export async function importWebsiteFeedbackFile(): Promise<void> {
-  const workspaceRoot = vscode.workspace.workspaceFolders?.[0]?.uri.fsPath;
-  if (!workspaceRoot) {
-    void vscode.window.showErrorMessage('Open a workspace folder before importing client feedback.');
+  // Client feedback is recorded in project memory, against the plan held there:
+  // both are the SSOT home's, and an ambiguous home refuses the import.
+  const target = ssotHomeForWrite('Open a workspace folder before importing client feedback.');
+  if ('message' in target) {
+    void vscode.window.showErrorMessage(target.message);
     return;
   }
+  const workspaceRoot = target.fsPath;
   if (!vscode.workspace.getConfiguration('atlasmind').get<boolean>('website.review.enabled', false)) {
     void vscode.window.showErrorMessage(
       'Client review is off. Turn on atlasmind.website.review.enabled to record feedback.',
@@ -92,7 +96,7 @@ export async function importWebsiteFeedbackFile(): Promise<void> {
   if (open === 'Open') {
     await vscode.window.showTextDocument(
       vscode.Uri.joinPath(
-        vscode.workspace.workspaceFolders![0]!.uri,
+        target.folder.uri,
         ...WEBSITE_REVIEW_SUMMARY_SSOT_PATH.split('/'),
       ),
     );

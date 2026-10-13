@@ -1,7 +1,11 @@
 ﻿import * as fs from 'node:fs/promises';
 import { execFile } from 'node:child_process';
+import { describeHostDryRunNotice } from '../core/dryRun.js';
+import { interceptDryRun } from '../core/dryRunHost.js';
+import { describeReasoningDecision } from '../core/reasoningBudget.js';
 import * as path from 'node:path';
 import * as vscode from 'vscode';
+import { readPassEnvironmentSetting } from '../core/hostCommandEnvironment.js';
 import type { AtlasMindContext } from '../extension.js';
 import type {
   SessionComposerPrefill,
@@ -22,6 +26,7 @@ import type {
   SubTaskResult,
   TaskImageAttachment,
   TaskResult,
+  TurnProvenance,
 } from '../types.js';
 import { Planner } from '../core/planner.js';
 import { TaskProfiler } from '../core/taskProfiler.js';
@@ -53,7 +58,15 @@ import { answerConversationRecall, parseConversationRecallRequest } from '../cor
 import { deriveSessionFitSuggestions } from '../core/sessionFitSuggestions.js';
 import { buildCapabilityIndex } from '../core/capabilityIndex.js';
 import { assessIdeationReadiness } from '../core/ideationReadiness.js';
+import { defaultWorkspaceFolder, ssotHomeRoot } from '../utils/workspaceRoots.js';
 import { extractItemGates, parseRoadmapGates, stripRoadmapGatesBlock } from '../core/roadmapGates.js';
+import {
+  absorbProvenance,
+  describeConversationTaint,
+  readUntrustedEscalationScope,
+  seedTurnFromConversation,
+  SESSION_UNRECORDED_RULE,
+} from '../core/contextProvenance.js';
 import {
   applyManagedInstructionBlock,
   detectedWritebackTools,
@@ -1047,7 +1060,8 @@ async function buildWorkflowNoticeForChat(
     if (mode === 'off') {
       return undefined;
     }
-    const workspaceRoot = vscode.workspace.workspaceFolders?.[0]?.uri.fsPath;
+    // The workflow file is project memory: the SSOT home's, or none at all.
+    const workspaceRoot = ssotHomeRoot().fsPath;
     if (!workspaceRoot) {
       return undefined;
     }
@@ -1080,7 +1094,7 @@ export async function resolveWorkflowStageLevelsForRun(): Promise<
         import('../core/workflowAutomation.js'),
         import('../core/workflowConfig.js'),
       ]);
-    const workspaceRoot = vscode.workspace.workspaceFolders?.[0]?.uri.fsPath;
+    const workspaceRoot = ssotHomeRoot().fsPath;
     if (workspaceRoot === undefined) {
       return undefined;
     }
@@ -1153,6 +1167,12 @@ export async function runProjectCommand(
   sessionContextBundle?: import('../types.js').SessionContextBundle,
   sessionContext?: string,
   recordSessionTurn = true,
+  /**
+   * The calling turn's provenance cell, when a surface already holds one (the
+   * chat panel does). Without it the run opens its own from the conversation
+   * and records what it read back into it.
+   */
+  provenanceCell?: { current: TurnProvenance },
 ): Promise<ProjectRunOutcome> {
   const noOpOutcome: ProjectRunOutcome = { hasFailures: false, hasChangedFiles: false, failedSubtaskTitles: [] };
 
@@ -1374,6 +1394,11 @@ export async function runProjectCommand(
 
   const abortController = new AbortController();
   const cancelDisposable = token.onCancellationRequested(() => abortController.abort());
+  // Every subtask's prompt carries the conversation's context, so every
+  // subtask starts from what the conversation has read; and what the run reads
+  // belongs to the conversation from here on, since its output lands in the
+  // transcript.
+  const runProvenance = provenanceCell ?? openConversationProvenance(atlas.sessionConversation, sessionId);
 
   try {
     const result = await atlas.orchestrator.processProject(
@@ -1385,6 +1410,7 @@ export async function runProjectCommand(
         signal: abortController.signal,
         sessionContextBundle,
         sessionContext,
+        provenance: runProvenance,
       },
     );
     cancelDisposable.dispose();
@@ -1605,6 +1631,10 @@ export async function runProjectCommand(
       stream.markdown(`\u274c **Project execution failed:** ${errMsg}`);
     }
     return { hasFailures: true, hasChangedFiles: false, failedSubtaskTitles: ['Project execution failed'] };
+  } finally {
+    if (!provenanceCell) {
+      atlas.sessionConversation.recordProvenance(sessionId, runProvenance.current);
+    }
   }
 }
 
@@ -1937,6 +1967,18 @@ async function handleShipCommand(
     },
   );
 
+  // A dry run is not a refusal about the input: the plan was fine, and the
+  // operator turned dry run on to see it without running it. Say that, and show
+  // the plan, rather than the shell-syntax explanation below.
+  if (result.dryRun) {
+    stream.markdown(
+      `\n\n**Dry run — nothing was run.** AtlasMind would have run:\n\n\`\`\`\n${describeRoutinePlan(plan)}\n\`\`\`\n\n` +
+      'It is listed in the AtlasMind Dry Run output. Turn dry run off (AtlasMind: Toggle Dry Run) and run `/ship` again to do it for real.',
+    );
+    atlas.routinesRefresh.fire();
+    return;
+  }
+
   // A refusal is not a failed step: nothing ran, so there is no step output to
   // show and no point rendering a ladder of steps that never started.
   if (result.refusedReason) {
@@ -2118,6 +2160,20 @@ async function handleBuzzSend(
     return;
   }
 
+  // A dry run says what would have been posted and posts nothing. The target is
+  // not remembered as confirmed, because nothing was sent to it.
+  const dryRun = interceptDryRun({
+    surface: 'buzz',
+    kind: 'message',
+    summary: 'post the message to Buzz',
+    details: { channel: target, characters: validation.text.length },
+    wouldHaveAsked: decision.requiresConfirmation,
+  });
+  if (dryRun) {
+    stream.markdown(`**Not sent.** ${escapeMd(describeHostDryRunNotice(dryRun))}`);
+    return;
+  }
+
   try {
     await skill.execute({ channel: target, content: validation.text }, atlas.skillContext);
     if (decision.remembersTarget) {
@@ -2223,6 +2279,18 @@ async function handleBuzzDirectMessage(
   const skill = atlas.skillsRegistry.get(skillId);
   if (!skill || !atlas.skillsRegistry.isEnabled(skill.id)) {
     stream.markdown('The Buzz DM tool is unavailable. Reconnect the server from MCP Servers.');
+    return;
+  }
+
+  const dryRun = interceptDryRun({
+    surface: 'buzz',
+    kind: 'message',
+    summary: `send the Buzz DM to ${contact.name}`,
+    details: { recipient: contact.name, characters: validation.text.length },
+    wouldHaveAsked: decision.requiresConfirmation,
+  });
+  if (dryRun) {
+    stream.markdown(`**Not sent.** ${escapeMd(describeHostDryRunNotice(dryRun))}`);
     return;
   }
 
@@ -2357,6 +2425,9 @@ export async function collectAcpSetupSteps(atlas: AtlasMindContext): Promise<imp
       agents,
       ...(workspaceRoot ? { cwd: workspaceRoot } : {}),
       hideConsoleWindows,
+      // The probe launches the agent the way the routed adapter will, so it
+      // reports the sign-in state that adapter will actually see.
+      passEnvironment: () => readPassEnvironmentSetting(vscode.workspace.getConfiguration('atlasmind').inspect<unknown>('terminal.passEnvironment')).names,
     });
     probe = await adapter.probe().catch(() => undefined);
   }
@@ -2473,7 +2544,10 @@ async function collectProducerPortalSteps(): Promise<import('../core/setupWalkth
     import('node:path'),
   ]);
 
-  const folder = vscode.workspace.workspaceFolders?.[0];
+  // The report and the prepared site are project memory, so the repository
+  // asked about is the SSOT home. An ambiguous home has none: every check
+  // below is then unknown, which the plan renders as blocked with its reason.
+  const folder = ssotHomeRoot().folder;
   const config = vscode.workspace.getConfiguration('atlasmind');
   const ssotPath = config.get<string>('ssotPath', 'project_memory');
   const sitePath = `${ssotPath}/operations/producer-site`;
@@ -2641,7 +2715,8 @@ async function collectComplianceSetupState(): Promise<
     import('node:fs'),
     import('node:path'),
   ]);
-  const workspaceRoot = vscode.workspace.workspaceFolders?.[0]?.uri.fsPath;
+  // Every register read here is project memory, so the SSOT home's.
+  const workspaceRoot = ssotHomeRoot().fsPath;
   const empty = {
     declaredRegimes: [] as never[],
     registeredRegimes: [] as never[],
@@ -2755,7 +2830,12 @@ async function handleComplianceCommand(
   const state = await collectComplianceSetupState();
   const steps = plan.buildComplianceSetupPlan(state);
   const wanted = (argument ?? '').trim().toLowerCase();
-  const workspaceRoot = vscode.workspace.workspaceFolders?.[0]?.uri.fsPath;
+  const home = ssotHomeRoot();
+  if (home.refusal) {
+    stream.markdown(`### Compliance\n\n${escapeMd(home.refusal)}`);
+    return;
+  }
+  const workspaceRoot = home.fsPath;
 
   const openBoard = (): void => {
     stream.button({
@@ -3425,7 +3505,14 @@ interface IdeationCommandBoard {
  * it is describing.
  */
 async function handleIdeateCommand(stream: vscode.ChatResponseStream): Promise<void> {
-  const workspaceRoot = vscode.workspace.workspaceFolders?.[0]?.uri.fsPath;
+  // The board lives in project memory, so it is read from the SSOT home. An
+  // ambiguous home is said so, rather than read from whichever folder is first.
+  const home = ssotHomeRoot();
+  if (home.refusal) {
+    stream.markdown(`### Ideation\n\n${escapeMd(home.refusal)}`);
+    return;
+  }
+  const workspaceRoot = home.fsPath;
   if (!workspaceRoot) {
     stream.markdown('### Ideation\n\nOpen a workspace folder to inspect the active ideation board.');
     stream.button({ command: 'atlasmind.openProjectIdeation', title: 'Open canvas' });
@@ -3843,7 +3930,14 @@ async function handleBootstrapCommand(
   stream: vscode.ChatResponseStream,
   atlas: AtlasMindContext,
 ): Promise<void> {
-  const workspaceFolder = vscode.workspace.workspaceFolders?.[0];
+  // Bootstrap writes project memory, so it goes to the SSOT home — never to a
+  // folder that would become a second, competing home.
+  const home = ssotHomeRoot();
+  if (home.refusal) {
+    stream.markdown(escapeMd(home.refusal));
+    return;
+  }
+  const workspaceFolder = home.folder;
   if (!workspaceFolder) {
     stream.markdown('Open a workspace folder first, then run `/bootstrap` again.');
     return;
@@ -3878,7 +3972,13 @@ async function handleSyncInstructionsCommand(
   stream: vscode.ChatResponseStream,
   atlas: AtlasMindContext,
 ): Promise<void> {
-  const workspaceFolder = vscode.workspace.workspaceFolders?.[0];
+  // The merged instruction set is written into project memory: the SSOT home.
+  const home = ssotHomeRoot();
+  if (home.refusal) {
+    stream.markdown(escapeMd(home.refusal));
+    return;
+  }
+  const workspaceFolder = home.folder;
   if (!workspaceFolder) {
     stream.markdown('Open a workspace folder first, then run `/sync-instructions` again.');
     return;
@@ -4065,7 +4165,13 @@ async function handleImportCommand(
   stream: vscode.ChatResponseStream,
   atlas: AtlasMindContext,
 ): Promise<void> {
-  const workspaceFolder = vscode.workspace.workspaceFolders?.[0];
+  // Import populates project memory: the SSOT home, or a refusal.
+  const home = ssotHomeRoot();
+  if (home.refusal) {
+    stream.markdown(escapeMd(home.refusal));
+    return;
+  }
+  const workspaceFolder = home.folder;
   if (!workspaceFolder) {
     stream.markdown('Open a workspace folder first, then run `/import` again.');
     return;
@@ -4574,6 +4680,38 @@ interface ChatTaskResult {
   outcome: 'completed' | 'cancelled' | 'failed';
 }
 
+/**
+ * The provenance cell a chat turn starts from: whatever its conversation's
+ * earlier turns read, because their text is in the history this turn sends.
+ *
+ * One case is added on top. A native chat thread whose earlier turns AtlasMind
+ * never recorded — re-mapped to a fresh session after a window reload — still
+ * sends VS Code's own history, so those turns are in the prompt and nobody
+ * knows what they read: `provenance.session-unrecorded`, third-party.
+ */
+export function openConversationProvenance(
+  conversation: Pick<import('./sessionConversation.js').SessionConversation, 'getProvenance' | 'getTranscript'>,
+  sessionId: string | undefined,
+  hostHistoryPresent = false,
+): { current: TurnProvenance } {
+  let seed = conversation.getProvenance(sessionId);
+  if (hostHistoryPresent && conversation.getTranscript(sessionId).length === 0) {
+    seed = absorbProvenance(seed, {
+      origin: 'session-context',
+      provenance: 'third-party',
+      rule: SESSION_UNRECORDED_RULE,
+      injectionSuspected: false,
+      carried: true,
+    });
+  }
+  return seedTurnFromConversation(seed);
+}
+
+/** The footer line for a conversation that will ask again, read against the configured scope. */
+export function conversationTaintNote(provenance: TurnProvenance, scopeSetting: unknown): string | undefined {
+  return describeConversationTaint(provenance, readUntrustedEscalationScope(scopeSetting));
+}
+
 async function runChatTask(
   prompt: string,
   stream: vscode.ChatResponseStream,
@@ -4599,6 +4737,14 @@ async function runChatTask(
     })
     : '';
   const sessionContext = [storedSessionContext, nativeHistory].filter(Boolean).join('\n\n');
+  // What this conversation's earlier turns read. Their text, and the model's
+  // account of it, is what `sessionContext` carries, so the turn starts no
+  // lower — and it is recorded back on every path out, a throw included.
+  const provenanceCell = openConversationProvenance(
+    atlas.sessionConversation,
+    sessionId,
+    Boolean(options.native && (options.native.chatContext.history ?? []).length > 0),
+  );
   const workstationContext = buildWorkstationContext();
   const explicitAttachments = options.attachments ?? [];
   const inlineResolution = explicitAttachments.length > 0
@@ -4633,6 +4779,7 @@ async function runChatTask(
         ...(imageAttachments.length > 0 ? { imageAttachments } : {}),
         ...(operatorAdaptation?.contextPatch ?? {}),
         ...(options.workflowExecutionPolicy ? { __workflowChatPolicy: options.workflowExecutionPolicy } : {}),
+        __provenanceCell: provenanceCell,
       },
       constraints: {
         budget: toBudgetMode(configuration.get<string>('budgetMode')),
@@ -4677,6 +4824,7 @@ async function runChatTask(
     return { transcriptText, assistantMeta, outcome: cancelled ? 'cancelled' : 'failed' };
   } finally {
     cancellationSubscription?.dispose();
+    atlas.sessionConversation.recordProvenance(sessionId, provenanceCell.current);
   }
   chunkBuffer.flush();
 
@@ -4712,6 +4860,13 @@ async function runChatTask(
     ],
     ...(options.native ? { responseText: reconciled.transcriptText } : {}),
   });
+  const untrustedContentNote = conversationTaintNote(
+    provenanceCell.current,
+    configuration.get<unknown>('security.untrustedEscalationScope'),
+  );
+  if (untrustedContentNote) {
+    assistantMeta = { ...assistantMeta, untrustedContentNote };
+  }
 
   // Native chat renders the install offer as buttons; the panel draws its own
   // from the same metadata.
@@ -5361,7 +5516,7 @@ export function buildQuickReplyPayload(responseText: string | undefined): Webvie
 
 export function buildAssistantResponseMetadata(
   prompt: string,
-  result: Pick<TaskResult, 'agentId' | 'modelUsed' | 'costUsd' | 'inputTokens' | 'outputTokens' | 'modelAttempts' | 'artifacts' | 'autoDisabledProvider' | 'contextCompressionSavingsUsd' | 'iterationLimitHit' | 'suggestedIterationLimit' | 'suggestedToolCallsPerTurnLimit'> & Partial<Pick<TaskResult, 'discoveredResources'>>,
+  result: Pick<TaskResult, 'agentId' | 'modelUsed' | 'costUsd' | 'inputTokens' | 'outputTokens' | 'modelAttempts' | 'artifacts' | 'autoDisabledProvider' | 'contextCompressionSavingsUsd' | 'iterationLimitHit' | 'suggestedIterationLimit' | 'suggestedToolCallsPerTurnLimit'> & Partial<Pick<TaskResult, 'discoveredResources' | 'reasoning'>>,
   options?: { hasSessionContext?: boolean; imageAttachments?: TaskImageAttachment[]; routingContext?: Record<string, unknown>; policies?: SessionPolicySnapshot[]; responseText?: string },
 ): SessionTranscriptMetadata {
   const toolCallCount = result.artifacts?.toolCallCount ?? 0;
@@ -5465,6 +5620,12 @@ export function buildAssistantResponseMetadata(
 
   if (result.artifacts?.verificationSummary) {
     bullets.push(`Verified: ${result.artifacts.verificationSummary}.`);
+  }
+
+  // The reasoning axis, in the module's own words — the level, the rule that
+  // chose it, and whether a parameter was actually sent to the model that answered.
+  if (result.reasoning) {
+    bullets.push(describeReasoningDecision(result.reasoning));
   }
 
   if (typeof result.contextCompressionSavingsUsd === 'number' && result.contextCompressionSavingsUsd > 0) {
@@ -5605,7 +5766,8 @@ export function renderAssistantResponseFooter(
   metadata: SessionTranscriptMetadata | undefined,
   answerText?: string,
 ): string {
-  if (!metadata?.modelUsed && !metadata?.thoughtSummary && !metadata?.followupQuestion && !metadata?.timelineNotes?.length) {
+  if (!metadata?.modelUsed && !metadata?.thoughtSummary && !metadata?.followupQuestion && !metadata?.timelineNotes?.length
+    && !metadata?.untrustedContentNote) {
     return '';
   }
 
@@ -5623,6 +5785,11 @@ export function renderAssistantResponseFooter(
       ? ` · ${metadata.inputTokens.toLocaleString()} in / ${metadata.outputTokens.toLocaleString()} out`
       : '';
     sections.push(`\n\n---\n_Model: ${metadata.modelUsed}${spend}${tokens}_`);
+  }
+
+  if (metadata.untrustedContentNote) {
+    // Escaped: the note names tools, and an MCP server chooses its own tool names.
+    sections.push(`\n\n> **Untrusted content:** ${escapeMd(metadata.untrustedContentNote)}`);
   }
 
   if (metadata.thoughtSummary) {
@@ -5941,7 +6108,11 @@ export async function saveOperatorFeedbackDraft(atlas: AtlasMindContext): Promis
     return 'There is no operator-feedback note waiting to be saved.';
   }
 
-  const ssotRoot = getSsotRootUri();
+  const located = getSsotRootUri();
+  if ('refusal' in located) {
+    return `${located.refusal} The note was not saved.`;
+  }
+  const ssotRoot = located.uri;
   if (!ssotRoot) {
     return 'No project memory folder is available in this workspace, so the note was not saved.';
   }
@@ -6048,19 +6219,31 @@ function isFrustrationSettingsSnapshot(value: unknown): value is FrustrationSett
     && typeof candidate['lastFrustrationAt'] === 'string';
 }
 
-function getSsotRootUri(): vscode.Uri | undefined {
-  const workspaceFolder = vscode.workspace.workspaceFolders?.[0]?.uri;
+/**
+ * The project-memory folder in the SSOT home — or why there is none to write.
+ *
+ * In a multi-root workspace the home is located, not assumed to be the first
+ * folder; an ambiguous home is a refusal naming the candidates, because a note
+ * written into whichever repository is listed first is a note the team reading
+ * the other one never sees.
+ */
+function getSsotRootUri(): { uri: vscode.Uri | undefined } | { refusal: string } {
+  const home = ssotHomeRoot();
+  if (home.refusal) {
+    return { refusal: home.refusal };
+  }
+  const workspaceFolder = home.folder?.uri;
   if (!workspaceFolder) {
-    return undefined;
+    return { uri: undefined };
   }
 
   const configured = vscode.workspace.getConfiguration('atlasmind').get<string>('ssotPath', DEFAULT_SSOT_PATH) ?? DEFAULT_SSOT_PATH;
   const normalized = configured.replace(/\\+/g, '/').trim();
   if (!normalized || normalized.startsWith('/') || /^[A-Za-z]:/.test(normalized) || normalized.includes('..')) {
-    return undefined;
+    return { uri: undefined };
   }
 
-  return vscode.Uri.joinPath(workspaceFolder, ...normalized.split('/').filter(Boolean));
+  return { uri: vscode.Uri.joinPath(workspaceFolder, ...normalized.split('/').filter(Boolean)) };
 }
 
 function buildOperatorFeedbackMarkdown(
@@ -6265,7 +6448,13 @@ export async function buildRoadmapStatusResult(
     return undefined;
   }
 
-  const workspaceRoot = vscode.workspace.workspaceFolders?.[0]?.uri.fsPath;
+  // The roadmap is project memory: read from the SSOT home, and never from a
+  // folder picked because it is first when the home is ambiguous.
+  const home = ssotHomeRoot();
+  if (home.refusal) {
+    return { markdown: `### Roadmap Status\n\n${home.refusal}`, questions: [], prefills: [] };
+  }
+  const workspaceRoot = home.fsPath;
   if (!workspaceRoot) {
     return { markdown: '### Roadmap Status\n\nOpen a workspace to inspect the live roadmap files.', questions: [], prefills: [] };
   }
@@ -7358,6 +7547,9 @@ export function buildProjectRunSubTaskArtifacts(results: SubTaskResult[]): Proje
     checkpointedTools: [...(result.artifacts?.checkpointedTools ?? [])],
     changedFiles: result.artifacts?.changedFiles.map(file => ({ ...file })) ?? [],
     diffPreview: result.artifacts?.diffPreview,
+    // Kept so a resumed run seeds this subtask's dependents from what it read
+    // rather than treating it as unrecorded.
+    ...(result.provenance ? { provenance: result.provenance } : {}),
   }));
 }
 
@@ -7365,12 +7557,40 @@ export async function writeProjectRunSummaryReport(
   report: ProjectRunSummary,
   reportFolder: string,
 ): Promise<vscode.Uri | undefined> {
-  const workspaceFolder = vscode.workspace.workspaceFolders?.[0];
+  const safeFolder = reportFolder.replace(/\\/g, '/').replace(/^\/+/, '').trim() || DEFAULT_PROJECT_RUN_REPORT_FOLDER;
+  // A report folder inside project memory (the default) goes to the SSOT home
+  // with everything else there; one elsewhere is an ordinary repository folder
+  // and stays on the first. Written automatically, so an ambiguous home is
+  // logged rather than shown — and the report is not written anywhere.
+  const ssotPath = (vscode.workspace.getConfiguration('atlasmind').get<string>('ssotPath', DEFAULT_SSOT_PATH) ?? DEFAULT_SSOT_PATH)
+    .replace(/\\/g, '/').replace(/^\/+|\/+$/g, '').trim() || DEFAULT_SSOT_PATH;
+  const insideSsot = safeFolder === ssotPath || safeFolder.startsWith(`${ssotPath}/`);
+  let workspaceFolder: vscode.WorkspaceFolder | undefined;
+  if (insideSsot) {
+    const home = ssotHomeRoot();
+    if (home.refusal) {
+      console.warn(`[AtlasMind] Project run report not written: ${home.refusal}`);
+      return undefined;
+    }
+    workspaceFolder = home.folder;
+  } else {
+    workspaceFolder = defaultWorkspaceFolder();
+  }
   if (!workspaceFolder) {
     return undefined;
   }
+  // Written after a run, not because somebody asked for a file: in a dry run
+  // it is recorded instead. The run's own summary in the chat is unaffected.
+  if (interceptDryRun({
+    surface: 'project-run-report',
+    kind: 'auto-write',
+    summary: `write the project run report to ${reportFolder || DEFAULT_PROJECT_RUN_REPORT_FOLDER}`,
+    details: { folder: reportFolder, goal: report.goal.slice(0, 120) },
+    userInitiated: false,
+  })) {
+    return undefined;
+  }
 
-  const safeFolder = reportFolder.replace(/\\/g, '/').replace(/^\/+/, '').trim() || DEFAULT_PROJECT_RUN_REPORT_FOLDER;
   const folderUri = vscode.Uri.joinPath(workspaceFolder.uri, ...safeFolder.split('/').filter(Boolean));
   await vscode.workspace.fs.createDirectory(folderUri);
 

@@ -37,6 +37,11 @@ describe('parseCliArgs', () => {
     expect(parsed.errors).toEqual([]);
   });
 
+  it('parses the untrusted-escalation opt-in, off by default', () => {
+    expect(parseCliArgs(['chat', 'hello']).options.allowUntrustedEscalation).toBe(false);
+    expect(parseCliArgs(['chat', '--allow-untrusted-escalation', 'hello']).options.allowUntrustedEscalation).toBe(true);
+  });
+
   it('parses the write opt-in flag for CLI mode', () => {
     const parsed = parseCliArgs(['chat', '--allow-writes', 'apply', 'the', 'patch']);
 
@@ -147,6 +152,42 @@ describe('createCliToolApprovalGate', () => {
     }
     return gate;
   };
+
+  const freshApproval = {
+    escalation: {
+      decision: 'fresh-approval' as const,
+      rule: 'taint.workspace-write.tainted',
+      category: 'workspace-write' as const,
+      scope: 'third-party' as const,
+      level: 'third-party' as const,
+      injectionSuspected: false,
+      sources: [{ origin: 'tool-result' as const, toolName: 'web-fetch', provenance: 'third-party' as const, rule: 'provenance.network-skill', injectionSuspected: false }],
+    },
+  };
+
+  it('refuses a fresh approval it cannot ask for, even with --allow-writes', async () => {
+    const gate = makeGate(true);
+
+    const decision = await gate('task-1', 'file-write', { path: '/workspace/README.md', content: 'x' }, freshApproval);
+
+    expect(decision.approved).toBe(false);
+    expect(decision.reason).toContain('taint.workspace-write.tainted');
+    expect(decision.reason).toContain('web-fetch');
+    expect(decision.reason).toContain('--allow-untrusted-escalation');
+  });
+
+  it('lets the usual flags decide once --allow-untrusted-escalation is given, granting nothing itself', async () => {
+    const withWrites = createCliToolApprovalGate(true, false, true);
+    const withoutWrites = createCliToolApprovalGate(false, false, true);
+    if (!withWrites || !withoutWrites) {
+      throw new Error('createCliToolApprovalGate returned no gate.');
+    }
+
+    await expect(withWrites('task-1', 'file-write', { path: 'a', content: 'x' }, freshApproval)).resolves.toEqual({ approved: true });
+    const refused = await withoutWrites('task-1', 'file-write', { path: 'a', content: 'x' }, freshApproval);
+    expect(refused.approved).toBe(false);
+    expect(refused.reason).toContain('--allow-writes');
+  });
 
   it('denies write-capable tools by default', async () => {
     const gate = makeGate(false);

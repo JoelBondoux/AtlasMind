@@ -2,7 +2,7 @@
   "name": "atlasmind",
   "displayName": "AtlasMind",
   "description": "AI project management for VS Code: roadmap, risk, tech debt, compliance, testing and release tracked from your own repository — with a multi-agent AI team, or the AI coding tool you already use.",
-  "version": "0.483.0",
+  "version": "0.503.1",
   "publisher": "JoelBondoux",
   "preview": false,
   "license": "SEE LICENSE IN OSMFEULA.txt",
@@ -395,6 +395,10 @@
         "title": "AtlasMind: Bootstrap Project"
       },
       {
+        "command": "atlasmind.describeProject",
+        "title": "AtlasMind: Describe the Project in Your Own Words"
+      },
+      {
         "command": "atlasmind.importProject",
         "title": "AtlasMind: Import Existing Project",
         "icon": "$(repo-clone)"
@@ -417,6 +421,11 @@
         "command": "atlasmind.toggleAutopilot",
         "title": "AtlasMind: Toggle Autopilot",
         "icon": "$(rocket)"
+      },
+      {
+        "command": "atlasmind.toggleDryRun",
+        "title": "AtlasMind: Toggle Dry Run",
+        "icon": "$(beaker)"
       },
       {
         "command": "atlasmind.togglePresence",
@@ -635,6 +644,31 @@
         "command": "atlasmind.buildAndPublishPortal",
         "title": "AtlasMind: Build and Publish Producer Portal",
         "icon": "$(cloud-upload)"
+      },
+      {
+        "command": "atlasmind.checkExecutionSandbox",
+        "title": "AtlasMind: Check Execution Sandbox",
+        "icon": "$(shield)"
+      },
+      {
+        "command": "atlasmind.prepareSandboxDependencies",
+        "title": "AtlasMind: Prepare Sandbox Dependencies",
+        "icon": "$(package)"
+      },
+      {
+        "command": "atlasmind.removeSandboxDependencyVolumes",
+        "title": "AtlasMind: Remove Sandbox Dependency Volumes",
+        "icon": "$(trash)"
+      },
+      {
+        "command": "atlasmind.manageScheduledRoutines",
+        "title": "AtlasMind: Manage Scheduled Routines",
+        "icon": "$(watch)"
+      },
+      {
+        "command": "atlasmind.addDependencyCheckRoutine",
+        "title": "AtlasMind: Add Nightly Dependency Check Routine",
+        "icon": "$(package)"
       },
       {
         "command": "atlasmind.buildCodebaseIndex",
@@ -1315,7 +1349,7 @@
       {
         "id": "atlasmind.getStarted",
         "title": "Get Started with AtlasMind",
-        "description": "Set up your first AI-powered multi-agent workspace in six steps.",
+        "description": "Set up your first AI-powered multi-agent workspace in seven steps.",
         "steps": [
           {
             "id": "configureProvider",
@@ -1339,6 +1373,17 @@
             "completionEvents": [
               "onCommand:atlasmind.bootstrapProject",
               "onCommand:atlasmind.importProject"
+            ]
+          },
+          {
+            "id": "describeProject",
+            "title": "Describe the project in your own words",
+            "description": "Who it is for, what it should do, and what should be true once it works. Saved exactly as you write it, and skippable. From there the Ideation board walks the brief onto the board and the roadmap one confirmed step at a time.\n[Describe the Project](command:atlasmind.describeProject)\n[Open Project Ideation](command:atlasmind.openProjectIdeation)",
+            "media": {
+              "markdown": "media/walkthrough/describe-project.md"
+            },
+            "completionEvents": [
+              "onCommand:atlasmind.describeProject"
             ]
           },
           {
@@ -1568,8 +1613,8 @@
         "atlasmind.ard.allowInsecureEndpoints": {
           "type": "boolean",
           "default": false,
-          "description": "Allow ARD Agent Finders that use http:// or localhost (e.g. the ARD conformance demo registry). When false, discovery requires HTTPS and rejects private/loopback addresses to prevent SSRF.",
-          "markdownDescription": "Allow ARD Agent Finders that use `http://` or `localhost` — for example the [ARD conformance demo](https://github.com/ards-project/ard-spec) registry.\n\nWhen `false` (default), discovery requires HTTPS and rejects private / loopback / link-local addresses to prevent SSRF. This setting only relaxes the check for finders **you** explicitly marked insecure; followed referral URLs are always screened."
+          "description": "Allow ARD Agent Finders that use http:// or localhost (e.g. the ARD conformance demo registry). When false, discovery requires HTTPS and rejects private, loopback and link-local destinations, including by DNS and by redirect.",
+          "markdownDescription": "Allow ARD Agent Finders that use `http://` or `localhost` — for example the [ARD conformance demo](https://github.com/ards-project/ard-spec) registry.\n\nWhen `false` (default), discovery requires HTTPS and screens every finder, referral and nested catalog through the shared egress policy: local names refused, every resolved address checked against private, loopback, link-local and reserved ranges, the connection pinned to those addresses, and every redirect re-checked. This setting only relaxes the check for finders **you** explicitly marked insecure — and those follow no redirects; followed referral URLs are always screened."
         },
         "atlasmind.chat.continueInBackground": {
           "type": "boolean",
@@ -1798,6 +1843,24 @@
           ],
           "description": "Speed preference for model selection.",
           "markdownDescription": "Speed preference for model selection.\n\nUse `fast` to bias toward quick-response models, `balanced` for a normal tradeoff, `considered` to allow slower reasoning-heavy models, or `auto` to let AtlasMind choose based on task complexity.\n\nExamples:\n- Tight feedback loops while editing: `fast`\n- General coding and chat: `balanced`\n- Root-cause analysis or long-form planning: `considered`\n- Teams switching between support, coding, and review: `auto`"
+        },
+        "atlasmind.reasoningMode": {
+          "type": "string",
+          "default": "auto",
+          "enum": [
+            "auto",
+            "minimal",
+            "standard",
+            "deep"
+          ],
+          "enumDescriptions": [
+            "Derive the level from the task: low-reasoning tasks get minimal, medium get standard, high (planning, architecture, root cause, review) get deep.",
+            "Think as little as the model allows. Cheapest and fastest.",
+            "A middle level of thinking for everyday work.",
+            "Think hard. Prefers models with a declared reasoning control and projects the extra thinking into cost estimates."
+          ],
+          "description": "How hard the model should think — the third routing axis beside budget and speed.",
+          "markdownDescription": "How hard the model should think — the third routing axis beside `#atlasmind.budgetMode#` and `#atlasmind.speedMode#`.\n\n`auto` derives the level from the task profile through a declared table; `minimal`, `standard` and `deep` fix it. A level becomes a request parameter only for a model whose provider declares a verified reasoning control (Anthropic `output_config.effort`, OpenAI `reasoning_effort`, Gemini `reasoning_effort`); every other model is still routable and is sent nothing. Thinking is billed as output, so a deeper level raises the projected cost, and a per-task budget cap steps the level down rather than letting a deep request slip past it.\n\nExamples:\n- Mixed workloads: `auto`\n- Bulk mechanical edits on a tight budget: `minimal`\n- Architecture reviews and hard debugging: `deep`"
         },
         "atlasmind.feedbackRoutingWeight": {
           "type": "number",
@@ -2057,6 +2120,118 @@
           "default": false,
           "description": "Allow write-capable terminal subprocesses such as installs and commits after explicit approval.",
           "markdownDescription": "Allow write-capable terminal subprocesses such as installs and commits after explicit approval. This controls whether AtlasMind may use terminal-based commands that can mutate the workspace or repository.\n\nExamples:\n- Investigation-only mode: `false`\n- Developer sandbox where installs and generators are expected: `true`\n\nKeep this off in repositories where package installation, generated files, or git history changes must go through separate review controls."
+        },
+        "atlasmind.security.untrustedEscalationScope": {
+          "type": "string",
+          "default": "third-party",
+          "enum": [
+            "third-party",
+            "workspace-and-third-party"
+          ],
+          "enumDescriptions": [
+            "Escalate after the task reads third-party content: a fetched page, an MCP result, GitHub issue text, another agent's answer, or the output of any tool AtlasMind cannot identify.",
+            "Also escalate after it reads repository content, attachments or editor chat context — text other people may have written into the workspace."
+          ],
+          "description": "After a task reads untrusted content, which changes and outward calls need a fresh approval that Autopilot and Bypass Approvals cannot answer. Reads stay free. There is no off value; the release valve is 'Allow for this task, I've seen the source' on the approval itself.",
+          "markdownDescription": "After a task has read untrusted content, a tool call that **changes something or leaves the machine** needs a *fresh* approval — one that Autopilot and Bypass Approvals, granted before the content was read, cannot answer. Reads stay free, so research is not slowed down.\n\n- `third-party` (default): escalate after the task reads a fetched page, an MCP server's answer, GitHub issue or review text, another agent's answer, or the output of any tool AtlasMind cannot identify.\n- `workspace-and-third-party`: also escalate after it reads repository files, attachments or the editor's chat context — text other people may have committed or pasted.\n\nThere is deliberately no `off`. The approval itself offers **Allow for this task — I've seen the source**, which releases that kind of action for the rest of the task. If fetched content contains text shaped like an instruction (\"ignore previous instructions\"), the content is kept and flagged, and the task may no longer reach the network at all.\n\nA value that is set but not recognised is read as the stricter scope."
+        },
+        "atlasmind.dryRun.enabled": {
+          "type": "boolean",
+          "default": false,
+          "scope": "application",
+          "description": "Dry run: show what AtlasMind would do and do none of it. Tool calls that would write, run a subprocess or reach the network are answered with a description instead of running, and AtlasMind's own actions outside a turn (routines and /ship, promotions, dashboard git and GitHub writes, connector and Buzz sends, webhooks, terminal sends, automatic memory writes) are recorded instead of done. Only reads run. Switching it on applies at once; switching it off applies from the next turn.",
+          "markdownDescription": "**Dry run** — show me what would happen; nothing executes.\n\nWhile this is on, the agent still plans and still calls tools, but every call that would **write a file, run a subprocess, change git, or reach the network** is answered with a description of what it would have done — the action, its risk category, whether it would have asked for approval, and the redacted arguments — instead of being run. Only AtlasMind's own built-in **local reads** (file reads, searches, `git status`/`diff`/`log`, diagnostics, symbols) actually run, so the plan is grounded in the real workspace.\n\n- MCP tools, workspace and synthesised skills are always simulated — AtlasMind cannot grade code it did not write.\n- Network reads are simulated too: a request can carry model-chosen text off the machine.\n- Nothing simulated asks for approval, takes a checkpoint, runs verification or fires a tool webhook.\n- **Outside a chat turn too:** routines and `/ship`, promotions and rollbacks, git and GitHub writes from the dashboard, Director and Buzz sends, webhooks, terminal sends, installers and AtlasMind's automatic memory writes are recorded in the same output channel instead of done, and a button you press says plainly that dry run stopped it. Reads still run, and so does a save you press a button to make.\n- Worktree isolation and ACP agent tool delegation are off for a dry turn.\n- Model calls still run and still cost money — they are how the turn decides what it would do.\n\nThe reply ends with a summary of what was simulated, and every record goes to the **AtlasMind Dry Run** output channel. Switching it **on** applies to the next tool call; switching it **off** waits for the next turn, so a run cannot finish half-real. User settings only — a repository's workspace settings cannot switch it off for you. Use **AtlasMind: Toggle Dry Run** or the status bar item."
+        },
+        "atlasmind.sandbox.mode": {
+          "type": "string",
+          "enum": [
+            "off",
+            "require"
+          ],
+          "enumDescriptions": [
+            "Agent commands run on your machine, as they always have.",
+            "Agent commands run only in the container sandbox; one it cannot run is refused, never run on your machine instead."
+          ],
+          "default": "off",
+          "description": "Whether agent-issued commands must run in the container sandbox. Under require, every command an agent asks for runs in the sandbox or is refused with the rule that stopped it, never on your machine instead; git, installs, publishes and network clients are refused. AtlasMind: Check Execution Sandbox shows whether the sandbox is available. The tightest value in any scope wins, so a workspace can ask for require but cannot switch it off.",
+          "markdownDescription": "Whether agent commands must run in the container sandbox. Run **AtlasMind: Check Execution Sandbox** to see whether it is available on this machine, rule by rule.\n\n- `off` (default): commands run on your machine, behind the same approvals as always.\n- `require`: every command an agent asks for — terminal and test runs, npm scripts, routine steps, the check after a write — runs in the sandbox (no network, no host credentials, one folder mounted) or is **refused** with the rule that stopped it. It is never run on your machine instead. git, `gh`, installs, publishes and network clients are refused rather than run; a debug launch, an ACP agent's command and a managed-terminal follow-up are refused because they would run outside it. There is deliberately no `prefer` mode — that is where a silent fallback to your machine would hide.\n\nApprovals are unchanged unless you also switch on `atlasmind.sandbox.relaxTerminalApprovals` in your user settings. The **tightest** value across your user settings, the workspace and any folder is used: a repository may ask for the sandbox, and can never switch it off for you."
+        },
+        "atlasmind.sandbox.engine": {
+          "type": "string",
+          "scope": "machine",
+          "enum": [
+            "auto",
+            "docker",
+            "podman"
+          ],
+          "enumDescriptions": [
+            "Try Docker, then Podman, and use the first whose engine answers.",
+            "Use Docker only.",
+            "Use Podman only (rootless)."
+          ],
+          "default": "auto",
+          "description": "Which container engine the execution sandbox uses. Machine-scoped: only your user value is read.",
+          "markdownDescription": "Which container engine the execution sandbox uses. `auto` tries Docker, then Podman, and takes the first whose engine answers; naming one means only that one is tried. The engine must run **Linux** containers, and must be rootful Docker or rootless Podman.\n\nMachine-scoped: which engine runs commands is a fact about this computer, so a workspace value is ignored."
+        },
+        "atlasmind.sandbox.image": {
+          "type": "string",
+          "scope": "machine",
+          "default": "",
+          "pattern": "^$|^(?:[^@\\s/]+/)*[^@\\s:/]+@sha256:[a-f0-9]{64}$",
+          "patternErrorMessage": "Pin the image by digest alone: name@sha256:<64 lowercase hex>. A tag is refused, alone or beside a digest.",
+          "description": "The container image the execution sandbox runs commands in, pinned by digest (name@sha256:<64 hex>). Empty means no image, so the sandbox is unavailable. Machine-scoped: only your user value is read. AtlasMind never pulls it.",
+          "markdownDescription": "The image the execution sandbox runs commands in, **pinned by digest**: `name@sha256:<64 lowercase hex>`. Empty (the default) means no image, so the sandbox is unavailable.\n\nA tag such as `node:22` is **refused**, not looked up: a tag is a pointer whoever controls the registry can move. A tag beside a digest is refused too. AtlasMind **never pulls** the image — pull it yourself (`docker pull name@sha256:…`) and **AtlasMind: Check Execution Sandbox** confirms it is present. To find a digest: pull by tag once, then `docker image inspect --format \"{{index .RepoDigests 0}}\" <name>:<tag>`.\n\nMachine-scoped: a repository must never choose the image your commands run in, so a workspace value is ignored."
+        },
+        "atlasmind.sandbox.cpus": {
+          "type": "number",
+          "scope": "machine",
+          "default": 2,
+          "minimum": 0.25,
+          "maximum": 64,
+          "description": "CPU limit for one sandboxed command (0.25–64, at most two decimals). Machine-scoped.",
+          "markdownDescription": "CPU limit for one sandboxed command, passed to the engine as `--cpus`. 0.25–64, at most two decimal places; a value outside that is refused rather than clamped. Machine-scoped: how much of this computer a command may take is a fact about the computer."
+        },
+        "atlasmind.sandbox.memoryGb": {
+          "type": "number",
+          "scope": "machine",
+          "default": 4,
+          "minimum": 0.5,
+          "maximum": 256,
+          "description": "Memory limit in GB for one sandboxed command (0.5–256); swap is not added on top. Machine-scoped.",
+          "markdownDescription": "Memory limit in GB for one sandboxed command, passed as `--memory` with `--memory-swap` set to the same value so no swap is added on top. 0.5–256; a value outside that is refused rather than clamped. Machine-scoped."
+        },
+        "atlasmind.sandbox.relaxTerminalApprovals": {
+          "type": "boolean",
+          "scope": "machine",
+          "default": false,
+          "description": "Let a terminal write skip its approval prompt when it will run in the execution sandbox: only under atlasmind.sandbox.mode require, with a confirmed attestation, for a command the sandbox would run, below dry run, untrusted-content approvals and atlasmind.allowTerminalWrite. Every skipped prompt is recorded with the attestation it rested on. Machine-scoped: only your user value is read, so a repository can never loosen your approvals.",
+          "markdownDescription": "Let a **terminal write** skip its approval prompt when it will run in the execution sandbox. Off by default.\n\nThe prompt is skipped only when **all** of these hold for that call: `atlasmind.sandbox.mode` is `require`; the sandbox attestation is **confirmed** (see **AtlasMind: Check Execution Sandbox**); and this exact command would be routed to the container (git, installs, publishes and network clients never are). The call is then bound to the sandbox session that was checked — if the attestation expires before it starts, it is **refused**, never run on your machine and never asked about afterwards.\n\nIt never overrides: dry run (nothing runs), a turn that read untrusted content (that still asks), `atlasmind.allowTerminalWrite` (still refuses when off), or anything that is not a terminal write — file writes, git writes and network calls ask exactly as before.\n\nWhat changes is what you trust: a skipped prompt means the model may change any file in the mounted folder without asking. It cannot reach the network, your credentials or anything outside that folder. Every skipped prompt is written to the AtlasMind output channel and the run record with the attestation, image digest and rule it rested on.\n\nMachine-scoped: only your user value is read. A repository may require the sandbox; it can never loosen your approvals."
+        },
+        "atlasmind.terminal.passEnvironment": {
+          "type": "array",
+          "scope": "machine",
+          "default": [],
+          "items": {
+            "type": "string",
+            "pattern": "^[A-Za-z_][A-Za-z0-9_]{0,127}$",
+            "patternErrorMessage": "One exact environment variable name: letters, digits and underscores, not starting with a digit."
+          },
+          "description": "Environment variables to pass to agent commands even though they look like credentials. AtlasMind withholds every credential-shaped variable (API keys, tokens, secrets, passwords, provider keys) from the commands an agent runs on this machine and from ACP agent processes; list an exact name here when a task genuinely needs one. Machine-scoped: only your user value is read.",
+          "markdownDescription": "Environment variables to pass to **agent** commands even though they look like credentials.\n\nA command an agent runs on this machine — terminal and test runs, npm scripts, formatting, the git and docker skills, the check after a write — and an ACP agent's own process are started **without** the editor's credentials: every variable whose name looks like one (`*_API_KEY`, `*_TOKEN`, `*_SECRET`, `*_PASSWORD`, `*_PRIVATE_KEY`, `AWS_*` keys, `GITHUB_TOKEN`, the provider keys AtlasMind itself reads, …) or whose value looks like one is withheld, and a proxy URL loses its `user:password@`. A command that fails says which names were withheld — never their values.\n\nList an **exact** name here (e.g. `NPM_TOKEN`) when a task genuinely needs it. A name that is not a plain variable name is reported, not cleaned.\n\nYour own terminals, routines you run, and the Delivery and promotion buttons are not affected.\n\nMachine-scoped: only your user value is read, so a repository cannot choose which of your credentials an agent command receives."
+        },
+        "atlasmind.security.quarantineReader": {
+          "type": "string",
+          "default": "on",
+          "enum": [
+            "on",
+            "off"
+          ],
+          "enumDescriptions": [
+            "A third-party tool result over 8,000 characters is read by a separate model with no tools; the agent receives its validated extract and a handle, and the full text only after you approve releasing it.",
+            "Large third-party results reach the agent whole, fenced and scanned. The untrusted-content escalation still applies."
+          ],
+          "description": "Read large third-party tool results (fetched pages, MCP answers, GitHub CLI output) with a separate, tool-less model so the agent sees an extract rather than the raw text. Costs one cheap model call per large result. Off still fences the text and still asks before writes and network calls.",
+          "markdownDescription": "When a tool brings back **more than 8,000 characters of third-party text** — a fetched page, an MCP server's answer, `gh` output, another agent's answer — a separate model with **no tools** reads it and returns a schema-checked extract (at most 20 facts, 20 `https` URLs copied from the text, 5 exact quotes) that answers your request. The agent works from that extract and a handle; the raw text reaches it only through `quarantine-read`, which always asks you first.\n\n- `on` (default): quarantine large third-party results. Each one costs one call to the cheapest fast model the router has, recorded in the cost dashboard as `quarantined-reader` and counted toward the task's cost cap and `#atlasmind.dailyCostLimitUsd#`; a read whose worst case would pass either is not made. If no model is available, a cap would be passed, or its answer does not validate, the agent gets a 2,000-character fenced excerpt with a `[SECURITY]` note — never the full text.\n- `off`: large third-party results reach the agent whole, fenced and scanned, as they did before. The untrusted-content escalation (`atlasmind.security.untrustedEscalationScope`) still applies either way.\n\nThe extract is still third-party content, so reading it still taints the task. Local tool results and results under the threshold are never affected. A value that is set but not recognised is read as `on`."
         },
         "atlasmind.autoVerifyAfterWrite": {
           "type": "boolean",
@@ -2470,8 +2645,8 @@
           "type": "number",
           "default": 30000,
           "minimum": 5000,
-          "description": "Maximum time in milliseconds to wait for a model provider response.",
-          "markdownDescription": "Maximum time in milliseconds to wait for a model provider response. This covers the provider round-trip, not local tool execution.\n\nExamples:\n- Fast local or LAN-hosted models: `15000`\n- Default cloud-provider balance: `30000`\n- Slower premium reasoning models or distant regions: `45000` to `60000`\n\nUse a higher timeout when you intentionally allow slower reasoning models through `speedMode` or provider-specific routing."
+          "description": "Base time in milliseconds to wait for a model provider response. Deep-thinking requests and streamed answers get more, never less.",
+          "markdownDescription": "Base time in milliseconds to wait for a model provider response. This covers the provider round-trip, not local tool execution.\n\nIt is a base, not a cap: a hosted call planned to write more than 4,096 output tokens (thinking included) gets 20s more per extra 1,000 tokens, up to 10 minutes, and a streamed hosted call restarts the budget every time text arrives. Local and ACP calls scale from it by their own rules.\n\nExamples:\n- Fast local or LAN-hosted models: `15000`\n- Default cloud-provider balance: `30000`\n- Slower premium reasoning models or distant regions: `45000` to `60000`\n\nUse a higher timeout when you intentionally allow slower reasoning models through `speedMode` or provider-specific routing."
         },
         "atlasmind.remote.enabled": {
           "type": "boolean",
@@ -2784,6 +2959,12 @@
           "minimum": 5,
           "maximum": 480,
           "description": "How often ambient triggers are evaluated while the editor is open. A VS Code extension does not run when the editor is closed, so this is ambient rather than background: it works while you are not looking at AtlasMind."
+        },
+        "atlasmind.routines.scheduling.enabled": {
+          "type": "boolean",
+          "default": false,
+          "scope": "application",
+          "description": "Master switch for scheduled routines — a routine in project_memory/routines/ that declares a schedule (daily at HH:MM, weekly on <day> at HH:MM, every N hours) running on its own. Off by default, and switching it on runs nothing: each routine also needs your own approval of its exact steps (AtlasMind: Manage Scheduled Routines), withdrawn automatically if a step changes. Ambient, not background: routines run only while the editor is open, and a missed window is caught up once, never repeated. Each run happens in a new git worktree on a chore/scheduled-… branch, never touches your working tree, and never pushes, merges or opens a pull request; a step that would, or that installs packages, stops the run and is reported as needing you. User settings only, so a repository cannot switch it on for you."
         },
     "atlasmind.research.enabled": {
           "type": "boolean",

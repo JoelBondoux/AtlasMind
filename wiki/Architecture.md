@@ -128,14 +128,15 @@ nothing is forced in and nothing is discarded.
 
 | Part | What it does |
 |---|---|
-| **Orchestrator** | The centre of everything. Routes a task: agent → memory → model → tools → execution → cost |
+| **Orchestrator** | The centre of everything. Routes a task: agent → memory → model → tools → execution → cost. Each model call gets a deadline sized by a declared rule — a hosted call's grows with the output it may write, thinking included, and a streamed one restarts with every chunk — and a timed-out attempt records the rule that set it (`TaskModelAttempt.timeoutBudget`) |
 | **Agent Registry** | Who the specialists are, which are enabled, and how they've performed |
 | **Skills Registry** | What tools exist and which an agent may use |
 | **Model Router** | Picks a model by budget, speed, capability, health and past outcomes |
 | **Task Profiler** | Works out how hard a task really is |
+| **Reasoning Budget** | The third routing dial, beside budget and speed: how hard the model should think. `auto` reads the level from the Task Profiler through a declared table; a level becomes a request parameter only for a model whose provider declares a verified control (Anthropic `output_config.effort`, OpenAI and Gemini `reasoning_effort`), so every other model stays routable and is sent nothing. Thinking is billed as output, so the level raises the router's cost projection and the daily-limit pre-flight, and a task cost cap steps it down. The Settings page has a Reasoning mode card beside Budget and Speed that publishes the rules, and each answer's routing summary names the level, its rule and what was sent (`src/core/reasoningBudget.ts`; the declared models are `REASONING_CONTROL_CATALOG` in `modelCatalog.ts`; `ModelInfo.reasoningControl`, `RoutingConstraints.reasoning`, `CompletionRequest.reasoning` and `TaskResult.reasoning` carry it) |
 | **Project Archetype & Prefab Plans** | Describes a project as a small archetype plus composable traits, then builds deterministic create-only starter plans for explicitly selected platforms |
 | **Project Composition & Workspace Scope** | Keeps team-declared component boundaries separate from detected proposals and resolves only the roots a surface opts into |
-| **Game Engine Project Reading** | Reads bounded decisive project-file evidence, inventories explicitly confirmed content roots, interprets generic upstream distance for a matching engine component, and safely reads an existing build report |
+| **Game Engine Project Reading** | Reads bounded decisive project-file evidence, inventories explicitly confirmed content roots, interprets generic upstream distance for a matching engine component, safely reads an existing build report, and keeps the team's declared game profile |
 | **Project Vocabulary** | The delivery stages and branches *your project declared*, so "promote to staging" means what you said it means |
 | **Planner & Task Scheduler** | Breaks a goal into steps and runs them in dependency order |
 | **Mission Runner** | The autonomous loop, and the envelope that contains it |
@@ -172,6 +173,13 @@ evidence stays no-verdict; supported engine versions receive an inert command te
 report. Bounded retained diagnostics are control-stripped and secret-redacted. Only a captured exit code
 or verified completion marker decides the overall result, so an error-looking line cannot turn a partial
 log into a fabricated failed build.
+
+The game profile (`domain/game.json`, mirrored to `game.md`) is the declared half: platforms, build
+configurations, per-target budgets, content roots, discipline owners and store targets. A console is a label
+the team writes, never a fact AtlasMind asserts. An absolute path, a credential-shaped field, an SDK or engine
+binary location, or anything the secret redactor would change refuses the whole document rather than being
+scrubbed. Invalid values are reported, not corrected; unknown fields survive; a seed never overwrites an
+existing or newer profile.
 BigCommerce Catalyst and Wix Commerce follow the storefront side: hosted `website` identities with UI,
 server, and personal-data review traits. Their prefabs are documentation-only generator handoffs because
 the official tools own version-sensitive source and external provisioning; a handoff never claims that
@@ -209,6 +217,38 @@ Workspace scope is opt-in. Its default returns exactly VS Code's first workspace
 composition, so existing behaviour does not move underneath callers. A surface that explicitly requests the
 home, one component, or all components receives only opened roots, plus labelled missing/unreadable/ambiguous
 entries; AtlasMind never substitutes another directory or reaches outside the opened workspace set.
+
+The host side of that rule lives in `src/utils/workspaceRoots.ts`, the one module allowed to read VS Code's
+folder list. It decides nothing — the first-folder rule is stated once, in `workspaceScope.ts` — and caches
+nothing, so a migrated call site gets exactly the answer it got before. The execution boundary (the skill
+context's root, `runCommand`, the git tools, the workspace-containment check) asks it first; every other
+direct read is ceilinged per file by a two-way ratchet test, so the single-root tail can shrink but not grow.
+
+Project memory is the one place the adapter departs from "first folder". `ssotHomeRoot()` locates the
+**SSOT home** — the folder holding `project_memory/` — through a declared rule table, first match wins: one
+folder is the home without looking; a folder whose own `workflow.json` declares the home there wins; two
+such declarations, or none and two memory folders, are **ambiguous**; one memory folder wins; nothing found
+means the first folder, where bootstrap writes. Ambiguous is never resolved by picking: the workflow file,
+memory loading, the project soul and operator-feedback writes all refuse with one sentence naming the
+candidates and how to declare the home, and the Project Dashboard shows it as a banner on every page. A
+component at `.` now means the folder the composition was read from, not folder 0. The cost-tracker key
+stays on the first folder deliberately, so existing spend history is not orphaned.
+
+Since 0.498.1 that applies to **every** reader and writer of project memory, not a selection: each
+register manager is constructed with the home and its refusal, reads nothing and throws
+`SsotHomeRefusalError` on every write while the home is ambiguous, and the dashboard leaves its
+project-memory sections empty rather than filling them from one candidate. A static guard
+(`tests/baselines/ssotHomeResolution.test.ts`) walks the TypeScript AST and fails any change that lets a
+first-folder value reach a project-memory path. The data-privacy policy is the deliberate exception: an
+ambiguous home applies the strictest combination of every candidate's policy, so redaction never switches
+off because two folders disagree.
+
+Since 0.498.2 **unread is not empty** for anything that decides on its own. The agent auto-update gate
+holds a rewrite as `cases-unreadable` (`DeclaredCaseCount` is `number | { unreadable }`), the attention feed
+drops every project-memory group and raises *Project memory could not be read* instead of reading `clear`,
+testing coverage is derived against no methodology rather than the two defaults, and the release gate
+`tests-evidenced` reads `unknown`. `tests/core/ambiguousSsotHomeConsumers.test.ts` builds a real ambiguous
+home for each.
 
 The Project Dashboard is the first all-component consumer. Repository status and local CI are read only for
 declared Git components; issue-tracker support, debt-scan coverage, and observed-change baselines carry the
@@ -280,14 +320,170 @@ Perforce boundary as `not-visible` rather than zero.
 |---|---|
 | **Egress boundary** | The one path to a model. Labels each piece of context, redacts what needs it, caps its size, and asks before sending a credential you typed |
 | **Approval gate** | Classifies every tool call, consults your approval mode, and holds a ceiling no bypass can waive |
+| **Provenance taint** | Tracks what each task has read. After third-party content, a write or network call needs a fresh approval Autopilot cannot answer; reads stay free |
 | **Routine planner** | Works out the exact commands a routine will run, so they can be shown to you before they are |
 | **Commit message drafter** | Describes your staged diff in the Source Control box. Writes text; never commits |
 | **Provider adapters** | One per model provider, behind a shared contract |
 | **ACP adapter** | Drives a subscription coding agent as a model provider |
-| **MCP registry** | Connects external tool servers and dispatches their tools |
+| **MCP registry** | Connects external tool servers and dispatches their tools. Every tool is pinned; a tool that is new, changed, or flagged by the description scan is held until you approve it |
 | **Resource discovery** | Finds new servers, agents and skills — from Settings, or from chat when no installed tool fits |
 | **Voice** | Speech in and out — cloud, your OS, or fully on-device |
 | **Local GPU arbiter** | Decides which local model requests may run, so several at once cannot over-fill one graphics card |
+
+**MCP tools are pinned.** A connect decides every tool a server offers against a published rule table in
+`src/mcp/mcpToolPins.ts`. A server seen for the first time is trusted on first use, and that trust is
+spent by its first successful tool listing even when the listing is empty. A tool whose
+description or schema changed since it was approved, a tool a pinned server did not have before, a tool
+whose pin cannot be read, and a tool the description scan flags (even on first sight) are held instead of
+registered. Held tools live in `McpServerState.heldTools`, never in `tools`. The MCP panel's **Review
+changed tools** view shows the approved and offered text side by side. Approving posts two opaque ids,
+and the registry re-hashes the live tool before it pins and registers anything. Pins are stored in
+`globalState` under `atlasmind.mcp.toolPins` (store v2; a v1 store from 0.488.0 is migrated, and a
+configured server it has no record of is unverifiable). The shared types are `McpToolVerdict`,
+`McpToolScanFinding`, `McpToolPin` and `McpHeldTool` in `src/types.ts`. A disconnect **suspends** a server's
+skills in `SkillsRegistry` rather than disabling them, and a reconnect lifts the suspension; a skill the user
+disabled stays disabled, and a suspension is never persisted.
+
+**What a task has read decides what it may do next.** `src/core/contextProvenance.ts` classes every prompt
+message and tool result as `operator`, `atlasmind`, `workspace` or `third-party` (exhaustive tables over
+`ModelContextOrigin` and the tool list; an unidentified tool is third-party), and a task keeps the highest
+class it has read. Third-party results are scanned and fenced with `fenceReportedContent`, whose numbered
+marker the content cannot close; an instruction override keeps the text and adds a `[SECURITY]` note.
+Before each call the orchestrator decides `free`, `fresh-approval` or `refuse` from `TAINT_ESCALATION`
+(exhaustive over `ToolRiskCategory`): `free` calls the gate exactly as before, `refuse` never reaches it,
+and `fresh-approval` passes a fourth argument, `ToolApprovalGateMeta`, which the VS Code gate answers before
+any bypass and the CLI refuses without `--allow-untrusted-escalation`. `SubTaskResult.provenance` seeds
+dependent subtasks, and a tainted turn is not delegated to an ACP agent's own tools. The scope is
+`atlasmind.security.untrustedEscalationScope`. Shared types: `ProvenanceClass`, `ProvenanceSource`,
+`TurnProvenance`, `UntrustedEscalationScope`, `TaintDecision`, `TaintEscalation` and `ToolApprovalGateMeta`;
+`ToolApprovalDecision` gains `acknowledge-source`.
+Since 0.501.0 the gate answers with `ToolApprovalGateResult`, which may carry a `sandboxSession` the call must be
+bound to and a `ToolApprovalAudit`, recorded on `ToolExecutionArtifact.approval`.
+
+Since 0.489.1 it lasts for the **conversation**: `SessionConversationRecord.provenance` (persisted with the
+transcript) seeds every turn through `seedTurnFromConversation`, each source marked `carried` so a dialog
+says it was read earlier in the conversation, and `raiseProvenance` folds the turn back in. Only a new or
+cleared conversation resets it; a stored record that cannot be read, or history with no record, is
+third-party. The chat panel, the native participant, project runs started from chat (`processProject`'s
+`options.provenance`) and AtlasMind's own ACP sessions all wire it; run records keep each subtask's
+provenance (`ProjectRunSubTaskArtifact.provenance`, `ProjectRunSeedResult.provenance`) for a resume. The
+chat footer shows `SessionTranscriptMetadata.untrustedContentNote` once a conversation is in scope, and
+`OrchestratorHooks.onTaskSettled` makes `ToolApprovalManager.clearTask` run when a task ends.
+
+**A long third-party result is read in quarantine (0.490.0).** `src/core/quarantinedReader.ts` (pure) routes
+an executed tool result that `contextProvenance` classifies third-party and that is longer than 8,000
+characters to a second, **tool-less** completion: the orchestrator holds the raw text under a per-loop
+handle, picks the cheapest fast model with `ModelRouter.selectBestModel` and the declared
+`QUARANTINE_ROUTING_PROFILE`, and sends only the extraction rules, the operator's question and the fenced,
+re-redacted text through `dispatchGuardedCompletion`. `validateQuarantinedExtract` checks the answer against
+a closed schema (facts, `https` URLs present in the source, exact quotes) and withholds and counts what
+fails item by item; the privileged loop receives the fenced extract and the handle, absorbed as third-party
+under the original tool's rule (suspected if the raw text was). Every failure falls back to a fenced
+2,000-character excerpt, never the full text. The raw text is released only by `quarantine-read`, answered
+inline by the orchestrator and always sent to the gate as a fresh approval (`quarantine.raw-release`). The
+reader's cost is recorded as `quarantined-reader` and, since 0.490.1, counted toward the task's cost cap and
+the daily limit: `decideQuarantineBudget` checks its worst case before dispatch (`quarantine.task-budget`,
+`quarantine.daily-budget` fall back to the excerpt), and its spend joins the loop's cap check and
+`TaskResult.costUsd`. `atlasmind.security.quarantineReader` (`on` default, `off`) switches it. The written
+threat model is [[Prompt Injection Threat Model]].
+
+**Dry run describes what a turn would do and does none of it (0.491.0).** `src/core/dryRun.ts` (pure)
+decides each tool call in `runAgenticLoop` when `atlasmind.dryRun.enabled` is on: only built-ins the published
+`DRY_RUN_BUILTIN_TABLE` grades as local reads run (plus `quarantine-read` and a local-only `find-tool`);
+everything else — writes, subprocesses, network reads, MCP and custom skills, unknown names — is answered
+with a `[DRY RUN — nothing was executed]` description and raises no approval, checkpoint, verifier, webhook
+or provenance. A skill allowed to run gets a context whose every effect method throws (`DRY_RUN_CONTEXT_METHODS`
+is exhaustive over `SkillExecutionContext`). The per-turn `DryRunTurn` cell is sticky (on at once, off next
+turn), carried to subtasks, and turns off ACP tool delegation and worktree isolation. The reply ends with a
+summary; records reach `OrchestratorHooks.onDryRunRecord` → `DryRunLedger` → the *AtlasMind Dry Run* output
+channel, and `atlasmind.toggleDryRun` plus a status bar item switch it. The CLI's `--dry-run` sets it for
+`chat` and `project`.
+
+**The dry run covers what AtlasMind does outside a turn (0.492.0).** `src/core/dryRunHost.ts` is the one
+service host surfaces ask: installed at activation with the same `DryRunLedger`, so a refused routine,
+promotion, dashboard git or `gh` write, connector or Buzz send, webhook, MCP call, terminal send, installer,
+live-service probe or automatic memory write is a `DryRunRecord` (rule `dry-run.host-*`) in the same output
+channel, and a button somebody pressed raises a notice saying dry run stopped it. Guards sit at each effect's
+own boundary where there is one (`GhClient`, `mcpRuntime.execFileAsync`, `RoutineRunner`, `promotionRunner`,
+the MCP registry around `callTool`), and commands are graded by `classifyHostCommand`, an allowlist of git,
+`gh`, docker and podman read shapes. `DRY_RUN_HOST_EXEMPTIONS` publishes what still runs; a source scan
+(`tests/security/dryRunCoverage.test.ts`) fails on a file that can act and is neither guarded nor exempted
+with a reason. The CLI and the ACP agent (`atlasmind-acp --dry-run`) install a host of their own.
+
+**An agent's command does not inherit your credentials (0.500.1).** `src/core/hostCommandEnvironment.ts` decides
+the environment a model-requested command is started with on the host — `runCommand` (extension host and CLI)
+and the ACP agent process. `HOST_COMMAND_ENV_RULES` withholds every credential-shaped name (AtlasMind's CLI
+secret-store names, the variables its adapters read, `*_API_KEY`/`*_TOKEN`/`*_SECRET`/… case-insensitively) and
+every value the secret redactor recognises, strips `user:password@` from a proxy, and names the rule for each.
+Only names in the machine-scoped `atlasmind.terminal.passEnvironment` pass regardless. What you start yourself
+keeps your environment (`HOST_COMMAND_ENV_UNCHANGED_PATHS`).
+
+**Sandboxed execution has a pure core (0.498.3).** `src/core/sandboxPlan.ts` decides where an agent command
+runs; since 0.500.0 the runner below acts on it. An attestation
+(`SANDBOX_ATTESTATION_RULES`) needs a Linux engine, a known user mapping, an image pinned by `sha256` digest
+(a tag is refused, never resolved) present locally, a passing canary and a reading under ten minutes old.
+`buildSandboxArgv` emits one constant shape — no network, no capabilities, no privilege escalation, read-only
+root, pid/CPU/memory limits, never a pull, exactly one `--mount` of the worktree root (never home, a
+credential folder, an engine socket or the ssh agent), an allowlisted environment — and `planExecution`
+under `require` returns the sandbox or a refusal, never the host. There is no `prefer` mode.
+`SANDBOX_INTERACTION_RULES`: dry run still wins, taint is not relaxed, scheduled routines are unchanged, and
+approvals loosen only through the opt-in below (0.501.0).
+
+**The engine can be checked (0.499.0).** `src/core/sandboxProbe.ts` takes one reading on
+request — **AtlasMind: Check Execution Sandbox** (`src/views/sandboxCheckCommand.ts`): Docker then Podman under
+`auto`, `info` read by the local CI runner's own parser, the pinned image looked for **locally** (never pulled),
+and a canary built by `buildSandboxArgv` itself, so the real shape is what is proved. The canary is an effect, so
+a dry run does not start it and the sandbox reads unavailable. The image, engine and limits are machine-scoped
+(`atlasmind.sandbox.*`); `mode` takes the tightest scope. The report lists every rule — passed, failed with its
+reason, or not evaluated — and what to do. Readings live in memory for ten minutes.
+
+**Enforced under `require` (0.500.0).** `src/core/sandboxRunner.ts` is installed at activation beside the dry-run
+host, and every covered path asks it (`SANDBOX_COVERED_PATHS`): `runCommand` runs an agent's command in the
+container or refuses it, a routine step runs as `sh -c <step>` with its run's folder (a scheduled run's worktree)
+mounted, and a debug launch, an ACP agent's command and a managed-terminal follow-up are refused because they
+would run outside it. Under `off` nothing changes and no engine process starts. A `SandboxSession` freezes the
+settings and the attestation one decision rests on, and `SkillExecutionContext.withSandbox(session)` binds it the
+way `withResolutionRoot` binds a worktree; only a session the host opened itself is honoured, and an expired
+one is refused, never re-probed. A stale reading
+is re-taken once, shared, within three minutes. Dry run wins before anything is probed. A timed-out container is
+removed by its own name, closing the window removes live ones, and the activation sweep removes only labelled
+containers older than any command may run. `SANDBOX_HOST_PATHS` says what stays on the host and why: git tools,
+operator-started surfaces, MCP tools, model-written skills and the CLI.
+
+**Approvals loosen only for a confirmed sandbox, and only if you opt in (0.501.0).**
+`src/core/sandboxApprovalRelaxation.ts` decides whether a terminal write may skip its approval prompt:
+`atlasmind.sandbox.relaxTerminalApprovals` on in your user settings, `require`, a confirmed attestation, and
+`planExecution` routing this exact command to the container. `SANDBOX_RELAXATION_RULES` puts dry run, the
+`allowTerminalWrite` ceiling, provenance taint and the never-bypassable list above it, so none of them can be
+loosened. The gate returns the very `SandboxSession` it checked (`ToolApprovalGateResult.sandboxSession`), the
+Orchestrator binds the call to it with `withSandbox` or refuses it, and the runner plans on that frozen reading —
+an expiry in between is a refusal, never a run elsewhere. Each skipped prompt is audited
+(`ToolApprovalAudit`, written to the output channel and `ToolExecutionArtifact.approval`).
+
+**Installed dependencies come from a prepared volume (0.503.0).** A host's `node_modules` was built for the
+host — Windows or macOS binaries a Linux container cannot load — and a fresh worktree has none, so under
+`require` a command that loads installed packages (`classifyDependencyNeed`, shared with
+`scheduledRoutinePolicy`) runs only with a dependency volume prepared for the folder's current lockfile, mounted
+at `/work/node_modules`; without one it is refused with `dependencies-not-prepared`, never run against the host's
+copy. `src/core/sandboxDependencies.ts` detects exactly one supported lockfile (npm, pnpm, Yarn 1 — symlinks,
+workspaces, Bun, Yarn 2+ and several managers refused by a named rule), keys the volume
+`atlasmind-deps-<16 hex>` to lockfile bytes, image digest, manager, engine, platform, owner and the scripts choice,
+and calls it ready only when a recorded preparation and the engine's labelled volume agree. **AtlasMind: Prepare
+Sandbox Dependencies** (`src/views/sandboxDependenciesCommand.ts`) is the only network-on step: shown in full
+first, `--ignore-scripts` unless a second confirmation says otherwise, only `package.json` and the lockfile
+mounted read-only, writing only into the volume; dry run holds it and a scheduled routine never runs it — it
+reports "dependencies not prepared" instead. **AtlasMind: Remove Sandbox Dependency Volumes** cleans up on request.
+
+**A model-initiated fetch goes only where it was checked to go (0.490.2).**
+`src/core/egressDestinationPolicy.ts` (pure) screens a URL — `https` only, no credentials, no name that is
+local by definition — and judges every literal or resolved address by its numeric value against published
+private and reserved ranges, including IPv4-mapped, NAT64 and 6to4 forms; every address a name resolves to
+must pass, and a name that does not resolve is refused. `src/core/egressFetch.ts` connects with a `lookup`
+pinned to the vetted addresses, so DNS cannot answer differently at connect time, follows redirects by hand
+and screens every hop, and drops credentials across origins. It sits under `SkillExecutionContext.fetchUrl`
+and `httpRequest` in the extension host and the CLI, so `web-fetch`, `http-request` and model-drafted
+skills share one rule, and `ArdClient` uses it for discovery. Lens endpoints, declared in a reviewed file,
+deliberately do not.
 
 The approval gate makes a Bypass/Autopilot click and its runtime scope one atomic transition. It settles
 concurrent pending cards only when the scope covers them, the card offered that decision, and the tool is
@@ -997,6 +1193,30 @@ in the file as it is now, refusing a missing anchor by name and showing a hand-e
 than overwriting it. Launch plans are constant argvs filled with the workspace root and scene, run
 through `spawn` with no shell after a modal that shows them.
 
+A found surface can also be **rendered as itself** (`src/core/uiSurfaceRender.ts` +
+`src/views/uiSurfaceRenderHost.ts`, 0.494.0), in a **Rendered output** card beside the canvas. A
+declared rule table decides the mode and names the rule: an HTML page renders as the real file in a
+companion panel with scripts off (at the webview and in a policy put ahead of the file's markup),
+only its own folder loadable, refreshed on change, and labelled with its path, its time and what did
+not load; a React, Vue or Svelte component renders through the project's own dev server — the `dev`
+script recognised from a declared table, started only after a modal showing the exact argv, held by
+dry run, opened in the built-in browser at the loopback address it printed, on a route only where
+Next.js, SvelteKit or Nuxt routing makes one verifiable; a webview script, a token stylesheet and an
+engine file say why not (*cannot render in the editor*, beside Launch). The webview posts a
+scan-derived id and nothing else, and the full preview says it is the Studio's draft.
+
+A found static page can also be **edited element by element** (`src/core/htmlSourceMap.ts`,
+`src/core/uiSurfaceElementEdit.ts`, `src/core/uiSurfaceEditDocument.ts` + `src/views/uiSurfaceEditHost.ts`,
+0.495.0). A tolerant parser maps the file to source offsets — every element's tags, attributes, how it ended
+and an id from its position — and the page opens in its own panel with its scripts, handlers and script URLs
+left out, each element labelled with that id, and AtlasMind's nonce'd selection script the only one that runs.
+Where an element may go comes from a declared containment table over the whole HTML element index; the
+palette is the Studio's blocks plus a list item and a form field; attributes come from an allowlist. Each
+edit — text, attribute, insert, remove, move — is one splice against the file's offsets, confirmed with the
+lines before and after, held by dry run (`source-edit`), and refused if the file changed since it was
+parsed. The page posts element ids only; values are asked for in VS Code's own pickers. A framework component
+is not edited in place and says so, with **Open in editor**.
+
 Website delivery — the framework, the three hosting environments, the platform targets and the n8n
 map — is a card on the Project Dashboard's Delivery page since 0.474.0, not a Studio view:
 `buildWebsiteDeliveryView` grades, assesses readiness and checks drift against the pipeline on every
@@ -1017,6 +1237,19 @@ because asking a model to make a project out of "an app" produces one nobody des
 brief, reading it into cards and raising roadmap items are **three separate confirmations**, and no
 edges are drawn between derived cards — inferring the argument as well as the content is a step too
 far.
+
+The brief is now **asked for at the start** (`src/bootstrap/projectBriefOnboarding.ts`): `/bootstrap`
+asks it before any specific question, and the Get Started walkthrough has a step for it (**AtlasMind:
+Describe the Project in Your Own Words**). Skipping is recorded as *not given* and nothing is filled in;
+the brief is never handed to the model that drafts the other bootstrap documents. On the board, a
+**From your brief** card shows the chain (`src/core/projectBriefChain.ts`) — read the brief into cards,
+raise the cards that quote it as roadmap items, and optionally file a plan for each and quote the brief
+in the project soul. **The chain's state is read from the files, never stored**, so it resumes wherever
+they say it is. **Only a card whose quote is in the brief as it is now can become work**; questions stay
+on the board. Every step shows exactly what it writes — the roadmap lines with their quotes, the plan
+paths, the soul insertion — and writes nothing until confirmed; the plan is recomputed after each dialog
+so what is written is what the files still support. Plan files are create-only, and the soul is appended
+to (or created) and never rewritten.
 
 AtlasMind can also **search your own source**, not just its memory of decisions
 (`src/core/codebaseIndex.ts`, two new commands). **Nothing leaves your machine, and no option would
@@ -1058,6 +1291,19 @@ watching; a security advisory and a blocked release are capped at reporting by d
 window is not a backlog**, **a source that could not be read is reported as not observed rather than as
 quiet**, and **spend defaults to nothing** while reporting is never capped. Nothing runs unattended:
 the service returns a plan, and the notification offers a draft.
+
+**Scheduled routines** (`src/core/routineSchedule.ts`, `src/core/scheduledRoutinePolicy.ts`,
+`src/core/routineScheduler.ts`) let a routine that declares `schedule: daily at 02:00` run on its own and
+report back. Ambient again, not background: it runs only while the editor is open, and a missed window is
+caught up **once**, never once per missed night. The schedule is a three-form grammar, validated rather than
+coerced, in local time with the zone always stated; cron is refused by name. **The file asks; three other
+facts decide** — a master setting (off, user-scope only), your approval of the exact steps (a fingerprint, so
+editing a step withdraws it) and a trusted workspace — and approvals live in your workspace state, never in
+the committed memory. **The ceiling is `propose`**: each run happens in a new worktree on its own
+`chore/scheduled-…` branch, never your working tree; a step that pushes, publishes, changes git history or
+installs packages stops the run and is reported as needing you, never auto-approved. No worktree means no
+run. A dry run is recorded, not executed. The executor holds no model, so an unattended run spends nothing.
+It reports through the Run Center, a notification and the Overview's attention band.
 
 A sixth register (`src/core/testCaseRegister.ts`, rendered as a card on Dashboard → **Testing**)
 holds the manual half of testing. Everything else AtlasMind knows about tests is derived from files,
@@ -1166,8 +1412,12 @@ is a compact Sugiyama pipeline: a prerequisite sits one step before the earliest
 (longest-path alone put every parentless item in one first row wider than the plan), unrelated sub-plans
 lay out as separate blocks that never interleave, alternating barycentre sweeps take the crossings out,
 coordinates settle children under parents so a chain reads as one straight line, and items with no links
-park in a near-square block of their own — they carry no arrows, so the block cannot be misread as
-dependency. Edges anchor to each card's measured height, so an arrow enters a tall card at its middle
+park in a block of their own — they carry no arrows, so the block cannot be misread as dependency. The
+layout is shaped for the canvas it is drawn in (`ROADMAP_REFERENCE_FRAME`, 620px tall like the frame):
+the outstanding plan is laid out without slots for delivered work, which gets its own blocks beside it; a
+layer too wide for the frame folds into sub-rows; and blocks pack into strips rather than one long row.
+Nothing is folded or wrapped while the plan already fits two frames. On this repository's roadmap that
+took the outstanding plan from 9,210 × 2,360px, where Fit all wanted 12%, to 4,330 × 1,640px at 25%. Edges anchor to each card's measured height, so an arrow enters a tall card at its middle
 rather than above it. **→** and **↓**
 beside it choose the direction, which is stored in the committed plan because which way a graph reads
 best depends on its shape rather than on who is looking; snap-to-grid is remembered per editor, because
@@ -1200,7 +1450,25 @@ that person's own chain and a crossing arrow is one person waiting on another. L
 (unassigned last, an unresolved id between the two) rather than by workload, so finishing something does
 not reshuffle the canvas. `RoadmapNodeRecord.assigneeId` is a Director contact id, kept even when the
 contact is gone — deleting somebody from the roster is not a statement that their work became
-unassigned — and validated against the live roster in the host rather than trusted from the webview. **Calculate tree**, carrying the AtlasMind mark, works the
+unassigned — and validated against the live roster in the host rather than trusted from the webview.
+**Show completed** brings finished work back onto any roadmap view that leaves it off, and is a way of
+looking rather than a change: `buildRoadmapCompletedOverlay` ships positions only — where the tree
+already put each delivered item (in blocks beside the plan, so nothing on screen moves), and a by-person
+layout that includes them — built after the critical path, routes and timeline, none of which read it.
+Toggling it re-fits the view, because the delivered blocks sit past the edge of a plan-sized viewport. The webview filters client-side, posts nothing, and
+remembers the choice per editor. **Release-gate dots** mark every roadmap card with the gates it is on,
+coloured by `assignRoadmapGateColors` (`roadmapGates.ts`) from each gate's declared position — never a
+hash, so two gates never share a colour and every machine agrees — with a colour key beside the Gate
+picker. The host ships the colour, the webview only draws it, each dot is named by its gate, and pressing
+a dot or a key sets the same offline highlight the picker does. **Find candidates**, also carrying the
+AtlasMind mark, is the gate scan (`roadmapGateCandidates.ts`): per declared gate it lists the backlog
+items that may belong on it, each naming the published rule that matched — what the gate already waits
+on through declared links, the gate's name, the MVP foundation heuristic (MVP only, the same function the
+suggested MVP route uses), shared subject with work already on the gate — ranked by the most
+consequential rule, capped with the remainder stated, and saying *could not assess* rather than showing
+an empty list when no rule could run. The scan ships with the snapshot; **Add to gate** posts a gate id
+and item ids only, and the host re-runs the scan, refuses anything that is no longer a candidate, and
+names every item in a modal before the one roadmap writer adds the tag. **Calculate tree**, carrying the AtlasMind mark, works the
 whole dependency tree out from the wording of the backlog and offers it behind one confirmation naming
 how many links it would add.
 
@@ -1416,6 +1684,16 @@ surfaces — card, header, nav, button, input, table — *after*. The ordering i
 its layout, which it legitimately owns, and loses its private palette, which it never decided on. The
 Personality Profile is the one deliberate exception; its warm palette is a choice, not drift.
 
+**Every surface has an edge you can see, in every theme.** The shell declares one boundary token,
+`--atlas-boundary`, that every card, chip, chat bubble, badge and field is outlined with. It is derived
+from the active theme's own text colour mixed into its background — or, in high contrast, the theme's
+own contrast border — so it moves with whatever theme is installed instead of being tuned for one. It
+clears the 3:1 WCAG asks of a component boundary in Dark Modern, Light Modern and both high-contrast
+themes; before, a card's outline was about 1.1:1 and its fill a few percent off the page. Status colours
+used as text are deepened on light themes, where VS Code's own are pastel, and accents fall back to the
+contrast colours in high contrast, where the button colour is black. The test suite measures every text
+colour (4.5:1) and every edge (3:1) on every panel, in all four theme kinds.
+
 ---
 
 ## Some structural rules
@@ -1461,17 +1739,29 @@ never accepted.
 
 | Path | What's in it |
 |---|---|
-| `src/core/` | Orchestration, routing, planning, safety, cost, project services, pure game-engine identity/divergence/build-log interpretation (`gameEngineIdentity.ts`, `gameEngineDivergence.ts`, `gameBuildLog.ts`), and CI inspection, trusted-workflow generation, the route model, routing policy, build ledger, act adapter and local CI setup guidance (`ciManager.ts`, `trustedLocalCiStarter.ts`, `ciRoutes.ts`, `ciRoutingPolicy.ts`, `ciCreditMeter.ts`, `ciBuildLedger.ts`, `ciActRoute.ts`, `nodeVersionDetection.ts`, `localCiSetupPlan.ts`, `localCiInstaller.ts`, `localCiInspectionMemory.ts`), the guarded local CI executor (`localCiRunner.ts`), who may start a local-CI job — the repository owner, or the one account an organisation-owned repository pins by id (`localCiActorGuard.ts`), the confirmed-write echo that shows an issue or pull-request write before the re-read lands (`trackerWriteOutcome.ts`), the live security advisory feed and the per-turn context breakdown and the producer-portal hosting guide (`advisoryFeed.ts`, `contextBudget.ts`, `producerPortalPlan.ts`), the defect register — what is broken, graded by a published table rather than asked for (`defectRegister.ts`), the approval register — who agreed, to which version, and what goes stale when it changes (`changeApprovals.ts`), the test-case register — the manual half of testing, its owners and the assets it needs (`testCaseRegister.ts`), the ambient event bus — what may wake AtlasMind up, how far it may go, and why it stayed quiet (`ambientTriggers.ts`), the six cross-cutting utility decisions with their date-pinned vendor facts (`utilityPacks.ts`), the retrievable codebase index and its per-developer store (`codebaseIndex.ts`, `codebaseIndexStore.ts`), the portal host declaration and its audience, and the one-press publish plan (`portalHosting.ts`, `portalPublishPlan.ts`), golden cases for an agent and the gate on an unattended rewrite (`agentEvalHarness.ts`), what each person has been asked to do against the capacity they declared, and declared absence read out of an exported calendar (`teamWorkload.ts`, `rotaImport.ts`), baselines you can name so "what changed" can be asked about a moment you chose (`baselineRegister.ts`), the project in your own words and the grounding rule for anything read out of it (`projectBrief.ts`), brand presets applied to many surfaces by alias and extracted from a stylesheet with a citation (`brandPresets.ts`), the roadmap dependency graph with its on-disk overlay, the chain the finish rests on and the plan against time (`roadmapGraph.ts`, `roadmapGraphStore.ts`, `roadmapCriticalPath.ts`, `roadmapTimeline.ts`, `roadmapBoard.ts`), whether the configured team can work and how much of it is used (`agentCapacity.ts`), and the git trailers that link a commit to the work it was for (`commitTrailers.ts`), and the evidence-triggered MCP capability offer (`capabilityOffer.ts`), the declared table saying where each release gate’s evidence lives and how gates rank by urgency (`releaseGateNavigation.ts`), roadmap ingestion from markdown, issues, Projects and spreadsheets with re-runnable reconciliation (`roadmapImport.ts`), the register-to-work hand-off that turns a gap, a debt entry or a risk finding into planned work (`registerHandoff.ts`), and how the project numbers its software across branches — the semver primitives plus the declared scheme, source and branch-to-channel map (`semver.ts`, `versioningPolicy.ts`), how a Windows `bin` shim is resolved to something spawnable without a shell — the module that makes model-generated command arguments unable to become commands (`windowsShimBypass.ts`), and how parallel steps are kept from writing over each other — where each one runs, the git plumbing, getting the work back and the run that ties the three together (`worktreeIsolation.ts`, `worktreeManager.ts`, `worktreeMerge.ts`, `worktreeRun.ts`) |
+| `src/core/` | Orchestration, routing, planning, safety, cost, project services, pure game-engine identity/divergence/build-log interpretation (`gameEngineIdentity.ts`, `gameEngineDivergence.ts`, `gameBuildLog.ts`), the declared game profile (`gameProfile.ts`), and CI inspection, trusted-workflow generation, the route model, routing policy, build ledger, act adapter and local CI setup guidance (`ciManager.ts`, `trustedLocalCiStarter.ts`, `ciRoutes.ts`, `ciRoutingPolicy.ts`, `ciCreditMeter.ts`, `ciBuildLedger.ts`, `ciActRoute.ts`, `nodeVersionDetection.ts`, `localCiSetupPlan.ts`, `localCiInstaller.ts`, `localCiInspectionMemory.ts`), the guarded local CI executor (`localCiRunner.ts`), who may start a local-CI job — the repository owner, or the one account an organisation-owned repository pins by id (`localCiActorGuard.ts`), the confirmed-write echo that shows an issue or pull-request write before the re-read lands (`trackerWriteOutcome.ts`), the live security advisory feed and the per-turn context breakdown and the producer-portal hosting guide (`advisoryFeed.ts`, `contextBudget.ts`, `producerPortalPlan.ts`), the defect register — what is broken, graded by a published table rather than asked for (`defectRegister.ts`), the approval register — who agreed, to which version, and what goes stale when it changes (`changeApprovals.ts`), the test-case register — the manual half of testing, its owners and the assets it needs (`testCaseRegister.ts`), the ambient event bus — what may wake AtlasMind up, how far it may go, and why it stayed quiet (`ambientTriggers.ts`), the six cross-cutting utility decisions with their date-pinned vendor facts (`utilityPacks.ts`), the retrievable codebase index and its per-developer store (`codebaseIndex.ts`, `codebaseIndexStore.ts`), the portal host declaration and its audience, and the one-press publish plan (`portalHosting.ts`, `portalPublishPlan.ts`), golden cases for an agent and the gate on an unattended rewrite (`agentEvalHarness.ts`), what each person has been asked to do against the capacity they declared, and declared absence read out of an exported calendar (`teamWorkload.ts`, `rotaImport.ts`), baselines you can name so "what changed" can be asked about a moment you chose (`baselineRegister.ts`), the project in your own words and the grounding rule for anything read out of it (`projectBrief.ts`), the chain from that brief to board, roadmap, plans and soul, planned from the files (`projectBriefChain.ts`), brand presets applied to many surfaces by alias and extracted from a stylesheet with a citation (`brandPresets.ts`), the roadmap dependency graph with its on-disk overlay, the chain the finish rests on and the plan against time (`roadmapGraph.ts`, `roadmapGraphStore.ts`, `roadmapCriticalPath.ts`, `roadmapTimeline.ts`, `roadmapBoard.ts`), whether the configured team can work and how much of it is used (`agentCapacity.ts`), and the git trailers that link a commit to the work it was for (`commitTrailers.ts`), and the evidence-triggered MCP capability offer (`capabilityOffer.ts`), the declared table saying where each release gate’s evidence lives and how gates rank by urgency (`releaseGateNavigation.ts`), roadmap ingestion from markdown, issues, Projects and spreadsheets with re-runnable reconciliation (`roadmapImport.ts`), the register-to-work hand-off that turns a gap, a debt entry or a risk finding into planned work (`registerHandoff.ts`), and how the project numbers its software across branches — the semver primitives plus the declared scheme, source and branch-to-channel map (`semver.ts`, `versioningPolicy.ts`), how a Windows `bin` shim is resolved to something spawnable without a shell — the module that makes model-generated command arguments unable to become commands (`windowsShimBypass.ts`), and how parallel steps are kept from writing over each other — where each one runs, the git plumbing, getting the work back and the run that ties the three together (`worktreeIsolation.ts`, `worktreeManager.ts`, `worktreeMerge.ts`, `worktreeRun.ts`) |
 | `src/core/releaseMatrix.ts` | Pure schema, bounded mutations, roadmap relationship keys, and coverage/readiness metrics for the planned Editions matrix |
 | `src/core/releaseMatrixImport.ts` | Pure bounded design-document ranking/parsing, roadmap and Issue matching, and preservation-first reviewed merge for Editions |
 | `src/core/capabilitySearch.ts` | What chat does when no installed tool fits: asks only the Agent Finders you switched on, with a short redacted query, and offers what comes back for you to review and install |
+| `src/core/contextProvenance.ts` | What a task has read, and which writes and network calls need a fresh approval after it — the tables, the shared REPORTED CONTENT fence, and the release valve's rules |
+| `src/core/egressDestinationPolicy.ts` | Where a fetch a model asked for may go — the URL rules and the private and reserved address ranges, judged by value |
+| `src/core/egressFetch.ts` | The connection that goes only there: pinned to the checked addresses, redirects checked hop by hop |
+| `src/core/dryRun.ts` | Dry run: which tool calls still run (built-in local reads only), the description the rest get instead, the context that refuses every effect, and the session's record |
+| `src/core/dryRunHost.ts` | Dry run outside the tool loop: the host every routine, promotion, panel button, message, terminal send and automatic write asks, recording what it stopped in the same output |
+| `src/core/hostCommandEnvironment.ts` | What an agent's command inherits on the host — every credential-shaped variable withheld by a declared rule, a proxy's password removed, a named one passed only when you list it in `atlasmind.terminal.passEnvironment`. Pure |
+| `src/core/sandboxPlan.ts` | Where an agent command runs — the sandbox attestation, the commands never sandboxed, the constant-shaped engine argv, and the rule that `require` never falls back to the host. Pure |
+| `src/core/sandboxProbe.ts` | Reads the container engine for the sandbox on request — engine order, the pinned image present locally (never pulled), a canary in the real argv — plus the settings reader that keeps the image machine-scoped, and the rule-by-rule report |
+| `src/core/sandboxApprovalRelaxation.ts` | Whether a terminal write bound for a confirmed sandbox may skip its approval prompt — your opt-in, `require`, a confirmed attestation, this exact command routed to the container — below dry run, the terminal-write ceiling, taint and the never-bypassable list; decided on the session that will run it, and audited. Pure |
+| `src/core/sandboxRunner.ts` | Under `atlasmind.sandbox.mode = require`, runs an agent's command in the container or refuses it — never on the host: one frozen session per decision, a bounded single-flight re-probe, dry run first, removal by name on a timeout or deactivation, and an orphan sweep that never touches another window's live command |
+| `src/core/sandboxDependencies.ts` | The dependency volume a sandboxed command loads installed packages from: lockfile detection by named rule, the content-addressed key, readiness from a record and a labelled volume that agree, and the one network-on preparation planned in full before it runs |
+| `src/core/quarantinedReader.ts` | How a long third-party result is read by a model with no tools, what its extract must look like to be believed, and how the raw text is released only after you approve |
 | `src/runtime/` | The built-in agents and how the runtime is composed |
 | `src/providers/` | Provider adapters, catalogues, health, local model discovery, `modelRole.ts` (what a model is *for*), and the local-GPU support layer that measures VRAM and reads what each runtime has loaded |
 | `src/skills/` | Built-in tools and skill handlers |
 | `src/memory/` | Memory retrieval, scanning, redaction, persistence |
 | `src/chat/` | The chat participant and interaction protocol |
-| `src/views/` | Settings, dashboards, editors and sidebar surfaces |
-| `src/mcp/` and `src/ard/` | MCP connectivity and resource discovery |
+| `src/views/` | Settings, dashboards, editors and sidebar surfaces, the Check Execution Sandbox report (`sandboxCheckCommand.ts`) and the Prepare / Remove Sandbox Dependencies commands (`sandboxDependenciesCommand.ts`) |
+| `src/mcp/` and `src/ard/` | MCP connectivity and resource discovery, including tool pinning and the tool-description scan (`mcpToolPins.ts`) |
 | `src/voice/` and `src/remote/` | Voice backends and remote control |
 | `src/cli/` | The command-line tool and the agent endpoint |
 | `src/acp/` | Agent-side sessions and permission brokering |

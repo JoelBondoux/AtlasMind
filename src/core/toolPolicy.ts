@@ -160,6 +160,20 @@ export function classifyToolInvocation(
           + ' (it runs with your permissions; its own tool use is approved separately)',
       };
 
+    // Releases the full text of a quarantined third-party result into the task.
+    // It reads nothing new from anywhere, so it is a read — but the orchestrator
+    // never lets it through on the approval mode alone: it always reaches the
+    // gate as a fresh approval (`quarantine.raw-release`), because releasing that
+    // text is exactly the decision the quarantined reader exists to put in front
+    // of a person. See `quarantinedReader.ts`.
+    case 'quarantine-read':
+      return {
+        category: 'read',
+        risk: 'medium',
+        summary: `show the agent the full text of quarantined third-party result ${typeof args['handle'] === 'string' ? args['handle'].slice(0, 12) : ''}`.trim()
+          + ' (it was withheld from the agent; it is still somebody else\'s text)',
+      };
+
     case 'terminal-run':
       return classifyTerminalInvocation(args);
 

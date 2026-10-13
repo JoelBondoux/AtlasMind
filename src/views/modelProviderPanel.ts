@@ -1,4 +1,5 @@
 import * as vscode from 'vscode';
+import { readPassEnvironmentSetting } from '../core/hostCommandEnvironment.js';
 import type { AtlasMindContext } from '../extension.js';
 import type { ProviderId, SubscriptionQuota } from '../types.js';
 import {
@@ -394,7 +395,7 @@ export class ModelProviderPanel {
         .hero-badge[data-tooltip]:hover::after, .hero-badge[data-tooltip]:focus-visible::after { opacity: 1; visibility: visible; }
         .search-shell { display: grid; gap: 6px; margin: 0 0 18px; }
         .search-label { font-weight: 600; }
-        .search-shell input { width: 100%; box-sizing: border-box; color: var(--vscode-input-foreground); background: var(--vscode-input-background); border: 1px solid var(--vscode-input-border, var(--atlas-border)); padding: 10px 12px; border-radius: 12px; }
+        .search-shell input { width: 100%; box-sizing: border-box; color: var(--vscode-input-foreground); background: var(--vscode-input-background); border: 1px solid var(--atlas-boundary); padding: 10px 12px; border-radius: 12px; }
         .panel-layout { display: grid; grid-template-columns: minmax(220px, 240px) minmax(0, 1fr); gap: 18px; align-items: start; }
         .panel-nav { position: sticky; top: 20px; display: grid; gap: 8px; padding: 16px; border: 1px solid var(--atlas-border); border-radius: 18px; background: linear-gradient(180deg, var(--atlas-surface-strong), var(--atlas-surface)); }
         .nav-link { width: 100%; text-align: left; border: 1px solid transparent; border-radius: 12px; padding: 11px 12px; background: transparent; color: var(--vscode-foreground); font-weight: 600; }
@@ -452,7 +453,7 @@ export class ModelProviderPanel {
         .status-badge, .meta-badge { display: inline-flex; align-items: center; border-radius: 999px; padding: 4px 10px; font-size: 0.88rem; border: 1px solid var(--atlas-border); }
         .status-badge.configured { background: color-mix(in srgb, var(--vscode-testing-iconPassed) 16%, transparent); }
         .status-badge.pending { background: color-mix(in srgb, var(--vscode-inputValidation-warningBorder, #cca700) 16%, transparent); }
-        .status-badge.failed { background: color-mix(in srgb, var(--vscode-inputValidation-warningBorder, #cca700) 22%, transparent); border-color: color-mix(in srgb, var(--vscode-inputValidation-warningBorder, #cca700) 48%, var(--atlas-border)); }
+        .status-badge.failed { background: color-mix(in srgb, var(--vscode-inputValidation-warningBorder, #cca700) 22%, transparent); border-color: color-mix(in srgb, color-mix(in srgb, var(--vscode-inputValidation-warningBorder, #cca700) var(--atlas-ink-share), var(--tint-away)) 48%, var(--atlas-border)); }
         .provider-detail-list { display: grid; gap: 8px; padding: 10px 12px; border: 1px solid var(--atlas-border); border-radius: 12px; background: color-mix(in srgb, var(--atlas-surface) 72%, transparent); }
         .provider-detail-list ul { margin: 0; padding-left: 18px; display: grid; gap: 6px; }
         .provider-detail-list li { display: grid; gap: 2px; }
@@ -462,8 +463,8 @@ export class ModelProviderPanel {
         .provider-actions { display: flex; flex-wrap: wrap; gap: 10px; }
         .provider-actions button { padding: 6px 12px; }
         .sync-banner { display: flex; align-items: flex-start; gap: 10px; padding: 10px 14px; border-radius: 8px; margin-bottom: 16px; font-size: 0.9rem; line-height: 1.5; }
-        .sync-banner--ok { background: color-mix(in srgb, var(--vscode-testing-iconPassed, #4caf50) 12%, transparent); border: 1px solid color-mix(in srgb, var(--vscode-testing-iconPassed, #4caf50) 40%, transparent); }
-        .sync-banner--warn { background: color-mix(in srgb, var(--vscode-inputValidation-warningBackground, #f0a500) 12%, transparent); border: 1px solid color-mix(in srgb, var(--vscode-inputValidation-warningBorder, #f0a500) 40%, transparent); }
+        .sync-banner--ok { background: color-mix(in srgb, var(--vscode-testing-iconPassed, #4caf50) 12%, transparent); border: 1px solid color-mix(in srgb, var(--dash-good) 40%, var(--atlas-boundary)); }
+        .sync-banner--warn { background: color-mix(in srgb, var(--vscode-inputValidation-warningBackground, #f0a500) 12%, transparent); border: 1px solid color-mix(in srgb, color-mix(in srgb, var(--vscode-inputValidation-warningBorder, #f0a500) var(--atlas-ink-share), var(--tint-away)) 40%, var(--atlas-boundary)); }
         .sync-banner__icon { flex-shrink: 0; font-size: 1rem; }
         .sync-banner__text { flex: 1; }
         .sync-banner__link { color: var(--atlas-accent); }
@@ -1497,6 +1498,7 @@ export async function useSubscriptionForProvider(atlas: AtlasMindContext, provid
     agents: [candidate],
     ...(workspaceRoot ? { cwd: workspaceRoot } : {}),
     hideConsoleWindows: configuration.get<boolean>('acp.hideConsoleWindows', false),
+    passEnvironment: () => readPassEnvironmentSetting(vscode.workspace.getConfiguration('atlasmind').inspect<unknown>('terminal.passEnvironment')).names,
   }).probe().catch(() => undefined);
 
   // Not installed — the expected first answer, and the reason this button
@@ -1871,6 +1873,7 @@ async function configureAcpProvider(atlas: AtlasMindContext): Promise<void> {
     agents: next,
     ...(workspaceRoot ? { cwd: workspaceRoot } : {}),
     hideConsoleWindows: configuration.get<boolean>('acp.hideConsoleWindows', false),
+    passEnvironment: () => readPassEnvironmentSetting(vscode.workspace.getConfiguration('atlasmind').inspect<unknown>('terminal.passEnvironment')).names,
   }).probe().catch(() => undefined);
 
   if (!probe?.installed) {
@@ -1914,6 +1917,7 @@ export async function isProviderConfigured(
     const probe = await new AcpAdapter({
       agents,
       hideConsoleWindows: configuration.get<boolean>('acp.hideConsoleWindows', false),
+      passEnvironment: () => readPassEnvironmentSetting(vscode.workspace.getConfiguration('atlasmind').inspect<unknown>('terminal.passEnvironment')).names,
     }).probe().catch(() => undefined);
     return Boolean(probe?.installed && probe.authenticated);
   }

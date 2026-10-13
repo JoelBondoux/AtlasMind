@@ -43,7 +43,7 @@ Installation is always non-destructive and opt-in:
 ## Security model
 
 - **Untrusted input.** Every manifest and search response is validated: required fields, `urn:ai:` identifier pattern, strict value-or-reference (exactly one of `url`/`data`), and byte/entry caps. Malformed entries are dropped, not fatal.
-- **Network safety.** Discovered and referral URLs must be HTTPS and are screened against private/loopback/link-local hosts (SSRF guard). `http`/localhost is allowed only for finders you explicitly mark insecure with `atlasmind.ard.allowInsecureEndpoints` enabled; followed referrals are always screened.
+- **Network safety.** Discovered and referral URLs must be HTTPS and go through the shared egress policy (`src/core/egressDestinationPolicy.ts`, `src/core/egressFetch.ts`): names local by definition are refused, every address a name resolves to is checked against private, loopback, link-local and reserved ranges, the connection is pinned to those addresses, and every redirect is re-screened. `http`/localhost is allowed only for finders you explicitly mark insecure with `atlasmind.ard.allowInsecureEndpoints` enabled, and those follow no redirects; followed referrals are always screened.
 - **Bounded federation.** Referral following and nested-catalog expansion are depth-capped to prevent loops and amplification.
 - **Nothing auto-installs.** Discovered MCP servers land disabled; the in-task skill is read-only; finders ship disabled.
 - **Trust metadata is informational.** A publisher's `trustManifest` (identity/attestations/provenance) is surfaced read-only; AtlasMind does not cryptographically verify it in this version.

@@ -102,3 +102,32 @@ describe('web-fetch skill', () => {
     expect(webFetchSkill.timeoutMs).toBe(30_000);
   });
 });
+
+describe('web-fetch egress screen', () => {
+  it.each([
+    ['https://169.254.169.254/latest/meta-data/', /egress\.blocked-address/],
+    ['https://2130706433/', /egress\.blocked-address/],
+    ['https://[::ffff:127.0.0.1]/', /egress\.blocked-address/],
+    ['https://100.64.0.1/', /egress\.blocked-address/],
+    ['http://example.com/', /egress\.scheme/],
+    ['https://user:pw@example.com/', /egress\.credentials/],
+    ['https://app.localhost/', /egress\.local-name/],
+  ])('refuses %s before calling fetchUrl', async (url, rule) => {
+    const fetchUrl = vi.fn();
+    const result = await webFetchSkill.execute({ url }, makeContext({ fetchUrl }));
+    expect(result).toMatch(/^Error: Refused/);
+    expect(result).toMatch(rule);
+    expect(fetchUrl).not.toHaveBeenCalled();
+  });
+
+  it('reports a refusal from the context (DNS, redirect) as an error with its rule', async () => {
+    const fetchUrl = vi.fn().mockResolvedValue({
+      ok: false,
+      status: 0,
+      body: 'Refused: "x.example" resolves to 10.0.0.1, in a private or reserved range. Rule egress.blocked-address.',
+    });
+    const result = await webFetchSkill.execute({ url: 'https://x.example/' }, makeContext({ fetchUrl }));
+    expect(result).toContain('Error');
+    expect(result).toContain('egress.blocked-address');
+  });
+});

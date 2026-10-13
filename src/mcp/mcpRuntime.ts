@@ -13,6 +13,8 @@
 import { execFile } from 'node:child_process';
 import { findCommandExecutable, getKnownCommandInstallHint } from './mcpClient.js';
 import { getRecommendedMcpStarterDetails } from '../constants.js';
+import { describeHostDryRunNotice } from '../core/dryRun.js';
+import { guardHostCommand, interceptDryRun } from '../core/dryRunHost.js';
 import type { RecommendedRuntimePackageManager, SupportedRuntimePlatform } from '../constants.js';
 
 export interface RuntimeInstallPlan {
@@ -35,7 +37,18 @@ export interface RuntimeInstallResult {
   message: string;
 }
 
+/**
+ * The shared no-shell process helper. Installers, the portal deploy and the
+ * website stack setup all start processes through here, so the dry-run guard
+ * lives here too: a version probe passes, anything that acts is refused with
+ * a `DryRunBlocked` rejection instead of starting.
+ */
 export function execFileAsync(command: string, args: string[]): Promise<{ stdout: string; stderr: string }> {
+  try {
+    guardHostCommand('process', command, args);
+  } catch (error) {
+    return Promise.reject(error);
+  }
   return new Promise((resolve, reject) => {
     execFile(command, args, { windowsHide: true }, (error, stdout, stderr) => {
       if (error) {
@@ -204,6 +217,16 @@ export async function runRuntimeInstallPlan(
   plan: RuntimeInstallPlan,
   onProgress?: (message: string) => void,
 ): Promise<RuntimeInstallResult> {
+  const dryRun = interceptDryRun({
+    surface: 'runtime-install',
+    kind: 'process',
+    summary: `install ${plan.displayName} with ${plan.humanCommand}`,
+    details: { command: plan.command, args: plan.args },
+    wouldHaveAsked: true,
+  });
+  if (dryRun) {
+    return { ok: false, message: describeHostDryRunNotice(dryRun) };
+  }
   onProgress?.(`Installing ${plan.displayName} via ${plan.packageManager}…`);
   let lastError: unknown = undefined;
   let attempts = 0;

@@ -35,6 +35,7 @@ import path from 'node:path';
 
 import type { WorkflowStageId } from './workflowCurriculum.js';
 import type { AutomationLevel } from './workflowAutomation.js';
+import { SsotHomeRefusalError } from './workspaceScope.js';
 
 export const WORKFLOW_HISTORY_SSOT_PATH = 'project_memory/operations/workflow-history.json';
 export const WORKFLOW_HISTORY_SUMMARY_SSOT_PATH = 'project_memory/operations/workflow-history.md';
@@ -565,7 +566,19 @@ export async function writeWorkflowHistory(
 export class WorkflowAuditLedger {
   private file: WorkflowHistoryFile;
 
-  constructor(private readonly workspaceRoot: string | undefined) {
+  /**
+   * @param workspaceRoot The SSOT home — the folder holding project memory,
+   *   from `ssotHomeRoot()`, never assumed to be the first folder.
+   * @param refusal Why project memory may not be read or written here, when
+   *   the home is ambiguous. A refused manager reads nothing and **throws** on
+   *   every write: a write that quietly did nothing would read exactly like one
+   *   that worked, and one sent to the first folder instead would land in a
+   *   repository nobody was looking at.
+   */
+  constructor(
+    private readonly workspaceRoot: string | undefined,
+    private readonly refusal?: string,
+  ) {
     this.file = workspaceRoot ? readWorkflowHistory(workspaceRoot) : { version: 1, records: [] };
   }
 
@@ -589,6 +602,9 @@ export class WorkflowAuditLedger {
    * still updates so a surface has something to show.
    */
   async record(record: WorkflowRunRecord): Promise<void> {
+    if (this.refusal) {
+      throw new SsotHomeRefusalError(this.refusal);
+    }
     this.file = appendWorkflowRecord(this.file, record);
     if (this.workspaceRoot) {
       await writeWorkflowHistory(this.workspaceRoot, this.file);

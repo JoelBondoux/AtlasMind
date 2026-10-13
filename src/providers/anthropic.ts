@@ -12,6 +12,101 @@ const ANTHROPIC_API_VERSION = process.env['ANTHROPIC_API_VERSION'] ?? '2023-06-0
 
 const ANTHROPIC_TOOL_NAME_PATTERN = /^[A-Za-z0-9_-]{1,128}$/;
 
+/**
+ * When the effort request shape below was last read against
+ * https://platform.claude.com/docs/en/build-with-claude/effort — GA, no beta
+ * header, `output_config: { effort: 'low' | 'medium' | 'high' | ... }`. Effort
+ * shapes every output token with or without thinking, so the `thinking` field is
+ * deliberately left alone: turning thinking on would oblige the tool loop to
+ * round-trip thinking blocks it does not keep, and on several models
+ * (`budget_tokens` on 4.7+) the older shape is a 400.
+ */
+export const ANTHROPIC_EFFORT_VERIFIED_AT = '2026-10-08';
+
+/**
+ * The request fields for a reasoning directive. Only `anthropic-effort` is
+ * implemented here; any other control is ignored rather than translated, so a
+ * directive meant for another vendor can never reach this endpoint as a guess.
+ */
+export function anthropicReasoningFields(directive: CompletionRequest['reasoning']): { output_config?: { effort: 'low' | 'medium' | 'high' } } {
+  return directive?.control === 'anthropic-effort' ? { output_config: { effort: directive.value } } : {};
+}
+
+/**
+ * When the sampling rule below was last read against the published docs. The
+ * rule, quoted from the Thinking page's *Sampling parameters* section
+ * (`ANTHROPIC_SAMPLING_SOURCE`): on Claude Fable 5.1, Mythos 5.1, Fable 5,
+ * Mythos 5, Mythos Preview, Opus 5.5, Opus 5, Opus 4.8, Opus 4.7, Sonnet 5.5,
+ * Sonnet 5 and Haiku 5.5, a non-default `temperature`, `top_p` or `top_k`
+ * returns a 400 on every request, whether or not thinking is used. On older
+ * models the restriction applies only while thinking is on (`temperature` and
+ * `top_k` are incompatible with thinking). Omitting the field is valid on every
+ * model, because the API supplies its own default.
+ */
+export const ANTHROPIC_SAMPLING_VERIFIED_AT = '2026-10-08';
+export const ANTHROPIC_SAMPLING_SOURCE = 'https://platform.claude.com/docs/en/build-with-claude/thinking#sampling-parameters';
+
+export interface AnthropicSamplingRule {
+  /** Which models the row covers, as a human reads it. */
+  family: string;
+  /** Anchored on the normalized API id; admits only a dated snapshot or `-latest` suffix. */
+  pattern: RegExp;
+}
+
+/**
+ * The Claude models known to **accept** `temperature`.
+ *
+ * An allowlist, not a denylist, on purpose: the list of models that reject the
+ * field has grown with every release since Opus 4.7, so a denylist is wrong the
+ * day the next model ships — and wrong in the direction that fails the request.
+ * An allowlist is wrong in the other direction: a new model that would have
+ * accepted `temperature` is sent none and samples at the API default, and the
+ * request still succeeds. Patterns are anchored so `claude-opus-4` never
+ * matches `claude-opus-4-7`.
+ *
+ * Every model here is one on which AtlasMind leaves thinking off — the adapter
+ * never sends `thinking`, and on these models omitting it means no thinking —
+ * which is the condition under which their `temperature` is accepted at all.
+ */
+export const ANTHROPIC_SAMPLING_ACCEPTING_MODELS: readonly AnthropicSamplingRule[] = [
+  { family: 'Claude Opus 4.6, Sonnet 4.6', pattern: /^claude-(?:opus|sonnet)-4-6(?:-\d{8})?$/i },
+  { family: 'Claude Opus 4.5, Sonnet 4.5, Haiku 4.5', pattern: /^claude-(?:opus|sonnet|haiku)-4-5(?:-\d{8})?$/i },
+  { family: 'Claude Opus 4.1', pattern: /^claude-opus-4-1(?:-\d{8})?$/i },
+  { family: 'Claude Opus 4, Sonnet 4', pattern: /^claude-(?:opus|sonnet)-4(?:-0|-\d{8})?$/i },
+  { family: 'Claude 3.x', pattern: /^claude-3-(?:7-sonnet|5-sonnet|5-haiku|opus|sonnet|haiku)(?:-\d{8}|-latest)?$/i },
+];
+
+/**
+ * The bare Claude API id behind any spelling AtlasMind meets: the router's
+ * `anthropic/` prefix, a Bedrock id (`us.anthropic.claude-…-v1:0`), or a Vertex
+ * snapshot (`claude-…@20250514`). Anything else passes through unchanged.
+ */
+export function normalizeAnthropicModelId(modelId: string): string {
+  let id = modelId.trim();
+  if (id.startsWith('anthropic/')) {
+    id = id.slice('anthropic/'.length);
+  }
+  id = id.replace(/^(?:[a-z]{2,6}\.)?anthropic\./i, '');
+  id = id.replace(/-v\d+(?::\d+)?$/i, '');
+  id = id.replace(/@\d{8}$/, '');
+  return id;
+}
+
+/** The accept-table row a model matches, or `undefined` — which means *send no sampling parameter*. */
+export function anthropicSamplingRule(modelId: string): AnthropicSamplingRule | undefined {
+  const id = normalizeAnthropicModelId(modelId);
+  return ANTHROPIC_SAMPLING_ACCEPTING_MODELS.find(rule => rule.pattern.test(id));
+}
+
+/**
+ * The sampling fields a Claude request may carry. Only `temperature`, and only
+ * to a model in the accept table; `top_p` and `top_k` are never sent (passing
+ * `temperature` and `top_p` together is itself a 400 on every Claude 4 model).
+ */
+export function anthropicSamplingFields(modelId: string, temperature: number | undefined): { temperature?: number } {
+  return anthropicSamplingRule(modelId) ? { temperature: temperature ?? 0.2 } : {};
+}
+
 interface AnthropicMessagesResponse {
   id: string;
   model: string;
@@ -63,11 +158,12 @@ export class AnthropicAdapter implements ProviderAdapter {
     const payload = {
       model: stripProviderPrefix(request.model),
       max_tokens: request.maxTokens ?? 1024,
-      temperature: request.temperature ?? 0.2,
+      ...anthropicSamplingFields(request.model, request.temperature),
       system: cached.system,
       messages,
       stop_sequences: request.stop,
       tools: cached.tools,
+      ...anthropicReasoningFields(request.reasoning),
     };
 
     const result = await this.withRetries(async () => {
@@ -148,12 +244,13 @@ export class AnthropicAdapter implements ProviderAdapter {
     const payload = {
       model: stripProviderPrefix(request.model),
       max_tokens: request.maxTokens ?? 1024,
-      temperature: request.temperature ?? 0.2,
+      ...anthropicSamplingFields(request.model, request.temperature),
       system: cached.system,
       messages,
       stop_sequences: request.stop,
       stream: true,
       tools: cached.tools,
+      ...anthropicReasoningFields(request.reasoning),
     };
 
     const response = await fetch(this.apiUrl, {

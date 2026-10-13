@@ -108,6 +108,19 @@ export interface ReleasePlanInput {
     /** Failures counted from that report. */
     failing: number;
   };
+  /**
+   * Why the declared testing policy could not be read, when it could not — an
+   * SSOT home that is ambiguous in a multi-root workspace leaves the matrix in
+   * project memory unread.
+   *
+   * Present, the gate is `unknown` whatever `testingEvidence` says about
+   * methodologies, because that evidence was measured against a policy nobody
+   * read: an empty matrix makes "every enabled methodology has evidence" true
+   * of nothing, and a default one makes it true of a standard the project never
+   * declared. A failing report still fails — failures are counted from the
+   * report, not from the policy.
+   */
+  testingPolicyUnreadable?: string;
 }
 
 export interface ReleasePlan {
@@ -411,6 +424,14 @@ export function evaluateReleaseGates(
         detail: `${evidence.failing} test${evidence.failing === 1 ? '' : 's'} failing in the last report.`,
         fixHint: 'Fix the failures, re-run the suite so a fresh report is written, then re-check.',
       }
+      : input.testingPolicyUnreadable !== undefined
+        ? {
+          id: 'tests-evidenced',
+          label: 'Declared testing policy met',
+          status: 'unknown',
+          detail: `The declared testing policy could not be read, so whether this release meets it is unknown. ${input.testingPolicyUnreadable}`,
+          fixHint: 'Settle where project memory lives so the testing matrix can be read, then re-check.',
+        }
       : evidence.assessable === 0
         ? {
           id: 'tests-evidenced',

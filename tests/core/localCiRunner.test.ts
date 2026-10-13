@@ -14,6 +14,7 @@ import {
   expectedLocalCiRunBlocker,
   initialLocalCiRunnerSnapshot,
   normalizeLocalCiArch,
+  parseContainerEngineSecurity,
   parseDockerGpuRuntimes,
   localCiRunnerEnvArgs,
   parseDockerInfo,
@@ -143,6 +144,31 @@ describe('local CI platform evidence', () => {
     }))).toMatchObject({ os: 'linux', arch: 'x64', cpuCount: 12, memoryGb: 16 });
     expect(parseDockerInfo(JSON.stringify({ OSType: '', Architecture: '', NCPU: 0, MemTotal: 0 })))
       .toBeUndefined();
+  });
+
+  it('reads the nested Podman info shape with the same parser, and never mixes the two', () => {
+    const podman = { host: { os: 'linux', arch: 'arm64', cpus: 4, memTotal: 8 * 1024 ** 3 } };
+    expect(parseDockerInfo(JSON.stringify(podman))).toEqual({ os: 'linux', arch: 'arm64', cpuCount: 4, memoryGb: 8 });
+    // Docker's top-level fields win: a Docker reading is never completed from a `host` object.
+    expect(parseDockerInfo(JSON.stringify({ OSType: 'linux', Architecture: '', NCPU: 4, MemTotal: 1e10, ...podman })))
+      .toBeUndefined();
+    expect(parseDockerInfo(JSON.stringify({ host: { os: 'linux', arch: 'amd64', cpus: 4 } }))).toBeUndefined();
+    expect(parseDockerInfo('null')).toBeUndefined();
+  });
+
+  it('reads how an engine maps users, and leaves it unknown when the engine does not say', () => {
+    expect(parseContainerEngineSecurity(JSON.stringify({
+      OSType: 'linux', SecurityOptions: ['name=seccomp,profile=builtin', 'name=cgroupns'], Runtimes: { runc: {} },
+    }))).toEqual({ rootless: false, runtimes: ['runc'] });
+    expect(parseContainerEngineSecurity(JSON.stringify({
+      OSType: 'linux', SecurityOptions: ['name=seccomp,profile=builtin', 'name=rootless'],
+    }))).toMatchObject({ rootless: true });
+    expect(parseContainerEngineSecurity(JSON.stringify({ OSType: 'linux' }))).not.toHaveProperty('rootless');
+    expect(parseContainerEngineSecurity(JSON.stringify({
+      host: { security: { rootless: true }, ociRuntime: { name: 'crun' } },
+    }))).toEqual({ rootless: true, runtimes: ['crun'] });
+    expect(parseContainerEngineSecurity(JSON.stringify({ host: { security: { rootless: 'yes' } } }))).toEqual({ runtimes: [] });
+    expect(parseContainerEngineSecurity('not json')).toEqual({ runtimes: [] });
   });
 
   it('reports host GPU memory honestly and does not repeat a truncated Windows total', () => {

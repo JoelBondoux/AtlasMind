@@ -62,6 +62,7 @@
 import { readFileSync } from 'node:fs';
 import { mkdir, writeFile } from 'node:fs/promises';
 import path from 'node:path';
+import { SsotHomeRefusalError } from './workspaceScope.js';
 
 export const TEST_CASES_SSOT_PATH = 'project_memory/operations/test-cases.json';
 export const TEST_CASES_SUMMARY_SSOT_PATH = 'project_memory/operations/test-cases.md';
@@ -1241,7 +1242,19 @@ export function renderTestCaseMarkdown(register: TestCaseRegister): string {
 export class TestCaseRegisterManager {
   private register: TestCaseRegister;
 
-  constructor(private readonly workspaceRoot: string | undefined) {
+  /**
+   * @param workspaceRoot The SSOT home — the folder holding project memory,
+   *   from `ssotHomeRoot()`, never assumed to be the first folder.
+   * @param refusal Why project memory may not be read or written here, when
+   *   the home is ambiguous. A refused manager reads nothing and **throws** on
+   *   every write: a write that quietly did nothing would read exactly like one
+   *   that worked, and one sent to the first folder instead would land in a
+   *   repository nobody was looking at.
+   */
+  constructor(
+    private readonly workspaceRoot: string | undefined,
+    private readonly refusal?: string,
+  ) {
     this.register = workspaceRoot
       ? readTestCaseRegister(workspaceRoot)
       : { version: 1, cases: [], executions: [], assets: [] };
@@ -1258,6 +1271,9 @@ export class TestCaseRegisterManager {
   }
 
   async save(register: TestCaseRegister): Promise<void> {
+    if (this.refusal) {
+      throw new SsotHomeRefusalError(this.refusal);
+    }
     this.register = register;
     if (this.workspaceRoot) {
       await writeTestCaseRegister(this.workspaceRoot, register);

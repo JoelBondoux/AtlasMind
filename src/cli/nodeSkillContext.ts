@@ -5,11 +5,18 @@ import { execFile } from 'node:child_process';
 import { promisify } from 'node:util';
 import type { SkillExecutionContext } from '../types.js';
 import { NodeMemoryManager } from './nodeMemoryManager.js';
+import { egressFetch, toSkillHttpResult } from '../core/egressFetch.js';
 import {
   planTestResourceBudget,
   TEST_RESOURCE_SHARE_DEFAULT,
   withTestResourceEnv,
 } from '../core/testResourceBudget.js';
+import {
+  CLI_PASS_ENVIRONMENT_VARIABLE,
+  describeWithheldEnvironment,
+  planHostCommandEnvironment,
+  readCliPassEnvironment,
+} from '../core/hostCommandEnvironment.js';
 
 const execFileAsync = promisify(execFile);
 const EXCLUDED_DIR_NAMES = new Set(['node_modules', '.git', 'out', 'dist', 'coverage']);
@@ -100,30 +107,43 @@ export function createNodeSkillExecutionContext(
     async runCommand(executable, args = [], options) {
       const workspaceRoot = await canonicalWorkspaceRootPromise;
       const cwd = options?.cwd ? await assertInsideWorkspace(workspaceRoot, options.cwd, 'runCommand') : workspaceRoot;
+      // The command a model asked for never sees the CLI's credentials —
+      // including the ATLASMIND_PROVIDER_* variables the CLI reads its own keys
+      // from. Names listed in ATLASMIND_PASS_ENVIRONMENT pass unchanged. See
+      // `hostCommandEnvironment.ts`.
+      const environmentPlan = planHostCommandEnvironment(process.env, {
+        passThrough: readCliPassEnvironment(process.env).names,
+        platform: process.platform,
+      });
       // The CLI has no settings store, so a test command runs under the
       // default testing share rather than the user's slider — governed at the
       // default beats ungoverned at all.
-      const env = options?.testResources
-        ? withTestResourceEnv(process.env, planTestResourceBudget(
+      const env = (options?.testResources
+        ? withTestResourceEnv(environmentPlan.env, planTestResourceBudget(
           { cpuCount: Math.max(1, os.cpus().length), memoryGb: Math.max(1, os.totalmem() / (1024 ** 3)) },
           TEST_RESOURCE_SHARE_DEFAULT,
-        )) as NodeJS.ProcessEnv
-        : undefined;
+        ))
+        : environmentPlan.env) as NodeJS.ProcessEnv;
       try {
         const result = await execFileAsync(executable, args, {
           cwd,
           timeout: clampInteger(options?.timeoutMs, 30000, 1000, 300000),
           maxBuffer: 1024 * 1024 * 4,
-          ...(env ? { env } : {}),
+          env,
         });
         return { ok: true, exitCode: 0, stdout: result.stdout ?? '', stderr: result.stderr ?? '' };
       } catch (error) {
         const failure = error as { code?: number; stdout?: string; stderr?: string; message?: string };
+        const stderr = failure.stderr ?? failure.message ?? 'Command failed.';
+        const withheldNote = describeWithheldEnvironment(
+          environmentPlan,
+          `add its exact name to ${CLI_PASS_ENVIRONMENT_VARIABLE} (comma-separated)`,
+        );
         return {
           ok: false,
           exitCode: typeof failure.code === 'number' ? failure.code : 1,
           stdout: failure.stdout ?? '',
-          stderr: failure.stderr ?? failure.message ?? 'Command failed.',
+          stderr: withheldNote ? [stderr, withheldNote].filter(part => part.length > 0).join('\n') : stderr,
         };
       }
     },
@@ -224,32 +244,22 @@ export function createNodeSkillExecutionContext(
     async renameSymbol() {
       return { filesChanged: 0, editsApplied: 0 };
     },
+    // Same boundary as the extension host: screened URL, DNS and redirects,
+    // connection pinned to the vetted addresses (`egressFetch`).
     async fetchUrl(url, options) {
-      const response = await fetch(url, {
-        signal: AbortSignal.timeout(clampInteger(options?.timeoutMs, 10000, 1000, 60000)),
-      });
-      const buffer = Buffer.from(await response.arrayBuffer());
-      const maxBytes = clampInteger(options?.maxBytes, 500000, 1024, 5_000_000);
-      return {
-        ok: response.ok,
-        status: response.status,
-        body: buffer.subarray(0, maxBytes).toString('utf-8'),
-      };
+      return toSkillHttpResult(await egressFetch(url, {
+        maxBytes: clampInteger(options?.maxBytes, 500000, 1024, 5_000_000),
+        timeoutMs: clampInteger(options?.timeoutMs, 10000, 1000, 60000),
+      }));
     },
     async httpRequest(url, options) {
-      const response = await fetch(url, {
+      return toSkillHttpResult(await egressFetch(url, {
         method: options?.method ?? 'GET',
-        headers: options?.headers,
-        body: options?.body,
-        signal: AbortSignal.timeout(clampInteger(options?.timeoutMs, 10000, 1000, 60000)),
-      });
-      const buffer = Buffer.from(await response.arrayBuffer());
-      const maxBytes = clampInteger(options?.maxBytes, 500000, 1024, 5_000_000);
-      return {
-        ok: response.ok,
-        status: response.status,
-        body: buffer.subarray(0, maxBytes).toString('utf-8'),
-      };
+        ...(options?.headers ? { headers: options.headers } : {}),
+        ...(options?.body !== undefined ? { body: options.body } : {}),
+        maxBytes: clampInteger(options?.maxBytes, 500000, 1024, 5_000_000),
+        timeoutMs: clampInteger(options?.timeoutMs, 10000, 1000, 60000),
+      }));
     },
     async getCodeActions() {
       return [];

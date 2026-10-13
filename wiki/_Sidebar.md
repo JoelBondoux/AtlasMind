@@ -29,6 +29,7 @@
 ### Trust
 - [[Data Privacy and GDPR]]
 - [[Security]]
+- [[Prompt Injection Threat Model]]
 - [[Tool Execution]]
 
 ### The project

@@ -55,6 +55,7 @@ import {
 } from './ciRoutes.js';
 import { describeCreditReading, type CiCreditReading } from './ciCreditMeter.js';
 import { interpretVersionedDocument, type VersionedDocumentRead } from './schemaMigration.js';
+import { SsotHomeRefusalError } from './workspaceScope.js';
 
 export const CI_ROUTING_SSOT_PATH = 'project_memory/operations/ci-routing.json';
 export const CI_ROUTING_SUMMARY_SSOT_PATH = 'project_memory/operations/ci-routing.md';
@@ -917,7 +918,19 @@ export class CiRoutingConfigManager {
   private preserveExisting = false;
   private notice: string | undefined;
 
-  constructor(private readonly workspaceRoot: string | undefined) {
+  /**
+   * @param workspaceRoot The SSOT home — the folder holding project memory,
+   *   from `ssotHomeRoot()`, never assumed to be the first folder.
+   * @param refusal Why project memory may not be read or written here, when
+   *   the home is ambiguous. A refused manager reads nothing and **throws** on
+   *   every write: a write that quietly did nothing would read exactly like one
+   *   that worked, and one sent to the first folder instead would land in a
+   *   repository nobody was looking at.
+   */
+  constructor(
+    private readonly workspaceRoot: string | undefined,
+    private readonly refusal?: string,
+  ) {
     this.applyRead();
   }
 
@@ -939,7 +952,7 @@ export class CiRoutingConfigManager {
   }
 
   getNotice(): string | undefined {
-    return this.notice;
+    return this.refusal ?? this.notice;
   }
 
   reload(): CiRoutingConfig | undefined {
@@ -948,6 +961,9 @@ export class CiRoutingConfigManager {
   }
 
   async create(): Promise<CiRoutingConfig | undefined> {
+    if (this.refusal) {
+      throw new SsotHomeRefusalError(this.refusal);
+    }
     if (this.config) {
       return this.config;
     }
@@ -963,6 +979,9 @@ export class CiRoutingConfigManager {
   }
 
   async save(config: CiRoutingConfig): Promise<void> {
+    if (this.refusal) {
+      throw new SsotHomeRefusalError(this.refusal);
+    }
     this.config = config;
     if (this.workspaceRoot) {
       await writeCiRoutingConfig(this.workspaceRoot, config);

@@ -39,6 +39,7 @@ import type {
   PromotionPath,
   RoutineDefinition,
 } from '../types.js';
+import { SsotHomeRefusalError } from './workspaceScope.js';
 
 export const DELIVERY_SSOT_PATH = 'project_memory/operations/delivery.json';
 export const DELIVERY_SUMMARY_SSOT_PATH = 'project_memory/operations/delivery.md';
@@ -1314,7 +1315,19 @@ function describe(value: string | undefined): string {
 export class DeliveryManager {
   private config: DeliveryConfig | undefined;
 
-  constructor(private readonly workspaceRoot: string | undefined) {
+  /**
+   * @param workspaceRoot The SSOT home — the folder holding project memory,
+   *   from `ssotHomeRoot()`, never assumed to be the first folder.
+   * @param refusal Why project memory may not be read or written here, when
+   *   the home is ambiguous. A refused manager reads nothing and **throws** on
+   *   every write: a write that quietly did nothing would read exactly like one
+   *   that worked, and one sent to the first folder instead would land in a
+   *   repository nobody was looking at.
+   */
+  constructor(
+    private readonly workspaceRoot: string | undefined,
+    private readonly refusal?: string,
+  ) {
     this.config = workspaceRoot ? readDeliveryConfig(workspaceRoot) : undefined;
   }
 
@@ -1338,6 +1351,9 @@ export class DeliveryManager {
    * seeded config is still returned in memory.
    */
   async ensureSeeded(seed: DeliverySeedInput): Promise<DeliveryConfig> {
+    if (this.refusal) {
+      throw new SsotHomeRefusalError(this.refusal);
+    }
     if (this.config) {
       return this.config;
     }
@@ -1355,6 +1371,9 @@ export class DeliveryManager {
 
   /** Persist an updated config (e.g. from the stage editor) and cache it. */
   async save(config: DeliveryConfig): Promise<void> {
+    if (this.refusal) {
+      throw new SsotHomeRefusalError(this.refusal);
+    }
     this.config = config;
     if (this.workspaceRoot) {
       await writeDeliveryConfig(this.workspaceRoot, config);

@@ -115,6 +115,17 @@ export interface ModelInfo {
    */
   thinkingTokenMultiplier?: number;
   /**
+   * Which vendor parameter, if any, adjusts how hard this model thinks.
+   *
+   * **Declared, never inferred.** Set only from the provider-scoped table in
+   * `modelCatalog.ts` (`lookupReasoningControl`), whose rows were read from each
+   * vendor's published request shape; a model whose name merely sounds like a
+   * reasoner gets nothing here. Absent means *unknown*, and an unknown model is
+   * still routable — it is simply never preferred for deep reasoning and never
+   * sent a reasoning parameter (`reasoningBudget.ts`).
+   */
+  reasoningControl?: ReasoningControlId;
+  /**
    * ISO 8601 date (YYYY-MM-DD) on or after which this model should be treated
    * as deprecated.  The router will skip deprecated models during candidate
    * selection and emit a one-time "model deprecated" notification to the user
@@ -212,9 +223,63 @@ export type TaskPhase = 'planning' | 'execution' | 'synthesis' | 'maintenance';
 export type TaskModality = 'text' | 'code' | 'vision' | 'mixed';
 export type TaskReasoning = 'low' | 'medium' | 'high';
 
+/**
+ * The third routing axis, beside budget and speed: how hard the model should
+ * think. `auto` derives a level from the task profile through a declared table
+ * (`AUTO_REASONING_RULES` in `src/core/reasoningBudget.ts`); the other three are
+ * an explicit choice.
+ */
+export type ReasoningPreference = 'auto' | 'minimal' | 'standard' | 'deep';
+/** A resolved reasoning level — what `auto` becomes once the task is known. */
+export type ReasoningLevel = Exclude<ReasoningPreference, 'auto'>;
+/**
+ * A vendor request parameter that adjusts thinking depth, verified against that
+ * vendor's published docs (`REASONING_CONTROLS`). Deliberately closed: a control
+ * nobody verified cannot be named, so it cannot be sent.
+ */
+export type ReasoningControlId = 'anthropic-effort' | 'openai-reasoning-effort' | 'gemini-reasoning-effort';
+
+/**
+ * What one request is asked to do about thinking depth, already mapped onto the
+ * vendor's wire value. Built only by `planReasoningRequest`, and only for a model
+ * whose declared control matches its provider; an adapter applies it only when
+ * `control` is one it implements, and ignores it otherwise.
+ */
+export interface ReasoningDirective {
+  control: ReasoningControlId;
+  level: ReasoningLevel;
+  /** The vendor's own value for this level, from the declared table. */
+  value: 'low' | 'medium' | 'high';
+  /** The declared rule that chose `value`. */
+  rule: string;
+}
+
+/**
+ * How a turn's reasoning axis was decided, carried on the result so the routing
+ * explanation can say it. `parameter` is present only when one was sent.
+ */
+export interface TaskReasoningDecision {
+  preference: ReasoningPreference;
+  level: ReasoningLevel;
+  /** The declared rule that resolved the level (auto table, explicit choice, or a budget step-down). */
+  levelRule: string;
+  model: string;
+  outcome: 'applied' | 'not-sent';
+  /** Why nothing was sent, when nothing was — e.g. no declared control for the model. */
+  notSentRule?: string;
+  /** The wire parameter and value, when one was sent, e.g. `output_config.effort=high`. */
+  parameter?: string;
+}
+
 export interface RoutingConstraints {
   budget: BudgetMode;
   speed: SpeedMode;
+  /**
+   * How hard the model should think. Absent leaves the router exactly as it was
+   * before the axis existed — the orchestrator's main turn sets it from
+   * `atlasmind.reasoningMode`; helper calls that never set it are unaffected.
+   */
+  reasoning?: ReasoningPreference;
   maxCostUsd?: number;
   preferredProvider?: ProviderId;
   /**
@@ -309,7 +374,136 @@ export interface ToolInvocationPolicy {
   summary: string;
 }
 
-export type ToolApprovalDecision = 'allow-once' | 'bypass-task' | 'autopilot' | 'deny';
+/**
+ * `acknowledge-source` is the release valve on an approval raised because the
+ * turn has read untrusted content: "allow this category for the rest of this
+ * task, I have seen where the content came from". It is only ever offered on
+ * such a request, and the manager refuses it on a request that did not list it
+ * — an ordinary approval card cannot be answered with it.
+ */
+export type ToolApprovalDecision = 'allow-once' | 'bypass-task' | 'autopilot' | 'acknowledge-source' | 'deny';
+
+/**
+ * Where a piece of prompt content came from.
+ *
+ * Deliberately a closed union with no `string` escape hatch: an origin somebody
+ * invents at a call site is exactly the unlabelled context the egress boundary
+ * (`src/core/modelEgress.ts`, which re-exports this) exists to refuse.
+ */
+export type ModelContextOrigin =
+  | 'user-prompt'
+  | 'system-prompt'
+  | 'session-context'
+  | 'native-chat-context'
+  | 'attachment'
+  | 'workspace-file'
+  | 'tool-result'
+  | 'project-memory'
+  | 'background-memory'
+  | 'generated-instruction'
+  | 'image-attachment';
+
+/**
+ * Who could have written a piece of text the model has read, ordered from most
+ * to least trusted. A turn's provenance is the **maximum** over everything it
+ * has absorbed, and it never decreases: a model that has read a fetched page
+ * cannot un-read it. See `src/core/contextProvenance.ts`.
+ */
+export type ProvenanceClass = 'operator' | 'atlasmind' | 'workspace' | 'third-party';
+
+/**
+ * Which provenance levels make an outward or mutating action need a fresh
+ * approval. There is deliberately no `off`: the escape hatch is the per-task
+ * acknowledgement on the approval itself.
+ */
+export type UntrustedEscalationScope = 'third-party' | 'workspace-and-third-party';
+
+/** One thing the turn absorbed that was not written by the operator. */
+export interface ProvenanceSource {
+  origin: ModelContextOrigin;
+  /** The tool whose result this was, when the origin is a tool result. */
+  toolName?: string;
+  provenance: ProvenanceClass;
+  /** The declared rule that classified it. */
+  rule: string;
+  /** The result was scanned and contained an instruction-override pattern. */
+  injectionSuspected: boolean;
+  /** Scanner rule ids that fired, when `injectionSuspected`. */
+  findings?: string[];
+  /**
+   * Read by an earlier turn of the same conversation rather than by the task
+   * now running. Changes how a dialog names the source, never the decision.
+   */
+  carried?: boolean;
+}
+
+/** What the model has read so far this turn. Monotone: `level` and `injectionSuspected` only ever rise. */
+export interface TurnProvenance {
+  level: ProvenanceClass;
+  injectionSuspected: boolean;
+  /** Distinct sources at `workspace` or above, capped; `omittedSources` counts the rest. */
+  sources: ProvenanceSource[];
+  omittedSources: number;
+}
+
+export type TaintDecision = 'free' | 'fresh-approval' | 'refuse';
+
+/** The orchestrator's verdict on one tool call, given what the turn has read. */
+export interface TaintEscalation {
+  decision: TaintDecision;
+  /** The declared rule that decided it. */
+  rule: string;
+  category: ToolRiskCategory;
+  scope: UntrustedEscalationScope;
+  level: ProvenanceClass;
+  injectionSuspected: boolean;
+  /** The sources that put the turn in scope — what a dialog names. */
+  sources: ProvenanceSource[];
+}
+
+/**
+ * Optional fourth argument to `toolApprovalGate`. Present only when the turn
+ * has read untrusted content and the call needs a fresh approval; an untainted
+ * turn calls the gate with three arguments exactly as before.
+ */
+export interface ToolApprovalGateMeta {
+  escalation: TaintEscalation;
+}
+
+/**
+ * Why an approval was granted without asking anybody, recorded with the call.
+ * Today only `sandbox-relaxation/relaxed` produces one — a terminal write that
+ * ran in a confirmed sandbox under `atlasmind.sandbox.relaxTerminalApprovals`
+ * (`core/sandboxApprovalRelaxation.ts`) — and it cites what the decision rested
+ * on, so a reader can tell which attestation stood in for the prompt.
+ */
+export interface ToolApprovalAudit {
+  /** The declared rule, `<table>/<rule id>`. */
+  rule: string;
+  /** One line for the output channel; secrets redacted, no newlines. */
+  line: string;
+  sandboxSessionId: string;
+  attestationId: string;
+  probedAt: string;
+  expiresAt: string;
+  /** The digest-pinned image reference. */
+  image: string;
+  /** `sha256:<hex>`. */
+  digest: string;
+}
+
+/**
+ * What `toolApprovalGate` answers. `sandboxSession` makes the approval
+ * conditional: it holds only for execution bound to that session, so the
+ * Orchestrator binds the call's context with `withSandbox` — and refuses the
+ * call when it cannot, rather than running it unbound.
+ */
+export interface ToolApprovalGateResult {
+  approved: boolean;
+  reason?: string;
+  sandboxSession?: SandboxSessionHandle;
+  audit?: ToolApprovalAudit;
+}
 
 export interface PendingToolApprovalRequest {
   id: string;
@@ -1343,6 +1537,30 @@ export interface DataPrivacyActivityEvent {
  * tool-approval, checkpointing, webhook dispatch, and post-tool
  * verification without inflating the constructor parameter list.
  */
+/**
+ * One tool call a dry run answered with a description instead of running it,
+ * or a context method its backstop refused (`rule: 'dry-run.backstop'`). Holds
+ * a fingerprint and a redacted, truncated preview of the arguments — never the
+ * arguments — because it goes to an output channel and a model wrote them.
+ * Built by `buildDryRunRecord` in `src/core/dryRun.ts`.
+ */
+export interface DryRunRecord {
+  at: string;
+  taskId: string;
+  toolName: string;
+  category: ToolRiskCategory;
+  risk: ToolInvocationPolicy['risk'];
+  /** The `DRY_RUN_RULES` id that simulated it, or `dry-run.backstop`. */
+  rule: string;
+  summary: string;
+  /** Whether the call would have reached a person under the approval mode (bypasses aside). */
+  wouldHaveAsked: boolean;
+  /** A fingerprint of the arguments — comparable across runs, reveals nothing. */
+  argsFingerprint: string;
+  /** Redacted and truncated. */
+  argsPreview: string;
+}
+
 export interface OrchestratorHooks {
   /**
    * Host-owned settings reader. The core orchestrator has no direct dependency
@@ -1391,12 +1609,37 @@ export interface OrchestratorHooks {
    */
   onSerialisedWriters?: (count: number) => void;
 
-  /** Gate function that determines whether a tool invocation should proceed. */
+  /**
+   * Gate function that determines whether a tool invocation should proceed.
+   *
+   * `meta` is passed only when the turn has read untrusted content and the call
+   * needs a **fresh** approval — one that autopilot, a task bypass or a category
+   * bypass granted before the taint cannot answer. A gate that cannot ask a
+   * person must refuse it.
+   */
   toolApprovalGate?: (
     taskId: string,
     toolName: string,
     args: Record<string, unknown>,
-  ) => Promise<{ approved: boolean; reason?: string }>;
+    meta?: ToolApprovalGateMeta,
+  ) => Promise<ToolApprovalGateResult>;
+
+  /**
+   * A task id the gate may have been asked about has finished — on every path,
+   * including a throw. The host drops whatever it granted for that task (a task
+   * bypass, a category bypass, an "I've seen the source" acknowledgement), so a
+   * grant cannot outlive the task it was given for.
+   */
+  onTaskSettled?: (taskId: string) => void;
+
+  /**
+   * Dry run answered a tool call with a description instead of running it, or
+   * its context backstop refused a method a skill reached for. The record holds
+   * a fingerprint and a redacted preview of the arguments, never the arguments.
+   * The host files it in its in-memory ledger and output channel; a host that
+   * throws does not fail the turn. See `src/core/dryRun.ts`.
+   */
+  onDryRunRecord?: (record: DryRunRecord) => void;
 
   /** Gate function for warning-level auto-generated skills before in-process execution. */
   generatedSkillApprovalGate?: (
@@ -1491,6 +1734,19 @@ export interface OrchestratorConfig {
 }
 
 /**
+ * A sandbox session as a skill context carries it: `core/sandboxRunner.ts`'s
+ * `SandboxSession` extends this with the frozen settings and attestation. Kept
+ * to these two fields here so this module, which the web build also reads, never
+ * imports the runner. Only a session the installed host itself opened is ever
+ * honoured — an object of this shape made anywhere else is refused, so a
+ * caller cannot vouch for an attestation the host never took.
+ */
+export interface SandboxSessionHandle {
+  readonly id: string;
+  readonly mode: 'off' | 'require';
+}
+
+/**
  * Runtime context provided to skill handlers.
  * Abstracts VS Code APIs so skills remain independently testable.
  */
@@ -1513,6 +1769,16 @@ export interface SkillExecutionContext {
    * supplies a directory it has already made.
    */
   withResolutionRoot?(root: string): SkillExecutionContext;
+  /**
+   * The same context with its commands bound to one sandbox session — the
+   * settings and attestation a caller already decided something on. Under
+   * `atlasmind.sandbox.mode = require`, `runCommand` then plans and runs on that
+   * session rather than opening its own, so the decision and the execution
+   * cannot rest on two different readings. A bound session that has expired is
+   * refused, never re-probed. Optional: a host with no sandbox (the CLI) has
+   * nothing to bind.
+   */
+  withSandbox?(session: SandboxSessionHandle): SkillExecutionContext;
   /** Search the in-memory SSOT index for relevant entries. */
   queryMemory(query: string, maxResults?: number): Promise<MemoryEntry[]>;
   /** Add or update an entry in the in-memory SSOT index and optionally persist to disk. */
@@ -1737,6 +2003,15 @@ export interface RoutineDefinition {
   /** When true this routine is selected by /ship when no routine ID is specified. */
   default?: boolean;
   steps: RoutineStep[];
+  /**
+   * When the routine asks to run on its own, exactly as written in the file —
+   * `daily at 02:00`, `weekly on monday at 09:30`, `every 6 hours`. Kept raw and
+   * validated by `routineSchedule.parseRoutineSchedule`, never coerced here: a
+   * schedule the parser refuses is reported with its reason rather than read as
+   * some other time. Declaring one asks; it does not schedule anything — that
+   * takes the master setting and the developer's own approval of these steps.
+   */
+  schedule?: string;
   /** Absolute path to the source .md file. Absent for built-in routines. */
   source?: string;
   builtIn?: boolean;
@@ -1769,6 +2044,12 @@ export interface RoutineRunResult {
    * input changes.
    */
   refusedReason?: string;
+  /**
+   * Set when a dry run stopped the routine before its first step. `steps` is
+   * empty, `refusedReason` carries the notice, and the run is not written to
+   * run history — a routine that never ran did not fail.
+   */
+  dryRun?: boolean;
 }
 
 // ── Website Studio ───────────────────────────────────────────────
@@ -3130,6 +3411,13 @@ export interface PromotionRunResult {
   durationMs: number;
   /** Recovery hint surfaced after the run (rollback command / runbook ref). */
   rollback?: { command?: string; runbookRef?: string };
+  /**
+   * Set when a dry run stopped the promotion before its first step. Every
+   * executable step is reported `skipped`, with what it would have run as its
+   * output, so the plan is the record; the caller must not log it as a
+   * promotion that happened.
+   */
+  dryRun?: boolean;
 }
 
 /**
@@ -4540,6 +4828,11 @@ export interface ToolExecutionArtifact {
    * whose executable could not be read.
    */
   commandName?: string;
+  /**
+   * Present when the approval was granted without asking — today only a
+   * sandbox-relaxed terminal write — citing the attestation it rested on.
+   */
+  approval?: ToolApprovalAudit;
 }
 
 export interface SubTaskExecutionArtifacts {
@@ -4585,6 +4878,13 @@ export interface SubTaskResult {
   suggestedIterationLimit?: number;
   /** Orchestrator-suggested higher `maxToolCallsPerTurn` value the user can apply to resume this subtask. */
   suggestedToolCallsPerTurnLimit?: number;
+  /**
+   * What this subtask (and everything it depended on) read. Dependents are
+   * seeded from it, because a dependency's output reaches them as part of their
+   * own prompt. Absent means *unrecorded*, which a dependent treats as
+   * third-party — unknown is not clear.
+   */
+  provenance?: TurnProvenance;
 }
 
 /** A decomposed project plan ready for parallel execution. */
@@ -4678,6 +4978,12 @@ export interface ProjectRunSubTaskArtifact {
   checkpointedTools: string[];
   changedFiles: ChangedWorkspaceFile[];
   diffPreview?: string;
+  /**
+   * What this subtask had read, so a resumed run seeds its dependents from it.
+   * Absent on a run recorded before 0.489.1, which a dependent reads as
+   * third-party — unknown is not clear.
+   */
+  provenance?: TurnProvenance;
 }
 
 export interface ProjectRunLogEntry {
@@ -4690,6 +4996,11 @@ export interface ProjectRunSeedResult {
   subTaskId: string;
   title: string;
   output: string;
+  /**
+   * What the subtask that produced this output had read. Absent on a seed
+   * recorded before 0.489.1, which a dependent reads as third-party.
+   */
+  provenance?: TurnProvenance;
 }
 
 export interface ProjectRunRecord {
@@ -4992,6 +5303,12 @@ export interface TaskModelAttempt {
   outputTokens: number;
   /** Bounded diagnostic text for failed or superseded attempts. */
   reason?: string;
+  /**
+   * For a timed-out attempt, the declared rule that sized its budget and the
+   * arithmetic it applied (`planProviderTimeout`), so a failure explanation can
+   * say *why* that long rather than only how long.
+   */
+  timeoutBudget?: string;
 }
 
 export interface TaskResult {
@@ -5006,6 +5323,8 @@ export interface TaskResult {
   durationMs: number;
   /** Every model endpoint actually invoked, in order. Selection previews are excluded. */
   modelAttempts?: TaskModelAttempt[];
+  /** How the reasoning axis was decided for the model that answered, and what (if anything) was sent. */
+  reasoning?: TaskReasoningDecision;
   /**
    * Third-party tools Resource Discovery found when nothing installed could do
    * part of this task. Offered to the user to review and install; never installed.
@@ -5204,7 +5523,98 @@ export interface McpServerState {
   status: McpConnectionStatus;
   /** Set when status is 'error'. */
   error?: string;
+  /**
+   * The tools this connection exposes **as skills** — registered because their
+   * pin matched, or because the server was being seen for the first time. A
+   * tool held for review is never in this list (see `heldTools`).
+   */
   tools: McpToolInfo[];
+  /**
+   * Tools the server offered that were *not* registered: new since the server
+   * was pinned, changed since it was pinned, flagged by the description scan, or
+   * unverifiable because their pin could not be read. Each waits for an explicit
+   * approval in the MCP panel. Cleared on disconnect.
+   */
+  heldTools?: McpHeldTool[];
+}
+
+/**
+ * What `mcpToolPins` concluded about one tool a server offered.
+ *
+ * - `pinned-match` — description and schema are byte-identical (canonically) to the approved pin.
+ * - `first-sight` — the server had no pins at all; the user's enable is the approval.
+ * - `new-tool` — the server is pinned, but not this tool.
+ * - `description-changed` / `schema-changed` — the tool changed since it was approved (a rug pull, until shown otherwise).
+ * - `flagged` — the description scan found tool-poisoning text; held even at first sight.
+ * - `unverifiable` — the stored pin could not be read, so nothing can be matched against it.
+ */
+export type McpToolVerdict =
+  | 'pinned-match'
+  | 'first-sight'
+  | 'new-tool'
+  | 'description-changed'
+  | 'schema-changed'
+  | 'flagged'
+  | 'unverifiable';
+
+/** One thing the MCP tool-description scan found, naming the rule that found it. */
+export interface McpToolScanFinding {
+  rule: string;
+  /** `flag` holds the tool; `note` is recorded on the skill but does not hold it. */
+  severity: 'flag' | 'note';
+  /** `description`, or `schema:<json path>` for a string inside the input schema. */
+  location: string;
+  /** The matched text with invisible characters made visible, at most 120 characters. */
+  snippet: string;
+  message: string;
+}
+
+/**
+ * The approved shape of one MCP tool. Persisted in globalState under
+ * `atlasmind.mcp.toolPins`; hashes are full SHA-256 over the raw description and
+ * the canonical (key-sorted) JSON of the input schema.
+ */
+export interface McpToolPin {
+  serverId: string;
+  toolName: string;
+  descriptionHash: string;
+  schemaHash: string;
+  /** The description that was approved, capped, so a change can be shown against it. */
+  approvedDescription: string;
+  /** Canonical JSON of the approved schema, capped, for the same reason. */
+  approvedSchema: string;
+  pinnedAt: string;
+  /** `first-sight` when pinned because the server was new; `user` when approved in the review view. */
+  approvedBy: 'first-sight' | 'user';
+  /** Flag rules the user saw and approved anyway. A rule not in this list holds the tool again. */
+  acknowledgedRules: string[];
+}
+
+/** A tool held for review, with everything the review view needs to show what changed. */
+export interface McpHeldTool {
+  /** Opaque id bound to this exact description and schema; an approval names it and nothing else. */
+  id: string;
+  serverId: string;
+  toolName: string;
+  verdict: McpToolVerdict;
+  /** The `PIN_RULES` id that decided to hold it. */
+  rule: string;
+  reason: string;
+  findings: McpToolScanFinding[];
+  /** The description now offered, capped. */
+  description: string;
+  /** Canonical JSON of the schema now offered, capped. */
+  schemaPreview: string;
+  descriptionHash: string;
+  schemaHash: string;
+  /** What was approved before, when there was a pin. */
+  previous?: {
+    description: string;
+    schemaPreview: string;
+    pinnedAt: string;
+    approvedBy: 'first-sight' | 'user';
+  };
+  heldAt: string;
 }
 
 // ── Agentic Resource Discovery (ARD) ─────────────────────────────

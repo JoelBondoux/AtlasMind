@@ -360,7 +360,37 @@ function describeVerdict(input: {
 export type UpdateHoldReason =
   | 'regressions'
   | 'not-verified'
-  | 'no-cases';
+  | 'no-cases'
+  | 'cases-unreadable';
+
+/**
+ * The rules the gate decides by, published so a held update names the one that
+ * held it. Evaluated in this order; the first that applies decides.
+ */
+export const UPDATE_HOLD_RULES: Readonly<Record<UpdateHoldReason, string>> = {
+  'cases-unreadable': 'Whether the agent has golden cases could not be established — project memory has no single home, '
+    + 'or the cases file exists and cannot be read — so the rewrite is held. Could not read the cases is not no cases.',
+  'no-cases': 'The cases were read and none is declared for this agent, so nothing holds the rewrite — and nothing verified it.',
+  'not-verified': 'The agent has golden cases and the rewrite could not be replayed against them, so it is held.',
+  regressions: 'At least one case passed before the rewrite and fails after it, so it is held.',
+};
+
+/**
+ * How many golden cases are declared for an agent — or why nobody could count
+ * them.
+ *
+ * A count that could not be taken is not zero. Collapsing the two is the bug
+ * this type exists to make unrepresentable: with project memory unreadable the
+ * cases look absent, "no declared cases" is the one answer that releases an
+ * unattended rewrite, and so the gate would open precisely when it could see
+ * nothing.
+ */
+export interface UnreadableCaseCount {
+  /** Why the cases could not be counted, as a sentence. */
+  unreadable: string;
+}
+
+export type DeclaredCaseCount = number | UnreadableCaseCount;
 
 export interface UpdateHoldDecision {
   hold: boolean;
@@ -372,20 +402,36 @@ export interface UpdateHoldDecision {
 /**
  * Whether an automatic rewrite should be held back.
  *
- * The one place the harness meets the risk it was built for. Three answers, and
- * the middle one is the interesting one: an update that **could not be
- * verified** is held rather than allowed, because the cadence is unattended and
- * "we did not check" resolving to "ship it" is how an unattended rewrite becomes
- * an unattended regression.
+ * The one place the harness meets the risk it was built for. Four answers, and
+ * two of them are about not knowing. An update that **could not be verified**
+ * is held rather than allowed, because the cadence is unattended and "we did not
+ * check" resolving to "ship it" is how an unattended rewrite becomes an
+ * unattended regression. And an agent whose cases **could not be read** is held
+ * for the same reason one step earlier: "could not read the cases" is not
+ * "there are no cases", and only the second may release a rewrite.
  *
- * An agent with **no declared cases** is not held — that would freeze every
- * agent nobody has written cases for, which is all of them on day one, and a
- * gate that blocks everything is a gate somebody turns off.
+ * An agent with **no declared cases** — read, and none there — is not held:
+ * that would freeze every agent nobody has written cases for, which is all of
+ * them on day one, and a gate that blocks everything is a gate somebody turns
+ * off. A count that is not a non-negative whole number is treated as unreadable
+ * rather than trusted, since a `NaN` that fell through to "has cases" or a `-1`
+ * that read as "none" would each be a guess.
  */
 export function shouldHoldAgentUpdate(
   verdict: RegressionVerdict | undefined,
-  declaredCaseCount: number,
+  declaredCaseCount: DeclaredCaseCount,
 ): UpdateHoldDecision {
+  if (typeof declaredCaseCount !== 'number' || !Number.isInteger(declaredCaseCount) || declaredCaseCount < 0) {
+    const why = typeof declaredCaseCount === 'number'
+      ? `The verifier reported ${String(declaredCaseCount)} cases, which is not a count.`
+      : declaredCaseCount.unreadable;
+    return {
+      hold: true,
+      reason: 'cases-unreadable',
+      detail: 'Held: whether this agent has golden cases could not be established, and could not read the cases is not '
+        + `no cases. The cadence is unattended, so the rewrite waits until they can be read. ${why}`,
+    };
+  }
   if (declaredCaseCount === 0) {
     return {
       hold: false,
@@ -409,6 +455,51 @@ export function shouldHoldAgentUpdate(
     };
   }
   return { hold: false, detail: verdict.summary };
+}
+
+/**
+ * What reading the golden-cases file found.
+ *
+ * Three states, because the gate needs all three apart: `absent` is a project
+ * that declared none, `read` is a project that declared these, and `unreadable`
+ * is a file that is there and could not be understood — which says nothing
+ * about how many cases it holds.
+ */
+export type GoldenCaseRead =
+  | { state: 'absent' }
+  | { state: 'read'; cases: GoldenCase[] }
+  | { state: 'unreadable'; reason: string };
+
+/** Where the cases were looked for, as the caller found it. */
+export interface GoldenCaseSource {
+  /**
+   * Why project memory may not be read — an ambiguous SSOT home. Present, it
+   * decides: the cases are unknown whatever any one folder holds.
+   */
+  refusal?: string;
+  /** What reading the file found. Absent when no folder is open to read it from. */
+  read?: GoldenCaseRead;
+}
+
+/**
+ * Count one agent's declared cases from where they were looked for.
+ *
+ * No folder open is `0`: golden cases live only in project memory, so a window
+ * with no folder has none to declare — a fact, not an unknown. An ambiguous home
+ * and an unreadable file are unknowns, and come back as such.
+ */
+export function countDeclaredCases(agentId: string, source: GoldenCaseSource): DeclaredCaseCount {
+  if (source.refusal) {
+    return { unreadable: `Project memory could not be read. ${source.refusal}` };
+  }
+  const read = source.read;
+  if (!read || read.state === 'absent') {
+    return 0;
+  }
+  if (read.state === 'unreadable') {
+    return { unreadable: read.reason };
+  }
+  return read.cases.filter(entry => entry.agentId === agentId).length;
 }
 
 // ── Persistence ──────────────────────────────────────────────────
@@ -551,14 +642,38 @@ export function sanitizeEvalBaseline(input: unknown): EvalBaseline {
   return { version: 1, runs };
 }
 
-export function readGoldenCases(workspaceRoot: string): GoldenCase[] {
+/**
+ * Read the golden-cases file, keeping "not there" apart from "there and not
+ * understood".
+ *
+ * Only a missing file is `absent`. Any other read error, invalid JSON, or a
+ * document that is not a list of cases is `unreadable`: the file says something
+ * about this project's cases and this build cannot tell what, so nothing that
+ * decides on the count may read it as "none declared". There is deliberately no
+ * reader that flattens the three into a list: one that returned `[]` for an
+ * unreadable file is how "could not read" became "none" in the first place.
+ */
+export function readGoldenCaseFile(workspaceRoot: string): GoldenCaseRead {
+  let text: string;
   try {
-    return sanitizeGoldenCases(
-      JSON.parse(readFileSync(path.join(workspaceRoot, AGENT_EVAL_CASES_PATH), 'utf8')),
-    );
-  } catch {
-    return [];
+    text = readFileSync(path.join(workspaceRoot, AGENT_EVAL_CASES_PATH), 'utf8');
+  } catch (error) {
+    const code = (error as NodeJS.ErrnoException | undefined)?.code;
+    if (code === 'ENOENT' || code === 'ENOTDIR') {
+      return { state: 'absent' };
+    }
+    return { state: 'unreadable', reason: `${AGENT_EVAL_CASES_PATH} exists but could not be read (${code ?? 'unknown error'}).` };
   }
+  let parsed: unknown;
+  try {
+    parsed = JSON.parse(text);
+  } catch {
+    return { state: 'unreadable', reason: `${AGENT_EVAL_CASES_PATH} is not valid JSON.` };
+  }
+  if (!Array.isArray(parsed)) {
+    return { state: 'unreadable', reason: `${AGENT_EVAL_CASES_PATH} is not a list of cases.` };
+  }
+  return { state: 'read', cases: sanitizeGoldenCases(parsed) };
 }
 
 export function readEvalBaseline(workspaceRoot: string): EvalBaseline | undefined {

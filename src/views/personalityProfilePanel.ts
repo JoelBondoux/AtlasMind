@@ -2,6 +2,7 @@ import * as vscode from 'vscode';
 import type { AtlasMindContext } from '../extension.js';
 import { escapeHtml, getWebviewHtmlShell } from './webviewUtils.js';
 import { formatCost, getDisplayCurrency } from '../core/currencyFormatter.js';
+import { ssotHomeRoot } from '../utils/workspaceRoots.js';
 
 const PROJECT_PERSONALITY_PROFILE_STORAGE_KEY = 'atlasmind.personalityProfile';
 const GLOBAL_PERSONALITY_PROFILE_STORAGE_KEY = 'atlasmind.globalPersonalityProfile';
@@ -989,7 +990,15 @@ export class PersonalityProfilePanel {
   }
 
   private async resolveSsotRoot(): Promise<vscode.Uri | undefined> {
-    const workspaceFolder = vscode.workspace.workspaceFolders?.[0];
+    // The profile's artifacts are project memory, so they go to the SSOT home.
+    // An ambiguous home writes none and says why; the answers are still kept in
+    // workspace state, which the status line reports.
+    const home = ssotHomeRoot();
+    if (home.refusal) {
+      void vscode.window.showWarningMessage(home.refusal);
+      return undefined;
+    }
+    const workspaceFolder = home.folder;
     if (!workspaceFolder) {
       return undefined;
     }
@@ -1929,13 +1938,21 @@ function getExtraCss(): string {
       --atlas-muted: color-mix(in srgb, var(--vscode-descriptionForeground, var(--vscode-foreground)) 82%, #c5baa4 18%);
       --atlas-panel: linear-gradient(180deg, color-mix(in srgb, var(--vscode-editor-background) 88%, #c18f52 12%), color-mix(in srgb, var(--vscode-sideBar-background, var(--vscode-editor-background)) 94%, #102127 6%));
       --atlas-panel-soft: color-mix(in srgb, var(--vscode-editorWidget-background, var(--vscode-editor-background)) 88%, #efe2c6 12%);
-      --atlas-border: color-mix(in srgb, var(--vscode-widget-border, #4d4d4d) 72%, #d2a76a 28%);
+      --atlas-border: color-mix(in srgb, var(--atlas-boundary) 72%, #d2a76a 28%);
       --atlas-accent: #c98d4d;
-      --atlas-accent-strong: #dfb26a;
+      /* The warm palette stays; what changes is only that its light gold is
+         inked for a light page (it is 1.96:1 on white) the way every other
+         panel's status colours are, through the shell's --atlas-ink-share. */
+      --atlas-accent-strong: color-mix(in srgb, #dfb26a var(--atlas-ink-share), var(--tint-away));
       --atlas-accent-deep: #6f4420;
       --atlas-teal: #5e8b88;
       --atlas-danger: #b45f55;
       --atlas-shadow: 0 18px 50px rgba(0, 0, 0, 0.24);
+    }
+    /* High contrast is a request for contrast, not for a palette: muted text
+       takes the theme's own description colour rather than a warm tint of it. */
+    :root:has(> body.vscode-high-contrast) {
+      --atlas-muted: var(--vscode-descriptionForeground, var(--vscode-foreground));
     }
     body {
       padding: 0;
@@ -2033,7 +2050,9 @@ function getExtraCss(): string {
       transition: transform 160ms ease, border-color 160ms ease, background 160ms ease;
     }
     .solid-button {
-      background: linear-gradient(135deg, var(--atlas-accent), var(--atlas-accent-deep));
+      /* Starts part-way to the deep accent: cream text on the bare amber was
+         2.67:1 in every theme. */
+      background: linear-gradient(135deg, color-mix(in srgb, var(--atlas-accent) 45%, var(--atlas-accent-deep)), var(--atlas-accent-deep));
       color: #fdf7ef;
     }
     .ghost-button {
@@ -2141,7 +2160,7 @@ function getExtraCss(): string {
       background: color-mix(in srgb, var(--vscode-editor-background) 75%, transparent);
       display: grid;
       gap: 4px;
-      border: 1px solid color-mix(in srgb, var(--atlas-border) 80%, transparent);
+      border: 1px solid var(--atlas-border);
     }
     .metric-pill span,
     .question-head small,
@@ -2161,7 +2180,7 @@ function getExtraCss(): string {
       padding: 12px;
       border-radius: 16px;
       background: color-mix(in srgb, var(--vscode-editor-background) 72%, transparent);
-      border: 1px solid color-mix(in srgb, var(--atlas-border) 78%, transparent);
+      border: 1px solid var(--atlas-border);
       display: grid;
       gap: 4px;
     }
@@ -2201,7 +2220,7 @@ function getExtraCss(): string {
     .config-field input[type="number"] {
       width: 100%;
       border-radius: 14px;
-      border: 1px solid color-mix(in srgb, var(--atlas-border) 82%, transparent);
+      border: 1px solid var(--atlas-border);
       background: color-mix(in srgb, var(--vscode-input-background, var(--vscode-editor-background)) 86%, transparent);
       color: var(--atlas-ink);
       padding: 12px 14px;
@@ -2272,7 +2291,7 @@ function getExtraCss(): string {
       padding: 14px;
       border-radius: 16px;
       background: color-mix(in srgb, var(--vscode-editor-background) 75%, transparent);
-      border: 1px solid color-mix(in srgb, var(--atlas-border) 78%, transparent);
+      border: 1px solid var(--atlas-border);
     }
     .checkbox-field input {
       width: 18px;

@@ -10,7 +10,7 @@
  * in order; the first match wins.
  */
 
-import type { ModelCapability, SpecialistDomain } from '../types.js';
+import type { ModelCapability, ReasoningControlId, SpecialistDomain } from '../types.js';
 
 /**
  * When the prices in this file were last checked against published pricing.
@@ -1797,4 +1797,72 @@ export function getProviderInfoUrl(providerId: string): string | undefined {
 export function getModelInfoUrl(providerId: string, modelId: string): string | undefined {
   void modelId;
   return getProviderInfoUrl(providerId);
+}
+
+// ── Reasoning controls ───────────────────────────────────────────
+
+/**
+ * When the reasoning-control rows below were last read against each vendor's
+ * published request shape. Separate from `MODEL_CATALOG_VERIFIED_AT` because it
+ * attests to something different — which parameter a model accepts, not what
+ * it costs — and bumping one must never imply the other was checked.
+ */
+export const REASONING_CONTROL_CATALOG_VERIFIED_AT = '2026-10-08';
+
+/**
+ * Which models accept a thinking-depth parameter, by provider.
+ *
+ * **Provider-scoped with no cross-provider fallback**, unlike `lookupCatalog`:
+ * a control is a statement about one vendor's wire format, so Claude reached
+ * through Copilot or Bedrock is *not* a model that accepts `output_config`
+ * there, and borrowing the Anthropic row would send a parameter an endpoint
+ * nobody verified may reject. A model that matches nothing is unknown —
+ * routable, never preferred for depth, never sent a parameter.
+ *
+ * Every row names the page it was read from. Patterns are anchored on the API
+ * id (provider prefix removed) and admit only a dated snapshot suffix, so a
+ * near-miss name (`claude-sonnet-4-5`, `gemini-2.5-flash-image`) is excluded
+ * rather than guessed into a family it does not belong to.
+ */
+export interface ReasoningControlCatalogEntry {
+  provider: string;
+  pattern: RegExp;
+  control: ReasoningControlId;
+  /** The published page the row was read from. */
+  source: string;
+}
+
+const ANTHROPIC_EFFORT_SOURCE = 'https://platform.claude.com/docs/en/build-with-claude/effort';
+const OPENAI_REASONING_SOURCE = 'https://developers.openai.com/api/docs/guides/reasoning';
+const GEMINI_REASONING_SOURCE = 'https://ai.google.dev/gemini-api/docs/openai';
+
+export const REASONING_CONTROL_CATALOG: readonly ReasoningControlCatalogEntry[] = [
+  // `output_config.effort` — the effort page's supportedModels list. Haiku 4.5
+  // and Sonnet 4.5 are absent from it and return an error, so they are absent here.
+  { provider: 'anthropic', pattern: /^claude-opus-(?:5-5|5|4-8|4-7|4-6|4-5)(?:-\d{8})?$/i, control: 'anthropic-effort', source: ANTHROPIC_EFFORT_SOURCE },
+  { provider: 'anthropic', pattern: /^claude-sonnet-(?:5-5|5|4-6)(?:-\d{8})?$/i, control: 'anthropic-effort', source: ANTHROPIC_EFFORT_SOURCE },
+  { provider: 'anthropic', pattern: /^claude-haiku-5-5(?:-\d{8})?$/i, control: 'anthropic-effort', source: ANTHROPIC_EFFORT_SOURCE },
+  { provider: 'anthropic', pattern: /^claude-(?:fable|mythos)-5(?:-1)?(?:-\d{8})?$/i, control: 'anthropic-effort', source: ANTHROPIC_EFFORT_SOURCE },
+  { provider: 'anthropic', pattern: /^claude-mythos-preview$/i, control: 'anthropic-effort', source: ANTHROPIC_EFFORT_SOURCE },
+  // `reasoning_effort` on Chat Completions — the reasoning guide's model list.
+  // Older o-series ids are not on that page, so they are not declared.
+  { provider: 'openai', pattern: /^gpt-5\.[45](?:-\d{4}-\d{2}-\d{2})?$/i, control: 'openai-reasoning-effort', source: OPENAI_REASONING_SOURCE },
+  { provider: 'openai', pattern: /^gpt-5\.6-(?:terra|luna)(?:-\d{4}-\d{2}-\d{2})?$/i, control: 'openai-reasoning-effort', source: OPENAI_REASONING_SOURCE },
+  { provider: 'openai', pattern: /^gpt-6-astra(?:-\d{4}-\d{2}-\d{2})?$/i, control: 'openai-reasoning-effort', source: OPENAI_REASONING_SOURCE },
+  { provider: 'openai', pattern: /^gpt-6\.1-sol(?:-\d{4}-\d{2}-\d{2})?$/i, control: 'openai-reasoning-effort', source: OPENAI_REASONING_SOURCE },
+  // `reasoning_effort` on Gemini's OpenAI-compatible endpoint — the mapping
+  // table's columns: Gemini 3.1 Pro, 3.1 Flash-Lite, 3 Flash and Gemini 2.5.
+  { provider: 'google', pattern: /^gemini-2\.5-(?:pro|flash|flash-lite)(?:-preview(?:-\d{2}-\d{2,4})?)?$/i, control: 'gemini-reasoning-effort', source: GEMINI_REASONING_SOURCE },
+  { provider: 'google', pattern: /^gemini-3-flash(?:-preview)?$/i, control: 'gemini-reasoning-effort', source: GEMINI_REASONING_SOURCE },
+  { provider: 'google', pattern: /^gemini-3\.1-(?:pro|flash-lite)(?:-preview)?$/i, control: 'gemini-reasoning-effort', source: GEMINI_REASONING_SOURCE },
+];
+
+/**
+ * The declared reasoning control for a model on a provider, or `undefined`
+ * when the table says nothing — which means *unknown*, never *none*.
+ */
+export function lookupReasoningControl(providerId: string, modelId: string): ReasoningControlId | undefined {
+  const prefix = `${providerId}/`;
+  const shortId = modelId.startsWith(prefix) ? modelId.slice(prefix.length) : modelId;
+  return REASONING_CONTROL_CATALOG.find(entry => entry.provider === providerId && entry.pattern.test(shortId))?.control;
 }

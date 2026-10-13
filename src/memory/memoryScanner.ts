@@ -1,7 +1,7 @@
 import type { MemoryScanIssue, MemoryScanResult } from '../types.js';
 import { MAX_SCANNER_ENTRY_BYTES } from '../constants.js';
 
-interface MemoryScanRule {
+export interface MemoryScanRule {
   id: string;
   severity: 'error' | 'warning';
   /** Applied to each line of document text. */
@@ -123,8 +123,11 @@ const MEMORY_SCAN_RULES: MemoryScanRule[] = [
  * Prompt-injection rules only — no credential rules — used when scanning transient
  * freeform context (session history, attachments, URL fetch results) before it
  * enters model context. Credentials in chat discussion are discussion, not storage.
+ *
+ * Exported so `mcpToolPins` scans MCP tool descriptions with these same rules
+ * rather than a copy that would drift from them.
  */
-const TRANSIENT_SCAN_RULES: MemoryScanRule[] = MEMORY_SCAN_RULES.filter(
+export const TRANSIENT_SCAN_RULES: readonly MemoryScanRule[] = MEMORY_SCAN_RULES.filter(
   r => !r.id.startsWith('secret-'),
 );
 

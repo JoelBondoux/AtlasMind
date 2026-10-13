@@ -1,3 +1,6 @@
+import { mkdtempSync, rmSync } from 'node:fs';
+import os from 'node:os';
+import path from 'node:path';
 import { describe, expect, it, vi } from 'vitest';
 
 vi.mock('vscode', () => ({
@@ -5,6 +8,7 @@ vi.mock('vscode', () => ({
 }));
 
 const {
+  BuzzInboundService,
   MAX_INBOUND_FOLLOWUPS_PER_BATCH,
   buildInboundFilters,
   mergeDerivedFollowUps,
@@ -98,5 +102,49 @@ describe('mergeDerivedFollowUps', () => {
   it('returns the original list for an empty batch', () => {
     const existing = [followUp('existing')];
     expect(mergeDerivedFollowUps(existing, [])).toBe(existing);
+  });
+});
+
+describe('where inbound follow-ups are recorded', () => {
+  /** `handleWorkItems` is private; this reaches it the way the subscription does. */
+  type RecordingHarness = {
+    handleWorkItems(items: DerivedWorkItem[], settings: { autoCreateFollowUps: boolean }): Promise<void>;
+  };
+
+  it('asks the injected resolver at the moment there is something to record, never the host directly', async () => {
+    const asked: string[] = [];
+    const log: string[] = [];
+    let root: string | undefined;
+    const service = new BuzzInboundService({
+      secrets: { get: async () => undefined },
+      workspaceRoot: () => {
+        asked.push(root ?? '(none)');
+        return root;
+      },
+      log: message => log.push(message),
+    });
+    // Constructing it asks nothing: folders open and close while it runs.
+    expect(asked).toEqual([]);
+
+    const harness = service as unknown as RecordingHarness;
+    await harness.handleWorkItems([derived('a')], { autoCreateFollowUps: true });
+    expect(asked).toEqual(['(none)']);
+    expect(log).toEqual([]);
+
+    root = mkdtempSync(path.join(os.tmpdir(), 'atlasmind-buzz-root-'));
+    try {
+      await harness.handleWorkItems([derived('b')], { autoCreateFollowUps: true });
+      expect(asked).toEqual(['(none)', root]);
+      expect(log.join(' ')).toMatch(/no Project Director config/);
+    } finally {
+      rmSync(root, { recursive: true, force: true });
+    }
+  });
+
+  it('records nothing when no resolver was injected, rather than guessing a folder', async () => {
+    const log: string[] = [];
+    const service = new BuzzInboundService({ secrets: { get: async () => undefined }, log: message => log.push(message) });
+    await (service as unknown as RecordingHarness).handleWorkItems([derived('c')], { autoCreateFollowUps: true });
+    expect(log).toEqual([]);
   });
 });

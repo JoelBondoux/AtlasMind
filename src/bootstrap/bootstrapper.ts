@@ -6,6 +6,8 @@ import type { AtlasMindContext } from '../extension.js';
 import type { BudgetMode, MemoryDocumentClass, MemoryEntry, MemoryEvidenceType, ProjectTestingConfig, RoutineStep, SpeedMode, TestingMethodologyId } from '../types.js';
 import { formatCost } from '../core/currencyFormatter.js';
 import { GhClient, ghFailureOf, nodeGhRunner, runGhOrThrow } from '../core/ghClient.js';
+import { describeHostDryRunNotice } from '../core/dryRun.js';
+import { guardHostCommand, interceptDryRun } from '../core/dryRunHost.js';
 import {
   buildGameProjectComposition,
   buildShopifyProjectComposition,
@@ -14,6 +16,8 @@ import {
   type GameCompositionPresetId,
   type ShopifyCompositionComponent,
 } from '../core/projectComposition.js';
+import { promptForProjectBrief, readProjectBriefAt, writeProjectBriefAt } from './projectBriefOnboarding.js';
+import { buildSeedGameProfile, renderGameProfileMarkdown, serializeGameProfile } from '../core/gameProfile.js';
 import {
   interpretWorkflowConfigDocument,
   renderWorkflowMarkdown,
@@ -175,6 +179,17 @@ interface BootstrapProjectIntake {
   shopifyComponents?: ShopifyCompositionComponent[];
   gameCompositionPreset?: GameCompositionPresetId;
   captureNotes: string[];
+  /**
+   * The project in the owner's own words, exactly as typed.
+   *
+   * Kept apart from every other field on purpose: it is never inferred from,
+   * never filled in from `productSummary`, and never handed to the model that
+   * drafts the bootstrap documents — those are not grounded, and this is the
+   * one text everything grounded is checked against.
+   */
+  ownWordsBrief?: string;
+  /** Whether it was given. `not-given` is a recorded answer, not a gap to fill. */
+  ownWordsBriefStatus?: 'given' | 'not-given' | 'already-written';
   projectType?: string;
   projectName?: string;
   productSummary?: string;
@@ -212,6 +227,10 @@ interface BootstrapArtifacts {
   claudeMdWritten: boolean;
   websiteWorkspaceSeeded: boolean;
   compositionStatus: 'none' | 'declared' | 'preserved';
+  /** The game profile: seeded for a game preset, kept when one already exists, or not a game. */
+  gameProfileStatus: 'none' | 'seeded' | 'kept-existing';
+  /** What happened to the project brief. `not-asked` is a minimal bootstrap. */
+  ownWordsBrief: 'written' | 'kept-existing' | 'already-written' | 'not-given' | 'not-asked';
 }
 
 const BOOTSTRAP_DRAFT_PATH = 'index/bootstrap-draft.json';
@@ -294,6 +313,21 @@ export async function bootstrapProject(
 
   const ssotRoot = vscode.Uri.joinPath(workspaceRoot, ssotRelPath);
 
+  // Bootstrap writes a scaffold whose documents a model drafts, runs git, can
+  // install the GitHub CLI and can create a GitHub repository. None of that has
+  // a useful half to run in a dry run, so it does not start: the refusal comes
+  // before the intake, not after somebody has answered it.
+  const dryRun = interceptDryRun({
+    surface: 'bootstrap',
+    kind: 'process',
+    summary: 'start the project bootstrap',
+    details: { ssotPath: ssotRelPath },
+  });
+  if (dryRun) {
+    reportBootstrapProgress(reporter, `**Not started.** ${describeHostDryRunNotice(dryRun)}`);
+    return;
+  }
+
   reportBootstrapProgress(reporter, '### Atlas Bootstrap Intake\n\nAtlas is collecting a skippable project brief to seed memory, ideation, settings, and governance scaffolding.');
 
   // Check for an interrupted draft before asking the user how to proceed.
@@ -353,7 +387,12 @@ export async function bootstrapProject(
   const startedAt = existingDraft?.startedAt ?? new Date().toISOString();
   const draftSaver = (intake: BootstrapProjectIntake) => saveBootstrapDraft(ssotRoot, intake, startedAt);
 
-  const intake = await collectBootstrapIntake(reporter, resumingFromDraft ? existingDraft!.intake : undefined, draftSaver);
+  const intake = await collectBootstrapIntake(
+    reporter,
+    resumingFromDraft ? existingDraft!.intake : undefined,
+    draftSaver,
+    { briefAlreadyWritten: (await readProjectBriefAt(ssotRoot)) !== undefined },
+  );
 
   await vscode.window.withProgress(
     { location: vscode.ProgressLocation.Notification, title: 'AtlasMind Bootstrap', cancellable: false },
@@ -425,6 +464,7 @@ async function collectBootstrapIntake(
   reporter?: BootstrapPromptReporter,
   resumeFrom?: BootstrapProjectIntake,
   draftSaver?: (intake: BootstrapProjectIntake) => Promise<void>,
+  options: { briefAlreadyWritten?: boolean } = {},
 ): Promise<BootstrapProjectIntake> {
   const save = draftSaver ?? (() => Promise.resolve());
 
@@ -451,6 +491,29 @@ async function collectBootstrapIntake(
     );
 
     intake = { mode: modePick?.intakeMode ?? 'guided', captureNotes: [] };
+    await save(intake);
+  }
+
+  if ((intake.mode === 'guided' || intake.mode === 'template') && intake.ownWordsBriefStatus === undefined) {
+    // First, before any specific question: the one fact AtlasMind cannot
+    // detect. Asked once — a resumed draft that already has an answer, given
+    // or not, is not asked again.
+    if (options.briefAlreadyWritten) {
+      intake.ownWordsBriefStatus = 'already-written';
+      reportBootstrapProgress(reporter, '- A project brief is already written in your own words, so Atlas does not ask for it again.');
+    } else {
+      reportBootstrapProgress(reporter, '#### In Your Own Words\n\nBefore the specific questions: what is this project for? It is saved exactly as you write it — never summarised or tidied — and every later step that reads it is checked against it. Skippable.');
+      const outcome = await promptForProjectBrief();
+      if (outcome.status === 'given') {
+        intake.ownWordsBrief = outcome.text;
+        intake.ownWordsBriefStatus = 'given';
+        reportBootstrapProgress(reporter, '- Brief captured. It is written verbatim with the rest of the scaffold.');
+      } else {
+        // A skip is an answer. Nothing is filled in on the owner's behalf.
+        intake.ownWordsBriefStatus = 'not-given';
+        reportBootstrapProgress(reporter, '- Brief not given. Nothing is filled in for you; write it any time with **AtlasMind: Describe the Project in Your Own Words** or on the Ideation board.');
+      }
+    }
     await save(intake);
   }
 
@@ -961,6 +1024,7 @@ async function applyBootstrapIntake(
   const generated = await generateBootstrapContent(intake, atlas.orchestrator);
 
   const projectSoulUpdated = await writeBootstrapProjectSoul(ssotRoot, intake, generated);
+  const ownWordsBrief = await writeBootstrapOwnWordsBrief(ssotRoot, intake);
   await writeBootstrapProjectBrief(ssotRoot, intake, generated);
   await writeBootstrapRepositoryPlan(ssotRoot, intake);
   await writeBootstrapRoadmap(ssotRoot, intake, generated);
@@ -971,6 +1035,7 @@ async function applyBootstrapIntake(
   await writeBootstrapTestingConfig(ssotRoot, intake);
   const claudeMdWritten = await writeBootstrapClaudeMd(workspaceRoot, intake);
   const compositionStatus = await writeBootstrapComposition(ssotRoot, intake);
+  const gameProfileStatus = await seedBootstrapGameProfile(ssotRoot, intake);
   let websiteWorkspaceSeeded = false;
   if (isWebsiteBootstrapProject(intake.projectType)) {
     const { seedWebsiteWorkspace } = await import('../core/websiteWorkspaceManager.js');
@@ -1005,7 +1070,44 @@ async function applyBootstrapIntake(
     claudeMdWritten,
     websiteWorkspaceSeeded,
     compositionStatus,
+    gameProfileStatus,
+    ownWordsBrief,
   };
+}
+
+/**
+ * Write the brief the owner gave, verbatim and create-only.
+ *
+ * A brief that appeared on disk while the intake ran is kept, not replaced:
+ * replacing somebody's own words needs a confirmation that says so, and
+ * bootstrap is not the place for that question.
+ */
+async function writeBootstrapOwnWordsBrief(
+  ssotRoot: vscode.Uri,
+  intake: BootstrapProjectIntake,
+): Promise<BootstrapArtifacts['ownWordsBrief']> {
+  if (intake.ownWordsBriefStatus === 'given' && intake.ownWordsBrief) {
+    return writeProjectBriefAt(ssotRoot, intake.ownWordsBrief, new Date(), { replace: false });
+  }
+  if (intake.ownWordsBriefStatus === 'already-written') {
+    return 'already-written';
+  }
+  return intake.ownWordsBriefStatus === 'not-given' ? 'not-given' : 'not-asked';
+}
+
+function describeOwnWordsBrief(status: BootstrapArtifacts['ownWordsBrief'], ssotRelPath: string): string {
+  switch (status) {
+    case 'written':
+      return `Given — kept verbatim in \`${ssotRelPath}/project-brief.md\``;
+    case 'kept-existing':
+      return `Given, but the brief already on disk was kept — \`${ssotRelPath}/project-brief.md\` was not replaced`;
+    case 'already-written':
+      return 'Already written; not asked again';
+    case 'not-given':
+      return 'Not given (skipped). Nothing was filled in';
+    default:
+      return 'Not asked (minimal bootstrap)';
+  }
 }
 
 async function writeBootstrapComposition(
@@ -1072,6 +1174,32 @@ async function writeBootstrapComposition(
     vscode.workspace.fs.writeFile(summaryUri, Buffer.from(renderWorkflowMarkdown(updated), 'utf-8')),
   ]);
   return 'declared';
+}
+
+/**
+ * Seed `domain/game.json` and its mirror when a game architecture preset was
+ * chosen: engine `unknown`, content roots for the preset's content components,
+ * nothing detected and nothing run. Either file already present — valid,
+ * corrupt, or written by a newer AtlasMind — means nothing is written: a seed
+ * never overwrites a profile somebody has.
+ */
+async function seedBootstrapGameProfile(
+  ssotRoot: vscode.Uri,
+  intake: BootstrapProjectIntake,
+): Promise<BootstrapArtifacts['gameProfileStatus']> {
+  if (!isGameCompositionPresetId(intake.gameCompositionPreset)) {
+    return 'none';
+  }
+  const profileUri = vscode.Uri.joinPath(ssotRoot, 'domain', 'game.json');
+  const mirrorUri = vscode.Uri.joinPath(ssotRoot, 'domain', 'game.md');
+  if (await pathExists(profileUri) || await pathExists(mirrorUri)) {
+    return 'kept-existing';
+  }
+  const profile = { ...buildSeedGameProfile(intake.gameCompositionPreset), updatedAt: new Date().toISOString() };
+  await ensureParentDirectory(profileUri, ssotRoot);
+  await vscode.workspace.fs.writeFile(profileUri, Buffer.from(serializeGameProfile(profile), 'utf-8'));
+  await vscode.workspace.fs.writeFile(mirrorUri, Buffer.from(renderGameProfileMarkdown(profile), 'utf-8'));
+  return 'seeded';
 }
 
 function isWebsiteBootstrapProject(projectType: string | undefined): boolean {
@@ -2092,6 +2220,14 @@ async function installGitHubCli(reporter?: BootstrapPromptReporter): Promise<boo
   reportBootstrapProgress(reporter, `- Installing GitHub CLI via ${installer.label}...`);
 
   const success = await new Promise<boolean>(resolve => {
+    try {
+      // Bootstrap is refused at its entry in a dry run; this catches a switch
+      // turned on while somebody was still answering the intake.
+      guardHostCommand('bootstrap', installer.cmd[0]!, installer.cmd.slice(1));
+    } catch {
+      resolve(false);
+      return;
+    }
     cp.execFile(installer.cmd[0]!, [...installer.cmd.slice(1)], { timeout: 120_000 }, err => resolve(!err));
   });
 
@@ -2211,6 +2347,12 @@ async function ghCliAvailable(cwd: string): Promise<boolean> {
 /** One `git` invocation, no shell. Resolves to whether it succeeded. */
 function runGit(cwd: string, args: readonly string[]): Promise<boolean> {
   return new Promise<boolean>(resolve => {
+    try {
+      guardHostCommand('bootstrap', 'git', args);
+    } catch {
+      resolve(false);
+      return;
+    }
     cp.execFile('git', [...args], { cwd }, err => resolve(!err));
   });
 }
@@ -2290,7 +2432,19 @@ function buildBootstrapCompletionSummary(ssotRelPath: string, intake: BootstrapP
       : artifacts.compositionStatus === 'preserved'
         ? '- Left the existing workflow declaration untouched; bootstrap never overwrites team-owned composition data.'
         : '',
+    artifacts.gameProfileStatus === 'seeded'
+      ? '- Seeded the game profile in `domain/game.json` and `domain/game.md`: engine `unknown` until you declare it, content roots from the content components of the preset. Nothing was detected or run.'
+      : artifacts.gameProfileStatus === 'kept-existing'
+        ? '- Left the existing game profile in `domain/game.json` untouched; bootstrap never overwrites it.'
+        : '',
   ].filter(line => line !== '');
+
+  lines.push('', `**In your own words:** ${describeOwnWordsBrief(artifacts.ownWordsBrief, ssotRelPath)}.`);
+  if (artifacts.ownWordsBrief === 'written' || artifacts.ownWordsBrief === 'kept-existing' || artifacts.ownWordsBrief === 'already-written') {
+    lines.push('', '**Next, from your brief:** open **Project Ideation**. It shows the chain from brief to board to roadmap, says what each step would write, and writes nothing until you confirm that step.');
+  } else {
+    lines.push('', '**Next:** write the project in your own words with **AtlasMind: Describe the Project in Your Own Words**. It is the one thing AtlasMind cannot work out from the code.');
+  }
 
   if (intake.productSummary) {
     lines.push('', `**Project brief:** ${intake.productSummary}`);
@@ -2342,6 +2496,7 @@ function buildBootstrapProjectSoul(existing: string | undefined, intake: Bootstr
       buildBootstrapDocumentationPolicySection(intake),
       '',
       '## Imported References',
+      ...(intake.ownWordsBriefStatus === 'given' || intake.ownWordsBriefStatus === 'already-written' ? ["- project-brief.md (the project in the owner's own words)"] : []),
       '- domain/project-brief.md',
       '- operations/bootstrap-intake.md',
       '- operations/repository-plan.md',
@@ -2435,6 +2590,7 @@ function buildBootstrapIntakeLog(intake: BootstrapProjectIntake): string {
     '',
     '## Responses',
     `- Mode: ${intake.mode}`,
+    `- In your own words: ${intake.ownWordsBriefStatus === 'given' ? 'Given — kept verbatim in project-brief.md' : intake.ownWordsBriefStatus === 'already-written' ? 'Already written; not asked again' : intake.ownWordsBriefStatus === 'not-given' ? 'Not given (skipped)' : 'Not asked'}`,
     `- Project name: ${intake.projectName ?? 'Skipped'}`,
     `- Project type: ${intake.projectType ?? 'Skipped'}`,
     `- Product summary: ${intake.productSummary ?? 'Skipped'}`,

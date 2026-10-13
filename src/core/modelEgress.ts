@@ -48,26 +48,14 @@
 
 import type { CompletionRequest, CompletionResponse } from '../providers/adapter.js';
 import { redactSecrets } from '../utils/secretRedactor.js';
+import type { ModelContextOrigin } from '../types.js';
 
 /**
- * Where a piece of prompt content came from.
- *
- * Deliberately a closed union with no `string` escape hatch: an origin somebody
- * invents at a call site is exactly the unlabelled context this exists to
- * refuse.
+ * Where a piece of prompt content came from — declared in `types.ts` so the
+ * provenance types that reference it stay importable from the web build, and
+ * re-exported here, where it has always been imported from.
  */
-export type ModelContextOrigin =
-  | 'user-prompt'
-  | 'system-prompt'
-  | 'session-context'
-  | 'native-chat-context'
-  | 'attachment'
-  | 'workspace-file'
-  | 'tool-result'
-  | 'project-memory'
-  | 'background-memory'
-  | 'generated-instruction'
-  | 'image-attachment';
+export type { ModelContextOrigin };
 
 export interface OriginTaggedText {
   origin: ModelContextOrigin;

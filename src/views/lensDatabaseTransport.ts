@@ -59,6 +59,7 @@ import {
 } from '../core/lensDatabaseReading.js';
 import type { LensProbeRequest } from '../core/lensProbePolicy.js';
 import type { LensProbeTransportResult } from '../core/lensProbeRunner.js';
+import { interceptDryRun } from '../core/dryRunHost.js';
 import type { LensDatabaseHealth, LensServedContract, LensSqlDialect } from '../types.js';
 
 /**
@@ -81,6 +82,16 @@ export async function performDirectSqlProbe(
 ): Promise<LensDatabaseProbeResult> {
   if (!request.connectionString || !request.dialect) {
     return { ok: false, error: 'The probe request carried no connection string.' };
+  }
+  // A driver connection is a network call with no `fetch` in it, which is why
+  // this is guarded by name rather than found by a scanner.
+  if (interceptDryRun({
+    surface: 'lens-probe',
+    kind: 'network',
+    summary: `connect to the ${request.dialect} database for ${endpointId} and read its catalog`,
+    details: { dialect: request.dialect, endpointId },
+  })) {
+    return { ok: false, error: 'Dry run is on, so the database was not queried.' };
   }
   return request.dialect === 'postgres'
     ? probePostgres(request, endpointId, observedAt)
@@ -292,6 +303,14 @@ export async function performSqlHttpProbe(
 ): Promise<LensDatabaseProbeResult> {
   if (!request.url || !request.vendor || !request.connectionString) {
     return { ok: false, error: 'The probe request was missing its URL, vendor, or credential.' };
+  }
+  if (interceptDryRun({
+    surface: 'lens-probe',
+    kind: 'network',
+    summary: `query the ${request.vendor} catalog over HTTPS for ${endpointId}`,
+    details: { vendor: request.vendor, endpointId },
+  })) {
+    return { ok: false, error: 'Dry run is on, so the database was not queried.' };
   }
   // Neon speaks Postgres; D1 and Turso are SQLite, whose catalog vocabulary
   // differs enough that they read through the SQLite path in a later slice.

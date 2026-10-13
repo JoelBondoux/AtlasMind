@@ -244,6 +244,16 @@ export function resolveWorkspaceCommand(
   if (WINDOWS_EXECUTABLE.test(resolved)) {
     return { status: 'direct', command: resolved, args: next };
   }
+  // An extensionless hit is never what Windows itself would start: it applies
+  // PATHEXT and skips the bare name. Docker Desktop ships exactly this pair —
+  // `resources\bin\docker` (a script for WSL) beside `docker.exe` — so the
+  // real image beside the script is the command, started directly as before.
+  if (!/\.[^\\/.]+$/.test(resolved)) {
+    const image = ['.exe', '.com'].map(suffix => `${resolved}${suffix}`).find(candidate => probe.fileExists(candidate));
+    if (image) {
+      return { status: 'direct', command: image, args: next };
+    }
+  }
 
   const script = findWindowsNodeEntryPoint(trimmed, directoryOf(resolved), probe);
   if (!script) {

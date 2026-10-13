@@ -29,6 +29,9 @@
  * `gh` binary and without `vscode`.
  */
 
+import { isDryRunBlockedError } from './dryRun.js';
+import { guardHostCommand } from './dryRunHost.js';
+
 /** Why a `gh` call did not produce an answer. */
 export type GhFailureKind =
   /** The CLI is not on PATH. */
@@ -216,6 +219,10 @@ export class GhClient {
   async exec(args: readonly string[]): Promise<GhResult<string>> {
     try {
       assertNoShellMetacharacters(args);
+      // The one boundary every `gh` call crosses, so the dry run is enforced
+      // here: a read (`issue list`, `api` GET, `auth status`) runs, anything
+      // that would change GitHub is refused before a process starts.
+      guardHostCommand('github', 'gh', args);
       const { stdout } = await this.run('gh', args, {
         cwd: this.workspaceRoot,
         timeout: this.timeoutMs,
@@ -223,6 +230,11 @@ export class GhClient {
       });
       return { ok: true, value: stdout.trim() };
     } catch (error) {
+      if (isDryRunBlockedError(error)) {
+        // Not a CLI failure: nothing ran. Reported as the notice itself so no
+        // surface tells the operator that `gh` broke.
+        return { ok: false, failure: { kind: 'error', detail: error.message } };
+      }
       return { ok: false, failure: classifyGhFailure(error) };
     }
   }
@@ -328,6 +340,7 @@ export async function pipeGhStdoutOrThrow(
   options: { timeoutMs?: number; maxStderrBytes?: number } = {},
 ): Promise<void> {
   assertNoShellMetacharacters(args);
+  guardHostCommand('github', 'gh', args);
   const { spawn } = await import('node:child_process');
   const timeoutMs = options.timeoutMs ?? DEFAULT_GH_TIMEOUT_MS;
   const maxStderrBytes = options.maxStderrBytes ?? 64 * 1024;

@@ -30,7 +30,7 @@ Two nice touches: a mistyped command gets **corrected rather than answered** (`/
 
 | Command | What it does |
 |---------|-------------|
-| `/bootstrap` | Create project memory and optional governance; declare Shopify composition or choose a game architecture seed |
+| `/bootstrap` | Create project memory and optional governance; declare Shopify composition or choose a game architecture seed. Asks first for the project in your own words — saved exactly as written, skippable, and never filled in for you |
 | `/import` | Read an existing repository and populate project memory from it |
 | `/setup` | Every setup guide and how far along each one is. `/setup acp` jumps straight into one |
 | `/acp` | Guided setup for using a Claude, ChatGPT, Copilot, Gemini or Qwen subscription |
@@ -65,7 +65,7 @@ precedence reads as finished rather than as permanently half-done.
 | `/project <goal>` | Break a goal into steps, preview the impact, then run it |
 | `/loop <goal>` | Keep working towards a goal inside limits you set, pausing at checkpoints |
 | `/runs` | Open the Run Center to review recent autonomous runs |
-| `/ship [routine]` | Run your project's default publish routine, or a named one. Lists the exact commands and asks first |
+| `/ship [routine]` | Run your project's default publish routine, or a named one. Lists the exact commands and asks first. In a dry run it runs nothing and shows what it would have run |
 
 ### Thinking and planning
 
@@ -192,6 +192,8 @@ The session drawer above the transcript starts closed and remembers your choice 
 | `AtlasMind: Open Project Director` | Stakeholders, team, assignments, and the shared personal Follow-ups attention list |
 | `AtlasMind: Open Project Ideation` | The thinking board |
 | `AtlasMind: Import Rota from a Calendar File` | Reads declared absence out of an `.ics` your rota app exported — Deputy, When I Work, Google Calendar or anything else. Only events naming an absence are imported: a rota feed is mostly the shifts somebody is *working*, and recording those as time off would mark them away on exactly the days they are rostered on, so a file of shifts is refused with that reason and everything left alone is counted. Nothing is fetched — a calendar feed URL is a password, so you download the file and pick it. Also on the Workload card |
+| `AtlasMind: Manage Scheduled Routines` | Every routine that declares a `schedule:`, with its state in plain words — due, up to date, awaiting your approval, changed since you approved it, blocked and why — and its last report. Approve one to run on its own (the dialog shows exactly which steps will run unattended and where it will stop), stop scheduling it, mark its last report reviewed, or open the worktree it left. Ambient, not background: nothing runs while the editor is closed |
+| `AtlasMind: Add Nightly Dependency Check Routine` | Writes `project_memory/routines/dependency-check.md` from a built-in template (create-only; an existing file is opened, never replaced). It asks to run daily at 02:00; unattended it lists what is outdated and stops before `npm update`, because an install needs a person. `/ship dependency-check` runs all of it in your own working tree |
 | `AtlasMind: Open Project Run Center` | Review, approve, pause and resume runs |
 | `AtlasMind: Open Mission Control` | Define and watch autonomous loop runs |
 | `AtlasMind: Open UI Studio` | Pick up the UI files found in the project or draw new surfaces, design them beside the canvas with a built-in-browser preview, brand them from named presets, and hand off to the implementation. Website delivery is on the Project Dashboard's Delivery page |
@@ -227,6 +229,7 @@ The session drawer above the transcript starts closed and remembers your choice 
 | Command | What it does |
 |---------|-------------|
 | `AtlasMind: Bootstrap Project` · `Import Existing Project` | Same as `/bootstrap` and `/import` |
+| `AtlasMind: Describe the Project in Your Own Words` | Who it is for, what it should do, what should be true once it works — saved exactly as written to `project_memory/project-brief.md`. Asks before replacing one that exists. Reading it into cards is a separate step on the Ideation board, whose **From your brief** card walks it onto the roadmap |
 | `AtlasMind: Update Project Memory` | Refresh imported memory from the current state of your code |
 
 ### Testing
@@ -281,6 +284,10 @@ reports evidence it didn't inspect as *unassessed* rather than as absent.
 | Command | What it does |
 |---------|-------------|
 | `AtlasMind: Toggle Autopilot` | Turn the session-wide approval bypass on or off, no reload needed |
+| `AtlasMind: Toggle Dry Run` | Turn dry run on or off (`atlasmind.dryRun.enabled`, a user setting). While it is on, every tool call that would write, run a command, change git or reach the network is answered with a description instead of running; only AtlasMind's built-in local reads run, and the reply ends with a summary of what would have happened. It covers AtlasMind's own actions outside a turn as well — routines and `/ship`, promotions, dashboard git and GitHub writes, Director and Buzz sends, webhooks, terminal sends, installers and automatic memory writes are recorded instead of done, and a button you press tells you dry run stopped it. On applies to the next tool call; off waits for the next turn. Also reachable from the *Dry run* status bar item, shown only while it is on |
+| `AtlasMind: Prepare Sandbox Dependencies` | Install this folder's lockfile into a dependency volume, so commands that load installed packages can run in the execution sandbox under `require` — your own `node_modules` is never used there. The sandbox's one network-on step: it shows every engine command and what network access means first, mounts only `package.json` and the lockfile read-only, writes only into the volume, and skips install scripts unless you confirm a second warning. npm, pnpm and Yarn 1; a changed lockfile needs preparing again. Only on request, only in a trusted workspace, never in a dry run or for a scheduled routine |
+| `AtlasMind: Remove Sandbox Dependency Volumes` | List the dependency volumes AtlasMind prepared (they accumulate as lockfiles change) beside what this machine recorded, and remove the ones you pick after a confirmation — never one a running command still uses |
+| `AtlasMind: Check Execution Sandbox` | Ask Docker or Podman whether agent commands *could* run in the container sandbox on this machine, and open a report: every rule with its result and reason, what the check ran, and what to do about the rule that failed — including the exact `docker pull` and how to read an image's digest. It reads the engine, looks for the pinned image locally (it never pulls), and starts one throwaway container with no network to prove the shape works; in a dry run that container is not started. It says what `atlasmind.sandbox.mode` makes of the result: under `require` agent commands run in the sandbox or are refused, under `off` they still run on your machine |
 | `AtlasMind: Toggle Keep Computer Awake` | Stop the machine sleeping while something needs to stay online. Off by default, mains-power only, auto-releasing |
 | `AtlasMind: Tool Webhooks` | Configure outbound webhooks for tool events |
 | `AtlasMind: Enable / Disable Remote Control` | Start or stop the local server so a browser can drive this instance |

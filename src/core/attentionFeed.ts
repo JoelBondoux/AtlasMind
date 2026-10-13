@@ -153,7 +153,38 @@ export interface AttentionInput {
    * a disabled feature raise items forever.
    */
   research?: { due: number; neverScanned: number; blocked: number };
+  /**
+   * Scheduled routines, and — like research — **only when scheduling is
+   * switched on**: absent means decided against, not overlooked. Counts cover
+   * routines this developer approved, and a report somebody marked reviewed
+   * stops counting. Built by `scheduledRoutineAttentionInput`, which owns that
+   * decision so no caller can pass a zeroed group for a disabled feature.
+   */
+  scheduledRoutines?: { failed: number; needsYou: number; changed: number };
+  /**
+   * Set when project memory could not be read at all — in a multi-root
+   * workspace whose SSOT home is ambiguous, every register is deliberately left
+   * unread rather than read from whichever folder is first.
+   *
+   * Then every group built from project memory (`PROJECT_MEMORY_GROUPS`) is a
+   * register that was **not read**, and its zeroes are not findings: "0 overdue
+   * follow-ups" from a Director file nobody opened would let the page claim
+   * `clear`, and "Risk never assessed" from a risk register nobody opened would
+   * state something false. So this module drops those groups itself — no caller
+   * can forget to — and raises one item saying why, with the refusal sentence.
+   */
+  projectMemoryUnreadable?: { reason: string };
 }
+
+/**
+ * The groups built from project memory, and therefore unread while it cannot be
+ * read. Kept beside the input so a new register group is added here in the
+ * same change that adds it there; a test pins that the list names real groups.
+ */
+export const PROJECT_MEMORY_GROUPS = [
+  'ssot', 'director', 'documents', 'risk', 'debt', 'defects', 'approvals', 'testCases',
+  'research', 'scheduledRoutines', 'delivery',
+] as const satisfies readonly (keyof AttentionInput)[];
 
 /**
  * The rule table, published and ordered.
@@ -186,6 +217,23 @@ const RULES: readonly AttentionRule[] = [
       const blocked = input.capacity?.blocked;
       return blocked ? { label: blocked.summary, detail: blocked.detail } : undefined;
     },
+  },
+  {
+    // Second, for the same reason as the first: until it is settled, nothing on
+    // the page built from project memory can be read, so neither can anything
+    // that would otherwise appear below it. Not `unassessed`: a person has to
+    // act — declare the home — and nothing re-scans its way out of it.
+    id: 'project-memory-unreadable',
+    urgency: 'now',
+    rule: 'project memory has no single home, so no register built from it was read',
+    pageTarget: 'workflow',
+    evaluate: input => (input.projectMemoryUnreadable
+      ? {
+        label: 'Project memory could not be read',
+        detail: `${input.projectMemoryUnreadable.reason} Registers built from project memory are left out of this list `
+          + 'rather than counted as empty, so nothing below is a reading of them.',
+      }
+      : undefined),
   },
   {
     id: 'tests-failing',
@@ -222,6 +270,22 @@ const RULES: readonly AttentionRule[] = [
         label: `${input.defects.openBlockers} blocker defect${input.defects.openBlockers === 1 ? '' : 's'} open`,
         detail: 'Graded blocker because it loses work, exposes something, or breaks a path most people take — never because somebody called it urgent.',
         count: input.defects.openBlockers,
+      }
+      : undefined),
+  },
+  {
+    // A run nobody watched, failing. With the other failures, below the ones a
+    // whole team feels: it is one developer's routine on one machine.
+    id: 'scheduled-run-failed',
+    urgency: 'now',
+    rule: 'the latest unattended run of an approved scheduled routine failed or was interrupted, and nobody has reviewed it',
+    pageTarget: 'workflow',
+    evaluate: input => (input.scheduledRoutines && input.scheduledRoutines.failed > 0
+      ? {
+        label: `${input.scheduledRoutines.failed} scheduled run${input.scheduledRoutines.failed === 1 ? '' : 's'} failed`,
+        detail: 'A routine that ran on its own while you were elsewhere did not finish. Its output is in the Run Center; '
+          + 'AtlasMind: Manage Scheduled Routines marks it reviewed.',
+        count: input.scheduledRoutines.failed,
       }
       : undefined),
   },
@@ -482,6 +546,35 @@ const RULES: readonly AttentionRule[] = [
       : undefined),
   },
 
+  {
+    id: 'scheduled-run-needs-you',
+    urgency: 'soon',
+    rule: 'the latest unattended run stopped at a step that needs a person, was refused, or left work on a branch, and nobody has reviewed it',
+    pageTarget: 'workflow',
+    evaluate: input => (input.scheduledRoutines && input.scheduledRoutines.needsYou > 0
+      ? {
+        label: `${input.scheduledRoutines.needsYou} scheduled run${input.scheduledRoutines.needsYou === 1 ? '' : 's'} waiting for you`,
+        detail: 'Stopped before an install or a step past propose, or left changes on a chore/scheduled-… branch. '
+          + 'Nothing was pushed or merged; what happens next is your decision.',
+        count: input.scheduledRoutines.needsYou,
+      }
+      : undefined),
+  },
+  {
+    id: 'scheduled-routine-changed',
+    urgency: 'soon',
+    rule: 'an approved scheduled routine has been edited since it was approved, so it is not running',
+    pageTarget: 'workflow',
+    evaluate: input => (input.scheduledRoutines && input.scheduledRoutines.changed > 0
+      ? {
+        label: `${input.scheduledRoutines.changed} scheduled routine${input.scheduledRoutines.changed === 1 ? '' : 's'} paused by an edit`,
+        detail: 'A step changed after you approved it, so the steps that would run are not the ones you read. It stays '
+          + 'paused until you approve it again.',
+        count: input.scheduledRoutines.changed,
+      }
+      : undefined),
+  },
+
   // ── unassessed: nobody looked, which is not the same as fine ──────
   {
     id: 'research-no-source',
@@ -597,7 +690,11 @@ export interface AttentionFeed {
  * Rules are evaluated in declaration order and the result keeps it, so ranking
  * is the published editorial order rather than anything derived from counts.
  */
-export function buildAttentionFeed(input: AttentionInput): AttentionFeed {
+export function buildAttentionFeed(given: AttentionInput): AttentionFeed {
+  // Unread is not empty: with project memory unreadable, its groups are dropped
+  // before any rule sees them, so a zero nobody read can neither raise an item
+  // nor count toward the groups that let the page claim `clear`.
+  const input: AttentionInput = given.projectMemoryUnreadable ? withoutProjectMemory(given) : given;
   const all: AttentionItem[] = [];
   for (const rule of RULES) {
     const hit = rule.evaluate(input);
@@ -637,11 +734,20 @@ export function buildAttentionFeed(input: AttentionInput): AttentionFeed {
       // `defects` is supplied only once something has been recorded, so an
       // unused register cannot help the page claim it is clear.
       input.research, input.capacity, input.defects, input.approvals, input.testCases,
+      input.scheduledRoutines,
     ].filter(group => group !== undefined).length;
     feed.emptyState = assessed >= 4 ? 'clear' : 'unexamined';
   }
 
   return { ...feed, summary: summarizeAttention(feed) };
+}
+
+function withoutProjectMemory(input: AttentionInput): AttentionInput {
+  const stripped: AttentionInput = { ...input };
+  for (const group of PROJECT_MEMORY_GROUPS) {
+    delete stripped[group];
+  }
+  return stripped;
 }
 
 /** The one-line headline, for a collapsed or narrow rendering. */

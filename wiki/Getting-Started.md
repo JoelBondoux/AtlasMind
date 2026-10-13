@@ -111,8 +111,18 @@ itself immediately.
 @atlas /bootstrap
 ```
 
-Creates the project memory structure and, optionally, starter CI/CD and governance files. Guided intake
-also offers create-only platform prefabs. **WooCommerce Extension** produces a safe PHP plugin shell,
+Creates the project memory structure and, optionally, starter CI/CD and governance files.
+
+**The first question is the project in your own words** — who it is for, what it should do, and what
+should be true once it works. A couple of sentences is enough. It is saved exactly as you write it to
+`project_memory/project-brief.md`, never summarised or tidied, and skipping it is fine: it is recorded as
+not given and nothing is filled in for you. You can write it later with **AtlasMind: Describe the Project
+in Your Own Words** (also a step in the Get Started walkthrough). Then open **Project Ideation**: its
+**From your brief** card walks the brief onto the board and the roadmap — read it into cards, raise the
+cards that quote it as roadmap items, and optionally file a plan for each and quote the brief in the
+project soul. Each step shows exactly what it will write and waits for you to confirm it.
+
+Guided intake also offers create-only platform prefabs. **WooCommerce Extension** produces a safe PHP plugin shell,
 HPOS and dependency declarations, syntax/contract CI, and compatibility/privacy review records that
 begin Not assessed. AtlasMind records local setup commands but does not run a generator, install
 packages, start Docker, or contact the network during bootstrap.

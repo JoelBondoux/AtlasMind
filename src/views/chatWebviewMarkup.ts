@@ -362,7 +362,7 @@ export function buildChatWebviewHtml(opts: { scriptUri: string; cspSource: strin
           position: relative;
         }
         .nav-toggle[aria-expanded="true"] {
-          border: 1px solid color-mix(in srgb, var(--vscode-focusBorder, var(--vscode-button-background)) 65%, var(--vscode-widget-border, #444));
+          border: 1px solid color-mix(in srgb, var(--vscode-focusBorder, var(--atlas-edge-accent)) 65%, var(--atlas-boundary));
           background: color-mix(in srgb, var(--vscode-button-background) 26%, transparent);
         }
         .nav-count-badge {
@@ -486,7 +486,7 @@ export function buildChatWebviewHtml(opts: { scriptUri: string; cspSource: strin
           margin: 0 10px 10px;
           padding: 7px 12px;
           border-radius: 10px;
-          border: 1px solid color-mix(in srgb, var(--vscode-textLink-foreground, #3794ff) 32%, transparent);
+          border: 1px solid color-mix(in srgb, var(--vscode-textLink-foreground, #3794ff) 32%, var(--atlas-boundary));
           background: color-mix(in srgb, var(--vscode-textLink-foreground, #3794ff) 10%, var(--vscode-editor-background));
           color: color-mix(in srgb, var(--vscode-foreground) 88%, var(--vscode-textLink-foreground, #3794ff));
           font-size: calc(0.85rem * var(--atlas-chat-font-scale));
@@ -515,14 +515,14 @@ export function buildChatWebviewHtml(opts: { scriptUri: string; cspSource: strin
           margin: 0 1.1rem 0.75rem;
           padding: 0.7rem 0.85rem;
           border-radius: 12px;
-          border: 1px solid color-mix(in srgb, var(--vscode-editorWarning-foreground, #c27803) 40%, transparent);
+          border: 1px solid color-mix(in srgb, color-mix(in srgb, var(--vscode-editorWarning-foreground, #c27803) var(--atlas-ink-share), var(--tint-away)) 40%, var(--atlas-boundary));
           background: linear-gradient(135deg,
             color-mix(in srgb, var(--vscode-editorWarning-foreground, #c27803) 14%, transparent),
             color-mix(in srgb, var(--vscode-editor-background, #1e1e1e) 92%, transparent));
           color: var(--vscode-editor-foreground, #d4d4d4);
         }
         .recovery-notice[data-tone="recent"] {
-          border-color: color-mix(in srgb, var(--vscode-editorInfo-foreground, #3794ff) 34%, transparent);
+          border-color: color-mix(in srgb, var(--vscode-editorInfo-foreground, #3794ff) 34%, var(--atlas-boundary));
           background: linear-gradient(135deg,
             color-mix(in srgb, var(--vscode-editorInfo-foreground, #3794ff) 12%, transparent),
             color-mix(in srgb, var(--vscode-editor-background, #1e1e1e) 92%, transparent));
@@ -556,7 +556,7 @@ export function buildChatWebviewHtml(opts: { scriptUri: string; cspSource: strin
           right: 0;
           width: min(360px, calc(100vw - 32px));
           background: var(--vscode-editorHoverWidget-background, var(--vscode-editor-background));
-          border: 1px solid var(--vscode-editorHoverWidget-border, var(--vscode-widget-border, #444));
+          border: 1px solid var(--vscode-editorHoverWidget-border, var(--atlas-boundary));
           border-radius: 10px;
           padding: 10px 12px;
           font-size: 0.82em;
@@ -599,7 +599,7 @@ export function buildChatWebviewHtml(opts: { scriptUri: string; cspSource: strin
           display: none;
         }
         .approval-card {
-          border: 1px solid color-mix(in srgb, var(--vscode-inputValidation-warningBorder, #b89500) 72%, var(--vscode-widget-border, #444));
+          border: 1px solid color-mix(in srgb, color-mix(in srgb, var(--vscode-inputValidation-warningBorder, #b89500) var(--atlas-ink-share), var(--tint-away)) 72%, var(--atlas-boundary));
           border-radius: 10px;
           padding: 12px;
           background: color-mix(in srgb, var(--vscode-inputValidation-warningBackground, #5a451d) 32%, var(--vscode-editor-background));
@@ -625,9 +625,12 @@ export function buildChatWebviewHtml(opts: { scriptUri: string; cspSource: strin
           width: 20px;
           height: 20px;
           border-radius: 999px;
-          color: var(--vscode-inputValidation-warningForeground, #ffcc33);
-          background: color-mix(in srgb, var(--vscode-inputValidation-warningForeground, #ffcc33) 14%, transparent);
-          border: 1px solid color-mix(in srgb, var(--vscode-inputValidation-warningBorder, #b89500) 68%, transparent);
+          /* The warning foreground is unset outside high-contrast light, so the
+             fallback is what renders; it is the editor's warning colour, inked
+             for the page, rather than a yellow that is 1.4:1 on Light Modern. */
+          color: color-mix(in srgb, var(--vscode-inputValidation-warningForeground, var(--vscode-editorWarning-foreground, #ffcc33)) var(--atlas-ink-share), var(--tint-away));
+          background: color-mix(in srgb, var(--vscode-editorWarning-foreground, #ffcc33) 14%, transparent);
+          border: 1px solid color-mix(in srgb, color-mix(in srgb, var(--vscode-inputValidation-warningBorder, #b89500) var(--atlas-ink-share), var(--tint-away)) 68%, var(--atlas-boundary));
           flex: 0 0 auto;
         }
         .approval-alert-icon svg {
@@ -648,7 +651,7 @@ export function buildChatWebviewHtml(opts: { scriptUri: string; cspSource: strin
           padding: 2px 8px;
           border-radius: 999px;
           font-size: 0.72rem;
-          border: 1px solid var(--vscode-widget-border, #444);
+          border: 1px solid var(--atlas-boundary);
         }
         .approval-risk-badge.high {
           background: color-mix(in srgb, var(--vscode-inputValidation-errorBackground, #5a1d1d) 65%, transparent);
@@ -668,7 +671,7 @@ export function buildChatWebviewHtml(opts: { scriptUri: string; cspSource: strin
           padding: 8px 10px;
           border-radius: 8px;
           background: color-mix(in srgb, var(--vscode-editor-background) 86%, var(--vscode-inputValidation-warningBackground, #5a451d) 14%);
-          border: 1px solid color-mix(in srgb, var(--vscode-widget-border, #444) 72%, transparent);
+          border: 1px solid var(--atlas-boundary);
           color: var(--vscode-descriptionForeground);
           font-size: 0.82em;
           line-height: 1.45;
@@ -687,7 +690,7 @@ export function buildChatWebviewHtml(opts: { scriptUri: string; cspSource: strin
           gap: 6px;
         }
         .approval-actions button.danger {
-          border-color: color-mix(in srgb, var(--vscode-inputValidation-errorBorder, #be1100) 70%, var(--vscode-widget-border, #444));
+          border-color: color-mix(in srgb, color-mix(in srgb, var(--vscode-errorForeground, #f48771) var(--atlas-ink-share), var(--tint-away)) 70%, var(--atlas-boundary));
         }
         /*
           The bordered box the conversation lives in. The border used to sit on
@@ -703,7 +706,7 @@ export function buildChatWebviewHtml(opts: { scriptUri: string; cspSource: strin
           flex-direction: column;
           min-height: 80px;
           overflow: hidden;
-          border: 1px solid var(--vscode-widget-border, #444);
+          border: 1px solid var(--atlas-boundary);
           border-radius: 10px;
           background: color-mix(in srgb, var(--vscode-editor-background) 92%, var(--vscode-editorHoverWidget-background, #111) 8%);
         }
@@ -728,7 +731,7 @@ export function buildChatWebviewHtml(opts: { scriptUri: string; cspSource: strin
           min-height: 80px;
           overflow-y: auto;
           padding: 10px;
-          border: 1px solid var(--vscode-widget-border, #444);
+          border: 1px solid var(--atlas-boundary);
           border-radius: 10px;
           background: color-mix(in srgb, var(--vscode-editor-background) 92%, var(--vscode-editorHoverWidget-background, #111) 8%);
         }
@@ -755,7 +758,7 @@ export function buildChatWebviewHtml(opts: { scriptUri: string; cspSource: strin
         .session-item {
           width: 100%;
           text-align: left;
-          border: 1px solid var(--vscode-widget-border, #444);
+          border: 1px solid var(--atlas-boundary);
           background: var(--vscode-sideBar-background, var(--vscode-editor-background));
           border-radius: 6px;
           padding: 6px 8px;
@@ -764,7 +767,7 @@ export function buildChatWebviewHtml(opts: { scriptUri: string; cspSource: strin
           font-size: 0.88em;
         }
         .session-item.active {
-          border-color: var(--vscode-focusBorder, var(--vscode-button-background));
+          border-color: var(--vscode-focusBorder, var(--atlas-edge-accent));
           background: color-mix(in srgb, var(--vscode-button-background) 12%, transparent);
         }
         .session-item-title {
@@ -790,7 +793,7 @@ export function buildChatWebviewHtml(opts: { scriptUri: string; cspSource: strin
         .session-child-item {
           width: 100%;
           text-align: left;
-          border: 1px solid color-mix(in srgb, var(--vscode-widget-border, #444) 80%, transparent);
+          border: 1px solid var(--atlas-boundary);
           background: color-mix(in srgb, var(--vscode-sideBar-background, var(--vscode-editor-background)) 94%, black 6%);
           border-radius: 6px;
           padding: 5px 8px;
@@ -799,7 +802,7 @@ export function buildChatWebviewHtml(opts: { scriptUri: string; cspSource: strin
           font-size: 0.82em;
         }
         .session-child-item.active {
-          border-color: var(--vscode-focusBorder, var(--vscode-button-background));
+          border-color: var(--vscode-focusBorder, var(--atlas-edge-accent));
           background: color-mix(in srgb, var(--vscode-button-background) 12%, transparent);
         }
         .session-child-title {
@@ -823,7 +826,7 @@ export function buildChatWebviewHtml(opts: { scriptUri: string; cspSource: strin
           height: 24px;
           padding: 0;
           border-radius: 999px;
-          border: 1px solid var(--vscode-widget-border, #444);
+          border: 1px solid var(--atlas-boundary);
           background: transparent;
           color: var(--vscode-foreground);
           cursor: pointer;
@@ -874,7 +877,7 @@ export function buildChatWebviewHtml(opts: { scriptUri: string; cspSource: strin
           font-size: 0.88em;
           color: var(--vscode-input-foreground);
           background: var(--vscode-input-background);
-          border: 1px solid var(--vscode-input-border, var(--vscode-widget-border, #444));
+          border: 1px solid var(--atlas-boundary);
           border-radius: 6px;
         }
         .attachment-row {
@@ -884,7 +887,7 @@ export function buildChatWebviewHtml(opts: { scriptUri: string; cspSource: strin
           display: inline-flex;
           align-items: center;
           gap: 4px;
-          border: 1px solid var(--vscode-widget-border, #444);
+          border: 1px solid var(--atlas-boundary);
           border-radius: 999px;
           padding: 3px 8px;
           background: color-mix(in srgb, var(--vscode-editor-background) 92%, white 8%);
@@ -916,7 +919,7 @@ export function buildChatWebviewHtml(opts: { scriptUri: string; cspSource: strin
           height: 42px;
           object-fit: cover;
           border-radius: 8px;
-          border: 1px solid var(--vscode-widget-border, #444);
+          border: 1px solid var(--atlas-boundary);
           background: color-mix(in srgb, var(--vscode-editor-background) 88%, white 12%);
           flex: 0 0 auto;
         }
@@ -952,7 +955,7 @@ export function buildChatWebviewHtml(opts: { scriptUri: string; cspSource: strin
           align-items: center;
           gap: 8px;
           padding: 6px 8px;
-          border: 1px solid var(--vscode-widget-border, #444);
+          border: 1px solid var(--atlas-boundary);
           border-radius: 10px;
           background: color-mix(in srgb, var(--vscode-editor-background) 94%, white 6%);
           color: inherit;
@@ -987,7 +990,7 @@ export function buildChatWebviewHtml(opts: { scriptUri: string; cspSource: strin
           max-height: 88vh;
           padding: 12px;
           border-radius: 14px;
-          border: 1px solid var(--vscode-widget-border, #444);
+          border: 1px solid var(--atlas-boundary);
           background: var(--vscode-editor-background, #1e1e1e);
           box-shadow: 0 18px 38px rgba(0, 0, 0, 0.42);
         }
@@ -1019,9 +1022,9 @@ export function buildChatWebviewHtml(opts: { scriptUri: string; cspSource: strin
           line-height: 1;
         }
         .autopilot-btn[aria-pressed="true"] {
-          border-color: color-mix(in srgb, var(--vscode-charts-yellow, #d7ba7d) 70%, var(--vscode-widget-border, #444));
+          border-color: color-mix(in srgb, color-mix(in srgb, var(--vscode-charts-yellow, #d7ba7d) var(--atlas-ink-share), var(--tint-away)) 70%, var(--atlas-boundary));
           background: color-mix(in srgb, var(--vscode-charts-yellow, #d7ba7d) 18%, transparent);
-          color: var(--vscode-charts-yellow, #d7ba7d);
+          color: color-mix(in srgb, var(--vscode-charts-yellow, #d7ba7d) var(--atlas-ink-share), var(--tint-away));
           box-shadow: 0 0 0 1px color-mix(in srgb, var(--vscode-charts-yellow, #d7ba7d) 30%, transparent);
         }
         /* A link whose scheme was rejected is rewritten to '#'; without this it
@@ -1047,20 +1050,20 @@ export function buildChatWebviewHtml(opts: { scriptUri: string; cspSource: strin
            had nowhere to show it — ".active" was applied with no rule behind
            it, so every open file looked identical. */
         .open-file-chip.active {
-          border-color: color-mix(in srgb, var(--vscode-focusBorder, var(--vscode-button-background)) 60%, var(--vscode-widget-border, #444));
+          border-color: color-mix(in srgb, var(--vscode-focusBorder, var(--atlas-edge-accent)) 60%, var(--atlas-boundary));
           background: color-mix(in srgb, var(--vscode-button-background) 14%, transparent);
           font-weight: 600;
         }
         .drop-hint {
           margin: 2px 0 4px;
           padding: 4px 8px;
-          border: 1px dashed var(--vscode-widget-border, #444);
+          border: 1px dashed var(--atlas-boundary);
           border-radius: 8px;
           color: var(--vscode-descriptionForeground);
           font-size: 0.82em;
         }
         .drop-hint.dragover, .composer-shell.dragover {
-          border-color: var(--vscode-focusBorder, var(--vscode-button-background));
+          border-color: var(--vscode-focusBorder, var(--atlas-edge-accent));
           background: color-mix(in srgb, var(--vscode-button-background) 10%, transparent);
         }
         .pending-run-review-bar {
@@ -1071,7 +1074,7 @@ export function buildChatWebviewHtml(opts: { scriptUri: string; cspSource: strin
           margin: 4px 0 6px;
           padding: 8px 10px;
           border-radius: 10px;
-          border: 1px solid color-mix(in srgb, var(--vscode-button-background) 48%, var(--vscode-widget-border, #444));
+          border: 1px solid color-mix(in srgb, var(--atlas-edge-accent) 48%, var(--atlas-boundary));
           background: color-mix(in srgb, var(--vscode-button-background) 14%, transparent);
           cursor: pointer;
         }
@@ -1105,7 +1108,7 @@ export function buildChatWebviewHtml(opts: { scriptUri: string; cspSource: strin
           margin: 0 0 8px;
           padding: 10px;
           border-radius: 10px;
-          border: 1px solid var(--vscode-widget-border, #444);
+          border: 1px solid var(--atlas-boundary);
           background: color-mix(in srgb, var(--vscode-editor-background) 92%, black 8%);
           max-height: 240px;
           overflow-y: auto;
@@ -1138,13 +1141,13 @@ export function buildChatWebviewHtml(opts: { scriptUri: string; cspSource: strin
           width: 28px;
           height: 28px;
           border-radius: 999px;
-          border: 1px solid var(--vscode-widget-border, #444);
+          border: 1px solid var(--atlas-boundary);
           background: transparent;
           color: inherit;
           cursor: pointer;
         }
         .pending-run-open-btn.active {
-          border-color: var(--vscode-focusBorder, var(--vscode-button-background));
+          border-color: var(--vscode-focusBorder, var(--atlas-edge-accent));
           background: color-mix(in srgb, var(--vscode-button-background) 16%, transparent);
         }
         textarea {
@@ -1156,7 +1159,7 @@ export function buildChatWebviewHtml(opts: { scriptUri: string; cspSource: strin
           font-size: 0.92em;
           color: var(--vscode-input-foreground);
           background: var(--vscode-input-background);
-          border: 1px solid var(--vscode-input-border, var(--vscode-widget-border, #444));
+          border: 1px solid var(--atlas-boundary);
           border-radius: 6px;
         }
         .composer-row {
@@ -1168,7 +1171,7 @@ export function buildChatWebviewHtml(opts: { scriptUri: string; cspSource: strin
         .chat-message {
           padding: 12px 14px;
           border-radius: 12px;
-          border: 1px solid color-mix(in srgb, var(--vscode-widget-border, #444) 82%, transparent);
+          border: 1px solid var(--atlas-boundary);
           white-space: pre-wrap;
           word-break: break-word;
           font-size: calc(0.95rem * var(--atlas-chat-font-scale));
@@ -1193,11 +1196,11 @@ export function buildChatWebviewHtml(opts: { scriptUri: string; cspSource: strin
           background: color-mix(in srgb, var(--vscode-editorHoverWidget-background, var(--vscode-editor-background)) 84%, white 8%);
         }
         .chat-message.selected-message {
-          border-color: var(--vscode-focusBorder, var(--vscode-button-background));
+          border-color: var(--vscode-focusBorder, var(--atlas-edge-accent));
           box-shadow: 0 0 0 2px color-mix(in srgb, var(--vscode-focusBorder, var(--vscode-button-background)) 20%, transparent);
         }
         .chat-message.pending {
-          border-color: color-mix(in srgb, var(--vscode-focusBorder, var(--vscode-button-background)) 60%, var(--vscode-widget-border, #444));
+          border-color: color-mix(in srgb, var(--vscode-focusBorder, var(--atlas-edge-accent)) 60%, var(--atlas-boundary));
           box-shadow: 0 0 0 1px color-mix(in srgb, var(--vscode-button-background) 12%, transparent);
         }
         .chat-role {
@@ -1207,7 +1210,7 @@ export function buildChatWebviewHtml(opts: { scriptUri: string; cspSource: strin
           min-height: 22px;
           padding: 0 8px;
           border-radius: 999px;
-          border: 1px solid color-mix(in srgb, var(--vscode-widget-border, #444) 72%, transparent);
+          border: 1px solid var(--atlas-boundary);
           background: color-mix(in srgb, var(--vscode-editor-background) 92%, transparent);
           font-size: 0.68rem;
           text-transform: uppercase;
@@ -1229,7 +1232,7 @@ export function buildChatWebviewHtml(opts: { scriptUri: string; cspSource: strin
           min-height: 22px;
           padding: 0 8px;
           border-radius: 999px;
-          border: 1px solid color-mix(in srgb, var(--vscode-widget-border, #444) 72%, transparent);
+          border: 1px solid var(--atlas-boundary);
           background: color-mix(in srgb, var(--vscode-editor-background) 93%, transparent);
           font-size: 0.68rem;
           color: color-mix(in srgb, var(--vscode-descriptionForeground) 86%, var(--vscode-foreground));
@@ -1242,7 +1245,7 @@ export function buildChatWebviewHtml(opts: { scriptUri: string; cspSource: strin
         }
         .chat-model-badge.expandable:hover {
           opacity: 1;
-          border-color: color-mix(in srgb, var(--vscode-widget-border, #444) 100%, transparent);
+          border-color: var(--atlas-boundary);
         }
         .model-badge-count {
           opacity: 0.75;
@@ -1271,7 +1274,7 @@ export function buildChatWebviewHtml(opts: { scriptUri: string; cspSource: strin
           right: 0;
           min-width: 180px;
           background: var(--vscode-editor-background);
-          border: 1px solid color-mix(in srgb, var(--vscode-widget-border, #444) 80%, transparent);
+          border: 1px solid var(--atlas-boundary);
           border-radius: 6px;
           padding: 4px 0;
           z-index: 50;
@@ -1400,7 +1403,7 @@ export function buildChatWebviewHtml(opts: { scriptUri: string; cspSource: strin
           max-width: min(100%, 88ch);
           margin: 0 0 12px;
           border-radius: 12px;
-          border: 1px solid color-mix(in srgb, var(--vscode-widget-border, #444) 82%, transparent);
+          border: 1px solid var(--atlas-boundary);
           overflow: hidden;
           background: color-mix(in srgb, var(--vscode-editor-background, #1e1e1e) 90%, black 10%);
           box-shadow: inset 0 1px 0 rgba(255, 255, 255, 0.03);
@@ -1448,10 +1451,10 @@ export function buildChatWebviewHtml(opts: { scriptUri: string; cspSource: strin
           color: var(--vscode-foreground);
         }
         .chat-code-btn--copied {
-          color: var(--vscode-gitDecoration-addedResourceForeground, #73c991);
+          color: color-mix(in srgb, var(--vscode-gitDecoration-addedResourceForeground, #73c991) var(--atlas-ink-share), var(--tint-away));
         }
         .chat-code-btn--active {
-          color: var(--vscode-button-background, #0078d4);
+          color: var(--dash-accent-strong);
         }
         .chat-content blockquote {
           margin-left: 0;
@@ -1465,7 +1468,7 @@ export function buildChatWebviewHtml(opts: { scriptUri: string; cspSource: strin
           max-width: min(100%, 88ch);
           overflow-x: auto;
           border-radius: 12px;
-          border: 1px solid color-mix(in srgb, var(--vscode-widget-border, #444) 72%, transparent);
+          border: 1px solid var(--atlas-boundary);
           background: color-mix(in srgb, var(--vscode-editor-background, #1e1e1e) 96%, white 4%);
         }
         .chat-markdown-table {
@@ -1522,6 +1525,12 @@ export function buildChatWebviewHtml(opts: { scriptUri: string; cspSource: strin
         .assistant-footer-thought {
           min-width: 0;
         }
+        .assistant-untrusted-note {
+          font-size: 0.92em;
+          padding: 6px 10px;
+          border-left: 3px solid var(--vscode-editorWarning-foreground, #c27803);
+          color: var(--vscode-descriptionForeground, inherit);
+        }
         .assistant-utility-row {
           display: flex;
           align-items: center;
@@ -1530,7 +1539,7 @@ export function buildChatWebviewHtml(opts: { scriptUri: string; cspSource: strin
           flex-wrap: wrap;
         }
         .transcript-disclosure {
-          border: 1px solid color-mix(in srgb, var(--vscode-widget-border, #444) 74%, transparent);
+          border: 1px solid var(--atlas-boundary);
           border-radius: 10px;
           background: color-mix(in srgb, var(--vscode-editorHoverWidget-background, var(--vscode-editor-background)) 90%, white 6%);
           overflow: hidden;
@@ -1589,7 +1598,7 @@ export function buildChatWebviewHtml(opts: { scriptUri: string; cspSource: strin
         }
         .auxiliary-section.transcript-disclosure {
           background: color-mix(in srgb, var(--vscode-editor-background, #1e1e1e) 94%, white 8%);
-          border-color: color-mix(in srgb, var(--vscode-widget-border, #444) 56%, transparent);
+          border-color: var(--atlas-boundary);
         }
         .auxiliary-section .transcript-disclosure-summary {
           background: color-mix(in srgb, var(--vscode-editor-background, #1e1e1e) 97%, white 5%);
@@ -1629,7 +1638,7 @@ export function buildChatWebviewHtml(opts: { scriptUri: string; cspSource: strin
           color: color-mix(in srgb, var(--vscode-foreground) 88%, var(--vscode-descriptionForeground));
         }
         .assistant-timeline-list li.warning {
-          color: var(--vscode-editorWarning-foreground, #c27803);
+          color: color-mix(in srgb, var(--vscode-editorWarning-foreground, #c27803) var(--atlas-ink-share), var(--tint-away));
         }
         .run-review-link-row {
           display: inline-flex;
@@ -1648,7 +1657,7 @@ export function buildChatWebviewHtml(opts: { scriptUri: string; cspSource: strin
           font-size: 0.78rem;
         }
         .run-review-link.active {
-          color: var(--vscode-button-background);
+          color: var(--dash-accent-strong);
           font-weight: 600;
         }
         .chat-message-actions {
@@ -1666,7 +1675,7 @@ export function buildChatWebviewHtml(opts: { scriptUri: string; cspSource: strin
           box-sizing: border-box;
           padding: 12px;
           border-radius: 12px;
-          border: 1px solid color-mix(in srgb, var(--vscode-button-background) 58%, var(--vscode-widget-border, #444));
+          border: 1px solid color-mix(in srgb, var(--atlas-edge-accent) 58%, var(--atlas-boundary));
           background: color-mix(in srgb, var(--vscode-button-background) 10%, var(--vscode-editor-background));
           box-shadow: inset 3px 0 0 color-mix(in srgb, var(--vscode-button-background) 78%, transparent);
         }
@@ -1692,7 +1701,7 @@ export function buildChatWebviewHtml(opts: { scriptUri: string; cspSource: strin
           cursor: pointer;
         }
         .project-run-proposal-actions button.primary {
-          border-color: var(--vscode-button-background);
+          border-color: var(--atlas-edge-accent);
           background: var(--vscode-button-background);
           color: var(--vscode-button-foreground);
         }
@@ -1714,12 +1723,12 @@ export function buildChatWebviewHtml(opts: { scriptUri: string; cspSource: strin
           transition: background 120ms ease, border-color 120ms ease, color 120ms ease, opacity 120ms ease;
         }
         .assistant-followup-toggle {
-          border: 1px solid var(--vscode-widget-border, #444);
+          border: 1px solid var(--atlas-boundary);
           background: color-mix(in srgb, var(--vscode-editor-background) 92%, white 8%);
           color: var(--vscode-foreground);
         }
         .assistant-followup-toggle.active {
-          border-color: var(--vscode-focusBorder, var(--vscode-button-background));
+          border-color: var(--vscode-focusBorder, var(--atlas-edge-accent));
           background: color-mix(in srgb, var(--vscode-button-background) 18%, transparent);
         }
         .assistant-followup-toggle:hover,
@@ -1727,7 +1736,7 @@ export function buildChatWebviewHtml(opts: { scriptUri: string; cspSource: strin
           background: color-mix(in srgb, var(--vscode-button-background) 18%, transparent);
         }
         .assistant-followup-proceed {
-          border: 1px solid color-mix(in srgb, var(--vscode-button-background) 60%, var(--vscode-widget-border, #444));
+          border: 1px solid color-mix(in srgb, var(--atlas-edge-accent) 60%, var(--atlas-boundary));
           background: color-mix(in srgb, var(--vscode-button-background) 84%, transparent);
           color: var(--vscode-button-foreground, var(--vscode-foreground));
           font-weight: 600;
@@ -1737,7 +1746,7 @@ export function buildChatWebviewHtml(opts: { scriptUri: string; cspSource: strin
           opacity: 0.6;
           background: color-mix(in srgb, var(--vscode-editor-background) 94%, white 6%);
           color: var(--vscode-descriptionForeground, var(--vscode-foreground));
-          border-color: var(--vscode-widget-border, #444);
+          border-color: var(--atlas-boundary);
         }
 ${QUICK_REPLY_CSS}
         .iteration-limit-actions {
@@ -1748,7 +1757,7 @@ ${QUICK_REPLY_CSS}
           flex-direction: column;
           align-items: flex-start;
           padding: 11px 12px;
-          border: 1px solid color-mix(in srgb, var(--vscode-inputValidation-warningBorder, #cca700) 65%, var(--vscode-widget-border, #444));
+          border: 1px solid color-mix(in srgb, color-mix(in srgb, var(--vscode-inputValidation-warningBorder, #cca700) var(--atlas-ink-share), var(--tint-away)) 65%, var(--atlas-boundary));
           border-radius: 12px;
           background: color-mix(in srgb, var(--vscode-inputValidation-warningBackground, #5a4b00) 14%, var(--vscode-editor-background));
         }
@@ -1779,7 +1788,7 @@ ${QUICK_REPLY_CSS}
           transition: background 0.15s ease, opacity 0.15s ease;
         }
         .iteration-limit-raise-perm {
-          border: 1px solid color-mix(in srgb, var(--vscode-button-background) 60%, var(--vscode-widget-border, #444));
+          border: 1px solid color-mix(in srgb, var(--atlas-edge-accent) 60%, var(--atlas-boundary));
           background: color-mix(in srgb, var(--vscode-button-background) 84%, transparent);
           color: var(--vscode-button-foreground, var(--vscode-foreground));
           font-weight: 600;
@@ -1789,7 +1798,7 @@ ${QUICK_REPLY_CSS}
           color: var(--vscode-button-foreground, var(--vscode-foreground));
         }
         .iteration-limit-raise-temp {
-          border: 1px solid color-mix(in srgb, var(--vscode-button-background) 40%, var(--vscode-widget-border, #444));
+          border: 1px solid color-mix(in srgb, var(--atlas-edge-accent) 40%, var(--atlas-boundary));
           background: color-mix(in srgb, var(--vscode-button-background) 30%, transparent);
           color: var(--vscode-foreground);
         }
@@ -1797,7 +1806,7 @@ ${QUICK_REPLY_CSS}
           background: color-mix(in srgb, var(--vscode-button-background) 55%, transparent);
         }
         .iteration-limit-continue {
-          border: 1px solid color-mix(in srgb, var(--vscode-button-background) 60%, var(--vscode-widget-border, #444));
+          border: 1px solid color-mix(in srgb, var(--atlas-edge-accent) 60%, var(--atlas-boundary));
           background: color-mix(in srgb, var(--vscode-button-background) 84%, transparent);
           color: var(--vscode-button-foreground, var(--vscode-foreground));
           font-weight: 600;
@@ -1807,7 +1816,7 @@ ${QUICK_REPLY_CSS}
           color: var(--vscode-button-foreground, var(--vscode-foreground));
         }
         .iteration-limit-cancel {
-          border: 1px solid var(--vscode-widget-border, #444);
+          border: 1px solid var(--atlas-boundary);
           background: transparent;
           color: var(--vscode-foreground);
         }
@@ -1821,7 +1830,7 @@ ${QUICK_REPLY_CSS}
           margin-top: 2px;
           padding: 9px 10px;
           border-radius: 10px;
-          border: 1px solid color-mix(in srgb, var(--vscode-widget-border, #444) 80%, transparent);
+          border: 1px solid var(--atlas-boundary);
           background: color-mix(in srgb, var(--vscode-button-background) 6%, transparent);
         }
         .assistant-followup-question {
@@ -1836,7 +1845,7 @@ ${QUICK_REPLY_CSS}
         }
         .assistant-followup-chip {
           appearance: none;
-          border: 1px solid var(--vscode-widget-border, #444);
+          border: 1px solid var(--atlas-boundary);
           background: color-mix(in srgb, var(--vscode-editor-background) 90%, white 10%);
           color: var(--vscode-foreground);
           border-radius: 999px;
@@ -1857,7 +1866,7 @@ ${QUICK_REPLY_CSS}
           min-height: 28px;
           padding: 0;
           border-radius: 999px;
-          border: 1px solid var(--vscode-widget-border, #444);
+          border: 1px solid var(--atlas-boundary);
           background: transparent;
           color: color-mix(in srgb, var(--vscode-foreground) 84%, var(--vscode-descriptionForeground));
           cursor: pointer;
@@ -1868,7 +1877,7 @@ ${QUICK_REPLY_CSS}
           height: 15px;
         }
         .vote-btn.active {
-          border-color: var(--vscode-focusBorder, var(--vscode-button-background));
+          border-color: var(--vscode-focusBorder, var(--atlas-edge-accent));
           background: color-mix(in srgb, var(--vscode-button-background) 16%, transparent);
           color: var(--vscode-foreground);
         }
@@ -1888,14 +1897,14 @@ ${QUICK_REPLY_CSS}
           padding: 0 1px;
         }
         .search-highlight-active {
-          background: color-mix(in srgb, var(--vscode-button-background, #0e639c) 72%, #f5e663 28%);
+          background: var(--vscode-button-background, #0e639c);
           color: var(--vscode-button-foreground, white);
           box-shadow: 0 0 0 1px color-mix(in srgb, var(--vscode-button-background, #0e639c) 70%, transparent);
         }
         .delete-btn:hover {
-          border-color: color-mix(in srgb, var(--vscode-errorForeground, #f48771) 70%, var(--vscode-widget-border, #444));
-          background: color-mix(in srgb, var(--vscode-errorForeground, #f48771) 12%, transparent);
-          color: var(--vscode-errorForeground, #f48771);
+          border-color: color-mix(in srgb, color-mix(in srgb, var(--vscode-errorForeground, #f48771) var(--atlas-ink-share), var(--tint-away)) 70%, var(--atlas-boundary));
+          background: color-mix(in srgb, var(--vscode-errorForeground, #f48771) 8%, transparent);
+          color: color-mix(in srgb, var(--vscode-errorForeground, #f48771) var(--atlas-ink-share), var(--tint-away));
         }
         .thought-details {
           margin-top: 0;
@@ -1926,7 +1935,7 @@ ${QUICK_REPLY_CSS}
           margin: 8px 0 0;
           padding: 6px 10px;
           border-radius: 8px;
-          border: 1px solid color-mix(in srgb, var(--vscode-widget-border, #444) 68%, transparent);
+          border: 1px solid var(--atlas-boundary);
           background: color-mix(in srgb, var(--vscode-editor-background, #1e1e1e) 95%, white 5%);
           color: color-mix(in srgb, var(--vscode-descriptionForeground) 90%, var(--vscode-foreground));
           font-size: 0.8em;
@@ -1949,18 +1958,18 @@ ${QUICK_REPLY_CSS}
           align-items: center;
           padding: 2px 8px;
           border-radius: 999px;
-          border: 1px solid var(--vscode-widget-border, #444);
+          border: 1px solid var(--atlas-boundary);
           font-size: 0.8em;
           font-weight: 500;
           vertical-align: middle;
         }
         .thought-status-chip.verified {
-          color: var(--vscode-testing-iconPassed, #4ec9b0);
+          color: color-mix(in srgb, var(--vscode-testing-iconPassed, #4ec9b0) var(--atlas-ink-share), var(--tint-away));
           background: color-mix(in srgb, var(--vscode-testing-iconPassed, #4ec9b0) 14%, transparent);
         }
         .thought-status-chip.blocked,
         .thought-status-chip.missing {
-          color: var(--vscode-notificationsWarningIcon-foreground, #ffb347);
+          color: color-mix(in srgb, var(--vscode-notificationsWarningIcon-foreground, #ffb347) var(--atlas-ink-share), var(--tint-away));
           background: color-mix(in srgb, var(--vscode-inputValidation-warningBorder, #cca700) 14%, transparent);
         }
         .thought-status-chip.not-applicable {
@@ -1986,7 +1995,7 @@ ${QUICK_REPLY_CSS}
           margin-top: 10px;
           padding: 12px;
           border-radius: 12px;
-          border: 1px solid color-mix(in srgb, var(--vscode-widget-border, #444) 80%, transparent);
+          border: 1px solid var(--atlas-boundary);
           background: color-mix(in srgb, var(--vscode-editorHoverWidget-background, var(--vscode-editor-background)) 76%, black 14%);
         }
         .run-review-header,
@@ -2014,7 +2023,7 @@ ${QUICK_REPLY_CSS}
         .run-review-pill {
           padding: 3px 8px;
           border-radius: 999px;
-          border: 1px solid color-mix(in srgb, var(--vscode-button-background) 48%, var(--vscode-widget-border, #444));
+          border: 1px solid color-mix(in srgb, var(--atlas-edge-accent) 48%, var(--atlas-boundary));
           font-size: 0.78rem;
         }
         .run-review-goal,
@@ -2027,7 +2036,7 @@ ${QUICK_REPLY_CSS}
           flex-wrap: wrap;
         }
         .run-review-open-center {
-          border: 1px solid var(--vscode-widget-border, #444);
+          border: 1px solid var(--atlas-boundary);
           border-radius: 999px;
           background: transparent;
           color: inherit;
@@ -2046,14 +2055,14 @@ ${QUICK_REPLY_CSS}
           align-items: center;
           padding: 8px 10px;
           border-radius: 10px;
-          border: 1px solid color-mix(in srgb, var(--vscode-widget-border, #444) 78%, transparent);
+          border: 1px solid var(--atlas-boundary);
           background: color-mix(in srgb, var(--vscode-editor-background) 92%, black 8%);
         }
         .run-review-file-row.accepted {
-          border-color: color-mix(in srgb, var(--vscode-testing-iconPassed, #4ec9b0) 52%, var(--vscode-widget-border, #444));
+          border-color: color-mix(in srgb, color-mix(in srgb, var(--vscode-testing-iconPassed, #4ec9b0) var(--atlas-ink-share), var(--tint-away)) 52%, var(--atlas-boundary));
         }
         .run-review-file-row.dismissed {
-          border-color: color-mix(in srgb, var(--vscode-errorForeground, #f14c4c) 52%, var(--vscode-widget-border, #444));
+          border-color: color-mix(in srgb, color-mix(in srgb, var(--vscode-errorForeground, #f14c4c) var(--atlas-ink-share), var(--tint-away)) 52%, var(--atlas-boundary));
         }
         .run-review-file-link {
           padding: 0;
@@ -2076,17 +2085,17 @@ ${QUICK_REPLY_CSS}
           width: 28px;
           height: 28px;
           border-radius: 999px;
-          border: 1px solid var(--vscode-widget-border, #444);
+          border: 1px solid var(--atlas-boundary);
           background: transparent;
           color: inherit;
           cursor: pointer;
           font-weight: 700;
         }
         .run-review-decision-btn.accepted {
-          color: var(--vscode-testing-iconPassed, #4ec9b0);
+          color: color-mix(in srgb, var(--vscode-testing-iconPassed, #4ec9b0) var(--atlas-ink-share), var(--tint-away));
         }
         .run-review-decision-btn.dismissed {
-          color: var(--vscode-errorForeground, #f14c4c);
+          color: color-mix(in srgb, var(--vscode-errorForeground, #f14c4c) var(--atlas-ink-share), var(--tint-away));
         }
         .run-review-decision-btn.active {
           background: color-mix(in srgb, currentColor 14%, transparent);
@@ -2121,7 +2130,7 @@ ${QUICK_REPLY_CSS}
           position: relative;
           width: 100%;
           height: 100%;
-          color: var(--vscode-button-background);
+          color: var(--dash-accent-strong);
           animation: atlas-float 1.8s ease-in-out infinite;
         }
         .thinking-logo .atlas-outline {
@@ -2161,7 +2170,7 @@ ${QUICK_REPLY_CSS}
         /* ---- Session tile busy indicator ---- */
         .session-item-running .session-item-title { display: flex; align-items: center; gap: 4px; }
         .session-item-busy-logo { flex: 0 0 14px; width: 14px; height: 14px; margin-left: auto; }
-        .session-item-busy-logo svg { width: 14px; height: 14px; color: var(--vscode-button-background); animation: atlas-float 1.8s ease-in-out infinite; }
+        .session-item-busy-logo svg { width: 14px; height: 14px; color: var(--dash-accent-strong); animation: atlas-float 1.8s ease-in-out infinite; }
         .session-item-busy-logo .atlas-outline { opacity: 0.9; }
         .session-item-busy-logo .atlas-axis { transform-origin: center; animation: atlas-spin 2.6s linear infinite; transform-box: view-box; }
 
@@ -2232,7 +2241,7 @@ ${QUICK_REPLY_CSS}
         .hljs-property { color: var(--vscode-symbolIcon-variableForeground, #9cdcfe); }
         .hljs-meta,
         .hljs-tag { color: var(--vscode-descriptionForeground); }
-        .hljs-deletion { color: var(--vscode-errorForeground); }
+        .hljs-deletion { color: color-mix(in srgb, var(--vscode-errorForeground) var(--atlas-ink-share), var(--tint-away)); }
         .hljs-emphasis { font-style: italic; }
         .hljs-strong { font-weight: 600; }
 
@@ -2245,7 +2254,7 @@ ${QUICK_REPLY_CSS}
           max-height: 220px;
           overflow-y: auto;
           z-index: 40;
-          border: 1px solid var(--vscode-widget-border, #444);
+          border: 1px solid var(--atlas-boundary);
           border-radius: 6px;
           background: var(--vscode-editorWidget-background, var(--vscode-editor-background));
           box-shadow: 0 4px 14px rgba(0, 0, 0, 0.28);
@@ -2304,7 +2313,7 @@ ${QUICK_REPLY_CSS}
            different things, and two identically-lit buttons side by side would
            read as one control in two halves. */
         .icon-btn.model-pin-btn.auto {
-          border-color: color-mix(in srgb, var(--vscode-textLink-foreground, #3794ff) 70%, var(--vscode-widget-border, #444));
+          border-color: color-mix(in srgb, var(--vscode-textLink-foreground, #3794ff) 70%, var(--atlas-boundary));
           background: color-mix(in srgb, var(--vscode-textLink-foreground, #3794ff) 18%, transparent);
           color: var(--vscode-textLink-foreground, #3794ff);
           box-shadow: 0 0 0 1px color-mix(in srgb, var(--vscode-textLink-foreground, #3794ff) 30%, transparent);
@@ -2313,7 +2322,7 @@ ${QUICK_REPLY_CSS}
            signal that somebody took the wheel; lighting it too would leave the
            control lit in both states, which says nothing. */
         .icon-btn.model-pin-btn.pinned {
-          border-color: var(--vscode-widget-border, #444);
+          border-color: var(--atlas-boundary);
           color: var(--vscode-foreground);
         }
         .model-pin-list {
@@ -2368,7 +2377,7 @@ ${QUICK_REPLY_CSS}
         .context-meter.warn .context-meter-fill {
           background: var(--vscode-editorWarning-foreground, #c27803);
         }
-        .context-meter.warn .context-meter-label { color: var(--vscode-editorWarning-foreground, #c27803); }
+        .context-meter.warn .context-meter-label { color: color-mix(in srgb, var(--vscode-editorWarning-foreground, #c27803) var(--atlas-ink-share), var(--tint-away)); }
         .context-meter-label { flex: 0 0 auto; font-variant-numeric: tabular-nums; white-space: nowrap; }
 
         /* The meter is now a control. It stays visually a bar — the breakdown
@@ -2392,7 +2401,7 @@ ${QUICK_REPLY_CSS}
         .context-breakdown {
           margin-top: 6px;
           padding: 8px;
-          border: 1px solid var(--vscode-panel-border, color-mix(in srgb, var(--vscode-descriptionForeground) 30%, transparent));
+          border: 1px solid var(--atlas-boundary);
           border-radius: 6px;
           background: var(--vscode-editorWidget-background, var(--vscode-editor-background));
         }
@@ -2437,7 +2446,7 @@ ${QUICK_REPLY_CSS}
           font: inherit;
           padding: 1px 8px;
           border-radius: 999px;
-          border: 1px solid var(--vscode-panel-border, color-mix(in srgb, var(--vscode-descriptionForeground) 30%, transparent));
+          border: 1px solid var(--atlas-boundary);
           background: none;
           color: inherit;
           cursor: pointer;
@@ -2452,7 +2461,7 @@ ${QUICK_REPLY_CSS}
           font: inherit;
           padding: 1px 4px;
           border-radius: 4px;
-          border: 1px solid var(--vscode-focusBorder, var(--vscode-button-background));
+          border: 1px solid var(--vscode-focusBorder, var(--atlas-edge-accent));
           background: var(--vscode-input-background);
           color: var(--vscode-input-foreground);
         }
@@ -2475,13 +2484,13 @@ ${QUICK_REPLY_CSS}
           display: block;
           width: 100%;
           text-align: left;
-          border: 1px solid var(--vscode-widget-border, #444);
+          border: 1px solid var(--atlas-boundary);
           border-radius: 8px;
           padding: 6px 9px;
           background: color-mix(in srgb, var(--vscode-editor-background) 94%, transparent);
           cursor: pointer;
         }
-        .cross-session-result:hover { border-color: var(--vscode-focusBorder, var(--vscode-button-background)); }
+        .cross-session-result:hover { border-color: var(--vscode-focusBorder, var(--atlas-edge-accent)); }
         .cross-session-where {
           font-size: 0.76rem;
           font-weight: 600;
@@ -2504,7 +2513,7 @@ ${QUICK_REPLY_CSS}
           resize: vertical;
           padding: 6px 8px;
           border-radius: 8px;
-          border: 1px solid var(--vscode-focusBorder, var(--vscode-button-background));
+          border: 1px solid var(--vscode-focusBorder, var(--atlas-edge-accent));
           background: var(--vscode-input-background);
           color: var(--vscode-input-foreground);
         }
@@ -2517,8 +2526,8 @@ ${QUICK_REPLY_CSS}
         /* Recording is a state worth seeing from across the room: the panel is
            listening to the microphone, and that should never be ambiguous. */
         .dictate-btn.recording {
-          color: var(--vscode-inputValidation-errorForeground, #f48771);
-          border-color: color-mix(in srgb, var(--vscode-errorForeground, #f48771) 60%, transparent);
+          color: color-mix(in srgb, var(--vscode-inputValidation-errorForeground, var(--vscode-errorForeground, #f48771)) var(--atlas-ink-share), var(--tint-away));
+          border-color: color-mix(in srgb, color-mix(in srgb, var(--vscode-errorForeground, #f48771) var(--atlas-ink-share), var(--tint-away)) 60%, var(--atlas-boundary));
           animation: dictate-pulse 1.4s ease-in-out infinite;
         }
         @keyframes dictate-pulse {
@@ -2528,7 +2537,7 @@ ${QUICK_REPLY_CSS}
 
         /* ---- Run inspector ---- */
         .run-card {
-          border: 1px solid var(--vscode-widget-border, #444);
+          border: 1px solid var(--atlas-boundary);
           border-radius: 8px;
           padding: 10px;
           background: color-mix(in srgb, var(--vscode-editor-background) 90%, white 10%);
@@ -2540,7 +2549,7 @@ ${QUICK_REPLY_CSS}
           gap: 4px;
           padding: 2px 8px;
           border-radius: 999px;
-          border: 1px solid var(--vscode-widget-border, #444);
+          border: 1px solid var(--atlas-boundary);
           font-size: 0.82em;
         }
         .run-log-list, .subtask-list {
@@ -2551,7 +2560,7 @@ ${QUICK_REPLY_CSS}
         .subtask-item {
           padding: 8px 10px;
           border-radius: 8px;
-          border: 1px solid var(--vscode-widget-border, #444);
+          border: 1px solid var(--atlas-boundary);
           background: color-mix(in srgb, var(--vscode-sideBar-background, var(--vscode-editor-background)) 78%, transparent);
         }
         .hidden { display: none; }
@@ -2577,14 +2586,14 @@ ${QUICK_REPLY_CSS}
         }
         .icon-btn:hover:not(:disabled) {
           background: color-mix(in srgb, var(--vscode-foreground) 10%, transparent);
-          border-color: var(--vscode-widget-border, #444);
+          border-color: var(--atlas-boundary);
         }
         /* The pressed state is now the visible one, for every toggle that has
            not already declared its own. */
         .icon-btn[aria-pressed="true"] {
-          border-color: color-mix(in srgb, var(--vscode-button-background) 70%, var(--vscode-widget-border, #444));
+          border-color: color-mix(in srgb, var(--atlas-edge-accent) 70%, var(--atlas-boundary));
           background: color-mix(in srgb, var(--vscode-button-background) 22%, transparent);
-          color: var(--vscode-button-background);
+          color: var(--dash-accent-strong);
         }
         .icon-btn svg {
           display: block;
@@ -2600,15 +2609,15 @@ ${QUICK_REPLY_CSS}
         .danger-btn {
           padding: 4px 12px;
           font-size: 0.88em;
-          border: 1px solid color-mix(in srgb, var(--vscode-errorForeground, #f14c4c) 40%, var(--vscode-widget-border, #444));
-          background: color-mix(in srgb, var(--vscode-errorForeground, #f14c4c) 12%, transparent);
-          color: var(--vscode-errorForeground, #f14c4c);
+          border: 1px solid color-mix(in srgb, color-mix(in srgb, var(--vscode-errorForeground, #f14c4c) var(--atlas-ink-share), var(--tint-away)) 40%, var(--atlas-boundary));
+          background: color-mix(in srgb, var(--vscode-errorForeground, #f14c4c) 8%, transparent);
+          color: color-mix(in srgb, var(--vscode-errorForeground, #f14c4c) var(--atlas-ink-share), var(--tint-away));
         }
 
         /* ---- AI instruction nudge ---- */
         .ai-instruction-nudge {
           flex: 0 0 auto;
-          border: 1px solid color-mix(in srgb, var(--vscode-editorInfo-foreground, #3794ff) 40%, transparent);
+          border: 1px solid color-mix(in srgb, var(--vscode-editorInfo-foreground, #3794ff) 40%, var(--atlas-boundary));
           border-radius: 10px;
           background: color-mix(in srgb, var(--vscode-editorInfo-foreground, #3794ff) 10%, var(--vscode-editor-background, #1e1e1e));
           margin: 0;
@@ -2621,7 +2630,7 @@ ${QUICK_REPLY_CSS}
         }
         .ai-instruction-nudge-icon {
           flex: 0 0 auto;
-          color: var(--vscode-editorInfo-foreground, #3794ff);
+          color: color-mix(in srgb, var(--vscode-editorInfo-foreground, #3794ff) var(--atlas-ink-share), var(--tint-away));
           font-size: 1.1em;
         }
         .ai-instruction-nudge-text {
@@ -2637,7 +2646,7 @@ ${QUICK_REPLY_CSS}
           border-radius: 6px;
           white-space: nowrap;
           cursor: pointer;
-          border: 1px solid var(--vscode-widget-border, #444);
+          border: 1px solid var(--atlas-boundary);
           background: transparent;
           color: var(--vscode-foreground);
         }

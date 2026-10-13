@@ -208,3 +208,70 @@ describe('ToolApprovalManager', () => {
     await expect(decision).resolves.toBe('deny');
   });
 });
+
+describe('ToolApprovalManager — the release valve after untrusted content', () => {
+  const taintRequest = (taskId: string) => ({
+    taskId,
+    toolName: 'file-write',
+    category: 'workspace-write' as const,
+    risk: 'high' as const,
+    summary: 'modify workspace files using file-write',
+    allowedDecisions: ['allow-once', 'acknowledge-source', 'deny'] as Array<'allow-once' | 'acknowledge-source' | 'deny'>,
+  });
+
+  it('acknowledges the category for the task, and only that task and category', async () => {
+    const manager = new ToolApprovalManager();
+    const decision = manager.requestApproval(taintRequest('task-a'));
+    const [request] = manager.listPendingRequests();
+
+    expect(manager.resolvePendingRequest(request!.id, 'acknowledge-source')).toBe(true);
+    await expect(decision).resolves.toBe('acknowledge-source');
+    expect(manager.hasAcknowledgedTaint('task-a', 'workspace-write')).toBe(true);
+    expect(manager.hasAcknowledgedTaint('task-a', 'network-read')).toBe(false);
+    expect(manager.hasAcknowledgedTaint('task-b', 'workspace-write')).toBe(false);
+    expect(manager.shouldBypass('task-a', { category: 'workspace-write', risk: 'high', summary: '' })).toBe(true);
+  });
+
+  it('refuses the acknowledgement on a card that did not offer it', () => {
+    const manager = new ToolApprovalManager();
+    void manager.requestApproval({
+      taskId: 'task-c',
+      toolName: 'file-write',
+      category: 'workspace-write',
+      risk: 'high',
+      summary: 'modify workspace files',
+    });
+    const [request] = manager.listPendingRequests();
+
+    expect(manager.resolvePendingRequest(request!.id, 'acknowledge-source')).toBe(false);
+    expect(manager.hasAcknowledgedTaint('task-c', 'workspace-write')).toBe(false);
+    expect(manager.listPendingRequests()).toHaveLength(1);
+  });
+
+  it('is not settled by switching autopilot on or bypassing the task', () => {
+    const manager = new ToolApprovalManager();
+    void manager.requestApproval(taintRequest('task-d'));
+
+    manager.enableAutopilot();
+    manager.bypassTask('task-d');
+
+    expect(manager.listPendingRequests()).toHaveLength(1);
+  });
+
+  it('cannot reach past the non-bypassable ceiling', () => {
+    const manager = new ToolApprovalManager();
+    manager.acknowledgeTaint('task-e', 'network');
+    expect(manager.shouldBypass('task-e', { category: 'network', risk: 'high', summary: '' })).toBe(false);
+  });
+
+  it('is cleared with the task and on reset', () => {
+    const manager = new ToolApprovalManager();
+    manager.acknowledgeTaint('task-f', 'workspace-write');
+    manager.clearTask('task-f');
+    expect(manager.hasAcknowledgedTaint('task-f', 'workspace-write')).toBe(false);
+
+    manager.acknowledgeTaint('task-g', 'git-write');
+    manager.reset();
+    expect(manager.hasAcknowledgedTaint('task-g', 'git-write')).toBe(false);
+  });
+});

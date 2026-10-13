@@ -72,7 +72,7 @@ export class RoutineRegistry {
 /**
  * Parses a routine markdown file.
  * Expects YAML frontmatter between --- fences with the fields:
- *   id, name, description, default (optional), steps (array).
+ *   id, name, description, default (optional), schedule (optional), steps (array).
  * Each step has: id, label, run, on_fail.
  */
 function parseRoutineFile(content: string, filePath: string): RoutineDefinition | null {
@@ -113,11 +113,18 @@ function parseRoutineFile(content: string, filePath: string): RoutineDefinition 
     return null;
   }
 
+  // Kept as written. Whether it means anything is `routineSchedule`'s decision,
+  // and a schedule it cannot read is reported there with the reason rather than
+  // dropped here — a routine that silently never ran is worse than one that
+  // says why it will not.
+  const schedule = typeof parsed['schedule'] === 'string' ? parsed['schedule'].trim() : '';
+
   return {
     id,
     name,
     description,
     default: parsed['default'] === true,
+    ...(schedule ? { schedule } : {}),
     steps,
     source: filePath,
     builtIn: false,
