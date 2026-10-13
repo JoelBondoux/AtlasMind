@@ -3188,7 +3188,7 @@
     "@types/node": "^26.6.3",
     "@types/pg": "^8.23.1",
     "@types/vscode": "^1.120.0",
-    "@types/ws": "^8.18.1",
+    "@types/ws": "^8.18.2",
     "@typescript-eslint/eslint-plugin": "^8.70.1",
     "@typescript-eslint/parser": "^8.67.0",
     "@vitest/coverage-v8": "^5.0.2",
@@ -3209,7 +3209,7 @@
     "@noble/secp256k1": "^3.2.0",
     "mysql2": "^3.24.3",
     "pg": "^8.23.0",
-    "ws": "^8.21.3",
+    "ws": "^8.22.0",
     "zod": "^4.6.5"
   },
   "overrides": {
