@@ -6,6 +6,24 @@ The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/),
 
 ## [Unreleased]
 
+## [0.503.1] - 2026-10-13
+
+### Fixed
+
+- **Two code-scanning findings on PR #253.**
+  - **The game profile's markdown mirror now escapes backslashes in table cells.** `cell()` in
+    `src/core/gameProfile.ts` escaped pipes but not backslashes. A label ending in `\` could therefore cancel the
+    escape on the pipe after it and break out of its cell. Backslashes are now escaped before pipes.
+  - **Detecting a leading doctype in a page no longer uses a backtracking regex.** `parseHtmlSource` in
+    `src/core/htmlSourceMap.ts` used a regex that skipped an optional BOM, whitespace and `<!-- … -->` comments with a nested lazy group. On a file starting
+    with `<!--` followed by many `--><!--`, that pattern backtracks exponentially, and it runs on pages AtlasMind
+    did not write.
+    - The new `startsWithDoctype` is a linear scan.
+    - It is slightly stricter: a comment ends at its first `-->`, as it does in a browser. The old lazy match
+      could run on to a later `-->` and report a doctype that was really preceded by text.
+    - A property test checks it never finds a doctype the old pattern would not, and a timing test runs the
+      hostile input.
+
 ## [0.503.0] - 2026-10-08
 
 ### Added

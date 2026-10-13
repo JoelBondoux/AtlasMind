@@ -305,6 +305,29 @@ function lineAt(lineStarts: readonly number[], offset: number): number {
   return low + 1;
 }
 
+/**
+ * Whether the page opens with a doctype, after an optional BOM and any whitespace and
+ * comments. A scan rather than a regex: `(?:<!--[\s\S]*?-->\s*)*` backtracks exponentially
+ * on `<!--` followed by many `--><!--`, and this runs on files we did not write.
+ */
+export function startsWithDoctype(text: string): boolean {
+  let i = text.charCodeAt(0) === 0xfeff ? 1 : 0;
+  for (;;) {
+    while (i < text.length && /\s/u.test(text[i]!)) {
+      i += 1;
+    }
+    if (!text.startsWith('<!--', i)) {
+      break;
+    }
+    const close = text.indexOf('-->', i + 4);
+    if (close === -1) {
+      return false;
+    }
+    i = close + 3;
+  }
+  return text.slice(i, i + 9).toLowerCase() === '<!doctype';
+}
+
 /** Parse a page into elements with source offsets. Total: never throws. */
 export function parseHtmlSource(text: string): HtmlSourceDocument {
   const elements: HtmlSourceElement[] = [];
@@ -313,7 +336,7 @@ export function parseHtmlSource(text: string): HtmlSourceDocument {
   const lineStarts = buildLineStarts(text);
   const n = text.length;
   let truncated = false;
-  const hasDoctype = /^﻿?\s*(?:<!--[\s\S]*?-->\s*)*<!doctype/i.test(text);
+  const hasDoctype = startsWithDoctype(text);
 
   const top = (): HtmlSourceElement | undefined => {
     const index = stack[stack.length - 1];

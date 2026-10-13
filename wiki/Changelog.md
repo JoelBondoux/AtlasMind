@@ -19,6 +19,13 @@ Older entries below describe the software as it was at the time and are delibera
 
 ---
 
+## v0.503.1 -- Two code-scanning fixes
+
+- The game profile's markdown mirror escapes backslashes in table cells, as well as pipes, so a label can no
+  longer break out of its cell.
+- Detecting a leading doctype in a page is now a linear scan. It replaces a regex that backtracked exponentially
+  on a crafted file, and it ends a comment at its first `-->`, as a browser does.
+
 ## v0.503.0 -- Sandboxed commands get their dependencies from a volume you prepared
 
 - Under `atlasmind.sandbox.mode = require`, a command that loads installed packages (`npm test`, `vitest`,

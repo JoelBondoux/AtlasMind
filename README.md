@@ -4,7 +4,7 @@
 
 <h1 align="center">AtlasMind</h1>
 
-<p align="center"><sub> · <strong>Current source version: 0.503.0</strong> · </sub></p>
+<p align="center"><sub> · <strong>Current source version: 0.503.1</strong> · </sub></p>
 
 
 <p align="center">
@@ -176,6 +176,12 @@ allow-list, redaction and file-withholding behaviour, retained metadata, provide
 important limits on overrides and compliance claims.
 
 ---
+
+## What's new in 0.503.1
+
+**Two code-scanning fixes.** The game profile's markdown mirror now escapes backslashes in table cells, so a label
+can no longer break out of its cell. Detecting a doctype at the top of a page no longer uses a regex that backtracks
+exponentially on a crafted file.
 
 ## What's new in 0.503.0
 

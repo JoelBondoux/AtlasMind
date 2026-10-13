@@ -9,8 +9,46 @@ import {
   HTML_SOURCE_MAX_DEPTH,
   htmlSourceFingerprint,
   parseHtmlSource,
+  startsWithDoctype,
   type HtmlSourceDocument,
 } from '../../src/core/htmlSourceMap.ts';
+
+describe('startsWithDoctype', () => {
+  it.each([
+    ['<!DOCTYPE html><p>', true],
+    ['﻿  \n<!doctype html>', true],
+    ['<!-- a --> <!-- b -->\n<!DocType html>', true],
+    ['<!---->\n<!doctype html>', true],
+    ['<!--> <!doctype html>', false],
+    ['<!-- never closed <!doctype html>', false],
+    ['<p><!doctype html>', false],
+    ['', false],
+  ])('%j → %s', (text, expected) => {
+    expect(startsWithDoctype(text)).toBe(expected);
+  });
+
+  it('ends a comment at its first --> as a browser does, where the old regex could run on to a later one', () => {
+    expect(startsWithDoctype('<!-- a --> x --> <!doctype html>')).toBe(false);
+  });
+
+  it('never finds a doctype the regex it replaced would not have found', () => {
+    const legacy = /^﻿?\s*(?:<!--[\s\S]*?-->\s*)*<!doctype/i;
+    const piece = fc.constantFrom('<!--', '-->', ' ', '\n', 'x', '<!doctype', '<!DOCTYPE html>', '﻿', '<p>');
+    fc.assert(fc.property(fc.array(piece, { maxLength: 12 }), parts => {
+      const text = parts.join('');
+      if (startsWithDoctype(text)) {
+        expect(legacy.test(text)).toBe(true);
+      }
+    }), { numRuns: 500 });
+  });
+
+  it('stays linear on the input that made the regex backtrack', () => {
+    const hostile = `<!--${'--><!--'.repeat(50_000)}`;
+    const started = Date.now();
+    expect(startsWithDoctype(hostile)).toBe(false);
+    expect(Date.now() - started).toBeLessThan(500);
+  });
+});
 
 /**
  * The parser's job is offsets: where each element's tags are in the file, so

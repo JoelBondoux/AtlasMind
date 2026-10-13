@@ -721,8 +721,9 @@ const KNOWN_FIELDS = new Set([
   'contentRoots', 'disciplineOwnership', 'storeTargets', 'updatedAt',
 ]);
 
+/** A table cell: backslashes first, so an escaped pipe in the input cannot un-escape ours. */
 function cell(value: string): string {
-  return value.replace(/\|/gu, '\\|');
+  return value.replace(/\\/gu, '\\\\').replace(/\|/gu, '\\|');
 }
 
 function metric(value: number | undefined, unit: string): string {

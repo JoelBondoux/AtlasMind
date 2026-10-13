@@ -324,6 +324,15 @@ describe('the mirror', () => {
     expect(markdown).not.toMatch(/\b0 (?:ms|MB|s)\b/u);
   });
 
+  it('escapes backslashes before pipes, so a label cannot un-escape a cell boundary', () => {
+    const markdown = renderGameProfileMarkdown({
+      version: 1,
+      platformTargets: [{ platform: 'console', label: 'Dev\\|Kit' }],
+      performanceBudgets: [{ platform: 'console', label: 'Dev\\|Kit', frameTimeMs: 33 }],
+    });
+    expect(markdown).toContain('| console — Dev\\\\\\|Kit | 33 ms |');
+  });
+
   it('names fields this build does not recognise, by key only', () => {
     const markdown = renderGameProfileMarkdown({ version: 1, cookProfile: { tier: 'high' } });
     expect(markdown).toContain('`cookProfile`');
