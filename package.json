@@ -3207,7 +3207,7 @@
     "@agentclientprotocol/sdk": "^1.5.0",
     "@modelcontextprotocol/sdk": "^1.30.0",
     "@noble/secp256k1": "^3.2.0",
-    "mysql2": "^3.24.3",
+    "mysql2": "^3.24.5",
     "pg": "^8.23.0",
     "ws": "^8.21.3",
     "zod": "^4.6.5"
