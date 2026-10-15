@@ -3205,12 +3205,12 @@
   },
   "dependencies": {
     "@agentclientprotocol/sdk": "^1.5.0",
-    "@modelcontextprotocol/sdk": "^1.30.0",
+    "@modelcontextprotocol/sdk": "^1.32.1",
     "@noble/secp256k1": "^3.2.0",
     "mysql2": "^3.24.3",
     "pg": "^8.23.0",
     "ws": "^8.21.3",
-    "zod": "^4.6.5"
+    "zod": "^4.6.6"
   },
   "overrides": {
     "@hono/node-server": "^2.0.5",
