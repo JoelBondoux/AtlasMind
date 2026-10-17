@@ -4853,6 +4853,12 @@ export interface SubTaskExecutionArtifacts {
   /** Methodology under which this subtask's verification ran. */
   testingMethodologyId?: TestingMethodologyId;
   checkpointedTools: string[];
+  /**
+   * The turn ended on a reply announcing a change it never made, after one
+   * re-prompt to make it. Present only when true — absent means the gate did not
+   * fire, not that the turn was checked and found complete.
+   */
+  stoppedAtAnnouncement?: boolean;
   changedFiles: ChangedWorkspaceFile[];
   diffPreview?: string;
 }

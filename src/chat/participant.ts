@@ -32,7 +32,11 @@ import { Planner } from '../core/planner.js';
 import { TaskProfiler } from '../core/taskProfiler.js';
 import { MissionRunner } from '../core/missionRunner.js';
 import type { MissionCheckpointRequest, MissionBlockedRequest, MissionBlockResolution } from '../core/missionRunner.js';
-import { shouldBiasTowardWorkspaceInvestigation } from '../core/orchestrator.js';
+import {
+  looksLikeUnactedChangeAnnouncement,
+  shouldBiasTowardWorkspaceInvestigation,
+  UNACTED_ANNOUNCEMENT_MARKER,
+} from '../core/orchestrator.js';
 import { assessRunGoalConformance, describeRunGoalConformance } from '../core/runGoalConformance.js';
 import { assessPlannedActionCeilings, describePlannedActionCeilings } from '../core/plannedActionCeiling.js';
 import { formatCost, formatCostAdaptive } from '../core/currencyFormatter.js';
@@ -5535,6 +5539,11 @@ export function buildAssistantResponseMetadata(
     summary = result.autoDisabledProvider
       ? `${result.autoDisabledProvider.displayName} stopped before returning an answer.`
       : 'No usable answer was returned.';
+  } else if (result.artifacts?.stoppedAtAnnouncement) {
+    // Ahead of the attempt count. "Completed after 2 model attempts" headed a
+    // turn whose whole reply was "I will now edit README.md …" — nothing was
+    // edited, and the headline is what somebody reads to learn whether it was.
+    summary = 'Said what it would change, then stopped without changing it.';
   } else if (failedAttempts.some(attempt => attempt.model !== result.modelUsed)) {
     const others = failedAttempts.filter(attempt => attempt.model !== result.modelUsed).length;
     summary = `Completed after ${attempts.length} model attempt${attempts.length === 1 ? '' : 's'}; ${others} did not complete.`;
@@ -6690,7 +6699,11 @@ export function buildFollowups(
   // exactly and the operator would otherwise have to reconstruct by hand.
   if (outcome?.approvalRequiredPrompt) {
     return [
-      { prompt: outcome.approvalRequiredPrompt, label: 'Approve and run' },
+      // `command` is load-bearing. A follow-up goes to the command the turn used,
+      // and a run reached by "continue" used none — so the approving prompt landed
+      // in an ordinary chat turn with `--approve` sitting in it as text, and the
+      // run it approved never started.
+      { prompt: outcome.approvalRequiredPrompt, label: 'Approve and run', command: 'project' },
       { prompt: '/runs', label: 'Review previous runs first' },
     ];
   }
@@ -6843,7 +6856,51 @@ export function resolveProjectExecutionGoal(
     return goal.length > 0 ? goal : undefined;
   }
 
+  if (isBareContinuationOfStalledTurn(trimmed, transcript)) {
+    return undefined;
+  }
+
   return resolveAutonomousContinuationGoal(prompt, transcript);
+}
+
+const AUTONOMY_QUALIFIER_PATTERN = /\b(?:autonomously|automatically|autopilot)\b/i;
+
+/**
+ * "continue" after a chat turn that announced one change and stopped.
+ *
+ * That is a request to make the change, and the chat turn that announced it is
+ * already the right place to make it. Treating it as a project goal is what
+ * turned "trim the README" into a twelve-subtask plan — branch, regression test,
+ * archive, release hygiene, commit, push, pull request — estimated at
+ * twenty-four files, stopped at two approval gates, and never run.
+ *
+ * Deliberately narrow, because a continuation becoming a run is otherwise
+ * intended ({@link resolveAutonomousContinuationGoal} says why at length):
+ *
+ * - **Bare only.** Detail ("continue on the tests") or an explicit request for
+ *   autonomy ("proceed autonomously") keeps the project path.
+ * - **A stalled announcement only.** The last reply must be a short promise of
+ *   a change with nothing delivered, or carry the loop's not-done notice. A
+ *   described plan is a list, which is not that shape.
+ * - **Never over an offered run.** A reply proposing a project run is asking
+ *   exactly the question "continue" answers.
+ */
+function isBareContinuationOfStalledTurn(prompt: string, transcript: SessionTranscriptEntry[]): boolean {
+  const match = AUTONOMOUS_CONTINUATION_PATTERN.exec(prompt);
+  if (!match || match[1]?.trim() || AUTONOMY_QUALIFIER_PATTERN.test(prompt)) {
+    return false;
+  }
+  const lastAssistant = [...transcript]
+    .reverse()
+    .find(entry => entry.role === 'assistant' && entry.content.trim().length > 0);
+  if (!lastAssistant || lastAssistant.meta?.projectRunProposal) {
+    return false;
+  }
+  const content = lastAssistant.content.trim();
+  if (detectProjectRunProposal(content)) {
+    return false;
+  }
+  return content.includes(UNACTED_ANNOUNCEMENT_MARKER) || looksLikeUnactedChangeAnnouncement(content);
 }
 
 export function resolveNaturalLanguageProjectGoal(
@@ -7242,6 +7299,20 @@ function normalizeAutonomousSourcePrompt(prompt: string): string {
 export function toApprovedProjectPrompt(goal: string): string {
   const normalized = goal.replace(PROJECT_APPROVAL_TOKEN, '').trim();
   return normalized.length > 0 ? `${normalized} ${PROJECT_APPROVAL_TOKEN}` : PROJECT_APPROVAL_TOKEN;
+}
+
+/**
+ * The approving prompt as a chat-panel pill must send it.
+ *
+ * A pill submits its text exactly as if it were typed, and in the panel only a
+ * `/project` prefix reaches the project path — `<goal> --approve` on its own is
+ * prose. That is how "Approve and run" became a plain chat turn which announced
+ * the edit again and stopped, with the approved run never started. The native
+ * chat gets the same effect from the follow-up's `command` instead.
+ */
+export function toApprovedProjectSlashPrompt(approvalPrompt: string): string {
+  const trimmed = approvalPrompt.trim();
+  return /^\/project\b/i.test(trimmed) ? trimmed : `/project ${trimmed}`;
 }
 
 /** Append the loop approval token so `runLoopCommand` starts the mission immediately (used by the chat panel's "New Loop"). */

@@ -19,6 +19,20 @@ Older entries below describe the software as it was at the time and are delibera
 
 ---
 
+## v0.503.2 -- A turn that says it will edit, edits
+
+Asking Atlas to change something could end with *"I will now edit `README.md` …"* and nothing edited,
+under a summary that said "Completed". A reply like that is now sent back once to make the change; if the
+model still only announces it, the reply says plainly that it was not done, and so does the summary.
+
+Two follow-on problems from the same conversation are fixed too. Saying "continue" after such a reply
+finishes that step instead of planning a twelve-step project around it. **Approve and run** now starts the
+run it approves; for a run reached by "continue" it used to send an ordinary chat message instead.
+
+The README now shows only the three newest releases; every release is still in the full changelog.
+
+---
+
 ## v0.503.1 -- Two code-scanning fixes
 
 - The game profile's markdown mirror escapes backslashes in table cells, as well as pipes, so a label can no

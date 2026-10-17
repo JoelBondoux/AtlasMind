@@ -49,6 +49,7 @@ import {
   summarizeChangedFiles,
   summarizeRoadmapStatus,
   toApprovedProjectPrompt,
+  toApprovedProjectSlashPrompt,
   toSerializableAttribution,
   detectResponseQuickReplies,
   buildQuickReplyPayload,
@@ -69,6 +70,8 @@ import {
 } from '../../src/core/roadmapPlanning.ts';
 
 import { describeImageRejections } from '../../src/chat/imageAttachments.ts';
+import { routePanelPrompt } from '../../src/views/chatSlashRouting.ts';
+import { appendUnactedAnnouncementCaveat } from '../../src/core/orchestrator.ts';
 import type { TaskImageAttachment } from '../../src/types.ts';
 import { type SessionTranscriptEntry } from '../../src/chat/sessionConversation.ts';
 import { mkdtempSync, mkdirSync, writeFileSync } from 'node:fs';
@@ -797,6 +800,43 @@ describe('participant helper logic', () => {
     expect(metadata.thoughtSummary?.bullets).toContain(
       'Did not complete: acp/codex@gpt-5.5#low (timeout).',
     );
+  });
+
+  it('does not head a turn "Completed" when it only announced the change', () => {
+    // Observed: "Completed after 2 model attempts; 1 did not complete." above a
+    // reply that said "I will now edit README.md …" and edited nothing.
+    const metadata = buildAssistantResponseMetadata(
+      'please clean up the readme',
+      {
+        agentId: 'default',
+        modelUsed: 'mistral/ministral-8b-latest',
+        costUsd: 0.0074,
+        inputTokens: 98_173,
+        outputTokens: 654,
+        artifacts: {
+          output: 'I will now edit README.md',
+          outputPreview: 'I will now edit README.md',
+          toolCallCount: 1,
+          toolCalls: [],
+          checkpointedTools: [],
+          stoppedAtAnnouncement: true,
+        },
+        modelAttempts: [
+          {
+            model: 'local/qwen3.5-9b', providerId: 'local', endpointScope: 'local:endpoint',
+            status: 'error', durationMs: 1_000, inputTokens: 0, outputTokens: 0,
+          },
+          {
+            model: 'mistral/ministral-8b-latest', providerId: 'mistral', endpointScope: 'provider:mistral',
+            status: 'completed', durationMs: 2_000, inputTokens: 98_173, outputTokens: 654,
+          },
+        ],
+      },
+    );
+
+    expect(metadata.thoughtSummary?.summary).toBe('Said what it would change, then stopped without changing it.');
+    // The attempt history is still reported — it moved out of the headline, not out of the summary.
+    expect(metadata.thoughtSummary?.bullets).toContain('Did not complete: local/qwen3.5-9b (error).');
   });
 
   it('carries execution-limit recovery values into chat metadata', () => {
@@ -1623,7 +1663,17 @@ describe('the file-count approval gate is reachable from chat', () => {
       failedSubtaskTitles: [],
       approvalRequiredPrompt: 'Add Stripe checkout --approve',
     });
-    expect(followups[0]).toEqual({ prompt: 'Add Stripe checkout --approve', label: 'Approve and run' });
+    // `command` routes the click to `/project` even when the run was reached by
+    // "continue", a turn with no command of its own to inherit.
+    expect(followups[0]).toEqual({ prompt: 'Add Stripe checkout --approve', label: 'Approve and run', command: 'project' });
+  });
+
+  it('gives the panel pill a prompt that reaches the project path, approved', () => {
+    // A pill submits as typed text, and without the prefix the panel read
+    // "<goal> --approve" as prose: an ordinary chat turn ran instead of the run.
+    const pill = toApprovedProjectSlashPrompt(toApprovedProjectPrompt('please clean up the readme'));
+    expect(routePanelPrompt(pill)).toEqual({ kind: 'project', goal: 'please clean up the readme --approve' });
+    expect(toApprovedProjectSlashPrompt(pill)).toBe(pill);
   });
 
   it('outranks model-suggested followups, since nothing else can unblock the turn', () => {
@@ -1712,6 +1762,54 @@ describe('a run goal is a goal, not the word used to agree', () => {
     ]]);
 
     expect(resolveAutonomousContinuationGoal('yes on 0.310.5', transcript)).toBeDefined();
+  });
+});
+
+describe('"continue" after a chat turn that announced one change and stopped', () => {
+  // Observed: the reply was "I will now edit README.md …" and nothing was
+  // edited; "continue" then became a twelve-subtask project plan — branch,
+  // regression test, archive, release hygiene, commit, push, pull request —
+  // estimated at twenty-four files, stopped at two approval gates, never run.
+  const STALLED = 'I will now edit `README.md` to remove the older changelog entries, keeping only the three most recent versions as requested.';
+  const transcriptOf = (reply: string, meta?: SessionTranscriptEntry['meta']): SessionTranscriptEntry[] => [
+    { id: 'u1', role: 'user', content: 'please clean up the readme so it only shows the three newest builds', timestamp: '2026-10-18T10:00:00.000Z' },
+    { id: 'a1', role: 'assistant', content: reply, timestamp: '2026-10-18T10:00:05.000Z', ...(meta ? { meta } : {}) },
+    { id: 'u2', role: 'user', content: 'continue', timestamp: '2026-10-18T10:01:00.000Z' },
+  ];
+
+  it.each(['continue', 'go ahead', 'yes', 'carry on.'])('resumes the turn rather than planning a project: %j', prompt => {
+    expect(resolveProjectExecutionGoal(prompt, transcriptOf(STALLED))).toBeUndefined();
+    expect(resolveAtlasChatIntent(prompt, transcriptOf(STALLED))?.kind).not.toBe('project');
+  });
+
+  it('recognises the stall by the not-done notice too, once the reply is too long to look like one', () => {
+    const noticed = appendUnactedAnnouncementCaveat(`${STALLED} ${'Detail about the sections. '.repeat(25)}`, false);
+    expect(resolveProjectExecutionGoal('continue', transcriptOf(noticed))).toBeUndefined();
+  });
+
+  it('keeps the project path when autonomy is asked for in so many words', () => {
+    expect(resolveProjectExecutionGoal('proceed autonomously', transcriptOf(STALLED)))
+      .toBe('please clean up the readme so it only shows the three newest builds');
+  });
+
+  it('keeps the project path when the continuation carries detail', () => {
+    expect(resolveProjectExecutionGoal('continue with the wiki changelog too', transcriptOf(STALLED))).toBeDefined();
+  });
+
+  it('keeps the project path when the reply described a plan rather than one step', () => {
+    const plan = "I'll do this in three parts:\n- trim README.md\n- update wiki/Changelog.md\n- add a docs test";
+    expect(resolveProjectExecutionGoal('continue', transcriptOf(plan))).toBeDefined();
+  });
+
+  it('keeps the project path when the reply offered a project run', () => {
+    expect(resolveProjectExecutionGoal(
+      'continue',
+      transcriptOf('I will start a project run to update the README.'),
+    )).toBeDefined();
+    expect(resolveProjectExecutionGoal(
+      'continue',
+      transcriptOf(STALLED, { projectRunProposal: { goal: 'trim the README', status: 'pending' } }),
+    )).toBeDefined();
   });
 });
 

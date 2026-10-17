@@ -455,6 +455,30 @@ describe('the README\'s published-version baseline is not stale', () => {
   });
 });
 
+/**
+ * The README summarises the current build and the two before it, and no more.
+ *
+ * Every commit adds a "What's new" section and nothing ever removed one, so the
+ * README grew to twenty-six of them — five hundred lines of patch notes between
+ * the safety section and the feature table — while CHANGELOG.md already held
+ * every release in full. Pinned here so the oldest section leaves in the same
+ * commit that adds the newest, rather than whenever somebody notices.
+ *
+ * Compared against the changelog rather than counted, so a section for a
+ * version that was never released, or one skipped in the middle, fails too.
+ */
+describe('the README summarises only the three newest releases', () => {
+  it('lists exactly the three newest changelog versions, newest first', () => {
+    const readmeVersions = [...read('README.md').matchAll(/^## What's new in (\d+\.\d+\.\d+)\s*$/gm)]
+      .map(match => match[1]);
+    const newestReleased = [...read('CHANGELOG.md').matchAll(/^## \[(\d+\.\d+\.\d+)\]/gm)]
+      .map(match => match[1])
+      .slice(0, 3);
+    expect(readmeVersions, 'README "What\'s new" sections must be the three newest CHANGELOG.md releases')
+      .toEqual(newestReleased);
+  });
+});
+
 describe('a claim about what git tracks matches what git tracks', () => {
   it('does not say the SSOT is excluded from the repository', () => {
     // Six documents asserted this while ninety tracked files disproved it. The

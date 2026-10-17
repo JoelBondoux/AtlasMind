@@ -71,6 +71,12 @@ could change something as it starts; if the attempt then fails, the turn stops, 
 and suggests checking `git status` and `git log -3` before asking again. A subscription agent running
 its own tools is treated the same once it has the prompt, because AtlasMind cannot see which of them ran.
 
+**A turn does not end on a promise.** A reply that only says which change is coming ("I will now edit
+`README.md` to …"), with no file written yet, is sent back once with an instruction to make the change.
+If the model announces again, the reply ends with an **Announced, not done** notice and the "What Atlas
+did" summary says so instead of "Completed". An offer or a question ("want me to trim it?") is a legitimate
+place to stop and is left alone.
+
 **When no installed tool fits, chat can look further — but only where you said it may.** If the model's
 `find-tool` search comes back empty, the same short description (secrets redacted, at most 160
 characters) goes to the Agent Finders you switched on in Resource Discovery, and up to five candidates

@@ -6,6 +6,42 @@ The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/),
 
 ## [Unreleased]
 
+## [0.503.2] - 2026-10-18
+
+### Fixed
+
+- A chat turn no longer ends on a reply that only announces a change. Observed twice in one conversation,
+  on two models: *"I will now edit `README.md` to retain only the three most recent builds …"*, and the
+  turn ended there with nothing edited. `looksLikePreambleOnly` already recognised that shape, but only the
+  project scheduler ever asked it; in chat the workspace reprompt matches inspection narration alone, and
+  only under a bias hint. The tool loop now re-prompts once when no file write has succeeded and the reply
+  is a bare promise of a change (`looksLikeUnactedChangeAnnouncement`: a change verb, no list or code, not an
+  offer or a question, not "let me know"). A second announcement ends with an **Announced, not done**
+  notice, which says nothing was changed only when no side-effecting tool ran. Skipped for agents that run
+  tools in their own session, where AtlasMind cannot see whether the change was made, and during a dry run,
+  where nothing is written by design.
+- The "What Atlas did" headline no longer says *Completed after N model attempts* above a turn that only
+  announced its change. Such a turn now reads *Said what it would change, then stopped without changing
+  it*; the attempt history stays in the bullets. `SubTaskExecutionArtifacts.stoppedAtAnnouncement` carries
+  the fact, and `classifySubTaskFailure` also matches the notice, which can push a reply past the preamble
+  length cap.
+- **Approve and run** starts the run it approves. A run reached by "continue" had no command to return to,
+  so the approving prompt (`<goal> --approve`) arrived as an ordinary chat message: in the chat panel a
+  plain turn answered instead, and in `@atlas` the follow-up went to no command. The `@atlas` follow-up now
+  carries `command: 'project'` and the panel pill carries a `/project` prefix (`toApprovedProjectSlashPrompt`).
+- A bare "continue", "go ahead" or "yes" after a chat turn that announced one change and stopped resumes
+  that turn instead of planning a project around it. It had turned a one-file README trim into a
+  twelve-subtask plan (branch, regression test, archive, release hygiene, commit, push, pull request),
+  estimated at 24 files and stopped at two approval gates. "Proceed autonomously", a continuation carrying
+  detail, a reply that described a plan, and an offered project run all still start a run.
+
+### Changed
+
+- The README keeps only the three newest "What's new" sections (the current build and the two before
+  it); every release stays written up in full here. The last-Marketplace-publication line moved out of a
+  version section so it survives the rotation, and `docsIntegrity` now asserts the README's sections are
+  exactly the three newest versions in this file.
+
 ## [0.503.1] - 2026-10-13
 
 ### Fixed

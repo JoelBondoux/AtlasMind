@@ -65,6 +65,17 @@ having come from nowhere. An affirmation on its own is now refused as a goal and
 to what you actually asked for; "Shall I go ahead **and update the README banner**?" still resolves to the
 work, because there the affirmation is only a preamble.
 
+**"Continue" after a stalled step finishes the step.** If the last reply was a chat turn that announced
+one change and stopped — "I will now edit `README.md` to …" with nothing edited — a bare "continue",
+"go ahead" or "yes" resumes that turn instead of planning a project around it. Until v0.503.2 it went to the
+planner, which turned a one-file README trim into a twelve-subtask plan with a branch, a commit, a push
+and a pull request, stopped at two approval gates. Saying "proceed autonomously", adding detail, replying
+to a described plan, or answering an offered project run still starts a run as before.
+
+**Approve and run starts the run it approves.** Before v0.503.2 a run reached by "continue" had no command
+to return to, so clicking **Approve and run** sent its prompt as an ordinary chat message and the approved
+run never started.
+
 **A stated precondition is honoured.** If the assistant said it was waiting on you — "once you confirm the
 version number, I can start a run" — a bare "continue" no longer overrides it, because it supplies none of
 what was asked for and the run would begin on exactly the information the model said it lacked. A reply

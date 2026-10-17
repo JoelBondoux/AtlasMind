@@ -3860,6 +3860,14 @@ export class Orchestrator {
     let verificationContradictionRepromptDone = false;
     let tddCompletionRepromptDone = false;
     let tddBlockedCaveatApplied = false;
+    let announcedActionRepromptDone = false;
+    let stoppedAtAnnouncement = false;
+    // Two different claims, kept apart: whether a file write *succeeded* (which
+    // excuses an announcement — the change was made) and whether anything that
+    // *could* change the workspace ran at all (which decides how strongly the
+    // not-done notice may say nothing changed).
+    let wroteWorkspaceFile = false;
+    let sideEffectingToolRan = false;
     let readonlyExplorationTurns = 0;
     let readonlyExplorationNudged = false;
     let lastToolResults: Array<{ toolCall: ToolCall; result: string; isFailure?: boolean }> = [];
@@ -4073,12 +4081,46 @@ export class Orchestrator {
             };
           }
         }
+        // Announced-change gate: the reply says which change it is about to make
+        // and is the whole reply. Without this a chat turn could end on "I will
+        // now edit README.md …" with nothing edited — the workspace reprompt only
+        // recognises *inspection* narration, and only under a bias hint.
+        //
+        // Skipped where AtlasMind cannot see the work: an agent running tools in
+        // its own session may have made the change already, and nothing here
+        // could tell. Skipped in a dry run too, where nothing is written by
+        // design and the dry-run summary already says what would have been.
+        if (
+          tools.length > 0
+          && !context.allowDelegatedToolExecution
+          && !dryRunNow()
+          && !wroteWorkspaceFile
+          && !tddBlockedCaveatApplied
+          && looksLikeUnactedChangeAnnouncement(completion.content)
+        ) {
+          if (!announcedActionRepromptDone) {
+            announcedActionRepromptDone = true;
+            onProgress?.('The model said what it would change and stopped without changing it — AtlasMind is asking it to carry the step out.');
+            messages.push({ role: 'assistant', origin: 'generated-instruction', content: completion.content });
+            messages.push({ role: 'user', origin: 'system-prompt', content: buildAnnouncedActionReprompt() });
+            continue;
+          }
+          stoppedAtAnnouncement = true;
+          completion = {
+            ...completion,
+            content: appendUnactedAnnouncementCaveat(completion.content, sideEffectingToolRan),
+          };
+        }
         // Completion-integrity gate: if the response acknowledges work that was
         // not finished (e.g. "not yet wired", "important follow-up"), inject one
         // re-prompt so the agent either completes the work or declares explicit
         // unresolved blockers instead of silently leaving gaps in the delivery.
+        //
+        // Not after the not-done notice: that notice is the honest end of the
+        // turn, and a further re-prompt would replace it with whatever came back.
         if (
           !completionIntegrityRepromptDone
+          && !stoppedAtAnnouncement
           && completion.content.length > 0
           && (looksLikeIncompleteDelivery(completion.content, context.completionCriteria?.incompletePatterns)
             || looksLikeAnswerlessCompletionClaim(completion.content)
@@ -4741,6 +4783,14 @@ export class Orchestrator {
       // Carry the raw-output failure verdict (isFailure) alongside the possibly
       // verification-enriched result so failure classification stays accurate.
       lastToolResults = toolResults.map(({ toolCall, result, isFailure }) => ({ toolCall, result, isFailure }));
+      for (const entry of lastToolResults) {
+        if (isSideEffectingToolCall(entry.toolCall.name, entry.toolCall.arguments)) {
+          sideEffectingToolRan = true;
+        }
+        if (requiresWriteCheckpoint(entry.toolCall.name, entry.toolCall.arguments) && !isFailedToolEntry(entry)) {
+          wroteWorkspaceFile = true;
+        }
+      }
 
       // Prune the oldest tool-exchange pairs when the messages array grows too
       // large.  The system message (index 0) and the initial user message
@@ -4823,7 +4873,7 @@ export class Orchestrator {
 
     return {
       completion,
-      artifacts: buildExecutionArtifacts(completion.content, toolArtifacts, checkpointedTools, verificationSummary, projectTddState, difficulty.failedToolCalls),
+      artifacts: buildExecutionArtifacts(completion.content, toolArtifacts, checkpointedTools, verificationSummary, projectTddState, difficulty.failedToolCalls, stoppedAtAnnouncement),
     };
   }
 
@@ -6930,9 +6980,10 @@ function buildExecutionArtifacts(
   verificationSummary: string | undefined,
   projectTddState: ProjectTddState | undefined,
   failedToolCallCount: number,
+  stoppedAtAnnouncement = false,
 ): Omit<SubTaskExecutionArtifacts, 'changedFiles' | 'diffPreview'> | undefined {
   const tddArtifact = buildProjectTddArtifact(projectTddState, verificationSummary);
-  if (toolArtifacts.length === 0 && checkpointedTools.size === 0 && !verificationSummary && !tddArtifact) {
+  if (toolArtifacts.length === 0 && checkpointedTools.size === 0 && !verificationSummary && !tddArtifact && !stoppedAtAnnouncement) {
     return undefined;
   }
 
@@ -6946,6 +6997,7 @@ function buildExecutionArtifacts(
     tddStatus: tddArtifact?.status,
     tddSummary: tddArtifact?.summary,
     checkpointedTools: [...checkpointedTools],
+    ...(stoppedAtAnnouncement ? { stoppedAtAnnouncement: true } : {}),
   };
 }
 
@@ -7182,6 +7234,78 @@ export function looksLikePreambleOnly(response: string): boolean {
 }
 
 /**
+ * The first line of the notice appended to a chat turn that announced a change
+ * and ended without making it. Exported so the subtask boundary can recognise a
+ * reply the notice made too long for {@link looksLikePreambleOnly} — the same
+ * reason {@link TOOL_EXECUTION_FAILURE_PREFIX} is matched with `includes`.
+ */
+export const UNACTED_ANNOUNCEMENT_MARKER = '⚠️ **Announced, not done**';
+
+const ANNOUNCED_CHANGE_PATTERN = /\b(?:let'?s|let me(?!\s+know\b)|i'?ll|i will|i am going to|i'?m going to)\b.*\b(?:add|write|create|update|edit|modify|apply|implement|fix|patch|refactor|rename|wire|generate|remove|delete|trim|replace|rewrite|change|move)\b/i;
+const CONDITIONAL_OFFER_PATTERN = /\bif (?:you|the user)\b|\b(?:would|do) you (?:like|want)\b|\bwant me to\b|\bshall i\b|\bshould i\b/i;
+
+/**
+ * A chat reply that says which change it is about to make, and is the whole reply.
+ *
+ * Observed verbatim, twice in one conversation, on two different models: *"I
+ * will now edit `README.md` to retain only the three most recent builds … and
+ * remove all older patch notes."* — and the turn ended there. Nothing was
+ * edited. {@link looksLikePreambleOnly} recognises the shape, but only the
+ * project scheduler ever asked it, so in a chat turn the announcement went out
+ * as the answer and the summary headed it "Completed".
+ *
+ * Narrower than its parent on purpose, because a chat turn that trips this is
+ * re-prompted and then labelled as not done. Three exclusions carry that:
+ *
+ * - **A change verb is required.** "Let me check the router" is investigation
+ *   narration, which the workspace reprompt already owns; this is about a
+ *   promised *edit*.
+ * - **An offer is not an announcement.** "If you'd like, I'll update the wiki
+ *   too", "want me to trim it?", or anything ending in a question asks the
+ *   operator something, and stopping to ask is a legitimate place to stop.
+ * - **"Let me know" leads nothing.** "Let me know if you want me to update the
+ *   docs" is a sign-off, not a promise.
+ *
+ * Sentences are tested one at a time so an offer in one sentence cannot excuse
+ * an announcement in another.
+ */
+export function looksLikeUnactedChangeAnnouncement(response: string): boolean {
+  if (!response.trim() || !looksLikePreambleOnly(response)) {
+    return false;
+  }
+  return response
+    .trim()
+    .split(/(?<=[.!?])\s+|\n+/)
+    .map(sentence => sentence.trim())
+    .some(sentence => ANNOUNCED_CHANGE_PATTERN.test(sentence)
+      && !CONDITIONAL_OFFER_PATTERN.test(sentence)
+      && !/\?\s*$/.test(sentence));
+}
+
+/**
+ * Appended when the announcement survived its one re-prompt.
+ *
+ * The second sentence is only as strong as the evidence: it says nothing ran
+ * that could change the workspace only when no side-effecting tool call ran this
+ * turn, and otherwise points at the tool calls rather than guessing.
+ */
+export function appendUnactedAnnouncementCaveat(content: string, sideEffectingToolRan: boolean): string {
+  const evidence = sideEffectingToolRan
+    ? 'Some tool calls that can change the workspace did run this turn; check them before assuming anything changed.'
+    : 'No tool that can change the workspace ran this turn, so nothing was changed.';
+  return `${content.replace(/\s+$/, '')}\n\n---\n${UNACTED_ANNOUNCEMENT_MARKER} — the reply above says what Atlas was about to do, and the turn ended without doing it. ${evidence} Ask again to have it carried out.`;
+}
+
+function buildAnnouncedActionReprompt(): string {
+  return [
+    'You said what you were about to change, then ended your turn without changing it: no tool call followed the announcement.',
+    'Make the change now, in this turn, using the available tools. Do not describe the step again first.',
+    'If something genuinely prevents it — a tool is unavailable, a permission was refused, the request is ambiguous — say exactly what is blocking it instead.',
+    'Do not say the change was made unless a tool call in this turn made it.',
+  ].join('\n');
+}
+
+/**
  * Classify a subtask's final response as a failure when it did not actually
  * deliver. Returns a short human-readable reason, or `undefined` when the
  * response looks like genuine completed work. Used by the project scheduler so a
@@ -7202,7 +7326,11 @@ export function classifySubTaskFailure(response: string): string | undefined {
   if (trimmed.includes(TOOL_EXECUTION_FAILURE_PREFIX)) {
     return 'Subtask ended on a tool-execution failure without recovering.';
   }
-  if (looksLikePreambleOnly(trimmed)) {
+  // The marker is checked as well as the shape: the notice that marks an
+  // unacted announcement can push the reply past `looksLikePreambleOnly`'s
+  // length cap, and a subtask must not pass this boundary *because* the loop
+  // said it had not done the work.
+  if (looksLikePreambleOnly(trimmed) || trimmed.includes(UNACTED_ANNOUNCEMENT_MARKER)) {
     return 'Subtask stopped after announcing an action without delivering any result.';
   }
   if (looksLikeToolCapabilityRefusal(trimmed)) {

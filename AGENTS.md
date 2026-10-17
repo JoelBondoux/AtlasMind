@@ -16,6 +16,7 @@ You are working on **AtlasMind**, a VS Code extension providing a multi-agent or
 - This applies to all code, doc, and config changes. The version bump and changelog update must be in the same commit as the change.
 - Never remove the `# Changelog` title or its Keep a Changelog preamble; new release notes must be appended beneath that header.
 - The README version banner must always match `package.json`.
+- The README keeps only the three newest `## What's new in X` sections (the current build and the two before it). Adding one removes the oldest in the same commit; `CHANGELOG.md` keeps every release in full. `docsIntegrity` enforces this.
 - When release notes or user-facing docs change, update `README.md` and the matching wiki pages in the same commit.
 - Versioning follows SemVer:
   - **PATCH** (0.0.x): bug fixes, docs, refactors.

@@ -39,6 +39,7 @@ import {
   runProjectCommand,
   runLoopCommand,
   toApprovedLoopPrompt,
+  toApprovedProjectSlashPrompt,
 } from '../chat/participant.js';
 import { classifyToolInvocation, getToolApprovalMode, requiresToolApproval } from '../core/toolPolicy.js';
 import type { GitApiLike } from './gitExtensionApi.js';
@@ -2605,6 +2606,10 @@ export class ChatPanel {
     // `--approve` token, which is not something an operator can be expected to
     // know — and the natural retry re-entered unapproved and stopped in the same
     // place. Rendering it as a quick reply reuses the pill the panel already has.
+    //
+    // The pill carries the `/project` prefix because it submits exactly as typed
+    // text does, and without the prefix the panel reads `<goal> --approve` as
+    // prose: the run was never started, and an ordinary chat turn answered instead.
     if (outcome.approvalRequiredPrompt) {
       const entry = this.atlas.sessionConversation
         .getTranscript(activeSessionId)
@@ -2620,7 +2625,7 @@ export class ChatPanel {
             quickReplies: [
               {
                 label: 'Approve and run',
-                prompt: outcome.approvalRequiredPrompt,
+                prompt: toApprovedProjectSlashPrompt(outcome.approvalRequiredPrompt),
                 description: 'Start the run despite the estimated file count.',
               },
             ],
