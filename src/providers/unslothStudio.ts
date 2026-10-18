@@ -186,6 +186,114 @@ export interface UnslothDownloadProgress {
   completeOnDisk: boolean;
 }
 
+/**
+ * What `GET /api/settings/openai-auto-switch` says about models that are on
+ * disk but not in memory.
+ *
+ * Studio's `/v1/models` lists every downloaded model, each with a `loaded`
+ * flag, so the listing alone does not say what Studio will serve. That is
+ * decided by **Settings → API → "Switch model by request"**, which Studio ships
+ * **off** (`DEFAULT_OPENAI_AUTO_SWITCH_ENABLED = False`): with it off, a request
+ * naming an unloaded model is refused `404 model_not_found`; with it on, Studio
+ * loads the model it was asked for.
+ */
+export interface UnslothServingPolicy {
+  /** "Switch model by request": a request naming a downloaded model makes Studio load it. */
+  switchByRequest: boolean;
+  /** Studio unloads idle models on a timer, so "loaded" can change with nobody pressing anything. */
+  idleUnloadActive: boolean;
+}
+
+/** Why a model Studio lists is, or is not, one AtlasMind may route to. */
+export type UnslothRoutingRuleId =
+  | 'loaded'
+  | 'loads-on-request'
+  | 'not-loaded-switch-off'
+  | 'not-loaded-policy-unknown';
+
+/**
+ * The one rule for whether AtlasMind routes to a model Studio lists, evaluated
+ * in order. The adapter, the local model advisor and the provider summary all
+ * ask {@link decideUnslothRouting}, so no two surfaces can disagree about the
+ * same model — the failure this replaces was the advisor calling a model
+ * installed while the routed list silently left it out.
+ */
+export const UNSLOTH_ROUTING_RULES: ReadonlyArray<{
+  id: UnslothRoutingRuleId;
+  routable: boolean;
+  /** One line for a row. */
+  short: string;
+  description: string;
+}> = [
+  {
+    id: 'loaded',
+    routable: true,
+    short: 'loaded · AtlasMind routes to it',
+    description: 'Loaded in Unsloth Studio, so AtlasMind routes to it.',
+  },
+  {
+    id: 'loads-on-request',
+    routable: true,
+    short: 'on disk · Studio loads it when AtlasMind asks',
+    description: 'On disk and not loaded, but Studio\'s "Switch model by request" is on, so Studio loads it when AtlasMind asks. The GPU arbiter queues that load like any other cold load.',
+  },
+  {
+    id: 'not-loaded-switch-off',
+    routable: false,
+    short: 'on disk, not loaded · not routable until loaded',
+    description: 'On disk and not loaded, and Studio\'s "Switch model by request" is off, so Studio would refuse a request for it. Load it (AtlasMind: Manage Unsloth Models), or turn the setting on in Unsloth Studio under Settings → API.',
+  },
+  {
+    id: 'not-loaded-policy-unknown',
+    routable: false,
+    short: 'on disk, not loaded · not routable (Studio setting unread)',
+    description: 'On disk and not loaded, and Studio\'s "Switch model by request" setting could not be read (no API key, or Studio refused), so it is treated as off. Load the model, or check the key with AtlasMind: Connect Unsloth Studio.',
+  },
+];
+
+/**
+ * Whether AtlasMind may route to one model Studio lists.
+ *
+ * `loaded` absent is read as loaded: Studio sets the flag on every entry, and a
+ * runtime that omits it is not one whose models are on disk only. A policy
+ * that could not be read is treated as **off**, because routing to a model
+ * Studio then refuses would record a model failure against a model that works.
+ */
+export function decideUnslothRouting(
+  model: { loaded?: boolean },
+  policy: UnslothServingPolicy | undefined,
+): { routable: boolean; rule: UnslothRoutingRuleId } {
+  if (model.loaded !== false) { return { routable: true, rule: 'loaded' }; }
+  if (!policy) { return { routable: false, rule: 'not-loaded-policy-unknown' }; }
+  return policy.switchByRequest
+    ? { routable: true, rule: 'loads-on-request' }
+    : { routable: false, rule: 'not-loaded-switch-off' };
+}
+
+/**
+ * One line per endpoint and rule for models that were held back, naming a few
+ * and counting the rest, followed by the rule's own explanation. Composed here
+ * so no surface can restate it more reassuringly.
+ */
+export function describeUnslothHeldBack(
+  heldBack: ReadonlyArray<{ endpointLabel: string; modelId: string; rule: UnslothRoutingRuleId }>,
+  shown = 4,
+): string[] {
+  const groups = new Map<string, { endpointLabel: string; rule: UnslothRoutingRuleId; models: string[] }>();
+  for (const entry of heldBack) {
+    const key = `${entry.endpointLabel}\u0000${entry.rule}`;
+    const group = groups.get(key) ?? { endpointLabel: entry.endpointLabel, rule: entry.rule, models: [] };
+    if (!group.models.includes(entry.modelId)) { group.models.push(entry.modelId); }
+    groups.set(key, group);
+  }
+  return [...groups.values()].map(group => {
+    const rule = UNSLOTH_ROUTING_RULES.find(candidate => candidate.id === group.rule);
+    const names = group.models.slice(0, shown).join(', ');
+    const more = group.models.length > shown ? ` and ${group.models.length - shown} more` : '';
+    return `${group.endpointLabel}: ${group.models.length} ${group.models.length === 1 ? 'model' : 'models'} not routable (${names}${more}). ${rule?.description ?? ''}`.trim();
+  });
+}
+
 /** What a successful `POST /api/inference/load` reports. */
 export interface UnslothLoadOutcome {
   /** The model id Studio now serves it under. */
@@ -320,6 +428,17 @@ export function parseUnslothLiveness(payload: unknown): { isUnsloth: boolean } {
 }
 
 /** `GET /api/inference/status`. */
+/**
+ * `GET /api/settings/openai-auto-switch`. Only a literal boolean `enabled` is
+ * an answer; anything else is no answer, which {@link decideUnslothRouting}
+ * treats as off.
+ */
+export function parseUnslothServingPolicy(payload: unknown): UnslothServingPolicy | undefined {
+  const record = asRecord(payload);
+  if (!record || typeof record['enabled'] !== 'boolean') { return undefined; }
+  return { switchByRequest: record['enabled'], idleUnloadActive: record['idle_unload_active'] === true };
+}
+
 export function parseUnslothStatus(payload: unknown): UnslothStatus | undefined {
   const record = asRecord(payload);
   if (!record) { return undefined; }
@@ -605,6 +724,8 @@ export interface UnslothStudioClient {
   /** Unauthenticated. Says whether anything answered and whether it was Studio. */
   probe(signal?: AbortSignal): Promise<{ reachable: boolean; isUnsloth: boolean }>;
   status(signal?: AbortSignal): Promise<UnslothResult<UnslothStatus>>;
+  /** Whether Studio loads an unloaded model when a request names it. Owner-only in Studio. */
+  servingPolicy(signal?: AbortSignal): Promise<UnslothResult<UnslothServingPolicy>>;
   listDownloaded(signal?: AbortSignal): Promise<UnslothResult<UnslothDownloadedModel[]>>;
   listVariants(repoId: string, signal?: AbortSignal): Promise<UnslothResult<UnslothVariantListing>>;
   downloadProgress(request: { repoId: string; variant: string; expectedBytes?: number }, signal?: AbortSignal): Promise<UnslothResult<UnslothDownloadProgress>>;
@@ -736,6 +857,12 @@ export function createUnslothStudioClient(origin: string, deps?: UnslothStudioCl
   return {
     origin,
     probe,
+
+    async servingPolicy(signal) {
+      const response = await authed('/api/settings/openai-auto-switch', { method: 'GET' }, READ_TIMEOUT_MS, signal);
+      if (!response.ok) { return response; }
+      return readJson(response.text, parseUnslothServingPolicy);
+    },
 
     async status(signal) {
       const response = await authed('/api/inference/status', { method: 'GET' }, READ_TIMEOUT_MS, signal);
