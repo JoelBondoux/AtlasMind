@@ -859,6 +859,19 @@ MCP skills are registered in `SkillsRegistry` when a server connects, but **only
 
 A held tool's skill is **unregistered**, not disabled. A disabled skill could be re-enabled from the Skills view, and its `execute` would call the tool as it is now. The scan (`TOOL_DESCRIPTION_RULES`) has eight tool-poisoning rules. They catch instruction tags (`<IMPORTANT>`, `<instructions>`, `<system>`…), claims over "any other tool", asking the agent to keep something from the user, directions to a different tool, credential or agent-config paths, "pass the contents of …", zero-width, bidirectional and tag characters, and long base64 blobs. The scan also applies the memory scanner's prompt-injection rules, imported rather than copied: an `error` there is a `flag` here, and a `warning` is a `note`. It reads the description and every string in the input schema, keys, defaults and enum values included. A schema that is not an object, is nested past 16 levels, has more than 4,000 entries or carries more than 64,000 characters is flagged `schema-unreadable`. A registered skill records the real scan result, and the model sees the description with control and invisible characters removed, capped at 1,000 characters. Held tools appear in the MCP panel under **Review changed tools**. **Approve and pin** pins exactly the reviewed version. A flagged tool needs a modal confirmation that lists the findings, and the pin records the flag rules you acknowledged, so a rule you never saw holds it again. There is no setting to turn pinning off. The registry does not yet handle `notifications/tools/list_changed`: tools are re-read on connect, so a change takes effect, and is held, on the next reconnect.
 
+### A local runtime's own tools are asked off
+
+Unsloth Studio can execute Python, a shell and web search itself inside a completion, and `unsloth run` /
+`unsloth studio run` default that on for loopback. Those calls never reach the agentic loop, so they would
+escape the approval gate, the sandbox, dry run and provenance taint. `LocalEchoAdapter` adds
+`UNSLOTH_SERVER_TOOLS_OFF` (`enable_tools: false, mcp_enabled: false`) to every completion sent to an
+Unsloth endpoint. It recognises the endpoint by `resolveEndpointRuntime` or by `owned_by: "unsloth-studio"`
+in its own model listing, so the agent's tool calls stay the only tool calls. The guard cannot beat a
+process started with `--enable-tools`, which Studio does not report. `UNSLOTH_TOOL_POLICY_CAVEAT` says so
+wherever Studio is connected, and names `--disable-tools`. Studio's model management (download and load,
+unload, delete) runs only from the Unsloth commands, behind a confirmation where it downloads or deletes and
+`interceptDryRun` everywhere. No skill exposes it to an agent.
+
 ### ACP process lifetime does not widen ACP authority
 
 ACP availability does not widen vendor entitlement either. A published launch

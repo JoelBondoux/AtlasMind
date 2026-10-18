@@ -905,7 +905,7 @@ function getProviderNotes(providerId: ProviderId): string {
     case 'copilot':
       return 'Reuses your signed-in VS Code Copilot session instead of storing a separate AtlasMind API key.';
     case 'local':
-      return 'Uses a local OpenAI-compatible endpoint such as Ollama, LM Studio, or Open WebUI with optional local authentication.';
+      return 'Uses a local OpenAI-compatible endpoint such as Ollama, LM Studio, Unsloth Studio, or Open WebUI with optional local authentication.';
     case 'azure':
       return 'Combines a workspace endpoint, deployment names, and an Azure API key to expose deployment-backed routed models.';
     case 'bedrock':

@@ -19,6 +19,35 @@ Older entries below describe the software as it was at the time and are delibera
 
 ---
 
+## v0.504.1 -- Every Dependabot alert fixed
+
+All ten open Dependabot alerts are fixed, and `npm audit` reports zero. The critical one was in
+`proxy-addr`, reached through the MCP SDK's web server: it could treat an IPv4-mapped IPv6 address as
+inside a trusted IPv4 subnet. The MCP SDK itself moves to 1.32.1, which stops a server choosing where its
+OAuth client sends credentials. `ip-address`, `undici`, and three packages `npm audit` found before
+Dependabot did (`fast-uri`, `brace-expansion`, `source-map-js`) are on patched releases too. Nothing
+behaves differently.
+
+## v0.504.0 -- Unsloth Studio as a local runtime
+
+Unsloth Studio joins Ollama and LM Studio as a local runtime, with its own model management.
+**AtlasMind: Connect Unsloth Studio** checks the server really is Studio before it asks for the API key,
+because Studio's default port, 8888, is Jupyter's too. It tries the key before storing it, and keeps it for
+that endpoint alone. **AtlasMind: Manage Unsloth Models** shows what Studio has loaded and downloaded,
+finds Unsloth's chat-model builds on Hugging Face, and lists every quantisation with its size and whether
+it fits your GPU, suggesting one. It then loads, unloads or deletes. Downloads and deletes ask first, a
+download can be cancelled, and a dry run holds every step. The Settings panel's local model advisor gains
+an **Install in Unsloth** button.
+
+Studio can run Python, a shell and web search itself, inside a reply, and some ways of starting it turn
+that on by default. Anything it ran that way would skip AtlasMind's approvals, sandbox and dry run, so
+AtlasMind now asks Studio to keep those tools off on every request. A Studio started with
+`--enable-tools` can override that, and AtlasMind cannot tell, so start it with `--disable-tools`.
+
+Two smaller changes apply to every local endpoint. An endpoint can now hold its own API key, which is
+never sent to another endpoint. And you can declare which runtime an endpoint is (`runtime` in
+`atlasmind.localOpenAiEndpoints`), for a runtime on a non-default port.
+
 ## v0.503.2 -- A turn that says it will edit, edits
 
 Asking Atlas to change something could end with *"I will now edit `README.md` …"* and nothing edited,

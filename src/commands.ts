@@ -1846,6 +1846,27 @@ export function registerCommands(
       await buildAndPublishPortal();
     }),
 
+    // Unsloth Studio as a local runtime: connect it (identity first, then the
+    // key, which is tried before it is stored), and manage what it has
+    // downloaded and loaded. Every download, load, unload and delete is
+    // confirmed and held by a dry run in unslothModelCommands.
+    vscode.commands.registerCommand('atlasmind.unsloth.connect', async () => {
+      const { connectUnslothStudio } = await import('./views/unslothModelCommands.js');
+      await connectUnslothStudio(context, {
+        onChanged: () => { void getAtlas()?.refreshProviderModels(false); },
+      });
+    }),
+
+    vscode.commands.registerCommand('atlasmind.unsloth.manageModels', async (repoId?: unknown) => {
+      const { manageUnslothModels } = await import('./views/unslothModelCommands.js');
+      // An argument only preselects a downloaded model by exact id; it is
+      // compared, never sent.
+      const preselect = typeof repoId === 'string' && repoId.length <= 200 ? { repoId } : undefined;
+      await manageUnslothModels(context, {
+        onChanged: () => { void getAtlas()?.refreshProviderModels(false); },
+      }, preselect);
+    }),
+
     // Read the container engine on request and say, rule by rule, whether the
     // execution sandbox is available — and whether dependencies are prepared
     // for this folder's lockfile. Probes only when asked.
@@ -2405,7 +2426,7 @@ const PROVIDER_PROFILES: Record<string, ProviderProfile> = {
     notable: 'Worth evaluating specifically for long-document or multi-document workflows where 1M context is genuinely needed. For standard tasks, more established providers are a safer choice.',
   },
   local: {
-    tagline: 'Locally-hosted models via Ollama or LM Studio — no data leaves your machine.',
+    tagline: 'Locally-hosted models via Ollama, LM Studio or Unsloth Studio — no data leaves your machine.',
     strengths: [
       'Complete data privacy — nothing is sent to external servers',
       'Zero per-token cost after initial hardware investment',
@@ -2413,7 +2434,7 @@ const PROVIDER_PROFILES: Record<string, ProviderProfile> = {
     ],
     weaknesses: [
       'Model quality is limited by available hardware (VRAM)',
-      'Setup requires installing Ollama or LM Studio separately',
+      'Setup requires installing Ollama, LM Studio or Unsloth Studio separately',
       'Slower inference than cloud providers unless you have a capable GPU',
     ],
     notable: 'The right choice when data privacy is non-negotiable (proprietary code, customer data). For best results use quantised Llama 3.x or Qwen 3 models on an 8 GB+ GPU.',

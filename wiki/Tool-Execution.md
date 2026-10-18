@@ -797,6 +797,18 @@ all (`taint.acp-delegation`) — see *After it reads someone else's text* above.
 the agent behind an ACP client, every non-read operation is already asked per call; after untrusted
 content the request title says so and names the source.
 
+### A local runtime's own tools
+
+Some local runtimes can run tools themselves inside a completion. Unsloth Studio can run Python, a shell
+and web search, and `unsloth studio run` turns that on by default. A tool AtlasMind never sees cannot be
+classified, approved, sandboxed or simulated. So every completion sent to an Unsloth endpoint asks for
+Studio's own tools off (`enable_tools: false, mcp_enabled: false`), and the tools AtlasMind offers the model
+stay the only ones that run. A Studio started with `--enable-tools` overrides the request, and AtlasMind
+cannot detect that, so start Studio with `--disable-tools`. See [Security](Security.md#a-local-runtime-that-can-act-on-its-own).
+
+Managing Studio's models is held to the same rules as any other effect: downloading and loading, unloading
+and deleting each pass the dry-run guard, and downloading and deleting ask first.
+
 ---
 
 ## Remote sessions get no shortcuts

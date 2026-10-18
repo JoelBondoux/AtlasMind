@@ -518,6 +518,14 @@ taken away from you; and a request refused for lack of room is recorded as *the 
 busy*, never as *the model failed* — otherwise a working model would be marked unreliable for being
 popular.
 
+**Unsloth Studio** is the third runtime, and the only one with a key. Which runtime an endpoint is gets
+decided by one rule every surface shares: what you declared, then the label, then the port. Studio's port,
+8888, is Jupyter's too, so AtlasMind sends its key only after Studio has said who it is. For the arbiter,
+Studio reports what is loaded but not how much memory it uses, like LM Studio. AtlasMind routes only to
+models Studio has *loaded*. Every request asks Studio not to run its own tools, because AtlasMind would
+never see them. Its management API — downloads, quantisations, load, unload, delete — is in
+`src/providers/unslothStudio.ts`, read from Studio's source and pinned to the release it was read from.
+
 ### Reading your code — Lens
 
 **Lens** is eleven views that explain your codebase from what's actually declared in it: possible flow,
@@ -1762,11 +1770,11 @@ never accepted.
 | `src/core/sandboxDependencies.ts` | The dependency volume a sandboxed command loads installed packages from: lockfile detection by named rule, the content-addressed key, readiness from a record and a labelled volume that agree, and the one network-on preparation planned in full before it runs |
 | `src/core/quarantinedReader.ts` | How a long third-party result is read by a model with no tools, what its extract must look like to be believed, and how the raw text is released only after you approve |
 | `src/runtime/` | The built-in agents and how the runtime is composed |
-| `src/providers/` | Provider adapters, catalogues, health, local model discovery, `modelRole.ts` (what a model is *for*), and the local-GPU support layer that measures VRAM and reads what each runtime has loaded |
+| `src/providers/` | Provider adapters, catalogues, health, local model discovery, `modelRole.ts` (what a model is *for*), the local-GPU support layer that measures VRAM and reads what each runtime has loaded, and Unsloth Studio's management API (`unslothStudio.ts`) |
 | `src/skills/` | Built-in tools and skill handlers |
 | `src/memory/` | Memory retrieval, scanning, redaction, persistence |
 | `src/chat/` | The chat participant and interaction protocol |
-| `src/views/` | Settings, dashboards, editors and sidebar surfaces, the Check Execution Sandbox report (`sandboxCheckCommand.ts`) and the Prepare / Remove Sandbox Dependencies commands (`sandboxDependenciesCommand.ts`) |
+| `src/views/` | Settings, dashboards, editors and sidebar surfaces, the Check Execution Sandbox report (`sandboxCheckCommand.ts`), the Prepare / Remove Sandbox Dependencies commands (`sandboxDependenciesCommand.ts`) and the Connect Unsloth Studio / Manage Unsloth Models commands (`unslothModelCommands.ts`) |
 | `src/mcp/` and `src/ard/` | MCP connectivity and resource discovery, including tool pinning and the tool-description scan (`mcpToolPins.ts`) |
 | `src/voice/` and `src/remote/` | Voice backends and remote control |
 | `src/cli/` | The command-line tool and the agent endpoint |

@@ -2006,6 +2006,9 @@ async function bootstrapAtlasMind(
       LocalModelArbiter: localModelArbiterModule.LocalModelArbiter,
       createCachedGpuProbe: gpuProbeModule.createCachedGpuProbe,
       createRuntimeClientForEndpoint: localRuntimeClientModule.createRuntimeClientForEndpoint,
+      resolveEndpointRuntime: localRuntimeClientModule.resolveEndpointRuntime,
+      localEndpointApiKeySecret: providersModule.localEndpointApiKeySecret,
+      LOCAL_SHARED_API_KEY_SECRET: providersModule.LOCAL_SHARED_API_KEY_SECRET,
       OpenAiCompatibleAdapter: providersModule.OpenAiCompatibleAdapter,
       isGoogleChatCompletionsModel: providersModule.isGoogleChatCompletionsModel,
       OpenRouterAdapter: providersModule.OpenRouterAdapter,
@@ -2399,8 +2402,24 @@ async function bootstrapAtlasMind(
     // it as an optional dependency, so absent means exactly today's behaviour.
     const localModelArbiter = new startupModules.LocalModelArbiter({
       probeGpu: startupModules.createCachedGpuProbe(),
-      runtimeClientFor: (_endpointId: string, baseUrl: string) =>
-        startupModules.createRuntimeClientForEndpoint(baseUrl),
+      // The runtime comes from the endpoint as configured (declared, then
+      // label, then port), the same rule the settings panel uses, so a model
+      // is never managed through one runtime's API and admitted through
+      // another's. Only Unsloth Studio needs a key, and gets its own.
+      runtimeClientFor: (endpointId: string, baseUrl: string) => {
+        const configuration = vscode.workspace.getConfiguration('atlasmind');
+        const endpoint = startupModules.getConfiguredLocalEndpoints({
+          getEndpoints: () => configuration.get<unknown>('localOpenAiEndpoints'),
+          getLegacyBaseUrl: () => configuration.get<string>('localOpenAiBaseUrl'),
+        }).find(candidate => candidate.id === endpointId);
+        const runtime = startupModules.resolveEndpointRuntime(endpoint ?? { baseUrl });
+        const ownKey = startupModules.localEndpointApiKeySecret(endpointId);
+        return startupModules.createRuntimeClientForEndpoint(baseUrl, {
+          runtime,
+          getApiKey: async () => (ownKey ? await context.secrets.get(ownKey) : undefined)
+            ?? await context.secrets.get(startupModules.LOCAL_SHARED_API_KEY_SECRET),
+        });
+      },
       onLog: (message: string) => outputChannel.appendLine(`[local-gpu] ${message}`),
     });
     localModelArbiter.applyConfig(readLocalGpuConfig());

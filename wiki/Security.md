@@ -1082,6 +1082,35 @@ AtlasMind fails **visibly** rather than quietly falling back.
 
 ---
 
+## A local runtime that can act on its own
+
+Unsloth Studio can run Python, a shell and web search **itself**, inside a reply, and `unsloth run` and
+`unsloth studio run` turn that on by default for a server on your own machine. AtlasMind never sees those
+tool calls, only the answer. Nothing Studio ran that way would pass AtlasMind's approvals, its sandbox,
+its dry run or its tracking of what a task has read. So:
+
+- **Every request asks for Studio's own tools to be off** (`enable_tools: false`, and `mcp_enabled: false`
+  for Studio's own MCP servers). Studio honours that over its default.
+- **One case is not covered, and AtlasMind says so.** A Studio started with `--enable-tools` overrides
+  the request, and Studio publishes no way to ask which policy it was started with. Start Studio with
+  `--disable-tools`; it is the one setting the server cannot be talked out of.
+- **An unlabelled Studio still gets the guard.** Studio marks every model it lists as its own
+  (`owned_by: "unsloth-studio"`), and AtlasMind reads that before it can send a request to any of them.
+
+**Its key goes to Studio and nowhere else.** Studio's default port, 8888, is also Jupyter's. AtlasMind
+asks the server who it is, unauthenticated, and sends the `sk-unsloth-` key only if it answers as Unsloth
+Studio. Connecting tries the key before storing it. The key is kept in the OS keychain under that
+endpoint's own name, and sent to no other local endpoint. Plain HTTP to another machine asks first, because
+the key would cross the network unencrypted. The secret redactor recognises Studio keys, too.
+
+**Downloads are Studio's, and you confirm them.** Loading a model Studio does not have makes Studio
+download it from Hugging Face. AtlasMind sends only the repository id and the quantisation, asks first
+with the size, and holds it in a dry run. It sends no Hugging Face token, so a gated repository is one
+you download in Studio itself. Deleting a download asks first too, and names the size. AtlasMind never
+routes to a model Studio has only on disk, because that would make Studio load gigabytes on the router's say-so.
+
+---
+
 ## Remote sessions
 
 Off by default. Binds only to your own machine. Requires pairing, requires workspace trust, never carries

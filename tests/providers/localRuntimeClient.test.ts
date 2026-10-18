@@ -4,7 +4,9 @@ import {
   createOllamaRuntimeClient,
   createLmStudioRuntimeClient,
   createRuntimeClientForEndpoint,
+  createUnslothRuntimeClient,
   detectRuntimeKind,
+  resolveEndpointRuntime,
   runtimeOrigin,
   type FetchLike,
 } from '../../src/providers/localRuntimeClient.js';
@@ -200,5 +202,59 @@ describe('robustness', () => {
     const client = createOllamaRuntimeClient('http://x', { fetch: exploding, timers });
     await expect(client.listResident()).resolves.toEqual({ kind: 'ollama', models: [], reachable: false });
     await expect(client.unload({ modelKey: 'm' })).resolves.toBe(false);
+  });
+});
+
+describe('Unsloth Studio residency', () => {
+  const key = `sk-unsloth-${'0f'.repeat(16)}`;
+  const studio = (status: unknown): FetchLike & { calls: Array<{ url: string; body?: string; method?: string }> } => fakeFetch({
+    'http://127.0.0.1:8888/api/liveness': { status: 'alive', service: 'Unsloth UI Backend' },
+    'http://127.0.0.1:8888/api/inference/status': status,
+  });
+
+  it('identifies Studio by its default port, and lets a declaration override any port', () => {
+    expect(detectRuntimeKind('http://127.0.0.1:8888/v1')).toBe('unsloth');
+    expect(resolveEndpointRuntime({ baseUrl: 'http://127.0.0.1:9000/v1', runtime: 'unsloth' })).toBe('unsloth');
+    expect(createRuntimeClientForEndpoint('http://127.0.0.1:9000/v1', { runtime: 'unsloth' })?.kind).toBe('unsloth');
+  });
+
+  it('resolves declared, then label, then port — one rule for every surface', () => {
+    // A declaration beats a label that says otherwise, and a label beats a port.
+    expect(resolveEndpointRuntime({ baseUrl: 'http://127.0.0.1:11434/v1', label: 'Unsloth box', runtime: 'ollama' })).toBe('ollama');
+    expect(resolveEndpointRuntime({ baseUrl: 'http://127.0.0.1:11434/v1', label: 'Unsloth box' })).toBe('unsloth');
+    expect(resolveEndpointRuntime({ baseUrl: 'http://10.0.0.5:1234/v1', label: 'GPU box' })).toBe('lmstudio');
+    expect(resolveEndpointRuntime({ baseUrl: 'http://127.0.0.1:9000/v1', label: 'vLLM', runtime: 'not-a-runtime' })).toBe('unknown');
+  });
+
+  it('reports what is loaded across every slot, with no VRAM figure claimed', async () => {
+    const fetchLike = studio({ active_model: 'unsloth/A-GGUF', loaded: ['unsloth/A-GGUF'], serving: ['unsloth/A-GGUF', 'unsloth/B-GGUF'] });
+    const client = createRuntimeClientForEndpoint('http://127.0.0.1:8888/v1', { fetch: fetchLike, timers, getApiKey: () => key });
+    const reading = await client!.listResident();
+    expect(reading).toEqual({
+      kind: 'unsloth',
+      reachable: true,
+      models: [{ modelKey: 'unsloth/A-GGUF' }, { modelKey: 'unsloth/B-GGUF' }],
+    });
+    expect(reading.models.every(model => model.vramBytes === undefined)).toBe(true);
+  });
+
+  it('treats no key, or a server that is not Studio, as no information — never as an empty GPU', async () => {
+    const noKey = createRuntimeClientForEndpoint('http://127.0.0.1:8888/v1', { fetch: studio({ loaded: [] }), timers });
+    expect(await noKey!.listResident()).toEqual({ kind: 'unsloth', models: [], reachable: false });
+
+    const jupyter = fakeFetch({});
+    const notStudio = createRuntimeClientForEndpoint('http://127.0.0.1:8888/v1', { fetch: jupyter, timers, getApiKey: () => key });
+    expect(await notStudio!.listResident()).toEqual({ kind: 'unsloth', models: [], reachable: false });
+    expect(jupyter.calls.map(call => call.url)).toEqual(['http://127.0.0.1:8888/api/liveness']);
+  });
+
+  it('confirms an unload only when Studio says unloaded', async () => {
+    const fetchLike = fakeFetch({
+      'http://127.0.0.1:8888/api/liveness': { service: 'Unsloth UI Backend' },
+      'http://127.0.0.1:8888/api/inference/unload': { status: 'unloaded', model: 'unsloth/A-GGUF' },
+    });
+    const client = createUnslothRuntimeClient('http://127.0.0.1:8888', { fetch: fetchLike, timers, getApiKey: () => key });
+    await expect(client.unload({ modelKey: 'unsloth/A-GGUF' })).resolves.toBe(true);
+    expect(JSON.parse(fetchLike.calls.at(-1)?.body ?? '{}')).toEqual({ model_path: 'unsloth/A-GGUF' });
   });
 });
