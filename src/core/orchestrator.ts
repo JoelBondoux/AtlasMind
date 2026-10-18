@@ -695,6 +695,7 @@ const READONLY_EXPLORATION_REPROMPT = [
  */
 export class Orchestrator {
   private toolApprovalGate?: OrchestratorHooks['toolApprovalGate'];
+  private onToolApprovalIntent?: OrchestratorHooks['onToolApprovalIntent'];
   private generatedSkillApprovalGate?: OrchestratorHooks['generatedSkillApprovalGate'];
   private writeCheckpointHook?: OrchestratorHooks['writeCheckpointHook'];
   private postToolVerifier?: OrchestratorHooks['postToolVerifier'];
@@ -764,6 +765,7 @@ export class Orchestrator {
   ) {
     this.getPersonalityProfilePrompt = getPersonalityProfilePrompt;
     this.toolApprovalGate = hooks?.toolApprovalGate;
+    this.onToolApprovalIntent = hooks?.onToolApprovalIntent;
     this.generatedSkillApprovalGate = hooks?.generatedSkillApprovalGate;
     this.writeCheckpointHook = hooks?.writeCheckpointHook;
     this.postToolVerifier = hooks?.postToolVerifier;
@@ -1226,11 +1228,11 @@ export class Orchestrator {
    * The reader's call is spend like any other, recorded under its own agent id.
    * Returns what it cost, in the same unit the task cap is checked in.
    */
-  private recordQuarantineCost(taskId: string, model: string, response: CompletionResponse): number {
+  private recordQuarantineCost(taskId: string, model: string, response: CompletionResponse, costAgentId = QUARANTINE_COST_AGENT_ID): number {
     const estimate = this.estimateCostBreakdown(model, response.inputTokens, response.outputTokens);
     this.costs.record({
       taskId,
-      agentId: QUARANTINE_COST_AGENT_ID,
+      agentId: costAgentId,
       model,
       ...(estimate.providerId ? { providerId: estimate.providerId } : {}),
       ...(estimate.pricingModel ? { pricingModel: estimate.pricingModel } : {}),
@@ -1461,6 +1463,36 @@ export class Orchestrator {
         temperature: 0.3,
       },
     });
+    return response.content;
+  }
+
+  /** An isolated, no-tool review. Its data takes the normal model-egress path. */
+  async reviewApproval(taskId: string, systemPrompt: string, payload: string): Promise<string> {
+    const constraints = this.withRoleModel({ budget: 'balanced', speed: 'fast' }, 'synthesisModelId');
+    const profile = this.taskProfiler.profileTask({ userMessage: payload, phase: 'synthesis', requiresTools: false });
+    const model = this.router.selectModel(constraints, undefined, profile);
+    const providerId = resolveProviderIdForModel(model, this.router, 'copilot');
+    const provider = this.providers.get(providerId);
+    if (!provider) { return ''; }
+    const reviewData = JSON.parse(payload) as { name: string; args: Record<string, unknown> };
+    const safePayload = this.redactToolResultForModel({ id: 'approval-review', name: reviewData.name, arguments: reviewData.args }, payload, model);
+    // A reviewer missing withheld evidence cannot authorize the original call.
+    if (safePayload !== payload) { return ''; }
+    const estimate = this.estimateCostBreakdown(model, Math.ceil((systemPrompt.length + payload.length) / 4), 300);
+    if (estimate.unpriced || this.costs.getDailyBudgetStatus(estimate.budgetCostUsd)?.blocked) { return ''; }
+    const response = await dispatchGuardedCompletion({
+      provider,
+      origins: ['system-prompt', 'user-prompt', 'tool-result'],
+      external: !isLocalProviderId(providerId),
+      request: {
+        model,
+        messages: [{ role: 'system', content: systemPrompt }, { role: 'user', content: safePayload }],
+        maxTokens: 300,
+        temperature: 0,
+        tools: [],
+      },
+    });
+    this.recordQuarantineCost(taskId, model, response, 'approval-reviewer');
     return response.content;
   }
 
@@ -4543,6 +4575,7 @@ export class Orchestrator {
             }
 
             if (this.toolApprovalGate) {
+              this.onToolApprovalIntent?.(context.taskId, context.userMessage ?? '');
               const approval = escalation.decision === 'fresh-approval'
                 ? await this.toolApprovalGate(context.taskId, toolCall.name, toolCall.arguments, { escalation })
                 : await this.toolApprovalGate(context.taskId, toolCall.name, toolCall.arguments);

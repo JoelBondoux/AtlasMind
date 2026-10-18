@@ -19,6 +19,13 @@ Older entries below describe the software as it was at the time and are delibera
 
 ---
 
+## v0.505.0 -- Ask, Auto and Bypass
+
+Workflow, chat and the status bar share session approval modes. Auto uses a separate, tool-free
+reviewer and asks on uncertainty or failure. Bypass skips eligible prompts. Ask revokes grants;
+restart resets them. Reviewer calls use synthesis routing, privacy and daily-budget checks and record
+their own spend. Workflow writes need a declared and effective `auto` stage; explicit-only actions ask.
+
 ## v0.504.6 -- Workflow controls reconnect after restart
 
 Restoring the Project Dashboard now activates AtlasMind through the dashboard's webview activation

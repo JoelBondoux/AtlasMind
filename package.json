@@ -2,7 +2,7 @@
   "name": "atlasmind",
   "displayName": "AtlasMind",
   "description": "AI project management for VS Code: roadmap, risk, tech debt, compliance, testing and release tracked from your own repository — with a multi-agent AI team, or the AI coding tool you already use.",
-  "version": "0.504.6",
+  "version": "0.505.0",
   "publisher": "JoelBondoux",
   "preview": false,
   "license": "SEE LICENSE IN OSMFEULA.txt",
@@ -417,6 +417,11 @@
         "command": "atlasmind.openCostDashboard",
         "title": "AtlasMind: Open Cost Dashboard",
         "icon": "$(graph)"
+      },
+      {
+        "command": "atlasmind.setApprovalMode",
+        "title": "AtlasMind: Set Approval Mode",
+        "icon": "$(shield)"
       },
       {
         "command": "atlasmind.toggleAutopilot",
@@ -2849,14 +2854,14 @@
         "atlasmind.workflow.allowIssueWrites": {
           "type": "boolean",
           "default": false,
-          "description": "Allow AtlasMind to create, comment on, edit, close or reopen GitHub issues. Off by default; every write still asks for confirmation naming the repository and the exact action.",
-          "markdownDescription": "**Off by default.** Permits stage 1 (Planning & Issue Intake) and stage 7 (Maintenance) to write to your issue tracker.\n\nEven with this on, every write is outward-facing and public, so each one asks for a confirmation naming the repository and the exact action. AtlasMind never auto-closes an issue — closing somebody's report is a social act, not a cleanup task.\n\nRequires `#atlasmind.workflow.enabled#` and a stage level of `propose` or higher."
+          "description": "Allow AtlasMind issue writes. Off by default. Eligible actions may skip confirmation only with a session Auto/Bypass grant and effective stage level auto; explicit-only actions still ask.",
+          "markdownDescription": "**Off by default.** Permits issue writes only when the workflow master switch, capability, personal ceiling and declared stage all permit them.\n\nAt propose, actions confirm individually. At auto, a session **Auto** mode grant may approve eligible actions through a separate model review; **Bypass** skips eligible prompts. Closing reports, approving or merging pull requests, deletions and release actions remain explicit. Review comments and issue text remain untrusted.\n\nChoose the session mode in Project Dashboard -> Workflow, the chat approval selector, or **AtlasMind: Set Approval Mode**. Changing modes never turns this capability on."
         },
         "atlasmind.workflow.allowPullRequestWrites": {
           "type": "boolean",
           "default": false,
-          "description": "Allow AtlasMind to create pull requests, post reviews, and merge. Off by default; every write still asks for confirmation.",
-          "markdownDescription": "**Off by default.** Permits stage 4 (Pull Requests & Reviews) to write.\n\nA pull request is a public proposal, so every creation, review and merge asks for confirmation first. Note that review comments arriving *from* GitHub are treated as untrusted input regardless of this setting — anyone who can comment can write text designed to be read as an instruction, so review bodies are always sanitized and fenced before an agent sees them.\n\nRequires `#atlasmind.workflow.enabled#` and a stage level of `propose` or higher."
+          "description": "Allow AtlasMind pull request writes. Off by default. Eligible actions may skip confirmation only with a session Auto/Bypass grant and effective stage level auto; explicit-only actions still ask.",
+          "markdownDescription": "**Off by default.** Permits pull request writes only when the workflow master switch, capability, personal ceiling and declared stage all permit them.\n\nAt propose, actions confirm individually. At auto, a session **Auto** mode grant may approve eligible actions through a separate model review; **Bypass** skips eligible prompts. Closing reports, approving or merging pull requests, deletions and release actions remain explicit. Review comments and issue text remain untrusted.\n\nChoose the session mode in Project Dashboard -> Workflow, the chat approval selector, or **AtlasMind: Set Approval Mode**. Changing modes never turns this capability on."
         },
         "atlasmind.workflow.allowReleaseWrites": {
           "type": "boolean",

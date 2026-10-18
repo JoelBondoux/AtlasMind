@@ -1,5 +1,23 @@
 # Tool Execution & Safety
 
+## Session approval modes
+
+Select a mode in Workflow, chat, the status bar or **AtlasMind: Set Approval Mode**. The selector
+confirms Auto/Bypass activation. Grants last for the extension session, across its chat tasks.
+
+- **Ask** uses the configured policy and revokes session/task/category bypass grants.
+- **Auto — approve for me** uses a separate, tool-free reviewer against task intent and exact arguments.
+  Uncertainty, withheld evidence, failure or a 20-second timeout asks. Calls use synthesis routing,
+  normal privacy and daily-budget checks; usage is recorded as `approval-reviewer`. Existing ordinary
+  approval cards can be reviewed when Auto is selected.
+  Automatic commit reviews require exact paths; broad staging still asks.
+- **Bypass** grants eligible tools permission without review or another prompt. The legacy Autopilot
+  command and approval-card option grant this same mode.
+
+Restart returns to Ask. Explicit-only cards, fresh approvals after untrusted content, disabled
+capabilities, sandbox requirements and dry run remain. ACP agents retain their separate delegation
+switch. Workflow behavior is defined in [the canonical specification](../docs/guided-github-workflow.md#session-approval-modes).
+
 **Nothing risky happens without you knowing.**
 
 AtlasMind can edit your files, run your tests, commit to git and reach the network. This page is about

@@ -1,5 +1,10 @@
 ## Running a branch
 
+Approval modes are implemented in `src/core/approvalModes.ts` and `toolApprovalManager.ts`.
+Regression tests cover malformed/late reviews, revocation, pending cards and explicit-only actions.
+Workflow/chat DOM tests exercise the selectors; installed acceptance should also verify the activation
+dialog, return to Ask, and restart reset. Reviewer transport is tested with no tools and separate costs.
+
 The Project Dashboard declares `onWebviewPanel:atlasmind.projectDashboard` as well as registering its
 serializer. Both are required to reconnect a restored dashboard to the extension host. When checking
 Workflow controls after a restart, verify that a switch or ceiling opens its confirmation; a lost host

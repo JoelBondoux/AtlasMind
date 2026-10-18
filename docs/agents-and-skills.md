@@ -1,5 +1,12 @@
 # Agents & Skills
 
+**Ask / Auto / Bypass** are session approval modes, selected from Workflow, chat, the status bar or
+**AtlasMind: Set Approval Mode**. Ask uses the configured policy; Auto reviews eligible requests in
+a separate tool-free model call; Bypass retains the eligible grant previously called Autopilot.
+Uncertain reviews ask, model usage is recorded, and explicit-only cards, provenance escalation,
+terminal-write denials, sandbox requirements and dry run remain enforced. Ask revokes grants and
+restart resets the mode. Workflow rules are in [the canonical specification](guided-github-workflow.md#session-approval-modes).
+
 ## Agents
 
 ### What is an Agent?

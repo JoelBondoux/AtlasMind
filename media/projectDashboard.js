@@ -3411,6 +3411,11 @@
       vscode.postMessage({ type: 'setAutomationCeiling', payload: { level: payload } });
       return;
     }
+    if (action === 'session-approval-mode') {
+      armHostWatchdog();
+      vscode.postMessage({ type: 'setSessionApprovalMode', payload: { mode: payload } });
+      return;
+    }
     if (action === 'create-workflow-config') {
       armHostWatchdog();
       vscode.postMessage({ type: 'createWorkflowConfig', payload: { profile: payload } });
@@ -13630,6 +13635,14 @@
     const ladderCard = `
       <article class="panel-card">
         <p class="card-kicker">What AtlasMind may do</p>
+        <div class="row-head">
+          <span>Approval mode · this session</span>
+          <span class="segmented" role="group" aria-label="Approval mode">${['ask', 'auto', 'bypass'].map(mode =>
+            `<button type="button" data-action="session-approval-mode" data-payload="${mode}"
+              class="${(wf.approvalMode || 'ask') === mode ? 'active' : ''}"
+              aria-pressed="${(wf.approvalMode || 'ask') === mode ? 'true' : 'false'}">${mode === 'ask' ? 'Ask' : mode === 'auto' ? 'Auto' : 'Bypass'}</button>`).join('')}</span>
+        </div>
+        <p class="stat-detail">Ask uses your configured tool policy. Auto uses a separate model to review eligible actions and asks you if uncertain. Bypass skips eligible prompts. Both reset on restart; choosing Ask revokes the session grants. Workflow writes still need the relevant stage and all gates to permit <code>auto</code>. Closing reports, approving or merging PRs, deleting labels and publishing still ask.</p>
         <p class="stat-detail">The effective level for any stage is the <em>lowest</em> of four independent gates. All four default closed, which is what keeps unattended action off until you deliberately allow it. Turning one off takes effect at once; allowing one asks you to confirm what it permits.</p>
         ${(enablement.requirements || []).length
           ? `<div class="dashboard-empty"><div>

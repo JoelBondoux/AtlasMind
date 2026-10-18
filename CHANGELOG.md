@@ -6,6 +6,20 @@ The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/),
 
 ## [Unreleased]
 
+## [0.505.0] - 2026-10-18
+
+### Added
+
+- **Ask, Auto and Bypass approval modes** on Workflow, in chat, the status bar and
+  **AtlasMind: Set Approval Mode**. Auto uses a separate, tool-free model review of eligible
+  requests; Bypass skips eligible prompts. Ask revokes grants; restarting resets the mode.
+- Reviews ask on uncertainty, malformed/late responses, withheld or oversized evidence, unavailable
+  models and exhausted daily budgets. Reviewer usage is recorded separately. Revoked reviews cannot
+  grant permission, and existing ordinary cards can be reviewed when Auto is selected.
+- Eligible issue, PR-proposal/comment and taxonomy-creation actions can use the same grants only
+  with a declared and effective `auto` stage. Denials, fresh approvals, protected operations,
+  closing reports, review verdicts, merges, label deletions and release confirmations remain enforced.
+
 ## [0.504.6] - 2026-10-18
 
 ### Fixed

@@ -1,5 +1,12 @@
 # Architecture
 
+Session approval modes live in `src/core/toolApprovalManager.ts` and `src/core/approvalModes.ts`.
+Auto uses an isolated, tool-free Orchestrator review with guarded egress and separate spend records;
+Bypass grants eligible prompts; Ask revokes session/task/category grants. The host-only
+`OrchestratorHooks.onToolApprovalIntent` supplies task intent. Invalid, withheld, oversized, late or
+unavailable reviews ask. Revisions prevent revoked reviews from granting permission; Workflow actions
+also re-check their declared stage and gates and retain the append-only audit ledger. Restart resets grants.
+
 **How AtlasMind is put together, in plain terms.**
 
 This page is the overview. If you're contributing code and need the full service-by-service map, the

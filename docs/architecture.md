@@ -1,5 +1,13 @@
 # Architecture Overview
 
+Session approval state is owned by `toolApprovalManager.ts`; `approvalModes.ts` bounds eligible
+actions, payloads (16,000 characters), strict JSON replies and a 20-second wait. Ask, Auto and Bypass
+are distinct, revocable runtime states. `OrchestratorHooks.onToolApprovalIntent` supplies host-owned
+task intent separately from proposed arguments. `Orchestrator.reviewApproval` makes a tool-free call
+through guarded egress, refuses withheld evidence and unpriced/budget-blocked calls, and records
+`approval-reviewer` spend. Dashboard reviews re-check the session revision, declared stage and gates,
+then record their grant in the existing workflow audit ledger before acting. No grants are persisted.
+
 ## System Diagram
 
 ```

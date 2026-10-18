@@ -109,6 +109,18 @@ describe('chat webview, rendered', () => {
     harness = mountChatWebview();
   });
 
+  it('opens the approval-mode selector and renders the host-selected mode', () => {
+    const button = harness.window.document.getElementById('toggleAutopilot');
+    button?.dispatchEvent(new harness.window.MouseEvent('click', { bubbles: true }));
+    expect(harness.posted.at(-1)).toEqual({ type: 'selectApprovalMode' });
+    for (const mode of ['ask', 'auto', 'bypass']) {
+      harness.send(stateWith([], { approvalMode: mode }));
+      expect(harness.window.document.getElementById('approvalModeLabel')?.textContent?.toLowerCase()).toBe(mode);
+      expect(button?.getAttribute('data-approval-mode')).toBe(mode);
+    }
+    expect(harness.errors).toEqual([]);
+  });
+
   it('renders the assistant reply, not just the question', () => {
     harness.send(stateWith([USER_TURN, ASSISTANT_TURN]));
 

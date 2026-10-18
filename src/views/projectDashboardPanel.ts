@@ -918,6 +918,7 @@ const ALLOWED_DASHBOARD_COMMANDS = new Set([
   // copy, and nothing pointed back — the only way in was the command palette.
   'atlasmind.openWebsiteStudio',
   'atlasmind.toggleAutopilot',
+  'atlasmind.setApprovalMode',
   'atlasmind.updateProjectMemory',
   'atlasmind.bootstrapProject',
   'atlasmind.importProject',
@@ -1520,6 +1521,7 @@ type ProjectDashboardMessage =
   | { type: 'markDeltaSeen' }
   | { type: 'setWorkflowGate'; payload: { key: string; enabled: boolean } }
   | { type: 'setAutomationCeiling'; payload: { level: string } }
+  | { type: 'setSessionApprovalMode'; payload: { mode: 'ask' | 'auto' | 'bypass' } }
   | { type: 'createWorkflowConfig'; payload: { profile: string } }
   | { type: 'editWorkflowConfig'; payload: unknown }
   | { type: 'applyTeamRole'; payload: { roleId: string } }
@@ -2851,6 +2853,7 @@ interface DashboardGithubLinksSnapshot {
 }
 
 interface DashboardGuidedWorkflowSnapshot {
+  approvalMode?: 'ask' | 'auto' | 'bypass';
   stages: WorkflowStageDefinition[];
   progress: WorkflowProgress;
   /**
@@ -6699,6 +6702,9 @@ export class ProjectDashboardPanel {
       case 'setAutomationCeiling':
         await this.handleSetAutomationCeiling(message.payload);
         return;
+      case 'setSessionApprovalMode':
+        await vscode.commands.executeCommand('atlasmind.setApprovalMode', message.payload.mode);
+        return;
       case 'createWorkflowConfig':
         await this.handleCreateWorkflowConfig(message.payload);
         return;
@@ -10330,7 +10336,9 @@ export class ProjectDashboardPanel {
       }
     }
 
-    const confirmation = await vscode.window.showWarningMessage(
+    const automaticallyApproved = await this.reviewWorkflowApproval(message.type, 'planning', 'issueWrites', decision, description, args);
+    if (automaticallyApproved === undefined) { return; }
+    const confirmation = automaticallyApproved ? 'Yes, do it' : await vscode.window.showWarningMessage(
       'Write to the issue tracker?',
       { modal: true, detail: description },
       'Yes, do it',
@@ -10347,7 +10355,7 @@ export class ProjectDashboardPanel {
         {
           stageId: 'planning',
           action: message.type,
-          actor: 'user',
+          actor: automaticallyApproved ? 'automation' : 'user',
           decision,
           requestedLevel: 'propose',
           inputs: { repo: slug, action: message.type, args },
@@ -10532,6 +10540,36 @@ export class ProjectDashboardPanel {
    * the next reload. The webview never supplies the level — it asks to act, and
    * this decides whether it may.
    */
+  private async reviewWorkflowApproval(
+    action: string,
+    stageId: WorkflowStageId,
+    capability: WorkflowCapability,
+    decision: AutomationDecision,
+    description: string,
+    args: string[],
+  ): Promise<boolean | undefined> {
+    const manager = this.atlas.toolApprovalManager;
+    const mode = manager.getApprovalMode?.() ?? 'ask';
+    if (mode === 'ask') { return false; }
+    const stage = this.workflowConfig.getConfig()?.stages.find(candidate => candidate.id === stageId);
+    if (!stage?.enabled || stage.automationLevel !== 'auto' || decision.level !== 'auto'
+      || stageBlockers(stage).length > 0) { return false; }
+    const revision = manager.getApprovalRevision();
+    const { reviewApprovalRequest } = await import('../core/approvalModes.js');
+    const result = await reviewApprovalRequest(mode, {
+      kind: 'workflow', name: action, intent: description, args: { args },
+      policy: { category: 'network', risk: 'medium', summary: action },
+      workflowLevel: decision.level,
+    }, (systemPrompt, payload) => this.atlas.orchestrator.reviewApproval('workflow-approval', systemPrompt, payload));
+    const latestStage = this.workflowConfig.getConfig()?.stages.find(candidate => candidate.id === stageId);
+    if (!latestStage?.enabled || latestStage.automationLevel !== 'auto' || stageBlockers(latestStage).length > 0
+      || this.automationFor(capability, 'auto').level !== 'auto') { return undefined; }
+    if (manager.getApprovalRevision() !== revision || manager.getApprovalMode() !== mode) { return false; }
+    if (result.decision !== 'allow') { return false; }
+    decision.detail += ` Approval: ${mode}; ${result.rule}.`;
+    return true;
+  }
+
   private automationFor(capability: WorkflowCapability, stageLevel: AutomationLevel): AutomationDecision {
     const configuration = vscode.workspace.getConfiguration('atlasmind');
     const capabilitySetting = capability === 'issueWrites'
@@ -10684,7 +10722,11 @@ export class ProjectDashboardPanel {
       echo = { action: 'close', number };
     }
 
-    const confirmation = await vscode.window.showWarningMessage(
+    const reviewAction = message.type === 'reviewPullRequest' && payload['verdict'] !== 'approve' && payload['verdict'] !== 'request-changes'
+      ? 'commentPullRequest' : message.type;
+    const automaticallyApproved = await this.reviewWorkflowApproval(reviewAction, 'pull-request', 'pullRequestWrites', decision, description, args);
+    if (automaticallyApproved === undefined) { return; }
+    const confirmation = automaticallyApproved ? 'Yes, do it' : await vscode.window.showWarningMessage(
       'Write to GitHub?',
       { modal: true, detail: description },
       'Yes, do it',
@@ -10700,7 +10742,7 @@ export class ProjectDashboardPanel {
         {
           stageId: 'pull-request',
           action: message.type,
-          actor: 'user',
+          actor: automaticallyApproved ? 'automation' : 'user',
           decision,
           requestedLevel: 'propose',
           inputs: { repo: slug, action: message.type, args },
@@ -11642,7 +11684,9 @@ ${buildCardEvidenceSection(source, derivation)}`;
       successNote = `Closed milestone #${number}.`;
     }
 
-    const confirmation = await vscode.window.showWarningMessage(
+    const automaticallyApproved = await this.reviewWorkflowApproval(message.type, 'planning', 'issueWrites', decision, description, args);
+    if (automaticallyApproved === undefined) { return; }
+    const confirmation = automaticallyApproved ? confirmLabel : await vscode.window.showWarningMessage(
       'Change the label taxonomy?',
       { modal: true, detail: description },
       confirmLabel,
@@ -11656,7 +11700,7 @@ ${buildCardEvidenceSection(source, derivation)}`;
         {
           stageId: 'planning',
           action: message.type,
-          actor: 'user',
+          actor: automaticallyApproved ? 'automation' : 'user',
           decision,
           requestedLevel: 'propose',
           inputs: { repo: slug, action: message.type, args },
@@ -18541,6 +18585,13 @@ export function isProjectDashboardMessage(message: unknown): message is ProjectD
       && (AUTOMATION_LEVELS as readonly string[]).includes(payload['level']);
   }
 
+  if (candidate['type'] === 'setSessionApprovalMode') {
+    const payload = candidate['payload'] as Record<string, unknown> | undefined;
+    return typeof payload === 'object' && payload !== null
+      && typeof payload['mode'] === 'string'
+      && ['ask', 'auto', 'bypass'].includes(payload['mode']);
+  }
+
   // Both workflow writes touch a file that gets committed, so the shape is
   // checked here and every value is sanitized again in the config module.
   if (candidate['type'] === 'createWorkflowConfig') {
@@ -19045,6 +19096,7 @@ export function normalizeDashboardPromptRequest(payload: unknown): { prompt: str
  * zero, and a repository with no CI reports "no checks" rather than "0% passing".
  */
 function buildGuidedWorkflowSnapshot(input: {
+  sessionApprovalMode?: 'ask' | 'auto' | 'bypass';
   configuration: vscode.WorkspaceConfiguration;
   gitSnapshot: GitSnapshot;
   packageVersion: string;
@@ -19294,18 +19346,19 @@ function buildGuidedWorkflowSnapshot(input: {
     profile,
     enabled,
     automationLevel,
+    approvalMode: input.sessionApprovalMode ?? 'ask',
     capabilities: [
       {
         id: 'atlasmind.workflow.allowIssueWrites',
         label: 'Issue writes',
         enabled: resolveRestrictiveFlag(input.configuration.inspect<boolean>('workflow.allowIssueWrites') ?? {}),
-        detail: 'Create, comment on, edit, close or reopen issues. Every write still confirms first.',
+        detail: 'Issue writes follow the selected approval mode only at a declared and effective auto stage. Closing an issue still asks.',
       },
       {
         id: 'atlasmind.workflow.allowPullRequestWrites',
         label: 'Pull request writes',
         enabled: resolveRestrictiveFlag(input.configuration.inspect<boolean>('workflow.allowPullRequestWrites') ?? {}),
-        detail: 'Open pull requests, post reviews, merge. Every write still confirms first.',
+        detail: 'PR proposals and comments can follow the selected mode at auto. Review verdicts, merges and closing still ask.',
       },
       {
         id: 'atlasmind.workflow.allowReleaseWrites',
@@ -21061,6 +21114,8 @@ async function collectDashboardSnapshot(
     }),
     githubLinks: buildGithubLinksSnapshot(gitSnapshot.remoteUrl ?? dashboardIssues.repoSlug),
     guidedWorkflow: withObservedDelta(atlas, workspaceRoot, buildGuidedWorkflowSnapshot({
+      sessionApprovalMode: atlas.toolApprovalManager.getApprovalMode?.()
+        ?? (atlas.toolApprovalManager.isAutopilot() ? 'bypass' : 'ask'),
       configuration,
       gitSnapshot,
       // Detection reads dependency names the package snapshot already loaded, so

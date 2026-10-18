@@ -11,9 +11,15 @@ import type {
   ToolRiskCategory,
 } from '../types.js';
 import { isToolBypassable } from './toolPolicy.js';
+import type { ApprovalReviewInput, ApprovalReviewResult, SessionApprovalMode } from './approvalModes.js';
 
 export class ToolApprovalManager {
   private state: ToolApprovalState = { autopilot: false };
+  private autoReview = false;
+  private approvalRevision = 0;
+  private taskIntents = new Map<string, string>();
+  private pendingReviewInputs = new Map<string, ApprovalReviewInput>();
+  private automaticReviewer?: (request: PendingToolApprovalRequest, input: ApprovalReviewInput) => Promise<ApprovalReviewResult>;
   /**
    * Categories bypassed for the current task. Cleared when task ends.
    * Keyed by task ID → set of risk categories.
@@ -40,11 +46,42 @@ export class ToolApprovalManager {
     return this.state.autopilot;
   }
 
+  getApprovalMode(): SessionApprovalMode {
+    return this.state.autopilot ? 'bypass' : this.autoReview ? 'auto' : 'ask';
+  }
+
+  getApprovalRevision(): number { return this.approvalRevision; }
+
+  setTaskIntent(taskId: string, intent: string): void { this.taskIntents.set(taskId, intent); }
+  getTaskIntent(taskId: string): string { return this.taskIntents.get(taskId) ?? ''; }
+
+  setAutomaticReviewer(reviewer: NonNullable<ToolApprovalManager['automaticReviewer']>): void {
+    this.automaticReviewer = reviewer;
+  }
+
+  setApprovalMode(mode: SessionApprovalMode): void {
+    if (!['ask', 'auto', 'bypass'].includes(mode)) { return; }
+    this.approvalRevision += 1;
+    this.autoReview = mode === 'auto';
+    this.state = { autopilot: mode === 'bypass' };
+    this.bypassedCategories.clear();
+    this.acknowledgedTaint.clear();
+    if (mode === 'bypass') {
+      this.settleMatchingPending(request => this.canResolveFromScope(request, 'autopilot'), 'autopilot');
+    }
+    if (mode === 'auto') { void this.reviewPendingApprovals(this.approvalRevision); }
+    // Existing subscribers also refresh the selected mode when the legacy
+    // Autopilot boolean stays false (Ask -> Auto).
+    this.notifyAutopilotChange(this.state.autopilot);
+  }
+
   listPendingRequests(): PendingToolApprovalRequest[] {
     return [...this.pendingApprovals];
   }
 
   enableAutopilot(): void {
+    this.autoReview = false;
+    this.approvalRevision += 1;
     this.state.autopilot = true;
     this.settleMatchingPending(
       request => this.canResolveFromScope(request, 'autopilot'),
@@ -54,6 +91,8 @@ export class ToolApprovalManager {
   }
 
   disableAutopilot(): void {
+    this.autoReview = false;
+    this.approvalRevision += 1;
     this.state.autopilot = false;
     this.notifyAutopilotChange(false);
   }
@@ -70,6 +109,7 @@ export class ToolApprovalManager {
 
   requestApproval(
     request: Omit<PendingToolApprovalRequest, 'id' | 'createdAt'>,
+    reviewInput?: ApprovalReviewInput,
   ): Promise<ToolApprovalDecision> {
     const pendingRequest: PendingToolApprovalRequest = {
       ...request,
@@ -84,6 +124,7 @@ export class ToolApprovalManager {
       // visible card whose resolver does not exist yet turns the first click
       // into a no-op.
       this.pendingApprovalResolvers.set(pendingRequest.id, resolve);
+      if (reviewInput) { this.pendingReviewInputs.set(pendingRequest.id, reviewInput); }
       this.pendingApprovals = [...this.pendingApprovals, pendingRequest];
       this.notifyPendingApprovalChange();
     });
@@ -101,6 +142,8 @@ export class ToolApprovalManager {
     // only after its `await` resumed. Tool calls run concurrently, so the other
     // gates remained visible (and could add more cards) during that gap.
     if (decision === 'autopilot') {
+      this.autoReview = false;
+      this.approvalRevision += 1;
       this.state.autopilot = true;
       this.settleMatchingPending(
         candidate => candidate.id === requestId || this.canResolveFromScope(candidate, decision),
@@ -222,6 +265,7 @@ export class ToolApprovalManager {
    * Called when a task completes to clear task-scoped bypass state.
    */
   clearTask(taskId: string): void {
+    this.taskIntents.delete(taskId);
     if (this.state.bypassTaskId === taskId) {
       this.state.bypassTaskId = undefined;
     }
@@ -234,6 +278,9 @@ export class ToolApprovalManager {
    * Reset all approval state (clears autopilot and all task bypasses).
    */
   reset(): void {
+    this.taskIntents.clear();
+    this.autoReview = false;
+    this.approvalRevision += 1;
     this.state = { autopilot: false };
     this.bypassedCategories.clear();
     this.acknowledgedTaint.clear();
@@ -290,6 +337,21 @@ export class ToolApprovalManager {
     this.settleMatchingPending(() => true, decision);
   }
 
+  private async reviewPendingApprovals(revision: number): Promise<void> {
+    const reviewer = this.automaticReviewer;
+    if (!reviewer) { return; }
+    await Promise.all(this.pendingApprovals.map(async request => {
+      const input = this.pendingReviewInputs.get(request.id);
+      if (!input || request.allowedDecisions !== undefined) { return; }
+      try {
+        const result = await reviewer(request, input);
+        if (result.decision === 'allow' && this.getApprovalMode() === 'auto' && this.approvalRevision === revision) {
+          this.resolvePendingRequest(request.id, 'allow-once');
+        }
+      } catch { /* A failed reviewer leaves the approval card for the operator. */ }
+    }));
+  }
+
   private settleMatchingPending(
     predicate: (request: PendingToolApprovalRequest) => boolean,
     decision: ToolApprovalDecision,
@@ -306,6 +368,7 @@ export class ToolApprovalManager {
 
     for (const requestId of matchingIds) {
       this.pendingApprovalResolvers.delete(requestId);
+      this.pendingReviewInputs.delete(requestId);
     }
     this.pendingApprovals = this.pendingApprovals.filter(request => !matchingIds.has(request.id));
     this.notifyPendingApprovalChange();

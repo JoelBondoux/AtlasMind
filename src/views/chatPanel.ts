@@ -350,6 +350,7 @@ interface ChatPanelState {
   recoveryNotice?: ChatPanelRecoveryNotice;
   selectedRun?: ChatPanelRunSummary;
   autopilotEnabled?: boolean;
+  approvalMode?: 'ask' | 'auto' | 'bypass';
   /** Name of the active workspace folder, announced in the sidebar brand header. */
   projectName?: string;
 }
@@ -839,16 +840,9 @@ export class ChatPanel {
       case 'stopPrompt':
         await this.stopActivePrompt();
         return;
-      case 'toggleAutopilot': {
-        const enabled = this.atlas.toolApprovalManager?.toggleAutopilot?.();
-        await this.host.webview.postMessage({
-          type: 'status',
-          payload: enabled
-            ? 'Autopilot enabled — tool approvals will be granted automatically.'
-            : 'Autopilot disabled — tool approvals will require confirmation.',
-        });
+      case 'selectApprovalMode':
+        await vscode.commands.executeCommand('atlasmind.setApprovalMode');
         return;
-      }
       case 'voteAssistantMessage':
         await this.handleAssistantVote(message.payload.entryId, message.payload.vote);
         return;
@@ -3055,6 +3049,8 @@ export class ChatPanel {
       ...(this.selectedRunId ? { selectedRunId: this.selectedRunId } : {}),
       selectedRun: selectedRun ? toRunSummary(selectedRun) : undefined,
       autopilotEnabled: this.atlas.toolApprovalManager?.isAutopilot?.() ?? false,
+      approvalMode: this.atlas.toolApprovalManager?.getApprovalMode?.()
+        ?? (this.atlas.toolApprovalManager?.isAutopilot?.() ? 'bypass' : 'ask'),
       ...(this.resolveProjectName() ? { projectName: this.resolveProjectName() } : {}),
     };
 

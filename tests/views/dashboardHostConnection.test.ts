@@ -328,6 +328,7 @@ describe('workflow controls detect a host lost after the first snapshot', () => 
     ['workflow-gate', 'atlasmind.workflow.enabled:on', 'setWorkflowGate'],
     ['automation-ceiling', 'propose', 'setAutomationCeiling'],
     ['setting', 'atlasmind.workflow.enabled', 'openSettingKey'],
+    ['session-approval-mode', 'auto', 'setSessionApprovalMode'],
   ])('%s checks for a reply even when the page previously loaded', (action, payload, type) => {
     const harness = mount();
     harness.send(workflowSnapshot());

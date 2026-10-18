@@ -1,5 +1,12 @@
 # Security
 
+Auto approvals use a separate no-tool reviewer. `approvalModes.ts` owns eligibility, payload/reply
+bounds, strict JSON validation and timeout fallback. A model may waive an eligible prompt, never a
+denial; missing intent and withheld evidence ask. Bypass is an explicit session grant. Fresh
+untrusted-content approvals and non-waivable operations remain explicit. Mode revisions invalidate
+in-flight reviews; Ask revokes grants and restart resets them. Reviews use normal egress/privacy and
+daily-budget controls and record their cost. Workflow writes retain their pre-action audit record.
+
 **AtlasMind assumes everything could be hostile, and behaves accordingly.**
 
 Your chat input, your workspace files, retrieved memory, model output, web pages, issue text, MCP tool

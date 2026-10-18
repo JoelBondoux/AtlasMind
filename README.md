@@ -4,7 +4,7 @@
 
 <h1 align="center">AtlasMind</h1>
 
-<p align="center"><sub> · <strong>Current source version: 0.504.6</strong> · </sub></p>
+<p align="center"><sub> · <strong>Current source version: 0.505.0</strong> · </sub></p>
 
 
 <p align="center">
@@ -178,6 +178,13 @@ important limits on overrides and compliance claims.
 
 ---
 
+## What's new in 0.505.0
+
+**Choose Ask, Auto or Bypass.** Workflow, chat and the status bar share one session approval mode.
+Auto asks a separate model to review eligible actions; Bypass skips eligible prompts. Ask revokes
+the grants, and a restart resets them. Existing capabilities and explicit-only approvals still apply.
+Auto reviews use your synthesis-model routing and may cost tokens.
+
 ## What's new in 0.504.6
 
 **Workflow permission controls reconnect after a restart.** Restoring the dashboard now activates its
@@ -189,14 +196,6 @@ silently ignoring the click. Permission limits and confirmation requirements are
 The last Marketplace publication is now **v0.504.4**, which carries everything since v0.482.1. That
 includes Unsloth Studio as a local runtime and the sandboxed execution work. Every release is written up
 in full in [CHANGELOG.md](CHANGELOG.md).
-
-## What's new in 0.504.4
-
-**A crafted HTML page can no longer freeze the editor when UI Studio opens it.** Three places stepped over a
-page's leading comments with a regex that backtracked exponentially, so a few hundred bytes of workspace file
-could stall the extension host. They now share the linear scan the HTML parser already used. The edit page
-also leaves out every `data:` URL that is not a raster image, and a sandbox report no longer splits a cell on
-a backslash before a pipe. All raised by CodeQL on the 0.504.3 release.
 
 Only the three newest releases are summarised here. The last Marketplace publication, **v0.504.4**, is
 the build the Marketplace serves; every release, older ones included, is written up in full in
@@ -347,10 +346,17 @@ All 173 settings are documented in the [Configuration reference](wiki/Configurat
 
 ---
 
+## Extension commands
+
+**AtlasMind: Set Approval Mode** selects Ask, Auto or Bypass for this extension session. The same
+selector is in chat and Project Dashboard → Workflow. **AtlasMind: Toggle Autopilot** remains the
+shortcut for the existing session Bypass grant. See the full [command reference](wiki/Chat-Commands.md).
+
 ## Where things live
 
 | Path | What's in it |
 |---|---|
+| `src/core/approvalModes.ts` | Eligible actions, bounded model review and strict reply validation; runtime grants live in `toolApprovalManager.ts` |
 | `src/core/` | Orchestration, routing (with the reasoning axis — how hard to think, sent only to models with a declared control, `reasoningBudget.ts`), planning, safety, cost, project composition, opt-in workspace scope, read-only upstream distance, game-engine identity, bounded asset inventory, pure engine-fork interpretation, hostile-input build-log reading, and the declared game profile (`projectComposition.ts`, `workspaceScope.ts`, `upstreamDivergence.ts`, `gameEngineIdentity.ts`, `gameAssetInventory.ts`, `gameEngineDivergence.ts`, `gameBuildLog.ts`, `gameProfile.ts`), UI Studio's graph/edit/live-preview/repository core (`uiDesignGraph.ts`, `uiEditCommands.ts`, `uiPreviewRuntime.ts`, `uiRepositoryMapping.ts`, `uiRepositoryImport.ts`, `uiSurfaceScan.ts`), brand presets — one named token set applied to many surfaces by alias, extracted from a stylesheet with a citation (`brandPresets.ts`) — and the engine emitters with anchored, patch-by-anchor content write-back and constant-argv launch plans (`uiSurfaceEmit.ts`), what a found surface can honestly be rendered as — a real static file, the project's own dev server, or not here and why (`uiSurfaceRender.ts`), element editing in a found static page — a tolerant parser whose output is source offsets, a declared table of where an element may go, and each edit as one splice refused against a changed file (`htmlSourceMap.ts`, `uiSurfaceElementEdit.ts`, `uiSurfaceEditDocument.ts`), CI inspection/scaffolding (`ciManager.ts`, `trustedLocalCiStarter.ts`), the CI route model, routing policy, build ledger and act adapter (`ciRoutes.ts`, `ciRoutingPolicy.ts`, `ciCreditMeter.ts`, `ciBuildLedger.ts`, `ciActRoute.ts`), the local CI guide, GitHub CLI installer and remembered machine inspection (`localCiSetupPlan.ts`, `localCiInstaller.ts`, `localCiInspectionMemory.ts`), the provider-neutral reviewed-PR contract, exact-SHA policy and repository patcher (`localCiRepositoryPatch.ts`, `reviewedPrLocalCi.ts`), who may start a local-CI job — the repository owner, or the one account an organisation-owned repository pins by id (`localCiActorGuard.ts`), confirmed-write echo (`trackerWriteOutcome.ts`), the register-to-work hand-off (`registerHandoff.ts`), the personal-vs-project split behind the two sidebar people views (`directorPriority.ts`), the semver primitives and branch-to-channel versioning policy (`semver.ts`, `versioningPolicy.ts`), the shell-free Windows shim bypass shared by the extension host, the CLI and the ACP launcher (`windowsShimBypass.ts`), the pure core of sandboxed execution — digest-pinned image, Linux engine, one mount, no network, and `require` never falling back to the host; (`sandboxPlan.ts`), the probe that reads the engine for it — engine, pinned image present locally, a canary in the real argv, never a pull (`sandboxProbe.ts`), and the runner that under `require` runs an agent's command in the container or refuses it, never on the host (`sandboxRunner.ts`), and the opt-in that lets a terminal write bound for a confirmed sandbox skip its prompt, decided on the session that will run it (`sandboxApprovalRelaxation.ts`), the dependency volume a sandboxed command loads installed packages from — keyed to the lockfile, prepared only on request in the one network-on container, never unattended (`sandboxDependencies.ts`), the environment an agent's command gets on the host — every credential-shaped variable withheld by a declared rule, a named one passed only when you list it (`hostCommandEnvironment.ts`), parallel-write placement, worktree plumbing, merge-back and the run that ties them together (`worktreeIsolation.ts`, `worktreeManager.ts`, `worktreeMerge.ts`, `worktreeRun.ts`), the live security advisory feed and the per-turn context breakdown and the producer-portal hosting guide (`advisoryFeed.ts`, `contextBudget.ts`, `producerPortalPlan.ts`), the defect register — what is broken, graded by a published table rather than asked for (`defectRegister.ts`), the approval register — who agreed, to which version, and what goes stale when it changes (`changeApprovals.ts`), the test-case register — the manual half of testing, its owners and the assets it needs (`testCaseRegister.ts`), the ambient event bus — what may wake AtlasMind up, how far it may go, and why it stayed quiet (`ambientTriggers.ts`), the six cross-cutting utility decisions with their verified vendor facts (`utilityPacks.ts`), the searchable codebase index — what may be indexed, what is stale, and what a result may be taken to mean (`codebaseIndex.ts`, `codebaseIndexStore.ts`), where the producer portal is hosted and who may read it, and what one press to publish would actually do (`portalHosting.ts`, `portalPublishPlan.ts`), golden cases for an agent and the gate on an unattended prompt rewrite (`agentEvalHarness.ts`), what each person has been asked to do against the capacity they declared, and declared absence read out of an exported calendar (`teamWorkload.ts`, `rotaImport.ts`), baselines you can name so "what changed" can be asked about a moment you chose (`baselineRegister.ts`), the project in your own words and the grounding rule for anything read out of it (`projectBrief.ts`), the chain from that brief to board, roadmap, plans and soul, planned from the files (`projectBriefChain.ts`), the roadmap dependency graph, its overlay store, the chain the finish rests on and the plan against time (`roadmapGraph.ts`, `roadmapGraphStore.ts`, `roadmapCriticalPath.ts`, `roadmapTimeline.ts`, `roadmapBoard.ts`), which backlog items may belong on a release gate, from a published rule table (`roadmapGateCandidates.ts`), whether the configured team can work and how much of it is used (`agentCapacity.ts`), and the git trailers that link a commit to the work it was for (`commitTrailers.ts`), and the evidence-triggered MCP capability offer (`capabilityOffer.ts`), release-gate destinations and urgency ordering (`releaseGateNavigation.ts`), roadmap ingestion from markdown, issues, Projects and spreadsheets (`roadmapImport.ts`, `roadmapReconcile.ts`) plus the guarded `localCiRunner.ts` executor, the governance-compliance stack — the control catalog, evidence register and readiness grader (`complianceControlCatalog.ts`, `complianceEvidenceRegister.ts`, `complianceReadiness.ts`) the per-methodology standard editions (`testingStandards.ts`), the Compliance page's view builder (`complianceDashboard.ts`), its walkthrough (`complianceSetupPlan.ts`), the shared stack-signal gatherer (`complianceStackSignals.ts`) and the mapping importer (`complianceMarkdownImport.ts`) — and project services |
 | `src/core/releaseMatrix.ts` | Pure schema, sanitization, mutation and metrics for the planned Editions feature-by-offering matrix; filesystem writes stay in the Project Dashboard host |
 | `src/core/releaseMatrixImport.ts` | Pure, bounded design-document discovery, Markdown/JSON parsing, conservative roadmap/Issue matching, and reviewed non-destructive merge planning for Editions |
