@@ -32,8 +32,19 @@ The cheapest way to run AtlasMind, because it costs nothing extra.
 
 ### Local models
 
-Ollama, LM Studio, or anything speaking the OpenAI API. Free, private, and nothing leaves your machine.
+Ollama, LM Studio, Unsloth Studio, or anything speaking the OpenAI API. Free, private, and nothing leaves your machine.
 You can even aggregate several local engines together under one provider.
+
+**Unsloth Studio** needs an API key. Run **AtlasMind: Connect Unsloth Studio**: it checks the server really
+is Studio before asking for the key (its default port, 8888, is Jupyter's too), tries the key, and keeps it
+for that endpoint alone. **AtlasMind: Manage Unsloth Models** then loads a model at a quantisation you pick.
+AtlasMind routes only to models Studio has *loaded*, never to one that is only downloaded, because
+routing to it would make Studio load gigabytes on its own say-so.
+
+Studio can run Python, a shell and web search itself, inside a reply. Anything it ran that way would
+skip AtlasMind's approvals and sandbox, so every request asks Studio to keep those tools off. Start Studio
+with `--disable-tools` to make that a setting it cannot be talked out of; a Studio started with
+`--enable-tools` overrides the request, and AtlasMind cannot tell.
 
 ---
 

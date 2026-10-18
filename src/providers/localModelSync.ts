@@ -1,6 +1,8 @@
 import type { ModelInfo } from '../types.js';
 import { LOCAL_MODEL_DEFAULT_CONTEXT_WINDOW } from '../constants.js';
 import { classifyModelRole } from './modelRole.js';
+import type { LocalEndpointRuntime } from './localRuntimeClient.js';
+import { createUnslothStudioClient, type UnslothStudioClientDeps } from './unslothStudio.js';
 
 export const LOCAL_MODEL_SYNC_CACHE_KEY = 'atlasmind.localModelSync';
 export const LOCAL_MODEL_SYNC_STALE_MS = 60 * 60 * 1000; // 1 hour
@@ -8,11 +10,29 @@ export const LOCAL_MODEL_SYNC_STALE_MS = 60 * 60 * 1000; // 1 hour
 export interface LocalModelMeta {
   id: string;
   name: string;
-  runtime: 'ollama' | 'lmstudio';
+  runtime: LocalEndpointRuntime;
   contextWindow: number;
   capabilities: ModelInfo['capabilities'];
   parametersBillions?: number;
   quantisation?: string;
+  /**
+   * Whether the runtime holds it in memory right now. Only Unsloth Studio
+   * reports downloaded and loaded separately; absent means "not reported",
+   * never "not loaded".
+   */
+  loaded?: boolean;
+  /** Bytes on disk, where the runtime says. */
+  sizeBytes?: number;
+  /** A download that was interrupted: on disk, not loadable. */
+  partial?: boolean;
+}
+
+/** Where AtlasMind reaches a configured Unsloth Studio, and with which key. */
+export interface UnslothSyncTarget {
+  /** The endpoint's origin, e.g. `http://127.0.0.1:8888` — not the `/v1` base. */
+  origin: string;
+  getApiKey: UnslothStudioClientDeps['getApiKey'];
+  fetch?: UnslothStudioClientDeps['fetch'];
 }
 
 export interface LocalModelSyncResult {
@@ -234,16 +254,62 @@ async function syncLmStudio(baseUrl: string): Promise<LocalModelMeta[]> {
   }));
 }
 
+/**
+ * What Unsloth Studio has downloaded, marked with what it has loaded.
+ *
+ * "Installed" for Studio means *on disk*, which is what `/api/models/cached-gguf`
+ * lists, keyed by Hugging Face repository id — the id a load, a quant listing
+ * and a delete all take. Whether each one is loaded comes from
+ * `/api/inference/status`, matched by repository id with or without a `:quant`
+ * suffix; a status that could not be read leaves `loaded` absent rather than
+ * claiming nothing is loaded.
+ *
+ * Studio is reached only when an Unsloth endpoint is configured with a key —
+ * unlike Ollama and LM Studio, nothing probes its default port speculatively,
+ * because the request that would answer the question needs a credential.
+ */
+export async function syncUnsloth(target: UnslothSyncTarget): Promise<LocalModelMeta[]> {
+  const studio = createUnslothStudioClient(target.origin, {
+    getApiKey: target.getApiKey,
+    ...(target.fetch ? { fetch: target.fetch } : {}),
+  });
+  const [downloaded, status] = await Promise.all([studio.listDownloaded(), studio.status()]);
+  if (!downloaded.ok) { return []; }
+  const loadedIds = status.ok
+    ? [...status.value.loaded, ...status.value.serving].map(id => id.toLowerCase())
+    : undefined;
+  return downloaded.value.map(model => {
+    const key = model.repoId.toLowerCase();
+    const loaded = loadedIds?.some(id => id === key || id.startsWith(`${key}:`));
+    const capabilities = inferLocalCapabilities(model.repoId);
+    if (model.hasVision && capabilities.length > 0 && !capabilities.includes('vision')) {
+      capabilities.push('vision');
+    }
+    return {
+      id: model.repoId,
+      name: model.repoId.split('/').pop() ?? model.repoId,
+      runtime: 'unsloth' as const,
+      contextWindow: LOCAL_MODEL_DEFAULT_CONTEXT_WINDOW,
+      capabilities,
+      ...(loaded !== undefined ? { loaded } : {}),
+      ...(model.sizeBytes !== undefined ? { sizeBytes: model.sizeBytes } : {}),
+      ...(model.partial ? { partial: true } : {}),
+    };
+  });
+}
+
 export async function syncLocalModels(
   ollamaBaseUrl = 'http://localhost:11434',
   lmStudioBaseUrl = 'http://localhost:1234',
+  unsloth?: UnslothSyncTarget,
 ): Promise<LocalModelSyncResult> {
   const reachableEndpoints: string[] = [];
   const allModels: LocalModelMeta[] = [];
 
-  const [ollamaModels, lmModels] = await Promise.allSettled([
+  const [ollamaModels, lmModels, unslothModels] = await Promise.allSettled([
     syncOllama(ollamaBaseUrl),
     syncLmStudio(lmStudioBaseUrl),
+    unsloth ? syncUnsloth(unsloth) : Promise.resolve([]),
   ]);
 
   if (ollamaModels.status === 'fulfilled' && ollamaModels.value.length > 0) {
@@ -253,6 +319,10 @@ export async function syncLocalModels(
   if (lmModels.status === 'fulfilled' && lmModels.value.length > 0) {
     reachableEndpoints.push(lmStudioBaseUrl);
     allModels.push(...lmModels.value);
+  }
+  if (unsloth && unslothModels.status === 'fulfilled' && unslothModels.value.length > 0) {
+    reachableEndpoints.push(unsloth.origin);
+    allModels.push(...unslothModels.value);
   }
 
   return { models: allModels, syncedAt: new Date().toISOString(), reachableEndpoints };

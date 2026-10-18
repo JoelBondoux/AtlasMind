@@ -6,6 +6,75 @@ The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/),
 
 ## [Unreleased]
 
+## [0.504.0] - 2026-10-18
+
+### Added
+
+- **Unsloth Studio as a local endpoint runtime.** Studio serves OpenAI-compatible chat on `/v1`, which the Local
+  provider already spoke, and a management API beside it, which nothing did. `src/providers/unslothStudio.ts` is
+  that API, **read from Studio's source at v0.1.908-beta** rather than inferred from its docs, which cover only
+  chat and model listing, and pinned at `UNSLOTH_STUDIO_VERIFIED_AT`. It covers what is loaded (`/api/inference/status`),
+  what is downloaded (`/api/models/cached-gguf`), the quantisations a repository offers (`/api/models/gguf-variants`),
+  download progress, load, which downloads first, unload, cancel, and delete. The transport is injected and nothing
+  in it throws.
+- **AtlasMind: Connect Unsloth Studio.** Asks for the address, then probes the unauthenticated `/api/liveness`. Only
+  if that answers `service: "Unsloth UI Backend"` does it ask for the `sk-unsloth-` key, because port 8888 is
+  Jupyter's default as well as Studio's. The key is tried against Studio before it is stored, so a mistyped key fails
+  where it was typed. It is kept in SecretStorage under the endpoint's own name and sent to no other endpoint. Plain
+  HTTP to another machine asks first. The endpoint is written with `runtime: "unsloth"`.
+- **AtlasMind: Manage Unsloth Models.** Shows what Studio has in memory and on disk. It can discover Unsloth's
+  chat-model GGUF builds on Hugging Face, or download any repository by id. Every quantisation is listed with its
+  size, whether it is on disk and whether it fits the largest GPU's VRAM. One is suggested by a published rule
+  table (`UNSLOTH_VARIANT_RULES`), and the suggestion names the rule that chose it. A partial download is never
+  suggested, and when anything fits, the suggestion fits (fast-check). Downloading and loading, unloading and
+  deleting are each held by dry run. Downloading and deleting are modal: a download is Studio fetching gigabytes
+  from Hugging Face, and a delete removes every quant of the repository. Cancel sends Studio's
+  `cancel_load_request_id`, which stops that attempt and never unloads a resident model, because closing the
+  connection does not stop Studio's work.
+- **Install in Unsloth** on the Settings panel's local model advisor, for any `hf:` recommendation when Studio is
+  connected; Unsloth rows in the installed list with size, loaded and interrupted-download state; an *Unsloth Studio*
+  endpoint preset that hands straight to Connect.
+- **Unsloth's own GGUF builds in the discovery catalogue** (`UNSLOTH_HUB_LISTING_URL`). The organisation publishes
+  video, image and speech GGUFs that rank near the top by downloads. A repository is listed only with the
+  `conversational` tag or a chat pipeline tag, and never with an excluded tag. The pipeline tag alone would have
+  missed the top repository, which carries none.
+- `atlasmind.localOpenAiEndpoints[].runtime` (`ollama` | `lmstudio` | `unsloth`): declare which runtime an endpoint
+  is. Optional. Omitted, it is inferred from the label, then the port.
+
+### Security
+
+- **Studio's server-side tools are asked off on every request.** Studio can run Python, a shell and web search itself
+  inside a completion, and `unsloth run` / `unsloth studio run` default them on for loopback. Anything run that way
+  bypasses AtlasMind's approval gate, sandbox, dry run and provenance tracking, because AtlasMind never sees a tool
+  call. Every completion to an Unsloth endpoint now carries `enable_tools: false, mcp_enabled: false`
+  (`UNSLOTH_SERVER_TOOLS_OFF`). Both are declared fields, so the request cannot be refused for them. A process
+  started with `--enable-tools` overrides the request, and Studio does not publish its policy, so
+  `UNSLOTH_TOOL_POLICY_CAVEAT` names `--disable-tools` on every surface that connects Studio.
+- **An unlabelled Studio still gets the guard.** Every `/v1/models` entry Studio lists carries
+  `owned_by: "unsloth-studio"`, and an endpoint that lists one is treated as Studio from then on. That listing
+  always comes before the router can pick one of its models.
+- **A model Studio has only on disk is not routable.** Studio's `/v1/models` lists downloads beside loaded models.
+  Routing to one would make Studio load it, a multi-gigabyte decision the router must not make by picking a model,
+  so entries with `loaded: false` are dropped for an Unsloth endpoint.
+- **A local endpoint's key stays with that endpoint.** There was one shared local key, sent to every local endpoint.
+  An endpoint's own key (`atlasmind.provider.local.endpoint.<id>.apiKey`) now wins, and the shared key remains the
+  fallback, so nothing configured before changes.
+- **A 200 from `/load` or `/unload` is not taken as success.** Past 15 seconds Studio commits a 200, pads the body,
+  and reports a late failure inside it as `_deferred_error`. That is parsed as a refusal.
+- The secret redactor recognises `sk-unsloth-` keys. The OpenAI pattern missed them, because of the hyphen after
+  `unsloth`.
+
+### Changed
+
+- **One rule decides which runtime an endpoint is**, `resolveEndpointRuntime`: declared, then label, then port.
+  Port 8888 is now Unsloth's. Before this, the Settings panel used its own label-then-loopback-port check and the GPU
+  arbiter used a port check that ignored the host. The arbiter now reads the endpoint's declared runtime and its own
+  key, and reads Studio's residency as presence only, like LM Studio's. A Studio it cannot confirm is "no
+  information", never "nothing loaded".
+- The dry-run coverage test matches the Unsloth client's effect methods (`downloadAndLoad`, `unloadModel`,
+  `cancelLoad`, `deleteDownload`). Its `fetch` shape cannot see an injected transport, so a caller acting on Studio
+  must now be classified.
+
 ## [0.503.2] - 2026-10-18
 
 ### Fixed

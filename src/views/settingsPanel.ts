@@ -32,7 +32,15 @@ import { readProjectTestingConfig, TESTING_CONFIG_SSOT_PATH } from '../core/test
 import { IMMUTABLE_GUARDRAILS } from '../core/orchestrator.js';
 import type { ArdDiscoveredResource, ArdDiscoveryEndpoint, ProjectTestingConfig, TestingMethodologyId } from '../types.js';
 import { getDisplayCurrency, getExchangeRate } from '../core/currencyFormatter.js';
-import { isLocalSyncStale, LOCAL_MODEL_SYNC_CACHE_KEY, syncLocalModels, type LocalModelSyncResult } from '../providers/localModelSync.js';
+import { isLocalSyncStale, LOCAL_MODEL_SYNC_CACHE_KEY, syncLocalModels, type LocalModelSyncResult, type UnslothSyncTarget } from '../providers/localModelSync.js';
+import {
+  isLocalEndpointRuntime,
+  LOCAL_RUNTIME_LABELS,
+  resolveEndpointRuntime,
+  runtimeOrigin,
+  type LocalEndpointRuntime,
+} from '../providers/localRuntimeClient.js';
+import { isValidHfRepoId, repoIdFromCatalogTag } from '../providers/unslothStudio.js';
 import { TESTING_METHODOLOGY_DEFINITIONS } from '../types.js';
 import { deriveTestingPolicyCoverage, parseJUnitReport, type TestingPolicyCoverage, type TestingPolicyTestFile } from '../core/testingPolicyCoverage.js';
 import { complianceCatalogFor } from '../core/complianceControlCatalog.js';
@@ -139,7 +147,7 @@ const SETTINGS_HELP = {
   chatSessionContextChars: 'Maximum characters reserved for summarized carry-forward context. Examples: 1200 for lightweight carry-forward, 2500 for default use, or 4000+ for complex multi-step work.',
   dashboardChatDestination: 'Where prompt-bearing Atlas icons on the Project Dashboard send their request. AtlasMind is the default; VS Code Chat uses its current target, and installed extensions appear only when they declare a chat participant or chat-session prompt contract.',
   localOpenAiBaseUrl: 'Legacy single-endpoint fallback for local OpenAI-compatible routing. AtlasMind now prefers the structured local endpoint list when it is present.',
-  localOpenAiEndpoints: 'Configure one or more labeled local OpenAI-compatible endpoints. Examples: Ollama at http://127.0.0.1:11434/v1 and LM Studio at http://127.0.0.1:1234/v1. Labels are shown back in provider surfaces so operators can tell which engine owns each routed model.',
+  localOpenAiEndpoints: 'Configure one or more labeled local OpenAI-compatible endpoints. Examples: Ollama at http://127.0.0.1:11434/v1, LM Studio at http://127.0.0.1:1234/v1 and Unsloth Studio at http://127.0.0.1:8888/v1. Labels are shown back in provider surfaces so operators can tell which engine owns each routed model.',
   toolApprovalMode: 'Main approval policy for tool execution. Examples: always-ask for regulated repos, ask-on-write for normal coding, ask-on-external for tighter network boundaries, or allow-safe-readonly for investigation-only work.',
   allowTerminalWrite: 'Allows write-capable terminal subprocesses after approval. Enable it in a sandbox where installs and commits are expected, and keep it off where terminal mutations require separate controls.',
   acpToolsEnabled: 'Lets an agent reached over the Agent Client Protocol — your Claude or ChatGPT subscription — run its own tools without a prompt for every operation. Off by default: the agent answers questions but cannot act. When enabled, AtlasMind automatically answers each request with a one-operation grant and records it; it never accepts the agent\'s persistent "always allow" option.',
@@ -349,17 +357,23 @@ interface LocalModelRecommendationItem {
   /** Actual model ID of the installed instance — used for remove operations. */
   installedModelId?: string;
   /** Runtime the model is installed in — determines which remove/manage action to show. */
-  installedRuntime?: 'ollama' | 'lmstudio';
+  installedRuntime?: LocalEndpointRuntime;
   fitScore: number;
   rationale: string[];
   installHint: string;
+  /** Whether an Unsloth Studio endpoint is configured, so "Install in Unsloth" can work. */
+  unslothAvailable?: boolean;
 }
 
 interface InstalledLocalModelItem {
-  runtime: 'ollama' | 'lmstudio';
+  runtime: LocalEndpointRuntime;
   modelId: string;
   displayName: string;
   removable: boolean;
+  /** Unsloth Studio reports downloaded and loaded separately; absent for the other runtimes. */
+  loaded?: boolean;
+  /** A short "12.3 GB · interrupted download" line, where the runtime says. */
+  detail?: string;
 }
 
 interface LocalModelRecommendationPayload {
@@ -476,8 +490,10 @@ type SettingsMessage =
   | { type: 'chooseAcpConsoleMode' }
   | { type: 'openChat' }
   | { type: 'recommendLocalModels' }
-  | { type: 'installRecommendedLocalModel'; payload: { runtime: 'ollama' | 'lmstudio'; modelTag: string } }
-  | { type: 'removeInstalledLocalModel'; payload: { runtime: 'ollama' | 'lmstudio'; modelId: string } }
+  | { type: 'installRecommendedLocalModel'; payload: { runtime: LocalEndpointRuntime; modelTag: string } }
+  | { type: 'removeInstalledLocalModel'; payload: { runtime: LocalEndpointRuntime; modelId: string } }
+  | { type: 'connectUnslothStudio' }
+  | { type: 'manageUnslothModels' }
   | { type: 'refreshTestingInventory' }
   | { type: 'createTestFile' }
   | { type: 'openCoverageReport' }
@@ -1447,6 +1463,18 @@ export class SettingsPanel {
         await this.handleRemoveInstalledLocalModel(message.payload);
         return;
 
+      case 'connectUnslothStudio': {
+        const { connectUnslothStudio } = await import('./unslothModelCommands.js');
+        await connectUnslothStudio(this.extensionContext, this.unslothHooks());
+        return;
+      }
+
+      case 'manageUnslothModels': {
+        const { manageUnslothModels } = await import('./unslothModelCommands.js');
+        await manageUnslothModels(this.extensionContext, this.unslothHooks());
+        return;
+      }
+
       case 'refreshTestingInventory':
         this.panel.webview.html = this.getHtml();
         return;
@@ -1949,8 +1977,24 @@ export class SettingsPanel {
     }
   }
 
+  /**
+   * How an Unsloth action reports back to this panel: a status line here, and
+   * a fresh scan afterwards so the installed list shows what Studio now holds.
+   */
+  private unslothHooks(): import('./unslothModelCommands.js').UnslothCommandHooks {
+    return {
+      report: async message => {
+        await this.panel.webview.postMessage({ type: 'localModelRecommendationStatus', payload: message });
+      },
+      onChanged: async () => {
+        void this.atlasContext?.refreshProviderModels(false);
+        await this.handleRecommendLocalModels();
+      },
+    };
+  }
+
   private async handleInstallRecommendedLocalModel(
-    payload: { runtime: 'ollama' | 'lmstudio'; modelTag: string },
+    payload: { runtime: LocalEndpointRuntime; modelTag: string },
   ): Promise<void> {
     const modelTag = payload.modelTag.trim();
     if (!modelTag) {
@@ -1959,6 +2003,15 @@ export class SettingsPanel {
 
     if (payload.runtime === 'lmstudio') {
       await this.handleInstallInLmStudio(modelTag);
+      return;
+    }
+
+    if (payload.runtime === 'unsloth') {
+      // The quant picker, the confirmation and the dry-run guard all live in
+      // unslothModelCommands, so this panel and the Manage command cannot
+      // disagree about how a model gets into Studio.
+      const { installModelInUnsloth } = await import('./unslothModelCommands.js');
+      await installModelInUnsloth(this.extensionContext, modelTag, this.unslothHooks());
       return;
     }
 
@@ -2189,10 +2242,16 @@ export class SettingsPanel {
   }
 
   private async handleRemoveInstalledLocalModel(
-    payload: { runtime: 'ollama' | 'lmstudio'; modelId: string },
+    payload: { runtime: LocalEndpointRuntime; modelId: string },
   ): Promise<void> {
     const modelId = payload.modelId.trim();
     if (!modelId) {
+      return;
+    }
+
+    if (payload.runtime === 'unsloth') {
+      const { removeModelFromUnsloth } = await import('./unslothModelCommands.js');
+      await removeModelFromUnsloth(this.extensionContext, modelId, this.unslothHooks());
       return;
     }
 
@@ -2583,7 +2642,7 @@ export class SettingsPanel {
           <div class="nav-group" role="presentation">
             <span class="nav-group-label" aria-hidden="true">Capabilities</span>
             <button type="button" class="nav-link ${initialPage === 'agents' ? 'active' : ''}" id="tab-agents" data-page-target="agents" data-search="agents manage agents built-in custom roles prompts instructions rubrics completion criteria global immutable guardrails safety policy skills models budget auto-update automation" role="tab" aria-selected="${initialPage === 'agents' ? 'true' : 'false'}" aria-controls="page-agents" ${initialPage === 'agents' ? '' : 'tabindex="-1"'}>Agents</button>
-            <button type="button" class="nav-link ${initialPage === 'models' ? 'active' : ''}" id="tab-models" data-page-target="models" data-search="models integrations providers hidden hide restore sidebar visibility local endpoint local endpoints ollama lm studio azure bedrock personality profile role tone memory posture voice vision exa specialist acp agent client protocol claude subscription chatgpt subscription codex subscription-backed claude-agent-acp codex-acp use my subscription no api key" role="tab" aria-selected="${initialPage === 'models' ? 'true' : 'false'}" aria-controls="page-models" ${initialPage === 'models' ? '' : 'tabindex="-1"'}>Models & Integrations</button>
+            <button type="button" class="nav-link ${initialPage === 'models' ? 'active' : ''}" id="tab-models" data-page-target="models" data-search="models integrations providers hidden hide restore sidebar visibility local endpoint local endpoints ollama lm studio unsloth unsloth studio gguf quant azure bedrock personality profile role tone memory posture voice vision exa specialist acp agent client protocol claude subscription chatgpt subscription codex subscription-backed claude-agent-acp codex-acp use my subscription no api key" role="tab" aria-selected="${initialPage === 'models' ? 'true' : 'false'}" aria-controls="page-models" ${initialPage === 'models' ? '' : 'tabindex="-1"'}>Models & Integrations</button>
             <button type="button" class="nav-link ${initialPage === 'discovery' ? 'active' : ''}" id="tab-discovery" data-page-target="discovery" data-search="resource discovery ard agent finders mcp servers agents skills apis search install publish catalog manifest registry" role="tab" aria-selected="${initialPage === 'discovery' ? 'true' : 'false'}" aria-controls="page-discovery" ${initialPage === 'discovery' ? '' : 'tabindex="-1"'}>Resource Discovery</button>
             <button type="button" class="nav-link ${initialPage === 'mcp' ? 'active' : ''}" id="tab-mcp" data-page-target="mcp" data-search="mcp servers model context protocol tools connect disconnect stdio http bridge" role="tab" aria-selected="${initialPage === 'mcp' ? 'true' : 'false'}" aria-controls="page-mcp" ${initialPage === 'mcp' ? '' : 'tabindex="-1"'}>MCP Servers</button>
             <button type="button" class="nav-link ${initialPage === 'buzz' ? 'active' : ''}" id="tab-buzz" data-page-target="buzz" data-search="buzz nostr relay inbound subscription follow-ups agent bindings npub agent key channels remote relay" role="tab" aria-selected="${initialPage === 'buzz' ? 'true' : 'false'}" aria-controls="page-buzz" ${initialPage === 'buzz' ? '' : 'tabindex="-1"'}>Buzz</button>
@@ -2878,7 +2937,7 @@ export class SettingsPanel {
                   <p class="card-kicker">Local routing</p>
                   <h3>${renderHeadingWithHelp('OpenAI-compatible endpoints', 'localOpenAiEndpoints')}</h3>
                 </div>
-                <p class="card-copy">Point AtlasMind at Ollama, LM Studio, Open WebUI, or multiple local OpenAI-compatible engines at once. Add rows only when you need them, and give each one a label so AtlasMind can tell you which endpoint owns which local model.</p>
+                <p class="card-copy">Point AtlasMind at Ollama, LM Studio, Unsloth Studio, Open WebUI, or multiple local OpenAI-compatible engines at once. Add rows only when you need them, and give each one a label so AtlasMind can tell you which endpoint owns which local model.</p>
                 <div class="field-stack">
                   <div class="local-endpoints-header">
                     <span class="field-label field-label-with-help"><span>Configured local endpoints</span>${renderHelpIndicator('localOpenAiEndpoints')}</span>
@@ -2890,6 +2949,11 @@ export class SettingsPanel {
                   <div id="localEndpointsList" class="local-endpoints-list"></div>
                 </div>
                 <p class="info-note">Labels such as <code>Ollama</code> or <code>LM Studio</code> are shown back in the Platform &amp; Local provider page. Local API credentials, when needed, still remain in SecretStorage through the provider surfaces rather than plain settings.</p>
+                <p class="info-note">Unsloth Studio needs an API key. <strong>Connect Unsloth Studio</strong> checks the server is Studio before asking for it, tries it before storing it, and keeps it for that endpoint only. AtlasMind asks Studio to keep its own server-side tools off on every request; start Studio with <code>--disable-tools</code> to make that a setting it cannot be talked out of.</p>
+                <div class="local-model-actions">
+                  <button id="connectUnslothStudio" type="button" class="secondary-button">Connect Unsloth Studio…</button>
+                  <button id="manageUnslothModels" type="button" class="secondary-button">Manage Unsloth models…</button>
+                </div>
               </article>
 
               <article class="settings-card" id="localModelAdvisorCard">
@@ -5002,6 +5066,8 @@ export class SettingsPanel {
           bindCommandButton('openVisionPanel', 'openVisionPanel');
           bindCommandButton('chooseAcpConsoleMode', 'chooseAcpConsoleMode');
           bindCommandButton('scanLocalModelRecommendations', 'recommendLocalModels');
+          bindCommandButton('connectUnslothStudio', 'connectUnslothStudio');
+          bindCommandButton('manageUnslothModels', 'manageUnslothModels');
           bindCommandButton('purgeProjectMemory', 'purgeProjectMemory');
           bindCommandButton('refreshTestingInventory', 'refreshTestingInventory');
           // syncTestingProtocols and scaffoldTestingFramework are deliberately
@@ -5220,6 +5286,9 @@ export class SettingsPanel {
               id: typeof endpoint.id === 'string' ? endpoint.id : createLocalEndpointId(),
               label: typeof endpoint.label === 'string' ? endpoint.label : '',
               baseUrl: typeof endpoint.baseUrl === 'string' ? endpoint.baseUrl : '',
+              // Carried through untouched: a declared runtime is a decision the
+              // row editor has no control for and must not drop on save.
+              runtime: typeof endpoint.runtime === 'string' ? endpoint.runtime : undefined,
             }))
             : [];
 
@@ -5248,6 +5317,9 @@ export class SettingsPanel {
               if ((parsed.hostname === '127.0.0.1' || parsed.hostname === 'localhost') && parsed.port === '1234') {
                 return 'LM Studio';
               }
+              if ((parsed.hostname === '127.0.0.1' || parsed.hostname === 'localhost') && parsed.port === '8888') {
+                return 'Unsloth Studio';
+              }
               const host = parsed.hostname === '127.0.0.1' ? 'localhost' : parsed.hostname;
               return parsed.port ? host + ':' + parsed.port : host;
             } catch {
@@ -5263,11 +5335,15 @@ export class SettingsPanel {
                   return undefined;
                 }
                 const label = row.label.trim() || inferLocalEndpointLabelFromUrl(normalizedBaseUrl);
-                return {
+                const entry = {
                   id: row.id,
                   label,
                   baseUrl: normalizedBaseUrl,
                 };
+                if (row.runtime === 'ollama' || row.runtime === 'lmstudio' || row.runtime === 'unsloth') {
+                  entry.runtime = row.runtime;
+                }
+                return entry;
               })
               .filter(Boolean);
             vscode.postMessage({ type: 'setLocalOpenAiEndpoints', payload });
@@ -5349,6 +5425,7 @@ export class SettingsPanel {
             const endpointPresets = [
               { label: 'Ollama', baseUrl: 'http://localhost:11434/v1' },
               { label: 'LM Studio', baseUrl: 'http://127.0.0.1:1234/v1' },
+              { label: 'Unsloth Studio', baseUrl: 'http://127.0.0.1:8888/v1', runtime: 'unsloth' },
               { label: 'Open WebUI', baseUrl: 'http://localhost:3000/api' },
               { label: 'LocalAI', baseUrl: 'http://localhost:8080/v1' },
               { label: 'llama.cpp', baseUrl: 'http://localhost:8080/v1' },
@@ -5379,10 +5456,16 @@ export class SettingsPanel {
                     id: createLocalEndpointId(),
                     label: preset.label,
                     baseUrl: preset.baseUrl,
+                    runtime: preset.runtime,
                   });
                   renderLocalEndpoints();
                   persistLocalEndpoints();
                   closePresetMenu();
+                  if (preset.runtime === 'unsloth') {
+                    // Studio needs a key, and the key needs an identity check
+                    // first: hand straight to the command that does both.
+                    vscode.postMessage({ type: 'connectUnslothStudio' });
+                  }
                 });
                 li.appendChild(btn);
                 presetMenu.appendChild(li);
@@ -5937,7 +6020,9 @@ export class SettingsPanel {
               const isInstalled = item.status === 'installed';
               const installedRuntimeLabel = item.installedRuntime === 'lmstudio'
                 ? 'LM Studio'
-                : item.installedRuntime === 'ollama' ? 'Ollama' : '';
+                : item.installedRuntime === 'ollama'
+                  ? 'Ollama'
+                  : item.installedRuntime === 'unsloth' ? 'Unsloth Studio' : '';
               const badgeClass = isInstalled ? 'local-model-badge-installed' : 'local-model-badge-recommended';
               const badgeText = isInstalled
                 ? (installedRuntimeLabel ? 'Installed · ' + installedRuntimeLabel : 'Installed')
@@ -5952,6 +6037,8 @@ export class SettingsPanel {
                   actionsHtml = '<button type="button" class="danger-button" data-local-model-action="remove" data-runtime="ollama" data-model-id="' + escapeForHtml(String(item.installedModelId ?? '')) + '">Remove from Ollama</button>';
                 } else if (item.installedRuntime === 'lmstudio') {
                   actionsHtml = '<span class="local-model-runtime-note">Manage in LM Studio</span>';
+                } else if (item.installedRuntime === 'unsloth') {
+                  actionsHtml = '<button type="button" class="secondary-button" data-local-model-action="manage-unsloth">Manage in Unsloth Studio</button>';
                 }
               } else {
                 // Both runtimes can install any candidate: Ollama pulls GGUF straight from
@@ -5959,6 +6046,11 @@ export class SettingsPanel {
                 // HuggingFace for Ollama-style tags. Offer both buttons for every recommendation.
                 actionsHtml += '<button type="button" class="secondary-button" data-local-model-action="install" data-runtime="ollama" data-model-tag="' + escapeForHtml(tag) + '">Install in Ollama</button>';
                 actionsHtml += '<button type="button" class="secondary-button" data-local-model-action="install" data-runtime="lmstudio" data-model-tag="' + escapeForHtml(tag) + '">Install in LM Studio</button>';
+                // Unsloth Studio loads a Hugging Face repository by id, so the
+                // host offers it only for an hf: candidate and a connected Studio.
+                if (item.unslothAvailable === true) {
+                  actionsHtml += '<button type="button" class="secondary-button" data-local-model-action="install" data-runtime="unsloth" data-model-tag="' + escapeForHtml(tag) + '">Install in Unsloth</button>';
+                }
               }
               return '<article class="local-model-recommendation-card">'
                 + '<div class="local-model-recommendation-header">'
@@ -5980,16 +6072,28 @@ export class SettingsPanel {
             ? '<div class="local-model-installed">'
               + '<h4>Installed local models</h4>'
               + installedModels.map(item => {
-                const runtimeLabel = String(item.runtime ?? '').toLowerCase() === 'lmstudio' ? 'LM Studio' : 'Ollama';
+                const runtimeKey = String(item.runtime ?? '').toLowerCase();
+                const runtimeLabel = runtimeKey === 'lmstudio'
+                  ? 'LM Studio'
+                  : runtimeKey === 'unsloth' ? 'Unsloth Studio' : 'Ollama';
                 const removeControl = item.removable
                   ? '<button type="button" class="danger-button" data-local-model-action="remove" data-runtime="' + escapeForHtml(String(item.runtime ?? '')) + '" data-model-id="' + escapeForHtml(String(item.modelId ?? '')) + '">Remove</button>'
                   : '<span class="local-model-runtime-note">Manage in ' + runtimeLabel + '</span>';
+                const unslothControls = runtimeKey === 'unsloth'
+                  ? '<button type="button" class="secondary-button" data-local-model-action="manage-unsloth">Load or switch quant…</button>'
+                  : '';
+                const detail = typeof item.detail === 'string' && item.detail
+                  ? ' · ' + escapeForHtml(item.detail)
+                  : '';
                 return '<div class="local-model-installed-row">'
                   + '<div>'
                   + '<strong>' + escapeForHtml(String(item.displayName ?? item.modelId ?? 'Local model')) + '</strong>'
-                  + '<p class="mini-meta">Runtime: ' + runtimeLabel + '</p>'
+                  + '<p class="mini-meta">Runtime: ' + runtimeLabel + detail + '</p>'
                   + '</div>'
+                  + '<div class="local-model-actions">'
+                  + unslothControls
                   + removeControl
+                  + '</div>'
                   + '</div>';
               }).join('')
               + '</div>'
@@ -6011,9 +6115,13 @@ export class SettingsPanel {
             button.addEventListener('click', () => {
               const action = button.dataset.localModelAction;
               const runtime = button.dataset.runtime;
+              if (action === 'manage-unsloth') {
+                vscode.postMessage({ type: 'manageUnslothModels' });
+                return;
+              }
               if (action === 'install') {
                 const modelTag = button.dataset.modelTag ?? '';
-                if (!modelTag || (runtime !== 'ollama' && runtime !== 'lmstudio')) {
+                if (!modelTag || (runtime !== 'ollama' && runtime !== 'lmstudio' && runtime !== 'unsloth')) {
                   return;
                 }
                 vscode.postMessage({
@@ -6025,7 +6133,7 @@ export class SettingsPanel {
 
               if (action === 'remove') {
                 const modelId = button.dataset.modelId ?? '';
-                if (!modelId || (runtime !== 'ollama' && runtime !== 'lmstudio')) {
+                if (!modelId || (runtime !== 'ollama' && runtime !== 'lmstudio' && runtime !== 'unsloth')) {
                   return;
                 }
                 vscode.postMessage({
@@ -6137,6 +6245,7 @@ export class SettingsPanel {
                 id: typeof endpoint.id === 'string' ? endpoint.id : createLocalEndpointId(),
                 label: typeof endpoint.label === 'string' ? endpoint.label : '',
                 baseUrl: typeof endpoint.baseUrl === 'string' ? endpoint.baseUrl : '',
+                runtime: typeof endpoint.runtime === 'string' ? endpoint.runtime : undefined,
               })));
             renderLocalEndpoints();
             return;
@@ -7713,7 +7822,8 @@ export function isSettingsMessage(value: unknown): value is SettingsMessage {
         && typeof record['label'] === 'string'
         && record['label'].trim().length > 0
         && typeof record['baseUrl'] === 'string'
-        && record['baseUrl'].trim().length > 0;
+        && record['baseUrl'].trim().length > 0
+        && (record['runtime'] === undefined || isLocalEndpointRuntime(record['runtime']));
     });
   }
 
@@ -7722,9 +7832,13 @@ export function isSettingsMessage(value: unknown): value is SettingsMessage {
       return false;
     }
     const payload = message.payload as Record<string, unknown>;
-    return (payload['runtime'] === 'ollama' || payload['runtime'] === 'lmstudio')
-      && typeof payload['modelTag'] === 'string'
-      && payload['modelTag'].trim().length > 0;
+    if (!isLocalEndpointRuntime(payload['runtime'])
+      || typeof payload['modelTag'] !== 'string'
+      || payload['modelTag'].trim().length === 0) {
+      return false;
+    }
+    // Studio is sent a repository id, so only a valid one may reach it.
+    return payload['runtime'] !== 'unsloth' || isValidHfRepoId(repoIdFromCatalogTag(payload['modelTag']));
   }
 
   if (message.type === 'removeInstalledLocalModel') {
@@ -7732,9 +7846,12 @@ export function isSettingsMessage(value: unknown): value is SettingsMessage {
       return false;
     }
     const payload = message.payload as Record<string, unknown>;
-    return (payload['runtime'] === 'ollama' || payload['runtime'] === 'lmstudio')
-      && typeof payload['modelId'] === 'string'
-      && payload['modelId'].trim().length > 0;
+    if (!isLocalEndpointRuntime(payload['runtime'])
+      || typeof payload['modelId'] !== 'string'
+      || payload['modelId'].trim().length === 0) {
+      return false;
+    }
+    return payload['runtime'] !== 'unsloth' || isValidHfRepoId(payload['modelId'].trim());
   }
 
   if (message.type === 'setDailyCostLimitUsd') {
@@ -7922,6 +8039,8 @@ export function isSettingsMessage(value: unknown): value is SettingsMessage {
     message.type === 'chooseAcpConsoleMode' ||
     message.type === 'openChat' ||
     message.type === 'recommendLocalModels' ||
+    message.type === 'connectUnslothStudio' ||
+    message.type === 'manageUnslothModels' ||
     message.type === 'scanAiInstructions' ||
     message.type === 'alignAiInstructions'
   ) {
@@ -8203,7 +8322,10 @@ function normalizeLocalOpenAiEndpoints(endpoints: LocalEndpointConfig[]): LocalE
       }
     }
     usedIds.add(id);
-    normalized.push({ id, label, baseUrl });
+    // Kept only when it is a runtime AtlasMind knows; anything else falls back
+    // to inference by label and port rather than being coerced into one.
+    const runtime = isLocalEndpointRuntime(endpoint.runtime) ? endpoint.runtime : undefined;
+    normalized.push({ id, label, baseUrl, ...(runtime ? { runtime } : {}) });
   }
   return normalized;
 }
@@ -8264,7 +8386,12 @@ function resolveLegacyLocalEndpointMigration(inspect: ConfigInspectShape<string>
   return undefined;
 }
 
-function resolveRuntimeBaseUrls(configuration: vscode.WorkspaceConfiguration): { ollamaBaseUrl: string; lmStudioBaseUrl: string } {
+function resolveRuntimeBaseUrls(configuration: vscode.WorkspaceConfiguration): {
+  ollamaBaseUrl: string;
+  lmStudioBaseUrl: string;
+  /** Only a configured Unsloth endpoint — Studio's default port is never probed speculatively. */
+  unsloth?: { endpointId: string; origin: string };
+} {
   const endpoints = getConfiguredLocalEndpoints({
     getEndpoints: () => configuration.get<unknown>('localOpenAiEndpoints'),
     getLegacyBaseUrl: () => configuration.get<string>('localOpenAiBaseUrl'),
@@ -8275,6 +8402,7 @@ function resolveRuntimeBaseUrls(configuration: vscode.WorkspaceConfiguration): {
 
   let ollamaBaseUrl: string | undefined;
   let lmStudioBaseUrl: string | undefined;
+  let unsloth: { endpointId: string; origin: string } | undefined;
 
   for (const endpoint of endpoints) {
     const runtime = inferRuntimeFromEndpoint(endpoint);
@@ -8284,36 +8412,43 @@ function resolveRuntimeBaseUrls(configuration: vscode.WorkspaceConfiguration): {
     if (runtime === 'lmstudio' && !lmStudioBaseUrl) {
       lmStudioBaseUrl = toRuntimeRootBaseUrl(endpoint.baseUrl);
     }
+    if (runtime === 'unsloth' && !unsloth) {
+      const origin = runtimeOrigin(endpoint.baseUrl);
+      if (origin) { unsloth = { endpointId: endpoint.id, origin }; }
+    }
   }
 
   return {
     ollamaBaseUrl: ollamaBaseUrl ?? defaultOllama,
     lmStudioBaseUrl: lmStudioBaseUrl ?? defaultLmStudio,
+    ...(unsloth ? { unsloth } : {}),
   };
 }
 
-function inferRuntimeFromEndpoint(endpoint: LocalEndpointConfig): 'ollama' | 'lmstudio' | 'unknown' {
-  const label = endpoint.label.toLowerCase();
-  if (label.includes('ollama')) {
-    return 'ollama';
-  }
-  if (label.includes('lm studio') || label.includes('lmstudio')) {
-    return 'lmstudio';
-  }
+/**
+ * Which runtime an endpoint is — the shared rule, not a copy of it.
+ *
+ * This used to be its own label-then-loopback-port check, and the GPU arbiter
+ * used a port check that ignored the host: two answers to one question. Both
+ * now ask `resolveEndpointRuntime` (declared, then label, then port).
+ */
+function inferRuntimeFromEndpoint(endpoint: LocalEndpointConfig): ReturnType<typeof resolveEndpointRuntime> {
+  return resolveEndpointRuntime(endpoint);
+}
 
-  try {
-    const parsed = new URL(endpoint.baseUrl);
-    if ((parsed.hostname === '127.0.0.1' || parsed.hostname === 'localhost') && parsed.port === '11434') {
-      return 'ollama';
-    }
-    if ((parsed.hostname === '127.0.0.1' || parsed.hostname === 'localhost') && parsed.port === '1234') {
-      return 'lmstudio';
-    }
-  } catch {
-    // Fall through
-  }
-
-  return 'unknown';
+/** How the local-model scan reaches Unsloth Studio, when an endpoint is configured. */
+function unslothSyncTarget(
+  secrets: vscode.SecretStorage,
+  unsloth: { endpointId: string; origin: string } | undefined,
+): UnslothSyncTarget | undefined {
+  if (!unsloth) { return undefined; }
+  return {
+    origin: unsloth.origin,
+    getApiKey: async () => {
+      const { readUnslothApiKey } = await import('./unslothModelCommands.js');
+      return readUnslothApiKey(secrets, unsloth.endpointId);
+    },
+  };
 }
 
 function toRuntimeRootBaseUrl(baseUrl: string): string {
@@ -8476,11 +8611,12 @@ async function buildLocalModelRecommendationPayload(
 ): Promise<LocalModelRecommendationPayload> {
   const hardware = await detectLocalHardwareSnapshot();
   const configuration = vscode.workspace.getConfiguration('atlasmind');
-  const { ollamaBaseUrl, lmStudioBaseUrl } = resolveRuntimeBaseUrls(configuration);
+  const { ollamaBaseUrl, lmStudioBaseUrl, unsloth } = resolveRuntimeBaseUrls(configuration);
   const localSync = await loadOrRefreshLocalModelSync(
     extensionContext.globalState,
     ollamaBaseUrl,
     lmStudioBaseUrl,
+    unslothSyncTarget(extensionContext.secrets, unsloth),
   );
 
   const installedLocalModels = localSync?.models ?? [];
@@ -8549,8 +8685,7 @@ async function buildLocalModelRecommendationPayload(
       const installedModel = findInstalledLocalMatch(candidate, installedLocalModels);
       if (installedModel) {
         fitScore += 6;
-        const runtimeLabel = installedModel.runtime === 'lmstudio' ? 'LM Studio' : 'Ollama';
-        rationale.push(`Already installed in ${runtimeLabel} as "${installedModel.id}".`);
+        rationale.push(`Already installed in ${LOCAL_RUNTIME_LABELS[installedModel.runtime]} as "${installedModel.id}".`);
       }
 
       return {
@@ -8561,18 +8696,34 @@ async function buildLocalModelRecommendationPayload(
         fitScore: Math.max(1, Math.min(100, Math.round(fitScore))),
         rationale,
         installHint: candidate.installHint,
+        // Studio loads a Hugging Face repository by id, so only an `hf:` tag
+        // can be offered to it; an Ollama library tag names no repository.
+        ...(unsloth && isValidHfRepoId(repoIdFromCatalogTag(candidate.recommendedTag)) && candidate.recommendedTag.startsWith('hf:')
+          ? { unslothAvailable: true }
+          : {}),
       } satisfies LocalModelRecommendationItem;
     })
     .sort((left, right) => right.fitScore - left.fitScore)
     .slice(0, 4);
 
   const installedModels = (localSync?.models ?? [])
-    .map(model => ({
-      runtime: model.runtime,
-      modelId: model.id,
-      displayName: model.name || model.id,
-      removable: model.runtime === 'ollama',
-    }))
+    .map(model => {
+      const facts: string[] = [];
+      if (model.runtime === 'unsloth') {
+        if (model.sizeBytes !== undefined) { facts.push(`${(model.sizeBytes / (1024 ** 3)).toFixed(1)} GB on disk`); }
+        if (model.loaded === true) { facts.push('loaded'); }
+        if (model.partial) { facts.push('interrupted download'); }
+      }
+      return {
+        runtime: model.runtime,
+        modelId: model.id,
+        displayName: model.name || model.id,
+        // Ollama and Unsloth Studio publish a delete; LM Studio does not.
+        removable: model.runtime === 'ollama' || model.runtime === 'unsloth',
+        ...(model.loaded !== undefined ? { loaded: model.loaded } : {}),
+        ...(facts.length > 0 ? { detail: facts.join(' · ') } : {}),
+      } satisfies InstalledLocalModelItem;
+    })
     .sort((left, right) => left.runtime.localeCompare(right.runtime) || left.displayName.localeCompare(right.displayName));
 
   return {
@@ -8589,6 +8740,7 @@ async function loadOrRefreshLocalModelSync(
   globalState: vscode.Memento,
   ollamaBaseUrl: string,
   lmStudioBaseUrl: string,
+  unsloth?: UnslothSyncTarget,
 ): Promise<LocalModelSyncResult | undefined> {
   const cached = globalState.get<LocalModelSyncResult>(LOCAL_MODEL_SYNC_CACHE_KEY);
   if (cached && !isLocalSyncStale(cached)) {
@@ -8596,7 +8748,7 @@ async function loadOrRefreshLocalModelSync(
   }
 
   try {
-    const refreshed = await syncLocalModels(ollamaBaseUrl, lmStudioBaseUrl);
+    const refreshed = await syncLocalModels(ollamaBaseUrl, lmStudioBaseUrl, unsloth);
     if (refreshed.models.length > 0) {
       await globalState.update(LOCAL_MODEL_SYNC_CACHE_KEY, refreshed);
       return refreshed;
@@ -8802,8 +8954,8 @@ export function localModelMatchKey(rawId: string): string {
  */
 export function findInstalledLocalMatch(
   candidate: { recommendedTag: string; modelFamily: string },
-  installedModels: ReadonlyArray<{ id: string; runtime: 'ollama' | 'lmstudio' }>,
-): { id: string; runtime: 'ollama' | 'lmstudio' } | undefined {
+  installedModels: ReadonlyArray<{ id: string; runtime: LocalEndpointRuntime }>,
+): { id: string; runtime: LocalEndpointRuntime } | undefined {
   const candidateKey = localModelMatchKey(candidate.recommendedTag);
   return installedModels.find(model => {
     const modelKey = localModelMatchKey(model.id);

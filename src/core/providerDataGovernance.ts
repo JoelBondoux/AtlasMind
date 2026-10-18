@@ -33,7 +33,7 @@ export interface ProviderDataGovernance {
 const ON_DEVICE: ProviderDataGovernance = {
   retentionSummary: 'Runs on your machine — no data leaves the device.',
   trainsOnDataByDefault: false,
-  notes: 'Local inference (Ollama / LM Studio / llama.cpp). No provider-side data handling applies.',
+  notes: 'Local inference (Ollama / LM Studio / Unsloth Studio / llama.cpp). No provider-side data handling applies. Unsloth Studio can run web search and code itself inside a completion; AtlasMind asks it not to on every request, and a Studio started with --enable-tools overrides that.',
 };
 
 const PROVIDER_DATA_GOVERNANCE: Record<string, ProviderDataGovernance> = {

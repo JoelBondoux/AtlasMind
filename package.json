@@ -2,7 +2,7 @@
   "name": "atlasmind",
   "displayName": "AtlasMind",
   "description": "AI project management for VS Code: roadmap, risk, tech debt, compliance, testing and release tracked from your own repository — with a multi-agent AI team, or the AI coding tool you already use.",
-  "version": "0.503.2",
+  "version": "0.504.0",
   "publisher": "JoelBondoux",
   "preview": false,
   "license": "SEE LICENSE IN OSMFEULA.txt",
@@ -644,6 +644,16 @@
         "command": "atlasmind.buildAndPublishPortal",
         "title": "AtlasMind: Build and Publish Producer Portal",
         "icon": "$(cloud-upload)"
+      },
+      {
+        "command": "atlasmind.unsloth.connect",
+        "title": "AtlasMind: Connect Unsloth Studio",
+        "icon": "$(plug)"
+      },
+      {
+        "command": "atlasmind.unsloth.manageModels",
+        "title": "AtlasMind: Manage Unsloth Models",
+        "icon": "$(server-process)"
       },
       {
         "command": "atlasmind.checkExecutionSandbox",
@@ -1908,12 +1918,26 @@
               "baseUrl": {
                 "type": "string",
                 "description": "OpenAI-compatible base URL for this local engine, e.g. http://127.0.0.1:11434/v1."
+              },
+              "runtime": {
+                "type": "string",
+                "enum": [
+                  "ollama",
+                  "lmstudio",
+                  "unsloth"
+                ],
+                "enumDescriptions": [
+                  "Ollama — native API at /api beside /v1.",
+                  "LM Studio — native API at /api/v1 beside /v1.",
+                  "Unsloth Studio — management API at /api beside /v1; needs an sk-unsloth- key, stored per endpoint by AtlasMind: Connect Unsloth Studio."
+                ],
+                "description": "Which runtime this endpoint is. Optional: when omitted AtlasMind infers it from the label, then the port (11434 Ollama, 1234 LM Studio, 8888 Unsloth Studio). Declare it for a runtime on a non-default port."
               }
             },
             "additionalProperties": false
           },
-          "description": "Labeled local OpenAI-compatible endpoints AtlasMind aggregates under the Local provider. Each entry has a stable id, a human-facing label, and a baseUrl.",
-          "markdownDescription": "Configure one or more labeled local OpenAI-compatible endpoints AtlasMind aggregates under the **Local** provider. Each entry has a stable `id`, a human-facing `label`, and a `baseUrl`, which lets AtlasMind keep multiple local engines online together and still show which endpoint owns each routed local model.\n\nManage these from **AtlasMind Settings → Models & Integrations → OpenAI-compatible endpoints** rather than editing JSON by hand.\n\nExample:\n```json\n[\n  { \"id\": \"ollama\", \"label\": \"Ollama\", \"baseUrl\": \"http://127.0.0.1:11434/v1\" },\n  { \"id\": \"lm-studio\", \"label\": \"LM Studio\", \"baseUrl\": \"http://127.0.0.1:1234/v1\" }\n]\n```\n\nWhen only the legacy `atlasmind.localOpenAiBaseUrl` is explicitly set, AtlasMind auto-migrates it into this structured list once."
+          "description": "Labeled local OpenAI-compatible endpoints AtlasMind aggregates under the Local provider. Each entry has a stable id, a human-facing label, a baseUrl and, optionally, the runtime it is.",
+          "markdownDescription": "Configure one or more labeled local OpenAI-compatible endpoints AtlasMind aggregates under the **Local** provider. Each entry has a stable `id`, a human-facing `label`, a `baseUrl` and, optionally, the `runtime` it is (`ollama`, `lmstudio` or `unsloth`), which lets AtlasMind keep multiple local engines online together and still show which endpoint owns each routed local model.\n\nManage these from **AtlasMind Settings → Models & Integrations → OpenAI-compatible endpoints** rather than editing JSON by hand. For Unsloth Studio, run **AtlasMind: Connect Unsloth Studio**, which checks the server is Studio before asking for its API key and stores the key for that endpoint only.\n\nWhen `runtime` is omitted it is inferred from the label, then the port. A declared runtime always wins.\n\nExample:\n```json\n[\n  { \"id\": \"ollama\", \"label\": \"Ollama\", \"baseUrl\": \"http://127.0.0.1:11434/v1\" },\n  { \"id\": \"lm-studio\", \"label\": \"LM Studio\", \"baseUrl\": \"http://127.0.0.1:1234/v1\" },\n  { \"id\": \"unsloth-studio\", \"label\": \"Unsloth Studio\", \"baseUrl\": \"http://127.0.0.1:8888/v1\", \"runtime\": \"unsloth\" }\n]\n```\n\nWhen only the legacy `atlasmind.localOpenAiBaseUrl` is explicitly set, AtlasMind auto-migrates it into this structured list once."
         },
         "atlasmind.localGpu.enabled": {
           "type": "boolean",

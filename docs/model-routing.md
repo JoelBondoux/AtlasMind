@@ -58,7 +58,17 @@ The transcript records only endpoints that were really invoked, with their statu
 
 AtlasMind also includes workstation context in routed prompts so response formatting can default to the active environment, such as preferring PowerShell command examples on Windows inside VS Code unless the user asks for another shell or platform.
 
-The Local provider now aggregates multiple labeled OpenAI-compatible endpoints under one routed provider identity. AtlasMind encodes the endpoint identity into each discovered local model id, which lets one workspace keep engines such as Ollama and LM Studio available together while still routing follow-up requests back to the correct engine.
+The Local provider now aggregates multiple labeled OpenAI-compatible endpoints under one routed provider identity. AtlasMind encodes the endpoint identity into each discovered local model id, which lets one workspace keep engines such as Ollama, LM Studio and Unsloth Studio available together while still routing follow-up requests back to the correct engine.
+
+**Which runtime an endpoint is** is decided by one rule, `resolveEndpointRuntime` in `src/providers/localRuntimeClient.ts`: a declared `runtime` (`ollama` | `lmstudio` | `unsloth`), then the label, then the port (11434, 1234, 8888). The Settings panel, the GPU arbiter and the adapter all ask it, so a model is never managed through one runtime's API and admitted through another's.
+
+**Unsloth Studio** (`src/providers/unslothStudio.ts`, read from Studio's source at v0.1.908-beta) changes three things on the routed path, all in `LocalEchoAdapter`:
+
+- **Every completion carries `enable_tools: false, mcp_enabled: false`.** Studio can run Python, a shell and web search itself inside a completion, and `unsloth run` / `unsloth studio run` default them on for loopback; anything run that way bypasses AtlasMind's approval gate, sandbox and dry run. A process started with `--enable-tools` overrides the request and Studio does not publish its policy, so the connect surfaces name `--disable-tools`.
+- **A model Studio has only on disk is not routable.** Studio's `/v1/models` lists downloads beside loaded models, each with a `loaded` flag; routing to an unloaded one would make Studio load it, so `loaded: false` entries are dropped for an Unsloth endpoint. Loading is a confirmed action in **Manage Unsloth Models**, never a side effect of routing.
+- **An undeclared Studio is recognised by its own listing** (`owned_by: "unsloth-studio"` on every entry), which always precedes routing to one of its models.
+
+Every local endpoint can now hold its **own key** (`atlasmind.provider.local.endpoint.<id>.apiKey`), tried before the shared `atlasmind.provider.local.apiKey`; Studio's key is stored that way by **Connect Unsloth Studio**, so it is never sent to Ollama or LM Studio. For the GPU arbiter Studio reports presence only (`/api/inference/status` `loaded` + `serving`, no VRAM figure), like LM Studio, and a Studio it cannot confirm reads as no information.
 
 For responses viewed in the shared AtlasMind chat workspace, assistant bubbles now expose thumbs up and thumbs down controls. AtlasMind persists those votes per assistant turn, aggregates them by `modelUsed`, and folds them back into future routing as a small bounded preference bias rather than a hard provider or model lock.
 
@@ -322,7 +332,7 @@ current budget/speed settings and inferred task profile.
 | Perplexity | `perplexity` | Static model catalog via adapter config because the upstream chat endpoint does not expose a standard `/models` inventory | Seeded with Sonar and refreshed from the adapter's static catalog |
 | Hugging Face Inference | `huggingface` | Runtime discovery via the Hugging Face router OpenAI-compatible `/models` endpoint | Seeded with one fallback router model until refresh completes |
 | NVIDIA NIM | `nvidia` | Runtime discovery via NVIDIA's OpenAI-compatible `/models` endpoint, enriched by a provider-scoped Nemotron catalog | Seeded with Nemotron Super 49B, Nemotron Nano, and a Llama 3.1 70B fallback until refresh completes |
-| Local LLM | `local` | Static fallback adapter or runtime discovery via a configured local OpenAI-compatible `/models` endpoint | Falls back to `local/echo-1` until a local endpoint is configured, and remains health-checkable via the built-in echo fallback |
+| Local LLM | `local` | Static fallback adapter or runtime discovery via a configured local OpenAI-compatible `/models` endpoint (Ollama, LM Studio, Unsloth Studio, or any other) | Falls back to `local/echo-1` until a local endpoint is configured, and remains health-checkable via the built-in echo fallback. Unsloth endpoints get the server-side-tools-off guard and route only loaded models |
 | VS Code Copilot | `copilot` | Runtime discovery from VS Code Language Model API | Seeded with `copilot/default`; live discovery is deferred until the user explicitly activates Copilot so AtlasMind does not trigger a permission prompt during startup |
 
 The provider table above describes **where Atlas gets the live catalog**, not an exhaustive static list of models. For API-backed providers, the visible catalog is refreshed at startup and when the user clicks **Refresh Model Metadata** in the Model Providers panel.

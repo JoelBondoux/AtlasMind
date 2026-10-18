@@ -39,6 +39,13 @@ const SHAPES: Readonly<Record<string, RegExp>> = {
   /** The shared `gh` boundary and the shared no-shell process helper. */
   'process-helper': /\b(?:runGhOrThrow|pipeGhStdoutOrThrow|nodeGhRunner)\b|new\s+GhClient\s*\(|import\s*\{[^}]*\bexecFileAsync\b[^}]*\}\s*from\s*'[^']*mcpRuntime\.js'/,
   socket: /new\s+WebSocket\s*\(|\b(?:net|tls)\.(?:connect|createConnection)\s*\(|\.createConnection\s*\(|new\s+Client\s*\(/,
+  /**
+   * The effect methods of `UnslothStudioClient`. Its transport is injected, so
+   * the `fetch` shape cannot see it; these names exist so a caller that
+   * downloads, loads, unloads or deletes through Studio still has to be
+   * classified.
+   */
+  'local-runtime-effect': /\.(?:downloadAndLoad|unloadModel|cancelLoad|deleteDownload)\s*\(/,
 };
 
 /** The host guards in `src/core/dryRunHost.ts`, and the tool loop's in `src/core/dryRun.ts`. */
@@ -209,8 +216,13 @@ const DRY_RUN_COVERED: Readonly<Record<string, Covered>> = {
   },
   'views/settingsPanel.ts': {
     guards: ['guardDryRun', 'interceptDryRun'],
-    covers: 'Ollama pulls and deletes, LM Studio downloads.',
+    covers: 'Ollama pulls and deletes, LM Studio downloads. Unsloth Studio actions are delegated to unslothModelCommands, which guards them.',
     leaves: `The Ollama version check and git shortlog (${READS}); settings, testing and instruction-file saves (${OPERATOR_SAVE}).`,
+  },
+  'views/unslothModelCommands.ts': {
+    guards: ['interceptDryRun'],
+    covers: 'Downloading and loading a quant, unloading a model and deleting a download in Unsloth Studio, each held after its confirmation.',
+    leaves: `Reading what Studio holds, its quant listing and download progress, and Unsloth's public model list on huggingface.co (${READS}); cancelling a load, which ends only what a confirmed load began; saving the endpoint and its key when the operator connects Studio (${OPERATOR_SAVE}).`,
   },
   'views/uiSurfaceRenderHost.ts': {
     guards: ['interceptDryRun'],
@@ -290,6 +302,7 @@ const DRY_RUN_EXEMPT: Readonly<Record<string, string>> = {
   'providers/gpuProbe.ts': `Runs a fixed GPU query (nvidia-smi and equivalents) to read memory (${READS}).`,
   'providers/localModelCatalogSync.ts': PUBLIC_METADATA,
   'providers/localModelSync.ts': `Lists the models a local runtime already has (${READS}).`,
+  'providers/localRuntimeClient.ts': `The GPU arbiter's residency poll, and its eviction of models AtlasMind itself loaded to make room for a model call it is admitting (${MODEL_CALL}). Ollama's and LM Studio's unloads in the same file go through an injected transport the scan cannot see; Unsloth's is matched by name.`,
   'providers/openai-compatible.ts': MODEL_PROVIDER,
   'providers/openrouter.ts': MODEL_PROVIDER,
   'providers/providerPricingSync.ts': PUBLIC_METADATA,
@@ -374,6 +387,7 @@ describe('dry-run coverage outside the tool loop', () => {
     expect(shapesOf('mcp/mcpServerRegistry.ts')).toContain('call-tool');
     expect(shapesOf('views/projectDashboardPanel.ts')).toEqual(expect.arrayContaining(['terminal-send', 'execute', 'process-helper']));
     expect(shapesOf('views/lensDatabaseTransport.ts')).toContain('socket');
+    expect(shapesOf('views/unslothModelCommands.ts')).toContain('local-runtime-effect');
   });
 
   it('classifies every file in src/ that can act', () => {

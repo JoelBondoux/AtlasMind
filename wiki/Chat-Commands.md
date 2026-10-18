@@ -223,6 +223,8 @@ The session drawer above the transcript starts closed and remembers your choice 
 | `AtlasMind: Write a Commit Message` | Describe your staged changes in the Source Control box. Also a ✨ button in the Source Control title bar |
 | `AtlasMind: Dismiss Provider Notifications` | Clear the auto-paused badge without re-enabling anything |
 | `AtlasMind: Choose ACP Console Window Behaviour` | Windows only — ordinary launching, or the private desktop |
+| `AtlasMind: Connect Unsloth Studio` | Add Unsloth Studio as a local endpoint. Checks the server answers as Studio before asking for anything (port 8888 is Jupyter's too), asks for an `sk-unsloth-` key (Studio → Settings → API Access), tries it, and only then stores it in the OS keychain for that endpoint alone. Plain HTTP to another machine asks first |
+| `AtlasMind: Manage Unsloth Models` | What Studio has loaded and downloaded; discover Unsloth's chat-model builds on Hugging Face or download a repository by id; pick a quantisation (size, on disk or not, fits your VRAM or not, with a suggestion and the rule that chose it); load, unload or remove. Downloading and removing ask first, a download can be cancelled, and a dry run holds every step |
 
 ### Project memory
 

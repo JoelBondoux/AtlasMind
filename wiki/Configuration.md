@@ -84,7 +84,7 @@ A reasonable starting `settings.json`:
 
 | Setting | Default | What it does |
 |---------|---------|-------------|
-| `atlasmind.localOpenAiEndpoints` | `[]` | Your local endpoints — Ollama, LM Studio, anything OpenAI-compatible. Each gets a label |
+| `atlasmind.localOpenAiEndpoints` | `[]` | Your local endpoints — Ollama, LM Studio, Unsloth Studio, anything OpenAI-compatible. Each gets a label, and may declare its `runtime` (`ollama`, `lmstudio`, `unsloth`) when it is on a non-default port. Add Unsloth Studio with **AtlasMind: Connect Unsloth Studio**, which stores its key for that endpoint alone |
 | `atlasmind.localOpenAiBaseUrl` | `http://127.0.0.1:11434/v1` | A single local endpoint, for the simple case |
 | `atlasmind.azureOpenAiEndpoint` | `""` | Your Azure OpenAI resource URL |
 | `atlasmind.azureOpenAiDeployments` | `[]` | Which Azure deployments to expose as models |

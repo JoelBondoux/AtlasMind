@@ -4,7 +4,7 @@
 
 <h1 align="center">AtlasMind</h1>
 
-<p align="center"><sub> · <strong>Current source version: 0.503.2</strong> · </sub></p>
+<p align="center"><sub> · <strong>Current source version: 0.504.0</strong> · </sub></p>
 
 
 <p align="center">
@@ -137,7 +137,8 @@ AtlasMind does not sell you tokens. Connect whatever you already have:
 - **Cloud providers** — Anthropic, OpenAI, Google Gemini, Azure OpenAI, Amazon Bedrock, DeepSeek, Mistral, z.ai.
 - **Subscriptions you already own** — a Claude, ChatGPT, Copilot or Qwen plan, or an eligible Gemini Code
   Assist licence, used as routable capacity with **no per-token cost**.
-- **Local models** — Ollama, LM Studio, or anything else that speaks the OpenAI API. No key, no bill.
+- **Local models** — Ollama, LM Studio, Unsloth Studio, or anything else that speaks the OpenAI API. No bill;
+  only Unsloth Studio needs a key, and AtlasMind keeps it for that endpoint alone.
 
 AtlasMind then chooses between them per task, based on what the task needs, what's healthy, what's fast
 enough, what it costs, and what has actually worked well for you before. Set a daily spending cap and it
@@ -177,6 +178,16 @@ important limits on overrides and compliance claims.
 
 ---
 
+## What's new in 0.504.0
+
+**Unsloth Studio is a local runtime.** **AtlasMind: Connect Unsloth Studio** checks the server really is Studio
+before asking for its API key (port 8888 is Jupyter's too), tries the key before storing it, and keeps it for that
+endpoint only. **AtlasMind: Manage Unsloth Models** shows what Studio has loaded and downloaded, lists Unsloth's
+own chat-model GGUF builds, and offers every quantisation with its size and whether it fits your GPU. It then
+loads, unloads or deletes, each step confirmed and held by dry run; a download can be cancelled. AtlasMind asks
+Studio to keep its own Python, shell and web-search tools off on every request, because anything Studio runs itself
+would bypass AtlasMind's approvals and sandbox. Start Studio with `--disable-tools` to make that a setting it cannot be talked out of.
+
 ## What's new in 0.503.2
 
 A turn that says it is about to edit a file now edits it. A reply that only announces a change is sent
@@ -189,18 +200,6 @@ around it, and **Approve and run** now starts the run it approves.
 **Two code-scanning fixes.** The game profile's markdown mirror now escapes backslashes in table cells, so a label
 can no longer break out of its cell. Detecting a doctype at the top of a page no longer uses a regex that backtracks
 exponentially on a crafted file.
-
-## What's new in 0.503.0
-
-**Sandboxed commands load your project's packages from a volume you prepared.** With `atlasmind.sandbox.mode`
-on `require`, a command that loads installed packages — `npm test`, `vitest`, `tsc`, `node` — runs only with a
-dependency volume prepared for the folder's current lockfile, mounted over `node_modules`; your own
-`node_modules`, built for Windows or macOS, is never used in the Linux container. **AtlasMind: Prepare Sandbox
-Dependencies** is the one step with network access: it shows every command first, sees only `package.json` and
-the lockfile (read-only), writes only into the volume, and runs no install scripts unless you confirm a second
-warning. A changed lockfile needs preparing again; **AtlasMind: Remove Sandbox Dependency Volumes** cleans up.
-Scheduled routines can now run their tests unattended against a prepared volume — and still install nothing.
-Also fixed: the sandbox could not start Docker on Windows.
 
 Only the three newest releases are summarised here. The last Marketplace publication, **v0.482.1**, is
 the build the Marketplace serves; every release, older ones included, is written up in full in
@@ -299,6 +298,8 @@ The same reviewed-PR operations are also available as **AtlasMind: Patch This Re
 
 **AtlasMind: Prepare Sandbox Dependencies** (Command Palette) installs the open folder's lockfile (npm, pnpm or Yarn 1) into a dependency volume, so that under `atlasmind.sandbox.mode = require` commands that load installed packages can run in the sandbox — your own `node_modules` is never used there. It is the sandbox's one network-on step: it runs only when you ask, in a trusted workspace, shows every engine command and what network access means first, mounts only `package.json` and the lockfile read-only, writes only into the volume, and skips install scripts unless you confirm a second warning. **AtlasMind: Remove Sandbox Dependency Volumes** lists the volumes AtlasMind prepared and removes the ones you pick.
 
+**AtlasMind: Connect Unsloth Studio** (Command Palette, or *Connect Unsloth Studio…* in Settings → Models & Integrations) adds Unsloth Studio as a local endpoint. It asks for the address, checks the server answers as Unsloth Studio before asking for anything else, asks for an `sk-unsloth-` API key (create one in Studio under Settings → API Access), tries it, and only then stores it in the OS keychain for that endpoint alone. Plain HTTP to another machine asks first, because the key would cross the network unencrypted. **AtlasMind: Manage Unsloth Models** lists what Studio has loaded and downloaded, discovers Unsloth's chat-model GGUF builds on Hugging Face, and loads a model at a quantisation you pick (size, on disk or not, fits your VRAM or not, with a suggestion and the rule that made it). It can also unload or delete; downloading and deleting ask first, and a dry run holds all of it. Downloads are done by Studio itself — AtlasMind sends only the repository id and quant.
+
 **AtlasMind: Check Execution Sandbox** (Command Palette) reads your container engine on request and opens a report: every sandbox rule with its result and reason, what the probe ran, and what to do about the rule that failed. It never pulls an image; in a dry run it reads the engine but does not start the canary container. It says what the mode makes of the result: under `require` agent commands run in the sandbox or are refused, under `off` they still run on your machine.
 
 **AtlasMind: Toggle Dry Run** (Command Palette, or the *Dry run* status bar item while it is on) switches dry run on and off — tool calls that would write, run commands or reach the network are described instead of run, and AtlasMind's own actions outside a turn (routines and `/ship`, promotions, dashboard git and GitHub writes, messages, terminal sends, installers, automatic memory writes) are recorded instead of done. On applies at once; off from the next turn.
@@ -365,11 +366,11 @@ All 173 settings are documented in the [Configuration reference](wiki/Configurat
 | `src/core/capabilitySearch.ts` | When `find-tool` finds no installed skill: sends the redacted, clamped query to the Agent Finders you enabled and returns up to five candidates to review and install — searching installs and grants nothing |
 | `src/runtime/` | Built-in agents and runtime composition |
 | `src/bootstrap/` | `/bootstrap` and its intake (`bootstrapper.ts`), and the question asked first — the project in your own words, kept verbatim and skippable, shared with the Describe the Project command (`projectBriefOnboarding.ts`) |
-| `src/providers/` | Model provider adapters, catalogs, health, `modelRole.ts` (what a model is *for*), and the local-GPU support layer — `gpuProbe.ts`, `localFootprint.ts`, `localRuntimeClient.ts` |
+| `src/providers/` | Model provider adapters, catalogs, health, `modelRole.ts` (what a model is *for*), the local-GPU support layer — `gpuProbe.ts`, `localFootprint.ts`, `localRuntimeClient.ts` — and Unsloth Studio's native API, read from its source: identity before the key, server-side tools off, quant suggestion and its own GGUF catalogue (`unslothStudio.ts`) |
 | `src/skills/` | Built-in tools and skill handlers |
 | `src/memory/` | Project memory: retrieval, scanning, redaction, persistence |
 | `src/chat/` | The chat participant and interaction protocol |
-| `src/views/` | Settings, dashboards, editors and sidebar surfaces, the Check Execution Sandbox report (`sandboxCheckCommand.ts`), including the shared reviewed-PR local-CI action allowlist and host commands (`localCiSurfaceActions.ts`, `reviewedPrLocalCiCommands.ts`) and UI Studio's render host — a found surface shown as itself in a scripts-off panel or through the project's confirmed dev server (`uiSurfaceRenderHost.ts`) and its element-edit host — the page made selectable under AtlasMind's own nonce script, every edit confirmed before and after and held by dry run (`uiSurfaceEditHost.ts`) |
+| `src/views/` | Settings, dashboards, editors and sidebar surfaces, the Check Execution Sandbox report (`sandboxCheckCommand.ts`), the Connect Unsloth Studio and Manage Unsloth Models commands — the quant picker, confirmed download-and-load with cancel, unload and delete, each held by dry run (`unslothModelCommands.ts`), including the shared reviewed-PR local-CI action allowlist and host commands (`localCiSurfaceActions.ts`, `reviewedPrLocalCiCommands.ts`) and UI Studio's render host — a found surface shown as itself in a scripts-off panel or through the project's confirmed dev server (`uiSurfaceRenderHost.ts`) and its element-edit host — the page made selectable under AtlasMind's own nonce script, every edit confirmed before and after and held by dry run (`uiSurfaceEditHost.ts`) |
 | `src/utils/workspaceRoots.ts` | The one place AtlasMind asks VS Code which folders are open. Its default is exactly the first folder, as before; every other direct read is ceilinged per file by a ratchet test so the single-root tail can only shrink |
 | `src/acp/` and `src/cli/` | Subscription-agent sessions and the headless CLI |
 | `src/mcp/` and `src/ard/` | MCP servers and agentic resource discovery, including tool pinning and the tool-description scan — what a tool looked like when you agreed to it, and what happens when it changes (`mcpToolPins.ts`) |

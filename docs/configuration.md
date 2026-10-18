@@ -41,7 +41,7 @@ Example `settings.json` presets for common setups:
 | `atlasmind.planningModelId` | `string` | `""` | Optional model ID pinned for the planning/decomposition phase (the planner "brain"). When set to a known model, the planner uses it directly (bypassing budget/speed gates) while execution subtasks route normally; empty routes planning normally. Good for a strong reasoner or a subscription-backed agent (`acp/claude`). |
 | `atlasmind.synthesisModelId` | `string` | `""` | Optional model ID pinned for the synthesis phase (summarizing results/sessions into reusable reasoning context). Symmetric to `planningModelId`; empty routes synthesis normally. |
 | `atlasmind.draftModelId` | `string` | `""` | Optional model ID pinned to draft mechanical/low-stakes tasks (e.g. a fast local model). The first attempt uses it; struggle-gated escalation upgrades to a stronger model if needed. Empty routes normally. |
-| `atlasmind.localOpenAiEndpoints` | `object[]` | `[]` | Labeled local OpenAI-compatible endpoints AtlasMind should aggregate under the Local provider. |
+| `atlasmind.localOpenAiEndpoints` | `object[]` | `[]` | Labeled local OpenAI-compatible endpoints AtlasMind should aggregate under the Local provider. Each entry may declare `runtime` (`ollama`, `lmstudio` or `unsloth`); omitted, it is inferred from the label and then the port. |
 | `atlasmind.localOpenAiBaseUrl` | `string` | `""` | Legacy single local OpenAI-compatible endpoint fallback used only when the structured endpoint list is absent. |
 | `atlasmind.azureOpenAiEndpoint` | `string` | `""` | Azure OpenAI resource endpoint for deployment-backed routing. Example: `https://your-resource.openai.azure.com`. |
 | `atlasmind.azureOpenAiDeployments` | `string[]` | `[]` | Azure OpenAI deployment names AtlasMind should expose as routed models. |
@@ -72,12 +72,31 @@ Example:
 			"id": "lm-studio",
 			"label": "LM Studio",
 			"baseUrl": "http://127.0.0.1:1234/v1"
+		},
+		{
+			"id": "unsloth-studio",
+			"label": "Unsloth Studio",
+			"baseUrl": "http://127.0.0.1:8888/v1",
+			"runtime": "unsloth"
 		}
 	]
 }
 ```
 
 Use `atlasmind.localOpenAiBaseUrl` only as a backward-compatible single-endpoint fallback.
+
+**`runtime`** is optional. It declares which runtime an endpoint is: `ollama`, `lmstudio` or `unsloth`. When
+it is omitted, AtlasMind infers the runtime from the label and then the port (11434 Ollama, 1234 LM Studio,
+8888 Unsloth Studio), and a declared runtime always wins. Declare it for a runtime on a non-default port. A
+value AtlasMind does not know is dropped, never coerced, and the endpoint falls back to inference.
+
+**Unsloth Studio** needs an `sk-unsloth-` API key, which never goes in this setting. **AtlasMind: Connect
+Unsloth Studio** writes the entry with `runtime: "unsloth"`, but only after checking that the server answers
+`/api/liveness` as Studio and that Studio accepts the key. It then stores the key in SecretStorage as
+`atlasmind.provider.local.endpoint.<id>.apiKey`. Any local endpoint's own key is tried before the shared
+`atlasmind.provider.local.apiKey`, so it is never sent to another endpoint. Every completion to an Unsloth
+endpoint asks Studio to keep its own server-side tools off (`enable_tools: false`). Start Studio with
+`--disable-tools` to make that a policy the server cannot be talked out of.
 
 
 When either mode is set to `auto`, the task profiler infers the appropriate level from the request context.

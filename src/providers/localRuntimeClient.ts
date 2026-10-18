@@ -33,11 +33,37 @@
  * probe that throws would take out the poll that is the arbiter's only source of
  * truth.
  *
+ * **Unsloth Studio reports presence too, and only to a confirmed Studio.**
+ * `/api/inference/status` lists what is loaded with no VRAM figure, so it is
+ * read like LM Studio. It needs the endpoint's API key, which
+ * `unslothStudio.ts` sends only after `/api/liveness` has named the server as
+ * Studio — port 8888 is Jupyter's default as well as Studio's.
+ *
  * Transport is injected, so this is unit-tested without a running runtime.
  */
 
+import { createUnslothStudioClient } from './unslothStudio.js';
+
 /** Which native API a local endpoint speaks. */
-export type LocalRuntimeKind = 'ollama' | 'lmstudio' | 'unknown';
+export type LocalRuntimeKind = 'ollama' | 'lmstudio' | 'unsloth' | 'unknown';
+
+/** A runtime an endpoint may declare in `atlasmind.localOpenAiEndpoints[].runtime`. */
+export type LocalEndpointRuntime = Exclude<LocalRuntimeKind, 'unknown'>;
+
+/** Every runtime an endpoint may declare, in the order the settings schema lists them. */
+export const LOCAL_ENDPOINT_RUNTIMES: readonly LocalEndpointRuntime[] = ['ollama', 'lmstudio', 'unsloth'];
+
+/** Whether a value is a runtime an endpoint may declare. */
+export function isLocalEndpointRuntime(value: unknown): value is LocalEndpointRuntime {
+  return typeof value === 'string' && (LOCAL_ENDPOINT_RUNTIMES as readonly string[]).includes(value);
+}
+
+/** What each runtime is called on every surface. One table, so no two surfaces name one differently. */
+export const LOCAL_RUNTIME_LABELS: Readonly<Record<LocalEndpointRuntime, string>> = {
+  ollama: 'Ollama',
+  lmstudio: 'LM Studio',
+  unsloth: 'Unsloth Studio',
+};
 
 /** One model a runtime reports as currently loaded. */
 export interface ResidentModel {
@@ -95,10 +121,16 @@ export interface LocalRuntimeClient {
  * Which runtime a base URL belongs to.
  *
  * Port-based, matching `inferLocalEndpointLabel` in `registry.ts` — 11434 is
- * Ollama's published default and 1234 is LM Studio's. An unrecognised port is
- * `unknown` rather than a guess: probing a stranger's HTTP server with an
- * Ollama-shaped request is not something to do speculatively, and an unknown
- * runtime simply contributes no residency information.
+ * Ollama's published default, 1234 is LM Studio's and 8888 is Unsloth
+ * Studio's. An unrecognised port is `unknown` rather than a guess: probing a
+ * stranger's HTTP server with an Ollama-shaped request is not something to do
+ * speculatively, and an unknown runtime simply contributes no residency
+ * information.
+ *
+ * 8888 is a weaker hint than the other two, because Jupyter uses it too. That
+ * is safe only because the Unsloth client's first request is the
+ * unauthenticated `/api/liveness`, and nothing carrying a key follows unless it
+ * answers as Studio.
  */
 export function detectRuntimeKind(baseUrl: string): LocalRuntimeKind {
   let parsed: URL;
@@ -109,7 +141,27 @@ export function detectRuntimeKind(baseUrl: string): LocalRuntimeKind {
   }
   if (parsed.port === '11434') { return 'ollama'; }
   if (parsed.port === '1234') { return 'lmstudio'; }
+  if (parsed.port === '8888') { return 'unsloth'; }
   return 'unknown';
+}
+
+/**
+ * Which runtime a configured endpoint is, by one rule every surface shares.
+ *
+ * **Declared beats label beats port.** A `runtime` the operator wrote down is a
+ * decision; a label is a strong hint somebody typed; a port is a default that
+ * anyone can move. The settings panel and the GPU arbiter used to answer this
+ * separately — one required a loopback host for the port rule, one did not —
+ * and two answers to "which runtime is this?" is how a model gets managed
+ * through one runtime's API and admitted through another's.
+ */
+export function resolveEndpointRuntime(endpoint: { baseUrl: string; label?: string; runtime?: unknown }): LocalRuntimeKind {
+  if (isLocalEndpointRuntime(endpoint.runtime)) { return endpoint.runtime; }
+  const label = (endpoint.label ?? '').toLowerCase();
+  if (label.includes('ollama')) { return 'ollama'; }
+  if (label.includes('lm studio') || label.includes('lmstudio')) { return 'lmstudio'; }
+  if (label.includes('unsloth')) { return 'unsloth'; }
+  return detectRuntimeKind(endpoint.baseUrl);
 }
 
 /**
@@ -162,6 +214,10 @@ function nonEmptyString(value: unknown): string | undefined {
 export interface RuntimeClientDeps {
   fetch?: FetchLike;
   timers?: { setTimeout: typeof setTimeout; clearTimeout: typeof clearTimeout };
+  /** Overrides port detection — what `resolveEndpointRuntime` decided for the endpoint. */
+  runtime?: LocalRuntimeKind;
+  /** The endpoint's own key. Only Unsloth Studio needs one. */
+  getApiKey?: () => Promise<string | undefined> | string | undefined;
 }
 
 function resolveDeps(deps?: RuntimeClientDeps) {
@@ -277,6 +333,45 @@ export function createLmStudioRuntimeClient(origin: string, deps?: RuntimeClient
 }
 
 /**
+ * Unsloth Studio: `GET /api/inference/status`, unload via `POST /api/inference/unload`.
+ *
+ * `loaded` and `serving` are the `/v1/models` ids across every slot Studio
+ * keeps, which is the id AtlasMind routes by, so residency keys line up with
+ * admission keys. No VRAM figure is published, so every model is reported with
+ * `vramBytes` absent — presence is certain and footprint is the arbiter's
+ * estimate, as for LM Studio.
+ *
+ * A Studio that cannot be confirmed (no key, not answering, or not answering as
+ * Studio) is `reachable: false` — no information, never "nothing is loaded".
+ */
+export function createUnslothRuntimeClient(origin: string, deps?: RuntimeClientDeps): LocalRuntimeClient {
+  const studio = createUnslothStudioClient(origin, {
+    ...(deps?.fetch ? { fetch: deps.fetch } : {}),
+    ...(deps?.timers ? { timers: deps.timers } : {}),
+    ...(deps?.getApiKey ? { getApiKey: deps.getApiKey } : {}),
+  });
+  return {
+    kind: 'unsloth',
+    origin,
+    async listResident(signal) {
+      const status = await studio.status(signal);
+      if (!status.ok) {
+        return { kind: 'unsloth', models: [], reachable: false };
+      }
+      const keys: string[] = [];
+      for (const id of [...status.value.loaded, ...status.value.serving]) {
+        if (!keys.includes(id)) { keys.push(id); }
+      }
+      return { kind: 'unsloth', models: keys.map(modelKey => ({ modelKey })), reachable: true };
+    },
+    async unload(model, signal) {
+      const result = await studio.unloadModel(model.modelKey, signal);
+      return result.ok;
+    },
+  };
+}
+
+/**
  * Build the right client for a configured endpoint, or nothing.
  *
  * `undefined` for an unrecognised runtime is deliberate: the arbiter then has no
@@ -286,9 +381,10 @@ export function createLmStudioRuntimeClient(origin: string, deps?: RuntimeClient
 export function createRuntimeClientForEndpoint(baseUrl: string, deps?: RuntimeClientDeps): LocalRuntimeClient | undefined {
   const origin = runtimeOrigin(baseUrl);
   if (!origin) { return undefined; }
-  switch (detectRuntimeKind(baseUrl)) {
+  switch (deps?.runtime ?? detectRuntimeKind(baseUrl)) {
     case 'ollama': return createOllamaRuntimeClient(origin, deps);
     case 'lmstudio': return createLmStudioRuntimeClient(origin, deps);
+    case 'unsloth': return createUnslothRuntimeClient(origin, deps);
     default: return undefined;
   }
 }
