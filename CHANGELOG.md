@@ -6,6 +6,44 @@ The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/),
 
 ## [Unreleased]
 
+## [0.504.4] - 2026-10-18
+
+### Security
+
+- **A crafted HTML page can no longer freeze the editor when UI Studio opens it.** The static render
+  (`uiSurfaceRender`) and the edit page (`uiSurfaceEditDocument`) found a leading doctype with
+  `(?:<!--[\s\S]*?-->\s*)*<!doctype`, and the move check (`uiSurfaceElementEdit`) tested the gap between two
+  siblings with `^(?:\s|<!--[\s\S]*?-->)*$`. Both backtrack exponentially on `<!--` followed by many
+  `--><!--`, because a lazily matched comment may run past a `-->` to a later one: measured, the doctype
+  regex doubles its time with each repetition, and the move check took 413 ms at 22. That is a few hundred
+  bytes of workspace file stalling the extension host. `htmlSourceMap` already had a linear scan for this
+  exact reason (`startsWithDoctype`), and the three copies had not moved to it. They now share it, through
+  `leadingDoctypeEnd` and `isOnlyWhitespaceAndComments`. Both end a comment at its first `-->` as a browser
+  does, so the render and the editor agree with the parser about where a page's doctype is. A side effect:
+  `<!-- a --> x -->` between two siblings is now read as text, so a move across it is refused, where the old
+  regex let `x` be reordered as if it were part of a comment. Raised by CodeQL on the 0.504.3 release PR
+  (#257).
+- **The edit page leaves out every `data:` URL that is not a raster image.** `isScriptUrl` named one dangerous
+  type, `data:text/html`. That left `image/svg+xml`, `application/xhtml+xml` and `text/xml`, each a document
+  that can carry script, on `src`, `href` and `data` attributes. The page's Content-Security-Policy already
+  stopped them from running, so this is the second line, not the only one. An inline PNG, GIF, JPEG, WebP,
+  AVIF, BMP or icon keeps its picture.
+
+### Fixed
+
+- **A sandbox report cell escapes a backslash before the pipe after it.** `sandboxProbe`'s `cell` and the
+  dependency rule table in `sandboxDependencies` escaped `|` but not `\`. Engine output such as `C:\work\|`
+  therefore became `C:\work\\|`, a literal backslash and a live pipe that split the cell and shifted every
+  column after it. Backslash is now escaped first, as `markdownCell` in `debtRegister` already does.
+- `scheduledRoutinePolicy` builds its tool-name pattern with every regex metacharacter escaped, not only `-`.
+  No current name contains another, so nothing matches differently today; a tool added later with a `.` in
+  its name would otherwise have matched any character there.
+- Two tests that kept the backtracking regex as an oracle no longer do. `htmlSourceMap`'s "never finds a
+  doctype the old regex would not have found" property uses the equivalent single greedy span, checked
+  equal to the original over 200,000 generated inputs. `uiSurfaceRender`'s "always leads with the policy"
+  property uses `leadingDoctypeEnd`. Linear-time regressions pin `leadingDoctypeEnd`,
+  `isOnlyWhitespaceAndComments`, the render, the edit page and the move check on the attack input.
+
 ## [0.504.3] - 2026-10-18
 
 ### Security

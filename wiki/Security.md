@@ -330,8 +330,10 @@ can act is neither guarded nor exempted with a written reason. Full detail in
 ## Editing a real page runs only AtlasMind's script
 
 UI Studio's element editing (0.495.0) shows a project's own HTML page with its elements selectable. The page
-is built from the file with every `<script>` element, `on…` handler attribute, `srcdoc` and
-`javascript:`/`vbscript:`/`data:text/html` URL left out, under a Content-Security-Policy that admits a script
+is built from the file with every `<script>` element, `on…` handler attribute, `srcdoc`,
+`javascript:`/`vbscript:` URL and `data:` URL left out — a `data:` URL is kept only when it is a raster image
+(PNG, GIF, JPEG, WebP, AVIF, BMP, icon), since SVG, XHTML and XML can each carry script (0.504.4; the
+`data:text/html` it named before left the others open) — under a Content-Security-Policy that admits a script
 only with that render's random nonce — carried by AtlasMind's selection script, a constant that never reads
 the page's markup into code, draws in a closed shadow root and swallows every click so no link or form acts.
 The page can post only an element id or an insertion point id; every value for an edit is asked for in VS
@@ -340,6 +342,13 @@ Code's own pickers and validated twice. Attributes come from an allowlist (`clas
 `style`, or `src` on a script or frame. Each edit is one splice shown before and after (control and
 bidirectional characters made visible), refused if the file changed since it was parsed, if an editor holds
 unsaved changes to it, or if it is not valid UTF-8, and held by dry run.
+
+The page is a file AtlasMind did not write, so nothing that reads it may take time out of proportion to its
+size. Stepping over the comments before a doctype, or checking that only whitespace and comments sit between
+two siblings, is a linear scan in `htmlSourceMap` that ends a comment at its first `-->` as a browser does.
+Until 0.504.4 the render, the edit page and the move check each used a regex that backtracked exponentially on
+`<!--` followed by many `--><!--`: a few hundred bytes would have frozen the extension host on opening the
+page.
 
 ---
 

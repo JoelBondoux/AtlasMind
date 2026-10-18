@@ -626,6 +626,16 @@ describe('remediation and the report', () => {
     expect(markdown).toContain('a \\| b');
   });
 
+  it('escapes a backslash before the pipe after it, so the pipe stays escaped and the cell whole', async () => {
+    // Engine output `C:\work\| tail`: escaping only the pipe gives `C:\work\\|`, a literal
+    // backslash and then a live pipe that splits the cell.
+    const { report, attestation } = await probe({ ...HEALTHY_DOCKER, 'docker run': { ok: false, kind: 'exit', detail: 'C:\\work\\| tail' } });
+    const markdown = renderSandboxCheckReport({
+      reading: { configuration: configuration(), problems: [], ignored: [] }, report, attestation, hostOs: 'linux', dryRun: false, now: NOW,
+    });
+    expect(markdown).toContain('C:\\\\work\\\\\\| tail');
+  });
+
   it('says nothing was probed when the settings could not be used', () => {
     const markdown = renderSandboxCheckReport({
       reading: { problems: ['atlasmind.sandbox.engine must be auto, docker or podman.'], ignored: [] },

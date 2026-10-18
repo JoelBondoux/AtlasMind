@@ -306,26 +306,57 @@ function lineAt(lineStarts: readonly number[], offset: number): number {
 }
 
 /**
- * Whether the page opens with a doctype, after an optional BOM and any whitespace and
- * comments. A scan rather than a regex: `(?:<!--[\s\S]*?-->\s*)*` backtracks exponentially
- * on `<!--` followed by many `--><!--`, and this runs on files we did not write.
+ * Where the run of whitespace and comments starting at `from` ends: the offset of the
+ * first character that is neither, or -1 when a comment opens and never closes. A comment
+ * ends at its first `-->`, as a browser ends one. A scan rather than a regex:
+ * `(?:<!--[\s\S]*?-->\s*)*` backtracks exponentially on `<!--` followed by many
+ * `--><!--`, and this runs on files we did not write. Every caller that needs to step over
+ * leading comments asks this, so none of them grows that regex back.
  */
-export function startsWithDoctype(text: string): boolean {
-  let i = text.charCodeAt(0) === 0xfeff ? 1 : 0;
+function skipWhitespaceAndComments(text: string, from: number): number {
+  let i = from;
   for (;;) {
     while (i < text.length && /\s/u.test(text[i]!)) {
       i += 1;
     }
     if (!text.startsWith('<!--', i)) {
-      break;
+      return i;
     }
     const close = text.indexOf('-->', i + 4);
     if (close === -1) {
-      return false;
+      return -1;
     }
     i = close + 3;
   }
-  return text.slice(i, i + 9).toLowerCase() === '<!doctype';
+}
+
+function doctypeStart(text: string): number | undefined {
+  const i = skipWhitespaceAndComments(text, text.charCodeAt(0) === 0xfeff ? 1 : 0);
+  return i !== -1 && text.slice(i, i + 9).toLowerCase() === '<!doctype' ? i : undefined;
+}
+
+/** Whether the page opens with a doctype, after an optional BOM and any whitespace and comments. */
+export function startsWithDoctype(text: string): boolean {
+  return doctypeStart(text) !== undefined;
+}
+
+/**
+ * The offset just past a leading doctype's `>`, read as `startsWithDoctype` reads it, or
+ * undefined when the page does not open with one — where anything that must come after
+ * the doctype and before the rest of the page is inserted.
+ */
+export function leadingDoctypeEnd(text: string): number | undefined {
+  const start = doctypeStart(text);
+  if (start === undefined) {
+    return undefined;
+  }
+  const close = text.indexOf('>', start + 9);
+  return close === -1 ? undefined : close + 1;
+}
+
+/** Whether `text` holds nothing but whitespace and comments. */
+export function isOnlyWhitespaceAndComments(text: string): boolean {
+  return skipWhitespaceAndComments(text, 0) === text.length;
 }
 
 /** Parse a page into elements with source offsets. Total: never throws. */

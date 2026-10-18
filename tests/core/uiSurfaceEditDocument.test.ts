@@ -57,6 +57,30 @@ describe('the editable document', () => {
     expect(html).toContain('href="about.html"');
   });
 
+  it('keeps a raster data: image and removes every other data: URL, however it is spelled', () => {
+    const { html } = build([
+      '<!doctype html><body>',
+      '<img src="data:image/png;base64,iVBORw0KGgo=" alt="kept">',
+      '<img src="data:image/svg+xml,%3Csvg%3E" alt="svg">',
+      '<iframe src="data:application/xhtml+xml,%3Chtml%3E"></iframe>',
+      '<object data="DATA:text/xml,%3Cx%3E"></object>',
+      '<a href="&#100;ata:text/html,%3Cp%3E">encoded</a>',
+      '</body>',
+    ].join('\n'));
+    expect(html).toContain('src="data:image/png;base64,iVBORw0KGgo="');
+    expect(html).not.toContain('image/svg+xml');
+    expect(html).not.toContain('application/xhtml+xml');
+    expect(html).not.toContain('text/xml');
+    expect(html).not.toContain('&#100;ata:');
+  });
+
+  it('stays linear on a page that opens with the input that made the old doctype regex backtrack', () => {
+    const started = Date.now();
+    const { html } = build(`<!--${'--><!--'.repeat(20_000)}<p>x</p>`);
+    expect(Date.now() - started).toBeLessThan(2000);
+    expect(html.startsWith('<meta http-equiv="Content-Security-Policy"')).toBe(true);
+  });
+
   it('puts a nonce policy, a base and the selection script first, after the doctype', () => {
     const { html } = build();
     expect(html.startsWith('<!doctype html><meta http-equiv="Content-Security-Policy"')).toBe(true);
