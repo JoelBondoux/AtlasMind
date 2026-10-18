@@ -59,7 +59,9 @@ import {
   isPlausibleUnslothApiKey,
   isValidHfRepoId,
   repoIdFromCatalogTag,
+  decideUnslothRouting,
   suggestUnslothVariant,
+  UNSLOTH_ROUTING_RULES,
   UNSLOTH_HUB_AUTHOR,
   UNSLOTH_STUDIO_DEFAULT_BASE_URL,
   UNSLOTH_TOOL_POLICY_CAVEAT,
@@ -331,9 +333,9 @@ export async function manageUnslothModels(
   const connection = await requireConnection(context, hooks);
   if (!connection) { return; }
 
-  const [status, downloaded] = await vscode.window.withProgress(
+  const [status, downloaded, policy] = await vscode.window.withProgress(
     { location: vscode.ProgressLocation.Window, title: 'Asking Unsloth Studio what it holds…' },
-    () => Promise.all([connection.client.status(), connection.client.listDownloaded()]),
+    () => Promise.all([connection.client.status(), connection.client.listDownloaded(), connection.client.servingPolicy()]),
   );
   if (!status.ok && !downloaded.ok) {
     await say(hooks, describeUnslothFailure(status, connection.origin), 'error');
@@ -341,6 +343,10 @@ export async function manageUnslothModels(
   }
   const loaded = status.ok ? [...new Set([...status.value.loaded, ...status.value.serving])] : [];
   const onDisk = downloaded.ok ? downloaded.value : [];
+  // What the routed model list will do with a downloaded model that is not
+  // loaded — the same rule, so this list and that one say the same thing.
+  const unloadedRule = UNSLOTH_ROUTING_RULES.find(rule =>
+    rule.id === decideUnslothRouting({ loaded: false }, policy.ok ? policy.value : undefined).rule);
 
   if (options?.repoId) {
     const model = onDisk.find(candidate => candidate.repoId.toLowerCase() === options.repoId!.toLowerCase());
@@ -355,7 +361,13 @@ export async function manageUnslothModels(
   if (!status.ok) {
     items.push({ label: '$(warning) Could not read what is loaded', description: describeUnslothFailure(status) });
   } else if (loaded.length === 0) {
-    items.push({ label: '$(circle-outline) Nothing is loaded', description: 'Load a downloaded model below, or get a new one' });
+    items.push({
+      label: '$(circle-outline) Nothing is loaded',
+      description: unloadedRule?.routable
+        ? 'Studio loads a downloaded model when AtlasMind asks for it'
+        : 'AtlasMind can route only to a loaded model — load one below',
+      ...(unloadedRule ? { detail: unloadedRule.description } : {}),
+    });
   } else {
     for (const modelId of loaded) {
       items.push({
@@ -375,7 +387,11 @@ export async function manageUnslothModels(
   } else {
     for (const model of onDisk) {
       const facts = [formatBytes(model.sizeBytes)];
-      if (isLoadedRepo(model.repoId, loaded)) { facts.push('loaded'); }
+      if (isLoadedRepo(model.repoId, loaded)) {
+        facts.push('loaded · AtlasMind routes to it');
+      } else if (status.ok && unloadedRule) {
+        facts.push(unloadedRule.routable ? 'Studio loads it on request' : 'not loaded · not routable until loaded');
+      }
       if (model.hasVision) { facts.push('vision'); }
       if (model.partial) { facts.push('interrupted download'); }
       items.push({ label: `$(package) ${model.repoId}`, description: facts.join(' · '), action: { kind: 'model', model } });

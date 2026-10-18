@@ -1106,8 +1106,10 @@ the key would cross the network unencrypted. The secret redactor recognises Stud
 **Downloads are Studio's, and you confirm them.** Loading a model Studio does not have makes Studio
 download it from Hugging Face. AtlasMind sends only the repository id and the quantisation, asks first
 with the size, and holds it in a dry run. It sends no Hugging Face token, so a gated repository is one
-you download in Studio itself. Deleting a download asks first too, and names the size. AtlasMind never
-routes to a model Studio has only on disk, because that would make Studio load gigabytes on the router's say-so.
+you download in Studio itself. Deleting a download asks first too, and names the size. AtlasMind routes
+to a model Studio has only on disk only when Studio's own "Switch model by request" setting is on, which
+is the user telling Studio it may load models on request. Otherwise it holds the model back and says so,
+rather than sending a request Studio would refuse.
 
 ---
 

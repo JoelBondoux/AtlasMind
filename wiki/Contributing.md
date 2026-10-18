@@ -105,6 +105,12 @@ minimum-version assertions in `tests/packageManifest.test.ts`. Confirm the real 
 `npm ls <package> --all`, regenerate the lockfile, and require `npm audit` to return zero; do not dismiss
 a Dependabot alert merely because its vulnerable package is indirect or development-only.
 
+When CI's **Secret scan** flags a string in a test that is genuinely synthetic, read the finding first.
+If the whole file exists to hold synthetic secrets, add the file to `.gitleaks.toml`'s path allowlist.
+If it is one value in an ordinary test, pin that single finding in `.gitleaksignore` by the fingerprint
+gitleaks prints, with a comment saying what it was. Never allowlist a pattern: that switches detection
+of that shape off everywhere, including where it matters.
+
 If `vsce package` ever shows a workspace-memory directory or a local assistant worktree such as
 `.kilo/` in the package contents, treat that as a release blocker — it means project notes, fixtures,
 or token-shaped test data are about to ship to every user. Fix `.vscodeignore`; do not bypass the

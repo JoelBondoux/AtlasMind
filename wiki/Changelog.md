@@ -19,6 +19,23 @@ Older entries below describe the software as it was at the time and are delibera
 
 ---
 
+## v0.504.3 -- The secret scan is green again
+
+Three test values added in 0.503.0 looked like API keys to CI's secret scanner. Each was checked: they
+are placeholder names for a sandbox volume, not credentials. A new `.gitleaksignore` file now lists
+exactly those three findings, so the scan passes, and a real key added to the same files later would
+still be caught. Nothing in AtlasMind behaves differently.
+
+## v0.504.2 -- Unsloth models that are installed but not routable say so
+
+Unsloth Studio lists every model you have downloaded, but out of the box it only serves the one it has
+loaded. AtlasMind used to quietly leave the unloaded ones out of the routed model list while the local
+model advisor still called them installed, with nothing to explain the difference. It now reads Studio's
+**Switch model by request** setting. With it on, every downloaded model is usable and Studio loads it when
+asked. With it off, only loaded models are, and the rest are listed with the reason: in the provider
+summary, and next to each Studio model in the advisor. To use one, load it with **AtlasMind: Manage
+Unsloth Models**, or turn the setting on in Studio under Settings → API.
+
 ## v0.504.1 -- Every Dependabot alert fixed
 
 All ten open Dependabot alerts are fixed, and `npm audit` reports zero. The critical one was in

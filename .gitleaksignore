@@ -1,0 +1,17 @@
+# Individual gitleaks findings that were read and judged synthetic.
+#
+# `.gitleaks.toml` allowlists whole files that exist to hold synthetic secrets.
+# This file is narrower: each line pins ONE finding — commit, file, rule and
+# line — so the exception covers exactly the string somebody looked at. A real
+# key added to the same file later is still caught, because it produces a
+# different fingerprint. Add a line only after reading the finding, and say
+# here what it was.
+#
+# Format: <commit>:<file>:<rule>:<line>, as gitleaks prints in "Fingerprint:".
+
+# A sandbox dependency volume's content key — the 64-hex-character digest the
+# volume is named by — written in the tests as '0123456789abcdef'.repeat(4).
+# Not a credential: it names a Docker volume and authorises nothing.
+271de8a9c0b045cb5d6fb3d7542aea54033073d4:tests/core/sandboxApprovalRelaxation.test.ts:generic-api-key:670
+271de8a9c0b045cb5d6fb3d7542aea54033073d4:tests/core/sandboxPlan.test.ts:generic-api-key:70
+271de8a9c0b045cb5d6fb3d7542aea54033073d4:tests/core/sandboxRunner.test.ts:generic-api-key:727

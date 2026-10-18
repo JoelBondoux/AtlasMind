@@ -3,7 +3,9 @@ import fc from 'fast-check';
 
 import {
   createUnslothStudioClient,
+  decideUnslothRouting,
   describeUnslothFailure,
+  describeUnslothHeldBack,
   isPlausibleUnslothApiKey,
   isValidGgufVariant,
   isValidHfRepoId,
@@ -11,6 +13,7 @@ import {
   isValidUnslothModelId,
   parseUnslothCachedGguf,
   parseUnslothLiveness,
+  parseUnslothServingPolicy,
   parseUnslothDeferredBody,
   parseUnslothDownloadProgress,
   parseUnslothGgufVariants,
@@ -20,6 +23,7 @@ import {
   sanitizeUnslothDetail,
   suggestUnslothVariant,
   UNSLOTH_IDENTITY_TTL_MS,
+  UNSLOTH_ROUTING_RULES,
   UNSLOTH_SERVER_TOOLS_OFF,
   UNSLOTH_STUDIO_SERVICE,
   UNSLOTH_VARIANT_RULES,
@@ -380,5 +384,63 @@ describe("discovery lists Unsloth's chat models only", () => {
       parseUnslothGgufVariants(payload);
       parseUnslothDownloadProgress(payload);
     }));
+  });
+});
+
+describe('whether AtlasMind routes to a model Studio lists', () => {
+  it('reads only a literal boolean as Studio\'s "Switch model by request" answer', () => {
+    expect(parseUnslothServingPolicy({ enabled: true, idle_unload_active: true })).toEqual({ switchByRequest: true, idleUnloadActive: true });
+    expect(parseUnslothServingPolicy({ enabled: false })).toEqual({ switchByRequest: false, idleUnloadActive: false });
+    for (const unreadable of [{ enabled: 'true' }, { enabled: 1 }, {}, null, [], 'on']) {
+      expect(parseUnslothServingPolicy(unreadable)).toBeUndefined();
+    }
+  });
+
+  it('routes a loaded model, and an unloaded one only when Studio will load it on request', () => {
+    expect(decideUnslothRouting({ loaded: true }, undefined)).toEqual({ routable: true, rule: 'loaded' });
+    expect(decideUnslothRouting({}, undefined)).toEqual({ routable: true, rule: 'loaded' });
+    expect(decideUnslothRouting({ loaded: false }, { switchByRequest: true, idleUnloadActive: false }))
+      .toEqual({ routable: true, rule: 'loads-on-request' });
+    expect(decideUnslothRouting({ loaded: false }, { switchByRequest: false, idleUnloadActive: false }))
+      .toEqual({ routable: false, rule: 'not-loaded-switch-off' });
+    // Unread is off: routing to a model Studio then refuses would record a
+    // failure against a model that works.
+    expect(decideUnslothRouting({ loaded: false }, undefined)).toEqual({ routable: false, rule: 'not-loaded-policy-unknown' });
+  });
+
+  it('never routes an unloaded model unless the setting was read as on', () => {
+    fc.assert(fc.property(
+      fc.option(fc.boolean(), { nil: undefined }),
+      fc.option(fc.record({ switchByRequest: fc.boolean(), idleUnloadActive: fc.boolean() }), { nil: undefined }),
+      (loaded, policy) => {
+        const decision = decideUnslothRouting({ ...(loaded !== undefined ? { loaded } : {}) }, policy);
+        const rule = UNSLOTH_ROUTING_RULES.find(entry => entry.id === decision.rule);
+        expect(rule?.routable).toBe(decision.routable);
+        if (loaded === false && decision.routable) {
+          expect(policy?.switchByRequest).toBe(true);
+        }
+      },
+    ));
+  });
+
+  it('reads the setting from Studio with the key, after the identity check', async () => {
+    const fetchLike = fakeStudio({ '/api/liveness': LIVE, '/api/settings/openai-auto-switch': { body: { enabled: false, idle_unload_active: true } } });
+    const client = createUnslothStudioClient(ORIGIN, { fetch: fetchLike, getApiKey: () => KEY });
+    expect(await client.servingPolicy()).toEqual({ ok: true, value: { switchByRequest: false, idleUnloadActive: true } });
+    const settings = fetchLike.calls.find(call => call.url.endsWith('/api/settings/openai-auto-switch'));
+    expect(settings?.headers?.['Authorization']).toBe(`Bearer ${KEY}`);
+    expect(fetchLike.calls[0].url).toBe(`${ORIGIN}/api/liveness`);
+  });
+
+  it('says what was held back, per endpoint and rule, with the rule\'s own explanation', () => {
+    const lines = describeUnslothHeldBack([
+      { endpointLabel: 'Unsloth Studio', modelId: 'a/one-GGUF', rule: 'not-loaded-switch-off' },
+      { endpointLabel: 'Unsloth Studio', modelId: 'a/two-GGUF', rule: 'not-loaded-switch-off' },
+      { endpointLabel: 'Unsloth Studio', modelId: 'a/three-GGUF', rule: 'not-loaded-switch-off' },
+    ], 2);
+    expect(lines).toHaveLength(1);
+    expect(lines[0]).toContain('3 models not routable (a/one-GGUF, a/two-GGUF and 1 more)');
+    expect(lines[0]).toContain('Switch model by request');
+    expect(describeUnslothHeldBack([])).toEqual([]);
   });
 });
