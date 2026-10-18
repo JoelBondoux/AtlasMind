@@ -19,6 +19,15 @@ Older entries below describe the software as it was at the time and are delibera
 
 ---
 
+## v0.504.1 -- Every Dependabot alert fixed
+
+All ten open Dependabot alerts are fixed, and `npm audit` reports zero. The critical one was in
+`proxy-addr`, reached through the MCP SDK's web server: it could treat an IPv4-mapped IPv6 address as
+inside a trusted IPv4 subnet. The MCP SDK itself moves to 1.32.1, which stops a server choosing where its
+OAuth client sends credentials. `ip-address`, `undici`, and three packages `npm audit` found before
+Dependabot did (`fast-uri`, `brace-expansion`, `source-map-js`) are on patched releases too. Nothing
+behaves differently.
+
 ## v0.504.0 -- Unsloth Studio as a local runtime
 
 Unsloth Studio joins Ollama and LM Studio as a local runtime, with its own model management.

@@ -6,6 +6,29 @@ The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/),
 
 ## [Unreleased]
 
+## [0.504.1] - 2026-10-18
+
+### Security
+
+- Every open Dependabot alert on the repository is fixed, and `npm audit` reports zero vulnerabilities.
+  - **`proxy-addr` 2.0.7 → 2.0.8** — critical, GHSA-jqcg-44mw-7w3h (alert #85): a trusted subnet admitted an
+    IPv4-mapped IPv6 address as if it were inside it. Reached through `@modelcontextprotocol/sdk` → `express`;
+    the patched release is inside Express's `^2.0.7`, so the lockfile moved and no override was needed.
+  - **`@modelcontextprotocol/sdk` 1.30.0 → 1.32.1** — high, GHSA-6qxp-vccf-f47h (alert #84): the OAuth client
+    could send credentials to an authorization server chosen by the MCP server. Taken at the version Dependabot
+    proposed in #256, with `zod` to `^4.6.6` from the same group.
+  - **`ip-address` 10.4.0 → 10.7.4** — moderate, GHSA-j6r3-76f7-8jcv and GHSA-2vr4-cq9g-pvrc (alerts #82, #72):
+    subnet checks compared addresses of different families as one space, and the NAT64 local-use range was
+    unclassified. Override floor raised to `^10.7.3`, as Dependabot proposed in #242.
+  - **`undici` 7.29.0 → 7.30.1** — six advisories, high to low (alerts #73, #75, #76, #79, #80, #81), test-only
+    through `jsdom`. Override floor raised to `^7.30.0`, as in #242.
+- Three advisories `npm audit` found that had not yet been raised as alerts: **`fast-uri` 3.1.8**
+  (GHSA-hrr3-gc8f-f4qj, runtime through `ajv`), **`brace-expansion` 5.0.12** (GHSA-q2hr-2g5m-vwhr and two
+  siblings, test-only through Stryker) and **`source-map-js` 1.2.2** (GHSA-68fv-2mgg-jv7q, test-only).
+- `tests/packageManifest.test.ts` pins every raised override floor to the advisory it answers, and
+  `docs/development.md` lists them. The `undici` override still holds `jsdom` on undici 7 although jsdom 30 asks
+  for 8; that is recorded as a separate change.
+
 ## [0.504.0] - 2026-10-18
 
 ### Added

@@ -1101,14 +1101,27 @@ repository cannot obsolete another repository's evidence at the same relative pa
   whole 7,659-test process to reload. The bounded gate still exercises every non-static mutation in the
   three declared policy modules; a separate unbounded static run can be invoked deliberately when its
   cost is justified.
-- **Security overrides are floors, not pins.** The manifest contract currently ratchets these six
+- **Security overrides are floors, not pins.** The manifest contract currently ratchets these nine
   transitive packages above vulnerable releases in the root `overrides` block, because the parents
   that pull them in ship exact or lagging pins of their own:
   - `qs` `^6.16.0` — reached through `@modelcontextprotocol/sdk` -> `express`, and through
     `typed-rest-client` under both Stryker and `vsce`. Answers GHSA-4mjr-xmp4-gh2g and
     GHSA-x5fp-wj9c-mxmx.
-  - `fast-uri` `^3.1.6` — through `@modelcontextprotocol/sdk` -> `ajv`. Answers
-    GHSA-jqff-g426-hqxp, GHSA-f65p-4m7j-42xc, GHSA-fph4-wmhf-6fwf and GHSA-5jgf-p345-68v8.
+  - `fast-uri` `^3.1.8` — through `@modelcontextprotocol/sdk` -> `ajv`. Answers
+    GHSA-hrr3-gc8f-f4qj (raised from `^3.1.6` in 0.504.1), GHSA-jqff-g426-hqxp, GHSA-f65p-4m7j-42xc,
+    GHSA-fph4-wmhf-6fwf and GHSA-5jgf-p345-68v8.
+  - `ip-address` `^10.7.3` — through `@modelcontextprotocol/sdk` -> `express-rate-limit`, so part
+    of the runtime graph. Answers GHSA-j6r3-76f7-8jcv and GHSA-2vr4-cq9g-pvrc.
+  - `undici` `^7.30.0` — through `jsdom`, so test-only. Answers GHSA-w293-vg96-wgc3,
+    GHSA-pmjh-fq2x-6v4x, GHSA-2gqq-gqf2-x968, GHSA-r53p-7pc4-xj5r, GHSA-2jfj-6hjv-fm6j and
+    GHSA-8436-99hf-9mmv. It holds `jsdom` on undici 7 although jsdom 30 asks for `^8.10.2`; moving to 8
+    is a separate change, with its own advisories to check.
+  - `brace-expansion` `^5.0.12` — through `@stryker-mutator/core` -> `minimatch`, so test-only.
+    Answers GHSA-q2hr-2g5m-vwhr, GHSA-qhr7-859c-m2p7 and GHSA-6j4f-fj2g-mc7p.
+
+  `proxy-addr` (GHSA-jqcg-44mw-7w3h, through `express`) and `source-map-js` (GHSA-68fv-2mgg-jv7q,
+  through `vite`, `css-tree` and `magicast`) needed no override: the patched releases sit inside their
+  parents' ranges, so `npm update <package>` moved the lockfile.
   - `nanoid` `^3.3.18` — through `vitest` -> `vite` -> `postcss`, so test-only. Answers
     GHSA-2v37-7h3g-55p8.
   - `hono` `^4.13.5` — through `@modelcontextprotocol/sdk`, so part of the runtime graph. Answers

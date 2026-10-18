@@ -75,7 +75,10 @@ describe('package manifest', () => {
     const overrides = manifest.overrides as Record<string, string>;
     const floors: Record<string, string> = {
       qs: '6.16.0',           // GHSA-4mjr-xmp4-gh2g, GHSA-x5fp-wj9c-mxmx
-      'fast-uri': '3.1.6',    // GHSA-jqff-g426-hqxp and three siblings
+      'fast-uri': '3.1.8',    // GHSA-hrr3-gc8f-f4qj; 3.1.6 answered GHSA-jqff-g426-hqxp and three siblings
+      'brace-expansion': '5.0.12', // GHSA-q2hr-2g5m-vwhr, GHSA-qhr7-859c-m2p7, GHSA-6j4f-fj2g-mc7p
+      'ip-address': '10.7.1', // GHSA-j6r3-76f7-8jcv, GHSA-2vr4-cq9g-pvrc (Dependabot #82, #72)
+      undici: '7.29.1',       // GHSA-w293-vg96-wgc3 and five siblings (Dependabot #73-#81)
       nanoid: '3.3.18',       // GHSA-2v37-7h3g-55p8
       hono: '4.13.5',         // GHSA-gqvv-2mrq-wpjv, GHSA-g6gw-c38x-mqfc, GHSA-crvj-82cr-hjcx
       'js-yaml': '4.3.2',     // GHSA-2883-xcg3-v3hh

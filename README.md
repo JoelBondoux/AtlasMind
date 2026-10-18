@@ -4,7 +4,7 @@
 
 <h1 align="center">AtlasMind</h1>
 
-<p align="center"><sub> · <strong>Current source version: 0.504.0</strong> · </sub></p>
+<p align="center"><sub> · <strong>Current source version: 0.504.1</strong> · </sub></p>
 
 
 <p align="center">
@@ -178,6 +178,13 @@ important limits on overrides and compliance claims.
 
 ---
 
+## What's new in 0.504.1
+
+**Every open Dependabot alert is fixed, and `npm audit` reports zero.** The critical one was `proxy-addr`, which
+trusted an IPv4-mapped IPv6 address as if it were inside an IPv4 subnet. The MCP SDK moves to 1.32.1, so a
+server can no longer choose where its OAuth client sends credentials. `ip-address`, `undici`, `fast-uri`,
+`brace-expansion` and `source-map-js` move to patched releases. No behaviour changes.
+
 ## What's new in 0.504.0
 
 **Unsloth Studio is a local runtime.** **AtlasMind: Connect Unsloth Studio** checks the server really is Studio
@@ -194,12 +201,6 @@ A turn that says it is about to edit a file now edits it. A reply that only anno
 back once to make it, and if it still only announces, the reply and its summary say it was not done
 instead of "Completed". "Continue" after such a reply finishes that step rather than planning a project
 around it, and **Approve and run** now starts the run it approves.
-
-## What's new in 0.503.1
-
-**Two code-scanning fixes.** The game profile's markdown mirror now escapes backslashes in table cells, so a label
-can no longer break out of its cell. Detecting a doctype at the top of a page no longer uses a regex that backtracks
-exponentially on a crafted file.
 
 Only the three newest releases are summarised here. The last Marketplace publication, **v0.482.1**, is
 the build the Marketplace serves; every release, older ones included, is written up in full in
