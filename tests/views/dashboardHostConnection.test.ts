@@ -312,9 +312,55 @@ describe('a dashboard whose host has gone says so', () => {
   });
 });
 
+describe('workflow controls detect a host lost after the first snapshot', () => {
+  function workflowSnapshot() {
+    const message = snapshot();
+    Object.assign(message.payload.guidedWorkflow, {
+      enabled: false,
+      automationLevel: 'observe',
+      capabilities: [],
+      enablement: { levels: ['observe', 'propose'], requirements: [], blockedScopes: {} },
+    });
+    return message;
+  }
+
+  it.each([
+    ['workflow-gate', 'atlasmind.workflow.enabled:on', 'setWorkflowGate'],
+    ['automation-ceiling', 'propose', 'setAutomationCeiling'],
+    ['setting', 'atlasmind.workflow.enabled', 'openSettingKey'],
+  ])('%s checks for a reply even when the page previously loaded', (action, payload, type) => {
+    const harness = mount();
+    harness.send(workflowSnapshot());
+    expect(harness.pendingWatchdogs()).toBe(0);
+
+    harness.click(`[data-action="${action}"][data-payload="${payload}"]`);
+    expect(harness.posted.at(-1)?.type).toBe(type);
+    expect(harness.pendingWatchdogs()).toBe(1);
+    harness.expireHostWatchdog();
+    expect(harness.html()).toContain('no longer connected to AtlasMind');
+  });
+
+  it('a live host clears the control watchdog before its confirmation completes', () => {
+    const harness = mount();
+    harness.send(workflowSnapshot());
+    harness.click('[data-action="automation-ceiling"][data-payload="propose"]');
+    expect(harness.pendingWatchdogs()).toBe(1);
+    harness.send({ type: 'hostAck' });
+    expect(harness.pendingWatchdogs()).toBe(0);
+    expect(harness.html()).not.toContain('no longer connected to AtlasMind');
+  });
+});
+
 describe('a restored dashboard is given its host back', () => {
   const commands = readFileSync(path.join(process.cwd(), 'src', 'commands.ts'), 'utf8');
   const panel = readFileSync(path.join(process.cwd(), 'src', 'views', 'projectDashboardPanel.ts'), 'utf8');
+
+  it('activates when VS Code needs to restore the dashboard', () => {
+    const manifest = JSON.parse(readFileSync(path.join(process.cwd(), 'package.json'), 'utf8')) as {
+      activationEvents: string[];
+    };
+    expect(manifest.activationEvents).toContain(`onWebviewPanel:${PROJECT_DASHBOARD_VIEW_TYPE}`);
+  });
 
   it('registers a serializer for the view type the panel actually creates', () => {
     // Registered under the wrong view type, a serializer simply never fires and

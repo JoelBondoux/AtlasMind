@@ -4,7 +4,7 @@
 
 <h1 align="center">AtlasMind</h1>
 
-<p align="center"><sub> · <strong>Current source version: 0.504.5</strong> · </sub></p>
+<p align="center"><sub> · <strong>Current source version: 0.504.6</strong> · </sub></p>
 
 
 <p align="center">
@@ -178,6 +178,12 @@ important limits on overrides and compliance claims.
 
 ---
 
+## What's new in 0.504.6
+
+**Workflow permission controls reconnect after a restart.** Restoring the dashboard now activates its
+extension host. If a control cannot reach that host, the dashboard shows how to reconnect instead of
+silently ignoring the click. Permission limits and confirmation requirements are unchanged.
+
 ## What's new in 0.504.5
 
 The last Marketplace publication is now **v0.504.4**, which carries everything since v0.482.1. That
@@ -191,12 +197,6 @@ page's leading comments with a regex that backtracked exponentially, so a few hu
 could stall the extension host. They now share the linear scan the HTML parser already used. The edit page
 also leaves out every `data:` URL that is not a raster image, and a sandbox report no longer splits a cell on
 a backslash before a pipe. All raised by CodeQL on the 0.504.3 release.
-
-## What's new in 0.504.3
-
-**CI's secret scan is green again.** Three test values added in 0.503.0 matched gitleaks' generic API-key
-rule; they are a sandbox volume's placeholder digest, not credentials. A new `.gitleaksignore` pins exactly
-those three findings, so a real key added to the same files would still be caught. No behaviour changes.
 
 Only the three newest releases are summarised here. The last Marketplace publication, **v0.504.4**, is
 the build the Marketplace serves; every release, older ones included, is written up in full in

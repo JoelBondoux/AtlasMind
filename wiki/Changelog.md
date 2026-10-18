@@ -19,6 +19,13 @@ Older entries below describe the software as it was at the time and are delibera
 
 ---
 
+## v0.504.6 -- Workflow controls reconnect after restart
+
+Restoring the Project Dashboard now activates AtlasMind through the dashboard's webview activation
+event. Workflow permission switches, ceiling buttons, configuration edits and settings links check for
+a host reply and show recovery instructions if the tab is disconnected. Permission limits and
+confirmation requirements are unchanged.
+
 ## v0.504.5 -- Published baseline refreshed
 
 The README now names v0.504.4 as the last Marketplace publication.

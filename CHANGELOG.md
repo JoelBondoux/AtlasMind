@@ -6,6 +6,15 @@ The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/),
 
 ## [Unreleased]
 
+## [0.504.6] - 2026-10-18
+
+### Fixed
+
+- Restoring the Project Dashboard now activates AtlasMind through the matching webview activation
+  event, so its Workflow permission controls can reconnect after a restart. Workflow switches,
+  automation ceilings, configuration edits and settings links also check for a host reply; a
+  disconnected tab shows recovery instructions instead of silently ignoring clicks.
+
 ## [0.504.5] - 2026-10-18
 
 ### Documentation

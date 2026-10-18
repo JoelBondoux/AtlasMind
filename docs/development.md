@@ -1,5 +1,11 @@
 ## Running a branch
 
+The Project Dashboard declares `onWebviewPanel:atlasmind.projectDashboard` as well as registering its
+serializer. Both are required to reconnect a restored dashboard to the extension host. When checking
+Workflow controls after a restart, verify that a switch or ceiling opens its confirmation; a lost host
+must instead show recovery instructions after the 20-second reply timeout. A host acknowledgement
+clears that timeout before the confirmation completes, so time spent reading a dialog is not a failure.
+
 **Debugging from source (F5) needs no packaged build.** The launch config points at the workspace folder and its finite `build-extension` pre-launch task runs `npm run compile`, then exits before the Extension Development Host starts. It deliberately does not retain `tsc -watch`: a long-lived watcher consumes substantial committed memory and can make a new Node extension host abort before its logger exists on a busy workstation. Both profiles also set `experimentalNetworking` to `off`; VS Code 1.137.0's debugger otherwise starts the host with Node's experimental network inspector, which emitted repeated `Missing dataLength in event` exceptions during a successful AtlasMind activation. The default **Run Extension** profile additionally disables built-in GitHub Copilot Chat because the same VS Code/Copilot versions have an open exit-code-134 regression ([microsoft/vscode#335916](https://github.com/microsoft/vscode/issues/335916)). Use **Run Extension (Copilot integration)** only when the test specifically needs the VS Code Copilot provider.
 
 ```bash

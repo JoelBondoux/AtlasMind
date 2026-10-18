@@ -1774,6 +1774,7 @@
       return;
     }
     if (action === 'setting') {
+      armHostWatchdog();
       vscode.postMessage({ type: 'openSettingKey', payload });
       return;
     }
@@ -3397,6 +3398,7 @@
       // segment is unambiguous.
       const cut = payload.lastIndexOf(':');
       if (cut > 0) {
+        armHostWatchdog();
         vscode.postMessage({
           type: 'setWorkflowGate',
           payload: { key: payload.slice(0, cut), enabled: payload.slice(cut + 1) === 'on' },
@@ -3405,10 +3407,12 @@
       return;
     }
     if (action === 'automation-ceiling') {
+      armHostWatchdog();
       vscode.postMessage({ type: 'setAutomationCeiling', payload: { level: payload } });
       return;
     }
     if (action === 'create-workflow-config') {
+      armHostWatchdog();
       vscode.postMessage({ type: 'createWorkflowConfig', payload: { profile: payload } });
       return;
     }
@@ -3418,6 +3422,7 @@
     if (action === 'workflow-stage-toggle') {
       const stage = workflowStageById(payload);
       if (stage) {
+        armHostWatchdog();
         vscode.postMessage({
           type: 'editWorkflowConfig',
           payload: { stages: [{ id: payload, enabled: !stage.enabled }] },

@@ -589,10 +589,11 @@ its rendered DOM through a window reload or an extension update; it does not bri
 registered `onDidReceiveMessage`. Such a panel comes back looking healthy and is inert — hover works,
 moving between its pages works because that is local, nothing throws — while every message it posts
 lands nowhere. The Project Dashboard closes that two ways: `commands.ts` registers a
-`WebviewPanelSerializer` for `PROJECT_DASHBOARD_VIEW_TYPE` so a restored panel is re-attached to a
+`WebviewPanelSerializer` for `PROJECT_DASHBOARD_VIEW_TYPE`, paired with the manifest's matching
+`onWebviewPanel:atlasmind.projectDashboard` activation event, so a restored panel is re-attached to a
 live host (re-applying `webview.options`, which a restored panel does not keep, and reading nothing out
 of the restored webview, since the snapshot is rebuilt from the workspace anyway); and the webview arms
-a watchdog on any request the host must answer, so silence is rendered as silence rather than as a
+a watchdog on refreshes and Workflow setting/configuration actions, so silence is rendered as silence rather than as a
 spinner that never stops. Any inbound message counts as proof of life, not only a final result.
 
 Project Dashboard Atlas actions have one host-owned dispatch boundary. The browser posts only its existing
