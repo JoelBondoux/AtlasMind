@@ -6,6 +6,12 @@ The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/),
 
 ## [Unreleased]
 
+## [0.504.5] - 2026-10-18
+
+### Documentation
+
+- The README's published baseline now names v0.504.4, the release just published to the Marketplace.
+
 ## [0.504.4] - 2026-10-18
 
 ### Security
