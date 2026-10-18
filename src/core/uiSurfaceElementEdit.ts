@@ -63,6 +63,7 @@ import type { WireframeElementKind } from '../types.js';
 import {
   findHtmlSourceElement,
   HTML_VOID_ELEMENTS,
+  isOnlyWhitespaceAndComments,
   type HtmlSourceAttribute,
   type HtmlSourceDocument,
   type HtmlSourceElement,
@@ -703,7 +704,7 @@ function planMove(doc: HtmlSourceDocument, edit: Extract<HtmlElementEdit, { kind
   }
   const [first, second] = edit.direction === 'up' ? [other, element] : [element, other];
   const between = doc.text.slice(first.end, second.start);
-  if (!/^(?:\s|<!--[\s\S]*?-->)*$/.test(between)) {
+  if (!isOnlyWhitespaceAndComments(between)) {
     return refuse('adjacent-sibling', `Text sits between ${tagLabel(first)} and ${tagLabel(second)}; moving one past the other would reorder it. Move it in the editor.`, element.line);
   }
   const replacement = doc.text.slice(second.start, second.end) + between + doc.text.slice(first.start, first.end);

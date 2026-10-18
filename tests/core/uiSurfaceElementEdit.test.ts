@@ -324,6 +324,19 @@ describe('removing and moving', () => {
     expect(planHtmlElementEdit(doc, { kind: 'remove', elementId: element(doc, 'body').element.id })).toMatchObject({ rule: 'structure-kept' });
     expect(planHtmlElementEdit(doc, { kind: 'remove', elementId: element(doc, 'li').element.id })).toMatchObject({ rule: 'written-end' });
   });
+
+  it('reads a comment as ending at its first -->, so text after it is text and the move is refused', () => {
+    const doc = parseHtmlSource('<div><p>a</p><!-- c --> x --><p>b</p></div>');
+    expect(planHtmlElementEdit(doc, { kind: 'move', elementId: element(doc, 'p', 1).element.id, direction: 'up' })).toMatchObject({ rule: 'adjacent-sibling' });
+  });
+
+  it('stays linear when the gap between two siblings is the input that made the old regex backtrack', () => {
+    const doc = parseHtmlSource(`<div><p>a</p><!--${'--><!--'.repeat(20_000)}--> x <p>b</p></div>`);
+    const started = Date.now();
+    const plan = planHtmlElementEdit(doc, { kind: 'move', elementId: element(doc, 'p', 1).element.id, direction: 'up' });
+    expect(Date.now() - started).toBeLessThan(2000);
+    expect(plan).toMatchObject({ rule: 'adjacent-sibling' });
+  });
 });
 
 describe('divergence', () => {

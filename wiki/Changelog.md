@@ -19,6 +19,16 @@ Older entries below describe the software as it was at the time and are delibera
 
 ---
 
+## v0.504.4 -- A crafted HTML page cannot freeze the editor
+
+UI Studio steps over the comments at the top of a page to find its doctype, and checks what sits between two
+elements before moving one. Three places did that with a pattern that took exponentially longer on a run of
+`<!--` and `--><!--`, so a page of a few hundred bytes could stall VS Code on opening it. They now share the
+linear scan AtlasMind's HTML parser already used, which also reads a comment as ending where a browser ends
+it. The edit page now leaves out every `data:` link that is not a plain image (SVG, XHTML and XML can carry
+script), and a sandbox report no longer breaks its table on a Windows path. CodeQL raised all of these on the
+0.504.3 release.
+
 ## v0.504.3 -- The secret scan is green again
 
 Three test values added in 0.503.0 looked like API keys to CI's secret scanner. Each was checked: they

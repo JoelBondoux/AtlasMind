@@ -36,7 +36,7 @@
  */
 
 import { decodeHtmlText, htmlInsertionPoints } from './uiSurfaceElementEdit.js';
-import { HTML_ELEMENT_ID_PATTERN, type HtmlSourceDocument } from './htmlSourceMap.js';
+import { HTML_ELEMENT_ID_PATTERN, leadingDoctypeEnd, type HtmlSourceDocument } from './htmlSourceMap.js';
 import { UI_SURFACE_RENDER_FALLBACK, UI_SURFACE_RENDER_RULES } from './uiSurfaceRender.js';
 
 // ── What can be edited, by render rule ────────────────────────────
@@ -131,11 +131,25 @@ const URL_ATTRIBUTES: ReadonlySet<string> = new Set([
   'href', 'src', 'action', 'formaction', 'xlink:href', 'poster', 'data', 'background', 'cite', 'longdesc', 'ping',
 ]);
 
-/** Whether a URL attribute value would run script if followed. Decoded as the browser decodes it. */
+/**
+ * The `data:` media types an edit page keeps: raster images, which are pixels and nothing
+ * else. SVG is absent on purpose — it is a document that can carry script.
+ */
+const RASTER_DATA_URL = /^data:image\/(?:png|gif|jpeg|jpg|webp|avif|bmp|x-icon|vnd\.microsoft\.icon)[;,]/;
+
+/**
+ * Whether a URL attribute value could run script if followed. Decoded as the browser
+ * decodes it. A `data:` URL is refused unless it is a raster image: naming the one
+ * dangerous type (`data:text/html`) left every other one a page can be served as —
+ * `application/xhtml+xml`, `image/svg+xml`, `text/xml` — open, and the policy is the
+ * second line here, not the first.
+ */
 function isScriptUrl(raw: string): boolean {
   const decoded = decodeHtmlText(raw);
   const value = (decoded.status === 'decoded' ? decoded.text : raw).replace(/[\u0000- ]/g, '').toLowerCase();
-  return value.startsWith('javascript:') || value.startsWith('vbscript:') || value.startsWith('data:text/html');
+  return value.startsWith('javascript:')
+    || value.startsWith('vbscript:')
+    || (value.startsWith('data:') && !RASTER_DATA_URL.test(value));
 }
 
 export interface EditableSurfaceDocument {
@@ -236,9 +250,9 @@ export function buildEditableSurfaceDocument(input: {
   const head = `<meta http-equiv="Content-Security-Policy" content="${escapeAttribute(buildEditableSurfaceCsp(input.cspSource, input.nonce))}">`
     + `<base href="${escapeAttribute(baseHref)}">`
     + `<script nonce="${input.nonce}">${UI_SURFACE_SELECT_SCRIPT}</script>`;
-  const doctype = /^(﻿?\s*(?:<!--[\s\S]*?-->\s*)*<!doctype[^>]*>)/i.exec(body);
+  const doctypeEnd = leadingDoctypeEnd(body);
   return {
-    html: doctype ? `${doctype[1]}${head}${body.slice(doctype[1]!.length)}` : `${head}${body}`,
+    html: doctypeEnd !== undefined ? `${body.slice(0, doctypeEnd)}${head}${body.slice(doctypeEnd)}` : `${head}${body}`,
     selectable,
     withInsertionPoints,
     removedScripts,
