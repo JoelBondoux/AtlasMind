@@ -4,7 +4,7 @@
 
 <h1 align="center">AtlasMind</h1>
 
-<p align="center"><sub> · <strong>Current source version: 0.504.4</strong> · </sub></p>
+<p align="center"><sub> · <strong>Current source version: 0.504.5</strong> · </sub></p>
 
 
 <p align="center">
@@ -178,6 +178,12 @@ important limits on overrides and compliance claims.
 
 ---
 
+## What's new in 0.504.5
+
+The last Marketplace publication is now **v0.504.4**, which carries everything since v0.482.1. That
+includes Unsloth Studio as a local runtime and the sandboxed execution work. Every release is written up
+in full in [CHANGELOG.md](CHANGELOG.md).
+
 ## What's new in 0.504.4
 
 **A crafted HTML page can no longer freeze the editor when UI Studio opens it.** Three places stepped over a
@@ -192,16 +198,7 @@ a backslash before a pipe. All raised by CodeQL on the 0.504.3 release.
 rule; they are a sandbox volume's placeholder digest, not credentials. A new `.gitleaksignore` pins exactly
 those three findings, so a real key added to the same files would still be caught. No behaviour changes.
 
-## What's new in 0.504.2
-
-**Unsloth Studio models no longer vanish from the routed list without a reason.** Studio lists every model you
-have downloaded, but with its default settings it serves only the one it has loaded. AtlasMind now reads Studio's
-**Switch model by request** setting. With it on, every downloaded model is routable and Studio loads it when asked.
-With it off, only loaded models are, and the others are listed with the reason: under *Listed but not routable* in
-the provider summary, and beside each Studio model in the local model advisor, which now reads Studio's load state
-live.
-
-Only the three newest releases are summarised here. The last Marketplace publication, **v0.482.1**, is
+Only the three newest releases are summarised here. The last Marketplace publication, **v0.504.4**, is
 the build the Marketplace serves; every release, older ones included, is written up in full in
 [CHANGELOG.md](CHANGELOG.md).
 

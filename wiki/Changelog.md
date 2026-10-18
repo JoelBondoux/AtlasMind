@@ -19,6 +19,10 @@ Older entries below describe the software as it was at the time and are delibera
 
 ---
 
+## v0.504.5 -- Published baseline refreshed
+
+The README now names v0.504.4 as the last Marketplace publication.
+
 ## v0.504.4 -- A crafted HTML page cannot freeze the editor
 
 UI Studio steps over the comments at the top of a page to find its doctype, and checks what sits between two
