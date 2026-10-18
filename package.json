@@ -2,7 +2,7 @@
   "name": "atlasmind",
   "displayName": "AtlasMind",
   "description": "AI project management for VS Code: roadmap, risk, tech debt, compliance, testing and release tracked from your own repository — with a multi-agent AI team, or the AI coding tool you already use.",
-  "version": "0.504.3",
+  "version": "0.504.4",
   "publisher": "JoelBondoux",
   "preview": false,
   "license": "SEE LICENSE IN OSMFEULA.txt",
@@ -2131,13 +2131,13 @@
           "type": "boolean",
           "default": false,
           "description": "Allow AtlasMind to ask a model to write a new skill in JavaScript and execute it when a tool it called does not exist. Off by default; every synthesis still requires explicit approval.",
-          "markdownDescription": "Allow AtlasMind to ask a model to write a new skill in JavaScript and execute it when the model calls a tool that does not exist.\n\n**This is the most consequential capability in the extension, which is why it is off.** The generated source is evaluated inside the extension host, so it runs with the editor's own privileges. The model writing it has just been shown workspace file contents, so text from a dependency's README or a fetched web page shares a context window with the code generator.\n\nWhen enabled, two things still hold: the source is scanned for forbidden constructs and refused outright on an error, and **every** synthesis asks you to review the code before it runs \u2014 not only the ones that raise a warning.\n\nExamples:\n- Normal use, including agentic workflows: `false` \u2014 author skills in the Agent Manager instead\n- Throwaway sandbox where you want the model to improvise tooling and will read each diff: `true`"
+          "markdownDescription": "Allow AtlasMind to ask a model to write a new skill in JavaScript and execute it when the model calls a tool that does not exist.\n\n**This is the most consequential capability in the extension, which is why it is off.** The generated source is evaluated inside the extension host, so it runs with the editor's own privileges. The model writing it has just been shown workspace file contents, so text from a dependency's README or a fetched web page shares a context window with the code generator.\n\nWhen enabled, two things still hold: the source is scanned for forbidden constructs and refused outright on an error, and **every** synthesis asks you to review the code before it runs — not only the ones that raise a warning.\n\nExamples:\n- Normal use, including agentic workflows: `false` — author skills in the Agent Manager instead\n- Throwaway sandbox where you want the model to improvise tooling and will read each diff: `true`"
         },
         "atlasmind.cli.addToTerminalPath": {
           "type": "boolean",
           "default": false,
           "description": "Add the AtlasMind CLI launchers to the PATH of new VS Code integrated terminals. Off by default because it persistently changes your shell environment.",
-          "markdownDescription": "Add the `atlasmind` and `atlasmind-acp` launchers to the `PATH` of new VS Code integrated terminals.\n\nOff by default. This is not a change to AtlasMind but a persistent change to your shell environment: VS Code restores it before the extension loads, so it outlives the session. Enable it if you want to run `atlasmind` from a terminal in this editor.\n\nStarting the Buzz-managed ACP agent creates the launchers regardless, because that flow cannot run without them \u2014 there you asked for it by name.\n\nExamples:\n- You use the AtlasMind CLI from the integrated terminal: `true`\n- You only use the extension UI: `false`"
+          "markdownDescription": "Add the `atlasmind` and `atlasmind-acp` launchers to the `PATH` of new VS Code integrated terminals.\n\nOff by default. This is not a change to AtlasMind but a persistent change to your shell environment: VS Code restores it before the extension loads, so it outlives the session. Enable it if you want to run `atlasmind` from a terminal in this editor.\n\nStarting the Buzz-managed ACP agent creates the launchers regardless, because that flow cannot run without them — there you asked for it by name.\n\nExamples:\n- You use the AtlasMind CLI from the integrated terminal: `true`\n- You only use the extension UI: `false`"
         },
         "atlasmind.allowTerminalWrite": {
           "type": "boolean",
@@ -2990,7 +2990,7 @@
           "scope": "application",
           "description": "Master switch for scheduled routines — a routine in project_memory/routines/ that declares a schedule (daily at HH:MM, weekly on <day> at HH:MM, every N hours) running on its own. Off by default, and switching it on runs nothing: each routine also needs your own approval of its exact steps (AtlasMind: Manage Scheduled Routines), withdrawn automatically if a step changes. Ambient, not background: routines run only while the editor is open, and a missed window is caught up once, never repeated. Each run happens in a new git worktree on a chore/scheduled-… branch, never touches your working tree, and never pushes, merges or opens a pull request; a step that would, or that installs packages, stops the run and is reported as needing you. User settings only, so a repository cannot switch it on for you."
         },
-    "atlasmind.research.enabled": {
+        "atlasmind.research.enabled": {
           "type": "boolean",
           "default": false,
           "description": "Master switch for research scans, which ask questions about the world outside this repository (competition, customers, technology, feature gaps, market, funding, regulation). Off by default: a scan reaches the network and spends on a model. Findings are recorded in project_memory/analysis/research.json, and a claim with no retrievable source is stored as a question rather than as evidence."

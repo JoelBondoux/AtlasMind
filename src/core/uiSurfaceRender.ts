@@ -69,6 +69,7 @@
  */
 
 import { createHash } from 'node:crypto';
+import { leadingDoctypeEnd } from './htmlSourceMap.js';
 import { UI_SURFACE_RULES } from './uiSurfaceScan.js';
 
 // ── The render rule table ─────────────────────────────────────────
@@ -233,9 +234,9 @@ export function buildStaticSurfaceDocument(input: { html: string; baseHref: stri
     .replace(/<meta\b[^>]*http-equiv\s*=\s*["']?refresh["']?[^>]*>/gi, '');
   // After a doctype, never before it: content ahead of the doctype switches
   // the page into quirks mode and the render would no longer be the page.
-  const doctype = /^(﻿?\s*(?:<!--[\s\S]*?-->\s*)*<!doctype[^>]*>)/i.exec(body);
-  return doctype
-    ? `${doctype[1]}${head}${body.slice(doctype[1]!.length)}`
+  const doctypeEnd = leadingDoctypeEnd(body);
+  return doctypeEnd !== undefined
+    ? `${body.slice(0, doctypeEnd)}${head}${body.slice(doctypeEnd)}`
     : `${head}${body}`;
 }
 

@@ -4,7 +4,7 @@
 
 <h1 align="center">AtlasMind</h1>
 
-<p align="center"><sub> · <strong>Current source version: 0.504.3</strong> · </sub></p>
+<p align="center"><sub> · <strong>Current source version: 0.504.4</strong> · </sub></p>
 
 
 <p align="center">
@@ -178,6 +178,14 @@ important limits on overrides and compliance claims.
 
 ---
 
+## What's new in 0.504.4
+
+**A crafted HTML page can no longer freeze the editor when UI Studio opens it.** Three places stepped over a
+page's leading comments with a regex that backtracked exponentially, so a few hundred bytes of workspace file
+could stall the extension host. They now share the linear scan the HTML parser already used. The edit page
+also leaves out every `data:` URL that is not a raster image, and a sandbox report no longer splits a cell on
+a backslash before a pipe. All raised by CodeQL on the 0.504.3 release.
+
 ## What's new in 0.504.3
 
 **CI's secret scan is green again.** Three test values added in 0.503.0 matched gitleaks' generic API-key
@@ -192,13 +200,6 @@ have downloaded, but with its default settings it serves only the one it has loa
 With it off, only loaded models are, and the others are listed with the reason: under *Listed but not routable* in
 the provider summary, and beside each Studio model in the local model advisor, which now reads Studio's load state
 live.
-
-## What's new in 0.504.1
-
-**Every open Dependabot alert is fixed, and `npm audit` reports zero.** The critical one was `proxy-addr`, which
-trusted an IPv4-mapped IPv6 address as if it were inside an IPv4 subnet. The MCP SDK moves to 1.32.1, so a
-server can no longer choose where its OAuth client sends credentials. `ip-address`, `undici`, `fast-uri`,
-`brace-expansion` and `source-map-js` move to patched releases. No behaviour changes.
 
 Only the three newest releases are summarised here. The last Marketplace publication, **v0.482.1**, is
 the build the Marketplace serves; every release, older ones included, is written up in full in

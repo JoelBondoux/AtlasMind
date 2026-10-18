@@ -1,5 +1,6 @@
 import fc from 'fast-check';
 import { describe, expect, it } from 'vitest';
+import { leadingDoctypeEnd } from '../../src/core/htmlSourceMap.ts';
 import { UI_SURFACE_RULES } from '../../src/core/uiSurfaceScan.ts';
 import {
   assessStaticSurfaceReferences,
@@ -110,10 +111,18 @@ describe('static render policy', () => {
     expect(document.match(/<base\b/g)?.length).toBe(1);
   });
 
+  it('stays linear on a page that opens with the input that made the old doctype regex backtrack', () => {
+    const html = `<!--${'--><!--'.repeat(50_000)}<p>x</p>`;
+    const started = Date.now();
+    const document = buildStaticSurfaceDocument({ html, baseHref: 'https://r/', cspSource });
+    expect(Date.now() - started).toBeLessThan(500);
+    expect(document.startsWith('<meta http-equiv="Content-Security-Policy"')).toBe(true);
+  });
+
   it('always leads with the policy, whatever the file holds', () => {
     fc.assert(fc.property(fc.string(), html => {
       const document = buildStaticSurfaceDocument({ html, baseHref: 'https://r/', cspSource });
-      const withoutDoctype = document.replace(/^﻿?\s*(?:<!--[\s\S]*?-->\s*)*<!doctype[^>]*>/i, '');
+      const withoutDoctype = document.slice(leadingDoctypeEnd(document) ?? 0);
       expect(withoutDoctype.startsWith('<meta http-equiv="Content-Security-Policy"')).toBe(true);
     }));
   });

@@ -733,7 +733,10 @@ export interface SandboxCheckReportInput {
 }
 
 function cell(value: string): string {
-  return value.replace(/\|/g, '\\|').replace(/\r?\n/g, ' ');
+  // Backslash first, or it escapes the escape: a backslash right before a pipe —
+  // engine output carrying a Windows path, say — turns the `\|` into a literal
+  // backslash and a live pipe, splitting the cell. See `markdownCell` in `debtRegister`.
+  return value.replace(/\\/g, '\\\\').replace(/\|/g, '\\|').replace(/\r?\n/g, ' ');
 }
 
 /**
