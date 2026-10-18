@@ -170,6 +170,9 @@ the official `gitleaks/gitleaks` release, verify the published SHA-256 checksum 
 gitleaks git --redact --config .gitleaks.toml .
 ```
 
+Gitleaks reads `.gitleaksignore` from the repository root by itself. That file pins individual
+findings that were read and judged synthetic, so a local run reports the same findings the hosted job does.
+
 If using the project's official container image instead, pin an exact version or digest and mount the
 checkout read-only. Do not use `latest` in a trusted runner.
 

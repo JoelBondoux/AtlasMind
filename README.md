@@ -4,7 +4,7 @@
 
 <h1 align="center">AtlasMind</h1>
 
-<p align="center"><sub> · <strong>Current source version: 0.504.2</strong> · </sub></p>
+<p align="center"><sub> · <strong>Current source version: 0.504.3</strong> · </sub></p>
 
 
 <p align="center">
@@ -178,6 +178,12 @@ important limits on overrides and compliance claims.
 
 ---
 
+## What's new in 0.504.3
+
+**CI's secret scan is green again.** Three test values added in 0.503.0 matched gitleaks' generic API-key
+rule; they are a sandbox volume's placeholder digest, not credentials. A new `.gitleaksignore` pins exactly
+those three findings, so a real key added to the same files would still be caught. No behaviour changes.
+
 ## What's new in 0.504.2
 
 **Unsloth Studio models no longer vanish from the routed list without a reason.** Studio lists every model you
@@ -193,16 +199,6 @@ live.
 trusted an IPv4-mapped IPv6 address as if it were inside an IPv4 subnet. The MCP SDK moves to 1.32.1, so a
 server can no longer choose where its OAuth client sends credentials. `ip-address`, `undici`, `fast-uri`,
 `brace-expansion` and `source-map-js` move to patched releases. No behaviour changes.
-
-## What's new in 0.504.0
-
-**Unsloth Studio is a local runtime.** **AtlasMind: Connect Unsloth Studio** checks the server really is Studio
-before asking for its API key (port 8888 is Jupyter's too), tries the key before storing it, and keeps it for that
-endpoint only. **AtlasMind: Manage Unsloth Models** shows what Studio has loaded and downloaded, lists Unsloth's
-own chat-model GGUF builds, and offers every quantisation with its size and whether it fits your GPU. It then
-loads, unloads or deletes, each step confirmed and held by dry run; a download can be cancelled. AtlasMind asks
-Studio to keep its own Python, shell and web-search tools off on every request, because anything Studio runs itself
-would bypass AtlasMind's approvals and sandbox. Start Studio with `--disable-tools` to make that a setting it cannot be talked out of.
 
 Only the three newest releases are summarised here. The last Marketplace publication, **v0.482.1**, is
 the build the Marketplace serves; every release, older ones included, is written up in full in
