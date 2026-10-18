@@ -156,8 +156,10 @@ export const NODE_DEPENDENCY_TOOLS: ReadonlySet<string> = new Set([
 
 const SHELLS: ReadonlySet<string> = new Set(['sh', 'bash', 'dash', 'zsh', 'ash']);
 
+// Every metacharacter escaped, not only the `-` today's names happen to contain:
+// a tool added later with a `.` in its name would otherwise match any character there.
 const NODE_TOOL_IN_TEXT = new RegExp(
-  `(?<![\\w./-])(?:${[...NODE_DEPENDENCY_TOOLS].map(tool => tool.replace(/[-]/g, '\\-')).join('|')})(?![\\w-])|node_modules`,
+  `(?<![\\w./-])(?:${[...NODE_DEPENDENCY_TOOLS].map(tool => tool.replace(/[.*+?^${}()|[\]\\-]/g, '\\$&')).join('|')})(?![\\w-])|node_modules`,
 );
 
 export type DependencyNeedRuleId = 'node-tooling' | 'node-modules-path' | 'shell-runs-node-tooling' | 'no-node-tooling';

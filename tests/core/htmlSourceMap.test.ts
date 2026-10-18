@@ -8,6 +8,8 @@ import {
   HTML_ELEMENT_ID_PATTERN,
   HTML_SOURCE_MAX_DEPTH,
   htmlSourceFingerprint,
+  isOnlyWhitespaceAndComments,
+  leadingDoctypeEnd,
   parseHtmlSource,
   startsWithDoctype,
   type HtmlSourceDocument,
@@ -32,7 +34,11 @@ describe('startsWithDoctype', () => {
   });
 
   it('never finds a doctype the regex it replaced would not have found', () => {
-    const legacy = /^﻿?\s*(?:<!--[\s\S]*?-->\s*)*<!doctype/i;
+    // The replaced regex was `^﻿?\s*(?:<!--[\s\S]*?-->\s*)*<!doctype`. A run of lazily
+    // matched comments accepts exactly what one greedy span does, so it is written that
+    // way here: same language, without the exponential backtracking the scan was written
+    // to remove (CodeQL flags the original even in a test).
+    const legacy = /^﻿?\s*(?:<!--[\s\S]*-->\s*)?<!doctype/i;
     const piece = fc.constantFrom('<!--', '-->', ' ', '\n', 'x', '<!doctype', '<!DOCTYPE html>', '﻿', '<p>');
     fc.assert(fc.property(fc.array(piece, { maxLength: 12 }), parts => {
       const text = parts.join('');
@@ -46,6 +52,60 @@ describe('startsWithDoctype', () => {
     const hostile = `<!--${'--><!--'.repeat(50_000)}`;
     const started = Date.now();
     expect(startsWithDoctype(hostile)).toBe(false);
+    expect(Date.now() - started).toBeLessThan(500);
+  });
+});
+
+describe('leadingDoctypeEnd', () => {
+  it.each([
+    ['<!DOCTYPE html><p>', 15],
+    ['﻿ <!-- a -->\n<!doctype html>x', 28],
+    ['<!doctype html', undefined],
+    ['<p><!doctype html>', undefined],
+    ['<!-- a --> x --> <!doctype html>', undefined],
+  ])('%j → %s', (text, expected) => {
+    expect(leadingDoctypeEnd(text)).toBe(expected);
+  });
+
+  it('ends exactly where the doctype does, and only when startsWithDoctype says there is one', () => {
+    const piece = fc.constantFrom('<!--', '-->', ' ', '\n', 'x', '<!doctype', '<!DOCTYPE html>', '>', '﻿', '<p>');
+    fc.assert(fc.property(fc.array(piece, { maxLength: 12 }), parts => {
+      const text = parts.join('');
+      const end = leadingDoctypeEnd(text);
+      if (end !== undefined) {
+        expect(startsWithDoctype(text)).toBe(true);
+        expect(text[end - 1]).toBe('>');
+        expect(text.slice(0, end).toLowerCase()).toContain('<!doctype');
+      }
+    }), { numRuns: 500 });
+  });
+
+  it('stays linear on the input that made the regex backtrack', () => {
+    const hostile = `<!--${'--><!--'.repeat(50_000)}`;
+    const started = Date.now();
+    expect(leadingDoctypeEnd(hostile)).toBeUndefined();
+    expect(Date.now() - started).toBeLessThan(500);
+  });
+});
+
+describe('isOnlyWhitespaceAndComments', () => {
+  it.each([
+    ['', true],
+    [' \n\t', true],
+    ['\n  <!-- x -->\n  ', true],
+    ['<!-- a --><!-- b -->', true],
+    [' and ', false],
+    ['<!-- never closed', false],
+    // A comment ends at its first -->, so " x " is text the browser renders.
+    ['<!-- a --> x -->', false],
+  ])('%j → %s', (text, expected) => {
+    expect(isOnlyWhitespaceAndComments(text)).toBe(expected);
+  });
+
+  it('stays linear on the input that made the regex backtrack', () => {
+    const hostile = `<!--${'--><!--'.repeat(50_000)}x`;
+    const started = Date.now();
+    expect(isOnlyWhitespaceAndComments(hostile)).toBe(false);
     expect(Date.now() - started).toBeLessThan(500);
   });
 });

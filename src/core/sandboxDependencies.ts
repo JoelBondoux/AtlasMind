@@ -1036,7 +1036,8 @@ export function renderSandboxDependencySection(state: SandboxDependencyState | u
   lines.push(
     '| Rule | Why |',
     '|---|---|',
-    ...SANDBOX_DEPENDENCY_RULES.map(rule => `| \`${rule.id}\` | ${rule.description.replace(/\|/g, '\\|')} |`),
+    // Backslash first, or it escapes the escape. See `markdownCell` in `debtRegister`.
+    ...SANDBOX_DEPENDENCY_RULES.map(rule => `| \`${rule.id}\` | ${rule.description.replace(/\\/g, '\\\\').replace(/\|/g, '\\|')} |`),
     '',
   );
   if (records.length > 0) {
