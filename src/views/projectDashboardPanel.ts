@@ -6,6 +6,7 @@ import * as fs from 'node:fs/promises';
 import { existsSync } from 'node:fs';
 import { mkdirSync, readFileSync, writeFileSync } from 'node:fs';
 import { execFile } from 'node:child_process';
+import { guardHostCommand, interceptDryRun } from '../core/dryRunHost.js';
 import { promisify } from 'node:util';
 import { createHash, randomUUID } from 'node:crypto';
 import type { AtlasMindContext } from '../extension.js';
@@ -418,7 +419,17 @@ import {
   type WorkflowConfigEdit,
   type WorkflowConfigProblem,
 } from '../core/workflowConfig.js';
-import { resolveWorkspaceScope, type WorkspaceScope } from '../core/workspaceScope.js';
+import { SsotHomeRefusalError, type SsotHomeRuleId, type WorkspaceScope } from '../core/workspaceScope.js';
+import {
+  defaultWorkspaceFolder,
+  defaultWorkspaceRootPath,
+  openWorkspaceFolders,
+  requireSsotHomeForWrite,
+  resolveScope,
+  ssotHomeRoot,
+  ssotHomeRootPath,
+  type SsotHomeRoot,
+} from '../utils/workspaceRoots.js';
 import type { ProjectComposition, ProjectComponentVcs } from '../core/projectComposition.js';
 import {
   buildReviewCommentPrompt,
@@ -526,6 +537,7 @@ import {
 } from '../core/localCiInspectionMemory.js';
 import { resolveWorkflowNodeVersion, type NodeVersionResolution } from '../core/nodeVersionDetection.js';
 import { buildTrustedLocalCiStarter } from '../core/trustedLocalCiStarter.js';
+import { lookUpLocalCiDispatcher } from '../core/localCiActorGuard.js';
 import {
   ACT_COMMAND,
   ACT_DOCS_URL,
@@ -606,6 +618,7 @@ import {
   MAX_ROADMAP_GATES,
   MVP_GATE_ID,
   ROADMAP_GATES_START,
+  assignRoadmapGateColors,
   extractItemGates,
   formatItemGateTags,
   normalizeGates,
@@ -613,11 +626,23 @@ import {
   sanitizeGateSelection,
   slugifyGateId,
   stripRoadmapGatesBlock,
+  roadmapGateColorAt,
   upsertRoadmapGatesBlock,
   type RoadmapGate,
+  type RoadmapGateColor,
 } from '../core/roadmapGates.js';
 import {
+  GATE_CANDIDATE_CAP,
+  GATE_CANDIDATE_RULES,
+  isFoundationalRoadmapWork,
+  resolveGateCandidateSelection,
+  scanRoadmapGateCandidates,
+  type GateCandidateRule,
+  type RoadmapGateCandidateReport,
+} from '../core/roadmapGateCandidates.js';
+import {
   ROADMAP_EDGE_RULES,
+  buildRoadmapCompletedOverlay,
   edgeKey,
   layoutRoadmapByAssignee,
   layoutRoadmapCompletion,
@@ -626,6 +651,7 @@ import {
   partitionRoadmapCompletion,
   resolveRoadmapGraph,
   roadmapRouteTo,
+  type RoadmapCompletedOverlay,
   type RoadmapEdge,
   type RoadmapFocus,
   type RoadmapGraphNode,
@@ -1298,6 +1324,13 @@ type ProjectDashboardMessage =
   | { type: 'scanReleaseMatrixDocuments' }
   | { type: 'applyReleaseMatrixImport'; payload: { previewId: string; selections: ReleaseDesignImportSelection[] } }
   | { type: 'deleteRoadmapGate'; payload: string }
+  /**
+   * Put items the gate scan proposed on a gate. Carries a gate id and the
+   * candidates' durable ids, nothing else: the host re-runs the scan from disk,
+   * refuses any id that is not a candidate now, and names every item in a modal
+   * before the one roadmap writer runs.
+   */
+  | { type: 'includeRoadmapGateCandidates'; payload: { gateId: string; itemIds: string[] } }
   | { type: 'refreshIssues' }
   /**
    * Read CI on its own, without the four other `gh` calls the issues refresh
@@ -2503,7 +2536,12 @@ interface DashboardRoadmapItem {
   mvpCandidate: boolean;
 }
 
-interface DashboardRoadmapGateView extends RoadmapGate {
+/**
+ * A declared gate as the webview receives it. The colour is decided here, from
+ * the declared order, and shipped — the webview draws it and never picks one,
+ * so the dot on a card, the legend and every other surface cannot disagree.
+ */
+interface DashboardRoadmapGateView extends RoadmapGate, RoadmapGateColor {
   totalCount: number;
   completedCount: number;
   progressPercent: number;
@@ -2981,6 +3019,20 @@ interface DashboardRoadmapSnapshot {
   gateRoutes: Record<string, DashboardMvpSnapshot>;
   /** The dependency canvas: what has to happen before what. */
   graph: DashboardRoadmapGraphView;
+  /**
+   * The AtlasMind gate scan: per declared gate, the backlog items that may
+   * belong on it and the rule that matched each. Computed with the snapshot, so
+   * "Find candidates" is a way of looking rather than a round trip — and the
+   * include action re-derives it from disk before anything is written.
+   */
+  gateCandidates: DashboardGateCandidatesView;
+}
+
+interface DashboardGateCandidatesView {
+  /** The declared rule table, published beside every list. */
+  rules: readonly GateCandidateRule[];
+  /** One report per declared gate, keyed by gate id. */
+  reports: Record<string, RoadmapGateCandidateReport>;
 }
 
 /**
@@ -3013,6 +3065,15 @@ interface DashboardRoadmapGraphView {
   completedColumns: Array<{ key: string; label: string }>;
   /** Delivered work still on the plan canvas because something outstanding needs it. */
   retainedIds: string[];
+  /**
+   * Where the rest of the delivered work sits when a viewer asks to see it.
+   *
+   * *Show completed* is a way of looking, so it is answered from this rather
+   * than by a round trip: plan positions for delivered work not already drawn,
+   * and a by-person arrangement that includes it. Nothing derived — critical
+   * path, routes, schedules — reads it; see `buildRoadmapCompletedOverlay`.
+   */
+  completedOverlay: RoadmapCompletedOverlay;
   edges: RoadmapEdge[];
   suggested: RoadmapEdge[];
   layers: string[][];
@@ -3335,9 +3396,26 @@ interface DashboardGapAnalysisSnapshot {
   lastRun: string | null;
 }
 
+/**
+ * Where project memory was found, for the banner a multi-root workspace needs.
+ *
+ * `notice` is composed host-side from `describeSsotHomeRefusal`, so the
+ * dashboard says exactly what the chat and the workflow file refusal say.
+ */
+interface DashboardSsotHome {
+  rule: SsotHomeRuleId;
+  /** The home folder's name; absent when there is no folder or the home is ambiguous. */
+  homeName?: string;
+  /** For an ambiguous home, the folders a person must choose between. */
+  candidates: string[];
+  /** Shown as a banner when present: why nothing is being written, and how to settle it. */
+  notice?: string;
+}
+
 interface DashboardSnapshot {
   generatedAt: string;
   ssotPresent: boolean;
+  ssotHome: DashboardSsotHome;
   workspaceName: string;
   workspaceRootLabel: string;
   repositoryLabel: string;
@@ -3646,6 +3724,11 @@ interface DashboardSnapshot {
   ideation: DashboardIdeationSnapshot;
   gapAnalysis: DashboardGapAnalysisSnapshot;
   privacy: DashboardPrivacySnapshot;
+  /**
+   * Scheduled routines' reports, for the attention band only — and only when
+   * scheduling is switched on. Absent means decided against, the research rule.
+   */
+  scheduledRoutines?: { failed: number; needsYou: number; changed: number };
   /**
    * What needs a person, gathered from the pages above onto the Overview.
    *
@@ -5484,6 +5567,17 @@ export class ProjectDashboardPanel {
   /** The tech-debt register, and whether a scan is currently running. */
   private debtManagerInstance: DebtRegisterManager | undefined;
 
+  /**
+   * The SSOT home the cached register managers below were bound to.
+   *
+   * Every one of them reads and writes project memory, so each is bound to the
+   * home `ssotHomeRoot()` locates — never to the first folder — and they are
+   * dropped together when the home moves (a folder added, an ambiguity settled
+   * by a declaration), so no manager keeps writing into the folder the home
+   * used to be while the page reads the one it is now.
+   */
+  private ssotBindingKey: string | undefined;
+
   private debtScanning = false;
 
   /**
@@ -5538,9 +5632,8 @@ export class ProjectDashboardPanel {
    * arriving through a pull must not be overwritten by a stale copy.
    */
   private get portalHosting(): PortalHostingManager {
-    this.portalHostingInstance ??= new PortalHostingManager(
-      vscode.workspace.workspaceFolders?.[0]?.uri.fsPath,
-    );
+    const home = this.ssotBinding();
+    this.portalHostingInstance ??= new PortalHostingManager(home.fsPath, home.refusal);
     this.portalHostingInstance.reload();
     return this.portalHostingInstance;
   }
@@ -5556,9 +5649,8 @@ export class ProjectDashboardPanel {
   private portalRepoVisibility: RepositoryVisibility = 'unknown';
 
   private get debtManager(): DebtRegisterManager {
-    this.debtManagerInstance ??= new DebtRegisterManager(
-      vscode.workspace.workspaceFolders?.[0]?.uri.fsPath,
-    );
+    const home = this.ssotBinding();
+    this.debtManagerInstance ??= new DebtRegisterManager(home.fsPath, home.refusal);
     return this.debtManagerInstance;
   }
 
@@ -5572,24 +5664,53 @@ export class ProjectDashboardPanel {
    * status change made against a register this panel read an hour ago.
    */
   private get defectManager(): DefectRegisterManager {
-    this.defectManagerInstance ??= new DefectRegisterManager(
-      vscode.workspace.workspaceFolders?.[0]?.uri.fsPath,
-    );
+    const home = this.ssotBinding();
+    this.defectManagerInstance ??= new DefectRegisterManager(home.fsPath, home.refusal);
     this.defectManagerInstance.reload();
     return this.defectManagerInstance;
   }
 
   private get auditLedger(): WorkflowAuditLedger {
-    this.auditLedgerInstance ??= new WorkflowAuditLedger(
-      vscode.workspace.workspaceFolders?.[0]?.uri.fsPath,
-    );
+    const home = this.ssotBinding();
+    this.auditLedgerInstance ??= new WorkflowAuditLedger(home.fsPath, home.refusal);
     return this.auditLedgerInstance;
   }
 
+  /**
+   * The SSOT home, re-located on each access, with every cached register
+   * manager dropped when it has moved since they were built.
+   *
+   * Cheap: a single-root workspace never touches the disk, and a multi-root one
+   * costs one bounded probe per folder (`ssotHomeRoot`).
+   */
+  private ssotBinding(): SsotHomeRoot {
+    const home = ssotHomeRoot();
+    const key = `${home.fsPath ?? ''}\u0000${home.refusal ?? ''}`;
+    if (key !== this.ssotBindingKey) {
+      this.ssotBindingKey = key;
+      this.portalHostingInstance = undefined;
+      this.debtManagerInstance = undefined;
+      this.defectManagerInstance = undefined;
+      this.auditLedgerInstance = undefined;
+      this.workflowConfigManager = undefined;
+      this.ciRoutingManager = undefined;
+      this.approvalManagerInstance = undefined;
+      this.testCaseManagerInstance = undefined;
+    }
+    return home;
+  }
+
+  /**
+   * The committed workflow file, read from the SSOT home rather than the first
+   * folder: in a multi-root workspace the composition lives wherever project
+   * memory does. An ambiguous home yields a manager that reads nothing, says
+   * why, and refuses to save.
+   */
   private get workflowConfig(): WorkflowConfigManager {
-    this.workflowConfigManager ??= new WorkflowConfigManager(
-      vscode.workspace.workspaceFolders?.[0]?.uri.fsPath,
-    );
+    const home = this.ssotBinding();
+    if (!this.workflowConfigManager) {
+      this.workflowConfigManager = new WorkflowConfigManager(home.fsPath, home.refusal);
+    }
     return this.workflowConfigManager;
   }
 
@@ -5688,9 +5809,8 @@ export class ProjectDashboardPanel {
   }
 
   private get ciRouting(): CiRoutingConfigManager {
-    this.ciRoutingManager ??= new CiRoutingConfigManager(
-      vscode.workspace.workspaceFolders?.[0]?.uri.fsPath,
-    );
+    const home = this.ssotBinding();
+    this.ciRoutingManager ??= new CiRoutingConfigManager(home.fsPath, home.refusal);
     return this.ciRoutingManager;
   }
 
@@ -5832,6 +5952,12 @@ export class ProjectDashboardPanel {
       // outcome worse than an error message.
       void this.handleMessage(message).catch((error: unknown) => {
         const detail = error instanceof Error ? error.message : String(error);
+        if (error instanceof SsotHomeRefusalError) {
+          // A refusal is a decision, not a failure: project memory has no single
+          // home, and the sentence says which folders and how to settle it.
+          void vscode.window.showWarningMessage(detail);
+          return;
+        }
         const kind = typeof (message as { type?: unknown } | undefined)?.type === 'string'
           ? (message as { type: string }).type
           : 'unknown';
@@ -6215,6 +6341,9 @@ export class ProjectDashboardPanel {
       case 'deleteRoadmapGate':
         await this.handleDeleteRoadmapGate(message.payload);
         return;
+      case 'includeRoadmapGateCandidates':
+        await this.handleIncludeRoadmapGateCandidates(message.payload);
+        return;
       case 'refreshIssues':
         await this.handleRefreshIssues();
         return;
@@ -6370,7 +6499,8 @@ export class ProjectDashboardPanel {
 
       case 'saveTestingConfig':
         {
-          const workspaceRoot = vscode.workspace.workspaceFolders?.[0]?.uri.fsPath;
+          // The testing matrix is project memory: the SSOT home, or a refusal.
+          const workspaceRoot = requireSsotHomeForWrite();
           if (workspaceRoot) {
             // Through the shared path, not a bare write. This toggle used to
             // persist the file alone, so turning a methodology off here left
@@ -6388,7 +6518,7 @@ export class ProjectDashboardPanel {
         return;
       case 'saveDataPrivacyConfig':
         {
-          const workspaceRoot = vscode.workspace.workspaceFolders?.[0]?.uri.fsPath;
+          const workspaceRoot = requireSsotHomeForWrite();
           if (workspaceRoot) {
             await writeDataPrivacyConfig(workspaceRoot, message.payload);
             // Apply immediately to the live policy so enforcement reflects the
@@ -6696,8 +6826,11 @@ export class ProjectDashboardPanel {
         return;
       case 'testDataPrivacy':
         {
+          // The policy is project memory (the SSOT home); the path being tested
+          // is a workspace path, relative to the first folder as before.
           const workspaceRoot = vscode.workspace.workspaceFolders?.[0]?.uri.fsPath;
-          const config = workspaceRoot ? readDataPrivacyConfig(workspaceRoot) : undefined;
+          const policyRoot = ssotHomeRootPath();
+          const config = policyRoot ? readDataPrivacyConfig(policyRoot) : undefined;
           // Force-enable a throwaway manager so the test works even while the
           // policy master switch is off in the editor.
           const tester = new DataPrivacyManager({ ...(config ?? defaultDataPrivacyConfig()), enabled: true });
@@ -6831,7 +6964,7 @@ export class ProjectDashboardPanel {
         return;
       case 'addressGap':
         {
-          const workspaceRoot = vscode.workspace.workspaceFolders?.[0]?.uri.fsPath;
+          const workspaceRoot = requireSsotHomeForWrite();
           if (!workspaceRoot || message.payload.trim().length === 0) {
             return;
           }
@@ -6967,8 +7100,13 @@ export class ProjectDashboardPanel {
   // ── Website delivery ──────────────────────────────────────────
 
   private websiteManager(): WebsiteWorkspaceManager | undefined {
-    const workspaceRoot = vscode.workspace.workspaceFolders?.[0]?.uri.fsPath;
-    return workspaceRoot ? new WebsiteWorkspaceManager(workspaceRoot) : undefined;
+    // website.json is project memory: bound to the SSOT home, refusing writes
+    // while the home is ambiguous.
+    const home = ssotHomeRoot();
+    if (home.refusal) {
+      return new WebsiteWorkspaceManager(undefined, home.refusal);
+    }
+    return home.fsPath ? new WebsiteWorkspaceManager(home.fsPath) : undefined;
   }
 
   /**
@@ -7136,7 +7274,9 @@ export class ProjectDashboardPanel {
       const ssotPath = normalizeSsotPath(
         vscode.workspace.getConfiguration('atlasmind').get<string>('ssotPath', 'project_memory'),
       );
-      const roadmap = await collectRoadmapSnapshot(workspaceRoot, ssotPath);
+      // The roadmap is project memory (the SSOT home); the branch is the first
+      // folder's, as everything else here is.
+      const roadmap = await collectRoadmapSnapshot(ssotHomeRoot().fsPath, ssotPath);
       const branchDashboard = deriveBranchDashboard({
         branches: [branch],
         ...(this.pullRequestsState === undefined ? {} : { pullRequests: this.pullRequestsState }),
@@ -7867,7 +8007,8 @@ export class ProjectDashboardPanel {
   }
 
   private async saveIdeationBoard(payload: IdeationBoardPayload): Promise<void> {
-    const workspaceRoot = vscode.workspace.workspaceFolders?.[0]?.uri.fsPath;
+    // A write of project memory: the SSOT home, or a refusal naming the candidates.
+    const workspaceRoot = requireSsotHomeForWrite();
     const ssotPath = normalizeSsotPath(vscode.workspace.getConfiguration('atlasmind').get<string>('ssotPath', 'project_memory'));
     const activeWorkspace = await loadActiveIdeationWorkspace(workspaceRoot, ssotPath);
     const stored = await loadIdeationBoard(workspaceRoot, ssotPath, activeWorkspace);
@@ -8021,7 +8162,8 @@ export class ProjectDashboardPanel {
   }
 
   private async saveRoadmap(payload: DashboardRoadmapSavePayload): Promise<void> {
-    const workspaceRoot = vscode.workspace.workspaceFolders?.[0]?.uri.fsPath;
+    // A write of project memory: the SSOT home, or a refusal naming the candidates.
+    const workspaceRoot = requireSsotHomeForWrite();
     if (!workspaceRoot) {
       return;
     }
@@ -8786,6 +8928,10 @@ export class ProjectDashboardPanel {
       return;
     }
 
+    // An organisation owns no account, so the owner condition would skip every
+    // run there; the signed-in account is pinned instead. When GitHub cannot be
+    // asked the owner condition is written, and the dialog says so.
+    const dispatcher = await lookUpLocalCiDispatcher(workspaceRoot, repoSlug);
     const outcome = buildTrustedLocalCiStarter({
       repoRemote: repoSlug,
       trustedBranch: configuration.trustedBranch,
@@ -8794,6 +8940,7 @@ export class ProjectDashboardPanel {
       packageManager: packageFacts.packageManager,
       scripts: packageFacts.scripts,
       nodeVersion: packageFacts.node.version,
+      ...(dispatcher.ok && dispatcher.ownerType === 'Organization' ? { authorizedAccount: dispatcher.account } : {}),
     });
     if (!outcome.ok) {
       void vscode.window.showWarningMessage(`AtlasMind did not write a trusted workflow. ${outcome.reason}`);
@@ -8814,6 +8961,10 @@ export class ProjectDashboardPanel {
           'What it refuses:',
           ...plan.refuses.map(line => `  • ${line}`),
           '',
+          ...(dispatcher.ok ? [] : [
+            `${dispatcher.reason} The file names the repository owner. If an organisation owns ${repoSlug}, sign in to GitHub CLI and create it again: an organisation has no owner account, so that condition would skip every run.`,
+            '',
+          ]),
           `Runner label: ${plan.runnerLabel} — this machine's architecture. A different architecture needs a different label.`,
           `Node ${packageFacts.node.version}. ${packageFacts.node.rule}`,
           `Pinned actions: ${plan.pinnedActions.map(action => `${action.name}@${action.release}`).join(', ')}`,
@@ -9889,6 +10040,14 @@ export class ProjectDashboardPanel {
    * it, because the command is still unsubmitted and still theirs to abandon.
    */
   private sendLocalCiCommandToTerminal(resolved: { command: string; workspaceRoot: string }): void {
+    if (interceptDryRun({
+      surface: 'dashboard-local-ci',
+      kind: 'terminal',
+      summary: `type \`${resolved.command.slice(0, 120)}\` into the ${LOCAL_CI_TERMINAL_NAME} terminal`,
+      details: { command: resolved.command },
+    })) {
+      return;
+    }
     let terminal = vscode.window.terminals.find(candidate => candidate.name === LOCAL_CI_TERMINAL_NAME);
     if (!terminal) {
       terminal = vscode.window.createTerminal({
@@ -10603,7 +10762,8 @@ export class ProjectDashboardPanel {
    * the page is rendering.
    */
   private async handleReconcileTestingPolicy(): Promise<void> {
-    const workspaceRoot = vscode.workspace.workspaceFolders?.[0]?.uri.fsPath;
+    // A write of project memory: the SSOT home, or a refusal naming the candidates.
+    const workspaceRoot = requireSsotHomeForWrite();
     if (!workspaceRoot) {
       return;
     }
@@ -10874,7 +11034,7 @@ export class ProjectDashboardPanel {
       );
       const composition = this.workflowConfig.getConfig()?.composition;
       const homeComponentId = composition?.components.find(component => component.home)?.id;
-      const declaredScope = await collectDashboardWorkspaceScope(composition);
+      const declaredScope = await collectDashboardWorkspaceScope(composition, this.workflowConfig.getWorkspaceRoot());
       const markerCandidates: import('../core/debtRegister.js').DebtScanCandidate[] = [];
       const scannedPaths: import('../core/debtRegister.js').DebtScannedPath[] = [];
       const scanCoverage: DebtScanScope[] = [];
@@ -11060,7 +11220,7 @@ export class ProjectDashboardPanel {
     let workspaceRoot = vscode.workspace.workspaceFolders?.[0]?.uri.fsPath;
     if (entry.componentId) {
       const composition = this.workflowConfig.getConfig()?.composition;
-      const scope = await collectDashboardWorkspaceScope(composition);
+      const scope = await collectDashboardWorkspaceScope(composition, this.workflowConfig.getWorkspaceRoot());
       workspaceRoot = scope.roots.find(root => root.componentId === entry.componentId)?.fsPath;
       if (!workspaceRoot) {
         void vscode.window.showWarningMessage(
@@ -11130,7 +11290,8 @@ export class ProjectDashboardPanel {
    * steps rather than one, because the alternative is a button that publishes.
    */
   private async handleDraftIssueFromRoadmap(payload: { itemId: string }): Promise<void> {
-    const workspaceRoot = vscode.workspace.workspaceFolders?.[0]?.uri.fsPath;
+    // Project memory: the SSOT home, never assumed to be the first folder.
+    const workspaceRoot = ssotHomeRootPath();
     const ssotPath = normalizeSsotPath(vscode.workspace.getConfiguration('atlasmind').get<string>('ssotPath', 'project_memory'));
     const roadmap = await collectRoadmapSnapshot(workspaceRoot, ssotPath);
     const item = roadmap.items.find(entry => entry.id === payload.itemId);
@@ -11228,7 +11389,8 @@ export class ProjectDashboardPanel {
     if (cardId === undefined) {
       return body;
     }
-    const workspaceRoot = vscode.workspace.workspaceFolders?.[0]?.uri.fsPath;
+    // Project memory: the SSOT home, never assumed to be the first folder.
+    const workspaceRoot = ssotHomeRootPath();
     const ssotPath = normalizeSsotPath(vscode.workspace.getConfiguration('atlasmind').get<string>('ssotPath', 'project_memory'));
     const activeWorkspace = await loadActiveIdeationWorkspace(workspaceRoot, ssotPath);
     const board = await loadIdeationBoard(workspaceRoot, ssotPath, activeWorkspace);
@@ -11773,9 +11935,8 @@ ${buildCardEvidenceSection(source, derivation)}`;
    * ago.
    */
   private get approvalManager(): ApprovalRegisterManager {
-    this.approvalManagerInstance ??= new ApprovalRegisterManager(
-      vscode.workspace.workspaceFolders?.[0]?.uri.fsPath,
-    );
+    const home = this.ssotBinding();
+    this.approvalManagerInstance ??= new ApprovalRegisterManager(home.fsPath, home.refusal);
     this.approvalManagerInstance.reload();
     return this.approvalManagerInstance;
   }
@@ -11793,10 +11954,12 @@ ${buildCardEvidenceSection(source, derivation)}`;
     if (!snapshot) {
       return new Map();
     }
+    // Tracked documents are listed in project memory and resolved against the
+    // folder that list belongs to: the SSOT home.
     return collectApprovalSubjects(
       snapshot.roadmap,
       snapshot.documents,
-      vscode.workspace.workspaceFolders?.[0]?.uri.fsPath,
+      ssotHomeRoot().fsPath,
     );
   }
 
@@ -11989,9 +12152,8 @@ ${buildCardEvidenceSection(source, derivation)}`;
 
   /** Reloaded on every access, for the reason the other two registers are. */
   private get testCaseManager(): TestCaseRegisterManager {
-    this.testCaseManagerInstance ??= new TestCaseRegisterManager(
-      vscode.workspace.workspaceFolders?.[0]?.uri.fsPath,
-    );
+    const home = this.ssotBinding();
+    this.testCaseManagerInstance ??= new TestCaseRegisterManager(home.fsPath, home.refusal);
     this.testCaseManagerInstance.reload();
     return this.testCaseManagerInstance;
   }
@@ -12279,8 +12441,9 @@ ${buildCardEvidenceSection(source, derivation)}`;
    * be putting words in their mouth in a file other people review.
    */
   private async handleCreateWorkflowConfig(payload: unknown): Promise<void> {
-    const workspaceRoot = vscode.workspace.workspaceFolders?.[0]?.uri.fsPath;
-    if (!workspaceRoot) {
+    // The file is written into the SSOT home. An ambiguous home is refused by
+    // the manager's notice just below, naming the candidates.
+    if (ssotHomeRoot().location.rule === 'no-folder') {
       void vscode.window.showWarningMessage('Open a workspace folder before declaring a workflow.');
       return;
     }
@@ -12700,7 +12863,8 @@ ${buildCardEvidenceSection(source, derivation)}`;
     filePath: string;
     document: ReleaseMatrixDocument;
   } | undefined> {
-    const workspaceRoot = vscode.workspace.workspaceFolders?.[0]?.uri.fsPath;
+    // The editions matrix is project memory: the SSOT home, or a refusal.
+    const workspaceRoot = requireSsotHomeForWrite();
     if (workspaceRoot === undefined) return undefined;
     const ssotPath = normalizeSsotPath(
       vscode.workspace.getConfiguration('atlasmind').get<string>('ssotPath', 'project_memory'),
@@ -13282,6 +13446,102 @@ ${buildCardEvidenceSection(source, derivation)}`;
     await this.writeRoadmapDocument(context, items, gates);
   }
 
+  /**
+   * Put the items the gate scan proposed on a gate.
+   *
+   * The page names a gate and some candidate ids; everything else is decided
+   * here. The scan is run again from disk through the same function the page
+   * was drawn from, and an id that is not a candidate *now* — the page was
+   * stale, or the message was crafted — is refused and named, never tagged.
+   * The modal lists every item and the exact `#tag` it gains, and the write
+   * goes through the roadmap's one writer: nothing is reworded, reordered or
+   * removed, and an item keeps every gate it already had.
+   */
+  private async handleIncludeRoadmapGateCandidates(payload: { gateId: string; itemIds: string[] }): Promise<void> {
+    const context = await this.readRoadmapDocument();
+    if (!context) {
+      return;
+    }
+    const gate = context.gates.find(entry => entry.id === payload.gateId);
+    if (!gate) {
+      void vscode.window.showWarningMessage('That release gate is no longer declared. Refresh the dashboard and scan again.');
+      return;
+    }
+    const roadmap = await collectRoadmapSnapshot(context.workspaceRoot, context.ssotPath);
+    const report = roadmap.gateCandidates.reports[gate.id];
+    if (!report) {
+      return;
+    }
+    const { accepted, refused } = resolveGateCandidateSelection(report, payload.itemIds);
+    // Positional ids from the same read the writer will use, with the text
+    // checked as well: an insert between the two reads renumbers positions, and
+    // tagging whatever now sits at `roadmap-7` would tag the wrong item.
+    const nodeToItem = new Map<string, string>();
+    for (const node of [...roadmap.graph.active, ...roadmap.graph.completed]) {
+      nodeToItem.set(node.id, node.itemId);
+    }
+    const targets = accepted
+      .map(candidate => {
+        const itemId = nodeToItem.get(candidate.id) ?? candidate.id;
+        const item = context.items.find(entry => entry.id === itemId);
+        return item !== undefined && normalizeRoadmapNodeText(item.text) === normalizeRoadmapNodeText(candidate.text)
+          ? { candidate, itemId }
+          : undefined;
+      })
+      .filter((entry): entry is { candidate: (typeof accepted)[number]; itemId: string } => entry !== undefined);
+    const stale = accepted.length - targets.length;
+
+    if (targets.length === 0) {
+      void vscode.window.showWarningMessage(
+        `None of the selected items is a candidate for ${gate.label} any more, so nothing was tagged. The roadmap may have changed since the scan was drawn — refresh and scan again.`,
+      );
+      return;
+    }
+
+    const confirmation = await vscode.window.showWarningMessage(
+      `Put ${targets.length} item${targets.length === 1 ? '' : 's'} on ${gate.label}?`,
+      {
+        modal: true,
+        detail: formatRoadmapDialogSections([
+          {
+            heading: `Add #${gate.id} to`,
+            lines: targets.map(({ candidate }) => {
+              const rule = GATE_CANDIDATE_RULES.find(entry => entry.id === candidate.leadingRule);
+              return `${candidate.text}\n(${rule?.label ?? candidate.leadingRule}: ${candidate.matches[0]?.evidence ?? ''})`;
+            }),
+          },
+          {
+            heading: 'Not included',
+            lines: [
+              ...(refused.length > 0 ? [`${refused.length} selected item${refused.length === 1 ? ' is' : 's are'} not a candidate for ${gate.label} any more and will not be tagged.`] : []),
+              ...(stale > 0 ? [`${stale} selected item${stale === 1 ? '' : 's'} changed since the scan and will not be tagged.`] : []),
+            ],
+          },
+          {
+            heading: 'Roadmap change',
+            lines: [
+              `Write ${path.relative(context.workspaceRoot, context.filePath).replace(/\\/g, '/')}`,
+              'Only the gate tag is added. No item is reworded, reordered, completed or removed, and every gate an item is already on is kept.',
+            ],
+          },
+        ]),
+      },
+      'Add to gate',
+    );
+    if (confirmation !== 'Add to gate') {
+      return;
+    }
+
+    const include = new Set(targets.map(target => target.itemId));
+    const items = context.items.map(item => (
+      include.has(item.id) && !item.gates.includes(gate.id)
+        ? { ...item, gates: [...item.gates, gate.id] }
+        : item
+    ));
+    await this.writeRoadmapDocument(context, items, context.gates);
+    void vscode.window.showInformationMessage(`${targets.length} item${targets.length === 1 ? '' : 's'} added to ${gate.label}.`);
+  }
+
   /** Read the roadmap document once, with its gates and items already parsed. */
   // ── Registers → planned work ────────────────────────────────────
 
@@ -13331,7 +13591,8 @@ ${buildCardEvidenceSection(source, derivation)}`;
       return;
     }
 
-    const workspaceRoot = vscode.workspace.workspaceFolders?.[0]?.uri.fsPath;
+    // A write of project memory: the SSOT home, or a refusal naming the candidates.
+    const workspaceRoot = requireSsotHomeForWrite();
     const ssotPath = normalizeSsotPath(vscode.workspace.getConfiguration('atlasmind').get<string>('ssotPath', 'project_memory'));
     if (workspaceRoot === undefined) {
       return;
@@ -13586,7 +13847,8 @@ ${buildCardEvidenceSection(source, derivation)}`;
    */
   private async ensureRoadmapAnchors(): Promise<void> {
     try {
-      const workspaceRoot = vscode.workspace.workspaceFolders?.[0]?.uri.fsPath;
+      // Project memory: the SSOT home, never assumed to be the first folder.
+      const workspaceRoot = ssotHomeRootPath();
       if (workspaceRoot === undefined) {
         return;
       }
@@ -13598,6 +13860,18 @@ ${buildCardEvidenceSection(source, derivation)}`;
       // sync exists to say whether the roadmap needs anchoring.
       const roadmap = await collectRoadmapSnapshot(workspaceRoot, ssotPath);
       if (roadmap.items.length === 0 || roadmap.graph.anchored) {
+        return;
+      }
+      // Load-time, so nobody asked for it: a dry run records it and leaves the
+      // backlog as it is. The first change anchors it instead, which is the
+      // path this one was added to get ahead of.
+      if (interceptDryRun({
+        surface: 'roadmap-anchors',
+        kind: 'auto-write',
+        summary: `anchor ${roadmap.items.length} roadmap item${roadmap.items.length === 1 ? '' : 's'} in improvement-plan.md`,
+        details: { items: roadmap.items.length },
+        userInitiated: false,
+      })) {
         return;
       }
       // Writes the anchors as its ordinary first step; nothing else is saved.
@@ -13621,6 +13895,12 @@ ${buildCardEvidenceSection(source, derivation)}`;
    * missing source entries remain untouched.
    */
   private async ensureRoadmapSynchronization(): Promise<void> {
+    // Automatic, on open: an ambiguous home writes nothing here and the page's
+    // banner already says why — throwing would stall every handler queued
+    // behind this promise.
+    if (ssotHomeRoot().refusal) {
+      return;
+    }
     const context = await this.readRoadmapDocument();
     if (context === undefined) {
       return;
@@ -13774,7 +14054,8 @@ ${buildCardEvidenceSection(source, derivation)}`;
    * full sync when there is nothing yet to patch, or when the patch fails.
    */
   private async syncRoadmapState(): Promise<void> {
-    const workspaceRoot = vscode.workspace.workspaceFolders?.[0]?.uri.fsPath;
+    // Project memory: the SSOT home, never assumed to be the first folder.
+    const workspaceRoot = ssotHomeRootPath();
     if (this.lastSnapshot === undefined || workspaceRoot === undefined) {
       await this.syncState();
       return;
@@ -15027,7 +15308,8 @@ ${buildCardEvidenceSection(source, derivation)}`;
     gates: RoadmapGate[];
     items: Array<{ id: string; text: string; completed: boolean; gates: string[]; nodeId?: string }>;
   } | undefined> {
-    const workspaceRoot = vscode.workspace.workspaceFolders?.[0]?.uri.fsPath;
+    // A write of project memory: the SSOT home, or a refusal naming the candidates.
+    const workspaceRoot = requireSsotHomeForWrite();
     if (!workspaceRoot) {
       return undefined;
     }
@@ -15063,7 +15345,8 @@ ${buildCardEvidenceSection(source, derivation)}`;
     }
 
     const configuration = vscode.workspace.getConfiguration('atlasmind');
-    const workspaceRoot = vscode.workspace.workspaceFolders?.[0]?.uri.fsPath;
+    // A write of project memory: the SSOT home, or a refusal naming the candidates.
+    const workspaceRoot = requireSsotHomeForWrite();
     const ssotPath = normalizeSsotPath(configuration.get<string>('ssotPath', 'project_memory'));
     const activeWorkspace = await loadActiveIdeationWorkspace(workspaceRoot, ssotPath);
     const board = await loadIdeationBoard(workspaceRoot, ssotPath, activeWorkspace);
@@ -15159,7 +15442,8 @@ ${buildCardEvidenceSection(source, derivation)}`;
   }
 
   private async openIdeationPromptInChat(prompt: string): Promise<void> {
-    const workspaceRoot = vscode.workspace.workspaceFolders?.[0]?.uri.fsPath;
+    // Project memory: the SSOT home, never assumed to be the first folder.
+    const workspaceRoot = ssotHomeRootPath();
     const ssotPath = normalizeSsotPath(vscode.workspace.getConfiguration('atlasmind').get<string>('ssotPath', 'project_memory'));
     const activeWorkspace = await loadActiveIdeationWorkspace(workspaceRoot, ssotPath);
     const board = await loadIdeationBoard(workspaceRoot, ssotPath, activeWorkspace);
@@ -15186,7 +15470,8 @@ ${buildCardEvidenceSection(source, derivation)}`;
    * the user marks the pipeline reviewed and (implicitly) when they save edits.
    */
   private async storeDeliveryReviewBaseline(): Promise<void> {
-    const workspaceRoot = vscode.workspace.workspaceFolders?.[0]?.uri.fsPath;
+    // Reviewed against the pipeline the page drew: the SSOT home's.
+    const workspaceRoot = ssotHomeRootPath();
     const config = this.atlas.deliveryManager?.getConfig();
     if (!workspaceRoot || !config) {
       return;
@@ -15208,7 +15493,8 @@ ${buildCardEvidenceSection(source, derivation)}`;
    * to refresh an already-seeded project after its real protocol has moved on.
    */
   private async handleReimportDelivery(): Promise<void> {
-    const workspaceRoot = vscode.workspace.workspaceFolders?.[0]?.uri.fsPath;
+    // Re-seeds delivery.json, which is project memory: the SSOT home, or a refusal.
+    const workspaceRoot = requireSsotHomeForWrite();
     if (!workspaceRoot || !this.atlas.deliveryManager) {
       return;
     }
@@ -15294,7 +15580,8 @@ ${buildCardEvidenceSection(source, derivation)}`;
    * of the policy silently.
    */
   private async enableGdprPiiPack(): Promise<{ policyTurnedOn: boolean }> {
-    const workspaceRoot = vscode.workspace.workspaceFolders?.[0]?.uri.fsPath;
+    // A write of project memory: the SSOT home, or a refusal naming the candidates.
+    const workspaceRoot = requireSsotHomeForWrite();
     if (!workspaceRoot) {
       return { policyTurnedOn: false };
     }
@@ -15428,7 +15715,8 @@ ${buildCardEvidenceSection(source, derivation)}`;
 
   /** Re-seed the roster from repository signals (git users, CODEOWNERS, package author, website intake). */
   private async handleSeedDirector(): Promise<void> {
-    const workspaceRoot = vscode.workspace.workspaceFolders?.[0]?.uri.fsPath;
+    // A write of project memory: the SSOT home, or a refusal naming the candidates.
+    const workspaceRoot = requireSsotHomeForWrite();
     if (!workspaceRoot || !this.atlas.projectDirectorManager) {
       return;
     }
@@ -15504,7 +15792,9 @@ ${buildCardEvidenceSection(source, derivation)}`;
    * user is told what was created so a filing decision never happens invisibly.
    */
   private async ensureShelfFolders(relPaths: string[]): Promise<void> {
-    const workspaceRoot = vscode.workspace.workspaceFolders?.[0]?.uri.fsPath;
+    // The shelves are declared in documents.json and live in the repository that
+    // holds it: the SSOT home.
+    const workspaceRoot = requireSsotHomeForWrite();
     if (!workspaceRoot || relPaths.length === 0) {
       return;
     }
@@ -15520,7 +15810,8 @@ ${buildCardEvidenceSection(source, derivation)}`;
   }
 
   private async handleSeedDocuments(): Promise<void> {
-    const workspaceRoot = vscode.workspace.workspaceFolders?.[0]?.uri.fsPath;
+    // Seeds documents.json (project memory) from the home repository's own files.
+    const workspaceRoot = requireSsotHomeForWrite();
     if (!workspaceRoot || !this.atlas.documentsManager) {
       return;
     }
@@ -15547,7 +15838,8 @@ ${buildCardEvidenceSection(source, derivation)}`;
    * surprising cost spike from one click, and sequential progress is legible.
    */
   private async handleRunRiskAnalysis(domain: RiskDomain | 'all'): Promise<void> {
-    const workspaceRoot = vscode.workspace.workspaceFolders?.[0]?.uri.fsPath;
+    // A write of project memory: the SSOT home, or a refusal naming the candidates.
+    const workspaceRoot = requireSsotHomeForWrite();
     if (!workspaceRoot || !this.atlas.riskOversightManager) {
       return;
     }
@@ -15648,7 +15940,8 @@ ${buildCardEvidenceSection(source, derivation)}`;
     register: ComplianceRegimeRegister;
     readOnly: boolean;
   } | undefined {
-    const workspaceRoot = vscode.workspace.workspaceFolders?.[0]?.uri.fsPath;
+    // Project memory: the SSOT home, never assumed to be the first folder.
+    const workspaceRoot = ssotHomeRootPath();
     const catalog = complianceCatalogFor(regimeId);
     if (!workspaceRoot || !catalog) {
       return undefined;
@@ -16316,7 +16609,8 @@ ${buildCardEvidenceSection(source, derivation)}`;
   }
 
   private async handleOpenComplianceEvidence(payload: { evidenceId: string }): Promise<void> {
-    const workspaceRoot = vscode.workspace.workspaceFolders?.[0]?.uri.fsPath;
+    // Project memory: the SSOT home, never assumed to be the first folder.
+    const workspaceRoot = ssotHomeRootPath();
     if (!workspaceRoot) {
       return;
     }
@@ -16350,7 +16644,8 @@ ${buildCardEvidenceSection(source, derivation)}`;
   }
 
   private async handleRenewComplianceEvidence(payload: { evidenceId: string }): Promise<void> {
-    const workspaceRoot = vscode.workspace.workspaceFolders?.[0]?.uri.fsPath;
+    // A write of project memory: the SSOT home, or a refusal naming the candidates.
+    const workspaceRoot = requireSsotHomeForWrite();
     if (!workspaceRoot) {
       return;
     }
@@ -16437,7 +16732,8 @@ ${buildCardEvidenceSection(source, derivation)}`;
 
   /** Create-only, then open. A notes file that exists is never rewritten. */
   private async handleOpenComplianceNotes(payload: { regimeId: string }): Promise<void> {
-    const workspaceRoot = vscode.workspace.workspaceFolders?.[0]?.uri.fsPath;
+    // The notes live in project memory: created in the SSOT home, or refused.
+    const workspaceRoot = requireSsotHomeForWrite();
     const catalog = complianceCatalogFor(payload.regimeId as TestingMethodologyId);
     if (!workspaceRoot || !catalog) {
       return;
@@ -16466,7 +16762,8 @@ ${buildCardEvidenceSection(source, derivation)}`;
   }
 
   private async handleSetRiskFindingStatus(payload: { findingId: string; status: RiskStatus; note?: string }): Promise<void> {
-    const workspaceRoot = vscode.workspace.workspaceFolders?.[0]?.uri.fsPath;
+    // Project memory: the SSOT home, never assumed to be the first folder.
+    const workspaceRoot = ssotHomeRootPath();
     const manager = this.atlas.riskOversightManager;
     const config = manager?.getConfig();
     if (!manager || !config) {
@@ -16515,7 +16812,9 @@ ${buildCardEvidenceSection(source, derivation)}`;
   private async resolveDeliveryGuide(
     options: { includeWorkingTree?: boolean } = {},
   ): Promise<{ runbooks: DeliveryStageRunbookSet; workspaceRoot: string } | undefined> {
-    const workspaceRoot = vscode.workspace.workspaceFolders?.[0]?.uri.fsPath;
+    // Rebuilt from the same root the page drew it from — the SSOT home when there
+    // is one — so an id posted by the page resolves to the command it showed.
+    const workspaceRoot = ssotHomeRoot().fsPath ?? defaultWorkspaceRootPath();
     if (!workspaceRoot) {
       return undefined;
     }
@@ -16661,6 +16960,14 @@ ${buildCardEvidenceSection(source, derivation)}`;
       vscode.window.setStatusBarMessage('AtlasMind: that runbook step changed — refresh the Delivery page.', 4000);
       return;
     }
+    if (interceptDryRun({
+      surface: 'delivery-terminal',
+      kind: 'terminal',
+      summary: `type \`${resolved.command.slice(0, 120)}\` into the ${DELIVERY_RUN_TERMINAL_NAME} terminal`,
+      details: { command: resolved.command },
+    })) {
+      return;
+    }
     const terminal = this.getOrCreateDeliveryTerminal(resolved.workspaceRoot);
     terminal.show();
     terminal.sendText(resolved.command, false);
@@ -16714,6 +17021,17 @@ ${buildCardEvidenceSection(source, derivation)}`;
       return;
     }
 
+    // A dry run records the column instead of running it. After the dialog,
+    // because the dialog is the preview: it lists every command the record holds.
+    if (interceptDryRun({
+      surface: 'delivery-run-plan',
+      kind: 'terminal',
+      summary: `run the ${plan.phaseLabel} column${plan.stageLabel ? ` for ${plan.stageLabel}` : ''} (${plan.commands.length} command${plan.commands.length === 1 ? '' : 's'})`,
+      details: { lines: [...plan.lines] },
+      wouldHaveAsked: true,
+    })) {
+      return;
+    }
     const terminal = this.getOrCreateDeliveryTerminal(resolved.workspaceRoot);
     terminal.show(true);
     for (const line of plan.lines) {
@@ -17254,10 +17572,23 @@ ${buildCardEvidenceSection(source, derivation)}`;
       void vscode.window.showErrorMessage(`Connector tool "${capability.toolName}" is unavailable. Reconnect the server from MCP Servers.`);
       return;
     }
+    // After the authorization dialog, which is the preview: it names the
+    // recipient and the body the record holds. Nothing is sent and nothing is
+    // written to the Director's outbound history, because nothing went out.
+    if (interceptDryRun({
+      surface: 'director',
+      kind: 'message',
+      summary: `send the ${intent} to ${contact.name} through ${capability.serverName}`,
+      details: { connector: capability.serverName, tool: capability.toolName, recipient: contact.name, subject: draft.subject ?? null },
+      wouldHaveAsked: true,
+    })) {
+      return;
+    }
     try {
       await skill.execute(args, this.atlas.skillContext);
       void vscode.window.showInformationMessage(`Sent ${intent} to ${contact.name} via ${capability.serverName}.`);
-      const workspaceRoot = vscode.workspace.workspaceFolders?.[0]?.uri.fsPath;
+      // Project memory: the SSOT home, never assumed to be the first folder.
+      const workspaceRoot = ssotHomeRootPath();
       if (workspaceRoot) {
         await appendProjectDirectorHistory(workspaceRoot, {
           id: `out-${skillId}-${new Date().toISOString()}`,
@@ -17291,7 +17622,8 @@ ${buildCardEvidenceSection(source, derivation)}`;
   }
 
   private async handlePromotionPlanRequest(pathId: string, mode: 'execute' | 'runbook'): Promise<void> {
-    const workspaceRoot = vscode.workspace.workspaceFolders?.[0]?.uri.fsPath;
+    // The pipeline being planned is project memory: the SSOT home, as the run uses.
+    const workspaceRoot = requireSsotHomeForWrite();
     const config = this.atlas.deliveryManager.getConfig();
     if (!workspaceRoot || !config) {
       await this.postMessage({ type: 'promotionError', payload: 'No delivery pipeline is available.' });
@@ -17332,7 +17664,10 @@ ${buildCardEvidenceSection(source, derivation)}`;
   }
 
   private async handleRunPromotion(payload: { pathId: string; attestations: string[]; confirmText: string }): Promise<void> {
-    const workspaceRoot = vscode.workspace.workspaceFolders?.[0]?.uri.fsPath;
+    // The pipeline, its routines, the lock and the history are all project
+    // memory, so the promotion runs in the SSOT home — the repository whose
+    // branches delivery.json describes — or is refused when that is ambiguous.
+    const workspaceRoot = requireSsotHomeForWrite();
     const config = this.atlas.deliveryManager.getConfig();
     if (!workspaceRoot || !config) {
       await this.postMessage({ type: 'promotionError', payload: 'No delivery pipeline is available.' });
@@ -17393,6 +17728,12 @@ ${buildCardEvidenceSection(source, derivation)}`;
         routine,
         onProgress: update => { void this.postMessage({ type: 'promotionProgress', payload: update }); },
       });
+      if (result.dryRun) {
+        // Nothing ran, so nothing is recorded as having shipped: the path's
+        // last promotion and the audit history describe deployments.
+        await this.postMessage({ type: 'promotionDone', payload: result });
+        return;
+      }
       // Record the outcome on the path and persist (updates delivery.json + delivery.md).
       const updated: DeliveryConfig = {
         ...config,
@@ -17430,7 +17771,10 @@ ${buildCardEvidenceSection(source, derivation)}`;
    * the edit/commit and the promotion are atomic with respect to other runs.
    */
   private async handleResolveAndRunPromotion(payload: { pathId: string; attestations: string[]; confirmText: string }): Promise<void> {
-    const workspaceRoot = vscode.workspace.workspaceFolders?.[0]?.uri.fsPath;
+    // The pipeline, its routines, the lock and the history are all project
+    // memory, so the promotion runs in the SSOT home — the repository whose
+    // branches delivery.json describes — or is refused when that is ambiguous.
+    const workspaceRoot = requireSsotHomeForWrite();
     const config = this.atlas.deliveryManager.getConfig();
     if (!workspaceRoot || !config) {
       await this.postMessage({ type: 'promotionError', payload: 'No delivery pipeline is available.' });
@@ -17477,6 +17821,11 @@ ${buildCardEvidenceSection(source, derivation)}`;
     try {
       await this.postMessage({ type: 'promotionProgress', payload: { stepId: 'resolve', label: 'Resolve preflight', index: 0, total: 0, status: 'running' } });
       const applied = await applyPromotionRemediation(workspaceRoot, plan.remediation);
+      if (applied.dryRun) {
+        await this.postMessage({ type: 'promotionProgress', payload: { stepId: 'resolve', label: 'Resolve preflight', index: 0, total: 0, status: 'skipped', output: applied.output } });
+        await this.postMessage({ type: 'promotionError', payload: applied.output });
+        return;
+      }
       await this.postMessage({ type: 'promotionProgress', payload: { stepId: 'resolve', label: 'Resolve preflight', index: 0, total: 0, status: applied.ok ? 'done' : 'failed', output: applied.output } });
       if (!applied.ok) {
         await this.postMessage({ type: 'promotionError', payload: `Could not auto-resolve the failing checks: ${applied.output}` });
@@ -17537,7 +17886,10 @@ ${buildCardEvidenceSection(source, derivation)}`;
    * (protected stages require the typed stage name). Records an audit entry.
    */
   private async handleRollbackStage(payload: { stageId: string; confirmText: string }): Promise<void> {
-    const workspaceRoot = vscode.workspace.workspaceFolders?.[0]?.uri.fsPath;
+    // The pipeline, its routines, the lock and the history are all project
+    // memory, so the promotion runs in the SSOT home — the repository whose
+    // branches delivery.json describes — or is refused when that is ambiguous.
+    const workspaceRoot = requireSsotHomeForWrite();
     const config = this.atlas.deliveryManager?.getConfig();
     if (!workspaceRoot || !config) {
       await this.postMessage({ type: 'rollbackResult', payload: { ok: false, summary: 'No delivery pipeline is available.' } });
@@ -17563,6 +17915,10 @@ ${buildCardEvidenceSection(source, derivation)}`;
     }
     try {
       const result = await runRollback(workspaceRoot, command);
+      if (result.dryRun) {
+        await this.postMessage({ type: 'rollbackResult', payload: { ok: false, summary: result.output } });
+        return;
+      }
       await appendPromotionHistory(workspaceRoot, {
         id: `rollback-${Date.now()}`,
         kind: 'rollback',
@@ -18338,6 +18694,10 @@ export function isProjectDashboardMessage(message: unknown): message is ProjectD
     return typeof candidate['payload'] === 'string' && slugifyGateId(candidate['payload']).length > 0;
   }
 
+  if (candidate['type'] === 'includeRoadmapGateCandidates') {
+    return isGateCandidateIncludePayload(candidate['payload']);
+  }
+
   if ((candidate['type'] === 'openCommand' || candidate['type'] === 'openSettingKey' || candidate['type'] === 'openFile' || candidate['type'] === 'openRun' || candidate['type'] === 'openRunWithGoal' || candidate['type'] === 'openSession' || candidate['type'] === 'addressGap' || candidate['type'] === 'resolveGapItem' || candidate['type'] === 'resolveGapGroup' || candidate['type'] === 'openGapFiles' || candidate['type'] === 'copyContact' || candidate['type'] === 'copyDeliveryCommand' || candidate['type'] === 'sendDeliveryCommandToTerminal' || candidate['type'] === 'runDeliveryGuidePhase' || candidate['type'] === 'discussDeliveryGuideStep' || candidate['type'] === 'discussArtifactSignal' || candidate['type'] === 'createShelfFolder') && typeof candidate['payload'] === 'string') {
     return candidate['payload'].trim().length > 0;
   }
@@ -18618,6 +18978,28 @@ function isDataPrivacyConfigPayload(payload: unknown): payload is import('../typ
   return (p['rules'] as unknown[]).every(validRule)
     && (p['compliancePacks'] as unknown[]).every(id => typeof id === 'string')
     && (p['trustedModelIds'] as unknown[]).every(id => typeof id === 'string');
+}
+
+/**
+ * A gate id and a short list of item ids — the whole of what the page may say.
+ *
+ * Validated, never cleaned: an id with a character a graph id cannot hold is
+ * refused rather than trimmed into one that might name a different item. The
+ * cap is the scan's own, doubled for slack; a page cannot have offered more.
+ */
+function isGateCandidateIncludePayload(payload: unknown): payload is { gateId: string; itemIds: string[] } {
+  if (typeof payload !== 'object' || payload === null || Array.isArray(payload)) {
+    return false;
+  }
+  const record = payload as Record<string, unknown>;
+  const gateId = record['gateId'];
+  const itemIds = record['itemIds'];
+  return typeof gateId === 'string'
+    && slugifyGateId(gateId) === gateId
+    && Array.isArray(itemIds)
+    && itemIds.length > 0
+    && itemIds.length <= GATE_CANDIDATE_CAP * 2
+    && itemIds.every(id => typeof id === 'string' && /^[a-z0-9][a-z0-9-]{0,79}$/i.test(id));
 }
 
 function isDashboardRoadmapSavePayload(payload: unknown): payload is DashboardRoadmapSavePayload {
@@ -19233,6 +19615,8 @@ function buildReleaseSnapshot(input: {
    * must stay distinguishable from "we checked and it was fine".
    */
   testingCoverage?: TestingPolicyCoverage;
+  /** Why the testing matrix could not be read; the gate is then `unknown`, never a pass. */
+  testingPolicyUnreadable?: string;
   loadedAt?: string;
   loadFailure?: string;
   /** The project's declared versioning policy. Absent means undeclared. */
@@ -19261,6 +19645,7 @@ function buildReleaseSnapshot(input: {
     commitSubjects: input.commitSubjects,
     workingTreeClean: input.workingTreeClean,
     ...(input.ciConclusion === undefined ? {} : { ciConclusion: input.ciConclusion }),
+    ...(input.testingPolicyUnreadable === undefined ? {} : { testingPolicyUnreadable: input.testingPolicyUnreadable }),
     // Practices are excluded, matching `testingPolicyCoverage`, which never
     // counts them as gaps: refusing a release because Exploratory Testing left
     // no file would be a gate nobody could ever satisfy.
@@ -19508,24 +19893,44 @@ export function parseGhReleaseList(raw: string): MetricReleaseInput[] {
   return out;
 }
 
-/** Resolve the declaration once so every migrated surface sees the same roots. */
-async function collectDashboardWorkspaceScope(composition?: ProjectComposition): Promise<WorkspaceScope> {
-  const folders = await Promise.all((vscode.workspace.workspaceFolders ?? []).map(async folder => {
-    const supportedScheme = folder.uri.scheme === 'file' || folder.uri.scheme === 'vscode-remote';
-    const readable = supportedScheme
-      ? await fs.access(folder.uri.fsPath).then(() => true).catch(() => false)
-      : false;
+/**
+ * Resolve the declaration once so every migrated surface sees the same roots.
+ *
+ * `anchorFsPath` is the folder the composition was read from — the SSOT home —
+ * so a component at `.` resolves to that folder rather than to whichever one
+ * VS Code lists first.
+ */
+async function collectDashboardWorkspaceScope(
+  composition?: ProjectComposition,
+  anchorFsPath?: string,
+): Promise<WorkspaceScope> {
+  // The folder probe lives in the adapter now, so this surface and every later
+  // one resolve the same folders the same way.
+  const options = anchorFsPath === undefined ? {} : { anchorFsPath };
+  return resolveScope(composition, composition ? { kind: 'all' } : { kind: 'default' }, options);
+}
+
+/**
+ * The snapshot's account of the SSOT home. Only an ambiguous home carries a
+ * notice: a located one is a fact worth no banner, and a single folder is the
+ * home by definition.
+ */
+function describeDashboardSsotHome(home: SsotHomeRoot, firstFolderName: string | undefined): DashboardSsotHome {
+  const candidates = home.location.candidates.map(folder => folder.name);
+  if (!home.refusal) {
     return {
-      name: folder.name,
-      fsPath: folder.uri.fsPath,
-      readable,
+      rule: home.location.rule,
+      ...(home.folder ? { homeName: home.folder.name } : {}),
+      candidates,
     };
-  }));
-  return resolveWorkspaceScope(
-    folders,
-    composition,
-    composition ? { kind: 'all' } : { kind: 'default' },
-  );
+  }
+  // Project-memory sections are left empty rather than filled from a folder
+  // picked for being first; repository facts (git, CI, files) still come from
+  // the first folder, and the banner says so, so neither reads as the other.
+  const shown = firstFolderName
+    ? ` Until then the sections built from project memory are left empty rather than filled from one candidate; git, CI and file facts on these pages are read from "${firstFolderName}", the first folder VS Code lists.`
+    : ' Until then the sections built from project memory are left empty rather than filled from one candidate.';
+  return { rule: home.location.rule, candidates, notice: `${home.refusal}${shown}` };
 }
 
 function describeMissingComponent(reason: 'not-open' | 'unreadable' | 'ambiguous'): string {
@@ -19909,18 +20314,32 @@ async function collectDashboardSnapshot(
   // and the reason probing `gh` on a render path is not worth it.
   portalVisibility: RepositoryVisibility = 'unknown',
 ): Promise<DashboardSnapshot> {
-  const firstWorkspaceFolder = vscode.workspace.workspaceFolders?.[0];
+  const firstWorkspaceFolder = defaultWorkspaceFolder();
+  const ssotHome = ssotHomeRoot();
   const declaredComposition = workflowConfigManager?.getConfig()?.composition;
-  const declaredScope = await collectDashboardWorkspaceScope(declaredComposition);
+  const declaredScope = await collectDashboardWorkspaceScope(declaredComposition, workflowConfigManager?.getWorkspaceRoot());
   const homeComponentId = declaredComposition?.components.find(component => component.home)?.id;
   const homeScopeRoot = homeComponentId
     ? declaredScope.roots.find(root => root.componentId === homeComponentId)
     : declaredScope.roots[0];
-  // A declared home is authoritative. Falling back to the first folder when it
-  // is missing would silently read a different component's SSOT and counts.
-  const workspaceRoot = declaredComposition ? homeScopeRoot?.fsPath : firstWorkspaceFolder?.uri.fsPath;
-  const websiteDelivery = collectWebsiteDelivery(workspaceRoot);
-  const workspaceFolder = (vscode.workspace.workspaceFolders ?? [])
+  // Two roots, kept apart on purpose. `ssotRoot` is where project memory is
+  // read from: a declared home is authoritative (falling back to the first
+  // folder when it is missing would silently read a different component's
+  // SSOT), and undeclared it is the located SSOT home. An ambiguous home has
+  // **none**, so every section built from project memory comes back empty
+  // rather than presenting the first folder's registers as the project's —
+  // the banner says why, and what to do.
+  //
+  // `workspaceRoot` is the repository the page's git, CI and file facts are
+  // read from: the same folder whenever there is a home, and the first folder
+  // when the home is ambiguous, because those facts are about a repository,
+  // not about project memory, and are labelled with the folder they came from.
+  const ssotRoot = declaredComposition
+    ? homeScopeRoot?.fsPath
+    : ssotHome.fsPath;
+  const workspaceRoot = ssotRoot ?? (declaredComposition ? undefined : firstWorkspaceFolder?.uri.fsPath);
+  const websiteDelivery = collectWebsiteDelivery(ssotRoot);
+  const workspaceFolder = openWorkspaceFolders()
     .find(folder => folder.uri.fsPath === workspaceRoot) ?? firstWorkspaceFolder;
   const workspaceName = firstWorkspaceFolder?.name ?? 'No Workspace';
   const configuration = vscode.workspace.getConfiguration('atlasmind');
@@ -19933,7 +20352,7 @@ async function collectDashboardSnapshot(
       ? workspaceRoot
       : undefined,
   );
-  const activeIdeationWorkspace = await loadActiveIdeationWorkspace(workspaceRoot, ssotPath);
+  const activeIdeationWorkspace = await loadActiveIdeationWorkspace(ssotRoot, ssotPath);
 
   const componentGitPromise = declaredComposition
     ? collectComponentGitReadings(declaredScope, declaredComposition)
@@ -19969,12 +20388,12 @@ async function collectDashboardSnapshot(
     gitSnapshotPromise,
     collectPackageSnapshot(workspaceRoot),
     workflowSnapshotPromise,
-    collectSsotSnapshot(workspaceRoot, ssotPath),
-    loadIdeationBoard(workspaceRoot, ssotPath, activeIdeationWorkspace),
-    collectRoadmapSnapshot(workspaceRoot, ssotPath),
+    collectSsotSnapshot(ssotRoot, ssotPath),
+    loadIdeationBoard(ssotRoot, ssotPath, activeIdeationWorkspace),
+    collectRoadmapSnapshot(ssotRoot, ssotPath),
   ]);
   const editionsSnapshot = await collectReleaseMatrixSnapshot(
-    workspaceRoot,
+    ssotRoot,
     ssotPath,
     roadmapSnapshot,
     issues.status === 'ready' ? issues.issues : undefined,
@@ -19984,7 +20403,9 @@ async function collectDashboardSnapshot(
     workflowConfigManager?.getConfig()?.branches.protected ?? [],
   );
   const versionSnapshot = await collectVersionSnapshot(workspaceRoot, gitSnapshot.currentBranch, packageSnapshot.version);
-  const stagePipeline = await collectDeliveryStagePipeline(atlas, workspaceRoot, gitSnapshot.currentBranch, workflowSnapshot.map(workflow => workflow.name));
+  // The pipeline is declared in project memory, so it is drawn only where
+  // project memory has a home.
+  const stagePipeline = await collectDeliveryStagePipeline(atlas, ssotRoot, gitSnapshot.currentBranch, workflowSnapshot.map(workflow => workflow.name));
   const deliveryRunbooks = await collectProjectDeliveryRunbooks(
     atlas,
     workspaceRoot,
@@ -20068,10 +20489,12 @@ async function collectDashboardSnapshot(
     configuredServerIds: atlas.mcpServerRegistry?.listServers?.().map(server => server.config.id) ?? [],
     refusedServerIds: readRefusedCapabilityOffers(atlas.extensionContext),
   });
-  const directorSnapshot = await collectDirectorSnapshot(atlas, workspaceRoot, gitSnapshot.currentBranch, runs);
-  const documentsSnapshot = await collectDocumentsSnapshot(atlas, workspaceRoot);
-  const riskSnapshot = collectRiskSnapshot(atlas, workspaceRoot);
-  const complianceSnapshot = collectComplianceSnapshot(atlas, workspaceRoot);
+  // The Director roster, the document shelves, the risk register and the
+  // compliance registers are project memory: the SSOT home's, or empty.
+  const directorSnapshot = await collectDirectorSnapshot(atlas, ssotRoot, gitSnapshot.currentBranch, runs);
+  const documentsSnapshot = await collectDocumentsSnapshot(atlas, ssotRoot);
+  const riskSnapshot = collectRiskSnapshot(atlas, ssotRoot);
+  const complianceSnapshot = collectComplianceSnapshot(atlas, ssotRoot);
   const runtimeTdd = summarizeRuntimeTdd(runs);
   const contributorBreakdown = buildContributorSeries(gitSnapshot.commitLog, SERIES_DAY_RANGE);
   const costSummary = atlas.costTracker.getSummary();
@@ -20169,8 +20592,8 @@ async function collectDashboardSnapshot(
     { label: 'Issue templates', ok: issueTemplateCount > 0 },
     { label: 'CHANGELOG', ok: changelogPresent },
   ];
-  const outcomeCompleteness = await collectOutcomeCompleteness(workspaceRoot, ssotPath, runs, ciSignals);
-  const ssotDelta = await collectSsotDelta(workspaceRoot, ssotPath, agents.length, memoryEntries, securityPolicyPresent, blockedEntries);
+  const outcomeCompleteness = await collectOutcomeCompleteness(ssotRoot, ssotPath, runs, ciSignals);
+  const ssotDelta = await collectSsotDelta(ssotRoot, ssotPath, agents.length, memoryEntries, securityPolicyPresent, blockedEntries);
   // Built before the score rather than inline in the snapshot below: the score
   // now has a Data privacy component, so both need the same single evaluation.
   const privacySnapshot = await buildPrivacySnapshot(atlas);
@@ -20338,11 +20761,12 @@ async function collectDashboardSnapshot(
     runtimeTdd,
   });
   const researchSnapshot = collectResearchSnapshot(atlas);
-  const gapAnalysis = await collectGapAnalysisSnapshot(workspaceRoot, ssotPath, heuristicGapItems);
+  const scheduledRoutineAttention = atlas.routineScheduler?.attentionInput();
+  const gapAnalysis = await collectGapAnalysisSnapshot(ssotRoot, ssotPath, heuristicGapItems);
   // Stage 0 reads the registers that already own these questions. It does not
   // start a security review, risk analysis, debt scan, or test discovery just
   // because someone opened the Ideation page.
-  const securityReview = workspaceRoot ? readSecurityReviewConfig(workspaceRoot) : undefined;
+  const securityReview = ssotRoot ? readSecurityReviewConfig(ssotRoot) : undefined;
   const securityFindings = securityReview ? openSecurityFindings(securityReview) : [];
   const roadmapWithIdeation = withIdeationOrigins(roadmapSnapshot, ideationBoard);
   const issueComponentReadings = homeComponentId
@@ -20447,6 +20871,7 @@ async function collectDashboardSnapshot(
   const snapshot: Omit<DashboardSnapshot, 'attention' | 'workAssignments' | 'vitalFiles'> = {
     generatedAt: new Date().toISOString(),
     ssotPresent: ssotSnapshot.totalFiles > 0 || memoryEntries.length > 0,
+    ssotHome: describeDashboardSsotHome(ssotHome, firstWorkspaceFolder?.name),
     workspaceName,
     workspaceRootLabel,
     repositoryLabel: repoLabel,
@@ -20595,7 +21020,7 @@ async function collectDashboardSnapshot(
       // the page and the panel's own writes cannot disagree about what is on
       // disk. `readDefectRegister` never throws — a corrupt file yields an
       // empty register and the page says so.
-      const register = workspaceRoot ? readDefectRegister(workspaceRoot) : { version: 1 as const, entries: [] };
+      const register = ssotRoot ? readDefectRegister(ssotRoot) : { version: 1 as const, entries: [] };
       return {
         path: DEFECT_SSOT_PATH,
         entries: sortDefectEntries(register.entries),
@@ -20624,6 +21049,7 @@ async function collectDashboardSnapshot(
       // Already derived for the Testing page on this same pass, so the release
       // gate and the page it would send you to cannot disagree about a number.
       ...(testingSnapshot.policyCoverage === undefined ? {} : { testingCoverage: testingSnapshot.policyCoverage }),
+      ...(testingSnapshot.policyUnreadable === undefined ? {} : { testingPolicyUnreadable: testingSnapshot.policyUnreadable }),
       // Read from the committed workflow file, which is where a team declares
       // it. Absent means undeclared, and nothing downstream substitutes one.
       ...(workflowConfigManager?.getConfig()?.versioning === undefined
@@ -20718,19 +21144,19 @@ async function collectDashboardSnapshot(
     },
     utilities: collectUtilitiesSnapshot(archetypeEvidence),
     portalHosting: collectPortalHostingSnapshot(
-      workspaceRoot,
+      ssotRoot,
       directorSnapshot.config ?? undefined,
       // The same reading `/portal` uses, and unknown is treated as public.
       portalVisibility,
     ),
     testCases: collectTestCasesSnapshot(
-      workspaceRoot,
+      ssotRoot,
       directorSnapshot.config ?? undefined,
       testingSnapshot.policyCoverage?.rows ?? [],
       Date.now(),
     ),
     approvals: collectApprovalsSnapshot(
-      workspaceRoot,
+      ssotRoot,
       directorSnapshot.config ?? undefined,
       roadmapWithBoard,
       documentsSnapshot,
@@ -20765,6 +21191,9 @@ async function collectDashboardSnapshot(
     },
     gapAnalysis,
     privacy: privacySnapshot,
+    // Read from this developer's own scheduler: approvals and last runs live
+    // in workspace state, never in project memory.
+    ...(scheduledRoutineAttention ? { scheduledRoutines: scheduledRoutineAttention } : {}),
   };
 
   const snapshotWithAssignments: Omit<DashboardSnapshot, 'attention'> = {
@@ -21057,6 +21486,8 @@ function buildAttentionInput(
         ? {}
         : { degraded: pickCapacityFinding(snapshot.runtime.capacity, 'degraded') }),
     },
+    // Same rule as research: supplied only when scheduling is switched on.
+    ...(snapshot.scheduledRoutines ? { scheduledRoutines: snapshot.scheduledRoutines } : {}),
     // Research is supplied only when it is switched on. `researchAttentionInput`
     // owns that decision so no caller can accidentally pass a zeroed group and
     // turn a disabled feature into a permanent nag.
@@ -21138,6 +21569,10 @@ function buildAttentionInput(
       nextStepBlocked: blockedStage !== undefined,
       ...(blockedStage === undefined ? {} : { nextStepTitle: blockedStage.name }),
     },
+    // An ambiguous SSOT home: every register above was deliberately left unread,
+    // so their zeroes are not readings. The feed drops those groups itself and
+    // raises one item with the refusal — the notice is only ever set then.
+    ...(snapshot.ssotHome.notice ? { projectMemoryUnreadable: { reason: snapshot.ssotHome.notice } } : {}),
   };
 }
 
@@ -25866,6 +26301,7 @@ async function collectRoadmapSnapshot(workspaceRoot: string | undefined, ssotPat
       gates: buildGateViews(gates, []),
       gateRoutes: buildGateRoutes(gates, []),
       graph: emptyRoadmapGraphView(filePath),
+      gateCandidates: buildGateCandidatesView(gates, [], emptyRoadmapGraphView(filePath)),
       // Filled by `withIdeationOrigins`; nothing here has read the board.
       boardBacklog: { total: 0, needsAttention: 0 },
     };
@@ -25875,6 +26311,7 @@ async function collectRoadmapSnapshot(workspaceRoot: string | undefined, ssotPat
   const content = await fs.readFile(absolutePath, 'utf-8').catch(() => '');
   const gates = parseRoadmapGates(content);
   const items = prioritizeDashboardRoadmapItems(parseDashboardRoadmapItems(content, gates));
+  const graph = buildRoadmapGraphView(workspaceRoot, ssotPath, filePath, items, gates);
 
   return {
     filePath,
@@ -25885,7 +26322,8 @@ async function collectRoadmapSnapshot(workspaceRoot: string | undefined, ssotPat
     mvp: buildMvpSnapshot(items, MVP_GATE_ID),
     gates: buildGateViews(gates, items),
     gateRoutes: buildGateRoutes(gates, items),
-    graph: buildRoadmapGraphView(workspaceRoot, ssotPath, filePath, items, gates),
+    graph,
+    gateCandidates: buildGateCandidatesView(gates, items, graph),
     // Filled by `withIdeationOrigins`; nothing here has read the board.
     boardBacklog: { total: 0, needsAttention: 0 },
   };
@@ -25931,6 +26369,7 @@ function emptyRoadmapGraphView(filePath: string): DashboardRoadmapGraphView {
     completed: [],
     completedColumns: [],
     byPerson: [],
+    completedOverlay: { planPositions: {}, byPersonPositions: {}, byPersonLanes: [] },
     lanes: [],
     retainedIds: [],
     edges: [],
@@ -26106,6 +26545,7 @@ function buildRoadmapGraphView(
       byPerson: byPerson.nodes,
       lanes: byPerson.lanes,
       retainedIds: partition.retained.map(node => node.id),
+      completedOverlay: buildRoadmapCompletedOverlay(graph, partition, people),
       edges: graph.edges,
       suggested: graph.suggested,
       layers: graph.layers,
@@ -26135,11 +26575,13 @@ function buildRoadmapGraphView(
 
 /** Per-gate progress, so the gate selector can show it without a route walk. */
 function buildGateViews(gates: RoadmapGate[], items: DashboardRoadmapItem[]): DashboardRoadmapGateView[] {
-  return gates.map(gate => {
+  const colors = assignRoadmapGateColors(gates);
+  return gates.map((gate, index) => {
     const tagged = items.filter(item => item.gates.includes(gate.id));
     const completedCount = tagged.filter(item => item.completed).length;
     return {
       ...gate,
+      ...(colors.get(gate.id) ?? roadmapGateColorAt(index)),
       totalCount: tagged.length,
       completedCount,
       progressPercent: tagged.length > 0 ? Math.round((completedCount / tagged.length) * 100) : 0,
@@ -26160,6 +26602,50 @@ function buildGateRoutes(gates: RoadmapGate[], items: DashboardRoadmapItem[]): R
     routes[gate.id] = buildMvpSnapshot(items, gate.id, gate.label);
   }
   return routes;
+}
+
+/**
+ * The gate scan for every declared gate, from the same items and graph the page
+ * draws.
+ *
+ * Candidates are addressed by the graph's durable node id, because that is the
+ * id that survives an insert above the item between the render and the click.
+ * When the canvas could not be built, so there is no durable id for every item,
+ * the positional ids are used and the links are reported as unreadable — the
+ * dependency rules then say "not assessed" rather than "no prerequisites".
+ *
+ * Shared by the render and by the include handler, which calls it again from
+ * disk: the list somebody picked from and the list the write is checked against
+ * are produced by one function.
+ */
+function buildGateCandidatesView(
+  gates: RoadmapGate[],
+  items: readonly DashboardRoadmapItem[],
+  graph: Pick<DashboardRoadmapGraphView, 'active' | 'completed' | 'edges'>,
+): DashboardGateCandidatesView {
+  const nodeIdByItemId = new Map<string, string>();
+  for (const node of [...graph.active, ...graph.completed]) {
+    nodeIdByItemId.set(node.itemId, node.id);
+  }
+  const durable = items.every(item => nodeIdByItemId.has(item.id));
+  const scanItems = items.map((item, index) => ({
+    id: durable ? nodeIdByItemId.get(item.id) as string : item.id,
+    text: item.text,
+    completed: item.completed,
+    gates: item.gates,
+    focus: item.focus,
+    // Backlog order is the file's order, recovered from the positional id —
+    // `items` arrives sorted by priority, which is not an order anybody chose.
+    order: Number(item.id.replace(/^roadmap-/, '')) || index,
+  }));
+  const edges = items.length === 0
+    ? []
+    : durable ? graph.edges.map(edge => ({ from: edge.from, to: edge.to })) : undefined;
+  const reports: Record<string, RoadmapGateCandidateReport> = {};
+  for (const gate of normalizeGates(gates).slice(0, MAX_ROADMAP_GATES)) {
+    reports[gate.id] = scanRoadmapGateCandidates({ gate, items: scanItems, edges });
+  }
+  return { rules: GATE_CANDIDATE_RULES, reports };
 }
 
 function parseDashboardRoadmapItems(content: string, gates: RoadmapGate[]): Array<{ id: string; text: string; completed: boolean; isMvp: boolean; gates: string[]; nodeId?: string }> {
@@ -26237,9 +26723,9 @@ function prioritizeDashboardRoadmapItems(items: Array<{ id: string; text: string
         reasons.push('critical/blocking wording');
       }
 
-      const foundational = focus === 'security'
-        || focus === 'architecture'
-        || /\b(core|auth|foundation|foundational|baseline|essential|launch|ship|release|minimum viable|mvp|must|critical|first)\b/i.test(normalized);
+      // One definition of "foundational", shared with the gate-candidate scan's
+      // MVP rule, so the suggested route and the scan cannot disagree about it.
+      const foundational = isFoundationalRoadmapWork(normalized, focus);
 
       const gates = Array.isArray(item.gates) ? [...item.gates] : [];
       if (item.isMvp === true && !gates.includes(MVP_GATE_ID)) {
@@ -26510,7 +26996,9 @@ export async function addRoadmapItemFromExternalSurface(
   atlas: AtlasMindContext,
   text: string,
 ): Promise<{ normalized: string; text: string } | undefined> {
-  const workspaceRoot = vscode.workspace.workspaceFolders?.[0]?.uri.fsPath;
+  // The backlog is project memory: written into the SSOT home, or refused with
+  // the sentence naming the candidates — never into whichever folder is first.
+  const workspaceRoot = requireSsotHomeForWrite();
   const trimmed = text.trim();
   if (!workspaceRoot || trimmed === '') {
     return undefined;
@@ -26540,6 +27028,162 @@ export async function addRoadmapItemFromExternalSurface(
   await atlas.memoryManager.loadFromDisk(ssotRoot);
   atlas.memoryRefresh.fire();
   return { normalized: normalizeRoadmapText(stripped.text), text: stripped.text };
+}
+
+/**
+ * The roadmap as another surface needs it in order to plan against it: each
+ * item's text, whether it is done, the durable id the roadmap resolves it to,
+ * and its filed plan.
+ *
+ * **Read-only.** Ids are resolved with `resolveRoadmapItemIds` — the one
+ * resolution the canvas and every write share — so the id returned here is the
+ * id a later write lands on, and nothing is minted onto disk to get it. An
+ * absent backlog is an empty one; a backlog that exists and cannot be read is
+ * `undefined`, because "could not look" must not read as "nothing raised".
+ */
+export async function readRoadmapItemsForExternalSurface(): Promise<{
+  items: Array<{ text: string; completed: boolean; nodeId: string; planPath?: string }>;
+  /** False when the graph file was written by a newer AtlasMind and must not be touched. */
+  graphWritable: boolean;
+} | undefined> {
+  const context = await readExternalRoadmapContext();
+  if (context === undefined) {
+    return undefined;
+  }
+  const { parsed, read, reconciled, ids } = context;
+  return {
+    items: parsed.map((item, index) => {
+      const nodeId = ids[index] as string;
+      const planPath = reconciled.document.nodes.find(node => node.id === nodeId)?.planPath;
+      return { text: item.text, completed: item.completed, nodeId, ...(planPath === undefined ? {} : { planPath }) };
+    }),
+    graphWritable: !read.preserveExisting,
+  };
+}
+
+/**
+ * File a plan for each named roadmap item, from a surface other than the
+ * Roadmap page — the brief chain's optional step.
+ *
+ * The same filing the Plan pill does, and nothing more: the scaffold is
+ * `buildRoadmapPlanScaffold` (deterministic, no model text), the write is
+ * **create-only** (`wx`, so a plan somebody wrote survives), and the graph
+ * record gains the `planPath` every surface links. Items are named by durable
+ * id and resolved against the backlog as it is now; an id the backlog no longer
+ * has is reported, never guessed at. A graph written by a newer AtlasMind is
+ * left alone and nothing is filed.
+ */
+export async function fileRoadmapPlansFromExternalSurface(nodeIds: readonly string[]): Promise<{
+  filed: Array<{ nodeId: string; relPath: string; created: boolean }>;
+  missing: string[];
+} | undefined> {
+  // A write: refused, with the reason, when the home is ambiguous.
+  requireSsotHomeForWrite();
+  const context = await readExternalRoadmapContext();
+  if (context === undefined || context.read.preserveExisting) {
+    return undefined;
+  }
+  const { workspaceRoot, ssotPath, filePath, existing, gates, parsed, reconciled, ids } = context;
+  if (parsed.some((item, index) => item.nodeId !== ids[index])) {
+    // The same anchoring the canvas does before any write: a plan is filed
+    // against a durable id, so the line must carry it.
+    await fs.mkdir(path.dirname(filePath), { recursive: true });
+    await fs.writeFile(
+      filePath,
+      serializeDashboardRoadmapDocument(
+        existing,
+        parsed.map((item, index) => ({ text: item.text, completed: item.completed, gates: item.gates, nodeId: ids[index] as string })),
+        gates,
+      ),
+      'utf-8',
+    );
+  }
+
+  let document = reconciled.document;
+  const filed: Array<{ nodeId: string; relPath: string; created: boolean }> = [];
+  const missing: string[] = [];
+  for (const nodeId of nodeIds) {
+    const index = ids.indexOf(nodeId);
+    const item = index >= 0 ? parsed[index] : undefined;
+    if (item === undefined) {
+      missing.push(nodeId);
+      continue;
+    }
+    const recorded = document.nodes.find(node => node.id === nodeId)?.planPath;
+    if (recorded !== undefined) {
+      filed.push({ nodeId, relPath: recorded, created: false });
+      continue;
+    }
+    const relPath = roadmapPlanRelPath(ssotPath, nodeId, item.text);
+    const absolute = path.join(workspaceRoot, relPath);
+    const focus = prioritizeDashboardRoadmapItems([{ id: item.id, text: item.text, completed: item.completed }])[0]?.focus ?? 'feature';
+    await fs.mkdir(path.dirname(absolute), { recursive: true });
+    let created = true;
+    await fs.writeFile(
+      absolute,
+      buildRoadmapPlanScaffold({ nodeId, itemId: item.id, text: item.text, completed: item.completed, focus }, new Date()),
+      { encoding: 'utf-8', flag: 'wx' },
+    ).catch((error: NodeJS.ErrnoException) => {
+      if (error.code !== 'EEXIST') {
+        throw error;
+      }
+      // Somebody's file is already there. It is linked, never replaced.
+      created = false;
+    });
+    const nodes = document.nodes.map(node => ({ ...node }));
+    let record = nodes.find(node => node.id === nodeId);
+    if (record === undefined) {
+      record = { id: nodeId, normalizedText: normalizeRoadmapNodeText(item.text) };
+      nodes.push(record);
+    }
+    record.normalizedText = normalizeRoadmapNodeText(item.text);
+    record.planPath = relPath;
+    document = { ...document, nodes };
+    filed.push({ nodeId, relPath, created });
+  }
+  if (filed.some(entry => entry.created) || document !== reconciled.document) {
+    await writeRoadmapGraph(workspaceRoot, ssotPath, document);
+  }
+  return { filed, missing };
+}
+
+/** The backlog and its graph overlay, resolved once for the two functions above. */
+async function readExternalRoadmapContext(): Promise<{
+  workspaceRoot: string;
+  ssotPath: string;
+  filePath: string;
+  existing: string;
+  gates: RoadmapGate[];
+  parsed: ReturnType<typeof parseDashboardRoadmapItems>;
+  read: ReturnType<typeof readRoadmapGraphFile>;
+  reconciled: ReturnType<typeof resolveRoadmapItemIds>['reconciled'];
+  ids: string[];
+} | undefined> {
+  // Read from the SSOT home; an ambiguous home has no backlog to report, which
+  // the caller states rather than reading the first folder's as the project's.
+  const workspaceRoot = ssotHomeRootPath();
+  if (!workspaceRoot) {
+    return undefined;
+  }
+  const ssotPath = normalizeSsotPath(vscode.workspace.getConfiguration('atlasmind').get<string>('ssotPath', 'project_memory'));
+  const filePath = path.join(workspaceRoot, ssotPath, 'roadmap', 'improvement-plan.md');
+  let existing: string;
+  try {
+    existing = await fs.readFile(filePath, 'utf-8');
+  } catch (error) {
+    if ((error as NodeJS.ErrnoException).code !== 'ENOENT') {
+      return undefined;
+    }
+    existing = '';
+  }
+  const gates = parseRoadmapGates(existing);
+  const parsed = parseDashboardRoadmapItems(existing, gates);
+  const read = readRoadmapGraphFile(workspaceRoot, ssotPath);
+  const { reconciled, ids } = resolveRoadmapItemIds(
+    read.config ?? seedRoadmapGraphDocument(),
+    parsed.map(item => ({ ...(item.nodeId === undefined ? {} : { nodeId: item.nodeId }), text: item.text, completed: item.completed })),
+  );
+  return { workspaceRoot, ssotPath, filePath, existing, gates, parsed, read, reconciled, ids };
 }
 
 /**
@@ -27934,6 +28578,11 @@ async function runGit(
   args: string[],
   options: { timeoutMs?: number } = {},
 ): Promise<string> {
+  // Every git call on this page goes through here. A read passes untouched, so
+  // the page keeps rendering in a dry run; a write (branch, switch, pull, push,
+  // fetch, checkout) throws DryRunBlocked, which each handler's existing error
+  // path reports, after the guard has told the operator why.
+  guardHostCommand('dashboard', 'git', args);
   const { stdout } = await execFileAsync('git', args, {
     cwd: workspaceRoot,
     windowsHide: true,
@@ -28206,7 +28855,7 @@ const DASHBOARD_CSS = `
   .dashboard-button-primary {
     background: var(--vscode-button-background);
     color: var(--vscode-button-foreground);
-    border-color: var(--vscode-button-background);
+    border-color: var(--atlas-edge-accent);
     font-weight: 600;
   }
   .dashboard-button-primary:hover {
@@ -28753,7 +29402,7 @@ const DASHBOARD_CSS = `
     font-weight: 700;
     letter-spacing: 0.11em;
     text-transform: uppercase;
-    color: color-mix(in srgb, var(--dash-muted) 88%, transparent);
+    color: var(--dash-muted);
     padding-left: 4px;
   }
 
@@ -29052,7 +29701,7 @@ const DASHBOARD_CSS = `
   .action-link:hover,
   .action-link:focus-visible {
     background: color-mix(in srgb, var(--dash-accent) 84%, transparent);
-    border-color: color-mix(in srgb, var(--dash-accent) 80%, white 20%);
+    border-color: color-mix(in srgb, var(--atlas-edge-accent) 80%, var(--tint-away) 20%);
   }
 
   /* ── Refresh, split ───────────────────────────────────────────────────
@@ -29098,7 +29747,7 @@ const DASHBOARD_CSS = `
 
   .refresh-cadence-toggle:hover,
   .refresh-cadence-toggle[aria-expanded="true"] {
-    border-color: color-mix(in srgb, var(--dash-accent) 80%, white 20%);
+    border-color: color-mix(in srgb, var(--atlas-edge-accent) 80%, var(--tint-away) 20%);
     color: var(--vscode-foreground);
   }
 
@@ -29175,7 +29824,7 @@ const DASHBOARD_CSS = `
 
   /* The chosen one is marked by a tick and a border, not by colour alone. */
   .refresh-cadence-item.is-current {
-    border-color: color-mix(in srgb, var(--dash-accent-strong) 55%, transparent);
+    border-color: color-mix(in srgb, var(--dash-accent-strong) 55%, var(--atlas-boundary));
   }
 
   .refresh-cadence-item-label {
@@ -29206,7 +29855,7 @@ const DASHBOARD_CSS = `
   }
 
   .nav-tab:hover {
-    border-color: color-mix(in srgb, var(--dash-accent) 60%, var(--dash-border));
+    border-color: color-mix(in srgb, var(--atlas-edge-accent) 60%, var(--dash-border));
     background: color-mix(in srgb, var(--dash-panel) 96%, transparent);
   }
 
@@ -29216,7 +29865,7 @@ const DASHBOARD_CSS = `
      ring and an underline marker, none of which are colour-dependent. */
   .page-nav button[aria-selected="true"] {
     background: color-mix(in srgb, var(--dash-accent) 84%, transparent);
-    border-color: color-mix(in srgb, var(--dash-accent) 80%, white 20%);
+    border-color: color-mix(in srgb, var(--atlas-edge-accent) 80%, var(--tint-away) 20%);
     color: var(--vscode-button-foreground, var(--vscode-foreground));
     font-weight: 700;
     box-shadow: 0 0 0 1px color-mix(in srgb, var(--dash-accent-strong) 55%, transparent), 0 6px 16px color-mix(in srgb, var(--dash-accent) 26%, transparent);
@@ -29266,7 +29915,7 @@ const DASHBOARD_CSS = `
      read as black text. A translucent tint of the tone over the panel surface
      keeps the badge legible whichever way the theme goes. */
   .nav-badge-critical {
-    background: color-mix(in srgb, var(--dash-critical) 24%, transparent);
+    background: color-mix(in srgb, var(--dash-critical) 16%, transparent);
     color: var(--dash-critical);
     box-shadow: 0 0 0 1px color-mix(in srgb, var(--dash-critical) 45%, transparent);
   }
@@ -29278,7 +29927,7 @@ const DASHBOARD_CSS = `
   }
 
   .nav-badge-accent {
-    background: color-mix(in srgb, var(--dash-accent-strong) 22%, transparent);
+    background: color-mix(in srgb, var(--dash-accent-strong) 16%, transparent);
     color: var(--dash-accent-strong);
     box-shadow: 0 0 0 1px color-mix(in srgb, var(--dash-accent-strong) 40%, transparent);
   }
@@ -29333,7 +29982,7 @@ const DASHBOARD_CSS = `
     align-items: flex-start;
     gap: 8px;
     padding: 8px;
-    border: 1px solid var(--vscode-panel-border, rgba(255,255,255,0.1));
+    border: 1px solid var(--atlas-boundary);
     border-radius: 6px;
     cursor: pointer;
     flex-wrap: wrap;
@@ -29368,7 +30017,7 @@ const DASHBOARD_CSS = `
   .privacy-rule-form select {
     background: var(--vscode-input-background);
     color: var(--vscode-input-foreground);
-    border: 1px solid var(--vscode-input-border, transparent);
+    border: 1px solid var(--atlas-boundary);
     border-radius: 4px;
     padding: 4px 6px;
   }
@@ -29382,13 +30031,13 @@ const DASHBOARD_CSS = `
   }
   .privacy-rule-value { flex: 1 1 160px; word-break: break-all; }
   .privacy-warn,
-  .privacy-test-hit { color: var(--vscode-editorWarning-foreground, #cca700); }
+  .privacy-test-hit { color: color-mix(in srgb, var(--vscode-editorWarning-foreground, #cca700) var(--atlas-ink-share), var(--tint-away)); }
   .privacy-test-clear { opacity: 0.75; }
 
   .privacy-span { grid-column: 1 / -1; }
   .privacy-tree { display: flex; flex-direction: column; gap: 6px; max-height: 360px; overflow-y: auto; }
   .privacy-tree-provider {
-    border: 1px solid var(--vscode-panel-border, rgba(255,255,255,0.1));
+    border: 1px solid var(--atlas-boundary);
     border-radius: 6px;
     padding: 6px 8px;
   }
@@ -29485,10 +30134,10 @@ const DASHBOARD_CSS = `
   .review-card:hover,
   .review-card:focus-visible {
     transform: translateY(-2px);
-    border-color: color-mix(in srgb, var(--dash-accent) 60%, white 40%);
+    border-color: color-mix(in srgb, var(--atlas-edge-accent) 60%, var(--tint-away) 40%);
   }
 
-  .tone-accent { border-color: color-mix(in srgb, var(--dash-accent) 45%, var(--dash-border)); }
+  .tone-accent { border-color: color-mix(in srgb, var(--atlas-edge-accent) 45%, var(--dash-border)); }
   .tone-good { border-color: color-mix(in srgb, var(--dash-good) 45%, var(--dash-border)); }
   .tone-warn { border-color: color-mix(in srgb, var(--dash-warn) 45%, var(--dash-border)); }
   .tone-critical { border-color: color-mix(in srgb, var(--dash-critical) 55%, var(--dash-border)); }
@@ -29912,7 +30561,7 @@ const DASHBOARD_CSS = `
     border-radius: 50%;
     margin-right: 6px;
     vertical-align: middle;
-    border: 1px solid color-mix(in srgb, var(--dash-border) 70%, transparent);
+    border: 1px solid var(--dash-border);
   }
 
   .wf-notes {
@@ -30032,7 +30681,7 @@ const DASHBOARD_CSS = `
   .edition-import-matches label { min-width: 0; overflow-wrap: anywhere; }
   .edition-editor .stage-edit-field input[type="date"] {
     width: 100%; box-sizing: border-box; padding: 7px 9px; border-radius: 6px;
-    border: 1px solid var(--vscode-input-border, var(--dash-border));
+    border: 1px solid var(--atlas-boundary);
     background: var(--vscode-input-background); color: var(--vscode-input-foreground); font: inherit;
   }
   .edition-insight-grid { grid-template-columns: minmax(0, 0.9fr) minmax(0, 1.1fr); }
@@ -30712,7 +31361,7 @@ const DASHBOARD_CSS = `
     cursor: pointer;
   }
   .ci-test-row-link:hover {
-    border-color: var(--dash-accent);
+    border-color: var(--atlas-edge-accent);
     background: var(--dash-panel-strong);
   }
   .ci-test-row-link:focus-visible {
@@ -30720,7 +31369,7 @@ const DASHBOARD_CSS = `
     outline-offset: 2px;
   }
   .ci-test-row-go { color: var(--dash-muted); flex: 0 0 auto; }
-  .ci-test-row-link:hover .ci-test-row-go { color: var(--dash-accent); }
+  .ci-test-row-link:hover .ci-test-row-go { color: var(--dash-accent-strong); }
   .ci-subject-group { display: grid; gap: 6px; margin-bottom: 10px; }
   .ci-subject-head {
     display: flex;
@@ -32206,7 +32855,7 @@ const DASHBOARD_CSS = `
     color: var(--branch-chip-color);
     background: color-mix(
       in srgb,
-      var(--branch-chip-color) 16%,
+      var(--branch-chip-color) 11%,
       transparent
     );
     font-size: 14px;
@@ -32580,7 +33229,7 @@ const DASHBOARD_CSS = `
     font-size: 11px;
     cursor: pointer;
   }
-  button.tag:hover { border-color: var(--dash-accent); color: var(--dash-heading); }
+  button.tag:hover { border-color: var(--atlas-edge-accent); color: var(--dash-heading); }
   button.tag:focus-visible { outline: 2px solid var(--dash-accent); outline-offset: 2px; }
 
   .tag-good {
@@ -32707,7 +33356,7 @@ const DASHBOARD_CSS = `
     /* Was var(--dash-fg), which is not defined — the whole declaration was
        invalid at computed-value time, so the handle inherited body colour and
        never read as a de-emphasised affordance. */
-    color: color-mix(in srgb, var(--vscode-foreground) 45%, transparent);
+    color: color-mix(in srgb, var(--vscode-foreground) 72%, transparent);
     font-size: 14px;
     line-height: 1;
     letter-spacing: -2px;
@@ -32795,7 +33444,7 @@ const DASHBOARD_CSS = `
   }
 
   .rm-emphasis-label {
-    color: color-mix(in srgb, var(--vscode-foreground) 60%, transparent);
+    color: color-mix(in srgb, var(--vscode-foreground) 72%, transparent);
   }
 
   .rm-emphasis-control select {
@@ -32946,7 +33595,7 @@ const DASHBOARD_CSS = `
     top: 6px;
     bottom: 6px;
     border-radius: 2px;
-    border: 1px dashed color-mix(in srgb, var(--vscode-foreground) 28%, transparent);
+    border: 1px dashed var(--atlas-boundary);
     border-left: none;
   }
 
@@ -33152,7 +33801,7 @@ const DASHBOARD_CSS = `
     gap: 7px;
     padding: 6px 14px;
     border-radius: 999px;
-    border: 1px solid color-mix(in srgb, var(--dash-accent-strong) 80%, white 20%);
+    border: 1px solid color-mix(in srgb, var(--dash-accent-strong) 80%, var(--tint-away) 20%);
     background: color-mix(in srgb, var(--dash-accent) 84%, transparent);
     color: var(--vscode-button-foreground, var(--vscode-foreground));
     font: inherit;
@@ -33186,6 +33835,30 @@ const DASHBOARD_CSS = `
     background: color-mix(in srgb, var(--dash-panel) 70%, transparent);
     border-color: var(--dash-accent-strong);
   }
+
+  /* Show completed. Quiet when off, like the integrity check beside it; when
+     on, it takes the delivered tone so the state is visible without reading
+     aria-pressed — and the tick is the cue that does not depend on colour. */
+  .rm-completed-toggle {
+    color: var(--dash-muted);
+    background: transparent;
+    border-color: var(--dash-border);
+  }
+
+  .rm-completed-toggle:hover {
+    color: var(--vscode-foreground);
+    background: color-mix(in srgb, var(--dash-panel) 70%, transparent);
+    border-color: var(--dash-accent-strong);
+  }
+
+  .rm-completed-toggle.is-on {
+    color: var(--vscode-foreground);
+    border-color: color-mix(in srgb, var(--dash-good) 65%, var(--dash-border));
+    background: color-mix(in srgb, var(--dash-good) 16%, transparent);
+  }
+
+  .rm-completed-toggle-mark { color: var(--dash-good); font-weight: 700; }
+  .rm-completed-toggle:not(.is-on) .rm-completed-toggle-mark { color: inherit; opacity: 0.6; }
 
   .rm-add-item:focus-visible {
     outline: 2px solid var(--dash-accent-strong);
@@ -33565,6 +34238,32 @@ const DASHBOARD_CSS = `
      not because anybody has to do it, and it says so. */
   .rm-node.is-retained { border-style: dashed; }
 
+  /* Delivered work wherever it is shown — the canvases, the board, the
+     timeline list. Colour alone would fail WCAG 1.4.1, so the tick is the cue
+     and the tone reinforces it; the tone tints an edge into the boundary
+     rather than thinning it, so the edge still clears 3:1. Never a filled
+     background, for the reason urgency is a left border: a page of saturated
+     cards reads as a state, and finished work is the opposite of one. */
+  .rm-done-mark { color: var(--dash-good); font-weight: 700; flex: none; }
+  .rm-node.is-done .rm-node-head { display: flex; align-items: baseline; gap: 6px; }
+  .rm-chip-done {
+    border-color: color-mix(in srgb, var(--dash-good) 65%, var(--dash-border));
+    color: color-mix(in srgb, var(--dash-good) 85%, var(--tint-away) 15%);
+  }
+  .rm-board-cardlet.is-done { border-left-color: color-mix(in srgb, var(--dash-good) 65%, var(--dash-border)); }
+  .rm-board-cardlet.is-done .rm-done-mark { margin-right: 5px; }
+
+  .rm-tl-delivered { margin-top: 14px; display: flex; flex-direction: column; gap: 4px; }
+  .rm-tl-delivered-list { list-style: none; margin: 0; padding: 0; display: flex; flex-direction: column; gap: 3px; }
+  .rm-tl-delivered-item {
+    display: grid;
+    grid-template-columns: auto minmax(0, 1fr) auto;
+    gap: 8px;
+    align-items: baseline;
+    padding: 3px 0 3px 8px;
+    border-left: 3px solid color-mix(in srgb, var(--dash-good) 65%, var(--dash-border));
+  }
+
   .rm-state-overdue { border-left-color: var(--dash-critical, #d13438); }
   .rm-state-at-risk { border-left-color: var(--dash-warn, #d0a215); }
   .rm-state-due-soon { border-left-color: color-mix(in srgb, var(--dash-warn, #d0a215) 70%, var(--dash-border)); }
@@ -33579,6 +34278,73 @@ const DASHBOARD_CSS = `
   }
 
   .rm-node-head:active { cursor: grabbing; }
+
+  /* Release-gate dots. The head becomes a row so the dots sit beside the title
+     rather than adding a line to a card whose height the layout assumes. The
+     fill is the colour the host assigned (assignRoadmapGateColors), which
+     clears 3:1 against the card in every built-in theme kind; the name is the
+     gate's label, never the colour, so colour is not the only cue. */
+  .rm-node-head { display: flex; align-items: flex-start; gap: 6px; }
+  .rm-node-head .rm-node-title { flex: 1 1 auto; min-width: 0; }
+  .rm-gate-dots {
+    display: inline-flex;
+    flex: none;
+    flex-wrap: wrap;
+    align-items: center;
+    gap: 3px;
+    margin-top: 3px;
+  }
+  .rm-board-cardlet-meta .rm-gate-dots { margin-top: 0; }
+  .rm-gate-dot {
+    display: inline-block;
+    width: 10px;
+    height: 10px;
+    flex: none;
+    box-sizing: border-box;
+    border-radius: 50%;
+    background: var(--rm-gate-color);
+    border: 1px solid var(--rm-gate-color);
+  }
+  /* A dot on a canvas card is a shortcut to the gate lens. Small on purpose —
+     the same lens has full-size targets in the legend beside the Gate picker,
+     which is the equivalent control WCAG 2.5.8 accepts. */
+  button.rm-gate-dot { padding: 0; border-radius: 50%; cursor: pointer; }
+  button.rm-gate-dot[aria-pressed="true"] { outline: 2px solid var(--dash-accent-strong); outline-offset: 1px; }
+  button.rm-gate-dot:focus-visible { outline: 2px solid var(--vscode-focusBorder); outline-offset: 1px; }
+  /* Past the palette the colours repeat; the repeat is a ring, not a disc, so
+     no two gates share both colour and shape. */
+  .rm-gate-dot.is-hollow { background: transparent; border-width: 2px; }
+  /* No colour arrived (a snapshot from an older build): a neutral ring, never a guessed colour. */
+  .rm-gate-dot.is-uncoloured { background: transparent; border-color: var(--dash-border); }
+  .rm-gate-more { font-size: 10px; line-height: 1; color: var(--dash-muted); }
+  .rm-gate-legend { display: inline-flex; flex-wrap: wrap; align-items: center; gap: 4px; }
+  .rm-gate-key {
+    display: inline-flex;
+    align-items: center;
+    gap: 5px;
+    padding: 2px 8px;
+    border-radius: 999px;
+    border: 1px solid var(--dash-border);
+    color: var(--dash-muted);
+    font-size: 10.5px;
+    font-weight: 600;
+  }
+  button.rm-gate-key { padding: 2px 8px; background: transparent; color: var(--dash-muted); cursor: pointer; }
+  button.rm-gate-key:hover { color: var(--dash-heading); }
+  button.rm-gate-key.is-on { border-color: var(--dash-accent-strong); color: var(--dash-heading); }
+  button.rm-gate-key:focus-visible { outline: 2px solid var(--vscode-focusBorder); outline-offset: 1px; }
+
+  /* The gate scan carries the AtlasMind mark, as Calculate tree does: it is
+     AtlasMind concluding something about the backlog, not a filter you set. */
+  .rm-gate-scan-action {
+    border-color: color-mix(in srgb, var(--dash-accent-strong) 55%, var(--dash-border));
+  }
+  .rm-gate-scan-action.is-on { border-color: var(--dash-accent-strong); }
+  .rm-gate-scan { margin: 12px 0; display: grid; gap: 8px; }
+  .rm-gate-candidate.is-picked { border-color: var(--dash-accent-strong); }
+  .rm-gate-candidate-matches,
+  .rm-gate-rule-table { margin: 4px 0 0; padding-left: 18px; display: grid; gap: 2px; font-size: 12px; }
+  .rm-gate-rule { font-weight: 600; color: var(--dash-heading); }
 
   .rm-node-title {
     display: -webkit-box;
@@ -33664,7 +34430,7 @@ const DASHBOARD_CSS = `
     position: absolute;
     pointer-events: none;
     border-radius: 12px;
-    border: 1px dashed color-mix(in srgb, var(--dash-border) 80%, transparent);
+    border: 1px dashed var(--dash-border);
     background: color-mix(in srgb, var(--dash-border) 8%, transparent);
   }
   .rm-lane.is-unassigned { border-style: dotted; background: transparent; }
@@ -33974,7 +34740,7 @@ const DASHBOARD_CSS = `
 
   button.metric-pill:hover,
   button.metric-pill:focus-visible {
-    border-color: color-mix(in srgb, var(--dash-accent) 50%, var(--dash-border));
+    border-color: color-mix(in srgb, var(--atlas-edge-accent) 50%, var(--dash-border));
   }
 
   /* Tone status dots shared by pills, intro chips, governance pills */
@@ -34143,7 +34909,7 @@ const DASHBOARD_CSS = `
   button.risk-cell:focus-visible { outline: 2px solid var(--dash-accent); outline-offset: 2px; }
 
   .risk-cell.is-active {
-    border-color: var(--dash-accent);
+    border-color: var(--atlas-edge-accent);
     box-shadow: inset 0 0 0 1px var(--dash-accent);
   }
 
@@ -34183,7 +34949,7 @@ const DASHBOARD_CSS = `
     color: var(--dash-muted);
   }
 
-  .risk-tag--ethics { border-color: color-mix(in srgb, var(--dash-accent) 50%, var(--dash-border)); }
+  .risk-tag--ethics { border-color: color-mix(in srgb, var(--atlas-edge-accent) 50%, var(--dash-border)); }
   .risk-tag--legal { border-color: color-mix(in srgb, var(--dash-critical) 45%, var(--dash-border)); }
   .risk-tag--commercial { border-color: color-mix(in srgb, var(--dash-good) 45%, var(--dash-border)); }
 
@@ -34301,7 +35067,7 @@ const DASHBOARD_CSS = `
   }
 
   .delta-row--missing .delta-badge {
-    background: color-mix(in srgb, var(--dash-critical) 22%, transparent);
+    background: color-mix(in srgb, var(--dash-critical) 16%, transparent);
     color: var(--dash-critical);
     border-color: color-mix(in srgb, var(--dash-critical) 40%, var(--dash-border));
   }
@@ -34483,19 +35249,19 @@ const DASHBOARD_CSS = `
   .artifact-status--ok {
     color: var(--dash-good);
     background: color-mix(in srgb, var(--dash-good) 14%, transparent);
-    border: 1px solid color-mix(in srgb, var(--dash-good) 36%, transparent);
+    border: 1px solid color-mix(in srgb, var(--dash-good) 36%, var(--atlas-boundary));
   }
 
   .artifact-status--warn {
     color: var(--dash-warn);
     background: color-mix(in srgb, var(--dash-warn) 14%, transparent);
-    border: 1px solid color-mix(in srgb, var(--dash-warn) 36%, transparent);
+    border: 1px solid color-mix(in srgb, var(--dash-warn) 36%, var(--atlas-boundary));
   }
 
   .artifact-status--info {
     color: var(--dash-muted);
     background: color-mix(in srgb, var(--dash-muted) 10%, transparent);
-    border: 1px solid color-mix(in srgb, var(--dash-muted) 25%, transparent);
+    border: 1px solid color-mix(in srgb, var(--dash-muted) 25%, var(--atlas-boundary));
   }
 
   .artifact-header {
@@ -34516,13 +35282,13 @@ const DASHBOARD_CSS = `
     border-radius: 999px;
     color: var(--dash-warn);
     background: color-mix(in srgb, var(--dash-warn) 14%, transparent);
-    border: 1px solid color-mix(in srgb, var(--dash-warn) 36%, transparent);
+    border: 1px solid color-mix(in srgb, var(--dash-warn) 36%, var(--atlas-boundary));
   }
 
   .artifact-attention-badge.good {
     color: color-mix(in srgb, var(--dash-good) 90%, var(--tint-away));
     background: color-mix(in srgb, var(--dash-good) 14%, transparent);
-    border-color: color-mix(in srgb, var(--dash-good) 36%, transparent);
+    border-color: color-mix(in srgb, var(--dash-good) 36%, var(--atlas-boundary));
   }
 
   .signal-grid {
@@ -34538,7 +35304,7 @@ const DASHBOARD_CSS = `
   .signal-card.is-actionable:focus-visible,
   .action-card.score-recommendation-item.is-actionable:hover,
   .action-card.score-recommendation-item.is-actionable:focus-visible {
-    border-color: color-mix(in srgb, var(--dash-accent) 45%, var(--dash-border));
+    border-color: color-mix(in srgb, var(--atlas-edge-accent) 45%, var(--dash-border));
     transform: translateY(-1px);
   }
 
@@ -34608,7 +35374,7 @@ const DASHBOARD_CSS = `
 
   .score-component-row.is-actionable:hover,
   .score-component-row.is-actionable:focus-visible {
-    border-color: color-mix(in srgb, var(--dash-accent) 45%, var(--dash-border));
+    border-color: color-mix(in srgb, var(--atlas-edge-accent) 45%, var(--dash-border));
     transform: translateY(-1px);
   }
 
@@ -34689,7 +35455,7 @@ const DASHBOARD_CSS = `
   .ideation-status-card {
     padding: 14px;
     border-radius: 18px;
-    border: 1px solid color-mix(in srgb, var(--dash-accent) 34%, var(--dash-border));
+    border: 1px solid color-mix(in srgb, var(--atlas-edge-accent) 34%, var(--dash-border));
     background: color-mix(in srgb, var(--dash-accent) 10%, transparent);
   }
 
@@ -34783,7 +35549,7 @@ const DASHBOARD_CSS = `
   }
 
   .ideation-card.selected {
-    border-color: color-mix(in srgb, var(--dash-accent) 78%, white 22%);
+    border-color: color-mix(in srgb, var(--atlas-edge-accent) 78%, var(--tint-away) 22%);
     box-shadow: 0 0 0 1px color-mix(in srgb, var(--dash-accent) 60%, transparent), 0 20px 36px rgba(0, 0, 0, 0.28);
   }
 
@@ -34986,7 +35752,7 @@ const DASHBOARD_CSS = `
      six-column grid is the thin-panel problem in its worst form. */
   .policy-grid { display: grid; grid-template-columns: repeat(auto-fill, minmax(min(100%, 380px), 1fr)); gap: 10px; margin-top: 12px; align-items: start; }
   .policy-card.is-expanded { grid-column: 1 / -1; }
-  .policy-card { display: flex; flex-direction: column; gap: 6px; padding: 10px 12px; border-radius: 10px; border: 1px solid var(--vscode-widget-border, rgba(127,127,127,0.28)); background: var(--vscode-editorWidget-background, rgba(127,127,127,0.06)); border-left-width: 3px; border-left-style: solid; }
+  .policy-card { display: flex; flex-direction: column; gap: 6px; padding: 10px 12px; border-radius: 10px; border: 1px solid var(--atlas-boundary); background: var(--vscode-editorWidget-background, rgba(127,127,127,0.06)); border-left-width: 3px; border-left-style: solid; }
   .policy-card.status-covered { border-left-color: var(--dash-good, #4ec9b0); }
   .policy-card.status-tooling-only { border-left-color: var(--dash-warn); }
   .policy-card.status-missing { border-left-color: var(--dash-critical); }
@@ -35086,10 +35852,10 @@ const DASHBOARD_CSS = `
   /* An indeterminate progress element says "working" without pretending the
      routed task has a knowable percentage complete. The update list contains
      only actual orchestrator activity, not a timer-driven approximation. */
-  .testing-fix-activity { margin-top: 12px; padding: 11px 12px; border: 1px solid var(--vscode-widget-border, rgba(127,127,127,0.32)); border-radius: 10px; background: var(--vscode-editorWidget-background, rgba(127,127,127,0.06)); }
-  .testing-fix-activity.running { border-color: color-mix(in srgb, var(--vscode-charts-blue, #4daafc) 55%, transparent); }
-  .testing-fix-activity.completed { border-color: color-mix(in srgb, var(--vscode-editorWarning-foreground, #cca700) 52%, transparent); }
-  .testing-fix-activity.failed { border-color: color-mix(in srgb, var(--vscode-errorForeground, #f14c4c) 58%, transparent); }
+  .testing-fix-activity { margin-top: 12px; padding: 11px 12px; border: 1px solid var(--atlas-boundary); border-radius: 10px; background: var(--vscode-editorWidget-background, rgba(127,127,127,0.06)); }
+  .testing-fix-activity.running { border-color: color-mix(in srgb, var(--vscode-charts-blue, #4daafc) 55%, var(--atlas-boundary)); }
+  .testing-fix-activity.completed { border-color: color-mix(in srgb, color-mix(in srgb, var(--vscode-editorWarning-foreground, #cca700) var(--atlas-ink-share), var(--tint-away)) 52%, var(--atlas-boundary)); }
+  .testing-fix-activity.failed { border-color: color-mix(in srgb, color-mix(in srgb, var(--vscode-errorForeground, #f14c4c) var(--atlas-ink-share), var(--tint-away)) 58%, var(--atlas-boundary)); }
   .testing-fix-heading { display: flex; align-items: baseline; justify-content: space-between; gap: 8px; flex-wrap: wrap; }
   .testing-fix-current { margin: 7px 0 0; font-size: 0.86em; line-height: 1.4; }
   .testing-fix-progress { display: block; width: 100%; height: 7px; margin: 10px 0 2px; accent-color: var(--vscode-charts-blue, #4daafc); }
@@ -35111,19 +35877,19 @@ const DASHBOARD_CSS = `
   .delivery-guide-header h3 { margin-bottom: 5px; }
   .delivery-guide-header .section-copy { max-width: 820px; margin: 0; }
   .delivery-guide-phases { display: grid; grid-template-columns: repeat(auto-fit, minmax(260px, 1fr)); gap: 12px; margin-top: 14px; align-items: start; }
-  .delivery-guide-phase { min-width: 0; border: 1px solid var(--vscode-widget-border, rgba(127,127,127,0.28)); border-radius: 12px; background: var(--vscode-editorWidget-background, rgba(127,127,127,0.05)); overflow: hidden; }
-  .delivery-guide-phase.phase-good { border-color: color-mix(in srgb, var(--dash-good) 55%, var(--vscode-widget-border, transparent)); }
-  .delivery-guide-phase.phase-accent { border-color: color-mix(in srgb, var(--dash-accent-strong) 55%, var(--vscode-widget-border, transparent)); }
-  .delivery-guide-phase.phase-warn { border-color: color-mix(in srgb, var(--dash-warn) 60%, var(--vscode-widget-border, transparent)); }
-  .delivery-guide-phase.phase-critical { border-color: color-mix(in srgb, var(--dash-critical) 65%, var(--vscode-widget-border, transparent)); }
+  .delivery-guide-phase { min-width: 0; border: 1px solid var(--atlas-boundary); border-radius: 12px; background: var(--vscode-editorWidget-background, rgba(127,127,127,0.05)); overflow: hidden; }
+  .delivery-guide-phase.phase-good { border-color: color-mix(in srgb, var(--dash-good) 55%, var(--atlas-boundary)); }
+  .delivery-guide-phase.phase-accent { border-color: color-mix(in srgb, var(--dash-accent-strong) 55%, var(--atlas-boundary)); }
+  .delivery-guide-phase.phase-warn { border-color: color-mix(in srgb, var(--dash-warn) 60%, var(--atlas-boundary)); }
+  .delivery-guide-phase.phase-critical { border-color: color-mix(in srgb, var(--dash-critical) 65%, var(--atlas-boundary)); }
   .delivery-guide-phase-head { display: flex; align-items: flex-start; gap: 9px; padding: 12px 13px; cursor: pointer; list-style: none; }
   .delivery-guide-phase-head::-webkit-details-marker { display: none; }
   .delivery-guide-phase-head::after { content: '›'; flex: 0 0 auto; margin: 2px 0 0 2px; color: var(--vscode-descriptionForeground); font-size: 1.1em; line-height: 1; transform: rotate(0deg); transition: transform 120ms ease; }
   .delivery-guide-phase[open] > .delivery-guide-phase-head::after { transform: rotate(90deg); }
   .delivery-guide-phase-head:focus-visible { outline: 2px solid var(--vscode-focusBorder); outline-offset: -2px; }
   .delivery-guide-phase-copy { flex: 1 1 auto; }
-  .delivery-guide-number { display: inline-flex; align-items: center; justify-content: center; flex: 0 0 25px; width: 25px; height: 25px; border-radius: 50%; background: color-mix(in srgb, var(--dash-accent-strong) 22%, transparent); color: var(--dash-accent-strong); font-weight: 800; font-size: 0.78em; }
-  .delivery-guide-number.status-good { background: color-mix(in srgb, var(--dash-good) 20%, transparent); color: var(--dash-good); }
+  .delivery-guide-number { display: inline-flex; align-items: center; justify-content: center; flex: 0 0 25px; width: 25px; height: 25px; border-radius: 50%; background: color-mix(in srgb, var(--dash-accent-strong) 16%, transparent); color: var(--dash-accent-strong); font-weight: 800; font-size: 0.78em; }
+  .delivery-guide-number.status-good { background: color-mix(in srgb, var(--dash-good) 14%, transparent); color: var(--dash-good); }
   .delivery-guide-number.status-warn { background: color-mix(in srgb, var(--dash-warn) 22%, transparent); color: var(--dash-warn); }
   .delivery-guide-number.status-critical { background: color-mix(in srgb, var(--dash-critical) 20%, transparent); color: var(--dash-critical); }
   .delivery-guide-phase h4 { margin: 1px 0 3px; font-size: 0.98em; }
@@ -35131,7 +35897,7 @@ const DASHBOARD_CSS = `
   .delivery-guide-phase-status { flex: 0 0 auto; margin: 2px 0 0 auto; }
   .delivery-guide-phase-actions { display: flex; justify-content: flex-end; padding: 0 13px 8px; }
   .delivery-guide-steps { display: flex; flex-direction: column; gap: 8px; padding: 0 13px 13px; }
-  .delivery-guide-step { padding: 9px 10px; border: 1px solid var(--vscode-widget-border, rgba(127,127,127,0.24)); border-left-width: 3px; border-radius: 8px; background: color-mix(in srgb, var(--vscode-editor-background) 82%, transparent); min-width: 0; }
+  .delivery-guide-step { padding: 9px 10px; border: 1px solid var(--atlas-boundary); border-left-width: 3px; border-radius: 8px; background: color-mix(in srgb, var(--vscode-editor-background) 82%, transparent); min-width: 0; }
   .delivery-guide-step.status-good { border-left-color: var(--dash-good); }
   .delivery-guide-step.status-accent { border-left-color: var(--dash-accent-strong); }
   .delivery-guide-step.status-warn { border-left-color: var(--dash-warn); }
@@ -35147,7 +35913,7 @@ const DASHBOARD_CSS = `
   /* Visible without a hover, because a touch or keyboard user never hovers and
      an affordance that only appears on hover is one half the room cannot find. */
   .delivery-guide-command-actions { position: absolute; top: 4px; right: 4px; display: flex; gap: 3px; }
-  .code-icon-btn { display: inline-flex; align-items: center; justify-content: center; min-width: 19px; height: 19px; padding: 0 4px; border: 1px solid var(--vscode-widget-border, rgba(127,127,127,0.3)); border-radius: 5px; background: var(--vscode-editor-background); color: var(--vscode-descriptionForeground); font-family: var(--vscode-editor-font-family, Consolas, monospace); font-size: 0.68em; line-height: 1; cursor: pointer; opacity: 0.75; }
+  .code-icon-btn { display: inline-flex; align-items: center; justify-content: center; min-width: 19px; height: 19px; padding: 0 4px; border: 1px solid var(--atlas-boundary); border-radius: 5px; background: var(--vscode-editor-background); color: var(--vscode-descriptionForeground); font-family: var(--vscode-editor-font-family, Consolas, monospace); font-size: 0.68em; line-height: 1; cursor: pointer; opacity: 0.75; }
   .code-icon-btn:hover { opacity: 1; color: var(--dash-accent-strong); border-color: var(--dash-accent-strong); }
   .code-icon-btn:focus-visible { outline: 1px solid var(--vscode-focusBorder); outline-offset: 1px; opacity: 1; }
   .delivery-guide-run { margin-left: auto; flex: 0 0 auto; align-self: flex-start; padding: 3px 8px; border: 1px solid var(--dash-accent-strong); border-radius: 999px; background: color-mix(in srgb, var(--dash-accent-strong) 14%, transparent); color: var(--dash-accent-strong); font-size: 0.72em; font-weight: 700; white-space: nowrap; cursor: pointer; }
@@ -35171,7 +35937,7 @@ const DASHBOARD_CSS = `
   .delivery-difference { margin-bottom: 14px; }
   .delivery-difference .section-copy { max-width: 820px; }
   .delivery-difference-list { display: flex; flex-direction: column; gap: 8px; margin-top: 12px; }
-  .delivery-difference-row { display: flex; align-items: flex-start; gap: 9px; padding: 9px 11px; border: 1px solid var(--vscode-widget-border, rgba(127,127,127,0.24)); border-left-width: 3px; border-radius: 8px; background: color-mix(in srgb, var(--vscode-editor-background) 82%, transparent); }
+  .delivery-difference-row { display: flex; align-items: flex-start; gap: 9px; padding: 9px 11px; border: 1px solid var(--atlas-boundary); border-left-width: 3px; border-radius: 8px; background: color-mix(in srgb, var(--vscode-editor-background) 82%, transparent); }
   .delivery-difference-row.tone-warn { border-left-color: var(--dash-warn); }
   .delivery-difference-row.tone-critical { border-left-color: var(--dash-critical); }
   .delivery-difference-icon { display: inline-flex; align-items: center; justify-content: center; width: 18px; font-weight: 800; color: var(--vscode-descriptionForeground); }
@@ -35181,7 +35947,7 @@ const DASHBOARD_CSS = `
   .delivery-difference-was { font-style: italic; }
   .delivery-difference-rule { opacity: 0.72; font-size: 0.73em !important; }
   .delivery-requirement-list { display: grid; grid-template-columns: repeat(auto-fit, minmax(240px, 1fr)); gap: 8px; margin-top: 12px; }
-  .delivery-requirement { padding: 8px 10px; border: 1px solid var(--vscode-widget-border, rgba(127,127,127,0.2)); border-left-width: 3px; border-radius: 8px; }
+  .delivery-requirement { padding: 8px 10px; border: 1px solid var(--atlas-boundary); border-left-width: 3px; border-radius: 8px; }
   .delivery-requirement.kind-gate { border-left-color: var(--dash-accent-strong); }
   .delivery-requirement.kind-data { border-left-color: var(--dash-warn); }
   .delivery-requirement.kind-reach { border-left-color: var(--dash-critical); }
@@ -35206,13 +35972,13 @@ const DASHBOARD_CSS = `
   .stage-pipeline-header .tag-row { margin-top: 6px; }
   .stage-seeded-note { font-size: 0.82em; color: var(--vscode-descriptionForeground); margin: 4px 0 0; }
   .delivery-review-banner { display: flex; align-items: flex-start; justify-content: space-between; gap: 12px; flex-wrap: wrap; padding: 10px 12px; border-radius: 10px; margin-bottom: 14px; }
-  .delivery-review-banner.warn { border: 1px solid var(--vscode-editorWarning-foreground, #cca700); background: color-mix(in srgb, var(--vscode-editorWarning-foreground, #cca700) 10%, transparent); }
-  .delivery-review-banner.ok { border: 1px solid var(--vscode-widget-border, rgba(127,127,127,0.25)); color: var(--vscode-descriptionForeground); font-size: 0.84em; padding: 6px 12px; }
+  .delivery-review-banner.warn { border: 1px solid color-mix(in srgb, var(--vscode-editorWarning-foreground, #cca700) var(--atlas-ink-share), var(--tint-away)); background: color-mix(in srgb, var(--vscode-editorWarning-foreground, #cca700) 10%, transparent); }
+  .delivery-review-banner.ok { border: 1px solid var(--atlas-boundary); color: var(--vscode-descriptionForeground); font-size: 0.84em; padding: 6px 12px; }
   .delivery-review-body strong { font-size: 0.9em; }
   .delivery-review-body ul { margin: 6px 0 0; padding-left: 18px; display: flex; flex-direction: column; gap: 3px; }
   .delivery-review-body li { font-size: 0.83em; line-height: 1.4; }
   .pipeline-flow { display: flex; flex-wrap: wrap; align-items: stretch; gap: 8px; margin: 4px 0 16px; }
-  .flow-node { display: flex; flex-direction: column; gap: 2px; padding: 8px 12px; border-radius: 10px; border: 1px solid var(--vscode-widget-border, rgba(127,127,127,0.3)); background: var(--vscode-editorWidget-background, rgba(127,127,127,0.06)); min-width: 130px; }
+  .flow-node { display: flex; flex-direction: column; gap: 2px; padding: 8px 12px; border-radius: 10px; border: 1px solid var(--atlas-boundary); background: var(--vscode-editorWidget-background, rgba(127,127,127,0.06)); min-width: 130px; }
   .flow-node.current { border-color: var(--vscode-focusBorder, #4daafc); box-shadow: 0 0 0 1px var(--vscode-focusBorder, #4daafc) inset; }
   .flow-node.kind-production { border-left: 3px solid var(--vscode-charts-red, #f14c4c); }
   .flow-node.kind-staging { border-left: 3px solid var(--vscode-charts-yellow, #cca700); }
@@ -35222,7 +35988,7 @@ const DASHBOARD_CSS = `
   .flow-ver { font-size: 0.78em; }
   .flow-arrow { display: flex; align-items: center; font-size: 1.2em; color: var(--vscode-descriptionForeground); }
   .stage-row { display: grid; grid-template-columns: repeat(auto-fit, minmax(240px, 1fr)); gap: 12px; align-items: stretch; margin-bottom: 18px; }
-  .stage-card { display: flex; flex-direction: column; gap: 10px; padding: 14px; border-radius: 12px; border: 1px solid var(--vscode-widget-border, rgba(127,127,127,0.25)); background: var(--vscode-editorWidget-background, rgba(127,127,127,0.06)); }
+  .stage-card { display: flex; flex-direction: column; gap: 10px; padding: 14px; border-radius: 12px; border: 1px solid var(--atlas-boundary); background: var(--vscode-editorWidget-background, rgba(127,127,127,0.06)); }
   .stage-card.is-current { border-color: var(--vscode-focusBorder, #4daafc); box-shadow: 0 0 0 1px var(--vscode-focusBorder, #4daafc) inset; }
   .stage-card.kind-production { background: linear-gradient(180deg, rgba(220,80,80,0.10), transparent 60%); }
   .stage-card.kind-staging { background: linear-gradient(180deg, rgba(220,170,60,0.10), transparent 60%); }
@@ -35230,35 +35996,35 @@ const DASHBOARD_CSS = `
   .stage-head { display: flex; align-items: center; gap: 8px; }
   .stage-rank { display: inline-flex; align-items: center; justify-content: center; width: 22px; height: 22px; border-radius: 50%; font-size: 0.78em; font-weight: 700; background: var(--vscode-badge-background); color: var(--vscode-badge-foreground); flex: 0 0 auto; }
   .stage-head h4 { margin: 0; font-size: 1.02em; }
-  .stage-kind-badge { font-size: 0.7em; text-transform: uppercase; letter-spacing: 0.06em; padding: 2px 7px; border-radius: 999px; border: 1px solid var(--vscode-widget-border, rgba(127,127,127,0.3)); color: var(--vscode-descriptionForeground); }
+  .stage-kind-badge { font-size: 0.7em; text-transform: uppercase; letter-spacing: 0.06em; padding: 2px 7px; border-radius: 999px; border: 1px solid var(--atlas-boundary); color: var(--vscode-descriptionForeground); }
   .stage-lock { margin-left: auto; font-size: 0.95em; }
-  .stage-current-tag { font-size: 0.68em; text-transform: uppercase; letter-spacing: 0.06em; color: var(--vscode-focusBorder, #4daafc); font-weight: 700; }
+  .stage-current-tag { font-size: 0.68em; text-transform: uppercase; letter-spacing: 0.06em; color: var(--dash-accent-strong); font-weight: 700; }
   .stage-desc { margin: 0; font-size: 0.86em; color: var(--vscode-descriptionForeground); line-height: 1.45; }
   .stage-facts { display: grid; grid-template-columns: 1fr; gap: 4px; margin: 2px 0; }
   .stage-fact { display: flex; justify-content: space-between; gap: 10px; font-size: 0.82em; padding: 3px 0; border-bottom: 1px dashed var(--vscode-widget-border, rgba(127,127,127,0.18)); }
   .stage-fact span { color: var(--vscode-descriptionForeground); }
   .stage-fact b { font-weight: 600; text-align: right; word-break: break-word; }
-  .stage-fact .missing-ref { color: var(--vscode-errorForeground, #f14c4c); }
+  .stage-fact .missing-ref { color: color-mix(in srgb, var(--vscode-errorForeground, #f14c4c) var(--atlas-ink-share), var(--tint-away)); }
   .stage-security { list-style: none; margin: 4px 0 0; padding: 0; display: flex; flex-direction: column; gap: 6px; }
   .stage-security li { position: relative; padding-left: 18px; font-size: 0.8em; line-height: 1.4; color: var(--vscode-foreground); }
   .stage-security li::before { content: "🛡"; position: absolute; left: 0; top: 0; font-size: 0.85em; opacity: 0.85; }
-  .stage-security li.warn { color: var(--vscode-editorWarning-foreground, #cca700); }
+  .stage-security li.warn { color: color-mix(in srgb, var(--vscode-editorWarning-foreground, #cca700) var(--atlas-ink-share), var(--tint-away)); }
   .stage-security li.warn::before { content: "⚠"; }
   .stage-card .action-link { align-self: flex-start; }
 
   .promotion-list { display: grid; grid-template-columns: repeat(auto-fit, minmax(280px, 1fr)); gap: 12px; }
-  .promotion-card { display: flex; flex-direction: column; gap: 10px; padding: 14px; border-radius: 12px; border: 1px solid var(--vscode-widget-border, rgba(127,127,127,0.25)); background: var(--vscode-editorWidget-background, rgba(127,127,127,0.06)); }
-  .promotion-card.blocked { border-color: var(--vscode-editorWarning-foreground, #cca700); }
+  .promotion-card { display: flex; flex-direction: column; gap: 10px; padding: 14px; border-radius: 12px; border: 1px solid var(--atlas-boundary); background: var(--vscode-editorWidget-background, rgba(127,127,127,0.06)); }
+  .promotion-card.blocked { border-color: color-mix(in srgb, var(--vscode-editorWarning-foreground, #cca700) var(--atlas-ink-share), var(--tint-away)); }
   .promotion-head { display: flex; align-items: baseline; justify-content: space-between; gap: 10px; flex-wrap: wrap; }
   .promotion-head h4 { margin: 0; font-size: 0.98em; }
   .promotion-head .version-delta { font-family: var(--vscode-editor-font-family, monospace); font-size: 0.8em; color: var(--vscode-descriptionForeground); }
-  .via-pr-badge { font-size: 0.68em; font-weight: 700; text-transform: uppercase; letter-spacing: 0.05em; padding: 1px 7px; border-radius: 999px; border: 1px solid var(--vscode-charts-purple, #b180d7); color: var(--vscode-charts-purple, #b180d7); white-space: nowrap; }
+  .via-pr-badge { font-size: 0.68em; font-weight: 700; text-transform: uppercase; letter-spacing: 0.05em; padding: 1px 7px; border-radius: 999px; border: 1px solid var(--vscode-charts-purple, #b180d7); color: color-mix(in srgb, var(--vscode-charts-purple, #b180d7) var(--atlas-ink-share), var(--tint-away)); white-space: nowrap; }
   .guardrail-list { margin: 0; padding-left: 18px; display: flex; flex-direction: column; gap: 4px; }
   .guardrail-list li { font-size: 0.82em; line-height: 1.4; }
   .gate-row { display: flex; flex-wrap: wrap; gap: 6px; align-items: center; font-size: 0.8em; color: var(--vscode-descriptionForeground); }
-  .promotion-block-note { font-size: 0.8em; color: var(--vscode-editorWarning-foreground, #cca700); margin: 0; display: flex; gap: 6px; }
+  .promotion-block-note { font-size: 0.8em; color: color-mix(in srgb, var(--vscode-editorWarning-foreground, #cca700) var(--atlas-ink-share), var(--tint-away)); margin: 0; display: flex; gap: 6px; }
   .promotion-actions { display: flex; flex-wrap: wrap; gap: 8px; align-items: center; margin-top: 2px; }
-  .promotion-ghost-btn { font-size: 0.8em; padding: 5px 10px; border-radius: 7px; border: 1px dashed var(--vscode-widget-border, rgba(127,127,127,0.4)); background: transparent; color: var(--vscode-descriptionForeground); cursor: not-allowed; }
+  .promotion-ghost-btn { font-size: 0.8em; padding: 5px 10px; border-radius: 7px; border: 1px dashed var(--atlas-boundary); background: transparent; color: var(--vscode-descriptionForeground); cursor: not-allowed; }
   .promotion-last { font-size: 0.78em; color: var(--vscode-descriptionForeground); margin: 0; }
 
   /* ── Delivery: stage / promotion editors (Phase 2) ────────────── */
@@ -35266,7 +36032,7 @@ const DASHBOARD_CSS = `
   .promotion-section-head { display: flex; align-items: center; justify-content: space-between; gap: 10px; flex-wrap: wrap; }
   .action-link.primary { font-weight: 700; color: var(--vscode-button-foreground, #fff); background: var(--vscode-button-background, #0e639c); padding: 5px 12px; border-radius: 7px; border: none; }
   .action-link.primary:hover { background: var(--vscode-button-hoverBackground, #1177bb); }
-  .action-link.danger { color: var(--vscode-errorForeground, #f14c4c); }
+  .action-link.danger { color: color-mix(in srgb, var(--vscode-errorForeground, #f14c4c) var(--atlas-ink-share), var(--tint-away)); }
   .stage-editor, .path-editor { grid-column: 1 / -1; margin: 6px 0 12px; border-color: var(--vscode-focusBorder, #4daafc); }
   /* The hidden attribute must actually hide. Any author rule that sets a
      display value (every .stage-edit-grid, .tag-row, flex or grid container
@@ -35278,7 +36044,7 @@ const DASHBOARD_CSS = `
   .director-link-row { align-items: end; }
   /* The agent binding is a checklist, not one choice: a correspondent can span
      more than one specialism. Collapsed by default so the form stays readable. */
-  .director-agent-picker { border: 1px solid var(--vscode-input-border, var(--vscode-widget-border, rgba(127,127,127,0.4)));
+  .director-agent-picker { border: 1px solid var(--atlas-boundary);
     border-radius: 6px; background: var(--vscode-input-background); padding: 4px 7px; }
   .director-agent-picker > summary { cursor: pointer; padding: 2px 0; color: var(--vscode-input-foreground); }
   .director-agent-options { display: flex; flex-direction: column; gap: 3px; max-height: 190px; overflow-y: auto; padding: 6px 0 2px; }
@@ -35287,7 +36053,7 @@ const DASHBOARD_CSS = `
   .stage-edit-field > span { color: var(--vscode-descriptionForeground); }
   .stage-edit-field input[type="text"], .stage-edit-field input[type="number"], .stage-edit-field textarea, .stage-edit-field select {
     width: 100%; box-sizing: border-box; padding: 5px 7px; border-radius: 6px;
-    border: 1px solid var(--vscode-input-border, var(--vscode-widget-border, rgba(127,127,127,0.4)));
+    border: 1px solid var(--atlas-boundary);
     background: var(--vscode-input-background); color: var(--vscode-input-foreground);
     font-family: inherit; font-size: 1em;
   }
@@ -35297,13 +36063,13 @@ const DASHBOARD_CSS = `
   .stage-edit-group { margin: 12px 0 2px; font-size: 0.74em; font-weight: 700; text-transform: uppercase; letter-spacing: 0.06em; color: var(--vscode-descriptionForeground); border-top: 1px solid var(--vscode-widget-border, rgba(127,127,127,0.18)); padding-top: 8px; }
   .stage-edit-group small { font-weight: 400; text-transform: none; letter-spacing: 0; margin-left: 6px; opacity: 0.85; }
   .stage-edit-actions { display: flex; flex-wrap: wrap; align-items: center; gap: 10px; margin-top: 12px; }
-  .stage-remove-confirm { font-size: 0.82em; color: var(--vscode-editorWarning-foreground, #cca700); display: inline-flex; gap: 6px; align-items: center; flex-wrap: wrap; }
-  .reimport-confirm { font-size: 0.82em; color: var(--vscode-editorWarning-foreground, #cca700); display: inline-flex; gap: 6px; align-items: center; flex-wrap: wrap; }
-  .rollback-input { padding: 3px 6px; border-radius: 5px; border: 1px solid var(--vscode-input-border, var(--vscode-widget-border, rgba(127,127,127,0.4))); background: var(--vscode-input-background); color: var(--vscode-input-foreground); font-size: 0.95em; }
+  .stage-remove-confirm { font-size: 0.82em; color: color-mix(in srgb, var(--vscode-editorWarning-foreground, #cca700) var(--atlas-ink-share), var(--tint-away)); display: inline-flex; gap: 6px; align-items: center; flex-wrap: wrap; }
+  .reimport-confirm { font-size: 0.82em; color: color-mix(in srgb, var(--vscode-editorWarning-foreground, #cca700) var(--atlas-ink-share), var(--tint-away)); display: inline-flex; gap: 6px; align-items: center; flex-wrap: wrap; }
+  .rollback-input { padding: 3px 6px; border-radius: 5px; border: 1px solid var(--atlas-boundary); background: var(--vscode-input-background); color: var(--vscode-input-foreground); font-size: 0.95em; }
   .stage-card-foot { gap: 10px; }
   .history-row { display: flex; align-items: baseline; justify-content: space-between; gap: 10px; flex-wrap: wrap; font-size: 0.82em; padding: 4px 0; border-bottom: 1px dashed var(--vscode-widget-border, rgba(127,127,127,0.18)); }
-  .history-row.good > span:first-child { color: var(--vscode-charts-green, #89d185); }
-  .history-row.bad > span:first-child { color: var(--vscode-errorForeground, #f14c4c); }
+  .history-row.good > span:first-child { color: color-mix(in srgb, var(--vscode-charts-green, #89d185) var(--atlas-ink-share), var(--tint-away)); }
+  .history-row.bad > span:first-child { color: color-mix(in srgb, var(--vscode-errorForeground, #f14c4c) var(--atlas-ink-share), var(--tint-away)); }
   .history-row .list-meta { color: var(--vscode-descriptionForeground); }
 
   /* ── Delivery: promotion execution modal (Phase 3) ────────────── */
@@ -35313,14 +36079,14 @@ const DASHBOARD_CSS = `
      checks the project had and meant the primary button was only reachable by
      scrolling past everything else. */
   .promo-overlay { position: fixed; inset: 0; background: rgba(0,0,0,0.55); display: flex; align-items: center; justify-content: center; padding: 32px 16px; z-index: 1000; }
-  .promo-modal { width: min(680px, 100%); max-height: min(88vh, 900px); display: flex; flex-direction: column; background: var(--vscode-editorWidget-background, var(--vscode-editor-background)); border: 1px solid var(--vscode-widget-border, rgba(127,127,127,0.4)); border-radius: 14px; box-shadow: 0 18px 50px rgba(0,0,0,0.45); overflow: hidden; }
+  .promo-modal { width: min(680px, 100%); max-height: min(88vh, 900px); display: flex; flex-direction: column; background: var(--vscode-editorWidget-background, var(--vscode-editor-background)); border: 1px solid var(--atlas-boundary); border-radius: 14px; box-shadow: 0 18px 50px rgba(0,0,0,0.45); overflow: hidden; }
   .promo-head { padding: 18px 22px 12px; border-bottom: 1px solid var(--vscode-widget-border, rgba(127,127,127,0.25)); }
   .promo-head h3 { margin: 0; font-size: 1.1em; }
   .promo-body { padding: 4px 22px 16px; overflow-y: auto; flex: 1 1 auto; }
   .promo-foot { display: flex; align-items: center; justify-content: space-between; gap: 12px; flex-wrap: wrap; padding: 12px 22px 16px; border-top: 1px solid var(--vscode-widget-border, rgba(127,127,127,0.25)); background: var(--vscode-editorWidget-background, var(--vscode-editor-background)); }
   .promo-foot .stage-edit-actions { margin: 0; }
   .promo-readiness { font-size: 0.82em; color: var(--vscode-descriptionForeground); }
-  .promo-readiness.is-ready { color: var(--vscode-charts-green, #89d185); font-weight: 600; }
+  .promo-readiness.is-ready { color: color-mix(in srgb, var(--vscode-charts-green, #89d185) var(--atlas-ink-share), var(--tint-away)); font-weight: 600; }
 
   /* Section meters. A bar and a count, not a ring: three rings would push the
      controls further down the dialog people are already scrolling. */
@@ -35329,46 +36095,46 @@ const DASHBOARD_CSS = `
   .promo-meter { display: inline-flex; align-items: center; gap: 8px; font-size: 0.74em; color: var(--vscode-descriptionForeground); white-space: nowrap; }
   .promo-meter-bar { width: 68px; height: 5px; border-radius: 999px; background: var(--vscode-widget-border, rgba(127,127,127,0.28)); overflow: hidden; }
   .promo-meter-fill { display: block; height: 100%; border-radius: 999px; background: currentColor; transition: width 140ms ease; }
-  .promo-meter.tone-good { color: var(--vscode-charts-green, #89d185); }
-  .promo-meter.tone-warn { color: var(--vscode-charts-yellow, #d7ba7d); }
-  .promo-meter.tone-critical { color: var(--vscode-errorForeground, #f14c4c); }
+  .promo-meter.tone-good { color: color-mix(in srgb, var(--vscode-charts-green, #89d185) var(--atlas-ink-share), var(--tint-away)); }
+  .promo-meter.tone-warn { color: color-mix(in srgb, var(--vscode-charts-yellow, #d7ba7d) var(--atlas-ink-share), var(--tint-away)); }
+  .promo-meter.tone-critical { color: color-mix(in srgb, var(--vscode-errorForeground, #f14c4c) var(--atlas-ink-share), var(--tint-away)); }
   .promo-meter.tone-muted { color: var(--vscode-descriptionForeground); }
   .promo-meter-label { font-variant-numeric: tabular-nums; }
 
-  .promo-detach-note { font-size: 0.82em; margin: 10px 0 0; padding: 9px 11px; border-radius: 8px; color: var(--vscode-foreground); border: 1px solid color-mix(in srgb, var(--vscode-charts-blue, #4daafc) 40%, transparent); background: color-mix(in srgb, var(--vscode-charts-blue, #4daafc) 10%, transparent); }
-  .promo-detached { display: flex; align-items: center; justify-content: space-between; gap: 12px; flex-wrap: wrap; font-size: 0.85em; margin: 10px 0 0; padding: 9px 12px; border-radius: 8px; border: 1px solid var(--vscode-widget-border, rgba(127,127,127,0.3)); }
-  .promo-detached.running { border-color: color-mix(in srgb, var(--vscode-charts-blue, #4daafc) 45%, transparent); }
-  .promo-detached.good { border-color: color-mix(in srgb, var(--vscode-charts-green, #89d185) 45%, transparent); }
-  .promo-detached.bad { border-color: color-mix(in srgb, var(--vscode-errorForeground, #f14c4c) 45%, transparent); }
+  .promo-detach-note { font-size: 0.82em; margin: 10px 0 0; padding: 9px 11px; border-radius: 8px; color: var(--vscode-foreground); border: 1px solid color-mix(in srgb, var(--vscode-charts-blue, #4daafc) 40%, var(--atlas-boundary)); background: color-mix(in srgb, var(--vscode-charts-blue, #4daafc) 10%, transparent); }
+  .promo-detached { display: flex; align-items: center; justify-content: space-between; gap: 12px; flex-wrap: wrap; font-size: 0.85em; margin: 10px 0 0; padding: 9px 12px; border-radius: 8px; border: 1px solid var(--atlas-boundary); }
+  .promo-detached.running { border-color: color-mix(in srgb, var(--vscode-charts-blue, #4daafc) 45%, var(--atlas-boundary)); }
+  .promo-detached.good { border-color: color-mix(in srgb, color-mix(in srgb, var(--vscode-charts-green, #89d185) var(--atlas-ink-share), var(--tint-away)) 45%, var(--atlas-boundary)); }
+  .promo-detached.bad { border-color: color-mix(in srgb, color-mix(in srgb, var(--vscode-errorForeground, #f14c4c) var(--atlas-ink-share), var(--tint-away)) 45%, var(--atlas-boundary)); }
   .promo-detached-actions { display: inline-flex; gap: 10px; }
   .promo-section { margin: 14px 0; }
   .promo-section > h4 { margin: 0 0 6px; font-size: 0.78em; text-transform: uppercase; letter-spacing: 0.06em; color: var(--vscode-descriptionForeground); }
   .promo-plan-list { list-style: none; margin: 0; padding: 0; display: flex; flex-direction: column; gap: 8px; }
-  .promo-plan-step { padding: 8px 10px; border-radius: 8px; border: 1px solid var(--vscode-widget-border, rgba(127,127,127,0.2)); background: var(--vscode-editor-background); }
+  .promo-plan-step { padding: 8px 10px; border-radius: 8px; border: 1px solid var(--atlas-boundary); background: var(--vscode-editor-background); }
   .promo-plan-step-head { display: flex; align-items: center; gap: 8px; }
-  .promo-step-badge { font-size: 0.66em; text-transform: uppercase; letter-spacing: 0.05em; padding: 1px 6px; border-radius: 999px; border: 1px solid var(--vscode-widget-border, rgba(127,127,127,0.35)); color: var(--vscode-descriptionForeground); }
-  .promo-step-badge.managed { color: var(--vscode-charts-blue, #4daafc); border-color: currentColor; }
+  .promo-step-badge { font-size: 0.66em; text-transform: uppercase; letter-spacing: 0.05em; padding: 1px 6px; border-radius: 999px; border: 1px solid var(--atlas-boundary); color: var(--vscode-descriptionForeground); }
+  .promo-step-badge.managed { color: color-mix(in srgb, var(--vscode-charts-blue, #4daafc) var(--atlas-ink-share), var(--tint-away)); border-color: currentColor; }
   .promo-plan-step-detail { font-size: 0.8em; color: var(--vscode-descriptionForeground); margin-top: 3px; }
   .promo-cmd { margin: 6px 0 0; padding: 6px 8px; border-radius: 6px; background: var(--vscode-textCodeBlock-background, rgba(127,127,127,0.12)); font-family: var(--vscode-editor-font-family, monospace); font-size: 0.78em; white-space: pre-wrap; word-break: break-word; }
   .promo-check-list { list-style: none; margin: 0; padding: 0; display: flex; flex-direction: column; gap: 6px; }
   .promo-check { font-size: 0.84em; display: flex; gap: 6px; align-items: baseline; flex-wrap: wrap; }
   .promo-check small { color: var(--vscode-descriptionForeground); width: 100%; padding-left: 18px; }
-  .promo-check.pass { color: var(--vscode-charts-green, #89d185); }
-  .promo-check.fail { color: var(--vscode-errorForeground, #f14c4c); }
+  .promo-check.pass { color: color-mix(in srgb, var(--vscode-charts-green, #89d185) var(--atlas-ink-share), var(--tint-away)); }
+  .promo-check.fail { color: color-mix(in srgb, var(--vscode-errorForeground, #f14c4c) var(--atlas-ink-share), var(--tint-away)); }
   .promo-check.manual { color: var(--vscode-foreground); }
   .promo-check.manual label { display: inline-flex; gap: 7px; align-items: center; cursor: pointer; }
-  .promo-fix-tag { font-size: 0.66em; font-weight: 700; text-transform: uppercase; letter-spacing: 0.05em; padding: 1px 6px; border-radius: 999px; border: 1px solid var(--vscode-charts-blue, #4daafc); color: var(--vscode-charts-blue, #4daafc); white-space: nowrap; }
-  .promo-remediation { font-size: 0.82em; margin: 10px 0 0; padding: 9px 11px; border-radius: 8px; border: 1px solid color-mix(in srgb, var(--vscode-charts-blue, #4daafc) 45%, transparent); background: color-mix(in srgb, var(--vscode-charts-blue, #4daafc) 10%, transparent); display: flex; flex-direction: column; gap: 3px; }
+  .promo-fix-tag { font-size: 0.66em; font-weight: 700; text-transform: uppercase; letter-spacing: 0.05em; padding: 1px 6px; border-radius: 999px; border: 1px solid var(--vscode-charts-blue, #4daafc); color: color-mix(in srgb, var(--vscode-charts-blue, #4daafc) var(--atlas-ink-share), var(--tint-away)); white-space: nowrap; }
+  .promo-remediation { font-size: 0.82em; margin: 10px 0 0; padding: 9px 11px; border-radius: 8px; border: 1px solid color-mix(in srgb, var(--vscode-charts-blue, #4daafc) 45%, var(--atlas-boundary)); background: color-mix(in srgb, var(--vscode-charts-blue, #4daafc) 10%, transparent); display: flex; flex-direction: column; gap: 3px; }
   .promo-remediation small { color: var(--vscode-descriptionForeground); }
   .promo-progress-list { list-style: none; margin: 0; padding: 0; display: flex; flex-direction: column; gap: 5px; }
   .promo-step { font-size: 0.84em; }
-  .promo-step.done { color: var(--vscode-charts-green, #89d185); }
-  .promo-step.failed { color: var(--vscode-errorForeground, #f14c4c); }
-  .promo-step.running { color: var(--vscode-charts-blue, #4daafc); }
+  .promo-step.done { color: color-mix(in srgb, var(--vscode-charts-green, #89d185) var(--atlas-ink-share), var(--tint-away)); }
+  .promo-step.failed { color: color-mix(in srgb, var(--vscode-errorForeground, #f14c4c) var(--atlas-ink-share), var(--tint-away)); }
+  .promo-step.running { color: color-mix(in srgb, var(--vscode-charts-blue, #4daafc) var(--atlas-ink-share), var(--tint-away)); }
   .promo-step-out { font-family: var(--vscode-editor-font-family, monospace); font-size: 0.82em; color: var(--vscode-descriptionForeground); margin: 2px 0 0 18px; white-space: pre-wrap; word-break: break-word; }
   .promo-step-fix { margin: 6px 0 0 18px; }
-  .promo-result.good > h4 { color: var(--vscode-charts-green, #89d185); }
-  .promo-result.bad > h4 { color: var(--vscode-errorForeground, #f14c4c); }
+  .promo-result.good > h4 { color: color-mix(in srgb, var(--vscode-charts-green, #89d185) var(--atlas-ink-share), var(--tint-away)); }
+  .promo-result.bad > h4 { color: color-mix(in srgb, var(--vscode-errorForeground, #f14c4c) var(--atlas-ink-share), var(--tint-away)); }
 
   /* ── Reduced motion ───────────────────────────────────────────────────
      The stylesheet had no prefers-reduced-motion handling at all. Every
@@ -35455,39 +36221,39 @@ const DASHBOARD_CSS = `
   .website-delivery .wd-card-head { display: flex; align-items: flex-start; justify-content: space-between; gap: 12px; flex-wrap: wrap; }
   .website-delivery .wd-card-head h3, .website-delivery .wd-card-head h4 { margin: 2px 0; }
   .website-delivery .wd-frameworks { display: grid; grid-template-columns: repeat(auto-fill, minmax(220px, 1fr)); gap: 10px; margin-top: 12px; }
-  .website-delivery .wd-framework { display: grid; gap: 4px; text-align: left; padding: 12px; border-radius: 12px; border: 1px solid var(--vscode-widget-border, rgba(127,127,127,0.25)); background: var(--vscode-editorWidget-background, rgba(127,127,127,0.06)); color: var(--vscode-foreground); cursor: pointer; font: inherit; }
+  .website-delivery .wd-framework { display: grid; gap: 4px; text-align: left; padding: 12px; border-radius: 12px; border: 1px solid var(--atlas-boundary); background: var(--vscode-editorWidget-background, rgba(127,127,127,0.06)); color: var(--vscode-foreground); cursor: pointer; font: inherit; }
   .website-delivery .wd-framework:hover { background: var(--vscode-list-hoverBackground); }
   .website-delivery .wd-framework.selected { border-color: var(--vscode-focusBorder); box-shadow: inset 0 0 0 1px var(--vscode-focusBorder); }
   .website-delivery .wd-framework[disabled] { opacity: .6; cursor: default; }
   .website-delivery .wd-framework-name { font-weight: 600; }
   .website-delivery .wd-framework-badge { font-size: .72rem; text-transform: uppercase; letter-spacing: .04em; opacity: .8; }
-  .website-delivery .compat-unsupported .wd-framework-badge { color: var(--vscode-errorForeground); }
-  .website-delivery .compat-workable .wd-framework-badge { color: var(--vscode-editorWarning-foreground, #d29922); }
-  .website-delivery .compat-ideal .wd-framework-badge { color: var(--vscode-testing-iconPassed, #3fb950); }
+  .website-delivery .compat-unsupported .wd-framework-badge { color: color-mix(in srgb, var(--vscode-errorForeground) var(--atlas-ink-share), var(--tint-away)); }
+  .website-delivery .compat-workable .wd-framework-badge { color: color-mix(in srgb, var(--vscode-editorWarning-foreground, #d29922) var(--atlas-ink-share), var(--tint-away)); }
+  .website-delivery .compat-ideal .wd-framework-badge { color: color-mix(in srgb, var(--vscode-testing-iconPassed, #3fb950) var(--atlas-ink-share), var(--tint-away)); }
   .website-delivery .wd-framework-desc, .website-delivery .wd-framework-reason, .website-delivery .wd-framework-meta { font-size: .8rem; opacity: .85; }
   .website-delivery .wd-summary { display: grid; grid-template-columns: auto 1fr; gap: 6px 14px; margin: 12px 0 0; padding-top: 10px; border-top: 1px solid var(--vscode-widget-border, rgba(127,127,127,0.25)); font-size: .85rem; }
   .website-delivery .wd-summary dt { font-weight: 600; opacity: .8; }
   .website-delivery .wd-summary dd { margin: 0; }
-  .website-delivery .wd-instep { color: var(--vscode-testing-iconPassed, #3fb950); }
-  .website-delivery .wd-drift { color: var(--vscode-editorWarning-foreground, #d29922); }
+  .website-delivery .wd-instep { color: color-mix(in srgb, var(--vscode-testing-iconPassed, #3fb950) var(--atlas-ink-share), var(--tint-away)); }
+  .website-delivery .wd-drift { color: color-mix(in srgb, var(--vscode-editorWarning-foreground, #d29922) var(--atlas-ink-share), var(--tint-away)); }
   .website-delivery .wd-environments { display: grid; grid-template-columns: repeat(auto-fit, minmax(260px, 1fr)); gap: 12px; }
   .website-delivery .wd-platforms, .website-delivery .wd-automations { display: grid; grid-template-columns: repeat(auto-fill, minmax(280px, 1fr)); gap: 12px; }
-  .website-delivery .wd-card { display: grid; gap: 8px; padding: 14px; border-radius: 12px; border: 1px solid var(--vscode-widget-border, rgba(127,127,127,0.25)); background: var(--vscode-editorWidget-background, rgba(127,127,127,0.06)); }
+  .website-delivery .wd-card { display: grid; gap: 8px; padding: 14px; border-radius: 12px; border: 1px solid var(--atlas-boundary); background: var(--vscode-editorWidget-background, rgba(127,127,127,0.06)); }
   .website-delivery .wd-field { display: grid; gap: 4px; font-size: .82rem; }
   .website-delivery .wd-field span { font-weight: 600; }
-  .website-delivery .wd-field input, .website-delivery .wd-field select, .website-delivery .wd-field textarea { width: 100%; box-sizing: border-box; padding: 6px 8px; border-radius: 6px; border: 1px solid var(--vscode-input-border, var(--vscode-widget-border, rgba(127,127,127,0.35))); background: var(--vscode-input-background); color: var(--vscode-input-foreground); font: inherit; }
+  .website-delivery .wd-field input, .website-delivery .wd-field select, .website-delivery .wd-field textarea { width: 100%; box-sizing: border-box; padding: 6px 8px; border-radius: 6px; border: 1px solid var(--atlas-boundary); background: var(--vscode-input-background); color: var(--vscode-input-foreground); font: inherit; }
   .website-delivery .wd-pair { display: grid; grid-template-columns: repeat(auto-fit, minmax(160px, 1fr)); gap: 8px; }
   .website-delivery .wd-locked { display: grid; gap: 4px; font-size: .82rem; }
   .website-delivery .wd-locked span { font-weight: 600; }
-  .website-delivery .wd-locked strong { padding: 6px 8px; border: 1px dashed var(--vscode-widget-border, rgba(127,127,127,0.35)); border-radius: 6px; font-weight: 500; }
-  .website-delivery .wd-pill, .website-delivery .wd-guard { display: inline-block; padding: 2px 8px; border-radius: 999px; border: 1px solid var(--vscode-widget-border, rgba(127,127,127,0.35)); font-size: .72rem; text-transform: uppercase; letter-spacing: .04em; }
-  .website-delivery .wd-pill.ready { border-color: var(--vscode-testing-iconPassed, #3fb950); color: var(--vscode-testing-iconPassed, #3fb950); }
-  .website-delivery .wd-pill.needs-setup { border-color: var(--vscode-editorWarning-foreground, #d29922); color: var(--vscode-editorWarning-foreground, #d29922); }
-  .website-delivery .wd-pill.blocked { border-color: var(--vscode-errorForeground); color: var(--vscode-errorForeground); }
+  .website-delivery .wd-locked strong { padding: 6px 8px; border: 1px dashed var(--atlas-boundary); border-radius: 6px; font-weight: 500; }
+  .website-delivery .wd-pill, .website-delivery .wd-guard { display: inline-block; padding: 2px 8px; border-radius: 999px; border: 1px solid var(--atlas-boundary); font-size: .72rem; text-transform: uppercase; letter-spacing: .04em; }
+  .website-delivery .wd-pill.ready { border-color: color-mix(in srgb, var(--vscode-testing-iconPassed, #3fb950) var(--atlas-ink-share), var(--tint-away)); color: color-mix(in srgb, var(--vscode-testing-iconPassed, #3fb950) var(--atlas-ink-share), var(--tint-away)); }
+  .website-delivery .wd-pill.needs-setup { border-color: color-mix(in srgb, var(--vscode-editorWarning-foreground, #d29922) var(--atlas-ink-share), var(--tint-away)); color: color-mix(in srgb, var(--vscode-editorWarning-foreground, #d29922) var(--atlas-ink-share), var(--tint-away)); }
+  .website-delivery .wd-pill.blocked { border-color: color-mix(in srgb, var(--vscode-errorForeground) var(--atlas-ink-share), var(--tint-away)); color: color-mix(in srgb, var(--vscode-errorForeground) var(--atlas-ink-share), var(--tint-away)); }
   .website-delivery .wd-guard { justify-self: start; }
-  .website-delivery .wd-issues { margin: 0; padding-left: 18px; font-size: .8rem; color: var(--vscode-editorWarning-foreground, #d29922); }
-  .website-delivery .wd-clear { margin: 0; font-size: .8rem; color: var(--vscode-testing-iconPassed, #3fb950); }
+  .website-delivery .wd-issues { margin: 0; padding-left: 18px; font-size: .8rem; color: color-mix(in srgb, var(--vscode-editorWarning-foreground, #d29922) var(--atlas-ink-share), var(--tint-away)); }
+  .website-delivery .wd-clear { margin: 0; font-size: .8rem; color: color-mix(in srgb, var(--vscode-testing-iconPassed, #3fb950) var(--atlas-ink-share), var(--tint-away)); }
   .website-delivery .wd-primary { display: flex; align-items: center; gap: 6px; font-size: .8rem; }
-  .website-delivery .action-link.danger { color: var(--vscode-errorForeground); }
+  .website-delivery .action-link.danger { color: color-mix(in srgb, var(--vscode-errorForeground) var(--atlas-ink-share), var(--tint-away)); }
 
 `;

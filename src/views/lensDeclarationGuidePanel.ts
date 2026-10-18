@@ -495,17 +495,17 @@ function buildGuideHtml(cspSource: string): string {
     title: 'Lens — Declaration guide',
     extraCss: `${LENS_PANEL_CSS}
       .guide-tabs { display: flex; flex-wrap: wrap; gap: 6px; margin-bottom: 16px; }
-      .guide-tab { padding: 6px 12px; border-radius: 6px; border: 1px solid var(--vscode-panel-border); background: transparent; color: var(--vscode-foreground); cursor: pointer; font-size: 12px; }
+      .guide-tab { padding: 6px 12px; border-radius: 6px; border: 1px solid var(--atlas-boundary); background: transparent; color: var(--vscode-foreground); cursor: pointer; font-size: 12px; }
       .guide-tab[aria-pressed="true"] { background: var(--vscode-button-background); color: var(--vscode-button-foreground); border-color: transparent; }
       .guide-tab .dot { display: inline-block; width: 7px; height: 7px; border-radius: 50%; margin-right: 6px; background: var(--vscode-descriptionForeground); }
       .guide-tab .dot.ready { background: var(--vscode-testing-iconPassed, #3fb950); }
       .guide-section { margin: 18px 0; }
       .guide-actions { display: flex; flex-wrap: wrap; gap: 8px; margin: 16px 0; }
-      .guide-actions button:not(.atlas-discuss-action) { padding: 7px 14px; border-radius: 6px; border: 1px solid var(--vscode-panel-border); background: var(--vscode-button-secondaryBackground); color: var(--vscode-button-secondaryForeground); cursor: pointer; }
+      .guide-actions button:not(.atlas-discuss-action) { padding: 7px 14px; border-radius: 6px; border: 1px solid var(--atlas-boundary); background: var(--vscode-button-secondaryBackground); color: var(--vscode-button-secondaryForeground); cursor: pointer; }
       .guide-actions button.primary { background: var(--vscode-button-background); color: var(--vscode-button-foreground); border-color: transparent; }
       .guide-actions button:disabled { opacity: .5; cursor: default; }
-      pre.guide-code { overflow-x: auto; padding: 12px; border-radius: 6px; background: var(--vscode-textCodeBlock-background); border: 1px solid var(--vscode-panel-border); font-size: 12px; }
-      .guide-draft { border: 1px solid var(--vscode-panel-border); border-left: 3px solid var(--vscode-button-background); border-radius: 6px; padding: 14px; margin-top: 18px; }
+      pre.guide-code { overflow-x: auto; padding: 12px; border-radius: 6px; background: var(--vscode-textCodeBlock-background); border: 1px solid var(--atlas-boundary); font-size: 12px; }
+      .guide-draft { border: 1px solid var(--atlas-boundary); border-left: 3px solid var(--vscode-button-background); border-radius: 6px; padding: 14px; margin-top: 18px; }
       .guide-draft.refused { border-left-color: var(--vscode-editorError-foreground, #f85149); }
       .guide-draft pre { white-space: pre-wrap; margin: 0 0 12px; font-family: inherit; font-size: 13px; }
       .guide-note { color: var(--vscode-descriptionForeground); font-size: 12px; }

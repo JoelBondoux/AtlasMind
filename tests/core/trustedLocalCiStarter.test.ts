@@ -6,6 +6,7 @@ import {
   type TrustedLocalCiStarterInput,
 } from '../../src/core/trustedLocalCiStarter.ts';
 import { assessTrustedLocalCiWorkflow } from '../../src/core/localCiRunner.ts';
+import { readLocalCiActorGuard } from '../../src/core/localCiActorGuard.ts';
 
 function baseInput(overrides: Partial<TrustedLocalCiStarterInput> = {}): TrustedLocalCiStarterInput {
   return {
@@ -61,6 +62,10 @@ describe('trusted local CI starter', () => {
         packageManager: fc.constantFrom('npm' as const, 'pnpm' as const, 'yarn' as const),
         scripts: fc.subarray(['compile', 'build', 'lint', 'test'], { minLength: 1 }),
         nodeVersion: fc.constantFrom(undefined, '18', '20', '22.11.0'),
+        account: fc.option(fc.record({
+          id: fc.integer({ min: 1, max: Number.MAX_SAFE_INTEGER }),
+          login: fc.stringMatching(/^[A-Za-z0-9](?:[A-Za-z0-9-]{0,37}[A-Za-z0-9])?$/),
+        }), { nil: undefined }),
       }),
       sample => {
         const outcome = buildTrustedLocalCiStarter(baseInput({
@@ -70,6 +75,7 @@ describe('trusted local CI starter', () => {
           packageManager: sample.packageManager,
           scripts: sample.scripts,
           ...(sample.nodeVersion === undefined ? {} : { nodeVersion: sample.nodeVersion }),
+          ...(sample.account === undefined ? {} : { authorizedAccount: sample.account }),
         }));
         expect(outcome.ok).toBe(true);
         if (!outcome.ok) {
@@ -137,6 +143,41 @@ describe('trusted local CI starter', () => {
     expect(plan.content).toContain("github.repository == 'JoelBondoux/AtlasMind'");
     expect(plan.content).toContain("github.ref == 'refs/heads/develop'");
     expect(plan.content).toContain('github.actor == github.repository_owner');
+  });
+
+  /**
+   * In an organisation-owned repository `github.repository_owner` is the
+   * organisation's name, which no push or dispatch actor can equal, so the
+   * owner condition would skip every run before a runner was consulted. The
+   * one account allowed to start the job is pinned by id instead.
+   */
+  it('pins one account for an organisation-owned repository', () => {
+    const plan = planOf(baseInput({
+      repoRemote: 'Hill-To-Die-On/Director-Of-Realms',
+      authorizedAccount: { id: 6105707, login: 'JoelBondoux' },
+    }));
+    const condition = plan.content.slice(plan.content.indexOf('    if: >-'), plan.content.indexOf('    runs-on:'));
+    expect(condition).toContain("github.actor_id == '6105707'");
+    expect(condition).not.toContain('repository_owner');
+    expect(plan.content).toContain("# Only JoelBondoux's push to develop");
+    expect(plan.content).toContain('# JoelBondoux is pinned by GitHub account id 6105707');
+    expect(readLocalCiActorGuard(plan.content)).toEqual({ ok: true, guard: { kind: 'account', id: 6105707 } });
+    expect(plan.permits.join(' ')).toContain('JoelBondoux pushing to develop');
+    expect(plan.refuses.join(' ')).toContain('Anyone other than JoelBondoux');
+    expect(assessTrustedLocalCiWorkflow(plan.content, {
+      repoSlug: 'Hill-To-Die-On/Director-Of-Realms',
+      branch: 'develop',
+      runnerLabel: 'atlasmind-trusted-linux-x64',
+    }).blockers).toEqual([]);
+  });
+
+  it('refuses a pinned account it could not write safely into the condition', () => {
+    for (const authorizedAccount of [
+      { id: -3, login: 'JoelBondoux' },
+      { id: 6105707, login: "x' || true || '" },
+    ]) {
+      expect(buildTrustedLocalCiStarter(baseInput({ authorizedAccount }))).toMatchObject({ ok: false });
+    }
   });
 
   it('accepts a remote URL as readily as a slug, and agrees with itself', () => {

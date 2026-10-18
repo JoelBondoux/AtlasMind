@@ -582,17 +582,17 @@ export class CostDashboardPanel {
         .dashboard-topbar h1 { margin: 0; font-size: 2rem; line-height: 1.05; }
         .dashboard-copy { margin: 8px 0 0; max-width: 70ch; color: var(--vscode-descriptionForeground); line-height: 1.5; overflow-wrap: anywhere; word-break: break-word; }
         .dashboard-actions { display: flex; gap: 10px; align-items: center; flex-wrap: wrap; justify-content: flex-end; }
-        .dashboard-button { border-radius: 999px; border: 1px solid color-mix(in srgb, var(--vscode-widget-border, #444) 88%, transparent); padding: 10px 14px; font: inherit; cursor: pointer; transition: transform 140ms ease, border-color 140ms ease, background 140ms ease; }
+        .dashboard-button { border-radius: 999px; border: 1px solid var(--atlas-boundary); padding: 10px 14px; font: inherit; cursor: pointer; transition: transform 140ms ease, border-color 140ms ease, background 140ms ease; }
         .dashboard-button:hover { transform: translateY(-1px); }
         .dashboard-button-ghost { background: color-mix(in srgb, var(--vscode-editorWidget-background, var(--vscode-sideBar-background)) 92%, transparent); color: var(--vscode-foreground); }
-        .dashboard-button-solid { background: linear-gradient(135deg, color-mix(in srgb, var(--vscode-button-background) 94%, white 6%), color-mix(in srgb, var(--vscode-button-background) 70%, black 14%)); color: var(--vscode-button-foreground); border-color: color-mix(in srgb, var(--vscode-button-background) 65%, white 8%); }
+        .dashboard-button-solid { background: linear-gradient(135deg, var(--vscode-button-background), color-mix(in srgb, var(--vscode-button-background) 70%, black 14%)); color: var(--vscode-button-foreground); border-color: color-mix(in srgb, var(--atlas-edge-accent) 65%, var(--tint-away) 8%); }
         .dashboard-button-solid.active { box-shadow: 0 0 0 1px color-mix(in srgb, var(--vscode-focusBorder, var(--vscode-button-background)) 50%, transparent); }
-        .dashboard-button-danger { background: color-mix(in srgb, var(--vscode-inputValidation-errorBackground, #7a2f31) 78%, black 22%); color: var(--vscode-inputValidation-errorForeground, #fff); border-color: color-mix(in srgb, var(--vscode-inputValidation-errorBorder, #be1100) 78%, transparent); }
+        .dashboard-button-danger { background: color-mix(in srgb, var(--vscode-inputValidation-errorBackground, #7a2f31) 78%, var(--tint-toward) 22%); color: var(--vscode-inputValidation-errorForeground, var(--vscode-foreground)); border-color: color-mix(in srgb, color-mix(in srgb, var(--vscode-errorForeground, #f48771) var(--atlas-ink-share), var(--tint-away)) 78%, var(--atlas-boundary)); }
         .summary-ribbon { display: flex; flex-wrap: wrap; gap: 18px; padding-bottom: 2px; }
         .summary-group { display: flex; flex-direction: column; gap: 6px; flex: 1 1 240px; min-width: 0; }
         .summary-group-label { margin: 0; font-size: 9px; font-weight: 700; letter-spacing: 0.11em; text-transform: uppercase; color: var(--vscode-descriptionForeground); padding-left: 2px; }
         .summary-group-cards { display: grid; grid-template-columns: repeat(auto-fit, minmax(150px, 1fr)); gap: 12px; }
-        .summary-card { min-width: 0; padding: 14px 16px; border-radius: 18px; border: 1px solid color-mix(in srgb, var(--vscode-widget-border, #444) 80%, transparent); background: linear-gradient(180deg, color-mix(in srgb, var(--vscode-editorWidget-background, var(--vscode-sideBar-background)) 92%, white 3%), color-mix(in srgb, var(--vscode-editorWidget-background, var(--vscode-sideBar-background)) 96%, black 4%)); box-shadow: 0 18px 30px rgba(0, 0, 0, 0.12); }
+        .summary-card { min-width: 0; padding: 14px 16px; border-radius: 18px; border: 1px solid var(--atlas-boundary); background: linear-gradient(180deg, color-mix(in srgb, var(--vscode-editorWidget-background, var(--vscode-sideBar-background)) 92%, white 3%), color-mix(in srgb, var(--vscode-editorWidget-background, var(--vscode-sideBar-background)) 96%, black 4%)); box-shadow: 0 18px 30px rgba(0, 0, 0, 0.12); }
         .summary-label { margin: 0; font-size: 0.72rem; letter-spacing: 0.12em; text-transform: uppercase; color: var(--vscode-descriptionForeground); }
         .summary-card-head { display: flex; align-items: center; gap: 8px; }
         .pill-dot { width: 9px; height: 9px; border-radius: 999px; flex: 0 0 auto; background: var(--vscode-descriptionForeground); }
@@ -606,11 +606,11 @@ export class CostDashboardPanel {
         .summary-meter > span.warn { background: linear-gradient(90deg, #f5a623, #ffcb6b); }
         .summary-meter > span.over { background: linear-gradient(90deg, #f36b6b, #f44747); }
         .summary-value { margin-top: 8px; font-size: clamp(1.15rem, 2vw, 1.75rem); font-weight: 700; font-variant-numeric: tabular-nums; }
-        .summary-value.warning { color: var(--vscode-notificationsWarningIcon-foreground, #ffb347); }
-        .summary-value.ok { color: var(--vscode-notificationsInfoIcon-foreground, #4ec9b0); }
+        .summary-value.warning { color: color-mix(in srgb, var(--vscode-notificationsWarningIcon-foreground, #ffb347) var(--atlas-ink-share), var(--tint-away)); }
+        .summary-value.ok { color: color-mix(in srgb, var(--vscode-notificationsInfoIcon-foreground, #4ec9b0) var(--atlas-ink-share), var(--tint-away)); }
         .summary-detail { margin: 8px 0 0; font-size: 0.8rem; color: var(--vscode-descriptionForeground); }
         .cost-spotlight-grid { display: grid; grid-template-columns: minmax(0, 1.5fr) minmax(280px, 0.85fr); gap: 16px; align-items: stretch; }
-        .panel-card { position: relative; padding: 18px; border-radius: 24px; border: 1px solid color-mix(in srgb, var(--vscode-widget-border, #444) 80%, transparent); background: linear-gradient(180deg, color-mix(in srgb, var(--vscode-editorWidget-background, var(--vscode-sideBar-background)) 96%, white 2%), color-mix(in srgb, var(--vscode-editorWidget-background, var(--vscode-sideBar-background)) 94%, black 6%)); box-shadow: 0 20px 42px rgba(0, 0, 0, 0.14); overflow: hidden; }
+        .panel-card { position: relative; padding: 18px; border-radius: 24px; border: 1px solid var(--atlas-boundary); background: linear-gradient(180deg, color-mix(in srgb, var(--vscode-editorWidget-background, var(--vscode-sideBar-background)) 96%, white 2%), color-mix(in srgb, var(--vscode-editorWidget-background, var(--vscode-sideBar-background)) 94%, black 6%)); box-shadow: 0 20px 42px rgba(0, 0, 0, 0.14); overflow: hidden; }
         .panel-card-hero::before { content: ''; position: absolute; inset: 0 auto auto 0; width: 220px; height: 220px; background: radial-gradient(circle, color-mix(in srgb, var(--vscode-button-background) 24%, transparent) 0%, transparent 72%); pointer-events: none; }
         .panel-header-row { position: relative; display: flex; justify-content: space-between; gap: 16px; align-items: flex-start; margin-bottom: 14px; }
         .dashboard-topbar > *, .panel-header-row > *, .cost-spotlight-grid > *, .feedback-summary-grid > * { min-width: 0; }
@@ -621,7 +621,7 @@ export class CostDashboardPanel {
         .meta-pill { display: inline-flex; align-items: center; border-radius: 999px; padding: 6px 10px; font-size: 0.78rem; background: color-mix(in srgb, var(--vscode-badge-background, #444) 74%, transparent); color: var(--vscode-badge-foreground, var(--vscode-foreground)); }
         .meta-pill-danger { background: color-mix(in srgb, var(--vscode-inputValidation-errorBackground, #7a2f31) 62%, transparent); }
         .loop-list { display: flex; flex-direction: column; gap: 12px; }
-        .loop-row { padding: 12px 14px; border-radius: 16px; border: 1px solid color-mix(in srgb, var(--vscode-widget-border, #444) 72%, transparent); background: color-mix(in srgb, var(--vscode-editor-background) 60%, transparent); }
+        .loop-row { padding: 12px 14px; border-radius: 16px; border: 1px solid var(--atlas-boundary); background: color-mix(in srgb, var(--vscode-editor-background) 60%, transparent); }
         .loop-row-head { display: flex; justify-content: space-between; gap: 12px; align-items: center; }
         .loop-row-head strong { font-size: 0.96rem; overflow-wrap: anywhere; }
         .loop-status { flex-shrink: 0; display: inline-flex; align-items: center; border-radius: 999px; padding: 4px 10px; font-size: 0.74rem; background: color-mix(in srgb, var(--vscode-notificationsInfoIcon-foreground, #4ec9b0) 26%, transparent); color: var(--vscode-foreground); }
@@ -632,17 +632,17 @@ export class CostDashboardPanel {
         .loop-track-fill.safe { background: linear-gradient(90deg, #36cfc9, #4ec9b0); }
         .loop-track-fill.warn { background: linear-gradient(90deg, #f5a623, #ffcb6b); }
         .loop-track-fill.over { background: linear-gradient(90deg, #f36b6b, #f44747); }
-        .budget-hud { margin-bottom: 0; padding: 14px; border-radius: 18px; background: color-mix(in srgb, var(--vscode-editor-background) 64%, transparent); border: 1px solid color-mix(in srgb, var(--vscode-widget-border, #444) 72%, transparent); }
+        .budget-hud { margin-bottom: 0; padding: 14px; border-radius: 18px; background: color-mix(in srgb, var(--vscode-editor-background) 64%, transparent); border: 1px solid var(--atlas-boundary); }
         /* Promoted out of the Daily Spend card to full width. Its border takes
            the budget's tone so "about to be blocked" is legible before reading
            a single number. */
         .budget-strip { display: block; }
         .budget-strip .budget-hud { border-width: 1px; }
-        .budget-strip:has(.budget-track-fill.warn) .budget-hud { border-color: color-mix(in srgb, var(--vscode-charts-yellow, #d7ba7d) 55%, var(--vscode-widget-border, #444)); }
-        .budget-strip:has(.budget-track-fill.over) .budget-hud { border-color: color-mix(in srgb, var(--vscode-errorForeground, #f48771) 60%, var(--vscode-widget-border, #444)); background: color-mix(in srgb, var(--vscode-errorForeground, #f48771) 7%, color-mix(in srgb, var(--vscode-editor-background) 64%, transparent)); }
+        .budget-strip:has(.budget-track-fill.warn) .budget-hud { border-color: color-mix(in srgb, color-mix(in srgb, var(--vscode-charts-yellow, #d7ba7d) var(--atlas-ink-share), var(--tint-away)) 55%, var(--atlas-boundary)); }
+        .budget-strip:has(.budget-track-fill.over) .budget-hud { border-color: color-mix(in srgb, color-mix(in srgb, var(--vscode-errorForeground, #f48771) var(--atlas-ink-share), var(--tint-away)) 60%, var(--atlas-boundary)); background: color-mix(in srgb, var(--vscode-errorForeground, #f48771) 7%, color-mix(in srgb, var(--vscode-editor-background) 64%, transparent)); }
         .budget-hud-top { display: flex; justify-content: space-between; gap: 12px; align-items: center; margin-bottom: 10px; flex-wrap: wrap; }
         .budget-label-row { display: flex; align-items: center; gap: 8px; margin-bottom: 6px; }
-        .budget-edit-btn { border: 1px solid color-mix(in srgb, var(--vscode-widget-border, #444) 80%, transparent); border-radius: 999px; background: color-mix(in srgb, var(--vscode-editorWidget-background) 90%, transparent); color: var(--vscode-descriptionForeground); padding: 2px 10px; font: inherit; font-size: 0.72rem; cursor: pointer; }
+        .budget-edit-btn { border: 1px solid var(--atlas-boundary); border-radius: 999px; background: color-mix(in srgb, var(--vscode-editorWidget-background) 90%, transparent); color: var(--vscode-descriptionForeground); padding: 2px 10px; font: inherit; font-size: 0.72rem; cursor: pointer; }
         .budget-edit-btn:hover { color: var(--vscode-foreground); }
         .budget-track { position: relative; height: 12px; border-radius: 999px; overflow: hidden; background: color-mix(in srgb, var(--vscode-widget-border, #444) 68%, transparent); }
         .budget-track-fill { height: 100%; border-radius: inherit; transform-origin: left center; transform: scaleX(0); animation: budget-fill 720ms cubic-bezier(0.22, 1, 0.36, 1) forwards; }
@@ -650,20 +650,20 @@ export class CostDashboardPanel {
         .budget-track-fill.warn { background: linear-gradient(90deg, #f5a623, #ffcb6b); }
         .budget-track-fill.over { background: linear-gradient(90deg, #f36b6b, #f44747); }
         .budget-caption { margin: 10px 0 0; font-size: 0.82rem; color: var(--vscode-descriptionForeground); }
-        .daily-chart-stage { position: relative; min-height: 320px; border-radius: 22px; padding: 14px 14px 12px; background: linear-gradient(180deg, color-mix(in srgb, var(--vscode-editor-background) 54%, transparent), color-mix(in srgb, var(--vscode-editor-background) 30%, transparent)); border: 1px solid color-mix(in srgb, var(--vscode-widget-border, #444) 65%, transparent); }
+        .daily-chart-stage { position: relative; min-height: 320px; border-radius: 22px; padding: 14px 14px 12px; background: linear-gradient(180deg, color-mix(in srgb, var(--vscode-editor-background) 54%, transparent), color-mix(in srgb, var(--vscode-editor-background) 30%, transparent)); border: 1px solid var(--atlas-boundary); }
         .chart-toolbar { position: relative; z-index: 3; min-height: 36px; display: flex; align-items: flex-start; justify-content: space-between; gap: 12px; margin-bottom: 6px; }
-        .chart-style-controls { display: inline-flex; gap: 6px; padding: 4px; border-radius: 999px; background: color-mix(in srgb, var(--vscode-editorWidget-background, var(--vscode-sideBar-background)) 82%, transparent); border: 1px solid color-mix(in srgb, var(--vscode-widget-border, #444) 72%, transparent); }
+        .chart-style-controls { display: inline-flex; gap: 6px; padding: 4px; border-radius: 999px; background: color-mix(in srgb, var(--vscode-editorWidget-background, var(--vscode-sideBar-background)) 82%, transparent); border: 1px solid var(--atlas-boundary); }
         .chart-style-controls button { border: 0; border-radius: 999px; background: transparent; color: var(--vscode-descriptionForeground); padding: 6px 10px; cursor: pointer; font: inherit; }
-        .chart-style-controls button.active { background: color-mix(in srgb, var(--vscode-button-background) 82%, white 4%); color: var(--vscode-button-foreground); }
+        .chart-style-controls button.active { background: var(--vscode-button-background); color: var(--vscode-button-foreground); }
         .chart-timescale-disclosure { position: relative; flex: 0 0 auto; }
-        .chart-timescale-disclosure summary { list-style: none; cursor: pointer; user-select: none; border-radius: 999px; padding: 9px 14px; background: color-mix(in srgb, var(--vscode-editorWidget-background, var(--vscode-sideBar-background)) 88%, transparent); border: 1px solid color-mix(in srgb, var(--vscode-widget-border, #444) 72%, transparent); color: var(--vscode-foreground); font-size: 0.8rem; }
+        .chart-timescale-disclosure summary { list-style: none; cursor: pointer; user-select: none; border-radius: 999px; padding: 9px 14px; background: color-mix(in srgb, var(--vscode-editorWidget-background, var(--vscode-sideBar-background)) 88%, transparent); border: 1px solid var(--atlas-boundary); color: var(--vscode-foreground); font-size: 0.8rem; }
         .chart-timescale-disclosure summary::-webkit-details-marker { display: none; }
         .chart-timescale-disclosure summary::after { content: '▾'; margin-left: 8px; color: var(--vscode-descriptionForeground); }
         .chart-timescale-disclosure[open] summary::after { content: '▴'; }
-        .chart-timescale-menu { width: min(220px, calc(100vw - 72px)); display: grid; grid-template-columns: repeat(2, minmax(0, 1fr)); gap: 5px; margin-top: 6px; padding: 7px; border-radius: 14px; background: var(--vscode-editorWidget-background, var(--vscode-sideBar-background)); border: 1px solid var(--vscode-widget-border, #444); box-shadow: 0 14px 34px rgba(0, 0, 0, 0.24); }
+        .chart-timescale-menu { width: min(220px, calc(100vw - 72px)); display: grid; grid-template-columns: repeat(2, minmax(0, 1fr)); gap: 5px; margin-top: 6px; padding: 7px; border-radius: 14px; background: var(--vscode-editorWidget-background, var(--vscode-sideBar-background)); border: 1px solid var(--atlas-boundary); box-shadow: 0 14px 34px rgba(0, 0, 0, 0.24); }
         .chart-timescale-menu button { border: 0; border-radius: 9px; background: transparent; color: var(--vscode-descriptionForeground); padding: 7px 9px; cursor: pointer; font: inherit; font-size: 0.78rem; text-align: left; }
         .chart-timescale-menu button:hover { background: var(--vscode-list-hoverBackground); color: var(--vscode-foreground); }
-        .chart-timescale-menu button.active { background: color-mix(in srgb, var(--vscode-button-background) 82%, white 4%); color: var(--vscode-button-foreground); }
+        .chart-timescale-menu button.active { background: var(--vscode-button-background); color: var(--vscode-button-foreground); }
         .daily-chart { position: relative; min-height: 286px; padding-top: 16px; }
         .daily-chart-grid { position: absolute; inset: 16px 0 30px; display: grid; grid-template-rows: repeat(4, 1fr); pointer-events: none; }
         .daily-chart-grid span { border-top: 1px dashed color-mix(in srgb, var(--vscode-widget-border, #444) 44%, transparent); }
@@ -680,17 +680,17 @@ export class CostDashboardPanel {
         .daily-bar-meter { width: min(24px, 100%); border-radius: 999px; background: linear-gradient(180deg, color-mix(in srgb, var(--vscode-button-background) 35%, white 18%), color-mix(in srgb, var(--vscode-button-background) 88%, black 8%)); transform-origin: bottom center; transform: scaleY(0); animation: bar-rise 720ms cubic-bezier(0.22, 1, 0.36, 1) forwards; animation-delay: calc(var(--bar-index) * 28ms); box-shadow: 0 10px 18px color-mix(in srgb, var(--vscode-button-background) 22%, transparent); }
         .daily-bar-label { font-size: 0.72rem; color: var(--vscode-descriptionForeground); white-space: nowrap; }
         .daily-chart-footer { display: grid; grid-template-columns: repeat(3, minmax(0, 1fr)); gap: 10px; margin-top: 14px; }
-        .chart-foot-stat { padding: 10px 12px; border-radius: 14px; background: color-mix(in srgb, var(--vscode-editor-background) 68%, transparent); border: 1px solid color-mix(in srgb, var(--vscode-widget-border, #444) 60%, transparent); }
+        .chart-foot-stat { padding: 10px 12px; border-radius: 14px; background: color-mix(in srgb, var(--vscode-editor-background) 68%, transparent); border: 1px solid var(--atlas-boundary); }
         .chart-foot-label { margin: 0; font-size: 0.72rem; text-transform: uppercase; letter-spacing: 0.08em; color: var(--vscode-descriptionForeground); }
         .chart-foot-value { margin-top: 6px; font-size: 1rem; font-weight: 700; font-variant-numeric: tabular-nums; }
-        .breakdown-toggle { display: inline-flex; gap: 4px; padding: 4px; border-radius: 999px; background: color-mix(in srgb, var(--vscode-editorWidget-background, var(--vscode-sideBar-background)) 82%, transparent); border: 1px solid color-mix(in srgb, var(--vscode-widget-border, #444) 72%, transparent); align-self: flex-start; }
+        .breakdown-toggle { display: inline-flex; gap: 4px; padding: 4px; border-radius: 999px; background: color-mix(in srgb, var(--vscode-editorWidget-background, var(--vscode-sideBar-background)) 82%, transparent); border: 1px solid var(--atlas-boundary); align-self: flex-start; }
         .breakdown-toggle button { border: 0; border-radius: 999px; background: transparent; color: var(--vscode-descriptionForeground); padding: 5px 12px; cursor: pointer; font: inherit; font-size: 0.8rem; }
-        .breakdown-toggle button.active { background: color-mix(in srgb, var(--vscode-button-background) 82%, white 4%); color: var(--vscode-button-foreground); }
+        .breakdown-toggle button.active { background: var(--vscode-button-background); color: var(--vscode-button-foreground); }
         .model-list-scrollable { max-height: 380px; overflow-y: auto; scrollbar-width: thin; }
         .model-breakdown-wrapper[data-view='model'] .model-breakdown-by-provider { display: none; }
         .model-breakdown-wrapper[data-view='provider'] .model-breakdown-by-model { display: none; }
         .model-list { display: flex; flex-direction: column; gap: 12px; }
-        .model-entry { padding: 12px 14px; border-radius: 18px; background: color-mix(in srgb, var(--vscode-editor-background) 60%, transparent); border: 1px solid color-mix(in srgb, var(--vscode-widget-border, #444) 58%, transparent); }
+        .model-entry { padding: 12px 14px; border-radius: 18px; background: color-mix(in srgb, var(--vscode-editor-background) 60%, transparent); border: 1px solid var(--atlas-boundary); }
         .model-entry-top { display: flex; align-items: baseline; justify-content: space-between; gap: 10px; margin-bottom: 10px; }
         .model-label { font-size: 0.9rem; font-weight: 600; }
         .model-cost { font-size: 0.85rem; color: var(--vscode-descriptionForeground); }
@@ -699,21 +699,21 @@ export class CostDashboardPanel {
         .model-meta { display: flex; justify-content: space-between; gap: 10px; margin-top: 8px; font-size: 0.8rem; color: var(--vscode-descriptionForeground); }
         .savings-panel { }
         .savings-stats { display: grid; grid-template-columns: repeat(4, minmax(0, 1fr)); gap: 12px; margin-bottom: 18px; }
-        .savings-stat { padding: 14px 16px; border-radius: 18px; background: color-mix(in srgb, var(--vscode-editor-background) 60%, transparent); border: 1px solid color-mix(in srgb, var(--vscode-widget-border, #444) 58%, transparent); }
+        .savings-stat { padding: 14px 16px; border-radius: 18px; background: color-mix(in srgb, var(--vscode-editor-background) 60%, transparent); border: 1px solid var(--atlas-boundary); }
         .savings-stat-label { margin: 0 0 6px; font-size: 0.72rem; text-transform: uppercase; letter-spacing: 0.1em; color: var(--vscode-descriptionForeground); }
-        .savings-stat-value { font-size: clamp(1rem, 1.8vw, 1.4rem); font-weight: 700; font-variant-numeric: tabular-nums; color: var(--vscode-notificationsInfoIcon-foreground, #4ec9b0); }
+        .savings-stat-value { font-size: clamp(1rem, 1.8vw, 1.4rem); font-weight: 700; font-variant-numeric: tabular-nums; color: color-mix(in srgb, var(--vscode-notificationsInfoIcon-foreground, #4ec9b0) var(--atlas-ink-share), var(--tint-away)); }
         .savings-stat-detail { margin: 6px 0 0; font-size: 0.78rem; color: var(--vscode-descriptionForeground); }
         .savings-tiers { display: flex; flex-direction: column; gap: 8px; margin-bottom: 14px; }
         .savings-comparison-head, .savings-tier-row { display: grid; grid-template-columns: minmax(180px, 1.2fr) minmax(180px, 1fr) 110px; align-items: center; gap: 12px; }
         .savings-comparison-head { padding: 0 12px; color: var(--vscode-descriptionForeground); font-size: 0.7rem; text-transform: uppercase; letter-spacing: 0.08em; }
-        .savings-tier-row { padding: 12px; border-radius: 14px; background: color-mix(in srgb, var(--vscode-editor-background) 55%, transparent); border: 1px solid color-mix(in srgb, var(--vscode-widget-border, #444) 46%, transparent); }
+        .savings-tier-row { padding: 12px; border-radius: 14px; background: color-mix(in srgb, var(--vscode-editor-background) 55%, transparent); border: 1px solid var(--atlas-boundary); }
         .savings-tier-meta { display: flex; flex-direction: column; gap: 2px; }
         .savings-tier-label { font-size: 0.82rem; font-weight: 600; }
         .savings-tier-ref { font-size: 0.72rem; color: var(--vscode-descriptionForeground); }
-        .savings-tier-amount { font-size: 0.88rem; font-weight: 600; font-variant-numeric: tabular-nums; text-align: right; color: var(--vscode-notificationsInfoIcon-foreground, #4ec9b0); }
-        .savings-note { margin: 0; font-size: 0.72rem; color: var(--vscode-descriptionForeground); line-height: 1.5; padding: 10px 14px; border-radius: 12px; background: color-mix(in srgb, var(--vscode-editor-background) 50%, transparent); border: 1px solid color-mix(in srgb, var(--vscode-widget-border, #444) 40%, transparent); }
+        .savings-tier-amount { font-size: 0.88rem; font-weight: 600; font-variant-numeric: tabular-nums; text-align: right; color: color-mix(in srgb, var(--vscode-notificationsInfoIcon-foreground, #4ec9b0) var(--atlas-ink-share), var(--tint-away)); }
+        .savings-note { margin: 0; font-size: 0.72rem; color: var(--vscode-descriptionForeground); line-height: 1.5; padding: 10px 14px; border-radius: 12px; background: color-mix(in srgb, var(--vscode-editor-background) 50%, transparent); border: 1px solid var(--atlas-boundary); }
         .feedback-summary-grid { display: grid; grid-template-columns: repeat(4, minmax(0, 1fr)); gap: 12px; margin-bottom: 16px; }
-        .feedback-card { padding: 14px 16px; border-radius: 18px; background: color-mix(in srgb, var(--vscode-editor-background) 60%, transparent); border: 1px solid color-mix(in srgb, var(--vscode-widget-border, #444) 58%, transparent); }
+        .feedback-card { padding: 14px 16px; border-radius: 18px; background: color-mix(in srgb, var(--vscode-editor-background) 60%, transparent); border: 1px solid var(--atlas-boundary); }
         .feedback-table, .recent-table { width: 100%; border-collapse: collapse; }
         .feedback-table th, .feedback-table td, .recent-table th, .recent-table td { padding: 10px 12px; text-align: left; border-bottom: 1px solid color-mix(in srgb, var(--vscode-widget-border, #444) 58%, transparent); }
         .feedback-table th, .recent-table th { font-size: 0.72rem; text-transform: uppercase; letter-spacing: 0.08em; color: var(--vscode-descriptionForeground); }
@@ -723,8 +723,8 @@ export class CostDashboardPanel {
         .recent-table th[data-sort-dir='desc']::after { content: '↓'; opacity: 0.85; }
         .feedback-table td.numeric { text-align: right; font-variant-numeric: tabular-nums; }
         .feedback-chip { display: inline-flex; align-items: center; gap: 6px; padding: 4px 10px; border-radius: 999px; background: color-mix(in srgb, var(--vscode-badge-background, #444) 70%, transparent); font-size: 0.78rem; }
-        .feedback-chip.up { color: var(--vscode-testing-iconPassed, #4ec9b0); }
-        .feedback-chip.down { color: var(--vscode-testing-iconFailed, #f14c4c); }
+        .feedback-chip.up { color: color-mix(in srgb, var(--vscode-testing-iconPassed, #4ec9b0) var(--atlas-ink-share), var(--tint-away)); }
+        .feedback-chip.down { color: color-mix(in srgb, var(--vscode-testing-iconFailed, #f14c4c) var(--atlas-ink-share), var(--tint-away)); }
         .feedback-chip.none { opacity: 0.7; }
         .recent-table-wrapper, .feedback-table-wrapper { overflow-x: auto; }
         .recent-table td.cost, .recent-table td.tokens { text-align: right; font-variant-numeric: tabular-nums; font-family: Consolas, 'Courier New', monospace; }

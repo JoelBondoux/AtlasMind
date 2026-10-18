@@ -6,7 +6,7 @@ import type { TaskProfiler } from './taskProfiler.js';
 import { resolveProviderIdForModel } from './orchestrator.js';
 import { dispatchGuardedCompletion } from './modelEgress.js';
 import { isLocalProviderId } from './backgroundMemoryPolicy.js';
-import { shouldHoldAgentUpdate, type UpdateHoldDecision } from './agentEvalHarness.js';
+import { shouldHoldAgentUpdate, type DeclaredCaseCount, type UpdateHoldDecision } from './agentEvalHarness.js';
 
 /**
  * Replays an agent's golden cases against a candidate definition.
@@ -20,8 +20,13 @@ import { shouldHoldAgentUpdate, type UpdateHoldDecision } from './agentEvalHarne
  * rewrite, because the cadence is unattended.
  */
 export interface AgentUpdateVerifier {
-  /** How many golden cases are declared for this agent. */
-  declaredCaseCount: (agentId: string) => number;
+  /**
+   * How many golden cases are declared for this agent — or why they could not
+   * be counted. An unreadable count is never reported as `0`: zero releases the
+   * rewrite, and an ambiguous SSOT home or an unreadable cases file is exactly
+   * when the cases look absent without being absent.
+   */
+  declaredCaseCount: (agentId: string) => DeclaredCaseCount;
   /** Replay them. `undefined` when the check could not be made at all. */
   verify: (
     agent: AgentDefinition,
@@ -145,14 +150,20 @@ export class AgentAutoUpdater {
       // — the behaviour before this gate existed, stated rather than implied.
       return { hold: false, detail: 'No eval verifier is configured, so this rewrite was not checked against anything.' };
     }
-    let declared = 0;
+    let declared: DeclaredCaseCount;
     try {
       declared = verifier.declaredCaseCount(agent.id);
-    } catch {
-      declared = 0;
+    } catch (error) {
+      // A count that threw was never taken. Reading it as zero would release
+      // the rewrite on the strength of a check that did not happen.
+      declared = {
+        unreadable: `Counting the golden cases failed: ${error instanceof Error ? error.message : String(error)}`,
+      };
     }
-    if (declared === 0) {
-      return shouldHoldAgentUpdate(undefined, 0);
+    if (typeof declared !== 'number' || declared === 0) {
+      // Unreadable is held and none-declared is released, both by the gate's
+      // own rules. No replay either way: there is nothing to replay against.
+      return shouldHoldAgentUpdate(undefined, declared);
     }
     try {
       return shouldHoldAgentUpdate(await verifier.verify(agent, candidate), declared);

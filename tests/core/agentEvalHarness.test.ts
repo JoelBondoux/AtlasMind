@@ -1,7 +1,15 @@
-import { describe, expect, it } from 'vitest';
+import { mkdirSync, mkdtempSync, rmSync, writeFileSync } from 'node:fs';
+import os from 'node:os';
+import path from 'node:path';
+import fc from 'fast-check';
+import { afterAll, describe, expect, it } from 'vitest';
 import {
+  AGENT_EVAL_CASES_PATH,
   checkPasses,
   compareWithBaseline,
+  countDeclaredCases,
+  readGoldenCaseFile,
+  UPDATE_HOLD_RULES,
   definitionFingerprint,
   deterministicChecks,
   gradeCase,
@@ -305,5 +313,109 @@ describe('the untrusted boundary', () => {
       expect(sanitizeGoldenCases(input)).toEqual([]);
       expect(sanitizeEvalBaseline(input).runs).toEqual([]);
     }
+  });
+});
+
+describe('could not read the cases is not no cases', () => {
+  const REFUSAL = 'Project memory has no single home: "alpha" and "beta" each hold a project_memory/ folder.';
+
+  it('holds a rewrite whose cases could not be counted, naming why', () => {
+    // The 0.498.1 defect: an ambiguous home read nothing, nothing read as
+    // "no cases", and "no cases" is the one answer that releases a rewrite.
+    const decision = shouldHoldAgentUpdate(undefined, { unreadable: REFUSAL });
+    expect(decision.hold).toBe(true);
+    expect(decision.reason).toBe('cases-unreadable');
+    expect(decision.detail).toContain('could not read the cases is not no cases');
+    expect(decision.detail).toContain(REFUSAL);
+  });
+
+  it('holds even when a verdict is supplied, because the verdict was measured against cases nobody could read', () => {
+    const verdict = compareWithBaseline('reviewer', run('reviewer', []), [], undefined);
+    expect(shouldHoldAgentUpdate(verdict, { unreadable: 'x' }).hold).toBe(true);
+  });
+
+  it('treats any count that is not a non-negative whole number as unreadable, never as none', () => {
+    fc.assert(fc.property(
+      fc.oneof(
+        fc.double({ noInteger: true }),
+        fc.integer({ max: -1 }),
+        fc.constantFrom(Number.NaN, Number.POSITIVE_INFINITY, Number.NEGATIVE_INFINITY),
+      ),
+      count => {
+        const decision = shouldHoldAgentUpdate(undefined, count);
+        return decision.hold && decision.reason === 'cases-unreadable';
+      },
+    ));
+  });
+
+  it('releases only on a count that was actually taken and is zero', () => {
+    fc.assert(fc.property(
+      fc.oneof(fc.integer({ min: 0, max: 1000 }), fc.string().map(unreadable => ({ unreadable }))),
+      declared => {
+        const decision = shouldHoldAgentUpdate(undefined, declared);
+        return decision.hold === !(declared === 0);
+      },
+    ));
+  });
+
+  it('publishes a rule for every reason the gate can give', () => {
+    const reasons: Array<keyof typeof UPDATE_HOLD_RULES> = ['cases-unreadable', 'no-cases', 'not-verified', 'regressions'];
+    for (const reason of reasons) {
+      expect(UPDATE_HOLD_RULES[reason].length).toBeGreaterThan(20);
+    }
+    expect(UPDATE_HOLD_RULES['cases-unreadable']).toContain('not no cases');
+  });
+
+  const cases = [golden('c1'), golden('c2'), golden('d1', { agentId: 'debugger' })];
+  it.each([
+    { label: 'ambiguous home, whatever a folder holds', source: { refusal: REFUSAL, read: { state: 'read' as const, cases } }, expected: 'unreadable' },
+    { label: 'ambiguous home, nothing read', source: { refusal: REFUSAL }, expected: 'unreadable' },
+    { label: 'cases file unreadable', source: { read: { state: 'unreadable' as const, reason: 'not JSON' } }, expected: 'unreadable' },
+    { label: 'cases file absent', source: { read: { state: 'absent' as const } }, expected: 0 },
+    { label: 'no folder open', source: {}, expected: 0 },
+    { label: 'cases read', source: { read: { state: 'read' as const, cases } }, expected: 2 },
+  ])('counts declared cases: $label', ({ source, expected }) => {
+    const count = countDeclaredCases('reviewer', source);
+    if (expected === 'unreadable') {
+      expect(typeof count).toBe('object');
+      expect(shouldHoldAgentUpdate(undefined, count).reason).toBe('cases-unreadable');
+    } else {
+      expect(count).toBe(expected);
+    }
+  });
+
+  describe('reading the cases file', () => {
+    const scratch = mkdtempSync(path.join(os.tmpdir(), 'atlasmind-eval-cases-'));
+    afterAll(() => rmSync(scratch, { recursive: true, force: true }));
+    let n = 0;
+    const rootWith = (content?: string): string => {
+      n += 1;
+      const root = path.join(scratch, `root-${n}`);
+      mkdirSync(path.join(root, path.dirname(AGENT_EVAL_CASES_PATH)), { recursive: true });
+      if (content !== undefined) {
+        writeFileSync(path.join(root, AGENT_EVAL_CASES_PATH), content, 'utf8');
+      }
+      return root;
+    };
+
+    it('reads a missing file as absent — a project that declared none', () => {
+      expect(readGoldenCaseFile(rootWith())).toEqual({ state: 'absent' });
+      expect(readGoldenCaseFile(path.join(scratch, 'no-such-folder'))).toEqual({ state: 'absent' });
+    });
+
+    it('reads a file that is not JSON, or not a list, as unreadable rather than empty', () => {
+      const broken = readGoldenCaseFile(rootWith('{ not json'));
+      expect(broken.state).toBe('unreadable');
+      const object = readGoldenCaseFile(rootWith('{"cases": []}'));
+      expect(object.state).toBe('unreadable');
+      expect(countDeclaredCases('reviewer', { read: object })).toEqual({ unreadable: expect.stringContaining('not a list') });
+    });
+
+    it('reads a valid file as its sanitized cases', () => {
+      const read = readGoldenCaseFile(rootWith(JSON.stringify(cases)));
+      expect(read.state).toBe('read');
+      expect(countDeclaredCases('reviewer', { read })).toBe(2);
+      expect(countDeclaredCases('debugger', { read })).toBe(1);
+    });
   });
 });

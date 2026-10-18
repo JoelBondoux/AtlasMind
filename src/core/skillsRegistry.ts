@@ -6,8 +6,18 @@ import type { AgentDefinition, AgentSkillPolicy, SkillDefinition, SkillScanResul
  */
 export class SkillsRegistry {
   private skills = new Map<string, SkillDefinition>();
-  /** Skill IDs that have been explicitly disabled. */
+  /** Skill IDs the user disabled. Persisted by the caller; the user's choice. */
   private disabledSkills = new Set<string>();
+  /**
+   * Skill IDs switched off by the system because what backs them is
+   * unavailable — an MCP server that disconnected — keyed to the reason.
+   *
+   * Kept apart from `disabledSkills` so the two can never be confused: a
+   * reconnect lifts a suspension and nothing else, so it cannot re-enable a
+   * skill the user turned off, and a suspension is never persisted as though
+   * the user had chosen it.
+   */
+  private suspendedSkills = new Map<string, string>();
   private scanResults = new Map<string, SkillScanResult>();
   private customFolders = new Set<string>();
 
@@ -21,6 +31,7 @@ export class SkillsRegistry {
 
   unregister(id: string): boolean {
     this.disabledSkills.delete(id);
+    this.suspendedSkills.delete(id);
     this.scanResults.delete(id);
     return this.skills.delete(id);
   }
@@ -61,12 +72,13 @@ export class SkillsRegistry {
   // ── Enabled / disabled ────────────────────────────────────────
 
   isEnabled(id: string): boolean {
-    return !this.disabledSkills.has(id);
+    return !this.disabledSkills.has(id) && !this.suspendedSkills.has(id);
   }
 
   /**
-   * Enable a skill. Throws if the skill has a failed security scan,
-   * preventing unsafe skills from being used by agents.
+   * Enable a skill — the user's act. Throws if the skill has a failed security
+   * scan, preventing unsafe skills from being used by agents. Lifts a
+   * suspension too, since the user asked for the skill on.
    */
   enable(id: string): void {
     const result = this.scanResults.get(id);
@@ -77,17 +89,43 @@ export class SkillsRegistry {
       );
     }
     this.disabledSkills.delete(id);
+    this.suspendedSkills.delete(id);
   }
 
+  /** Disable a skill — the user's act. Survives any suspension being lifted. */
   disable(id: string): void {
     this.disabledSkills.add(id);
   }
 
-  /** Overwrite the enabled/disabled set (used during state restore from globalState). */
+  /**
+   * Switch a skill off because what backs it is unavailable. Not the user's
+   * choice: never persisted, and lifted by `resume` without touching anything
+   * the user decided.
+   */
+  suspend(id: string, reason: string): void {
+    this.suspendedSkills.set(id, reason);
+  }
+
+  /**
+   * Lift a suspension. Re-enables the skill only if the user has not disabled
+   * it; a skill the user turned off stays off. Returns whether a suspension was
+   * lifted.
+   */
+  resume(id: string): boolean {
+    return this.suspendedSkills.delete(id);
+  }
+
+  /** Why the system suspended a skill, or `undefined` when it has not. */
+  getSuspensionReason(id: string): string | undefined {
+    return this.suspendedSkills.get(id);
+  }
+
+  /** Overwrite the user's disabled set (used during state restore from globalState). Suspensions are untouched. */
   setDisabledIds(ids: string[]): void {
     this.disabledSkills = new Set(ids);
   }
 
+  /** The skills the user disabled — what is persisted. Suspended skills are not included. */
   getDisabledIds(): string[] {
     return [...this.disabledSkills];
   }

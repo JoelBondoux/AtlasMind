@@ -1,6 +1,7 @@
 import * as path from 'node:path';
 import * as os from 'node:os';
 import { execFile, spawn } from 'node:child_process';
+import { guardDryRun, interceptDryRun } from '../core/dryRunHost.js';
 import { promisify } from 'node:util';
 import { existsSync, readFileSync, readdirSync, statSync } from 'node:fs';
 import * as vscode from 'vscode';
@@ -31,11 +32,20 @@ import { readProjectTestingConfig, TESTING_CONFIG_SSOT_PATH } from '../core/test
 import { IMMUTABLE_GUARDRAILS } from '../core/orchestrator.js';
 import type { ArdDiscoveredResource, ArdDiscoveryEndpoint, ProjectTestingConfig, TestingMethodologyId } from '../types.js';
 import { getDisplayCurrency, getExchangeRate } from '../core/currencyFormatter.js';
-import { isLocalSyncStale, LOCAL_MODEL_SYNC_CACHE_KEY, syncLocalModels, type LocalModelSyncResult } from '../providers/localModelSync.js';
+import { isLocalSyncStale, LOCAL_MODEL_SYNC_CACHE_KEY, syncLocalModels, type LocalModelSyncResult, type UnslothSyncTarget } from '../providers/localModelSync.js';
+import {
+  isLocalEndpointRuntime,
+  LOCAL_RUNTIME_LABELS,
+  resolveEndpointRuntime,
+  runtimeOrigin,
+  type LocalEndpointRuntime,
+} from '../providers/localRuntimeClient.js';
+import { isValidHfRepoId, repoIdFromCatalogTag } from '../providers/unslothStudio.js';
 import { TESTING_METHODOLOGY_DEFINITIONS } from '../types.js';
 import { deriveTestingPolicyCoverage, parseJUnitReport, type TestingPolicyCoverage, type TestingPolicyTestFile } from '../core/testingPolicyCoverage.js';
 import { complianceCatalogFor } from '../core/complianceControlCatalog.js';
 import { gatherComplianceStackSignals } from '../core/complianceStackSignals.js';
+import { AUTO_REASONING_RULES, REASONING_CONTROLS, REASONING_CONTROLS_VERIFIED_AT, REASONING_LEVELS, REASONING_PREFERENCES, sanitizeReasoningPreference } from '../core/reasoningBudget.js';
 import {
   emptyEvidenceLibrary,
   readComplianceEvidenceFile,
@@ -65,6 +75,7 @@ import {
   evaluateTechnicalControls,
   policiesWithTechnicalControls,
   summarizeTechnicalControls,
+  type ComplianceStackSignals,
   type TechnicalControlResult,
   type TechnicalControlSummary,
 } from '../core/complianceTechnicalControls.js';
@@ -80,6 +91,7 @@ import {
   seedPortalHostingConfig,
 } from '../core/portalHosting.js';
 import { inspectLensDeclarations, lensDeclarationStatusLabel } from '../core/lensDeclarations.js';
+import { ssotHomeForWrite, ssotHomeRoot } from '../utils/workspaceRoots.js';
 import {
   modelSidebarHiddenEntryKey,
   readHiddenModelSidebarEntries,
@@ -91,6 +103,7 @@ const execFileAsync = promisify(execFile);
 
 const BUDGET_MODES = ['cheap', 'balanced', 'expensive', 'auto'] as const;
 const SPEED_MODES = ['fast', 'balanced', 'considered', 'auto'] as const;
+const REASONING_MODES = REASONING_PREFERENCES;
 const BUDGET_MODE_HELP = {
   cheap: 'Excludes expensive model tiers and strongly favors the lowest-cost eligible options. Best for quick edits, light investigation, and scratchpad work where cost matters more than peak capability.',
   balanced: 'Keeps a practical middle ground between price and capability. This is the safest day-to-day default for most coding, debugging, and review work.',
@@ -102,6 +115,12 @@ const SPEED_MODE_HELP = {
   balanced: 'Keeps a middle ground between responsiveness and reasoning depth. This is the most stable default when you want solid results without over-tuning.',
   considered: 'Allows slower, deeper reasoning routes and longer deliberation. Best for ambiguous debugging, design work, and other problems that benefit from more thought.',
   auto: 'Lets the task profiler infer the speed level from the current request. Use this when some tasks need instant turnaround and others need deeper reasoning.',
+} as const;
+const REASONING_MODE_HELP = {
+  auto: 'Derives the level from the task through a declared table: low-reasoning tasks get minimal, medium get standard, and planning, architecture, root-cause and review work gets deep.',
+  minimal: 'Asks a model with a declared reasoning control to think as little as it allows. Cheapest and fastest for mechanical edits and quick answers.',
+  standard: 'A middle level of thinking for everyday implementation, explanation and fixes.',
+  deep: 'Asks for the most thinking and prefers models that declare a reasoning control. Thinking is billed as output, so cost estimates rise with it, and a per-task budget cap steps the level down rather than letting it slip past.',
 } as const;
 const DEPENDENCY_MONITORING_PROVIDERS = ['dependabot', 'renovate', 'snyk', 'azure-devops'] as const;
 const DEPENDENCY_MONITORING_SCHEDULES = ['daily', 'weekly', 'monthly'] as const;
@@ -122,12 +141,13 @@ const SETTINGS_HELP = {
   dailyCostLimitUsd: 'Daily cost cap in USD. Use 0 to disable it. Examples: 5 for an individual guardrail, 20 for a shared team budget, or 0 for unrestricted experimentation.',
   displayCurrency: 'Currency used for all cost displays. Auto detects from your OS locale. Examples: EUR for European teams, GBP for UK users, or JPY for Japan. Underlying costs are always stored in USD; exchange rates are fetched at startup with a 24-hour cache.',
   speedMode: 'Speed preference for model selection. Examples: fast for tight feedback loops, balanced for normal work, considered for deeper reasoning, and auto when workloads vary.',
+  reasoningMode: 'How hard the model should think — the third routing axis. A level is sent only to models whose provider declares a verified reasoning control; every other model is still routable and is sent nothing.',
   showImportProjectAction: 'Controls whether the Memory toolbar keeps the Import Existing Project action visible. Keep it on during onboarding and turn it off in already standardized repos.',
   chatSessionTurnLimit: 'How many recent chat turns AtlasMind carries forward. Examples: 4 for short task chats, 6 for the default balance, or 10 when long debugging context matters.',
   chatSessionContextChars: 'Maximum characters reserved for summarized carry-forward context. Examples: 1200 for lightweight carry-forward, 2500 for default use, or 4000+ for complex multi-step work.',
   dashboardChatDestination: 'Where prompt-bearing Atlas icons on the Project Dashboard send their request. AtlasMind is the default; VS Code Chat uses its current target, and installed extensions appear only when they declare a chat participant or chat-session prompt contract.',
   localOpenAiBaseUrl: 'Legacy single-endpoint fallback for local OpenAI-compatible routing. AtlasMind now prefers the structured local endpoint list when it is present.',
-  localOpenAiEndpoints: 'Configure one or more labeled local OpenAI-compatible endpoints. Examples: Ollama at http://127.0.0.1:11434/v1 and LM Studio at http://127.0.0.1:1234/v1. Labels are shown back in provider surfaces so operators can tell which engine owns each routed model.',
+  localOpenAiEndpoints: 'Configure one or more labeled local OpenAI-compatible endpoints. Examples: Ollama at http://127.0.0.1:11434/v1, LM Studio at http://127.0.0.1:1234/v1 and Unsloth Studio at http://127.0.0.1:8888/v1. Labels are shown back in provider surfaces so operators can tell which engine owns each routed model.',
   toolApprovalMode: 'Main approval policy for tool execution. Examples: always-ask for regulated repos, ask-on-write for normal coding, ask-on-external for tighter network boundaries, or allow-safe-readonly for investigation-only work.',
   allowTerminalWrite: 'Allows write-capable terminal subprocesses after approval. Enable it in a sandbox where installs and commits are expected, and keep it off where terminal mutations require separate controls.',
   acpToolsEnabled: 'Lets an agent reached over the Agent Client Protocol — your Claude or ChatGPT subscription — run its own tools without a prompt for every operation. Off by default: the agent answers questions but cannot act. When enabled, AtlasMind automatically answers each request with a one-operation grant and records it; it never accepts the agent\'s persistent "always allow" option.',
@@ -173,6 +193,7 @@ const SETTINGS_HELP = {
 
 type BudgetMode = (typeof BUDGET_MODES)[number];
 type SpeedMode = (typeof SPEED_MODES)[number];
+type ReasoningPreference = (typeof REASONING_MODES)[number];
 type DependencyMonitoringProvider = (typeof DEPENDENCY_MONITORING_PROVIDERS)[number];
 type DependencyMonitoringSchedule = (typeof DEPENDENCY_MONITORING_SCHEDULES)[number];
 type DisplayCurrency = (typeof DISPLAY_CURRENCIES)[number];
@@ -296,6 +317,16 @@ export interface TestingDashboardSnapshot {
    */
   policyCoverage: TestingPolicyCoverage;
   /**
+   * Why the declared testing matrix could not be read, when it could not: the
+   * SSOT home is ambiguous, so `project_memory/index/testing-config.json` was
+   * left unread. Then `policyCoverage` is derived against **no** enabled
+   * methodology — never the two-default fallback an undeclared project gets,
+   * which would grade the project against a standard it did not declare — and
+   * every consumer that decides on coverage (the release gate) treats it as
+   * unknown rather than as a pass.
+   */
+  policyUnreadable?: string;
+  /**
    * Per-policy severity, drafts and chart data.
    *
    * Derived here beside the coverage it grades, so the Testing page and the
@@ -326,17 +357,23 @@ interface LocalModelRecommendationItem {
   /** Actual model ID of the installed instance — used for remove operations. */
   installedModelId?: string;
   /** Runtime the model is installed in — determines which remove/manage action to show. */
-  installedRuntime?: 'ollama' | 'lmstudio';
+  installedRuntime?: LocalEndpointRuntime;
   fitScore: number;
   rationale: string[];
   installHint: string;
+  /** Whether an Unsloth Studio endpoint is configured, so "Install in Unsloth" can work. */
+  unslothAvailable?: boolean;
 }
 
 interface InstalledLocalModelItem {
-  runtime: 'ollama' | 'lmstudio';
+  runtime: LocalEndpointRuntime;
   modelId: string;
   displayName: string;
   removable: boolean;
+  /** Unsloth Studio reports downloaded and loaded separately; absent for the other runtimes. */
+  loaded?: boolean;
+  /** A short "12.3 GB · interrupted download" line, where the runtime says. */
+  detail?: string;
 }
 
 interface LocalModelRecommendationPayload {
@@ -373,6 +410,7 @@ export interface SettingsPanelTarget {
 type SettingsMessage =
   | { type: 'setBudgetMode'; payload: BudgetMode }
   | { type: 'setSpeedMode'; payload: SpeedMode }
+  | { type: 'setReasoningMode'; payload: ReasoningPreference }
   | { type: 'setFeedbackRoutingWeight'; payload: number }
   | { type: 'setLocalOpenAiBaseUrl'; payload: string }
   | { type: 'setLocalOpenAiEndpoints'; payload: LocalEndpointConfig[] }
@@ -452,8 +490,10 @@ type SettingsMessage =
   | { type: 'chooseAcpConsoleMode' }
   | { type: 'openChat' }
   | { type: 'recommendLocalModels' }
-  | { type: 'installRecommendedLocalModel'; payload: { runtime: 'ollama' | 'lmstudio'; modelTag: string } }
-  | { type: 'removeInstalledLocalModel'; payload: { runtime: 'ollama' | 'lmstudio'; modelId: string } }
+  | { type: 'installRecommendedLocalModel'; payload: { runtime: LocalEndpointRuntime; modelTag: string } }
+  | { type: 'removeInstalledLocalModel'; payload: { runtime: LocalEndpointRuntime; modelId: string } }
+  | { type: 'connectUnslothStudio' }
+  | { type: 'manageUnslothModels' }
   | { type: 'refreshTestingInventory' }
   | { type: 'createTestFile' }
   | { type: 'openCoverageReport' }
@@ -932,6 +972,10 @@ export class SettingsPanel {
 
       case 'setSpeedMode':
         await configuration.update('speedMode', message.payload, vscode.ConfigurationTarget.Workspace);
+        return;
+
+      case 'setReasoningMode':
+        await configuration.update('reasoningMode', message.payload, vscode.ConfigurationTarget.Workspace);
         return;
 
       case 'setFeedbackRoutingWeight':
@@ -1419,6 +1463,18 @@ export class SettingsPanel {
         await this.handleRemoveInstalledLocalModel(message.payload);
         return;
 
+      case 'connectUnslothStudio': {
+        const { connectUnslothStudio } = await import('./unslothModelCommands.js');
+        await connectUnslothStudio(this.extensionContext, this.unslothHooks());
+        return;
+      }
+
+      case 'manageUnslothModels': {
+        const { manageUnslothModels } = await import('./unslothModelCommands.js');
+        await manageUnslothModels(this.extensionContext, this.unslothHooks());
+        return;
+      }
+
       case 'refreshTestingInventory':
         this.panel.webview.html = this.getHtml();
         return;
@@ -1527,7 +1583,9 @@ export class SettingsPanel {
   }
 
   private async handleScanAiInstructions(): Promise<void> {
-    const workspaceRoot = vscode.workspace.workspaceFolders?.[0]?.uri.fsPath;
+    // The merged set lands in project memory, so the instruction files merged
+    // are the SSOT home's; an ambiguous home lists none.
+    const workspaceRoot = ssotHomeRoot().fsPath;
     if (!workspaceRoot) {
       await this.panel.webview.postMessage({ type: 'aiInstructionScanResult', payload: [] });
       return;
@@ -1537,14 +1595,15 @@ export class SettingsPanel {
   }
 
   private async handleSyncAiInstructions(selectedPaths: unknown): Promise<void> {
-    const workspaceRoot = vscode.workspace.workspaceFolders?.[0]?.uri.fsPath;
-    if (!workspaceRoot) {
+    const target = ssotHomeForWrite('No workspace folder is open.');
+    if ('message' in target) {
       await this.panel.webview.postMessage({
         type: 'aiInstructionSyncResult',
-        payload: { success: false, summary: 'No workspace folder is open.' },
+        payload: { success: false, summary: target.message },
       });
       return;
     }
+    const workspaceRoot = target.fsPath;
 
     if (!Array.isArray(selectedPaths) || selectedPaths.length === 0) {
       await this.panel.webview.postMessage({
@@ -1627,10 +1686,15 @@ export class SettingsPanel {
   }
 
   private async saveTestingConfig(config: import('../types.js').ProjectTestingConfig): Promise<void> {
-    const workspaceRoot = vscode.workspace.workspaceFolders?.[0]?.uri.fsPath;
-    if (!workspaceRoot) {
+    // The testing matrix is project memory: saved into the SSOT home, or refused.
+    const target = ssotHomeForWrite('No workspace open — open a folder first.');
+    if ('message' in target) {
+      if (target.refused) {
+        void vscode.window.showWarningMessage(target.message);
+      }
       return;
     }
+    const workspaceRoot = target.fsPath;
     try {
       const { syncSummary } = await persistTestingConfig(
         workspaceRoot,
@@ -1648,11 +1712,12 @@ export class SettingsPanel {
   }
 
   private async runSyncTestingProtocols(): Promise<void> {
-    const workspaceRoot = vscode.workspace.workspaceFolders?.[0]?.uri.fsPath;
-    if (!workspaceRoot) {
-      void vscode.window.showInformationMessage('No workspace open — open a folder first.');
+    const target = ssotHomeForWrite('No workspace open — open a folder first.');
+    if ('message' in target) {
+      void (target.refused ? vscode.window.showWarningMessage(target.message) : vscode.window.showInformationMessage(target.message));
       return;
     }
+    const workspaceRoot = target.fsPath;
     const config = readProjectTestingConfig(workspaceRoot);
     if (!config) {
       void vscode.window.showInformationMessage('No testing configuration saved yet — save the Testing matrix first.');
@@ -1726,11 +1791,14 @@ export class SettingsPanel {
   }
 
   private async runAutoAssessTestingConfig(): Promise<void> {
-    const workspaceRoot = vscode.workspace.workspaceFolders?.[0]?.uri.fsPath;
-    if (!workspaceRoot) {
-      void vscode.window.showInformationMessage('No workspace open — open a folder first.');
+    // Reads the project's evidence and writes the matrix into project memory:
+    // both the SSOT home's, so the assessment and the file it changes agree.
+    const target = ssotHomeForWrite('No workspace open — open a folder first.');
+    if ('message' in target) {
+      void (target.refused ? vscode.window.showWarningMessage(target.message) : vscode.window.showInformationMessage(target.message));
       return;
     }
+    const workspaceRoot = target.fsPath;
 
     // Evidence the repository can already show, from the same coverage
     // derivation the Testing page renders — so what arrives ticked here and
@@ -1909,8 +1977,24 @@ export class SettingsPanel {
     }
   }
 
+  /**
+   * How an Unsloth action reports back to this panel: a status line here, and
+   * a fresh scan afterwards so the installed list shows what Studio now holds.
+   */
+  private unslothHooks(): import('./unslothModelCommands.js').UnslothCommandHooks {
+    return {
+      report: async message => {
+        await this.panel.webview.postMessage({ type: 'localModelRecommendationStatus', payload: message });
+      },
+      onChanged: async () => {
+        void this.atlasContext?.refreshProviderModels(false);
+        await this.handleRecommendLocalModels();
+      },
+    };
+  }
+
   private async handleInstallRecommendedLocalModel(
-    payload: { runtime: 'ollama' | 'lmstudio'; modelTag: string },
+    payload: { runtime: LocalEndpointRuntime; modelTag: string },
   ): Promise<void> {
     const modelTag = payload.modelTag.trim();
     if (!modelTag) {
@@ -1919,6 +2003,15 @@ export class SettingsPanel {
 
     if (payload.runtime === 'lmstudio') {
       await this.handleInstallInLmStudio(modelTag);
+      return;
+    }
+
+    if (payload.runtime === 'unsloth') {
+      // The quant picker, the confirmation and the dry-run guard all live in
+      // unslothModelCommands, so this panel and the Manage command cannot
+      // disagree about how a model gets into Studio.
+      const { installModelInUnsloth } = await import('./unslothModelCommands.js');
+      await installModelInUnsloth(this.extensionContext, modelTag, this.unslothHooks());
       return;
     }
 
@@ -2052,6 +2145,14 @@ export class SettingsPanel {
    * real reason is surfaced and the HuggingFace page is opened as a fallback.
    */
   private async runLmsGetInstall(lmsBin: string, modelId: string, hfUrl: vscode.Uri): Promise<void> {
+    if (interceptDryRun({
+      surface: 'local-model-install',
+      kind: 'process',
+      summary: `download ${modelId} with LM Studio`,
+      details: { modelId },
+    })) {
+      return;
+    }
     const channel = this.getLocalModelInstallChannel();
     channel.clear();
     channel.show(true);
@@ -2141,10 +2242,16 @@ export class SettingsPanel {
   }
 
   private async handleRemoveInstalledLocalModel(
-    payload: { runtime: 'ollama' | 'lmstudio'; modelId: string },
+    payload: { runtime: LocalEndpointRuntime; modelId: string },
   ): Promise<void> {
     const modelId = payload.modelId.trim();
     if (!modelId) {
+      return;
+    }
+
+    if (payload.runtime === 'unsloth') {
+      const { removeModelFromUnsloth } = await import('./unslothModelCommands.js');
+      await removeModelFromUnsloth(this.extensionContext, modelId, this.unslothHooks());
       return;
     }
 
@@ -2269,7 +2376,13 @@ export class SettingsPanel {
    */
   private async handleSetPortalHost(host: string): Promise<void> {
     const chosen = PORTAL_HOST_CAPABILITIES.find(capability => capability.host === host);
-    const folder = vscode.workspace.workspaceFolders?.[0];
+    // portal-hosting.json is project memory: recorded in the SSOT home.
+    const home = ssotHomeRoot();
+    if (chosen && home.refusal) {
+      void vscode.window.showWarningMessage(home.refusal);
+      return;
+    }
+    const folder = home.folder;
     const root = folder?.uri.scheme === 'file' || folder?.uri.scheme === 'vscode-remote'
       ? folder.uri.fsPath
       : undefined;
@@ -2306,8 +2419,10 @@ export class SettingsPanel {
     );
     // The portal host declaration. Read, never seeded: writing a committed file
     // because somebody opened a settings tab would put words in their mouth.
-    const portalWorkspaceRoot = lensWorkspace?.uri.scheme === 'file' || lensWorkspace?.uri.scheme === 'vscode-remote'
-      ? lensWorkspace.uri.fsPath
+    // Project memory, so the SSOT home's; an ambiguous home shows the default.
+    const portalHome = ssotHomeRoot().folder;
+    const portalWorkspaceRoot = portalHome?.uri.scheme === 'file' || portalHome?.uri.scheme === 'vscode-remote'
+      ? portalHome.uri.fsPath
       : undefined;
     const portalConfig = (portalWorkspaceRoot ? readPortalHostingConfig(portalWorkspaceRoot) : undefined)
       ?? seedPortalHostingConfig();
@@ -2341,6 +2456,7 @@ export class SettingsPanel {
     const builtInAgentCount = registeredAgents.length - customAgentCount;
     const selectedBudget = getBudgetMode(configuration.get<string>('budgetMode'));
     const selectedSpeed = getSpeedMode(configuration.get<string>('speedMode'));
+    const selectedReasoning = sanitizeReasoningPreference(configuration.get<string>('reasoningMode'));
     const feedbackRoutingWeight = getRangedNumber(configuration.get<number>('feedbackRoutingWeight'), 1, 0, 2, 2);
     const localOpenAiEndpoints = getConfiguredLocalEndpoints({
       getEndpoints: () => configuration.get<unknown>('localOpenAiEndpoints'),
@@ -2526,7 +2642,7 @@ export class SettingsPanel {
           <div class="nav-group" role="presentation">
             <span class="nav-group-label" aria-hidden="true">Capabilities</span>
             <button type="button" class="nav-link ${initialPage === 'agents' ? 'active' : ''}" id="tab-agents" data-page-target="agents" data-search="agents manage agents built-in custom roles prompts instructions rubrics completion criteria global immutable guardrails safety policy skills models budget auto-update automation" role="tab" aria-selected="${initialPage === 'agents' ? 'true' : 'false'}" aria-controls="page-agents" ${initialPage === 'agents' ? '' : 'tabindex="-1"'}>Agents</button>
-            <button type="button" class="nav-link ${initialPage === 'models' ? 'active' : ''}" id="tab-models" data-page-target="models" data-search="models integrations providers hidden hide restore sidebar visibility local endpoint local endpoints ollama lm studio azure bedrock personality profile role tone memory posture voice vision exa specialist acp agent client protocol claude subscription chatgpt subscription codex subscription-backed claude-agent-acp codex-acp use my subscription no api key" role="tab" aria-selected="${initialPage === 'models' ? 'true' : 'false'}" aria-controls="page-models" ${initialPage === 'models' ? '' : 'tabindex="-1"'}>Models & Integrations</button>
+            <button type="button" class="nav-link ${initialPage === 'models' ? 'active' : ''}" id="tab-models" data-page-target="models" data-search="models integrations providers hidden hide restore sidebar visibility local endpoint local endpoints ollama lm studio unsloth unsloth studio gguf quant azure bedrock personality profile role tone memory posture voice vision exa specialist acp agent client protocol claude subscription chatgpt subscription codex subscription-backed claude-agent-acp codex-acp use my subscription no api key" role="tab" aria-selected="${initialPage === 'models' ? 'true' : 'false'}" aria-controls="page-models" ${initialPage === 'models' ? '' : 'tabindex="-1"'}>Models & Integrations</button>
             <button type="button" class="nav-link ${initialPage === 'discovery' ? 'active' : ''}" id="tab-discovery" data-page-target="discovery" data-search="resource discovery ard agent finders mcp servers agents skills apis search install publish catalog manifest registry" role="tab" aria-selected="${initialPage === 'discovery' ? 'true' : 'false'}" aria-controls="page-discovery" ${initialPage === 'discovery' ? '' : 'tabindex="-1"'}>Resource Discovery</button>
             <button type="button" class="nav-link ${initialPage === 'mcp' ? 'active' : ''}" id="tab-mcp" data-page-target="mcp" data-search="mcp servers model context protocol tools connect disconnect stdio http bridge" role="tab" aria-selected="${initialPage === 'mcp' ? 'true' : 'false'}" aria-controls="page-mcp" ${initialPage === 'mcp' ? '' : 'tabindex="-1"'}>MCP Servers</button>
             <button type="button" class="nav-link ${initialPage === 'buzz' ? 'active' : ''}" id="tab-buzz" data-page-target="buzz" data-search="buzz nostr relay inbound subscription follow-ups agent bindings npub agent key channels remote relay" role="tab" aria-selected="${initialPage === 'buzz' ? 'true' : 'false'}" aria-controls="page-buzz" ${initialPage === 'buzz' ? '' : 'tabindex="-1"'}>Buzz</button>
@@ -2657,6 +2773,21 @@ export class SettingsPanel {
                   <input id="feedbackRoutingWeight" type="number" min="0" max="2" step="0.05" value="${feedbackRoutingWeight}" />
                   <p class="info-note">Set <code>0</code> to ignore thumbs history in routing. Higher values amplify the bias, but AtlasMind still caps the effect so votes cannot override hard capability or provider-health checks.</p>
                 </div>
+              </article>
+
+              <article class="settings-card" id="reasoningModeCard">
+                <div class="card-header">
+                  <p class="card-kicker">Routing</p>
+                  <h3>${renderHeadingWithHelp('Reasoning mode', 'reasoningMode')}</h3>
+                </div>
+                <p class="card-copy">Decide how hard the model should think. This is the third axis beside budget and speed.</p>
+                <div class="choice-cluster" role="radiogroup" aria-label="Reasoning mode">
+                  ${renderRoutingChoicePill('reasoning', 'auto', 'Auto', selectedReasoning === 'auto', REASONING_MODE_HELP.auto)}
+                  ${renderRoutingChoicePill('reasoning', 'minimal', 'Minimal', selectedReasoning === 'minimal', REASONING_MODE_HELP.minimal)}
+                  ${renderRoutingChoicePill('reasoning', 'standard', 'Standard', selectedReasoning === 'standard', REASONING_MODE_HELP.standard)}
+                  ${renderRoutingChoicePill('reasoning', 'deep', 'Deep', selectedReasoning === 'deep', REASONING_MODE_HELP.deep)}
+                </div>
+                ${renderReasoningRulesTable()}
               </article>
             </div>
           </section>
@@ -2806,7 +2937,7 @@ export class SettingsPanel {
                   <p class="card-kicker">Local routing</p>
                   <h3>${renderHeadingWithHelp('OpenAI-compatible endpoints', 'localOpenAiEndpoints')}</h3>
                 </div>
-                <p class="card-copy">Point AtlasMind at Ollama, LM Studio, Open WebUI, or multiple local OpenAI-compatible engines at once. Add rows only when you need them, and give each one a label so AtlasMind can tell you which endpoint owns which local model.</p>
+                <p class="card-copy">Point AtlasMind at Ollama, LM Studio, Unsloth Studio, Open WebUI, or multiple local OpenAI-compatible engines at once. Add rows only when you need them, and give each one a label so AtlasMind can tell you which endpoint owns which local model.</p>
                 <div class="field-stack">
                   <div class="local-endpoints-header">
                     <span class="field-label field-label-with-help"><span>Configured local endpoints</span>${renderHelpIndicator('localOpenAiEndpoints')}</span>
@@ -2818,6 +2949,11 @@ export class SettingsPanel {
                   <div id="localEndpointsList" class="local-endpoints-list"></div>
                 </div>
                 <p class="info-note">Labels such as <code>Ollama</code> or <code>LM Studio</code> are shown back in the Platform &amp; Local provider page. Local API credentials, when needed, still remain in SecretStorage through the provider surfaces rather than plain settings.</p>
+                <p class="info-note">Unsloth Studio needs an API key. <strong>Connect Unsloth Studio</strong> checks the server is Studio before asking for it, tries it before storing it, and keeps it for that endpoint only. AtlasMind asks Studio to keep its own server-side tools off on every request; start Studio with <code>--disable-tools</code> to make that a setting it cannot be talked out of.</p>
+                <div class="local-model-actions">
+                  <button id="connectUnslothStudio" type="button" class="secondary-button">Connect Unsloth Studio…</button>
+                  <button id="manageUnslothModels" type="button" class="secondary-button">Manage Unsloth models…</button>
+                </div>
               </article>
 
               <article class="settings-card" id="localModelAdvisorCard">
@@ -3662,7 +3798,7 @@ export class SettingsPanel {
           box-sizing: border-box;
           color: var(--vscode-input-foreground);
           background: var(--vscode-input-background);
-          border: 1px solid var(--vscode-input-border, var(--vscode-widget-border, #444));
+          border: 1px solid var(--atlas-boundary);
           padding: 10px 12px;
           border-radius: 12px;
         }
@@ -3810,7 +3946,7 @@ export class SettingsPanel {
           border-color: color-mix(in srgb, var(--atlas-panel-warning) 55%, var(--atlas-panel-border));
         }
         .settings-card-danger {
-          border-color: var(--vscode-inputValidation-errorBorder, #d13438);
+          border-color: color-mix(in srgb, var(--vscode-errorForeground, #f48771) var(--atlas-ink-share), var(--tint-away));
           background: color-mix(in srgb, var(--vscode-inputValidation-errorBorder, #d13438) 8%, var(--atlas-panel-surface));
         }
         .agent-policy-card {
@@ -3840,7 +3976,7 @@ export class SettingsPanel {
           align-items: center;
         }
         .danger-button {
-          border-color: var(--vscode-inputValidation-errorBorder, #d13438);
+          border-color: color-mix(in srgb, var(--vscode-errorForeground, #f48771) var(--atlas-ink-share), var(--tint-away));
           background: color-mix(in srgb, var(--vscode-inputValidation-errorBorder, #d13438) 20%, var(--vscode-button-background));
         }
         .danger-button:hover,
@@ -3860,7 +3996,7 @@ export class SettingsPanel {
           box-sizing: border-box;
           color: var(--vscode-input-foreground);
           background: var(--vscode-input-background);
-          border: 1px solid var(--vscode-input-border, var(--vscode-widget-border, #444));
+          border: 1px solid var(--atlas-boundary);
           padding: 8px 10px;
           border-radius: 10px;
         }
@@ -3869,7 +4005,7 @@ export class SettingsPanel {
           box-sizing: border-box;
           color: var(--vscode-dropdown-foreground, var(--vscode-input-foreground));
           background: var(--vscode-dropdown-background, var(--vscode-input-background));
-          border: 1px solid var(--vscode-dropdown-border, var(--vscode-input-border, var(--vscode-widget-border, #444)));
+          border: 1px solid var(--atlas-boundary);
           padding: 8px 10px;
           border-radius: 10px;
         }
@@ -3899,7 +4035,7 @@ export class SettingsPanel {
           padding: 0;
           font: inherit;
           cursor: pointer;
-          color: var(--vscode-errorForeground, #f48771);
+          color: color-mix(in srgb, var(--vscode-errorForeground, #f48771) var(--atlas-ink-share), var(--tint-away));
           text-decoration: underline;
         }
         .link-button:hover { opacity: 0.8; }
@@ -4465,10 +4601,10 @@ export class SettingsPanel {
           font-size: 0.78rem;
           background: color-mix(in srgb, var(--accent-soft) 65%, transparent);
         }
-        .catalogue-badge.official { border-color: color-mix(in srgb, #4caf50 55%, var(--atlas-panel-border)); }
-        .catalogue-badge.community { border-color: color-mix(in srgb, #03a9f4 55%, var(--atlas-panel-border)); }
-        .catalogue-badge.registry { border-color: color-mix(in srgb, #ff9800 55%, var(--atlas-panel-border)); }
-        .catalogue-badge.archived { border-color: color-mix(in srgb, #9e9e9e 65%, var(--atlas-panel-border)); }
+        .catalogue-badge.official { border-color: color-mix(in srgb, color-mix(in srgb, #4caf50 var(--atlas-ink-share), var(--tint-away)) 55%, var(--atlas-panel-border)); }
+        .catalogue-badge.community { border-color: color-mix(in srgb, color-mix(in srgb, #03a9f4 var(--atlas-ink-share), var(--tint-away)) 55%, var(--atlas-panel-border)); }
+        .catalogue-badge.registry { border-color: color-mix(in srgb, color-mix(in srgb, #ff9800 var(--atlas-ink-share), var(--tint-away)) 55%, var(--atlas-panel-border)); }
+        .catalogue-badge.archived { border-color: color-mix(in srgb, color-mix(in srgb, #9e9e9e var(--atlas-ink-share), var(--tint-away)) 65%, var(--atlas-panel-border)); }
         .sr-only {
           position: absolute;
           width: 1px;
@@ -4568,7 +4704,7 @@ export class SettingsPanel {
         .ard-form select {
           background: var(--vscode-input-background);
           color: var(--vscode-input-foreground);
-          border: 1px solid var(--vscode-input-border, var(--atlas-panel-border));
+          border: 1px solid var(--atlas-boundary);
           padding: 6px 9px;
           border-radius: 6px;
           min-width: 220px;
@@ -4581,9 +4717,9 @@ export class SettingsPanel {
           border-radius: 10px;
           border: 1px solid var(--atlas-panel-border);
         }
-        .ard-status-success { border-color: color-mix(in srgb, #4caf50 55%, var(--atlas-panel-border)); }
+        .ard-status-success { border-color: color-mix(in srgb, color-mix(in srgb, #4caf50 var(--atlas-ink-share), var(--tint-away)) 55%, var(--atlas-panel-border)); }
         .ard-status-warning { border-color: var(--atlas-panel-warning); }
-        .ard-status-error { border-color: color-mix(in srgb, #f44336 60%, var(--atlas-panel-border)); }
+        .ard-status-error { border-color: color-mix(in srgb, color-mix(in srgb, #f44336 var(--atlas-ink-share), var(--tint-away)) 60%, var(--atlas-panel-border)); }
         .ard-status-info { border-color: var(--atlas-panel-accent); }
         .ard-results { display: flex; flex-direction: column; gap: 10px; }
         .ard-result-card {
@@ -4608,9 +4744,9 @@ export class SettingsPanel {
           font-size: 0.78rem;
         }
         .badge.ard-type { background: var(--atlas-panel-surface-strong); color: var(--vscode-foreground); }
-        .badge.ard-score { background: var(--vscode-charts-blue, #36c); color: #fff; }
-        .badge.ard-trust { background: var(--vscode-charts-purple, #93c); color: #fff; }
-        .badge.ard-warn { background: var(--atlas-panel-warning); color: #1a1a1a; }
+        .badge.ard-score { background: var(--vscode-charts-blue, #36c); color: var(--tint-toward); }
+        .badge.ard-trust { background: var(--vscode-charts-purple, #93c); color: var(--tint-toward); }
+        .badge.ard-warn { background: var(--atlas-panel-warning); color: var(--tint-toward); }
         .ard-table th, .ard-table td { vertical-align: top; }
       `,
       scriptContent:
@@ -4930,6 +5066,8 @@ export class SettingsPanel {
           bindCommandButton('openVisionPanel', 'openVisionPanel');
           bindCommandButton('chooseAcpConsoleMode', 'chooseAcpConsoleMode');
           bindCommandButton('scanLocalModelRecommendations', 'recommendLocalModels');
+          bindCommandButton('connectUnslothStudio', 'connectUnslothStudio');
+          bindCommandButton('manageUnslothModels', 'manageUnslothModels');
           bindCommandButton('purgeProjectMemory', 'purgeProjectMemory');
           bindCommandButton('refreshTestingInventory', 'refreshTestingInventory');
           // syncTestingProtocols and scaffoldTestingFramework are deliberately
@@ -5131,6 +5269,16 @@ export class SettingsPanel {
             });
           });
 
+          document.querySelectorAll('input[name="reasoning"]').forEach(element => {
+            element.addEventListener('change', event => {
+              const target = event.target;
+              if (!(target instanceof HTMLInputElement)) {
+                return;
+              }
+              vscode.postMessage({ type: 'setReasoningMode', payload: target.value });
+            });
+          });
+
           const localEndpointsList = document.getElementById('localEndpointsList');
           const addLocalEndpointButton = document.getElementById('addLocalEndpoint');
           localEndpointRows = Array.isArray(initialLocalOpenAiEndpoints)
@@ -5138,6 +5286,9 @@ export class SettingsPanel {
               id: typeof endpoint.id === 'string' ? endpoint.id : createLocalEndpointId(),
               label: typeof endpoint.label === 'string' ? endpoint.label : '',
               baseUrl: typeof endpoint.baseUrl === 'string' ? endpoint.baseUrl : '',
+              // Carried through untouched: a declared runtime is a decision the
+              // row editor has no control for and must not drop on save.
+              runtime: typeof endpoint.runtime === 'string' ? endpoint.runtime : undefined,
             }))
             : [];
 
@@ -5166,6 +5317,9 @@ export class SettingsPanel {
               if ((parsed.hostname === '127.0.0.1' || parsed.hostname === 'localhost') && parsed.port === '1234') {
                 return 'LM Studio';
               }
+              if ((parsed.hostname === '127.0.0.1' || parsed.hostname === 'localhost') && parsed.port === '8888') {
+                return 'Unsloth Studio';
+              }
               const host = parsed.hostname === '127.0.0.1' ? 'localhost' : parsed.hostname;
               return parsed.port ? host + ':' + parsed.port : host;
             } catch {
@@ -5181,11 +5335,15 @@ export class SettingsPanel {
                   return undefined;
                 }
                 const label = row.label.trim() || inferLocalEndpointLabelFromUrl(normalizedBaseUrl);
-                return {
+                const entry = {
                   id: row.id,
                   label,
                   baseUrl: normalizedBaseUrl,
                 };
+                if (row.runtime === 'ollama' || row.runtime === 'lmstudio' || row.runtime === 'unsloth') {
+                  entry.runtime = row.runtime;
+                }
+                return entry;
               })
               .filter(Boolean);
             vscode.postMessage({ type: 'setLocalOpenAiEndpoints', payload });
@@ -5267,6 +5425,7 @@ export class SettingsPanel {
             const endpointPresets = [
               { label: 'Ollama', baseUrl: 'http://localhost:11434/v1' },
               { label: 'LM Studio', baseUrl: 'http://127.0.0.1:1234/v1' },
+              { label: 'Unsloth Studio', baseUrl: 'http://127.0.0.1:8888/v1', runtime: 'unsloth' },
               { label: 'Open WebUI', baseUrl: 'http://localhost:3000/api' },
               { label: 'LocalAI', baseUrl: 'http://localhost:8080/v1' },
               { label: 'llama.cpp', baseUrl: 'http://localhost:8080/v1' },
@@ -5297,10 +5456,16 @@ export class SettingsPanel {
                     id: createLocalEndpointId(),
                     label: preset.label,
                     baseUrl: preset.baseUrl,
+                    runtime: preset.runtime,
                   });
                   renderLocalEndpoints();
                   persistLocalEndpoints();
                   closePresetMenu();
+                  if (preset.runtime === 'unsloth') {
+                    // Studio needs a key, and the key needs an identity check
+                    // first: hand straight to the command that does both.
+                    vscode.postMessage({ type: 'connectUnslothStudio' });
+                  }
                 });
                 li.appendChild(btn);
                 presetMenu.appendChild(li);
@@ -5855,7 +6020,9 @@ export class SettingsPanel {
               const isInstalled = item.status === 'installed';
               const installedRuntimeLabel = item.installedRuntime === 'lmstudio'
                 ? 'LM Studio'
-                : item.installedRuntime === 'ollama' ? 'Ollama' : '';
+                : item.installedRuntime === 'ollama'
+                  ? 'Ollama'
+                  : item.installedRuntime === 'unsloth' ? 'Unsloth Studio' : '';
               const badgeClass = isInstalled ? 'local-model-badge-installed' : 'local-model-badge-recommended';
               const badgeText = isInstalled
                 ? (installedRuntimeLabel ? 'Installed · ' + installedRuntimeLabel : 'Installed')
@@ -5870,6 +6037,8 @@ export class SettingsPanel {
                   actionsHtml = '<button type="button" class="danger-button" data-local-model-action="remove" data-runtime="ollama" data-model-id="' + escapeForHtml(String(item.installedModelId ?? '')) + '">Remove from Ollama</button>';
                 } else if (item.installedRuntime === 'lmstudio') {
                   actionsHtml = '<span class="local-model-runtime-note">Manage in LM Studio</span>';
+                } else if (item.installedRuntime === 'unsloth') {
+                  actionsHtml = '<button type="button" class="secondary-button" data-local-model-action="manage-unsloth">Manage in Unsloth Studio</button>';
                 }
               } else {
                 // Both runtimes can install any candidate: Ollama pulls GGUF straight from
@@ -5877,6 +6046,11 @@ export class SettingsPanel {
                 // HuggingFace for Ollama-style tags. Offer both buttons for every recommendation.
                 actionsHtml += '<button type="button" class="secondary-button" data-local-model-action="install" data-runtime="ollama" data-model-tag="' + escapeForHtml(tag) + '">Install in Ollama</button>';
                 actionsHtml += '<button type="button" class="secondary-button" data-local-model-action="install" data-runtime="lmstudio" data-model-tag="' + escapeForHtml(tag) + '">Install in LM Studio</button>';
+                // Unsloth Studio loads a Hugging Face repository by id, so the
+                // host offers it only for an hf: candidate and a connected Studio.
+                if (item.unslothAvailable === true) {
+                  actionsHtml += '<button type="button" class="secondary-button" data-local-model-action="install" data-runtime="unsloth" data-model-tag="' + escapeForHtml(tag) + '">Install in Unsloth</button>';
+                }
               }
               return '<article class="local-model-recommendation-card">'
                 + '<div class="local-model-recommendation-header">'
@@ -5898,16 +6072,28 @@ export class SettingsPanel {
             ? '<div class="local-model-installed">'
               + '<h4>Installed local models</h4>'
               + installedModels.map(item => {
-                const runtimeLabel = String(item.runtime ?? '').toLowerCase() === 'lmstudio' ? 'LM Studio' : 'Ollama';
+                const runtimeKey = String(item.runtime ?? '').toLowerCase();
+                const runtimeLabel = runtimeKey === 'lmstudio'
+                  ? 'LM Studio'
+                  : runtimeKey === 'unsloth' ? 'Unsloth Studio' : 'Ollama';
                 const removeControl = item.removable
                   ? '<button type="button" class="danger-button" data-local-model-action="remove" data-runtime="' + escapeForHtml(String(item.runtime ?? '')) + '" data-model-id="' + escapeForHtml(String(item.modelId ?? '')) + '">Remove</button>'
                   : '<span class="local-model-runtime-note">Manage in ' + runtimeLabel + '</span>';
+                const unslothControls = runtimeKey === 'unsloth'
+                  ? '<button type="button" class="secondary-button" data-local-model-action="manage-unsloth">Load or switch quant…</button>'
+                  : '';
+                const detail = typeof item.detail === 'string' && item.detail
+                  ? ' · ' + escapeForHtml(item.detail)
+                  : '';
                 return '<div class="local-model-installed-row">'
                   + '<div>'
                   + '<strong>' + escapeForHtml(String(item.displayName ?? item.modelId ?? 'Local model')) + '</strong>'
-                  + '<p class="mini-meta">Runtime: ' + runtimeLabel + '</p>'
+                  + '<p class="mini-meta">Runtime: ' + runtimeLabel + detail + '</p>'
                   + '</div>'
+                  + '<div class="local-model-actions">'
+                  + unslothControls
                   + removeControl
+                  + '</div>'
                   + '</div>';
               }).join('')
               + '</div>'
@@ -5929,9 +6115,13 @@ export class SettingsPanel {
             button.addEventListener('click', () => {
               const action = button.dataset.localModelAction;
               const runtime = button.dataset.runtime;
+              if (action === 'manage-unsloth') {
+                vscode.postMessage({ type: 'manageUnslothModels' });
+                return;
+              }
               if (action === 'install') {
                 const modelTag = button.dataset.modelTag ?? '';
-                if (!modelTag || (runtime !== 'ollama' && runtime !== 'lmstudio')) {
+                if (!modelTag || (runtime !== 'ollama' && runtime !== 'lmstudio' && runtime !== 'unsloth')) {
                   return;
                 }
                 vscode.postMessage({
@@ -5943,7 +6133,7 @@ export class SettingsPanel {
 
               if (action === 'remove') {
                 const modelId = button.dataset.modelId ?? '';
-                if (!modelId || (runtime !== 'ollama' && runtime !== 'lmstudio')) {
+                if (!modelId || (runtime !== 'ollama' && runtime !== 'lmstudio' && runtime !== 'unsloth')) {
                   return;
                 }
                 vscode.postMessage({
@@ -6055,6 +6245,7 @@ export class SettingsPanel {
                 id: typeof endpoint.id === 'string' ? endpoint.id : createLocalEndpointId(),
                 label: typeof endpoint.label === 'string' ? endpoint.label : '',
                 baseUrl: typeof endpoint.baseUrl === 'string' ? endpoint.baseUrl : '',
+                runtime: typeof endpoint.runtime === 'string' ? endpoint.runtime : undefined,
               })));
             renderLocalEndpoints();
             return;
@@ -6468,7 +6659,7 @@ function renderTestingPageStyles(): string {
        mid-edit — the matrix is a form, not a read-only list. */
     .methodology-search-row { display: flex; align-items: center; gap: 10px; margin-bottom: 10px; flex-wrap: wrap; }
     .methodology-search { flex: 1 1 260px; min-width: 220px; padding: 6px 10px; border-radius: 8px;
-      border: 1px solid var(--vscode-widget-border, rgba(127,127,127,0.4));
+      border: 1px solid var(--atlas-boundary);
       background: var(--vscode-input-background); color: var(--vscode-input-foreground); font: inherit; }
     .methodology-search:focus-visible { outline: 1px solid var(--vscode-focusBorder); outline-offset: 1px; }
     .methodology-row.is-filtered-out { display: none; }
@@ -6476,14 +6667,14 @@ function renderTestingPageStyles(): string {
     .methodology-category-group.is-filtered-out { display: none; }
     .methodology-row { transition: background 0.15s; }
     .methodology-row:hover { background: color-mix(in srgb, var(--vscode-list-hoverBackground) 40%, transparent); }
-    .methodology-row.methodology-enabled .methodology-name-cell strong { color: var(--vscode-testing-iconPassed); }
+    .methodology-row.methodology-enabled .methodology-name-cell strong { color: color-mix(in srgb, var(--vscode-testing-iconPassed) var(--atlas-ink-share), var(--tint-away)); }
     .methodology-name-cell .methodology-desc { font-size: 0.82em; color: var(--vscode-descriptionForeground); margin-top: 2px; }
     .col-toggle { width: 48px; }
     .col-name { min-width: 160px; }
     .col-agent { min-width: 160px; }
     .col-model { min-width: 160px; }
     .col-notes { min-width: 120px; }
-    .compact-select, .compact-input { font-size: 0.85em; padding: 3px 6px; border-radius: 3px; border: 1px solid var(--vscode-input-border); background: var(--vscode-input-background); color: var(--vscode-input-foreground); width: 100%; }
+    .compact-select, .compact-input { font-size: 0.85em; padding: 3px 6px; border-radius: 3px; border: 1px solid var(--atlas-boundary); background: var(--vscode-input-background); color: var(--vscode-input-foreground); width: 100%; }
     .compact-input::placeholder { color: var(--vscode-input-placeholderForeground); }
     .full-width-card { grid-column: 1 / -1; }
     /* Toggle switch */
@@ -6497,7 +6688,7 @@ function renderTestingPageStyles(): string {
     .methodology-name-row { display: flex; align-items: center; gap: 6px; }
     .methodology-info-btn { background: none; border: none; cursor: pointer; color: var(--vscode-textLink-foreground); font-size: 0.95em; padding: 0 2px; line-height: 1; opacity: 0.7; transition: opacity 0.15s; }
     .methodology-info-btn:hover, .methodology-info-btn--open { opacity: 1; }
-    .methodology-info-btn--open { color: var(--vscode-testing-iconPassed); }
+    .methodology-info-btn--open { color: color-mix(in srgb, var(--vscode-testing-iconPassed) var(--atlas-ink-share), var(--tint-away)); }
     .methodology-info-row td { padding: 0; }
     .methodology-info-cell { padding: 10px 10px 14px !important; background: color-mix(in srgb, var(--vscode-editor-background) 80%, var(--vscode-sideBar-background) 20%); border-bottom: 2px solid color-mix(in srgb, var(--vscode-textLink-foreground) 30%, transparent); }
     .methodology-info-grid { display: grid; grid-template-columns: repeat(2, minmax(0, 1fr)); gap: 14px; }
@@ -6505,9 +6696,9 @@ function renderTestingPageStyles(): string {
     .info-block-label { font-size: 0.74em; font-weight: 700; text-transform: uppercase; letter-spacing: 0.06em; color: var(--vscode-descriptionForeground); display: flex; align-items: center; gap: 6px; }
     .info-block-body { font-size: 0.85em; color: var(--vscode-foreground); line-height: 1.5; }
     .token-impact-badge { display: inline-block; font-size: 0.8em; font-weight: 700; letter-spacing: 0.04em; padding: 1px 6px; border-radius: 3px; text-transform: uppercase; }
-    .token-impact-low { background: color-mix(in srgb, var(--vscode-testing-iconPassed) 20%, transparent); color: var(--vscode-testing-iconPassed); }
-    .token-impact-medium { background: color-mix(in srgb, var(--vscode-problemsWarningIcon-foreground) 20%, transparent); color: var(--vscode-problemsWarningIcon-foreground); }
-    .token-impact-high { background: color-mix(in srgb, var(--vscode-testing-iconFailed) 20%, transparent); color: var(--vscode-testing-iconFailed); }`;
+    .token-impact-low { background: color-mix(in srgb, var(--vscode-testing-iconPassed) 20%, transparent); color: color-mix(in srgb, var(--vscode-testing-iconPassed) var(--atlas-ink-share), var(--tint-away)); }
+    .token-impact-medium { background: color-mix(in srgb, var(--vscode-problemsWarningIcon-foreground) 20%, transparent); color: color-mix(in srgb, var(--vscode-problemsWarningIcon-foreground) var(--atlas-ink-share), var(--tint-away)); }
+    .token-impact-high { background: color-mix(in srgb, var(--vscode-testing-iconFailed) 20%, transparent); color: color-mix(in srgb, var(--vscode-testing-iconFailed) var(--atlas-ink-share), var(--tint-away)); }`;
 }
 
 function renderTestingStatCard(label: string, value: string, meta: string): string {
@@ -6602,11 +6793,15 @@ export async function persistTestingConfig(
 export async function runTestingScaffoldWithSync(
   atlasContext?: import('../extension.js').AtlasMindContext,
 ): Promise<void> {
-  const workspaceRoot = vscode.workspace.workspaceFolders?.[0]?.uri.fsPath;
-  if (!workspaceRoot) {
-    void vscode.window.showInformationMessage('No workspace open — open a folder first.');
+  // The matrix and the testing playbook are project memory, and the scaffold is
+  // laid down beside them: the SSOT home, so the strategy and the files it
+  // describes cannot end up in different repositories.
+  const target = ssotHomeForWrite('No workspace open — open a folder first.');
+  if ('message' in target) {
+    void (target.refused ? vscode.window.showWarningMessage(target.message) : vscode.window.showInformationMessage(target.message));
     return;
   }
+  const workspaceRoot = target.fsPath;
   const config = readProjectTestingConfig(workspaceRoot);
   if (!config) {
     void vscode.window.showInformationMessage('No testing configuration saved yet — open Settings → Testing and save the matrix first.');
@@ -6900,7 +7095,13 @@ export function collectTestingDashboardSnapshot(
     };
   }
 
-  const projectTestingConfig = readProjectTestingConfig(workspaceRoot);
+  // The matrix, the compliance registers and the delivery/workflow facts the
+  // stack signals read are project memory: the SSOT home's. Test files and
+  // coverage are the first folder's, as before.
+  const ssotHome = ssotHomeRoot();
+  const ssotRoot = ssotHome.fsPath;
+  const policyUnreadable = ssotHome.refusal;
+  const projectTestingConfig = ssotRoot ? readProjectTestingConfig(ssotRoot) : undefined;
 
   let packageScripts: string[] = [];
   let frameworkLabel = 'Workspace tests';
@@ -7006,8 +7207,13 @@ export function collectTestingDashboardSnapshot(
   const parsedReport = discoveredReport ? parseJUnitReport(discoveredReport.text) : undefined;
   const coverageInput = {
     // Nothing enabled yet means the two Atlas defaults, matching what the
-    // strategy table shows in that state rather than an empty board.
-    enabledMethodologies: enabledMethodologies.length > 0 ? enabledMethodologies : ['tdd', 'unit'],
+    // strategy table shows in that state rather than an empty board. Not when
+    // the matrix could not be read at all: an unread matrix is not an empty
+    // one, and grading against defaults would let a release gate pass on a
+    // standard nobody declared.
+    enabledMethodologies: enabledMethodologies.length > 0
+      ? enabledMethodologies
+      : policyUnreadable ? [] : ['tdd', 'unit'],
     testFiles: policyTestFiles,
     dependencies: dependencyNames,
     scripts: allScriptNames,
@@ -7038,7 +7244,9 @@ export function collectTestingDashboardSnapshot(
   // not disagree about whether a certificate expired between them.
   const now = new Date();
   const firstPass = deriveTestingPolicyCoverage(coverageInput);
-  const complianceSignals = gatherComplianceStackSignals(workspaceRoot, {
+  // No signals at all when the SSOT home is ambiguous: every one is then
+  // unknown, which is what it is, rather than read from whichever folder is first.
+  const complianceSignals: ComplianceStackSignals = !ssotRoot ? {} : gatherComplianceStackSignals(ssotRoot, {
     dependencies: dependencyNames,
     scripts: allScriptNames,
     coverage: firstPass,
@@ -7075,8 +7283,8 @@ export function collectTestingDashboardSnapshot(
 
   // The register is read, never seeded. Twenty-four regimes; rendering a page
   // must not put committed files in somebody's repository.
-  const evidenceRead = readComplianceEvidenceFile(workspaceRoot);
-  const evidenceLibrary = evidenceRead.config
+  const evidenceRead = ssotRoot ? readComplianceEvidenceFile(ssotRoot) : undefined;
+  const evidenceLibrary = evidenceRead?.config
     ? sanitizeComplianceEvidenceLibrary(evidenceRead.config, now)
     : emptyEvidenceLibrary(now);
 
@@ -7087,7 +7295,7 @@ export function collectTestingDashboardSnapshot(
     if (!catalog) {
       continue;
     }
-    const stored = readComplianceRegimeFile(workspaceRoot, catalog.policyId).config;
+    const stored = ssotRoot ? readComplianceRegimeFile(ssotRoot, catalog.policyId).config : undefined;
     const register = stored
       ? sanitizeComplianceRegimeRegister(stored, catalog.policyId, evidenceLibrary, now).register
       : undefined;
@@ -7179,8 +7387,10 @@ export function collectTestingDashboardSnapshot(
     availableAgentSummaries,
     methodologyDefinitions: TESTING_METHODOLOGY_DEFINITIONS,
     policyCoverage,
+    ...(policyUnreadable ? { policyUnreadable } : {}),
     policyDetails: deriveTestingPolicyDetails(policyCoverage, {
-      scaffoldable: scaffoldableMethodologies(workspaceRoot, policyCoverage.rows.map(row => row.id)),
+      // Scaffolding writes beside the testing playbook, in the SSOT home.
+      scaffoldable: ssotRoot ? scaffoldableMethodologies(ssotRoot, policyCoverage.rows.map(row => row.id)) : new Set(),
       subjects: policySubjects.byPolicy,
     }),
     policySubjects: toTestingSubjectView(policySubjects),
@@ -7586,6 +7796,10 @@ export function isSettingsMessage(value: unknown): value is SettingsMessage {
     return typeof message.payload === 'string' && SPEED_MODES.includes(message.payload as SpeedMode);
   }
 
+  if (message.type === 'setReasoningMode') {
+    return typeof message.payload === 'string' && REASONING_MODES.includes(message.payload as ReasoningPreference);
+  }
+
   if (message.type === 'setFeedbackRoutingWeight') {
     return typeof message.payload === 'number'
       && Number.isFinite(message.payload)
@@ -7608,7 +7822,8 @@ export function isSettingsMessage(value: unknown): value is SettingsMessage {
         && typeof record['label'] === 'string'
         && record['label'].trim().length > 0
         && typeof record['baseUrl'] === 'string'
-        && record['baseUrl'].trim().length > 0;
+        && record['baseUrl'].trim().length > 0
+        && (record['runtime'] === undefined || isLocalEndpointRuntime(record['runtime']));
     });
   }
 
@@ -7617,9 +7832,13 @@ export function isSettingsMessage(value: unknown): value is SettingsMessage {
       return false;
     }
     const payload = message.payload as Record<string, unknown>;
-    return (payload['runtime'] === 'ollama' || payload['runtime'] === 'lmstudio')
-      && typeof payload['modelTag'] === 'string'
-      && payload['modelTag'].trim().length > 0;
+    if (!isLocalEndpointRuntime(payload['runtime'])
+      || typeof payload['modelTag'] !== 'string'
+      || payload['modelTag'].trim().length === 0) {
+      return false;
+    }
+    // Studio is sent a repository id, so only a valid one may reach it.
+    return payload['runtime'] !== 'unsloth' || isValidHfRepoId(repoIdFromCatalogTag(payload['modelTag']));
   }
 
   if (message.type === 'removeInstalledLocalModel') {
@@ -7627,9 +7846,12 @@ export function isSettingsMessage(value: unknown): value is SettingsMessage {
       return false;
     }
     const payload = message.payload as Record<string, unknown>;
-    return (payload['runtime'] === 'ollama' || payload['runtime'] === 'lmstudio')
-      && typeof payload['modelId'] === 'string'
-      && payload['modelId'].trim().length > 0;
+    if (!isLocalEndpointRuntime(payload['runtime'])
+      || typeof payload['modelId'] !== 'string'
+      || payload['modelId'].trim().length === 0) {
+      return false;
+    }
+    return payload['runtime'] !== 'unsloth' || isValidHfRepoId(payload['modelId'].trim());
   }
 
   if (message.type === 'setDailyCostLimitUsd') {
@@ -7817,6 +8039,8 @@ export function isSettingsMessage(value: unknown): value is SettingsMessage {
     message.type === 'chooseAcpConsoleMode' ||
     message.type === 'openChat' ||
     message.type === 'recommendLocalModels' ||
+    message.type === 'connectUnslothStudio' ||
+    message.type === 'manageUnslothModels' ||
     message.type === 'scanAiInstructions' ||
     message.type === 'alignAiInstructions'
   ) {
@@ -8025,7 +8249,24 @@ function renderHeadingWithHelp(text: string, helpId: SettingsHelpId): string {
   return `<span class="heading-with-help"><span>${escapeHtml(text)}</span>${renderHelpIndicator(helpId)}</span>`;
 }
 
-function renderRoutingChoicePill(group: 'budget' | 'speed', value: string, label: string, checked: boolean, description: string): string {
+/**
+ * The declared tables behind the reasoning axis, published on the card that
+ * sets it — the rules that actually resolve `auto` and the controls that
+ * actually reach a vendor, rendered from the module rather than restated.
+ */
+function renderReasoningRulesTable(): string {
+  const autoRows = AUTO_REASONING_RULES
+    .map(rule => `<li><code>${escapeHtml(rule.when)}</code> task → <strong>${escapeHtml(rule.level)}</strong> <span class="muted">(${escapeHtml(rule.id)})</span></li>`)
+    .join('');
+  const controlRows = Object.entries(REASONING_CONTROLS)
+    .map(([id, spec]) => `<li><strong>${escapeHtml(spec.providers.join(', '))}</strong>: <code>${escapeHtml(spec.wire)}</code> = ${escapeHtml(REASONING_LEVELS.map(level => `${level}→${spec.values[level]}`).join(', '))} <span class="muted">(${escapeHtml(id)})</span></li>`)
+    .join('');
+  return `<div class="info-band"><strong>Auto rules:</strong><ul>${autoRows}</ul>`
+    + `<strong>Sent only to declared models</strong> (verified ${escapeHtml(REASONING_CONTROLS_VERIFIED_AT)}):<ul>${controlRows}</ul>`
+    + '<p class="info-note">Any other model stays routable and is sent no reasoning parameter. The level and the rule that chose it appear in each answer’s routing summary.</p></div>';
+}
+
+function renderRoutingChoicePill(group: 'budget' | 'speed' | 'reasoning', value: string, label: string, checked: boolean, description: string): string {
   const escapedDescription = escapeHtml(description);
   return `<label class="choice-pill" data-tooltip="${escapedDescription}" title="${escapedDescription}"><input type="radio" name="${escapeHtml(group)}" value="${escapeHtml(value)}" ${checked ? 'checked' : ''} aria-label="${escapeHtml(`${label}. ${description}`)}"><span>${escapeHtml(label)}</span></label>`;
 }
@@ -8081,7 +8322,10 @@ function normalizeLocalOpenAiEndpoints(endpoints: LocalEndpointConfig[]): LocalE
       }
     }
     usedIds.add(id);
-    normalized.push({ id, label, baseUrl });
+    // Kept only when it is a runtime AtlasMind knows; anything else falls back
+    // to inference by label and port rather than being coerced into one.
+    const runtime = isLocalEndpointRuntime(endpoint.runtime) ? endpoint.runtime : undefined;
+    normalized.push({ id, label, baseUrl, ...(runtime ? { runtime } : {}) });
   }
   return normalized;
 }
@@ -8142,7 +8386,12 @@ function resolveLegacyLocalEndpointMigration(inspect: ConfigInspectShape<string>
   return undefined;
 }
 
-function resolveRuntimeBaseUrls(configuration: vscode.WorkspaceConfiguration): { ollamaBaseUrl: string; lmStudioBaseUrl: string } {
+function resolveRuntimeBaseUrls(configuration: vscode.WorkspaceConfiguration): {
+  ollamaBaseUrl: string;
+  lmStudioBaseUrl: string;
+  /** Only a configured Unsloth endpoint — Studio's default port is never probed speculatively. */
+  unsloth?: { endpointId: string; origin: string };
+} {
   const endpoints = getConfiguredLocalEndpoints({
     getEndpoints: () => configuration.get<unknown>('localOpenAiEndpoints'),
     getLegacyBaseUrl: () => configuration.get<string>('localOpenAiBaseUrl'),
@@ -8153,6 +8402,7 @@ function resolveRuntimeBaseUrls(configuration: vscode.WorkspaceConfiguration): {
 
   let ollamaBaseUrl: string | undefined;
   let lmStudioBaseUrl: string | undefined;
+  let unsloth: { endpointId: string; origin: string } | undefined;
 
   for (const endpoint of endpoints) {
     const runtime = inferRuntimeFromEndpoint(endpoint);
@@ -8162,36 +8412,43 @@ function resolveRuntimeBaseUrls(configuration: vscode.WorkspaceConfiguration): {
     if (runtime === 'lmstudio' && !lmStudioBaseUrl) {
       lmStudioBaseUrl = toRuntimeRootBaseUrl(endpoint.baseUrl);
     }
+    if (runtime === 'unsloth' && !unsloth) {
+      const origin = runtimeOrigin(endpoint.baseUrl);
+      if (origin) { unsloth = { endpointId: endpoint.id, origin }; }
+    }
   }
 
   return {
     ollamaBaseUrl: ollamaBaseUrl ?? defaultOllama,
     lmStudioBaseUrl: lmStudioBaseUrl ?? defaultLmStudio,
+    ...(unsloth ? { unsloth } : {}),
   };
 }
 
-function inferRuntimeFromEndpoint(endpoint: LocalEndpointConfig): 'ollama' | 'lmstudio' | 'unknown' {
-  const label = endpoint.label.toLowerCase();
-  if (label.includes('ollama')) {
-    return 'ollama';
-  }
-  if (label.includes('lm studio') || label.includes('lmstudio')) {
-    return 'lmstudio';
-  }
+/**
+ * Which runtime an endpoint is — the shared rule, not a copy of it.
+ *
+ * This used to be its own label-then-loopback-port check, and the GPU arbiter
+ * used a port check that ignored the host: two answers to one question. Both
+ * now ask `resolveEndpointRuntime` (declared, then label, then port).
+ */
+function inferRuntimeFromEndpoint(endpoint: LocalEndpointConfig): ReturnType<typeof resolveEndpointRuntime> {
+  return resolveEndpointRuntime(endpoint);
+}
 
-  try {
-    const parsed = new URL(endpoint.baseUrl);
-    if ((parsed.hostname === '127.0.0.1' || parsed.hostname === 'localhost') && parsed.port === '11434') {
-      return 'ollama';
-    }
-    if ((parsed.hostname === '127.0.0.1' || parsed.hostname === 'localhost') && parsed.port === '1234') {
-      return 'lmstudio';
-    }
-  } catch {
-    // Fall through
-  }
-
-  return 'unknown';
+/** How the local-model scan reaches Unsloth Studio, when an endpoint is configured. */
+function unslothSyncTarget(
+  secrets: vscode.SecretStorage,
+  unsloth: { endpointId: string; origin: string } | undefined,
+): UnslothSyncTarget | undefined {
+  if (!unsloth) { return undefined; }
+  return {
+    origin: unsloth.origin,
+    getApiKey: async () => {
+      const { readUnslothApiKey } = await import('./unslothModelCommands.js');
+      return readUnslothApiKey(secrets, unsloth.endpointId);
+    },
+  };
 }
 
 function toRuntimeRootBaseUrl(baseUrl: string): string {
@@ -8273,6 +8530,13 @@ async function installOllamaModel(
   onProgress?: (line: string) => void,
   signal?: AbortSignal,
 ): Promise<void> {
+  // Downloads gigabytes onto this machine: an action, not a read.
+  guardDryRun({
+    surface: 'local-model-install',
+    kind: 'network',
+    summary: `pull ${modelTag} into Ollama`,
+    details: { modelTag },
+  });
   const response = await fetch(`${ollamaBaseUrl.replace(/\/+$/, '')}/api/pull`, {
     method: 'POST',
     headers: { 'Content-Type': 'application/json' },
@@ -8323,6 +8587,12 @@ async function installOllamaModel(
 }
 
 async function removeOllamaModel(ollamaBaseUrl: string, modelId: string): Promise<void> {
+  guardDryRun({
+    surface: 'local-model-remove',
+    kind: 'network',
+    summary: `delete ${modelId} from Ollama`,
+    details: { modelId },
+  });
   const response = await fetch(`${ollamaBaseUrl.replace(/\/+$/, '')}/api/delete`, {
     method: 'DELETE',  // Ollama's delete endpoint requires DELETE, not POST
     headers: { 'Content-Type': 'application/json' },
@@ -8341,11 +8611,12 @@ async function buildLocalModelRecommendationPayload(
 ): Promise<LocalModelRecommendationPayload> {
   const hardware = await detectLocalHardwareSnapshot();
   const configuration = vscode.workspace.getConfiguration('atlasmind');
-  const { ollamaBaseUrl, lmStudioBaseUrl } = resolveRuntimeBaseUrls(configuration);
+  const { ollamaBaseUrl, lmStudioBaseUrl, unsloth } = resolveRuntimeBaseUrls(configuration);
   const localSync = await loadOrRefreshLocalModelSync(
     extensionContext.globalState,
     ollamaBaseUrl,
     lmStudioBaseUrl,
+    unslothSyncTarget(extensionContext.secrets, unsloth),
   );
 
   const installedLocalModels = localSync?.models ?? [];
@@ -8414,8 +8685,7 @@ async function buildLocalModelRecommendationPayload(
       const installedModel = findInstalledLocalMatch(candidate, installedLocalModels);
       if (installedModel) {
         fitScore += 6;
-        const runtimeLabel = installedModel.runtime === 'lmstudio' ? 'LM Studio' : 'Ollama';
-        rationale.push(`Already installed in ${runtimeLabel} as "${installedModel.id}".`);
+        rationale.push(`Already installed in ${LOCAL_RUNTIME_LABELS[installedModel.runtime]} as "${installedModel.id}".`);
       }
 
       return {
@@ -8426,18 +8696,34 @@ async function buildLocalModelRecommendationPayload(
         fitScore: Math.max(1, Math.min(100, Math.round(fitScore))),
         rationale,
         installHint: candidate.installHint,
+        // Studio loads a Hugging Face repository by id, so only an `hf:` tag
+        // can be offered to it; an Ollama library tag names no repository.
+        ...(unsloth && isValidHfRepoId(repoIdFromCatalogTag(candidate.recommendedTag)) && candidate.recommendedTag.startsWith('hf:')
+          ? { unslothAvailable: true }
+          : {}),
       } satisfies LocalModelRecommendationItem;
     })
     .sort((left, right) => right.fitScore - left.fitScore)
     .slice(0, 4);
 
   const installedModels = (localSync?.models ?? [])
-    .map(model => ({
-      runtime: model.runtime,
-      modelId: model.id,
-      displayName: model.name || model.id,
-      removable: model.runtime === 'ollama',
-    }))
+    .map(model => {
+      const facts: string[] = [];
+      if (model.runtime === 'unsloth') {
+        if (model.sizeBytes !== undefined) { facts.push(`${(model.sizeBytes / (1024 ** 3)).toFixed(1)} GB on disk`); }
+        if (model.loaded === true) { facts.push('loaded'); }
+        if (model.partial) { facts.push('interrupted download'); }
+      }
+      return {
+        runtime: model.runtime,
+        modelId: model.id,
+        displayName: model.name || model.id,
+        // Ollama and Unsloth Studio publish a delete; LM Studio does not.
+        removable: model.runtime === 'ollama' || model.runtime === 'unsloth',
+        ...(model.loaded !== undefined ? { loaded: model.loaded } : {}),
+        ...(facts.length > 0 ? { detail: facts.join(' · ') } : {}),
+      } satisfies InstalledLocalModelItem;
+    })
     .sort((left, right) => left.runtime.localeCompare(right.runtime) || left.displayName.localeCompare(right.displayName));
 
   return {
@@ -8454,6 +8740,7 @@ async function loadOrRefreshLocalModelSync(
   globalState: vscode.Memento,
   ollamaBaseUrl: string,
   lmStudioBaseUrl: string,
+  unsloth?: UnslothSyncTarget,
 ): Promise<LocalModelSyncResult | undefined> {
   const cached = globalState.get<LocalModelSyncResult>(LOCAL_MODEL_SYNC_CACHE_KEY);
   if (cached && !isLocalSyncStale(cached)) {
@@ -8461,7 +8748,7 @@ async function loadOrRefreshLocalModelSync(
   }
 
   try {
-    const refreshed = await syncLocalModels(ollamaBaseUrl, lmStudioBaseUrl);
+    const refreshed = await syncLocalModels(ollamaBaseUrl, lmStudioBaseUrl, unsloth);
     if (refreshed.models.length > 0) {
       await globalState.update(LOCAL_MODEL_SYNC_CACHE_KEY, refreshed);
       return refreshed;
@@ -8667,8 +8954,8 @@ export function localModelMatchKey(rawId: string): string {
  */
 export function findInstalledLocalMatch(
   candidate: { recommendedTag: string; modelFamily: string },
-  installedModels: ReadonlyArray<{ id: string; runtime: 'ollama' | 'lmstudio' }>,
-): { id: string; runtime: 'ollama' | 'lmstudio' } | undefined {
+  installedModels: ReadonlyArray<{ id: string; runtime: LocalEndpointRuntime }>,
+): { id: string; runtime: LocalEndpointRuntime } | undefined {
   const candidateKey = localModelMatchKey(candidate.recommendedTag);
   return installedModels.find(model => {
     const modelKey = localModelMatchKey(model.id);

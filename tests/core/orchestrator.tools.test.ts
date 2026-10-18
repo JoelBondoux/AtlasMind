@@ -4,7 +4,7 @@ import { mkdirSync, mkdtempSync, writeFileSync } from 'node:fs';
 import { tmpdir } from 'node:os';
 import nodePath from 'node:path';
 import { removeTempDir } from '../helpers/tempDir.ts';
-import { Orchestrator, appendTddBlockedCaveat, appendVerificationCaveat, budgetForCorrection, buildPrivacyScanSlices, buildProjectSessionContextBundle, buildSupplementalContextMessage, classifySubTaskFailure, classifyToolFailure, collapseDuplicatedTrailingBlock, CONVERSATION_CONTEXT_PREAMBLE, describeExhaustedSearch, describeReplayHazard, isSideEffectingToolCall, shouldAbortSupersededRequest, deriveTurnCapabilityEnvelope, detectVerificationContradiction, estimateCompletionRequestInputTokens, estimateToolDefinitionTokens, executionEndpointScope, getProviderTimeoutMs, isProviderAuthenticationError, isProviderRateLimited, isToolAllowedByTurnEnvelope, isUserCorrectionTurn, looksLikeAnswerlessCompletionClaim, looksLikeIncompleteDelivery, looksLikeLeakedReasoning, looksLikePreambleOnly, looksLikeToolCapabilityRefusal, resolveProviderIdForModel, responseClaimsSuccessWithoutCaveat, sanitizeAssistantResponse, selectTaskScopedSkills, shouldBiasTowardWorkspaceInvestigation, shouldOpenEndpointCircuit, summarizeAttemptFailures, TOOL_EXECUTION_FAILURE_PREFIX, UNTRUSTED_CONTEXT_PREAMBLE, verificationIndicatesFailure } from '../../src/core/orchestrator.ts';
+import { Orchestrator, appendTddBlockedCaveat, appendVerificationCaveat, budgetForCorrection, buildPrivacyScanSlices, buildProjectSessionContextBundle, buildSupplementalContextMessage, classifySubTaskFailure, classifyToolFailure, collapseDuplicatedTrailingBlock, CONVERSATION_CONTEXT_PREAMBLE, describeExhaustedSearch, describeReplayHazard, isSideEffectingToolCall, shouldAbortSupersededRequest, deriveTurnCapabilityEnvelope, detectVerificationContradiction, estimateCompletionRequestInputTokens, estimateToolDefinitionTokens, executionEndpointScope, getProviderTimeoutMs, isProviderAuthenticationError, isProviderRateLimited, isToolAllowedByTurnEnvelope, isUserCorrectionTurn, appendUnactedAnnouncementCaveat, looksLikeAnswerlessCompletionClaim, looksLikeIncompleteDelivery, looksLikeLeakedReasoning, looksLikePreambleOnly, looksLikeToolCapabilityRefusal, looksLikeUnactedChangeAnnouncement, UNACTED_ANNOUNCEMENT_MARKER, resolveProviderIdForModel, responseClaimsSuccessWithoutCaveat, sanitizeAssistantResponse, selectTaskScopedSkills, shouldBiasTowardWorkspaceInvestigation, shouldOpenEndpointCircuit, summarizeAttemptFailures, TOOL_EXECUTION_FAILURE_PREFIX, UNTRUSTED_CONTEXT_PREAMBLE, verificationIndicatesFailure } from '../../src/core/orchestrator.ts';
 import { ACP_HANDSHAKE_HEADROOM_MS, ACP_PROMPT_CEILING_MS, ACP_PROVIDER_TIMEOUT_MS, ACP_REQUEST_TIMEOUT_MS, LOCAL_PROVIDER_MAX_TIMEOUT_MS, MAX_TOOL_ITERATIONS } from '../../src/constants.ts';
 import type { TaskModelAttempt } from '../../src/types.ts';
 import { AgentRegistry } from '../../src/core/agentRegistry.ts';
@@ -6348,5 +6348,192 @@ describe('a model thinking aloud is not an answer', () => {
     '',
   ])('leaves %j alone', response => {
     expect(looksLikeLeakedReasoning(response)).toBe(false);
+  });
+});
+
+/**
+ * Observed verbatim, on two models in one conversation, each ending its turn:
+ * the README was never edited, and the summary above each reply said
+ * "Completed after N model attempts".
+ */
+const OBSERVED_UNACTED_ANNOUNCEMENTS = [
+  'I will now **edit `README.md`** to retain only the **three most recent builds** (`0.227.2`, `0.482.1`, '
+    + 'and `0.482.0`) and remove all older patch notes. This will ensure the file remains concise and '
+    + 'focused on the latest updates.',
+  'I will now edit `README.md` to remove the older changelog entries, keeping only the three most recent '
+    + 'versions as requested.',
+];
+
+describe('a chat reply that only announces a change', () => {
+  it.each(OBSERVED_UNACTED_ANNOUNCEMENTS)('is recognised: %j', response => {
+    expect(looksLikeUnactedChangeAnnouncement(response)).toBe(true);
+  });
+
+  it.each([
+    // A sign-off, not a promise.
+    'Trimmed the README. Let me know if you want me to update the wiki as well.',
+    // An offer asks the operator something; stopping to ask is a legitimate stop.
+    'The README already lists only three releases. If you would like, I will add a test that keeps it that way.',
+    "I'll trim the README to the three newest releases — want me to go ahead?",
+    'Should I remove the older sections, or move them to CHANGELOG.md?',
+    // Investigation narration belongs to the workspace reprompt, not this gate.
+    'Let me inspect the README and check which sections are release notes.',
+    // It happened.
+    'I removed the 23 older release sections from README.md; the three newest remain.',
+    // Delivered a list.
+    "I'll update three files:\n- README.md\n- CHANGELOG.md\n- wiki/Changelog.md",
+    '',
+  ])('leaves %j alone', response => {
+    expect(looksLikeUnactedChangeAnnouncement(response)).toBe(false);
+  });
+
+  it('does not let an offer in one sentence excuse an announcement in another', () => {
+    expect(looksLikeUnactedChangeAnnouncement(
+      'I will now edit README.md to keep the three newest releases. If you want, I can also tidy the wiki.',
+    )).toBe(true);
+  });
+
+  it('still fails a subtask once the not-done notice makes the reply too long to be a preamble', () => {
+    const noticed = appendUnactedAnnouncementCaveat(`${OBSERVED_UNACTED_ANNOUNCEMENTS[0]} ${'More detail. '.repeat(30)}`, false);
+    expect(looksLikePreambleOnly(noticed)).toBe(false);
+    expect(classifySubTaskFailure(noticed)).toMatch(/without delivering/i);
+  });
+
+  it('only says nothing changed when nothing that could change the workspace ran', () => {
+    expect(appendUnactedAnnouncementCaveat('I will edit it.', false)).toContain('nothing was changed');
+    expect(appendUnactedAnnouncementCaveat('I will edit it.', true)).not.toContain('nothing was changed');
+  });
+});
+
+describe('the chat tool loop does not end on an announced change', () => {
+  const REPROMPT_OPENING = 'You said what you were about to change';
+
+  function readmeSkills(editHandler = vi.fn().mockResolvedValue('Updated /workspace/README.md (1 replacement).')): SkillDefinition[] {
+    return [
+      {
+        id: 'file-read',
+        name: 'File Read',
+        description: 'Read a file from the workspace.',
+        parameters: { type: 'object', properties: { path: { type: 'string' } } },
+        execute: vi.fn().mockResolvedValue('## What\'s new in 0.483.0\n## What\'s new in 0.482.3'),
+      },
+      {
+        id: 'file-edit',
+        name: 'Edit File',
+        description: 'Edit a file',
+        parameters: {
+          type: 'object',
+          required: ['path', 'search', 'replace'],
+          properties: { path: { type: 'string' }, search: { type: 'string' }, replace: { type: 'string' } },
+        },
+        execute: editHandler,
+      },
+    ];
+  }
+
+  /**
+   * Answers by what it was last told rather than by call count, so a bias-hint
+   * reprompt firing first cannot shift the sequence out from under the test.
+   */
+  function scriptedProvider(script: {
+    afterReprompt: 'edit' | 'announce-again';
+    finalAfterEdit?: string;
+  }): ProviderAdapter {
+    const toolRound = (toolCalls: CompletionResponse['toolCalls']): CompletionResponse => ({
+      content: '', model: 'local/echo-1', inputTokens: 8, outputTokens: 3, finishReason: 'tool_calls', toolCalls,
+    });
+    const reply = (content: string): CompletionResponse => ({
+      content, model: 'local/echo-1', inputTokens: 8, outputTokens: 12, finishReason: 'stop',
+    });
+    return {
+      providerId: 'local',
+      complete: vi.fn((request: CompletionRequest) => {
+        const messages = request.messages;
+        const last = messages.at(-1);
+        const hasRead = messages.some(message => message.role === 'tool' || /call-read/.test(JSON.stringify(message)));
+        if (!hasRead) {
+          return Promise.resolve(toolRound([{ id: 'call-read', name: 'file-read', arguments: { path: '/workspace/README.md' } }]));
+        }
+        const wasReprompted = messages.some(message => typeof message.content === 'string' && message.content.startsWith(REPROMPT_OPENING));
+        const edited = messages.some(message => /call-edit/.test(JSON.stringify(message)));
+        if (edited) {
+          return Promise.resolve(reply(script.finalAfterEdit ?? 'Removed the older release sections; README.md now lists the three newest.'));
+        }
+        if (wasReprompted && script.afterReprompt === 'edit' && typeof last?.content === 'string' && last.content.startsWith(REPROMPT_OPENING)) {
+          return Promise.resolve(toolRound([{ id: 'call-edit', name: 'file-edit', arguments: { path: '/workspace/README.md', search: 'old', replace: 'new' } }]));
+        }
+        return Promise.resolve(reply(OBSERVED_UNACTED_ANNOUNCEMENTS[1]!));
+      }),
+      listModels: vi.fn().mockResolvedValue(['local/echo-1']),
+      healthCheck: vi.fn().mockResolvedValue(true),
+    };
+  }
+
+  function repromptCount(provider: ProviderAdapter): number {
+    return (provider.complete as ReturnType<typeof vi.fn>).mock.calls
+      .map(([request]) => (request as CompletionRequest).messages.at(-1)?.content)
+      .filter(content => typeof content === 'string' && content.startsWith(REPROMPT_OPENING))
+      .length;
+  }
+
+  const request = (id: string) => ({
+    id,
+    userMessage: 'Tidy the release notes so only the newest three builds are listed.',
+    context: {},
+    constraints: { budget: 'balanced' as const, speed: 'balanced' as const },
+    timestamp: new Date().toISOString(),
+  });
+
+  it('asks once for the change, and the turn ends on the change being made', async () => {
+    const edit = vi.fn().mockResolvedValue('Updated /workspace/README.md (1 replacement).');
+    const provider = scriptedProvider({ afterReprompt: 'edit' });
+    const orchestrator = makeOrchestrator(provider, readmeSkills(edit), makeSkillContext());
+
+    const result = await orchestrator.processTask(request('task-announce-recovers'));
+
+    expect(repromptCount(provider)).toBe(1);
+    expect(edit).toHaveBeenCalledTimes(1);
+    expect(result.response).toBe('Removed the older release sections; README.md now lists the three newest.');
+    expect(result.artifacts?.stoppedAtAnnouncement).toBeUndefined();
+  });
+
+  it('says it was not done when the model announces again instead of acting', async () => {
+    const edit = vi.fn();
+    const provider = scriptedProvider({ afterReprompt: 'announce-again' });
+    const orchestrator = makeOrchestrator(provider, readmeSkills(edit), makeSkillContext());
+
+    const result = await orchestrator.processTask(request('task-announce-stalls'));
+
+    expect(repromptCount(provider)).toBe(1);
+    expect(edit).not.toHaveBeenCalled();
+    expect(result.response).toContain(UNACTED_ANNOUNCEMENT_MARKER);
+    expect(result.response).toContain('nothing was changed');
+    expect(result.artifacts?.stoppedAtAnnouncement).toBe(true);
+  });
+
+  it('leaves a turn alone once the change it describes was made', async () => {
+    // A file edit succeeded, so a closing sentence promising more is a sign-off
+    // on finished work, not a stall.
+    const edit = vi.fn().mockResolvedValue('Updated /workspace/README.md (1 replacement).');
+    const provider: ProviderAdapter = {
+      providerId: 'local',
+      complete: vi.fn((req: CompletionRequest) => {
+        const edited = req.messages.some(message => /call-edit/.test(JSON.stringify(message)));
+        return Promise.resolve(edited
+          ? { content: "I'll update the wiki changelog to match next.", model: 'local/echo-1', inputTokens: 8, outputTokens: 9, finishReason: 'stop' as const }
+          : {
+            content: '', model: 'local/echo-1', inputTokens: 8, outputTokens: 3, finishReason: 'tool_calls' as const,
+            toolCalls: [{ id: 'call-edit', name: 'file-edit', arguments: { path: '/workspace/README.md', search: 'old', replace: 'new' } }],
+          });
+      }),
+      listModels: vi.fn().mockResolvedValue(['local/echo-1']),
+      healthCheck: vi.fn().mockResolvedValue(true),
+    };
+    const orchestrator = makeOrchestrator(provider, readmeSkills(edit), makeSkillContext());
+
+    const result = await orchestrator.processTask(request('task-announce-after-edit'));
+
+    expect(repromptCount(provider)).toBe(0);
+    expect(result.response).not.toContain(UNACTED_ANNOUNCEMENT_MARKER);
   });
 });

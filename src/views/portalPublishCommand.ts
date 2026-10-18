@@ -21,6 +21,7 @@
  */
 
 import * as vscode from 'vscode';
+import { ssotHomeForWrite } from '../utils/workspaceRoots.js';
 import {
   buildPortalPublishPlan,
   describePortalPublishCommands,
@@ -32,6 +33,7 @@ import {
   type RepositoryVisibility,
 } from '../core/portalHosting.js';
 import { execFileAsync } from '../mcp/mcpRuntime.js';
+import { interceptDryRun } from '../core/dryRunHost.js';
 
 /**
  * Ask GitHub how visible this repository is, now.
@@ -61,12 +63,16 @@ function refusalMessage(plan: PortalPublishPlan): string {
 }
 
 export async function buildAndPublishPortal(): Promise<void> {
-  const folder = vscode.workspace.workspaceFolders?.[0];
-  if (!folder) {
-    void vscode.window.showWarningMessage('Open a workspace folder before publishing the portal.');
+  // The report, the prepared site, the hosting record and the audience are all
+  // project memory, so the portal is built from — and deployed out of — the
+  // SSOT home. An ambiguous home refuses rather than publishing one folder's
+  // report as the project's.
+  const target = ssotHomeForWrite('Open a workspace folder before publishing the portal.');
+  if ('message' in target) {
+    void vscode.window.showWarningMessage(target.message);
     return;
   }
-  const root = folder.uri.fsPath;
+  const root = target.fsPath;
   const config = vscode.workspace.getConfiguration('atlasmind');
   const ssotPath = config.get<string>('ssotPath', 'project_memory');
 
@@ -141,8 +147,8 @@ export async function buildAndPublishPortal(): Promise<void> {
   const commands = describePortalPublishCommands(plan);
   const confirmed = await vscode.window.showWarningMessage(
     plan.atlasCanDeploy
-      ? `Build and publish the producer portal for ${folder.name}?`
-      : `Build the producer portal for ${folder.name}?`,
+      ? `Build and publish the producer portal for ${target.folder.name}?`
+      : `Build the producer portal for ${target.folder.name}?`,
     {
       modal: true,
       detail: [
@@ -160,6 +166,7 @@ export async function buildAndPublishPortal(): Promise<void> {
   }
 
   const output = vscode.window.createOutputChannel('AtlasMind Portal');
+  let deployHeldByDryRun = false;
   try {
     await vscode.window.withProgress(
       { location: vscode.ProgressLocation.Notification, title: 'AtlasMind: publishing the portal', cancellable: false },
@@ -187,6 +194,20 @@ export async function buildAndPublishPortal(): Promise<void> {
         if (!deploy?.command) {
           return;
         }
+        // The page is prepared locally either way; publishing it is the act a
+        // dry run holds back. `execFileAsync` would refuse it too, but as a
+        // failure, and a dry run is not a failed publish.
+        if (interceptDryRun({
+          surface: 'portal',
+          kind: 'process',
+          summary: `publish the portal to ${hosting.host}`,
+          details: { command: deploy.command.file, args: [...deploy.command.args] },
+          wouldHaveAsked: true,
+        })) {
+          deployHeldByDryRun = true;
+          output.appendLine(`Dry run: would have run ${deploy.command.file} ${deploy.command.args.join(' ')}`);
+          return;
+        }
         progress.report({ message: `publishing to ${hosting.host}` });
         output.appendLine(`$ ${deploy.command.file} ${deploy.command.args.join(' ')}`);
         // Argv, no shell: the folder name is a folder name even when it looks
@@ -205,6 +226,10 @@ export async function buildAndPublishPortal(): Promise<void> {
     void vscode.window.showErrorMessage(
       `The portal was prepared but publishing failed: ${detail.slice(0, 300)}`,
     );
+    return;
+  }
+
+  if (deployHeldByDryRun) {
     return;
   }
 

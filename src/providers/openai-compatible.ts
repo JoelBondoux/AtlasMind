@@ -134,7 +134,7 @@ export class OpenAiCompatibleAdapter implements ProviderAdapter {
       ...withThoughtSignature(readThoughtSignature(tc as unknown as Record<string, unknown>)),
     }));
 
-    const usage = extractUsageMetrics(result);
+    const usage = extractUsageMetrics(result, this.config.providerId);
 
     return {
       content: content.trim(),
@@ -216,7 +216,7 @@ export class OpenAiCompatibleAdapter implements ProviderAdapter {
           const choices = chunk['choices'] as Array<Record<string, unknown>> | undefined;
           if (!choices?.length) {
             // Check for usage in the final chunk
-            const usage = extractUsageMetrics(chunk);
+            const usage = extractUsageMetrics(chunk, this.config.providerId);
             if (usage.inputTokens > 0 || usage.outputTokens > 0) {
               inputTokens = usage.inputTokens || inputTokens;
               outputTokens = usage.outputTokens || outputTokens;
@@ -254,7 +254,7 @@ export class OpenAiCompatibleAdapter implements ProviderAdapter {
           }
 
           // Check for usage block in stream_options
-          const usage = extractUsageMetrics(chunk);
+          const usage = extractUsageMetrics(chunk, this.config.providerId);
           if (usage.inputTokens > 0 || usage.outputTokens > 0) {
             inputTokens = usage.inputTokens || inputTokens;
             outputTokens = usage.outputTokens || outputTokens;
@@ -477,6 +477,43 @@ function isAbortError(error: unknown): boolean {
   return error instanceof Error && error.name === 'AbortError';
 }
 
+// ── Reasoning effort ───────────────────────────────────────────────
+
+/**
+ * When the `reasoning_effort` shapes below were last read against the vendors'
+ * published docs: OpenAI's reasoning guide
+ * (https://developers.openai.com/api/docs/guides/reasoning — Chat Completions
+ * takes `reasoning_effort`; reasoning tokens are billed as output) and Gemini's
+ * OpenAI-compatibility page (https://ai.google.dev/gemini-api/docs/openai —
+ * `reasoning_effort` maps onto thinking levels/budgets and must not be combined
+ * with `thinking_config`, which this adapter never sends).
+ */
+export const OPENAI_COMPATIBLE_REASONING_VERIFIED_AT = '2026-10-08';
+
+/**
+ * Which directive this endpoint may carry, keyed by provider id. Every other
+ * provider on this shared adapter — DeepSeek, Mistral, Groq, local servers and
+ * the rest — sends nothing, because nobody verified that it accepts the field.
+ */
+const REASONING_EFFORT_CONTROL_BY_PROVIDER: Readonly<Record<string, NonNullable<CompletionRequest['reasoning']>['control']>> = {
+  openai: 'openai-reasoning-effort',
+  google: 'gemini-reasoning-effort',
+};
+
+/** The `reasoning_effort` value to send, or `undefined` when this provider may not be sent one. */
+export function openAiCompatibleReasoningEffort(
+  directive: CompletionRequest['reasoning'],
+  providerId: string,
+): 'low' | 'medium' | 'high' | undefined {
+  if (!directive) {
+    return undefined;
+  }
+  const allowed = Object.prototype.hasOwnProperty.call(REASONING_EFFORT_CONTROL_BY_PROVIDER, providerId)
+    ? REASONING_EFFORT_CONTROL_BY_PROVIDER[providerId]
+    : undefined;
+  return allowed === directive.control ? directive.value : undefined;
+}
+
 // ── Payload builder ────────────────────────────────────────────────
 
 function buildPayload(
@@ -540,6 +577,11 @@ function buildPayload(
       ? 'max_completion_tokens'
       : 'max_tokens'
   ] = request.maxTokens ?? 1024;
+
+  const reasoningEffort = openAiCompatibleReasoningEffort(request.reasoning, providerId);
+  if (reasoningEffort) {
+    payload['reasoning_effort'] = reasoningEffort;
+  }
 
   if (request.stop?.length) {
     payload['stop'] = request.stop;
@@ -645,7 +687,7 @@ function mapFinishReason(reason: string | null): CompletionResponse['finishReaso
   return 'stop';
 }
 
-function extractUsageMetrics(payload: unknown): { inputTokens: number; outputTokens: number; cachedInputTokens: number } {
+export function extractUsageMetrics(payload: unknown, providerId = ''): { inputTokens: number; outputTokens: number; cachedInputTokens: number } {
   const usage = readUsageObject(payload);
   if (!usage) {
     return { inputTokens: 0, outputTokens: 0, cachedInputTokens: 0 };
@@ -669,6 +711,15 @@ function extractUsageMetrics(payload: unknown): { inputTokens: number; outputTok
   }
   if (outputTokens === 0 && totalTokens > 0 && inputTokens > 0) {
     outputTokens = Math.max(0, totalTokens - inputTokens);
+  }
+  // Gemini bills thinking at the output rate ("Output price (including thinking
+  // tokens)", ai.google.dev/gemini-api/docs/pricing), but its OpenAI-compatible
+  // layer reports `completion_tokens` without them while `total_tokens` keeps
+  // them. Taking the larger of the two can only count *more*, which is the safe
+  // direction for a budget cap; reading `completion_tokens` alone would let a
+  // deep-reasoning turn spend past a cap the tally said it was under.
+  if (providerId === 'google' && totalTokens > 0 && inputTokens > 0) {
+    outputTokens = Math.max(outputTokens, totalTokens - inputTokens);
   }
 
   return { inputTokens, outputTokens, cachedInputTokens };

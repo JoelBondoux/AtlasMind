@@ -56,6 +56,15 @@ describe('resolveWorkspaceCommand', () => {
     });
   });
 
+  it('starts the real image beside an extensionless script, as Windows itself would — Docker Desktop ships that pair', () => {
+    const bin = 'C:\\Program Files\\Docker\\Docker\\resources\\bin';
+    const probe = windowsProbe({ path: { docker: `${bin}\\docker` }, files: [`${bin}\\docker`, `${bin}\\docker.exe`] });
+    expect(resolveWorkspaceCommand('docker', ['info'], probe)).toEqual({ status: 'direct', command: `${bin}\\docker.exe`, args: ['info'] });
+    // Only a real image counts: a .cmd beside the script is still a shim, and is bypassed or refused as before.
+    const shimOnly = windowsProbe({ path: { tool: 'C:\\shims\\tool' }, files: ['C:\\shims\\tool', 'C:\\shims\\tool.cmd'] });
+    expect(resolveWorkspaceCommand('tool', [], shimOnly).status).toBe('unresolved');
+  });
+
   it('bypasses a .cmd shim through the package the author declared', () => {
     const root = 'C:\\nodejs';
     const probe = windowsProbe({

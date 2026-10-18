@@ -696,3 +696,87 @@ describe('the three Atlas hand-offs', () => {
     expect(open.slice(0, 1200)).toContain('openWorkspaceRelativeFile(planPath)');
   });
 });
+
+describe('show completed is a way of looking, not a change', () => {
+  /** The click branch, from its guard to the `return` that ends it. */
+  function toggleBranch(): string {
+    const start = WEBVIEW_SCRIPT.indexOf("if (action === 'roadmap-completed-toggle') {");
+    expect(start, 'the show-completed handler is missing').toBeGreaterThan(-1);
+    return WEBVIEW_SCRIPT.slice(start, WEBVIEW_SCRIPT.indexOf('return;', start));
+  }
+
+  it('posts nothing to the host', () => {
+    // The DOM harness proves no message is sent on a click; this pins that no
+    // message *could* be — a branch that grows a postMessage fails here first.
+    expect(toggleBranch()).not.toContain('postMessage');
+  });
+
+  it('re-fits every canvas, because delivered work now appears beside the plan', () => {
+    // Delivered work used to fill holes inside the plan, so the dependency
+    // canvas kept its viewport. The plan is now laid out without those holes
+    // and delivered work in its own blocks beside it — past the edge of a
+    // viewport fitted to the plan — so keeping the viewport would make the
+    // toggle look as if it did nothing.
+    expect(toggleBranch()).toContain('state.roadmapFitAfterRender = true;');
+  });
+
+  it('is remembered beside snap-to-grid, in webview state', () => {
+    expect(toggleBranch()).toContain('persistRoadmapCanvasPreferences()');
+    expect(scriptFunction('persistRoadmapCanvasPreferences')).toContain('roadmapShowCompleted: state.roadmapShowCompleted');
+    expect(WEBVIEW_SCRIPT).toContain('roadmapShowCompleted: persistedWebviewState.roadmapShowCompleted === true');
+  });
+
+  it('is rendered once, in the view row every roadmap view shares', () => {
+    expect(scriptFunction('renderRoadmapViewBar')).toContain('renderRoadmapCompletedToggle(roadmap)');
+    const toggle = scriptFunction('renderRoadmapCompletedToggle');
+    expect(toggle).toContain('type="button"');
+    expect(toggle).toContain('aria-pressed=');
+  });
+
+  it('places delivered work from the snapshot, never by asking the host', () => {
+    const placed = scriptFunction('roadmapCanvasNodesWithDelivered');
+    expect(placed).not.toContain('postMessage');
+    expect(placed).toContain('completedOverlay');
+  });
+
+  it('ships the overlay with the snapshot, built from the graph after everything derived', () => {
+    expect(HOST_PANEL).toContain('completedOverlay: buildRoadmapCompletedOverlay(graph, partition, people)');
+  });
+});
+
+describe('release gate dots are drawn, never decided, by the page', () => {
+  it('takes each gate colour from the host, which assigns it from the declared order', () => {
+    expect(HOST_PANEL).toMatch(/function buildGateViews[\s\S]*?assignRoadmapGateColors\(gates\)/);
+    // The webview holds no palette of its own: two would eventually disagree.
+    expect(canvasSource()).not.toMatch(/ROADMAP_GATE_PALETTE|#f8022a/);
+  });
+
+  it('interpolates a colour only after checking it is exactly #rrggbb', () => {
+    const attrs = namedFunction('rmGateDotAttrs');
+    expect(attrs).toContain('rmGateColor(gate)');
+    expect(namedFunction('rmGateColor')).toContain('RM_GATE_HEX.test(gate.color)');
+    expect(canvasSource()).toContain('const RM_GATE_HEX = /^#[0-9a-f]{6}$/;');
+  });
+
+  it('escapes every gate label and id it draws', () => {
+    for (const name of ['renderRoadmapGateDots', 'renderRoadmapGateLegend']) {
+      const source = namedFunction(name);
+      expect(source, name).not.toMatch(/\$\{\s*gate\.(label|id)\s*\}/);
+    }
+    expect(namedFunction('renderRoadmapGateLegend')).toContain('escapeHtml(gate.label)');
+    expect(namedFunction('renderRoadmapGateDots')).toContain('escapeAttr(gate.id)');
+  });
+
+  it('puts the colour key with the Gate picker, on every canvas that has one', () => {
+    expect(namedFunction('renderRoadmapEmphasisControls')).toContain('${gateSelect}${renderRoadmapGateLegend(true)}');
+  });
+
+  it('draws dots on the canvas card and the board card, describing each by its gates', () => {
+    const node = namedFunction('renderRoadmapNode');
+    expect(node).toContain('renderRoadmapGateDots(node.gates, { interactive: true');
+    expect(node).toContain('aria-describedby');
+    const board = namedFunction('renderRoadmapBoardCard');
+    expect(board).toContain('renderRoadmapGateDots(card.gates, { interactive: false');
+    expect(board).toContain('aria-describedby');
+  });
+});

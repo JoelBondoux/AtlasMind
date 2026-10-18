@@ -25,6 +25,62 @@ project_memory/
 
 `sessions/` is managed by the Memory Agent for chat continuity and is intentionally excluded from normal SSOT query/index retrieval so runtime conversation state does not pollute durable project knowledge.
 
+### Which folder holds it in a multi-root workspace
+
+There is one SSOT per project, in the **home** component (`docs/project-composition.md` §2.6). In a
+single-folder workspace that folder is the home and nothing is probed. With several folders open,
+`ssotHomeRoot()` (`src/utils/workspaceRoots.ts`) looks inside each one — does it hold the configured
+`atlasmind.ssotPath`, and does its own `operations/workflow.json` declare a composition — and
+`locateSsotHome` (`src/core/workspaceScope.ts`) applies `SSOT_HOME_RULES`, first match wins:
+
+1. **`declared-home`** — exactly one folder's valid `workflow.json` places the home component in that folder.
+2. **`ambiguous`** — two folders declare themselves home, or none does and two hold project memory.
+3. **`sole-ssot`** — exactly one folder holds the project-memory folder.
+4. **`no-ssot-first-folder`** — nothing found; the first folder, which is where bootstrap writes.
+
+An ambiguous home is **never resolved by picking one**. Project memory is not loaded at activation, the
+workflow file reads nothing and refuses to save, operator-feedback notes are not written, the project soul
+is left out of prompts, `/ideate` and roadmap status say why, and the Project Dashboard shows a banner on
+every page naming the candidate folders. The fix is to declare the home: give one folder's
+`project_memory/operations/workflow.json` a composition whose home component has location `.` (or, where two
+folders already declare it, remove the declaration from all but one). A folder AtlasMind could not look
+inside — a virtual file system, an unreadable path, or past the 32-folder probe cap — is reported, never
+read as empty.
+
+**Every** reader and writer of project memory uses the located home — memory loading, the soul, every
+register (debt, defects, the workflow audit ledger, portal hosting, CI routing, approvals, test cases,
+delivery, documents, the Director, risk, security review, research, missions, the MCP environment cache,
+the website plan, the workflow file), the roadmap and ideation board, bootstrap and import, the testing
+matrix and compliance registers, and the committed cost-history copy — so a read and a write can never
+land in different folders. While the home is ambiguous each register reads nothing and refuses every
+write with the same sentence; automatic writes are skipped and logged; the Project Dashboard leaves its
+project-memory sections empty rather than filling them from one candidate. The one exception is the
+data-privacy policy, where an ambiguous home applies the strictest combination of every candidate's
+policy, since no policy at all would switch redaction off. `tests/baselines/ssotHomeResolution.test.ts`
+fails any change that joins project memory onto the first folder.
+
+**Unread is not empty.** "Reads nothing" is right for a page that says so in a banner, and wrong for
+anything that *decides* on what it read, because an unread register and an empty one look identical to it.
+Every consumer that acts on project memory without a person in the loop is therefore told the home was
+refused, and treats it as not-assessed — never as empty, clear or passing
+(`tests/core/ambiguousSsotHomeConsumers.test.ts` builds a real ambiguous home for each):
+
+| Consumer | With an ambiguous home |
+|---|---|
+| Agent auto-update gate | The rewrite is **held** (`cases-unreadable`), never released as "no golden cases". |
+| Overview attention feed | One `now` item, *Project memory could not be read*; every project-memory group (`PROJECT_MEMORY_GROUPS`) is dropped before any rule runs, so the page never reads `clear` and states nothing about a register it did not open. |
+| Testing coverage | Derived against no methodology, never the two-default fallback an undeclared project gets, and carries `policyUnreadable`. |
+| Release gate `tests-evidenced` | `unknown`, naming the refusal — a failing report still fails. |
+
+Audited and already safe: ambient triggers report the three registers *not observed*; research due-ness
+reads every scan as never assessed; the routine scheduler lists no routine and so runs none; the
+Director's follow-up nudge stays quiet rather than claiming nothing is due.
+
+Workspace identity — the cost-tracker key and the machine-private cost-history hash — stays on the first
+folder deliberately, so cost history already recorded is not orphaned. The probe looks for the folder
+named by `atlasmind.ssotPath`, but the registers themselves live at fixed `project_memory/...` paths; a
+non-default `ssotPath` is not yet followed by them.
+
 ## Session Context (Memory Agent)
 
 Each session gets its own subfolder: `sessions/<session-id>/`. The Memory Agent maintains a single unified `context.md` file there, updated after every chat turn:
@@ -63,6 +119,11 @@ for a rebuild before submitting their replacement prompt.
 
 ### `project_soul.md`
 The identity document. Contains project type, vision, principles, and links to key decisions. Created by the bootstrapper and updated as the project evolves.
+
+The brief chain on the Ideation board can add one more section: **"In the owner's words"**, the project brief block-quoted verbatim under the marker `<!-- atlasmind:project-brief -->`. It is optional and confirmed, with the exact insertion shown first. It is **appended** to an existing soul — the bytes already in the file are never part of the write — or the soul is created with it when there is none; the soul is re-read at write time and nothing is written if it changed while the dialog was open. The marker's presence is what "done" means, so AtlasMind adds the section once and never edits it; if the brief changes later, the chain says the soul quotes an earlier version rather than rewriting it.
+
+### `project-brief.md`
+The project in the owner's own words, kept **verbatim** — AtlasMind never edits, summarises or tidies it. Written by the first question `/bootstrap` asks (create-only), by **AtlasMind: Describe the Project in Your Own Words**, or from the Ideation board; replacing one that exists always asks first. A skipped brief is recorded as *not given* in `operations/bootstrap-intake.md` and nothing is written in its place. Distinct from `domain/project-brief.md`, which is the bootstrap's model-drafted analysis: this file is the one everything read out of the brief is checked against — a card is offered for the roadmap only when the words it quotes are in this file as it is now.
 
 AtlasMind now reads a compact summary of `project_soul.md` into the always-on workspace identity prompt for every chat turn. That summary is paired with the saved Atlas Personality Profile so the project identity and operator preferences are both present even when the current request does not explicitly mention memory.
 
@@ -104,6 +165,15 @@ Unstructured space for brainstorming. No format requirements.
 Domain-specific knowledge: glossary, business rules, entity relationships, external system documentation.
 
 `domain/ai-instructions-sync.md` holds the unified AI instruction set produced by the two-way sync (`/sync-instructions`, `src/utils/aiInstructionMerge.ts`): the reconciled superset of every detected tool's instructions plus AtlasMind's own, which AtlasMind also mirrors back into each tool's instruction file. It is loaded as `domain` context like any other entry.
+
+`domain/game.json` (with a regenerated `domain/game.md` mirror) is a game project's declared profile —
+engine, platform targets, build configurations, per-target performance budgets, content roots, discipline
+owners and store targets — written by `GameProfileManager` (`src/core/gameProfile.ts`), schema kind `game` v1.
+`/bootstrap` seeds it when a game architecture preset is chosen (engine `unknown`, the preset's content roots)
+and never over an existing or newer file. It may hold a secret *reference* only: an absolute path, a
+credential-shaped key, an SDK or engine-binary location, or text the redactor would change refuses the whole
+document. Unknown fields survive a save; invalid values are reported, never corrected. Like the other
+registers it lives in the SSOT home and is refused, not guessed, when the home is ambiguous.
 
 ### `analysis/`
 
@@ -230,7 +300,8 @@ The `bootstrapProject()` function in `src/bootstrap/bootstrapper.ts`:
 4. Creates only missing files and folders so existing memory is preserved.
 5. Optionally initialises a Git repository.
 6. Creates `project_soul.md` with starter template.
-7. Prompts for project type and injects it into the soul file.
+7. In a guided intake, asks first for the project in the owner's own words and writes it verbatim, create-only, to `project-brief.md` — or records it as not given. It is never passed to the model that drafts the other bootstrap documents.
+8. Prompts for project type and injects it into the soul file.
 
 If governance scaffolding is enabled and `atlasmind.projectDependencyMonitoringEnabled` is on, bootstrap also adds starter dependency-governance memory entries under `operations/dependency-monitoring.md` and `decisions/dependency-policy.md`. Those files are meant for rationale, exceptions, and review history rather than live automation state.
 

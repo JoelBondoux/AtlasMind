@@ -1,5 +1,8 @@
 import { EnvironmentManager } from './core/environmentManager.js';
 import { resolveWithinWorkspace } from './core/workspaceBoundary.js';
+import { egressFetch, toSkillHttpResult } from './core/egressFetch.js';
+import { DryRunLedger, formatDryRunLedgerLine, readDryRunSetting } from './core/dryRun.js';
+import { DryRunHost, installDryRunHost, interceptDryRun, isDryRunActive } from './core/dryRunHost.js';
 import * as vscode from 'vscode';
 import * as path from 'path';
 import * as os from 'os';
@@ -12,7 +15,39 @@ import * as fs from 'fs/promises';
 import { execFile } from 'child_process';
 import { promisify } from 'util';
 import { pathToFileURL } from 'url';
-import { sanitizeTerminalOutput } from './utils/terminalOutput.js';
+import { clipCommandOutput, sanitizeTerminalOutput } from './utils/terminalOutput.js';
+import {
+  SandboxHost,
+  createSandboxProcessRunner,
+  hostExecutionRefusal,
+  installSandboxHost,
+  installedSandboxHost,
+} from './core/sandboxRunner.js';
+import {
+  createSandboxEngineRunner,
+  probeSandbox,
+  readSandboxConfiguration,
+  readSandboxHostFacts,
+  readSandboxModeSetting,
+  sharedSandboxProbeCache,
+} from './core/sandboxProbe.js';
+import {
+  SANDBOX_DEPENDENCY_RECORDS_KEY,
+  createSandboxDependencyReader,
+  sanitizeSandboxDependencyRecords,
+} from './core/sandboxDependencies.js';
+import { inspectSandboxRelaxSetting, inspectSandboxSetting } from './views/sandboxCheckCommand.js';
+import {
+  describeSandboxRelaxationState,
+  evaluateSandboxApprovalRelaxation,
+  readRelaxTerminalApprovalsSetting,
+} from './core/sandboxApprovalRelaxation.js';
+import {
+  describeWithheldEnvironment,
+  planHostCommandEnvironment,
+  readPassEnvironmentSetting,
+} from './core/hostCommandEnvironment.js';
+import { defaultWorkspaceFolder, defaultWorkspaceRootPath, openWorkspaceFolders, ssotHomeRoot } from './utils/workspaceRoots.js';
 import { PresenceManager } from './core/presenceManager.js';
 import {
   LOCAL_GPU_ADMISSION_WAIT_MS,
@@ -63,6 +98,7 @@ import type { ArdInstaller } from './ard/ardInstaller.js';
 import type { CheckpointManager } from './core/checkpointManager.js';
 import type { ProjectRunHistory } from './core/projectRunHistory.js';
 import type { RoutineRegistry } from './core/routineRegistry.js';
+import type { RoutineScheduler } from './core/routineScheduler.js';
 import type { DeliveryManager } from './core/deliveryManager.js';
 import type { ProjectDirectorManager } from './core/projectDirectorManager.js';
 import type { DocumentsManager } from './core/documentsManager.js';
@@ -70,7 +106,7 @@ import type { RiskOversightManager } from './core/riskOversightManager.js';
 import type { ResearchRegisterManager } from './core/researchRegister.js';
 import type { MissionRegistry } from './core/missionRegistry.js';
 import { ACP_PROBE_TIMEOUT_MS, ACP_PROVIDER_ID, getConfiguredLocalEndpoints, type ProviderRegistry } from './providers/index.js';
-import { getModelInfoUrl, getProviderInfoUrl, lookupCatalog } from './providers/modelCatalog.js';
+import { getModelInfoUrl, getProviderInfoUrl, lookupCatalog, lookupReasoningControl } from './providers/modelCatalog.js';
 import { inferContextWindow, inferCapabilities, inferSpecialistDomains, inferPricing } from './providers/modelMetadataInference.js';
 import {
   fetchCopilotMultipliers,
@@ -92,7 +128,7 @@ import { configureCurrencyFormatter, syncExchangeRates } from './core/currencyFo
 import { syncLocalModels, isLocalSyncStale, LOCAL_MODEL_SYNC_CACHE_KEY, type LocalModelSyncResult } from './providers/localModelSync.js';
 import { shouldSyncDownloadableCatalogue, syncLocalModelCatalog } from './providers/localModelCatalogSync.js';
 import type { DiscoveredModel } from './providers/adapter.js';
-import type { AgentDefinition, MemoryEntry, ModelInfo, ModelStruggleState, ProviderConfig, ProviderId, SkillDefinition, SkillExecutionContext, SkillScanResult, SpecialistDomain } from './types.js';
+import type { AgentDefinition, MemoryEntry, ModelInfo, ModelStruggleState, ProviderConfig, ProviderId, SandboxSessionHandle, SkillDefinition, SkillExecutionContext, SkillScanResult, SpecialistDomain, ToolApprovalGateMeta } from './types.js';
 import { ToolApprovalManager } from './core/toolApprovalManager.js';
 import { RemoteControlServer } from './remote/remoteControlServer.js';
 
@@ -242,6 +278,12 @@ export interface AtlasMindContext {
   memoryRefresh: vscode.EventEmitter<void>;
   routineRegistry: RoutineRegistry;
   routinesRefresh: vscode.EventEmitter<void>;
+  /**
+   * Scheduled routines — ambient, not background: they run only while the
+   * editor is open, one at a time, each in its own worktree. Assigned
+   * immediately after context creation; absent without a workspace folder.
+   */
+  routineScheduler?: RoutineScheduler;
   /** Deployment-stage pipeline (local → staging → production) and promotion edges. */
   deliveryManager: DeliveryManager;
   /** Fires when delivery.json changes on disk, so the dashboard can re-sync. */
@@ -321,9 +363,15 @@ async function attachCostHistoryStore(
   const resolvePath = (location: 'machine-private' | 'repository'): string | undefined => {
     const segments = costHistoryPaths(location).segments;
     if (location === 'repository') {
-      if (!folder) { return undefined; }
+      // The committed copy is project memory, so it lives in the SSOT home
+      // beside every other register — written into folder 0 instead, it would
+      // create a second project_memory/ and make the home ambiguous by itself.
+      // An ambiguous home has no repository copy at all. The machine-private
+      // key below is workspace *identity*, and stays on the first folder.
+      const home = ssotHomeRoot().fsPath;
+      if (!home) { return undefined; }
       const ssotPath = vscode.workspace.getConfiguration('atlasmind').get<string>('ssotPath', 'project_memory');
-      return path.join(folder.uri.fsPath, ssotPath, ...segments);
+      return path.join(home, ssotPath, ...segments);
     }
     const key = folder ? createHash('sha256').update(folder.uri.fsPath.toLowerCase()).digest('hex').slice(0, 16) : 'no-workspace';
     return path.join(context.globalStorageUri.fsPath, 'cost-history', key, ...segments);
@@ -548,8 +596,14 @@ function buildProjectSoulPrompt(options?: WorkspaceIdentityPromptOptions): strin
   return lines.length > 0 ? lines.join('\n') : undefined;
 }
 
+/**
+ * The project soul lives in project memory, so it is read from the SSOT home.
+ *
+ * An ambiguous home yields no path at all — the prompt goes without a soul
+ * rather than quoting one repository's as though it were the project's.
+ */
 function resolveProjectSoulFilePath(options?: WorkspaceIdentityPromptOptions): string | undefined {
-  const workspaceFolder = options?.workspaceFolders?.[0] ?? vscode.workspace.workspaceFolders?.[0];
+  const workspaceFolder = options?.workspaceFolders?.[0] ?? ssotHomeRoot().folder;
   if (!workspaceFolder?.uri.fsPath) {
     return undefined;
   }
@@ -1489,6 +1543,19 @@ async function autoRefreshProjectMemoryIfStale(
     return false;
   }
 
+  // Started by AtlasMind, not by anybody pressing anything: in a dry run the
+  // re-import is recorded, and project memory is left as it was.
+  if (interceptDryRun({
+    surface: 'memory-auto-refresh',
+    kind: 'auto-write',
+    summary: `re-import ${status.staleEntryCount} stale project memory entr${status.staleEntryCount === 1 ? 'y' : 'ies'}`,
+    details: { reason, staleEntryCount: status.staleEntryCount },
+    userInitiated: false,
+  })) {
+    outputChannel.appendLine(`[activate] memoryFreshness auto-refresh held: dry run is on (${reason})`);
+    return false;
+  }
+
   outputChannel.appendLine(
     `[activate] memoryFreshness auto-refresh starting after ${reason}; ${status.staleEntryCount} imported entr${status.staleEntryCount === 1 ? 'y is' : 'ies are'} stale`,
   );
@@ -1529,6 +1596,20 @@ async function runMemorySelfHealingPass(
 
   if (warnedEntries.length === 0 && blockedEntries.length === 0) {
     return { changedEntries: 0, warnedRemaining: 0, blockedRemaining: 0 };
+  }
+
+  // A self-heal pass rewrites and quarantines memory files on its own. In a dry
+  // run it is recorded and nothing is moved; what remains is reported as
+  // remaining, because it does.
+  if (interceptDryRun({
+    surface: 'memory-self-heal',
+    kind: 'auto-write',
+    summary: `self-heal ${warnedEntries.length + blockedEntries.length} project memory entr${warnedEntries.length + blockedEntries.length === 1 ? 'y' : 'ies'}`,
+    details: { reason, warned: warnedEntries.length, blocked: blockedEntries.length },
+    userInitiated: false,
+  })) {
+    outputChannel.appendLine(`[activate] memorySelfHeal pass held: dry run is on (${reason})`);
+    return { changedEntries: 0, warnedRemaining: warnedEntries.length, blockedRemaining: blockedEntries.length };
   }
 
   outputChannel.appendLine(
@@ -1925,6 +2006,9 @@ async function bootstrapAtlasMind(
       LocalModelArbiter: localModelArbiterModule.LocalModelArbiter,
       createCachedGpuProbe: gpuProbeModule.createCachedGpuProbe,
       createRuntimeClientForEndpoint: localRuntimeClientModule.createRuntimeClientForEndpoint,
+      resolveEndpointRuntime: localRuntimeClientModule.resolveEndpointRuntime,
+      localEndpointApiKeySecret: providersModule.localEndpointApiKeySecret,
+      LOCAL_SHARED_API_KEY_SECRET: providersModule.LOCAL_SHARED_API_KEY_SECRET,
       OpenAiCompatibleAdapter: providersModule.OpenAiCompatibleAdapter,
       isGoogleChatCompletionsModel: providersModule.isGoogleChatCompletionsModel,
       OpenRouterAdapter: providersModule.OpenRouterAdapter,
@@ -1973,6 +2057,7 @@ async function bootstrapAtlasMind(
       MissionRegistry: missionRegistryModule.MissionRegistry,
       DataPrivacyManager: dataPrivacyModule.DataPrivacyManager,
       readDataPrivacyConfig: dataPrivacyModule.readDataPrivacyConfig,
+      strictestDataPrivacyConfig: dataPrivacyModule.strictestDataPrivacyConfig,
       ArdClient: ardClientModule.ArdClient,
       ArdRegistry: ardRegistryModule.ArdRegistry,
       ArdInstaller: ardInstallerModule.ArdInstaller,
@@ -2012,18 +2097,27 @@ async function bootstrapAtlasMind(
     const sessionContextManager = new startupModules.SessionContextManager(
       (sys: string, user: string) => maintenanceCompleter(sys, user),
     );
+    // The first folder is the workspace's *identity* (the run-history key) and
+    // the working directory; it is not where project memory lives. Every
+    // register below is project memory, so each is bound to the SSOT home —
+    // located, never assumed — and an ambiguous home binds them to nothing,
+    // with the refusal sentence, so a write throws rather than landing in a
+    // repository nobody chose (docs/project-composition.md §2.6).
     const workspaceRootPath = vscode.workspace.workspaceFolders?.[0]?.uri.fsPath;
+    const ssotHomeAtActivation = ssotHomeRoot();
+    const ssotRootPath = ssotHomeAtActivation.fsPath;
+    const ssotRefusal = ssotHomeAtActivation.refusal;
     const routinesRefresh = new vscode.EventEmitter<void>();
     const routineRegistry = new startupModules.RoutineRegistry();
-    if (workspaceRootPath) {
-      void routineRegistry.reload(workspaceRootPath);
+    if (ssotRootPath) {
+      void routineRegistry.reload(ssotRootPath);
     }
-    const deliveryManager = new startupModules.DeliveryManager(workspaceRootPath);
-    if (workspaceRootPath) {
+    const deliveryManager = new startupModules.DeliveryManager(ssotRootPath, ssotRefusal);
+    if (ssotRootPath) {
       // Keep the Delivery dashboard current when delivery.json changes outside the
       // dashboard editor (hand edits, a teammate's change via git pull, a script).
       const deliveryWatcher = vscode.workspace.createFileSystemWatcher(
-        new vscode.RelativePattern(workspaceRootPath, 'project_memory/operations/delivery.json'),
+        new vscode.RelativePattern(ssotRootPath, 'project_memory/operations/delivery.json'),
       );
       const reloadDelivery = () => { deliveryManager.reload(); deliveryRefresh.fire(); };
       deliveryWatcher.onDidChange(reloadDelivery);
@@ -2031,12 +2125,12 @@ async function bootstrapAtlasMind(
       deliveryWatcher.onDidDelete(reloadDelivery);
       context.subscriptions.push(deliveryWatcher);
     }
-    const projectDirectorManager = new startupModules.ProjectDirectorManager(workspaceRootPath);
-    if (workspaceRootPath) {
+    const projectDirectorManager = new startupModules.ProjectDirectorManager(ssotRootPath, ssotRefusal);
+    if (ssotRootPath) {
       // Keep the Director dashboard current when project-director.json changes
       // outside the dashboard editor (hand edits, a teammate's change via git pull).
       const directorWatcher = vscode.workspace.createFileSystemWatcher(
-        new vscode.RelativePattern(workspaceRootPath, 'project_memory/operations/project-director.json'),
+        new vscode.RelativePattern(ssotRootPath, 'project_memory/operations/project-director.json'),
       );
       const reloadDirector = () => { projectDirectorManager.reload(); projectDirectorRefresh.fire(); };
       directorWatcher.onDidChange(reloadDirector);
@@ -2044,12 +2138,12 @@ async function bootstrapAtlasMind(
       directorWatcher.onDidDelete(reloadDirector);
       context.subscriptions.push(directorWatcher);
     }
-    const documentsManager = new startupModules.DocumentsManager(workspaceRootPath);
-    if (workspaceRootPath) {
+    const documentsManager = new startupModules.DocumentsManager(ssotRootPath, ssotRefusal);
+    if (ssotRootPath) {
       // Keep the Documents dashboard current when documents.json changes outside
       // the dashboard editor (hand edits, a teammate's change via git pull).
       const documentsWatcher = vscode.workspace.createFileSystemWatcher(
-        new vscode.RelativePattern(workspaceRootPath, 'project_memory/operations/documents.json'),
+        new vscode.RelativePattern(ssotRootPath, 'project_memory/operations/documents.json'),
       );
       const reloadDocuments = () => { documentsManager.reload(); documentsRefresh.fire(); };
       documentsWatcher.onDidChange(reloadDocuments);
@@ -2057,12 +2151,12 @@ async function bootstrapAtlasMind(
       documentsWatcher.onDidDelete(reloadDocuments);
       context.subscriptions.push(documentsWatcher);
     }
-    const riskOversightManager = new startupModules.RiskOversightManager(workspaceRootPath);
-    if (workspaceRootPath) {
+    const riskOversightManager = new startupModules.RiskOversightManager(ssotRootPath, ssotRefusal);
+    if (ssotRootPath) {
       // Keep the Risk dashboard current when risk-oversight.json changes outside the
       // dashboard (hand edits to a finding's status, a teammate's change via git pull).
       const riskWatcher = vscode.workspace.createFileSystemWatcher(
-        new vscode.RelativePattern(workspaceRootPath, 'project_memory/operations/risk-oversight.json'),
+        new vscode.RelativePattern(ssotRootPath, 'project_memory/operations/risk-oversight.json'),
       );
       const reloadRisk = () => { riskOversightManager.reload(); riskOversightRefresh.fire(); };
       riskWatcher.onDidChange(reloadRisk);
@@ -2070,12 +2164,12 @@ async function bootstrapAtlasMind(
       riskWatcher.onDidDelete(reloadRisk);
       context.subscriptions.push(riskWatcher);
     }
-    const researchRegisterManager = new startupModules.ResearchRegisterManager(workspaceRootPath);
-    if (workspaceRootPath) {
+    const researchRegisterManager = new startupModules.ResearchRegisterManager(ssotRootPath, ssotRefusal);
+    if (ssotRootPath) {
       // The register is committed, so a teammate's `git pull` is a normal way for
       // it to change under a running editor.
       const researchWatcher = vscode.workspace.createFileSystemWatcher(
-        new vscode.RelativePattern(workspaceRootPath, 'project_memory/analysis/research.json'),
+        new vscode.RelativePattern(ssotRootPath, 'project_memory/analysis/research.json'),
       );
       const reloadResearch = () => { researchRegisterManager.reload(); researchRefresh.fire(); };
       researchWatcher.onDidChange(reloadResearch);
@@ -2124,7 +2218,9 @@ async function bootstrapAtlasMind(
     const ambientService = new startupModules.AmbientTriggerService({
       observe: async () => {
         const subjects: Partial<Record<string, string[]>> = {};
-        if (workspaceRootPath) {
+        // Project memory, so the SSOT home; an ambiguous home observes none of
+        // the three and they are reported not-observed, never quiet.
+        if (ssotRootPath) {
           try {
             const [defects, approvals, testCases] = await Promise.all([
               import('./core/defectRegister.js'),
@@ -2132,15 +2228,15 @@ async function bootstrapAtlasMind(
               import('./core/testCaseRegister.js'),
             ]);
             subjects['blocker-defect'] = defects
-              .openBlockers(defects.readDefectRegister(workspaceRootPath))
+              .openBlockers(defects.readDefectRegister(ssotRootPath))
               .map(entry => entry.id);
             const selfContactId = projectDirectorManager.getConfig()?.selfContactId;
             if (selfContactId) {
               subjects['approval-awaiting-you'] = approvals
-                .approvalsAwaiting(approvals.readApprovalRegister(workspaceRootPath), selfContactId)
+                .approvalsAwaiting(approvals.readApprovalRegister(ssotRootPath), selfContactId)
                 .map(request => request.id);
             }
-            const register = testCases.readTestCaseRegister(workspaceRootPath);
+            const register = testCases.readTestCaseRegister(ssotRootPath);
             subjects['test-case-failed'] = testCases.runnableCases(register)
               .filter(entry => testCases.testCaseStanding(entry, register.executions).state === 'fail')
               .map(entry => entry.id);
@@ -2201,7 +2297,7 @@ async function bootstrapAtlasMind(
     // experience that gets a feature like this switched off again.
     ambientService.start(ambientIntervalMinutes * 60_000);
     context.subscriptions.push({ dispose: () => ambientService.dispose() });
-    const missionRegistry = new startupModules.MissionRegistry(workspaceRootPath);
+    const missionRegistry = new startupModules.MissionRegistry(ssotRootPath, ssotRefusal);
     const projectRunHistory = new startupModules.ProjectRunHistory(context.workspaceState, {
       workspaceKey: workspaceRootPath,
       legacyState: context.globalState,
@@ -2306,8 +2402,24 @@ async function bootstrapAtlasMind(
     // it as an optional dependency, so absent means exactly today's behaviour.
     const localModelArbiter = new startupModules.LocalModelArbiter({
       probeGpu: startupModules.createCachedGpuProbe(),
-      runtimeClientFor: (_endpointId: string, baseUrl: string) =>
-        startupModules.createRuntimeClientForEndpoint(baseUrl),
+      // The runtime comes from the endpoint as configured (declared, then
+      // label, then port), the same rule the settings panel uses, so a model
+      // is never managed through one runtime's API and admitted through
+      // another's. Only Unsloth Studio needs a key, and gets its own.
+      runtimeClientFor: (endpointId: string, baseUrl: string) => {
+        const configuration = vscode.workspace.getConfiguration('atlasmind');
+        const endpoint = startupModules.getConfiguredLocalEndpoints({
+          getEndpoints: () => configuration.get<unknown>('localOpenAiEndpoints'),
+          getLegacyBaseUrl: () => configuration.get<string>('localOpenAiBaseUrl'),
+        }).find(candidate => candidate.id === endpointId);
+        const runtime = startupModules.resolveEndpointRuntime(endpoint ?? { baseUrl });
+        const ownKey = startupModules.localEndpointApiKeySecret(endpointId);
+        return startupModules.createRuntimeClientForEndpoint(baseUrl, {
+          runtime,
+          getApiKey: async () => (ownKey ? await context.secrets.get(ownKey) : undefined)
+            ?? await context.secrets.get(startupModules.LOCAL_SHARED_API_KEY_SECRET),
+        });
+      },
       onLog: (message: string) => outputChannel.appendLine(`[local-gpu] ${message}`),
     });
     localModelArbiter.applyConfig(readLocalGpuConfig());
@@ -2347,6 +2459,9 @@ async function bootstrapAtlasMind(
         },
         hideConsoleWindows: () => vscode.workspace.getConfiguration('atlasmind')
           .get<boolean>('acp.hideConsoleWindows', false),
+        // Credential-shaped variables the user chose to give the agent process;
+        // everything else credential-shaped is withheld from it.
+        passEnvironment: () => readHostCommandPassThrough(),
         // Read on every use, not captured once. This adapter lives as long as
         // the extension host, so a snapshot here meant an agent added to
         // settings after activation was invisible to routing and to the health
@@ -2517,7 +2632,78 @@ async function bootstrapAtlasMind(
     }
 
     const toolApprovalManager = new ToolApprovalManager();
-    const toolApprovalGate = async (taskId: string, toolName: string, args: Record<string, unknown>) => {
+    // What dry runs would have done this session: memory only, fingerprints and
+    // redacted previews, mirrored into an output channel created on first use so
+    // somebody who never turns dry run on never sees an empty one.
+    const dryRunLedger = new DryRunLedger();
+    let dryRunChannel: vscode.OutputChannel | undefined;
+    context.subscriptions.push({ dispose: () => dryRunChannel?.dispose() });
+    context.subscriptions.push({
+      dispose: dryRunLedger.onRecord(record => {
+        dryRunChannel ??= vscode.window.createOutputChannel('AtlasMind Dry Run');
+        dryRunChannel.appendLine(formatDryRunLedgerLine(record));
+      }),
+    });
+    // The same switch for everything AtlasMind does outside the tool loop:
+    // routines, promotions, dashboard git and gh writes, connector sends,
+    // terminal sends, automatic memory writes. Same ledger, same channel, so
+    // one run has one record of what it would have done.
+    context.subscriptions.push({
+      dispose: installDryRunHost(new DryRunHost({
+        isEnabled: () => vscode.workspace.getConfiguration('atlasmind').get<unknown>('dryRun.enabled', false),
+        record: record => dryRunLedger.record(record),
+        notify: message => {
+          void vscode.window.showWarningMessage(message, 'Show Dry Run output').then(choice => {
+            if (choice === 'Show Dry Run output') {
+              dryRunChannel?.show(true);
+            }
+          });
+        },
+      })),
+    });
+    // The execution sandbox (`sandboxRunner.ts`), installed beside the dry-run
+    // host so every path that executes an agent's request asks the same object.
+    // Under `atlasmind.sandbox.mode = off` it starts nothing: the sweep returns
+    // before touching an engine, and `isRequired` is the only thing asked.
+    const sandboxHostFacts = readSandboxHostFacts();
+    const sandboxProcessRunner = createSandboxProcessRunner();
+    const sandboxHost = new SandboxHost({
+      readMode: () => readSandboxModeSetting(inspectSandboxSetting('mode')),
+      readConfiguration: () => readSandboxConfiguration(inspectSandboxSetting),
+      cache: sharedSandboxProbeCache(),
+      probe: (configuration, canaryRoot) => probeSandbox({
+        configuration,
+        host: sandboxHostFacts,
+        canaryRoot,
+        runner: createSandboxEngineRunner(),
+        now: () => new Date(),
+      }),
+      run: sandboxProcessRunner,
+      host: sandboxHostFacts,
+      now: () => new Date(),
+      realpath: target => fs.realpath(target),
+      // Which prepared dependency volume, if any, a folder's lockfile has
+      // (`sandboxDependencies.ts`). Read per session; preparing one is only
+      // ever AtlasMind: Prepare Sandbox Dependencies.
+      dependencies: createSandboxDependencyReader({
+        host: sandboxHostFacts,
+        records: () => sanitizeSandboxDependencyRecords(context.globalState.get(SANDBOX_DEPENDENCY_RECORDS_KEY)),
+        run: sandboxProcessRunner,
+      }),
+      log: line => outputChannel.appendLine(line),
+    });
+    context.subscriptions.push({ dispose: installSandboxHost(sandboxHost) });
+    void sandboxHost.sweepOrphans().catch(error => {
+      outputChannel.appendLine(`[sandbox] orphan sweep failed: ${error instanceof Error ? error.message : String(error)}`);
+    });
+    // Filled in once the status bar exists, further down this step.
+    let refreshSandboxRelaxationStatus: () => void = () => { /* no-op until wired */ };
+    const toolApprovalGate = async (
+      taskId: string,
+      toolName: string,
+      args: Record<string, unknown>,
+      meta?: ToolApprovalGateMeta,
+    ) => {
       const configuration = vscode.workspace.getConfiguration('atlasmind');
       const mode = startupModules.getToolApprovalMode(configuration.get<string>('toolApprovalMode'));
       const policy = startupModules.classifyToolInvocation(toolName, args);
@@ -2527,6 +2713,82 @@ async function bootstrapAtlasMind(
           approved: false,
           reason: 'Terminal write commands are disabled. Enable atlasmind.allowTerminalWrite to permit them.',
         };
+      }
+
+      // The turn has read untrusted content and this call changes something or
+      // leaves the machine. Decided before the approval mode and before any
+      // bypass, because both were chosen before the taint: "stop asking me" was
+      // never an answer to "the page you fetched asked for this". Only the
+      // per-task acknowledgement, given on a dialog that named the source, may.
+      if (meta?.escalation?.decision === 'fresh-approval'
+        && !toolApprovalManager.hasAcknowledgedTaint(taskId, policy.category)) {
+        const { describeTaintEscalation } = await import('./core/contextProvenance.js');
+        const ceilingReason = startupModules.toolBypassCeiling(policy);
+        void import('./views/chatPanel.js').then(({ revealPreferredChatSurface }) => revealPreferredChatSurface({ preserveFocus: true }));
+        const taintChoice = await toolApprovalManager.requestApproval({
+          taskId,
+          toolName,
+          category: policy.category,
+          risk: policy.risk,
+          summary: policy.summary,
+          title: 'Approval needed after untrusted content',
+          detail: describeTaintEscalation(meta.escalation)
+            + (ceilingReason ? ` This action also always requires explicit approval: ${ceilingReason}` : ''),
+          // The acknowledgement is a per-task category grant, so it is not
+          // offered where no grant may reach (the non-bypassable ceiling).
+          allowedDecisions: ceilingReason ? ['allow-once', 'deny'] : ['allow-once', 'acknowledge-source', 'deny'],
+          decisionLabels: {
+            'allow-once': 'Allow Once',
+            'acknowledge-source': 'Allow for this task — I’ve seen the source',
+            deny: 'Deny',
+          },
+        });
+        if (taintChoice === 'allow-once' || taintChoice === 'acknowledge-source') {
+          return { approved: true };
+        }
+        return {
+          approved: false,
+          reason: `User denied ${policy.summary} after this task read untrusted content (${meta.escalation.rule}).`,
+        };
+      }
+
+      // A terminal write that will run in a confirmed sandbox may skip its
+      // prompt — your opt-in, `require`, a confirmed attestation and this exact
+      // command routed to the container (`sandboxApprovalRelaxation.ts`). Below
+      // the ceiling and taint above, both of which it can never relax. The
+      // session it was decided on travels with the approval and the
+      // Orchestrator binds the call to it, so the runner plans on the same
+      // reading: an attestation that expires in between is a refusal, never a
+      // run elsewhere.
+      if (policy.category === 'terminal-write') {
+        const sandboxHost = installedSandboxHost();
+        const relaxation = await evaluateSandboxApprovalRelaxation({
+          taskId,
+          toolName,
+          args,
+          policy,
+          dryRun: isDryRunActive(),
+          allowTerminalWrite: configuration.get<boolean>('allowTerminalWrite', false) === true,
+          tainted: meta?.escalation !== undefined,
+          bypassCeiling: startupModules.toolBypassCeiling(policy),
+          relaxSetting: readRelaxTerminalApprovalsSetting(inspectSandboxRelaxSetting()),
+        }, {
+          ...(sandboxHost ? { openSession: (root: string) => sandboxHost.openSession(root) } : {}),
+          resolveFolders: async cwd => {
+            const root = defaultWorkspaceRootPath();
+            if (!root) {
+              return undefined;
+            }
+            const realRoot = await fs.realpath(root);
+            return { root: realRoot, cwd: cwd ? await fs.realpath(path.resolve(realRoot, cwd)) : realRoot };
+          },
+          now: () => new Date(),
+        });
+        refreshSandboxRelaxationStatus();
+        if (relaxation.outcome === 'relaxed') {
+          outputChannel.appendLine(relaxation.audit.line);
+          return { approved: true, sandboxSession: relaxation.session, audit: relaxation.audit };
+        }
       }
 
       if (!startupModules.requiresToolApproval(mode, policy)) {
@@ -2649,6 +2911,11 @@ async function bootstrapAtlasMind(
           });
         },
         toolApprovalGate,
+        // A task's own grants — bypass, category bypass, "I've seen the
+        // source" — end with the task. They were per task in name and lived
+        // until the window closed in fact.
+        onTaskSettled: taskId => toolApprovalManager.clearTask(taskId),
+        onDryRunRecord: record => dryRunLedger.record(record),
         generatedSkillApprovalGate,
         writeCheckpointHook,
         postToolVerifier,
@@ -2955,7 +3222,10 @@ async function bootstrapAtlasMind(
       router: runtime.modelRouter,
       providers: runtime.providerRegistry,
       profiler: runtime.taskProfiler,
-      workspaceRoot: () => vscode.workspace.workspaceFolders?.[0]?.uri.fsPath,
+      // Golden cases and the baseline are project memory, so the SSOT home —
+      // with its refusal, so an ambiguous home holds a rewrite rather than
+      // reading as an agent with no cases.
+      ssotHome: () => ssotHomeRoot(),
     });
     const agentAutoUpdater = new startupModules.AgentAutoUpdater(
       runtime.agentRegistry,
@@ -2982,10 +3252,27 @@ async function bootstrapAtlasMind(
     // Data Privacy: load the project policy (project_memory/operations/data-privacy.json)
     // and inject it so the orchestrator gates routing to trusted models and
     // redacts confidential / regulated content for everything else.
-    const dataPrivacyRoot = vscode.workspace.workspaceFolders?.[0]?.uri.fsPath;
-    const dataPrivacyManager = new startupModules.DataPrivacyManager(
-      dataPrivacyRoot ? startupModules.readDataPrivacyConfig(dataPrivacyRoot) : undefined,
-    );
+    //
+    // The policy is project memory, so it is read from the SSOT home. An
+    // ambiguous home is the one place a refusal must not mean "no policy": that
+    // would turn the redaction boundary off because two folders disagree. So
+    // every candidate's policy is read and the strictest combination applies
+    // until the home is settled — the direction that keeps a secret.
+    const dataPrivacyRoot = ssotRootPath;
+    const readActiveDataPrivacyConfig = (): import('./types.js').DataPrivacyConfig | undefined => {
+      if (dataPrivacyRoot) {
+        return startupModules.readDataPrivacyConfig(dataPrivacyRoot);
+      }
+      if (!ssotRefusal) {
+        return undefined;
+      }
+      return startupModules.strictestDataPrivacyConfig(
+        ssotHomeAtActivation.location.candidates
+          .map(candidate => startupModules.readDataPrivacyConfig(candidate.fsPath))
+          .filter((config): config is import('./types.js').DataPrivacyConfig => config !== undefined),
+      );
+    };
+    const dataPrivacyManager = new startupModules.DataPrivacyManager(readActiveDataPrivacyConfig());
     // Restore prior catch activity (workspace-scoped telemetry powering the
     // Privacy dashboard charts) and persist new catches as they are recorded.
     const storedPrivacyActivity = context.workspaceState.get<import('./types.js').DataPrivacyActivityEvent[]>('atlasmind.dataPrivacyActivity', []);
@@ -2998,7 +3285,7 @@ async function bootstrapAtlasMind(
     orchestrator.setDataPrivacyManager(dataPrivacyManager);
     const reloadDataPrivacyConfig = () => {
       if (!dataPrivacyRoot) { return; }
-      const next = startupModules.readDataPrivacyConfig(dataPrivacyRoot);
+      const next = readActiveDataPrivacyConfig();
       if (next) { dataPrivacyManager.setConfig(next); }
     };
     if (dataPrivacyRoot) {
@@ -3059,7 +3346,15 @@ async function bootstrapAtlasMind(
             }
 
             const entry = memoryManager.listEntries().find(e => e.path === entryPath);
-            if (entry) {
+            // A model wrote the snippet and a timer would write it to disk:
+            // both are what a dry run holds back.
+            if (entry && !interceptDryRun({
+              surface: 'memory-snippet-refresh',
+              kind: 'auto-write',
+              summary: `refresh the snippet of ${entryPath}`,
+              details: { entryPath },
+              userInitiated: false,
+            })) {
               memoryManager.upsert({ ...entry, snippet: newSnippet });
             }
           } catch (error) {
@@ -3085,6 +3380,19 @@ async function bootstrapAtlasMind(
       },
       outputChannel,
       context.secrets,
+      (serverName, held) => {
+        // A held tool is one an agent can no longer call, and it says so where
+        // the user will see it rather than only in the MCP panel.
+        const noun = held.length === 1 ? `1 tool from ${serverName} is` : `${held.length} tools from ${serverName} are`;
+        void vscode.window.showWarningMessage(
+          `AtlasMind: ${noun} held for review — new, changed since you approved it, or flagged by the description scan. Agents cannot call it until you approve it.`,
+          'Review changed tools',
+        ).then(choice => {
+          if (choice === 'Review changed tools') {
+            void vscode.commands.executeCommand('atlasmind.openMcpServers');
+          }
+        });
+      },
     );
     mcpServerRegistry.loadFromStorage();
 
@@ -3123,6 +3431,17 @@ async function bootstrapAtlasMind(
       const { category, risk } = startupModules.acpToolRisk(request.toolCall.kind);
       const description = startupModules.describeAcpToolCall(request.toolCall);
       outputChannel.appendLine(`[acp] permission requested (${risk} risk, ${category}): ${description}`);
+
+      // Under `atlasmind.sandbox.mode = require`, an ACP agent's command (or a
+      // tool it cannot identify, which is graded as one) would run in the
+      // agent's own process on this machine — outside the sandbox. Declined.
+      if (category === 'terminal-write') {
+        const refusal = hostExecutionRefusal('an ACP agent\'s command');
+        if (refusal) {
+          outputChannel.appendLine(`[acp] declined: ${refusal}`);
+          return false;
+        }
+      }
 
       // The off-by-default setting is the user's standing authorization for
       // delegated ACP operations. Re-read it for every request so switching it
@@ -3377,6 +3696,61 @@ async function bootstrapAtlasMind(
       },
     };
 
+    // ── Scheduled routines ───────────────────────────────────────────────────
+    // Ambient, not background: an extension does not run with the editor
+    // closed, so a routine "scheduled for 02:00" runs at 02:00 only if the
+    // editor is open then, and otherwise once when it next opens — never once
+    // per missed night. Deny by default three times over (the master setting,
+    // this developer's approval of the exact steps, a trusted workspace), one
+    // run at a time, each in a new worktree on its own branch, and it never
+    // pushes, merges or opens anything. The tick is cheap and pure until
+    // something is due, so it runs every minute regardless of the switch.
+    if (workspaceRootPath) {
+      const scheduledRoot = workspaceRootPath;
+      const ROUTINE_SCHEDULE_STATE_KEY = 'atlasmind.routines.scheduleState';
+      const { RoutineScheduler: RoutineSchedulerClass } = await import('./core/routineScheduler.js');
+      const routineScheduler = new RoutineSchedulerClass({
+        listRoutines: () => routineRegistry.list(),
+        isEnabled: () => vscode.workspace.getConfiguration('atlasmind').get<boolean>('routines.scheduling.enabled', false) === true,
+        isWorkspaceTrusted: () => vscode.workspace.isTrusted,
+        workspaceRoot: () => scheduledRoot,
+        readState: () => context.workspaceState.get<unknown>(ROUTINE_SCHEDULE_STATE_KEY),
+        writeState: async state => { await context.workspaceState.update(ROUTINE_SCHEDULE_STATE_KEY, state); },
+        // git with an argument vector and no shell. Every argument list is
+        // composed in routineScheduler; nothing a routine file says reaches it.
+        runGit: async (args, cwd) => {
+          const { stdout } = await execFileAsync('git', [...args], {
+            cwd,
+            windowsHide: true,
+            maxBuffer: 8 * 1024 * 1024,
+          });
+          return String(stdout);
+        },
+        runRoutine: async (routine, plan, cwd, options) => {
+          const { RoutineRunner } = await import('./core/routineRunner.js');
+          // Nobody is present to answer "retry, skip or abort?", so the answer
+          // is abort, and the run record says the step would have asked.
+          return new RoutineRunner(projectRunHistory).run(routine, plan, cwd, () => undefined, async () => 'abort', options);
+        },
+        report: (message, _memo, routineId) => {
+          projectRunsRefresh.fire();
+          const actions = ['Open Run Center', 'Mark reviewed'];
+          void vscode.window.showInformationMessage(message, ...actions).then(choice => {
+            if (choice === 'Open Run Center') {
+              void vscode.commands.executeCommand('atlasmind.openProjectRunCenter');
+            } else if (choice === 'Mark reviewed') {
+              void routineScheduler.markReviewed(routineId);
+            }
+          });
+        },
+        isDryRunActive: () => isDryRunActive(),
+        timeZone: Intl.DateTimeFormat().resolvedOptions().timeZone,
+      });
+      atlasContext.routineScheduler = routineScheduler;
+      routineScheduler.start(60_000);
+      context.subscriptions.push({ dispose: () => routineScheduler.dispose() });
+    }
+
     // ── Remote control (desktop server) ──────────────────────────────────────
     const remoteOutput = vscode.window.createOutputChannel('AtlasMind Remote');
     const remoteControlServer = new RemoteControlServer(atlasContext, remoteOutput);
@@ -3566,6 +3940,29 @@ async function bootstrapAtlasMind(
     autopilotStatusBar.command = 'atlasmind.toggleAutopilot';
     updateAutopilotStatusBar(autopilotStatusBar, toolApprovalManager);
     context.subscriptions.push(autopilotStatusBar);
+    const dryRunStatusBar = vscode.window.createStatusBarItem(vscode.StatusBarAlignment.Right, 48);
+    dryRunStatusBar.command = 'atlasmind.toggleDryRun';
+    updateDryRunStatusBar(dryRunStatusBar);
+    context.subscriptions.push(dryRunStatusBar);
+    context.subscriptions.push(vscode.workspace.onDidChangeConfiguration(event => {
+      if (event.affectsConfiguration('atlasmind.dryRun.enabled')) {
+        updateDryRunStatusBar(dryRunStatusBar);
+      }
+    }));
+    // Shown while you have opted in to sandbox-relaxed terminal approvals, so a
+    // turn that stops asking is never a surprise. Refreshed when a setting
+    // changes and whenever the gate decides a terminal write — never on a
+    // timer, and never by probing: it reads the attestation already in memory.
+    const sandboxRelaxationStatusBar = vscode.window.createStatusBarItem(vscode.StatusBarAlignment.Right, 47);
+    sandboxRelaxationStatusBar.command = 'atlasmind.checkExecutionSandbox';
+    updateSandboxRelaxationStatusBar(sandboxRelaxationStatusBar);
+    context.subscriptions.push(sandboxRelaxationStatusBar);
+    refreshSandboxRelaxationStatus = () => updateSandboxRelaxationStatusBar(sandboxRelaxationStatusBar);
+    context.subscriptions.push(vscode.workspace.onDidChangeConfiguration(event => {
+      if (event.affectsConfiguration('atlasmind.sandbox') || event.affectsConfiguration('atlasmind.allowTerminalWrite')) {
+        updateSandboxRelaxationStatusBar(sandboxRelaxationStatusBar);
+      }
+    }));
     context.subscriptions.push({
       dispose: toolApprovalManager.onAutopilotChange(() => {
         updateAutopilotStatusBar(autopilotStatusBar, toolApprovalManager);
@@ -3604,7 +4001,16 @@ async function bootstrapAtlasMind(
   atlasStartupState.detail = undefined;
   outputChannel.appendLine(`AtlasMind activated in ${Date.now() - atlasStartupState.startedAt}ms ✓`);
 
-  const workspaceFolder = vscode.workspace.workspaceFolders?.[0];
+  // Project memory loads from the SSOT home, which in a multi-root workspace is
+  // located rather than assumed to be the first folder (SSOT_HOME_RULES). An
+  // ambiguous home loads nothing and says why: memory read from whichever
+  // folder is listed first would be the wrong project's half the time.
+  const ssotHome = ssotHomeRoot();
+  if (ssotHome.refusal) {
+    outputChannel.appendLine(`[activate] loadSsotFromDisk skipped: ${ssotHome.refusal}`);
+    void vscode.window.showWarningMessage(ssotHome.refusal);
+  }
+  const workspaceFolder = ssotHome.folder;
   if (workspaceFolder) {
     registerProjectMemoryAutoRefresh(context, workspaceFolder, outputChannel);
     registerMemorySelfHealing(context, workspaceFolder, outputChannel);
@@ -3713,6 +4119,7 @@ async function bootstrapAtlasMind(
   const buzzInbound = new BuzzInboundService({
     secrets: context.secrets,
     presence: presenceManager,
+    workspaceRoot: defaultWorkspaceRootPath,
     log: (message) => outputChannel.appendLine(`[buzz] ${message}`),
   });
   // Exposed so surfaces can offer the identities it has observed. Assigned
@@ -3756,7 +4163,8 @@ async function bootstrapAtlasMind(
 
   /** Roadmap item text, normalized, for the severity rule that asks about overlap. */
   const readRoadmapTitles = async (): Promise<Set<string>> => {
-    const root = vscode.workspace.workspaceFolders?.[0]?.uri.fsPath;
+    // The roadmap is project memory: read from the SSOT home, or not at all.
+    const root = ssotHomeRoot().fsPath;
     if (!root) { return new Set(); }
     try {
       const { normalizeForRoadmapMatch } = await import('./core/ideationDerivation.js');
@@ -4045,6 +4453,14 @@ async function bootstrapAtlasMind(
         void vscode.window.showWarningMessage('That is not a known AtlasMind setup command, so it was not prepared.');
         return;
       }
+      if (interceptDryRun({
+        surface: 'setup-terminal',
+        kind: 'terminal',
+        summary: `type \`${text}\` into the Buzz setup terminal`,
+        details: { command: text },
+      })) {
+        return;
+      }
       const terminal = vscode.window.terminals.find((entry) => entry.name === 'Buzz setup')
         ?? vscode.window.createTerminal({ name: 'Buzz setup' });
       // Focus follows the command: the missing newline is the gate, and it only
@@ -4071,6 +4487,14 @@ async function bootstrapAtlasMind(
       const allowed = [...BUZZ_SETUP_COMMANDS, ...ACP_SIGN_IN_COMMANDS];
       if (!text || !allowed.includes(text)) {
         void vscode.window.showWarningMessage('That is not a known AtlasMind setup command, so it was not prepared.');
+        return;
+      }
+      if (interceptDryRun({
+        surface: 'setup-terminal',
+        kind: 'terminal',
+        summary: `type \`${text}\` into the setup terminal`,
+        details: { command: text },
+      })) {
         return;
       }
       const terminal = vscode.window.terminals.find((entry) => entry.name === SETUP_TERMINAL_NAME)
@@ -4123,7 +4547,13 @@ async function bootstrapAtlasMind(
      */
     vscode.commands.registerCommand('atlasmind.research.runScan', async (requestedScanId?: string) => {
       const atlas = atlasContext;
-      const root = vscode.workspace.workspaceFolders?.[0]?.uri.fsPath;
+      // A scan records into the research register, which is project memory.
+      const home = ssotHomeRoot();
+      if (home.refusal) {
+        void vscode.window.showWarningMessage(home.refusal);
+        return;
+      }
+      const root = home.fsPath;
       if (!atlas || !root) {
         void vscode.window.showWarningMessage('Open a workspace folder before running a research scan.');
         return;
@@ -4242,7 +4672,12 @@ async function bootstrapAtlasMind(
     }),
 
     vscode.commands.registerCommand('atlasmind.research.openRegister', async () => {
-      const root = vscode.workspace.workspaceFolders?.[0]?.uri.fsPath;
+      const home = ssotHomeRoot();
+      if (home.refusal) {
+        void vscode.window.showWarningMessage(home.refusal);
+        return;
+      }
+      const root = home.fsPath;
       if (!root) { return; }
       const { RESEARCH_SUMMARY_SSOT_PATH } = await import('./core/researchRegister.js');
       const nodePath = await import('node:path');
@@ -4260,7 +4695,13 @@ async function bootstrapAtlasMind(
 
     vscode.commands.registerCommand('atlasmind.research.openDigest', async () => {
       const atlas = atlasContext;
-      const root = vscode.workspace.workspaceFolders?.[0]?.uri.fsPath;
+      // The digest is written into project memory, beside the register it reads.
+      const home = ssotHomeRoot();
+      if (home.refusal) {
+        void vscode.window.showWarningMessage(home.refusal);
+        return;
+      }
+      const root = home.fsPath;
       if (!atlas || !root) { return; }
       const [
         { buildResearchDigest, renderResearchDigestMarkdown },
@@ -4854,8 +5295,50 @@ function updateAutopilotStatusBar(
   statusBar.show();
 }
 
-export function deactivate(): void {
+/**
+ * Shown only while dry run is on, in the warning colour Autopilot uses: both
+ * change what a turn will do, and somebody who forgot either is surprised.
+ */
+function updateDryRunStatusBar(statusBar: vscode.StatusBarItem): void {
+  if (!readDryRunSetting(vscode.workspace.getConfiguration('atlasmind').get<unknown>('dryRun.enabled', false))) {
+    statusBar.hide();
+    return;
+  }
+  statusBar.text = '$(beaker) Dry run';
+  statusBar.tooltip = 'AtlasMind dry run is on: tool calls that would write, run commands or reach the network are described, not run. Click to turn it off from the next turn.';
+  statusBar.backgroundColor = new vscode.ThemeColor('statusBarItem.warningBackground');
+  statusBar.show();
+}
+
+/**
+ * Shown only while `atlasmind.sandbox.relaxTerminalApprovals` is on in your
+ * user settings: either "Terminal writes run sandboxed without asking" or the
+ * reason they still ask. Reads the in-memory attestation and never probes.
+ */
+function updateSandboxRelaxationStatusBar(statusBar: vscode.StatusBarItem): void {
+  const setting = readRelaxTerminalApprovalsSetting(inspectSandboxRelaxSetting());
+  if (!setting.enabled) {
+    statusBar.hide();
+    return;
+  }
+  const reading = readSandboxConfiguration(inspectSandboxSetting);
+  const view = describeSandboxRelaxationState({
+    setting,
+    mode: readSandboxModeSetting(inspectSandboxSetting('mode')),
+    allowTerminalWrite: vscode.workspace.getConfiguration('atlasmind').get<boolean>('allowTerminalWrite', false) === true,
+    ...(reading.configuration ? { attestation: sharedSandboxProbeCache().attestation(reading.configuration, new Date()) } : {}),
+  });
+  statusBar.text = view.active ? '$(shield) Sandboxed writes' : '$(shield) Writes ask';
+  statusBar.tooltip = `${view.headline}. ${view.detail} Click to check the execution sandbox.`;
+  statusBar.backgroundColor = view.active ? new vscode.ThemeColor('statusBarItem.warningBackground') : undefined;
+  statusBar.show();
+}
+
+export async function deactivate(): Promise<void> {
   atlasContext = undefined;
+  // A command still running in a sandbox container is this window's; nobody
+  // will collect it once the window is gone, so it is removed by name.
+  await installedSandboxHost()?.stopOwnContainers().catch(() => undefined);
 }
 
 /** Per-provider timeout for startup model discovery, so one slow provider can't stall the rest. */
@@ -5206,8 +5689,14 @@ function mergeProviderModels(
         // immediately rather than being frozen from first discovery.
         // Priority: API hint > live pricing sync > static catalog > existing cached value.
         const specialistDomains = mergeSpecialistDomains(existing.specialistDomains, hint?.specialistDomains);
+        // Re-read on every refresh, never carried over: the table is the only
+        // source, so a row removed from it must stop the parameter being sent.
+        const reasoningControl = lookupReasoningControl(provider.id, modelId);
+        const { reasoningControl: _previousReasoningControl, ...existingWithoutReasoningControl } = existing;
+        void _previousReasoningControl;
         return {
-          ...existing,
+          ...existingWithoutReasoningControl,
+          ...(reasoningControl ? { reasoningControl } : {}),
           contextWindow: liveMeta?.contextWindow ?? hint?.contextWindow ?? dynamicPricing?.contextWindow ?? catalogEntry?.contextWindow ?? existing.contextWindow,
           name: liveMeta?.name ?? hint?.name ?? catalogEntry?.name ?? existing.name,
           capabilities: liveMeta?.capabilities ?? hint?.capabilities ?? catalogEntry?.capabilities ?? existing.capabilities,
@@ -5302,6 +5791,11 @@ export function inferModelMetadata(
   // on this session, not of a model name anybody could enumerate in advance.
   const reasoningDepth = catalogEntry?.reasoningDepth ?? hint?.reasoningDepth;
   const latencyClass = catalogEntry?.latencyClass;
+  // Which thinking-depth parameter this model accepts on *this* provider. A
+  // provider-scoped declared table, never the cross-provider catalog fallback:
+  // Claude through another vendor's endpoint is not a model that accepts
+  // Anthropic's request field there.
+  const reasoningControl = lookupReasoningControl(providerId, modelId);
   // Cache capability is dynamic — providers change model capabilities over time.
   // Prefer the runtime discovery hint and live pricing scrape over the static
   // catalog so the router tracks those changes; an explicit hint `false`
@@ -5328,6 +5822,7 @@ export function inferModelMetadata(
       : {}),
     ...(reasoningDepth !== undefined ? { reasoningDepth } : {}),
     ...(latencyClass !== undefined ? { latencyClass } : {}),
+    ...(reasoningControl !== undefined ? { reasoningControl } : {}),
     ...(supportsPromptCaching !== undefined ? { supportsPromptCaching } : {}),
     ...(cachedInputPricePer1k !== undefined ? { cachedInputPricePer1k } : {}),
   };
@@ -5432,18 +5927,32 @@ function buildSkillExecutionContext(
    * `assertInsideWorkspace` and `resolveWithinWorkspace`.
    */
   resolutionRoot?: string,
+  /**
+   * The sandbox session this context's commands are bound to, when a caller
+   * decided something on one (`withSandbox`). Absent, `runCommand` opens its
+   * own per call. See `sandboxRunner.ts`.
+   */
+  sandboxSession?: SandboxSessionHandle,
 ): SkillExecutionContext {
   const context: SkillExecutionContext = {
     get workspaceRootPath() {
-      return resolutionRoot ?? vscode.workspace.workspaceFolders?.[0]?.uri.fsPath;
+      return resolutionRoot ?? defaultWorkspaceRootPath();
     },
 
     withResolutionRoot(root) {
-      const derived = buildSkillExecutionContext(memoryManager, memoryRefresh, checkpointManager, secrets, root);
+      const derived = buildSkillExecutionContext(memoryManager, memoryRefresh, checkpointManager, secrets, root, sandboxSession);
       // Delegation is installed on this context by the Orchestrator once it
       // exists, so a context derived afterwards would otherwise be the one
       // agent in the run unable to hand off — for a reason that looks like
       // policy and is a missing assignment.
+      derived.runAgent = context.runAgent;
+      return derived;
+    },
+
+    withSandbox(session) {
+      // Re-rooting and binding compose: a worktree subtask bound to a session
+      // keeps both, whichever was applied first.
+      const derived = buildSkillExecutionContext(memoryManager, memoryRefresh, checkpointManager, secrets, resolutionRoot, session);
       derived.runAgent = context.runAgent;
       return derived;
     },
@@ -5531,7 +6040,7 @@ function buildSkillExecutionContext(
     },
 
     async listDirectory(absolutePath) {
-      const workspaceRoot = vscode.workspace.workspaceFolders?.[0]?.uri.fsPath;
+      const workspaceRoot = defaultWorkspaceRootPath();
       if (!workspaceRoot) {
         throw new Error('listDirectory: no workspace folder is open.');
       }
@@ -5553,13 +6062,33 @@ function buildSkillExecutionContext(
     },
 
     async runCommand(executable, args, options) {
-      const workspaceRoot = vscode.workspace.workspaceFolders?.[0]?.uri.fsPath;
+      const workspaceRoot = defaultWorkspaceRootPath();
       if (!workspaceRoot) {
         throw new Error('runCommand: no workspace folder is open.');
       }
 
       const cwdRaw = options?.cwd?.trim() || workspaceRoot;
       const cwd = await assertInsideWorkspace(cwdRaw, 'runCommand', resolutionRoot);
+
+      // Under `atlasmind.sandbox.mode = require`, the container or a refusal —
+      // never the host path below. The requested executable crosses as asked
+      // (the container has no Windows shim to resolve), the one folder mounted
+      // is this context's root (a subtask's worktree, else the workspace), and
+      // the environment is a candidate the allowlist filters. Under `off`,
+      // `isRequired` is the only thing asked and everything below runs exactly
+      // as it always has. See `sandboxRunner.ts`.
+      const sandboxHost = installedSandboxHost();
+      if (sandboxHost?.isRequired(sandboxSession)) {
+        return sandboxHost.runCommand({
+          executable: executable.trim(),
+          args: args ?? [],
+          root: resolutionRoot ?? workspaceRoot,
+          cwd,
+          env: options?.testResources ? withTestResourceEnv(process.env, readTestResourceBudget()) : process.env,
+          timeoutMs: clampInteger(options?.timeoutMs, 30000, 1000, 300000),
+          surface: 'run-command',
+        }, sandboxSession);
+      }
 
       // Decide how to start this before starting it, and never through a shell.
       //
@@ -5587,13 +6116,23 @@ function buildSkillExecutionContext(
         return { ok: false, exitCode: 1, stdout: '', stderr: resolution.reason };
       }
 
+      // The command a model asked for never sees the editor's credentials.
+      // This used to inherit the whole editor environment — provider keys, GitHub
+      // and npm tokens, cloud credentials — so `env` or `printenv` read them
+      // back. `planHostCommandEnvironment` withholds every credential-shaped
+      // variable by a declared rule; the user passes a named one through with
+      // atlasmind.terminal.passEnvironment. See `hostCommandEnvironment.ts`.
+      const environmentPlan = planHostCommandEnvironment(process.env, {
+        passThrough: readHostCommandPassThrough(),
+        platform: process.platform,
+      });
       // A test command inherits the machine's testing resource budget: every
       // Node child (Jest/Vitest workers included) gets a heap cap through
       // NODE_OPTIONS. Opt-in via options.testResources — the same cap on a
       // production build would be a limit nobody asked for.
       const env = options?.testResources
-        ? withTestResourceEnv(process.env, readTestResourceBudget())
-        : undefined;
+        ? withTestResourceEnv(environmentPlan.env, readTestResourceBudget())
+        : environmentPlan.env;
 
       try {
         const pending = execFileAsync(resolution.command, resolution.args, {
@@ -5605,7 +6144,7 @@ function buildSkillExecutionContext(
           // that no test produced. The tail is kept rather than the head
           // because runners print their failures last.
           maxBuffer: 4 * 1024 * 1024,
-          ...(env ? { env: env as NodeJS.ProcessEnv } : {}),
+          env: env as NodeJS.ProcessEnv,
           // Never a shell: the arguments are model-generated, and a shell would
           // run the metacharacters among them. `resolution` has already turned a
           // Windows shim into a spawnable image or a Node entry point.
@@ -5626,11 +6165,15 @@ function buildSkillExecutionContext(
         return { ok: true, exitCode: 0, stdout: clipCommandOutput(stdout), stderr: clipCommandOutput(stderr) };
       } catch (error) {
         const maybe = error as { code?: number | string; stdout?: string; stderr?: string; message?: string };
+        // A command that failed may have failed for want of a withheld token;
+        // say which names were withheld (never their values) and how to pass one.
+        const withheldNote = describeWithheldEnvironment(environmentPlan);
+        const stderr = clipCommandOutput(String(maybe.stderr ?? maybe.message ?? ''));
         return {
           ok: false,
           exitCode: typeof maybe.code === 'number' ? maybe.code : 1,
           stdout: clipCommandOutput(String(maybe.stdout ?? '')),
-          stderr: clipCommandOutput(String(maybe.stderr ?? maybe.message ?? '')),
+          stderr: withheldNote ? [stderr, withheldNote].filter(part => part.length > 0).join('\n') : stderr,
         };
       }
     },
@@ -5640,7 +6183,7 @@ function buildSkillExecutionContext(
     },
 
     async getGitStatus() {
-      const workspaceRoot = vscode.workspace.workspaceFolders?.[0]?.uri.fsPath;
+      const workspaceRoot = defaultWorkspaceRootPath();
       if (!workspaceRoot) {
         throw new Error('getGitStatus: no workspace folder is open.');
       }
@@ -5653,7 +6196,7 @@ function buildSkillExecutionContext(
     },
 
     async getGitDiff(options) {
-      const workspaceRoot = vscode.workspace.workspaceFolders?.[0]?.uri.fsPath;
+      const workspaceRoot = defaultWorkspaceRootPath();
       if (!workspaceRoot) {
         throw new Error('getGitDiff: no workspace folder is open.');
       }
@@ -5701,7 +6244,7 @@ function buildSkillExecutionContext(
     },
 
     async applyGitPatch(patch, options) {
-      const workspaceRoot = vscode.workspace.workspaceFolders?.[0]?.uri.fsPath;
+      const workspaceRoot = defaultWorkspaceRootPath();
       if (!workspaceRoot) {
         throw new Error('A workspace folder must be open to apply a git patch.');
       }
@@ -5751,7 +6294,7 @@ function buildSkillExecutionContext(
     },
 
     async getGitLog(options) {
-      const workspaceRoot = vscode.workspace.workspaceFolders?.[0]?.uri.fsPath;
+      const workspaceRoot = defaultWorkspaceRootPath();
       if (!workspaceRoot) {
         throw new Error('getGitLog: no workspace folder is open.');
       }
@@ -5773,7 +6316,7 @@ function buildSkillExecutionContext(
     },
 
     async gitBranch(action, name) {
-      const workspaceRoot = vscode.workspace.workspaceFolders?.[0]?.uri.fsPath;
+      const workspaceRoot = defaultWorkspaceRootPath();
       if (!workspaceRoot) {
         throw new Error('gitBranch: no workspace folder is open.');
       }
@@ -5877,57 +6420,25 @@ function buildSkillExecutionContext(
       };
     },
 
+    // Both go through `egressFetch`: the URL, its DNS answer, every address and
+    // every redirect are screened, and the connection is pinned to what was
+    // screened. Enforced here rather than in the skills, because a model-drafted
+    // skill calls `fetchUrl` directly and would otherwise reach any address.
     async fetchUrl(url, options) {
-      const fetchImpl = (globalThis as typeof globalThis & {
-        fetch?: (input: string, init?: { signal?: AbortSignal }) => Promise<{ ok: boolean; status: number; text(): Promise<string> }>;
-      }).fetch;
-      if (!fetchImpl) {
-        return { ok: false, status: 0, body: 'fetchUrl is unavailable in this environment.' };
-      }
-
-      const controller = new AbortController();
-      const timeout = setTimeout(() => controller.abort(), clampInteger(options?.timeoutMs, 15000, 1000, 120000));
-      try {
-        const response = await fetchImpl(url, { signal: controller.signal });
-        const body = await response.text();
-        const maxBytes = clampInteger(options?.maxBytes, 200_000, 1024, 1_000_000);
-        return {
-          ok: response.ok,
-          status: response.status,
-          body: body.slice(0, maxBytes),
-        };
-      } finally {
-        clearTimeout(timeout);
-      }
+      return toSkillHttpResult(await egressFetch(url, {
+        maxBytes: clampInteger(options?.maxBytes, 200_000, 1024, 1_000_000),
+        timeoutMs: clampInteger(options?.timeoutMs, 15000, 1000, 120000),
+      }));
     },
 
     async httpRequest(url, options) {
-      const fetchImpl = (globalThis as typeof globalThis & {
-        fetch?: (input: string, init?: { method?: string; headers?: Record<string, string>; body?: string; signal?: AbortSignal }) => Promise<{ ok: boolean; status: number; text(): Promise<string> }>;
-      }).fetch;
-      if (!fetchImpl) {
-        return { ok: false, status: 0, body: 'httpRequest is unavailable in this environment.' };
-      }
-
-      const controller = new AbortController();
-      const timeout = setTimeout(() => controller.abort(), clampInteger(options?.timeoutMs, 15000, 1000, 120000));
-      try {
-        const response = await fetchImpl(url, {
-          method: options?.method ?? 'GET',
-          headers: options?.headers,
-          body: options?.body,
-          signal: controller.signal,
-        });
-        const body = await response.text();
-        const maxBytes = clampInteger(options?.maxBytes, 200_000, 1024, 1_000_000);
-        return {
-          ok: response.ok,
-          status: response.status,
-          body: body.slice(0, maxBytes),
-        };
-      } finally {
-        clearTimeout(timeout);
-      }
+      return toSkillHttpResult(await egressFetch(url, {
+        method: options?.method ?? 'GET',
+        ...(options?.headers ? { headers: options.headers } : {}),
+        ...(options?.body !== undefined ? { body: options.body } : {}),
+        maxBytes: clampInteger(options?.maxBytes, 200_000, 1024, 1_000_000),
+        timeoutMs: clampInteger(options?.timeoutMs, 15000, 1000, 120000),
+      }));
     },
 
     async getCodeActions(absolutePath, startLine, startColumn, endLine, endColumn) {
@@ -5985,6 +6496,12 @@ function buildSkillExecutionContext(
     },
 
     async evaluateDebugExpression(expression, frameId) {
+      // Evaluating an expression runs code in the debuggee, a program on this
+      // machine: under `require`, refused rather than run outside the sandbox.
+      const sandboxRefusal = hostExecutionRefusal('evaluating an expression in a debug session', sandboxSession);
+      if (sandboxRefusal) {
+        return `Error: ${sandboxRefusal}`;
+      }
       const session = vscode.debug.activeDebugSession;
       if (!session) {
         return 'Error: No active debug session.';
@@ -6099,8 +6616,8 @@ function buildSkillExecutionContext(
     },
 
     async getDebugConfigs() {
-      const folders = vscode.workspace.workspaceFolders;
-      if (!folders || folders.length === 0) { return []; }
+      const folders = openWorkspaceFolders();
+      if (folders.length === 0) { return []; }
       const configs: Array<{ name: string; type: string; request: string }> = [];
       for (const folder of folders) {
         const launchConfig = vscode.workspace.getConfiguration('launch', folder.uri);
@@ -6119,8 +6636,11 @@ function buildSkillExecutionContext(
     },
 
     async launchDebugSession(configName) {
-      const folders = vscode.workspace.workspaceFolders;
-      const folder = folders?.[0];
+      const sandboxRefusal = hostExecutionRefusal('a debug session', sandboxSession);
+      if (sandboxRefusal) {
+        return { ok: false, message: sandboxRefusal };
+      }
+      const folder = defaultWorkspaceFolder();
       try {
         const started = await vscode.debug.startDebugging(folder, configName);
         if (started) {
@@ -6283,6 +6803,20 @@ function clampInteger(value: number | undefined, fallback: number, min: number, 
 }
 
 /**
+ * The names the user asked to pass to agent commands unchanged. Only the user
+ * value of the machine-scoped setting is read — see `readPassEnvironmentSetting`.
+ */
+function readHostCommandPassThrough(): string[] {
+  try {
+    const inspection = vscode.workspace.getConfiguration('atlasmind').inspect<unknown>('terminal.passEnvironment');
+    return readPassEnvironmentSetting(inspection).names;
+  } catch {
+    // An unreadable setting passes nothing through: withholding is the safe direction.
+    return [];
+  }
+}
+
+/**
  * The testing resource budget for this machine, from the one slider that
  * governs every locally-run test path (`atlasmind.testing.resourceShare`).
  * Recomputed per call: it is cheap, and a cached copy would hold yesterday's
@@ -6294,21 +6828,6 @@ function readTestResourceBudget(): TestResourceBudget {
     cpuCount: Math.max(1, os.cpus().length),
     memoryGb: Math.max(1, os.totalmem() / (1024 ** 3)),
   }, clampTestResourceShare(share));
-}
-
-const COMMAND_OUTPUT_CLIP_BYTES = 64 * 1024;
-
-/**
- * Keep the tail of oversized command output. Test runners print their
- * failures last, so the tail is the half worth keeping — and an unclipped
- * multi-megabyte transcript would land verbatim in a model prompt.
- */
-function clipCommandOutput(text: string): string {
-  const trimmed = text.trim();
-  if (trimmed.length <= COMMAND_OUTPUT_CLIP_BYTES) {
-    return trimmed;
-  }
-  return `…[earlier output truncated]\n${trimmed.slice(-COMMAND_OUTPUT_CLIP_BYTES)}`;
 }
 
 async function runPostToolVerification(
@@ -6512,7 +7031,7 @@ async function assertInsideWorkspace(
    */
   resolveFrom?: string,
 ): Promise<string> {
-  const workspaceRoot = vscode.workspace.workspaceFolders?.[0]?.uri.fsPath;
+  const workspaceRoot = defaultWorkspaceRootPath();
   if (!workspaceRoot) {
     throw new Error(`${operation}: no workspace folder is open.`);
   }

@@ -599,9 +599,8 @@
     {
       "id": "we-need-a-project-dashboard",
       "normalizedText": "we need a project dashboard way of reviewing the status, design plan, roadmap items, any other associated relevant data of public release versions, such as tierd value releases. perhaps include in this page a way to generate a roadmap gate for each version listed. a visualiser of each version, its progress to a version mvp, any other links, statistics and observed data with ai suggestions.",
-      "planPath": "project_memory/roadmap/plans/we-need-a-project-dashboard-we-need-a-project-dashboard-way-of-reviewing-the.md",
       "completedAt": "2026-09-16T19:47:15.429Z",
-      "completedBy": "Joel Bondoux"
+      "planPath": "project_memory/roadmap/plans/we-need-a-project-dashboard-we-need-a-project-dashboard-way-of-reviewing-the.md"
     }
   ],
   "edges": [
@@ -1225,10 +1224,64 @@
       "evidence": "both mention “bring” and “keeps”",
       "createdAt": "2026-09-16T17:12:26.859Z",
       "createdBy": "contact-email-joelbondoux-net-1"
+    },
+    {
+      "from": "parallel-command-center-ux-n",
+      "to": "we-need-a-project-dashboard",
+      "origin": "declared",
+      "rule": "explicit-reference",
+      "evidence": "“need a Project Dashboard way of reviewing the status”",
+      "createdAt": "2026-10-18T00:57:48.640Z",
+      "createdBy": "contact-email-joelbondoux-net-1"
+    },
+    {
+      "from": "on-all-the-roadmap-pages-hav",
+      "to": "roadmap-canvas-for-the-deliv",
+      "origin": "declared",
+      "rule": "explicit-reference",
+      "evidence": "“needs the same node management controls as the other canvas pages”",
+      "createdAt": "2026-10-18T00:57:48.640Z",
+      "createdBy": "contact-email-joelbondoux-net-1"
+    },
+    {
+      "from": "we-need-a-project-dashboard",
+      "to": "am-dashboard-visual-identity",
+      "origin": "declared",
+      "rule": "shared-subject-phase",
+      "evidence": "both mention “dashboard” and “perhaps”",
+      "createdAt": "2026-10-18T00:57:48.640Z",
+      "createdBy": "contact-email-joelbondoux-net-1"
+    },
+    {
+      "from": "we-need-a-project-dashboard",
+      "to": "roadmap-nodes-should-have-a",
+      "origin": "declared",
+      "rule": "shared-subject-phase",
+      "evidence": "both mention “roadmap” and “gate”",
+      "createdAt": "2026-10-18T00:57:48.640Z",
+      "createdBy": "contact-email-joelbondoux-net-1"
+    },
+    {
+      "from": "we-need-a-project-dashboard",
+      "to": "roadmap-gates-should-have-a",
+      "origin": "declared",
+      "rule": "shared-subject-phase",
+      "evidence": "both mention “roadmap” and “gate” and “listed”",
+      "createdAt": "2026-10-18T00:57:48.640Z",
+      "createdBy": "contact-email-joelbondoux-net-1"
+    },
+    {
+      "from": "we-need-a-project-dashboard",
+      "to": "roadmap-canvas-for-the-deliv",
+      "origin": "declared",
+      "rule": "shared-subject-phase",
+      "evidence": "both mention “roadmap” and “page”",
+      "createdAt": "2026-10-18T00:57:48.640Z",
+      "createdBy": "contact-email-joelbondoux-net-1"
     }
   ],
   "suggestLinks": true,
   "dismissed": [],
   "layoutOrientation": "vertical",
-  "updatedAt": "2026-09-16T17:49:33.918Z"
+  "updatedAt": "2026-10-18T00:57:48.640Z"
 }

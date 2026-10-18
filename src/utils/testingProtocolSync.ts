@@ -1,3 +1,4 @@
+import { interceptDryRun } from '../core/dryRunHost.js';
 import { existsSync, readFileSync } from 'node:fs';
 import * as vscode from 'vscode';
 import type { AgentDefinition, ProjectTestingConfig } from '../types.js';
@@ -311,6 +312,7 @@ export async function syncRoadmapInstructions(
   const body = buildRoadmapSyncMarkdown(ssotPath);
   const updated: string[] = [];
   const skipped: { path: string; reason: string }[] = [];
+  const heldByDryRun: string[] = [];
 
   for (const target of MANAGED_MARKDOWN_TARGETS) {
     const resolved = resolveRelativePath(workspaceRoot, target.path);
@@ -325,12 +327,35 @@ export async function syncRoadmapInstructions(
       const existing = present ? readFileSync(resolved, { encoding: 'utf8' }) : '';
       const next = upsertManagedBlock(existing, body, ROADMAP_SYNC_MARKERS);
       if (next !== existing || !present) {
+        // This runs when the Roadmap page opens, not because anybody asked for
+        // an instruction file to change, so a dry run records it instead.
+        if (interceptDryRun({
+          surface: 'roadmap-instruction-sync',
+          kind: 'auto-write',
+          summary: `${present ? 'refresh' : 'create'} the roadmap rule in ${target.path}`,
+          details: { path: target.path },
+          userInitiated: false,
+        })) {
+          heldByDryRun.push(target.path);
+          continue;
+        }
         await vscode.workspace.fs.writeFile(vscode.Uri.file(resolved), Buffer.from(next, 'utf8'));
       }
       updated.push(target.path);
     } catch (err) {
       skipped.push({ path: target.path, reason: err instanceof Error ? err.message : String(err) });
     }
+  }
+
+  if (heldByDryRun.length > 0) {
+    // Held is not failed: the page must not warn that the rule could not be
+    // installed when it was deliberately not written.
+    return {
+      success: true,
+      summary: `Dry run is on, so the AtlasMind roadmap rule was not written to ${heldByDryRun.join(', ')}.`,
+      updated,
+      skipped: [...skipped, ...heldByDryRun.map(path => ({ path, reason: 'dry run is on, so it was not written' }))],
+    };
   }
 
   return {

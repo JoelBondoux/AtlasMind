@@ -1714,7 +1714,8 @@
           || (decision === 'allow-once' ? 'Allow Once'
             : decision === 'bypass-task' ? 'Bypass Approvals'
               : decision === 'autopilot' ? 'Autopilot'
-                : 'Deny');
+                : decision === 'acknowledge-source' ? 'Allow for this task — I’ve seen the source'
+                  : 'Deny');
         actions.appendChild(createApprovalButton(label, request.id, decision, decision === 'deny' ? 'danger' : undefined));
       }
       card.appendChild(actions);
@@ -2344,6 +2345,17 @@
 
     if (entry.meta && Array.isArray(entry.meta.timelineNotes) && entry.meta.timelineNotes.length > 0) {
       metaStack.appendChild(renderTimelineNotes(entry.meta.timelineNotes));
+      hasMeta = true;
+    }
+
+    // Composed on the host; shown as text, outside the collapsed work log,
+    // because it says what the next write will do.
+    if (entry.meta && typeof entry.meta.untrustedContentNote === 'string' && entry.meta.untrustedContentNote) {
+      var untrustedNote = document.createElement('div');
+      untrustedNote.className = 'assistant-untrusted-note';
+      untrustedNote.setAttribute('role', 'note');
+      untrustedNote.textContent = entry.meta.untrustedContentNote;
+      metaStack.appendChild(untrustedNote);
       hasMeta = true;
     }
 

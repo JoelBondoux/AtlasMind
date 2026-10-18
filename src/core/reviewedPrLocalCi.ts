@@ -13,6 +13,7 @@ import {
   type ReviewedPrLocalCiCommand,
   type ReviewedPrLocalCiConfig,
 } from './localCiRepositoryPatch.js';
+import { isLocalCiAuthorizedAccount } from './localCiActorGuard.js';
 
 const REPOSITORY_SLUG = /^[A-Za-z0-9_.-]+\/[A-Za-z0-9_.-]+$/;
 const BRANCH = /^[A-Za-z0-9][A-Za-z0-9._/-]{0,120}$/;
@@ -135,6 +136,14 @@ export function parseReviewedPrLocalCiConfig(raw: string): ReviewedPrConfigRead 
   if (!REPOSITORY_SLUG.test(repository)) {
     return { ok: false, reason: 'The local-CI contract repository must be an exact owner/name slug.' };
   }
+  // Present only in an organisation-owned repository. A malformed pin is a
+  // refusal: dropping it would quietly fall back to the owner condition, which
+  // no dispatch can meet there.
+  const pinned = 'authorizedAccount' in object;
+  const authorizedAccount = object['authorizedAccount'];
+  if (pinned && !isLocalCiAuthorizedAccount(authorizedAccount)) {
+    return { ok: false, reason: 'The authorised account in the local-CI contract must be a GitHub account id and login.' };
+  }
   if (!BRANCH.test(trustedBaseBranch)) {
     return { ok: false, reason: 'The trusted base branch in the local-CI contract is invalid.' };
   }
@@ -175,6 +184,9 @@ export function parseReviewedPrLocalCiConfig(raw: string): ReviewedPrConfigRead 
       managedBy: REVIEWED_PR_LOCAL_CI_MARKER,
       enabled: true,
       repository,
+      ...(pinned && isLocalCiAuthorizedAccount(authorizedAccount)
+        ? { authorizedAccount: { id: authorizedAccount.id, login: authorizedAccount.login } }
+        : {}),
       trustedBaseBranch,
       workflowFile: REVIEWED_PR_LOCAL_CI_WORKFLOW_FILE,
       runnerLabel,

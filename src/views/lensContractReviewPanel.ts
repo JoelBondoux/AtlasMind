@@ -618,7 +618,7 @@ function buildContractReviewHtml(cspSource: string): string {
         font-size: .8rem;
       }
       .filters label { color: var(--lens-muted); }
-      .filters select { border: 1px solid var(--vscode-dropdown-border); border-radius: 6px; padding: 4px 7px; }
+      .filters select { border: 1px solid var(--atlas-boundary); border-radius: 6px; padding: 4px 7px; }
       .suppression-toggle { display: inline-flex; align-items: center; gap: 5px; color: var(--lens-muted); }
       /* The panel predates the shared notice styling and refers to '.notices'
          throughout its script; aliasing keeps one look without renaming a
@@ -644,26 +644,26 @@ function buildContractReviewHtml(cspSource: string): string {
       .relationship-items { display: grid; grid-template-columns: repeat(auto-fit, minmax(280px, 1fr)); gap: 8px; margin-top: 10px; }
       .relationship-item { padding: 11px; border: 1px solid var(--lens-border); border-radius: 8px; background: var(--lens-surface-raised); }
       .relationship-path { display: flex; align-items: center; gap: 7px; flex-wrap: wrap; font-weight: 700; }
-      .relationship-arrow { color: var(--vscode-charts-blue, #75beff); }
+      .relationship-arrow { color: color-mix(in srgb, var(--vscode-charts-blue, #75beff) var(--atlas-ink-share), var(--tint-away)); }
       .relationship-meta, .relationship-evidence { display: block; margin-top: 5px; color: var(--vscode-descriptionForeground); font-size: 0.8rem; }
-      .impact-preview { margin: 14px 0; padding: 15px; border: 1px solid color-mix(in srgb, var(--vscode-charts-orange, #d18616) 55%, var(--lens-border)); border-radius: var(--lens-radius); background: var(--lens-surface); }
+      .impact-preview { margin: 14px 0; padding: 15px; border: 1px solid color-mix(in srgb, color-mix(in srgb, var(--vscode-charts-orange, #d18616) var(--atlas-ink-share), var(--tint-away)) 55%, var(--lens-border)); border-radius: var(--lens-radius); background: var(--lens-surface); }
       .impact-preview[hidden] { display: none; }
       .impact-header { display: flex; justify-content: space-between; gap: 16px; align-items: flex-start; }
       .impact-header h2 { margin: 0; }
       .impact-header p { margin: 4px 0 0; color: var(--vscode-descriptionForeground); }
       .impact-items { display: grid; gap: 8px; }
-      .impact-item { padding: 9px; border: 1px solid var(--vscode-widget-border); border-radius: 5px; background: var(--vscode-editor-background); }
+      .impact-item { padding: 9px; border: 1px solid var(--atlas-boundary); border-radius: 5px; background: var(--vscode-editor-background); }
       .impact-item-head { display: flex; align-items: center; gap: 7px; flex-wrap: wrap; }
       .impact-label { font-weight: 700; }
       .impact-meta, .impact-detail, .impact-evidence { display: block; margin-top: 4px; color: var(--vscode-descriptionForeground); font-size: 0.82rem; }
-      .impact-severity { border-radius: 999px; padding: 2px 7px; font-size: 0.72rem; font-weight: 700; border: 1px solid var(--vscode-widget-border); }
-      .impact-severity-high { color: var(--vscode-testing-iconFailed, #f14c4c); }
-      .impact-severity-medium { color: var(--vscode-editorWarning-foreground, #cca700); }
+      .impact-severity { border-radius: 999px; padding: 2px 7px; font-size: 0.72rem; font-weight: 700; border: 1px solid var(--atlas-boundary); }
+      .impact-severity-high { color: color-mix(in srgb, var(--vscode-testing-iconFailed, #f14c4c) var(--atlas-ink-share), var(--tint-away)); }
+      .impact-severity-medium { color: color-mix(in srgb, var(--vscode-editorWarning-foreground, #cca700) var(--atlas-ink-share), var(--tint-away)); }
       .impact-severity-review { color: var(--vscode-descriptionForeground); }
       .trust-preview { margin: 14px 0; padding: 15px; border: 1px solid color-mix(in srgb, var(--vscode-charts-purple, #b180d7) 55%, var(--lens-border)); border-radius: var(--lens-radius); background: var(--lens-surface); }
       .trust-preview[hidden] { display: none; }
       .trust-items { display: grid; grid-template-columns: repeat(auto-fit, minmax(260px, 1fr)); gap: 8px; }
-      .trust-item { padding: 9px; border: 1px solid var(--vscode-widget-border); border-left: 3px solid var(--vscode-charts-purple, #b180d7); border-radius: 5px; background: var(--vscode-editor-background); }
+      .trust-item { padding: 9px; border: 1px solid var(--atlas-boundary); border-left: 3px solid var(--vscode-charts-purple, #b180d7); border-radius: 5px; background: var(--vscode-editor-background); }
       .trust-item[data-status="unknown"] { border-left-color: var(--vscode-editorWarning-foreground, #cca700); }
       .trust-label { font-weight: 700; }
       .trust-meta, .trust-controls, .trust-note, .trust-evidence { display: block; margin-top: 4px; color: var(--vscode-descriptionForeground); font-size: 0.82rem; }
@@ -689,15 +689,15 @@ function buildContractReviewHtml(cspSource: string): string {
         border-color: color-mix(in srgb, var(--lens-accent) 60%, var(--lens-border));
       }
       .small-action:focus-visible { outline: 2px solid var(--vscode-focusBorder); outline-offset: 2px; }
-      .status { display: inline-block; border-radius: 999px; padding: 2px 8px; font-size: 0.76rem; font-weight: 650; border: 1px solid var(--vscode-widget-border); }
-      .status-exact { color: var(--vscode-testing-iconPassed, #73c991); }
-      .status-transformed, .status-inferred { color: var(--vscode-charts-blue, #75beff); }
-      .status-incompatible, .status-dropped { color: var(--vscode-testing-iconFailed, #f14c4c); }
-      .status-introduced { color: var(--vscode-charts-purple, #b180d7); }
-      .status-unverified { color: var(--vscode-editorWarning-foreground, #cca700); }
+      .status { display: inline-block; border-radius: 999px; padding: 2px 8px; font-size: 0.76rem; font-weight: 650; border: 1px solid var(--atlas-boundary); }
+      .status-exact { color: color-mix(in srgb, var(--vscode-testing-iconPassed, #73c991) var(--atlas-ink-share), var(--tint-away)); }
+      .status-transformed, .status-inferred { color: color-mix(in srgb, var(--vscode-charts-blue, #75beff) var(--atlas-ink-share), var(--tint-away)); }
+      .status-incompatible, .status-dropped { color: color-mix(in srgb, var(--vscode-testing-iconFailed, #f14c4c) var(--atlas-ink-share), var(--tint-away)); }
+      .status-introduced { color: color-mix(in srgb, var(--vscode-charts-purple, #b180d7) var(--atlas-ink-share), var(--tint-away)); }
+      .status-unverified { color: color-mix(in srgb, var(--vscode-editorWarning-foreground, #cca700) var(--atlas-ink-share), var(--tint-away)); }
       .finding { display: block; margin-top: 6px; font-size: 0.78rem; font-weight: 650; }
-      .finding-error { color: var(--vscode-testing-iconFailed, #f14c4c); }
-      .finding-warning { color: var(--vscode-editorWarning-foreground, #cca700); }
+      .finding-error { color: color-mix(in srgb, var(--vscode-testing-iconFailed, #f14c4c) var(--atlas-ink-share), var(--tint-away)); }
+      .finding-warning { color: color-mix(in srgb, var(--vscode-editorWarning-foreground, #cca700) var(--atlas-ink-share), var(--tint-away)); }
       .finding-info { color: var(--vscode-descriptionForeground); }
       tr.is-suppressed { opacity: 0.72; }
       .empty-cell { color: var(--vscode-descriptionForeground); }

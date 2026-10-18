@@ -165,6 +165,7 @@ export function isToolApprovalDecision(value: unknown): value is ToolApprovalDec
   return value === 'allow-once'
     || value === 'bypass-task'
     || value === 'autopilot'
+    || value === 'acknowledge-source'
     || value === 'deny';
 }
 

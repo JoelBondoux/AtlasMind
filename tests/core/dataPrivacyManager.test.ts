@@ -4,7 +4,9 @@ import {
   defaultDataPrivacyConfig,
   globToRegExp,
   REDACTION_PLACEHOLDER,
+  strictestDataPrivacyConfig,
 } from '../../src/core/dataPrivacyManager.ts';
+import fc from 'fast-check';
 import type { DataPrivacyConfig } from '../../src/types.ts';
 
 function configWith(overrides: Partial<DataPrivacyConfig>): DataPrivacyConfig {
@@ -197,5 +199,60 @@ describe('globToRegExp', () => {
     expect(globToRegExp('*.key').test('a/b.key')).toBe(false);
     expect(globToRegExp('secrets/**').test('secrets/a/b.txt')).toBe(true);
     expect(globToRegExp('secrets').test('secrets/a.txt')).toBe(true);
+  });
+});
+
+describe('strictestDataPrivacyConfig — an ambiguous SSOT home applies every candidate policy at once', () => {
+  const rule = (id: string, value: string) => ({ id, kind: 'term' as const, value, sensitivity: 'confidential' as const, enabled: true });
+
+  it('returns nothing when no candidate policy is enabled — the answer each gave alone', () => {
+    expect(strictestDataPrivacyConfig([])).toBeUndefined();
+    expect(strictestDataPrivacyConfig([configWith({ enabled: false, rules: [rule('a', 'Acme')] })])).toBeUndefined();
+  });
+
+  it('classifies whatever any enabled policy classifies, and trusts only what every one trusts', () => {
+    const merged = strictestDataPrivacyConfig([
+      configWith({ rules: [rule('r1', 'Acme')], compliancePacks: ['gdpr-pii'], trustedModelIds: ['local/a', 'local/b'] }),
+      configWith({ rules: [rule('r1', 'Globex')], compliancePacks: ['hipaa-phi'], trustedModelIds: ['local/b', 'local/c'] }),
+      configWith({ enabled: false, rules: [rule('off', 'Initech')], trustedModelIds: [] }),
+    ])!;
+    expect(merged.enabled).toBe(true);
+    expect(merged.rules.map(entry => entry.value).sort()).toEqual(['Acme', 'Globex']);
+    // A clashing id is kept under a new one rather than losing either rule.
+    expect(new Set(merged.rules.map(entry => entry.id)).size).toBe(2);
+    expect(merged.compliancePacks.sort()).toEqual(['gdpr-pii', 'hipaa-phi']);
+    expect(merged.trustedModelIds).toEqual(['local/b']);
+    const manager = new DataPrivacyManager(merged);
+    expect(manager.classifyText('Globex roadmap').hasClassified).toBe(true);
+    expect(manager.classifyText('Initech roadmap').hasClassified).toBe(false);
+  });
+
+  it('never trusts more, nor classifies less, than any enabled member', () => {
+    const policy = fc.record({
+      enabled: fc.boolean(),
+      values: fc.uniqueArray(fc.constantFrom('Acme', 'Globex', 'Initech', 'Umbrella'), { maxLength: 3 }),
+      trusted: fc.uniqueArray(fc.constantFrom('m1', 'm2', 'm3', 'm4'), { maxLength: 4 }),
+    });
+    fc.assert(fc.property(fc.array(policy, { maxLength: 4 }), members => {
+      const configs = members.map((member, index) => configWith({
+        enabled: member.enabled,
+        rules: member.values.map(value => rule(`r${index}`, value)),
+        trustedModelIds: member.trusted,
+      }));
+      const merged = strictestDataPrivacyConfig(configs);
+      const enabled = configs.filter(config => config.enabled);
+      if (enabled.length === 0) {
+        expect(merged).toBeUndefined();
+        return;
+      }
+      for (const config of enabled) {
+        for (const id of merged!.trustedModelIds) {
+          expect(config.trustedModelIds).toContain(id);
+        }
+        for (const entry of config.rules) {
+          expect(merged!.rules.some(candidate => candidate.value === entry.value)).toBe(true);
+        }
+      }
+    }));
   });
 });

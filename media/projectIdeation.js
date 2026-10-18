@@ -50,6 +50,7 @@
     constraintsOpen: false,
     shortcutsOpen: false,
     readinessOpen: false,
+    briefChainRulesOpen: false,
     boardLens: 'default',
     relationFilter: 'all',
     linkPathMode: 'angular',
@@ -189,6 +190,18 @@
     }
     if (action === 'ideation-brief-open') {
       vscode.postMessage({ type: 'openProjectBrief' });
+      return;
+    }
+    if (action === 'ideation-brief-chain') {
+      // A step id and nothing else. The host re-plans the chain from the files
+      // and decides whether that step may run; every write it makes is shown
+      // in a confirmation there first.
+      vscode.postMessage({ type: 'advanceBriefChain', payload });
+      return;
+    }
+    if (action === 'ideation-brief-chain-rules') {
+      state.briefChainRulesOpen = !state.briefChainRulesOpen;
+      render();
       return;
     }
     if (action === 'ideation-create-workspace') {
@@ -842,7 +855,7 @@
     if (selectedCard) {
       return renderInspector(snapshot, selectedCard);
     }
-    return (boardIsEmpty ? renderProjectBrief(snapshot) + renderStarterFrames(snapshot) : '') + renderComposer(snapshot, boardIsEmpty);
+    return (boardIsEmpty ? renderProjectBrief(snapshot) + renderStarterFrames(snapshot) : '') + (boardIsEmpty ? '' : renderBriefChain(snapshot)) + renderComposer(snapshot, boardIsEmpty);
   }
 
   /**
@@ -921,6 +934,54 @@
           '<button type="button" class="action-link primary" data-action="ideation-brief-save" data-payload="">Save it</button>' +
           '<span class="section-copy">Saved to your project memory. Reading it into cards is a separate step.</span>' +
         '</div>' +
+      '</article>';
+  }
+
+  /**
+   * From the brief to the roadmap, once the board has cards on it.
+   *
+   * Every step with its state and what it would do, planned host-side from the
+   * files — so this is a reading of where the project is, not a wizard with
+   * its own idea of progress. A button appears only for a step that can run
+   * now; pressing it asks the host, which shows exactly what would be written
+   * before it writes anything.
+   */
+  function renderBriefChain(snapshot) {
+    const chain = snapshot.briefChain;
+    if (!chain || !Array.isArray(chain.steps) || chain.steps.length === 0) {
+      return '';
+    }
+    const stateLabel = {
+      done: 'Done',
+      ready: 'Ready',
+      blocked: 'Waiting',
+      'nothing-to-do': 'Nothing to raise',
+    };
+    const readySteps = chain.steps.filter(step => step.state === 'ready');
+    return '' +
+      '<article class="ideation-panel ideation-brief-chain">' +
+        '<div class="row-head"><div>' +
+          '<p class="section-kicker">From your brief</p>' +
+          '<h3>Brief, board, roadmap</h3>' +
+        '</div>' +
+        '<button type="button" class="action-link" data-action="ideation-brief-chain-rules" aria-expanded="' + (state.briefChainRulesOpen ? 'true' : 'false') + '">' + (state.briefChainRulesOpen ? 'Hide rules' : 'Rules') + '</button></div>' +
+        '<ol class="ideation-chain-steps">' +
+          chain.steps.map(step => '' +
+            '<li class="ideation-chain-step is-' + escapeAttr(step.state) + (chain.next === step.id ? ' is-next' : '') + '">' +
+              '<div class="row-head"><strong>' + escapeHtml(step.label) + '</strong>' +
+              '<span class="tag' + (step.state === 'done' ? ' tag-good' : step.state === 'ready' ? ' tag-warn' : '') + '">' + escapeHtml(stateLabel[step.state] || step.state) + (step.required ? '' : ' · optional') + '</span></div>' +
+              '<p class="section-copy">' + escapeHtml(step.says) + '</p>' +
+            '</li>').join('') +
+        '</ol>' +
+        '<p class="stat-detail">' + escapeHtml(chain.nextSays) + '</p>' +
+        (readySteps.length > 0
+          ? '<div class="tag-row">' + readySteps.map(step =>
+              '<button type="button" class="action-link' + (chain.next === step.id ? ' primary' : '') + '" data-action="ideation-brief-chain" data-payload="' + escapeAttr(step.id) + '">' + escapeHtml(step.label) + '</button>').join('') +
+            '</div>'
+          : '') +
+        (state.briefChainRulesOpen
+          ? '<ul class="ideation-chain-rules">' + (chain.rules || []).map(rule => '<li>' + escapeHtml(rule.describes) + '</li>').join('') + '</ul>'
+          : '') +
       '</article>';
   }
 

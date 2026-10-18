@@ -89,6 +89,13 @@ export interface CompletionRequest {
    * support explicit caching ignore it.
    */
   cacheStablePrefix?: boolean;
+  /**
+   * How hard to think, already mapped onto a vendor value by
+   * `planReasoningRequest` (`src/core/reasoningBudget.ts`). An adapter applies
+   * it only when `control` is one it implements and ignores it otherwise, so a
+   * directive can never become a parameter a vendor was not verified to accept.
+   */
+  reasoning?: ReasoningDirective;
 }
 
 export interface CompletionResponse {
@@ -139,7 +146,7 @@ export interface CompletionResponse {
 
 // ── Discovery ────────────────────────────────────────────────────
 
-import type { ModelCapability, SpecialistDomain, TaskImageAttachment } from '../types.js';
+import type { ModelCapability, ReasoningDirective, SpecialistDomain, TaskImageAttachment } from '../types.js';
 
 /**
  * Partial model metadata returned during runtime discovery.

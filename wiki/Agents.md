@@ -409,6 +409,13 @@ Set it once under **Manage Agents → Defaults & automation**.
 **Built-in agents are never auto-updated**, and you can protect a hand-crafted agent of your own with
 **Exclude from auto-updates**. If a refresh fails, your original definition is kept untouched.
 
+If you have written golden cases for an agent (`project_memory/agents/eval-cases.json`), a refresh is
+checked against them before it is used, and held back if a case that passed now fails or the check could
+not be run. It is also held when AtlasMind **could not read** the cases — for example when two open folders
+both look like the project's home, or the cases file is damaged — because "couldn't read the cases" is not
+the same as "there are no cases". Only an agent whose cases were read and found to be none is refreshed
+unchecked.
+
 ---
 
 ## Temporary agents during a project run

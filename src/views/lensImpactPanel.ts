@@ -242,7 +242,7 @@ function buildImpactHtml(cspSource: string): string {
         text-transform: uppercase; letter-spacing: .09em;
       }
       .column-hint { margin: 0 0 11px; font-size: .74rem; color: var(--lens-muted); }
-      .selected-column { border-color: color-mix(in srgb, var(--vscode-charts-orange, #d18616) 55%, var(--lens-border)); }
+      .selected-column { border-color: color-mix(in srgb, color-mix(in srgb, var(--vscode-charts-orange, #d18616) var(--atlas-ink-share), var(--tint-away)) 55%, var(--lens-border)); }
       .consumer-column { grid-column: 1 / -1; min-height: 0; }
       .consumer-column .impact-items { display: grid; grid-template-columns: repeat(auto-fit, minmax(240px, 1fr)); gap: 10px; }
       .impact-items { display: grid; gap: 10px; }

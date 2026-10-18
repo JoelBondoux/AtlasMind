@@ -15,7 +15,7 @@ Where this document and the plan disagree, this document wins.
 
 ### 0.2 Built versus proposed
 
-Phase 0 and Phase 1 are built through C1.8, and Phase 2 is built through C2.4: the `game` persisted-document kind is registered at schema
+Phase 0 and Phase 1 are built through C1.8, and Phase 2 is built through C2.5: the `game` persisted-document kind is registered at schema
 v1; deterministic fixtures cover Unreal, Unity, Godot 3/4 and Perforce; declared component scope
 round-trips through `workflow.json`; and the Project Dashboard now scopes Git, local CI, debt,
 issue-tracker visibility, and observed-delta evidence to those components with explicit `not-visible`
@@ -31,8 +31,10 @@ adapter now binds generic fork evidence to the matching declared engine componen
 counts and trends, and interprets only bounded paths against version-pinned source layouts. The pure
 build-log reader now interprets only complete caller-supplied reports, with declared caps, sanitized and
 redacted retained diagnostics, conservative completion evidence, and display-only report commands pinned
-to verified engine versions. No game command surface, bridge, or game dashboard is built yet; those
-sections remain intended behaviour.
+to verified engine versions. The game profile (§3) is built: a declared `domain/game.json` with a
+regenerated mirror, a refusal table for forbidden content, findings rather than repairs, and a bootstrap
+seed for game presets that never overwrites. No game command surface, bridge, or game dashboard is built
+yet; those sections remain intended behaviour.
 
 ### 0.3 Engines in scope
 
@@ -140,19 +142,35 @@ path meaning as *not verified against this version* rather than extrapolating.
 `project_memory/domain/game.json`, with a regenerated human-readable mirror at
 `project_memory/domain/game.md` — the `websiteWorkspaceManager` pattern.
 
-Registered with `SchemaMigration` at version 1 before anything writes it. The registration and
-future-version refusal test are built; no writer exists yet. Seeding MUST NOT overwrite a file written
-by a newer AtlasMind; an explicit save may.
+Registered with `SchemaMigration` at version 1 before anything writes it. The writer is
+`GameProfileManager` in `src/core/gameProfile.ts`, bound to the SSOT home (an ambiguous home refuses
+every write) and following a configured `atlasmind.ssotPath`. Seeding MUST NOT overwrite a file written
+by a newer AtlasMind; an explicit save may — and does so only when the caller passes `replaceNewer`.
+A seed writes only when neither file exists, so an existing or corrupt profile is kept too. Bootstrap
+seeds the profile when a game architecture preset is chosen: engine `unknown`, content roots from the
+preset's content components, nothing detected or executed.
 
 ### 3.2 Contents
 
 Declared engine and version; platform targets; build configurations; performance budgets; content
 roots; discipline ownership; store and certification targets.
 
+Platform targets, disciplines and stores are closed lists. A `console` target is a user-authored label
+and nothing else (§7.6). Budgets (`frameTimeMs`, `memoryMb`, `loadTimeS`) MUST be finite and positive;
+an undeclared metric is absent, never zero. Content roots are `{ componentId?, location }` relative to a
+component — no `componentId` means the home — and are validated against the composition: an unresolved
+root MUST be reported and MUST NOT be dropped. An invalid value MUST be reported as a finding and MUST
+NOT be repaired; unknown fields MUST survive a round trip.
+
 ### 3.3 What it MUST NOT contain
 
 Credentials, signing keys, store API tokens, console SDK paths, or engine binary paths. Secret
 *references* only, per the Website Studio rule.
+
+`GAME_PROFILE_FORBIDDEN_RULES` enforces this over every key and string value, unknown fields included:
+absolute paths, secret-shaped keys, SDK or engine-binary locations, and anything `redactSecrets` would
+alter. A match refuses the whole document — it is never redacted — and the finding names the rule and the
+path, never the value.
 
 ## §4 Reading the project
 

@@ -19,6 +19,13 @@ export class ToolApprovalManager {
    * Keyed by task ID → set of risk categories.
    */
   private bypassedCategories = new Map<string, Set<ToolRiskCategory>>();
+  /**
+   * Categories the operator released for a task *after* it read untrusted
+   * content — "allow for this task, I've seen the source". Kept apart from
+   * `bypassedCategories` because it is the only grant that may answer a fresh
+   * approval: autopilot and task bypass were given before the taint and cannot.
+   */
+  private acknowledgedTaint = new Map<string, Set<ToolRiskCategory>>();
 
   /** Fired whenever autopilot mode changes so UI can update. */
   private autopilotChangeListeners: Array<(enabled: boolean) => void> = [];
@@ -103,6 +110,19 @@ export class ToolApprovalManager {
       return true;
     }
 
+    if (decision === 'acknowledge-source') {
+      this.acknowledgeTaint(request.taskId, request.category);
+      this.settleMatchingPending(
+        candidate => candidate.id === requestId
+          || (candidate.taskId === request.taskId
+            && candidate.category === request.category
+            && this.isDecisionAllowed(candidate, decision)
+            && isToolBypassable({ category: candidate.category, risk: candidate.risk, summary: candidate.summary })),
+        decision,
+      );
+      return true;
+    }
+
     if (decision === 'bypass-task') {
       this.state.bypassTaskId = request.taskId;
       this.settleMatchingPending(
@@ -141,12 +161,30 @@ export class ToolApprovalManager {
   }
 
   /**
+   * Release one category of a task from the fresh approval a tainted turn
+   * requires. Scoped to the task and the category the operator was looking at
+   * when they said yes — never wider — and cleared with the task.
+   */
+  acknowledgeTaint(taskId: string, category: ToolRiskCategory): void {
+    if (!this.acknowledgedTaint.has(taskId)) {
+      this.acknowledgedTaint.set(taskId, new Set());
+    }
+    this.acknowledgedTaint.get(taskId)!.add(category);
+  }
+
+  hasAcknowledgedTaint(taskId: string | undefined, category: ToolRiskCategory): boolean {
+    return Boolean(taskId && this.acknowledgedTaint.get(taskId)?.has(category));
+  }
+
+  /**
    * Check if approval should be bypassed for a given tool invocation.
    *
    * Returns true if the invocation is bypassable at all **and** one of:
    *   - Autopilot is enabled, OR
    *   - The current task has full bypass, OR
-   *   - The current task has bypassed this specific category.
+   *   - The current task has bypassed this specific category, OR
+   *   - The operator acknowledged this category for the task after it read
+   *     untrusted content ("allow for this task, I've seen the source").
    *
    * Takes the whole policy rather than the category alone because the ceiling
    * is a (category, risk) pair: an MCP read and an unidentified MCP write are
@@ -173,6 +211,10 @@ export class ToolApprovalManager {
       return true;
     }
 
+    if (this.hasAcknowledgedTaint(taskId, category)) {
+      return true;
+    }
+
     return false;
   }
 
@@ -184,6 +226,7 @@ export class ToolApprovalManager {
       this.state.bypassTaskId = undefined;
     }
     this.bypassedCategories.delete(taskId);
+    this.acknowledgedTaint.delete(taskId);
     this.settleMatchingPending(request => request.taskId === taskId, 'deny');
   }
 
@@ -193,6 +236,7 @@ export class ToolApprovalManager {
   reset(): void {
     this.state = { autopilot: false };
     this.bypassedCategories.clear();
+    this.acknowledgedTaint.clear();
     this.resolveAllPending('deny');
     this.notifyAutopilotChange(false);
   }
@@ -289,6 +333,12 @@ export class ToolApprovalManager {
   }
 
   private isDecisionAllowed(request: PendingToolApprovalRequest, decision: ToolApprovalDecision): boolean {
+    // Deny by default for the taint release: an ordinary card leaves
+    // `allowedDecisions` unset to mean "the usual four", and that must not let
+    // a crafted message answer it with a grant it never offered.
+    if (decision === 'acknowledge-source') {
+      return request.allowedDecisions?.includes(decision) === true;
+    }
     return request.allowedDecisions === undefined || request.allowedDecisions.includes(decision);
   }
 

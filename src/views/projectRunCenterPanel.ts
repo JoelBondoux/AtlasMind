@@ -355,9 +355,11 @@ export class ProjectRunCenterPanel {
         },
       );
 
-      this.liveStatus = result.succeeded
-        ? `Routine '${routine.name}' completed.`
-        : `Routine '${routine.name}' failed at step: ${result.failedStep ?? 'unknown'}`;
+      this.liveStatus = result.dryRun
+        ? `Dry run — routine '${routine.name}' was not run. It is listed in the AtlasMind Dry Run output.`
+        : result.succeeded
+          ? `Routine '${routine.name}' completed.`
+          : `Routine '${routine.name}' failed at step: ${result.failedStep ?? 'unknown'}`;
 
       await this.panel.webview.postMessage({
         type: 'routineDone',
@@ -1634,15 +1636,15 @@ export class ProjectRunCenterPanel {
         }
 
         .dashboard-button-solid {
-          background: linear-gradient(135deg, color-mix(in srgb, var(--run-accent) 86%, white 14%), color-mix(in srgb, var(--run-accent) 72%, black 10%));
+          background: linear-gradient(135deg, var(--run-accent), color-mix(in srgb, var(--run-accent) 72%, black 10%));
           color: var(--vscode-button-foreground);
-          border-color: color-mix(in srgb, var(--run-accent) 75%, white 10%);
+          border-color: color-mix(in srgb, var(--atlas-edge-accent) 75%, var(--tint-away) 10%);
         }
 
         .dashboard-button-danger {
           background: color-mix(in srgb, var(--run-critical) 22%, transparent);
           color: var(--vscode-foreground);
-          border-color: color-mix(in srgb, var(--run-critical) 55%, transparent);
+          border-color: color-mix(in srgb, var(--run-critical) 55%, var(--atlas-boundary));
         }
 
         .hero-grid,
@@ -1906,7 +1908,7 @@ export class ProjectRunCenterPanel {
         }
 
         .status-banner[data-active='true'] {
-          border-color: color-mix(in srgb, var(--run-accent) 58%, var(--run-border));
+          border-color: color-mix(in srgb, var(--atlas-edge-accent) 58%, var(--run-border));
           background: linear-gradient(180deg, color-mix(in srgb, var(--run-accent) 14%, var(--run-panel-strong)), var(--run-panel));
         }
 
@@ -1951,7 +1953,7 @@ export class ProjectRunCenterPanel {
         .tone-accent,
         .tone-neutral {
           background: color-mix(in srgb, var(--run-accent) 18%, transparent);
-          color: color-mix(in srgb, var(--run-accent) 76%, var(--tint-away) 24%);
+          color: var(--dash-accent-strong);
         }
 
         .posture-grid .metric-label {
@@ -2006,7 +2008,7 @@ export class ProjectRunCenterPanel {
         }
 
         .run-card.active {
-          border-color: color-mix(in srgb, var(--run-accent) 60%, transparent);
+          border-color: color-mix(in srgb, var(--atlas-edge-accent) 60%, var(--atlas-boundary));
           background: linear-gradient(180deg, color-mix(in srgb, var(--run-accent) 14%, var(--run-panel-strong)), var(--run-panel));
         }
 
@@ -2171,7 +2173,7 @@ export class ProjectRunCenterPanel {
 
         .result-output-shell {
           border-radius: 18px;
-          border: 1px solid color-mix(in srgb, var(--run-accent) 35%, var(--run-border));
+          border: 1px solid color-mix(in srgb, var(--atlas-edge-accent) 35%, var(--run-border));
           background: linear-gradient(180deg, color-mix(in srgb, var(--run-accent) 8%, var(--run-panel-strong)), color-mix(in srgb, var(--run-panel) 96%, transparent));
           padding: 16px;
         }
@@ -2190,7 +2192,7 @@ export class ProjectRunCenterPanel {
           padding: 12px;
           border-radius: 14px;
           margin: 12px 0 0;
-          border: 1px solid color-mix(in srgb, var(--run-border) 88%, transparent);
+          border: 1px solid var(--run-border);
         }
 
         .empty-card {
@@ -2300,12 +2302,12 @@ export class ProjectRunCenterPanel {
 
         .step-item.is-active .step-dot {
           background: var(--run-accent);
-          border-color: color-mix(in srgb, var(--run-accent) 70%, white);
+          border-color: color-mix(in srgb, var(--atlas-edge-accent) 70%, white);
           box-shadow: 0 0 0 4px color-mix(in srgb, var(--run-accent) 20%, transparent);
         }
 
         .step-item.is-active .step-label {
-          color: color-mix(in srgb, var(--run-accent) 90%, var(--tint-away) 10%);
+          color: var(--dash-accent-strong);
           font-weight: 700;
         }
 
@@ -2345,23 +2347,23 @@ export class ProjectRunCenterPanel {
           align-items: center;
           padding: 8px 12px;
           border-radius: 11px;
-          border: 1px solid color-mix(in srgb, var(--run-border) 65%, transparent);
+          border: 1px solid var(--run-border);
           background: color-mix(in srgb, var(--run-panel) 55%, transparent);
           font-size: 13px;
           transition: border-color 200ms ease, background 200ms ease;
         }
 
         .subtask-track-row.is-running {
-          border-color: color-mix(in srgb, var(--run-accent) 55%, transparent);
+          border-color: color-mix(in srgb, var(--atlas-edge-accent) 55%, var(--atlas-boundary));
           background: color-mix(in srgb, var(--run-accent) 9%, var(--run-panel));
         }
 
         .subtask-track-row.is-completed {
-          border-color: color-mix(in srgb, var(--run-good) 38%, transparent);
+          border-color: color-mix(in srgb, var(--run-good) 38%, var(--atlas-boundary));
         }
 
         .subtask-track-row.is-failed {
-          border-color: color-mix(in srgb, var(--run-critical) 38%, transparent);
+          border-color: color-mix(in srgb, var(--run-critical) 38%, var(--atlas-boundary));
         }
 
         .subtask-icon {
@@ -2376,7 +2378,7 @@ export class ProjectRunCenterPanel {
         .subtask-spinner {
           width: 14px;
           height: 14px;
-          border: 2px solid color-mix(in srgb, var(--run-accent) 22%, transparent);
+          border: 2px solid color-mix(in srgb, var(--atlas-edge-accent) 22%, var(--atlas-boundary));
           border-top-color: var(--run-accent);
           border-radius: 50%;
           animation: spin 0.75s linear infinite;
@@ -2408,7 +2410,7 @@ export class ProjectRunCenterPanel {
           width: 10px;
           height: 10px;
           border-radius: 50%;
-          border: 2px solid color-mix(in srgb, var(--run-muted) 55%, transparent);
+          border: 2px solid color-mix(in srgb, var(--run-muted) 55%, var(--atlas-boundary));
         }
 
         .subtask-track-title {
@@ -2461,7 +2463,7 @@ export class ProjectRunCenterPanel {
         .run-card-spinner {
           width: 14px;
           height: 14px;
-          border: 2px solid color-mix(in srgb, var(--run-accent) 22%, transparent);
+          border: 2px solid color-mix(in srgb, var(--atlas-edge-accent) 22%, var(--atlas-boundary));
           border-top-color: var(--run-accent);
           border-radius: 50%;
           animation: spin 0.75s linear infinite;
@@ -2485,7 +2487,7 @@ export class ProjectRunCenterPanel {
           width: 10px;
           height: 10px;
           border-radius: 50%;
-          border: 2px solid color-mix(in srgb, var(--run-accent) 55%, transparent);
+          border: 2px solid color-mix(in srgb, var(--atlas-edge-accent) 55%, var(--atlas-boundary));
           background: color-mix(in srgb, var(--run-accent) 18%, transparent);
         }
 
@@ -2529,7 +2531,7 @@ export class ProjectRunCenterPanel {
 
         .dashboard-button-ghost.is-loading::after,
         .dashboard-button-danger.is-loading::after {
-          border: 2px solid color-mix(in srgb, var(--vscode-foreground) 18%, transparent);
+          border: 2px solid var(--atlas-boundary);
           border-top-color: var(--vscode-foreground);
         }
 
@@ -3836,6 +3838,9 @@ function seedResultsToSubTaskResults(seedResults: ProjectRunSeedResult[] | undef
     output: seed.output,
     costUsd: 0,
     durationMs: 0,
+    // Absent on a seed recorded before provenance was kept; the orchestrator
+    // then seeds its dependents as third-party.
+    ...(seed.provenance ? { provenance: seed.provenance } : {}),
   }));
 }
 
@@ -3855,6 +3860,7 @@ function mergePlannerSeedResults(
       subTaskId: result.subTaskId,
       title: result.title,
       output: result.output,
+      ...(result.provenance ? { provenance: result.provenance } : {}),
     });
   }
   return [...merged.values()];
@@ -3901,6 +3907,7 @@ function buildArtifactFromResult(
     checkpointedTools: [...(result.artifacts?.checkpointedTools ?? [])],
     changedFiles: changedFiles.map(file => ({ ...file })),
     diffPreview,
+    ...(result.provenance ? { provenance: result.provenance } : {}),
   };
 }
 
@@ -3950,6 +3957,7 @@ function artifactToResult(artifact: ProjectRunSubTaskArtifact): SubTaskResult {
     error: artifact.error,
     role: artifact.role,
     dependsOn: [...artifact.dependsOn],
+    ...(artifact.provenance ? { provenance: artifact.provenance } : {}),
     artifacts: {
       output: artifact.output,
       outputPreview: artifact.outputPreview,

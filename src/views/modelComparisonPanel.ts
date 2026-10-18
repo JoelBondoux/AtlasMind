@@ -637,20 +637,20 @@ export class ModelComparisonPanel {
       .dashboard-kicker { margin: 0 0 6px; text-transform: uppercase; letter-spacing: 0.14em; font-size: 0.72rem; color: var(--vscode-descriptionForeground); }
       .dashboard-topbar h1 { margin: 0; font-size: 2rem; line-height: 1.05; }
       .dashboard-copy { margin: 8px 0 0; max-width: 78ch; color: var(--vscode-descriptionForeground); line-height: 1.5; }
-      .compare-card { padding: 16px 18px; border-radius: 18px; background: color-mix(in srgb, var(--vscode-editor-background) 60%, transparent); border: 1px solid color-mix(in srgb, var(--vscode-widget-border, #444) 58%, transparent); }
+      .compare-card { padding: 16px 18px; border-radius: 18px; background: color-mix(in srgb, var(--vscode-editor-background) 60%, transparent); border: 1px solid var(--atlas-boundary); }
       .card-header-row { display: flex; justify-content: space-between; align-items: flex-start; gap: 12px; margin-bottom: 12px; }
       .card-kicker { margin: 0 0 4px; text-transform: uppercase; letter-spacing: 0.1em; font-size: 0.7rem; color: var(--vscode-descriptionForeground); }
       .card-header-row h2 { margin: 0; font-size: 1.05rem; }
-      textarea { width: 100%; font-family: var(--vscode-editor-font-family, monospace); font-size: 0.9rem; padding: 12px; background: var(--vscode-input-background); color: var(--vscode-input-foreground); border: 1px solid var(--vscode-input-border, #444); border-radius: 12px; resize: vertical; }
+      textarea { width: 100%; font-family: var(--vscode-editor-font-family, monospace); font-size: 0.9rem; padding: 12px; background: var(--vscode-input-background); color: var(--vscode-input-foreground); border: 1px solid var(--atlas-boundary); border-radius: 12px; resize: vertical; }
       .demo-row { display: flex; align-items: center; flex-wrap: wrap; gap: 8px; margin-bottom: 12px; }
       .demo-row-label { font-size: 0.8rem; color: var(--vscode-descriptionForeground); }
-      .demo-chip { border-radius: 999px; border: 1px solid color-mix(in srgb, var(--vscode-widget-border, #444) 80%, transparent); background: color-mix(in srgb, var(--vscode-editorWidget-background, var(--vscode-sideBar-background)) 90%, transparent); color: var(--vscode-foreground); padding: 6px 12px; font: inherit; font-size: 0.8rem; cursor: pointer; transition: transform 140ms ease, border-color 140ms ease; }
-      .demo-chip:hover { transform: translateY(-1px); border-color: var(--vscode-focusBorder, var(--vscode-button-background)); }
+      .demo-chip { border-radius: 999px; border: 1px solid var(--atlas-boundary); background: color-mix(in srgb, var(--vscode-editorWidget-background, var(--vscode-sideBar-background)) 90%, transparent); color: var(--vscode-foreground); padding: 6px 12px; font: inherit; font-size: 0.8rem; cursor: pointer; transition: transform 140ms ease, border-color 140ms ease; }
+      .demo-chip:hover { transform: translateY(-1px); border-color: var(--vscode-focusBorder, var(--atlas-edge-accent)); }
       .picker-toolbar { display: flex; justify-content: space-between; align-items: center; gap: 12px; margin-bottom: 10px; flex-wrap: wrap; }
       .select-all { cursor: pointer; }
       .selected-count { font-size: 0.8rem; color: var(--vscode-descriptionForeground); font-variant-numeric: tabular-nums; }
       .model-list { display: flex; flex-direction: column; gap: 8px; max-height: 360px; overflow-y: auto; scrollbar-width: thin; padding: 4px 2px; }
-      .provider-group { border: 1px solid color-mix(in srgb, var(--vscode-widget-border, #444) 50%, transparent); border-radius: 12px; overflow: hidden; }
+      .provider-group { border: 1px solid var(--atlas-boundary); border-radius: 12px; overflow: hidden; }
       .provider-group > summary { display: flex; align-items: center; gap: 10px; padding: 8px 12px; cursor: pointer; list-style: none; background: color-mix(in srgb, var(--vscode-editor-background) 50%, transparent); }
       .provider-group > summary::-webkit-details-marker { display: none; }
       .provider-group > summary::before { content: '▸'; color: var(--vscode-descriptionForeground); transition: transform 120ms ease; }
@@ -660,22 +660,22 @@ export class ModelComparisonPanel {
       .provider-models { display: flex; flex-direction: column; gap: 2px; padding: 6px 12px 10px 30px; }
       .model-pick { cursor: pointer; display: flex; align-items: center; gap: 8px; padding: 4px 6px; border-radius: 8px; }
       .model-pick:hover { background: color-mix(in srgb, var(--vscode-list-hoverBackground, transparent) 90%, transparent); }
-      .muted-tag { font-size: 0.7rem; padding: 1px 6px; border-radius: 999px; background: color-mix(in srgb, var(--vscode-widget-border, #444) 60%, transparent); color: var(--vscode-descriptionForeground); }
-      .struggle-tag { font-size: 0.7rem; padding: 1px 7px; border-radius: 999px; background: color-mix(in srgb, var(--vscode-editorWarning-foreground, #cca700) 22%, transparent); color: var(--vscode-editorWarning-foreground, #cca700); border: 1px solid color-mix(in srgb, var(--vscode-editorWarning-foreground, #cca700) 45%, transparent); cursor: help; white-space: nowrap; }
+      .muted-tag { font-size: 0.7rem; padding: 1px 6px; border-radius: 999px; background: color-mix(in srgb, var(--vscode-foreground) 8%, transparent); color: var(--vscode-descriptionForeground); }
+      .struggle-tag { font-size: 0.7rem; padding: 1px 7px; border-radius: 999px; background: color-mix(in srgb, var(--vscode-editorWarning-foreground, #cca700) 22%, transparent); color: color-mix(in srgb, var(--vscode-editorWarning-foreground, #cca700) var(--atlas-ink-share), var(--tint-away)); border: 1px solid color-mix(in srgb, color-mix(in srgb, var(--vscode-editorWarning-foreground, #cca700) var(--atlas-ink-share), var(--tint-away)) 45%, var(--atlas-boundary)); cursor: help; white-space: nowrap; }
       .judge-row { display: flex; align-items: center; gap: 12px; margin-top: 14px; flex-wrap: wrap; }
       .judge-toggle { cursor: pointer; }
-      #judge-model { background: var(--vscode-input-background); color: var(--vscode-input-foreground); border: 1px solid var(--vscode-input-border, #444); border-radius: 8px; padding: 6px 8px; max-width: 100%; }
+      #judge-model { background: var(--vscode-input-background); color: var(--vscode-input-foreground); border: 1px solid var(--atlas-boundary); border-radius: 8px; padding: 6px 8px; max-width: 100%; }
       #judge-model:disabled { opacity: 0.5; }
       .judge-hint { margin: 6px 0 0; font-size: 0.78rem; color: var(--vscode-descriptionForeground); }
       .run-bar { display: flex; align-items: center; gap: 14px; flex-wrap: wrap; }
-      .dashboard-button { border-radius: 999px; border: 1px solid color-mix(in srgb, var(--vscode-widget-border, #444) 88%, transparent); padding: 10px 18px; font: inherit; cursor: pointer; transition: transform 140ms ease, border-color 140ms ease, background 140ms ease; }
+      .dashboard-button { border-radius: 999px; border: 1px solid var(--atlas-boundary); padding: 10px 18px; font: inherit; cursor: pointer; transition: transform 140ms ease, border-color 140ms ease, background 140ms ease; }
       .dashboard-button:hover:not(:disabled) { transform: translateY(-1px); }
       .dashboard-button:disabled { opacity: 0.5; cursor: not-allowed; }
-      .dashboard-button-solid { background: linear-gradient(135deg, color-mix(in srgb, var(--vscode-button-background) 94%, white 6%), color-mix(in srgb, var(--vscode-button-background) 70%, black 14%)); color: var(--vscode-button-foreground); border-color: color-mix(in srgb, var(--vscode-button-background) 65%, white 8%); }
+      .dashboard-button-solid { background: linear-gradient(135deg, var(--vscode-button-background), color-mix(in srgb, var(--vscode-button-background) 70%, black 14%)); color: var(--vscode-button-foreground); border-color: color-mix(in srgb, var(--atlas-edge-accent) 65%, var(--tint-away) 8%); }
       .run-status { font-size: 0.85rem; opacity: 0.9; }
       .run-status.busy { color: var(--vscode-descriptionForeground); }
-      .run-status.ok { color: var(--vscode-testing-iconPassed, #4ec9b0); }
-      .run-status.err { color: var(--vscode-errorForeground, #f14c4c); }
+      .run-status.ok { color: color-mix(in srgb, var(--vscode-testing-iconPassed, #4ec9b0) var(--atlas-ink-share), var(--tint-away)); }
+      .run-status.err { color: color-mix(in srgb, var(--vscode-errorForeground, #f14c4c) var(--atlas-ink-share), var(--tint-away)); }
       .legend { margin: 0 0 12px; font-size: 0.8rem; color: var(--vscode-descriptionForeground); line-height: 1.5; }
       .table-wrap { overflow-x: auto; }
       table { border-collapse: collapse; width: 100%; }
@@ -686,11 +686,11 @@ export class ModelComparisonPanel {
       th.sortable[data-sort-dir='asc']::after { content: ' ↑'; opacity: 0.9; }
       th.sortable[data-sort-dir='desc']::after { content: ' ↓'; opacity: 0.9; }
       td.numeric, th.numeric { text-align: right; font-variant-numeric: tabular-nums; }
-      td.quality { font-weight: 600; color: var(--vscode-notificationsInfoIcon-foreground, #4ec9b0); }
+      td.quality { font-weight: 600; color: color-mix(in srgb, var(--vscode-notificationsInfoIcon-foreground, #4ec9b0) var(--atlas-ink-share), var(--tint-away)); }
       td.model-id { font-family: var(--vscode-editor-font-family, monospace); white-space: nowrap; }
       td.preview { max-width: 420px; opacity: 0.9; white-space: pre-wrap; max-height: 7.5em; overflow-y: auto; }
-      td.err { color: var(--vscode-errorForeground, #f14c4c); }
-      td.rank-top { color: var(--vscode-notificationsInfoIcon-foreground, #4ec9b0); font-weight: 600; white-space: nowrap; }
+      td.err { color: color-mix(in srgb, var(--vscode-errorForeground, #f14c4c) var(--atlas-ink-share), var(--tint-away)); }
+      td.rank-top { color: color-mix(in srgb, var(--vscode-notificationsInfoIcon-foreground, #4ec9b0) var(--atlas-ink-share), var(--tint-away)); font-weight: 600; white-space: nowrap; }
       .comparison-note { margin-top: 12px; font-size: 0.78rem; color: var(--vscode-descriptionForeground); }
       .dashboard-empty { padding: 24px; border-radius: 14px; background: color-mix(in srgb, var(--vscode-editor-background) 60%, transparent); color: var(--vscode-descriptionForeground); text-align: center; }
       code { font-family: var(--vscode-editor-font-family, monospace); }

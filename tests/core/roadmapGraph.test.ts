@@ -579,8 +579,8 @@ describe('layout orientation', () => {
     const graph = resolveRoadmapGraph({
       items: [
         item({ id: 'chain-a' }), item({ id: 'chain-b' }),
-        item({ id: 'loose-1', priorityScore: 99 }), item({ id: 'loose-2' }),
-        item({ id: 'loose-3' }), item({ id: 'loose-4' }),
+        item({ id: 'loose-1', priorityScore: 99 }),
+        ...[2, 3, 4, 5, 6, 7, 8, 9, 10].map(n => item({ id: `loose-${n}` })),
       ],
       records: [],
       declaredEdges: [declaredEdge('chain-a', 'chain-b')],
@@ -593,12 +593,16 @@ describe('layout orientation', () => {
       return found as { position: { x: number; y: number } };
     };
     const chainMax = Math.max(nodeOf('chain-a').position.y, nodeOf('chain-b').position.y);
-    const loose = ['loose-1', 'loose-2', 'loose-3', 'loose-4'].map(nodeOf);
+    const loose = [1, 2, 3, 4, 5, 6, 7, 8, 9, 10].map(n => nodeOf(`loose-${n}`));
     for (const node of loose) {
       expect(node.position.y).toBeGreaterThan(chainMax);
     }
-    // Near-square, not one endless row: four items fold onto two reading rows.
-    expect(new Set(loose.map(node => node.position.x)).size).toBe(2);
+    // Shaped for the frame, not one endless row: the canvas is wider than it is
+    // tall, so ten items fold onto two lines of five. (This was a near-square
+    // grid until the layout learned the frame's shape — and a square block in a
+    // wide frame is a block taller than it needs to be.)
+    expect(new Set(loose.map(node => node.position.y)).size).toBe(2);
+    expect(new Set(loose.map(node => node.position.x)).size).toBe(5);
 
     // One slot of separation, not two. `cursor` carries the inter-component
     // gap, which is sized for two linked sub-plans whose edges need room to be

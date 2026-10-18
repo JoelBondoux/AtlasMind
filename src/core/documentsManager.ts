@@ -26,6 +26,7 @@ import type {
   DocumentCadence,
 } from '../types.js';
 import { interpretVersionedDocument, type VersionedDocumentRead } from './schemaMigration.js';
+import { SsotHomeRefusalError } from './workspaceScope.js';
 
 export const DOCUMENTS_SSOT_PATH = 'project_memory/operations/documents.json';
 export const DOCUMENTS_SUMMARY_SSOT_PATH = 'project_memory/operations/documents.md';
@@ -430,7 +431,19 @@ export class DocumentsManager {
   private preserveExisting = false;
   private notice: string | undefined;
 
-  constructor(private readonly workspaceRoot: string | undefined) {
+  /**
+   * @param workspaceRoot The SSOT home — the folder holding project memory,
+   *   from `ssotHomeRoot()`, never assumed to be the first folder.
+   * @param refusal Why project memory may not be read or written here, when
+   *   the home is ambiguous. A refused manager reads nothing and **throws** on
+   *   every write: a write that quietly did nothing would read exactly like one
+   *   that worked, and one sent to the first folder instead would land in a
+   *   repository nobody was looking at.
+   */
+  constructor(
+    private readonly workspaceRoot: string | undefined,
+    private readonly refusal?: string,
+  ) {
     this.applyRead();
   }
 
@@ -460,7 +473,7 @@ export class DocumentsManager {
    * migrated forward, or that it is from a newer AtlasMind and was left alone.
    */
   getNotice(): string | undefined {
-    return this.notice;
+    return this.refusal ?? this.notice;
   }
 
   /** Re-read the config from disk (e.g. after the file was edited externally). */
@@ -480,6 +493,9 @@ export class DocumentsManager {
    * only, and the reason is available from {@link getNotice}.
    */
   async ensureSeeded(seed: DocumentsSeedInput): Promise<DocumentsConfig> {
+    if (this.refusal) {
+      throw new SsotHomeRefusalError(this.refusal);
+    }
     if (this.config) {
       return this.config;
     }
@@ -506,6 +522,9 @@ export class DocumentsManager {
    * Documents page rather than kept internal.
    */
   async save(config: DocumentsConfig): Promise<void> {
+    if (this.refusal) {
+      throw new SsotHomeRefusalError(this.refusal);
+    }
     this.config = config;
     if (this.workspaceRoot) {
       await writeDocumentsConfig(this.workspaceRoot, config);

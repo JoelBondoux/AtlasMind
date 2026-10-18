@@ -1,15 +1,21 @@
 import { readFileSync } from 'node:fs';
 import path from 'node:path';
 
+import fc from 'fast-check';
 import { describe, expect, it } from 'vitest';
 import {
+  BRIEF_CARD_TAG,
   BRIEF_RULES,
   BRIEF_TEMPLATE_ID,
   MIN_BRIEF_WORDS,
   assessBrief,
   briefToBoardTemplate,
   buildBriefParsePrompt,
+  briefContainsQuote,
+  isBriefDerivedCard,
   parseBriefProposal,
+  readBriefCardQuote,
+  readBriefDocumentBody,
   renderBriefDocument,
 } from '../../src/core/projectBrief';
 
@@ -237,5 +243,40 @@ describe('nothing here writes anything', () => {
     for (const rule of BRIEF_RULES) {
       expect(rule.describes.length, rule.id).toBeGreaterThan(40);
     }
+  });
+});
+
+describe('reading the brief and its cards back', () => {
+  it('recovers exactly the brief that was written, from the document (property)', () => {
+    fc.assert(fc.property(fc.string({ minLength: 1, maxLength: 200 }), raw => {
+      const brief = raw.trim();
+      fc.pre(brief.length > 0);
+      expect(readBriefDocumentBody(renderBriefDocument(brief, '2026-10-08T00:00:00.000Z'))).toBe(brief);
+    }));
+  });
+
+  it('reads an empty or missing document as no brief', () => {
+    expect(readBriefDocumentBody(undefined)).toBeUndefined();
+    expect(readBriefDocumentBody(['# Project brief', '', '---', '', ''].join('\n'))).toBeUndefined();
+  });
+
+  it('reads the quote a seeded card carries, and recognises the card as read out of the brief', () => {
+    const proposal = parseBriefProposal(reply([
+      { kind: 'requirement', title: 'Whole week', body: 'b', quote: 'see their whole week' },
+      { kind: 'experiment', title: 'Reminders', body: 'b', question: true },
+    ]), BRIEF);
+    const [grounded, question] = briefToBoardTemplate(proposal).cards;
+    expect(readBriefCardQuote(grounded?.body)).toBe('see their whole week');
+    expect(readBriefCardQuote(question?.body)).toBeUndefined();
+    expect(isBriefDerivedCard({ tags: [], body: grounded?.body })).toBe(true);
+    expect(isBriefDerivedCard({ tags: [], body: question?.body })).toBe(true);
+    expect(isBriefDerivedCard({ tags: [BRIEF_CARD_TAG], body: '' })).toBe(true);
+    expect(isBriefDerivedCard({ tags: ['starter-frame'], body: 'A starter question.' })).toBe(false);
+  });
+
+  it('matches a quote by the one rule: whitespace and case, never punctuation', () => {
+    expect(briefContainsQuote(BRIEF, ['SEE  their whole', 'week'].join('\n'))).toBe(true);
+    expect(briefContainsQuote(BRIEF, 'see their whole week,')).toBe(false);
+    expect(briefContainsQuote(BRIEF, '   ')).toBe(false);
   });
 });

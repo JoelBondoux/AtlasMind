@@ -86,6 +86,102 @@ quoting has to know whether the template already quotes the placeholder, and gue
 ordinary messages or leaves the hole open. The template itself is not treated as suspect; it is a reviewed
 file in your repository, and a routine that pipes on purpose keeps working.
 
+### Your keys stay out of agent commands — `atlasmind.terminal.passEnvironment`
+
+Until **0.500.1**, a command an agent ran on your machine inherited the editor's whole environment — and
+that is whatever your shell exported when the editor started: `ANTHROPIC_API_KEY`, `OPENAI_API_KEY`,
+`GITHUB_TOKEN`, `AWS_*` keys, an npm token. A model, possibly steered by a page it was asked to read, could
+run `env` or `printenv` and read them back. Output redaction would catch some of the shapes; it was never the
+boundary. Now the value never reaches the command:
+
+- **A credential-shaped name is withheld** — `*_API_KEY`, `*_TOKEN`, `*_SECRET`, `*_PASSWORD`,
+  `*_PRIVATE_KEY`, `*_CREDENTIALS`, `*_PAT`, `*_DSN`, the keys AtlasMind's own adapters and CLI read, and a
+  list of well-known names. Matched without regard to case.
+- **A secret-shaped value is withheld under any name**, using the same detectors as the output redactor, so
+  the two cannot disagree about what a key looks like.
+- **A proxy keeps working**: `HTTPS_PROXY=http://user:pass@proxy:8080` is passed as `http://proxy:8080`.
+- **Every withheld variable names its rule**, and a command that fails is told which names were withheld —
+  never a value.
+- **You pass one through by name.** List an exact name in `atlasmind.terminal.passEnvironment` when a task
+  needs it. Only your user setting counts — a repository that could add `GITHUB_TOKEN` there would be a
+  repository that could read it.
+
+It covers the agent's command runner (terminal and test runs, npm scripts, formatting, the git and docker
+skills, the check after a write), an ACP agent's own process — which runs its model's commands under
+`atlasmind.acp.toolsEnabled` — and the `atlasmind` CLI (`ATLASMIND_PASS_ENVIRONMENT` there). It does **not**
+change what you start yourself: your terminals, a routine you were shown and ran, the Delivery run plan and
+promotions keep your environment, because a publish step you chose may legitimately need your token. Two
+model-chosen paths are not covered and are stated rather than implied: the managed terminal's follow-up
+command runs in your own terminal, whose shell environment AtlasMind cannot rewrite, and a debug session
+takes its environment from the launch configuration. Both are behind approval, and both are refused under
+`atlasmind.sandbox.mode = require`.
+
+**This can break a command** that relied on a token from the editor's environment — `gh` authenticated only
+through `GH_TOKEN`, an `npm publish` reading `NPM_TOKEN`, an ACP agent signing in from an API key variable.
+Add the name to `atlasmind.terminal.passEnvironment` and it works as before.
+
+### A sandbox for commands — `atlasmind.sandbox.mode`
+
+By default an approved command runs on your machine, with what your editor can reach — minus the credentials
+withheld above. Since
+**0.500.0** you can require a container sandbox instead: set `atlasmind.sandbox.mode` to `require`, and
+every command an agent asks for — terminal and test runs, npm scripts, routine steps, the check after a
+write — runs in the container or is refused. Run **AtlasMind: Check Execution Sandbox** first to see whether
+it is available here, rule by rule. With the mode `off` (the default), nothing changes and AtlasMind starts no
+container engine process. What the sandbox promises:
+
+- **It refuses rather than falls back.** With the sandbox required, a command it cannot run is refused and
+  the reason names the rule. It is never quietly run on your machine instead, and there is no "prefer"
+  mode, because that is where a silent fallback hides. Three things that would run outside it — a debug
+  session the model starts, an ACP agent's command, and a model's follow-up in the managed terminal — are
+  refused for the same reason.
+- **Only an image pinned by digest.** A tag like `node:20` can be moved by whoever controls the registry,
+  so it is refused rather than looked up. The image is never pulled on the night.
+- **Only a Linux engine,** checked within the last ten minutes. Docker in Windows-container mode counts as
+  unavailable, not as a weaker sandbox.
+- **No network, no extra privileges, one folder.** The container gets no network, no Linux capabilities, a
+  read-only system, limits on processes, CPU and memory, and exactly one folder of your machine — the
+  project or worktree. Never your home folder, a credentials folder like `~/.ssh`, the Docker socket or
+  your ssh agent. Your API keys do not cross: only a short list of harmless variables does.
+- **Some commands never go in it** — git, `gh`, Docker itself, network tools, and anything that publishes
+  or installs. With the sandbox required, those are refused — the git skills included. AtlasMind's own git
+  reads, branch listing and patch tool stay on your machine.
+- **One decision, one reading.** The settings and the engine reading a command rests on are frozen together
+  before it is planned, so what decided "this may run in the sandbox" and what runs it cannot disagree. A
+  reading older than ten minutes is taken again before a command runs — once, within three minutes, or the
+  command is refused.
+- **Nothing left running.** A command that times out has its container removed by name; closing the window
+  removes its live containers; a window opening under `require` removes labelled containers older than any
+  command may run.
+- **A repository cannot pick the image.** The image, the engine and the limits are machine settings: only
+  your own user value is read, and a value a workspace sets is ignored and named in the check's report. A
+  repository can turn the sandbox *on* (`require`), never off.
+- **The check never pulls.** It looks for the pinned image on your machine and tells you the `docker pull`
+  to run if it is missing. Its one container — a canary that runs `test -d /work` with no network — is not
+  started during a dry run, so a dry run can never report the sandbox as confirmed.
+- **Approvals loosen only if you opt in (0.501.0).** `atlasmind.sandbox.relaxTerminalApprovals`, in your user
+  settings only, lets a terminal write that will run in a confirmed sandbox skip its prompt. The trust shift:
+  such a command still cannot reach the network, your keys or anything outside the mounted folder, but it can
+  change any file in that folder without asking. It never applies after the agent has read someone else's text,
+  never lifts `atlasmind.allowTerminalWrite`, never covers file writes, git or network calls, and is tied to the
+  exact sandbox reading that was checked — an expired one refuses the command. Every skipped prompt is recorded
+  with the attestation and image digest it rested on.
+- **It does not loosen anything else.** Without that opt-in, approvals are unchanged. Dry run still runs nothing — not even a
+  probe. A command after the agent has read someone else's text still needs a fresh approval. Scheduled
+  routines refuse what they refused before.
+- **Dependencies come from a volume you prepared, never from your machine (0.503.0).** A command that loads
+  installed packages runs only with a dependency volume prepared for the folder's current lockfile; your own
+  `node_modules` (built for your machine) is never used in the container, and a changed lockfile is refused
+  until prepared again. Preparing — **AtlasMind: Prepare Sandbox Dependencies** — is the sandbox's one
+  network-on step, and you see every command first. That container sees only `package.json` and the lockfile,
+  read-only (not your source, `.npmrc` or environment), writes only into the volume, and does not run install
+  scripts unless you confirm a second, separate warning — they are arbitrary code from every package, with
+  network access, and what they leave in the volume runs whenever a sandboxed command loads it. A symlinked
+  manifest or lockfile is refused rather than followed, so it cannot hand that container another file. A dry
+  run, an agent and a scheduled routine never prepare dependencies.
+- **What it does not contain.** Commands you start yourself, tools of MCP servers you connected, a
+  model-written skill (off by default and reviewed first), and the `atlasmind` CLI.
+
 Full detail in [[Tool Execution]].
 
 ---
@@ -118,6 +214,59 @@ It's handled in layers:
   as reported content, so an issue reading "ignore your instructions" can't become one
 - **The trust boundary is structural.** Untrusted content never enters the part of the prompt that
   carries authority, whatever it says about itself
+- **MCP tool descriptions are scanned and pinned.** A tool description is text the model reads as
+  instruction, so it is the obvious place to hide one. Every MCP tool's description and input schema is
+  scanned for tool-poisoning text: instruction tags, claims over other tools, hiding things from you,
+  credential paths, hidden characters and encoded blobs. Every tool is also pinned to the version you
+  approved. A flagged tool is held even on first sight. First sight is spent by the server's first
+  successful tool listing, **even an empty one**, so a server can't list nothing when you enable it and add
+  its real tools later to have them trusted unreviewed. A tool that changes after approval is held, and
+  the skill made from its old version is removed. A pin that can't be read is treated as unverifiable, never
+  as "nothing pinned yet" — and so is a server the 0.488.0 pin store has no record of, since that build
+  didn't record a server whose first listing was empty. Approving a held tool in the MCP panel pins exactly the version you reviewed.
+  The panel sends an opaque id bound to that version's hashes, and the extension re-checks the live tool
+  before it registers anything
+- **What a task has read decides what it may do next without asking.** Every message and tool result is
+  classed *operator*, *AtlasMind*, *workspace* or *third-party*, and a task keeps the highest class it has
+  read for the rest of its life. Once it has read third-party content — a fetched page, an MCP answer, `gh`
+  output, another agent's answer, any tool AtlasMind can't identify — a write, a commit, a command or a
+  network call needs a **fresh** approval that Autopilot and Bypass cannot answer, because both were given
+  before the content was read. Reads stay free. If the content contained an instruction override, it is
+  kept and flagged rather than dropped, and the task may not reach the network at all. Third-party results
+  are fenced with a numbered marker the content cannot close. The rule tables are in
+  `src/core/contextProvenance.ts`; detail in [Tool Execution](Tool-Execution.md)
+
+**It lasts for the conversation, not just the turn.** What a turn read is still in the history the next
+turn sends — the page itself, and the model's own account of it — so since 0.489.1 the next turn starts
+from everything the conversation has read. A write asked for three turns after a fetch asks again, even
+under Autopilot, and the dialog says the source was read *earlier in this conversation*. The conversation's
+record only rises; it is kept beside the transcript, so a window reload cannot launder it, and a
+conversation saved before 0.489.1 that has history counts as third-party because nobody recorded what its
+turns read. **Starting a new conversation, or clearing this one, is the only reset.** Deleting or rewinding
+messages is not, because the rolling session summary has no per-turn identity and can outlive the turns it
+summarised. A turn whose conversation is in scope carries a one-line note under it saying so. The same
+applies to a project run started from chat (its subtasks start from the conversation, and what they read
+comes back into it), to AtlasMind as an ACP agent (per ACP session), and to run history, which now records
+what each finished subtask read so a resumed run seeds its dependents from it rather than assuming the
+worst.
+
+**A long page is read by a model that can't do anything.** Since 0.490.0, a third-party result over 8,000
+characters never reaches the agent that holds the tools. A separate model with **no tools**, no agent
+prompt and no project memory reads it and returns a small extract — at most 20 one-line facts, `https`
+URLs that actually appear in the text, and a few exact quotes — answering what you asked. The extract is
+checked against that schema: anything that isn't one JSON object of those fields is refused whole, and a
+URL the text never contained, a "quote" it never said, or a fact shaped like an instruction is withheld and
+counted. The agent gets the fenced extract and a handle. The extract is **still third-party content**, so
+the task is still tainted, and if the page held an instruction override the task still can't reach the
+network. If no model is available or its answer doesn't validate, the agent gets a short fenced excerpt
+with a `[SECURITY]` note — never the whole page. The full text comes back only through `quarantine-read`,
+which always asks you first. The reader's calls are recorded as `quarantined-reader` in the cost
+dashboard, and since 0.490.1 they count toward the task's cost cap and the daily limit like any other
+call: a read whose worst case would go over either isn't made, and the agent gets the short excerpt
+instead. `atlasmind.security.quarantineReader: off` turns the reader off; the taint still applies.
+
+The full picture — assets, trust boundaries, every entry point, which control answers which attack, and
+what is **not** defended — is in [[Prompt Injection Threat Model]].
 
 ---
 
@@ -144,6 +293,56 @@ also rejects a forged webview decision that was never offered on that card.
 
 ---
 
+## Dry run means nothing acts
+
+`atlasmind.dryRun.enabled` turns every tool call that would write, run a subprocess, change git or reach
+the network into a description of it. The rule is an allowlist, not a blocklist: a call runs only when it is
+one of AtlasMind's own built-in skills that a published table (`DRY_RUN_BUILTIN_TABLE`) grades as a local
+read. MCP tools, workspace-scanned and model-written skills, unrecognised names, and a custom skill
+registered under a built-in's name are always described. The table is tested to have exactly one row per
+built-in skill, so a new skill fails the build until somebody decides what it is.
+
+Under the table sits a second line: a skill allowed to run is handed a skill context built member by member
+from an exhaustive list of what `SkillExecutionContext` offers, with every method that can change something
+— including mixed ones like `gitBranch`, which lists or deletes depending on its arguments — replaced by one
+that refuses. A test walks every built-in skill, plus an MCP tool, a workspace skill and an unknown name,
+through a real orchestrator and asserts that no effect method, no MCP call, no approval prompt for a
+described call, no checkpoint, no verifier and no webhook is reached.
+
+Network **reads** are described too: a GET changes nothing locally and still carries model-written text
+off the machine. A repository cannot switch dry run off for you (it is a user-only setting), and a value
+AtlasMind cannot read counts as on. Model calls are not actions and still run.
+
+**Outside the tool loop, the same switch holds.** Routines, promotions, rollbacks, dashboard git and
+GitHub writes, Director and Buzz messages, webhooks, MCP calls from any panel, terminal sends, installers,
+live-service probes, UI Studio element edits to a project file and the writes AtlasMind makes on its own are refused by one host service
+(`src/core/dryRunHost.ts`) and recorded in the same output channel; a button you pressed tells you dry run
+stopped it rather than appearing to do nothing. The guard sits at each effect's own boundary wherever there
+is one — the `gh` client, the shared process helper, the promotion and routine runners, the MCP registry —
+so a surface added later inherits it. Commands are graded by an allowlist of read shapes
+(`classifyHostCommand`): an unrecognised git subcommand, a `gh api` call carrying a method or a field, and
+any program asked for more than its version are all effects. A source scan fails the build when a file that
+can act is neither guarded nor exempted with a written reason. Full detail in
+[Tool Execution](Tool-Execution.md).
+
+---
+
+## Editing a real page runs only AtlasMind's script
+
+UI Studio's element editing (0.495.0) shows a project's own HTML page with its elements selectable. The page
+is built from the file with every `<script>` element, `on…` handler attribute, `srcdoc` and
+`javascript:`/`vbscript:`/`data:text/html` URL left out, under a Content-Security-Policy that admits a script
+only with that render's random nonce — carried by AtlasMind's selection script, a constant that never reads
+the page's markup into code, draws in a closed shadow root and swallows every click so no link or form acts.
+The page can post only an element id or an insertion point id; every value for an edit is asked for in VS
+Code's own pickers and validated twice. Attributes come from an allowlist (`class`, `id`, `alt`, `title`,
+`aria-*`; `href` https or relative on links; `src` relative on images and media) — never an event handler,
+`style`, or `src` on a script or frame. Each edit is one splice shown before and after (control and
+bidirectional characters made visible), refused if the file changed since it was parsed, if an editor holds
+unsaved changes to it, or if it is not valid UTF-8, and held by dry run.
+
+---
+
 ## Routines are shown to you before they run
 
 A routine is a shell script you wrote, stored as a `.md` file in `project_memory/routines/`. `/ship`
@@ -158,6 +357,16 @@ fixed by validating harder — it is fixed by putting the commands in front of y
 
 A placeholder with no value is refused rather than becoming an empty string, so a routine cannot
 quietly run a different command from the one it describes.
+
+### A scheduled routine runs only what you approved, and only so far
+
+Scheduling is off until you switch it on in **user** settings (a repository's workspace settings cannot),
+and each routine also needs your approval of its exact steps — stored as a fingerprint in your own workspace
+state, never in the committed memory, so one person's approval cannot run code on a colleague's machine.
+Editing a step withdraws the approval. Unattended, a run may not push, publish, deploy, change git history
+or install packages: it stops at the first such step and reports that it needs you. It runs in a fresh git
+worktree on its own branch and refuses to run at all if one cannot be made, so it never touches your working
+tree. An untrusted workspace blocks it, and a dry run records it instead of running it.
 
 ---
 
@@ -201,6 +410,12 @@ isn't changed — because one heuristic hit inside a large context bundle should
 unrelated task.
 
 The allow-list is **deny-by-default**: an empty list trusts nothing.
+
+**An unsettled workspace does not switch the policy off.** The policy lives in project memory, and when a
+multi-root workspace has two folders that both look like its home, AtlasMind reads and writes no project
+memory until you declare one. For this one file that would mean *no* policy — redaction off because two
+folders disagree — so instead every candidate folder's policy applies at once: every rule and compliance
+pack any of them enables, and only the models every one of them trusts.
 
 **What gets scanned is the whole context, including the session bundle.** A long-running session keeps a
 compressed `context.md` and AtlasMind sends that structured bundle *instead of* the raw transcript — the
@@ -275,9 +490,26 @@ Chat, Edit, and Regenerate use the same boundary before the next model request i
 
 ## Network requests
 
-`web-fetch` and `http-request` block requests to localhost, private IP ranges and cloud metadata
-endpoints — so a URL that arrived in a model's output or a fetched page can't be used to reach into your
-network.
+`web-fetch` and `http-request` — and any skill a model drafts, since the check sits underneath them in
+`fetchUrl` and `httpRequest` — can't be used to reach into your machine or your network with a URL that
+arrived in a model's output or a fetched page:
+
+- **`https` only**, and a URL carrying a user name or password is refused.
+- **Names that are local by definition are refused**: `localhost`, `*.localhost`, `*.local`, `*.internal`
+  (which covers `metadata.google.internal`) and `*.home.arpa`.
+- **Addresses are judged by value, not spelling.** Loopback, private networks, link-local
+  (`169.254.0.0/16` — where cloud instance metadata lives), carrier-grade NAT, multicast and reserved
+  ranges are refused whether written `127.0.0.1`, `2130706433`, `0x7f.1` or `[::ffff:127.0.0.1]`.
+- **The name is looked up, and every address it points to must pass.** A public name that points at a
+  private address is refused, and so is a name that doesn't resolve.
+- **The connection goes only to the addresses that were checked**, so a name can't answer "public" to the
+  check and "your router" to the connection (DNS rebinding).
+- **Every redirect is checked the same way**, at most five are followed, `https` can't redirect to `http`,
+  and your `Authorization` and cookies aren't forwarded to a different site.
+
+Each refusal names its rule and the range it hit. Lens endpoints you declare in
+`.atlasmind/lens-endpoints.json` are deliberately outside this check — that file is reviewed like code,
+and a staging API on your office network is the ordinary case there.
 
 Resource discovery gets the same treatment plus HTTPS enforcement, schema validation, depth-bounded
 federation, opt-in finders, and installs that arrive disabled.
@@ -718,6 +950,13 @@ and checks the exact repository/ref/actor conditions, trigger set, read-only per
 absence, immutable action references, checkout credential setting, unique label and existing runner list.
 The runner it starts cannot dispatch or rerun a workflow.
 
+An organisation-owned repository has no owner account: `github.repository_owner` is the organisation's name,
+which no actor can equal, so the owner condition would skip every job. Since v0.483.0 its workflows pin the one
+account allowed to start the job by numeric id (`github.actor_id == '<id>'`), never by login, which can be renamed
+and reclaimed. The policy accepts exactly one actor condition — the owner or one pinned id, never both and never
+an alternative — and ignores a condition that appears only in a comment. The start preflight matches the queued
+run's actor to that pin by id, and a reviewed-PR dispatch checks the signed-in account first.
+
 Since v0.375.0 the *page* can queue one — a **Queue the run…** control that dispatches the trusted workflow
 on GitHub. It is not the runner gaining a capability: the container's token is unchanged and still cannot
 dispatch anything, and queueing starts nothing locally. Four properties bound it. The webview posts a bare
@@ -843,6 +1082,35 @@ AtlasMind fails **visibly** rather than quietly falling back.
 
 ---
 
+## A local runtime that can act on its own
+
+Unsloth Studio can run Python, a shell and web search **itself**, inside a reply, and `unsloth run` and
+`unsloth studio run` turn that on by default for a server on your own machine. AtlasMind never sees those
+tool calls, only the answer. Nothing Studio ran that way would pass AtlasMind's approvals, its sandbox,
+its dry run or its tracking of what a task has read. So:
+
+- **Every request asks for Studio's own tools to be off** (`enable_tools: false`, and `mcp_enabled: false`
+  for Studio's own MCP servers). Studio honours that over its default.
+- **One case is not covered, and AtlasMind says so.** A Studio started with `--enable-tools` overrides
+  the request, and Studio publishes no way to ask which policy it was started with. Start Studio with
+  `--disable-tools`; it is the one setting the server cannot be talked out of.
+- **An unlabelled Studio still gets the guard.** Studio marks every model it lists as its own
+  (`owned_by: "unsloth-studio"`), and AtlasMind reads that before it can send a request to any of them.
+
+**Its key goes to Studio and nowhere else.** Studio's default port, 8888, is also Jupyter's. AtlasMind
+asks the server who it is, unauthenticated, and sends the `sk-unsloth-` key only if it answers as Unsloth
+Studio. Connecting tries the key before storing it. The key is kept in the OS keychain under that
+endpoint's own name, and sent to no other local endpoint. Plain HTTP to another machine asks first, because
+the key would cross the network unencrypted. The secret redactor recognises Studio keys, too.
+
+**Downloads are Studio's, and you confirm them.** Loading a model Studio does not have makes Studio
+download it from Hugging Face. AtlasMind sends only the repository id and the quantisation, asks first
+with the size, and holds it in a dry run. It sends no Hugging Face token, so a gated repository is one
+you download in Studio itself. Deleting a download asks first too, and names the size. AtlasMind never
+routes to a model Studio has only on disk, because that would make Studio load gigabytes on the router's say-so.
+
+---
+
 ## Remote sessions
 
 Off by default. Binds only to your own machine. Requires pairing, requires workspace trust, never carries
@@ -886,16 +1154,23 @@ into a broader source. No proposed import is written until its confirmation is a
 
 ## Threat model, briefly
 
+This is the short form. The prompt-injection part, including what is **not** defended, is written out in
+[[Prompt Injection Threat Model]].
+
 | Threat | What stops it |
 |--------|-----------|
 | Malicious model output | Approval gate, parameter validation, sandbox |
 | Prompt injection via memory | Scanner blocks the write |
 | Prompt injection via chat history or attachments | Transient-context scanning, untrusted-context isolation, priority guardrails |
-| Credential exposure | OS keychain, write gate, dispatch-time redaction |
+| Tool poisoning and MCP rug pulls | Description and schema scanning, per-tool pins, hold-on-change, version-bound approval |
+| Injected instructions in fetched or tool content | Provenance taint, fresh approval Autopilot cannot answer, network refused after a suspected injection, unclosable fences |
+| Injected instructions hidden in a long page | Quarantined reader: a tool-less model reads it, the agent gets a checked extract, the raw text only on a fresh approval |
+| A sub-call spending past a cap | The quarantined reader is checked against the task cap and the daily limit before it runs, and counted toward both |
+| Credential exposure | OS keychain, write gate, dispatch-time redaction, credential-shaped environment variables withheld from every agent command |
 | Path traversal | Workspace sandboxing on every file operation |
 | Shell injection | No shell, allow-list, operator blocking |
-| Server-side request forgery | IP range and metadata endpoint blocking |
-| Malicious discovery manifests | HTTPS, private-host screening, schema validation, bounded federation, opt-in finders, disabled installs |
+| Server-side request forgery | `https` only; local names refused; every resolved address judged by value against private, link-local (cloud metadata) and reserved ranges; the connection pinned to the checked addresses; every redirect re-checked |
+| Malicious discovery manifests | HTTPS, the same destination screening as fetches (DNS, pinning, redirects), schema validation, bounded federation, opt-in finders, disabled installs |
 | Cross-site scripting in panels | CSP, nonces, escaping |
 | A permanent grant escaping AtlasMind | One-operation approvals only, never "always allow", denial on missing policy |
 | Duplicated delegated work | Stable request identity, single-flight, a short result ledger, exclusion from generic retries |
@@ -909,6 +1184,7 @@ into a broader source. No proposed import is written until its confirmation is a
 
 ## Related
 
+- [[Prompt Injection Threat Model]] — assets, trust boundaries, controls, and residual risk
 - [[Tool Execution]] — approvals, allow-lists and gates in detail
 - [[Memory System]] — the write gate and redaction boundary
 - [[Delivery]] — production protection

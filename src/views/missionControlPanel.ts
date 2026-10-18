@@ -703,7 +703,7 @@ export class MissionControlPanel {
       h1, h2 { font-family: var(--dash-heading); letter-spacing: -0.02em; }
 
       textarea, input[type="number"], input[type="text"] { width: 100%; background: color-mix(in srgb, var(--vscode-input-background) 80%, transparent); color: var(--vscode-input-foreground); border: 1px solid var(--dash-border); border-radius: 10px; padding: 8px 10px; font-family: inherit; margin: 4px 0 10px; }
-      textarea:focus, input:focus { outline: none; border-color: color-mix(in srgb, var(--dash-accent) 60%, var(--dash-border)); }
+      textarea:focus, input:focus { outline: none; border-color: color-mix(in srgb, var(--atlas-edge-accent) 60%, var(--dash-border)); }
       label { display: block; font-size: 0.9em; margin-top: 6px; }
       label.check { display: flex; align-items: center; gap: 6px; }
       label.check input { width: auto; margin: 0; }
@@ -720,7 +720,7 @@ export class MissionControlPanel {
       .mc-actions { display: flex; align-items: center; gap: 10px; flex-wrap: wrap; justify-content: flex-end; }
       .mc-chip { display: inline-flex; align-items: center; gap: 7px; padding: 6px 12px; border-radius: 999px; border: 1px solid var(--dash-border); background: color-mix(in srgb, var(--dash-panel) 80%, transparent); font-size: 12px; font-weight: 600; }
       .mc-link-btn { border-radius: 999px; padding: 8px 14px; font-size: 12px; font-weight: 600; cursor: pointer; border: 1px solid var(--dash-border); background: color-mix(in srgb, var(--dash-panel) 82%, transparent); color: var(--vscode-foreground); transition: transform 140ms ease, border-color 140ms ease, background 140ms ease; }
-      .mc-link-btn:hover { transform: translateY(-1px); border-color: color-mix(in srgb, var(--dash-accent) 80%, white 20%); background: color-mix(in srgb, var(--dash-accent) 84%, transparent); }
+      .mc-link-btn:hover { transform: translateY(-1px); border-color: color-mix(in srgb, var(--atlas-edge-accent) 80%, var(--tint-away) 20%); background: color-mix(in srgb, var(--dash-accent) 84%, transparent); }
 
       /* Tone status dots */
       .pill-dot { width: 9px; height: 9px; border-radius: 999px; flex: 0 0 auto; display: inline-block; background: var(--dash-muted); }
@@ -740,7 +740,7 @@ export class MissionControlPanel {
       #launch:hover { background: var(--vscode-button-hoverBackground, var(--dash-accent-strong)); }
       #launch:disabled { opacity: 0.5; cursor: default; }
       #stop { border-radius: 999px; padding: 9px 16px; font: inherit; font-weight: 600; cursor: pointer; border: 1px solid var(--dash-border); background: color-mix(in srgb, var(--dash-panel) 82%, transparent); color: var(--vscode-foreground); }
-      #stop:hover:not(:disabled) { border-color: color-mix(in srgb, var(--dash-accent) 70%, var(--dash-border)); }
+      #stop:hover:not(:disabled) { border-color: color-mix(in srgb, var(--atlas-edge-accent) 70%, var(--dash-border)); }
       #stop:disabled { opacity: 0.5; cursor: default; }
 
       .log { max-height: 320px; overflow-y: auto; font-family: var(--vscode-editor-font-family, monospace); font-size: 0.85em; background: color-mix(in srgb, var(--vscode-editor-background) 60%, transparent); border: 1px solid var(--dash-border); border-radius: 12px; padding: 10px 12px; }
@@ -757,7 +757,7 @@ export class MissionControlPanel {
       .decision-actions { display: flex; flex-wrap: wrap; gap: 8px; margin-top: 8px; }
       .decision-actions button { border-radius: 999px; padding: 7px 14px; font: inherit; font-weight: 600; cursor: pointer; border: 1px solid var(--dash-border); background: color-mix(in srgb, var(--dash-panel) 82%, transparent); color: var(--vscode-foreground); }
       .decision-actions button.danger { border-color: color-mix(in srgb, var(--dash-critical) 60%, var(--dash-border)); background: color-mix(in srgb, var(--dash-critical) 20%, transparent); color: var(--vscode-foreground); }
-      .decision-actions button.primary { border-color: color-mix(in srgb, var(--dash-accent) 70%, var(--dash-border)); background: color-mix(in srgb, var(--dash-accent) 34%, transparent); color: var(--vscode-foreground); font-weight: 700; }
+      .decision-actions button.primary { border-color: color-mix(in srgb, var(--atlas-edge-accent) 70%, var(--dash-border)); background: color-mix(in srgb, var(--dash-accent) 34%, transparent); color: var(--vscode-foreground); font-weight: 700; }
     `;
 
     return getWebviewHtmlShell({

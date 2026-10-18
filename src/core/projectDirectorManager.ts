@@ -46,6 +46,7 @@ import type {
   StakeholderCategory,
   TeamMember,
 } from '../types.js';
+import { SsotHomeRefusalError } from './workspaceScope.js';
 
 export const PROJECT_DIRECTOR_SSOT_PATH = 'project_memory/operations/project-director.json';
 export const PROJECT_DIRECTOR_SUMMARY_SSOT_PATH = 'project_memory/operations/project-director.md';
@@ -1011,7 +1012,19 @@ export class ProjectDirectorManager {
   private preserveExisting = false;
   private notice: string | undefined;
 
-  constructor(private readonly workspaceRoot: string | undefined) {
+  /**
+   * @param workspaceRoot The SSOT home — the folder holding project memory,
+   *   from `ssotHomeRoot()`, never assumed to be the first folder.
+   * @param refusal Why project memory may not be read or written here, when
+   *   the home is ambiguous. A refused manager reads nothing and **throws** on
+   *   every write: a write that quietly did nothing would read exactly like one
+   *   that worked, and one sent to the first folder instead would land in a
+   *   repository nobody was looking at.
+   */
+  constructor(
+    private readonly workspaceRoot: string | undefined,
+    private readonly refusal?: string,
+  ) {
     this.applyRead();
   }
 
@@ -1030,7 +1043,7 @@ export class ProjectDirectorManager {
 
   /** Something worth telling the user about the file itself, if anything. */
   getNotice(): string | undefined {
-    return this.notice;
+    return this.refusal ?? this.notice;
   }
 
   getConfig(): ProjectDirectorConfig | undefined {
@@ -1055,6 +1068,9 @@ export class ProjectDirectorManager {
    * is still returned in memory.
    */
   async ensureSeeded(seed: ProjectDirectorSeedInput): Promise<ProjectDirectorConfig> {
+    if (this.refusal) {
+      throw new SsotHomeRefusalError(this.refusal);
+    }
     if (this.config) {
       return this.config;
     }
@@ -1075,6 +1091,9 @@ export class ProjectDirectorManager {
 
   /** Persist an updated config (already sanitised by the caller) and cache it. */
   async save(config: ProjectDirectorConfig): Promise<void> {
+    if (this.refusal) {
+      throw new SsotHomeRefusalError(this.refusal);
+    }
     this.config = config;
     if (this.workspaceRoot) {
       await writeProjectDirectorConfig(this.workspaceRoot, config);

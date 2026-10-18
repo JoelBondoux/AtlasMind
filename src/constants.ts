@@ -1766,8 +1766,48 @@ export const MAX_PARALLEL_TOOL_EXECUTIONS = 3;
 /** Per-tool execution timeout in milliseconds. */
 export const TOOL_EXECUTION_TIMEOUT_MS = 15_000;
 
-/** Provider call timeout in milliseconds. */
+/**
+ * Provider call timeout in milliseconds — the *base* of every derived budget,
+ * and the whole budget for a hosted call whose planned output fits inside
+ * `HOSTED_TIMEOUT_COVERED_OUTPUT_TOKENS`.
+ */
 export const PROVIDER_TIMEOUT_MS = 30_000;
+
+/**
+ * The planned output (the request's `max_tokens`, thinking included) the flat
+ * hosted base is taken to cover.
+ *
+ * A deep-reasoning turn asks for up to ~27k output tokens (24,576 projected
+ * thinking plus reply room, `reasoningBudget.ts`), and thinking is output: it
+ * has to be generated before the first visible token. A flat 30s budget written
+ * for a paragraph declared those turns stalled while the model was thinking,
+ * then spent a failover on the next model at the same depth.
+ */
+export const HOSTED_TIMEOUT_COVERED_OUTPUT_TOKENS = 4_096;
+
+/**
+ * Extra time per 1,000 planned output tokens above the covered amount: a
+ * planning floor of 50 tokens/s. AtlasMind's declared figure, not a vendor
+ * promise — no vendor publishes a throughput guarantee — and deliberately slow,
+ * because a budget that guesses fast fails a working model.
+ */
+export const HOSTED_TIMEOUT_MS_PER_1K_OUTPUT_TOKENS = 20_000;
+
+/**
+ * Ceiling on a derived hosted budget: ten minutes, the Anthropic SDKs' own
+ * default request timeout. A hosted call silent for that long has stalled
+ * whatever it was asked to write.
+ */
+export const HOSTED_PROVIDER_MAX_TIMEOUT_MS = 600_000;
+
+/**
+ * Absolute ceiling on one *streamed* hosted call, however busy it is. A
+ * streaming attempt's budget is an inactivity budget that restarts on every
+ * streamed chunk, so a long answer that keeps arriving is never cut off; this
+ * catches one that keeps talking and never finishes. Mirrors
+ * `ACP_PROMPT_CEILING_MS`.
+ */
+export const HOSTED_STREAM_CEILING_MS = 30 * 60_000;
 
 /**
  * How long a single ACP JSON-RPC request may take. Consumed by the adapter as

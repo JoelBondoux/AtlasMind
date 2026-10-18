@@ -86,3 +86,22 @@ export function sanitizeTerminalOutput(value: string): string {
     .replace(/\r/g, '\n')
     .replace(RESIDUAL_CONTROL, '');
 }
+
+/** The most command output, per stream, that reaches a caller (and so a model prompt). */
+const COMMAND_OUTPUT_CLIP_CHARS = 64 * 1024;
+
+/**
+ * Keep the tail of oversized command output. Test runners print their
+ * failures last, so the tail is the half worth keeping — and an unclipped
+ * multi-megabyte transcript would land verbatim in a model prompt.
+ *
+ * Shared by `runCommand`'s host path and the execution sandbox's runner, so a
+ * command's output is clipped the same way wherever it ran.
+ */
+export function clipCommandOutput(text: string): string {
+  const trimmed = text.trim();
+  if (trimmed.length <= COMMAND_OUTPUT_CLIP_CHARS) {
+    return trimmed;
+  }
+  return `…[earlier output truncated]\n${trimmed.slice(-COMMAND_OUTPUT_CLIP_CHARS)}`;
+}

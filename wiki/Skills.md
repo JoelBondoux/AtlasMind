@@ -65,8 +65,8 @@ workspace-wide sweep can silently absorb unrelated work.
 |-------|-------------|
 | `text-search` | Grep-style search across the workspace, regex supported |
 | `memory-query` | Query project memory |
-| `web-fetch` | Fetch a URL, with protection against reaching localhost, private IPs or cloud metadata endpoints |
-| `http-request` | A full HTTP request — method, headers, body — with the same protections. Useful for testing your own APIs |
+| `web-fetch` | Fetch an `https` URL. Your machine, private networks and cloud metadata are refused — by name, by address however it's spelled, by what the name looks up to, and after every redirect |
+| `http-request` | A full `https` request — method, headers, body — with the same protections, and your `Authorization` header is not forwarded if a redirect goes to another site. Useful for testing public APIs |
 | `exa-search` | Web search via EXA. Needs an EXA key in Specialist Integrations |
 | `discover-resources` | Read-only search for new MCP servers, agents and skills. It surfaces candidates; it never installs anything |
 
@@ -294,6 +294,31 @@ Prefer full control? The **Advanced** tab keeps the raw transport, command, args
 
 - Enable or disable individual MCP tools in the Skills tree
 - Connections persist across sessions
+
+### Pinned tools, and what happens when one changes
+
+Enabling a server trusts it as it is **now**. Its tools are pinned when they first connect: AtlasMind
+records each tool's description and input schema, and a hash of both.
+
+On every later connect, a tool that matches its pin registers as usual. A tool that doesn't is **held**,
+and your agents can't call it:
+
+- **Its description or schema changed** since you approved it. The skill made from the old version is
+  removed, not just disabled
+- **It's new.** The server didn't have it when you approved the server
+- **Its pin can't be read**, because stored data was damaged or written by a newer AtlasMind
+- **The description scan flagged it.** This applies even on a server you just enabled, because enabling
+  a server isn't consent to instructions hidden in its tools
+
+The scan looks for text a tool description has no reason to contain: tags like `<IMPORTANT>`, "before
+using any other tool", asking the agent to keep something from you, instructions about a different tool,
+credential paths like `~/.ssh` or `.env`, hidden characters and base64 blobs. It reads the input schema
+too, including defaults and enum values.
+
+Open **Manage MCP Servers**. The **Review changed tools** callout lists everything held, and each server
+card shows the approved and offered text side by side. **Approve and pin** registers exactly the version
+you reviewed. Approving a flagged tool asks you to confirm in a dialog that lists the findings. There's no
+setting to turn pinning off; you approve tools one at a time.
 
 **One nice touch:** many git and workspace MCP tools need a repository path argument. When the model
 forgets it, AtlasMind fills in your current workspace folder so the call works instead of failing with

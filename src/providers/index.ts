@@ -27,4 +27,6 @@ export {
 	getConfiguredLocalEndpoints,
 	getDefaultLocalBaseUrl,
 	inferLocalEndpointLabel,
+	localEndpointApiKeySecret,
+	LOCAL_SHARED_API_KEY_SECRET,
 } from './registry.js';
